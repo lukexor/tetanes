@@ -1,7 +1,4 @@
-use super::*;
-
-// Interrupt Types
-#[derive(Debug)]
+/// Interrupt Types
 pub enum Interrupt {
     None,
     NMI,
@@ -9,7 +6,6 @@ pub enum Interrupt {
 }
 
 /// The Central Processing Unit
-#[derive(Debug)]
 pub struct CPU {
     pub cycles: u64,          // number of cycles
     pub pc: u16,              // program counter
@@ -29,56 +25,7 @@ pub struct CPU {
     pub stall: isize,         // number of cycles to stall
 }
 
-/// Instruction Addressing Modes
-#[derive(Debug, Copy, Clone)]
-pub enum AddrMode {
-    Absolute,
-    AbsoluteX,
-    AbsoluteY,
-    Accumulator,
-    Immediate,
-    Implied,
-    IndexedIndirect,
-    Indirect,
-    IndirectIndexed,
-    Relative,
-    ZeroPage,
-    ZeroPageX,
-    ZeroPageY,
-}
-
-/// A CPU Instruction
-pub struct Instruction {
-    pub opcode: u8,
-    pub name: &'static str,
-    pub mode: AddrMode,                               // the addressing mode
-    pub size: u8,                                     // the size in bytes
-    pub cycles: u8, // the number of cycles used (not including conditional cycles)
-    pub page_cycles: u8, // the number of cycles used when a page is crossed
-    pub run: &'static Fn(&mut Console, InstructInfo), // function to execute instruction
-}
-
-/// Info used for executing CPU instructions
-pub struct InstructInfo {
-    pub address: u16,
-    pub mode: AddrMode,
-}
-
-impl InstructInfo {
-    pub fn new() -> Self {
-        InstructInfo {
-            address: 0,
-            mode: AddrMode::Absolute,
-        }
-    }
-}
-
 impl CPU {
-    /// Utility methods
-    pub fn pages_differ(a: u16, b: u16) -> bool {
-        a & 0xFF00 != b & 0xFF00
-    }
-
     pub fn new() -> Self {
         CPU {
             cycles: 0,
@@ -104,7 +51,7 @@ impl CPU {
 
     pub fn flags(&mut self) -> u8 {
         let mut flags: u8 = 0;
-        flags |= self.c << 0;
+        flags |= self.c;
         flags |= self.z << 1;
         flags |= self.i << 2;
         flags |= self.d << 3;
@@ -116,7 +63,7 @@ impl CPU {
     }
 
     pub fn set_flags(&mut self, flags: u8) {
-        self.c = (flags >> 0) & 1;
+        self.c = flags & 1;
         self.z = (flags >> 1) & 1;
         self.i = (flags >> 2) & 1;
         self.d = (flags >> 3) & 1;
@@ -126,14 +73,22 @@ impl CPU {
         self.n = (flags >> 7) & 1;
     }
 
-    pub fn set_z(&mut self, val: u8) {
-        self.z = !val;
-    }
-
-    pub fn set_n(&mut self, val: u8) {
+    /// Zero Flag - Gets set when val is 0
+    /// Negative Flag - Gets set when val is negative
+    pub fn set_nz(&mut self, val: u8) {
+        self.z = match val {
+            0 => 1,
+            _ => 0,
+        };
         self.n = match val & 0x80 {
             0 => 0,
             _ => 1,
-        }
+        };
+    }
+}
+
+impl Default for CPU {
+    fn default() -> Self {
+        Self::new()
     }
 }

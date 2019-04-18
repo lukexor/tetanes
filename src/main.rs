@@ -8,11 +8,12 @@
 //! to run. If there are any errors related to invalid files, directories, or permissions, the
 //! program will print the error and exit.
 
-use nes::core::*;
-use nes::ui;
-use std::env;
-use std::error::Error;
-use std::path::PathBuf;
+use nes::core::cartridge::Cartridge;
+use nes::core::console::Console;
+// use nes::ui;
+// use std::env;
+// use std::error::Error;
+// use std::path::PathBuf;
 
 fn main() {
     // // Find rom(s) to run
@@ -37,39 +38,39 @@ fn main() {
     }
 }
 
-/// TODO: Document
-fn find_roms() -> Result<Vec<PathBuf>, Box<Error>> {
-    let mut args = env::args().skip(1);
-    let rom_path = match args.next() {
-        Some(path) => PathBuf::from(path),
-        None => env::current_dir().unwrap_or_default(),
-    };
-    let mut roms = Vec::new();
-    if rom_path.is_dir() {
-        match rom_path.read_dir() {
-            Ok(entries) => {
-                entries
-                    .filter_map(Result::ok)
-                    .filter(|f| {
-                        if let Some(e) = f.path().extension() {
-                            e == "nes"
-                        } else {
-                            false
-                        }
-                    })
-                    .for_each(|f| roms.push(f.path()));
-            }
-            Err(err) => {
-                return Err(format!(
-                    "unable to read directory `{}`: {}",
-                    rom_path.to_string_lossy(),
-                    err
-                )
-                .into());
-            }
-        }
-    } else if rom_path.is_file() {
-        roms.push(rom_path);
-    }
-    Ok(roms)
-}
+// /// TODO: Document
+// fn find_roms() -> Result<Vec<PathBuf>, Box<Error>> {
+//     let mut args = env::args().skip(1);
+//     let rom_path = match args.next() {
+//         Some(path) => PathBuf::from(path),
+//         None => env::current_dir().unwrap_or_default(),
+//     };
+//     let mut roms = Vec::new();
+//     if rom_path.is_dir() {
+//         match rom_path.read_dir() {
+//             Ok(entries) => {
+//                 entries
+//                     .filter_map(Result::ok)
+//                     .filter(|f| {
+//                         if let Some(e) = f.path().extension() {
+//                             e == "nes"
+//                         } else {
+//                             false
+//                         }
+//                     })
+//                     .for_each(|f| roms.push(f.path()));
+//             }
+//             Err(err) => {
+//                 return Err(format!(
+//                     "unable to read directory `{}`: {}",
+//                     rom_path.to_string_lossy(),
+//                     err
+//                 )
+//                 .into());
+//             }
+//         }
+//     } else if rom_path.is_file() {
+//         roms.push(rom_path);
+//     }
+//     Ok(roms)
+// }

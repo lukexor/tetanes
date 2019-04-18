@@ -1,6 +1,17 @@
-use super::*;
+use super::apu::APU;
+use super::cartridge::Cartridge;
+use super::controller::Controller;
+use super::cpu::{Interrupt, CPU};
+use super::cpu_instructions::{execute, php, print_instruction};
+use super::mapper::Mapper1;
+use super::memory::{push16, read16, read_byte};
+use super::ppu::PPU;
 use std::error::Error;
 
+const CPU_FREQUENCY: f64 = 1_789_773.0;
+const RAM_SIZE: usize = 2048;
+
+/// The NES Console
 pub struct Console {
     pub cpu: CPU,
     pub apu: APU,
@@ -8,14 +19,15 @@ pub struct Console {
     pub cartridge: Cartridge,
     pub controller1: Controller,
     pub controller2: Controller,
-    pub mapper: Box<Mapper>,
+    // pub mapper: Box<Mapper>,
+    pub mapper: Mapper1,
     pub ram: Vec<u8>,
 }
 
 impl Console {
     pub fn new(cartridge: Cartridge) -> Result<Self, Box<Error>> {
         let mapper = cartridge.get_mapper()?;
-        Ok(Console {
+        let mut console = Console {
             cpu: CPU::new(),
             apu: APU::new(),
             ppu: PPU::new(),
@@ -24,22 +36,26 @@ impl Console {
             controller1: Controller::new(),
             controller2: Controller::new(),
             ram: vec![0; RAM_SIZE],
-        })
+        };
+        console.reset();
+        Ok(console)
     }
 
     pub fn reset(&mut self) {
-        unimplemented!();
+        self.cpu.pc = read_byte(self, 0xFFFC).into();
+        self.cpu.sp = 0xFD;
+        self.cpu.set_flags(0x24);
     }
 
     pub fn step_seconds(&mut self, seconds: f64) {
-        let mut cycles = CPU_FREQUENCY as u64 * seconds as u64;
+        let mut cycles = (CPU_FREQUENCY * seconds) as u64;
         while cycles > 0 {
             cycles -= self.step();
         }
     }
 
     pub fn step(&mut self) -> u64 {
-        println!("{:?}", self.cpu);
+        print_instruction(self);
         let cpu_cycles = if self.cpu.stall > 0 {
             self.cpu.stall -= 1;
             1
@@ -47,25 +63,24 @@ impl Console {
             let start_cycles = self.cpu.cycles;
             match &self.cpu.interrupt {
                 Interrupt::NMI => {
-                    self.push16(self.cpu.pc);
-                    self.php(InstructInfo::new());
-                    self.cpu.pc = self.read16(0xFFFA);
+                    push16(self, self.cpu.pc);
+                    php(self);
+                    self.cpu.pc = read16(self, 0xFFFA);
                     self.cpu.i = 1;
                     self.cpu.cycles += 7;
                 }
                 Interrupt::IRQ => {
-                    self.push16(self.cpu.pc);
-                    self.php(InstructInfo::new());
-                    self.cpu.pc = self.read16(0xFFFE);
+                    push16(self, self.cpu.pc);
+                    php(self);
+                    self.cpu.pc = read16(self, 0xFFFE);
                     self.cpu.i = 1;
                     self.cpu.cycles += 7;
                 }
                 _ => (),
             }
             self.cpu.interrupt = Interrupt::None;
-            let opcode = self.read(self.cpu.pc);
-            let instruction = &INSTRUCTIONS[opcode as usize];
-            self.execute_instruction(instruction);
+            let opcode = read_byte(self, self.cpu.pc);
+            execute(self, opcode);
             (self.cpu.cycles - start_cycles)
         };
         for _ in 0..cpu_cycles * 3 {
@@ -77,182 +92,167 @@ impl Console {
         }
         cpu_cycles
     }
-
-    /// Memory access
-
-    pub fn read(&self, address: u16) -> u8 {
-        match address {
-            a if a < 0x2000 => self.ram[(address % 0x0800) as usize],
-            a if a < 0x4000 => unimplemented!("self.ppu.read_reg(0x2000 + {} % 8)", address),
-            a if a == 0x4014 => unimplemented!("self.ppu.read_reg(address)"),
-            a if a == 0x4015 => unimplemented!("self.apu.read_reg(address)"),
-            a if a == 0x4016 => unimplemented!("self.controller1.read()"),
-            a if a == 0x4017 => unimplemented!("self.controller2.read()"),
-            a if a < 0x6000 => unimplemented!("I/O registers"),
-            a if a >= 0x6000 => unimplemented!("self.mapper.read_reg(address)"),
-            _ => panic!("unhandled cpu memory read at address {:x}", address),
-        }
-    }
-
-    pub fn read16(&self, address: u16) -> u16 {
-        let lo = self.read(address) as u16;
-        let hi = self.read(address + 1) as u16;
-        hi << 8 | lo
-    }
-
-    pub fn write(&mut self, address: u16, val: u8) {
-        match address {
-            a if a < 0x2000 => self.ram[(address % 0x8000) as usize] = val,
-            a if a < 0x4000 => unimplemented!("self.ppu.write_reg(0x2000 + address % 8, val)"),
-            a if a < 0x4014 => unimplemented!("self.apu.write_reg(address, val)"),
-            a if a == 0x4014 => unimplemented!("self.ppu.write_reg(address, val)"),
-            a if a == 0x4015 => unimplemented!("self.apu.write_reg(address, val)"),
-            a if a == 0x4016 => unimplemented!("self.controllers.write(address, val)"),
-            a if a == 0x4017 => unimplemented!("self.apu.write_reg(address, val)"),
-            a if a < 0x6000 => unimplemented!("I/O registeres"),
-            a if a > 0x6000 => unimplemented!("self.mapper.write_reg(address, val)"),
-            _ => panic!("unhandled cpu memory write at address {:x}", address),
-        }
-    }
-
-    // read16bug emulates a 6502 bug that caused the low byte to wrap without
-    // incrementing the high byte
-    pub fn read16bug(&self, address: u16) -> u16 {
-        let b = (address & 0xFF00) | ((address as u8) + 1) as u16;
-        let lo = self.read(address) as u16;
-        let hi = self.read(b) as u16;
-        hi << 8 | lo
-    }
-
-    /// Stack Functions
-
-    // Push byte to stack
-    pub fn push(&mut self, val: u8) {
-        self.write(0x100 | self.cpu.sp as u16, val);
-        self.cpu.sp -= 1;
-    }
-
-    // Pull byte from stack
-    pub fn pull(&mut self) -> u8 {
-        self.cpu.sp += 1;
-        self.read(0x100 | self.cpu.sp as u16)
-    }
-
-    // Push two bytes to stack
-    pub fn push16(&mut self, val: u16) {
-        let lo = (val & 0xFF) as u8;
-        let hi = (val >> 8) as u8;
-        self.push(hi);
-        self.push(lo);
-    }
-
-    // Pull two bytes from stack
-    pub fn pull16(&mut self) -> u16 {
-        let lo = self.pull() as u16;
-        let hi = self.pull() as u16;
-        hi << 8 | lo
-    }
-
-    pub fn execute_instruction(&mut self, instruction: &Instruction) {
-        let (address, page_crossed) = match &instruction.mode {
-            AddrMode::Absolute => (self.read16(self.cpu.pc + 1), false),
-            AddrMode::AbsoluteX => {
-                let address = self.read16(self.cpu.pc + 1);
-                let xaddress = address + self.cpu.x as u16;
-                let page_crossed = CPU::pages_differ(address, xaddress);
-                (xaddress, page_crossed)
-            }
-            AddrMode::AbsoluteY => {
-                let address = self.read16(self.cpu.pc + 1);
-                let yaddress = address + self.cpu.y as u16;
-                let page_crossed = CPU::pages_differ(address, yaddress);
-                (yaddress, page_crossed)
-            }
-            AddrMode::Accumulator => (0, false),
-            AddrMode::Immediate => (self.cpu.pc + 1, false),
-            AddrMode::Implied => (0, false),
-            AddrMode::IndexedIndirect => (
-                self.read16bug((self.read(self.cpu.pc + 1) + self.cpu.x) as u16),
-                false,
-            ),
-            AddrMode::Indirect => (self.read16bug(self.read16(self.cpu.pc + 1)), false),
-            AddrMode::IndirectIndexed => {
-                let address = self.read16bug(self.read(self.cpu.pc + 1) as u16);
-                let yaddress = address + self.cpu.y as u16;
-                let page_crossed = CPU::pages_differ(address, yaddress);
-                (yaddress, page_crossed)
-            }
-            AddrMode::Relative => {
-                let mut offset = self.read(self.cpu.pc + 1) as u16;
-                if offset >= 0x80 {
-                    offset -= 0x100;
-                }
-                let address = self.cpu.pc + 2 + offset;
-                (address, false)
-            }
-            AddrMode::ZeroPage => (self.read(self.cpu.pc + 1) as u16, false),
-            AddrMode::ZeroPageX => (
-                (self.read(self.cpu.pc + 1) + self.cpu.x) as u16 & 0xFF,
-                false,
-            ),
-            AddrMode::ZeroPageY => (
-                (self.read(self.cpu.pc + 1) + self.cpu.y) as u16 & 0xFF,
-                false,
-            ),
-        };
-
-        self.cpu.pc += instruction.size as u16;
-        self.cpu.cycles += instruction.cycles as u64;
-        if page_crossed {
-            self.cpu.cycles += instruction.page_cycles as u64;
-        }
-        (*instruction.run)(
-            self,
-            InstructInfo {
-                address,
-                mode: instruction.mode,
-            },
-        );
-    }
-
-    /// Opcode functions
-
-    pub fn brk(&mut self, info: InstructInfo) {}
-
-    // Add with Carry
-    pub fn adc(&mut self, info: InstructInfo) {
-        let a = self.cpu.a;
-        let b = self.read(info.address);
-        let c = self.cpu.c;
-        self.cpu.a = a + b + c;
-        self.cpu.set_z(self.cpu.a);
-        self.cpu.set_n(self.cpu.a);
-        if (a + b + c) as i32 > 0xFF {
-            self.cpu.c = 1;
-        } else {
-            self.cpu.c = 0;
-        }
-        if (a ^ b) & 0x80 == 0 && (a ^ self.cpu.a) & 0x80 != 0 {
-            self.cpu.v = 1;
-        } else {
-            self.cpu.v = 0;
-        }
-    }
-
-    pub fn php(&mut self, _info: InstructInfo) {
-        let flags = self.cpu.flags();
-        self.push(flags | 0x10);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::cpu_instructions::*;
+    use crate::core::memory::{pull, pull16, read_byte, write};
+
+    const ROM1: &str = "roms/Zelda II - The Adventure of Link (USA).nes";
+
+    fn new_console() -> Console {
+        let cartridge = Cartridge::new(ROM1).expect("valid cartridge");
+        Console::new(cartridge).expect("valid console")
+    }
 
     #[test]
     fn test_new_console() {
-        let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
-        let cartridge = Cartridge::new(rom).expect("valid cartridge");
-        let console = Console::new(cartridge).expect("valid console");
+        // TODO test startup state
+    }
+
+    #[test]
+    fn test_opcodes() {
+        for i in 0u8..=255 {
+            let mut c = new_console();
+            test_opstate(&mut c, i);
+        }
+    }
+
+    fn test_opstate(c: &mut Console, opcode: u8) {
+        let addr = 0x0100;
+        match opcode {
+            // BRK - Force Interrupt
+            0 => {
+                let flags = c.cpu.flags();
+                let pc = c.cpu.pc;
+                brk(c);
+                // Interrupt disable bit set
+                assert_eq!(c.cpu.i, 1);
+                // Startup processor status is on the stack
+                assert_eq!(pull(c), flags | 0x10);
+                // pc stored on stack
+                assert_eq!(pull16(c), pc);
+            }
+            // ORA - "OR" M with A
+            1 | 5 | 9 | 13 | 17 | 21 | 25 | 29 => {
+                // Test cases
+                // M | A | M OR A | z | n
+                // 0 | 0 | 0      | 1 | 0
+                // 1 | 0 | 1      | 0 | 0
+                // 0 | 1 | 1      | 0 | 0
+                // 1 | 1 | 1      | 0 | 0
+
+                write(c, addr, 0);
+                c.cpu.a = 0;
+                ora(c, addr);
+                assert_eq!(c.cpu.z, 1);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+
+                write(c, addr, 1);
+                c.cpu.pc = u16::from(opcode);
+                c.cpu.a = 0;
+                ora(c, addr);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+
+                write(c, addr, 0);
+                c.cpu.pc = u16::from(opcode);
+                c.cpu.a = 1;
+                ora(c, addr);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+
+                write(c, addr, 1);
+                c.cpu.pc = u16::from(opcode);
+                c.cpu.a = 1;
+                ora(c, addr);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+            }
+            // ASL Shift Left M
+            6 | 14 | 22 | 30 => {
+                // Test cases
+                //            | C | M   | z | n
+                // val == 0   | 0 | 0   | 1 | 0
+                // val <= 127 | 0 | 2*M | 0 | 0
+                // val > 127  | 1 | 2*M | 0 | 0
+                write(c, addr, 0);
+                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
+                assert_eq!(c.cpu.c, 0);
+                assert_eq!(c.cpu.z, 1);
+                assert_eq!(c.cpu.n, 0);
+                assert_eq!(read_byte(c, addr), 0);
+                c.reset();
+
+                write(c, addr, 50);
+                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
+                assert_eq!(c.cpu.c, 0);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                assert_eq!(read_byte(c, addr), 100);
+                c.reset();
+
+                write(c, addr, 130);
+                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
+                assert_eq!(c.cpu.c, 1);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                assert_eq!(read_byte(c, addr), 4);
+                c.reset();
+            }
+            // PHP Push Processor Status
+            8 => {
+                let flags = c.cpu.flags();
+                php(c);
+                // Startup processor status is on the stack
+                assert_eq!(pull(c), flags | 0x10);
+            }
+            // ASL Shift Left A
+            10 => {
+                // Test cases
+                //            | C | A   | z | n
+                // val == 0   | 0 | 0   | 1 | 0
+                // val <= 127 | 0 | 2*M | 0 | 0
+                // val > 127  | 1 | 2*M | 0 | 0
+                c.cpu.a = 0;
+                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
+                assert_eq!(c.cpu.c, 0);
+                assert_eq!(c.cpu.z, 1);
+                assert_eq!(c.cpu.n, 0);
+                assert_eq!(c.cpu.a, 0);
+                c.reset();
+
+                c.cpu.a = 50;
+                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
+                assert_eq!(c.cpu.c, 0);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                assert_eq!(c.cpu.a, 100);
+                c.reset();
+
+                c.cpu.a = 130;
+                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
+                assert_eq!(c.cpu.c, 1);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                assert_eq!(c.cpu.a, 4);
+                c.reset();
+            }
+            // BPL Branch on Result Plus
+            16 => {
+                let cycles = c.cpu.cycles;
+                let addr = 0x8000;
+                bpl(c, addr);
+                assert_eq!(c.cpu.pc, addr);
+                assert_eq!(c.cpu.cycles, cycles + 1);
+            }
+            _ => eprintln!("Warning: opcode {} not covered", opcode),
+        }
     }
 }
