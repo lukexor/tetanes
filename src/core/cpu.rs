@@ -49,7 +49,7 @@ impl CPU {
 
     /// Flag functions
 
-    pub fn flags(&mut self) -> u8 {
+    pub fn flags(&self) -> u8 {
         let mut flags: u8 = 0;
         flags |= self.c;
         flags |= self.z << 1;

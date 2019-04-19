@@ -4,9 +4,6 @@ use super::{
 };
 use std::{error::Error, path::PathBuf};
 
-const MARGIN: i32 = 10;
-const BORDER: i32 = 10;
-
 pub struct UI {
     window: Window,
     active_view: usize,
@@ -25,7 +22,6 @@ impl UI {
 
     pub fn new(roms: Vec<PathBuf>) -> Result<Self, Box<Error>> {
         let window = Window::new()?;
-        let num_roms = roms.len();
         let mut views: Vec<Box<View>> = vec![Box::new(MenuView::new(roms.clone())?)];
         if roms.len() == 1 {
             views.push(Box::new(GameView::new(&roms[0])?));
@@ -45,11 +41,30 @@ impl UI {
     }
 
     pub fn set_active_view(&mut self, view: usize) {
+        // Exit needs to:
+        //   GameView:
+        //     - Clear KeyCallback
+        //     - Clear audio channel
+        //     - Save SRAM
+        //   MenuView:
+        //     - Clear CharCallback
         self.views[self.active_view].exit();
         self.active_view = view;
+        // Enter needs to:
+        //   GameView:
+        //     - Clear to black color
+        //     - Set title
+        //     - Link audio channel
+        //     - Set KeyCallback
+        //       : Space - Screenshot
+        //       : R - Reset
+        //       : Tab - Record
+        //     - Load SRAM
+        //   MenuView:
+        //     - Clear color to gray
+        //     - Set title to Select a Game
+        //     - Set CharCallback??
         self.set_title(&self.views[self.active_view].get_title());
-        // Set key callback for game
-        // Set char callback for menu
         self.views[self.active_view].enter();
         self.update_time();
     }

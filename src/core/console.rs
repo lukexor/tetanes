@@ -4,12 +4,11 @@ use super::{
     controller::Controller,
     cpu::{Interrupt, CPU},
     cpu_instructions::{execute, php, print_instruction},
-    mapper::Mapper1,
+    mapper::Mapper,
     memory::{push16, read16, read_byte},
     ppu::PPU,
 };
-use byteorder::{LittleEndian, ReadBytesExt};
-use std::{error::Error, fs::File, path::PathBuf};
+use std::{error::Error, fs, path::PathBuf};
 
 const CPU_FREQUENCY: f64 = 1_789_773.0;
 const RAM_SIZE: usize = 2048;
@@ -22,8 +21,7 @@ pub struct Console {
     pub cartridge: Cartridge,
     pub controller1: Controller,
     pub controller2: Controller,
-    // pub mapper: Box<Mapper>,
-    pub mapper: Mapper1,
+    pub mapper: Box<Mapper>,
     pub ram: Vec<u8>,
 }
 
@@ -97,20 +95,27 @@ impl Console {
         cpu_cycles
     }
 
-    // pub fn set_audio(&mut self, audio: Audio) {}
+    pub fn set_audio_channel(&mut self) {
+        unimplemented!();
+    }
 
     pub fn load_state(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
-        let mut state = File::open(PathBuf::from(path))?;
-        // let decoder = Decoder::new(state);
-        // console.load(decoder)
+        let _data = fs::read(PathBuf::from(path))?;
+        unimplemented!();
+    }
+
+    pub fn load_sram(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
+        // TODO fix endianness
+        let data = fs::read(PathBuf::from(path))?;
+        self.cartridge.sram = data;
         Ok(())
     }
 
-    pub fn load_sram(&mut self, path: &PathBuf) {
-        if let Ok(mut sram_file) = File::open(PathBuf::from(path)) {
-            let sram: [u8; 0x2000] = [0; 0x2000];
-            // self.cartridge.sram = sram_file.read_uint::<LittleEndian>(0x2000).unwrap();
-        }
+    pub fn save_sram(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
+        // TODO Ensure directories exist
+        // TODO fix endianness
+        fs::write(path, &self.cartridge.sram)?;
+        Ok(())
     }
 }
 
@@ -123,13 +128,24 @@ mod tests {
     const ROM1: &str = "roms/Zelda II - The Adventure of Link (USA).nes";
 
     fn new_console() -> Console {
-        let cartridge = Cartridge::new(ROM1).expect("valid cartridge");
-        Console::new(cartridge).expect("valid console")
+        let rom_path = PathBuf::from(ROM1);
+        Console::new(&rom_path).expect("valid console")
     }
 
     #[test]
     fn test_new_console() {
-        // TODO test startup state
+        let c = new_console();
+        assert_eq!(c.cartridge.prg.len(), 131_072);
+        assert_eq!(c.cartridge.chr.len(), 131_072);
+        assert_eq!(c.cartridge.sram.len(), 8192);
+        assert_eq!(c.cartridge.mapper, 1);
+        assert_eq!(c.cartridge.mirror, 0);
+        assert_eq!(c.cartridge.battery, 1);
+        assert_eq!("Mapper1", c.mapper.name());
+        assert_eq!(c.ram.len(), RAM_SIZE);
+        assert_eq!(c.cpu.pc, 112);
+        assert_eq!(c.cpu.sp, 0xFD);
+        assert_eq!(c.cpu.flags(), 0x24);
     }
 
     #[test]

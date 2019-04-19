@@ -29,12 +29,7 @@ pub fn read_byte(c: &Console, addr: u16) -> u8 {
 
 pub fn read_mapper(c: &Console, addr: u16) -> u8 {
     match addr {
-        0x8000...0xFFFF => {
-            let addr = addr - 0x8000;
-            let bank = (addr / 0x4000) as usize;
-            let offset = (addr % 0x4000) as usize;
-            c.cartridge.prg[c.mapper.prg_offsets[bank] + offset]
-        }
+        0x8000...0xFFFF => c.mapper.read(&c.cartridge, addr),
         _ => panic!("unhandled mapper1 read at addr 0x{:04X}", addr),
     }
 }

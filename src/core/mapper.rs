@@ -1,22 +1,9 @@
-// pub trait Mapper {
-//     fn mapper(&self);
-// }
+use super::cartridge::Cartridge;
 
-// impl Mapper for Mapper1 {
-//     fn mapper(&self) {}
-// }
-// impl Mapper for Mapper2 {
-//     fn mapper(&self) {}
-// }
-// impl Mapper for Mapper3 {
-//     fn mapper(&self) {}
-// }
-// impl Mapper for Mapper4 {
-//     fn mapper(&self) {}
-// }
-// impl Mapper for Mapper7 {
-//     fn mapper(&self) {}
-// }
+pub trait Mapper {
+    fn name(&self) -> &'static str;
+    fn read(&self, cartridge: &Cartridge, addr: u16) -> u8;
+}
 
 #[derive(Default, Debug)]
 pub struct Mapper1 {
@@ -31,6 +18,19 @@ pub struct Mapper1 {
     pub chr_offsets: [usize; 2],
 }
 
+impl Mapper for Mapper1 {
+    fn name(&self) -> &'static str {
+        "Mapper1"
+    }
+
+    fn read(&self, cartridge: &Cartridge, addr: u16) -> u8 {
+        let addr = addr - 0x8000;
+        let bank = (addr / 0x4000) as usize;
+        let offset = (addr % 0x4000) as usize;
+        cartridge.prg[self.prg_offsets[bank] + offset]
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Mapper2 {
     pub prg_banks: usize,
@@ -38,11 +38,31 @@ pub struct Mapper2 {
     pub prg_bank2: usize,
 }
 
+impl Mapper for Mapper2 {
+    fn name(&self) -> &'static str {
+        "Mapper2"
+    }
+
+    fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+        unimplemented!();
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Mapper3 {
     pub chr_bank: usize,
     pub prg_bank1: usize,
     pub prg_bank2: usize,
+}
+
+impl Mapper for Mapper3 {
+    fn name(&self) -> &'static str {
+        "Mapper3"
+    }
+
+    fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+        unimplemented!();
+    }
 }
 
 #[derive(Default, Debug)]
@@ -58,7 +78,27 @@ pub struct Mapper4 {
     pub irq_enable: bool,
 }
 
+impl Mapper for Mapper4 {
+    fn name(&self) -> &'static str {
+        "Mapper4"
+    }
+
+    fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+        unimplemented!();
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Mapper7 {
     pub prg_bank: usize,
+}
+
+impl Mapper for Mapper7 {
+    fn name(&self) -> &'static str {
+        "Mapper7"
+    }
+
+    fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+        unimplemented!();
+    }
 }

@@ -56,6 +56,7 @@ impl Window {
         self.window.swap_buffers();
     }
 
+    #[allow(clippy::single_match)]
     pub fn poll_events(&mut self) {
         self.glfw.poll_events();
         for (_, event) in glfw::flush_messages(&self.events) {

@@ -1,4 +1,4 @@
-use super::{mapper::Mapper1, memory};
+use super::{mapper::*, memory};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{error::Error, fmt, fs::File, io::Read, path::PathBuf};
 
@@ -22,7 +22,6 @@ pub struct InesFileHeader {
     pub control1: u8, // control bits
     pub control2: u8, // control bits
     pub num_ram: u8,  // PRG-RAM size (x 8KB)
-    pub _pad: u64,    // unused padding (necessary for properly reading ROM file)
 }
 
 /// Represents an iNES file '.nes'
@@ -30,12 +29,12 @@ pub struct InesFileHeader {
 /// http://wiki.nesdev.com/w/index.php/INES
 /// http://nesdev.com/NESDoc.pdf (page 28)
 pub struct Cartridge {
-    pub prg: Vec<u8>,          // PRG-ROM banks - Program ROM
-    pub chr: Vec<u8>,          // CHR-ROM banks - Pattern Tables / Character ROM
-    pub sram: [u8; SRAM_SIZE], // Save RAM
-    pub mapper: u8,            // mapper type
-    pub mirror: u8,            // mirroring mode
-    pub battery: u8,           // battery present
+    pub prg: Vec<u8>,  // PRG-ROM banks - Program ROM
+    pub chr: Vec<u8>,  // CHR-ROM banks - Pattern Tables / Character ROM
+    pub sram: Vec<u8>, // Save RAM
+    pub mapper: u8,    // mapper type
+    pub mirror: u8,    // mirroring mode
+    pub battery: u8,   // battery present
 }
 
 impl Cartridge {
@@ -90,7 +89,7 @@ impl Cartridge {
             chr = vec![0; SRAM_SIZE];
         }
 
-        let sram = [0; SRAM_SIZE];
+        let sram = vec![0; SRAM_SIZE];
 
         Ok(Cartridge {
             prg,
@@ -120,45 +119,43 @@ impl Cartridge {
     /// # Errors
     ///
     /// If none of the above numbers match, an error is returned.
-    // pub fn get_mapper(&self) -> Result<Box<Mapper>, Box<Error>> {
-    pub fn get_mapper(&self) -> Result<Mapper1, Box<Error>> {
+    pub fn get_mapper(&self) -> Result<Box<Mapper>, Box<Error>> {
         match self.mapper {
-            // 0 | 2 => {
-            //     let prg_banks = (self.prg.len() / 0x4000) as usize;
-            //     Ok(Box::new(Mapper2 {
-            //         prg_banks,
-            //         prg_bank1: 0,
-            //         prg_bank2: (prg_banks - 1) as usize,
-            //     }) as Box<Mapper>)
-            // }
+            0 | 2 => {
+                let prg_banks = (self.prg.len() / 0x4000) as usize;
+                Ok(Box::new(Mapper2 {
+                    prg_banks,
+                    prg_bank1: 0,
+                    prg_bank2: (prg_banks - 1) as usize,
+                }) as Box<Mapper>)
+            }
             1 => {
                 let mut mapper = Mapper1 {
                     shift_register: 0x10,
                     ..Default::default()
                 };
                 mapper.prg_offsets[1] = memory::prg_bank_offset(self, -1, 0x4000);
-                Ok(mapper)
-                // Ok(Box::new(mapper) as Box<Mapper>)
+                Ok(Box::new(mapper) as Box<Mapper>)
             }
-            // 3 => {
-            //     let prg_banks = self.prg.len() / 0x4000;
-            //     Ok(Box::new(Mapper3 {
-            //         chr_bank: 0,
-            //         prg_bank1: 0,
-            //         prg_bank2: (prg_banks - 1) as usize,
-            //     }) as Box<Mapper>)
-            // }
-            // 4 => {
-            //     let mut mapper = Mapper4 {
-            //         ..Default::default()
-            //     };
-            //     mapper.prg_offsets[0] = memory::prg_bank_offset(self, 0, 0x2000);
-            //     mapper.prg_offsets[1] = memory::prg_bank_offset(self, 1, 0x2000);
-            //     mapper.prg_offsets[2] = memory::prg_bank_offset(self, -2, 0x2000);
-            //     mapper.prg_offsets[3] = memory::prg_bank_offset(self, -1, 0x2000);
-            //     Ok(Box::new(mapper) as Box<Mapper>)
-            // }
-            // 7 => Ok(Box::new(Mapper7 { prg_bank: 0 }) as Box<Mapper>),
+            3 => {
+                let prg_banks = self.prg.len() / 0x4000;
+                Ok(Box::new(Mapper3 {
+                    chr_bank: 0,
+                    prg_bank1: 0,
+                    prg_bank2: (prg_banks - 1) as usize,
+                }) as Box<Mapper>)
+            }
+            4 => {
+                let mut mapper = Mapper4 {
+                    ..Default::default()
+                };
+                mapper.prg_offsets[0] = memory::prg_bank_offset(self, 0, 0x2000);
+                mapper.prg_offsets[1] = memory::prg_bank_offset(self, 1, 0x2000);
+                mapper.prg_offsets[2] = memory::prg_bank_offset(self, -2, 0x2000);
+                mapper.prg_offsets[3] = memory::prg_bank_offset(self, -1, 0x2000);
+                Ok(Box::new(mapper) as Box<Mapper>)
+            }
+            7 => Ok(Box::new(Mapper7 { prg_bank: 0 }) as Box<Mapper>),
             _ => Err(format!("unsupported mapper: {}", self.mapper).into()),
         }
     }
@@ -187,14 +184,17 @@ impl Cartridge {
     // is some filesystem read issue, then an error is returned.
     // TODO: Add support for NES 2.0
     fn load_file_header(file: &mut File) -> Result<InesFileHeader, Box<Error>> {
+        let magic = file.read_u32::<LittleEndian>()?; // 0-3
+        let mut bytes = vec![0; 12]; // 4-15
+        file.read_exact(&mut bytes)?;
         let header = InesFileHeader {
-            magic: file.read_u32::<LittleEndian>()?,            // 0-3
-            num_prg: file.read_uint::<LittleEndian>(1)? as u8,  // 4
-            num_chr: file.read_uint::<LittleEndian>(1)? as u8,  // 5
-            control1: file.read_uint::<LittleEndian>(1)? as u8, // 6
-            control2: file.read_uint::<LittleEndian>(1)? as u8, // 7
-            num_ram: file.read_uint::<LittleEndian>(1)? as u8,  // 8
-            _pad: file.read_uint::<LittleEndian>(7)?,           // 9-15
+            magic,
+            num_prg: bytes[0],
+            num_chr: bytes[1],
+            control1: bytes[2],
+            control2: bytes[3],
+            num_ram: bytes[4],
+            // Remaining bytes are padding
         };
         // Check bytes 0-3 match "NES"
         match header.magic {
@@ -236,7 +236,8 @@ mod tests {
 
     #[test]
     fn test_load_cartridge() {
-        let cartridge = Cartridge::new(ROM1).expect("valid cartridge");
+        let rom_path = PathBuf::from(ROM1);
+        let cartridge = Cartridge::new(&rom_path).expect("valid cartridge");
         assert_eq!(cartridge.prg.len(), 131_072);
         assert_eq!(cartridge.chr.len(), 131_072);
         assert_eq!(cartridge.sram.len(), 8192);
@@ -244,7 +245,8 @@ mod tests {
         assert_eq!(cartridge.mirror, 0);
         assert_eq!(cartridge.battery, 1);
 
-        let cartridge = Cartridge::new(ROM2).expect("valid cartridge");
+        let rom_path = PathBuf::from(ROM2);
+        let cartridge = Cartridge::new(&rom_path).expect("valid cartridge");
         assert_eq!(cartridge.prg.len(), 32_768);
         assert_eq!(cartridge.chr.len(), 8_192);
         assert_eq!(cartridge.sram.len(), 8192);
@@ -252,7 +254,8 @@ mod tests {
         assert_eq!(cartridge.mirror, 1);
         assert_eq!(cartridge.battery, 0);
 
-        let cartridge = Cartridge::new(ROM3).expect("valid cartridge");
+        let rom_path = PathBuf::from(ROM3);
+        let cartridge = Cartridge::new(&rom_path).expect("valid cartridge");
         assert_eq!(cartridge.prg.len(), 131_072);
         assert_eq!(cartridge.chr.len(), 65_536);
         assert_eq!(cartridge.sram.len(), 8192);

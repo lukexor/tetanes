@@ -6,7 +6,6 @@ pub fn hash_file(path: &PathBuf) -> Result<String, Box<Error>> {
     let mut file = File::open(path)?;
     let mut buf = [0u8; 255];
     file.read_exact(&mut buf)?;
-    let mut sha256 = Sha256::new();
     Ok(format!("{:x}", Sha256::digest(&buf)))
 }
 

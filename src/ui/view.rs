@@ -13,12 +13,12 @@ pub trait View {
 }
 
 pub struct GameView {
+    pub title: String,
     pub console: Console,
     pub file_hash: String,
     pub save_path: PathBuf,
     pub sram_path: PathBuf,
     pub audio: Audio,
-    pub title: String,
     pub record: bool,
     pub frames: Vec<image::Frame>,
 }
@@ -38,12 +38,12 @@ impl GameView {
             file_hash.clone()
         ));
         Ok(Self {
+            title: String::from(rom.to_string_lossy()),
             console: Console::new(rom)?,
             file_hash,
             save_path,
             sram_path,
             audio,
-            title: String::from(rom.to_string_lossy()),
             record: false,
             frames: vec![],
         })
@@ -55,18 +55,23 @@ impl View for GameView {
         unsafe {
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
         }
-        // self.console.set_audio(audio);
         if self.console.load_state(&self.save_path).is_ok() {
             return;
         } else {
             self.console.reset();
         }
-        self.console.load_sram(&self.sram_path);
+        let _ = self.console.load_sram(&self.sram_path);
+        unimplemented!();
     }
 
-    fn exit(&mut self) {}
+    fn exit(&mut self) {
+        let _ = self.console.save_sram(&self.sram_path);
+        unimplemented!();
+    }
 
-    fn update(&mut self, timestamp: f64, dt: f64) {}
+    fn update(&mut self, _timestamp: f64, _dt: f64) {
+        unimplemented!();
+    }
 
     fn get_title(&self) -> String {
         self.title.to_owned()
@@ -84,11 +89,17 @@ impl MenuView {
 }
 
 impl View for MenuView {
-    fn enter(&mut self) {}
+    fn enter(&mut self) {
+        unimplemented!();
+    }
 
-    fn exit(&mut self) {}
+    fn exit(&mut self) {
+        unimplemented!();
+    }
 
-    fn update(&mut self, timestamp: f64, dt: f64) {}
+    fn update(&mut self, _timestamp: f64, _dt: f64) {
+        unimplemented!();
+    }
 
     fn get_title(&self) -> String {
         "Select a game".to_string()
