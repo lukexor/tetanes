@@ -8,7 +8,8 @@ use super::{
     memory::{push16, read16, read_byte},
     ppu::PPU,
 };
-use std::{error::Error, path::PathBuf};
+use byteorder::{LittleEndian, ReadBytesExt};
+use std::{error::Error, fs::File, path::PathBuf};
 
 const CPU_FREQUENCY: f64 = 1_789_773.0;
 const RAM_SIZE: usize = 2048;
@@ -94,6 +95,22 @@ impl Console {
             // TODO self.apu.step();
         }
         cpu_cycles
+    }
+
+    // pub fn set_audio(&mut self, audio: Audio) {}
+
+    pub fn load_state(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
+        let mut state = File::open(PathBuf::from(path))?;
+        // let decoder = Decoder::new(state);
+        // console.load(decoder)
+        Ok(())
+    }
+
+    pub fn load_sram(&mut self, path: &PathBuf) {
+        if let Ok(mut sram_file) = File::open(PathBuf::from(path)) {
+            let sram: [u8; 0x2000] = [0; 0x2000];
+            // self.cartridge.sram = sram_file.read_uint::<LittleEndian>(0x2000).unwrap();
+        }
     }
 }
 

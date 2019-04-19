@@ -1,3 +1,0 @@
-pub const TEXTURE_SIZE: i32 = 4096;
-pub const TEXTURE_DIM: i32 = TEXTURE_SIZE / 256;
-pub const TEXTURE_COUNT: i32 = TEXTURE_DIM * TEXTURE_DIM;
