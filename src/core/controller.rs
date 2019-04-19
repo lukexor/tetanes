@@ -1,14 +1,3 @@
-// const (
-//     button_a = iota
-//     button_b
-//     button_select
-//     button_start
-//     button_up
-//     button_down
-//     button_left
-//     button_right
-// )
-
 #[derive(Default, Debug)]
 pub struct Controller {
     pub buttons: [bool; 8],

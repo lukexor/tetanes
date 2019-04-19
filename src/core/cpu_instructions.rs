@@ -1,5 +1,7 @@
-use super::console::Console;
-use super::memory::{pull, pull16, push, push16, read16, read16bug, read_byte, write};
+use super::{
+    console::Console,
+    memory::{pull, pull16, push, push16, read16, read16bug, read_byte, write},
+};
 
 // The addressing mode for each instruction
 pub const INSTRUCTION_MODES: [u8; 256] = [
@@ -144,50 +146,50 @@ pub fn execute(c: &mut Console, opcode: u8) {
         32 => jsr(c, addr),
         33 | 37 | 41 | 45 | 49 | 53 | 57 | 61 => and(c, addr),
         36 | 44 => bit(c, addr),
-        38 | 42 | 46 | 54 | 62 => rol(),
+        38 | 42 | 46 | 54 | 62 => rol(c, addr, mode),
         40 => plp(c),
         48 => bmi(c, addr),
         56 => sec(c),
-        64 => rti(),
+        64 => rti(c),
         65 | 69 | 73 | 77 | 81 | 85 | 89 | 93 => eor(c, addr),
-        70 | 74 | 78 | 86 | 94 => lsr(),
+        70 | 74 | 78 | 86 | 94 => lsr(c, addr, mode),
         72 => pha(c),
         76 | 108 => jmp(c, addr),
         80 => bvc(c, addr),
         88 => cli(c),
         96 => rts(c),
         97 | 101 | 105 | 109 | 113 | 117 | 121 | 125 => adc(c, addr),
-        102 | 106 | 110 | 118 | 126 => ror(),
+        102 | 106 | 110 | 118 | 126 => ror(c, addr, mode),
         104 => pla(c),
         112 => bvs(c, addr),
         120 => sei(c),
         129 | 133 | 141 | 145 | 149 | 153 | 157 => sta(c, addr),
-        132 | 140 | 148 => sty(),
+        132 | 140 | 148 => sty(c, addr),
         134 | 142 | 150 => stx(c, addr),
-        136 => dey(),
-        138 => txa(),
+        136 => dey(c),
+        138 => txa(c),
         144 => bcc(c, addr),
-        152 => tya(),
+        152 => tya(c),
         154 => txs(c),
         160 | 164 | 172 | 180 | 188 => ldy(c, addr),
         161 | 165 | 169 | 173 | 177 | 181 | 185 | 189 => lda(c, addr),
         162 | 166 | 174 | 182 | 190 => ldx(c, addr),
-        168 => tay(),
-        170 => tax(),
+        168 => tay(c),
+        170 => tax(c),
         176 => bcs(c, addr),
         184 => clv(c),
-        186 => tsx(),
-        192 | 196 | 204 => cpy(),
+        186 => tsx(c),
+        192 | 196 | 204 => cpy(c, addr),
         193 | 197 | 201 | 205 | 209 | 213 | 217 | 221 => cmp(c, addr),
-        198 | 206 | 214 | 222 => dec(),
-        200 => iny(),
-        202 => dex(),
+        198 | 206 | 214 | 222 => dec(c, addr),
+        200 => iny(c),
+        202 => dex(c),
         208 => bne(c, addr),
         216 => cld(c),
-        224 | 228 | 236 => cpx(),
-        225 | 229 | 233 | 235 | 237 | 241 | 245 | 249 | 253 => sbc(),
-        230 | 238 | 246 | 254 => inc(),
-        232 => inx(),
+        224 | 228 | 236 => cpx(c, addr),
+        225 | 229 | 233 | 235 | 237 | 241 | 245 | 249 | 253 => sbc(c, addr),
+        230 | 238 | 246 | 254 => inc(c, addr),
+        232 => inx(c),
         240 => beq(c, addr),
         248 => sed(c),
         _ => (),
@@ -218,9 +220,15 @@ fn pages_differ(a: u16, b: u16) -> bool {
 }
 
 fn add_branch_cycles(c: &mut Console, pc: u16, addr: u16) {
-    c.cpu.cycles += match pages_differ(pc, addr) {
-        false => 1,
-        true => 2,
+    c.cpu.cycles += if pages_differ(pc, addr) { 2 } else { 1 };
+}
+
+fn compare(c: &mut Console, a: u8, b: u8) {
+    c.cpu.set_zn(a - b);
+    if a >= b {
+        c.cpu.c = 1;
+    } else {
+        c.cpu.c = 0;
     }
 }
 
@@ -319,19 +327,19 @@ pub fn zpgy(c: &Console) -> (u16, bool) {
 /// LDA: Load A with M
 pub fn lda(c: &mut Console, addr: u16) {
     c.cpu.a = read_byte(c, addr);
-    c.cpu.set_nz(c.cpu.a);
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// LDX: Load X with M
 pub fn ldx(c: &mut Console, addr: u16) {
     c.cpu.x = read_byte(c, addr);
-    c.cpu.set_nz(c.cpu.x);
+    c.cpu.set_zn(c.cpu.x);
 }
 
 /// LDY: Load Y with M
 pub fn ldy(c: &mut Console, addr: u16) {
     c.cpu.y = read_byte(c, addr);
-    c.cpu.set_nz(c.cpu.y);
+    c.cpu.set_zn(c.cpu.y);
 }
 
 /// STA: Store A in M
@@ -345,28 +353,32 @@ pub fn stx(c: &mut Console, addr: u16) {
 }
 
 /// STY: Store Y in M
-pub fn sty() {
-    unimplemented!();
+pub fn sty(c: &mut Console, addr: u16) {
+    write(c, addr, c.cpu.y);
 }
 
 /// TAX: Transfer A to X
-pub fn tax() {
-    unimplemented!();
+pub fn tax(c: &mut Console) {
+    c.cpu.x = c.cpu.a;
+    c.cpu.set_zn(c.cpu.x);
 }
 
 /// TAY: Transfer A to Y
-pub fn tay() {
-    unimplemented!();
+pub fn tay(c: &mut Console) {
+    c.cpu.y = c.cpu.a;
+    c.cpu.set_zn(c.cpu.y);
 }
 
 /// TSX: Transfer Stack Pointer to X
-pub fn tsx() {
-    unimplemented!();
+pub fn tsx(c: &mut Console) {
+    c.cpu.x = c.cpu.sp;
+    c.cpu.set_zn(c.cpu.x);
 }
 
 /// TXA: Transfer X to A
-pub fn txa() {
-    unimplemented!();
+pub fn txa(c: &mut Console) {
+    c.cpu.a = c.cpu.x;
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// TXS: Transfer X to Stack Pointer
@@ -375,8 +387,9 @@ pub fn txs(c: &mut Console) {
 }
 
 /// TYA: Transfer Y to A
-pub fn tya() {
-    unimplemented!();
+pub fn tya(c: &mut Console) {
+    c.cpu.a = c.cpu.y;
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// # Arithmetic
@@ -384,16 +397,35 @@ pub fn tya() {
 /// ADC: Add M to A with Carry
 pub fn adc(c: &mut Console, addr: u16) {
     let a = c.cpu.a;
-    let b = read_byte(c, addr);
+    let val = read_byte(c, addr);
     let carry = c.cpu.c;
-    c.cpu.a = a + b + carry;
-    c.cpu.set_nz(c.cpu.a);
-    if i32::from(a + b + carry) > 0xFF {
+    c.cpu.a += val + carry;
+    c.cpu.set_zn(c.cpu.a);
+    if i32::from(a) + i32::from(val) + i32::from(carry) > 0xFF {
         c.cpu.c = 1;
     } else {
         c.cpu.c = 0;
     }
-    if (a ^ b) & 0x80 == 0 && (a ^ c.cpu.a) & 0x80 != 0 {
+    if (a ^ val) & 0x80 == 0 && (a ^ c.cpu.a) & 0x80 != 0 {
+        c.cpu.v = 1;
+    } else {
+        c.cpu.v = 0;
+    }
+}
+
+/// SBC: Subtract M from A with Carry
+pub fn sbc(c: &mut Console, addr: u16) {
+    let a = c.cpu.a;
+    let val = read_byte(c, addr);
+    let carry = c.cpu.c;
+    c.cpu.a -= val - (1 - carry);
+    c.cpu.set_zn(c.cpu.a);
+    if i32::from(a) + i32::from(val) + i32::from(1 - carry) >= 0 {
+        c.cpu.c = 1;
+    } else {
+        c.cpu.c = 0;
+    }
+    if (a ^ val) & 0x80 != 0 && (a ^ c.cpu.a) & 0x80 != 0 {
         c.cpu.v = 1;
     } else {
         c.cpu.v = 0;
@@ -401,33 +433,41 @@ pub fn adc(c: &mut Console, addr: u16) {
 }
 
 /// DEC: Decrement M by One
-pub fn dec() {
-    unimplemented!();
+pub fn dec(c: &mut Console, addr: u16) {
+    let val = read_byte(c, addr) - 1;
+    write(c, addr, val);
+    c.cpu.set_zn(val);
 }
 
 /// DEX: Decrement X by One
-pub fn dex() {
-    unimplemented!();
+pub fn dex(c: &mut Console) {
+    c.cpu.x -= 1;
+    c.cpu.set_zn(c.cpu.x);
 }
 
 /// DEY: Decrement Y by One
-pub fn dey() {
-    unimplemented!();
+pub fn dey(c: &mut Console) {
+    c.cpu.y -= 1;
+    c.cpu.set_zn(c.cpu.y);
 }
 
 /// INC: Increment M by One
-pub fn inc() {
-    unimplemented!();
+pub fn inc(c: &mut Console, addr: u16) {
+    let val = read_byte(c, addr) + 1;
+    write(c, addr, val);
+    c.cpu.set_zn(val);
 }
 
 /// INX: Increment X by One
-pub fn inx() {
-    unimplemented!();
+pub fn inx(c: &mut Console) {
+    c.cpu.x += 1;
+    c.cpu.set_zn(c.cpu.y);
 }
 
 /// INY: Increment Y by One
-pub fn iny() {
-    unimplemented!();
+pub fn iny(c: &mut Console) {
+    c.cpu.y += 1;
+    c.cpu.set_zn(c.cpu.y);
 }
 
 /// SBC: Subtract M from A with Borrow
@@ -440,24 +480,24 @@ pub fn scb() {
 /// AND: "And" M with A
 pub fn and(c: &mut Console, addr: u16) {
     c.cpu.a &= read_byte(c, addr);
-    c.cpu.set_nz(c.cpu.a);
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// ASL: Shift Left One Bit (M or A)
 pub fn asl(c: &mut Console, addr: u16, mode: u8) {
     match mode {
-        // acc
+        // Accumulator
         4 => {
             c.cpu.c = (c.cpu.a >> 7) & 1;
             c.cpu.a <<= 1;
-            c.cpu.set_nz(c.cpu.a);
+            c.cpu.set_zn(c.cpu.a);
         }
         _ => {
             let mut val = read_byte(c, addr);
             c.cpu.c = (val >> 7) & 1;
             val <<= 1;
             write(c, addr, val);
-            c.cpu.set_nz(val);
+            c.cpu.set_zn(val);
         }
     }
 }
@@ -466,34 +506,79 @@ pub fn asl(c: &mut Console, addr: u16, mode: u8) {
 pub fn bit(c: &mut Console, addr: u16) {
     let val = read_byte(c, addr);
     c.cpu.v = (val >> 6) & 1;
-    c.cpu.set_nz(val & c.cpu.a);
+    c.cpu.set_z(val & c.cpu.a);
+    c.cpu.set_n(val);
 }
 
 /// EOR: "Exclusive-Or" M with A
 pub fn eor(c: &mut Console, addr: u16) {
     c.cpu.a ^= read_byte(c, addr);
-    c.cpu.set_nz(c.cpu.a);
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// LSR: Shift Right One Bit (M or A)
-pub fn lsr() {
-    unimplemented!();
+pub fn lsr(c: &mut Console, addr: u16, mode: u8) {
+    match mode {
+        // Accumulator
+        4 => {
+            c.cpu.c = c.cpu.a & 1;
+            c.cpu.a >>= 1;
+            c.cpu.set_zn(c.cpu.a);
+        }
+        _ => {
+            let mut val = read_byte(c, addr);
+            c.cpu.c = val & 1;
+            val >>= 1;
+            write(c, addr, val);
+            c.cpu.set_zn(val);
+        }
+    }
 }
 
 /// ORA: "OR" M with A
 pub fn ora(c: &mut Console, addr: u16) {
     c.cpu.a |= read_byte(c, addr);
-    c.cpu.set_nz(c.cpu.a);
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// ROL: Rotate One Bit Left (M or A)
-pub fn rol() {
-    unimplemented!();
+pub fn rol(c: &mut Console, addr: u16, mode: u8) {
+    let tmp_c = c.cpu.c;
+    match mode {
+        // Accumulator
+        4 => {
+            c.cpu.c = (c.cpu.a >> 7) & 1;
+            c.cpu.a = (c.cpu.a << 1) | tmp_c;
+            c.cpu.set_zn(c.cpu.a);
+        }
+        _ => {
+            let mut val = read_byte(c, addr);
+            c.cpu.c = (val >> 7) & 1;
+            val = (val << 1) | tmp_c;
+            write(c, addr, val);
+            c.cpu.set_zn(val);
+        }
+    }
 }
 
 /// ROR: Rotate One Bit Right (M or A)
-pub fn ror() {
-    unimplemented!();
+pub fn ror(c: &mut Console, addr: u16, mode: u8) {
+    let tmp_c = c.cpu.c;
+    match mode {
+        // Accumulator
+        4 => {
+            c.cpu.c = c.cpu.a & 1;
+            c.cpu.a = (c.cpu.a >> 1) | (tmp_c << 7);
+            c.cpu.set_zn(c.cpu.a);
+        }
+        _ => {
+            let mut val = read_byte(c, addr);
+            c.cpu.c = val & 1;
+            val = (val >> 1) | (tmp_c << 7);
+            write(c, addr, val);
+            c.cpu.set_zn(val);
+        }
+    }
 }
 
 /// # Branch
@@ -501,64 +586,64 @@ pub fn ror() {
 /// BCC: Branch on Carry Clear
 pub fn bcc(c: &mut Console, addr: u16) {
     if c.cpu.c == 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
 /// BCS: Branch on Carry Set
 pub fn bcs(c: &mut Console, addr: u16) {
     if c.cpu.c != 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
 /// BEQ: Branch on Result Zero
 pub fn beq(c: &mut Console, addr: u16) {
     if c.cpu.z != 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
 /// BMI: Branch on Result Minus
 pub fn bmi(c: &mut Console, addr: u16) {
     if c.cpu.n != 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
 /// BNE: Branch on Result Not Zero
 pub fn bne(c: &mut Console, addr: u16) {
     if c.cpu.z == 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
 /// BPL: Branch on Result Plus
 pub fn bpl(c: &mut Console, addr: u16) {
     if c.cpu.n == 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
 /// BVC: Branch on Overflow Clear
 pub fn bvc(c: &mut Console, addr: u16) {
     if c.cpu.v == 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
 /// BVS: Branch on Overflow Set
 pub fn bvs(c: &mut Console, addr: u16) {
     if c.cpu.v != 0 {
-        c.cpu.pc = addr;
         add_branch_cycles(c, c.cpu.pc, addr);
+        c.cpu.pc = addr;
     }
 }
 
@@ -576,8 +661,11 @@ pub fn jsr(c: &mut Console, addr: u16) {
 }
 
 /// RTI: Return from Interrupt
-pub fn rti() {
-    unimplemented!();
+pub fn rti(c: &mut Console) {
+    let flags = pull(c);
+    // Unset Decimal Mode/Set Interrupt Disable
+    c.cpu.set_flags(flags & 0xEF | 0x20);
+    c.cpu.pc = pull16(c);
 }
 
 /// RTS: Return from Subroutine
@@ -609,23 +697,20 @@ pub fn clv(c: &mut Console) {
 
 /// CMP: Compare M and A
 pub fn cmp(c: &mut Console, addr: u16) {
-    let val = c.cpu.a as i8 - read_byte(c, addr) as i8;
-    if val >= 0 {
-        c.cpu.c = 1;
-    } else {
-        c.cpu.c = 0;
-    }
-    c.cpu.set_nz(val as u8);
+    let val = read_byte(c, addr);
+    compare(c, c.cpu.a, val);
 }
 
 /// CPX: Compare M and X
-pub fn cpx() {
-    unimplemented!();
+pub fn cpx(c: &mut Console, addr: u16) {
+    let val = read_byte(c, addr);
+    compare(c, c.cpu.x, val);
 }
 
 /// CPY: Compare M and Y
-pub fn cpy() {
-    unimplemented!();
+pub fn cpy(c: &mut Console, addr: u16) {
+    let val = read_byte(c, addr);
+    compare(c, c.cpu.y, val);
 }
 
 /// SEC: Set Carry Flag
@@ -659,12 +744,13 @@ pub fn php(c: &mut Console) {
 /// PLA: Pull A from Stack
 pub fn pla(c: &mut Console) {
     c.cpu.a = pull(c);
-    c.cpu.set_nz(c.cpu.a);
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// PLP: Pull Processor Status from Stack
 pub fn plp(c: &mut Console) {
     let status = pull(c);
+    // Unset Decimal Mode/Set Interrupt Disable
     c.cpu.set_flags(status & 0xEF | 0x20);
 }
 
@@ -732,10 +818,6 @@ pub fn rra() {
 }
 
 pub fn sax() {
-    unimplemented!();
-}
-
-pub fn sbc() {
     unimplemented!();
 }
 

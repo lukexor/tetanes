@@ -1,12 +1,14 @@
-use super::apu::APU;
-use super::cartridge::Cartridge;
-use super::controller::Controller;
-use super::cpu::{Interrupt, CPU};
-use super::cpu_instructions::{execute, php, print_instruction};
-use super::mapper::Mapper1;
-use super::memory::{push16, read16, read_byte};
-use super::ppu::PPU;
-use std::error::Error;
+use super::{
+    apu::APU,
+    cartridge::Cartridge,
+    controller::Controller,
+    cpu::{Interrupt, CPU},
+    cpu_instructions::{execute, php, print_instruction},
+    mapper::Mapper1,
+    memory::{push16, read16, read_byte},
+    ppu::PPU,
+};
+use std::{error::Error, path::PathBuf};
 
 const CPU_FREQUENCY: f64 = 1_789_773.0;
 const RAM_SIZE: usize = 2048;
@@ -25,7 +27,8 @@ pub struct Console {
 }
 
 impl Console {
-    pub fn new(cartridge: Cartridge) -> Result<Self, Box<Error>> {
+    pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
+        let cartridge = Cartridge::new(rom)?;
         let mapper = cartridge.get_mapper()?;
         let mut console = Console {
             cpu: CPU::new(),
@@ -246,12 +249,139 @@ mod tests {
             }
             // BPL Branch on Result Plus
             16 => {
+                // Test cases
+                // pages_differ
+                // 0
+                // 1
                 let cycles = c.cpu.cycles;
-                let addr = 0x8000;
+                let addr = 0x0080;
                 bpl(c, addr);
                 assert_eq!(c.cpu.pc, addr);
                 assert_eq!(c.cpu.cycles, cycles + 1);
+
+                let cycles = c.cpu.cycles;
+                let addr = 0xFF00;
+                bpl(c, addr);
+                assert_eq!(c.cpu.pc, addr);
+                assert_eq!(c.cpu.cycles, cycles + 2);
             }
+            // CLC Clear Carry Flag
+            24 => {
+                // Test cases
+                // cpu.c = 0
+                // cpu.c = 1
+                c.cpu.c = 0;
+                clc(c);
+                assert_eq!(c.cpu.c, 0);
+
+                c.cpu.c = 1;
+                clc(c);
+                assert_eq!(c.cpu.c, 0);
+            }
+            // Jump and Save return addr
+            32 => {
+                let pc = c.cpu.pc;
+                jsr(c, addr);
+                assert_eq!(u16::from(pull(c)), pc - 1);
+                assert_eq!(c.cpu.pc, addr);
+            }
+            // "And" M with A
+            33 | 37 | 41 | 45 | 49 | 53 | 57 | 61 => {
+                // Test cases
+                // M | A | M & A | z | n
+                // 0 | 0 | 0     | 1 | 0
+                // 1 | 0 | 0     | 1 | 0
+                // 0 | 1 | 0     | 1 | 0
+                // 1 | 1 | 1     | 0 | 0
+
+                write(c, addr, 0);
+                c.cpu.a = 0;
+                and(c, addr);
+                assert_eq!(c.cpu.z, 1);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+
+                write(c, addr, 1);
+                c.cpu.a = 0;
+                and(c, addr);
+                assert_eq!(c.cpu.z, 1);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+
+                write(c, addr, 0);
+                c.cpu.a = 1;
+                and(c, addr);
+                assert_eq!(c.cpu.z, 1);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+
+                write(c, addr, 1);
+                c.cpu.a = 1;
+                and(c, addr);
+                assert_eq!(c.cpu.z, 0);
+                assert_eq!(c.cpu.n, 0);
+                c.reset();
+            }
+            // BIT Test bits in M with A
+            36 | 44 => {
+                // Test cases
+                // V | Z | N
+                // 0 | 0 | 0
+                // 1 | 0 | 0
+                // 0 | 1 | 0
+                // 1 | 1 | 0
+                // 0 | 0 | 1
+                // 1 | 0 | 1
+                // 0 | 1 | 1
+                // 1 | 1 | 1
+                // bit(c, addr);
+            }
+            // 38 | 42 | 46 | 54 | 62 => rol(),
+            // 40 => plp(c),
+            // 48 => bmi(c, addr),
+            // 56 => sec(c),
+            // 64 => rti(),
+            // 65 | 69 | 73 | 77 | 81 | 85 | 89 | 93 => eor(c, addr),
+            // 70 | 74 | 78 | 86 | 94 => lsr(),
+            // 72 => pha(c),
+            // 76 | 108 => jmp(c, addr),
+            // 80 => bvc(c, addr),
+            // 88 => cli(c),
+            // 96 => rts(c),
+            // 97 | 101 | 105 | 109 | 113 | 117 | 121 | 125 => adc(c, addr),
+            // 102 | 106 | 110 | 118 | 126 => ror(),
+            // 104 => pla(c),
+            // 112 => bvs(c, addr),
+            // 120 => sei(c),
+            // 129 | 133 | 141 | 145 | 149 | 153 | 157 => sta(c, addr),
+            // 132 | 140 | 148 => sty(),
+            // 134 | 142 | 150 => stx(c, addr),
+            // 136 => dey(),
+            // 138 => txa(),
+            // 144 => bcc(c, addr),
+            // 152 => tya(),
+            // 154 => txs(c),
+            // 160 | 164 | 172 | 180 | 188 => ldy(c, addr),
+            // 161 | 165 | 169 | 173 | 177 | 181 | 185 | 189 => lda(c, addr),
+            // 162 | 166 | 174 | 182 | 190 => ldx(c, addr),
+            // 168 => tay(),
+            // 170 => tax(),
+            // 176 => bcs(c, addr),
+            // 184 => clv(c),
+            // 186 => tsx(),
+            // 192 | 196 | 204 => cpy(),
+            // 193 | 197 | 201 | 205 | 209 | 213 | 217 | 221 => cmp(c, addr),
+            // 198 | 206 | 214 | 222 => dec(),
+            // 200 => iny(),
+            // 202 => dex(),
+            // 208 => bne(c, addr),
+            // 216 => cld(c),
+            // 224 | 228 | 236 => cpx(),
+            // 225 | 229 | 233 | 235 | 237 | 241 | 245 | 249 | 253 => sbc(),
+            // 230 | 238 | 246 | 254 => inc(),
+            // 232 => inx(),
+            // 240 => beq(c, addr),
+            // 248 => sed(c),
             _ => eprintln!("Warning: opcode {} not covered", opcode),
         }
     }

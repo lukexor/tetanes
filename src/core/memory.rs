@@ -1,5 +1,4 @@
-use super::cartridge::Cartridge;
-use super::console::Console;
+use super::{cartridge::Cartridge, console::Console};
 
 pub fn prg_bank_offset(cartridge: &Cartridge, mut index: isize, offset: isize) -> usize {
     if index >= 0x80 {
@@ -73,25 +72,24 @@ pub fn read16bug(c: &Console, addr: u16) -> u16 {
 
 // Push byte to stack
 pub fn push(c: &mut Console, val: u8) {
-    println!(
-        "writing 0x{:04X} to stack (0x{:04X})",
-        val,
-        0x100 | u16::from(c.cpu.sp)
-    );
+    // println!(
+    //     "writing 0x{:04X} to stack (0x{:04X})",
+    //     val,
+    //     0x100 | u16::from(c.cpu.sp)
+    // );
     write(c, 0x100 | u16::from(c.cpu.sp), val);
     c.cpu.sp -= 1;
 }
 
 // Pull byte from stack
 pub fn pull(c: &mut Console) -> u8 {
+    // println!(
+    //     "pulling 0x{:04X} from stack (0x{:04X})",
+    //     read_byte(c, 0x100 | u16::from(c.cpu.sp)),
+    //     0x100 | u16::from(c.cpu.sp)
+    // );
     c.cpu.sp += 1;
-    let val = read_byte(c, 0x100 | u16::from(c.cpu.sp));
-    println!(
-        "pulling 0x{:04X} from stack (0x{:04X})",
-        val,
-        0x100 | u16::from(c.cpu.sp)
-    );
-    val
+    read_byte(c, 0x100 | u16::from(c.cpu.sp))
 }
 
 // Push two bytes to stack

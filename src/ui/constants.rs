@@ -1,9 +1,3 @@
 pub const TEXTURE_SIZE: i32 = 4096;
 pub const TEXTURE_DIM: i32 = TEXTURE_SIZE / 256;
 pub const TEXTURE_COUNT: i32 = TEXTURE_DIM * TEXTURE_DIM;
-pub const WIDTH: u32 = 256;
-pub const HEIGHT: u32 = 240;
-pub const SCALE: u32 = 3;
-pub const TITLE: &str = "NES";
-pub const MARGIN: i32 = 10;
-pub const BORDER: i32 = 10;

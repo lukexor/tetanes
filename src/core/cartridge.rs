@@ -1,11 +1,6 @@
-use super::mapper::Mapper1;
-use super::memory;
+use super::{mapper::Mapper1, memory};
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::error::Error;
-use std::fmt;
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
+use std::{error::Error, fmt, fs::File, io::Read, path::PathBuf};
 
 const INES_FILE_MAGIC: u32 = 0x1a53_454e;
 const PRG_ROM_SIZE: usize = 16384;
@@ -54,7 +49,7 @@ impl Cartridge {
     ///
     /// If the rom file is not a valid '.nes' file, or there are insufficient permissions to read
     /// the file, then an error is returned.
-    pub fn new(rom: &str) -> Result<Self, Box<Error>> {
+    pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
         let mut rom_file = File::open(PathBuf::from(rom))?;
         let header = Cartridge::load_file_header(&mut rom_file)?;
 

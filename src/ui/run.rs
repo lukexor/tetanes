@@ -1,100 +1,127 @@
-use super::*;
-use glfw::{Action, Context, Key};
-use std::error::Error;
-use std::path::PathBuf;
+use super::{audio::Audio, window::Window};
+use crate::core::console::Console;
+use image;
+use std::{error::Error, path::PathBuf};
 
-pub fn run(roms: Vec<PathBuf>) -> Result<(), Box<Error>> {
-    if roms.is_empty() {
-        return Err("no rom files found or specified".into());
+const MARGIN: i32 = 10;
+const BORDER: i32 = 10;
+
+trait View {
+    fn enter(&mut self);
+    fn exit(&mut self);
+    fn update(&mut self, timestamp: f64, dt: f64);
+}
+
+struct GameView {
+    console: Console,
+    title: String,
+    record: bool,
+    frames: Vec<image::Frame>,
+}
+
+impl GameView {
+    pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
+        Ok(Self {
+            console: Console::new(rom)?,
+            title: String::from(rom.to_string_lossy()),
+            record: false,
+            frames: vec![],
+        })
+    }
+}
+
+impl View for GameView {
+    fn enter(&mut self) {}
+    fn exit(&mut self) {}
+    fn update(&mut self, timestamp: f64, dt: f64) {}
+}
+
+struct MenuView {
+    roms: Vec<PathBuf>,
+}
+
+impl MenuView {
+    pub fn new(roms: Vec<PathBuf>) -> Result<Self, Box<Error>> {
+        Ok(Self { roms })
+    }
+}
+
+impl View for MenuView {
+    fn enter(&mut self) {}
+    fn exit(&mut self) {}
+    fn update(&mut self, timestamp: f64, dt: f64) {}
+}
+
+pub struct UI {
+    window: Window,
+    audio: Audio,
+    active_view: usize,
+    views: Vec<Box<View>>,
+    timestamp: f64,
+}
+
+impl UI {
+    pub fn run(roms: Vec<PathBuf>) -> Result<(), Box<Error>> {
+        if roms.is_empty() {
+            return Err("no rom files found or specified".into());
+        }
+        let mut ui = UI::new(roms)?;
+        ui.start()
     }
 
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS)?;
-
-    // init fontMask
-
-    glfw.window_hint(glfw::WindowHint::ContextVersionMajor(2));
-    glfw.window_hint(glfw::WindowHint::ContextVersionMinor(1));
-    let (mut window, events) = glfw
-        .create_window(
-            WIDTH * SCALE,
-            HEIGHT * SCALE,
-            TITLE,
-            glfw::WindowMode::Windowed,
-        )
-        .expect("Failed to create GLFW window.");
-    window.make_current();
-    window.set_key_polling(true);
-
-    gl::load_with(|s| window.get_proc_address(s));
-    unsafe {
-        gl::Enable(gl::TEXTURE_2D);
+    pub fn new(roms: Vec<PathBuf>) -> Result<Self, Box<Error>> {
+        let audio = Audio::new()?;
+        let window = Window::new()?;
+        let num_roms = roms.len();
+        let mut views: Vec<Box<View>> = vec![Box::new(MenuView::new(roms.clone())?)];
+        if roms.len() == 1 {
+            views.push(Box::new(GameView::new(&roms[0])?));
+        }
+        Ok(Self {
+            window,
+            audio,
+            active_view: views.len() - 1,
+            views,
+            timestamp: 0.0,
+        })
     }
 
-    let mut audio = Audio::new();
-    // TODO Init audio stream
-    let num_roms = roms.len();
-    let mut d = Director::new(window, audio, roms);
-
-    if num_roms == 1 {
-    } else {
-        d.setup_view();
+    pub fn set_title(&mut self, title: &str) {
+        self.window.set_title(title);
     }
 
-    // main loop
-    while !d.window.should_close() {
+    pub fn set_active_view(&mut self, view: usize) {
+        self.views[self.active_view].exit();
+        self.active_view = view;
+        self.views[self.active_view].enter();
+        self.update_time();
+    }
+
+    pub fn update_time(&mut self) {
+        self.timestamp = self.window.time();
+    }
+
+    pub fn start(&mut self) -> Result<(), Box<Error>> {
+        while !self.window.should_close() {
+            self.step();
+            self.window.render();
+            self.window.poll_events();
+        }
+        self.clear_view();
+        Ok(())
+    }
+
+    pub fn step(&mut self) {
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
         }
-        let timestamp = glfw.get_time();
-        let dt = timestamp - d.timestamp;
-        d.timestamp = timestamp;
-
-        // Process view
-        let (width, height) = d.window.get_framebuffer_size();
-        let sx = 256 + MARGIN * 2;
-        let sy = 240 + MARGIN * 2;
-        let mut nx = (width - BORDER * 2) / sx;
-        let mut ny = (height - BORDER * 2) / sy;
-        let ox = (width - nx * sx) / 2 + MARGIN;
-        let oy = (height - ny * sy) / 2 + MARGIN;
-        if nx < 1 {
-            nx = 1;
-        }
-        if ny < 1 {
-            ny = 1;
-        }
-        d.view.nx = nx;
-        d.view.ny = ny;
-        // unsafe {
-        //     gl::PushMatrix();
-        //     gl::Ortho(0, width as f64, height as f64, 0, -1, 1);
-        //     gl::BindTexture(gl::TEXTURE_2D, d.view.texture.texture);
-        // }
-        for j in 0..ny {
-            for i in 0..nx {
-                let x = (ox + i * sx) as f32;
-                let y = (oy + j * sy) as f32;
-                let mut index = nx * (j + d.view.scroll) + i;
-                if index >= d.view.roms.len() as i32 {
-                    continue;
-                }
-                let rom = &d.view.roms[index as usize];
-                index = d.view.texture.lookup_index(rom);
-            }
-        }
-
-        d.window.swap_buffers();
-        glfw.poll_events();
-        for (_, event) in glfw::flush_messages(&events) {
-            println!("{:?}", event);
-            match event {
-                glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
-                    d.window.set_should_close(true)
-                }
-                _ => {}
-            }
-        }
+        let timestamp = self.window.time();
+        let dt = timestamp - self.timestamp;
+        self.timestamp = timestamp;
+        self.views[self.active_view].update(timestamp, dt);
     }
-    // d.view.clear();
-    Ok(())
+
+    pub fn clear_view(&mut self) {
+        unimplemented!();
+    }
 }

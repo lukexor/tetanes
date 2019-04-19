@@ -73,13 +73,21 @@ impl CPU {
         self.n = (flags >> 7) & 1;
     }
 
+    pub fn set_zn(&mut self, val: u8) {
+        self.set_z(val);
+        self.set_n(val);
+    }
+
     /// Zero Flag - Gets set when val is 0
-    /// Negative Flag - Gets set when val is negative
-    pub fn set_nz(&mut self, val: u8) {
+    pub fn set_z(&mut self, val: u8) {
         self.z = match val {
             0 => 1,
             _ => 0,
         };
+    }
+
+    /// Negative Flag - Gets set when val is negative
+    pub fn set_n(&mut self, val: u8) {
         self.n = match val & 0x80 {
             0 => 0,
             _ => 1,
