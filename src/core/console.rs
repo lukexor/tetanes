@@ -122,18 +122,16 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::cpu_instructions::*;
-    use crate::core::memory::{pull, pull16, read_byte, write};
-
-    const ROM1: &str = "roms/Zelda II - The Adventure of Link (USA).nes";
+    use crate::core::memory::write;
 
     fn new_console() -> Console {
-        let rom_path = PathBuf::from(ROM1);
+        let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
+        let rom_path = PathBuf::from(rom);
         Console::new(&rom_path).expect("valid console")
     }
 
     #[test]
-    fn test_new_console() {
+    fn test_new() {
         let c = new_console();
         assert_eq!(c.cartridge.prg.len(), 131_072);
         assert_eq!(c.cartridge.chr.len(), 131_072);
@@ -149,273 +147,107 @@ mod tests {
     }
 
     #[test]
-    fn test_opcodes() {
-        for i in 0u8..=255 {
-            let mut c = new_console();
-            test_opstate(&mut c, i);
-        }
+    fn test_step_seconds() {
+        // TODO
     }
 
-    fn test_opstate(c: &mut Console, opcode: u8) {
-        let addr = 0x0100;
-        match opcode {
-            // BRK - Force Interrupt
-            0 => {
-                let flags = c.cpu.flags();
-                let pc = c.cpu.pc;
-                brk(c);
-                // Interrupt disable bit set
-                assert_eq!(c.cpu.i, 1);
-                // Startup processor status is on the stack
-                assert_eq!(pull(c), flags | 0x10);
-                // pc stored on stack
-                assert_eq!(pull16(c), pc);
-            }
-            // ORA - "OR" M with A
-            1 | 5 | 9 | 13 | 17 | 21 | 25 | 29 => {
-                // Test cases
-                // M | A | M OR A | z | n
-                // 0 | 0 | 0      | 1 | 0
-                // 1 | 0 | 1      | 0 | 0
-                // 0 | 1 | 1      | 0 | 0
-                // 1 | 1 | 1      | 0 | 0
+    #[test]
+    fn test_stall() {
+        // TODO
+    }
 
-                write(c, addr, 0);
-                c.cpu.a = 0;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
+    #[test]
+    fn test_nmi_interrupt() {
+        // TODO
+    }
 
-                write(c, addr, 1);
-                c.cpu.pc = u16::from(opcode);
-                c.cpu.a = 0;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
+    #[test]
+    fn test_irq_interrupt() {
+        // TODO
+    }
 
-                write(c, addr, 0);
-                c.cpu.pc = u16::from(opcode);
-                c.cpu.a = 1;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
+    #[test]
+    fn test_sound() {
+        let mut c = new_console();
+        // Test basic control flow by playing audio
+        //   lda #$01 ; square 1 (opcode 161)
+        //   sta $4015 (opcode 129)
+        //   lda #$08 ; period low
+        //   sta $4002
+        //   lda #$02 ; period high
+        //   sta $4003
+        //   lda #$bf ; volume
+        //   sta $4000
 
-                write(c, addr, 1);
-                c.cpu.pc = u16::from(opcode);
-                c.cpu.a = 1;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-            }
-            // ASL Shift Left M
-            6 | 14 | 22 | 30 => {
-                // Test cases
-                //            | C | M   | z | n
-                // val == 0   | 0 | 0   | 1 | 0
-                // val <= 127 | 0 | 2*M | 0 | 0
-                // val > 127  | 1 | 2*M | 0 | 0
-                write(c, addr, 0);
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(read_byte(c, addr), 0);
-                c.reset();
+        // Load program into ram
+        let start_addr = 0x0100;
+        let lda = 161;
+        let sta = 129;
+        let jmp = 76;
+        c.cpu.pc = start_addr;
 
-                write(c, addr, 50);
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(read_byte(c, addr), 100);
-                c.reset();
+        // Square 1
+        write(&mut c, start_addr, lda);
+        write(&mut c, start_addr + 1, 0x0001);
+        write(&mut c, 0x0001, 0x0001);
 
-                write(c, addr, 130);
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 1);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(read_byte(c, addr), 4);
-                c.reset();
-            }
-            // PHP Push Processor Status
-            8 => {
-                let flags = c.cpu.flags();
-                php(c);
-                // Startup processor status is on the stack
-                assert_eq!(pull(c), flags | 0x10);
-            }
-            // ASL Shift Left A
-            10 => {
-                // Test cases
-                //            | C | A   | z | n
-                // val == 0   | 0 | 0   | 1 | 0
-                // val <= 127 | 0 | 2*M | 0 | 0
-                // val > 127  | 1 | 2*M | 0 | 0
-                c.cpu.a = 0;
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(c.cpu.a, 0);
-                c.reset();
+        write(&mut c, start_addr + 2, sta);
+        write(&mut c, start_addr + 3, 0x0003);
+        write(&mut c, 0x0003, 0x0015);
+        write(&mut c, 0x0004, 0x0040);
 
-                c.cpu.a = 50;
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(c.cpu.a, 100);
-                c.reset();
+        // Period Low
+        write(&mut c, start_addr + 4, lda);
+        write(&mut c, start_addr + 5, 0x0005);
+        write(&mut c, 0x0005, 0x0008);
+        write(&mut c, start_addr + 6, sta);
+        write(&mut c, start_addr + 7, 0x0007);
+        write(&mut c, 0x0007, 0x0002);
+        write(&mut c, 0x0008, 0x0040);
 
-                c.cpu.a = 130;
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 1);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(c.cpu.a, 4);
-                c.reset();
-            }
-            // BPL Branch on Result Plus
-            16 => {
-                // Test cases
-                // pages_differ
-                // 0
-                // 1
-                let cycles = c.cpu.cycles;
-                let addr = 0x0080;
-                bpl(c, addr);
-                assert_eq!(c.cpu.pc, addr);
-                assert_eq!(c.cpu.cycles, cycles + 1);
+        // Period High
+        write(&mut c, start_addr + 8, lda);
+        write(&mut c, start_addr + 9, 0x0009);
+        write(&mut c, 0x0009, 0x0002);
+        write(&mut c, start_addr + 10, sta);
+        write(&mut c, start_addr + 11, 0x0011);
+        write(&mut c, 0x0011, 0x0003);
+        write(&mut c, 0x0012, 0x0040);
 
-                let cycles = c.cpu.cycles;
-                let addr = 0xFF00;
-                bpl(c, addr);
-                assert_eq!(c.cpu.pc, addr);
-                assert_eq!(c.cpu.cycles, cycles + 2);
-            }
-            // CLC Clear Carry Flag
-            24 => {
-                // Test cases
-                // cpu.c = 0
-                // cpu.c = 1
-                c.cpu.c = 0;
-                clc(c);
-                assert_eq!(c.cpu.c, 0);
+        // Volume
+        write(&mut c, start_addr + 12, lda);
+        write(&mut c, start_addr + 13, 0x0013);
+        write(&mut c, 0x0013, 0x00BF);
+        write(&mut c, start_addr + 14, sta);
+        write(&mut c, start_addr + 15, 0x0015);
+        write(&mut c, 0x0015, 0x0000);
+        write(&mut c, 0x0016, 0x0040);
 
-                c.cpu.c = 1;
-                clc(c);
-                assert_eq!(c.cpu.c, 0);
-            }
-            // Jump and Save return addr
-            32 => {
-                let pc = c.cpu.pc;
-                jsr(c, addr);
-                assert_eq!(u16::from(pull(c)), pc - 1);
-                assert_eq!(c.cpu.pc, addr);
-            }
-            // "And" M with A
-            33 | 37 | 41 | 45 | 49 | 53 | 57 | 61 => {
-                // Test cases
-                // M | A | M & A | z | n
-                // 0 | 0 | 0     | 1 | 0
-                // 1 | 0 | 0     | 1 | 0
-                // 0 | 1 | 0     | 1 | 0
-                // 1 | 1 | 1     | 0 | 0
+        // jmp forever
+        write(&mut c, start_addr + 16, jmp);
+        write(&mut c, start_addr + 17, ((start_addr + 16) & 0xFF) as u8);
+        write(&mut c, start_addr + 17, ((start_addr + 16) >> 8) as u8);
 
-                write(c, addr, 0);
-                c.cpu.a = 0;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write(c, addr, 1);
-                c.cpu.a = 0;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write(c, addr, 0);
-                c.cpu.a = 1;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write(c, addr, 1);
-                c.cpu.a = 1;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-            }
-            // BIT Test bits in M with A
-            36 | 44 => {
-                // Test cases
-                // V | Z | N
-                // 0 | 0 | 0
-                // 1 | 0 | 0
-                // 0 | 1 | 0
-                // 1 | 1 | 0
-                // 0 | 0 | 1
-                // 1 | 0 | 1
-                // 0 | 1 | 1
-                // 1 | 1 | 1
-                // bit(c, addr);
-            }
-            // 38 | 42 | 46 | 54 | 62 => rol(),
-            // 40 => plp(c),
-            // 48 => bmi(c, addr),
-            // 56 => sec(c),
-            // 64 => rti(),
-            // 65 | 69 | 73 | 77 | 81 | 85 | 89 | 93 => eor(c, addr),
-            // 70 | 74 | 78 | 86 | 94 => lsr(),
-            // 72 => pha(c),
-            // 76 | 108 => jmp(c, addr),
-            // 80 => bvc(c, addr),
-            // 88 => cli(c),
-            // 96 => rts(c),
-            // 97 | 101 | 105 | 109 | 113 | 117 | 121 | 125 => adc(c, addr),
-            // 102 | 106 | 110 | 118 | 126 => ror(),
-            // 104 => pla(c),
-            // 112 => bvs(c, addr),
-            // 120 => sei(c),
-            // 129 | 133 | 141 | 145 | 149 | 153 | 157 => sta(c, addr),
-            // 132 | 140 | 148 => sty(),
-            // 134 | 142 | 150 => stx(c, addr),
-            // 136 => dey(),
-            // 138 => txa(),
-            // 144 => bcc(c, addr),
-            // 152 => tya(),
-            // 154 => txs(c),
-            // 160 | 164 | 172 | 180 | 188 => ldy(c, addr),
-            // 161 | 165 | 169 | 173 | 177 | 181 | 185 | 189 => lda(c, addr),
-            // 162 | 166 | 174 | 182 | 190 => ldx(c, addr),
-            // 168 => tay(),
-            // 170 => tax(),
-            // 176 => bcs(c, addr),
-            // 184 => clv(c),
-            // 186 => tsx(),
-            // 192 | 196 | 204 => cpy(),
-            // 193 | 197 | 201 | 205 | 209 | 213 | 217 | 221 => cmp(c, addr),
-            // 198 | 206 | 214 | 222 => dec(),
-            // 200 => iny(),
-            // 202 => dex(),
-            // 208 => bne(c, addr),
-            // 216 => cld(c),
-            // 224 | 228 | 236 => cpx(),
-            // 225 | 229 | 233 | 235 | 237 | 241 | 245 | 249 | 253 => sbc(),
-            // 230 | 238 | 246 | 254 => inc(),
-            // 232 => inx(),
-            // 240 => beq(c, addr),
-            // 248 => sed(c),
-            _ => eprintln!("Warning: opcode {} not covered", opcode),
+        // set pc to start address
+        // step cpu 8 times
+        for _ in 0..8 {
+            c.step();
         }
+        // Verify state
+    }
+
+    #[test]
+    fn test_load_state() {
+        // TODO
+    }
+
+    #[test]
+    fn test_load_sram() {
+        // TODO
+    }
+
+    #[test]
+    fn test_save_sram() {
+        // TODO
     }
 }
