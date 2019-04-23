@@ -1,3 +1,5 @@
+pub const CPU_FREQUENCY: f64 = 1_789_773.0;
+
 /// Interrupt Types
 pub enum Interrupt {
     None,
@@ -27,7 +29,7 @@ pub struct CPU {
 
 impl CPU {
     pub fn new() -> Self {
-        CPU {
+        Self {
             cycles: 0,
             pc: 0,
             sp: 0,
@@ -92,6 +94,12 @@ impl CPU {
             0 => 0,
             _ => 1,
         };
+    }
+
+    pub fn trigger_irq(&mut self) {
+        if let Interrupt::None = self.interrupt {
+            self.interrupt = Interrupt::IRQ;
+        }
     }
 }
 

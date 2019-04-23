@@ -72,7 +72,7 @@ pub struct PPU {
 
 impl PPU {
     pub fn new() -> Self {
-        PPU {
+        Self {
             cycle: 340,
             scan_line: 250,
             frame: 0,

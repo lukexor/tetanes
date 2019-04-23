@@ -16,10 +16,10 @@ pub fn read_byte(c: &Console, addr: u16) -> u8 {
     // println!("reading from 0x{:04X}", addr);
     match addr {
         0x0000...0x1FFF => c.ram[(addr % 0x0800) as usize],
-        0x2000...0x3FFF => unimplemented!("c.ppu.read_reg(0x2000 + {} % 8)", addr),
-        0x4000...0x4013 => unimplemented!("c.apu.read_reg(addr, val)"),
-        0x4014 => unimplemented!("c.ppu.read_reg(addr)"),
-        0x4015 => unimplemented!("c.apu.read_reg(addr)"),
+        0x2000...0x3FFF => unimplemented!("c.ppu.read_register(0x2000 + {} % 8)", addr),
+        0x4000...0x4013 => c.apu.read_register(addr),
+        0x4014 => unimplemented!("c.ppu.read_register(addr)"),
+        0x4015 => c.apu.read_register(addr),
         0x4016 => unimplemented!("c.controller1.read_byte()"),
         0x4017 => unimplemented!("c.controller2.read_byte()"),
         0x4018...0x5FFF => unimplemented!("I/O registers"),
@@ -43,14 +43,14 @@ pub fn read16(c: &Console, addr: u16) -> u16 {
 pub fn write(c: &mut Console, addr: u16, val: u8) {
     match addr {
         0x0000...0x1FFF => c.ram[(addr % 0x8000) as usize] = val,
-        0x2000...0x3FFF => unimplemented!("c.ppu.write_reg(0x2000 + addr % 8, val)"),
-        0x4000...0x4013 => unimplemented!("c.apu.write_reg(addr, val)"),
-        0x4014 => unimplemented!("c.ppu.write_reg(addr, val)"),
-        0x4015 => unimplemented!("c.apu.write_reg(addr, val)"),
+        0x2000...0x3FFF => unimplemented!("c.ppu.write_register(0x2000 + addr % 8, val)"),
+        0x4000...0x4013 => c.apu.write_register(addr, val),
+        0x4014 => unimplemented!("c.ppu.write_register(addr, val)"),
+        0x4015 => c.apu.write_register(addr, val),
         0x4016 => unimplemented!("c.controllers.write(addr, val)"),
-        0x4017 => unimplemented!("c.apu.write_reg(addr, val)"),
+        0x4017 => c.apu.write_register(addr, val),
         0x4018...0x5FFF => unimplemented!("I/O registeres"),
-        0x6000..=0xFFFF => unimplemented!("c.mapper.write_reg(addr, val)"),
+        0x6000..=0xFFFF => unimplemented!("c.mapper.write_register(addr, val)"),
     }
 }
 

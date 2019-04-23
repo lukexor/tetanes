@@ -2,7 +2,7 @@ use super::{
     apu::APU,
     cartridge::Cartridge,
     controller::Controller,
-    cpu::{Interrupt, CPU},
+    cpu::{Interrupt, CPU, CPU_FREQUENCY},
     cpu_instructions::{execute, php, print_instruction},
     mapper::Mapper,
     memory::{push16, read16, read_byte},
@@ -10,7 +10,6 @@ use super::{
 };
 use std::{error::Error, fs, path::PathBuf};
 
-const CPU_FREQUENCY: f64 = 1_789_773.0;
 const RAM_SIZE: usize = 2048;
 
 /// The NES Console
@@ -29,7 +28,7 @@ impl Console {
     pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
         let cartridge = Cartridge::new(rom)?;
         let mapper = cartridge.get_mapper()?;
-        let mut console = Console {
+        let mut console = Self {
             cpu: CPU::new(),
             apu: APU::new(),
             ppu: PPU::new(),
@@ -99,11 +98,6 @@ impl Console {
         unimplemented!();
     }
 
-    pub fn load_state(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
-        let _data = fs::read(PathBuf::from(path))?;
-        unimplemented!();
-    }
-
     pub fn load_sram(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
         // TODO fix endianness
         let data = fs::read(PathBuf::from(path))?;
@@ -131,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new() {
+    fn test_new_console() {
         let c = new_console();
         assert_eq!(c.cartridge.prg.len(), 131_072);
         assert_eq!(c.cartridge.chr.len(), 131_072);
@@ -147,27 +141,27 @@ mod tests {
     }
 
     #[test]
-    fn test_step_seconds() {
+    fn test_console_step_seconds() {
         // TODO
     }
 
     #[test]
-    fn test_stall() {
+    fn test_console_stall() {
         // TODO
     }
 
     #[test]
-    fn test_nmi_interrupt() {
+    fn test_console_nmi_interrupt() {
         // TODO
     }
 
     #[test]
-    fn test_irq_interrupt() {
+    fn test_console_irq_interrupt() {
         // TODO
     }
 
     #[test]
-    fn test_sound() {
+    fn test_console_sound() {
         let mut c = new_console();
         // Test basic control flow by playing audio
         //   lda #$01 ; square 1 (opcode 161)
@@ -237,17 +231,17 @@ mod tests {
     }
 
     #[test]
-    fn test_load_state() {
+    fn test_console_load_state() {
         // TODO
     }
 
     #[test]
-    fn test_load_sram() {
+    fn test_console_load_sram() {
         // TODO
     }
 
     #[test]
-    fn test_save_sram() {
+    fn test_console_save_sram() {
         // TODO
     }
 }

@@ -91,7 +91,7 @@ impl Cartridge {
 
         let sram = vec![0; SRAM_SIZE];
 
-        Ok(Cartridge {
+        Ok(Self {
             prg,
             chr,
             sram,

@@ -4,16 +4,16 @@ use super::{
 };
 
 // The addressing mode for each instruction
-#[rustfmt::skip]
 pub const INSTRUCTION_MODES: [u8; 256] = [
-    6, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6,  3,  6,  3, 2, 2, 2, 2,
-    1, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6,  3,  6,  3, 2, 2, 2, 2,
-    6, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6,  3,  6,  3, 2, 2, 2, 2,
-    6, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 8, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6,  3,  6,  3, 2, 2, 2, 2,
-    5, 7, 5, 7, 11, 11, 11, 11, 6, 5, 6, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 13, 13, 6,  3,  6,  3, 2, 2, 3, 3,
-    5, 7, 5, 7, 11, 11, 11, 11, 6, 5, 6, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 13, 13, 6,  3,  6,  3, 2, 2, 3, 3,
-    5, 7, 5, 7, 11, 11, 11, 11, 6, 5, 6, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6,  3,  6,  3, 2, 2, 2, 2,
-    5, 7, 5, 7, 11, 11, 11, 11, 6, 5, 6, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6,  3,  6,  3, 2, 2, 2, 2,
+    6, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6, 3, 6, 3, 2,
+    2, 2, 2, 1, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6, 3,
+    6, 3, 2, 2, 2, 2, 6, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12,
+    12, 6, 3, 6, 3, 2, 2, 2, 2, 6, 7, 6, 7, 11, 11, 11, 11, 6, 5, 4, 5, 8, 1, 1, 1, 10, 9, 6, 9,
+    12, 12, 12, 12, 6, 3, 6, 3, 2, 2, 2, 2, 5, 7, 5, 7, 11, 11, 11, 11, 6, 5, 6, 5, 1, 1, 1, 1, 10,
+    9, 6, 9, 12, 12, 13, 13, 6, 3, 6, 3, 2, 2, 3, 3, 5, 7, 5, 7, 11, 11, 11, 11, 6, 5, 6, 5, 1, 1,
+    1, 1, 10, 9, 6, 9, 12, 12, 13, 13, 6, 3, 6, 3, 2, 2, 3, 3, 5, 7, 5, 7, 11, 11, 11, 11, 6, 5, 6,
+    5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6, 3, 6, 3, 2, 2, 2, 2, 5, 7, 5, 7, 11, 11, 11, 11,
+    6, 5, 6, 5, 1, 1, 1, 1, 10, 9, 6, 9, 12, 12, 12, 12, 6, 3, 6, 3, 2, 2, 2, 2,
 ];
 
 // The size of each instruction in bytes
@@ -76,9 +76,10 @@ const INSTRUCTION_NAMES: [&str; 256] = [
     "ISC", "SED", "SBC", "NOP", "ISC", "NOP", "SBC", "INC", "ISC",
 ];
 
-pub fn print_mode_map() {
+pub fn print_instruction_list() {
     for (i, ins) in INSTRUCTION_NAMES.iter().enumerate() {
-        let mode_name = match INSTRUCTION_MODES[i] {
+        let mode_num = INSTRUCTION_MODES[i];
+        let mode_name = match mode_num {
             1 => "Absolute",
             2 => "AbsoluteX",
             3 => "AbsoluteY",
@@ -94,7 +95,13 @@ pub fn print_mode_map() {
             13 => "ZeroPagedY",
             _ => "",
         };
-        println!("{}: {} - {} ({})", i, ins, mode_name, INSTRUCTION_MODES[i]);
+        let size = INSTRUCTION_SIZES[i];
+        let cycles = INSTRUCTION_CYCLES[i];
+        let page_cycles = INSTRUCTION_PAGE_CYCLES[i];
+        println!(
+            "{:3} {} : mode: {:2} {:15}  size: {}  cycles: {}  page_cycles: {}",
+            i, ins, mode_num, mode_name, size, cycles, page_cycles
+        );
     }
 }
 
@@ -866,6 +873,11 @@ mod tests {
         let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
         let rom_path = PathBuf::from(rom);
         Console::new(&rom_path).expect("valid console")
+    }
+
+    #[test]
+    fn print_ins_list() {
+        print_instruction_list();
     }
 
     #[test]

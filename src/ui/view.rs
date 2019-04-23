@@ -55,11 +55,6 @@ impl View for GameView {
         unsafe {
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
         }
-        if self.console.load_state(&self.save_path).is_ok() {
-            return;
-        } else {
-            self.console.reset();
-        }
         let _ = self.console.load_sram(&self.sram_path);
         unimplemented!();
     }
