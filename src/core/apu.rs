@@ -1,6 +1,3 @@
-use super::{console::Console, cpu::CPU_FREQUENCY, memory::read_byte};
-
-const FRAME_COUNTER_RATE: f64 = CPU_FREQUENCY / 240.0;
 const LENGTH_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
@@ -25,16 +22,16 @@ const DMC_TABLE: [u8; 16] = [
 // Audio Processing Unit
 pub struct APU {
     channel: f32,
-    sample_rate: f32,
-    pulse1: Pulse,
-    pulse2: Pulse,
-    triangle: Triangle,
-    noise: Noise,
-    dmc: DMC,
-    cycle: u64,
-    frame_period: u8,
-    frame_value: u8,
-    frame_irq: bool,
+    pub sample_rate: f32,
+    pub pulse1: Pulse,
+    pub pulse2: Pulse,
+    pub triangle: Triangle,
+    pub noise: Noise,
+    pub dmc: DMC,
+    pub cycle: u64,
+    pub frame_period: u8,
+    pub frame_value: u8,
+    pub frame_irq: bool,
     pulse_table: [f32; 31],
     tnd_table: [f32; 203],
 }
@@ -65,25 +62,7 @@ impl APU {
         apu
     }
 
-    pub fn step(&mut self, c: &mut Console) {
-        let cycle1 = self.cycle as f64;
-        self.cycle += 1;
-        let cycle2 = self.cycle as f64;
-        self.step_timer(c);
-        let frame1 = (cycle1 / FRAME_COUNTER_RATE) as isize;
-        let frame2 = (cycle2 / FRAME_COUNTER_RATE) as isize;
-        if frame1 != frame2 {
-            self.step_frame_counter(c);
-        }
-        let sample_rate = f64::from(self.sample_rate);
-        let sample1 = (cycle1 / sample_rate) as isize;
-        let sample2 = (cycle2 / sample_rate) as isize;
-        if sample1 != sample2 {
-            self.send_sample()
-        }
-    }
-
-    fn send_sample(&mut self) {
+    pub fn send_sample(&mut self) {
         self.channel = self.output();
     }
 
@@ -172,69 +151,23 @@ impl APU {
         }
     }
 
-    fn step_timer(&mut self, c: &mut Console) {
-        if self.cycle % 2 == 0 {
-            self.pulse1.step_timer();
-            self.pulse2.step_timer();
-            self.noise.step_timer();
-            self.dmc.step_timer(c);
-        }
-        self.triangle.step_timer();
-    }
-
-    // mode 0:    mode 1:       function
-    // ---------  -----------  -----------------------------
-    //  - - - f    - - - - -    IRQ (if bit 6 is clear)
-    //  - l - l    l - l - -    Length counter and sweep
-    //  e e e e    e e e e -    Envelope and linear counter
-    fn step_frame_counter(&mut self, c: &mut Console) {
-        match self.frame_period {
-            4 => {
-                self.frame_value = (self.frame_value + 1) % 4;
-                self.step_envelope();
-                if self.frame_value % 2 != 0 {
-                    self.step_sweep();
-                    self.step_length();
-                }
-                if self.frame_value == 3 {
-                    self.trigger_irq(c);
-                }
-            }
-            5 => {
-                self.frame_value = (self.frame_value + 1) % 5;
-                self.step_envelope();
-                if self.frame_value % 2 != 0 {
-                    self.step_sweep();
-                    self.step_length();
-                }
-            }
-            _ => (),
-        }
-    }
-
-    fn step_envelope(&mut self) {
+    pub fn step_envelope(&mut self) {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
         self.triangle.step_counter();
         self.noise.step_envelope();
     }
 
-    fn step_sweep(&mut self) {
+    pub fn step_sweep(&mut self) {
         self.pulse1.step_sweep();
         self.pulse2.step_sweep();
     }
 
-    fn step_length(&mut self) {
+    pub fn step_length(&mut self) {
         self.pulse1.step_length();
         self.pulse2.step_length();
         self.triangle.step_length();
         self.noise.step_length();
-    }
-
-    fn trigger_irq(&self, c: &mut Console) {
-        if self.frame_irq {
-            c.cpu.trigger_irq();
-        }
     }
 
     fn output(&self) -> f32 {
@@ -257,19 +190,19 @@ impl Default for APU {
 
 // Delta Modulation Channel
 #[derive(Default)]
-struct DMC {
-    enabled: bool,
-    value: u8,
-    sample_address: u16,
-    sample_length: u16,
-    current_address: u16,
-    current_length: u16,
-    shift_register: u8,
-    bit_count: u8,
-    tick_period: u8,
-    tick_value: u8,
-    loops: bool,
-    irq: bool,
+pub struct DMC {
+    pub enabled: bool,
+    pub value: u8,
+    pub sample_address: u16,
+    pub sample_length: u16,
+    pub current_address: u16,
+    pub current_length: u16,
+    pub shift_register: u8,
+    pub bit_count: u8,
+    pub tick_period: u8,
+    pub tick_value: u8,
+    pub loops: bool,
+    pub irq: bool,
 }
 
 impl DMC {
@@ -295,45 +228,9 @@ impl DMC {
         self.sample_length = (u16::from(val) << 4) | 1;
     }
 
-    fn restart(&mut self) {
+    pub fn restart(&mut self) {
         self.current_address = self.sample_address;
         self.current_length = self.sample_length;
-    }
-
-    fn step_timer(&mut self, c: &mut Console) {
-        if self.enabled {
-            if self.current_length > 0 && self.bit_count == 0 {
-                c.cpu.stall += 4;
-                self.shift_register = read_byte(c, self.current_address);
-                self.bit_count = 8;
-                self.current_address += 1;
-                if self.current_address == 0 {
-                    self.current_address = 0x8000;
-                }
-                self.current_length -= 1;
-                if self.current_length == 0 && self.loops {
-                    self.restart();
-                }
-            }
-
-            if self.tick_value == 0 {
-                self.tick_value = self.tick_period;
-
-                if self.bit_count != 0 {
-                    if self.shift_register & 1 == 1 {
-                        if self.value <= 125 {
-                            self.value += 2;
-                        }
-                    } else if self.value >= 2 {
-                        self.value -= 2;
-                    }
-                    self.shift_register >>= 1;
-                    self.bit_count -= 1;
-                }
-            } else {
-                self.tick_value -= 1;
-            }
-        }
     }
 
     fn output(&self) -> u8 {
@@ -342,7 +239,7 @@ impl DMC {
 }
 
 #[derive(Default)]
-struct Pulse {
+pub struct Pulse {
     enabled: bool,
     channel: u8,
     length_enabled: bool,
@@ -403,7 +300,7 @@ impl Pulse {
         self.duty_value = 0;
     }
 
-    fn step_timer(&mut self) {
+    pub fn step_timer(&mut self) {
         if self.timer_value == 0 {
             self.timer_value = self.timer_period;
             self.duty_value = (self.duty_value + 1) % 8;
@@ -483,7 +380,7 @@ impl Pulse {
 }
 
 #[derive(Default)]
-struct Triangle {
+pub struct Triangle {
     enabled: bool,
     length_enabled: bool,
     length_value: u8,
@@ -516,7 +413,7 @@ impl Triangle {
         self.counter_reload = true;
     }
 
-    fn step_timer(&mut self) {
+    pub fn step_timer(&mut self) {
         if self.timer_value == 0 {
             self.timer_value = self.timer_period;
             if self.length_value > 0 && self.counter_value > 0 {
@@ -557,7 +454,7 @@ impl Triangle {
 }
 
 #[derive(Default)]
-struct Noise {
+pub struct Noise {
     enabled: bool,
     mode: bool,
     shift_register: u16,
@@ -601,7 +498,7 @@ impl Noise {
         self.envelope_start = true;
     }
 
-    fn step_timer(&mut self) {
+    pub fn step_timer(&mut self) {
         if self.timer_value == 0 {
             self.timer_value = self.timer_period;
             let shift = if self.mode { 6 } else { 1 };

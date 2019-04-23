@@ -1,4 +1,3 @@
-use super::{console::Console, memory::read_ppu};
 use image::{ImageBuffer, Rgba};
 
 const COLORS: [u32; 64] = [
@@ -76,7 +75,7 @@ pub struct PPU {
 
     // storage variables
     palette_data: [u8; 32],
-    name_table_data: [u8; 2048],
+    pub name_table_data: [u8; 2048],
     pub oam_data: [u8; 256], // Object Attribute Memory
     front: ImageBuffer<Rgba<u8>, Vec<u8>>,
     back: ImageBuffer<Rgba<u8>, Vec<u8>>,
@@ -97,25 +96,25 @@ pub struct PPU {
     nmi_delay: u8,
 
     // background temporary variables
-    name_table_byte: u8,
-    attribute_table_byte: u8,
-    low_tile_byte: u8,
-    high_tile_byte: u8,
+    pub name_table_byte: u8,
+    pub attribute_table_byte: u8,
+    pub low_tile_byte: u8,
+    pub high_tile_byte: u8,
     pub tile_data: u64,
 
     // sprite temporary variables
     pub sprite_count: usize,
-    sprite_patterns: [u32; 8],
-    sprite_positions: [u8; 8],
-    sprite_priorities: [u8; 8],
-    sprite_indexes: [u8; 8],
+    pub sprite_patterns: [u32; 8],
+    pub sprite_positions: [u8; 8],
+    pub sprite_priorities: [u8; 8],
+    pub sprite_indexes: [u8; 8],
 
     // $2000 PPUCTRL
     flag_name_table: u8,       // 0: $2000; 1: $2400; 2: $2800; 3: $2C00
     pub flag_increment: bool,  // false: add 1; true: add 32
-    flag_sprite_table: u8,     // 0: $0000; 1: $1000; ignored in 8x16 mode
+    pub flag_sprite_table: u8, // 0: $0000; 1: $1000; ignored in 8x16 mode
     flag_background_table: u8, // 0: $0000; 1: $1000
-    flag_sprite_size: u8,      // 0: 8x8; 1: 8x16
+    pub flag_sprite_size: u8,  // 0: 8x8; 1: 8x16
     flag_master_slave: u8,     // 0: read EXT; 1: write EXT
 
     // $2001 PPUMASK
@@ -231,31 +230,11 @@ impl PPU {
         self.palette_data[addr as usize] = val;
     }
 
-    pub fn fetch_name_table_byte(&mut self, c: &mut Console) {
-        let addr = 0x2000 | (self.v & 0x0FFF);
-        self.name_table_byte = read_ppu(c, addr);
-    }
-
-    pub fn fetch_attr_table_byte(&mut self, c: &mut Console) {
-        let v = self.v;
-        let addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-        let shift = ((v >> 4) & 4) | (v & 2);
-        self.attribute_table_byte = ((read_ppu(c, addr) >> shift) & 3) << 2;
-    }
-
-    fn get_tile_byte_addr(&self) -> u16 {
+    pub fn get_tile_byte_addr(&self) -> u16 {
         let fine_y = (self.v >> 12) & 7;
         let table = self.flag_background_table;
         let tile = self.name_table_byte;
         0x1000 * u16::from(table) + u16::from(tile) * 16 + fine_y
-    }
-
-    pub fn fetch_low_tile_byte(&mut self, c: &mut Console) {
-        self.low_tile_byte = read_ppu(c, self.get_tile_byte_addr());
-    }
-
-    pub fn fetch_high_tile_byte(&mut self, c: &mut Console) {
-        self.high_tile_byte = read_ppu(c, self.get_tile_byte_addr() + 8);
     }
 
     pub fn fetch_tile_data(&self) -> u32 {
@@ -303,49 +282,6 @@ impl PPU {
         (0, 0)
     }
 
-    pub fn fetch_sprite_pattern(&mut self, c: &mut Console, i: u8, mut row: u32) -> u32 {
-        let mut tile = self.oam_data[(i * 4 + 1) as usize];
-        let attributes = self.oam_data[(i * 4 + 2) as usize];
-        let addr = if self.flag_sprite_size == 0 {
-            if attributes & 0x80 == 0x80 {
-                row = 7 - row;
-            }
-            0x1000 * u16::from(self.flag_sprite_table) + u16::from(tile) * 16 + (row as u16)
-        } else {
-            if attributes & 0x80 == 0x80 {
-                row = 15 - row;
-            }
-            let table = tile & 1;
-            tile &= 0xFE;
-            if row > 7 {
-                tile += 1;
-                row -= 8;
-            }
-            0x1000 * u16::from(table) + u16::from(tile) * 16 + (row as u16)
-        };
-        let a = (attributes & 3) << 2;
-        let mut low_tile_byte = read_ppu(c, addr);
-        let mut high_tile_byte = read_ppu(c, addr + 8);
-        let mut data: u32 = 0;
-        for _ in 0..8 {
-            let (p1, p2): (u8, u8);
-            if attributes & 0x40 == 0x40 {
-                p1 = low_tile_byte & 1;
-                p2 = (high_tile_byte & 1) << 1;
-                low_tile_byte >>= 1;
-                high_tile_byte >>= 1;
-            } else {
-                p1 = (low_tile_byte & 0x80) >> 7;
-                p2 = (high_tile_byte & 0x80) >> 6;
-                low_tile_byte <<= 1;
-                high_tile_byte <<= 1;
-            }
-            data <<= 4;
-            data |= u32::from(a | p1 | p2);
-        }
-        data
-    }
-
     // Operations
 
     pub fn write_control(&mut self, val: u8) {
@@ -380,11 +316,12 @@ impl PPU {
     }
 
     // Update cycle, scan_line and frame counters
-    pub fn tick(&mut self, c: &mut Console) {
+    pub fn tick(&mut self) -> bool {
+        let mut trigger_nmi = false;
         if self.nmi_delay > 0 {
             self.nmi_delay -= 1;
             if self.nmi_delay == 0 && self.nmi_output && self.nmi_occurred {
-                c.cpu.trigger_nmi();
+                trigger_nmi = true;
             }
         }
 
@@ -405,6 +342,7 @@ impl PPU {
                 self.f ^= 1;
             }
         }
+        trigger_nmi
     }
 
     pub fn render_pixel(&mut self) {
@@ -439,32 +377,6 @@ impl PPU {
         let palette_idx = self.read_palette(u16::from(color)) % 64;
         let color = self.palette[palette_idx as usize];
         self.back.put_pixel(x, y, color);
-    }
-
-    pub fn evaluate_sprites(&mut self, c: &mut Console) {
-        let height = if self.flag_sprite_size == 0 { 8 } else { 16 };
-        let mut count: usize = 0;
-        for i in 0u8..64 {
-            let y = self.oam_data[(i * 4) as usize];
-            let a = self.oam_data[(i * 4 + 2) as usize];
-            let x = self.oam_data[(i * 4 + 3) as usize];
-            let row = self.scan_line - u32::from(y);
-            if row >= height {
-                continue;
-            }
-            if count < 8 {
-                self.sprite_patterns[count] = self.fetch_sprite_pattern(c, i, row);
-                self.sprite_positions[count] = x;
-                self.sprite_priorities[count] = (a >> 5) & 1;
-                self.sprite_indexes[count] = i;
-            }
-            count += 1;
-        }
-        if count > 8 {
-            count = 8;
-            self.flag_sprite_overflow = 1;
-        }
-        self.sprite_count = count;
     }
 
     pub fn set_vertical_blank(&mut self) {

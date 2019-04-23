@@ -5,12 +5,13 @@ use super::{
     cpu::{Interrupt, CPU, CPU_FREQUENCY},
     cpu_instructions::{execute, php, print_instruction},
     mapper::{new_mapper, Mapper},
-    memory::{push16, read16, read_byte},
+    memory::{push16, read16, read_byte, read_ppu},
     ppu::PPU,
 };
 use std::{error::Error, fs, path::PathBuf};
 
 const RAM_SIZE: usize = 2048;
+const FRAME_COUNTER_RATE: f64 = CPU_FREQUENCY / 240.0;
 
 /// The NES Console
 pub struct Console {
@@ -95,7 +96,9 @@ impl Console {
     }
 
     fn step_ppu(&mut self) {
-        // self.ppu.tick(self);
+        if self.ppu.tick() {
+            self.cpu.trigger_nmi();
+        }
 
         let rendering_enabled =
             self.ppu.flag_show_background != 0 || self.ppu.flag_show_sprites != 0;
@@ -114,10 +117,22 @@ impl Console {
                 self.ppu.tile_data <<= 4;
                 match self.ppu.cycle % 8 {
                     0 => self.ppu.store_tile_data(),
-                    // 1 => self.ppu.fetch_name_table_byte(self),
-                    // 3 => self.ppu.fetch_attr_table_byte(self),
-                    // 5 => self.ppu.fetch_low_tile_byte(self),
-                    // 7 => self.ppu.fetch_high_tile_byte(self),
+                    1 => {
+                        let addr = 0x2000 | (self.ppu.v & 0x0FFF);
+                        self.ppu.name_table_byte = read_ppu(self, addr);
+                    }
+                    3 => {
+                        let v = self.ppu.v;
+                        let addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+                        let shift = ((v >> 4) & 4) | (v & 2);
+                        self.ppu.attribute_table_byte = ((read_ppu(self, addr) >> shift) & 3) << 2;
+                    }
+                    5 => {
+                        self.ppu.low_tile_byte = read_ppu(self, self.ppu.get_tile_byte_addr());
+                    }
+                    7 => {
+                        self.ppu.high_tile_byte = read_ppu(self, self.ppu.get_tile_byte_addr() + 8);
+                    }
                     _ => (),
                 }
             }
@@ -140,7 +155,7 @@ impl Console {
         // sprite logic
         if rendering_enabled && self.ppu.cycle == 257 {
             if visible_line {
-                // self.ppu.evaluate_sprites(self);
+                self.evaluate_ppu_sprites();
             } else {
                 self.ppu.sprite_count = 0;
             }
@@ -180,10 +195,167 @@ impl Console {
         // }
     }
 
-    fn step_apu(&mut self) {}
+    fn step_apu(&mut self) {
+        let cycle1 = self.apu.cycle as f64;
+        self.apu.cycle += 1;
+        let cycle2 = self.apu.cycle as f64;
+        if self.apu.cycle % 2 == 0 {
+            self.apu.pulse1.step_timer();
+            self.apu.pulse2.step_timer();
+            self.apu.noise.step_timer();
+            self.step_dmc_timer();
+        }
+        self.apu.triangle.step_timer();
+        let frame1 = (cycle1 / FRAME_COUNTER_RATE) as isize;
+        let frame2 = (cycle2 / FRAME_COUNTER_RATE) as isize;
+        if frame1 != frame2 {
+            // mode 0:    mode 1:       function
+            // ---------  -----------  -----------------------------
+            //  - - - f    - - - - -    IRQ (if bit 6 is clear)
+            //  - l - l    l - l - -    Length counter and sweep
+            //  e e e e    e e e e -    Envelope and linear counter
+            match self.apu.frame_period {
+                4 => {
+                    self.apu.frame_value = (self.apu.frame_value + 1) % 4;
+                    self.apu.step_envelope();
+                    if self.apu.frame_value % 2 != 0 {
+                        self.apu.step_sweep();
+                        self.apu.step_length();
+                    }
+                    if self.apu.frame_value == 3 && self.apu.frame_irq {
+                        self.cpu.trigger_irq();
+                    }
+                }
+                5 => {
+                    self.apu.frame_value = (self.apu.frame_value + 1) % 5;
+                    self.apu.step_envelope();
+                    if self.apu.frame_value % 2 != 0 {
+                        self.apu.step_sweep();
+                        self.apu.step_length();
+                    }
+                }
+                _ => (),
+            }
+        }
+        let sample_rate = f64::from(self.apu.sample_rate);
+        let sample1 = (cycle1 / sample_rate) as isize;
+        let sample2 = (cycle2 / sample_rate) as isize;
+        if sample1 != sample2 {
+            self.apu.send_sample()
+        }
+    }
+
+    fn step_dmc_timer(&mut self) {
+        if self.apu.dmc.enabled {
+            if self.apu.dmc.current_length > 0 && self.apu.dmc.bit_count == 0 {
+                self.cpu.stall += 4;
+                self.apu.dmc.shift_register = read_byte(self, self.apu.dmc.current_address);
+                self.apu.dmc.bit_count = 8;
+                self.apu.dmc.current_address += 1;
+                if self.apu.dmc.current_address == 0 {
+                    self.apu.dmc.current_address = 0x8000;
+                }
+                self.apu.dmc.current_length -= 1;
+                if self.apu.dmc.current_length == 0 && self.apu.dmc.loops {
+                    self.apu.dmc.restart();
+                }
+            }
+
+            if self.apu.dmc.tick_value == 0 {
+                self.apu.dmc.tick_value = self.apu.dmc.tick_period;
+
+                if self.apu.dmc.bit_count != 0 {
+                    if self.apu.dmc.shift_register & 1 == 1 {
+                        if self.apu.dmc.value <= 125 {
+                            self.apu.dmc.value += 2;
+                        }
+                    } else if self.apu.dmc.value >= 2 {
+                        self.apu.dmc.value -= 2;
+                    }
+                    self.apu.dmc.shift_register >>= 1;
+                    self.apu.dmc.bit_count -= 1;
+                }
+            } else {
+                self.apu.dmc.tick_value -= 1;
+            }
+        }
+    }
 
     pub fn set_audio_channel(&mut self) {
         unimplemented!();
+    }
+
+    fn evaluate_ppu_sprites(&mut self) {
+        let height = if self.ppu.flag_sprite_size == 0 {
+            8
+        } else {
+            16
+        };
+        let mut count: usize = 0;
+        for i in 0u8..64 {
+            let y = self.ppu.oam_data[(i * 4) as usize];
+            let a = self.ppu.oam_data[(i * 4 + 2) as usize];
+            let x = self.ppu.oam_data[(i * 4 + 3) as usize];
+            let row = self.ppu.scan_line - u32::from(y);
+            if row >= height {
+                continue;
+            }
+            if count < 8 {
+                self.ppu.sprite_patterns[count] = self.fetch_ppu_sprite_pattern(i, row);
+                self.ppu.sprite_positions[count] = x;
+                self.ppu.sprite_priorities[count] = (a >> 5) & 1;
+                self.ppu.sprite_indexes[count] = i;
+            }
+            count += 1;
+        }
+        if count > 8 {
+            count = 8;
+            self.ppu.flag_sprite_overflow = 1;
+        }
+        self.ppu.sprite_count = count;
+    }
+
+    fn fetch_ppu_sprite_pattern(&mut self, i: u8, mut row: u32) -> u32 {
+        let mut tile = self.ppu.oam_data[(i * 4 + 1) as usize];
+        let attributes = self.ppu.oam_data[(i * 4 + 2) as usize];
+        let addr = if self.ppu.flag_sprite_size == 0 {
+            if attributes & 0x80 == 0x80 {
+                row = 7 - row;
+            }
+            0x1000 * u16::from(self.ppu.flag_sprite_table) + u16::from(tile) * 16 + (row as u16)
+        } else {
+            if attributes & 0x80 == 0x80 {
+                row = 15 - row;
+            }
+            let table = tile & 1;
+            tile &= 0xFE;
+            if row > 7 {
+                tile += 1;
+                row -= 8;
+            }
+            0x1000 * u16::from(table) + u16::from(tile) * 16 + (row as u16)
+        };
+        let a = (attributes & 3) << 2;
+        let mut low_tile_byte = read_ppu(self, addr);
+        let mut high_tile_byte = read_ppu(self, addr + 8);
+        let mut data: u32 = 0;
+        for _ in 0..8 {
+            let (p1, p2): (u8, u8);
+            if attributes & 0x40 == 0x40 {
+                p1 = low_tile_byte & 1;
+                p2 = (high_tile_byte & 1) << 1;
+                low_tile_byte >>= 1;
+                high_tile_byte >>= 1;
+            } else {
+                p1 = (low_tile_byte & 0x80) >> 7;
+                p2 = (high_tile_byte & 0x80) >> 6;
+                low_tile_byte <<= 1;
+                high_tile_byte <<= 1;
+            }
+            data <<= 4;
+            data |= u32::from(a | p1 | p2);
+        }
+        data
     }
 
     pub fn load_sram(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
