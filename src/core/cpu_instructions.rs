@@ -1,6 +1,6 @@
 use super::{
     console::Console,
-    memory::{pull, pull16, push, push16, read16, read16bug, read_byte, write},
+    memory::{pull, pull16, push, push16, read16, read16bug, read_byte, write_byte},
 };
 
 // The addressing mode for each instruction
@@ -203,7 +203,7 @@ pub fn execute(c: &mut Console, opcode: u8) {
     };
 }
 
-pub fn addr_mode(c: &Console, mode: u8) -> (u16, bool) {
+pub fn addr_mode(c: &mut Console, mode: u8) -> (u16, bool) {
     match mode {
         1 => abs(c),
         2 => absx(c),
@@ -242,12 +242,12 @@ fn compare(c: &mut Console, a: u8, b: u8) {
 /// # Addressing modes
 
 /// Absolute
-pub fn abs(c: &Console) -> (u16, bool) {
+pub fn abs(c: &mut Console) -> (u16, bool) {
     (read16(c, c.cpu.pc + 1), false)
 }
 
 /// AbsoluteX
-pub fn absx(c: &Console) -> (u16, bool) {
+pub fn absx(c: &mut Console) -> (u16, bool) {
     let addr = read16(c, c.cpu.pc + 1);
     let xaddr = addr + u16::from(c.cpu.x);
     let page_crossed = pages_differ(addr, xaddr);
@@ -255,7 +255,7 @@ pub fn absx(c: &Console) -> (u16, bool) {
 }
 
 /// AbsoluteY
-pub fn absy(c: &Console) -> (u16, bool) {
+pub fn absy(c: &mut Console) -> (u16, bool) {
     let addr = read16(c, c.cpu.pc + 1);
     let yaddr = addr + u16::from(c.cpu.y);
     let page_crossed = pages_differ(addr, yaddr);
@@ -268,7 +268,7 @@ pub fn acc() -> (u16, bool) {
 }
 
 /// Immediate
-pub fn imm(c: &Console) -> (u16, bool) {
+pub fn imm(c: &mut Console) -> (u16, bool) {
     (c.cpu.pc + 1, false)
 }
 
@@ -278,35 +278,35 @@ pub fn imp() -> (u16, bool) {
 }
 
 /// IndexedIndirect
-pub fn idxind(c: &Console) -> (u16, bool) {
-    println!(
-        "read addr: 0x{:04X} -> 0x{:04X} + 0x{:04X}\nfinal addr: 0x{:04X}",
-        c.cpu.pc + 1,
-        read_byte(c, c.cpu.pc + 1),
-        c.cpu.x,
-        read16bug(c, u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x)),
-    );
-    (
-        read16bug(c, u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x)),
-        false,
-    )
+pub fn idxind(c: &mut Console) -> (u16, bool) {
+    // println!(
+    //     "read addr: 0x{:04X} -> 0x{:04X} + 0x{:04X}\nfinal addr: 0x{:04X}",
+    //     c.cpu.pc + 1,
+    //     read_byte(c, c.cpu.pc + 1),
+    //     c.cpu.x,
+    //     read16bug(c, u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x)),
+    // );
+    let addr = u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x);
+    (read16bug(c, addr), false)
 }
 
 /// Indirect
-pub fn ind(c: &Console) -> (u16, bool) {
-    (read16bug(c, read16(c, c.cpu.pc + 1)), false)
+pub fn ind(c: &mut Console) -> (u16, bool) {
+    let addr = read16(c, c.cpu.pc + 1);
+    (read16bug(c, addr), false)
 }
 
 /// IndirectIndexed
-pub fn indidx(c: &Console) -> (u16, bool) {
-    let addr = read16bug(c, u16::from(read_byte(c, c.cpu.pc + 1)));
+pub fn indidx(c: &mut Console) -> (u16, bool) {
+    let addr = u16::from(read_byte(c, c.cpu.pc + 1));
+    let addr = read16bug(c, addr);
     let yaddr = addr + u16::from(c.cpu.y);
     let page_crossed = pages_differ(addr, yaddr);
     (yaddr, page_crossed)
 }
 
 /// Relative
-pub fn rel(c: &Console) -> (u16, bool) {
+pub fn rel(c: &mut Console) -> (u16, bool) {
     let mut offset = u16::from(read_byte(c, c.cpu.pc + 1));
     if offset >= 0x80 {
         offset -= 0x100;
@@ -316,12 +316,12 @@ pub fn rel(c: &Console) -> (u16, bool) {
 }
 
 /// ZeroPage
-pub fn zpg(c: &Console) -> (u16, bool) {
+pub fn zpg(c: &mut Console) -> (u16, bool) {
     (u16::from(read_byte(c, c.cpu.pc + 1)), false)
 }
 
 /// ZeroPageX
-pub fn zpgx(c: &Console) -> (u16, bool) {
+pub fn zpgx(c: &mut Console) -> (u16, bool) {
     (
         u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x) & 0xFF,
         false,
@@ -329,7 +329,7 @@ pub fn zpgx(c: &Console) -> (u16, bool) {
 }
 
 /// ZeroPageY
-pub fn zpgy(c: &Console) -> (u16, bool) {
+pub fn zpgy(c: &mut Console) -> (u16, bool) {
     (
         u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.y) & 0xFF,
         false,
@@ -360,17 +360,17 @@ pub fn ldy(c: &mut Console, addr: u16) {
 /// STA: Store A in M
 pub fn sta(c: &mut Console, addr: u16) {
     println!("sta: {} -> 0x{:04X}", c.cpu.a, addr);
-    write(c, addr, c.cpu.a);
+    write_byte(c, addr, c.cpu.a);
 }
 
 /// STX: Store X in M
 pub fn stx(c: &mut Console, addr: u16) {
-    write(c, addr, c.cpu.x);
+    write_byte(c, addr, c.cpu.x);
 }
 
 /// STY: Store Y in M
 pub fn sty(c: &mut Console, addr: u16) {
-    write(c, addr, c.cpu.y);
+    write_byte(c, addr, c.cpu.y);
 }
 
 /// TAX: Transfer A to X
@@ -451,7 +451,7 @@ pub fn sbc(c: &mut Console, addr: u16) {
 /// DEC: Decrement M by One
 pub fn dec(c: &mut Console, addr: u16) {
     let val = read_byte(c, addr) - 1;
-    write(c, addr, val);
+    write_byte(c, addr, val);
     c.cpu.set_zn(val);
 }
 
@@ -470,7 +470,7 @@ pub fn dey(c: &mut Console) {
 /// INC: Increment M by One
 pub fn inc(c: &mut Console, addr: u16) {
     let val = read_byte(c, addr) + 1;
-    write(c, addr, val);
+    write_byte(c, addr, val);
     c.cpu.set_zn(val);
 }
 
@@ -512,7 +512,7 @@ pub fn asl(c: &mut Console, addr: u16, mode: u8) {
             let mut val = read_byte(c, addr);
             c.cpu.c = (val >> 7) & 1;
             val <<= 1;
-            write(c, addr, val);
+            write_byte(c, addr, val);
             c.cpu.set_zn(val);
         }
     }
@@ -545,7 +545,7 @@ pub fn lsr(c: &mut Console, addr: u16, mode: u8) {
             let mut val = read_byte(c, addr);
             c.cpu.c = val & 1;
             val >>= 1;
-            write(c, addr, val);
+            write_byte(c, addr, val);
             c.cpu.set_zn(val);
         }
     }
@@ -571,7 +571,7 @@ pub fn rol(c: &mut Console, addr: u16, mode: u8) {
             let mut val = read_byte(c, addr);
             c.cpu.c = (val >> 7) & 1;
             val = (val << 1) | tmp_c;
-            write(c, addr, val);
+            write_byte(c, addr, val);
             c.cpu.set_zn(val);
         }
     }
@@ -591,7 +591,7 @@ pub fn ror(c: &mut Console, addr: u16, mode: u8) {
             let mut val = read_byte(c, addr);
             c.cpu.c = val & 1;
             val = (val >> 1) | (tmp_c << 7);
-            write(c, addr, val);
+            write_byte(c, addr, val);
             c.cpu.set_zn(val);
         }
     }
@@ -866,7 +866,7 @@ pub fn xaa() {
 mod tests {
     use super::*;
     use crate::core::console::Console;
-    use crate::core::memory::{pull, pull16, read_byte, write};
+    use crate::core::memory::{pull, pull16, read_byte, write_byte};
     use std::path::PathBuf;
 
     fn new_console() -> Console {
@@ -875,10 +875,10 @@ mod tests {
         Console::new(&rom_path).expect("valid console")
     }
 
-    #[test]
-    fn print_ins_list() {
-        print_instruction_list();
-    }
+    // #[test]
+    // fn print_ins_list() {
+    //     print_instruction_list();
+    // }
 
     #[test]
     fn test_opcodes() {
@@ -912,14 +912,14 @@ mod tests {
                 // 0 | 1 | 1      | 0 | 0
                 // 1 | 1 | 1      | 0 | 0
 
-                write(c, addr, 0);
+                write_byte(c, addr, 0);
                 c.cpu.a = 0;
                 ora(c, addr);
                 assert_eq!(c.cpu.z, 1);
                 assert_eq!(c.cpu.n, 0);
                 c.reset();
 
-                write(c, addr, 1);
+                write_byte(c, addr, 1);
                 c.cpu.pc = u16::from(opcode);
                 c.cpu.a = 0;
                 ora(c, addr);
@@ -927,7 +927,7 @@ mod tests {
                 assert_eq!(c.cpu.n, 0);
                 c.reset();
 
-                write(c, addr, 0);
+                write_byte(c, addr, 0);
                 c.cpu.pc = u16::from(opcode);
                 c.cpu.a = 1;
                 ora(c, addr);
@@ -935,7 +935,7 @@ mod tests {
                 assert_eq!(c.cpu.n, 0);
                 c.reset();
 
-                write(c, addr, 1);
+                write_byte(c, addr, 1);
                 c.cpu.pc = u16::from(opcode);
                 c.cpu.a = 1;
                 ora(c, addr);
@@ -950,7 +950,7 @@ mod tests {
                 // val == 0   | 0 | 0   | 1 | 0
                 // val <= 127 | 0 | 2*M | 0 | 0
                 // val > 127  | 1 | 2*M | 0 | 0
-                write(c, addr, 0);
+                write_byte(c, addr, 0);
                 asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
                 assert_eq!(c.cpu.c, 0);
                 assert_eq!(c.cpu.z, 1);
@@ -958,7 +958,7 @@ mod tests {
                 assert_eq!(read_byte(c, addr), 0);
                 c.reset();
 
-                write(c, addr, 50);
+                write_byte(c, addr, 50);
                 asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
                 assert_eq!(c.cpu.c, 0);
                 assert_eq!(c.cpu.z, 0);
@@ -966,7 +966,7 @@ mod tests {
                 assert_eq!(read_byte(c, addr), 100);
                 c.reset();
 
-                write(c, addr, 130);
+                write_byte(c, addr, 130);
                 asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
                 assert_eq!(c.cpu.c, 1);
                 assert_eq!(c.cpu.z, 0);
@@ -1059,28 +1059,28 @@ mod tests {
                 // 0 | 1 | 0     | 1 | 0
                 // 1 | 1 | 1     | 0 | 0
 
-                write(c, addr, 0);
+                write_byte(c, addr, 0);
                 c.cpu.a = 0;
                 and(c, addr);
                 assert_eq!(c.cpu.z, 1);
                 assert_eq!(c.cpu.n, 0);
                 c.reset();
 
-                write(c, addr, 1);
+                write_byte(c, addr, 1);
                 c.cpu.a = 0;
                 and(c, addr);
                 assert_eq!(c.cpu.z, 1);
                 assert_eq!(c.cpu.n, 0);
                 c.reset();
 
-                write(c, addr, 0);
+                write_byte(c, addr, 0);
                 c.cpu.a = 1;
                 and(c, addr);
                 assert_eq!(c.cpu.z, 1);
                 assert_eq!(c.cpu.n, 0);
                 c.reset();
 
-                write(c, addr, 1);
+                write_byte(c, addr, 1);
                 c.cpu.a = 1;
                 and(c, addr);
                 assert_eq!(c.cpu.z, 0);

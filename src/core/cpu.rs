@@ -101,6 +101,10 @@ impl CPU {
             self.interrupt = Interrupt::IRQ;
         }
     }
+
+    pub fn trigger_nmi(&mut self) {
+        self.interrupt = Interrupt::NMI;
+    }
 }
 
 impl Default for CPU {

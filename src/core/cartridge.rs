@@ -1,17 +1,19 @@
-use super::{mapper::*, memory};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{error::Error, fmt, fs::File, io::Read, path::PathBuf};
 
 const INES_FILE_MAGIC: u32 = 0x1a53_454e;
 const PRG_ROM_SIZE: usize = 16384;
+const TRAINER_SIZE: usize = 512;
 const SRAM_SIZE: usize = 8192;
 
 /// Mirror options
-// pub enum Mirror {
-//     Horizontal,
-//     Vertical,
-//     Quad,
-// }
+pub enum Mirror {
+    Horizontal,
+    Vertical,
+    Single0,
+    Single1,
+    Quad,
+}
 
 /// An iNES File Header
 #[derive(Default, Debug)]
@@ -51,12 +53,9 @@ impl Cartridge {
     pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
         let mut rom_file = File::open(PathBuf::from(rom))?;
         let header = Cartridge::load_file_header(&mut rom_file)?;
-
-        // mapper lower four bits of mapper number
-        // mapper2 upper four bits of mapper number
-        let mapper1 = header.control1 >> 4;
-        let mapper2 = header.control2 >> 4;
-        let mapper = mapper1 | mapper2 << 4;
+        let mapper_lo = header.control1 >> 4;
+        let mapper_hi = header.control2 >> 4;
+        let mapper = mapper_lo | mapper_hi << 4;
 
         // nametable mirroring: bits 0 and 3
         // mirror1: 0: horizontal (vertical arrangement) (CIRAM A10 = PPU A11)
@@ -72,7 +71,8 @@ impl Cartridge {
 
         // bit 2 - 1: 512-byte trainer at $7000-$71FF (stored before PRG data)
         if header.control1 & 4 == 4 {
-            let mut buffer: Vec<u8> = vec![0; 512];
+            // TODO: implement trainer use?
+            let mut buffer: Vec<u8> = vec![0; TRAINER_SIZE];
             rom_file.read_exact(&mut buffer)?;
         }
 
@@ -84,7 +84,7 @@ impl Cartridge {
         let mut chr: Vec<u8> = vec![0; (header.num_chr as usize) * SRAM_SIZE];
         rom_file.read_exact(&mut chr)?;
 
-        // if 0, the board uses CHR RAM
+        // if num_chr == 0, the board uses CHR RAM
         if header.num_chr == 0 {
             chr = vec![0; SRAM_SIZE];
         }
@@ -104,60 +104,6 @@ impl Cartridge {
     pub fn read(&self, address: u16) -> u8 {
         let index = ((address - 0x8000) as usize % self.prg.len()) as usize;
         self.prg[index]
-    }
-
-    /// Attempts to return a valid Mapper type based on the Cartridge data
-    ///
-    /// Tries to match to one of the mapper numbers located in the '.nes' file header.
-    ///
-    /// 0 or 2 : Mapper2
-    /// 1      : Mapper1
-    /// 3      : Mapper3
-    /// 4      : Mapper4
-    /// 7      : Mapper7
-    ///
-    /// # Errors
-    ///
-    /// If none of the above numbers match, an error is returned.
-    pub fn get_mapper(&self) -> Result<Box<Mapper>, Box<Error>> {
-        match self.mapper {
-            0 | 2 => {
-                let prg_banks = (self.prg.len() / 0x4000) as usize;
-                Ok(Box::new(Mapper2 {
-                    prg_banks,
-                    prg_bank1: 0,
-                    prg_bank2: (prg_banks - 1) as usize,
-                }) as Box<Mapper>)
-            }
-            1 => {
-                let mut mapper = Mapper1 {
-                    shift_register: 0x10,
-                    ..Default::default()
-                };
-                mapper.prg_offsets[1] = memory::prg_bank_offset(self, -1, 0x4000);
-                Ok(Box::new(mapper) as Box<Mapper>)
-            }
-            3 => {
-                let prg_banks = self.prg.len() / 0x4000;
-                Ok(Box::new(Mapper3 {
-                    chr_bank: 0,
-                    prg_bank1: 0,
-                    prg_bank2: (prg_banks - 1) as usize,
-                }) as Box<Mapper>)
-            }
-            4 => {
-                let mut mapper = Mapper4 {
-                    ..Default::default()
-                };
-                mapper.prg_offsets[0] = memory::prg_bank_offset(self, 0, 0x2000);
-                mapper.prg_offsets[1] = memory::prg_bank_offset(self, 1, 0x2000);
-                mapper.prg_offsets[2] = memory::prg_bank_offset(self, -2, 0x2000);
-                mapper.prg_offsets[3] = memory::prg_bank_offset(self, -1, 0x2000);
-                Ok(Box::new(mapper) as Box<Mapper>)
-            }
-            7 => Ok(Box::new(Mapper7 { prg_bank: 0 }) as Box<Mapper>),
-            _ => Err(format!("unsupported mapper: {}", self.mapper).into()),
-        }
     }
 
     // Returns a valid iNES file header

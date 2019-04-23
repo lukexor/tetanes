@@ -1,21 +1,55 @@
 use super::cartridge::Cartridge;
+use std::error::Error;
 
 pub trait Mapper {
     fn name(&self) -> &'static str;
     fn read(&self, cartridge: &Cartridge, addr: u16) -> u8;
 }
 
+pub fn new_mapper(mapper: u8, prg_size: usize) -> Result<Box<Mapper>, Box<Error>> {
+    match mapper {
+        0 | 2 => Ok(Box::new(Mapper2::new(prg_size))),
+        1 => Ok(Box::new(Mapper1::new(prg_size))),
+        3 => Ok(Box::new(Mapper3::new(prg_size))),
+        4 => Ok(Box::new(Mapper4::new(prg_size))),
+        7 => Ok(Box::new(Mapper7::new())),
+        _ => Err(format!("unsupported mapper number: {}", mapper).into()),
+    }
+}
+
+fn prg_bank_offset(prg_size: usize, mut index: isize, offset: isize) -> usize {
+    if index >= 0x80 {
+        index -= 0x100;
+    }
+    index %= prg_size as isize / offset;
+    let mut offset = index * offset;
+    if offset < 0 {
+        offset += prg_size as isize;
+    }
+    offset as usize
+}
+
 #[derive(Default, Debug)]
-pub struct Mapper1 {
-    pub shift_register: u8,
-    pub control: u8,
-    pub prg_mode: u8,
-    pub chr_mode: u8,
-    pub prg_bank: u8,
-    pub chr_bank0: u8,
-    pub chr_bank1: u8,
-    pub prg_offsets: [usize; 2],
-    pub chr_offsets: [usize; 2],
+struct Mapper1 {
+    shift_register: u8,
+    control: u8,
+    prg_mode: u8,
+    chr_mode: u8,
+    prg_bank: u8,
+    chr_bank0: u8,
+    chr_bank1: u8,
+    prg_offsets: [usize; 2],
+    chr_offsets: [usize; 2],
+}
+
+impl Mapper1 {
+    fn new(prg_size: usize) -> Self {
+        Self {
+            shift_register: 0x10,
+            prg_offsets: [0, prg_bank_offset(prg_size, -1, 0x4000)],
+            ..Default::default()
+        }
+    }
 }
 
 impl Mapper for Mapper1 {
@@ -25,17 +59,28 @@ impl Mapper for Mapper1 {
 
     fn read(&self, cartridge: &Cartridge, addr: u16) -> u8 {
         let addr = addr - 0x8000;
-        let bank = (addr / 0x4000) as usize;
-        let offset = (addr % 0x4000) as usize;
-        cartridge.prg[self.prg_offsets[bank] + offset]
+        let prg_bank = (addr / 0x4000) as usize;
+        let prg_offset = (addr % 0x4000) as usize;
+        cartridge.prg[self.prg_offsets[prg_bank] + prg_offset]
     }
 }
 
 #[derive(Default, Debug)]
-pub struct Mapper2 {
-    pub prg_banks: usize,
-    pub prg_bank1: usize,
-    pub prg_bank2: usize,
+struct Mapper2 {
+    prg_banks: usize,
+    prg_bank1: usize,
+    prg_bank2: usize,
+}
+
+impl Mapper2 {
+    fn new(prg_size: usize) -> Self {
+        let prg_banks = prg_size / 0x4000;
+        Self {
+            prg_banks,
+            prg_bank2: (prg_banks - 1),
+            ..Default::default()
+        }
+    }
 }
 
 impl Mapper for Mapper2 {
@@ -49,10 +94,20 @@ impl Mapper for Mapper2 {
 }
 
 #[derive(Default, Debug)]
-pub struct Mapper3 {
-    pub chr_bank: usize,
-    pub prg_bank1: usize,
-    pub prg_bank2: usize,
+struct Mapper3 {
+    chr_bank: usize,
+    prg_bank1: usize,
+    prg_bank2: usize,
+}
+
+impl Mapper3 {
+    fn new(prg_size: usize) -> Self {
+        let prg_banks = prg_size / 0x4000;
+        Self {
+            prg_bank2: (prg_banks - 1) as usize,
+            ..Default::default()
+        }
+    }
 }
 
 impl Mapper for Mapper3 {
@@ -66,16 +121,30 @@ impl Mapper for Mapper3 {
 }
 
 #[derive(Default, Debug)]
-pub struct Mapper4 {
-    pub register: u8,
-    pub registers: [u8; 8],
-    pub prg_mode: u8,
-    pub chr_mode: u8,
-    pub prg_offsets: [usize; 4],
-    pub chr_offsets: [usize; 8],
-    pub reload: u8,
-    pub counter: u8,
-    pub irq_enable: bool,
+struct Mapper4 {
+    register: u8,
+    registers: [u8; 8],
+    prg_mode: u8,
+    chr_mode: u8,
+    prg_offsets: [usize; 4],
+    chr_offsets: [usize; 8],
+    reload: u8,
+    counter: u8,
+    irq_enable: bool,
+}
+
+impl Mapper4 {
+    fn new(prg_size: usize) -> Self {
+        Self {
+            prg_offsets: [
+                prg_bank_offset(prg_size, 0, 0x2000),
+                prg_bank_offset(prg_size, 1, 0x2000),
+                prg_bank_offset(prg_size, -2, 0x2000),
+                prg_bank_offset(prg_size, -1, 0x2000),
+            ],
+            ..Default::default()
+        }
+    }
 }
 
 impl Mapper for Mapper4 {
@@ -89,8 +158,16 @@ impl Mapper for Mapper4 {
 }
 
 #[derive(Default, Debug)]
-pub struct Mapper7 {
-    pub prg_bank: usize,
+struct Mapper7 {
+    prg_bank: usize,
+}
+
+impl Mapper7 {
+    fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
 }
 
 impl Mapper for Mapper7 {
