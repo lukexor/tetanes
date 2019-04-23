@@ -3,9 +3,9 @@ use super::{
     cartridge::Cartridge,
     controller::Controller,
     cpu::{Interrupt, CPU, CPU_FREQUENCY},
-    cpu_instructions::{execute, php, print_instruction},
-    mapper::{new_mapper, Mapper},
-    memory::{push16, read16, read_byte, read_ppu},
+    cpu_instructions::{execute, php, print_instruction, push16, read16},
+    mapper::Mapper1,
+    memory::{read_byte, read_ppu},
     ppu::PPU,
 };
 use std::{error::Error, fs, path::PathBuf};
@@ -21,14 +21,14 @@ pub struct Console {
     pub cartridge: Cartridge,
     pub controller1: Controller,
     pub controller2: Controller,
-    pub mapper: Box<Mapper>,
+    pub mapper: Mapper1,
     pub ram: Vec<u8>,
 }
 
 impl Console {
     pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
         let cartridge = Cartridge::new(rom)?;
-        let mapper = new_mapper(cartridge.mapper, cartridge.prg.len())?;
+        let mapper = Mapper1::new(cartridge.prg.len());
         let mut console = Self {
             cpu: CPU::new(),
             apu: APU::new(),
@@ -44,7 +44,7 @@ impl Console {
     }
 
     pub fn reset(&mut self) {
-        self.cpu.pc = read_byte(self, 0xFFFC).into();
+        self.cpu.pc = read16(self, 0xFFFC);
         self.cpu.sp = 0xFD;
         self.cpu.set_flags(0x24);
     }
@@ -393,9 +393,8 @@ mod tests {
         assert_eq!(c.cartridge.mapper, 1);
         assert_eq!(c.cartridge.mirror, 0);
         assert_eq!(c.cartridge.battery, 1);
-        assert_eq!("Mapper1", c.mapper.name());
         assert_eq!(c.ram.len(), RAM_SIZE);
-        assert_eq!(c.cpu.pc, 112);
+        assert_eq!(c.cpu.pc, 65392);
         assert_eq!(c.cpu.sp, 0xFD);
         assert_eq!(c.cpu.flags(), 0x24);
     }

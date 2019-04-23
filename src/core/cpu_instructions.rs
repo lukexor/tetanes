@@ -1,6 +1,6 @@
 use super::{
     console::Console,
-    memory::{pull, pull16, push, push16, read16, read16bug, read_byte, write_byte},
+    memory::{read_byte, write_byte},
 };
 
 // The addressing mode for each instruction
@@ -201,6 +201,60 @@ pub fn execute(c: &mut Console, opcode: u8) {
         248 => sed(c),
         _ => (),
     };
+}
+
+pub fn read16(c: &mut Console, addr: u16) -> u16 {
+    let lo = u16::from(read_byte(c, addr));
+    let hi = u16::from(read_byte(c, addr + 1));
+    hi << 8 | lo
+}
+
+// read16bug emulates a 6502 bug that caused the low byte to wrap without
+// incrementing the high byte
+pub fn read16bug(c: &mut Console, addr: u16) -> u16 {
+    let lo = u16::from(read_byte(c, addr));
+    let addr = (addr & 0xFF00) | u16::from(addr as u8 + 1);
+    let hi = u16::from(read_byte(c, addr));
+    hi << 8 | lo
+}
+
+/// Stack Functions
+
+// Push byte to stack
+pub fn push(c: &mut Console, val: u8) {
+    // println!(
+    //     "writing 0x{:04X} to stack (0x{:04X})",
+    //     val,
+    //     0x100 | u16::from(c.cpu.sp)
+    // );
+    write_byte(c, 0x100 | u16::from(c.cpu.sp), val);
+    c.cpu.sp -= 1;
+}
+
+// Pull byte from stack
+pub fn pull(c: &mut Console) -> u8 {
+    // println!(
+    //     "pulling 0x{:04X} from stack (0x{:04X})",
+    //     read_byte(c, 0x100 | u16::from(c.cpu.sp)),
+    //     0x100 | u16::from(c.cpu.sp)
+    // );
+    c.cpu.sp += 1;
+    read_byte(c, 0x100 | u16::from(c.cpu.sp))
+}
+
+// Push two bytes to stack
+pub fn push16(c: &mut Console, val: u16) {
+    let lo = (val & 0xFF) as u8;
+    let hi = (val >> 8) as u8;
+    push(c, hi);
+    push(c, lo);
+}
+
+// Pull two bytes from stack
+pub fn pull16(c: &mut Console) -> u16 {
+    let lo = u16::from(pull(c));
+    let hi = u16::from(pull(c));
+    hi << 8 | lo
 }
 
 pub fn addr_mode(c: &mut Console, mode: u8) -> (u16, bool) {
@@ -865,8 +919,11 @@ pub fn xaa() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::console::Console;
-    use crate::core::memory::{pull, pull16, read_byte, write_byte};
+    use crate::core::{
+        console::Console,
+        cpu_instructions::{pull, pull16},
+        memory::{read_byte, write_byte},
+    };
     use std::path::PathBuf;
 
     fn new_console() -> Console {
@@ -1019,13 +1076,13 @@ mod tests {
                 // 0
                 // 1
                 let cycles = c.cpu.cycles;
-                let addr = 0x0080;
+                let addr = 0xFFFF;
                 bpl(c, addr);
                 assert_eq!(c.cpu.pc, addr);
                 assert_eq!(c.cpu.cycles, cycles + 1);
 
                 let cycles = c.cpu.cycles;
-                let addr = 0xFF00;
+                let addr = 0x0080;
                 bpl(c, addr);
                 assert_eq!(c.cpu.pc, addr);
                 assert_eq!(c.cpu.cycles, cycles + 2);
@@ -1047,7 +1104,7 @@ mod tests {
             32 => {
                 let pc = c.cpu.pc;
                 jsr(c, addr);
-                assert_eq!(u16::from(pull(c)), pc - 1);
+                assert_eq!(u16::from(pull16(c)), pc - 1);
                 assert_eq!(c.cpu.pc, addr);
             }
             // "And" M with A
