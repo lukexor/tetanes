@@ -1,8 +1,8 @@
-use super::cartridge::Cartridge;
+use super::rom::Rom;
 
 // pub trait Mapper {
 //     fn name(&self) -> &'static str;
-//     fn read(&self, cartridge: &Cartridge, addr: u16) -> u8;
+//     fn read(&self, rom: &Rom, addr: u16) -> u8;
 // }
 
 // pub fn new_mapper(mapper: u8, prg_size: usize) -> Result<Box<Mapper>, Box<Error>> {
@@ -50,49 +50,49 @@ impl Mapper1 {
         }
     }
 
-    pub fn read(&self, cartridge: &Cartridge, addr: u16) -> u8 {
+    pub fn read(&self, rom: &Rom, addr: u16) -> u8 {
         match addr {
             0x0000...0x2000 => {
                 let bank = (addr / 0x1000) as usize;
                 let offset = (addr % 0x1000) as usize;
-                cartridge.chr[self.chr_offsets[bank] + offset]
+                rom.chr[self.chr_offsets[bank] + offset]
             }
-            0x6000...0x7FFF => cartridge.sram[addr as usize - 0x6000],
+            // 0x6000...0x7FFF => rom.sram[addr as usize - 0x6000],
             0x8000...0xFFFF => {
                 let addr = addr - 0x8000;
                 let bank = (addr / 0x4000) as usize;
                 let offset = (addr % 0x4000) as usize;
-                cartridge.prg[self.prg_offsets[bank] + offset]
+                rom.prg[self.prg_offsets[bank] + offset]
             }
             _ => panic!("unhandled mapper1 read at address: 0x{:04X}", addr),
         }
     }
 
-    pub fn write(&mut self, cartridge: &mut Cartridge, addr: u16, val: u8) {
+    pub fn write(&mut self, rom: &mut Rom, addr: u16, val: u8) {
         match addr {
             0x0000...0x2000 => {
                 let bank = (addr / 0x1000) as usize;
                 let offset = (addr % 0x1000) as usize;
-                cartridge.chr[self.chr_offsets[bank] + offset] = val;
+                rom.chr[self.chr_offsets[bank] + offset] = val;
             }
-            0x6000...0x7FFF => cartridge.sram[addr as usize - 0x6000] = val,
+            // 0x6000...0x7FFF => rom.sram[addr as usize - 0x6000] = val,
             0x8000...0xFFFF => {
                 if val & 0x80 == 0x80 {
                     self.shift_register = 0x10;
-                    self.write_control(cartridge, self.control | 0x0C);
-                    self.update_offsets(cartridge);
+                    self.write_control(rom, self.control | 0x0C);
+                    self.update_offsets(rom);
                 } else {
                     let complete = self.shift_register & 1 == 1;
                     self.shift_register >>= 1;
                     self.shift_register |= (val & 1) << 4;
                     if complete {
                         match addr {
-                            0x0000...0x9FFF => self.write_control(cartridge, self.shift_register),
+                            0x0000...0x9FFF => self.write_control(rom, self.shift_register),
                             0xA000...0xBFFF => self.chr_bank0 = self.shift_register,
                             0xC000...0xDFFF => self.chr_bank1 = self.shift_register,
                             0xE000...0xFFFF => self.prg_bank = self.shift_register & 0x0F,
                         }
-                        self.update_offsets(cartridge);
+                        self.update_offsets(rom);
                         self.shift_register = 0x10;
                     }
                 }
@@ -101,9 +101,9 @@ impl Mapper1 {
         }
     }
 
-    fn update_offsets(&mut self, cartridge: &mut Cartridge) {
-        let prg_size = cartridge.prg.len();
-        let chr_size = cartridge.chr.len();
+    fn update_offsets(&mut self, rom: &mut Rom) {
+        let prg_size = rom.prg.len();
+        let chr_size = rom.chr.len();
         match self.prg_mode {
             0 | 1 => {
                 self.prg_offsets[0] =
@@ -136,17 +136,17 @@ impl Mapper1 {
         }
     }
 
-    fn write_control(&mut self, cartridge: &mut Cartridge, val: u8) {
+    fn write_control(&mut self, rom: &mut Rom, val: u8) {
         self.control = val;
         self.chr_mode = (val >> 4) & 1;
         self.prg_mode = (val >> 2) & 3;
-        cartridge.mirror = match val & 3 {
-            0 => 2,
-            1 => 3,
-            2 => 1,
-            3 => 0,
-            _ => panic!("invalid mirror mode {}", val & 3),
-        }
+        // rom.mirror = match val & 3 {
+        //     0 => 2,
+        //     1 => 3,
+        //     2 => 1,
+        //     3 => 0,
+        //     _ => panic!("invalid mirror mode {}", val & 3),
+        // }
     }
 }
 
@@ -155,11 +155,11 @@ impl Mapper1 {
 //         "Mapper1"
 //     }
 
-//     fn read(&self, cartridge: &Cartridge, addr: u16) -> u8 {
+//     fn read(&self, rom: &Rom, addr: u16) -> u8 {
 //         let addr = addr - 0x8000;
 //         let prg_bank = (addr / 0x4000) as usize;
 //         let prg_offset = (addr % 0x4000) as usize;
-//         cartridge.prg[self.prg_offsets[prg_bank] + prg_offset]
+//         rom.prg[self.prg_offsets[prg_bank] + prg_offset]
 //     }
 // }
 
@@ -186,7 +186,7 @@ impl Mapper1 {
 //         "Mapper2"
 //     }
 
-//     fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+//     fn read(&self, _rom: &Rom, _addr: u16) -> u8 {
 //         unimplemented!();
 //     }
 // }
@@ -213,7 +213,7 @@ impl Mapper1 {
 //         "Mapper3"
 //     }
 
-//     fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+//     fn read(&self, _rom: &Rom, _addr: u16) -> u8 {
 //         unimplemented!();
 //     }
 // }
@@ -250,7 +250,7 @@ impl Mapper1 {
 //         "Mapper4"
 //     }
 
-//     fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+//     fn read(&self, _rom: &Rom, _addr: u16) -> u8 {
 //         unimplemented!();
 //     }
 // }
@@ -273,7 +273,7 @@ impl Mapper1 {
 //         "Mapper7"
 //     }
 
-//     fn read(&self, _cartridge: &Cartridge, _addr: u16) -> u8 {
+//     fn read(&self, _rom: &Rom, _addr: u16) -> u8 {
 //         unimplemented!();
 //     }
 // }

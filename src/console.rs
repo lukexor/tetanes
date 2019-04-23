@@ -1,14 +1,21 @@
-use super::{
-    apu::APU,
-    cartridge::Cartridge,
-    controller::Controller,
-    cpu::{Interrupt, CPU, CPU_FREQUENCY},
-    cpu_instructions::{execute, php, print_instruction, push16, read16},
-    mapper::Mapper1,
-    memory::{read_byte, read_ppu},
-    ppu::PPU,
-};
+use apu::APU;
+use controller::Controller;
+use cpu::{Interrupt, CPU, CPU_FREQUENCY};
+use cpu_instructions::{execute, php, print_instruction, push16, read16};
+use mapper::Mapper1;
+use memory::{read_byte, read_ppu};
+use ppu::PPU;
+use rom::Rom;
 use std::{error::Error, fs, path::PathBuf};
+
+mod apu;
+mod controller;
+mod cpu;
+mod cpu_instructions;
+mod mapper;
+mod memory;
+mod ppu;
+mod rom;
 
 const RAM_SIZE: usize = 2048;
 const FRAME_COUNTER_RATE: f64 = CPU_FREQUENCY / 240.0;
@@ -18,7 +25,7 @@ pub struct Console {
     pub cpu: CPU,
     pub apu: APU,
     pub ppu: PPU,
-    pub cartridge: Cartridge,
+    pub rom: Rom,
     pub controller1: Controller,
     pub controller2: Controller,
     pub mapper: Mapper1,
@@ -27,13 +34,13 @@ pub struct Console {
 
 impl Console {
     pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
-        let cartridge = Cartridge::new(rom)?;
-        let mapper = Mapper1::new(cartridge.prg.len());
+        let rom = Rom::new(rom)?;
+        let mapper = Mapper1::new(rom.prg.len());
         let mut console = Self {
             cpu: CPU::new(),
             apu: APU::new(),
             ppu: PPU::new(),
-            cartridge,
+            rom,
             mapper,
             controller1: Controller::new(),
             controller2: Controller::new(),
@@ -361,14 +368,14 @@ impl Console {
     pub fn load_sram(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
         // TODO fix endianness
         let data = fs::read(PathBuf::from(path))?;
-        self.cartridge.sram = data;
+        // self.rom.sram = data;
         Ok(())
     }
 
     pub fn save_sram(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
         // TODO Ensure directories exist
         // TODO fix endianness
-        fs::write(path, &self.cartridge.sram)?;
+        // fs::write(path, &self.rom.sram)?;
         Ok(())
     }
 }
@@ -376,7 +383,7 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::memory::write_byte;
+    use memory::write_byte;
 
     fn new_console() -> Console {
         let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
@@ -387,12 +394,10 @@ mod tests {
     #[test]
     fn test_new_console() {
         let c = new_console();
-        assert_eq!(c.cartridge.prg.len(), 131_072);
-        assert_eq!(c.cartridge.chr.len(), 131_072);
-        assert_eq!(c.cartridge.sram.len(), 8192);
-        assert_eq!(c.cartridge.mapper, 1);
-        assert_eq!(c.cartridge.mirror, 0);
-        assert_eq!(c.cartridge.battery, 1);
+        assert_eq!(c.rom.prg.len(), 131_072);
+        assert_eq!(c.rom.chr.len(), 131_072);
+        assert_eq!(c.rom.mapper(), 1);
+        assert_eq!(c.rom.trainer(), false);
         assert_eq!(c.ram.len(), RAM_SIZE);
         assert_eq!(c.cpu.pc, 65392);
         assert_eq!(c.cpu.sp, 0xFD);

@@ -1,6 +1,6 @@
 use super::{
-    console::Console,
     memory::{read_byte, write_byte},
+    Console,
 };
 
 // The addressing mode for each instruction
@@ -919,10 +919,9 @@ pub fn xaa() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{
-        console::Console,
-        cpu_instructions::{pull, pull16},
+    use crate::console::{
         memory::{read_byte, write_byte},
+        Console,
     };
     use std::path::PathBuf;
 

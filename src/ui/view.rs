@@ -2,7 +2,7 @@ use super::{
     audio::Audio,
     util::{hash_file, home_dir},
 };
-use crate::core::console::Console;
+use crate::console::Console;
 use std::{error::Error, path::PathBuf};
 
 pub trait View {

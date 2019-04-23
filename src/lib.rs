@@ -1,2 +1,5 @@
-pub mod core;
+// TODO Remove
+#![allow(unused)]
+
+mod console;
 pub mod ui;

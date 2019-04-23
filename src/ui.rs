@@ -1,7 +1,7 @@
-pub mod audio;
-pub mod run;
-pub mod util;
-pub mod view;
-pub mod window;
+mod audio;
+mod run;
+mod util;
+mod view;
+mod window;
 
 pub use run::UI;
