@@ -11,3 +11,6 @@ glfw = { version = "0.27.0", features = ["image"] }
 image = "0.21.1"
 sha2 = "0.8.0"
 dirs = "1.0.5"
+
+[features]
+print-ins-list = []

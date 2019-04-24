@@ -1,0 +1,256 @@
+  0 #00 BRK : mode:  6 Implied          size: 2  cycles: 7  page_cycles: 0
+  1 #01 ORA : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+  2 #02 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+  3 #03 SLO : mode:  7 IndexedIndirect  size: 0  cycles: 8  page_cycles: 0
+  4 #04 NOP : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+  5 #05 ORA : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+  6 #06 ASL : mode: 11 ZeroPaged        size: 2  cycles: 5  page_cycles: 0
+  7 #07 SLO : mode: 11 ZeroPaged        size: 0  cycles: 5  page_cycles: 0
+  8 #08 PHP : mode:  6 Implied          size: 1  cycles: 3  page_cycles: 0
+  9 #09 ORA : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+ 10 #0A ASL : mode:  4 Accumulator      size: 1  cycles: 2  page_cycles: 0
+ 11 #0B ANC : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+ 12 #0C NOP : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+ 13 #0D ORA : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+ 14 #0E ASL : mode:  1 Absolute         size: 3  cycles: 6  page_cycles: 0
+ 15 #0F SLO : mode:  1 Absolute         size: 0  cycles: 6  page_cycles: 0
+ 16 #10 BPL : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+ 17 #11 ORA : mode:  9 IndirectIndexed  size: 2  cycles: 5  page_cycles: 1
+ 18 #12 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+ 19 #13 SLO : mode:  9 IndirectIndexed  size: 0  cycles: 8  page_cycles: 0
+ 20 #14 NOP : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+ 21 #15 ORA : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+ 22 #16 ASL : mode: 12 ZeroPagedX       size: 2  cycles: 6  page_cycles: 0
+ 23 #17 SLO : mode: 12 ZeroPagedX       size: 0  cycles: 6  page_cycles: 0
+ 24 #18 CLC : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+ 25 #19 ORA : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+ 26 #1A NOP : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+ 27 #1B SLO : mode:  3 AbsoluteY        size: 0  cycles: 7  page_cycles: 0
+ 28 #1C NOP : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+ 29 #1D ORA : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+ 30 #1E ASL : mode:  2 AbsoluteX        size: 3  cycles: 7  page_cycles: 0
+ 31 #1F SLO : mode:  2 AbsoluteX        size: 0  cycles: 7  page_cycles: 0
+ 32 #20 JSR : mode:  1 Absolute         size: 3  cycles: 6  page_cycles: 0
+ 33 #21 AND : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+ 34 #22 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+ 35 #23 RLA : mode:  7 IndexedIndirect  size: 0  cycles: 8  page_cycles: 0
+ 36 #24 BIT : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+ 37 #25 AND : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+ 38 #26 ROL : mode: 11 ZeroPaged        size: 2  cycles: 5  page_cycles: 0
+ 39 #27 RLA : mode: 11 ZeroPaged        size: 0  cycles: 5  page_cycles: 0
+ 40 #28 PLP : mode:  6 Implied          size: 1  cycles: 4  page_cycles: 0
+ 41 #29 AND : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+ 42 #2A ROL : mode:  4 Accumulator      size: 1  cycles: 2  page_cycles: 0
+ 43 #2B ANC : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+ 44 #2C BIT : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+ 45 #2D AND : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+ 46 #2E ROL : mode:  1 Absolute         size: 3  cycles: 6  page_cycles: 0
+ 47 #2F RLA : mode:  1 Absolute         size: 0  cycles: 6  page_cycles: 0
+ 48 #30 BMI : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+ 49 #31 AND : mode:  9 IndirectIndexed  size: 2  cycles: 5  page_cycles: 1
+ 50 #32 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+ 51 #33 RLA : mode:  9 IndirectIndexed  size: 0  cycles: 8  page_cycles: 0
+ 52 #34 NOP : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+ 53 #35 AND : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+ 54 #36 ROL : mode: 12 ZeroPagedX       size: 2  cycles: 6  page_cycles: 0
+ 55 #37 RLA : mode: 12 ZeroPagedX       size: 0  cycles: 6  page_cycles: 0
+ 56 #38 SEC : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+ 57 #39 AND : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+ 58 #3A NOP : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+ 59 #3B RLA : mode:  3 AbsoluteY        size: 0  cycles: 7  page_cycles: 0
+ 60 #3C NOP : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+ 61 #3D AND : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+ 62 #3E ROL : mode:  2 AbsoluteX        size: 3  cycles: 7  page_cycles: 0
+ 63 #3F RLA : mode:  2 AbsoluteX        size: 0  cycles: 7  page_cycles: 0
+ 64 #40 RTI : mode:  6 Implied          size: 1  cycles: 6  page_cycles: 0
+ 65 #41 EOR : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+ 66 #42 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+ 67 #43 SRE : mode:  7 IndexedIndirect  size: 0  cycles: 8  page_cycles: 0
+ 68 #44 NOP : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+ 69 #45 EOR : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+ 70 #46 LSR : mode: 11 ZeroPaged        size: 2  cycles: 5  page_cycles: 0
+ 71 #47 SRE : mode: 11 ZeroPaged        size: 0  cycles: 5  page_cycles: 0
+ 72 #48 PHA : mode:  6 Implied          size: 1  cycles: 3  page_cycles: 0
+ 73 #49 EOR : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+ 74 #4A LSR : mode:  4 Accumulator      size: 1  cycles: 2  page_cycles: 0
+ 75 #4B ALR : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+ 76 #4C JMP : mode:  1 Absolute         size: 3  cycles: 3  page_cycles: 0
+ 77 #4D EOR : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+ 78 #4E LSR : mode:  1 Absolute         size: 3  cycles: 6  page_cycles: 0
+ 79 #4F SRE : mode:  1 Absolute         size: 0  cycles: 6  page_cycles: 0
+ 80 #50 BVC : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+ 81 #51 EOR : mode:  9 IndirectIndexed  size: 2  cycles: 5  page_cycles: 1
+ 82 #52 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+ 83 #53 SRE : mode:  9 IndirectIndexed  size: 0  cycles: 8  page_cycles: 0
+ 84 #54 NOP : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+ 85 #55 EOR : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+ 86 #56 LSR : mode: 12 ZeroPagedX       size: 2  cycles: 6  page_cycles: 0
+ 87 #57 SRE : mode: 12 ZeroPagedX       size: 0  cycles: 6  page_cycles: 0
+ 88 #58 CLI : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+ 89 #59 EOR : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+ 90 #5A NOP : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+ 91 #5B SRE : mode:  3 AbsoluteY        size: 0  cycles: 7  page_cycles: 0
+ 92 #5C NOP : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+ 93 #5D EOR : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+ 94 #5E LSR : mode:  2 AbsoluteX        size: 3  cycles: 7  page_cycles: 0
+ 95 #5F SRE : mode:  2 AbsoluteX        size: 0  cycles: 7  page_cycles: 0
+ 96 #60 RTS : mode:  6 Implied          size: 1  cycles: 6  page_cycles: 0
+ 97 #61 ADC : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+ 98 #62 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+ 99 #63 RRA : mode:  7 IndexedIndirect  size: 0  cycles: 8  page_cycles: 0
+100 #64 NOP : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+101 #65 ADC : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+102 #66 ROR : mode: 11 ZeroPaged        size: 2  cycles: 5  page_cycles: 0
+103 #67 RRA : mode: 11 ZeroPaged        size: 0  cycles: 5  page_cycles: 0
+104 #68 PLA : mode:  6 Implied          size: 1  cycles: 4  page_cycles: 0
+105 #69 ADC : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+106 #6A ROR : mode:  4 Accumulator      size: 1  cycles: 2  page_cycles: 0
+107 #6B ARR : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+108 #6C JMP : mode:  8 Indirect         size: 3  cycles: 5  page_cycles: 0
+109 #6D ADC : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+110 #6E ROR : mode:  1 Absolute         size: 3  cycles: 6  page_cycles: 0
+111 #6F RRA : mode:  1 Absolute         size: 0  cycles: 6  page_cycles: 0
+112 #70 BVS : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+113 #71 ADC : mode:  9 IndirectIndexed  size: 2  cycles: 5  page_cycles: 1
+114 #72 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+115 #73 RRA : mode:  9 IndirectIndexed  size: 0  cycles: 8  page_cycles: 0
+116 #74 NOP : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+117 #75 ADC : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+118 #76 ROR : mode: 12 ZeroPagedX       size: 2  cycles: 6  page_cycles: 0
+119 #77 RRA : mode: 12 ZeroPagedX       size: 0  cycles: 6  page_cycles: 0
+120 #78 SEI : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+121 #79 ADC : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+122 #7A NOP : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+123 #7B RRA : mode:  3 AbsoluteY        size: 0  cycles: 7  page_cycles: 0
+124 #7C NOP : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+125 #7D ADC : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+126 #7E ROR : mode:  2 AbsoluteX        size: 3  cycles: 7  page_cycles: 0
+127 #7F RRA : mode:  2 AbsoluteX        size: 0  cycles: 7  page_cycles: 0
+128 #80 NOP : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+129 #81 STA : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+130 #82 NOP : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+131 #83 SAX : mode:  7 IndexedIndirect  size: 0  cycles: 6  page_cycles: 0
+132 #84 STY : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+133 #85 STA : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+134 #86 STX : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+135 #87 SAX : mode: 11 ZeroPaged        size: 0  cycles: 3  page_cycles: 0
+136 #88 DEY : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+137 #89 NOP : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+138 #8A TXA : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+139 #8B XAA : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+140 #8C STY : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+141 #8D STA : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+142 #8E STX : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+143 #8F SAX : mode:  1 Absolute         size: 0  cycles: 4  page_cycles: 0
+144 #90 BCC : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+145 #91 STA : mode:  9 IndirectIndexed  size: 2  cycles: 6  page_cycles: 0
+146 #92 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+147 #93 AHX : mode:  9 IndirectIndexed  size: 0  cycles: 6  page_cycles: 0
+148 #94 STY : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+149 #95 STA : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+150 #96 STX : mode: 13 ZeroPagedY       size: 2  cycles: 4  page_cycles: 0
+151 #97 SAX : mode: 13 ZeroPagedY       size: 0  cycles: 4  page_cycles: 0
+152 #98 TYA : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+153 #99 STA : mode:  3 AbsoluteY        size: 3  cycles: 5  page_cycles: 0
+154 #9A TXS : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+155 #9B TAS : mode:  3 AbsoluteY        size: 0  cycles: 5  page_cycles: 0
+156 #9C SHY : mode:  2 AbsoluteX        size: 0  cycles: 5  page_cycles: 0
+157 #9D STA : mode:  2 AbsoluteX        size: 3  cycles: 5  page_cycles: 0
+158 #9E SHX : mode:  3 AbsoluteY        size: 0  cycles: 5  page_cycles: 0
+159 #9F AHX : mode:  3 AbsoluteY        size: 0  cycles: 5  page_cycles: 0
+160 #A0 LDY : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+161 #A1 LDA : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+162 #A2 LDX : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+163 #A3 LAX : mode:  7 IndexedIndirect  size: 0  cycles: 6  page_cycles: 0
+164 #A4 LDY : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+165 #A5 LDA : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+166 #A6 LDX : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+167 #A7 LAX : mode: 11 ZeroPaged        size: 0  cycles: 3  page_cycles: 0
+168 #A8 TAY : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+169 #A9 LDA : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+170 #AA TAX : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+171 #AB LAX : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+172 #AC LDY : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+173 #AD LDA : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+174 #AE LDX : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+175 #AF LAX : mode:  1 Absolute         size: 0  cycles: 4  page_cycles: 0
+176 #B0 BCS : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+177 #B1 LDA : mode:  9 IndirectIndexed  size: 2  cycles: 5  page_cycles: 1
+178 #B2 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+179 #B3 LAX : mode:  9 IndirectIndexed  size: 0  cycles: 5  page_cycles: 1
+180 #B4 LDY : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+181 #B5 LDA : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+182 #B6 LDX : mode: 13 ZeroPagedY       size: 2  cycles: 4  page_cycles: 0
+183 #B7 LAX : mode: 13 ZeroPagedY       size: 0  cycles: 4  page_cycles: 0
+184 #B8 CLV : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+185 #B9 LDA : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+186 #BA TSX : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+187 #BB LAS : mode:  3 AbsoluteY        size: 0  cycles: 4  page_cycles: 1
+188 #BC LDY : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+189 #BD LDA : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+190 #BE LDX : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+191 #BF LAX : mode:  3 AbsoluteY        size: 0  cycles: 4  page_cycles: 1
+192 #C0 CPY : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+193 #C1 CMP : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+194 #C2 NOP : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+195 #C3 DCP : mode:  7 IndexedIndirect  size: 0  cycles: 8  page_cycles: 0
+196 #C4 CPY : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+197 #C5 CMP : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+198 #C6 DEC : mode: 11 ZeroPaged        size: 2  cycles: 5  page_cycles: 0
+199 #C7 DCP : mode: 11 ZeroPaged        size: 0  cycles: 5  page_cycles: 0
+200 #C8 INY : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+201 #C9 CMP : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+202 #CA DEX : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+203 #CB AXS : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+204 #CC CPY : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+205 #CD CMP : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+206 #CE DEC : mode:  1 Absolute         size: 3  cycles: 6  page_cycles: 0
+207 #CF DCP : mode:  1 Absolute         size: 0  cycles: 6  page_cycles: 0
+208 #D0 BNE : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+209 #D1 CMP : mode:  9 IndirectIndexed  size: 2  cycles: 5  page_cycles: 1
+210 #D2 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+211 #D3 DCP : mode:  9 IndirectIndexed  size: 0  cycles: 8  page_cycles: 0
+212 #D4 NOP : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+213 #D5 CMP : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+214 #D6 DEC : mode: 12 ZeroPagedX       size: 2  cycles: 6  page_cycles: 0
+215 #D7 DCP : mode: 12 ZeroPagedX       size: 0  cycles: 6  page_cycles: 0
+216 #D8 CLD : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+217 #D9 CMP : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+218 #DA NOP : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+219 #DB DCP : mode:  3 AbsoluteY        size: 0  cycles: 7  page_cycles: 0
+220 #DC NOP : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+221 #DD CMP : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+222 #DE DEC : mode:  2 AbsoluteX        size: 3  cycles: 7  page_cycles: 0
+223 #DF DCP : mode:  2 AbsoluteX        size: 0  cycles: 7  page_cycles: 0
+224 #E0 CPX : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+225 #E1 SBC : mode:  7 IndexedIndirect  size: 2  cycles: 6  page_cycles: 0
+226 #E2 NOP : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+227 #E3 ISC : mode:  7 IndexedIndirect  size: 0  cycles: 8  page_cycles: 0
+228 #E4 CPX : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+229 #E5 SBC : mode: 11 ZeroPaged        size: 2  cycles: 3  page_cycles: 0
+230 #E6 INC : mode: 11 ZeroPaged        size: 2  cycles: 5  page_cycles: 0
+231 #E7 ISC : mode: 11 ZeroPaged        size: 0  cycles: 5  page_cycles: 0
+232 #E8 INX : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+233 #E9 SBC : mode:  5 Immediate        size: 2  cycles: 2  page_cycles: 0
+234 #EA NOP : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+235 #EB SBC : mode:  5 Immediate        size: 0  cycles: 2  page_cycles: 0
+236 #EC CPX : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+237 #ED SBC : mode:  1 Absolute         size: 3  cycles: 4  page_cycles: 0
+238 #EE INC : mode:  1 Absolute         size: 3  cycles: 6  page_cycles: 0
+239 #EF ISC : mode:  1 Absolute         size: 0  cycles: 6  page_cycles: 0
+240 #F0 BEQ : mode: 10 Relative         size: 2  cycles: 2  page_cycles: 1
+241 #F1 SBC : mode:  9 IndirectIndexed  size: 2  cycles: 5  page_cycles: 1
+242 #F2 KIL : mode:  6 Implied          size: 0  cycles: 2  page_cycles: 0
+243 #F3 ISC : mode:  9 IndirectIndexed  size: 0  cycles: 8  page_cycles: 0
+244 #F4 NOP : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+245 #F5 SBC : mode: 12 ZeroPagedX       size: 2  cycles: 4  page_cycles: 0
+246 #F6 INC : mode: 12 ZeroPagedX       size: 2  cycles: 6  page_cycles: 0
+247 #F7 ISC : mode: 12 ZeroPagedX       size: 0  cycles: 6  page_cycles: 0
+248 #F8 SED : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+249 #F9 SBC : mode:  3 AbsoluteY        size: 3  cycles: 4  page_cycles: 1
+250 #FA NOP : mode:  6 Implied          size: 1  cycles: 2  page_cycles: 0
+251 #FB ISC : mode:  3 AbsoluteY        size: 0  cycles: 7  page_cycles: 0
+252 #FC NOP : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+253 #FD SBC : mode:  2 AbsoluteX        size: 3  cycles: 4  page_cycles: 1
+254 #FE INC : mode:  2 AbsoluteX        size: 3  cycles: 7  page_cycles: 0
+255 #FF ISC : mode:  2 AbsoluteX        size: 0  cycles: 7  page_cycles: 0

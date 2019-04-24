@@ -99,46 +99,88 @@ pub fn print_instruction_list() {
         let cycles = INSTRUCTION_CYCLES[i];
         let page_cycles = INSTRUCTION_PAGE_CYCLES[i];
         println!(
-            "{:3} {} : mode: {:2} {:15}  size: {}  cycles: {}  page_cycles: {}",
-            i, ins, mode_num, mode_name, size, cycles, page_cycles
+            "{:3} #{:02X} {} : mode: {:2} {:15}  size: {}  cycles: {}  page_cycles: {}",
+            i, i, ins, mode_num, mode_name, size, cycles, page_cycles
         );
     }
 }
 
-pub fn print_instruction(c: &mut Console) {
-    let opcode = read_byte(c, c.cpu.pc);
+pub fn print_instruction(c: &mut Console, opcode: u8, addr: u16) {
     let bytes = INSTRUCTION_SIZES[opcode as usize];
     let name = INSTRUCTION_NAMES[opcode as usize];
-    let w0 = format!("{:2X}", read_byte(c, c.cpu.pc));
-    let mut w1 = format!("{:2X}", read_byte(c, c.cpu.pc + 1));
-    let mut w2 = format!("{:2X}", read_byte(c, c.cpu.pc + 2));
-    if bytes < 2 {
-        w1 = "  ".to_string();
-    }
-    if bytes < 3 {
-        w2 = "  ".to_string();
-    }
+    let opcode = format!("{:02X}", opcode);
+    let mut word1 = if bytes < 2 {
+        "  ".to_string()
+    } else {
+        format!("{:02X}", read_byte(c, c.cpu.pc.wrapping_add(1)))
+    };
+    let mut word2 = if bytes < 3 {
+        "  ".to_string()
+    } else {
+        format!("{:02X}", read_byte(c, c.cpu.pc.wrapping_add(2)))
+    };
+    // Formats:
+    // bytes = 3: CMD $word2word1
+    // bytes = 2:
+    //   STA/STX/BIT: CMD $word2$word1 = X
+    //   else CMD #$word1
+    let word = if bytes == 3 {
+        format!("${}{}", word2, word1)
+    } else {
+        format!("${}", word1)
+    };
+    let operand = match name {
+        "BCS" | "BCC" | "BEQ" | "BMI" | "BNE" | "BPL" | "BVC" | "BVS" => format!("${:04X}", addr),
+        "LDA" => format!("#${}", word1),
+        "LDX" => {
+            if word.contains("00") {
+                format!("#{}", word)
+            } else {
+                format!("{:02X} = {}", c.cpu.x, word)
+            }
+        }
+        "LDY" => format!("{:02X} = {}", c.cpu.y, word),
+        "STA" => format!("{} = {:02X}", word, c.cpu.a),
+        "STX" => format!("{} = {:02X}", word, c.cpu.x),
+        "STY" => format!("{} = {:02X}", word, c.cpu.y),
+        _ => {
+            if bytes == 3 {
+                word
+            } else if bytes == 2 {
+                format!("#${}", word1)
+            } else {
+                "".to_string()
+            }
+        }
+    };
     let flags = c.cpu.flags();
     println!(
-        "{:04X}  {} {} {}  {}           A:{:02X} X:{:02X} Y:{:02X} P:{:08b} SP:{:02X} CYC:{:3}",
+        "{:04X}  {} {} {}  {} {:27} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:3},{:3} CYC:{}",
         c.cpu.pc,
-        w0,
-        w1,
-        w2,
+        opcode,
+        word1,
+        word2,
         name,
+        operand,
         c.cpu.a,
         c.cpu.x,
         c.cpu.y,
         flags,
         c.cpu.sp,
-        (c.cpu.cycles * 3) % 341,
+        c.ppu.cycle,
+        c.ppu.frame,
+        c.cpu.cycles,
     );
 }
 
 pub fn execute(c: &mut Console, opcode: u8) {
     let mode = INSTRUCTION_MODES[opcode as usize];
     let (addr, page_crossed) = addr_mode(c, mode);
-    c.cpu.pc += u16::from(INSTRUCTION_SIZES[opcode as usize]);
+    print_instruction(c, opcode, addr);
+    c.cpu.pc = c
+        .cpu
+        .pc
+        .wrapping_add(u16::from(INSTRUCTION_SIZES[opcode as usize]));
     c.cpu.cycles += u64::from(INSTRUCTION_CYCLES[opcode as usize]);
     if page_crossed {
         c.cpu.cycles += u64::from(INSTRUCTION_PAGE_CYCLES[opcode as usize]);
@@ -181,6 +223,7 @@ pub fn execute(c: &mut Console, opcode: u8) {
         160 | 164 | 172 | 180 | 188 => ldy(c, addr),
         161 | 165 | 169 | 173 | 177 | 181 | 185 | 189 => lda(c, addr),
         162 | 166 | 174 | 182 | 190 => ldx(c, addr),
+        163 | 167 | 171 | 175 | 179 | 183 | 191 => lax(c, addr),
         168 => tay(c),
         170 => tax(c),
         176 => bcs(c, addr),
@@ -205,7 +248,7 @@ pub fn execute(c: &mut Console, opcode: u8) {
 
 pub fn read16(c: &mut Console, addr: u16) -> u16 {
     let lo = u16::from(read_byte(c, addr));
-    let hi = u16::from(read_byte(c, addr + 1));
+    let hi = u16::from(read_byte(c, addr.wrapping_add(1)));
     hi << 8 | lo
 }
 
@@ -213,7 +256,7 @@ pub fn read16(c: &mut Console, addr: u16) -> u16 {
 // incrementing the high byte
 pub fn read16bug(c: &mut Console, addr: u16) -> u16 {
     let lo = u16::from(read_byte(c, addr));
-    let addr = (addr & 0xFF00) | u16::from(addr as u8 + 1);
+    let addr = (addr & 0xFF00) | u16::from(addr.wrapping_add(1) as u8);
     let hi = u16::from(read_byte(c, addr));
     hi << 8 | lo
 }
@@ -222,23 +265,13 @@ pub fn read16bug(c: &mut Console, addr: u16) -> u16 {
 
 // Push byte to stack
 pub fn push(c: &mut Console, val: u8) {
-    // println!(
-    //     "writing 0x{:04X} to stack (0x{:04X})",
-    //     val,
-    //     0x100 | u16::from(c.cpu.sp)
-    // );
     write_byte(c, 0x100 | u16::from(c.cpu.sp), val);
-    c.cpu.sp -= 1;
+    c.cpu.sp = c.cpu.sp.wrapping_sub(1);
 }
 
 // Pull byte from stack
 pub fn pull(c: &mut Console) -> u8 {
-    // println!(
-    //     "pulling 0x{:04X} from stack (0x{:04X})",
-    //     read_byte(c, 0x100 | u16::from(c.cpu.sp)),
-    //     0x100 | u16::from(c.cpu.sp)
-    // );
-    c.cpu.sp += 1;
+    c.cpu.sp = c.cpu.sp.wrapping_add(1);
     read_byte(c, 0x100 | u16::from(c.cpu.sp))
 }
 
@@ -285,33 +318,30 @@ fn add_branch_cycles(c: &mut Console, pc: u16, addr: u16) {
 }
 
 fn compare(c: &mut Console, a: u8, b: u8) {
-    c.cpu.set_zn(a - b);
-    if a >= b {
-        c.cpu.c = 1;
-    } else {
-        c.cpu.c = 0;
-    }
+    let result = a.wrapping_sub(b);
+    c.cpu.set_zn(result);
+    c.cpu.c = (a >= b) as u8;
 }
 
 /// # Addressing modes
 
 /// Absolute
 pub fn abs(c: &mut Console) -> (u16, bool) {
-    (read16(c, c.cpu.pc + 1), false)
+    (read16(c, c.cpu.pc.wrapping_add(1)), false)
 }
 
 /// AbsoluteX
 pub fn absx(c: &mut Console) -> (u16, bool) {
-    let addr = read16(c, c.cpu.pc + 1);
-    let xaddr = addr + u16::from(c.cpu.x);
+    let addr = read16(c, c.cpu.pc.wrapping_add(1));
+    let xaddr = addr.wrapping_add(u16::from(c.cpu.x));
     let page_crossed = pages_differ(addr, xaddr);
     (xaddr, page_crossed)
 }
 
 /// AbsoluteY
 pub fn absy(c: &mut Console) -> (u16, bool) {
-    let addr = read16(c, c.cpu.pc + 1);
-    let yaddr = addr + u16::from(c.cpu.y);
+    let addr = read16(c, c.cpu.pc.wrapping_add(1));
+    let yaddr = addr.wrapping_add(u16::from(c.cpu.y));
     let page_crossed = pages_differ(addr, yaddr);
     (yaddr, page_crossed)
 }
@@ -323,7 +353,7 @@ pub fn acc() -> (u16, bool) {
 
 /// Immediate
 pub fn imm(c: &mut Console) -> (u16, bool) {
-    (c.cpu.pc + 1, false)
+    (c.cpu.pc.wrapping_add(1), false)
 }
 
 /// Implied
@@ -333,36 +363,29 @@ pub fn imp() -> (u16, bool) {
 
 /// IndexedIndirect
 pub fn idxind(c: &mut Console) -> (u16, bool) {
-    // println!(
-    //     "read addr: 0x{:04X} -> 0x{:04X} + 0x{:04X}\nfinal addr: 0x{:04X}",
-    //     c.cpu.pc + 1,
-    //     read_byte(c, c.cpu.pc + 1),
-    //     c.cpu.x,
-    //     read16bug(c, u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x)),
-    // );
-    let addr = u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x);
+    let addr = u16::from(read_byte(c, c.cpu.pc.wrapping_add(1)).wrapping_add(c.cpu.x));
     (read16bug(c, addr), false)
 }
 
 /// Indirect
 pub fn ind(c: &mut Console) -> (u16, bool) {
-    let addr = read16(c, c.cpu.pc + 1);
+    let addr = read16(c, c.cpu.pc.wrapping_add(1));
     (read16bug(c, addr), false)
 }
 
 /// IndirectIndexed
 pub fn indidx(c: &mut Console) -> (u16, bool) {
-    let addr = u16::from(read_byte(c, c.cpu.pc + 1));
+    let addr = u16::from(read_byte(c, c.cpu.pc.wrapping_add(1)));
     let addr = read16bug(c, addr);
-    let yaddr = addr + u16::from(c.cpu.y);
+    let yaddr = addr.wrapping_add(u16::from(c.cpu.y));
     let page_crossed = pages_differ(addr, yaddr);
     (yaddr, page_crossed)
 }
 
 /// Relative
 pub fn rel(c: &mut Console) -> (u16, bool) {
-    let offset = u16::from(read_byte(c, c.cpu.pc + 1));
-    let mut addr = c.cpu.pc + 2 + offset;
+    let offset = u16::from(read_byte(c, c.cpu.pc.wrapping_add(1)));
+    let mut addr = c.cpu.pc.wrapping_add(2 + offset);
     if offset >= 0x80 {
         addr -= 0x100;
     }
@@ -371,13 +394,13 @@ pub fn rel(c: &mut Console) -> (u16, bool) {
 
 /// ZeroPage
 pub fn zpg(c: &mut Console) -> (u16, bool) {
-    (u16::from(read_byte(c, c.cpu.pc + 1)), false)
+    (u16::from(read_byte(c, c.cpu.pc.wrapping_add(1))), false)
 }
 
 /// ZeroPageX
 pub fn zpgx(c: &mut Console) -> (u16, bool) {
     (
-        u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.x) & 0xFF,
+        u16::from(read_byte(c, c.cpu.pc.wrapping_add(1)).wrapping_add(c.cpu.x)) & 0xFF,
         false,
     )
 }
@@ -385,7 +408,7 @@ pub fn zpgx(c: &mut Console) -> (u16, bool) {
 /// ZeroPageY
 pub fn zpgy(c: &mut Console) -> (u16, bool) {
     (
-        u16::from(read_byte(c, c.cpu.pc + 1) + c.cpu.y) & 0xFF,
+        u16::from(read_byte(c, c.cpu.pc.wrapping_add(1)).wrapping_add(c.cpu.y)) & 0xFF,
         false,
     )
 }
@@ -466,81 +489,69 @@ pub fn tya(c: &mut Console) {
 pub fn adc(c: &mut Console, addr: u16) {
     let a = c.cpu.a;
     let val = read_byte(c, addr);
-    let carry = c.cpu.c;
-    c.cpu.a += val + carry;
-    c.cpu.set_zn(c.cpu.a);
-    if i32::from(a) + i32::from(val) + i32::from(carry) > 0xFF {
-        c.cpu.c = 1;
-    } else {
-        c.cpu.c = 0;
-    }
+    let (x1, o1) = val.overflowing_add(a);
+    let (x2, o2) = x1.overflowing_add(c.cpu.c);
+    c.cpu.a = x2;
+    c.cpu.c = (o1 | o2) as u8;
     if (a ^ val) & 0x80 == 0 && (a ^ c.cpu.a) & 0x80 != 0 {
         c.cpu.v = 1;
     } else {
         c.cpu.v = 0;
     }
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// SBC: Subtract M from A with Carry
 pub fn sbc(c: &mut Console, addr: u16) {
     let a = c.cpu.a;
     let val = read_byte(c, addr);
-    let carry = c.cpu.c;
-    c.cpu.a -= val - (1 - carry);
-    c.cpu.set_zn(c.cpu.a);
-    if i32::from(a) + i32::from(val) + i32::from(1 - carry) >= 0 {
-        c.cpu.c = 1;
-    } else {
-        c.cpu.c = 0;
-    }
+    let (x1, o1) = a.overflowing_sub(val);
+    let (x2, o2) = x1.overflowing_sub((1 - c.cpu.c));
+    c.cpu.a = x2;
+    c.cpu.c = !(o1 | o2) as u8;
     if (a ^ val) & 0x80 != 0 && (a ^ c.cpu.a) & 0x80 != 0 {
         c.cpu.v = 1;
     } else {
         c.cpu.v = 0;
     }
+    c.cpu.set_zn(c.cpu.a);
 }
 
 /// DEC: Decrement M by One
 pub fn dec(c: &mut Console, addr: u16) {
-    let val = read_byte(c, addr) - 1;
+    let val = read_byte(c, addr).wrapping_sub(1);
     write_byte(c, addr, val);
     c.cpu.set_zn(val);
 }
 
 /// DEX: Decrement X by One
 pub fn dex(c: &mut Console) {
-    // TODO: Some roms causing panic here - find out why
-    if c.cpu.x > 0 {
-        c.cpu.x -= 1;
-    }
+    c.cpu.x = c.cpu.x.wrapping_sub(1);
     c.cpu.set_zn(c.cpu.x);
 }
 
 /// DEY: Decrement Y by One
 pub fn dey(c: &mut Console) {
-    c.cpu.y -= 1;
+    c.cpu.y = c.cpu.y.wrapping_sub(1);
     c.cpu.set_zn(c.cpu.y);
 }
 
 /// INC: Increment M by One
 pub fn inc(c: &mut Console, addr: u16) {
-    let val = read_byte(c, addr) + 1;
+    let val = read_byte(c, addr).wrapping_add(1);
     write_byte(c, addr, val);
     c.cpu.set_zn(val);
 }
 
 /// INX: Increment X by One
 pub fn inx(c: &mut Console) {
-    c.cpu.x += 1;
-    c.cpu.set_zn(c.cpu.y);
+    c.cpu.x = c.cpu.x.wrapping_add(1);
+    c.cpu.set_zn(c.cpu.x);
 }
 
 /// INY: Increment Y by One
 pub fn iny(c: &mut Console) {
-    // TODO some roms are causing this to overflow - find out why
-    if c.cpu.y < 0xFF {
-        c.cpu.y += 1;
-    }
+    c.cpu.y = c.cpu.y.wrapping_add(1);
     c.cpu.set_zn(c.cpu.y);
 }
 
@@ -730,7 +741,7 @@ pub fn jmp(c: &mut Console, addr: u16) {
 
 /// JSR: Jump to Location Save Return addr
 pub fn jsr(c: &mut Console, addr: u16) {
-    push16(c, c.cpu.pc - 1);
+    push16(c, c.cpu.pc.wrapping_sub(1));
     c.cpu.pc = addr;
 }
 
@@ -744,7 +755,7 @@ pub fn rti(c: &mut Console) {
 
 /// RTS: Return from Subroutine
 pub fn rts(c: &mut Console) {
-    c.cpu.pc = pull16(c) + 1;
+    c.cpu.pc = pull16(c).wrapping_add(1);
 }
 
 /// # Registers
@@ -845,6 +856,14 @@ pub fn nop() {
 
 /// # Unofficial
 
+// Shortcut for LDA then TAX
+pub fn lax(c: &mut Console, addr: u16) {
+    let val = read_byte(c, addr);
+    c.cpu.a = val;
+    c.cpu.x = val;
+    c.cpu.set_zn(c.cpu.a);
+}
+
 /// KIL: Stop program counter
 pub fn kil() {
     unimplemented!();
@@ -876,10 +895,6 @@ pub fn isc() {
 }
 
 pub fn las() {
-    unimplemented!();
-}
-
-pub fn lax() {
     unimplemented!();
 }
 
@@ -922,293 +937,10 @@ pub fn xaa() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::console::{
-        memory::{read_byte, write_byte},
-        Console,
-    };
-    use std::path::PathBuf;
 
-    fn new_console() -> Console {
-        let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
-        let rom_path = PathBuf::from(rom);
-        Console::new(&rom_path).expect("valid console")
-    }
-
-    // #[test]
-    // fn print_ins_list() {
-    //     print_instruction_list();
-    // }
-
+    #[cfg(all(test, feature = "print-ins-list"))]
     #[test]
-    fn test_opcodes() {
-        for i in 0u8..=255 {
-            let mut c = new_console();
-            test_opstate(&mut c, i);
-        }
-    }
-
-    fn test_opstate(c: &mut Console, opcode: u8) {
-        let addr = 0x0100;
-        match opcode {
-            // BRK - Force Interrupt
-            0 => {
-                let flags = c.cpu.flags();
-                let pc = c.cpu.pc;
-                brk(c);
-                // Interrupt disable bit set
-                assert_eq!(c.cpu.i, 1);
-                // Startup processor status is on the stack
-                assert_eq!(pull(c), flags | 0x10);
-                // pc stored on stack
-                assert_eq!(pull16(c), pc);
-            }
-            // ORA - "OR" M with A
-            1 | 5 | 9 | 13 | 17 | 21 | 25 | 29 => {
-                // Test cases
-                // M | A | M OR A | z | n
-                // 0 | 0 | 0      | 1 | 0
-                // 1 | 0 | 1      | 0 | 0
-                // 0 | 1 | 1      | 0 | 0
-                // 1 | 1 | 1      | 0 | 0
-
-                write_byte(c, addr, 0);
-                c.cpu.a = 0;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write_byte(c, addr, 1);
-                c.cpu.pc = u16::from(opcode);
-                c.cpu.a = 0;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write_byte(c, addr, 0);
-                c.cpu.pc = u16::from(opcode);
-                c.cpu.a = 1;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write_byte(c, addr, 1);
-                c.cpu.pc = u16::from(opcode);
-                c.cpu.a = 1;
-                ora(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-            }
-            // ASL Shift Left M
-            6 | 14 | 22 | 30 => {
-                // Test cases
-                //            | C | M   | z | n
-                // val == 0   | 0 | 0   | 1 | 0
-                // val <= 127 | 0 | 2*M | 0 | 0
-                // val > 127  | 1 | 2*M | 0 | 0
-                write_byte(c, addr, 0);
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(read_byte(c, addr), 0);
-                c.reset();
-
-                write_byte(c, addr, 50);
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(read_byte(c, addr), 100);
-                c.reset();
-
-                write_byte(c, addr, 130);
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 1);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(read_byte(c, addr), 4);
-                c.reset();
-            }
-            // PHP Push Processor Status
-            8 => {
-                let flags = c.cpu.flags();
-                php(c);
-                // Startup processor status is on the stack
-                assert_eq!(pull(c), flags | 0x10);
-            }
-            // ASL Shift Left A
-            10 => {
-                // Test cases
-                //            | C | A   | z | n
-                // val == 0   | 0 | 0   | 1 | 0
-                // val <= 127 | 0 | 2*M | 0 | 0
-                // val > 127  | 1 | 2*M | 0 | 0
-                c.cpu.a = 0;
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(c.cpu.a, 0);
-                c.reset();
-
-                c.cpu.a = 50;
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 0);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(c.cpu.a, 100);
-                c.reset();
-
-                c.cpu.a = 130;
-                asl(c, addr, INSTRUCTION_MODES[opcode as usize]);
-                assert_eq!(c.cpu.c, 1);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                assert_eq!(c.cpu.a, 4);
-                c.reset();
-            }
-            // BPL Branch on Result Plus
-            16 => {
-                // Test cases
-                // pages_differ
-                // 0
-                // 1
-                let cycles = c.cpu.cycles;
-                c.cpu.pc = 0x0001;
-                let addr = 0x0080;
-                bpl(c, addr);
-                assert_eq!(c.cpu.pc, addr);
-                assert_eq!(c.cpu.cycles, cycles + 1);
-
-                let cycles = c.cpu.cycles;
-                c.cpu.pc = 0x0001;
-                let addr = 0xFFFF;
-                bpl(c, addr);
-                assert_eq!(c.cpu.pc, addr);
-                assert_eq!(c.cpu.cycles, cycles + 2);
-            }
-            // CLC Clear Carry Flag
-            24 => {
-                // Test cases
-                // cpu.c = 0
-                // cpu.c = 1
-                c.cpu.c = 0;
-                clc(c);
-                assert_eq!(c.cpu.c, 0);
-
-                c.cpu.c = 1;
-                clc(c);
-                assert_eq!(c.cpu.c, 0);
-            }
-            // Jump and Save return addr
-            32 => {
-                let pc = c.cpu.pc;
-                jsr(c, addr);
-                assert_eq!(u16::from(pull16(c)), pc - 1);
-                assert_eq!(c.cpu.pc, addr);
-            }
-            // "And" M with A
-            33 | 37 | 41 | 45 | 49 | 53 | 57 | 61 => {
-                // Test cases
-                // M | A | M & A | z | n
-                // 0 | 0 | 0     | 1 | 0
-                // 1 | 0 | 0     | 1 | 0
-                // 0 | 1 | 0     | 1 | 0
-                // 1 | 1 | 1     | 0 | 0
-
-                write_byte(c, addr, 0);
-                c.cpu.a = 0;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write_byte(c, addr, 1);
-                c.cpu.a = 0;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write_byte(c, addr, 0);
-                c.cpu.a = 1;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 1);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-
-                write_byte(c, addr, 1);
-                c.cpu.a = 1;
-                and(c, addr);
-                assert_eq!(c.cpu.z, 0);
-                assert_eq!(c.cpu.n, 0);
-                c.reset();
-            }
-            // BIT Test bits in M with A
-            36 | 44 => {
-                // Test cases
-                // V | Z | N
-                // 0 | 0 | 0
-                // 1 | 0 | 0
-                // 0 | 1 | 0
-                // 1 | 1 | 0
-                // 0 | 0 | 1
-                // 1 | 0 | 1
-                // 0 | 1 | 1
-                // 1 | 1 | 1
-                // bit(c, addr);
-            }
-            // 38 | 42 | 46 | 54 | 62 => rol(),
-            // 40 => plp(c),
-            // 48 => bmi(c, addr),
-            // 56 => sec(c),
-            // 64 => rti(),
-            // 65 | 69 | 73 | 77 | 81 | 85 | 89 | 93 => eor(c, addr),
-            // 70 | 74 | 78 | 86 | 94 => lsr(),
-            // 72 => pha(c),
-            // 76 | 108 => jmp(c, addr),
-            // 80 => bvc(c, addr),
-            // 88 => cli(c),
-            // 96 => rts(c),
-            // 97 | 101 | 105 | 109 | 113 | 117 | 121 | 125 => adc(c, addr),
-            // 102 | 106 | 110 | 118 | 126 => ror(),
-            // 104 => pla(c),
-            // 112 => bvs(c, addr),
-            // 120 => sei(c),
-            // 129 | 133 | 141 | 145 | 149 | 153 | 157 => sta(c, addr),
-            // 132 | 140 | 148 => sty(),
-            // 134 | 142 | 150 => stx(c, addr),
-            // 136 => dey(),
-            // 138 => txa(),
-            // 144 => bcc(c, addr),
-            // 152 => tya(),
-            // 154 => txs(c),
-            // 160 | 164 | 172 | 180 | 188 => ldy(c, addr),
-            // 161 | 165 | 169 | 173 | 177 | 181 | 185 | 189 => lda(c, addr),
-            // 162 | 166 | 174 | 182 | 190 => ldx(c, addr),
-            // 168 => tay(),
-            // 170 => tax(),
-            // 176 => bcs(c, addr),
-            // 184 => clv(c),
-            // 186 => tsx(),
-            // 192 | 196 | 204 => cpy(),
-            // 193 | 197 | 201 | 205 | 209 | 213 | 217 | 221 => cmp(c, addr),
-            // 198 | 206 | 214 | 222 => dec(),
-            // 200 => iny(),
-            // 202 => dex(),
-            // 208 => bne(c, addr),
-            // 216 => cld(c),
-            // 224 | 228 | 236 => cpx(),
-            // 225 | 229 | 233 | 235 | 237 | 241 | 245 | 249 | 253 => sbc(),
-            // 230 | 238 | 246 | 254 => inc(),
-            // 232 => inx(),
-            // 240 => beq(c, addr),
-            // 248 => sed(c),
-            _ => eprintln!("Warning: opcode {} not covered", opcode),
-        }
+    fn print_ins_list() {
+        print_instruction_list();
     }
 }

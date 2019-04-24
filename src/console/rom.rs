@@ -39,6 +39,7 @@ pub struct Rom {
     header: INesHeader,   // TODO: Add NES 2.0 support
     pub prg_rom: Vec<u8>, // PRG-ROM banks - Program ROM
     pub chr_rom: Vec<u8>, // CHR-ROM banks - Pattern Tables / Character ROM
+    pub chr_ram: Vec<u8>,
 }
 
 impl Rom {
@@ -77,11 +78,13 @@ impl Rom {
         rom_file.read_exact(&mut prg_rom)?;
         let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_SIZE];
         rom_file.read_exact(&mut chr_rom)?;
+        let chr_ram = vec![0u8; CHR_ROM_SIZE];
 
         Ok(Self {
             header,
             prg_rom,
             chr_rom,
+            chr_ram,
         })
     }
 

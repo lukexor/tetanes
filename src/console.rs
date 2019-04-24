@@ -53,6 +53,7 @@ impl Console {
         self.cpu.pc = read16(self, 0xFFFC);
         self.cpu.sp = 0xFD;
         self.cpu.set_flags(0x24);
+        self.cpu.cycles = 7;
     }
 
     pub fn step_seconds(&mut self, seconds: f64) {
@@ -70,7 +71,6 @@ impl Console {
     }
 
     fn step(&mut self) -> u64 {
-        // print_instruction(self);
         let cpu_cycles = if self.cpu.stall > 0 {
             self.cpu.stall -= 1;
             1
@@ -411,6 +411,17 @@ mod tests {
     }
 
     #[test]
+    fn test_console_cpu_nestest() {
+        let rom = "roms/nestest.nes";
+        let rom_path = PathBuf::from(rom);
+        let mut console = Console::new(&rom_path).unwrap();
+        console.cpu.pc = 0xC000;
+        for _ in 0..8991 {
+            console.step();
+        }
+    }
+
+    #[test]
     fn test_console_step_seconds() {
         // TODO
     }
@@ -431,75 +442,74 @@ mod tests {
     }
 
     #[test]
-    fn test_console_sound() {
-        let mut c = new_console();
-        // Test basic control flow by playing audio
-        //   lda #$01 ; square 1 (opcode 161)
-        //   sta $4015 (opcode 129)
-        //   lda #$08 ; period low
-        //   sta $4002
-        //   lda #$02 ; period high
-        //   sta $4003
-        //   lda #$bf ; volume
-        //   sta $4000
+    // fn test_console_sound() {
+    //     let mut c = new_console();
+    //     // Test basic control flow by playing audio
+    //     //   lda #$01 ; square 1 (opcode 161)
+    //     //   sta $4015 (opcode 129)
+    //     //   lda #$08 ; period low
+    //     //   sta $4002
+    //     //   lda #$02 ; period high
+    //     //   sta $4003
+    //     //   lda #$bf ; volume
+    //     //   sta $4000
 
-        // Load program into ram
-        let start_addr = 0x0100;
-        let lda = 161;
-        let sta = 129;
-        let jmp = 76;
-        c.cpu.pc = start_addr;
+    //     // Load program into ram
+    //     let start_addr = 0x0100;
+    //     let lda = 161;
+    //     let sta = 129;
+    //     let jmp = 76;
+    //     c.cpu.pc = start_addr;
 
-        // Square 1
-        write_byte(&mut c, start_addr, lda);
-        write_byte(&mut c, start_addr + 1, 0x0001);
-        write_byte(&mut c, 0x0001, 0x0001);
+    //     // Square 1
+    //     write_byte(&mut c, start_addr, lda);
+    //     write_byte(&mut c, start_addr + 1, 0x0001);
+    //     write_byte(&mut c, 0x0001, 0x0001);
 
-        write_byte(&mut c, start_addr + 2, sta);
-        write_byte(&mut c, start_addr + 3, 0x0003);
-        write_byte(&mut c, 0x0003, 0x0015);
-        write_byte(&mut c, 0x0004, 0x0040);
+    //     write_byte(&mut c, start_addr + 2, sta);
+    //     write_byte(&mut c, start_addr + 3, 0x0003);
+    //     write_byte(&mut c, 0x0003, 0x0015);
+    //     write_byte(&mut c, 0x0004, 0x0040);
 
-        // Period Low
-        write_byte(&mut c, start_addr + 4, lda);
-        write_byte(&mut c, start_addr + 5, 0x0005);
-        write_byte(&mut c, 0x0005, 0x0008);
-        write_byte(&mut c, start_addr + 6, sta);
-        write_byte(&mut c, start_addr + 7, 0x0007);
-        write_byte(&mut c, 0x0007, 0x0002);
-        write_byte(&mut c, 0x0008, 0x0040);
+    //     // Period Low
+    //     write_byte(&mut c, start_addr + 4, lda);
+    //     write_byte(&mut c, start_addr + 5, 0x0005);
+    //     write_byte(&mut c, 0x0005, 0x0008);
+    //     write_byte(&mut c, start_addr + 6, sta);
+    //     write_byte(&mut c, start_addr + 7, 0x0007);
+    //     write_byte(&mut c, 0x0007, 0x0002);
+    //     write_byte(&mut c, 0x0008, 0x0040);
 
-        // Period High
-        write_byte(&mut c, start_addr + 8, lda);
-        write_byte(&mut c, start_addr + 9, 0x0009);
-        write_byte(&mut c, 0x0009, 0x0002);
-        write_byte(&mut c, start_addr + 10, sta);
-        write_byte(&mut c, start_addr + 11, 0x0011);
-        write_byte(&mut c, 0x0011, 0x0003);
-        write_byte(&mut c, 0x0012, 0x0040);
+    //     // Period High
+    //     write_byte(&mut c, start_addr + 8, lda);
+    //     write_byte(&mut c, start_addr + 9, 0x0009);
+    //     write_byte(&mut c, 0x0009, 0x0002);
+    //     write_byte(&mut c, start_addr + 10, sta);
+    //     write_byte(&mut c, start_addr + 11, 0x0011);
+    //     write_byte(&mut c, 0x0011, 0x0003);
+    //     write_byte(&mut c, 0x0012, 0x0040);
 
-        // Volume
-        write_byte(&mut c, start_addr + 12, lda);
-        write_byte(&mut c, start_addr + 13, 0x0013);
-        write_byte(&mut c, 0x0013, 0x00BF);
-        write_byte(&mut c, start_addr + 14, sta);
-        write_byte(&mut c, start_addr + 15, 0x0015);
-        write_byte(&mut c, 0x0015, 0x0000);
-        write_byte(&mut c, 0x0016, 0x0040);
+    //     // Volume
+    //     write_byte(&mut c, start_addr + 12, lda);
+    //     write_byte(&mut c, start_addr + 13, 0x0013);
+    //     write_byte(&mut c, 0x0013, 0x00BF);
+    //     write_byte(&mut c, start_addr + 14, sta);
+    //     write_byte(&mut c, start_addr + 15, 0x0015);
+    //     write_byte(&mut c, 0x0015, 0x0000);
+    //     write_byte(&mut c, 0x0016, 0x0040);
 
-        // jmp forever
-        write_byte(&mut c, start_addr + 16, jmp);
-        write_byte(&mut c, start_addr + 17, ((start_addr + 16) & 0xFF) as u8);
-        write_byte(&mut c, start_addr + 17, ((start_addr + 16) >> 8) as u8);
+    //     // jmp forever
+    //     write_byte(&mut c, start_addr + 16, jmp);
+    //     write_byte(&mut c, start_addr + 17, ((start_addr + 16) & 0xFF) as u8);
+    //     write_byte(&mut c, start_addr + 17, ((start_addr + 16) >> 8) as u8);
 
-        // set pc to start address
-        // step cpu 8 times
-        for _ in 0..8 {
-            c.step();
-        }
-        // Verify state
-    }
-
+    //     // set pc to start address
+    //     // step cpu 8 times
+    //     for _ in 0..8 {
+    //         c.step();
+    //     }
+    //     // Verify state
+    // }
     #[test]
     fn test_console_load_state() {
         // TODO

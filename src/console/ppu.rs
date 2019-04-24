@@ -71,7 +71,7 @@ const COLORS: [u32; 64] = [
 pub struct PPU {
     pub cycle: u32,     // 0-340
     pub scan_line: u32, // 0-261, 0-239=visible, 240=post, 241-260=vblank, 261=pre
-    frame: u64,         // frame counter
+    pub frame: u64,     // frame counter
 
     // storage variables
     palette_data: [u8; 32],
@@ -143,7 +143,7 @@ pub struct PPU {
 impl PPU {
     pub fn new() -> Self {
         let mut ppu = Self {
-            cycle: 340,
+            cycle: 0,
             scan_line: 250,
             frame: 0,
             palette_data: [0; 32],
@@ -388,7 +388,7 @@ impl PPU {
     pub fn clear_vertical_blank(&mut self) {}
 
     fn reset(&mut self) {
-        self.cycle = 340;
+        self.cycle = 0;
         self.scan_line = 240;
         self.frame = 0;
         self.oam_address = 0;

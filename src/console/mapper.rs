@@ -24,8 +24,8 @@ enum Mirror {
 
 pub fn new_mapper(rom: Rom) -> Result<Box<Mapper>, Box<Error>> {
     match rom.mapper() {
-        // 0 | 2 => Ok(Box::new(Mapper2::new(rom))),
-        1 => Ok(Box::new(Mmc1::new(rom))),
+        0 | 2 => Ok(Box::new(Nrom::new(rom))),
+        1 => Ok(Box::new(SxRom::new(rom))),
         // 3 => Ok(Box::new(Mapper3::new(rom))),
         // 4 => Ok(Box::new(Mapper4::new(rom))),
         // 7 => Ok(Box::new(Mapper7::new())),
@@ -33,35 +33,22 @@ pub fn new_mapper(rom: Rom) -> Result<Box<Mapper>, Box<Error>> {
     }
 }
 
-fn bank_offset(size: usize, mut index: isize, offset: isize) -> usize {
-    if index >= 0x80 {
-        index -= 0x100;
-    }
-    // TODO Some roms causing chr size to be 0 here, find out why
-    if size > 0 {
-        index %= size as isize / offset;
-    }
-    let mut offset = index * offset;
-    if offset < 0 {
-        offset += size as isize;
-    }
-    offset as usize
-}
+/// SxRom
 
 #[derive(Debug)]
-enum Mmc1PrgBankMode {
+enum SxRomPrgBankMode {
     Fused,    // Upper and lower banks are a single 32 KB, switchable bank
     FixFirst, // Fix lower bank, allowing upper bank to be switchable
     FixLast,  // Fix upper bank, allowing lower bank to be switchable
 }
 
 #[derive(Debug)]
-enum Mmc1ChrBankMode {
+enum SxRomChrBankMode {
     Fused,       // Upper and lower banks are a single 32 KB, switchable bank
     Independent, // Upper and lower banks can be switched
 }
 
-pub struct Mmc1 {
+struct SxRom {
     rom: Rom,
     // Registers
     shift_reg: u8,
@@ -91,11 +78,10 @@ pub struct Mmc1 {
     prg_bank: u8,
     prg_offsets: [usize; 2],
     chr_offsets: [usize; 2],
-    chr_ram: [u8; CHR_ROM_SIZE],
     mirror: Mirror,
 }
 
-impl Mmc1 {
+impl SxRom {
     pub fn new(rom: Rom) -> Self {
         Self {
             rom,
@@ -106,24 +92,23 @@ impl Mmc1 {
             prg_bank: 0,
             prg_offsets: [0usize; 2],
             chr_offsets: [0usize; 2],
-            chr_ram: [0u8; CHR_ROM_SIZE],
             mirror: Mirror::OneScreenLower,
         }
     }
 
-    fn prg_bank_mode(&self) -> Mmc1PrgBankMode {
+    fn prg_bank_mode(&self) -> SxRomPrgBankMode {
         match (self.ctrl >> 2) & 3 {
-            0 | 1 => Mmc1PrgBankMode::Fused,
-            2 => Mmc1PrgBankMode::FixFirst,
-            3 => Mmc1PrgBankMode::FixLast,
+            0 | 1 => SxRomPrgBankMode::Fused,
+            2 => SxRomPrgBankMode::FixFirst,
+            3 => SxRomPrgBankMode::FixLast,
             _ => panic!("not possible"),
         }
     }
 
-    fn chr_bank_mode(&self) -> Mmc1ChrBankMode {
+    fn chr_bank_mode(&self) -> SxRomChrBankMode {
         match (self.ctrl >> 4) & 1 {
-            0 => Mmc1ChrBankMode::Fused,
-            1 => Mmc1ChrBankMode::Independent,
+            0 => SxRomChrBankMode::Fused,
+            1 => SxRomChrBankMode::Independent,
             _ => panic!("not possible"),
         }
     }
@@ -132,30 +117,30 @@ impl Mmc1 {
         let prg_size = self.rom.prg_rom.len();
         let chr_size = self.rom.chr_rom.len();
         match self.prg_bank_mode() {
-            Mmc1PrgBankMode::Fused => {
+            SxRomPrgBankMode::Fused => {
                 self.prg_offsets[0] =
                     bank_offset(prg_size, (self.prg_bank & 0xFE) as isize, 0x4000);
                 self.prg_offsets[1] =
                     bank_offset(prg_size, (self.prg_bank | 0x01) as isize, 0x4000);
             }
-            Mmc1PrgBankMode::FixFirst => {
+            SxRomPrgBankMode::FixFirst => {
                 self.prg_offsets[0] = 0;
                 self.prg_offsets[1] = bank_offset(prg_size, self.prg_bank as isize, 0x4000);
             }
-            Mmc1PrgBankMode::FixLast => {
+            SxRomPrgBankMode::FixLast => {
                 self.prg_offsets[0] = bank_offset(prg_size, self.prg_bank as isize, 0x4000);
                 self.prg_offsets[1] = bank_offset(prg_size, -1, 0x4000);
             }
             _ => panic!("invalid prg_mode {:?}", self.prg_bank_mode()),
         }
         match self.chr_bank_mode() {
-            Mmc1ChrBankMode::Fused => {
+            SxRomChrBankMode::Fused => {
                 self.chr_offsets[0] =
                     bank_offset(chr_size, (self.chr_bank0 & 0xFE) as isize, 0x1000);
                 self.chr_offsets[1] =
                     bank_offset(chr_size, (self.chr_bank0 | 0x01) as isize, 0x1000);
             }
-            Mmc1ChrBankMode::Independent => {
+            SxRomChrBankMode::Independent => {
                 self.chr_offsets[0] = bank_offset(chr_size, self.chr_bank0 as isize, 0x1000);
                 self.chr_offsets[1] = bank_offset(chr_size, self.chr_bank1 as isize, 0x1000);
             }
@@ -175,7 +160,7 @@ impl Mmc1 {
     }
 }
 
-impl Mapper for Mmc1 {
+impl Mapper for SxRom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000...0x2000 => {
@@ -183,7 +168,7 @@ impl Mapper for Mmc1 {
                 let offset = (addr % 0x1000) as usize;
                 self.rom.chr_rom[self.chr_offsets[bank] + offset]
             }
-            0x6000...0x7FFF => self.chr_ram[addr as usize - 0x6000],
+            0x6000...0x7FFF => self.rom.chr_ram[addr as usize - 0x6000],
             0x8000...0xFFFF => {
                 let addr = addr - 0x8000;
                 let bank = (addr / 0x4000) as usize;
@@ -201,7 +186,7 @@ impl Mapper for Mmc1 {
                 let offset = (addr % 0x1000) as usize;
                 self.rom.chr_rom[self.chr_offsets[bank] + offset] = val;
             }
-            0x6000...0x7FFF => self.chr_ram[addr as usize - 0x6000] = val,
+            0x6000...0x7FFF => self.rom.chr_ram[addr as usize - 0x6000] = val,
             0x8000...0xFFFF => {
                 if val & 0x80 == 0x80 {
                     self.shift_reg = 0x10;
@@ -228,13 +213,7 @@ impl Mapper for Mmc1 {
     }
 
     fn mirror(&self) -> u8 {
-        match self.mirror {
-            Mirror::Horizontal => 0,
-            Mirror::Vertical => 1,
-            Mirror::OneScreenLower => 2,
-            Mirror::OneScreenUpper => 3,
-            _ => panic!("not possible"),
-        }
+        self.rom.mirror()
     }
 
     // fn prg_readb(&mut self, addr: u16) -> u8 {
@@ -242,17 +221,17 @@ impl Mapper for Mmc1 {
     //         0x0000...0x7FFF => 0,
     //         0x8000...0xBFFF => {
     //             let bank = match self.prg_bank_mode() {
-    //                 Mmc1PrgBankMode::Fused => self.prg_bank & 0xFE,
-    //                 Mmc1PrgBankMode::FixFirst => 0,
-    //                 Mmc1PrgBankMode::FixLast => self.prg_bank,
+    //                 SxRomPrgBankMode::Fused => self.prg_bank & 0xFE,
+    //                 SxRomPrgBankMode::FixFirst => 0,
+    //                 SxRomPrgBankMode::FixLast => self.prg_bank,
     //             };
     //             self.rom.prg_rom[(bank as usize * PRG_ROM_SIZE) | ((addr & 0x3FFF) as usize)]
     //         }
     //         0xC000...0xFFFF => {
     //             let bank = match self.prg_bank_mode() {
-    //                 Mmc1PrgBankMode::Fused => (self.prg_bank & 0xFE) | 1,
-    //                 Mmc1PrgBankMode::FixFirst => self.prg_bank,
-    //                 Mmc1PrgBankMode::FixLast => (self.rom.prg_rom_size() - 1) as u8,
+    //                 SxRomPrgBankMode::Fused => (self.prg_bank & 0xFE) | 1,
+    //                 SxRomPrgBankMode::FixFirst => self.prg_bank,
+    //                 SxRomPrgBankMode::FixLast => (self.rom.prg_rom_size() - 1) as u8,
     //             };
     //             self.rom.prg_rom[(bank as usize * PRG_ROM_SIZE) | ((addr & 0x3FFF) as usize)]
     //         }
@@ -264,17 +243,17 @@ impl Mapper for Mmc1 {
     //         0x0000...0x7FFF => (),
     //         0x8000...0xBFFF => {
     //             let bank = match self.prg_bank_mode() {
-    //                 Mmc1PrgBankMode::Fused => self.prg_bank & 0xFE,
-    //                 Mmc1PrgBankMode::FixFirst => 0,
-    //                 Mmc1PrgBankMode::FixLast => self.prg_bank,
+    //                 SxRomPrgBankMode::Fused => self.prg_bank & 0xFE,
+    //                 SxRomPrgBankMode::FixFirst => 0,
+    //                 SxRomPrgBankMode::FixLast => self.prg_bank,
     //             };
     //             self.rom.prg_rom[(bank as usize * PRG_ROM_SIZE) | ((addr & 0x3FFF) as usize)] = val;
     //         }
     //         0xC000...0xFFFF => {
     //             let bank = match self.prg_bank_mode() {
-    //                 Mmc1PrgBankMode::Fused => (self.prg_bank & 0xFE) | 1,
-    //                 Mmc1PrgBankMode::FixFirst => self.prg_bank,
-    //                 Mmc1PrgBankMode::FixLast => (self.rom.prg_rom_size() - 1) as u8,
+    //                 SxRomPrgBankMode::Fused => (self.prg_bank & 0xFE) | 1,
+    //                 SxRomPrgBankMode::FixFirst => self.prg_bank,
+    //                 SxRomPrgBankMode::FixLast => (self.rom.prg_rom_size() - 1) as u8,
     //             };
     //             self.rom.prg_rom[(bank as usize * PRG_ROM_SIZE) | ((addr & 0x3FFF) as usize)] = val;
     //         }
@@ -285,14 +264,83 @@ impl Mapper for Mmc1 {
     //     match addr {
     //         0x0000...0x2000 {
     //             let bank = match self.chr_bank_mode() {
-    //                 Mmc1ChrBankMode::Fused => self.chr_bank0 & 0xFE,
-    //                 Mmc1ChrBankMode::Independent => self.chr_bank0,
+    //                 SxRomChrBankMode::Fused => self.chr_bank0 & 0xFE,
+    //                 SxRomChrBankMode::Independent => self.chr_bank0,
     //             };
     //             self.rom.chr_rom[(bank as usize
     //         }
-    //         0x6000...0x7FFF => self.chr_ram[addr as usize];
+    //         0x6000...0x7FFF => self.rom.chr_ram[addr as usize];
     //     }
     // }
 
     // fn chr_writeb(&mut self, addr: u16, val: u8) {}
+}
+
+fn bank_offset(size: usize, mut index: isize, offset: isize) -> usize {
+    if index >= 0x80 {
+        index -= 0x100;
+    }
+    // TODO Some roms causing chr size to be 0 here, find out why
+    if size > 0 {
+        index %= size as isize / offset;
+    }
+    let mut offset = index * offset;
+    if offset < 0 {
+        offset += size as isize;
+    }
+    offset as usize
+}
+
+/// NRom
+
+struct Nrom {
+    rom: Rom,
+    prg_banks: u8,
+    prg_bank1: u8,
+    prg_bank2: u8,
+}
+
+impl Nrom {
+    fn new(rom: Rom) -> Self {
+        let prg_banks = (rom.prg_rom.len() / 0x4000) as u8;
+        Self {
+            rom,
+            prg_banks,
+            prg_bank1: 0,
+            prg_bank2: prg_banks - 1,
+        }
+    }
+}
+
+impl Mapper for Nrom {
+    fn readb(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x0000...0x1FFF => self.rom.chr_rom[addr as usize],
+            0x6000...0x7FFF => self.rom.chr_ram[addr as usize - 0x6000],
+            0x8000...0xBFFF => {
+                let index = u16::from(self.prg_bank1) * 0x4000 + addr - 0x8000;
+                self.rom.prg_rom[index as usize]
+            }
+            0xC000...0xFFFF => {
+                let index = u16::from(self.prg_bank2) * 0x4000 + addr - 0xC000;
+                self.rom.prg_rom[index as usize]
+            }
+            _ => panic!("unhandled mapper2 read at address: 0x{:04X}", addr),
+        }
+    }
+
+    fn writeb(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x0000...0x1FFF => self.rom.chr_rom[addr as usize] = val,
+            0x6000...0x7FFF => self.rom.chr_ram[addr as usize - 0x6000] = val,
+            0x8000...0xFFFF => {
+                self.prg_bank1 = val % self.prg_banks;
+            }
+            _ => panic!("unhandled mapper2 read at address: 0x{:04X}", addr),
+        }
+    }
+
+    fn mirror(&self) -> u8 {
+        self.rom.mirror()
+    }
 }
