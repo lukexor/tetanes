@@ -1,6 +1,6 @@
 # Summary
 
-An NES emulator written in Rust. Inspiried by https://github.com/BrianWill/nes
+An NES emulator written in Rust.
 
 # Screenshots
 
@@ -33,3 +33,10 @@ TODO
 # Documentation
 
 TODO
+
+# Credits
+
+Inspiried by several NES projects:
+- https://github.com/BrianWill/nes
+- https://github.com/fogleman/nes
+- https://github.com/pcwalton/sprocketnes

@@ -2,17 +2,8 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::{error::Error, fmt, fs::File, io::Read, path::PathBuf};
 
 const INES_FILE_MAGIC: [u8; 4] = *b"NES\x1a";
-const PRG_ROM_SIZE: usize = 16384;
-const TRAINER_SIZE: usize = 512;
-const SRAM_SIZE: usize = 8192;
-
-/// Mirror options
-pub enum Mirror {
-    OneScreenLower,
-    OneScreenUpper,
-    Vertical,
-    Horizontal,
-}
+pub const PRG_ROM_SIZE: usize = 16384;
+pub const CHR_ROM_SIZE: usize = 8192;
 
 /// An iNES File Header
 ///
@@ -45,9 +36,9 @@ struct INesHeader {
 /// http://wiki.nesdev.com/w/index.php/INES
 /// http://nesdev.com/NESDoc.pdf (page 28)
 pub struct Rom {
-    header: INesHeader, // TODO: Add NES 2.0 support
-    pub prg: Vec<u8>,   // PRG-ROM banks - Program ROM
-    pub chr: Vec<u8>,   // CHR-ROM banks - Pattern Tables / Character ROM
+    header: INesHeader,   // TODO: Add NES 2.0 support
+    pub prg_rom: Vec<u8>, // PRG-ROM banks - Program ROM
+    pub chr_rom: Vec<u8>, // CHR-ROM banks - Pattern Tables / Character ROM
 }
 
 impl Rom {
@@ -78,30 +69,50 @@ impl Rom {
             zero: [0; 5],
         };
 
-        if header.magic != *b"NES\x1a" {
+        if header.magic != INES_FILE_MAGIC {
             return Err("invalid .nes file".into());
         }
 
-        let mut prg = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_SIZE];
-        rom_file.read_exact(&mut prg)?;
-        let mut chr = vec![0u8; (header.chr_rom_size as usize) * SRAM_SIZE];
-        rom_file.read_exact(&mut chr)?;
+        let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_SIZE];
+        rom_file.read_exact(&mut prg_rom)?;
+        let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_SIZE];
+        rom_file.read_exact(&mut chr_rom)?;
 
-        Ok(Self { header, prg, chr })
+        Ok(Self {
+            header,
+            prg_rom,
+            chr_rom,
+        })
     }
 
     pub fn mapper(&self) -> u8 {
         self.header.mapper()
     }
 
+    pub fn mirror(&self) -> u8 {
+        self.header.mirror()
+    }
+
     pub fn trainer(&self) -> bool {
         self.header.trainer()
+    }
+
+    pub fn prg_rom_size(&self) -> u8 {
+        self.header.prg_rom_size
+    }
+
+    pub fn chr_rom_size(&self) -> u8 {
+        self.header.chr_rom_size
     }
 }
 
 impl INesHeader {
     pub fn mapper(&self) -> u8 {
         (self.flags_7 & 0xF0) | (self.flags_6 >> 4)
+    }
+
+    pub fn mirror(&self) -> u8 {
+        ((self.flags_6) & 1) | (((self.flags_6 >> 3) & 1) << 1)
     }
 
     pub fn trainer(&self) -> bool {
@@ -115,7 +126,7 @@ impl fmt::Display for INesHeader {
             f,
             "PRG: {} KB, CHR: {} KB, Mapper: {}",
             self.prg_rom_size as usize * PRG_ROM_SIZE,
-            self.chr_rom_size as usize * SRAM_SIZE,
+            self.chr_rom_size as usize * CHR_ROM_SIZE,
             self.mapper(),
         )
     }
@@ -133,22 +144,22 @@ mod tests {
     fn test_load_rom() {
         let rom_path = PathBuf::from(ROM1);
         let rom = Rom::new(&rom_path).expect("valid rom");
-        assert_eq!(rom.prg.len(), 131_072);
-        assert_eq!(rom.chr.len(), 131_072);
+        assert_eq!(rom.prg_rom.len(), 131_072);
+        assert_eq!(rom.chr_rom.len(), 131_072);
         assert_eq!(rom.mapper(), 1);
         assert_eq!(rom.trainer(), false);
 
         let rom_path = PathBuf::from(ROM2);
         let rom = Rom::new(&rom_path).expect("valid rom");
-        assert_eq!(rom.prg.len(), 32_768);
-        assert_eq!(rom.chr.len(), 8_192);
+        assert_eq!(rom.prg_rom.len(), 32_768);
+        assert_eq!(rom.chr_rom.len(), 8_192);
         assert_eq!(rom.mapper(), 0);
         assert_eq!(rom.trainer(), false);
 
         let rom_path = PathBuf::from(ROM3);
         let rom = Rom::new(&rom_path).expect("valid rom");
-        assert_eq!(rom.prg.len(), 131_072);
-        assert_eq!(rom.chr.len(), 65_536);
+        assert_eq!(rom.prg_rom.len(), 131_072);
+        assert_eq!(rom.chr_rom.len(), 65_536);
         assert_eq!(rom.mapper(), 4);
         assert_eq!(rom.trainer(), false);
     }

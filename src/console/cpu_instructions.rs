@@ -120,7 +120,7 @@ pub fn print_instruction(c: &mut Console) {
     }
     let flags = c.cpu.flags();
     println!(
-        "{:04X}  {} {} {}  {}           A:{:02X} X:{:02X} Y:{:02X} P:{:02b} SP:{:02X} CYC:{:3}",
+        "{:04X}  {} {} {}  {}           A:{:02X} X:{:02X} Y:{:02X} P:{:08b} SP:{:02X} CYC:{:3}",
         c.cpu.pc,
         w0,
         w1,
@@ -361,11 +361,11 @@ pub fn indidx(c: &mut Console) -> (u16, bool) {
 
 /// Relative
 pub fn rel(c: &mut Console) -> (u16, bool) {
-    let mut offset = u16::from(read_byte(c, c.cpu.pc + 1));
+    let offset = u16::from(read_byte(c, c.cpu.pc + 1));
+    let mut addr = c.cpu.pc + 2 + offset;
     if offset >= 0x80 {
-        offset -= 0x100;
+        addr -= 0x100;
     }
-    let addr = c.cpu.pc + 2 + offset;
     (addr, false)
 }
 
@@ -395,7 +395,6 @@ pub fn zpgy(c: &mut Console) -> (u16, bool) {
 /// LDA: Load A with M
 pub fn lda(c: &mut Console, addr: u16) {
     c.cpu.a = read_byte(c, addr);
-    println!("lda: 0x{:04X} ({})", addr, c.cpu.a);
     c.cpu.set_zn(c.cpu.a);
 }
 
@@ -413,7 +412,6 @@ pub fn ldy(c: &mut Console, addr: u16) {
 
 /// STA: Store A in M
 pub fn sta(c: &mut Console, addr: u16) {
-    println!("sta: {} -> 0x{:04X}", c.cpu.a, addr);
     write_byte(c, addr, c.cpu.a);
 }
 
@@ -511,7 +509,10 @@ pub fn dec(c: &mut Console, addr: u16) {
 
 /// DEX: Decrement X by One
 pub fn dex(c: &mut Console) {
-    c.cpu.x -= 1;
+    // TODO: Some roms causing panic here - find out why
+    if c.cpu.x > 0 {
+        c.cpu.x -= 1;
+    }
     c.cpu.set_zn(c.cpu.x);
 }
 
@@ -536,7 +537,10 @@ pub fn inx(c: &mut Console) {
 
 /// INY: Increment Y by One
 pub fn iny(c: &mut Console) {
-    c.cpu.y += 1;
+    // TODO some roms are causing this to overflow - find out why
+    if c.cpu.y < 0xFF {
+        c.cpu.y += 1;
+    }
     c.cpu.set_zn(c.cpu.y);
 }
 
@@ -721,7 +725,6 @@ pub fn bvs(c: &mut Console, addr: u16) {
 
 /// JMP: Jump to Location
 pub fn jmp(c: &mut Console, addr: u16) {
-    println!("jmp 0x{:04X}", addr);
     c.cpu.pc = addr;
 }
 
@@ -1075,13 +1078,15 @@ mod tests {
                 // 0
                 // 1
                 let cycles = c.cpu.cycles;
-                let addr = 0xFFFF;
+                c.cpu.pc = 0x0001;
+                let addr = 0x0080;
                 bpl(c, addr);
                 assert_eq!(c.cpu.pc, addr);
                 assert_eq!(c.cpu.cycles, cycles + 1);
 
                 let cycles = c.cpu.cycles;
-                let addr = 0x0080;
+                c.cpu.pc = 0x0001;
+                let addr = 0xFFFF;
                 bpl(c, addr);
                 assert_eq!(c.cpu.pc, addr);
                 assert_eq!(c.cpu.cycles, cycles + 2);

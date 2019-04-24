@@ -2,7 +2,8 @@ use apu::APU;
 use controller::Controller;
 use cpu::{Interrupt, CPU, CPU_FREQUENCY};
 use cpu_instructions::{execute, php, print_instruction, push16, read16};
-use mapper::Mapper1;
+use image::RgbaImage;
+use mapper::Mapper;
 use memory::{read_byte, read_ppu};
 use ppu::PPU;
 use rom::Rom;
@@ -25,22 +26,20 @@ pub struct Console {
     pub cpu: CPU,
     pub apu: APU,
     pub ppu: PPU,
-    pub rom: Rom,
     pub controller1: Controller,
     pub controller2: Controller,
-    pub mapper: Mapper1,
+    pub mapper: Box<Mapper>,
     pub ram: Vec<u8>,
 }
 
 impl Console {
     pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
         let rom = Rom::new(rom)?;
-        let mapper = Mapper1::new(rom.prg.len());
+        let mapper = mapper::new_mapper(rom)?;
         let mut console = Self {
             cpu: CPU::new(),
             apu: APU::new(),
             ppu: PPU::new(),
-            rom,
             mapper,
             controller1: Controller::new(),
             controller2: Controller::new(),
@@ -59,12 +58,19 @@ impl Console {
     pub fn step_seconds(&mut self, seconds: f64) {
         let mut cycles = (CPU_FREQUENCY * seconds) as u64;
         while cycles > 0 {
-            cycles -= self.step();
+            let c = self.step();
+            // TODO Some roms causing self.step() to not be an even multiple of cycles
+            // find out why
+            if cycles > c {
+                cycles -= c;
+            } else {
+                cycles = 0;
+            }
         }
     }
 
     fn step(&mut self) -> u64 {
-        print_instruction(self);
+        // print_instruction(self);
         let cpu_cycles = if self.cpu.stall > 0 {
             self.cpu.stall -= 1;
             1
@@ -378,6 +384,10 @@ impl Console {
         // fs::write(path, &self.rom.sram)?;
         Ok(())
     }
+
+    pub fn buffer(&self) -> RgbaImage {
+        self.ppu.front.clone()
+    }
 }
 
 #[cfg(test)]
@@ -394,12 +404,8 @@ mod tests {
     #[test]
     fn test_new_console() {
         let c = new_console();
-        assert_eq!(c.rom.prg.len(), 131_072);
-        assert_eq!(c.rom.chr.len(), 131_072);
-        assert_eq!(c.rom.mapper(), 1);
-        assert_eq!(c.rom.trainer(), false);
         assert_eq!(c.ram.len(), RAM_SIZE);
-        assert_eq!(c.cpu.pc, 65392);
+        assert_eq!(c.cpu.pc, 49008);
         assert_eq!(c.cpu.sp, 0xFD);
         assert_eq!(c.cpu.flags(), 0x24);
     }

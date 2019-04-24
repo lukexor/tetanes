@@ -19,7 +19,7 @@ pub fn read_byte(c: &mut Console, addr: u16) -> u8 {
         0x4016 => c.controller1.read(),
         0x4017 => c.controller2.read(),
         0x4018...0x5FFF => unimplemented!("I/O registers"),
-        0x6000..=0xFFFF => c.mapper.read(&c.rom, addr),
+        0x6000..=0xFFFF => c.mapper.readb(addr),
     }
 }
 
@@ -37,7 +37,8 @@ pub fn write_byte(c: &mut Console, addr: u16, val: u8) {
         }
         0x4017 => c.apu.write_register(addr, val),
         0x4018...0x5FFF => unimplemented!("I/O registeres"),
-        0x6000..=0xFFFF => c.mapper.write(&mut c.rom, addr, val),
+        0x6000..=0xFFFF => c.mapper.writeb(addr, val),
+        _ => (),
     }
 }
 
@@ -136,8 +137,10 @@ pub fn write_ppu_register(c: &mut Console, addr: u16, val: u8) {
 pub fn read_ppu(c: &mut Console, mut addr: u16) -> u8 {
     addr %= 0x4000;
     match addr {
-        0x0000...0x1FFF => c.mapper.read(&c.rom, addr),
-        // 0x2000...0x3EFF => c.ppu.name_table_data(mirror_address(c.rom.mirror, addr)),
+        0x0000...0x1FFF => c.mapper.readb(addr),
+        0x2000...0x3EFF => c
+            .ppu
+            .name_table_data(mirror_address(c.mapper.mirror(), addr)),
         0x3F00...0x4000 => c.ppu.read_palette(addr % 32),
         _ => panic!("unhandled PPU memory read at addr 0x{:04X}", addr),
     }
@@ -146,10 +149,10 @@ pub fn read_ppu(c: &mut Console, mut addr: u16) -> u8 {
 pub fn write_ppu(c: &mut Console, mut addr: u16, val: u8) {
     addr %= 0x4000;
     match addr {
-        0x0000...0x1FFF => c.mapper.write(&mut c.rom, addr, val),
-        // 0x2000...0x3EFF => c
-        //     .ppu
-        // .set_name_table_data(mirror_address(c.rom.mirror, addr), val),
+        0x0000...0x1FFF => c.mapper.writeb(addr, val),
+        0x2000...0x3EFF => c
+            .ppu
+            .set_name_table_data(mirror_address(c.mapper.mirror(), addr), val),
         0x3F00...0x4000 => c.ppu.write_palette(addr % 32, val),
         _ => panic!("unhandled PPU memory write at addr 0x{:04X}", addr),
     }

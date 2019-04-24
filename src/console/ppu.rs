@@ -1,4 +1,4 @@
-use image::{ImageBuffer, Rgba};
+use image::{ImageBuffer, RgbaImage};
 
 const COLORS: [u32; 64] = [
     0x0066_6666,
@@ -77,8 +77,8 @@ pub struct PPU {
     palette_data: [u8; 32],
     pub name_table_data: [u8; 2048],
     pub oam_data: [u8; 256], // Object Attribute Memory
-    front: ImageBuffer<Rgba<u8>, Vec<u8>>,
-    back: ImageBuffer<Rgba<u8>, Vec<u8>>,
+    pub front: RgbaImage,
+    back: RgbaImage,
 
     // PPU registers
     pub v: u16, // current vram address (15 bit)

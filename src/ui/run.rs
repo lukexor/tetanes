@@ -1,4 +1,5 @@
 use super::{
+    audio::Audio,
     view::{GameView, MenuView, View},
     window::Window,
 };
@@ -8,6 +9,7 @@ pub struct UI {
     window: Window,
     active_view: usize,
     views: Vec<Box<View>>,
+    pub audio: Audio,
     timestamp: f64,
 }
 
@@ -30,6 +32,7 @@ impl UI {
             window,
             active_view: views.len() - 1,
             views,
+            audio: Audio::new()?,
             timestamp: 0.0,
         };
         ui.set_active_view(ui.active_view);
@@ -89,6 +92,7 @@ impl UI {
         let timestamp = self.window.time();
         let dt = timestamp - self.timestamp;
         self.timestamp = timestamp;
-        self.views[self.active_view].update(timestamp, dt);
+        let (w, h) = self.window.get_frame_buffer_size();
+        self.views[self.active_view].update(timestamp, dt, w, h);
     }
 }

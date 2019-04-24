@@ -44,6 +44,10 @@ impl Window {
         self.glfw.get_time()
     }
 
+    pub fn get_frame_buffer_size(&self) -> (i32, i32) {
+        self.window.get_framebuffer_size()
+    }
+
     pub fn set_title(&mut self, title: &str) {
         self.window.set_title(title);
     }
