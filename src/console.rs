@@ -54,19 +54,13 @@ impl Console {
         self.cpu.sp = 0xFD;
         self.cpu.set_flags(0x24);
         self.cpu.cycles = 7;
+        self.cpu.stall = 6;
     }
 
     pub fn step_seconds(&mut self, seconds: f64) {
         let mut cycles = (CPU_FREQUENCY * seconds) as u64;
         while cycles > 0 {
-            let c = self.step();
-            // TODO Some roms causing self.step() to not be an even multiple of cycles
-            // find out why
-            if cycles > c {
-                cycles -= c;
-            } else {
-                cycles = 0;
-            }
+            cycles = cycles.wrapping_sub(self.step());
         }
     }
 
@@ -82,14 +76,14 @@ impl Console {
                     php(self);
                     self.cpu.pc = read16(self, 0xFFFA);
                     self.cpu.i = 1;
-                    self.cpu.cycles += 7;
+                    self.cpu.cycles = self.cpu.cycles.wrapping_add(7);
                 }
                 Interrupt::IRQ => {
                     push16(self, self.cpu.pc);
                     php(self);
                     self.cpu.pc = read16(self, 0xFFFE);
                     self.cpu.i = 1;
-                    self.cpu.cycles += 7;
+                    self.cpu.cycles = self.cpu.cycles.wrapping_add(7);
                 }
                 _ => (),
             }
@@ -144,7 +138,8 @@ impl Console {
                         self.ppu.low_tile_byte = read_ppu(self, self.ppu.get_tile_byte_addr());
                     }
                     7 => {
-                        self.ppu.high_tile_byte = read_ppu(self, self.ppu.get_tile_byte_addr() + 8);
+                        self.ppu.high_tile_byte =
+                            read_ppu(self, self.ppu.get_tile_byte_addr().wrapping_add(8));
                     }
                     _ => (),
                 }
@@ -210,7 +205,7 @@ impl Console {
 
     fn step_apu(&mut self) {
         let cycle1 = self.apu.cycle as f64;
-        self.apu.cycle += 1;
+        self.apu.cycle = self.apu.cycle.wrapping_add(1);
         let cycle2 = self.apu.cycle as f64;
         if self.apu.cycle % 2 == 0 {
             self.apu.pulse1.step_timer();
@@ -229,7 +224,7 @@ impl Console {
             //  e e e e    e e e e -    Envelope and linear counter
             match self.apu.frame_period {
                 4 => {
-                    self.apu.frame_value = (self.apu.frame_value + 1) % 4;
+                    self.apu.frame_value = self.apu.frame_value.wrapping_add(1) % 4;
                     self.apu.step_envelope();
                     if self.apu.frame_value % 2 != 0 {
                         self.apu.step_sweep();
@@ -240,7 +235,7 @@ impl Console {
                     }
                 }
                 5 => {
-                    self.apu.frame_value = (self.apu.frame_value + 1) % 5;
+                    self.apu.frame_value = self.apu.frame_value.wrapping_add(1) % 5;
                     self.apu.step_envelope();
                     if self.apu.frame_value % 2 != 0 {
                         self.apu.step_sweep();
@@ -350,7 +345,7 @@ impl Console {
         };
         let a = (attributes & 3) << 2;
         let mut low_tile_byte = read_ppu(self, addr);
-        let mut high_tile_byte = read_ppu(self, addr + 8);
+        let mut high_tile_byte = read_ppu(self, addr.wrapping_add(8));
         let mut data: u32 = 0;
         for _ in 0..8 {
             let (p1, p2): (u8, u8);

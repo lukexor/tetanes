@@ -18,7 +18,7 @@ pub fn read_byte(c: &mut Console, addr: u16) -> u8 {
         0x4015 => c.apu.read_register(addr),
         0x4016 => c.controller1.read(),
         0x4017 => c.controller2.read(),
-        0x4018...0x5FFF => unimplemented!("I/O registers"),
+        0x4018...0x5FFF => 0, // TODO I/O
         0x6000..=0xFFFF => c.mapper.readb(addr),
     }
 }
@@ -36,7 +36,7 @@ pub fn write_byte(c: &mut Console, addr: u16, val: u8) {
             c.controller2.write(val);
         }
         0x4017 => c.apu.write_register(addr, val),
-        0x4018...0x5FFF => unimplemented!("I/O registeres"),
+        0x4018...0x5FFF => (), // TODO I/O
         0x6000..=0xFFFF => c.mapper.writeb(addr, val),
         _ => (),
     }
@@ -71,7 +71,7 @@ pub fn read_ppu_register(c: &mut Console, addr: u16) -> u8 {
             }
             val
         }
-        _ => panic!("unhandled PPU register read at address 0x{:04X}", addr),
+        _ => 0,
     }
 }
 
