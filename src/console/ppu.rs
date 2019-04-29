@@ -267,7 +267,10 @@ impl PPU {
     pub fn sprite_pixel(&self) -> (usize, u8) {
         if self.flag_show_sprites != 0 {
             for i in 0..self.sprite_count {
-                let mut offset = (self.cycle - 1) - u32::from(self.sprite_positions[i]);
+                let mut offset = self
+                    .cycle
+                    .wrapping_sub(1)
+                    .wrapping_sub(u32::from(self.sprite_positions[i]));
                 if offset > 7 {
                     continue;
                 }

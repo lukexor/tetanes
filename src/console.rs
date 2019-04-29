@@ -1,10 +1,9 @@
 use apu::APU;
 use controller::Controller;
-use cpu::{Interrupt, CPU, CPU_FREQUENCY};
-use cpu_instructions::{execute, php, print_instruction, push16, read16};
+use cpu::{execute, php, push_stackw, readw, Interrupt, CPU, CPU_FREQUENCY};
 use image::RgbaImage;
 use mapper::Mapper;
-use memory::{read_byte, read_ppu};
+use memory::{read_ppu, readb};
 use ppu::PPU;
 use rom::Rom;
 use std::{error::Error, fs, path::PathBuf};
@@ -12,7 +11,6 @@ use std::{error::Error, fs, path::PathBuf};
 mod apu;
 mod controller;
 mod cpu;
-mod cpu_instructions;
 mod mapper;
 mod memory;
 mod ppu;
@@ -30,6 +28,7 @@ pub struct Console {
     pub controller2: Controller,
     pub mapper: Box<Mapper>,
     pub ram: Vec<u8>,
+    pub trace: u8,
 }
 
 impl Console {
@@ -44,17 +43,15 @@ impl Console {
             controller1: Controller::new(),
             controller2: Controller::new(),
             ram: vec![0; RAM_SIZE],
+            trace: 0,
         };
         console.reset();
         Ok(console)
     }
 
     pub fn reset(&mut self) {
-        self.cpu.pc = read16(self, 0xFFFC);
-        self.cpu.sp = 0xFD;
-        self.cpu.set_flags(0x24);
-        self.cpu.cycles = 7;
-        self.cpu.stall = 6;
+        self.cpu.pc = readw(self, 0xFFFC);
+        self.cpu.reset();
     }
 
     pub fn step_seconds(&mut self, seconds: f64) {
@@ -72,23 +69,23 @@ impl Console {
             let start_cycles = self.cpu.cycles;
             match &self.cpu.interrupt {
                 Interrupt::NMI => {
-                    push16(self, self.cpu.pc);
+                    push_stackw(self, self.cpu.pc);
                     php(self);
-                    self.cpu.pc = read16(self, 0xFFFA);
-                    self.cpu.i = 1;
+                    self.cpu.pc = readw(self, 0xFFFA);
+                    self.cpu.interrupt_disable = true;
                     self.cpu.cycles = self.cpu.cycles.wrapping_add(7);
                 }
                 Interrupt::IRQ => {
-                    push16(self, self.cpu.pc);
+                    push_stackw(self, self.cpu.pc);
                     php(self);
-                    self.cpu.pc = read16(self, 0xFFFE);
-                    self.cpu.i = 1;
+                    self.cpu.pc = readw(self, 0xFFFE);
+                    self.cpu.interrupt_disable = true;
                     self.cpu.cycles = self.cpu.cycles.wrapping_add(7);
                 }
                 _ => (),
             }
             self.cpu.interrupt = Interrupt::None;
-            let opcode = read_byte(self, self.cpu.pc);
+            let opcode = readb(self, self.cpu.pc);
             execute(self, opcode);
             (self.cpu.cycles - start_cycles)
         };
@@ -257,7 +254,7 @@ impl Console {
         if self.apu.dmc.enabled {
             if self.apu.dmc.current_length > 0 && self.apu.dmc.bit_count == 0 {
                 self.cpu.stall += 4;
-                self.apu.dmc.shift_register = read_byte(self, self.apu.dmc.current_address);
+                self.apu.dmc.shift_register = readb(self, self.apu.dmc.current_address);
                 self.apu.dmc.bit_count = 8;
                 self.apu.dmc.current_address += 1;
                 if self.apu.dmc.current_address == 0 {
@@ -304,7 +301,7 @@ impl Console {
             let y = self.ppu.oam_data[(i * 4) as usize];
             let a = self.ppu.oam_data[(i * 4 + 2) as usize];
             let x = self.ppu.oam_data[(i * 4 + 3) as usize];
-            let row = self.ppu.scan_line - u32::from(y);
+            let row = self.ppu.scan_line.wrapping_sub(u32::from(y));
             if row >= height {
                 continue;
             }
@@ -368,7 +365,7 @@ impl Console {
 
     pub fn load_sram(&mut self, path: &PathBuf) -> Result<(), Box<Error>> {
         // TODO fix endianness
-        let data = fs::read(PathBuf::from(path))?;
+        // let data = fs::read(PathBuf::from(path))?;
         // self.rom.sram = data;
         Ok(())
     }
@@ -388,7 +385,8 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use memory::write_byte;
+    use memory::writeb;
+    use std::fs;
 
     fn new_console() -> Console {
         let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
@@ -400,20 +398,21 @@ mod tests {
     fn test_new_console() {
         let c = new_console();
         assert_eq!(c.ram.len(), RAM_SIZE);
-        assert_eq!(c.cpu.pc, 49008);
-        assert_eq!(c.cpu.sp, 0xFD);
-        assert_eq!(c.cpu.flags(), 0x24);
     }
 
     #[test]
-    fn test_console_cpu_nestest() {
+    fn test_nestest() {
         let rom = "roms/nestest.nes";
         let rom_path = PathBuf::from(rom);
         let mut console = Console::new(&rom_path).unwrap();
+        console.trace = 1;
         console.cpu.pc = 0xC000;
-        for _ in 0..8991 {
+        for _ in 0..8997 {
             console.step();
         }
+        fs::write("tests/op.log", &console.cpu.oplog).expect("Failed to write op.log");
+        let nestest = fs::read_to_string("tests/nestest.txt").expect("Failed to read nestest.txt");
+        assert!(console.cpu.oplog == nestest);
     }
 
     #[test]
@@ -457,46 +456,46 @@ mod tests {
     //     c.cpu.pc = start_addr;
 
     //     // Square 1
-    //     write_byte(&mut c, start_addr, lda);
-    //     write_byte(&mut c, start_addr + 1, 0x0001);
-    //     write_byte(&mut c, 0x0001, 0x0001);
+    //     writeb(&mut c, start_addr, lda);
+    //     writeb(&mut c, start_addr + 1, 0x0001);
+    //     writeb(&mut c, 0x0001, 0x0001);
 
-    //     write_byte(&mut c, start_addr + 2, sta);
-    //     write_byte(&mut c, start_addr + 3, 0x0003);
-    //     write_byte(&mut c, 0x0003, 0x0015);
-    //     write_byte(&mut c, 0x0004, 0x0040);
+    //     writeb(&mut c, start_addr + 2, sta);
+    //     writeb(&mut c, start_addr + 3, 0x0003);
+    //     writeb(&mut c, 0x0003, 0x0015);
+    //     writeb(&mut c, 0x0004, 0x0040);
 
     //     // Period Low
-    //     write_byte(&mut c, start_addr + 4, lda);
-    //     write_byte(&mut c, start_addr + 5, 0x0005);
-    //     write_byte(&mut c, 0x0005, 0x0008);
-    //     write_byte(&mut c, start_addr + 6, sta);
-    //     write_byte(&mut c, start_addr + 7, 0x0007);
-    //     write_byte(&mut c, 0x0007, 0x0002);
-    //     write_byte(&mut c, 0x0008, 0x0040);
+    //     writeb(&mut c, start_addr + 4, lda);
+    //     writeb(&mut c, start_addr + 5, 0x0005);
+    //     writeb(&mut c, 0x0005, 0x0008);
+    //     writeb(&mut c, start_addr + 6, sta);
+    //     writeb(&mut c, start_addr + 7, 0x0007);
+    //     writeb(&mut c, 0x0007, 0x0002);
+    //     writeb(&mut c, 0x0008, 0x0040);
 
     //     // Period High
-    //     write_byte(&mut c, start_addr + 8, lda);
-    //     write_byte(&mut c, start_addr + 9, 0x0009);
-    //     write_byte(&mut c, 0x0009, 0x0002);
-    //     write_byte(&mut c, start_addr + 10, sta);
-    //     write_byte(&mut c, start_addr + 11, 0x0011);
-    //     write_byte(&mut c, 0x0011, 0x0003);
-    //     write_byte(&mut c, 0x0012, 0x0040);
+    //     writeb(&mut c, start_addr + 8, lda);
+    //     writeb(&mut c, start_addr + 9, 0x0009);
+    //     writeb(&mut c, 0x0009, 0x0002);
+    //     writeb(&mut c, start_addr + 10, sta);
+    //     writeb(&mut c, start_addr + 11, 0x0011);
+    //     writeb(&mut c, 0x0011, 0x0003);
+    //     writeb(&mut c, 0x0012, 0x0040);
 
     //     // Volume
-    //     write_byte(&mut c, start_addr + 12, lda);
-    //     write_byte(&mut c, start_addr + 13, 0x0013);
-    //     write_byte(&mut c, 0x0013, 0x00BF);
-    //     write_byte(&mut c, start_addr + 14, sta);
-    //     write_byte(&mut c, start_addr + 15, 0x0015);
-    //     write_byte(&mut c, 0x0015, 0x0000);
-    //     write_byte(&mut c, 0x0016, 0x0040);
+    //     writeb(&mut c, start_addr + 12, lda);
+    //     writeb(&mut c, start_addr + 13, 0x0013);
+    //     writeb(&mut c, 0x0013, 0x00BF);
+    //     writeb(&mut c, start_addr + 14, sta);
+    //     writeb(&mut c, start_addr + 15, 0x0015);
+    //     writeb(&mut c, 0x0015, 0x0000);
+    //     writeb(&mut c, 0x0016, 0x0040);
 
     //     // jmp forever
-    //     write_byte(&mut c, start_addr + 16, jmp);
-    //     write_byte(&mut c, start_addr + 17, ((start_addr + 16) & 0xFF) as u8);
-    //     write_byte(&mut c, start_addr + 17, ((start_addr + 16) >> 8) as u8);
+    //     writeb(&mut c, start_addr + 16, jmp);
+    //     writeb(&mut c, start_addr + 17, ((start_addr + 16) & 0xFF) as u8);
+    //     writeb(&mut c, start_addr + 17, ((start_addr + 16) >> 8) as u8);
 
     //     // set pc to start address
     //     // step cpu 8 times

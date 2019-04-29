@@ -82,14 +82,14 @@ impl View for GameView {
             gl::BindTexture(gl::TEXTURE_2D, self.texture);
         }
         util::set_texture(self.console.buffer());
-        let s1 = w as f32 / 256.0;
-        let s2 = h as f32 / 240.0;
-        let f = 1.0 - PADDING;
-        let (x, y) = if s1 >= s2 {
-            (f * s2 / s1, f)
-        } else {
-            (f, f * s1 / s2)
-        };
+        // let s1 = w as f32 / 256.0;
+        // let s2 = h as f32 / 240.0;
+        // let f = 1.0 - PADDING;
+        // let (x, y) = if s1 >= s2 {
+        //     (f * s2 / s1, f)
+        // } else {
+        //     (f, f * s1 / s2)
+        // };
         // unsafe {
         //     let verts = vec![-x, -y, x, -y, x, y, -x, y];
         //     let mut vbo = 0u32;

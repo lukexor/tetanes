@@ -1,4 +1,3 @@
-use byteorder::{LittleEndian, ReadBytesExt};
 use std::{error::Error, fmt, fs::File, io::Read, path::PathBuf};
 
 const INES_FILE_MAGIC: [u8; 4] = *b"NES\x1a";

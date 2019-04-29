@@ -12,7 +12,6 @@ use nes::ui::UI;
 use std::{env, error::Error, path::PathBuf};
 
 fn main() {
-    // Find rom(s) to run
     let roms = find_roms().unwrap_or_else(|err| {
         eprintln!("{}", err.to_string());
         std::process::exit(1);

@@ -131,7 +131,6 @@ impl SxRom {
                 self.prg_offsets[0] = bank_offset(prg_size, self.prg_bank as isize, 0x4000);
                 self.prg_offsets[1] = bank_offset(prg_size, -1, 0x4000);
             }
-            _ => panic!("invalid prg_mode {:?}", self.prg_bank_mode()),
         }
         match self.chr_bank_mode() {
             SxRomChrBankMode::Fused => {
@@ -144,7 +143,6 @@ impl SxRom {
                 self.chr_offsets[0] = bank_offset(chr_size, self.chr_bank0 as isize, 0x1000);
                 self.chr_offsets[1] = bank_offset(chr_size, self.chr_bank1 as isize, 0x1000);
             }
-            _ => panic!("invalid chr_mode {:?}", self.chr_bank_mode()),
         }
     }
 
@@ -184,7 +182,7 @@ impl Mapper for SxRom {
             0x0000...0x2000 => {
                 let bank = (addr / 0x1000) as usize;
                 let offset = (addr % 0x1000) as usize;
-                self.rom.chr_rom[self.chr_offsets[bank] + offset] = val;
+                self.rom.chr_ram[self.chr_offsets[bank] + offset] = val;
             }
             0x6000...0x7FFF => self.rom.chr_ram[addr as usize - 0x6000] = val,
             0x8000...0xFFFF => {
@@ -318,11 +316,11 @@ impl Mapper for Nrom {
             0x0000...0x1FFF => self.rom.chr_rom[addr as usize],
             0x6000...0x7FFF => self.rom.chr_ram[addr as usize - 0x6000],
             0x8000...0xBFFF => {
-                let index = u16::from(self.prg_bank1) * 0x4000 + addr - 0x8000;
+                let index = u16::from(self.prg_bank1) * 0x4000 + (addr - 0x8000);
                 self.rom.prg_rom[index as usize]
             }
             0xC000...0xFFFF => {
-                let index = u16::from(self.prg_bank2) * 0x4000 + addr - 0xC000;
+                let index = u16::from(self.prg_bank2) * 0x4000 + (addr - 0xC000);
                 self.rom.prg_rom[index as usize]
             }
             _ => panic!("unhandled mapper2 read at address: 0x{:04X}", addr),
