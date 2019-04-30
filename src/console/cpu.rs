@@ -4,10 +4,14 @@ use super::{
 };
 
 pub const CPU_FREQUENCY: f64 = 1_789_773.0;
+pub const NMI_ADDR: u16 = 0xFFFA;
+pub const IRQ_ADDR: u16 = 0xFFFE;
+pub const RESET_ADDR: u16 = 0xFFFC;
+const RESET_SP: u8 = 0xFD;
+const RESET_FLAGS: u8 = 0x24; // 00100100 - Unused and Interrupt Disable set
 
 /// Interrupt Types
 pub enum Interrupt {
-    None,
     NMI,
     IRQ,
 }
@@ -26,22 +30,20 @@ pub enum Interrupt {
 /// |+-------- Overflow
 /// +--------- Negative
 pub struct CPU {
-    pub cycles: u64,             // number of cycles
-    pub pc: u16,                 // program counter
-    sp: u8,                      // stack pointer - stack is at $0100-$01FF
-    acc: u8,                     // accumulator
-    x: u8,                       // x register
-    y: u8,                       // y register
-    carry: bool,                 // carry flag
-    zero: bool,                  // zero flag
-    pub interrupt_disable: bool, // interrupt disable flag
-    decimal: bool,               // decimal mode flag
-    // b: u8,                    // break command flag
-    // u: u8,                    // unused flag
-    overflow: bool,           // overflow flag
-    negative: bool,           // negative flag
-    pub interrupt: Interrupt, // interrupt type to perform
-    pub stall: isize,         // number of cycles to stall
+    pub cycles: u64,                  // number of cycles
+    pub stall: u64,                   // number of cycles to stall
+    pub pc: u16,                      // program counter
+    sp: u8,                           // stack pointer - stack is at $0100-$01FF
+    acc: u8,                          // accumulator
+    x: u8,                            // x register
+    y: u8,                            // y register
+    pub interrupt: Option<Interrupt>, // interrupt type to perform
+    pub interrupt_disable: bool,      // interrupt disable flag
+    carry: bool,                      // carry flag
+    zero: bool,                       // zero flag
+    decimal: bool,                    // decimal mode flag - has no effect in the NES
+    overflow: bool,                   // overflow flag
+    negative: bool,                   // negative flag
     #[cfg(debug_assertions)]
     pub oplog: String,
 }
@@ -50,36 +52,46 @@ impl CPU {
     pub fn new() -> Self {
         Self {
             cycles: 0,
+            stall: 0,
             pc: 0,
             sp: 0,
             acc: 0,
             x: 0,
             y: 0,
+            interrupt: None,
+            interrupt_disable: false,
             carry: false,
             zero: false,
-            interrupt_disable: false,
             decimal: false,
             overflow: false,
             negative: false,
-            interrupt: Interrupt::None,
-            stall: 0,
             #[cfg(debug_assertions)]
             oplog: String::new(),
         }
     }
 
     pub fn reset(&mut self) {
-        self.sp = 0xFD;
-        self.set_flags(0x24);
+        self.sp = RESET_SP;
+        self.set_flags(RESET_FLAGS);
+        // TODO figure out how to set this properly
         self.cycles = 7;
-        self.stall = 6;
     }
 }
 
+// impl AddrSpace for CPU {
+//     fn readb(&self, addr: u16) -> u8 {
+//         self.mapper.readb(addr)
+//     }
+
+//     fn writeb(&mut self, addr: u16, val: u8) {
+//         self.mapper.writeb(addr, val);
+//     }
+// }
+
 /// PHP: Push Processor Status on Stack
 pub fn php(c: &mut Console) {
-    let flags = c.cpu.flags();
-    push_stackb(c, flags | 0x10); // Set Decimal Mode Flag
+    let flags = c.cpu.flags(true);
+    push_stackb(c, flags);
 }
 
 pub fn execute(c: &mut Console, opcode: u8) {
@@ -119,7 +131,7 @@ pub fn execute(c: &mut Console, opcode: u8) {
             push_stackw(c, c.cpu.pc);
             php(c);
             c.cpu.sei();
-            c.cpu.pc = readw(c, 0xFFFE);
+            c.cpu.pc = readw(c, IRQ_ADDR);
         }
         BVC => c.cpu.bvc(val),
         BVS => c.cpu.bvs(val),
@@ -266,7 +278,7 @@ fn print_instruction(c: &mut Console, op: Operation, opcode: u8, num_args: u16) 
         _ => " ",
     };
     let opcode = format!("{:02X}", opcode);
-    let flags = c.cpu.flags();
+    let flags = c.cpu.flags(false);
     c.cpu.oplog.push_str(&format!(
         "{:04X}  {} {} {} {}{:29?} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{}\n",
         c.cpu.pc,
@@ -579,14 +591,15 @@ const OPCODES: [(Operation, AddrMode, CycleCount, CycleCount); 256] = [
 impl CPU {
     /// Flag functions
 
-    fn flags(&self) -> u8 {
+    fn flags(&self, is_instruction: bool) -> u8 {
         let mut flags: u8 = 0;
         flags |= self.carry as u8;
         flags |= (self.zero as u8) << 1;
         flags |= (self.interrupt_disable as u8) << 2;
         flags |= (self.decimal as u8) << 3;
-        flags |= 0 << 4;
-        flags |= 1 << 5;
+        // Bit 4 is 1 if pushed from an instruction, 0 if from an interrupt
+        flags |= (if is_instruction { 1 } else { 0 }) << 4;
+        flags |= 1 << 5; // Bit 5 always set to 1 when pushed to stack
         flags |= (self.overflow as u8) << 6;
         flags |= (self.negative as u8) << 7;
         flags
@@ -597,8 +610,8 @@ impl CPU {
         self.zero = (flags >> 1) & 1 > 0;
         self.interrupt_disable = (flags >> 2) & 1 > 0;
         self.decimal = (flags >> 3) & 1 > 0;
-        // Ignore break
-        // Bit 5 isn't used
+        // Ignore break since it's not a real register
+        // Bit 5 is unused
         self.overflow = (flags >> 6) & 1 > 0;
         self.negative = (flags >> 7) & 1 > 0;
     }
@@ -629,13 +642,13 @@ impl CPU {
     }
 
     pub fn trigger_irq(&mut self) {
-        if let Interrupt::None = self.interrupt {
-            self.interrupt = Interrupt::IRQ;
+        if !self.interrupt_disable {
+            self.interrupt = Some(Interrupt::IRQ);
         }
     }
 
     pub fn trigger_nmi(&mut self) {
-        self.interrupt = Interrupt::NMI;
+        self.interrupt = Some(Interrupt::NMI);
     }
 
     /// # Storage
@@ -902,8 +915,7 @@ impl CPU {
 
     /// RTI: Return from Interrupt
     fn rti(&mut self, flags: u8) {
-        // Unset Decimal Mode/Set Interrupt Disable
-        self.set_flags(flags & 0xEF | 0x20);
+        self.set_flags(flags);
     }
 
     /// # Registers
@@ -971,8 +983,7 @@ impl CPU {
 
     /// PLP: Pull Processor Status from Stack
     fn plp(&mut self, status: u8) {
-        // Unset Decimal Mode/Set Interrupt Disable
-        self.set_flags(status & 0xEF | 0x20);
+        self.set_flags(status);
     }
 
     /// # System

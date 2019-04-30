@@ -1,7 +1,10 @@
 use apu::APU;
 use controller::Controller;
-use cpu::{execute, php, push_stackw, readw, Interrupt, CPU, CPU_FREQUENCY};
+use cpu::{
+    execute, php, push_stackw, readw, Interrupt, CPU, CPU_FREQUENCY, IRQ_ADDR, NMI_ADDR, RESET_ADDR,
+};
 use image::RgbaImage;
+
 use mapper::Mapper;
 use memory::{read_ppu, readb};
 use ppu::PPU;
@@ -50,7 +53,7 @@ impl Console {
     }
 
     pub fn reset(&mut self) {
-        self.cpu.pc = readw(self, 0xFFFC);
+        self.cpu.pc = readw(self, RESET_ADDR);
         self.cpu.reset();
     }
 
@@ -67,24 +70,17 @@ impl Console {
             1
         } else {
             let start_cycles = self.cpu.cycles;
-            match &self.cpu.interrupt {
-                Interrupt::NMI => {
-                    push_stackw(self, self.cpu.pc);
-                    php(self);
-                    self.cpu.pc = readw(self, 0xFFFA);
-                    self.cpu.interrupt_disable = true;
-                    self.cpu.cycles = self.cpu.cycles.wrapping_add(7);
-                }
-                Interrupt::IRQ => {
-                    push_stackw(self, self.cpu.pc);
-                    php(self);
-                    self.cpu.pc = readw(self, 0xFFFE);
-                    self.cpu.interrupt_disable = true;
-                    self.cpu.cycles = self.cpu.cycles.wrapping_add(7);
-                }
-                _ => (),
+            if let Some(interrupt) = self.cpu.interrupt.take() {
+                push_stackw(self, self.cpu.pc);
+                php(self);
+                let interrupt_addr = match interrupt {
+                    Interrupt::NMI => NMI_ADDR,
+                    Interrupt::IRQ => IRQ_ADDR,
+                };
+                self.cpu.pc = readw(self, interrupt_addr);
+                self.cpu.interrupt_disable = true;
+                self.cpu.cycles = self.cpu.cycles.wrapping_add(7);
             }
-            self.cpu.interrupt = Interrupt::None;
             let opcode = readb(self, self.cpu.pc);
             execute(self, opcode);
             (self.cpu.cycles - start_cycles)
@@ -388,6 +384,9 @@ mod tests {
     use memory::writeb;
     use std::fs;
 
+    const NESTEST_ADDR: u16 = 0xC000;
+    const NESTEST_LEN: usize = 8991;
+
     fn new_console() -> Console {
         let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
         let rom_path = PathBuf::from(rom);
@@ -406,8 +405,8 @@ mod tests {
         let rom_path = PathBuf::from(rom);
         let mut console = Console::new(&rom_path).unwrap();
         console.trace = 1;
-        console.cpu.pc = 0xC000;
-        for _ in 0..8997 {
+        console.cpu.pc = NESTEST_ADDR;
+        for _ in 0..NESTEST_LEN {
             console.step();
         }
         fs::write("tests/op.log", &console.cpu.oplog).expect("Failed to write op.log");
