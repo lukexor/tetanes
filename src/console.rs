@@ -374,7 +374,8 @@ impl Console {
     }
 
     pub fn buffer(&self) -> RgbaImage {
-        self.ppu.front.clone()
+        let image = self.ppu.front.clone();
+        image
     }
 }
 
@@ -401,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_nestest() {
-        let rom = "roms/nestest.nes";
+        let rom = "tests/nestest.nes";
         let rom_path = PathBuf::from(rom);
         let mut console = Console::new(&rom_path).unwrap();
         console.trace = 1;

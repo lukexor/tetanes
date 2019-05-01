@@ -279,7 +279,7 @@ fn print_instruction(c: &mut Console, op: Operation, opcode: u8, num_args: u16) 
     };
     let opcode = format!("{:02X}", opcode);
     let flags = c.cpu.flags(false);
-    c.cpu.oplog.push_str(&format!(
+    let opstr = format!(
         "{:04X}  {} {} {} {}{:29?} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{}\n",
         c.cpu.pc,
         opcode,
@@ -293,7 +293,8 @@ fn print_instruction(c: &mut Console, op: Operation, opcode: u8, num_args: u16) 
         flags,
         c.cpu.sp,
         c.cpu.cycles,
-    ));
+    );
+    c.cpu.oplog.push_str(&opstr);
 }
 
 pub fn readw(c: &mut Console, addr: u16) -> u16 {

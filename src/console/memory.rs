@@ -69,15 +69,15 @@ pub fn read_ppu_register(c: &mut Console, addr: u16) -> u8 {
         0x2004 => c.ppu.oam_data[c.ppu.oam_address as usize],
         0x2007 => {
             let mut val = read_ppu(c, c.ppu.v);
-            if c.ppu.v % 0x4000 < 0x3F00 {
+            if (c.ppu.v % 0x4000) < 0x3F00 {
                 std::mem::swap(&mut c.ppu.buffered_data, &mut val)
             } else {
                 c.ppu.buffered_data = read_ppu(c, c.ppu.v - 0x1000);
             }
             if c.ppu.flag_increment {
-                c.ppu.v += 32;
+                c.ppu.v = c.ppu.v.wrapping_add(32) & 0x3FFF;
             } else {
-                c.ppu.v += 1;
+                c.ppu.v = c.ppu.v.wrapping_add(1) & 0x3FFF;
             }
             val
         }
@@ -94,7 +94,7 @@ pub fn write_ppu_register(c: &mut Console, addr: u16, val: u8) {
         0x2004 => {
             // write oam data
             c.ppu.oam_data[c.ppu.oam_address as usize] = val;
-            c.ppu.oam_address += 1;
+            c.ppu.oam_address = c.ppu.oam_address.wrapping_add(1);
         }
         0x2005 => {
             // write scroll
@@ -123,9 +123,9 @@ pub fn write_ppu_register(c: &mut Console, addr: u16, val: u8) {
             // write data
             write_ppu(c, c.ppu.v, val);
             if c.ppu.flag_increment {
-                c.ppu.v += 32;
+                c.ppu.v = c.ppu.v.wrapping_add(32) & 0x3FFF;
             } else {
-                c.ppu.v += 1;
+                c.ppu.v = c.ppu.v.wrapping_add(1) & 0x3FFF;
             }
         }
         0x4014 => {

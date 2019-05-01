@@ -1,4 +1,4 @@
-use image::{ImageBuffer, RgbaImage};
+use image;
 
 const COLORS: [u32; 64] = [
     0x0066_6666,
@@ -77,16 +77,16 @@ pub struct PPU {
     palette_data: [u8; 32],
     pub name_table_data: [u8; 2048],
     pub oam_data: [u8; 256], // Object Attribute Memory
-    pub front: RgbaImage,
-    back: RgbaImage,
+    pub front: image::RgbaImage,
+    back: image::RgbaImage,
 
     // PPU registers
     pub v: u16, // current vram address (15 bit)
     pub t: u16, // temporary vram address (15 bit)
     pub x: u8,  // fine x scroll (3 bit)
     pub w: u8,  // write toggle (1 bit)
-    pub f: u8,  // even/odd frame flag (1 bit)
 
+    pub f: u8, // even/odd frame flag (1 bit)
     pub register: u8,
 
     // NMI flags
@@ -144,13 +144,13 @@ impl PPU {
     pub fn new() -> Self {
         let mut ppu = Self {
             cycle: 0,
-            scan_line: 250,
+            scan_line: 0,
             frame: 0,
             palette_data: [0; 32],
             name_table_data: [0; 2048],
             oam_data: [0; 256],
-            front: ImageBuffer::new(256, 240),
-            back: ImageBuffer::new(256, 240),
+            front: image::ImageBuffer::new(256, 240),
+            back: image::ImageBuffer::new(256, 240),
             v: 0,
             t: 0,
             x: 0,
@@ -349,8 +349,8 @@ impl PPU {
     }
 
     pub fn render_pixel(&mut self) {
-        let x = self.cycle - 1 as u32;
-        let y = self.scan_line as u32;
+        let x = self.cycle - 1;
+        let y = self.scan_line;
         let mut background = self.background_pixel();
         let (i, mut sprite) = self.sprite_pixel();
         if x < 8 && self.flag_show_left_background == 0 {
@@ -388,11 +388,14 @@ impl PPU {
         self.nmi_change();
     }
 
-    pub fn clear_vertical_blank(&mut self) {}
+    pub fn clear_vertical_blank(&mut self) {
+        self.nmi_occurred = false;
+        self.nmi_change();
+    }
 
     fn reset(&mut self) {
         self.cycle = 0;
-        self.scan_line = 240;
+        self.scan_line = 0;
         self.frame = 0;
         self.oam_address = 0;
         self.write_control(0);
@@ -411,7 +414,7 @@ impl PPU {
             self.v ^= 0x0400;
         } else {
             // increment coarse X
-            self.v += 1;
+            self.v = (self.v + 1) & 0x7FFF;
         }
     }
 

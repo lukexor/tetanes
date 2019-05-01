@@ -41,3 +41,4 @@ Inspiried by several NES projects:
 - https://github.com/fogleman/nes
 - https://github.com/pcwalton/sprocketnes
 - https://github.com/AndreaOrru/LaiNES
+- https://github.com/MichaelBurge/nes-emulator
