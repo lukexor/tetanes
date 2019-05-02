@@ -4,7 +4,7 @@ use std::error::Error;
 // TODO Implement MMC3 next
 
 pub trait Mapper {
-    fn readb(&mut self, addr: u16) -> u8;
+    fn readb(&self, addr: u16) -> u8;
     fn writeb(&mut self, addr: u16, val: u8);
     fn mirror(&self) -> u8;
     // fn prg_readb(&mut self, addr: u16) -> u8;
@@ -159,7 +159,7 @@ impl SxRom {
 }
 
 impl Mapper for SxRom {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn readb(&self, addr: u16) -> u8 {
         match addr {
             0x0000...0x2000 => {
                 let bank = (addr / 0x1000) as usize;
@@ -214,7 +214,7 @@ impl Mapper for SxRom {
         self.rom.mirror()
     }
 
-    // fn prg_readb(&mut self, addr: u16) -> u8 {
+    // fn prg_readb(&self, addr: u16) -> u8 {
     //     match addr {
     //         0x0000...0x7FFF => 0,
     //         0x8000...0xBFFF => {
@@ -258,7 +258,7 @@ impl Mapper for SxRom {
     //     }
     // }
 
-    // fn chr_readb(&mut self, addr: u16) -> u8 {
+    // fn chr_readb(&self, addr: u16) -> u8 {
     //     match addr {
     //         0x0000...0x2000 {
     //             let bank = match self.chr_bank_mode() {
@@ -311,7 +311,7 @@ impl Nrom {
 }
 
 impl Mapper for Nrom {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn readb(&self, addr: u16) -> u8 {
         match addr {
             0x0000...0x1FFF => self.rom.chr_rom[addr as usize],
             0x6000...0x7FFF => self.rom.chr_ram[addr as usize - 0x6000],

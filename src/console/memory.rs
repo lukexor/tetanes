@@ -18,7 +18,13 @@ pub fn readb(c: &mut Console, addr: u16) -> u8 {
         0x4016 => c.controller1.read(),
         0x4017 => c.controller2.read(),
         0x4018...0x5FFF => 0, // TODO I/O
-        0x6000..=0xFFFF => c.mapper.readb(addr),
+        0x6000..=0xFFFF => {
+            if let Some(mapper) = &c.mapper {
+                mapper.readb(addr)
+            } else {
+                0
+            }
+        }
     };
     #[cfg(debug_assertions)]
     {
@@ -48,7 +54,11 @@ pub fn writeb(c: &mut Console, addr: u16, val: u8) {
         }
         0x4017 => c.apu.write_register(addr, val),
         0x4018...0x5FFF => (), // TODO I/O
-        0x6000..=0xFFFF => c.mapper.writeb(addr, val),
+        0x6000..=0xFFFF => {
+            if let Some(mapper) = &mut c.mapper {
+                mapper.writeb(addr, val);
+            }
+        }
     }
 }
 
@@ -147,10 +157,21 @@ pub fn write_ppu_register(c: &mut Console, addr: u16, val: u8) {
 pub fn read_ppu(c: &mut Console, mut addr: u16) -> u8 {
     addr %= 0x4000;
     match addr {
-        0x0000...0x1FFF => c.mapper.readb(addr),
-        0x2000...0x3EFF => c
-            .ppu
-            .name_table_data(mirror_address(c.mapper.mirror(), addr) % 2048),
+        0x0000...0x1FFF => {
+            if let Some(mapper) = &c.mapper {
+                mapper.readb(addr)
+            } else {
+                0
+            }
+        }
+        0x2000...0x3EFF => {
+            if let Some(mapper) = &c.mapper {
+                let addr = mirror_address(mapper.mirror(), addr) % 2048;
+                c.ppu.name_table_data(addr)
+            } else {
+                0
+            }
+        }
         0x3F00...0x4000 => c.ppu.read_palette(addr % 32),
         _ => panic!("unhandled PPU memory read at addr 0x{:04X}", addr),
     }
@@ -159,10 +180,17 @@ pub fn read_ppu(c: &mut Console, mut addr: u16) -> u8 {
 pub fn write_ppu(c: &mut Console, mut addr: u16, val: u8) {
     addr %= 0x4000;
     match addr {
-        0x0000...0x1FFF => c.mapper.writeb(addr, val),
-        0x2000...0x3EFF => c
-            .ppu
-            .set_name_table_data(mirror_address(c.mapper.mirror(), addr) % 2048, val),
+        0x0000...0x1FFF => {
+            if let Some(mapper) = &mut c.mapper {
+                mapper.writeb(addr, val);
+            }
+        }
+        0x2000...0x3EFF => {
+            if let Some(mapper) = &c.mapper {
+                let addr = mirror_address(mapper.mirror(), addr) % 2048;
+                c.ppu.set_name_table_data(addr, val);
+            }
+        }
         0x3F00...0x4000 => c.ppu.write_palette(addr % 32, val),
         _ => panic!("unhandled PPU memory write at addr 0x{:04X}", addr),
     }

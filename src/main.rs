@@ -12,18 +12,9 @@ use nes::ui::UI;
 use std::{env, error::Error, path::PathBuf};
 
 fn main() {
-    let roms = find_roms().unwrap_or_else(|err| {
-        eprintln!("{}", err.to_string());
-        std::process::exit(1);
-    });
-    // Run main loop
-    std::process::exit(match UI::run(roms) {
-        Ok(_) => 0,
-        Err(err) => {
-            eprintln!("{}", err.to_string());
-            1
-        }
-    });
+    let roms = find_roms().unwrap_or_else(|e| err_exit(e));
+    let mut ui = UI::new(roms).unwrap_or_else(|e| err_exit(e));
+    ui.run();
 }
 
 /// TODO: Document
@@ -61,4 +52,9 @@ fn find_roms() -> Result<Vec<PathBuf>, Box<Error>> {
         roms.push(rom_path);
     }
     Ok(roms)
+}
+
+fn err_exit(err: Box<Error>) -> ! {
+    eprintln!("{}", err.to_string());
+    std::process::exit(1);
 }

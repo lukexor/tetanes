@@ -195,6 +195,19 @@ impl PPU {
         ppu
     }
 
+    const RENDER_SIZE: usize = 240 * 256;
+
+    pub fn render(&self) -> Vec<u8> {
+        let mut pixels = Vec::new();
+        let samples = self.front.as_flat_samples().samples.to_vec();
+        for (i, chunk) in samples.chunks(4).enumerate() {
+            pixels.push(chunk[0]);
+            pixels.push(chunk[1]);
+            pixels.push(chunk[2]);
+        }
+        pixels
+    }
+
     fn new_palette() -> Vec<image::Rgba<u8>> {
         let mut palette: Vec<image::Rgba<u8>> = Vec::with_capacity(64);
         for c in COLORS.iter() {

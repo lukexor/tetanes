@@ -1,78 +1,113 @@
-use glfw::{Action, Context, Key, OpenGlProfileHint, WindowHint};
+use sdl2::{
+    audio::{AudioQueue, AudioSpecDesired},
+    controller::GameController,
+    event::Event,
+    keyboard::Keycode,
+    pixels::{Color, PixelFormatEnum},
+    render::{Canvas, Texture},
+    video, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem,
+};
 use std::{error::Error, sync::mpsc};
 
+const AUDIO_FREQUENCY: i32 = 44100;
+const SAMPLES_PER_FRAME: u16 = 2048;
+const DEFAULT_TITLE: &str = "NES";
 const WIDTH: u32 = 256;
 const HEIGHT: u32 = 240;
 const SCALE: u32 = 3;
-const DEFAULT_TITLE: &str = "NES";
 
 pub struct Window {
-    window: glfw::Window,
-    events: mpsc::Receiver<(f64, glfw::WindowEvent)>,
-    glfw: glfw::Glfw,
+    context: Sdl,
+    video_sub: VideoSubsystem,
+    canvas: Canvas<video::Window>,
+    // texture: Texture<'static>,
+    audio_sub: AudioSubsystem,
+    audio_device: AudioQueue<f32>,
+    controller_sub: GameControllerSubsystem,
+    controller1: Option<GameController>,
+    controller2: Option<GameController>,
+    event_pump: EventPump,
 }
 
 impl Window {
     pub fn new() -> Result<Self, Box<Error>> {
-        let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS)?;
-        glfw.window_hint(WindowHint::ContextVersionMajor(3));
-        glfw.window_hint(WindowHint::ContextVersionMinor(3));
-        glfw.window_hint(WindowHint::OpenGlProfile(OpenGlProfileHint::Core));
-        glfw.window_hint(WindowHint::OpenGlForwardCompat(true));
-        glfw.window_hint(WindowHint::Resizable(false));
-        let (mut window, events) = glfw
-            .create_window(
-                WIDTH * SCALE,
-                HEIGHT * SCALE,
-                DEFAULT_TITLE,
-                glfw::WindowMode::Windowed,
-            )
-            .expect("Failed to create window.");
-        window.make_current();
-        window.set_key_polling(true);
+        let context = sdl2::init().expect("sdl context");
 
-        gl::load_with(|symbol| window.get_proc_address(symbol));
-        unsafe {
-            gl::Enable(gl::TEXTURE_2D);
-        }
+        // Window/Graphics
+        let video_sub = context.video().expect("sdl video subsystem");
+        let window = video_sub
+            .window(DEFAULT_TITLE, WIDTH * SCALE, HEIGHT * SCALE)
+            .position_centered()
+            .build()
+            .expect("sdl window");
+        let mut canvas = window.into_canvas().build().expect("sdl canvas");
+
+        // Audio
+        let audio_sub = context.audio().expect("sdl audio");
+        let desired_spec = AudioSpecDesired {
+            freq: Some(AUDIO_FREQUENCY),
+            channels: Some(1),
+            samples: Some(SAMPLES_PER_FRAME),
+        };
+        let mut audio_device = audio_sub
+            .open_queue(None, &desired_spec)
+            .expect("sdl audio queue");
+        audio_device.resume();
+
+        // Input
+        let controller_sub = context.game_controller().expect("sdl controller");
+        let event_pump = context.event_pump().expect("sdl event_pump");
 
         Ok(Window {
-            window,
-            events,
-            glfw,
+            context,
+            video_sub,
+            canvas,
+            // texture,
+            audio_sub,
+            audio_device,
+            controller_sub,
+            controller1: None,
+            controller2: None,
+            event_pump,
         })
     }
 
-    pub fn time(&self) -> f64 {
-        self.glfw.get_time()
+    pub fn render(&mut self, pixels: Vec<u8>) {
+        let texture_creator = self.canvas.texture_creator();
+        if pixels[0] != 0 {
+            panic!("{:?}", &pixels[..10]);
+        }
+        let mut texture = texture_creator
+            .create_texture_streaming(PixelFormatEnum::RGB24, WIDTH, HEIGHT)
+            .expect("sdl texture");
+        texture
+            .update(None, &pixels, WIDTH as usize)
+            .expect("texture update");
+        self.canvas.clear();
+        self.canvas.copy(&texture, None, None).expect("canvas copy");
+        self.canvas.present();
     }
 
-    pub fn get_frame_buffer_size(&self) -> (i32, i32) {
-        self.window.get_framebuffer_size()
+    pub fn enqueue_audio(&mut self, samples: &mut Vec<f32>) {
+        let slice = samples.as_slice();
+        if self.audio_device.size() <= (4 * SAMPLES_PER_FRAME).into() {
+            self.audio_device.queue(&slice);
+        }
+        samples.clear();
     }
 
-    pub fn set_title(&mut self, title: &str) {
-        self.window.set_title(title);
-    }
-
-    pub fn should_close(&self) -> bool {
-        self.window.should_close()
-    }
-
-    pub fn render(&mut self) {
-        self.window.swap_buffers();
-    }
-
-    #[allow(clippy::single_match)]
     pub fn poll_events(&mut self) {
-        self.glfw.poll_events();
-        for (_, event) in glfw::flush_messages(&self.events) {
+        for event in self.event_pump.poll_iter() {
             match event {
-                // TODO Change to pause menu
-                glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
-                    self.window.set_should_close(true)
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => {
+                    std::process::exit(0);
                 }
-                _ => {}
+                _ => (),
+                // TODO Debugger, save/load, device added, record, menu, etc
             }
         }
     }

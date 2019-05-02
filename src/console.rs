@@ -29,27 +29,30 @@ pub struct Console {
     pub ppu: PPU,
     pub controller1: Controller,
     pub controller2: Controller,
-    pub mapper: Box<Mapper>,
+    pub mapper: Option<Box<Mapper>>,
     pub ram: Vec<u8>,
     pub trace: u8,
 }
 
 impl Console {
-    pub fn new(rom: &PathBuf) -> Result<Self, Box<Error>> {
-        let rom = Rom::new(rom)?;
-        let mapper = mapper::new_mapper(rom)?;
-        let mut console = Self {
+    pub fn new() -> Self {
+        Self {
             cpu: CPU::new(),
             apu: APU::new(),
             ppu: PPU::new(),
-            mapper,
+            mapper: None,
             controller1: Controller::new(),
             controller2: Controller::new(),
             ram: vec![0; RAM_SIZE],
             trace: 0,
-        };
-        console.reset();
-        Ok(console)
+        }
+    }
+
+    pub fn load_rom(&mut self, rom: &PathBuf) -> Result<(), Box<Error>> {
+        let rom = Rom::new(rom)?;
+        self.mapper = Some(mapper::new_mapper(rom)?);
+        self.reset();
+        Ok(())
     }
 
     pub fn reset(&mut self) {
@@ -64,7 +67,7 @@ impl Console {
         }
     }
 
-    fn step(&mut self) -> u64 {
+    pub fn step(&mut self) -> u64 {
         let cpu_cycles = if self.cpu.stall > 0 {
             self.cpu.stall -= 1;
             1
@@ -391,7 +394,9 @@ mod tests {
     fn new_console() -> Console {
         let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
         let rom_path = PathBuf::from(rom);
-        Console::new(&rom_path).expect("valid console")
+        let mut console = Console::new();
+        console.load_rom(&rom_path).expect("valid console");
+        console
     }
 
     #[test]
@@ -404,7 +409,8 @@ mod tests {
     fn test_nestest() {
         let rom = "tests/nestest.nes";
         let rom_path = PathBuf::from(rom);
-        let mut console = Console::new(&rom_path).unwrap();
+        let mut console = Console::new();
+        console.load_rom(&rom_path).unwrap();
         console.trace = 1;
         console.cpu.pc = NESTEST_ADDR;
         for _ in 0..NESTEST_LEN {
