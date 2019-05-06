@@ -1,54 +1,57 @@
-use super::{
-    memory::{readb, writeb},
-    Console,
-};
+use super::memory::{Addr, Byte, Memory, MemoryMap, Word};
+use super::{Cycles, Frequency};
+use std::fmt;
 
-pub const CPU_FREQUENCY: f64 = 1_789_773.0;
-pub const NMI_ADDR: u16 = 0xFFFA;
-pub const IRQ_ADDR: u16 = 0xFFFE;
-pub const RESET_ADDR: u16 = 0xFFFC;
-const RESET_SP: u8 = 0xFD;
-const RESET_FLAGS: u8 = 0x24; // 00100100 - Unused and Interrupt Disable set
+// 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
+const CPU_CLOCK_FREQ: Frequency = 1_789_773.0;
+const NMI_ADDR: Addr = 0xFFFA;
+const IRQ_ADDR: Addr = 0xFFFE;
+const RESET_ADDR: Addr = 0xFFFC;
+const RESET_SP: Byte = 0xFD;
+const RESET_STATUS: Byte = 0x24; // 00100100 - Unused and Interrupt Disable set
+type NumBytes = u16;
 
-/// Interrupt Types
-pub enum Interrupt {
-    NMI,
-    IRQ,
-}
+// TODO Remove individual status fields and switch to
+// using flag constants
+const CARRY_FLAG: u8 = 0x01;
+const ZERO_FLAG: u8 = 0x02;
+const INTERRUPTD_FLAG: u8 = 0x04;
+const DECIMAL_FLAG: u8 = 0x08;
+const BREAK_FLAG: u8 = 0x10;
+const UNUSED_FLAG: u8 = 0x20;
+const OVERFLOW_FLAG: u8 = 0x40;
+const NEGATIVE_FLAG: u8 = 0x80;
 
 /// The Central Processing Unit
-///
-/// 7  bit  0
-/// ---- ----
-/// NVss DIZC
-/// |||| ||||
-/// |||| |||+- Carry
-/// |||| ||+-- Zero
-/// |||| |+--- Interrupt Disable
-/// |||| +---- Decimal
-/// ||++------ No CPU effect, see: the B flag
-/// |+-------- Overflow
-/// +--------- Negative
-pub struct CPU {
-    pub cycles: u64,                  // number of cycles
-    pub stall: u64,                   // number of cycles to stall
-    pub pc: u16,                      // program counter
-    sp: u8,                           // stack pointer - stack is at $0100-$01FF
-    acc: u8,                          // accumulator
-    x: u8,                            // x register
-    y: u8,                            // y register
-    pub interrupt: Option<Interrupt>, // interrupt type to perform
-    pub interrupt_disable: bool,      // interrupt disable flag
-    carry: bool,                      // carry flag
-    zero: bool,                       // zero flag
-    decimal: bool,                    // decimal mode flag - has no effect in the NES
-    overflow: bool,                   // overflow flag
-    negative: bool,                   // negative flag
-    #[cfg(debug_assertions)]
+pub struct Cpu {
+    cycles: Cycles, // number of cycles
+    stall: Cycles,  // number of cycles to stall
+    pc: Addr,       // program counter
+    sp: Byte,       // stack pointer - stack is at $0100-$01FF
+    acc: Byte,      // accumulator
+    x: Byte,        // x register
+    y: Byte,        // y register
+    // Status Registers
+    // 7654 3210
+    // NVUB DIZC
+    // |||| ||||
+    // |||| |||+- Carry
+    // |||| ||+-- Zero
+    // |||| |+--- Interrupt Disable
+    // |||| +---- Decimal - Not used in the NES but still has to function
+    // |||+------ Break Flag - 1 when pushed to stack from PHP/BRK, 0 from IRQ/NMI
+    // ||+------- Unused - always set to 1 when pushed to stack
+    // |+-------- Overflow
+    // +--------- Negative
+    status: u8, // status registers
     pub oplog: String,
 }
 
-impl CPU {
+fn is_negative(val: Byte) -> bool {
+    val >= 128
+}
+
+impl Cpu {
     pub fn new() -> Self {
         Self {
             cycles: 0,
@@ -58,422 +61,492 @@ impl CPU {
             acc: 0,
             x: 0,
             y: 0,
-            interrupt: None,
-            interrupt_disable: false,
-            carry: false,
-            zero: false,
-            decimal: false,
-            overflow: false,
-            negative: false,
-            #[cfg(debug_assertions)]
+            status: 0,
             oplog: String::new(),
         }
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, mem: &MemoryMap) {
+        self.pc = mem.readw(RESET_ADDR);
         self.sp = RESET_SP;
-        self.set_flags(RESET_FLAGS);
+        self.status = RESET_STATUS;
         // TODO figure out how to set this properly
         self.cycles = 7;
     }
-}
 
-// impl AddrSpace for CPU {
-//     fn readb(&self, addr: u16) -> u8 {
-//         self.mapper.readb(addr)
-//     }
-
-//     fn writeb(&mut self, addr: u16, val: u8) {
-//         self.mapper.writeb(addr, val);
-//     }
-// }
-
-/// PHP: Push Processor Status on Stack
-pub fn php(c: &mut Console) {
-    let flags = c.cpu.flags(true);
-    push_stackb(c, flags);
-}
-
-pub fn execute(c: &mut Console, opcode: u8) {
-    let (op, addr_mode, cycles, page_cycles) = OPCODES[opcode as usize];
-    let (val, target, num_args, page_crossed) =
-        decode_addr_mode(c, addr_mode, c.cpu.pc.wrapping_add(1), op);
-    #[cfg(debug_assertions)]
-    {
-        if c.trace > 0 {
-            print_instruction(c, op, opcode, 1 + num_args);
+    pub fn step(&mut self, mem: &mut MemoryMap) -> Cycles {
+        if self.stall > 0 {
+            self.stall -= 1;
+            1
+        } else {
+            let start_cycles = self.cycles;
+            let opcode = mem.readb(self.pc);
+            self.execute(opcode, mem);
+            (self.cycles - start_cycles)
         }
     }
-    c.cpu.pc = c.cpu.pc.wrapping_add(1 + num_args);
-    c.cpu.cycles += cycles;
-    if page_crossed {
-        c.cpu.cycles += page_cycles;
+
+    fn execute(&mut self, opcode: Byte, mem: &mut MemoryMap) {
+        let (op, addr_mode, cycles, page_cycles) = OPCODES[opcode as usize];
+        let (val, target, num_args, page_crossed) =
+            self.decode_addr_mode(addr_mode, self.pc.wrapping_add(1), op, mem);
+        // #[cfg(debug_assertions)]
+        // {
+        //     if c.trace > 0 {
+        self.print_instruction(op, opcode, 1 + num_args, mem);
+        //     }
+        // }
+        self.pc = self.pc.wrapping_add(1 + num_args);
+        self.cycles += cycles;
+        if page_crossed {
+            self.cycles += page_cycles;
+        }
+
+        let val = val as Byte;
+        match op {
+            ADC => self.adc(val),
+            AND => self.and(val),
+            ASL => {
+                let val = self.read_target(target, mem);
+                let wr = self.asl(val);
+                self.write_target(target, wr, mem);
+            }
+            BCC => self.bcc(val),
+            BCS => self.bcs(val),
+            BEQ => self.beq(val),
+            BIT => self.bit(val),
+            BMI => self.bmi(val),
+            BNE => self.bne(val),
+            BPL => self.bpl(val),
+            // Break Interrupt
+            BRK => self.brk(mem),
+            BVC => self.bvc(val),
+            BVS => self.bvs(val),
+            CLC => self.clc(),
+            CLD => self.cld(),
+            CLI => self.cli(),
+            CLV => self.clv(),
+            CMP => self.cmp(val),
+            CPX => self.cpx(val),
+            CPY => self.cpy(val),
+            DEC => {
+                let val = self.read_target(target, mem);
+                let wr = self.dec(val);
+                self.write_target(target, wr, mem);
+            }
+            DEX => self.dex(),
+            DEY => self.dey(),
+            EOR => self.eor(val),
+            INC => {
+                let val = self.read_target(target, mem);
+                let wr = self.inc(val);
+                self.write_target(target, wr, mem);
+            }
+            INX => self.inx(),
+            INY => self.iny(),
+            JMP => self.jmp(target.unwrap()),
+            JSR => self.jsr(target.unwrap(), mem),
+            LAX => self.lax(val),
+            LDA => self.lda(val),
+            LDX => self.ldx(val),
+            LDY => self.ldy(val),
+            LSR => {
+                let val = self.read_target(target, mem);
+                let wr = self.lsr(val);
+                self.write_target(target, wr, mem);
+            }
+            NOP => self.nop(),
+            ORA => self.ora(val),
+            PHA => self.pha(mem),
+            PHP => self.php(mem),
+            PLA => self.pla(mem),
+            PLP => self.plp(mem),
+            ROL => {
+                let val = self.read_target(target, mem);
+                let wr = self.rol(val);
+                self.write_target(target, wr, mem);
+            }
+            ROR => {
+                let val = self.read_target(target, mem);
+                let wr = self.ror(val);
+                self.write_target(target, wr, mem);
+            }
+            RTI => self.rti(mem),
+            RTS => self.rts(mem),
+            SBC => self.sbc(val),
+            SEC => self.sec(),
+            SED => self.sed(),
+            SEI => self.sei(),
+            STA => self.write_target(target, self.acc, mem),
+            STX => self.write_target(target, self.x, mem),
+            STY => self.write_target(target, self.y, mem),
+            TAX => self.tax(),
+            TAY => self.tay(),
+            TSX => self.tsx(),
+            TXA => self.txa(),
+            TXS => self.txs(),
+            TYA => self.tya(),
+            KIL => eprintln!("KIL encountered"),
+            SAX => {
+                let val = self.read_target(target, mem);
+                let wr = self.sax();
+                self.write_target(target, wr, mem);
+            }
+            DCP => {
+                let val = self.read_target(target, mem);
+                let wr = self.dcp(val);
+                self.write_target(target, wr, mem);
+            }
+            ISB => {
+                let val = self.read_target(target, mem);
+                let wr = self.isb(val);
+                self.write_target(target, wr, mem);
+            }
+            RLA => {
+                let val = self.read_target(target, mem);
+                let wr = self.rla(val);
+                self.write_target(target, wr, mem);
+            }
+            RRA => {
+                let val = self.read_target(target, mem);
+                let wr = self.rra(val);
+                self.write_target(target, wr, mem);
+            }
+            SLO => {
+                let val = self.read_target(target, mem);
+                let wr = self.slo(val);
+                self.write_target(target, wr, mem);
+            }
+            SRE => {
+                let val = self.read_target(target, mem);
+                let wr = self.sre(val);
+                self.write_target(target, wr, mem);
+            }
+            _ => eprintln!("unhandled operation {:?}", op),
+        };
     }
 
-    let val = val as u8;
-    match op {
-        ADC => c.cpu.adc(val),
-        AND => c.cpu.and(val),
-        ASL => {
-            let val = read_target(c, target);
-            let wr = c.cpu.asl(val);
-            write_target(c, target, wr);
-        }
-        BCC => c.cpu.bcc(val),
-        BCS => c.cpu.bcs(val),
-        BEQ => c.cpu.beq(val),
-        BIT => c.cpu.bit(val),
-        BMI => c.cpu.bmi(val),
-        BNE => c.cpu.bne(val),
-        BPL => c.cpu.bpl(val),
-        // Break Interrupt
-        BRK => {
-            push_stackw(c, c.cpu.pc);
-            php(c);
-            c.cpu.sei();
-            c.cpu.pc = readw(c, IRQ_ADDR);
-        }
-        BVC => c.cpu.bvc(val),
-        BVS => c.cpu.bvs(val),
-        CLC => c.cpu.clc(),
-        CLD => c.cpu.cld(),
-        CLI => c.cpu.cli(),
-        CLV => c.cpu.clv(),
-        CMP => c.cpu.cmp(val),
-        CPX => c.cpu.cpx(val),
-        CPY => c.cpu.cpy(val),
-        DEC => {
-            let val = read_target(c, target);
-            let wr = c.cpu.dec(val);
-            write_target(c, target, wr);
-        }
-        DEX => c.cpu.dex(),
-        DEY => c.cpu.dey(),
-        EOR => c.cpu.eor(val),
-        INC => {
-            let val = read_target(c, target);
-            let wr = c.cpu.inc(val);
-            write_target(c, target, wr);
-        }
-        INX => c.cpu.inx(),
-        INY => c.cpu.iny(),
-        JMP => c.cpu.jmp(target.unwrap()),
-        JSR => {
-            push_stackw(c, c.cpu.pc.wrapping_sub(1));
-            c.cpu.jsr(target.unwrap());
-        }
-        LAX => c.cpu.lax(val),
-        LDA => c.cpu.lda(val),
-        LDX => c.cpu.ldx(val),
-        LDY => c.cpu.ldy(val),
-        LSR => {
-            let val = read_target(c, target);
-            let wr = c.cpu.lsr(val);
-            write_target(c, target, wr);
-        }
-        NOP => c.cpu.nop(),
-        ORA => c.cpu.ora(val),
-        // PHA: Push A on Stack
-        PHA => {
-            push_stackb(c, c.cpu.acc);
-        }
-        PHP => php(c),
-        // PLA: Pull A from Stack
-        PLA => {
-            c.cpu.acc = pop_stackb(c);
-            c.cpu.update_acc();
-        }
-        PLP => {
-            let status = pop_stackb(c);
-            c.cpu.plp(status);
-        }
-        ROL => {
-            let val = read_target(c, target);
-            let wr = c.cpu.rol(val);
-            write_target(c, target, wr);
-        }
-        ROR => {
-            let val = read_target(c, target);
-            let wr = c.cpu.ror(val);
-            write_target(c, target, wr);
-        }
-        RTI => {
-            let flags = pop_stackb(c);
-            c.cpu.rti(flags);
-            c.cpu.pc = pop_stackw(c);
-        }
-        // RTS: Return from Subroutine
-        RTS => {
-            c.cpu.pc = pop_stackw(c).wrapping_add(1);
-        }
-        SBC => c.cpu.sbc(val),
-        SEC => c.cpu.sec(),
-        SED => c.cpu.sed(),
-        SEI => c.cpu.sei(),
-        STA => write_target(c, target, c.cpu.acc),
-        STX => write_target(c, target, c.cpu.x),
-        STY => write_target(c, target, c.cpu.y),
-        TAX => c.cpu.tax(),
-        TAY => c.cpu.tay(),
-        TSX => c.cpu.tsx(),
-        TXA => c.cpu.txa(),
-        TXS => c.cpu.txs(),
-        TYA => c.cpu.tya(),
-        KIL => panic!("KIL encountered"),
-        SAX => {
-            let val = read_target(c, target);
-            let wr = c.cpu.sax();
-            write_target(c, target, wr);
-        }
-        DCP => {
-            let val = read_target(c, target);
-            let wr = c.cpu.dcp(val);
-            write_target(c, target, wr);
-        }
-        ISB => {
-            let val = read_target(c, target);
-            let wr = c.cpu.isb(val);
-            write_target(c, target, wr);
-        }
-        RLA => {
-            let val = read_target(c, target);
-            let wr = c.cpu.rla(val);
-            write_target(c, target, wr);
-        }
-        RRA => {
-            let val = read_target(c, target);
-            let wr = c.cpu.rra(val);
-            write_target(c, target, wr);
-        }
-        SLO => {
-            let val = read_target(c, target);
-            let wr = c.cpu.slo(val);
-            write_target(c, target, wr);
-        }
-        SRE => {
-            let val = read_target(c, target);
-            let wr = c.cpu.sre(val);
-            write_target(c, target, wr);
-        }
-        _ => panic!("unhandled operation {:?}", op),
-    };
-}
+    // Getters/Setters
 
-#[cfg(debug_assertions)]
-fn print_instruction(c: &mut Console, op: Operation, opcode: u8, num_args: u16) {
-    let word1 = if num_args < 2 {
-        "  ".to_string()
-    } else {
-        format!("{:02X}", readb(c, c.cpu.pc.wrapping_add(1)))
-    };
-    let word2 = if num_args < 3 {
-        "  ".to_string()
-    } else {
-        format!("{:02X}", readb(c, c.cpu.pc.wrapping_add(2)))
-    };
-    let asterisk = match op {
-        NOP if opcode != 0xEA => "*",
-        SBC if opcode == 0xEB => "*",
-        DCP | ISB | LAX | RLA | RRA | SAX | SLO | SRE => "*",
-        _ => " ",
-    };
-    let opcode = format!("{:02X}", opcode);
-    let flags = c.cpu.flags(false);
-    let opstr = format!(
-        "{:04X}  {} {} {} {}{:29?} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{}\n",
-        c.cpu.pc,
-        opcode,
-        word1,
-        word2,
-        asterisk,
-        op,
-        c.cpu.acc,
-        c.cpu.x,
-        c.cpu.y,
-        flags,
-        c.cpu.sp,
-        c.cpu.cycles,
-    );
-    c.cpu.oplog.push_str(&opstr);
-}
+    pub fn set_pc(&mut self, addr: Addr) {
+        self.pc = addr;
+    }
 
-pub fn readw(c: &mut Console, addr: u16) -> u16 {
-    let lo = u16::from(readb(c, addr));
-    let hi = u16::from(readb(c, addr.wrapping_add(1)));
-    #[cfg(debug_assertions)]
-    {
-        if c.trace > 1 {
-            println!("readw 0x{:04X} from 0x{:02X}", hi << 8 | lo, addr,);
+    pub fn irq(&mut self, mem: &mut MemoryMap) {
+        if self.interrupt_disable() {
+            return;
+        }
+        self.push_stackw(self.pc, mem);
+        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG, mem);
+        self.status |= INTERRUPTD_FLAG;
+        self.pc = mem.readw(IRQ_ADDR);
+        self.cycles = self.cycles.wrapping_add(7);
+    }
+
+    pub fn nmi(&mut self, mem: &mut MemoryMap) {
+        self.push_stackw(self.pc, mem);
+        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG, mem);
+        self.pc = mem.readw(NMI_ADDR);
+        self.cycles = self.cycles.wrapping_add(7);
+    }
+
+    fn update_acc(&mut self) {
+        self.set_result_flags(self.acc);
+    }
+
+    fn set_result_flags(&mut self, val: Byte) {
+        match val {
+            0 => {
+                self.set_zero(true);
+                self.set_negative(false);
+            }
+            v if is_negative(v) => {
+                self.set_zero(false);
+                self.set_negative(true);
+            }
+            _ => {
+                self.set_zero(false);
+                self.set_negative(false);
+            }
         }
     }
-    hi << 8 | lo
-}
 
-// readwbug emulates a 6502 bug that caused the low byte to wrap without
-// incrementing the high byte
-fn readwbug(c: &mut Console, addr: u16) -> u16 {
-    let lo = u16::from(readb(c, addr));
-    let addr = (addr & 0xFF00) | u16::from(addr.wrapping_add(1) as u8);
-    let hi = u16::from(readb(c, addr));
-    #[cfg(debug_assertions)]
-    {
-        if c.trace > 1 {
-            println!("readwbug 0x{:04X} from 0x{:02X}", hi << 8 | lo, addr,);
+    // CPU Register Status
+    // http://wiki.nesdev.com/w/index.php/Status_flags
+
+    fn carry(&self) -> bool {
+        (self.status & CARRY_FLAG) == CARRY_FLAG
+    }
+    fn set_carry(&mut self, val: bool) {
+        if val {
+            self.status |= CARRY_FLAG;
+        } else {
+            self.status &= !CARRY_FLAG;
         }
     }
-    hi << 8 | lo
-}
 
-/// Stack Functions
-
-// Push byte to stack
-fn push_stackb(c: &mut Console, val: u8) {
-    writeb(c, 0x100 | u16::from(c.cpu.sp), val);
-    c.cpu.sp = c.cpu.sp.wrapping_sub(1);
-}
-
-// Pull byte from stack
-fn pop_stackb(c: &mut Console) -> u8 {
-    c.cpu.sp = c.cpu.sp.wrapping_add(1);
-    readb(c, 0x100 | u16::from(c.cpu.sp))
-}
-
-// Push two bytes to stack
-pub fn push_stackw(c: &mut Console, val: u16) {
-    let lo = (val & 0xFF) as u8;
-    let hi = (val >> 8) as u8;
-    push_stackb(c, hi);
-    push_stackb(c, lo);
-}
-
-// Pull two bytes from stack
-fn pop_stackw(c: &mut Console) -> u16 {
-    let lo = u16::from(pop_stackb(c));
-    let hi = u16::from(pop_stackb(c));
-    hi << 8 | lo
-}
-
-// Decodes the AddrMode by returning the target value, address, number of bytes after the opcode
-// it used, and whether it crossed a page boundary as a tuple
-// (val, Option<addr>, bytes, page_crossed)
-fn decode_addr_mode(
-    c: &mut Console,
-    mode: AddrMode,
-    addr: u16,
-    op: Operation,
-) -> (u16, Option<u16>, u16, bool) {
-    // Whether to read from memory or not
-    // ST* opcodes only require the address not the value
-    let read = match op {
-        STA | STX | STY => false,
-        _ => true,
-    };
-    match mode {
-        IMM => {
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            (val, Some(addr), 1, false)
-        }
-        ZRP => {
-            let addr = u16::from(readb(c, addr));
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            (val, Some(addr), 1, false)
-        }
-        ZRX => {
-            let addr = u16::from(readb(c, addr).wrapping_add(c.cpu.x));
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            (val, Some(addr), 1, false)
-        }
-        ZRY => {
-            let addr = u16::from(readb(c, addr).wrapping_add(c.cpu.y));
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            (val, Some(addr), 1, false)
-        }
-        ABS => {
-            let addr = readw(c, addr);
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            (val, Some(addr), 2, false)
-        }
-        ABX => {
-            let addr0 = readw(c, addr);
-            let addr = addr0.wrapping_add(u16::from(c.cpu.x));
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            let page_crossed = pages_differ(addr0, addr);
-            (val, Some(addr), 2, page_crossed)
-        }
-        ABY => {
-            let addr0 = readw(c, addr);
-            let addr = addr0.wrapping_add(u16::from(c.cpu.y));
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            let page_crossed = pages_differ(addr0, addr);
-            (val, Some(addr), 2, page_crossed)
-        }
-        IND => {
-            let addr0 = readw(c, addr);
-            let addr = readwbug(c, addr0);
-            (0, Some(addr), 2, false)
-        }
-        IDX => {
-            let addr0 = readb(c, addr).wrapping_add(c.cpu.x);
-            let addr = readwbug(c, u16::from(addr0));
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            (val, Some(addr), 1, false)
-        }
-        IDY => {
-            let addr0 = readb(c, addr);
-            let addr0 = readwbug(c, u16::from(addr0));
-            let addr = addr0.wrapping_add(u16::from(c.cpu.y));
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            let page_crossed = pages_differ(addr0, addr);
-            (val, Some(addr), 1, page_crossed)
-        }
-        REL => {
-            let val = if read { u16::from(readb(c, addr)) } else { 0 };
-            (val, Some(addr), 1, false)
-        }
-        ACC => (u16::from(c.cpu.acc), None, 0, false),
-        IMP => (0, None, 0, false),
+    fn zero(&self) -> bool {
+        (self.status & ZERO_FLAG) == ZERO_FLAG
     }
-}
+    fn set_zero(&mut self, val: bool) {
+        if val {
+            self.status |= ZERO_FLAG;
+        } else {
+            self.status &= !ZERO_FLAG;
+        }
+    }
 
-fn pages_differ(a: u16, b: u16) -> bool {
-    a & 0xFF00 != b & 0xFF00
-}
+    fn interrupt_disable(&self) -> bool {
+        (self.status & INTERRUPTD_FLAG) == INTERRUPTD_FLAG
+    }
+    fn set_interrupt_disable(&mut self, val: bool) {
+        if val {
+            self.status |= INTERRUPTD_FLAG;
+        } else {
+            self.status &= !INTERRUPTD_FLAG;
+        }
+    }
 
-fn read_target(c: &mut Console, target: Option<u16>) -> u8 {
-    #[cfg(debug_assertions)]
-    {
-        if c.trace > 1 {
+    fn decimal(&self) -> bool {
+        (self.status & DECIMAL_FLAG) == DECIMAL_FLAG
+    }
+    fn set_decimal(&mut self, val: bool) {
+        if val {
+            self.status |= DECIMAL_FLAG;
+        } else {
+            self.status &= !DECIMAL_FLAG;
+        }
+    }
+
+    fn overflow(&self) -> bool {
+        (self.status & OVERFLOW_FLAG) == OVERFLOW_FLAG
+    }
+    fn set_overflow(&mut self, val: bool) {
+        if val {
+            self.status |= OVERFLOW_FLAG;
+        } else {
+            self.status &= !OVERFLOW_FLAG;
+        }
+    }
+
+    fn negative(&self) -> bool {
+        (self.status & NEGATIVE_FLAG) == NEGATIVE_FLAG
+    }
+    fn set_negative(&mut self, val: bool) {
+        if val {
+            self.status |= NEGATIVE_FLAG;
+        } else {
+            self.status &= !NEGATIVE_FLAG;
+        }
+    }
+
+    /// Stack Functions
+
+    // Push byte to stack
+    fn push_stackb(&mut self, val: Byte, mem: &mut MemoryMap) {
+        mem.writeb(0x100 | Addr::from(self.sp), val);
+        self.sp = self.sp.wrapping_sub(1);
+    }
+
+    // Pull byte from stack
+    fn pop_stackb(&mut self, mem: &MemoryMap) -> Byte {
+        self.sp = self.sp.wrapping_add(1);
+        mem.readb(0x100 | Addr::from(self.sp))
+    }
+
+    // Push two bytes to stack
+    fn push_stackw(&mut self, val: u16, mem: &mut MemoryMap) {
+        let lo = (val & 0xFF) as Byte;
+        let hi = (val >> 8) as Byte;
+        self.push_stackb(hi, mem);
+        self.push_stackb(lo, mem);
+    }
+
+    // Pull two bytes from stack
+    fn pop_stackw(&mut self, mem: &MemoryMap) -> Word {
+        let lo = Word::from(self.pop_stackb(mem));
+        let hi = Word::from(self.pop_stackb(mem));
+        hi << 8 | lo
+    }
+
+    // Decodes the AddrMode by returning the target value, address, number of bytes after the opcode
+    // it used, and whether it crossed a page boundary as a tuple
+    fn decode_addr_mode(
+        &self,
+        mode: AddrMode,
+        addr: Addr,
+        op: Operation,
+        mem: &MemoryMap,
+    ) -> (Word, Option<Addr>, NumBytes, bool) {
+        // Whether to read from memory or not
+        // ST* opcodes only require the address not the value
+        let read = match op {
+            STA | STX | STY => false,
+            _ => true,
+        };
+        match mode {
+            IMM => {
+                let val = if read { Addr::from(mem.readb(addr)) } else { 0 };
+                (val, Some(addr), 1, false)
+            }
+            ZRP => {
+                let addr = Addr::from(mem.readb(addr));
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                (val, Some(addr), 1, false)
+            }
+            ZRX => {
+                let addr = Addr::from(mem.readb(addr).wrapping_add(self.x));
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                (val, Some(addr), 1, false)
+            }
+            ZRY => {
+                let addr = Addr::from(mem.readb(addr).wrapping_add(self.y));
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                (val, Some(addr), 1, false)
+            }
+            ABS => {
+                let addr = mem.readw(addr);
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                (val, Some(addr), 2, false)
+            }
+            ABX => {
+                let addr0 = mem.readw(addr);
+                let addr = addr0.wrapping_add(Addr::from(self.x));
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                let page_crossed = Cpu::pages_differ(addr0, addr);
+                (val, Some(addr), 2, page_crossed)
+            }
+            ABY => {
+                let addr0 = mem.readw(addr);
+                let addr = addr0.wrapping_add(Addr::from(self.y));
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                let page_crossed = Cpu::pages_differ(addr0, addr);
+                (val, Some(addr), 2, page_crossed)
+            }
+            IND => {
+                let addr0 = mem.readw(addr);
+                let addr = Cpu::readw_pagewrap(mem, addr0);
+                (0, Some(addr), 2, false)
+            }
+            IDX => {
+                let addr0 = mem.readb(addr).wrapping_add(self.x);
+                let addr = Cpu::readw_pagewrap(mem, Addr::from(addr0));
+                if (self.pc >= 0xCFF2 && self.pc <= 0xCFF4) {
+                    println!("lda 0x{:04X}", addr);
+                }
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                (val, Some(addr), 1, false)
+            }
+            IDY => {
+                let addr0 = mem.readb(addr);
+                let addr0 = Cpu::readw_pagewrap(mem, Addr::from(addr0));
+                let addr = addr0.wrapping_add(Addr::from(self.y));
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                let page_crossed = Cpu::pages_differ(addr0, addr);
+                (val, Some(addr), 1, page_crossed)
+            }
+            REL => {
+                let val = if read { Word::from(mem.readb(addr)) } else { 0 };
+                (val, Some(addr), 1, false)
+            }
+            ACC => (Word::from(self.acc), None, 0, false),
+            IMP => match op {
+                BRK => (0, None, 1, false),
+                _ => (0, None, 0, false),
+            },
+        }
+    }
+
+    fn read_target(&self, target: Option<u16>, mem: &MemoryMap) -> Byte {
+        #[cfg(debug_assertions)]
+        {
             let (val, t) = if let Some(a) = target {
-                (readb(c, a), format!("{:02X}", a))
+                (mem.readb(a), format!("0x{:04X}", a))
             } else {
-                (c.cpu.acc, "A".to_string())
+                (self.acc, "A".to_string())
             };
-            println!("Reading {:02X} from {}", val, t);
+            println!("{:04X} Reading 0x{:02X} from {}", self.pc, val, t);
+        }
+        match target {
+            None => self.acc,
+            Some(addr) => mem.readb(addr),
         }
     }
-    match target {
-        None => c.cpu.acc,
-        Some(addr) => readb(c, addr),
-    }
-}
 
-fn write_target(c: &mut Console, target: Option<u16>, val: u8) {
-    #[cfg(debug_assertions)]
-    {
-        if c.trace > 1 {
+    fn write_target(&mut self, target: Option<u16>, val: Byte, mem: &mut MemoryMap) {
+        #[cfg(debug_assertions)]
+        {
             let t = if let Some(a) = target {
-                format!("{:02X}", a)
+                format!("0x{:04X}", a)
             } else {
                 "A".to_string()
             };
-            println!("Writing {:02X} to {}", val, t);
+            println!("{:04X} Writing 0x{:02X} to {}", self.pc, val, t);
+        }
+        match target {
+            None => {
+                self.acc = val;
+            }
+            Some(addr) => mem.writeb(addr, val),
         }
     }
-    match target {
-        None => {
-            c.cpu.acc = val;
-        }
-        Some(addr) => writeb(c, addr, val),
+
+    fn print_instruction(&mut self, op: Operation, opcode: Byte, num_args: u16, mem: &MemoryMap) {
+        let word1 = if num_args < 2 {
+            "  ".to_string()
+        } else {
+            format!("{:02X}", mem.readb(self.pc.wrapping_add(1)))
+        };
+        let word2 = if num_args < 3 {
+            "  ".to_string()
+        } else {
+            format!("{:02X}", mem.readb(self.pc.wrapping_add(2)))
+        };
+        let asterisk = match op {
+            NOP if opcode != 0xEA => "*",
+            SBC if opcode == 0xEB => "*",
+            DCP | ISB | LAX | RLA | RRA | SAX | SLO | SRE => "*",
+            _ => " ",
+        };
+        let opstr = format!(
+            "{:04X}  {:02X} {} {} {}{:29?} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{}\n",
+            self.pc,
+            opcode,
+            word1,
+            word2,
+            asterisk,
+            op,
+            self.acc,
+            self.x,
+            self.y,
+            self.status,
+            self.sp,
+            self.cycles,
+        );
+        self.oplog.push_str(&opstr);
+    }
+
+    // readw_pagewrap emulates a 6502 bug that caused the low byte to wrap without
+    // incrementing the high byte
+    fn readw_pagewrap(mem: &MemoryMap, addr: Addr) -> Word {
+        let lo = Addr::from(mem.readb(addr));
+        let addr = (addr & 0xFF00) | Addr::from(addr.wrapping_add(1) as Byte);
+        let hi = Addr::from(mem.readb(addr));
+        hi << 8 | lo
+    }
+
+    fn pages_differ(a: u16, b: u16) -> bool {
+        a & 0xFF00 != b & 0xFF00
+    }
+}
+
+impl fmt::Debug for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "CPU {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
+            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycles,
+        )
     }
 }
 
@@ -503,7 +576,6 @@ use AddrMode::*;
 use Operation::*;
 
 type CycleCount = u64;
-
 const IMM: AddrMode = Immediate;
 const ZRP: AddrMode = ZeroPage;
 const ZRX: AddrMode = ZeroPageX;
@@ -589,86 +661,26 @@ const OPCODES: [(Operation, AddrMode, CycleCount, CycleCount); 256] = [
     (NOP, ABX, 4, 1), (SBC, ABX, 4, 1), (INC, ABX, 7, 0), (ISB, ABX, 7, 0), // $FC - $FF
 ];
 
-impl CPU {
-    /// Flag functions
-
-    fn flags(&self, is_instruction: bool) -> u8 {
-        let mut flags: u8 = 0;
-        flags |= self.carry as u8;
-        flags |= (self.zero as u8) << 1;
-        flags |= (self.interrupt_disable as u8) << 2;
-        flags |= (self.decimal as u8) << 3;
-        // Bit 4 is 1 if pushed from an instruction, 0 if from an interrupt
-        flags |= (if is_instruction { 1 } else { 0 }) << 4;
-        flags |= 1 << 5; // Bit 5 always set to 1 when pushed to stack
-        flags |= (self.overflow as u8) << 6;
-        flags |= (self.negative as u8) << 7;
-        flags
-    }
-
-    fn set_flags(&mut self, flags: u8) {
-        self.carry = flags & 1 > 0;
-        self.zero = (flags >> 1) & 1 > 0;
-        self.interrupt_disable = (flags >> 2) & 1 > 0;
-        self.decimal = (flags >> 3) & 1 > 0;
-        // Ignore break since it's not a real register
-        // Bit 5 is unused
-        self.overflow = (flags >> 6) & 1 > 0;
-        self.negative = (flags >> 7) & 1 > 0;
-    }
-
-    pub fn update_acc(&mut self) {
-        self.set_result_flags(self.acc);
-    }
-
-    fn set_result_flags(&mut self, val: u8) {
-        self.set_z(val);
-        self.set_n(val);
-    }
-
-    /// Zero Flag - Gets set when val is 0
-    fn set_z(&mut self, val: u8) {
-        self.zero = match val {
-            0 => true,
-            _ => false,
-        };
-    }
-
-    /// Negative Flag - Gets set when val is negative
-    fn set_n(&mut self, val: u8) {
-        self.negative = match val & 0x80 {
-            0 => false,
-            _ => true,
-        };
-    }
-
-    pub fn trigger_irq(&mut self) {
-        if !self.interrupt_disable {
-            self.interrupt = Some(Interrupt::IRQ);
-        }
-    }
-
-    pub fn trigger_nmi(&mut self) {
-        self.interrupt = Some(Interrupt::NMI);
-    }
-
+impl Cpu {
     /// # Storage
 
     /// LDA: Load A with M
-    fn lda(&mut self, val: u8) {
-        // println!("Loading {:02X} to A", val);
+    fn lda(&mut self, val: Byte) {
         self.acc = val;
+        if (self.pc >= 0xCFF2 && self.pc <= 0xCFF4) {
+            println!("lda {}", self.acc);
+        }
         self.update_acc();
     }
 
     /// LDX: Load X with M
-    fn ldx(&mut self, val: u8) {
+    fn ldx(&mut self, val: Byte) {
         self.x = val;
         self.set_result_flags(val);
     }
 
     /// LDY: Load Y with M
-    fn ldy(&mut self, val: u8) {
+    fn ldy(&mut self, val: Byte) {
         self.y = val;
         self.set_result_flags(val);
     }
@@ -711,29 +723,29 @@ impl CPU {
     /// # Arithmetic
 
     /// ADC: Add M to A with Carry
-    fn adc(&mut self, val: u8) {
+    fn adc(&mut self, val: Byte) {
         let a = self.acc;
         let (x1, o1) = val.overflowing_add(a);
-        let (x2, o2) = x1.overflowing_add(u8::from(self.carry));
+        let (x2, o2) = x1.overflowing_add(self.carry() as Byte);
         self.acc = x2;
-        self.carry = o1 | o2;
-        self.overflow = (a ^ val) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0;
+        self.set_carry(o1 | o2);
+        self.set_overflow((a ^ val) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0);
         self.update_acc();
     }
 
     /// SBC: Subtract M from A with Carry
-    fn sbc(&mut self, val: u8) {
+    fn sbc(&mut self, val: Byte) {
         let a = self.acc;
         let (x1, o1) = a.overflowing_sub(val);
-        let (x2, o2) = x1.overflowing_sub(1 - u8::from(self.carry));
+        let (x2, o2) = x1.overflowing_sub(1 - self.carry() as Byte);
         self.acc = x2;
-        self.carry = !(o1 | o2);
-        self.overflow = (a ^ val) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0;
+        self.set_carry(!(o1 | o2));
+        self.set_overflow((a ^ val) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0);
         self.update_acc();
     }
 
     /// DEC: Decrement M by One
-    fn dec(&mut self, val: u8) -> u8 {
+    fn dec(&mut self, val: Byte) -> Byte {
         let val = val.wrapping_sub(1);
         self.set_result_flags(val);
         val
@@ -752,7 +764,7 @@ impl CPU {
     }
 
     /// INC: Increment M by One
-    fn inc(&mut self, val: u8) -> u8 {
+    fn inc(&mut self, val: Byte) -> Byte {
         let val = val.wrapping_add(1);
         self.set_result_flags(val);
         val
@@ -773,131 +785,131 @@ impl CPU {
     /// # Bitwise
 
     /// AND: "And" M with A
-    fn and(&mut self, val: u8) {
+    fn and(&mut self, val: Byte) {
         self.acc &= val;
         self.update_acc();
     }
 
     /// ASL: Shift Left One Bit (M or A)
-    fn asl(&mut self, val: u8) -> u8 {
-        self.carry = (val >> 7) & 1 > 0;
+    fn asl(&mut self, val: Byte) -> Byte {
+        self.set_carry((val >> 7) & 1 > 0);
         let val = val.wrapping_shl(1);
         self.set_result_flags(val);
         val
     }
 
     /// BIT: Test Bits in M with A
-    fn bit(&mut self, val: u8) {
-        self.overflow = (val >> 6) & 1 > 0;
-        self.set_z(val & self.acc);
-        self.set_n(val);
+    fn bit(&mut self, val: Byte) {
+        self.set_overflow((val >> 6) & 1 > 0);
+        self.set_zero((val & self.acc) == 0);
+        self.set_negative(is_negative(val));
     }
 
     /// EOR: "Exclusive-Or" M with A
-    fn eor(&mut self, val: u8) {
+    fn eor(&mut self, val: Byte) {
         self.acc ^= val;
         self.update_acc();
     }
 
     /// LSR: Shift Right One Bit (M or A)
-    fn lsr(&mut self, val: u8) -> u8 {
-        self.carry = val & 1 > 0;
+    fn lsr(&mut self, val: Byte) -> Byte {
+        self.set_carry(val & 1 > 0);
         let val = val.wrapping_shr(1);
         self.set_result_flags(val);
         val
     }
 
     /// ORA: "OR" M with A
-    fn ora(&mut self, val: u8) {
+    fn ora(&mut self, val: Byte) {
         self.acc |= val;
         self.update_acc();
     }
 
     /// ROL: Rotate One Bit Left (M or A)
-    fn rol(&mut self, val: u8) -> u8 {
-        let old_c = self.carry as u8;
-        self.carry = (val >> 7) & 1 > 0;
+    fn rol(&mut self, val: Byte) -> Byte {
+        let old_c = self.carry() as Byte;
+        self.set_carry((val >> 7) & 1 > 0);
         let val = (val << 1) | old_c;
         self.set_result_flags(val);
         val
     }
 
     /// ROR: Rotate One Bit Right (M or A)
-    fn ror(&mut self, val: u8) -> u8 {
+    fn ror(&mut self, val: Byte) -> Byte {
         let mut ret = val.rotate_right(1);
-        if self.carry {
+        if self.carry() {
             ret |= 1 << 7;
         } else {
             ret &= !(1 << 7);
         }
-        self.carry = val & 1 > 0;
+        self.set_carry(val & 1 > 0);
         self.set_result_flags(ret);
         ret
     }
 
     /// # Branch
 
-    fn branch(&mut self, val: u8) {
+    fn branch(&mut self, val: Byte) {
         let old_pc = self.pc;
-        self.pc = self.pc.wrapping_add((val as i8) as u16);
+        self.pc = self.pc.wrapping_add((val as i8) as Addr);
         self.cycles += 1;
-        if pages_differ(self.pc, old_pc) {
+        if Cpu::pages_differ(self.pc, old_pc) {
             self.cycles += 1;
         }
     }
 
     /// BCC: Branch on Carry Clear
-    fn bcc(&mut self, val: u8) {
-        if !self.carry {
+    fn bcc(&mut self, val: Byte) {
+        if !self.carry() {
             self.branch(val);
         }
     }
 
     /// BCS: Branch on Carry Set
-    fn bcs(&mut self, val: u8) {
-        if self.carry {
+    fn bcs(&mut self, val: Byte) {
+        if self.carry() {
             self.branch(val);
         }
     }
 
     /// BEQ: Branch on Result Zero
-    fn beq(&mut self, val: u8) {
-        if self.zero {
+    fn beq(&mut self, val: Byte) {
+        if self.zero() {
             self.branch(val);
         }
     }
 
     /// BMI: Branch on Result Negative
-    fn bmi(&mut self, val: u8) {
-        if self.negative {
+    fn bmi(&mut self, val: Byte) {
+        if self.negative() {
             self.branch(val);
         }
     }
 
     /// BNE: Branch on Result Not Zero
-    fn bne(&mut self, val: u8) {
-        if !self.zero {
+    fn bne(&mut self, val: Byte) {
+        if !self.zero() {
             self.branch(val);
         }
     }
 
     /// BPL: Branch on Result Positive
-    fn bpl(&mut self, val: u8) {
-        if !self.negative {
+    fn bpl(&mut self, val: Byte) {
+        if !self.negative() {
             self.branch(val);
         }
     }
 
     /// BVC: Branch on Overflow Clear
-    fn bvc(&mut self, val: u8) {
-        if !self.overflow {
+    fn bvc(&mut self, val: Byte) {
+        if !self.overflow() {
             self.branch(val);
         }
     }
 
     /// BVS: Branch on Overflow Set
-    fn bvs(&mut self, val: u8) {
-        if self.overflow {
+    fn bvs(&mut self, val: Byte) {
+        if self.overflow() {
             self.branch(val);
         }
     }
@@ -905,89 +917,121 @@ impl CPU {
     /// # Jump
 
     /// JMP: Jump to Location
-    fn jmp(&mut self, addr: u16) {
+    fn jmp(&mut self, addr: Addr) {
         self.pc = addr;
     }
 
     /// JSR: Jump to Location Save Return addr
-    fn jsr(&mut self, addr: u16) {
+    fn jsr(&mut self, addr: Addr, mem: &mut MemoryMap) {
+        self.push_stackw(self.pc.wrapping_sub(1), mem);
         self.pc = addr;
     }
 
     /// RTI: Return from Interrupt
-    fn rti(&mut self, flags: u8) {
-        self.set_flags(flags);
+    fn rti(&mut self, mem: &MemoryMap) {
+        self.status = (self.pop_stackb(mem) | UNUSED_FLAG) & !BREAK_FLAG;
+        self.pc = self.pop_stackw(mem);
+    }
+
+    /// RTS: Return from Subroutine
+    fn rts(&mut self, mem: &MemoryMap) {
+        self.pc = self.pop_stackw(mem).wrapping_add(1);
     }
 
     /// # Registers
 
     /// CLC: Clear Carry Flag
     fn clc(&mut self) {
-        self.carry = false;
+        self.set_carry(false);
+    }
+
+    /// SEC: Set Carry Flag
+    fn sec(&mut self) {
+        self.set_carry(true);
     }
 
     /// CLD: Clear Decimal Mode
     fn cld(&mut self) {
-        self.decimal = false;
+        self.set_decimal(false);
+    }
+
+    /// SED: Set Decimal Mode
+    fn sed(&mut self) {
+        self.set_decimal(true);
     }
 
     /// CLI: Clear Interrupt Disable Bit
     fn cli(&mut self) {
-        self.interrupt_disable = false;
+        self.set_interrupt_disable(false);
+    }
+
+    /// SEI: Set Interrupt Disable Status
+    fn sei(&mut self) {
+        self.set_interrupt_disable(true);
     }
 
     /// CLV: Clear Overflow Flag
     fn clv(&mut self) {
-        self.overflow = false;
+        self.set_overflow(false);
     }
 
-    fn compare(&mut self, a: u8, b: u8) {
+    fn compare(&mut self, a: Byte, b: Byte) {
         let result = a.wrapping_sub(b);
         self.set_result_flags(result);
-        self.carry = a >= b;
+        self.set_carry(a >= b);
     }
 
     /// CMP: Compare M and A
-    fn cmp(&mut self, val: u8) {
+    fn cmp(&mut self, val: Byte) {
         let a = self.acc;
         self.compare(a, val);
     }
 
     /// CPX: Compare M and X
-    fn cpx(&mut self, val: u8) {
+    fn cpx(&mut self, val: Byte) {
         let x = self.x;
         self.compare(x, val);
     }
 
     /// CPY: Compare M and Y
-    fn cpy(&mut self, val: u8) {
+    fn cpy(&mut self, val: Byte) {
         let y = self.y;
         self.compare(y, val);
     }
 
-    /// SEC: Set Carry Flag
-    fn sec(&mut self) {
-        self.carry = true;
-    }
-
-    /// SED: Set Decimal Mode
-    fn sed(&mut self) {
-        self.decimal = true;
-    }
-
-    /// SEI: Set Interrupt Disable Status
-    fn sei(&mut self) {
-        self.interrupt_disable = true;
-    }
-
     /// # Stack
 
+    /// PHP: Push Processor Status on Stack
+    fn php(&mut self, mem: &mut MemoryMap) {
+        self.push_stackb(self.status | UNUSED_FLAG | BREAK_FLAG, mem);
+    }
+
     /// PLP: Pull Processor Status from Stack
-    fn plp(&mut self, status: u8) {
-        self.set_flags(status);
+    fn plp(&mut self, mem: &MemoryMap) {
+        self.status = (self.pop_stackb(mem) | UNUSED_FLAG) & !BREAK_FLAG;
+    }
+
+    /// PHA: Push A on Stack
+    fn pha(&mut self, mem: &mut MemoryMap) {
+        self.push_stackb(self.acc, mem);
+    }
+
+    /// PLA: Pull A from Stack
+    fn pla(&mut self, mem: &MemoryMap) {
+        self.acc = self.pop_stackb(mem);
+        self.update_acc();
     }
 
     /// # System
+
+    /// BRK: Force Break Interrupt
+    fn brk(&mut self, mem: &mut MemoryMap) {
+        self.push_stackw(self.pc, mem);
+        self.push_stackb(self.status | UNUSED_FLAG | BREAK_FLAG, mem);
+        self.php(mem);
+        self.sei();
+        self.pc = mem.readw(IRQ_ADDR);
+    }
 
     /// NOP: No Operation
     fn nop(&mut self) {}
@@ -995,75 +1039,86 @@ impl CPU {
     /// # Unofficial
 
     /// LAX: Shortcut for LDA then TAX
-    fn lax(&mut self, val: u8) {
+    fn lax(&mut self, val: Byte) {
         self.acc = val;
         self.x = val;
         self.update_acc();
     }
 
     /// SAX: AND A with X
-    fn sax(&mut self) -> u8 {
+    fn sax(&mut self) -> Byte {
         self.acc & self.x
     }
 
     /// DCP: Shortcut for DEC then CMP
-    fn dcp(&mut self, val: u8) -> u8 {
+    fn dcp(&mut self, val: Byte) -> Byte {
         let val = val.wrapping_sub(1);
         self.compare(self.acc, val);
         val
     }
 
     /// ISC/ISB: Shortcut for INC then SBC
-    fn isb(&mut self, val: u8) -> u8 {
+    fn isb(&mut self, val: Byte) -> Byte {
         let x = self.inc(val);
         self.sbc(x);
         x
-        // let val = val.wrapping_add(1);
-        // let a = self.acc;
-        // let (x1, o1) = a.overflowing_sub(val);
-        // let (x2, o2) = x1.overflowing_sub(!u8::from(self.carry));
-        // self.acc = x2;
-        // self.carry = !(o1 | o2);
-        // if (a ^ val) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0 {
-        //     self.overflow = 1;
-        // } else {
-        //     self.overflow = 0;
-        // }
-        // self.update_acc();
-        // val
     }
 
     /// RLA: Shortcut for ROL then AND
-    fn rla(&mut self, val: u8) -> u8 {
+    fn rla(&mut self, val: Byte) -> Byte {
         let x = self.rol(val);
         self.and(x);
         x
     }
 
     /// RRA: Shortcut for ROR then ADC
-    fn rra(&mut self, val: u8) -> u8 {
+    fn rra(&mut self, val: Byte) -> Byte {
         let x = self.ror(val);
         self.adc(x);
         x
     }
 
     /// SLO: Shortcut for ASL then ORA
-    fn slo(&mut self, val: u8) -> u8 {
+    fn slo(&mut self, val: Byte) -> Byte {
         let x = self.asl(val);
         self.ora(x);
         x
     }
 
     /// SRA: Shortcut for LSR then EOR
-    fn sre(&mut self, val: u8) -> u8 {
+    fn sre(&mut self, val: Byte) -> Byte {
         let x = self.lsr(val);
         self.eor(x);
         x
     }
 }
 
-impl Default for CPU {
-    fn default() -> Self {
-        Self::new()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cpu_new() {
+        let c = Cpu::new();
+        assert_eq!(c.cycles, 0);
+        assert_eq!(c.stall, 0);
+        assert_eq!(c.pc, 0);
+        assert_eq!(c.sp, 0);
+        assert_eq!(c.acc, 0);
+        assert_eq!(c.x, 0);
+        assert_eq!(c.y, 0);
+        assert_eq!(c.status, 0);
+        assert_eq!(c.oplog, "");
+    }
+
+    #[test]
+    fn test_cpu_reset() {
+        let mut c = Cpu::new();
+        let mut cpu_memory = MemoryMap::new(0);
+        c.reset(&mut cpu_memory);
+        assert_eq!(c.pc, 0);
+        assert_eq!(c.sp, RESET_SP);
+        assert_eq!(c.status, RESET_STATUS);
+        assert_eq!(c.cycles, 7);
     }
 }

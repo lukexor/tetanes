@@ -1,5 +1,6 @@
 // TODO Remove
 #![allow(unused)]
 
-pub mod console;
-pub mod ui;
+mod cartridge;
+mod console;
+mod ui;
