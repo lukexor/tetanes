@@ -1,60 +1,135 @@
 //! Usage: nes [rom_file | rom_directory]
 //!
-//! 1. If no arguments are passed, the current directory is searched for rom files ending in .nes
-//! 2. If a directory is passed, .nes files are searched for in that directory
-//! 3. If a rom file is passed, that rom is loaded
+//! 1. If a rom file is provided, that rom is loaded
+//! 2. If a directory is provided, `.nes` files are searched for in that directory
+//! 3. If no arguments are provided, the current directory is searched for rom files ending in
+//!    `.nes`
 //!
-//! In the case of 1 and 2, if rom files are found, a menu screen is displayed to select which rom
-//! to run. If there are any errors related to invalid files, directories, or permissions, the
-//! program will print the error and exit.
+//! In the case of 2 and 3, if valid NES rom files are found, a menu screen is displayed to select
+//! which rom to run. If there are any errors related to invalid files, directories, or
+//! permissions, the program will print an error and exit.
 
-// use nes::ui::UI;
-// use std::{env, error::Error, path::PathBuf};
+use failure::{format_err, Error, Fail};
+use nes::ui::UI;
+use nes::Result;
+use std::{env, io, path::PathBuf};
+use structopt::StructOpt;
 
-fn main() {
-    // let roms = find_roms().unwrap_or_else(|e| err_exit(e));
-    // let mut ui = UI::new(roms).unwrap_or_else(|e| err_exit(e));
-    // ui.run();
+#[derive(StructOpt, Debug)]
+#[structopt(
+    name = "nes",
+    about = "An NES emulator written in Rust.",
+    version = "0.1.0",
+    author = "Luke Petherbridge <me@lukeworks.tech>"
+)]
+struct Opt {
+    #[structopt(
+        parse(from_os_str),
+        help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
+    )]
+    path: Option<PathBuf>,
+    #[structopt(
+        short = "s",
+        long = "scale",
+        default_value = "1",
+        help = "Window scale (options: 1, 2, or 3)"
+    )]
+    scale: u8,
+    #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
+    fullscreen: bool,
 }
 
-// /// TODO: Document
-// fn find_roms() -> Result<Vec<PathBuf>, Box<Error>> {
-//     let mut args = env::args().skip(1);
-//     let rom_path = match args.next() {
-//         Some(path) => PathBuf::from(path),
-//         None => env::current_dir().unwrap_or_default(),
-//     };
-//     let mut roms = Vec::new();
-//     if rom_path.is_dir() {
-//         match rom_path.read_dir() {
-//             Ok(entries) => {
-//                 entries
-//                     .filter_map(Result::ok)
-//                     .filter(|f| {
-//                         if let Some(e) = f.path().extension() {
-//                             e == "nes"
-//                         } else {
-//                             false
-//                         }
-//                     })
-//                     .for_each(|f| roms.push(f.path()));
-//             }
-//             Err(err) => {
-//                 return Err(format!(
-//                     "unable to read directory `{}`: {}",
-//                     rom_path.to_string_lossy(),
-//                     err
-//                 )
-//                 .into());
-//             }
-//         }
-//     } else if rom_path.is_file() {
-//         roms.push(rom_path);
-//     }
-//     Ok(roms)
-// }
+#[derive(Debug, Fail)]
+pub enum NesError {
+    #[fail(display = "{}: {}", _0, _1)]
+    Io(String, #[cause] io::Error),
+    #[fail(display = "{}", _0)]
+    Ui(String),
+}
 
-// fn err_exit(err: Box<Error>) -> ! {
-//     eprintln!("{}", err.to_string());
-//     std::process::exit(1);
-// }
+fn main() {
+    let opt = Opt::from_args();
+    let roms = find_roms(opt.path).unwrap_or_else(|e| err_exit(e));
+    let mut ui = UI::init(opt.scale, opt.fullscreen);
+    ui.run(roms).unwrap_or_else(|e| err_exit(e));
+}
+
+// Searches for valid NES rom files ending in `.nes`
+//
+// If rom_path is a `.nes` file, uses that
+// If no arg[1], searches current directory for `.nes` files
+fn find_roms(path: Option<PathBuf>) -> Result<Vec<PathBuf>> {
+    use std::ffi::OsStr;
+
+    let rom_path = path.unwrap_or_else(|| env::current_dir().unwrap_or_default());
+    let mut roms = Vec::new();
+    if rom_path.is_dir() {
+        rom_path
+            .read_dir()
+            .map_err(|e| NesError::Io(format!("unable to read directory {:?}", rom_path), e))?
+            .filter_map(|f| f.ok())
+            .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
+            .for_each(|f| roms.push(f.path()));
+    } else if rom_path.is_file() {
+        roms.push(rom_path.to_path_buf());
+    } else {
+        Err(format_err!("invalid path: {:?}", rom_path))?;
+    }
+    if roms.is_empty() {
+        Err(format_err!("no rom files found or specified"))?;
+    }
+    Ok(roms)
+}
+
+fn err_exit(err: Error) -> ! {
+    eprintln!("Err: {}", err.to_string());
+    std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_roms() {
+        let rom_tests = &[
+            // (Test name, Path, Error)
+            // CWD with no `.nes` files
+            (
+                "CWD with no nes files",
+                None,
+                "no rom files found or specified",
+            ),
+            // Directory with no `.nes` files
+            (
+                "Dir with no nes files",
+                Some("src/"),
+                "no rom files found or specified",
+            ),
+            (
+                "invalid directory",
+                Some("invalid/"),
+                "invalid path: \"invalid/\"",
+            ),
+            ("unreadable directory",
+             Some("tests/unreadable_dir/"),
+             "unable to read directory \"tests/unreadable_dir/\": Permission denied (os error 13)",
+            ),
+        ];
+        for test in rom_tests {
+            let path = if let Some(p) = test.1 {
+                Some(PathBuf::from(p))
+            } else {
+                None
+            };
+            let roms = find_roms(path);
+            assert!(roms.is_err(), "invalid path {}", test.0);
+            assert_eq!(
+                roms.err().unwrap().to_string(),
+                test.2,
+                "error matches {}",
+                test.0
+            );
+        }
+    }
+}

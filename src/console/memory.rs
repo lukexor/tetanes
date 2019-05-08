@@ -1,4 +1,10 @@
-use std::fmt;
+use crate::console::cartridge::Board;
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
+
+const DEFAULT_RAM_SIZE: usize = 0x0800; // 2K
 
 pub type Addr = u16;
 pub type Word = u16;
@@ -9,10 +15,32 @@ pub type Byte = u8;
 pub trait Memory: fmt::Debug {
     fn readb(&self, addr: Addr) -> Byte;
     fn writeb(&mut self, addr: Addr, val: Byte);
+
     fn readw(&self, addr: Addr) -> Word {
-        let lo = u16::from(self.readb(addr));
-        let hi = u16::from(self.readb(addr.wrapping_add(1)));
-        hi << 8 | lo
+        let lo = Addr::from(self.readb(addr));
+        let hi = Addr::from(self.readb(addr.wrapping_add(1)));
+        lo | hi << 8
+    }
+
+    fn writew(&mut self, addr: Addr, val: Word) {
+        self.writeb(addr, (val & 0xFF) as Byte);
+        self.writeb(addr.wrapping_add(1), ((val >> 8) & 0xFF) as Byte);
+    }
+
+    // Same as readw but wraps around for address 0xFF
+    fn readw_zp(&self, addr: Byte) -> Word {
+        let lo = Addr::from(self.readb(Addr::from(addr)));
+        let hi = Addr::from(self.readb(Addr::from(addr.wrapping_add(1))));
+        lo | hi << 8
+    }
+
+    // Emulates a 6502 bug that caused the low byte to wrap without incrementing the high byte
+    // e.g. reading from 0x01FF will read from 0x0100
+    fn readw_pagewrap(&self, addr: Addr) -> Word {
+        let lo = Addr::from(self.readb(addr));
+        let addr = (addr & 0xFF00) | Addr::from(addr.wrapping_add(1) as Byte);
+        let hi = Addr::from(self.readb(addr));
+        lo | hi << 8
     }
 }
 
@@ -23,342 +51,264 @@ pub struct Ram {
 }
 
 impl Ram {
-    pub fn new(size: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            bytes: vec![0; size],
+            bytes: vec![0; DEFAULT_RAM_SIZE],
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
     }
 }
 
 impl Memory for Ram {
+    fn readb(&self, addr: Addr) -> Byte {
+        self.bytes[addr as usize]
+    }
+
+    fn writeb(&mut self, addr: Addr, val: Byte) {
+        self.bytes[addr as usize] = val;
+    }
+}
+
+impl fmt::Debug for Ram {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ram {{ bytes: {}kb }}", self.bytes.len() / 0x400)
+    }
+}
+
+/// Generic ROM
+///
+pub struct Rom {
+    pub bytes: Vec<Byte>,
+}
+
+impl Rom {
+    pub fn with_bytes(bytes: Vec<Byte>) -> Self {
+        Self { bytes }
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+}
+
+impl Memory for Rom {
     fn readb(&self, addr: Addr) -> Byte {
         let len = self.bytes.len();
         self.bytes[addr as usize % len]
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
-        let len = self.bytes.len();
-        self.bytes[addr as usize % len] = val;
+        panic!(
+            "rom: attempt to write read-only memory 0x{:04X} - value: 0x{:04X}",
+            addr, val
+        );
     }
 }
 
-impl fmt::Debug for Ram {
+impl fmt::Debug for Rom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Ram {{ bytes: {}KB }}", self.bytes.len() / 0x400)
+        write!(f, "ram {{ bytes: {}kb }}", self.bytes.len() / 0x400)
     }
 }
 
-/// Generic Memory Map
-
-pub struct MemoryMap {
-    // (begin, end, memory_index, is_mirror)
-    addresses: Vec<(Addr, Addr, usize, bool)>,
-    memory: Vec<Box<Memory>>,
+/// CPU Memory Map
+///
+/// http://wiki.nesdev.com/w/index.php/CPU_memory_map
+#[derive(Debug)]
+pub struct CpuMemMap {
+    ram: Ram,
+    // ppu: Ppu,
+    // apu: Apu,
+    // input: Input,
+    pub board: Option<Arc<Mutex<Board>>>,
 }
 
-impl MemoryMap {
-    pub fn new(size: usize) -> Self {
+impl CpuMemMap {
+    pub fn init() -> Self {
         Self {
-            addresses: Vec::with_capacity(size),
-            memory: Vec::with_capacity(size),
-        }
-    }
-
-    pub fn map<M: Memory + 'static>(&mut self, begin: Addr, end: Addr, memory: Box<M>) {
-        let _ = self.add_map(begin, end, memory);
-    }
-
-    pub fn map_mirrored<M: Memory + 'static>(
-        &mut self,
-        begin: Addr,
-        end: Addr,
-        mirror_begin: Addr,
-        mirror_end: Addr,
-        memory: Box<M>,
-    ) {
-        let mem_index = self.add_map(begin, end, memory);
-        self.addresses
-            .push((mirror_begin, mirror_end, mem_index, true));
-    }
-
-    fn add_map<M: Memory + 'static>(&mut self, begin: Addr, end: Addr, memory: Box<M>) -> usize {
-        if let Some(i) = self.get_memory_idx(begin) {
-            panic!(
-                "address map conflict: 0x{:04X}..=0x{:04X} with index {}\n{:?}",
-                begin, end, i, self
-            );
-        }
-
-        let memory_index = self.memory.len();
-        self.addresses.push((begin, end, memory_index, false));
-        self.memory.push(memory);
-        memory_index
-    }
-
-    fn get_memory_idx(&self, addr: Addr) -> Option<usize> {
-        // If address matches exactly, return its index,
-        // otherwise it returns the index+1
-        let search = self.addresses.binary_search_by(|m| m.0.cmp(&addr));
-        match search {
-            Ok(i) => Some(self.addresses[i].2),
-            // Didn't find a match, check the upper bound on the previous index
-            // to ensure it still fits the mapped range
-            Err(i) => {
-                if let Some(a) = self.addresses.get(i.saturating_sub(1)) {
-                    if addr <= a.1 {
-                        return Some(a.2);
-                    }
-                }
-                None
-            }
+            ram: Ram::new(),
+            // ppu: Ppu::new(),
+            // apu: Apu::new(),
+            // input: Input::new(),
+            board: None,
         }
     }
 }
 
-impl Memory for MemoryMap {
+impl Memory for CpuMemMap {
     fn readb(&self, addr: Addr) -> Byte {
-        match self.get_memory_idx(addr) {
-            Some(i) => self.memory[i].readb(addr),
-            None => {
-                eprintln!("unhandled memory readb at 0x{:04X}", addr);
+        match addr {
+            // Start..End => Read memory
+            0x0000..=0x1FFF => self.ram.readb(addr & 0x07FF), // 0x8000..=0x1FFFF are mirrored
+            // 0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
+            // 0x4000..=0x4015 => self.apu.readb(addr),
+            // 0x4016..=0x4017 => self.input.readb(addr),
+            // 0x4018..=0x401F => 0, // APU/IO Test Mode
+            0x4020..=0xFFFF => {
+                if let Some(b) = &self.board {
+                    let mut board = b.lock().unwrap();
+                    board.readb(addr)
+                } else {
+                    0
+                }
+            }
+            _ => {
+                eprintln!("unhandled CpuMemMap readb at 0x{:04X}", addr);
                 0
             }
         }
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
-        match self.get_memory_idx(addr) {
-            Some(i) => self.memory[i].writeb(addr, val),
-            None => eprintln!("unhandled memory writeb 0x{:04X} at 0x{:04X}", val, addr),
-        }
-    }
-
-    fn readw(&self, addr: Addr) -> Word {
-        match self.get_memory_idx(addr) {
-            Some(i) => self.memory[i].readw(addr),
-            None => {
-                eprintln!("unhandled memory readb at 0x{:04X}", addr);
-                0
+        match addr {
+            // Start..End => Read memory
+            0x0000..=0x1FFF => self.ram.writeb(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
+            // 0x2000..=0x3FFF => self.ppu.writeb(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
+            // 0x4000..=0x4015 | 0x4017 => self.apu.writeb(addr, val),
+            // 0x4016 => self.input.writeb(addr, val),
+            // 0x4018..=0x401F => 0, // APU/IO Test Mode
+            0x4020..=0xFFFF => {
+                if let Some(b) = &self.board {
+                    let mut board = b.lock().unwrap();
+                    board.writeb(addr, val);
+                }
+            }
+            _ => {
+                eprintln!(
+                    "unhandled CpuMemMap writeb at 0x{:04X} - val: 0x{:02x}",
+                    addr, val
+                );
             }
         }
     }
 }
 
-impl fmt::Debug for MemoryMap {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut str = String::from(format!("MemoryMap {{"));
-        for (begin, end, index, mirrored) in &self.addresses {
-            str.push_str(&format!(
-                "\n    0x{:04X}..=0x{:04X} => {:?}",
-                begin, end, self.memory[*index]
-            ));
-            if *mirrored {
-                str.push_str(" (Mirrored)");
-            }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mirror_offset() {
+        // RAM
+        let start = 0x0000;
+        let end = 0x07FF;
+
+        let mirror_start = 0x0800;
+        let mirror_end = 0x1FFF;
+
+        for addr in mirror_start..=mirror_end {
+            let addr = addr & end;
+            assert!(addr >= start && addr <= end, "Addr within range");
         }
-        write!(f, "{}}}", str)
+
+        // PPU
+        let start = 0x2000;
+        let end = 0x2007;
+
+        let mirror_start = 0x2008;
+        let mirror_end = 0x3FFF;
+
+        for addr in mirror_start..=mirror_end {
+            let addr = addr & end;
+            assert!(addr >= start && addr <= end, "Addr within range");
+        }
+    }
+
+    #[test]
+    fn test_readw_pagewrap() {
+        let mut memory = Ram::new();
+        memory.writeb(0x0100, 0xDE);
+        memory.writeb(0x01FF, 0xAD);
+        memory.writeb(0x0200, 0x11);
+        let val = memory.readw_pagewrap(0x01FF);
+        assert_eq!(
+            val, 0xDEAD,
+            "readw_pagewrap 0x{:04X} == 0x{:04X}",
+            val, 0xDEAD
+        );
+    }
+
+    #[test]
+    fn test_readw_zp() {
+        let mut memory = Ram::new();
+        memory.writeb(0x00, 0xDE);
+        memory.writeb(0xFF, 0xAD);
+        let val = memory.readw_zp(0xFF);
+        assert_eq!(val, 0xDEAD, "readw_zp 0x{:04X} == 0x{:04X}", val, 0xDEAD);
+    }
+
+    #[test]
+    fn test_cpu_memory() {
+        let mut mem = CpuMemMap::init();
+        mem.writeb(0x0005, 0x0015);
+        mem.writeb(0x0015, 0x0050);
+        mem.writeb(0x0016, 0x0025);
+
+        assert_eq!(mem.readb(0x0008), 0x00, "read uninitialized byte: 0x00");
+        assert_eq!(mem.readw(0x0008), 0x0000, "read uninitialized word: 0x0000");
+        assert_eq!(
+            mem.readb(0x0005),
+            0x15,
+            "read initialized byte: 0x{:02X}",
+            0x15
+        );
+        assert_eq!(
+            mem.readw(0x0015),
+            0x2550,
+            "read initialized word: 0x{:04X}",
+            0x2550
+        );
+        assert_eq!(
+            mem.readb(0x0808),
+            0x00,
+            "read uninitialized mirror1 byte: 0x00"
+        );
+        assert_eq!(
+            mem.readw(0x0808),
+            0x0000,
+            "read uninitialized mirror1 word: 0x0000"
+        );
+        assert_eq!(
+            mem.readb(0x0805),
+            0x15,
+            "read initialized mirror1 byte: 0x{:02X}",
+            0x15,
+        );
+        assert_eq!(
+            mem.readw(0x0815),
+            0x2550,
+            "read initialized mirror1 word: 0x{:04X}",
+            0x2550,
+        );
+        assert_eq!(
+            mem.readb(0x1008),
+            0x00,
+            "read uninitialized mirror2 byte: 0x00"
+        );
+        assert_eq!(
+            mem.readw(0x1008),
+            0x0000,
+            "read uninitialized mirror2 word: 0x0000"
+        );
+        assert_eq!(
+            mem.readb(0x1005),
+            0x15,
+            "read initialized mirror2 byte: 0x{:02X}",
+            0x15,
+        );
+        assert_eq!(
+            mem.readw(0x1015),
+            0x2550,
+            "read initialized mirror2 word: 0x{:04X}",
+            0x2550,
+        );
+        // The following are test mode addresses, Not mapped
+        assert_eq!(mem.readb(0x0418), 0x00, "read unmapped byte: 0x00");
+        assert_eq!(mem.readb(0x0418), 0x00, "write unmapped byte: 0x00");
+        assert_eq!(mem.readw(0x0418), 0x0000, "read unmapped word: 0x0000");
+        assert_eq!(mem.readw(0x0418), 0x0000, "read unmapped word: 0x0000");
     }
 }
-
-// const MIRROR_LOOKUP: [[u8; 4]; 5] = [
-//     [0, 0, 1, 1],
-//     [0, 1, 0, 1],
-//     [0, 0, 0, 0],
-//     [1, 1, 1, 1],
-//     [0, 1, 2, 3],
-// ];
-
-// pub fn readb(c: &mut Console, addr: u16) -> u8 {
-//     let val = match addr {
-//         0x0000...0x1FFF => c.ram[(addr % 0x0800) as usize],
-//         0x2000...0x3FFF => read_ppu_register(c, 0x2000 + addr % 8),
-//         0x4000...0x4013 => c.apu.read_register(addr),
-//         0x4014 => read_ppu_register(c, addr),
-//         0x4015 => c.apu.read_register(addr),
-//         0x4016 => c.controller1.read(),
-//         0x4017 => c.controller2.read(),
-//         0x4018...0x5FFF => 0, // TODO I/O
-//         0x6000..=0xFFFF => {
-//             if let Some(mapper) = &c.mapper {
-//                 mapper.readb(addr)
-//             } else {
-//                 0
-//             }
-//         }
-//     };
-//     #[cfg(debug_assertions)]
-//     {
-//         if c.trace > 1 {
-//             println!("readb 0x{:04X} from 0x{:04X}", val, addr);
-//         }
-//     }
-//     val
-// }
-
-// pub fn writeb(c: &mut Console, addr: u16, val: u8) {
-//     #[cfg(debug_assertions)]
-//     {
-//         if c.trace > 1 {
-//             println!("writeb 0x{:04X} to 0x{:04X}", val, addr);
-//         }
-//     }
-//     match addr {
-//         0x0000...0x1FFF => c.ram[(addr % 0x8000) as usize] = val,
-//         0x2000...0x3FFF => write_ppu_register(c, 0x2000 + addr % 8, val),
-//         0x4000...0x4013 => c.apu.write_register(addr, val),
-//         0x4014 => write_ppu_register(c, addr, val),
-//         0x4015 => c.apu.write_register(addr, val),
-//         0x4016 => {
-//             c.controller1.write(val);
-//             c.controller2.write(val);
-//         }
-//         0x4017 => c.apu.write_register(addr, val),
-//         0x4018...0x5FFF => (), // TODO I/O
-//         0x6000..=0xFFFF => {
-//             if let Some(mapper) = &mut c.mapper {
-//                 mapper.writeb(addr, val);
-//             }
-//         }
-//     }
-// }
-
-// pub fn read_ppu_register(c: &mut Console, addr: u16) -> u8 {
-//     match addr {
-//         0x2002 => {
-//             let mut result = c.ppu.register & 0x1F;
-//             result |= c.ppu.flag_sprite_overflow << 5;
-//             result |= c.ppu.flag_sprite_zero_hit << 6;
-//             if c.ppu.nmi_occurred {
-//                 result |= 1 << 7;
-//             }
-//             c.ppu.nmi_occurred = false;
-//             c.ppu.nmi_change();
-//             c.ppu.w = 0;
-//             result
-//         }
-//         0x2004 => c.ppu.oam_data[c.ppu.oam_address as usize],
-//         0x2007 => {
-//             let mut val = read_ppu(c, c.ppu.v);
-//             if (c.ppu.v % 0x4000) < 0x3F00 {
-//                 std::mem::swap(&mut c.ppu.buffered_data, &mut val)
-//             } else {
-//                 c.ppu.buffered_data = read_ppu(c, c.ppu.v - 0x1000);
-//             }
-//             if c.ppu.flag_increment {
-//                 c.ppu.v = c.ppu.v.wrapping_add(32) & 0x3FFF;
-//             } else {
-//                 c.ppu.v = c.ppu.v.wrapping_add(1) & 0x3FFF;
-//             }
-//             val
-//         }
-//         _ => 0,
-//     }
-// }
-
-// pub fn write_ppu_register(c: &mut Console, addr: u16, val: u8) {
-//     c.ppu.register = val;
-//     match addr {
-//         0x2000 => c.ppu.write_control(val),
-//         0x2001 => c.ppu.write_mask(val),
-//         0x2003 => c.ppu.oam_address = val,
-//         0x2004 => {
-//             // write oam data
-//             c.ppu.oam_data[c.ppu.oam_address as usize] = val;
-//             c.ppu.oam_address = c.ppu.oam_address.wrapping_add(1);
-//         }
-//         0x2005 => {
-//             // write scroll
-//             if c.ppu.w == 0 {
-//                 c.ppu.t = (c.ppu.t & 0xFFE0) | (u16::from(val) >> 3);
-//                 c.ppu.x = val & 0x07;
-//                 c.ppu.w = 1;
-//             } else {
-//                 c.ppu.t = (c.ppu.t & 0x8FFF) | ((u16::from(val) & 0x07) << 12);
-//                 c.ppu.t = (c.ppu.t & 0xFC1F) | ((u16::from(val) & 0xF8) << 2);
-//                 c.ppu.w = 0;
-//             }
-//         }
-//         0x2006 => {
-//             // write address
-//             if c.ppu.w == 0 {
-//                 c.ppu.t = (c.ppu.t & 0x80FF) | ((u16::from(val) & 0x3F) << 8);
-//                 c.ppu.w = 1;
-//             } else {
-//                 c.ppu.t = (c.ppu.t & 0xFF00) | u16::from(val);
-//                 c.ppu.v = c.ppu.t;
-//                 c.ppu.w = 0;
-//             }
-//         }
-//         0x2007 => {
-//             // write data
-//             write_ppu(c, c.ppu.v, val);
-//             if c.ppu.flag_increment {
-//                 c.ppu.v = c.ppu.v.wrapping_add(32) & 0x3FFF;
-//             } else {
-//                 c.ppu.v = c.ppu.v.wrapping_add(1) & 0x3FFF;
-//             }
-//         }
-//         0x4014 => {
-//             let mut addr = u16::from(val) << 8;
-//             for _ in 0..256 {
-//                 c.ppu.oam_data[c.ppu.oam_address as usize] = readb(c, addr);
-//                 c.ppu.oam_address = c.ppu.oam_address.wrapping_add(1);
-//                 addr += 1;
-//             }
-//             c.cpu.stall += 513;
-//             if c.cpu.cycles % 2 == 1 {
-//                 c.cpu.stall += 1;
-//             }
-//         }
-//         _ => panic!("unhandled PPU register write at address 0x{:04X}", addr),
-//     }
-// }
-
-// pub fn read_ppu(c: &mut Console, mut addr: u16) -> u8 {
-//     addr %= 0x4000;
-//     match addr {
-//         0x0000...0x1FFF => {
-//             if let Some(mapper) = &c.mapper {
-//                 mapper.readb(addr)
-//             } else {
-//                 0
-//             }
-//         }
-//         0x2000...0x3EFF => {
-//             if let Some(mapper) = &c.mapper {
-//                 let addr = mirror_address(mapper.mirror(), addr) % 2048;
-//                 c.ppu.name_table_data(addr)
-//             } else {
-//                 0
-//             }
-//         }
-//         0x3F00...0x4000 => c.ppu.read_palette(addr % 32),
-//         _ => panic!("unhandled PPU memory read at addr 0x{:04X}", addr),
-//     }
-// }
-
-// pub fn write_ppu(c: &mut Console, mut addr: u16, val: u8) {
-//     addr %= 0x4000;
-//     match addr {
-//         0x0000...0x1FFF => {
-//             if let Some(mapper) = &mut c.mapper {
-//                 mapper.writeb(addr, val);
-//             }
-//         }
-//         0x2000...0x3EFF => {
-//             if let Some(mapper) = &c.mapper {
-//                 let addr = mirror_address(mapper.mirror(), addr) % 2048;
-//                 c.ppu.set_name_table_data(addr, val);
-//             }
-//         }
-//         0x3F00...0x4000 => c.ppu.write_palette(addr % 32, val),
-//         _ => panic!("unhandled PPU memory write at addr 0x{:04X}", addr),
-//     }
-// }
-
-// fn mirror_address(mode: u8, mut addr: u16) -> u16 {
-//     addr = (addr - 0x2000) % 0x1000;
-//     let table = addr / 0x0400;
-//     let offset = addr % 0x0400;
-//     0x2000 + u16::from(MIRROR_LOOKUP[mode as usize][table as usize]) * 0x0400 + offset
-// }

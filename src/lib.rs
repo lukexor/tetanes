@@ -1,6 +1,7 @@
 // TODO Remove
 #![allow(unused)]
 
-mod cartridge;
+pub type Result<T> = std::result::Result<T, failure::Error>;
+
 mod console;
-mod ui;
+pub mod ui;
