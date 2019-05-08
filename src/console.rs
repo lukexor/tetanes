@@ -3,8 +3,8 @@
 use crate::Result;
 use cartridge::Cartridge;
 use cpu::Cpu;
-use memory::{Addr, CpuMemMap, Memory, Ram};
-use std::{fmt, fs, path::Path};
+use memory::CpuMemMap;
+use std::{fmt, path::Path};
 
 mod cartridge;
 mod cpu;
@@ -51,20 +51,25 @@ impl Console {
         // ppu -> cpu interrupt
         // apu step
     }
-
-    #[cfg(test)]
-    pub fn set_pc(&mut self, addr: Addr) {
-        self.cpu.set_pc(addr);
-    }
-    #[cfg(test)]
-    fn trace_cpu(&mut self) {
-        self.cpu.set_trace(true);
-    }
 }
 
 impl fmt::Debug for Console {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(f, "Console {{\n  cpu: {:?}\n}} ", self.cpu)
+    }
+}
+
+#[cfg(test)]
+use crate::console::memory::Addr;
+
+#[cfg(test)]
+impl Console {
+    pub fn set_pc(&mut self, addr: Addr) {
+        self.cpu.set_pc(addr);
+    }
+
+    fn trace_cpu(&mut self) {
+        self.cpu.set_trace(true);
     }
 }
 

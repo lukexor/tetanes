@@ -28,14 +28,14 @@ const RESET_STATUS: Byte = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 // ||+------- Unused - always set to 1 when pushed to stack
 // |+-------- Overflow
 // +--------- Negative
-const CARRY_FLAG: u8 = 1;
-const ZERO_FLAG: u8 = 1 << 1;
-const INTERRUPTD_FLAG: u8 = 1 << 2;
-const DECIMAL_FLAG: u8 = 1 << 3;
-const BREAK_FLAG: u8 = 1 << 4;
-const UNUSED_FLAG: u8 = 1 << 5;
-const OVERFLOW_FLAG: u8 = 1 << 6;
-const NEGATIVE_FLAG: u8 = 1 << 7;
+const CARRY_FLAG: Byte = 1;
+const ZERO_FLAG: Byte = 1 << 1;
+const INTERRUPTD_FLAG: Byte = 1 << 2;
+const DECIMAL_FLAG: Byte = 1 << 3;
+const BREAK_FLAG: Byte = 1 << 4;
+const UNUSED_FLAG: Byte = 1 << 5;
+const OVERFLOW_FLAG: Byte = 1 << 6;
+const NEGATIVE_FLAG: Byte = 1 << 7;
 
 #[cfg(test)]
 const CPU_TRACE_LOG: &str = "logs/cpu.log";
@@ -49,7 +49,7 @@ pub struct Cpu {
     acc: Byte,      // accumulator
     x: Byte,        // x register
     y: Byte,        // y register
-    status: u8,
+    status: Byte,
     pub mem: CpuMemMap,
     #[cfg(test)]
     trace: bool,
@@ -230,7 +230,6 @@ impl Cpu {
             TYA => self.tya(),
             KIL => panic!("KIL encountered"),
             SAX => {
-                let val = self.read_target(target);
                 let res = self.sax();
                 self.write_target(target, res);
             }
@@ -342,9 +341,6 @@ impl Cpu {
         }
     }
 
-    fn decimal(&self) -> bool {
-        (self.status & DECIMAL_FLAG) == DECIMAL_FLAG
-    }
     fn set_decimal(&mut self, val: bool) {
         if val {
             self.status |= DECIMAL_FLAG;
@@ -510,7 +506,7 @@ impl Cpu {
                 } else {
                     0
                 };
-                let page_crossed = Cpu::pages_differ(Addr::from(addr_zp), addr);
+                let page_crossed = Cpu::pages_differ(addr_zp, addr);
                 (val, Some(addr), 1, page_crossed)
             }
             Relative => {

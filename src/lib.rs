@@ -1,5 +1,5 @@
 // TODO Remove
-#![allow(unused)]
+#![allow(dead_code, unused)]
 
 pub type Result<T> = std::result::Result<T, failure::Error>;
 

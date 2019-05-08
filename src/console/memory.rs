@@ -1,8 +1,6 @@
 use crate::console::cartridge::Board;
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 const DEFAULT_RAM_SIZE: usize = 0x0800; // 2K
 
@@ -54,6 +52,12 @@ impl Ram {
     pub fn new() -> Self {
         Self {
             bytes: vec![0; DEFAULT_RAM_SIZE],
+        }
+    }
+
+    pub fn with_capacity(size: usize) -> Self {
+        Self {
+            bytes: vec![0; size],
         }
     }
 
@@ -149,7 +153,7 @@ impl Memory for CpuMemMap {
             // 0x4018..=0x401F => 0, // APU/IO Test Mode
             0x4020..=0xFFFF => {
                 if let Some(b) = &self.board {
-                    let mut board = b.lock().unwrap();
+                    let board = b.lock().unwrap();
                     board.readb(addr)
                 } else {
                     0

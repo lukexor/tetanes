@@ -111,10 +111,6 @@ mod tests {
                 Some("invalid/"),
                 "invalid path: \"invalid/\"",
             ),
-            ("unreadable directory",
-             Some("tests/unreadable_dir/"),
-             "unable to read directory \"tests/unreadable_dir/\": Permission denied (os error 13)",
-            ),
         ];
         for test in rom_tests {
             let path = if let Some(p) = test.1 {

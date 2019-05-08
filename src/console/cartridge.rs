@@ -1,17 +1,17 @@
+//! An NES Cartridge Board
+
 use crate::console::mapper;
-use crate::console::memory::{Addr, Byte, Memory, Rom};
+use crate::console::memory::{Memory, Rom};
 use crate::Result;
-use failure::{format_err, Error, Fail};
-use std::{
-    fmt,
-    io::{self, Read},
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
+use failure::{format_err, Fail};
+use std::fmt;
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 const NES_HEADER_MAGIC: [u8; 4] = *b"NES\x1a";
-const PRG_ROM_BANK_SIZE: usize = 0x4000; // 16K bytes
-const CHR_ROM_BANK_SIZE: usize = 0x2000; // 8K bytes
+pub const PRG_BANK_SIZE: usize = 0x4000; // 16K bytes
+const CHR_BANK_SIZE: usize = 0x2000; // 8K bytes
 
 /// Represents an NES Cartridge
 ///
@@ -19,10 +19,12 @@ const CHR_ROM_BANK_SIZE: usize = 0x2000; // 8K bytes
 /// http://wiki.nesdev.com/w/index.php/NES_2.0
 /// http://nesdev.com/NESDoc.pdf (page 28)
 pub struct Cartridge {
-    title: String,
-    board_type: BoardType,
-    mirroring: Mirroring,
-    battery: bool,
+    pub title: String,
+    pub board_type: BoardType,
+    pub mirroring: Mirroring,
+    pub battery: bool,
+    pub num_prg_banks: usize,
+    pub num_chr_banks: usize,
     pub prg_rom: Rom,
     pub chr_rom: Rom,
 }
@@ -38,7 +40,7 @@ pub trait Board: Memory + Send {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-enum BoardType {
+pub enum BoardType {
     AOROM, // mapper 7, ~9 games - Battle Toads, Double Dragon
     CNROM, // mapper 3, ~58 games - Paperboy
     NROM, // mapper 0, ~51 games - Bomberman, Donkey Kong, Donkey Kong 3, Galaga, Pac Man, Super Mario
@@ -51,7 +53,7 @@ enum BoardType {
 
 // http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
 #[derive(Debug, Eq, PartialEq)]
-enum Mirroring {
+pub enum Mirroring {
     Horizontal,
     Vertical,
     SingleScreenA,
@@ -102,19 +104,19 @@ impl Cartridge {
             Err(CartridgeError::InvalidFormat(file.as_ref().to_path_buf()))?;
         }
 
-        let prg_rom_size = header[4] as usize * PRG_ROM_BANK_SIZE;
-        let mut prg_rom = vec![0u8; prg_rom_size];
+        let num_prg_banks = header[4] as usize;
+        let mut prg_rom = vec![0u8; num_prg_banks * PRG_BANK_SIZE];
         rom_file.read_exact(&mut prg_rom)?;
 
-        let chr_rom_size = header[5] as usize * CHR_ROM_BANK_SIZE;
-        let mut chr_rom = vec![0u8; chr_rom_size];
+        let num_chr_banks = header[5] as usize;
+        let mut chr_rom = vec![0u8; num_chr_banks * CHR_BANK_SIZE];
         rom_file.read_exact(&mut chr_rom)?;
 
         // Upper 4 bits of byte 7 and upper 4 bits of byte 8
         let mapper = (header[7] & 0xF0) | (header[6] >> 4);
         let board_type = Cartridge::lookup_board_type(mapper)?;
         // First bit of byte 6 or 3rd bit overrides
-        let mut mirroring = if (header[6] >> 3) & 1 == 1 {
+        let mirroring = if (header[6] >> 3) & 1 == 1 {
             2
         } else {
             header[6] & 1
@@ -130,25 +132,21 @@ impl Cartridge {
             board_type,
             mirroring,
             battery: (header[6] >> 1) & 1 > 0,
+            num_prg_banks,
+            num_chr_banks,
             prg_rom: Rom::with_bytes(prg_rom),
             chr_rom: Rom::with_bytes(chr_rom),
         })
     }
 
     /// Attempts to return a valid Cartridge Board mapper for the given cartridge.
-    ///
-    pub fn load_board(&mut self) -> Result<Arc<Mutex<Board>>> {
+    /// Consumes the Cartridge instance in the process.
+    pub fn load_board(self) -> Result<Arc<Mutex<Board>>> {
         match self.board_type {
             NROM => Ok(Arc::new(Mutex::new(mapper::Nrom::load(self)))),
             SxROM => Ok(Arc::new(Mutex::new(mapper::Sxrom::load(self)))),
             _ => Err(format_err!("unsupported mapper: {:?}", self.board_type))?,
         }
-    }
-
-    // Getters
-
-    pub fn title(&self) -> &String {
-        &self.title
     }
 
     // Utility functions
@@ -260,8 +258,8 @@ mod tests {
                 "unable to open file \"invalid_file.nes\": No such file or directory (os error 2)",
             ),
             (
-                "tests/unreadable.nes",
-                "unable to open file \"tests/unreadable.nes\": Permission denied (os error 13)",
+                "/tmp/unreadable.nes",
+                "unable to open file \"/tmp/unreadable.nes\": Permission denied (os error 13)",
             ),
             (
                 "roms/Family Trainer 9 - Fuuun Takeshi-jou 2 (Japan).nes",
