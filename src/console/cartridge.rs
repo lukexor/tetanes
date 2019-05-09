@@ -29,14 +29,8 @@ pub struct Cartridge {
     pub chr_rom: Rom,
 }
 
-#[derive(PartialEq, Eq)]
-pub enum ScanlineIrqResult {
-    Continue,
-    Irq,
-}
-
 pub trait Board: Memory + Send {
-    fn scanline_irq(&self) -> ScanlineIrqResult;
+    fn scanline_irq(&self) -> bool;
 }
 
 #[derive(Debug, Eq, PartialEq)]

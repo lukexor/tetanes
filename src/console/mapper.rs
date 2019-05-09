@@ -1,5 +1,9 @@
-use super::memory::{Addr, Byte, Memory, Ram};
-use crate::console::cartridge::{Board, Cartridge, ScanlineIrqResult, PRG_BANK_SIZE};
+//! NES Board Mappers
+//!
+//! http://wiki.nesdev.com/w/index.php/Mapper
+
+use crate::console::cartridge::{Board, Cartridge, PRG_BANK_SIZE};
+use crate::console::memory::{Addr, Byte, Memory, Ram};
 use std::fmt;
 
 /// Nrom Board (mapper 0)
@@ -16,7 +20,7 @@ impl Nrom {
 }
 
 impl Memory for Nrom {
-    fn readb(&self, addr: Addr) -> Byte {
+    fn readb(&mut self, addr: Addr) -> Byte {
         match addr {
             // PPU 8K Fixed CHR bank
             0x0000..=0x1FFF => self.cart.chr_rom.readb(addr & 0x1FFF),
@@ -48,8 +52,8 @@ impl Memory for Nrom {
 }
 
 impl Board for Nrom {
-    fn scanline_irq(&self) -> ScanlineIrqResult {
-        ScanlineIrqResult::Continue
+    fn scanline_irq(&self) -> bool {
+        false
     }
 }
 
@@ -172,13 +176,13 @@ impl Sxrom {
 }
 
 impl Board for Sxrom {
-    fn scanline_irq(&self) -> ScanlineIrqResult {
-        ScanlineIrqResult::Continue
+    fn scanline_irq(&self) -> bool {
+        false
     }
 }
 
 impl Memory for Sxrom {
-    fn readb(&self, addr: u16) -> u8 {
+    fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             // PPU 4 KB switchable CHR bank
             0x0000..=0x1FFF => self.cart.chr_rom.readb(addr & 0x1FFF),

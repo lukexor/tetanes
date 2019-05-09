@@ -1,8 +1,10 @@
 use crate::console::cartridge::Board;
+use crate::console::ppu::Ppu;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-const DEFAULT_RAM_SIZE: usize = 0x0800; // 2K
+pub const KILOBYTE: usize = 0x0400; // 1024 bytes
+const DEFAULT_RAM_SIZE: usize = 2 * KILOBYTE;
 
 pub type Addr = u16;
 pub type Word = u16;
@@ -11,10 +13,10 @@ pub type Byte = u8;
 /// Memory Trait
 
 pub trait Memory: fmt::Debug {
-    fn readb(&self, addr: Addr) -> Byte;
+    fn readb(&mut self, addr: Addr) -> Byte;
     fn writeb(&mut self, addr: Addr, val: Byte);
 
-    fn readw(&self, addr: Addr) -> Word {
+    fn readw(&mut self, addr: Addr) -> Word {
         let lo = Addr::from(self.readb(addr));
         let hi = Addr::from(self.readb(addr.wrapping_add(1)));
         lo | hi << 8
@@ -26,7 +28,7 @@ pub trait Memory: fmt::Debug {
     }
 
     // Same as readw but wraps around for address 0xFF
-    fn readw_zp(&self, addr: Byte) -> Word {
+    fn readw_zp(&mut self, addr: Byte) -> Word {
         let lo = Addr::from(self.readb(Addr::from(addr)));
         let hi = Addr::from(self.readb(Addr::from(addr.wrapping_add(1))));
         lo | hi << 8
@@ -34,7 +36,7 @@ pub trait Memory: fmt::Debug {
 
     // Emulates a 6502 bug that caused the low byte to wrap without incrementing the high byte
     // e.g. reading from 0x01FF will read from 0x0100
-    fn readw_pagewrap(&self, addr: Addr) -> Word {
+    fn readw_pagewrap(&mut self, addr: Addr) -> Word {
         let lo = Addr::from(self.readb(addr));
         let addr = (addr & 0xFF00) | Addr::from(addr.wrapping_add(1) as Byte);
         let hi = Addr::from(self.readb(addr));
@@ -67,8 +69,9 @@ impl Ram {
 }
 
 impl Memory for Ram {
-    fn readb(&self, addr: Addr) -> Byte {
-        self.bytes[addr as usize]
+    fn readb(&mut self, addr: Addr) -> Byte {
+        let len = self.bytes.len();
+        self.bytes[addr as usize & (len - 1)]
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
@@ -78,7 +81,7 @@ impl Memory for Ram {
 
 impl fmt::Debug for Ram {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ram {{ bytes: {}kb }}", self.bytes.len() / 0x400)
+        write!(f, "Ram {{ bytes: {}KB }}", self.bytes.len() / KILOBYTE)
     }
 }
 
@@ -99,9 +102,9 @@ impl Rom {
 }
 
 impl Memory for Rom {
-    fn readb(&self, addr: Addr) -> Byte {
+    fn readb(&mut self, addr: Addr) -> Byte {
         let len = self.bytes.len();
-        self.bytes[addr as usize % len]
+        self.bytes[addr as usize & (len - 1)]
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
@@ -114,7 +117,7 @@ impl Memory for Rom {
 
 impl fmt::Debug for Rom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ram {{ bytes: {}kb }}", self.bytes.len() / 0x400)
+        write!(f, "Ram {{ bytes: {}KB }}", self.bytes.len() / KILOBYTE)
     }
 }
 
@@ -124,36 +127,41 @@ impl fmt::Debug for Rom {
 #[derive(Debug)]
 pub struct CpuMemMap {
     ram: Ram,
-    // ppu: Ppu,
+    pub ppu: Ppu,
     // apu: Apu,
     // input: Input,
-    pub board: Option<Arc<Mutex<Board>>>,
+    board: Option<Arc<Mutex<Board>>>,
 }
 
 impl CpuMemMap {
     pub fn init() -> Self {
         Self {
             ram: Ram::new(),
-            // ppu: Ppu::new(),
+            ppu: Ppu::new(),
             // apu: Apu::new(),
             // input: Input::new(),
             board: None,
         }
     }
+
+    pub fn set_board(&mut self, board: Arc<Mutex<Board>>) {
+        self.ppu.set_board(board.clone());
+        self.board = Some(board);
+    }
 }
 
 impl Memory for CpuMemMap {
-    fn readb(&self, addr: Addr) -> Byte {
+    fn readb(&mut self, addr: Addr) -> Byte {
         match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.ram.readb(addr & 0x07FF), // 0x8000..=0x1FFFF are mirrored
+            0x0000..=0x1FFF => self.ram.readb(addr), // 0x8000..=0x1FFFF are mirrored
             // 0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             // 0x4000..=0x4015 => self.apu.readb(addr),
             // 0x4016..=0x4017 => self.input.readb(addr),
             // 0x4018..=0x401F => 0, // APU/IO Test Mode
             0x4020..=0xFFFF => {
                 if let Some(b) = &self.board {
-                    let board = b.lock().unwrap();
+                    let mut board = b.lock().unwrap();
                     board.readb(addr)
                 } else {
                     0
@@ -178,6 +186,11 @@ impl Memory for CpuMemMap {
                 if let Some(b) = &self.board {
                     let mut board = b.lock().unwrap();
                     board.writeb(addr, val);
+                } else {
+                    eprintln!(
+                        "uninitialized board at CpuMemMap writeb at 0x{:04X} - val: 0x{:02x}",
+                        addr, val
+                    );
                 }
             }
             _ => {

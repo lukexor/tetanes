@@ -2,10 +2,12 @@
 //!
 //! http://wiki.nesdev.com/w/index.php/CPU
 
+use crate::console::cartridge::Board;
 use crate::console::memory::{Addr, Byte, CpuMemMap, Memory, Word};
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
-pub type Cycles = u64;
+pub type Cycle = u64;
 
 // 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
 // const CPU_CLOCK_FREQ: Frequency = 1_789_773.0;
@@ -42,15 +44,15 @@ const CPU_TRACE_LOG: &str = "logs/cpu.log";
 
 /// The Central Processing Unit
 pub struct Cpu {
-    cycles: Cycles, // number of cycles
-    stall: Cycles,  // number of cycles to stall
-    pc: Addr,       // program counter
-    sp: Byte,       // stack pointer - stack is at $0100-$01FF
-    acc: Byte,      // accumulator
-    x: Byte,        // x register
-    y: Byte,        // y register
+    cycles: Cycle, // number of cycles
+    stall: Cycle,  // number of cycles to stall
+    pc: Addr,      // program counter
+    sp: Byte,      // stack pointer - stack is at $0100-$01FF
+    acc: Byte,     // accumulator
+    x: Byte,       // x register
+    y: Byte,       // y register
     status: Byte,
-    pub mem: CpuMemMap,
+    mem: CpuMemMap,
     #[cfg(test)]
     trace: bool,
     #[cfg(test)]
@@ -91,15 +93,14 @@ impl Cpu {
     /// Steps the CPU exactly one `tick`
     ///
     /// Returns the number of cycles the CPU took to execute.
-    pub fn step(&mut self) -> Cycles {
+    pub fn step(&mut self) {
         if self.stall > 0 {
             self.stall -= 1;
-            1
         } else {
             let start_cycles = self.cycles;
             let opcode = self.mem.readb(self.pc);
             self.execute(opcode);
-            (self.cycles - start_cycles)
+            self.mem.ppu.step(self.cycles);
         }
     }
 
@@ -125,6 +126,10 @@ impl Cpu {
         self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.pc = self.mem.readw(NMI_ADDR);
         self.cycles = self.cycles.wrapping_add(7);
+    }
+
+    pub fn set_board(&mut self, board: Arc<Mutex<Board>>) {
+        self.mem.set_board(board);
     }
 
     // Executes a single CPU instruction
@@ -404,7 +409,7 @@ impl Cpu {
     // there is one), number of bytes used after the opcode, and whether it crossed a page
     // boundary
     fn decode_addr_mode(
-        &self,
+        &mut self,
         mode: AddrMode,
         addr: Addr,
         op: Operation,
@@ -499,7 +504,8 @@ impl Cpu {
                 (val, Some(addr), 1, false)
             }
             IndirectY => {
-                let addr_zp = self.mem.readw_zp(self.mem.readb(addr));
+                let addr_zp = self.mem.readb(addr);
+                let addr_zp = self.mem.readw_zp(addr_zp);
                 let addr = addr_zp.wrapping_add(Addr::from(self.y));
                 let val = if read {
                     Word::from(self.mem.readb(addr))
@@ -525,7 +531,7 @@ impl Cpu {
     // Reads from either a target address or the accumulator register.
     //
     // target is either Some(Addr) or None based on the addressing mode
-    fn read_target(&self, target: Option<u16>) -> Byte {
+    fn read_target(&mut self, target: Option<u16>) -> Byte {
         match target {
             None => self.acc,
             Some(addr) => self.mem.readb(addr),

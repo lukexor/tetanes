@@ -10,6 +10,7 @@ mod cartridge;
 mod cpu;
 mod mapper;
 mod memory;
+mod ppu;
 
 /// The NES Console
 ///
@@ -24,10 +25,6 @@ impl Console {
         let cpu_memory = CpuMemMap::init();
         Self {
             cpu: Cpu::init(cpu_memory),
-            // TODO
-            // ppu
-            // ppu_memory
-            // apu
         }
     }
 
@@ -36,7 +33,7 @@ impl Console {
     /// NES ROM files usually end with `.nes`
     pub fn load_cartridge(&mut self, rom: &Path) -> Result<()> {
         let board = Cartridge::new(rom)?.load_board()?;
-        self.cpu.mem.board = Some(board);
+        self.cpu.set_board(board.clone());
         self.reset();
         Ok(())
     }
@@ -46,8 +43,7 @@ impl Console {
     }
 
     pub fn step(&mut self) {
-        let cpu_cycles = self.cpu.step();
-        // TODO ppu step
+        self.cpu.step();
         // ppu -> cpu interrupt
         // apu step
     }
