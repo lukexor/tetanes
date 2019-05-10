@@ -104,6 +104,7 @@ impl Rom {
 impl Memory for Rom {
     fn readb(&mut self, addr: Addr) -> Byte {
         let len = self.bytes.len();
+        assert!(len != 0, "Rom length is 0! {:?}", self);
         self.bytes[addr as usize & (len - 1)]
     }
 
@@ -117,7 +118,7 @@ impl Memory for Rom {
 
 impl fmt::Debug for Rom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Ram {{ bytes: {}KB }}", self.bytes.len() / KILOBYTE)
+        write!(f, "Rom {{ bytes: {}KB }}", self.bytes.len() / KILOBYTE)
     }
 }
 
@@ -155,10 +156,10 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.ram.readb(addr), // 0x8000..=0x1FFFF are mirrored
-            // 0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            // 0x4000..=0x4015 => self.apu.readb(addr),
-            // 0x4016..=0x4017 => self.input.readb(addr),
-            // 0x4018..=0x401F => 0, // APU/IO Test Mode
+            0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
+            0x4000..=0x4015 => 0,                    // TODO self.apu.readb(addr),
+            0x4016..=0x4017 => 0,                    // TODO self.input.readb(addr),
+            0x4018..=0x401F => 0,                    // APU/IO Test Mode
             0x4020..=0xFFFF => {
                 if let Some(b) = &self.board {
                     let mut board = b.lock().unwrap();
@@ -178,10 +179,10 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.ram.writeb(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
-            // 0x2000..=0x3FFF => self.ppu.writeb(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
-            // 0x4000..=0x4015 | 0x4017 => self.apu.writeb(addr, val),
-            // 0x4016 => self.input.writeb(addr, val),
-            // 0x4018..=0x401F => 0, // APU/IO Test Mode
+            0x2000..=0x3FFF => self.ppu.writeb(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
+            0x4000..=0x4015 | 0x4017 => (), // TODO self.apu.writeb(addr, val),
+            0x4016 => (),                   // TODO self.input.writeb(addr, val),
+            0x4018..=0x401F => (),          // APU/IO Test Mode
             0x4020..=0xFFFF => {
                 if let Some(b) = &self.board {
                     let mut board = b.lock().unwrap();

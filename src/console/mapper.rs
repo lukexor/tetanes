@@ -68,7 +68,7 @@ impl fmt::Debug for Nrom {
     }
 }
 
-/// SxRom
+/// SxRom (Mapper 1)
 
 pub struct Sxrom {
     cart: Cartridge,
@@ -89,6 +89,7 @@ enum SxMirroring {
     Horizontal,
 }
 
+#[derive(Debug)]
 enum SxPrgBankMode {
     Switch32,
     FixFirst,
@@ -191,9 +192,9 @@ impl Memory for Sxrom {
             // CPU 2x16 KB PRG ROM bank, either switchable or fixed to the first bank
             0x8000..=0xFFFF => {
                 let bank = self.get_prg_rom_bank(addr);
-                let bank_size = PRG_BANK_SIZE as Addr;
-                let addr = (bank * bank_size) | (addr & (bank_size - 1));
-                self.cart.prg_rom.readb(addr)
+                let bank_size = PRG_BANK_SIZE;
+                let addr = (bank as usize * bank_size) | (addr as usize & (bank_size - 1));
+                self.cart.prg_rom.readb(addr as Addr)
             }
             _ => {
                 eprintln!("unhandled Sxrom readb at address: 0x{:04X}", addr);

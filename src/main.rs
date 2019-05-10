@@ -31,10 +31,10 @@ struct Opt {
     #[structopt(
         short = "s",
         long = "scale",
-        default_value = "1",
+        default_value = "3",
         help = "Window scale (options: 1, 2, or 3)"
     )]
-    scale: u8,
+    scale: u32,
     #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
     fullscreen: bool,
 }

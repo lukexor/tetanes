@@ -4,6 +4,7 @@ use crate::Result;
 use cartridge::Cartridge;
 use cpu::Cpu;
 use memory::CpuMemMap;
+use ppu::{StepResult, RENDER_SIZE};
 use std::{fmt, path::Path};
 
 mod cartridge;
@@ -42,10 +43,12 @@ impl Console {
         self.cpu.reset();
     }
 
-    pub fn step(&mut self) {
-        self.cpu.step();
-        // ppu -> cpu interrupt
-        // apu step
+    pub fn step(&mut self) -> StepResult {
+        self.cpu.step()
+    }
+
+    pub fn render(&self) -> [u8; RENDER_SIZE] {
+        self.cpu.mem.ppu.render()
     }
 }
 

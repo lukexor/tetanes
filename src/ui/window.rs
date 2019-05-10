@@ -1,10 +1,12 @@
+use crate::Result;
+use failure::format_err;
 use sdl2::{
     audio::{AudioQueue, AudioSpecDesired},
     controller::GameController,
     event::Event,
     keyboard::Keycode,
     pixels::{Color, PixelFormatEnum},
-    render::{Canvas, Texture},
+    render::{Canvas, Texture, TextureCreator},
     video, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem,
 };
 use std::{error::Error, sync::mpsc};
@@ -12,35 +14,59 @@ use std::{error::Error, sync::mpsc};
 const AUDIO_FREQUENCY: i32 = 44100;
 const SAMPLES_PER_FRAME: u16 = 2048;
 const DEFAULT_TITLE: &str = "NES";
-const WIDTH: u32 = 256;
-const HEIGHT: u32 = 240;
-const SCALE: u32 = 3;
+const SCREEN_WIDTH: usize = 256;
+const SCREEN_HEIGHT: usize = 240;
+const SCREEN_SIZE: usize = SCREEN_WIDTH * SCREEN_HEIGHT * 3;
+const DEFAULT_SCALE: u32 = 3;
 
 pub struct Window {
     context: Sdl,
     video_sub: VideoSubsystem,
     canvas: Canvas<video::Window>,
-    // texture: Texture<'static>,
+    texture: Texture<'static>,
     audio_sub: AudioSubsystem,
     audio_device: AudioQueue<f32>,
     controller_sub: GameControllerSubsystem,
     controller1: Option<GameController>,
     controller2: Option<GameController>,
     event_pump: EventPump,
+    _texture_creator: TextureCreator<video::WindowContext>,
 }
 
 impl Window {
-    pub fn new() -> Result<Self, Box<Error>> {
+    pub fn new() -> Result<Self> {
+        Self::with_scale(DEFAULT_SCALE)
+    }
+
+    pub fn with_scale(scale: u32) -> Result<Self> {
         let context = sdl2::init().expect("sdl context");
 
         // Window/Graphics
         let video_sub = context.video().expect("sdl video subsystem");
         let window = video_sub
-            .window(DEFAULT_TITLE, WIDTH * SCALE, HEIGHT * SCALE)
+            .window(
+                DEFAULT_TITLE,
+                SCREEN_WIDTH as u32 * scale,
+                SCREEN_HEIGHT as u32 * scale,
+            )
             .position_centered()
             .build()
             .expect("sdl window");
-        let mut canvas = window.into_canvas().build().expect("sdl canvas");
+        let mut canvas = window
+            .into_canvas()
+            .accelerated()
+            .present_vsync()
+            .build()
+            .expect("sdl canvas");
+        let texture_creator = canvas.texture_creator();
+        let texture_creator_ptr = &texture_creator as *const TextureCreator<video::WindowContext>;
+        let texture = unsafe { &*texture_creator_ptr }
+            .create_texture_streaming(
+                PixelFormatEnum::BGR24,
+                SCREEN_WIDTH as u32,
+                SCREEN_HEIGHT as u32,
+            )
+            .expect("sdl texture");
 
         // Audio
         let audio_sub = context.audio().expect("sdl audio");
@@ -62,29 +88,25 @@ impl Window {
             context,
             video_sub,
             canvas,
-            // texture,
+            texture,
             audio_sub,
             audio_device,
             controller_sub,
             controller1: None,
             controller2: None,
             event_pump,
+            _texture_creator: texture_creator,
         })
     }
 
-    pub fn render(&mut self, pixels: Vec<u8>) {
-        let texture_creator = self.canvas.texture_creator();
-        if pixels[0] != 0 {
-            panic!("{:?}", &pixels[..10]);
-        }
-        let mut texture = texture_creator
-            .create_texture_streaming(PixelFormatEnum::RGB24, WIDTH, HEIGHT)
-            .expect("sdl texture");
-        texture
-            .update(None, &pixels, WIDTH as usize)
+    pub fn render(&mut self, pixels: &[u8; SCREEN_SIZE]) {
+        self.texture
+            .update(None, pixels, SCREEN_WIDTH * 3)
             .expect("texture update");
         self.canvas.clear();
-        self.canvas.copy(&texture, None, None).expect("canvas copy");
+        self.canvas
+            .copy(&self.texture, None, None)
+            .expect("canvas copy");
         self.canvas.present();
     }
 

@@ -4,6 +4,7 @@
 
 use crate::console::cartridge::Board;
 use crate::console::memory::{Addr, Byte, CpuMemMap, Memory, Word};
+use crate::console::ppu::StepResult;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -45,14 +46,13 @@ const CPU_TRACE_LOG: &str = "logs/cpu.log";
 /// The Central Processing Unit
 pub struct Cpu {
     cycles: Cycle, // number of cycles
-    stall: Cycle,  // number of cycles to stall
     pc: Addr,      // program counter
     sp: Byte,      // stack pointer - stack is at $0100-$01FF
     acc: Byte,     // accumulator
     x: Byte,       // x register
     y: Byte,       // y register
     status: Byte,
-    mem: CpuMemMap,
+    pub mem: CpuMemMap,
     #[cfg(test)]
     trace: bool,
     #[cfg(test)]
@@ -63,7 +63,6 @@ impl Cpu {
     pub fn init(mem: CpuMemMap) -> Self {
         Self {
             cycles: 0,
-            stall: 0,
             pc: 0,
             sp: 0,
             acc: 0,
@@ -93,15 +92,18 @@ impl Cpu {
     /// Steps the CPU exactly one `tick`
     ///
     /// Returns the number of cycles the CPU took to execute.
-    pub fn step(&mut self) {
-        if self.stall > 0 {
-            self.stall -= 1;
-        } else {
-            let start_cycles = self.cycles;
-            let opcode = self.mem.readb(self.pc);
-            self.execute(opcode);
-            self.mem.ppu.step(self.cycles);
+    pub fn step(&mut self) -> StepResult {
+        let start_cycles = self.cycles;
+        let opcode = self.readb(self.pc);
+        self.execute(opcode);
+        let ppu_result = self.mem.ppu.step();
+        if ppu_result.vblank_nmi {
+            self.nmi();
+        } else if ppu_result.scanline_irq {
+            self.irq();
         }
+        // self.mem.apu.step((self.cycles);
+        ppu_result
     }
 
     /// Sends an IRQ Interrupt to the CPU
@@ -380,14 +382,14 @@ impl Cpu {
 
     // Push a byte to the stack
     fn push_stackb(&mut self, val: Byte) {
-        self.mem.writeb(0x100 | Addr::from(self.sp), val);
+        self.writeb(0x100 | Addr::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Pull a byte from the stack
     fn pop_stackb(&mut self) -> Byte {
         self.sp = self.sp.wrapping_add(1);
-        self.mem.readb(0x100 | Addr::from(self.sp))
+        self.readb(0x100 | Addr::from(self.sp))
     }
 
     // Push a word (two bytes) to the stack
@@ -424,34 +426,34 @@ impl Cpu {
         match mode {
             Immediate => {
                 let val = if read {
-                    Addr::from(self.mem.readb(addr))
+                    Addr::from(self.readb(addr))
                 } else {
                     0
                 };
                 (val, Some(addr), 1, false)
             }
             ZeroPage => {
-                let addr = Addr::from(self.mem.readb(addr));
+                let addr = Addr::from(self.readb(addr));
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
                 (val, Some(addr), 1, false)
             }
             ZeroPageX => {
-                let addr = Addr::from(self.mem.readb(addr).wrapping_add(self.x));
+                let addr = Addr::from(self.readb(addr).wrapping_add(self.x));
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
                 (val, Some(addr), 1, false)
             }
             ZeroPageY => {
-                let addr = Addr::from(self.mem.readb(addr).wrapping_add(self.y));
+                let addr = Addr::from(self.readb(addr).wrapping_add(self.y));
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
@@ -460,7 +462,7 @@ impl Cpu {
             Absolute => {
                 let addr = self.mem.readw(addr);
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
@@ -470,7 +472,7 @@ impl Cpu {
                 let addr0 = self.mem.readw(addr);
                 let addr = addr0.wrapping_add(Addr::from(self.x));
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
@@ -481,7 +483,7 @@ impl Cpu {
                 let addr0 = self.mem.readw(addr);
                 let addr = addr0.wrapping_add(Addr::from(self.y));
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
@@ -494,21 +496,21 @@ impl Cpu {
                 (0, Some(addr), 2, false)
             }
             IndirectX => {
-                let addr_zp = self.mem.readb(addr).wrapping_add(self.x);
+                let addr_zp = self.readb(addr).wrapping_add(self.x);
                 let addr = self.mem.readw_zp(addr_zp);
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
                 (val, Some(addr), 1, false)
             }
             IndirectY => {
-                let addr_zp = self.mem.readb(addr);
+                let addr_zp = self.readb(addr);
                 let addr_zp = self.mem.readw_zp(addr_zp);
                 let addr = addr_zp.wrapping_add(Addr::from(self.y));
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
@@ -517,7 +519,7 @@ impl Cpu {
             }
             Relative => {
                 let val = if read {
-                    Word::from(self.mem.readb(addr))
+                    Word::from(self.readb(addr))
                 } else {
                     0
                 };
@@ -534,7 +536,7 @@ impl Cpu {
     fn read_target(&mut self, target: Option<u16>) -> Byte {
         match target {
             None => self.acc,
-            Some(addr) => self.mem.readb(addr),
+            Some(addr) => self.readb(addr),
         }
     }
 
@@ -546,7 +548,24 @@ impl Cpu {
             None => {
                 self.acc = val;
             }
-            Some(addr) => self.mem.writeb(addr, val),
+            Some(addr) => self.writeb(addr, val),
+        }
+    }
+
+    // Copies data to the PPU OAMDATA ($2004) using DMA (Direct Memory Access)
+    // http://wiki.nesdev.com/w/index.php/PPU_registers#OAMDMA
+    fn write_oamdma(&mut self, addr_hi: Byte) {
+        let start = Addr::from(addr_hi) << 8; // Start at $XX00
+        if self.cycles & 0x01 > 0 {
+            // +1 cycle if on an odd cycle
+            self.cycles += 1;
+        }
+        self.cycles += 1; // +1 dummy cycle
+        for addr in start..(start + 256) {
+            // Copy 256 bytes from $XX00-$XXFF
+            let val = self.readb(addr);
+            self.writeb(0x2004, val);
+            self.cycles += 2; // +2 for every read/write
         }
     }
 
@@ -556,12 +575,12 @@ impl Cpu {
         let word1 = if num_args < 2 {
             "  ".to_string()
         } else {
-            format!("{:02X}", self.mem.readb(self.pc.wrapping_add(1)))
+            format!("{:02X}", self.readb(self.pc.wrapping_add(1)))
         };
         let word2 = if num_args < 3 {
             "  ".to_string()
         } else {
-            format!("{:02X}", self.mem.readb(self.pc.wrapping_add(2)))
+            format!("{:02X}", self.readb(self.pc.wrapping_add(2)))
         };
         let asterisk = match op {
             NOP if opcode != 0xEA => "*",
@@ -593,13 +612,17 @@ impl Cpu {
     }
 }
 
-impl fmt::Debug for Cpu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "CPU {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
-            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycles,
-        )
+impl Memory for Cpu {
+    fn readb(&mut self, addr: Addr) -> Byte {
+        self.mem.readb(addr)
+    }
+
+    fn writeb(&mut self, addr: Addr, val: Byte) {
+        if addr == 0x4014 {
+            self.write_oamdma(val);
+        } else {
+            self.mem.writeb(addr, val);
+        }
     }
 }
 
@@ -1155,6 +1178,16 @@ fn is_negative(val: Byte) -> bool {
     val >= 128
 }
 
+impl fmt::Debug for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "CPU {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
+            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycles,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1164,7 +1197,6 @@ mod tests {
         let mut cpu_memory = CpuMemMap::init();
         let c = Cpu::init(cpu_memory);
         assert_eq!(c.cycles, 0);
-        assert_eq!(c.stall, 0);
         assert_eq!(c.pc, 0);
         assert_eq!(c.sp, 0);
         assert_eq!(c.acc, 0);
