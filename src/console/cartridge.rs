@@ -139,6 +139,7 @@ impl Cartridge {
         match self.board_type {
             NROM => Ok(Arc::new(Mutex::new(mapper::Nrom::load(self)))),
             SxROM => Ok(Arc::new(Mutex::new(mapper::Sxrom::load(self)))),
+            CNROM => Ok(Arc::new(Mutex::new(mapper::Cnrom::load(self)))),
             _ => Err(format_err!("unsupported mapper: {:?}", self.board_type))?,
         }
     }

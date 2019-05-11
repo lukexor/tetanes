@@ -238,13 +238,13 @@ impl Ppu {
                 self.shift_registers();
                 // Fetch 4 tiles and write out shift registers every 8th cycle
                 // Each tile fetch takes 2 cycles
-                match self.cycle & 0x07 {
+                match self.cycle % 8 {
                     0 => self.shift_new_tile(),
                     1 => self.fetch_bg_nametable(),
                     3 => self.fetch_bg_attribute(),
                     5 => self.fetch_bg_pattern_lo(),
                     7 => self.fetch_bg_pattern_hi(),
-                    _ => panic!("invalid cycle"),
+                    _ => {}
                 }
             }
             // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
@@ -291,12 +291,11 @@ impl Ppu {
                 self.set_sprite_overflow(true);
                 break;
             }
-
             let mut sprite = self.get_sprite(i);
             if let Some(pat) = self.get_sprite_pattern(&sprite) {
                 if count < 8 {
                     sprite.pattern = pat;
-                    self.frame.sprites[i] = sprite;
+                    self.frame.sprites[count] = sprite;
                     count += 1;
                 }
             }
@@ -304,7 +303,6 @@ impl Ppu {
     }
 
     fn render_pixel(&mut self) {
-        eprintln!("Rendering pixel...");
         let x = (self.cycle - 1) as Byte; // Because we called tick() before this
         let y = self.scanline as Byte;
 
@@ -324,7 +322,7 @@ impl Ppu {
             PaletteColor::universal_bg()
         };
         let palette_addr = color.index();
-        let system_palette_idx = self.readb(palette_addr);
+        let system_palette_idx = self.vram.readb(palette_addr);
         self.screen.put_pixel(x, y, system_palette_idx);
     }
 
@@ -406,12 +404,12 @@ impl Ppu {
 
     fn fetch_bg_nametable(&mut self) {
         let addr = self.regs.nametable_addr();
-        self.frame.nametable = self.readb(addr);
+        self.frame.nametable = self.vram.readb(addr);
     }
 
     fn fetch_bg_attribute(&mut self) {
         let addr = self.regs.attribute_addr();
-        self.frame.attribute = self.readb(addr);
+        self.frame.attribute = self.vram.readb(addr);
     }
 
     fn fetch_bg_pattern_lo(&mut self) {
@@ -419,7 +417,7 @@ impl Ppu {
         let nametable = self.frame.nametable;
         let fine_y = self.regs.fine_y();
         let (addr_lo, _) = self.get_pattern_rows(is_sprite, nametable, fine_y);
-        self.frame.pattern_lo = self.readb(addr_lo);
+        self.frame.pattern_lo = self.vram.readb(addr_lo);
     }
 
     fn fetch_bg_pattern_hi(&mut self) {
@@ -427,7 +425,7 @@ impl Ppu {
         let nametable = self.frame.nametable;
         let fine_y = self.regs.fine_y();
         let (_, addr_hi) = self.get_pattern_rows(is_sprite, nametable, fine_y);
-        self.frame.pattern_hi = self.readb(addr_hi);
+        self.frame.pattern_hi = self.vram.readb(addr_hi);
     }
 
     // https://wiki.nesdev.com/w/index.php/PPU_pattern_tables
@@ -834,7 +832,10 @@ impl Memory for Ppu {
             0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
             0x2006 => self.regs.open_bus,    // PPUADDR is write-only
             0x2007 => self.read_ppudata(),   // PPUDATA
-            _ => panic!("impossible"),
+            _ => {
+                eprintln!("unhandled Ppu readb at 0x{:04X}", addr);
+                0
+            }
         }
     }
 
@@ -851,7 +852,7 @@ impl Memory for Ppu {
             0x2005 => self.write_ppuscroll(val), // PPUSCROLL
             0x2006 => self.write_ppuaddr(val),   // PPUADDR
             0x2007 => self.write_ppudata(val),   // PPUDATA
-            _ => panic!("impossible"),
+            _ => eprintln!("unhandled Ppu readb at 0x{:04X}", addr),
         }
     }
 }
@@ -1006,8 +1007,8 @@ impl Ppu {
         }
         let is_sprite = true;
         let (addr_lo, addr_hi) = self.get_pattern_rows(is_sprite, sprite.tile_index, row as Byte);
-        let mut row0 = self.readb(addr_lo);
-        let mut row1 = self.readb(addr_hi);
+        let mut row0 = self.vram.readb(addr_lo);
+        let mut row1 = self.vram.readb(addr_hi);
         if sprite.flip_horizontal {
             row0 = reverse_bits(row0);
             row1 = reverse_bits(row1);

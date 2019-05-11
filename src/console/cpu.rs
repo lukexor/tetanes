@@ -270,7 +270,7 @@ impl Cpu {
                 let res = self.sre(val);
                 self.write_target(target, res);
             }
-            _ => panic!("unhandled operation {:?}", op),
+            _ => eprintln!("unhandled operation {:?}", op),
         };
     }
 

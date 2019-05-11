@@ -3,12 +3,13 @@
 //! http://wiki.nesdev.com/w/index.php/Mapper
 
 use crate::console::cartridge::{Board, Cartridge, PRG_BANK_SIZE};
-use crate::console::memory::{Addr, Byte, Memory, Ram};
+use crate::console::memory::{Addr, Byte, Memory, Ram, Word};
 use std::fmt;
 
-/// Nrom Board (mapper 0)
+/// NROM Board (mapper 0)
 ///
 /// http://wiki.nesdev.com/w/index.php/NROM
+#[derive(Debug)]
 pub struct Nrom {
     cart: Cartridge,
 }
@@ -57,18 +58,10 @@ impl Board for Nrom {
     }
 }
 
-impl fmt::Debug for Nrom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Nrom {{ PRG-ROM: {}KB, CHR-RAM: {}KB }}",
-            self.cart.prg_rom.len() / 0x0400,
-            self.cart.chr_rom.len() / 0x0400,
-        )
-    }
-}
-
-/// SxRom (Mapper 1)
+/// SxRom (Mapper 1/MMC1)
+///
+/// http://wiki.nesdev.com/w/index.php/SxROM
+/// http://wiki.nesdev.com/w/index.php/MMC1
 
 pub struct Sxrom {
     cart: Cartridge,
@@ -226,5 +219,68 @@ impl Memory for Sxrom {
 impl fmt::Debug for Sxrom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Sxrom {{ }}",)
+    }
+}
+
+/// CNROM Board (Mapper 3)
+///
+/// https://wiki.nesdev.com/w/index.php/CNROM
+/// https://wiki.nesdev.com/w/index.php/INES_Mapper_003
+
+#[derive(Debug)]
+pub struct Cnrom {
+    cart: Cartridge,
+    chr_bank: Word, // $0000-$1FFF 8K CHR-ROM
+    prg_bank_1: Word,
+    prg_bank_2: Word,
+}
+
+impl Cnrom {
+    pub fn load(cart: Cartridge) -> Self {
+        let prg_bank_2 = (cart.num_prg_banks - 1) as Word;
+        Self {
+            cart,
+            chr_bank: 0,
+            prg_bank_1: 0,
+            prg_bank_2,
+        }
+    }
+}
+
+impl Memory for Cnrom {
+    fn readb(&mut self, addr: u16) -> u8 {
+        match addr {
+            // $0000-$1FFF PPU
+            0x0000..=0x1FFF => self.cart.chr_rom.readb(self.chr_bank * 0x2000 + addr),
+            // $8000-$FFFF CPU
+            0x8000..=0xBFFF => self
+                .cart
+                .prg_rom
+                .readb(self.prg_bank_1 * 0x4000 + (addr - 0x8000)),
+            0xC000..=0xFFFF => self
+                .cart
+                .prg_rom
+                .readb(self.prg_bank_2 * 0x4000 + (addr - 0xC000)),
+            _ => {
+                eprintln!("unhandled Nrom readb at address: 0x{:04X}", addr);
+                0
+            }
+        }
+    }
+
+    fn writeb(&mut self, addr: u16, val: u8) {
+        match addr {
+            // $0000-$1FFF PPU
+            0x0000..=0x1FFF => self.cart.chr_rom.writeb(self.chr_bank * 0x2000 + addr, val),
+            // $8000-$FFFF CPU
+            0x8000..=0xFFFF => self.chr_bank = Word::from(val & 3),
+            _ => eprintln!("unhandled Nrom readb at address: 0x{:04X}", addr),
+        }
+    }
+}
+
+impl Board for Cnrom {
+    fn scanline_irq(&self) -> bool {
+        false
     }
 }
