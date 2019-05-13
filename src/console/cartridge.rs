@@ -247,14 +247,14 @@ mod tests {
 
     #[test]
     fn test_invalid_cartridges() {
+        use std::fs;
+        use std::fs::OpenOptions;
+
+        // TODO Make these tests not rely on actual cartridges
         let invalid_rom_tests = &[
             (
                 "invalid_file.nes",
                 "unable to open file \"invalid_file.nes\": No such file or directory (os error 2)",
-            ),
-            (
-                "/tmp/unreadable.nes",
-                "unable to open file \"/tmp/unreadable.nes\": Permission denied (os error 13)",
             ),
             (
                 "roms/Family Trainer 9 - Fuuun Takeshi-jou 2 (Japan).nes",
@@ -266,7 +266,7 @@ mod tests {
             let c = Cartridge::new(&PathBuf::from(test.0));
             assert!(c.is_err(), "invalid cartridge {}", test.0);
             assert_eq!(
-                c.err().unwrap().to_string(),
+                c.err().expect("valid cartridge error").to_string(),
                 test.1,
                 "error matches {}",
                 test.0

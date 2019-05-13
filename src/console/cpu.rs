@@ -96,13 +96,17 @@ impl Cpu {
         let start_cycles = self.cycles;
         let opcode = self.readb(self.pc);
         self.execute(opcode);
-        let ppu_result = self.mem.ppu.step();
+
+        let cpu_cycles = self.cycles - start_cycles;
+        let ppu_cycles = cpu_cycles * 3;
+        let ppu_result = self.mem.ppu.step(ppu_cycles);
+        // self.mem.board.step(ppu_cycles);
         if ppu_result.vblank_nmi {
             self.nmi();
         } else if ppu_result.scanline_irq {
             self.irq();
         }
-        // self.mem.apu.step((self.cycles);
+        // self.mem.apu.step(cpu_cycles);
         ppu_result
     }
 

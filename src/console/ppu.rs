@@ -193,21 +193,23 @@ impl Ppu {
     // Step ticks as many cycles as needed to reach
     // target cycle to syncronize with the CPU
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
-    pub fn step(&mut self) -> StepResult {
+    pub fn step(&mut self, cycles_to_run: Cycle) -> StepResult {
         let mut step_result = StepResult::new();
-        self.tick();
-        self.render_scanline();
-        if self.cycle == 1 {
-            if self.scanline == PRERENDER_SCANLINE {
-                // Dummy scanline - set up tiles for next scanline
-                step_result.new_frame = true;
-                self.set_vblank(false);
-                self.set_sprite_zero_hit(false);
-                self.set_sprite_overflow(false);
-            } else if self.scanline == VBLANK_SCANLINE {
-                self.set_vblank(true);
-                if self.vblank_nmi() {
-                    step_result.vblank_nmi = true;
+        for _ in 0..cycles_to_run {
+            self.tick();
+            self.render_scanline();
+            if self.cycle == 1 {
+                if self.scanline == PRERENDER_SCANLINE {
+                    // Dummy scanline - set up tiles for next scanline
+                    step_result.new_frame = true;
+                    self.set_vblank(false);
+                    self.set_sprite_zero_hit(false);
+                    self.set_sprite_overflow(false);
+                } else if self.scanline == VBLANK_SCANLINE {
+                    self.set_vblank(true);
+                    if self.vblank_nmi() {
+                        step_result.vblank_nmi = true;
+                    }
                 }
             }
         }
