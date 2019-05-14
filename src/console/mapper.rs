@@ -2,7 +2,7 @@
 //!
 //! http://wiki.nesdev.com/w/index.php/Mapper
 
-use crate::console::cartridge::{Board, Cartridge, PRG_BANK_SIZE};
+use crate::console::cartridge::{Board, Cartridge, Mirroring, PRG_BANK_SIZE};
 use crate::console::memory::{Addr, Byte, Memory, Ram, Word};
 use std::fmt;
 
@@ -24,8 +24,8 @@ impl Memory for Nrom {
     fn readb(&mut self, addr: Addr) -> Byte {
         match addr {
             // PPU 8K Fixed CHR bank
-            0x0000..=0x1FFF => self.cart.chr_rom.readb(addr & 0x1FFF),
-            0x6000..=0x7FFF => 0, // TODO PRG RAM - Family Basic only
+            0x0000..=0x1FFF => self.cart.chr_rom.readb(addr),
+            0x6000..=0x7FFF => self.cart.prg_ram.readb(addr - 0x6000),
             0x8000..=0xFFFF => {
                 // CPU 32K Fixed PRG ROM bank for NROM-256
                 if self.cart.prg_rom.len() > 0x4000 {
@@ -44,6 +44,7 @@ impl Memory for Nrom {
 
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
+            0x6000..=0x7FFF => self.cart.prg_ram.writeb(addr - 0x6000, val),
             _ => eprintln!(
                 "invalid Nrom writeb at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val
@@ -55,6 +56,9 @@ impl Memory for Nrom {
 impl Board for Nrom {
     fn scanline_irq(&self) -> bool {
         false
+    }
+    fn mirroring(&self) -> Mirroring {
+        self.cart.mirroring
     }
 }
 
@@ -173,6 +177,9 @@ impl Board for Sxrom {
     fn scanline_irq(&self) -> bool {
         false
     }
+    fn mirroring(&self) -> Mirroring {
+        self.cart.mirroring
+    }
 }
 
 impl Memory for Sxrom {
@@ -252,6 +259,7 @@ impl Memory for Cnrom {
         match addr {
             // $0000-$1FFF PPU
             0x0000..=0x1FFF => self.cart.chr_rom.readb(self.chr_bank * 0x2000 + addr),
+            0x6000..=0x7FFF => self.cart.prg_ram.readb(addr - 0x6000),
             // $8000-$FFFF CPU
             0x8000..=0xBFFF => self
                 .cart
@@ -262,7 +270,7 @@ impl Memory for Cnrom {
                 .prg_rom
                 .readb(self.prg_bank_2 * 0x4000 + (addr - 0xC000)),
             _ => {
-                eprintln!("unhandled Nrom readb at address: 0x{:04X}", addr);
+                eprintln!("unhandled Cnrom readb at address: 0x{:04X}", addr);
                 0
             }
         }
@@ -272,9 +280,10 @@ impl Memory for Cnrom {
         match addr {
             // $0000-$1FFF PPU
             0x0000..=0x1FFF => self.cart.chr_rom.writeb(self.chr_bank * 0x2000 + addr, val),
+            0x6000..=0x7FFF => self.cart.prg_ram.writeb(addr - 0x6000, val),
             // $8000-$FFFF CPU
             0x8000..=0xFFFF => self.chr_bank = Word::from(val & 3),
-            _ => eprintln!("unhandled Nrom readb at address: 0x{:04X}", addr),
+            _ => eprintln!("unhandled Cnrom readb at address: 0x{:04X}", addr),
         }
     }
 }
@@ -282,5 +291,8 @@ impl Memory for Cnrom {
 impl Board for Cnrom {
     fn scanline_irq(&self) -> bool {
         false
+    }
+    fn mirroring(&self) -> Mirroring {
+        self.cart.mirroring
     }
 }

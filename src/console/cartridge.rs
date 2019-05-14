@@ -1,7 +1,7 @@
 //! An NES Cartridge Board
 
 use crate::console::mapper;
-use crate::console::memory::{Memory, Rom};
+use crate::console::memory::{Memory, Ram, Rom};
 use crate::Result;
 use failure::{format_err, Fail};
 use std::fmt;
@@ -27,10 +27,12 @@ pub struct Cartridge {
     pub num_chr_banks: usize,
     pub prg_rom: Rom,
     pub chr_rom: Rom,
+    pub prg_ram: Ram,
 }
 
 pub trait Board: Memory + Send {
     fn scanline_irq(&self) -> bool;
+    fn mirroring(&self) -> Mirroring;
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -46,13 +48,13 @@ pub enum BoardType {
 }
 
 // http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Mirroring {
     Horizontal,
     Vertical,
     SingleScreenA,
     SingleScreenB,
-    // FourScreen, // Only ~3 games use 4-screen - maybe implement some day
+    FourScreen, // Only ~3 games use 4-screen - maybe implement some day
 }
 
 use BoardType::*;
@@ -121,6 +123,13 @@ impl Cartridge {
             _ => Err(CartridgeError::InvalidMirroring(mirroring))?,
         };
 
+        // PRG-RAM
+        let prg_ram = if header[8] > 0 {
+            Ram::with_capacity(header[8] as usize * 0x2000)
+        } else {
+            Ram::new()
+        };
+
         Ok(Self {
             title,
             board_type,
@@ -130,6 +139,7 @@ impl Cartridge {
             num_chr_banks,
             prg_rom: Rom::with_bytes(prg_rom),
             chr_rom: Rom::with_bytes(chr_rom),
+            prg_ram,
         })
     }
 

@@ -15,7 +15,7 @@ pub type Cycle = u64;
 const NMI_ADDR: Addr = 0xFFFA;
 const IRQ_ADDR: Addr = 0xFFFE;
 const RESET_ADDR: Addr = 0xFFFC;
-const RESET_SP: Byte = 0xFD;
+const RESET_SP: Byte = 0xFD; // FD because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
 const RESET_STATUS: Byte = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 
 // Status Registers
@@ -46,6 +46,7 @@ const CPU_TRACE_LOG: &str = "logs/cpu.log";
 /// The Central Processing Unit
 pub struct Cpu {
     cycles: Cycle, // number of cycles
+    stall: Cycle,  // number of cycles to stall/nop used mostly by write_oamdma
     pc: Addr,      // program counter
     sp: Byte,      // stack pointer - stack is at $0100-$01FF
     acc: Byte,     // accumulator
@@ -63,6 +64,7 @@ impl Cpu {
     pub fn init(mem: CpuMemMap) -> Self {
         Self {
             cycles: 0,
+            stall: 0,
             pc: 0,
             sp: 0,
             acc: 0,
@@ -86,13 +88,18 @@ impl Cpu {
         self.pc = self.mem.readw(RESET_ADDR);
         self.sp = RESET_SP;
         self.status = RESET_STATUS;
-        self.cycles = 7;
+        self.cycles = 7; // Emulate power up cycles
+        self.stall = 0;
     }
 
     /// Steps the CPU exactly one `tick`
     ///
     /// Returns the number of cycles the CPU took to execute.
     pub fn step(&mut self) -> StepResult {
+        if self.stall > 0 {
+            self.stall -= 1;
+            return StepResult::new();
+        }
         let start_cycles = self.cycles;
         let opcode = self.readb(self.pc);
         self.execute(opcode);
@@ -100,13 +107,13 @@ impl Cpu {
         let cpu_cycles = self.cycles - start_cycles;
         let ppu_cycles = cpu_cycles * 3;
         let ppu_result = self.mem.ppu.step(ppu_cycles);
-        // self.mem.board.step(ppu_cycles);
-        if ppu_result.vblank_nmi {
+        // TODO self.mem.board.step(ppu_cycles);
+        if ppu_result.trigger_nmi {
             self.nmi();
-        } else if ppu_result.scanline_irq {
+        } else if ppu_result.trigger_irq {
             self.irq();
         }
-        // self.mem.apu.step(cpu_cycles);
+        // TODO self.mem.apu.step(cpu_cycles);
         ppu_result
     }
 
@@ -560,16 +567,16 @@ impl Cpu {
     // http://wiki.nesdev.com/w/index.php/PPU_registers#OAMDMA
     fn write_oamdma(&mut self, addr_hi: Byte) {
         let start = Addr::from(addr_hi) << 8; // Start at $XX00
-        if self.cycles & 0x01 > 0 {
-            // +1 cycle if on an odd cycle
-            self.cycles += 1;
-        }
-        self.cycles += 1; // +1 dummy cycle
+        let oam_addr = 0x2004;
         for addr in start..(start + 256) {
             // Copy 256 bytes from $XX00-$XXFF
             let val = self.readb(addr);
-            self.writeb(0x2004, val);
-            self.cycles += 2; // +2 for every read/write
+            self.writeb(oam_addr, val);
+        }
+        self.stall += 513; // +2 for every read/write and +1 dummy cycle
+        if self.cycles % 2 == 1 {
+            // +1 cycle if on an odd cycle
+            self.stall += 1;
         }
     }
 
