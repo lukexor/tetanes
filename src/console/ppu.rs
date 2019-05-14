@@ -391,7 +391,8 @@ impl Ppu {
         // +----- Background/Sprite select
 
         // TODO Explain the bit shifting here more clearly
-        let data = (self.frame.tile_data >> 32) >> ((7 - self.regs.x) * 4);
+        let data = (self.frame.tile_data >> 32) as u32 >> ((7 - self.regs.x) * 4);
+        // eprintln!("data: {}, x: {}", self.frame.tile_data, self.regs.x);
         (data & 0x0F) as Byte
     }
 
@@ -429,7 +430,7 @@ impl Ppu {
             data <<= 4;
             data |= u32::from(a | p1 | p2);
         }
-        self.frame.tile_data = u64::from(data);
+        self.frame.tile_data |= u64::from(data);
     }
 
     fn fetch_bg_nametable(&mut self) {
