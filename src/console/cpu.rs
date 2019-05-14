@@ -482,6 +482,10 @@ impl Cpu {
             AbsoluteX => {
                 let addr0 = self.mem.readw(addr);
                 let addr = addr0.wrapping_add(Addr::from(self.x));
+                // ST* dummy read to account for PPUDATA buffer
+                if !read && addr0 == 0x2000 && self.y == 0x7 {
+                    self.readb(addr);
+                }
                 let val = if read {
                     Word::from(self.readb(addr))
                 } else {
@@ -493,6 +497,10 @@ impl Cpu {
             AbsoluteY => {
                 let addr0 = self.mem.readw(addr);
                 let addr = addr0.wrapping_add(Addr::from(self.y));
+                // ST* dummy read to account for PPUDATA buffer
+                if !read && addr0 == 0x2000 && self.y == 0x7 {
+                    self.readb(addr);
+                }
                 let val = if read {
                     Word::from(self.readb(addr))
                 } else {
@@ -565,13 +573,14 @@ impl Cpu {
 
     // Copies data to the PPU OAMDATA ($2004) using DMA (Direct Memory Access)
     // http://wiki.nesdev.com/w/index.php/PPU_registers#OAMDMA
-    fn write_oamdma(&mut self, addr_hi: Byte) {
-        let start = Addr::from(addr_hi) << 8; // Start at $XX00
+    fn write_oamdma(&mut self, addr: Byte) {
+        let mut addr = Addr::from(addr) << 8; // Start at $XX00
         let oam_addr = 0x2004;
-        for addr in start..(start + 256) {
+        for i in 0..256 {
             // Copy 256 bytes from $XX00-$XXFF
             let val = self.readb(addr);
             self.writeb(oam_addr, val);
+            addr = addr.saturating_add(1);
         }
         self.stall += 513; // +2 for every read/write and +1 dummy cycle
         if self.cycles % 2 == 1 {

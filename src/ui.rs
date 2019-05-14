@@ -37,7 +37,6 @@ impl<P: AsRef<Path> + fmt::Debug> UI<P> {
         // TODO
         // audio::open(&sdl);
 
-        eprintln!("UI running: {:?}", self.roms);
         loop {
             let ppu_result = self.console.step();
             if ppu_result.new_frame {

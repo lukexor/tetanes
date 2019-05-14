@@ -110,9 +110,9 @@ mod tests {
 
     #[test]
     fn test_nestest() {
-        let rom = PathBuf::from("tests/nestest.nes");
+        let rom = PathBuf::from("tests/cpu/nestest.nes");
         let cpu_log = "logs/cpu.log";
-        let nestest_log = "tests/nestest.txt";
+        let nestest_log = "tests/cpu/nestest.txt";
 
         let mut c = Console::new();
         c.trace_cpu();

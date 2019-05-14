@@ -339,7 +339,7 @@ impl Ppu {
 
         let mut bg_color = self.background_color(x);
         let (i, mut sprite_color) = self.sprite_color(x);
-        // if sprite_color > 0 || bg_color > 0 {
+        // if bg_color > 0 {
         //     eprintln!("bg: {}, sp: {}", bg_color, sprite_color);
         // }
 
@@ -369,9 +369,6 @@ impl Ppu {
         };
         let system_palette_idx =
             self.vram.readb(Addr::from(color) + PALETTE_START) % (SYSTEM_PALETTE_SIZE as Byte);
-        // if color > 0 {
-        //     eprintln!("color: {}, idx: {}", Addr::from(color), system_palette_idx);
-        // }
         self.screen
             .put_pixel(x as usize, y as usize, system_palette_idx);
     }
@@ -493,7 +490,7 @@ impl PpuRegs {
         let nn_mask = NAMETABLE_Y_MASK | NAMETABLE_X_MASK;
         // val: ......BA
         // t: ....BA.. ........
-        self.t |= (self.t & !nn_mask) | (Addr::from(val) & 0x03) << 10; // take lo 2 bits and set NN
+        self.t = (self.t & !nn_mask) | (Addr::from(val) & 0x03) << 10; // take lo 2 bits and set NN
         self.ctrl.write(val);
         self.nmi_change();
     }
@@ -574,8 +571,8 @@ impl PpuRegs {
             let coarse_y_lshift = 5;
             let fine_y_lshift = 12;
             self.t &= !(FINE_Y_MASK | COARSE_Y_MASK); // Empty Y
-            self.t |= (val & fine_mask) << fine_y_lshift; // Set fine Y
             self.t |= ((val >> fine_rshift) & lo_5_bit_mask) << coarse_y_lshift; // Set coarse Y
+            self.t |= (val & fine_mask) << fine_y_lshift; // Set fine Y
         }
         self.w = !self.w;
     }
@@ -645,25 +642,29 @@ impl PpuRegs {
      * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUADDR
      */
 
+    fn read_addr(&self) -> Addr {
+        self.v & 0x3FFF // Bits 0-14
+    }
+
     // Write val to PPUADDR v
     // 1st write writes hi 6 bits
     // 2nd write writes lo 8 bits
     // Total size is a 14 bit addr
     fn write_addr(&mut self, val: Byte) {
         let val = Addr::from(val);
-        let hi_bits_mask = 0x80FF;
-        let lo_bits_mask = 0xFF00;
-        let six_bits_mask = 0x003F;
-        let hi_lshift = 8;
         if !self.w {
             // Write hi address on first write
+            let hi_bits_mask = 0xC0FF;
+            let hi_lshift = 8;
+            let six_bits_mask = 0x003F;
             // val: ..FEDCBA
             //    FEDCBA98 76543210
-            // t: .0FEDCBA ........
-            self.t &= hi_bits_mask; // Empty bits 8-E
+            // t: 00FEDCBA ........
+            self.t &= hi_bits_mask; // Empty bits 8-F
             self.t |= (val & six_bits_mask) << hi_lshift; // Set hi 6 bits 8-E
         } else {
             // Write lo address on second write
+            let lo_bits_mask = 0xFF00;
             // val: HGFEDCBA
             // t: ........ HGFEDCBA
             // v: t
@@ -774,7 +775,7 @@ impl Screen {
         let mut output = [0; RENDER_SIZE];
         for i in 0..PIXEL_COUNT {
             let p = self.pixels[i];
-            // [index * RGB size + color offset
+            // index * RGB size + color offset
             output[i * 3] = p.r();
             output[i * 3 + 1] = p.g();
             output[i * 3 + 2] = p.b();
@@ -859,7 +860,7 @@ impl StepResult {
 
 impl Memory for Ppu {
     fn readb(&mut self, addr: Addr) -> Byte {
-        match addr {
+        let val = match addr {
             0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
             0x2001 => self.regs.open_bus,    // PPUMASK is write-only
             0x2002 => self.read_ppustatus(), // PPUSTATUS
@@ -872,7 +873,9 @@ impl Memory for Ppu {
                 eprintln!("unhandled Ppu readb at 0x{:04X}", addr);
                 0
             }
-        }
+        };
+        self.regs.open_bus = val;
+        val
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
@@ -910,7 +913,10 @@ impl Memory for Vram {
                 self.nametable.readb(addr % 2048)
             }
             0x3F00..=0x3FFF => self.palette.readb(addr % 32),
-            _ => panic!("invalid Vram readb at 0x{:04X}", addr),
+            _ => {
+                eprintln!("invalid Vram readb at 0x{:04X}", addr);
+                0
+            }
         }
     }
 
@@ -933,7 +939,7 @@ impl Memory for Vram {
                 self.nametable.writeb(addr % 2048, val)
             }
             0x3F00..=0x3FFF => self.palette.writeb(addr % 32, val),
-            _ => panic!("invalid Vram readb at 0x{:04X}", addr),
+            _ => eprintln!("invalid Vram readb at 0x{:04X}", addr),
         }
     }
 }
@@ -1100,9 +1106,9 @@ impl Ppu {
         // Read PPUSTATUS to clear vblank before setting vblank again
         // FIXME: Is this the correct thing to do?
         // http://wiki.nesdev.com/w/index.php/PPU_programmer_reference#PPUCTRL
-        if val & 0x80 > 0 {
-            self.read_ppustatus();
-        }
+        // if val & 0x80 > 0 {
+        //     self.read_ppustatus();
+        // }
         self.regs.write_ctrl(val);
     }
 
@@ -1175,7 +1181,7 @@ impl Ppu {
      */
 
     fn read_ppuaddr(&self) -> Addr {
-        self.regs.v
+        self.regs.read_addr()
     }
     fn write_ppuaddr(&mut self, val: Byte) {
         self.regs.write_addr(val);
@@ -1186,17 +1192,17 @@ impl Ppu {
      */
 
     fn read_ppudata(&mut self) -> Byte {
-        let val = self.vram.readb(self.regs.v);
+        let val = self.vram.readb(self.read_ppuaddr());
         // Buffering quirk resulting in a dummy read for the CPU
         // for reading pre-palette data in 0 - $3EFF
         // Keep addr within 15 bits
-        let val = if self.regs.v <= 0x3EFF {
+        let val = if self.read_ppuaddr() <= 0x3EFF {
             let buffer = self.regs.buffer;
             self.regs.buffer = val;
             buffer
         } else {
             // TODO explain this
-            self.regs.buffer = self.vram.readb(self.regs.v - 0x1000);
+            self.regs.buffer = self.vram.readb(self.read_ppuaddr() - 0x1000);
             val
         };
         self.regs.increment_v();
@@ -1400,26 +1406,46 @@ impl DerefMut for PpuStatus {
 // 64 total possible colors, though only 32 can be loaded at a time
 #[rustfmt::skip]
 const SYSTEM_PALETTE: [Rgb; SYSTEM_PALETTE_SIZE] = [
+    // // 0x00
+    // Rgb(124, 124, 124), Rgb(0, 0, 252),     Rgb(0, 0, 188),     Rgb(68, 40, 188),   // $00-$04
+    // Rgb(148, 0, 132),   Rgb(168, 0, 32),    Rgb(168, 16, 0),    Rgb(136, 20, 0),    // $05-$08
+    // Rgb(80, 48, 0),     Rgb(0, 120, 0),     Rgb(0, 104, 0),     Rgb(0, 88, 0),      // $09-$0B
+    // Rgb(0, 64, 88),     Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $0C-$0F
+    // // 0x10
+    // Rgb(188, 188, 188), Rgb(0, 120, 248),   Rgb(0, 88, 248),    Rgb(104, 68, 252),  // $10-$14
+    // Rgb(216, 0, 204),   Rgb(228, 0, 88),    Rgb(248, 56, 0),    Rgb(228, 92, 16),   // $15-$18
+    // Rgb(172, 124, 0),   Rgb(0, 184, 0),     Rgb(0, 168, 0),     Rgb(0, 168, 68),    // $19-$1B
+    // Rgb(0, 136, 136),   Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $1C-$1F
+    // // 0x20
+    // Rgb(248, 248, 248), Rgb(60,  188, 252), Rgb(104, 136, 252), Rgb(152, 120, 248), // $20-$24
+    // Rgb(248, 120, 248), Rgb(248, 88, 152),  Rgb(248, 120, 88),  Rgb(252, 160, 68),  // $25-$28
+    // Rgb(248, 184, 0),   Rgb(184, 248, 24),  Rgb(88, 216, 84),   Rgb(88, 248, 152),  // $29-$2B
+    // Rgb(0, 232, 216),   Rgb(120, 120, 120), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $2C-$2F
+    // // 0x30
+    // Rgb(252, 252, 252), Rgb(164, 228, 252), Rgb(184, 184, 248), Rgb(216, 184, 248), // $30-$34
+    // Rgb(248, 184, 248), Rgb(248, 164, 192), Rgb(240, 208, 176), Rgb(252, 224, 168), // $35-$38
+    // Rgb(248, 216, 120), Rgb(216, 248, 120), Rgb(184, 248, 184), Rgb(184, 248, 216), // $39-$3B
+    // Rgb(0, 252, 252),   Rgb(248, 216, 248), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $3C-$3F
     // 0x00
-    Rgb(124, 124, 124), Rgb(0, 0, 252),     Rgb(0, 0, 188),     Rgb(68, 40, 188),   // $00-$04
-    Rgb(148, 0, 132),   Rgb(168, 0, 32),    Rgb(168, 16, 0),    Rgb(136, 20, 0),    // $05-$08
-    Rgb(80, 48, 0),     Rgb(0, 120, 0),     Rgb(0, 104, 0),     Rgb(0, 88, 0),      // $09-$0B
-    Rgb(0, 64, 88),     Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $0C-$0F
-    // 0x10
-    Rgb(188, 188, 188), Rgb(0, 120, 248),   Rgb(0, 88, 248),    Rgb(104, 68, 252),  // $10-$14
-    Rgb(216, 0, 204),   Rgb(228, 0, 88),    Rgb(248, 56, 0),    Rgb(228, 92, 16),   // $15-$18
-    Rgb(172, 124, 0),   Rgb(0, 184, 0),     Rgb(0, 168, 0),     Rgb(0, 168, 68),    // $19-$1B
-    Rgb(0, 136, 136),   Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $1C-$1F
-    // 0x20
-    Rgb(248, 248, 248), Rgb(60,  188, 252), Rgb(104, 136, 252), Rgb(152, 120, 248), // $20-$24
-    Rgb(248, 120, 248), Rgb(248, 88, 152),  Rgb(248, 120, 88),  Rgb(252, 160, 68),  // $25-$28
-    Rgb(248, 184, 0),   Rgb(184, 248, 24),  Rgb(88, 216, 84),   Rgb(88, 248, 152),  // $29-$2B
-    Rgb(0, 232, 216),   Rgb(120, 120, 120), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $2C-$2F
-    // 0x30
-    Rgb(252, 252, 252), Rgb(164, 228, 252), Rgb(184, 184, 248), Rgb(216, 184, 248), // $30-$34
-    Rgb(248, 184, 248), Rgb(248, 164, 192), Rgb(240, 208, 176), Rgb(252, 224, 168), // $35-$38
-    Rgb(248, 216, 120), Rgb(216, 248, 120), Rgb(184, 248, 184), Rgb(184, 248, 216), // $39-$3B
-    Rgb(0, 252, 252),   Rgb(216, 216, 216), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $3C-$3F
+    Rgb(84, 84, 84),    Rgb(0, 30, 116),    Rgb(8, 16, 144),    Rgb(48, 0, 136),    // $00-$04
+    Rgb(68, 0, 100),    Rgb(92, 0, 48),     Rgb(84, 4, 0),      Rgb(60, 24, 0),     // $05-$08
+    Rgb(32, 42, 0),     Rgb(8, 58, 0),      Rgb(0, 64, 0),      Rgb(0, 60, 0),      // $09-$0B
+    Rgb(0, 50, 60),     Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $0C-$0F
+    // 0x10                                                                                   
+    Rgb(152, 150, 152), Rgb(8, 76, 196),    Rgb(48, 50, 236),   Rgb(92, 30, 228),   // $10-$14
+    Rgb(136, 20, 176),  Rgb(160, 20, 100),  Rgb(152, 34, 32),   Rgb(120, 60, 0),    // $15-$18
+    Rgb(84, 90, 0),     Rgb(40, 114, 0),    Rgb(8, 124, 0),     Rgb(0, 118, 40),    // $19-$1B
+    Rgb(0, 102, 120),   Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $1C-$1F
+    // 0x20                                                                                   
+    Rgb(236, 238, 236), Rgb(76, 154, 236),  Rgb(120, 124, 236), Rgb(176, 98, 236),  // $20-$24
+    Rgb(228, 84, 236),  Rgb(236, 88, 180),  Rgb(236, 106, 100), Rgb(212, 136, 32),  // $25-$28
+    Rgb(160, 170, 0),   Rgb(116, 196, 0),   Rgb(76, 208, 32),   Rgb(56, 204, 108),  // $29-$2B
+    Rgb(56, 180, 204),  Rgb(60, 60, 60),    Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $2C-$2F
+    // 0x30                                                                                   
+    Rgb(236, 238, 236), Rgb(168, 204, 236), Rgb(188, 188, 236), Rgb(212, 178, 236), // $30-$34
+    Rgb(236, 174, 236), Rgb(236, 174, 212), Rgb(236, 180, 176), Rgb(228, 196, 144), // $35-$38
+    Rgb(204, 210, 120), Rgb(180, 222, 120), Rgb(168, 226, 144), Rgb(152, 226, 180), // $39-$3B
+    Rgb(160, 214, 228), Rgb(160, 162, 160), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $3C-$3F
 ];
 
 // Zips together two bit strings interlacing them

@@ -279,7 +279,7 @@ impl Memory for Cnrom {
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
             // $0000-$1FFF PPU
-            0x0000..=0x1FFF => self.cart.chr_rom.writeb(self.chr_bank * 0x2000 + addr, val),
+            0x0000..=0x1FFF => (), // CHR-ROM is read-only
             0x6000..=0x7FFF => self.cart.prg_ram.writeb(addr - 0x6000, val),
             // $8000-$FFFF CPU
             0x8000..=0xFFFF => self.chr_bank = Word::from(val & 3),

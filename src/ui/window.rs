@@ -59,7 +59,7 @@ impl Window {
         let texture_creator_ptr = &texture_creator as *const TextureCreator<video::WindowContext>;
         let texture = unsafe { &*texture_creator_ptr }
             .create_texture_streaming(
-                PixelFormatEnum::BGR24,
+                PixelFormatEnum::RGB24,
                 SCREEN_WIDTH as u32,
                 SCREEN_HEIGHT as u32,
             )
