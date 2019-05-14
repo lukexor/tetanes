@@ -3,12 +3,15 @@
 use crate::Result;
 use cartridge::Cartridge;
 use cpu::Cpu;
+use input::Input;
 use memory::CpuMemMap;
 use ppu::{StepResult, RENDER_SIZE};
+use sdl2::EventPump;
 use std::{fmt, path::Path};
 
 mod cartridge;
 mod cpu;
+pub mod input;
 mod mapper;
 mod memory;
 mod ppu;
@@ -37,6 +40,17 @@ impl Console {
         self.cpu.set_board(board.clone());
         self.reset();
         Ok(())
+    }
+
+    pub fn load_input(&mut self, event_pump: EventPump) {
+        let input = Input::init(event_pump);
+        self.cpu.mem.set_input(input);
+    }
+
+    pub fn poll_events(&mut self) {
+        if let Some(input) = &mut self.cpu.mem.input {
+            input.poll_events();
+        }
     }
 
     pub fn reset(&mut self) {

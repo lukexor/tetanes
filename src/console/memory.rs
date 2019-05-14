@@ -1,4 +1,5 @@
 use crate::console::cartridge::Board;
+use crate::console::input::Input;
 use crate::console::ppu::Ppu;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -136,7 +137,7 @@ pub struct CpuMemMap {
     ram: Ram,
     pub ppu: Ppu,
     // apu: Apu,
-    // input: Input,
+    pub input: Option<Input>,
     board: Option<Arc<Mutex<Board>>>,
 }
 
@@ -146,7 +147,7 @@ impl CpuMemMap {
             ram: Ram::new(),
             ppu: Ppu::new(),
             // apu: Apu::new(),
-            // input: Input::new(),
+            input: None,
             board: None,
         }
     }
@@ -154,6 +155,10 @@ impl CpuMemMap {
     pub fn set_board(&mut self, board: Arc<Mutex<Board>>) {
         self.ppu.set_board(board.clone());
         self.board = Some(board);
+    }
+
+    pub fn set_input(&mut self, input: Input) {
+        self.input = Some(input);
     }
 }
 
@@ -164,8 +169,14 @@ impl Memory for CpuMemMap {
             0x0000..=0x1FFF => self.ram.readb(addr % 0x0800), // 0x8000..=0x1FFFF are mirrored
             0x2000..=0x3FFF => self.ppu.readb(0x2000 + addr % 8), // 0x2008..=0x3FFF are mirrored
             0x4000..=0x4015 => 0,                             // TODO self.apu.readb(addr),
-            0x4016..=0x4017 => 0,                             // TODO self.input.readb(addr),
-            0x4018..=0x401F => 0,                             // APU/IO Test Mode
+            0x4016..=0x4017 => {
+                if let Some(input) = &mut self.input {
+                    input.readb(addr)
+                } else {
+                    0
+                }
+            }
+            0x4018..=0x401F => 0, // APU/IO Test Mode
             0x4020..=0xFFFF => {
                 if let Some(b) = &self.board {
                     let mut board = b.lock().unwrap();
@@ -187,8 +198,17 @@ impl Memory for CpuMemMap {
             0x0000..=0x1FFF => self.ram.writeb(addr % 0x0800, val), // 0x8000..=0x1FFFF are mirrored
             0x2000..=0x3FFF => self.ppu.writeb(0x2000 + addr % 8, val), // 0x2008..=0x3FFF are mirrored
             0x4000..=0x4015 | 0x4017 => (), // TODO self.apu.writeb(addr, val),
-            0x4016 => (),                   // TODO self.input.writeb(addr, val),
-            0x4018..=0x401F => (),          // APU/IO Test Mode
+            0x4016 => {
+                if let Some(input) = &mut self.input {
+                    input.writeb(addr, val);
+                } else {
+                    eprintln!(
+                        "uninitialized input at CpuMemMap writeb at 0x{:04X} - val: 0x{:02x}",
+                        addr, val
+                    );
+                }
+            }
+            0x4018..=0x401F => (), // APU/IO Test Mode
             0x4020..=0xFFFF => {
                 if let Some(b) = &self.board {
                     let mut board = b.lock().unwrap();

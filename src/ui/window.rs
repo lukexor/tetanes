@@ -3,8 +3,6 @@ use failure::format_err;
 use sdl2::{
     audio::{AudioQueue, AudioSpecDesired},
     controller::GameController,
-    event::Event,
-    keyboard::Keycode,
     pixels::{Color, PixelFormatEnum},
     render::{Canvas, Texture, TextureCreator},
     video, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem,
@@ -26,19 +24,18 @@ pub struct Window {
     texture: Texture<'static>,
     audio_sub: AudioSubsystem,
     audio_device: AudioQueue<f32>,
-    controller_sub: GameControllerSubsystem,
-    controller1: Option<GameController>,
-    controller2: Option<GameController>,
-    event_pump: EventPump,
+    // controller_sub: GameControllerSubsystem,
+    // controller1: Option<GameController>,
+    // controller2: Option<GameController>,
     _texture_creator: TextureCreator<video::WindowContext>,
 }
 
 impl Window {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Result<(Self, EventPump)> {
         Self::with_scale(DEFAULT_SCALE)
     }
 
-    pub fn with_scale(scale: u32) -> Result<Self> {
+    pub fn with_scale(scale: u32) -> Result<(Self, EventPump)> {
         let context = sdl2::init().expect("sdl context");
 
         // Window/Graphics
@@ -81,22 +78,22 @@ impl Window {
         audio_device.resume();
 
         // Input
-        let controller_sub = context.game_controller().expect("sdl controller");
+        // let controller_sub = context.game_controller().expect("sdl controller");
         let event_pump = context.event_pump().expect("sdl event_pump");
 
-        Ok(Window {
+        let window = Window {
             context,
             video_sub,
             canvas,
             texture,
             audio_sub,
             audio_device,
-            controller_sub,
-            controller1: None,
-            controller2: None,
-            event_pump,
+            // controller_sub,
+            // controller1: None,
+            // controller2: None,
             _texture_creator: texture_creator,
-        })
+        };
+        Ok((window, event_pump))
     }
 
     pub fn render(&mut self, pixels: &[u8; SCREEN_SIZE]) {
@@ -116,21 +113,5 @@ impl Window {
             self.audio_device.queue(&slice);
         }
         samples.clear();
-    }
-
-    pub fn poll_events(&mut self) {
-        for event in self.event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => {
-                    std::process::exit(0);
-                }
-                _ => (),
-                // TODO Debugger, save/load, device added, record, menu, etc
-            }
-        }
     }
 }
