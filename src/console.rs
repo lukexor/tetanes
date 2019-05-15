@@ -9,6 +9,7 @@ use ppu::{StepResult, RENDER_SIZE};
 use sdl2::EventPump;
 use std::{fmt, path::Path};
 
+mod apu;
 mod cartridge;
 mod cpu;
 pub mod input;
@@ -40,7 +41,7 @@ impl Console {
         eprintln!("{:?}", cartridge);
         let board = cartridge.load_board()?;
         self.cpu.set_board(board.clone());
-        self.reset();
+        self.power_on();
         Ok(())
     }
 
@@ -55,6 +56,10 @@ impl Console {
         } else {
             InputResult::Continue
         }
+    }
+
+    pub fn power_on(&mut self) {
+        self.cpu.power_on();
     }
 
     pub fn reset(&mut self) {

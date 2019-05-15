@@ -136,7 +136,7 @@ impl Memory for Rom {
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
-        eprintln!("writing to read-only rom");
+        // eprintln!("writing to read-only rom");
         // ROM is read-only
     }
 }

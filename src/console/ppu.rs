@@ -178,17 +178,15 @@ pub struct StepResult {
 
 impl Ppu {
     pub fn new() -> Self {
-        let mut ppu = Self {
-            cycle: 0,
-            scanline: 0,
+        Self {
+            cycle: 340,
+            scanline: 240,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
             vram: Vram::new(),
             frame: Frame::new(),
             screen: Screen::new(),
-        };
-        ppu.reset();
-        ppu
+        }
     }
 
     pub fn reset(&mut self) {
@@ -1203,7 +1201,7 @@ impl Ppu {
             buffer
         } else {
             // Set internal buffer with mirrors of nametable when reading palettes
-            self.vram.buffer = self.vram.readb(self.read_ppuaddr() - 0x0F00);
+            self.vram.buffer = self.vram.readb(self.read_ppuaddr() - 0x1000);
             val
         };
         self.regs.increment_v();

@@ -15,8 +15,8 @@ pub type Cycle = u64;
 const NMI_ADDR: Addr = 0xFFFA;
 const IRQ_ADDR: Addr = 0xFFFE;
 const RESET_ADDR: Addr = 0xFFFC;
-const RESET_SP: Byte = 0xFD; // FD because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
-const RESET_STATUS: Byte = 0x24; // 0010 0100 - Unused and Interrupt Disable set
+const POWER_ON_SP: Byte = 0xFD; // FD because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
+const POWER_ON_STATUS: Byte = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 
 // Status Registers
 // http://wiki.nesdev.com/w/index.php/Status_flags
@@ -62,7 +62,7 @@ pub struct Cpu {
 
 impl Cpu {
     pub fn init(mem: CpuMemMap) -> Self {
-        Self {
+        let mut cpu = Self {
             cycles: 0,
             stall: 0,
             pc: 0,
@@ -76,7 +76,20 @@ impl Cpu {
             trace: false,
             #[cfg(test)]
             oplog: String::with_capacity(9000 * 60),
-        }
+        };
+        cpu.power_on();
+        cpu
+    }
+
+    pub fn power_on(&mut self) {
+        self.cycles = 7; // Emulate power up cycles
+        self.stall = 0;
+        self.pc = self.mem.readw(RESET_ADDR);
+        self.sp = POWER_ON_SP;
+        self.acc = 0;
+        self.x = 0;
+        self.y = 0;
+        self.status = POWER_ON_STATUS;
     }
 
     /// Resets the CPU status to a known state.
@@ -86,10 +99,8 @@ impl Cpu {
     /// These operations take the CPU 7 cycles.
     pub fn reset(&mut self) {
         self.pc = self.mem.readw(RESET_ADDR);
-        self.sp = RESET_SP;
-        self.status = RESET_STATUS;
-        self.cycles = 7; // Emulate power up cycles
-        self.stall = 0;
+        self.sp = self.sp.saturating_sub(3);
+        self.set_interrupt_disable(true)
     }
 
     /// Steps the CPU exactly one `tick`
@@ -524,6 +535,11 @@ impl Cpu {
             AbsoluteY => {
                 let addr0 = self.mem.readw(addr);
                 let addr = addr0.wrapping_add(Addr::from(self.y));
+                // dummy ST* read
+                if !read && addr == 0x2007 {
+                    let dummy_addr = (addr0 & 0xFF00) | (addr & 0xFF);
+                    self.readb(dummy_addr);
+                }
                 let val = if read {
                     Word::from(self.readb(addr))
                 } else {
@@ -572,8 +588,14 @@ impl Cpu {
                 };
                 (val, Some(addr), 1, false)
             }
-            Accumulator => (Word::from(self.acc), None, 0, false),
-            Implied => (0, None, 0, false),
+            Accumulator => {
+                let _ = self.readb(addr); // dummy read
+                (Word::from(self.acc), None, 0, false)
+            }
+            Implied => {
+                let _ = self.readb(addr); // dummy read
+                (0, None, 0, false)
+            }
         }
     }
 
@@ -1301,13 +1323,13 @@ mod tests {
     fn test_cpu_new() {
         let mut cpu_memory = CpuMemMap::init();
         let c = Cpu::init(cpu_memory);
-        assert_eq!(c.cycles, 0);
+        assert_eq!(c.cycles, 7);
         assert_eq!(c.pc, 0);
-        assert_eq!(c.sp, 0);
+        assert_eq!(c.sp, POWER_ON_SP);
         assert_eq!(c.acc, 0);
         assert_eq!(c.x, 0);
         assert_eq!(c.y, 0);
-        assert_eq!(c.status, 0);
+        assert_eq!(c.status, POWER_ON_STATUS);
     }
 
     #[test]
@@ -1316,8 +1338,8 @@ mod tests {
         let mut c = Cpu::init(cpu_memory);
         c.reset();
         assert_eq!(c.pc, 0);
-        assert_eq!(c.sp, RESET_SP);
-        assert_eq!(c.status, RESET_STATUS);
+        assert_eq!(c.sp, POWER_ON_SP - 3);
+        assert_eq!(c.status, POWER_ON_STATUS);
         assert_eq!(c.cycles, 7);
     }
 }
