@@ -15,8 +15,8 @@ to them having the type and memory-safety guarantees that Rust is known for.
 
 ## Screenshots
 
-![Donky Kong Title Screen](https://github.com/lukexor/rustynes/static/donky_kong_title.png)
-![Mario Bros Title Screen](https://github.com/lukexor/rustynes/static/mario_bros_title.png)
+![Donky Kong Title Screen](https://github.com/lukexor/rustynes/blob/master/static/donky_kong_title.png)
+![Mario Bros Title Screen](https://github.com/lukexor/rustynes/blob/master/static/mario_bros_title.png)
 
 ## Features
 
