@@ -11,7 +11,7 @@ use std::{error::Error, sync::mpsc};
 
 const AUDIO_FREQUENCY: i32 = 44100;
 const SAMPLES_PER_FRAME: u16 = 2048;
-const DEFAULT_TITLE: &str = "NES";
+const DEFAULT_TITLE: &str = "RustyNES";
 const SCREEN_WIDTH: usize = 256;
 const SCREEN_HEIGHT: usize = 240;
 const SCREEN_SIZE: usize = SCREEN_WIDTH * SCREEN_HEIGHT * 3;
@@ -24,9 +24,6 @@ pub struct Window {
     texture: Texture<'static>,
     audio_sub: AudioSubsystem,
     audio_device: AudioQueue<f32>,
-    // controller_sub: GameControllerSubsystem,
-    // controller1: Option<GameController>,
-    // controller2: Option<GameController>,
     _texture_creator: TextureCreator<video::WindowContext>,
 }
 
@@ -78,7 +75,6 @@ impl Window {
         audio_device.resume();
 
         // Input
-        // let controller_sub = context.game_controller().expect("sdl controller");
         let event_pump = context.event_pump().expect("sdl event_pump");
 
         let window = Window {
@@ -88,9 +84,6 @@ impl Window {
             texture,
             audio_sub,
             audio_device,
-            // controller_sub,
-            // controller1: None,
-            // controller2: None,
             _texture_creator: texture_creator,
         };
         Ok((window, event_pump))

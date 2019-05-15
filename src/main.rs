@@ -10,8 +10,8 @@
 //! permissions, the program will print an error and exit.
 
 use failure::{format_err, Error, Fail};
-use nes::ui::UI;
-use nes::Result;
+use rustynes::ui::UI;
+use rustynes::Result;
 use std::{env, io, path::PathBuf};
 use structopt::StructOpt;
 
