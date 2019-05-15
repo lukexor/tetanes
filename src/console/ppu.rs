@@ -85,7 +85,6 @@ pub struct PpuRegs {
     oamaddr: Byte,      // $2003 OAMADDR write-only
     nmi_delay: Byte,    // Some games need a delay after vblank before nmi is triggered
     nmi_previous: bool, // Keeps track of repeated nmi to handle delay timing
-    buffer: Byte,       // PPUDATA buffer
     v: Addr,            // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
     t: Addr,            // Temporary v - Also the addr of top-left onscreen tile
     x: Byte,            // Fine X
@@ -95,6 +94,7 @@ pub struct PpuRegs {
 #[derive(Debug)]
 struct Vram {
     board: Option<Arc<Mutex<Board>>>,
+    buffer: Byte,         // PPUDATA buffer
     nametable: Nametable, // Used to layout backgrounds on the screen
     palette: Palette,     // Background/Sprite color palettes
 }
@@ -311,12 +311,11 @@ impl Ppu {
 
     fn evaluate_sprites(&mut self) {
         let mut count = 0;
+        let sprite_height = i16::from(self.regs.ctrl.sprite_height());
         for i in 0..OAM_SIZE / 4 {
             let mut sprite = self.get_sprite(i * 4);
             let row = self.scanline as i16 - i16::from(sprite.y);
-            let sprite_height = i16::from(self.regs.ctrl.sprite_height());
-
-            // Sprite is outside of our range for evaluation
+            // Sprite is outside of our scanline range for evaluation
             if row < 0 || row >= sprite_height {
                 continue;
             }
@@ -327,7 +326,7 @@ impl Ppu {
             count += 1;
         }
         if count > 8 {
-            count = 0;
+            count = 8;
             self.set_sprite_overflow(true);
         }
         self.frame.sprite_count = count as Byte;
@@ -469,7 +468,6 @@ impl PpuRegs {
             oamaddr: 0,
             nmi_delay: 0,
             nmi_previous: false,
-            buffer: 0,
             v: 0,
             t: 0,
             x: 0,
@@ -498,7 +496,7 @@ impl PpuRegs {
     fn nmi_change(&mut self) {
         let nmi = self.ctrl.nmi_enable() && self.status.vblank_started();
         if nmi && !self.nmi_previous {
-            self.nmi_delay = 15;
+            self.nmi_delay = 12;
         }
         self.nmi_previous = nmi;
     }
@@ -708,6 +706,7 @@ impl Vram {
     fn new() -> Self {
         Self {
             board: None,
+            buffer: 0,
             nametable: Nametable([0; NAMETABLE_SIZE]),
             palette: Palette([0; PALETTE_SIZE]),
         }
@@ -860,6 +859,7 @@ impl StepResult {
 
 impl Memory for Ppu {
     fn readb(&mut self, addr: Addr) -> Byte {
+        // TODO emulate decay of open bus bits
         let val = match addr {
             0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
             0x2001 => self.regs.open_bus,    // PPUMASK is write-only
@@ -879,6 +879,7 @@ impl Memory for Ppu {
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
+        // TODO emulate decay of open bus bits
         self.regs.open_bus = val;
         // Write least sig bits to ppustatus since they're not written to
         *self.regs.status |= val & 0x1F;
@@ -1106,9 +1107,9 @@ impl Ppu {
         // Read PPUSTATUS to clear vblank before setting vblank again
         // FIXME: Is this the correct thing to do?
         // http://wiki.nesdev.com/w/index.php/PPU_programmer_reference#PPUCTRL
-        // if val & 0x80 > 0 {
-        //     self.read_ppustatus();
-        // }
+        if val & 0x80 == 0x80 {
+            self.read_ppustatus();
+        }
         self.regs.write_ctrl(val);
     }
 
@@ -1197,12 +1198,12 @@ impl Ppu {
         // for reading pre-palette data in 0 - $3EFF
         // Keep addr within 15 bits
         let val = if self.read_ppuaddr() <= 0x3EFF {
-            let buffer = self.regs.buffer;
-            self.regs.buffer = val;
+            let buffer = self.vram.buffer;
+            self.vram.buffer = val;
             buffer
         } else {
-            // TODO explain this
-            self.regs.buffer = self.vram.readb(self.read_ppuaddr() - 0x1000);
+            // Set internal buffer with mirrors of nametable when reading palettes
+            self.vram.buffer = self.vram.readb(self.read_ppuaddr() - 0x0F00);
             val
         };
         self.regs.increment_v();
@@ -1346,14 +1347,14 @@ impl PpuStatus {
         self.0 & 0x20 > 0
     }
     fn set_sprite_overflow(&mut self, val: bool) {
-        self.0 = if val { self.0 | 0x20 } else { self.0 & 0x20 }
+        self.0 = if val { self.0 | 0x20 } else { self.0 & !0x20 };
     }
 
     fn sprite_zero_hit(&mut self) -> bool {
         self.0 & 0x40 > 0
     }
     fn set_sprite_zero_hit(&mut self, val: bool) {
-        self.0 = if val { self.0 | 0x40 } else { self.0 & 0x40 }
+        self.0 = if val { self.0 | 0x40 } else { self.0 & !0x40 };
     }
 
     fn vblank_started(&mut self) -> bool {
@@ -1363,7 +1364,7 @@ impl PpuStatus {
         self.0 |= 0x80;
     }
     fn stop_vblank(&mut self) {
-        self.0 |= !0x80;
+        self.0 &= !0x80;
     }
 }
 
@@ -1406,26 +1407,6 @@ impl DerefMut for PpuStatus {
 // 64 total possible colors, though only 32 can be loaded at a time
 #[rustfmt::skip]
 const SYSTEM_PALETTE: [Rgb; SYSTEM_PALETTE_SIZE] = [
-    // // 0x00
-    // Rgb(124, 124, 124), Rgb(0, 0, 252),     Rgb(0, 0, 188),     Rgb(68, 40, 188),   // $00-$04
-    // Rgb(148, 0, 132),   Rgb(168, 0, 32),    Rgb(168, 16, 0),    Rgb(136, 20, 0),    // $05-$08
-    // Rgb(80, 48, 0),     Rgb(0, 120, 0),     Rgb(0, 104, 0),     Rgb(0, 88, 0),      // $09-$0B
-    // Rgb(0, 64, 88),     Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $0C-$0F
-    // // 0x10
-    // Rgb(188, 188, 188), Rgb(0, 120, 248),   Rgb(0, 88, 248),    Rgb(104, 68, 252),  // $10-$14
-    // Rgb(216, 0, 204),   Rgb(228, 0, 88),    Rgb(248, 56, 0),    Rgb(228, 92, 16),   // $15-$18
-    // Rgb(172, 124, 0),   Rgb(0, 184, 0),     Rgb(0, 168, 0),     Rgb(0, 168, 68),    // $19-$1B
-    // Rgb(0, 136, 136),   Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $1C-$1F
-    // // 0x20
-    // Rgb(248, 248, 248), Rgb(60,  188, 252), Rgb(104, 136, 252), Rgb(152, 120, 248), // $20-$24
-    // Rgb(248, 120, 248), Rgb(248, 88, 152),  Rgb(248, 120, 88),  Rgb(252, 160, 68),  // $25-$28
-    // Rgb(248, 184, 0),   Rgb(184, 248, 24),  Rgb(88, 216, 84),   Rgb(88, 248, 152),  // $29-$2B
-    // Rgb(0, 232, 216),   Rgb(120, 120, 120), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $2C-$2F
-    // // 0x30
-    // Rgb(252, 252, 252), Rgb(164, 228, 252), Rgb(184, 184, 248), Rgb(216, 184, 248), // $30-$34
-    // Rgb(248, 184, 248), Rgb(248, 164, 192), Rgb(240, 208, 176), Rgb(252, 224, 168), // $35-$38
-    // Rgb(248, 216, 120), Rgb(216, 248, 120), Rgb(184, 248, 184), Rgb(184, 248, 216), // $39-$3B
-    // Rgb(0, 252, 252),   Rgb(248, 216, 248), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $3C-$3F
     // 0x00
     Rgb(84, 84, 84),    Rgb(0, 30, 116),    Rgb(8, 16, 144),    Rgb(48, 0, 136),    // $00-$04
     Rgb(68, 0, 100),    Rgb(92, 0, 48),     Rgb(84, 4, 0),      Rgb(60, 24, 0),     // $05-$08
@@ -1517,7 +1498,7 @@ mod tests {
 
         // Test 1st write to ppuaddr
         let addr_write: Byte = 0b0011_1101;
-        let t_result: Addr = 0b011_11_01011_01111;
+        let t_result: Addr = 0b111_11_01011_01111;
         ppu.writeb(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
@@ -1525,7 +1506,7 @@ mod tests {
 
         // Test 2nd write to ppuaddr
         let addr_write: Byte = 0b1111_0000;
-        let t_result: Addr = 0b011_11_01111_10000;
+        let t_result: Addr = 0b111_11_01111_10000;
         ppu.writeb(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.v, t_result);

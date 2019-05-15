@@ -168,6 +168,7 @@ impl Cpu {
             AND => self.and(val),
             ASL => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.asl(val);
                 self.write_target(target, res);
             }
@@ -191,6 +192,7 @@ impl Cpu {
             CPY => self.cpy(val),
             DEC => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.dec(val);
                 self.write_target(target, res);
             }
@@ -199,6 +201,7 @@ impl Cpu {
             EOR => self.eor(val),
             INC => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.inc(val);
                 self.write_target(target, res);
             }
@@ -206,12 +209,12 @@ impl Cpu {
             INY => self.iny(),
             JMP => self.jmp(target.unwrap()),
             JSR => self.jsr(target.unwrap()),
-            LAX => self.lax(val),
             LDA => self.lda(val),
             LDX => self.ldx(val),
             LDY => self.ldy(val),
             LSR => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.lsr(val);
                 self.write_target(target, res);
             }
@@ -223,11 +226,13 @@ impl Cpu {
             PLP => self.plp(),
             ROL => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.rol(val);
                 self.write_target(target, res);
             }
             ROR => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.ror(val);
                 self.write_target(target, res);
             }
@@ -237,48 +242,66 @@ impl Cpu {
             SEC => self.sec(),
             SED => self.sed(),
             SEI => self.sei(),
-            STA => self.write_target(target, self.acc),
-            STX => self.write_target(target, self.x),
-            STY => self.write_target(target, self.y),
+            STA => self.sta(target),
+            STX => self.stx(target),
+            STY => self.sty(target),
             TAX => self.tax(),
             TAY => self.tay(),
             TSX => self.tsx(),
             TXA => self.txa(),
             TXS => self.txs(),
             TYA => self.tya(),
-            KIL => panic!("KIL encountered"),
-            SAX => {
-                let res = self.sax();
+            // Unofficial opcodes
+            KIL => self.kil(),
+            ISB => {
+                let val = self.read_target(target);
+                self.write_target(target, val);
+                let res = self.isb(val);
                 self.write_target(target, res);
             }
             DCP => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.dcp(val);
                 self.write_target(target, res);
             }
-            ISB => {
-                let val = self.read_target(target);
-                let res = self.isb(val);
+            AXS => self.axs(),
+            LAS => self.las(val),
+            LAX => self.lax(val),
+            AHX => self.ahx(),
+            SAX => {
+                let res = self.sax();
                 self.write_target(target, res);
             }
-            RLA => {
-                let val = self.read_target(target);
-                let res = self.rla(val);
-                self.write_target(target, res);
-            }
+            XAA => self.xaa(),
+            SHX => self.shx(),
             RRA => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.rra(val);
                 self.write_target(target, res);
             }
-            SLO => {
-                let val = self.read_target(target);
-                let res = self.slo(val);
-                self.write_target(target, res);
-            }
+            TAS => self.tas(target),
+            SHY => self.shy(),
+            ARR => self.arr(),
             SRE => {
                 let val = self.read_target(target);
+                self.write_target(target, val);
                 let res = self.sre(val);
+                self.write_target(target, res);
+            }
+            ALR => self.alr(),
+            RLA => {
+                let val = self.read_target(target);
+                self.write_target(target, val);
+                let res = self.rla(val);
+                self.write_target(target, res);
+            }
+            ANC => self.anc(),
+            SLO => {
+                let val = self.read_target(target);
+                self.write_target(target, val);
+                let res = self.slo(val);
                 self.write_target(target, res);
             }
             _ => eprintln!("unhandled operation {:?}", op),
@@ -482,8 +505,12 @@ impl Cpu {
             AbsoluteX => {
                 let addr0 = self.mem.readw(addr);
                 let addr = addr0.wrapping_add(Addr::from(self.x));
-                // ST* dummy read to account for PPUDATA buffer
-                if !read && addr0 == 0x2000 && self.y == 0x7 {
+                // dummy read
+                if ((addr0 & 0xFF) + Addr::from(self.x)) > 0xFF {
+                    let dummy_addr = (addr0 & 0xFF00) | (addr & 0xFF);
+                    self.readb(dummy_addr);
+                }
+                if addr0 == 0x2000 && self.x == 0x7 {
                     self.readb(addr);
                 }
                 let val = if read {
@@ -497,10 +524,6 @@ impl Cpu {
             AbsoluteY => {
                 let addr0 = self.mem.readw(addr);
                 let addr = addr0.wrapping_add(Addr::from(self.y));
-                // ST* dummy read to account for PPUDATA buffer
-                if !read && addr0 == 0x2000 && self.y == 0x7 {
-                    self.readb(addr);
-                }
                 let val = if read {
                     Word::from(self.readb(addr))
                 } else {
@@ -528,6 +551,11 @@ impl Cpu {
                 let addr_zp = self.readb(addr);
                 let addr_zp = self.mem.readw_zp(addr_zp);
                 let addr = addr_zp.wrapping_add(Addr::from(self.y));
+                // dummy read
+                if Addr::from(addr_zp & 0xFF) + Addr::from(self.y) > 0xFF {
+                    let dummy_addr = (addr_zp & 0xFF00) | (addr & 0xFF);
+                    self.readb(dummy_addr);
+                }
                 let val = if read {
                     Word::from(self.readb(addr))
                 } else {
@@ -562,7 +590,7 @@ impl Cpu {
     // Reads from either a target address or the accumulator register.
     //
     // target is either Some(Addr) or None based on the addressing mode
-    fn write_target(&mut self, target: Option<u16>, val: Byte) {
+    fn write_target(&mut self, target: Option<Addr>, val: Byte) {
         match target {
             None => {
                 self.acc = val;
@@ -1067,6 +1095,21 @@ impl Cpu {
         self.set_interrupt_disable(true);
     }
 
+    // STA: Store A into M
+    fn sta(&mut self, addr: Option<Addr>) {
+        self.write_target(addr, self.acc);
+    }
+
+    // STX: Store X into M
+    fn stx(&mut self, addr: Option<Addr>) {
+        self.write_target(addr, self.x);
+    }
+
+    // STY: Store Y into M
+    fn sty(&mut self, addr: Option<Addr>) {
+        self.write_target(addr, self.y);
+    }
+
     // CLV: Clear Overflow Flag
     fn clv(&mut self) {
         self.set_overflow(false);
@@ -1138,23 +1181,8 @@ impl Cpu {
 
     // Unofficial opcodes
 
-    // LAX: Shortcut for LDA then TAX
-    fn lax(&mut self, val: Byte) {
-        self.acc = val;
-        self.x = val;
-        self.update_acc();
-    }
-
-    // SAX: AND A with X
-    fn sax(&mut self) -> Byte {
-        self.acc & self.x
-    }
-
-    // DCP: Shortcut for DEC then CMP
-    fn dcp(&mut self, val: Byte) -> Byte {
-        let val = val.wrapping_sub(1);
-        self.compare(self.acc, val);
-        val
+    fn kil(&self) {
+        panic!("KIL encountered");
     }
 
     // ISC/ISB: Shortcut for INC then SBC
@@ -1164,12 +1192,44 @@ impl Cpu {
         x
     }
 
-    // RLA: Shortcut for ROL then AND
-    fn rla(&mut self, val: Byte) -> Byte {
-        let x = self.rol(val);
-        self.and(x);
-        x
+    // DCP: Shortcut for DEC then CMP
+    fn dcp(&mut self, val: Byte) -> Byte {
+        let val = val.wrapping_sub(1);
+        self.compare(self.acc, val);
+        val
     }
+
+    // AXS: A & X into X
+    fn axs(&mut self) {
+        self.x &= self.acc;
+        self.set_result_flags(self.x);
+    }
+
+    // LAS: Shortcut for LDA then TSX
+    fn las(&mut self, val: Byte) {
+        self.lda(val);
+        self.tsx();
+    }
+
+    // LAX: Shortcut for LDA then TAX
+    fn lax(&mut self, val: Byte) {
+        self.lda(val);
+        self.tax();
+    }
+
+    // AHX: TODO
+    fn ahx(&mut self) {}
+
+    // SAX: AND A with X
+    fn sax(&mut self) -> Byte {
+        self.acc & self.x
+    }
+
+    // XAA: TODO
+    fn xaa(&mut self) {}
+
+    // SHX: TODO
+    fn shx(&mut self) {}
 
     // RRA: Shortcut for ROR then ADC
     fn rra(&mut self, val: Byte) -> Byte {
@@ -1178,17 +1238,42 @@ impl Cpu {
         x
     }
 
-    // SLO: Shortcut for ASL then ORA
-    fn slo(&mut self, val: Byte) -> Byte {
-        let x = self.asl(val);
-        self.ora(x);
-        x
+    // TAS: Shortcut for STA then TXS
+    fn tas(&mut self, addr: Option<Addr>) {
+        self.sta(addr);
+        self.txs();
     }
+
+    // SHY: TODO
+    fn shy(&mut self) {}
+
+    // ARR: TODO
+    fn arr(&mut self) {}
 
     // SRA: Shortcut for LSR then EOR
     fn sre(&mut self, val: Byte) -> Byte {
         let x = self.lsr(val);
         self.eor(x);
+        x
+    }
+
+    // ALR: TODO
+    fn alr(&mut self) {}
+
+    // RLA: Shortcut for ROL then AND
+    fn rla(&mut self, val: Byte) -> Byte {
+        let x = self.rol(val);
+        self.and(x);
+        x
+    }
+
+    // anc: TODO
+    fn anc(&mut self) {}
+
+    // SLO: Shortcut for ASL then ORA
+    fn slo(&mut self, val: Byte) -> Byte {
+        let x = self.asl(val);
+        self.ora(x);
         x
     }
 }

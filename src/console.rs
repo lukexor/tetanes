@@ -3,7 +3,7 @@
 use crate::Result;
 use cartridge::Cartridge;
 use cpu::Cpu;
-use input::Input;
+use input::{Input, InputResult};
 use memory::CpuMemMap;
 use ppu::{StepResult, RENDER_SIZE};
 use sdl2::EventPump;
@@ -36,7 +36,9 @@ impl Console {
     ///
     /// NES ROM files usually end with `.nes`
     pub fn load_cartridge(&mut self, rom: &Path) -> Result<()> {
-        let board = Cartridge::new(rom)?.load_board()?;
+        let cartridge = Cartridge::new(rom)?;
+        eprintln!("{:?}", cartridge);
+        let board = cartridge.load_board()?;
         self.cpu.set_board(board.clone());
         self.reset();
         Ok(())
@@ -47,9 +49,11 @@ impl Console {
         self.cpu.mem.set_input(input);
     }
 
-    pub fn poll_events(&mut self) {
+    pub fn poll_events(&mut self) -> InputResult {
         if let Some(input) = &mut self.cpu.mem.input {
-            input.poll_events();
+            input.poll_events()
+        } else {
+            InputResult::Continue
         }
     }
 

@@ -54,6 +54,15 @@ pub struct Input {
     event_pump: EventPump,
 }
 
+pub enum InputResult {
+    Continue,
+    Quit,
+    // TODO Menu,
+    Reset,
+    // TODO Save,
+    // TODO Load,
+}
+
 impl Input {
     pub fn init(event_pump: EventPump) -> Self {
         Self {
@@ -63,30 +72,34 @@ impl Input {
         }
     }
 
-    pub fn poll_events(&mut self) {
+    pub fn poll_events(&mut self) -> InputResult {
         // for event in self.event_pump.poll_iter() {
         while let Some(event) = self.event_pump.poll_event() {
-            match event {
+            let result = match event {
                 Event::Quit { .. }
                 | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => {
-                    std::process::exit(0);
-                }
+                } => InputResult::Quit,
+                Event::KeyDown {
+                    keycode: Some(Keycode::R),
+                    ..
+                } => InputResult::Reset,
                 Event::KeyDown {
                     keycode: Some(key), ..
                 } => self.handle_gamepad_event(key, true),
                 Event::KeyUp {
                     keycode: Some(key), ..
                 } => self.handle_gamepad_event(key, false),
-                _ => (),
+                _ => InputResult::Continue,
                 // TODO Debugger, save/load, device added, record, menu, etc
-            }
+            };
+            return result;
         }
+        InputResult::Continue
     }
 
-    fn handle_gamepad_event(&mut self, key: Keycode, down: bool) {
+    fn handle_gamepad_event(&mut self, key: Keycode, down: bool) -> InputResult {
         match key {
             Keycode::Left => self.gamepad1.left = down,
             Keycode::Down => self.gamepad1.down = down,
@@ -98,6 +111,7 @@ impl Input {
             Keycode::Return => self.gamepad1.start = down,
             _ => {}
         }
+        InputResult::Continue
     }
 }
 

@@ -9,9 +9,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-const NES_HEADER_MAGIC: [u8; 4] = *b"NES\x1a";
 pub const PRG_BANK_SIZE: usize = 0x4000; // 16K bytes
 const CHR_BANK_SIZE: usize = 0x2000; // 8K bytes
+const DEFAULT_PRG_RAM_SIZE: usize = 0x2000; // 8K bytes
+const NES_HEADER_MAGIC: [u8; 4] = *b"NES\x1a";
 
 /// Represents an NES Cartridge
 ///
@@ -26,8 +27,8 @@ pub struct Cartridge {
     pub num_prg_banks: usize,
     pub num_chr_banks: usize,
     pub prg_rom: Rom,
-    pub chr_rom: Rom,
     pub prg_ram: Ram,
+    pub chr_rom: Rom,
 }
 
 pub trait Board: Memory + Send {
@@ -127,7 +128,7 @@ impl Cartridge {
         let prg_ram = if header[8] > 0 {
             Ram::with_capacity(header[8] as usize * 0x2000)
         } else {
-            Ram::new()
+            Ram::with_capacity(DEFAULT_PRG_RAM_SIZE)
         };
 
         Ok(Self {
@@ -138,8 +139,8 @@ impl Cartridge {
             num_prg_banks,
             num_chr_banks,
             prg_rom: Rom::with_bytes(prg_rom),
-            chr_rom: Rom::with_bytes(chr_rom),
             prg_ram,
+            chr_rom: Rom::with_bytes(chr_rom),
         })
     }
 
@@ -182,8 +183,8 @@ impl fmt::Debug for Cartridge {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
-            "Cartridge {{ title: {}, board_type: {:?}, Mirroring: {:?}, Battery: {}",
-            self.title, self.board_type, self.mirroring, self.battery,
+            "Cartridge {{ title: {}, board_type: {:?}, Mirroring: {:?}, Battery: {}, PRG BANKS: {}, CHR BANKS: {}, PRG_RAM: {}",
+            self.title, self.board_type, self.mirroring, self.battery, self.num_prg_banks, self.num_chr_banks, self.prg_ram.len(),
         )
     }
 }
@@ -207,8 +208,8 @@ mod tests {
             (
                 "roms/Zelda II - The Adventure of Link (USA).nes",
                 "Zelda II - The Adventure of Link (USA)",
-                128,
-                128,
+                8,
+                16,
                 SxROM,
                 Horizontal,
                 true,
@@ -216,8 +217,8 @@ mod tests {
             (
                 "roms/Super Mario Bros. (World).nes",
                 "Super Mario Bros. (World)",
-                32,
-                8,
+                2,
+                1,
                 NROM,
                 Vertical,
                 false,
@@ -225,7 +226,7 @@ mod tests {
             (
                 "roms/Metroid (USA).nes",
                 "Metroid (USA)",
-                128,
+                8,
                 0,
                 SxROM,
                 Horizontal,
@@ -238,14 +239,12 @@ mod tests {
             let c = c.unwrap();
             assert_eq!(c.title, rom.1, "title matches {}", rom.0);
             assert_eq!(
-                c.prg_rom.len() / 0x0400,
-                rom.2,
+                c.num_prg_banks, rom.2,
                 "PRG-ROM size matches for {}",
                 c.title
             );
             assert_eq!(
-                c.chr_rom.len() / 0x0400,
-                rom.3,
+                c.num_chr_banks, rom.3,
                 "CHR-ROM size matches for {}",
                 c.title
             );

@@ -1,4 +1,4 @@
-use crate::console::input::Input;
+use crate::console::input::{Input, InputResult};
 use crate::console::Console;
 use crate::ui::window::Window;
 use crate::Result;
@@ -43,7 +43,11 @@ impl<P: AsRef<Path> + fmt::Debug> UI<P> {
                 window.render(&self.console.render());
                 // Play audio
             }
-            self.console.poll_events();
+            match self.console.poll_events() {
+                InputResult::Continue => (),
+                InputResult::Quit => break,
+                InputResult::Reset => self.console.reset(),
+            }
         }
 
         // audio::close();

@@ -24,7 +24,13 @@ impl Memory for Nrom {
     fn readb(&mut self, addr: Addr) -> Byte {
         match addr {
             // PPU 8K Fixed CHR bank
-            0x0000..=0x1FFF => self.cart.chr_rom.readb(addr),
+            0x0000..=0x1FFF => {
+                if self.cart.num_chr_banks == 0 {
+                    self.cart.prg_ram.readb(addr)
+                } else {
+                    self.cart.chr_rom.readb(addr)
+                }
+            }
             0x6000..=0x7FFF => self.cart.prg_ram.readb(addr - 0x6000),
             0x8000..=0xFFFF => {
                 // CPU 32K Fixed PRG ROM bank for NROM-256
@@ -44,7 +50,23 @@ impl Memory for Nrom {
 
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
+            0x0000..=0x1FFF => {
+                if self.cart.num_chr_banks == 0 {
+                    self.cart.prg_ram.writeb(addr, val);
+                } else {
+                    self.cart.chr_rom.writeb(addr, val);
+                }
+            }
             0x6000..=0x7FFF => self.cart.prg_ram.writeb(addr - 0x6000, val),
+            0x8000..=0xFFFF => {
+                // CPU 32K Fixed PRG ROM bank for NROM-256
+                if self.cart.prg_rom.len() > 0x4000 {
+                    self.cart.prg_rom.writeb(addr & 0x7FFF, val)
+                // CPU 16K Fixed PRG ROM bank for NROM-128
+                } else {
+                    self.cart.prg_rom.writeb(addr & 0x3FFF, val)
+                }
+            }
             _ => eprintln!(
                 "invalid Nrom writeb at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val
@@ -186,7 +208,13 @@ impl Memory for Sxrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             // PPU 4 KB switchable CHR bank
-            0x0000..=0x1FFF => self.cart.chr_rom.readb(addr & 0x1FFF),
+            0x0000..=0x1FFF => {
+                if self.cart.num_chr_banks == 0 {
+                    self.cart.prg_ram.readb(addr & 0x1FFF)
+                } else {
+                    self.cart.chr_rom.readb(addr & 0x1FFF)
+                }
+            }
             // CPU 8 KB PRG RAM bank, (optional)
             0x6000..=0x7FFF => self.prg_ram.readb(addr - 0x6000),
             // CPU 2x16 KB PRG ROM bank, either switchable or fixed to the first bank
@@ -206,7 +234,13 @@ impl Memory for Sxrom {
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
             // PPU 4 KB switchable CHR bank
-            0x0000..=0x1FFF => self.cart.chr_rom.writeb(addr & 0x1FFF, val),
+            0x0000..=0x1FFF => {
+                if self.cart.num_chr_banks == 0 {
+                    self.cart.prg_ram.writeb(addr & 0x1FFF, val);
+                } else {
+                    self.cart.chr_rom.writeb(addr & 0x1FFF, val);
+                }
+            }
             // CPU 8 KB PRG RAM bank, (optional)
             0x6000..=0x7FFF => self.prg_ram.writeb(addr - 0x6000, val),
             0x8000..=0xFFFF => {
@@ -258,7 +292,13 @@ impl Memory for Cnrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             // $0000-$1FFF PPU
-            0x0000..=0x1FFF => self.cart.chr_rom.readb(self.chr_bank * 0x2000 + addr),
+            0x0000..=0x1FFF => {
+                if self.cart.num_chr_banks == 0 {
+                    self.cart.prg_rom.readb(self.chr_bank * 0x2000 + addr)
+                } else {
+                    self.cart.chr_rom.readb(self.chr_bank * 0x2000 + addr)
+                }
+            }
             0x6000..=0x7FFF => self.cart.prg_ram.readb(addr - 0x6000),
             // $8000-$FFFF CPU
             0x8000..=0xBFFF => self
@@ -279,7 +319,11 @@ impl Memory for Cnrom {
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
             // $0000-$1FFF PPU
-            0x0000..=0x1FFF => (), // CHR-ROM is read-only
+            0x0000..=0x1FFF => {
+                if self.cart.num_chr_banks == 0 {
+                    self.cart.prg_rom.writeb(self.chr_bank * 0x2000 + addr, val);
+                }
+            }
             0x6000..=0x7FFF => self.cart.prg_ram.writeb(addr - 0x6000, val),
             // $8000-$FFFF CPU
             0x8000..=0xFFFF => self.chr_bank = Word::from(val & 3),

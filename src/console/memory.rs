@@ -73,12 +73,24 @@ impl Memory for Ram {
     fn readb(&mut self, addr: Addr) -> Byte {
         let len = self.bytes.len();
         assert!(len != 0, "Ram length is 0! {:?}", self);
+        assert!(
+            (addr as usize) < len,
+            "Ram read 0x{:04X} within bounds {:?}",
+            addr,
+            self
+        );
         self.bytes[addr as usize]
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
         let len = self.bytes.len();
         assert!(len != 0, "Ram length is 0! {:?}", self);
+        assert!(
+            (addr as usize) < len,
+            "Ram write 0x{:04X} within bounds {:?}",
+            addr,
+            self
+        );
         self.bytes[addr as usize] = val;
     }
 }
@@ -96,6 +108,18 @@ pub struct Rom {
 }
 
 impl Rom {
+    pub fn new() -> Self {
+        Self {
+            bytes: vec![0; DEFAULT_RAM_SIZE],
+        }
+    }
+
+    pub fn with_capacity(size: usize) -> Self {
+        Self {
+            bytes: vec![0; size],
+        }
+    }
+
     pub fn with_bytes(bytes: Vec<Byte>) -> Self {
         Self { bytes }
     }
@@ -108,18 +132,12 @@ impl Rom {
 impl Memory for Rom {
     fn readb(&mut self, addr: Addr) -> Byte {
         let len = self.bytes.len();
-        assert!(len != 0, "Rom length is 0! {:?}", self);
         self.bytes[addr as usize]
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
-        let len = self.bytes.len();
-        assert!(len != 0, "Rom length is 0! {:?}", self);
-        eprintln!(
-            "rom: write read-only memory 0x{:04X} - value: 0x{:04X}",
-            addr, val
-        );
-        self.bytes[addr as usize] = val;
+        eprintln!("writing to read-only rom");
+        // ROM is read-only
     }
 }
 
