@@ -83,6 +83,9 @@ impl Console {
     pub fn render(&self) -> Image {
         self.cpu.mem.ppu.render()
     }
+    pub fn audio_samples(&mut self) -> &mut Vec<f32> {
+        &mut self.cpu.mem.apu.samples
+    }
 }
 
 impl fmt::Debug for Console {

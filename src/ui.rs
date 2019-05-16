@@ -44,21 +44,16 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
         let mut console = Console::power_on(rom.as_ref(), input.clone())?;
-
-        // TODO audio::open(&sdl);
-
         loop {
             console.step_frame();
             self.window.render(&console.render());
-            // Play audio
+            self.window.enqueue_audio(&mut console.audio_samples());
             match console.poll_events() {
                 InputResult::Continue => (),
                 InputResult::Quit => break,
                 InputResult::Reset => console.reset(),
             }
         }
-
-        // TODO audio::close();
         Ok(())
     }
 }
