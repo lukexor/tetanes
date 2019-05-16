@@ -86,7 +86,7 @@ tested on Mac OS X at this time. I make no guarantees it'll work elsewhere.
 This will install the `RustyNES` binary to your `cargo` bin directory located at either
 `$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on Windows.
 
-As long as that bin location is in your '$PATH' variable as outlined in the Rust installation, you
+As long as that bin location is in your `$PATH` variable as outlined in the Rust installation, you
 should be able to start up a game ROM following the usage below.
 
 # Usage
