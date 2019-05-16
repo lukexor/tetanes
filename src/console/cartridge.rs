@@ -1,6 +1,5 @@
 //! An NES Cartridge Board
 
-use crate::console::memory::{Ram, Rom};
 use crate::console::{mapper, Cycles, Memory};
 use crate::Result;
 use failure::{format_err, Fail};
@@ -27,9 +26,9 @@ pub struct Cartridge {
     pub battery: bool,
     pub num_prg_banks: usize,
     pub num_chr_banks: usize,
-    pub prg_rom: Rom,
-    pub prg_ram: Ram,
-    pub chr_rom: Rom,
+    pub prg_rom: Vec<u8>,
+    pub prg_ram: Vec<u8>,
+    pub chr_rom: Vec<u8>,
 }
 
 pub type BoardRef = Rc<RefCell<Board>>;
@@ -130,9 +129,9 @@ impl Cartridge {
 
         // PRG-RAM
         let prg_ram = if header[8] > 0 {
-            Ram::with_capacity(header[8] as usize * 0x2000)
+            Vec::with_capacity(header[8] as usize * 0x2000)
         } else {
-            Ram::with_capacity(DEFAULT_PRG_RAM_SIZE)
+            Vec::with_capacity(DEFAULT_PRG_RAM_SIZE)
         };
 
         let cartridge = Self {
@@ -142,9 +141,9 @@ impl Cartridge {
             battery: (header[6] >> 1) & 1 > 0,
             num_prg_banks,
             num_chr_banks,
-            prg_rom: Rom::with_bytes(prg_rom),
+            prg_rom,
             prg_ram,
-            chr_rom: Rom::with_bytes(chr_rom),
+            chr_rom,
         };
         eprintln!("{:?}", cartridge);
         Ok(cartridge)

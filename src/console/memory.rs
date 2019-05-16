@@ -5,146 +5,35 @@ use crate::console::ppu::Ppu;
 use crate::console::InputRef;
 use std::fmt;
 
-pub const KILOBYTE: usize = 0x0400; // 1024 bytes
-const DEFAULT_RAM_SIZE: usize = 2 * KILOBYTE;
-
-pub type Addr = u16;
-pub type Word = u16;
-pub type Byte = u8;
+const WRAM_SIZE: usize = 2 * 1024;
 
 /// Memory Trait
 
 pub trait Memory: fmt::Debug {
-    fn readb(&mut self, addr: Addr) -> Byte;
-    fn writeb(&mut self, addr: Addr, val: Byte);
-
-    fn readw(&mut self, addr: Addr) -> Word {
-        let lo = Addr::from(self.readb(addr));
-        let hi = Addr::from(self.readb(addr.wrapping_add(1)));
+    fn readb(&mut self, addr: u16) -> u8;
+    fn writeb(&mut self, addr: u16, val: u8);
+    fn readw(&mut self, addr: u16) -> u16 {
+        let lo = u16::from(self.readb(addr));
+        let hi = u16::from(self.readb(addr.wrapping_add(1)));
         lo | hi << 8
     }
-
-    fn writew(&mut self, addr: Addr, val: Word) {
-        self.writeb(addr, (val & 0xFF) as Byte);
-        self.writeb(addr.wrapping_add(1), ((val >> 8) & 0xFF) as Byte);
+    fn writew(&mut self, addr: u16, val: u16) {
+        self.writeb(addr, (val & 0xFF) as u8);
+        self.writeb(addr.wrapping_add(1), ((val >> 8) & 0xFF) as u8);
     }
-
     // Same as readw but wraps around for address 0xFF
-    fn readw_zp(&mut self, addr: Byte) -> Word {
-        let lo = Addr::from(self.readb(Addr::from(addr)));
-        let hi = Addr::from(self.readb(Addr::from(addr.wrapping_add(1))));
+    fn readw_zp(&mut self, addr: u8) -> u16 {
+        let lo = u16::from(self.readb(u16::from(addr)));
+        let hi = u16::from(self.readb(u16::from(addr.wrapping_add(1))));
         lo | hi << 8
     }
-
     // Emulates a 6502 bug that caused the low byte to wrap without incrementing the high byte
     // e.g. reading from 0x01FF will read from 0x0100
-    fn readw_pagewrap(&mut self, addr: Addr) -> Word {
-        let lo = Addr::from(self.readb(addr));
-        let addr = (addr & 0xFF00) | Addr::from(addr.wrapping_add(1) as Byte);
-        let hi = Addr::from(self.readb(addr));
+    fn readw_pagewrap(&mut self, addr: u16) -> u16 {
+        let lo = u16::from(self.readb(addr));
+        let addr = (addr & 0xFF00) | u16::from(addr.wrapping_add(1) as u8);
+        let hi = u16::from(self.readb(addr));
         lo | hi << 8
-    }
-}
-
-/// Generic RAM
-
-pub struct Ram {
-    bytes: Vec<Byte>,
-}
-
-impl Ram {
-    pub fn new() -> Self {
-        Self {
-            bytes: vec![0; DEFAULT_RAM_SIZE],
-        }
-    }
-
-    pub fn with_capacity(size: usize) -> Self {
-        Self {
-            bytes: vec![0; size],
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.bytes.len()
-    }
-}
-
-impl Memory for Ram {
-    fn readb(&mut self, addr: Addr) -> Byte {
-        let len = self.bytes.len();
-        assert!(len != 0, "Ram length is 0! {:?}", self);
-        assert!(
-            (addr as usize) < len,
-            "Ram read 0x{:04X} within bounds {:?}",
-            addr,
-            self
-        );
-        self.bytes[addr as usize]
-    }
-
-    fn writeb(&mut self, addr: Addr, val: Byte) {
-        let len = self.bytes.len();
-        assert!(len != 0, "Ram length is 0! {:?}", self);
-        assert!(
-            (addr as usize) < len,
-            "Ram write 0x{:04X} within bounds {:?}",
-            addr,
-            self
-        );
-        self.bytes[addr as usize] = val;
-    }
-}
-
-impl fmt::Debug for Ram {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Ram {{ bytes: {}KB }}", self.bytes.len() / KILOBYTE)
-    }
-}
-
-/// Generic ROM
-///
-pub struct Rom {
-    pub bytes: Vec<Byte>,
-}
-
-impl Rom {
-    pub fn new() -> Self {
-        Self {
-            bytes: vec![0; DEFAULT_RAM_SIZE],
-        }
-    }
-
-    pub fn with_capacity(size: usize) -> Self {
-        Self {
-            bytes: vec![0; size],
-        }
-    }
-
-    pub fn with_bytes(bytes: Vec<Byte>) -> Self {
-        Self { bytes }
-    }
-
-    pub fn len(&self) -> usize {
-        self.bytes.len()
-    }
-}
-
-impl Memory for Rom {
-    fn readb(&mut self, addr: Addr) -> Byte {
-        let len = self.bytes.len();
-        self.bytes[addr as usize]
-    }
-
-    fn writeb(&mut self, addr: Addr, val: Byte) {
-        eprintln!("writing to read-only rom");
-        // ROM is read-only
-    }
-}
-
-impl fmt::Debug for Rom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Rom {{ bytes: {}KB }}", self.bytes.len() / KILOBYTE)
     }
 }
 
@@ -152,7 +41,7 @@ impl fmt::Debug for Rom {
 ///
 /// http://wiki.nesdev.com/w/index.php/CPU_memory_map
 pub struct CpuMemMap {
-    ram: Ram,
+    wram: [u8; WRAM_SIZE],
     pub ppu: Ppu,
     pub apu: Apu,
     pub board: BoardRef,
@@ -162,7 +51,7 @@ pub struct CpuMemMap {
 impl CpuMemMap {
     pub fn init(board: BoardRef, input: InputRef) -> Self {
         Self {
-            ram: Ram::new(),
+            wram: [0; WRAM_SIZE],
             ppu: Ppu::init(board.clone()),
             apu: Apu::new(),
             input,
@@ -172,11 +61,11 @@ impl CpuMemMap {
 }
 
 impl Memory for CpuMemMap {
-    fn readb(&mut self, addr: Addr) -> Byte {
+    fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.ram.readb(addr % 0x0800), // 0x8000..=0x1FFFF are mirrored
-            0x2000..=0x3FFF => self.ppu.readb(0x2000 + addr % 8), // 0x2008..=0x3FFF are mirrored
+            0x0000..=0x1FFF => self.wram[(addr & 0x07FF) as usize], // 0x0800..=0x1FFFF are mirrored
+            0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007),       // 0x2008..=0x3FFF are mirrored
             0x4000..=0x4015 => self.apu.readb(addr),
             0x4016..=0x4017 => {
                 let mut input = self.input.borrow_mut();
@@ -194,11 +83,11 @@ impl Memory for CpuMemMap {
         }
     }
 
-    fn writeb(&mut self, addr: Addr, val: Byte) {
+    fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.ram.writeb(addr % 0x0800, val), // 0x8000..=0x1FFFF are mirrored
-            0x2000..=0x3FFF => self.ppu.writeb(0x2000 + addr % 8, val), // 0x2008..=0x3FFF are mirrored
+            0x0000..=0x1FFF => self.wram[(addr & 0x07FF) as usize] = val, // 0x8000..=0x1FFFF are mirrored
+            0x2000..=0x3FFF => self.ppu.writeb(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
             0x4000..=0x4015 | 0x4017 => self.apu.writeb(addr, val),
             0x4016 => {
                 let mut input = self.input.borrow_mut();

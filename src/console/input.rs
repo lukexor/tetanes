@@ -1,18 +1,18 @@
-use crate::console::memory::{Addr, Byte, Memory};
+use crate::console::memory::Memory;
 use crate::ui::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::fmt;
 
 // The "strobe state": the order in which the NES reads the buttons.
-const STROBE_A: Byte = 0;
-const STROBE_B: Byte = 1;
-const STROBE_SELECT: Byte = 2;
-const STROBE_START: Byte = 3;
-const STROBE_UP: Byte = 4;
-const STROBE_DOWN: Byte = 5;
-const STROBE_LEFT: Byte = 6;
-const STROBE_RIGHT: Byte = 7;
+const STROBE_A: u8 = 0;
+const STROBE_B: u8 = 1;
+const STROBE_SELECT: u8 = 2;
+const STROBE_START: u8 = 3;
+const STROBE_UP: u8 = 4;
+const STROBE_DOWN: u8 = 5;
+const STROBE_LEFT: u8 = 6;
+const STROBE_RIGHT: u8 = 7;
 
 #[derive(Default, Debug)]
 struct Gamepad {
@@ -24,11 +24,11 @@ struct Gamepad {
     b: bool,
     select: bool,
     start: bool,
-    strobe_state: Byte,
+    strobe_state: u8,
 }
 
 impl Gamepad {
-    fn next_state(&mut self) -> Byte {
+    fn next_state(&mut self) -> u8 {
         let state = match self.strobe_state {
             STROBE_A => self.a,
             STROBE_B => self.b,
@@ -41,7 +41,7 @@ impl Gamepad {
             _ => panic!("invalid state {}", self.strobe_state),
         };
         self.strobe_state = (self.strobe_state + 1) & 7;
-        state as Byte
+        state as u8
     }
     fn reset(&mut self) {
         self.strobe_state = STROBE_A;
@@ -125,7 +125,7 @@ impl Input {
 }
 
 impl Memory for Input {
-    fn readb(&mut self, addr: Addr) -> Byte {
+    fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             0x4016 => self.gamepad1.next_state(),
             0x4017 => self.gamepad2.next_state(),
@@ -133,7 +133,7 @@ impl Memory for Input {
         }
     }
 
-    fn writeb(&mut self, addr: Addr, val: Byte) {
+    fn writeb(&mut self, addr: u16, val: u8) {
         if addr == 0x4016 {
             self.gamepad1.reset();
             self.gamepad2.reset();
