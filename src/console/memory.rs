@@ -145,28 +145,28 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_readw_pagewrap() {
-        let mut memory = Ram::new();
-        memory.writeb(0x0100, 0xDE);
-        memory.writeb(0x01FF, 0xAD);
-        memory.writeb(0x0200, 0x11);
-        let val = memory.readw_pagewrap(0x01FF);
-        assert_eq!(
-            val, 0xDEAD,
-            "readw_pagewrap 0x{:04X} == 0x{:04X}",
-            val, 0xDEAD
-        );
-    }
+    // #[test]
+    // fn test_readw_pagewrap() {
+    //     let mut memory = Ram::new();
+    //     memory.writeb(0x0100, 0xDE);
+    //     memory.writeb(0x01FF, 0xAD);
+    //     memory.writeb(0x0200, 0x11);
+    //     let val = memory.readw_pagewrap(0x01FF);
+    //     assert_eq!(
+    //         val, 0xDEAD,
+    //         "readw_pagewrap 0x{:04X} == 0x{:04X}",
+    //         val, 0xDEAD
+    //     );
+    // }
 
-    #[test]
-    fn test_readw_zp() {
-        let mut memory = Ram::new();
-        memory.writeb(0x00, 0xDE);
-        memory.writeb(0xFF, 0xAD);
-        let val = memory.readw_zp(0xFF);
-        assert_eq!(val, 0xDEAD, "readw_zp 0x{:04X} == 0x{:04X}", val, 0xDEAD);
-    }
+    // #[test]
+    // fn test_readw_zp() {
+    //     let mut memory = Ram::new();
+    //     memory.writeb(0x00, 0xDE);
+    //     memory.writeb(0xFF, 0xAD);
+    //     let val = memory.readw_zp(0xFF);
+    //     assert_eq!(val, 0xDEAD, "readw_zp 0x{:04X} == 0x{:04X}", val, 0xDEAD);
+    // }
 
     #[test]
     fn test_cpu_memory() {

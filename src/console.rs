@@ -1,7 +1,6 @@
 //! An NES emulator
 
 pub type InputRef = Rc<RefCell<Input>>;
-pub use cpu::Cycles;
 pub use input::{Input, InputResult};
 pub use memory::Memory;
 pub use ppu::Image;
@@ -13,6 +12,7 @@ use memory::CpuMemMap;
 use ppu::StepResult;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 use std::{fmt, path::Path};
 
 mod apu;
@@ -23,7 +23,8 @@ mod mapper;
 mod memory;
 mod ppu;
 
-const CYCLES_PER_FRAME: Cycles = 29781;
+const CYCLES_PER_FRAME: u64 = 29_781;
+const CPU_FREQUENCY: f64 = 1_789_773.0;
 
 /// The NES Console
 ///
@@ -54,8 +55,9 @@ impl Console {
     pub fn step(&mut self) {
         let cpu_cycles = self.cpu.step();
         // Step PPU and Cartridge Board 3x
+        let mut ppu_result = StepResult::new();
         for _ in 0..cpu_cycles * 3 {
-            let ppu_result = self.cpu.mem.ppu.step();
+            ppu_result = self.cpu.mem.ppu.step();
             {
                 let mut board = self.cpu.mem.board.borrow_mut();
                 board.step();
@@ -95,11 +97,8 @@ impl fmt::Debug for Console {
 }
 
 #[cfg(test)]
-use crate::console::memory::Addr;
-
-#[cfg(test)]
 impl Console {
-    pub fn set_pc(&mut self, addr: Addr) {
+    pub fn set_pc(&mut self, addr: u16) {
         self.cpu.set_pc(addr);
     }
 
@@ -113,7 +112,7 @@ mod tests {
     use super::*;
     use std::{fs, path::PathBuf};
 
-    const NESTEST_ADDR: Addr = 0xC000;
+    const NESTEST_ADDR: u16 = 0xC000;
     const NESTEST_LEN: usize = 8991;
     const ROMS: &[&str] = &[
         "roms/Zelda II - The Adventure of Link (USA).nes",

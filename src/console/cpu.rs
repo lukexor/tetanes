@@ -6,8 +6,6 @@ use crate::console::memory::{CpuMemMap, Memory};
 use crate::disasm;
 use std::fmt;
 
-pub type Cycles = u64;
-
 // 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
 // const CPU_CLOCK_FREQ: Frequency = 1_789_773.0;
 const NMI_ADDR: u16 = 0xFFFA;
@@ -46,13 +44,14 @@ const CPU_TRACE_LOG: &str = "logs/cpu.log";
 pub struct Cpu {
     pub mem: CpuMemMap,
     pub oplog: String,
-    cycles: u64, // number of cycles
-    stall: u64,  // number of cycles to stall/nop used mostly by write_oamdma
-    pc: u16,     // program counter
-    sp: u8,      // stack pointer - stack is at $0100-$01FF
-    acc: u8,     // accumulator
-    x: u8,       // x register
-    y: u8,       // y register
+    cycles: u64,           // total number of cycles ran
+    cycles_remaining: u64, // Number of cycles remaining to run
+    stall: u64,            // number of cycles to stall/nop used mostly by write_oamdma
+    pc: u16,               // program counter
+    sp: u8,                // stack pointer - stack is at $0100-$01FF
+    acc: u8,               // accumulator
+    x: u8,                 // x register
+    y: u8,                 // y register
     status: u8,
     trace: bool,
 }
@@ -62,6 +61,7 @@ impl Cpu {
         let pc = mem.readw(RESET_ADDR);
         Self {
             cycles: POWER_ON_CYCLES,
+            cycles_remaining: 0,
             stall: 0,
             pc,
             sp: POWER_ON_SP,

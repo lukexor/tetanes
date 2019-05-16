@@ -1,6 +1,6 @@
 //! An NES Cartridge Board
 
-use crate::console::{mapper, Cycles, Memory};
+use crate::console::{mapper, Memory};
 use crate::Result;
 use failure::{format_err, Fail};
 use std::cell::RefCell;
@@ -129,9 +129,9 @@ impl Cartridge {
 
         // PRG-RAM
         let prg_ram = if header[8] > 0 {
-            Vec::with_capacity(header[8] as usize * 0x2000)
+            vec![0; header[8] as usize * 8 * 1024]
         } else {
-            Vec::with_capacity(DEFAULT_PRG_RAM_SIZE)
+            vec![0; DEFAULT_PRG_RAM_SIZE]
         };
 
         let cartridge = Self {

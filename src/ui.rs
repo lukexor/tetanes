@@ -6,6 +6,7 @@ use crate::Result;
 use failure::format_err;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 use std::{fmt, path::Path};
 
 mod window;
@@ -15,6 +16,7 @@ pub struct UI<P> {
     scale: u32, // 1, 2, or 3
     fullscreen: bool,
     window: Window,
+    timestamp: Instant,
 }
 
 impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
@@ -27,6 +29,7 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
             scale,
             fullscreen,
             window: Window::with_scale(scale)?,
+            timestamp: Instant::now(),
         })
     }
 
@@ -45,13 +48,23 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
         let mut console = Console::power_on(rom.as_ref(), input.clone())?;
         loop {
+            let start = Instant::now();
+
             console.step_frame();
             self.window.render(&console.render());
             self.window.enqueue_audio(&mut console.audio_samples());
+
             match console.poll_events() {
                 InputResult::Continue => (),
                 InputResult::Quit => break,
                 InputResult::Reset => console.reset(),
+            }
+
+            let end = Instant::now();
+            let target = Duration::from_millis(50);
+            let sleep = target.checked_sub(end - start);
+            if let Some(sleep) = sleep {
+                std::thread::sleep(sleep);
             }
         }
         Ok(())

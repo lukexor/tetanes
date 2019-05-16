@@ -4,7 +4,6 @@
 
 use crate::console::cartridge::{Board, Cartridge, Mirroring, PRG_BANK_SIZE};
 use crate::console::memory::Memory;
-use crate::console::Cycles;
 use std::fmt;
 
 /// NROM Board (mapper 0)
