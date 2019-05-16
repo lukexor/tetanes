@@ -67,13 +67,13 @@ const PALETTE_START: Addr = 0x3F00;
 
 #[derive(Debug)]
 pub struct Ppu {
-    cycle: Cycles,  // (0, 340) 341 cycles happen per scanline
-    scanline: Word, // (0, 261) 262 total scanlines per frame
-    regs: PpuRegs,  // Registers
-    oamdata: Oam,   // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    vram: Vram,     // $2007 PPUDATA
-    frame: Frame,   // Frame data keeps track of data and shift registers between frames
-    screen: Screen, // The main screen holding pixel data
+    pub cycle: Cycles,  // (0, 340) 341 cycles happen per scanline
+    pub scanline: Word, // (0, 261) 262 total scanlines per frame
+    regs: PpuRegs,      // Registers
+    oamdata: Oam,       // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    vram: Vram,         // $2007 PPUDATA
+    frame: Frame,       // Frame data keeps track of data and shift registers between frames
+    screen: Screen,     // The main screen holding pixel data
 }
 
 #[derive(Debug)]
@@ -178,8 +178,8 @@ pub struct StepResult {
 impl Ppu {
     pub fn init(board: BoardRef) -> Self {
         Self {
-            cycle: 340,
-            scanline: 240,
+            cycle: 0,
+            scanline: 0,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
             vram: Vram::init(board),
@@ -189,8 +189,8 @@ impl Ppu {
     }
 
     pub fn reset(&mut self) {
-        self.cycle = 340;
-        self.scanline = 240;
+        self.cycle = 0;
+        self.scanline = 0;
         self.frame.num = 0;
         self.write_ppuctrl(0);
         self.write_ppumask(0);

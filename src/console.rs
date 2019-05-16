@@ -17,7 +17,7 @@ use std::{fmt, path::Path};
 
 mod apu;
 mod cartridge;
-mod cpu;
+pub mod cpu;
 mod input;
 mod mapper;
 mod memory;
