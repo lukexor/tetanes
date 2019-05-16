@@ -1,13 +1,14 @@
 //! An NES Cartridge Board
 
-use crate::console::mapper;
-use crate::console::memory::{Memory, Ram, Rom};
+use crate::console::memory::{Ram, Rom};
+use crate::console::{mapper, Cycles, Memory};
 use crate::Result;
 use failure::{format_err, Fail};
+use std::cell::RefCell;
 use std::fmt;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
 pub const PRG_BANK_SIZE: usize = 0x4000; // 16K bytes
 const CHR_BANK_SIZE: usize = 0x2000; // 8K bytes
@@ -31,9 +32,12 @@ pub struct Cartridge {
     pub chr_rom: Rom,
 }
 
+pub type BoardRef = Rc<RefCell<Board>>;
+
 pub trait Board: Memory + Send {
     fn scanline_irq(&self) -> bool;
     fn mirroring(&self) -> Mirroring;
+    fn step(&mut self);
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -131,7 +135,7 @@ impl Cartridge {
             Ram::with_capacity(DEFAULT_PRG_RAM_SIZE)
         };
 
-        Ok(Self {
+        let cartridge = Self {
             title,
             board_type,
             mirroring,
@@ -141,16 +145,18 @@ impl Cartridge {
             prg_rom: Rom::with_bytes(prg_rom),
             prg_ram,
             chr_rom: Rom::with_bytes(chr_rom),
-        })
+        };
+        eprintln!("{:?}", cartridge);
+        Ok(cartridge)
     }
 
     /// Attempts to return a valid Cartridge Board mapper for the given cartridge.
     /// Consumes the Cartridge instance in the process.
-    pub fn load_board(self) -> Result<Arc<Mutex<Board>>> {
+    pub fn load_board(self) -> Result<BoardRef> {
         match self.board_type {
-            NROM => Ok(Arc::new(Mutex::new(mapper::Nrom::load(self)))),
-            SxROM => Ok(Arc::new(Mutex::new(mapper::Sxrom::load(self)))),
-            CNROM => Ok(Arc::new(Mutex::new(mapper::Cnrom::load(self)))),
+            NROM => Ok(Rc::new(RefCell::new(mapper::Nrom::load(self)))),
+            SxROM => Ok(Rc::new(RefCell::new(mapper::Sxrom::load(self)))),
+            CNROM => Ok(Rc::new(RefCell::new(mapper::Cnrom::load(self)))),
             _ => Err(format_err!("unsupported mapper: {:?}", self.board_type))?,
         }
     }

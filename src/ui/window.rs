@@ -1,3 +1,4 @@
+use crate::console::Image;
 use crate::Result;
 use failure::format_err;
 use sdl2::{
@@ -7,17 +8,16 @@ use sdl2::{
     render::{Canvas, Texture, TextureCreator},
     video, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem,
 };
-use std::{error::Error, sync::mpsc};
 
 const AUDIO_FREQUENCY: i32 = 44100;
 const SAMPLES_PER_FRAME: u16 = 2048;
 const DEFAULT_TITLE: &str = "RustyNES";
 const SCREEN_WIDTH: usize = 256;
 const SCREEN_HEIGHT: usize = 240;
-const SCREEN_SIZE: usize = SCREEN_WIDTH * SCREEN_HEIGHT * 3;
 const DEFAULT_SCALE: u32 = 3;
 
 pub struct Window {
+    pub event_pump: Option<EventPump>,
     context: Sdl,
     video_sub: VideoSubsystem,
     canvas: Canvas<video::Window>,
@@ -28,11 +28,11 @@ pub struct Window {
 }
 
 impl Window {
-    pub fn new() -> Result<(Self, EventPump)> {
+    pub fn new() -> Result<Self> {
         Self::with_scale(DEFAULT_SCALE)
     }
 
-    pub fn with_scale(scale: u32) -> Result<(Self, EventPump)> {
+    pub fn with_scale(scale: u32) -> Result<Self> {
         let context = sdl2::init().expect("sdl context");
 
         // Window/Graphics
@@ -75,9 +75,10 @@ impl Window {
         audio_device.resume();
 
         // Input
-        let event_pump = context.event_pump().expect("sdl event_pump");
+        let event_pump = Some(context.event_pump().expect("sdl event_pump"));
 
-        let window = Window {
+        Ok(Self {
+            event_pump,
             context,
             video_sub,
             canvas,
@@ -85,11 +86,10 @@ impl Window {
             audio_sub,
             audio_device,
             _texture_creator: texture_creator,
-        };
-        Ok((window, event_pump))
+        })
     }
 
-    pub fn render(&mut self, pixels: &[u8; SCREEN_SIZE]) {
+    pub fn render(&mut self, pixels: &Image) {
         self.texture
             .update(None, pixels, SCREEN_WIDTH * 3)
             .expect("texture update");

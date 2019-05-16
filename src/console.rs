@@ -1,76 +1,86 @@
 //! An NES emulator
 
+pub type InputRef = Rc<RefCell<Input>>;
+pub use cpu::Cycles;
+pub use input::{Input, InputResult};
+pub use memory::Memory;
+pub use ppu::Image;
+
 use crate::Result;
 use cartridge::Cartridge;
 use cpu::Cpu;
-use input::{Input, InputResult};
 use memory::CpuMemMap;
-use ppu::{StepResult, RENDER_SIZE};
-use sdl2::EventPump;
+use ppu::StepResult;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::{fmt, path::Path};
 
 mod apu;
 mod cartridge;
 mod cpu;
-pub mod input;
+mod input;
 mod mapper;
 mod memory;
 mod ppu;
+
+const CYCLES_PER_FRAME: Cycles = 29781;
 
 /// The NES Console
 ///
 /// Contains all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
     cpu: Cpu,
+    powered_on: bool,
+    logging_enabled: bool,
 }
 
 impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
-    pub fn new() -> Self {
-        let cpu_memory = CpuMemMap::init();
-        Self {
+    pub fn power_on(rom: &Path, input: InputRef) -> Result<Self> {
+        let board = Cartridge::new(rom)?.load_board()?;
+        let cpu_memory = CpuMemMap::init(board, input);
+        Ok(Self {
             cpu: Cpu::init(cpu_memory),
-        }
+            powered_on: true,
+            logging_enabled: false,
+        })
     }
-
-    /// Load a cartridge from a ROM file on disk representing an NES cart
-    ///
-    /// NES ROM files usually end with `.nes`
-    pub fn load_cartridge(&mut self, rom: &Path) -> Result<()> {
-        let cartridge = Cartridge::new(rom)?;
-        eprintln!("{:?}", cartridge);
-        let board = cartridge.load_board()?;
-        self.cpu.set_board(board.clone());
-        self.power_on();
-        Ok(())
+    pub fn power_cycle(&mut self) {
+        self.cpu.power_cycle();
     }
-
-    pub fn load_input(&mut self, event_pump: EventPump) {
-        let input = Input::init(event_pump);
-        self.cpu.mem.set_input(input);
-    }
-
-    pub fn poll_events(&mut self) -> InputResult {
-        if let Some(input) = &mut self.cpu.mem.input {
-            input.poll_events()
-        } else {
-            InputResult::Continue
-        }
-    }
-
-    pub fn power_on(&mut self) {
-        self.cpu.power_on();
-    }
-
     pub fn reset(&mut self) {
         self.cpu.reset();
     }
-
-    pub fn step(&mut self) -> StepResult {
-        self.cpu.step()
+    pub fn step(&mut self) {
+        let cpu_cycles = self.cpu.step();
+        // Step PPU and Cartridge Board 3x
+        for _ in 0..cpu_cycles * 3 {
+            let ppu_result = self.cpu.mem.ppu.step();
+            {
+                let mut board = self.cpu.mem.board.borrow_mut();
+                board.step();
+            }
+            if ppu_result.trigger_nmi {
+                self.cpu.nmi();
+            } else if ppu_result.trigger_irq {
+                self.cpu.irq();
+            }
+        }
+        // Step APU
+        for _ in 0..cpu_cycles {
+            self.cpu.mem.apu.step();
+        }
     }
-
-    pub fn render(&self) -> [u8; RENDER_SIZE] {
+    pub fn step_frame(&mut self) {
+        for _ in 0..CYCLES_PER_FRAME {
+            self.step();
+        }
+    }
+    pub fn poll_events(&mut self) -> InputResult {
+        let mut input = self.cpu.mem.input.borrow_mut();
+        input.poll_events()
+    }
+    pub fn render(&self) -> Image {
         self.cpu.mem.ppu.render()
     }
 }
@@ -110,10 +120,9 @@ mod tests {
     ];
 
     fn new_game_console(index: usize) -> Console {
-        let mut console = Console::new();
-        console
-            .load_cartridge(&PathBuf::from(ROMS[index]))
-            .expect("cartridge loaded");
+        let rom = &PathBuf::from(ROMS[index]);
+        let input = Rc::new(RefCell::new(Input::new()));
+        let mut console = Console::power_on(rom, input).expect("powered on");
         console
     }
 
@@ -123,10 +132,9 @@ mod tests {
         let cpu_log = "logs/cpu.log";
         let nestest_log = "tests/cpu/nestest.txt";
 
-        let mut c = Console::new();
+        let input = Rc::new(RefCell::new(Input::new()));
+        let mut c = Console::power_on(&rom, input).expect("powered on");
         c.trace_cpu();
-        let err = c.load_cartridge(&rom);
-        assert!(err.is_ok(), "Load cartridge");
 
         c.set_pc(NESTEST_ADDR);
         for _ in 0..NESTEST_LEN {

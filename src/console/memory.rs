@@ -1,8 +1,9 @@
-use crate::console::cartridge::Board;
+use crate::console::apu::Apu;
+use crate::console::cartridge::{Board, BoardRef};
 use crate::console::input::Input;
 use crate::console::ppu::Ppu;
+use crate::console::InputRef;
 use std::fmt;
-use std::sync::{Arc, Mutex};
 
 pub const KILOBYTE: usize = 0x0400; // 1024 bytes
 const DEFAULT_RAM_SIZE: usize = 2 * KILOBYTE;
@@ -136,7 +137,7 @@ impl Memory for Rom {
     }
 
     fn writeb(&mut self, addr: Addr, val: Byte) {
-        // eprintln!("writing to read-only rom");
+        eprintln!("writing to read-only rom");
         // ROM is read-only
     }
 }
@@ -150,33 +151,23 @@ impl fmt::Debug for Rom {
 /// CPU Memory Map
 ///
 /// http://wiki.nesdev.com/w/index.php/CPU_memory_map
-#[derive(Debug)]
 pub struct CpuMemMap {
     ram: Ram,
     pub ppu: Ppu,
-    // apu: Apu,
-    pub input: Option<Input>,
-    board: Option<Arc<Mutex<Board>>>,
+    pub apu: Apu,
+    pub board: BoardRef,
+    pub input: InputRef,
 }
 
 impl CpuMemMap {
-    pub fn init() -> Self {
+    pub fn init(board: BoardRef, input: InputRef) -> Self {
         Self {
             ram: Ram::new(),
-            ppu: Ppu::new(),
-            // apu: Apu::new(),
-            input: None,
-            board: None,
+            ppu: Ppu::init(board.clone()),
+            apu: Apu::new(),
+            input,
+            board,
         }
-    }
-
-    pub fn set_board(&mut self, board: Arc<Mutex<Board>>) {
-        self.ppu.set_board(board.clone());
-        self.board = Some(board);
-    }
-
-    pub fn set_input(&mut self, input: Input) {
-        self.input = Some(input);
     }
 }
 
@@ -186,22 +177,15 @@ impl Memory for CpuMemMap {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.ram.readb(addr % 0x0800), // 0x8000..=0x1FFFF are mirrored
             0x2000..=0x3FFF => self.ppu.readb(0x2000 + addr % 8), // 0x2008..=0x3FFF are mirrored
-            0x4000..=0x4015 => 0,                             // TODO self.apu.readb(addr),
+            0x4000..=0x4015 => self.apu.readb(addr),
             0x4016..=0x4017 => {
-                if let Some(input) = &mut self.input {
-                    input.readb(addr)
-                } else {
-                    0
-                }
+                let mut input = self.input.borrow_mut();
+                input.readb(addr)
             }
             0x4018..=0x401F => 0, // APU/IO Test Mode
             0x4020..=0xFFFF => {
-                if let Some(b) = &self.board {
-                    let mut board = b.lock().unwrap();
-                    board.readb(addr)
-                } else {
-                    0
-                }
+                let mut board = self.board.borrow_mut();
+                board.readb(addr)
             }
             _ => {
                 eprintln!("unhandled CpuMemMap readb at 0x{:04X}", addr);
@@ -215,28 +199,15 @@ impl Memory for CpuMemMap {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.ram.writeb(addr % 0x0800, val), // 0x8000..=0x1FFFF are mirrored
             0x2000..=0x3FFF => self.ppu.writeb(0x2000 + addr % 8, val), // 0x2008..=0x3FFF are mirrored
-            0x4000..=0x4015 | 0x4017 => (), // TODO self.apu.writeb(addr, val),
+            0x4000..=0x4015 | 0x4017 => self.apu.writeb(addr, val),
             0x4016 => {
-                if let Some(input) = &mut self.input {
-                    input.writeb(addr, val);
-                } else {
-                    eprintln!(
-                        "uninitialized input at CpuMemMap writeb at 0x{:04X} - val: 0x{:02x}",
-                        addr, val
-                    );
-                }
+                let mut input = self.input.borrow_mut();
+                input.writeb(addr, val);
             }
             0x4018..=0x401F => (), // APU/IO Test Mode
             0x4020..=0xFFFF => {
-                if let Some(b) = &self.board {
-                    let mut board = b.lock().unwrap();
-                    board.writeb(addr, val);
-                } else {
-                    eprintln!(
-                        "uninitialized board at CpuMemMap writeb at 0x{:04X} - val: 0x{:02x}",
-                        addr, val
-                    );
-                }
+                let mut board = self.board.borrow_mut();
+                board.writeb(addr, val);
             }
             _ => {
                 eprintln!(
@@ -245,6 +216,12 @@ impl Memory for CpuMemMap {
                 );
             }
         }
+    }
+}
+
+impl fmt::Debug for CpuMemMap {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CpuMemMap {{ }}")
     }
 }
 
@@ -304,7 +281,20 @@ mod tests {
 
     #[test]
     fn test_cpu_memory() {
-        let mut mem = CpuMemMap::init();
+        use crate::console::cartridge::Cartridge;
+        use crate::console::input::Input;
+        use std::cell::RefCell;
+        use std::path::PathBuf;
+        use std::rc::Rc;
+
+        let test_rom = "tests/cpu/nestest.nes";
+        let rom = &PathBuf::from(test_rom);
+        let board = Cartridge::new(rom)
+            .expect("cartridge")
+            .load_board()
+            .expect("loaded board");
+        let input = Rc::new(RefCell::new(Input::new()));
+        let mut mem = CpuMemMap::init(board, input);
         mem.writeb(0x0005, 0x0015);
         mem.writeb(0x0015, 0x0050);
         mem.writeb(0x0016, 0x0025);

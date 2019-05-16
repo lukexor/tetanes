@@ -1,56 +1,64 @@
-use crate::console::input::{Input, InputResult};
-use crate::console::Console;
+pub use sdl2::EventPump;
+
+use crate::console::{Console, Input, InputResult};
 use crate::ui::window::Window;
 use crate::Result;
 use failure::format_err;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::{fmt, path::Path};
 
 mod window;
 
 pub struct UI<P> {
-    console: Console,
     roms: Vec<P>,
     scale: u32, // 1, 2, or 3
     fullscreen: bool,
+    window: Window,
 }
 
-impl<P: AsRef<Path> + fmt::Debug> UI<P> {
+impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
     pub fn init(roms: Vec<P>, scale: u32, fullscreen: bool) -> Result<Self> {
         if roms.is_empty() {
             Err(format_err!("no rom files found or specified"))?;
         }
         Ok(Self {
-            console: Console::new(),
             roms,
             scale,
             fullscreen,
+            window: Window::with_scale(scale)?,
         })
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let (mut window, event_pump) = Window::with_scale(self.scale)?;
-        self.console.load_input(event_pump);
         if self.roms.len() == 1 {
-            self.console.load_cartridge(&self.roms[0].as_ref())?;
-        }
+            let rom = self.roms[0].clone();
+            self.play_game(rom)?;
+        } else {
+            // TODO Menu view
+        };
+        Ok(())
+    }
 
-        // TODO
-        // audio::open(&sdl);
+    pub fn play_game(&mut self, rom: P) -> Result<()> {
+        let event_pump = self.window.event_pump.take().unwrap();
+        let input = Rc::new(RefCell::new(Input::init(event_pump)));
+        let mut console = Console::power_on(rom.as_ref(), input.clone())?;
+
+        // TODO audio::open(&sdl);
 
         loop {
-            let ppu_result = self.console.step();
-            if ppu_result.new_frame {
-                window.render(&self.console.render());
-                // Play audio
-            }
-            match self.console.poll_events() {
+            console.step_frame();
+            self.window.render(&console.render());
+            // Play audio
+            match console.poll_events() {
                 InputResult::Continue => (),
                 InputResult::Quit => break,
-                InputResult::Reset => self.console.reset(),
+                InputResult::Reset => console.reset(),
             }
         }
 
-        // audio::close();
+        // TODO audio::close();
         Ok(())
     }
 }

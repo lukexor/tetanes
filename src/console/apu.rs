@@ -1,3 +1,6 @@
+use crate::console::{Cycles, Memory};
+use std::fmt;
+
 const LENGTH_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
@@ -20,7 +23,7 @@ const DMC_TABLE: [u8; 16] = [
 ];
 
 // Audio Processing Unit
-pub struct APU {
+pub struct Apu {
     channel: f32,
     pub sample_rate: f32,
     pub pulse1: Pulse,
@@ -36,7 +39,7 @@ pub struct APU {
     tnd_table: [f32; 203],
 }
 
-impl APU {
+impl Apu {
     pub fn new() -> Self {
         let mut apu = Self {
             channel: 0.0,
@@ -62,58 +65,12 @@ impl APU {
         apu
     }
 
+    pub fn step(&mut self) {
+        // TODO
+    }
+
     pub fn send_sample(&mut self) {
         self.channel = self.output();
-    }
-
-    pub fn read_register(&self, addr: u16) -> u8 {
-        if addr == 0x4015 {
-            let mut result: u8 = 0;
-            if self.pulse1.length_value > 0 {
-                result |= 1;
-            }
-            if self.pulse2.length_value > 0 {
-                result |= 2;
-            }
-            if self.triangle.length_value > 0 {
-                result |= 4;
-            }
-            if self.noise.length_value > 0 {
-                result |= 8;
-            }
-            if self.dmc.current_length > 0 {
-                result |= 16;
-            }
-            result
-        } else {
-            panic!("unhandled APU register read at address 0x{:04X}", addr);
-        }
-    }
-
-    pub fn write_register(&mut self, addr: u16, val: u8) {
-        match addr {
-            0x4000 => self.pulse1.write_control(val),
-            0x4001 => self.pulse1.write_sweep(val),
-            0x4002 => self.pulse1.write_timer_low(val),
-            0x4003 => self.pulse1.write_timer_high(val),
-            0x4004 => self.pulse2.write_control(val),
-            0x4005 => self.pulse2.write_sweep(val),
-            0x4006 => self.pulse2.write_timer_low(val),
-            0x4007 => self.pulse2.write_timer_high(val),
-            0x4008 => self.triangle.write_control(val),
-            0x400A => self.triangle.write_timer_low(val),
-            0x400B => self.triangle.write_timer_high(val),
-            0x400C => self.noise.write_control(val),
-            0x400E => self.noise.write_period(val),
-            0x400F => self.noise.write_length(val),
-            0x4010 => self.dmc.write_control(val),
-            0x4011 => self.dmc.write_value(val),
-            0x4012 => self.dmc.write_address(val),
-            0x4013 => self.dmc.write_length(val),
-            0x4015 => self.write_control(val),
-            0x4017 => self.write_frame_counter(val),
-            _ => panic!("unhandled APU register write at address: 0x{:04X}", addr),
-        }
     }
 
     fn write_control(&mut self, val: u8) {
@@ -182,9 +139,68 @@ impl APU {
     }
 }
 
-impl Default for APU {
+impl Memory for Apu {
+    fn readb(&mut self, addr: u16) -> u8 {
+        if addr == 0x4015 {
+            let mut result: u8 = 0;
+            if self.pulse1.length_value > 0 {
+                result |= 1;
+            }
+            if self.pulse2.length_value > 0 {
+                result |= 2;
+            }
+            if self.triangle.length_value > 0 {
+                result |= 4;
+            }
+            if self.noise.length_value > 0 {
+                result |= 8;
+            }
+            if self.dmc.current_length > 0 {
+                result |= 16;
+            }
+            result
+        } else {
+            eprintln!("unhandled Apu readb at address 0x{:04X}", addr);
+            0
+        }
+    }
+
+    fn writeb(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x4000 => self.pulse1.write_control(val),
+            0x4001 => self.pulse1.write_sweep(val),
+            0x4002 => self.pulse1.write_timer_low(val),
+            0x4003 => self.pulse1.write_timer_high(val),
+            0x4004 => self.pulse2.write_control(val),
+            0x4005 => self.pulse2.write_sweep(val),
+            0x4006 => self.pulse2.write_timer_low(val),
+            0x4007 => self.pulse2.write_timer_high(val),
+            0x4008 => self.triangle.write_control(val),
+            0x400A => self.triangle.write_timer_low(val),
+            0x400B => self.triangle.write_timer_high(val),
+            0x400C => self.noise.write_control(val),
+            0x400E => self.noise.write_period(val),
+            0x400F => self.noise.write_length(val),
+            0x4010 => self.dmc.write_control(val),
+            0x4011 => self.dmc.write_value(val),
+            0x4012 => self.dmc.write_address(val),
+            0x4013 => self.dmc.write_length(val),
+            0x4015 => self.write_control(val),
+            0x4017 => self.write_frame_counter(val),
+            _ => eprintln!("unhandled Apu writeb at address: 0x{:04X}", addr),
+        }
+    }
+}
+
+impl Default for Apu {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl fmt::Debug for Apu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "APU {{ }}",)
     }
 }
 

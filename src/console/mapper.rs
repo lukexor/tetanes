@@ -4,6 +4,7 @@
 
 use crate::console::cartridge::{Board, Cartridge, Mirroring, PRG_BANK_SIZE};
 use crate::console::memory::{Addr, Byte, Memory, Ram, Word};
+use crate::console::Cycles;
 use std::fmt;
 
 /// NROM Board (mapper 0)
@@ -81,6 +82,9 @@ impl Board for Nrom {
     }
     fn mirroring(&self) -> Mirroring {
         self.cart.mirroring
+    }
+    fn step(&mut self) {
+        // NOOP
     }
 }
 
@@ -201,6 +205,9 @@ impl Board for Sxrom {
     }
     fn mirroring(&self) -> Mirroring {
         self.cart.mirroring
+    }
+    fn step(&mut self) {
+        // NOOP
     }
 }
 
@@ -338,5 +345,8 @@ impl Board for Cnrom {
     }
     fn mirroring(&self) -> Mirroring {
         self.cart.mirroring
+    }
+    fn step(&mut self) {
+        // NOOP
     }
 }

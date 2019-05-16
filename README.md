@@ -46,11 +46,24 @@ The following is a checklist of features and their progress:
     - [ ] AxROM (Mapper 7)
 - [ ] User Interface (UI)
   - [x] Window
-  - [ ] Fullscreen
-  - [ ] Menu
+  - [ ] Pause/Menu
+  - [ ] Toggle Fullscreen
+  - [x] Reset
+  - [ ] Power Cycle
+  - [ ] Toggle Debug Logging
+  - [ ] Increase/Decrease Speed/Fast-forward
   - [ ] Save/Load State
-  - [ ] Recording/Screenshots
-  - [ ] FPS/Debug Overlay
+  - [ ] Toggle Recording/Screenshots
+
+## Supported Mappers
+
+Some of the more popular mappers are implemented with more to come!
+
+| #   | Name       | Example Games                             |
+| -   | ---------- | ----------------------------------------- |
+| 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros. |
+| 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris          |
+| 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream            |
 
 ## Dependencies
 
@@ -95,21 +108,32 @@ ARGS:
 
 ## Controls
 
-### Joypad
+Controller is not implemented yet but should support any X-Box compatible controller.
 
-Not yet implemented
+| Button                | Keyboard    | Controller |
+| --------------------- | ----------- | ---------- |
+| A                     | Z           | X          |
+| B                     | X           | A          |
+| Start                 | Enter       | Start      |
+| Select                | Right Shift | Select     |
+| Up, Down, Left, Right | Arrow Keys  | D-Pad      |
 
-### Keyboard
+There are also some emulator actions:
 
-| Nintendo              | RustyNES    |
-| --------------------- | ----------- |
-| Up, Down, Left, Right | Arrow Keys  |
-| Start                 | Enter       |
-| Select                | Right Shift |
-| A                     | Z           |
-| B                     | X           |
-| Reset                 | R           |
-| Quit                  | Escape      |
+| Action                | Keyboard         | Controller         |
+| --------------------- | ---------------- | ------------------ |
+| Pause / Open Menu     | Escape           | Left Stick Button  |
+| Reset                 | Ctrl-R           |                    |
+| Power Cycle           | Ctrl-P           |                    |
+| Toggle Debug Logging  | Ctrl-D           |                    |
+| Increase Speed 25%    | Ctrl-=           |                    |
+| Decrease Speed 25%    | Ctrl--           |                    |
+| Fast-Forward          | Space            | Right Stick Button |
+| Save State            | Ctrl-(1-4)       |                    |
+| Load State            | Ctrl-Shift-(1-4) |                    |
+| Take Screenshot       | F9               |                    |
+| Toggle Recording      | F10              |                    |
+| Toggle Fullscreen     | F11              |                    |
 
 ## Building/Testing
 

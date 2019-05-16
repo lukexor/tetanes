@@ -2,14 +2,14 @@
 //!
 //! http://wiki.nesdev.com/w/index.php/PPU
 
-use crate::console::cartridge::{Board, Mirroring};
-use crate::console::cpu::Cycle;
+use crate::console::cartridge::{Board, BoardRef, Mirroring};
 use crate::console::memory::{Addr, Byte, Memory, Ram, Word, KILOBYTE};
+use crate::console::Cycles;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex};
 
 // Screen/Render
+pub type Image = [Byte; RENDER_SIZE];
 pub const SCREEN_WIDTH: usize = 256;
 pub const SCREEN_HEIGHT: usize = 240;
 pub const RENDER_SIZE: usize = PIXEL_COUNT * 3;
@@ -22,16 +22,16 @@ const SYSTEM_PALETTE_SIZE: usize = 64;
 const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 
 // Cycles
-const VISIBLE_CYCLE_START: Cycle = 1;
-const VISIBLE_CYCLE_END: Cycle = 256;
-const SPRITE_PREFETCH_CYCLE_START: Cycle = 257;
-const COPY_Y_CYCLE_START: Cycle = 280;
-const COPY_Y_CYCLE_END: Cycle = 304;
-const SPRITE_PREFETCH_CYCLE_END: Cycle = 320;
-const PREFETCH_CYCLE_START: Cycle = 321;
-const PREFETCH_CYCLE_END: Cycle = 336;
-const PRERENDER_CYCLE_END: Cycle = 340;
-const VISIBLE_SCANLINE_CYCLE_END: Cycle = 340;
+const VISIBLE_CYCLE_START: Cycles = 1;
+const VISIBLE_CYCLE_END: Cycles = 256;
+const SPRITE_PREFETCH_CYCLE_START: Cycles = 257;
+const COPY_Y_CYCLE_START: Cycles = 280;
+const COPY_Y_CYCLE_END: Cycles = 304;
+const SPRITE_PREFETCH_CYCLE_END: Cycles = 320;
+const PREFETCH_CYCLE_START: Cycles = 321;
+const PREFETCH_CYCLE_END: Cycles = 336;
+const PRERENDER_CYCLE_END: Cycles = 340;
+const VISIBLE_SCANLINE_CYCLE_END: Cycles = 340;
 
 // Scanlines
 const VISIBLE_SCANLINE_START: Word = 0;
@@ -67,7 +67,7 @@ const PALETTE_START: Addr = 0x3F00;
 
 #[derive(Debug)]
 pub struct Ppu {
-    cycle: Cycle,   // (0, 340) 341 cycles happen per scanline
+    cycle: Cycles,  // (0, 340) 341 cycles happen per scanline
     scanline: Word, // (0, 261) 262 total scanlines per frame
     regs: PpuRegs,  // Registers
     oamdata: Oam,   // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
@@ -91,9 +91,8 @@ pub struct PpuRegs {
     w: bool,            // 1st or 2nd write toggle
 }
 
-#[derive(Debug)]
 struct Vram {
-    board: Option<Arc<Mutex<Board>>>,
+    board: BoardRef,
     buffer: Byte,         // PPUDATA buffer
     nametable: Nametable, // Used to layout backgrounds on the screen
     palette: Palette,     // Background/Sprite color palettes
@@ -177,13 +176,13 @@ pub struct StepResult {
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn init(board: BoardRef) -> Self {
         Self {
             cycle: 340,
             scanline: 240,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
-            vram: Vram::new(),
+            vram: Vram::init(board),
             frame: Frame::new(),
             screen: Screen::new(),
         }
@@ -198,36 +197,29 @@ impl Ppu {
         self.write_oamaddr(0);
     }
 
-    // Puts the Cartridge board into VRAM
-    pub fn set_board(&mut self, board: Arc<Mutex<Board>>) {
-        self.vram.set_board(board);
-    }
-
     // Step ticks as many cycles as needed to reach
     // target cycle to syncronize with the CPU
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
-    pub fn step(&mut self, cycles_to_run: Cycle) -> StepResult {
+    pub fn step(&mut self) -> StepResult {
         let mut step_result = StepResult::new();
-        for _ in 0..cycles_to_run {
-            if (self.regs.nmi_delay > 0) {
-                self.regs.nmi_delay -= 1;
-                if self.regs.nmi_delay == 0 && self.nmi_enable() && self.vblank_started() {
-                    step_result.trigger_nmi = true;
-                }
+        if (self.regs.nmi_delay > 0) {
+            self.regs.nmi_delay -= 1;
+            if self.regs.nmi_delay == 0 && self.nmi_enable() && self.vblank_started() {
+                step_result.trigger_nmi = true;
             }
+        }
 
-            self.tick();
-            self.render_scanline();
-            if self.cycle == 1 {
-                if self.scanline == PRERENDER_SCANLINE {
-                    // Dummy scanline - set up tiles for next scanline
-                    step_result.new_frame = true;
-                    self.stop_vblank();
-                    self.set_sprite_zero_hit(false);
-                    self.set_sprite_overflow(false);
-                } else if self.scanline == VBLANK_SCANLINE {
-                    self.start_vblank();
-                }
+        self.tick();
+        self.render_scanline();
+        if self.cycle == 1 {
+            if self.scanline == PRERENDER_SCANLINE {
+                // Dummy scanline - set up tiles for next scanline
+                step_result.new_frame = true;
+                self.stop_vblank();
+                self.set_sprite_zero_hit(false);
+                self.set_sprite_overflow(false);
+            } else if self.scanline == VBLANK_SCANLINE {
+                self.start_vblank();
             }
         }
         step_result
@@ -286,12 +278,12 @@ impl Ppu {
                     self.regs.increment_x();
                 }
                 // Increment Fine Y when we reach the end of the screen
-                if self.cycle == SCREEN_WIDTH as Cycle {
+                if self.cycle == SCREEN_WIDTH as Cycles {
                     self.regs.increment_y();
                 }
                 // Copy X bits at the start of a new line since we're going to start writing
                 // new x values to t
-                if self.cycle == (SCREEN_WIDTH + 1) as Cycle {
+                if self.cycle == (SCREEN_WIDTH + 1) as Cycles {
                     self.regs.copy_x();
                 }
             }
@@ -701,26 +693,18 @@ impl Palette {
 }
 
 impl Vram {
-    fn new() -> Self {
+    fn init(board: BoardRef) -> Self {
         Self {
-            board: None,
+            board,
             buffer: 0,
             nametable: Nametable([0; NAMETABLE_SIZE]),
             palette: Palette([0; PALETTE_SIZE]),
         }
     }
 
-    fn set_board(&mut self, board: Arc<Mutex<Board>>) {
-        self.board = Some(board);
-    }
-
     fn nametable_mirror_addr(&self, addr: Addr) -> Addr {
-        let mirroring = if let Some(b) = &self.board {
-            let board = b.lock().unwrap();
-            board.mirroring()
-        } else {
-            Mirroring::Horizontal
-        };
+        let board = self.board.borrow();
+        let mirroring = board.mirroring();
 
         let table_size = 0x0400; // Each nametable quandrant is 1K
         let mirror_lookup = match mirroring {
@@ -900,12 +884,8 @@ impl Memory for Vram {
         match addr {
             0x0000..=0x1FFF => {
                 // CHR-ROM
-                if let Some(b) = &self.board {
-                    let mut board = b.lock().unwrap();
-                    board.readb(addr)
-                } else {
-                    0
-                }
+                let mut board = self.board.borrow_mut();
+                board.readb(addr)
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
@@ -923,15 +903,8 @@ impl Memory for Vram {
         match addr {
             0x0000..=0x1FFF => {
                 // CHR-ROM
-                if let Some(b) = &self.board {
-                    let mut board = b.lock().unwrap();
-                    board.writeb(addr, val);
-                } else {
-                    eprintln!(
-                        "uninitialized board at Vram writeb at 0x{:04X} - val: 0x{:02x}",
-                        addr, val
-                    );
-                }
+                let mut board = self.board.borrow_mut();
+                board.writeb(addr, val);
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
@@ -1372,6 +1345,12 @@ impl fmt::Debug for Oam {
     }
 }
 
+impl fmt::Debug for Vram {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Vram {{ }}")
+    }
+}
+
 impl fmt::Debug for Screen {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Screen {{ pixels: {} bytes }}", PIXEL_COUNT)
@@ -1457,9 +1436,8 @@ mod tests {
     fn test_ppu_scrolling_registers() {
         // Dummy rom just to get cartridge vram loaded
         let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
-        let mut ppu = Ppu::new();
         let board = Cartridge::new(rom).unwrap().load_board().unwrap();
-        ppu.set_board(board);
+        let mut ppu = Ppu::init(board);
 
         let ppuctrl = 0x2000;
         let ppustatus = 0x2002;
