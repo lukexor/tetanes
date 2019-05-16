@@ -226,7 +226,7 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
-    pub fn render(&self) -> [Byte; RENDER_SIZE] {
+    pub fn render(&self) -> Image {
         self.screen.render()
     }
 
