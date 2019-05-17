@@ -252,7 +252,7 @@ impl Ppu {
                 self.frame.tile_data <<= 4;
                 // Fetch 4 tiles and write out shift registers every 8th cycle
                 // Each tile fetch takes 2 cycles
-                match self.cycle % 8 {
+                match self.cycle & 0x07 {
                     0 => self.store_tile(),
                     1 => self.fetch_bg_nametable(),
                     3 => self.fetch_bg_attribute(),
@@ -273,7 +273,7 @@ impl Ppu {
 
             if render_scanline {
                 // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-                if fetch_cycle && self.cycle % 8 == 0 {
+                if fetch_cycle && self.cycle & 0x07 == 0 {
                     self.regs.increment_x();
                 }
                 // Increment Fine Y when we reach the end of the screen
@@ -337,8 +337,8 @@ impl Ppu {
         if x < 8 && !self.regs.mask.show_sprites() {
             sprite_color = 0;
         }
-        let bg_opaque = bg_color % 4 != 0;
-        let sprite_opaque = sprite_color % 4 != 0;
+        let bg_opaque = bg_color & 0x03 != 0;
+        let sprite_opaque = sprite_color & 0x03 != 0;
         let color = if !bg_opaque && !sprite_opaque {
             0
         } else if sprite_opaque && !bg_opaque {
@@ -356,7 +356,7 @@ impl Ppu {
             }
         };
         let system_palette_idx =
-            self.vram.readb(u16::from(color) + PALETTE_START) % (SYSTEM_PALETTE_SIZE as u8);
+            self.vram.readb(u16::from(color) + PALETTE_START) & (SYSTEM_PALETTE_SIZE as u8) - 1;
         self.screen
             .put_pixel(x as usize, y as usize, system_palette_idx);
     }
@@ -396,7 +396,7 @@ impl Ppu {
             //     "{}, {}, {}, {}",
             //     self.frame.sprites[i].x, self.frame.sprites[i].pattern, offset, color
             // );
-            if color % 4 == 0 {
+            if color & 0x03 == 0 {
                 continue;
             }
             return (i, color);
@@ -714,9 +714,9 @@ impl Vram {
             Mirroring::FourScreen => [1, 2, 3, 4],
         };
 
-        let addr = (addr - NAMETABLE_START) % (NAMETABLE_SIZE as u16);
+        let addr = (addr - NAMETABLE_START) & (NAMETABLE_SIZE as u16) - 1;
         let table = addr / table_size;
-        let offset = addr % table_size;
+        let offset = addr & (table_size - 1);
 
         NAMETABLE_START + mirror_lookup[table as usize] * table_size + offset
     }
@@ -888,9 +888,9 @@ impl Memory for Vram {
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
-                self.nametable.readb(addr % 2048)
+                self.nametable.readb(addr & 2047)
             }
-            0x3F00..=0x3FFF => self.palette.readb(addr % 32),
+            0x3F00..=0x3FFF => self.palette.readb(addr & 31),
             _ => {
                 eprintln!("invalid Vram readb at 0x{:04X}", addr);
                 0
@@ -907,9 +907,9 @@ impl Memory for Vram {
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
-                self.nametable.writeb(addr % 2048, val)
+                self.nametable.writeb(addr & 2047, val)
             }
-            0x3F00..=0x3FFF => self.palette.writeb(addr % 32, val),
+            0x3F00..=0x3FFF => self.palette.writeb(addr & 31, val),
             _ => eprintln!("invalid Vram readb at 0x{:04X}", addr),
         }
     }
@@ -935,13 +935,13 @@ impl Memory for Nametable {
 
 impl Memory for Palette {
     fn readb(&mut self, mut addr: u16) -> u8 {
-        if addr >= 16 && addr % 4 == 0 {
+        if addr >= 16 && addr & 0x03 == 0 {
             addr -= 16;
         }
         self.0[addr as usize]
     }
     fn writeb(&mut self, mut addr: u16, val: u8) {
-        if addr >= 16 && addr % 4 == 0 {
+        if addr >= 16 && addr & 0x03 == 0 {
             addr -= 16;
         }
         self.0[addr as usize] = val;

@@ -1,4 +1,5 @@
 use crate::console::Image;
+use crate::console::SAMPLES_PER_FRAME;
 use crate::Result;
 use failure::format_err;
 use sdl2::{
@@ -10,7 +11,7 @@ use sdl2::{
 };
 
 const AUDIO_FREQUENCY: i32 = 44100;
-const SAMPLES_PER_FRAME: u16 = 2048;
+// const SAMPLES_PER_FRAME: u16 = 2048;
 const DEFAULT_TITLE: &str = "RustyNES";
 const SCREEN_WIDTH: usize = 256;
 const SCREEN_HEIGHT: usize = 240;
@@ -67,7 +68,7 @@ impl Window {
         let desired_spec = AudioSpecDesired {
             freq: Some(AUDIO_FREQUENCY),
             channels: Some(1),
-            samples: Some(SAMPLES_PER_FRAME),
+            samples: Some(SAMPLES_PER_FRAME as u16),
         };
         let mut audio_device = audio_sub
             .open_queue(None, &desired_spec)
@@ -102,7 +103,7 @@ impl Window {
 
     pub fn enqueue_audio(&mut self, samples: &mut Vec<f32>) {
         let slice = samples.as_slice();
-        if self.audio_device.size() <= (4 * SAMPLES_PER_FRAME).into() {
+        if self.audio_device.size() <= (4 * SAMPLES_PER_FRAME) as u32 {
             self.audio_device.queue(&slice);
         }
         samples.clear();

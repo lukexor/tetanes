@@ -1,6 +1,7 @@
 use crate::console::Memory;
 use std::fmt;
 
+pub const SAMPLES_PER_FRAME: usize = 735; // 44100 Hz sample rate / 60 Hz frame rate
 const LENGTH_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
@@ -59,11 +60,13 @@ struct Noise {
 }
 
 // TODO Delta Modulation Channel
-struct DMC {}
+struct DMC {
+    irq_enable: bool,
+}
 
 // https://wiki.nesdev.com/w/index.php/APU_Frame_Counter
 struct FrameCounter {
-    interrupt_disable: bool,
+    irq_inhibit: bool,
     step: u16,
     mode: CounterMode,
 }
@@ -119,7 +122,7 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: DMC::new(),
-            samples: Vec::new(),
+            samples: Vec::with_capacity(SAMPLES_PER_FRAME),
         }
     }
 
@@ -130,7 +133,7 @@ impl Apu {
     // Clocking
 
     pub fn step(&mut self) {
-        if self.cycles % 2 == 0 {
+        if self.cycles & 0x01 == 0 {
             self.frame_counter.step();
             self.square1.step();
             self.square2.step();
@@ -182,7 +185,10 @@ impl Apu {
             | (self.square2.enabled() as u8) << 1
             | (self.triangle.enabled() as u8) << 2
             | (self.noise.enabled() as u8) << 3
-            | (self.dmc.enabled() as u8) << 4;
+            | (self.dmc.enabled() as u8) << 4
+            | 1 << 5
+            | (self.frame_counter.irq_inhibit as u8) << 6
+            | (self.dmc.irq_enable as u8) << 7;
         status
     }
 
@@ -212,12 +218,11 @@ impl Memory for Apu {
             self.read_status()
         } else {
             eprintln!("unhandled Apu readb at address 0x{:04X}", addr);
-            0u8
+            0xFF
         }
     }
 
     fn writeb(&mut self, addr: u16, val: u8) {
-        // eprintln!("{:?}", self);
         match addr {
             0x4000 => self.square1.write_volume(val),
             0x4001 => self.square1.write_sweep(val),
@@ -290,7 +295,7 @@ impl Square {
     }
     fn sequencer(&self) -> f64 {
         let duty = SQUARE_DUTY_TABLE[self.duty_cycle as usize];
-        let val = (duty >> (7 - self.sequencer_step % 8)) & 1;
+        let val = (duty >> (7 - self.sequencer_step & 0x07)) & 1;
         val as f64
     }
 
@@ -488,7 +493,7 @@ impl Noise {
 
 impl DMC {
     fn new() -> Self {
-        Self {}
+        Self { irq_enable: true }
     }
 
     // Clocking
@@ -507,7 +512,7 @@ impl DMC {
     }
     fn enabled(&self) -> bool {
         // TODO
-        false
+        true
     }
 
     // Setters
@@ -538,7 +543,7 @@ impl DMC {
 impl FrameCounter {
     pub fn new() -> Self {
         Self {
-            interrupt_disable: false,
+            irq_inhibit: false,
             step: 0u16,
             mode: Step4,
         }
@@ -572,8 +577,8 @@ impl FrameCounter {
     // Memory accesses
 
     fn write_control(&mut self, val: u8) {
-        self.mode = if val & 0x80 > 0 { Step5 } else { Step4 };
-        self.interrupt_disable = val & 0x40 > 0;
+        self.mode = if val & 0x80 == 0x80 { Step5 } else { Step4 };
+        self.irq_inhibit = val & 0x40 == 0x40;
     }
 }
 

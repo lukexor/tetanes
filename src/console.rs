@@ -1,6 +1,7 @@
 //! An NES emulator
 
 pub type InputRef = Rc<RefCell<Input>>;
+pub use apu::SAMPLES_PER_FRAME;
 pub use input::{Input, InputResult};
 pub use memory::Memory;
 pub use ppu::Image;
@@ -37,7 +38,7 @@ pub struct Console {
 
 impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
-    pub fn power_on(rom: &Path, input: InputRef) -> Result<Self> {
+    pub fn power_on<P: AsRef<Path> + fmt::Debug>(rom: P, input: InputRef) -> Result<Self> {
         let board = Cartridge::new(rom)?.load_board()?;
         let cpu_memory = CpuMemMap::init(board, input);
         Ok(Self {

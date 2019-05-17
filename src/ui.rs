@@ -46,7 +46,7 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
     pub fn play_game(&mut self, rom: P) -> Result<()> {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
-        let mut console = Console::power_on(rom.as_ref(), input.clone())?;
+        let mut console = Console::power_on(rom, input.clone())?;
         loop {
             let start = Instant::now();
 
@@ -61,7 +61,7 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
             }
 
             let end = Instant::now();
-            let target = Duration::from_millis(50);
+            let target = Duration::from_millis(1000 / 60);
             let sleep = target.checked_sub(end - start);
             if let Some(sleep) = sleep {
                 std::thread::sleep(sleep);

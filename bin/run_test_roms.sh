@@ -1,19 +1,2 @@
-cargo run --release tests/cpu/branch_timing/1.Branch_Basics.nes
-cargo run --release tests/cpu/branch_timing/2.Backward_Branch.nes
-cargo run --release tests/cpu/branch_timing/3.Forward_Branch.nes
-cargo run --release tests/cpu/dummy_writes_ppumem.nes
-cargo run --release tests/cpu/dummy_reads.nes
-cargo run --release tests/cpu/nestest.nes
-cargo run --release tests/cpu/dummy_writes_oam.nes
-cargo run --release tests/cpu/exec_space_ppuio.nes
-cargo run --release tests/cpu/ram_after_reset.nes
-cargo run --release tests/cpu/registers_after_reset.nes
-cargo run --release tests/cpu/all_instrs.nes
-cargo run --release tests/ppu/oam_read.nes
-cargo run --release tests/ppu/read_buffer.nes
-cargo run --release tests/ppu/vbl_nmi_timing/4.vbl_clear_timing.nes
-cargo run --release tests/ppu/vram_access.nes
-cargo run --release tests/ppu/palette_ram.nes
-cargo run --release tests/ppu/sprite_ram.nes
-cargo run --release tests/ppu/sprite_hit.nes
-cargo run --release tests/ppu/color.nes
+cargo build --release
+find tests -iname '*.nes' -exec target/release/rustynes {} \;

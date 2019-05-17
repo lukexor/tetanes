@@ -4,12 +4,13 @@ use crate::console::Memory;
 use AddrMode::*;
 use Operation::*;
 
-pub fn disassemble(mem: &mut Memory, mut pc: u16, x: u8, y: u8) -> String {
+pub fn disassemble(mem: &mut Memory, mut pc: u16, x: u8, y: u8) -> (u8, String) {
     let opcode = mem.readb(pc);
     let instr = &INSTRUCTIONS[opcode as usize];
     let addr_mode = instr.addr_mode();
 
-    match addr_mode {
+    let mut num_bytes = 2;
+    let string = match addr_mode {
         Immediate => format!("{:?} #${:02X}", instr, mem.readb(pc + 1)),
         ZeroPage => {
             let addr = mem.readb(pc + 1);
@@ -29,6 +30,7 @@ pub fn disassemble(mem: &mut Memory, mut pc: u16, x: u8, y: u8) -> String {
             format!("{:?} ${:02X},Y @ {:02X} = {:02X}", instr, addr, addry, val)
         }
         Absolute => {
+            num_bytes += 1;
             let addr = mem.readw(pc + 1);
             if instr.op() == JMP || instr.op() == JSR {
                 format!("{:?} ${:04X}", instr, addr)
@@ -38,18 +40,21 @@ pub fn disassemble(mem: &mut Memory, mut pc: u16, x: u8, y: u8) -> String {
             }
         }
         AbsoluteX => {
+            num_bytes += 1;
             let addr = mem.readw(pc + 1);
             let addrx = addr.wrapping_add(x.into());
             let val = mem.readb(addrx);
             format!("{:?} ${:04X},X @ {:04X} = {:02X}", instr, addr, addrx, val)
         }
         AbsoluteY => {
+            num_bytes += 1;
             let addr = mem.readw(pc + 1);
             let addry = addr.wrapping_add(y.into());
             let val = mem.readb(addry);
             format!("{:?} ${:04X},Y @ {:04X} = {:02X}", instr, addr, addry, val)
         }
         Indirect => {
+            num_bytes += 1;
             let addr = mem.readw(pc + 1);
             if instr.op() == JMP {
                 let val = mem.readw_pagewrap(addr);
@@ -89,7 +94,14 @@ pub fn disassemble(mem: &mut Memory, mut pc: u16, x: u8, y: u8) -> String {
             };
             format!("{:?} ${:04X}", instr, addr)
         }
-        Accumulator => format!("{:?} A", instr),
-        Implied => format!("{:?}", instr),
-    }
+        Accumulator => {
+            num_bytes -= 1;
+            format!("{:?} A", instr)
+        }
+        Implied => {
+            num_bytes -= 1;
+            format!("{:?}", instr)
+        }
+    };
+    (num_bytes, string)
 }

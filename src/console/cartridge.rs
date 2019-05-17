@@ -70,9 +70,9 @@ pub enum CartridgeError {
     Io(String, #[cause] io::Error),
     #[fail(display = "invalid `.nes` format: {:?}", _0)]
     InvalidFormat(PathBuf),
-    #[fail(display = "invalid mapper: {}", _0)]
+    #[fail(display = "unsupported mapper: {}", _0)]
     InvalidMapper(u8),
-    #[fail(display = "invalid mirroring: {}", _0)]
+    #[fail(display = "unsupported mirroring: {}", _0)]
     InvalidMirroring(u8),
 }
 
@@ -272,9 +272,9 @@ mod tests {
             ),
             (
                 "roms/Family Trainer 9 - Fuuun Takeshi-jou 2 (Japan).nes",
-                "invalid mapper: 66",
+                "unsupported mapper: 66",
             ),
-            ("roms/Gauntlet (USA).nes", "invalid mirroring: 2"),
+            ("roms/Gauntlet (USA).nes", "unsupported mirroring: 2"),
         ];
         for test in invalid_rom_tests {
             let c = Cartridge::new(&PathBuf::from(test.0));

@@ -73,7 +73,7 @@ Some of the more popular mappers are implemented with more to come!
 ## Installation
 
 While this should work on any platform that supports Rust and SDL2, it's only being developed and
-tested on Mac OS X at this time. I make no guarantees it'll work elsewhere.
+tested on macOS at this time. I make no guarantees it'll work elsewhere.
 
 * Install [Rust](https://www.rust-lang.org/tools/install)
 * Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) libraries
