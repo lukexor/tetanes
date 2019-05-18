@@ -25,7 +25,7 @@ mod memory;
 mod ppu;
 
 const CYCLES_PER_FRAME: u64 = 29_781;
-const CPU_FREQUENCY: f64 = 1_789_773.0;
+const CPU_FREQUENCY: f64 = 0.001_789_773; // In Cycles/Nanosecond
 
 /// The NES Console
 ///
@@ -53,7 +53,7 @@ impl Console {
     pub fn reset(&mut self) {
         self.cpu.reset();
     }
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> u64 {
         let cpu_cycles = self.cpu.step();
         // Step PPU and Cartridge Board 3x
         let mut ppu_result = StepResult::new();
@@ -64,19 +64,27 @@ impl Console {
                 board.step();
             }
             if ppu_result.trigger_nmi {
-                self.cpu.nmi();
+                self.cpu.trigger_nmi();
             } else if ppu_result.trigger_irq {
-                self.cpu.irq();
+                self.cpu.trigger_irq();
             }
         }
         // Step APU
         for _ in 0..cpu_cycles {
             self.cpu.mem.apu.step();
         }
+        cpu_cycles
     }
     pub fn step_frame(&mut self) {
         for _ in 0..CYCLES_PER_FRAME {
-            self.step();
+            let _ = self.step();
+        }
+    }
+
+    pub fn step_seconds(&mut self, nanoseconds: u128) {
+        let mut cycles = (CPU_FREQUENCY * nanoseconds as f64) as i64;
+        while cycles > 0 {
+            cycles -= self.step() as i64;
         }
     }
     pub fn poll_events(&mut self) -> InputResult {

@@ -51,15 +51,23 @@ pub struct Cpu {
     acc: u8,               // accumulator
     x: u8,                 // x register
     y: u8,                 // y register
-    status: u8,
+    status: u8,            // Status Registers
+    interrupt: Interrupt,  // Pending interrupt
     trace: bool,
     pub oplog: Vec<String>,
+}
+
+enum Interrupt {
+    None,
+    IRQ,
+    NMI,
 }
 
 impl Cpu {
     pub fn init(mut mem: CpuMemMap) -> Self {
         let pc = mem.readw(RESET_ADDR);
         Self {
+            mem,
             cycles: POWER_ON_CYCLES,
             cycles_remaining: 0u64,
             stall: 0u64,
@@ -69,7 +77,7 @@ impl Cpu {
             x: 0u8,
             y: 0u8,
             status: POWER_ON_STATUS,
-            mem,
+            interrupt: Interrupt::None,
             trace: false,
             oplog: Vec::with_capacity(10000),
         }
@@ -109,6 +117,12 @@ impl Cpu {
         if self.stall > 0 {
             self.stall -= 1;
         }
+        match self.interrupt {
+            Interrupt::IRQ => self.irq(),
+            Interrupt::NMI => self.nmi(),
+            _ => (),
+        }
+        self.interrupt = Interrupt::None;
         let start_cycles = self.cycles;
         let opcode = self.readb(self.pc);
         let instr = &INSTRUCTIONS[opcode as usize];
@@ -209,10 +223,13 @@ impl Cpu {
     /// Sends an IRQ Interrupt to the CPU
     ///
     /// http://wiki.nesdev.com/w/index.php/IRQ
-    pub fn irq(&mut self) {
+    pub fn trigger_irq(&mut self) {
         if self.irq_disabled() {
             return;
         }
+        self.interrupt = Interrupt::IRQ;
+    }
+    pub fn irq(&mut self) {
         self.push_stackw(self.pc);
         self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.status |= INTERRUPTD_FLAG;
@@ -224,7 +241,10 @@ impl Cpu {
     /// Sends a NMI Interrupt to the CPU
     ///
     /// http://wiki.nesdev.com/w/index.php/NMI
-    pub fn nmi(&mut self) {
+    pub fn trigger_nmi(&mut self) {
+        self.interrupt = Interrupt::NMI;
+    }
+    fn nmi(&mut self) {
         self.push_stackw(self.pc);
         self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.pc = self.mem.readw(NMI_ADDR);

@@ -46,11 +46,18 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
     pub fn play_game(&mut self, rom: P) -> Result<()> {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
+        let mut master_clock = Instant::now();
         let mut console = Console::power_on(rom, input.clone())?;
         loop {
-            let start = Instant::now();
+            let now = Instant::now();
+            let mut dt = now.duration_since(master_clock);
+            if dt.as_secs() > 1 {
+                // Took too long last time
+                dt = Duration::new(0, 0);
+            }
+            master_clock = now;
 
-            console.step_frame();
+            console.step_seconds(dt.as_nanos());
             self.window.render(&console.render());
             self.window.enqueue_audio(&mut console.audio_samples());
 
@@ -58,13 +65,6 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
                 InputResult::Continue => (),
                 InputResult::Quit => break,
                 InputResult::Reset => console.reset(),
-            }
-
-            let end = Instant::now();
-            let target = Duration::from_millis(1000 / 60);
-            let sleep = target.checked_sub(end - start);
-            if let Some(sleep) = sleep {
-                std::thread::sleep(sleep);
             }
         }
         Ok(())
