@@ -20,40 +20,48 @@ to them having the type and memory-safety guarantees that Rust is known for.
 ## Features
 
 The following is a checklist of features and their progress:
+- [x] Console
+  - [x] NTSC
+  - [ ] PAL
+  - [ ] Dendy
 - [x] Central Processing Unit (CPU)
   - [x] Official Instructions
   - [ ] Unofficial Instructions (mostly done)
   - [ ] Interrupts (done but not fully functional)
 - [x] Picture Processing Unit (PPU)
   - [x] VRAM
-  - [ ] Interrupts (done but not fully functional)
   - [x] Background
-  - [ ] Sprites (implemented, but not working correctly)
-- [ ] Audio Processing Unit (APU)
-- [ ] Inputs
+  - [x] Sprites
+  - [ ] Mid-frame Updates
+- [x] Audio Processing Unit (APU) (Implemented minus DMC but clippy)
+  - [ ] DMC
+- [x] Inputs
   - [x] Keyboard (Missing Turbo)
-  - [ ] Standard NES Controller
+  - [ ] NES Standard Controller
+  - [ ] Turbo support
 - [x] Memory
-- [ ] Cartridge Support
+- [x] Cartridge Support
   - [x] iNES Format
   - [ ] NES 2.0 Format
-  - [ ] Mappers
+  - [x] Mappers
     - [x] NROM (Mapper 0)
     - [x] SxROM (Mapper 1)
     - [ ] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
     - [ ] TxROM (Mapper 4)
     - [ ] AxROM (Mapper 7)
-- [ ] User Interface (UI)
+- [x] User Interface (UI)
   - [x] Window
-  - [ ] Pause/Menu
+  - [ ] Main Menu/Pause with settings
   - [ ] Toggle Fullscreen
   - [x] Reset
   - [ ] Power Cycle
-  - [ ] Toggle Debug Logging
   - [ ] Increase/Decrease Speed/Fast-forward
   - [ ] Save/Load State
-  - [ ] Toggle Recording/Screenshots
+  - [ ] Take Screenshots
+  - [ ] Toggle Recording
+  - [ ] Toggle Sound
+  - [ ] Toggle Debug Logging
 
 ## Supported Mappers
 
@@ -125,12 +133,13 @@ There are also some emulator actions:
 | Pause / Open Menu     | Escape           | Left Stick Button  |
 | Reset                 | Ctrl-R           |                    |
 | Power Cycle           | Ctrl-P           |                    |
-| Toggle Debug Logging  | Ctrl-D           |                    |
 | Increase Speed 25%    | Ctrl-=           |                    |
 | Decrease Speed 25%    | Ctrl--           |                    |
 | Fast-Forward          | Space            | Right Stick Button |
 | Save State            | Ctrl-(1-4)       |                    |
 | Load State            | Ctrl-Shift-(1-4) |                    |
+| Toggle Sound          | Ctrl-S           |                    |
+| Toggle Debug Logging  | Ctrl-D           |                    |
 | Take Screenshot       | F9               |                    |
 | Toggle Recording      | F10              |                    |
 | Toggle Fullscreen     | F11              |                    |

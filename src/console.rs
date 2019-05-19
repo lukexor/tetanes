@@ -39,7 +39,7 @@ pub struct Console {
 impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
     pub fn power_on<P: AsRef<Path> + fmt::Debug>(rom: P, input: InputRef) -> Result<Self> {
-        let board = Cartridge::new(rom)?.load_board()?;
+        let board = Cartridge::from_rom(rom)?.load_board()?;
         let cpu_memory = CpuMemMap::init(board, input);
         Ok(Self {
             cpu: Cpu::init(cpu_memory),

@@ -2,7 +2,7 @@
 
 use crate::console::{mapper, Memory};
 use crate::Result;
-use failure::{format_err, Fail};
+use failure::Fail;
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{self, Read};
@@ -20,15 +20,35 @@ const NES_HEADER_MAGIC: [u8; 4] = *b"NES\x1a";
 /// http://wiki.nesdev.com/w/index.php/NES_2.0
 /// http://nesdev.com/NESDoc.pdf (page 28)
 pub struct Cartridge {
-    pub title: String,
-    pub board_type: BoardType,
+    pub header: INesHeader,
     pub mirroring: Mirroring,
-    pub battery: bool,
-    pub num_prg_banks: usize,
-    pub num_chr_banks: usize,
     pub prg_rom: Vec<u8>,
     pub prg_ram: Vec<u8>,
     pub chr_rom: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct INesHeader {
+    mapper_num: u16,
+    flags: u8, // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
+    pub prg_size: u16,
+    pub chr_size: u16,
+    version: u8,   // iNES or NES 2.0
+    submapper: u8, // NES 2.0 only
+    prg_ram: u8,   // NES 2.0 PRG-RAM
+    chr_ram: u8,   // NES 2.0 CHR-RAM
+    tv_mode: u8,   // NES 2.0 NTSC/PAL indicator
+    vs_data: u8,   // NES 2.0 VS System data
+}
+
+// http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Mirroring {
+    Horizontal,
+    Vertical,
+    SingleScreenA,
+    SingleScreenB,
+    FourScreen, // Only ~3 games use 4-screen - maybe implement some day
 }
 
 pub type BoardRef = Rc<RefCell<Board>>;
@@ -51,32 +71,30 @@ pub enum BoardType {
     UNROM, // mapper 2, ~82 games - Castlevania, Contra, Mega Man
 }
 
-// http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Mirroring {
-    Horizontal,
-    Vertical,
-    SingleScreenA,
-    SingleScreenB,
-    FourScreen, // Only ~3 games use 4-screen - maybe implement some day
-}
-
 use BoardType::*;
 use Mirroring::*;
 
 #[derive(Debug, Fail)]
-pub enum CartridgeError {
+pub enum CartErr {
     #[fail(display = "{}: {}", _0, _1)]
     Io(String, #[cause] io::Error),
-    #[fail(display = "invalid `.nes` format: {:?}", _0)]
-    InvalidFormat(PathBuf),
-    #[fail(display = "unsupported mapper: {}", _0)]
-    InvalidMapper(u8),
-    #[fail(display = "unsupported mirroring: {}", _0)]
-    InvalidMirroring(u8),
+    #[fail(display = "{}", _0)]
+    InvalidHeader(String),
+    #[fail(display = "Unsupported ROM: {}", _0)]
+    Unsupported(String),
 }
 
 impl Cartridge {
+    pub fn new() -> Self {
+        Self {
+            header: INesHeader::new(),
+            mirroring: Mirroring::Horizontal,
+            prg_rom: Vec::new(),
+            prg_ram: Vec::new(),
+            chr_rom: Vec::new(),
+        }
+    }
+
     /// Creates a new Cartridge instance by reading in a `.nes` file
     ///
     /// # Arguments
@@ -87,60 +105,35 @@ impl Cartridge {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn new<P: AsRef<Path> + fmt::Debug>(file: P) -> Result<Self> {
-        let mut rom_file = std::fs::File::open(&file).map_err(|e| {
-            CartridgeError::Io(
-                format!("unable to open file {:?}", file.as_ref().to_path_buf()),
-                e,
-            )
-        })?;
+    pub fn from_rom<P: AsRef<Path> + fmt::Debug>(rom: P) -> Result<Self> {
+        let mut rom = std::fs::File::open(&rom)
+            .map_err(|e| CartErr::Io(format!("unable to open file {:?}", rom), e))?;
 
-        let title = Self::extract_title(&file);
         let mut header = [0u8; 16];
-        rom_file.read_exact(&mut header)?;
+        rom.read_exact(&mut header)?;
+        let header = INesHeader::from_bytes(&header)?;
 
-        let magic = [header[0], header[1], header[2], header[3]];
-        if magic != NES_HEADER_MAGIC {
-            Err(CartridgeError::InvalidFormat(file.as_ref().to_path_buf()))?;
-        }
+        let mut prg_rom = vec![0u8; header.prg_size as usize * PRG_BANK_SIZE];
+        rom.read_exact(&mut prg_rom)?;
 
-        let num_prg_banks = header[4] as usize;
-        let mut prg_rom = vec![0u8; num_prg_banks * PRG_BANK_SIZE];
-        rom_file.read_exact(&mut prg_rom)?;
+        let mut chr_rom = vec![0u8; header.chr_size as usize * CHR_BANK_SIZE];
+        rom.read_exact(&mut chr_rom)?;
 
-        let num_chr_banks = header[5] as usize;
-        let mut chr_rom = vec![0u8; num_chr_banks * CHR_BANK_SIZE];
-        rom_file.read_exact(&mut chr_rom)?;
-
-        // Upper 4 bits of byte 7 and upper 4 bits of byte 8
-        let mapper = (header[7] & 0xF0) | (header[6] >> 4);
-        let board_type = Cartridge::lookup_board_type(mapper)?;
-        // First bit of byte 6 or 3rd bit overrides
-        let mirroring = if (header[6] >> 3) & 1 == 1 {
-            2
-        } else {
-            header[6] & 1
-        };
-        let mirroring = match mirroring {
+        let mirroring = match header.flags & 0x01 {
             0 => Horizontal,
             1 => Vertical,
-            _ => Err(CartridgeError::InvalidMirroring(mirroring))?,
+            _ => Err(CartErr::Unsupported(format!(
+                "Unsupported mirroring: {}",
+                header.flags & 0x03
+            )))?,
         };
 
         // PRG-RAM
-        let prg_ram = if header[8] > 0 {
-            vec![0; header[8] as usize * 8 * 1024]
-        } else {
-            vec![0; DEFAULT_PRG_RAM_SIZE]
-        };
+        let prg_ram = vec![0; 8 * 1024];
 
         let cartridge = Self {
-            title,
-            board_type,
+            header,
             mirroring,
-            battery: (header[6] >> 1) & 1 > 0,
-            num_prg_banks,
-            num_chr_banks,
             prg_rom,
             prg_ram,
             chr_rom,
@@ -152,35 +145,126 @@ impl Cartridge {
     /// Attempts to return a valid Cartridge Board mapper for the given cartridge.
     /// Consumes the Cartridge instance in the process.
     pub fn load_board(self) -> Result<BoardRef> {
-        match self.board_type {
-            NROM => Ok(Rc::new(RefCell::new(mapper::Nrom::load(self)))),
-            SxROM => Ok(Rc::new(RefCell::new(mapper::Sxrom::load(self)))),
-            CNROM => Ok(Rc::new(RefCell::new(mapper::Cnrom::load(self)))),
-            _ => Err(format_err!("unsupported mapper: {:?}", self.board_type))?,
+        match self.header.mapper_num {
+            0 => Ok(Rc::new(RefCell::new(mapper::Nrom::load(self)))),
+            1 => Ok(Rc::new(RefCell::new(mapper::Sxrom::load(self)))),
+            3 => Ok(Rc::new(RefCell::new(mapper::Cnrom::load(self)))),
+            _ => Err(CartErr::Unsupported(format!(
+                "unsupported mapper number: {}",
+                self.header.mapper_num
+            )))?,
+        }
+    }
+}
+
+impl INesHeader {
+    fn new() -> Self {
+        Self {
+            mapper_num: 0u16,
+            flags: 0u8,
+            prg_size: 0u16,
+            chr_size: 0u16,
+            version: 1u8,
+            submapper: 0,
+            prg_ram: 0,
+            chr_ram: 0,
+            tv_mode: 0,
+            vs_data: 0,
         }
     }
 
-    // Utility functions
-
-    fn extract_title<P: AsRef<Path>>(file: P) -> String {
-        let file_name = file
-            .as_ref()
-            .file_stem()
-            .unwrap_or_else(|| std::ffi::OsStr::new("N/A"));
-        let title_str = file_name.to_str().unwrap_or("N/A");
-        title_str.to_string()
-    }
-
-    fn lookup_board_type(mapper: u8) -> Result<BoardType> {
-        match mapper {
-            0 => Ok(NROM),
-            1 => Ok(SxROM),
-            2 => Ok(UNROM),
-            3 => Ok(CNROM),
-            4 => Ok(TxROM),
-            7 => Ok(AOROM),
-            _ => Err(CartridgeError::InvalidMapper(mapper))?,
+    fn from_bytes(header: &[u8; 16]) -> Result<Self> {
+        // Header checks
+        if &header[0..4] != NES_HEADER_MAGIC {
+            Err(CartErr::InvalidHeader(
+                "iNES header signature not found.".to_string(),
+            ))?;
+        } else if (header[7] & 0x0C) == 0x04 {
+            Err(CartErr::InvalidHeader(
+                "Header is corrupted by \"DiskDude!\" - repair and try again.".to_string(),
+            ))?;
+        } else if (header[7] & 0x0C) == 0x0C {
+            Err(CartErr::InvalidHeader(
+                "Unrecognied header format - repair and try again.".to_string(),
+            ))?;
         }
+
+        let mut prg_size = u16::from(header[4]);
+        let mut chr_size = u16::from(header[5]);
+        // Upper 4 bits of flags 6 and 7
+        let mut mapper_num = u16::from(((header[6] & 0xF0) >> 4) | (header[7] & 0xF0));
+        // Lower 4 bits of flag 6, upper 4 bits of flag 7
+        let flags = (header[6] & 0x0F) | ((header[7] & 0x0F) << 4);
+
+        // NES 2.0 Format
+        // If bits 2-3 of flag 7 are equal to 2
+        let mut version = 1; // Start off checking for iNES format v1
+        let mut submapper = 0;
+        let mut prg_ram = 0;
+        let mut chr_ram = 0;
+        let mut tv_mode = 0;
+        let mut vs_data = 0;
+        if header[7] & 0x0C == 0x08 {
+            version = 2;
+            // lower 4 bits of flag 8 = bits 8-11 of mapper num
+            // mapper_num |= u16::from((header[8] & 0x0F) << 8);
+            // upper 4 bits of flag 8
+            // submapper = (header[8] & 0xF0) >> 4;
+            // lower 4 bits of flag 9 = bits 8-11 of prg_size
+            // prg_size |= u16::from((header[9] & 0x0F) << 8);
+            // upper 4 bits of flag 9 = bits 8-11 of chr_size
+            // chr_size |= u16::from((header[9] & 0xF0) << 4);
+            prg_ram = header[10];
+            chr_ram = header[11];
+            tv_mode = header[12];
+            vs_data = header[13];
+
+            if prg_ram & 0x0F == 0x0F || prg_ram & 0xF0 == 0xF0 {
+                Err(CartErr::InvalidHeader(
+                    "Invalid PRG RAM size in header.".to_string(),
+                ))?;
+            } else if chr_ram & 0x0F == 0x0F || chr_ram & 0xF0 == 0xF0 {
+                Err(CartErr::InvalidHeader(
+                    "Invalid CHR RAM size in header.".to_string(),
+                ))?;
+            } else if chr_ram & 0xF0 == 0xF0 {
+                Err(CartErr::InvalidHeader(
+                    "Battery-backed CHR RAM is not supported.".to_string(),
+                ))?;
+            } else if header[14] > 0 || header[15] > 0 {
+                Err(CartErr::InvalidHeader(
+                    "Unregonized data found at header offsets 14-15.".to_string(),
+                ))?;
+            }
+        } else {
+            for i in 8..16 {
+                if header[i] > 0 {
+                    Err(CartErr::InvalidHeader(format!(
+                        "Unregonized data found at header offset {} - repair and try again.",
+                        i
+                    )))?;
+                }
+            }
+        }
+
+        // Trainer
+        if flags & 0x04 == 0x04 {
+            Err(CartErr::Unsupported(
+                "Trained ROMs are not supported.".to_string(),
+            ))?;
+        }
+        Ok(Self {
+            mapper_num,
+            flags,
+            prg_size,
+            chr_size,
+            version,
+            submapper,
+            prg_ram,
+            chr_ram,
+            tv_mode,
+            vs_data,
+        })
     }
 }
 
@@ -188,8 +272,12 @@ impl fmt::Debug for Cartridge {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
-            "Cartridge {{ title: {}, board_type: {:?}, Mirroring: {:?}, Battery: {}, PRG BANKS: {}, CHR BANKS: {}, PRG_RAM: {}",
-            self.title, self.board_type, self.mirroring, self.battery, self.num_prg_banks, self.num_chr_banks, self.prg_ram.len(),
+            "Cartridge {{ header: {:?}, Mirroring: {:?}, PRG-ROM: {}, CHR-ROM: {}, PRG-RAM: {}",
+            self.header,
+            self.mirroring,
+            self.prg_rom.len(),
+            self.chr_rom.len(),
+            self.prg_ram.len(),
         )
     }
 }
@@ -253,7 +341,6 @@ mod tests {
                 "CHR-ROM size matches for {}",
                 c.title
             );
-            assert_eq!(c.board_type, rom.4, "board_type matches for {}", c.title);
             assert_eq!(c.mirroring, rom.5, "mirroring matches for {}", c.title);
             assert_eq!(c.battery, rom.6, "battery matches for {}", c.title);
         }

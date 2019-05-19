@@ -25,7 +25,7 @@ impl Memory for Nrom {
         match addr {
             // PPU 8K Fixed CHR bank
             0x0000..=0x1FFF => {
-                if self.cart.num_chr_banks == 0 {
+                if self.cart.header.chr_size == 0 {
                     self.cart.prg_ram[addr as usize]
                 } else {
                     self.cart.chr_rom[addr as usize]
@@ -51,7 +51,7 @@ impl Memory for Nrom {
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x1FFF => {
-                if self.cart.num_chr_banks == 0 {
+                if self.cart.header.chr_size == 0 {
                     self.cart.prg_ram[addr as usize] = val;
                 } else {
                     // self.cart.chr_rom[addr as usize] = val;
@@ -162,7 +162,7 @@ impl Sxrom {
             match self.prg_rom_bank_mode() {
                 Switch32 => (self.prg_bank & 0xFE) | 1,
                 FixFirst => self.prg_bank, // Switch 16k here, first bank is fixed at 0x8000
-                FixLast => (self.cart.num_prg_banks - 1) as u8, // Fix last bank
+                FixLast => (self.cart.header.prg_size - 1) as u8, // Fix last bank
             }
         };
         u16::from(bank)
@@ -215,7 +215,7 @@ impl Memory for Sxrom {
         match addr {
             // PPU 4 KB switchable CHR bank
             0x0000..=0x1FFF => {
-                if self.cart.num_chr_banks == 0 {
+                if self.cart.header.chr_size == 0 {
                     self.cart.prg_ram[(addr & 0x1FFF) as usize]
                 } else {
                     self.cart.chr_rom[(addr & 0x1FFF) as usize]
@@ -241,7 +241,7 @@ impl Memory for Sxrom {
         match addr {
             // PPU 4 KB switchable CHR bank
             0x0000..=0x1FFF => {
-                if self.cart.num_chr_banks == 0 {
+                if self.cart.header.chr_size == 0 {
                     self.cart.prg_ram[(addr & 0x1FFF) as usize] = val;
                 } else {
                     self.cart.chr_rom[(addr & 0x1FFF) as usize] = val;
@@ -284,7 +284,7 @@ pub struct Cnrom {
 
 impl Cnrom {
     pub fn load(cart: Cartridge) -> Self {
-        let prg_bank_2 = (cart.num_prg_banks - 1) as u16;
+        let prg_bank_2 = (cart.header.prg_size - 1) as u16;
         Self {
             cart,
             chr_bank: 016,
@@ -300,7 +300,7 @@ impl Memory for Cnrom {
             // $0000-$1FFF PPU
             0x0000..=0x1FFF => {
                 let addr = self.chr_bank * 0x2000 + addr;
-                if self.cart.num_chr_banks == 0 {
+                if self.cart.header.chr_size == 0 {
                     self.cart.prg_rom[addr as usize]
                 } else {
                     self.cart.chr_rom[addr as usize]
@@ -327,7 +327,7 @@ impl Memory for Cnrom {
         match addr {
             // $0000-$1FFF PPU
             0x0000..=0x1FFF => {
-                if self.cart.num_chr_banks == 0 {
+                if self.cart.header.chr_size == 0 {
                     let addr = self.chr_bank * 0x2000 + addr;
                     self.cart.prg_rom[addr as usize] = val;
                 }
