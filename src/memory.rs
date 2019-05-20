@@ -1,8 +1,7 @@
 use crate::console::apu::Apu;
-use crate::console::cartridge::{Board, BoardRef};
-use crate::console::input::Input;
 use crate::console::ppu::Ppu;
-use crate::console::InputRef;
+use crate::input::InputRef;
+use crate::mapper::MapperRef;
 use std::fmt;
 
 const WRAM_SIZE: usize = 2 * 1024;
@@ -44,18 +43,18 @@ pub struct CpuMemMap {
     wram: [u8; WRAM_SIZE],
     pub ppu: Ppu,
     pub apu: Apu,
-    pub board: BoardRef,
+    pub mapper: MapperRef,
     pub input: InputRef,
 }
 
 impl CpuMemMap {
-    pub fn init(board: BoardRef, input: InputRef) -> Self {
+    pub fn init(mapper: MapperRef, input: InputRef) -> Self {
         Self {
             wram: [0; WRAM_SIZE],
-            ppu: Ppu::init(board.clone()),
+            ppu: Ppu::init(mapper.clone()),
             apu: Apu::new(),
             input,
-            board,
+            mapper,
         }
     }
 }
@@ -67,8 +66,8 @@ impl Memory for CpuMemMap {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram[(addr & 0x07FF) as usize], // 0x0800..=0x1FFFF are mirrored
             0x4020..=0xFFFF => {
-                let mut board = self.board.borrow_mut();
-                board.readb(addr)
+                let mut mapper = self.mapper.borrow_mut();
+                mapper.readb(addr)
             }
             0x4000..=0x4015 => self.apu.readb(addr),
             0x4016..=0x4017 => {
@@ -90,8 +89,8 @@ impl Memory for CpuMemMap {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram[(addr & 0x07FF) as usize] = val, // 0x8000..=0x1FFFF are mirrored
             0x4020..=0xFFFF => {
-                let mut board = self.board.borrow_mut();
-                board.writeb(addr, val);
+                let mut mapper = self.mapper.borrow_mut();
+                mapper.writeb(addr, val);
             }
             0x4000..=0x4015 | 0x4017 => self.apu.writeb(addr, val),
             0x4016 => {
@@ -180,12 +179,9 @@ mod tests {
 
         let test_rom = "tests/cpu/nestest.nes";
         let rom = &PathBuf::from(test_rom);
-        let board = Cartridge::new(rom)
-            .expect("cartridge")
-            .load_board()
-            .expect("loaded board");
+        let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut mem = CpuMemMap::init(board, input);
+        let mut mem = CpuMemMap::init(mapper, input);
         mem.writeb(0x0005, 0x0015);
         mem.writeb(0x0015, 0x0050);
         mem.writeb(0x0016, 0x0025);

@@ -1,5 +1,5 @@
 use crate::console::cpu::{AddrMode, Operation, INSTRUCTIONS};
-use crate::console::Memory;
+use crate::memory::Memory;
 
 use AddrMode::*;
 use Operation::*;

@@ -1,4 +1,4 @@
-use crate::console::Memory;
+use crate::memory::Memory;
 use std::fmt;
 
 pub const SAMPLES_PER_FRAME: usize = 735; // 44100 Hz sample rate / 60 Hz frame rate

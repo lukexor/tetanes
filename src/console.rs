@@ -1,28 +1,23 @@
 //! An NES emulator
 
-pub type InputRef = Rc<RefCell<Input>>;
 pub use apu::SAMPLES_PER_FRAME;
-pub use input::{Input, InputResult};
-pub use memory::Memory;
 pub use ppu::Image;
 
+use crate::cartridge::Cartridge;
+use crate::input::{InputRef, InputResult};
+use crate::mapper;
+use crate::memory::CpuMemMap;
 use crate::Result;
-use cartridge::Cartridge;
 use cpu::Cpu;
-use memory::CpuMemMap;
 use ppu::StepResult;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
-use std::{fmt, path::Path};
+use std::{fmt, path::PathBuf};
 
-mod apu;
-mod cartridge;
+pub mod apu;
 pub mod cpu;
-mod input;
-mod mapper;
-mod memory;
-mod ppu;
+pub mod ppu;
 
 const CYCLES_PER_FRAME: u64 = 29_781;
 const CPU_FREQUENCY: f64 = 0.001_789_773; // In Cycles/Nanosecond
@@ -38,9 +33,9 @@ pub struct Console {
 
 impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
-    pub fn power_on<P: AsRef<Path> + fmt::Debug>(rom: P, input: InputRef) -> Result<Self> {
-        let board = Cartridge::from_rom(rom)?.load_board()?;
-        let cpu_memory = CpuMemMap::init(board, input);
+    pub fn power_on(rom: PathBuf, input: InputRef) -> Result<Self> {
+        let mapper = mapper::load_rom(rom)?;
+        let cpu_memory = CpuMemMap::init(mapper, input);
         Ok(Self {
             cpu: Cpu::init(cpu_memory),
             powered_on: true,
@@ -55,13 +50,13 @@ impl Console {
     }
     pub fn step(&mut self) -> u64 {
         let cpu_cycles = self.cpu.step();
-        // Step PPU and Cartridge Board 3x
+        // Step PPU and mapper 3x
         let mut ppu_result = StepResult::new();
         for _ in 0..cpu_cycles * 3 {
             ppu_result = self.cpu.mem.ppu.step();
             {
-                let mut board = self.cpu.mem.board.borrow_mut();
-                board.step();
+                let mut mapper = self.cpu.mem.mapper.borrow_mut();
+                mapper.step();
             }
             if ppu_result.trigger_nmi {
                 self.cpu.trigger_nmi();

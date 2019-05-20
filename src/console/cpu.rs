@@ -2,8 +2,8 @@
 //!
 //! http://wiki.nesdev.com/w/index.php/CPU
 
-use crate::console::memory::{CpuMemMap, Memory};
 use crate::disasm;
+use crate::memory::{CpuMemMap, Memory};
 use std::fmt;
 
 // 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS

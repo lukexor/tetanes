@@ -2,8 +2,8 @@
 //!
 //! http://wiki.nesdev.com/w/index.php/PPU
 
-use crate::console::cartridge::{Board, BoardRef, Mirroring};
-use crate::console::memory::Memory;
+use crate::mapper::{MapperRef, Mirroring};
+use crate::memory::Memory;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
@@ -91,7 +91,7 @@ pub struct PpuRegs {
 }
 
 struct Vram {
-    board: BoardRef,
+    mapper: MapperRef,
     buffer: u8,           // PPUDATA buffer
     nametable: Nametable, // Used to layout backgrounds on the screen
     palette: Palette,     // Background/Sprite color palettes
@@ -175,13 +175,13 @@ pub struct StepResult {
 }
 
 impl Ppu {
-    pub fn init(board: BoardRef) -> Self {
+    pub fn init(mapper: MapperRef) -> Self {
         Self {
             cycle: 0,
             scanline: 0,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
-            vram: Vram::init(board),
+            vram: Vram::init(mapper),
             frame: Frame::new(),
             screen: Screen::new(),
         }
@@ -692,9 +692,9 @@ impl Palette {
 }
 
 impl Vram {
-    fn init(board: BoardRef) -> Self {
+    fn init(mapper: MapperRef) -> Self {
         Self {
-            board,
+            mapper,
             buffer: 0,
             nametable: Nametable([0; NAMETABLE_SIZE]),
             palette: Palette([0; PALETTE_SIZE]),
@@ -702,15 +702,15 @@ impl Vram {
     }
 
     fn nametable_mirror_addr(&self, addr: u16) -> u16 {
-        let board = self.board.borrow();
-        let mirroring = board.mirroring();
+        let mapper = self.mapper.borrow();
+        let mirroring = mapper.mirroring();
 
         let table_size = 0x0400; // Each nametable quandrant is 1K
         let mirror_lookup = match mirroring {
             Mirroring::Horizontal => [0, 0, 1, 1],
             Mirroring::Vertical => [0, 1, 0, 1],
-            Mirroring::SingleScreenA => [0, 0, 0, 0],
-            Mirroring::SingleScreenB => [1, 1, 1, 1],
+            Mirroring::SingleScreen0 => [0, 0, 0, 0],
+            Mirroring::SingleScreen1 => [1, 1, 1, 1],
             Mirroring::FourScreen => [1, 2, 3, 4],
         };
 
@@ -883,8 +883,8 @@ impl Memory for Vram {
         match addr {
             0x0000..=0x1FFF => {
                 // CHR-ROM
-                let mut board = self.board.borrow_mut();
-                board.readb(addr)
+                let mut mapper = self.mapper.borrow_mut();
+                mapper.readb(addr)
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
@@ -902,8 +902,8 @@ impl Memory for Vram {
         match addr {
             0x0000..=0x1FFF => {
                 // CHR-ROM
-                let mut board = self.board.borrow_mut();
-                board.writeb(addr, val);
+                let mut mapper = self.mapper.borrow_mut();
+                mapper.writeb(addr, val);
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
@@ -1435,8 +1435,8 @@ mod tests {
     fn test_ppu_scrolling_registers() {
         // Dummy rom just to get cartridge vram loaded
         let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
-        let board = Cartridge::new(rom).unwrap().load_board().unwrap();
-        let mut ppu = Ppu::init(board);
+        let mapper = mapper::load_rom(rom).expect("loaded mapper");
+        let mut ppu = Ppu::init(mapper);
 
         let ppuctrl = 0x2000;
         let ppustatus = 0x2002;

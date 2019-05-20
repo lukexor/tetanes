@@ -1,26 +1,27 @@
 pub use sdl2::EventPump;
 
-use crate::console::{Console, Input, InputResult};
+use crate::console::Console;
+use crate::input::{Input, InputResult};
 use crate::ui::window::Window;
 use crate::Result;
 use failure::format_err;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-use std::{fmt, path::Path};
+use std::{fmt, path::PathBuf};
 
 mod window;
 
-pub struct UI<P> {
-    roms: Vec<P>,
+pub struct UI {
+    roms: Vec<PathBuf>,
     scale: u32, // 1, 2, or 3
     fullscreen: bool,
     window: Window,
     timestamp: Instant,
 }
 
-impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
-    pub fn init(roms: Vec<P>, scale: u32, fullscreen: bool) -> Result<Self> {
+impl UI {
+    pub fn init(roms: Vec<PathBuf>, scale: u32, fullscreen: bool) -> Result<Self> {
         if roms.is_empty() {
             Err(format_err!("no rom files found or specified"))?;
         }
@@ -43,7 +44,7 @@ impl<P: AsRef<Path> + fmt::Debug + Clone> UI<P> {
         Ok(())
     }
 
-    pub fn play_game(&mut self, rom: P) -> Result<()> {
+    pub fn play_game(&mut self, rom: PathBuf) -> Result<()> {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
         let mut master_clock = Instant::now();

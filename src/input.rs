@@ -1,8 +1,12 @@
-use crate::console::memory::Memory;
+use crate::memory::Memory;
 use crate::ui::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use std::cell::RefCell;
 use std::fmt;
+use std::rc::Rc;
+
+pub type InputRef = Rc<RefCell<Input>>;
 
 // The "strobe state": the order in which the NES reads the buttons.
 const STROBE_A: u8 = 0;
