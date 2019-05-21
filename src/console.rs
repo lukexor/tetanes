@@ -1,6 +1,5 @@
 //! An NES emulator
 
-pub use apu::SAMPLES_PER_FRAME;
 pub use ppu::Image;
 
 use crate::cartridge::Cartridge;
@@ -19,14 +18,16 @@ pub mod apu;
 pub mod cpu;
 pub mod ppu;
 
-const CYCLES_PER_FRAME: u64 = 29_781;
-const CPU_FREQUENCY: f64 = 0.001_789_773; // In Cycles/Nanosecond
+pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
+const CPU_FREQUENCY: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
+const REFRESH_RATE: f64 = 60.0; // 60 Hz
 
 /// The NES Console
 ///
 /// Contains all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
     cpu: Cpu,
+    cycles_remaining: i64,
     powered_on: bool,
     logging_enabled: bool,
 }
@@ -38,6 +39,7 @@ impl Console {
         let cpu_memory = CpuMemMap::init(mapper, input);
         Ok(Self {
             cpu: Cpu::init(cpu_memory),
+            cycles_remaining: 0,
             powered_on: true,
             logging_enabled: false,
         })
@@ -71,15 +73,9 @@ impl Console {
         cpu_cycles
     }
     pub fn step_frame(&mut self) {
-        for _ in 0..CYCLES_PER_FRAME {
-            let _ = self.step();
-        }
-    }
-
-    pub fn step_seconds(&mut self, nanoseconds: u128) {
-        let mut cycles = (CPU_FREQUENCY * nanoseconds as f64) as i64;
-        while cycles > 0 {
-            cycles -= self.step() as i64;
+        self.cycles_remaining += (CPU_FREQUENCY / REFRESH_RATE) as i64;
+        while self.cycles_remaining > 0 {
+            self.cycles_remaining -= self.step() as i64;
         }
     }
     pub fn poll_events(&mut self) -> InputResult {
@@ -90,7 +86,7 @@ impl Console {
         self.cpu.mem.ppu.render()
     }
     pub fn audio_samples(&mut self) -> &mut Vec<f32> {
-        &mut self.cpu.mem.apu.samples
+        self.cpu.mem.apu.samples()
     }
 }
 

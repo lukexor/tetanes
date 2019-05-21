@@ -7,7 +7,6 @@ use crate::Result;
 use failure::format_err;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 use std::{fmt, path::PathBuf};
 
 mod window;
@@ -17,7 +16,6 @@ pub struct UI {
     scale: u32, // 1, 2, or 3
     fullscreen: bool,
     window: Window,
-    timestamp: Instant,
 }
 
 impl UI {
@@ -30,7 +28,6 @@ impl UI {
             scale,
             fullscreen,
             window: Window::with_scale(scale)?,
-            timestamp: Instant::now(),
         })
     }
 
@@ -47,18 +44,9 @@ impl UI {
     pub fn play_game(&mut self, rom: PathBuf) -> Result<()> {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
-        let mut master_clock = Instant::now();
         let mut console = Console::power_on(rom, input.clone())?;
         loop {
-            let now = Instant::now();
-            let mut dt = now.duration_since(master_clock);
-            if dt.as_secs() > 1 {
-                // Took too long last time
-                dt = Duration::new(0, 0);
-            }
-            master_clock = now;
-
-            console.step_seconds(dt.as_nanos());
+            console.step_frame();
             self.window.render(&console.render());
             self.window.enqueue_audio(&mut console.audio_samples());
 

@@ -86,7 +86,7 @@ impl Input {
 
     pub fn poll_events(&mut self) -> InputResult {
         if let Some(event_pump) = &mut self.event_pump {
-            while let Some(event) = event_pump.poll_event() {
+            if let Some(event) = event_pump.poll_event() {
                 let result = match event {
                     Event::Quit { .. }
                     | Event::KeyDown {

@@ -1,7 +1,11 @@
+use crate::console::MASTER_CLOCK_RATE;
 use crate::memory::Memory;
 use std::fmt;
 
 pub const SAMPLES_PER_FRAME: usize = 735; // 44100 Hz sample rate / 60 Hz frame rate
+const FREQUENCY: f64 = 44_100.0; // 44,100 Hz
+const APU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 89_490.0;
+const CYCLES_PER_SAMPLE: f64 = MASTER_CLOCK_RATE / 12.0 / FREQUENCY;
 const LENGTH_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
@@ -17,15 +21,13 @@ const DMC_TABLE: [u8; 16] = [
 // Audio Processing Unit
 pub struct Apu {
     cycles: u64,
-    sample_rate: f64,
-    sample_timer: f64,
     frame_counter: FrameCounter,
     square1: Square,
     square2: Square,
     triangle: Triangle,
     noise: Noise,
     dmc: DMC,
-    pub samples: Vec<f32>,
+    samples: Vec<f32>,
 }
 
 enum SqChan {
@@ -114,8 +116,6 @@ impl Apu {
     pub fn new() -> Self {
         Self {
             cycles: 0u64,
-            sample_rate: 1024.0 / 30000.0,
-            sample_timer: 0f64,
             frame_counter: FrameCounter::new(),
             square1: Square::new(SqChan::One),
             square2: Square::new(SqChan::Two),
@@ -133,7 +133,7 @@ impl Apu {
     // Clocking
 
     pub fn step(&mut self) {
-        if self.cycles & 0x01 == 0 {
+        if self.cycles % 2 == 0 {
             self.frame_counter.step();
             self.square1.step();
             self.square2.step();
@@ -158,16 +158,22 @@ impl Apu {
             self.dmc.step_half_frame();
         }
 
-        if self.sample_timer >= 1.0 {
+        if self.cycles % CYCLES_PER_SAMPLE as u64 == 0 {
+            // self.square1.disable();
+            // self.square2.disable();
+            self.triangle.disable();
+            self.noise.disable();
             let sample = self.sample();
             self.samples.push(sample);
-            self.sample_timer %= 1.0;
         }
-        self.sample_timer += self.sample_rate;
         self.cycles += 1;
     }
 
     // Getters
+
+    pub fn samples(&mut self) -> &mut Vec<f32> {
+        &mut self.samples
+    }
 
     fn sample(&self) -> f32 {
         let square1 = self.square1.sample();
@@ -787,11 +793,7 @@ impl Envelope {
 
 impl fmt::Debug for Apu {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "APU {{ cyc: {}, sample_timer: {} }}",
-            self.cycles, self.sample_timer,
-        )
+        write!(f, "APU {{ cyc: {} }}", self.cycles,)
     }
 }
 

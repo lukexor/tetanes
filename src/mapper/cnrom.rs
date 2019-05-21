@@ -23,8 +23,8 @@ impl Cnrom {
         let prg_bank_2 = (cart.header.prg_rom_size - 1) as u16;
         Rc::new(RefCell::new(Self {
             cart,
-            chr_bank: 016,
-            prg_bank_1: 016,
+            chr_bank: 0u16,
+            prg_bank_1: 0u16,
             prg_bank_2,
         }))
     }

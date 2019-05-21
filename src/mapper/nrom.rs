@@ -53,17 +53,17 @@ impl Memory for Nrom {
                 if self.cart.header.chr_rom_size == 0 {
                     self.cart.prg_ram[addr as usize] = val;
                 } else {
-                    // self.cart.chr_rom[addr as usize] = val;
+                    self.cart.chr_rom[addr as usize] = val;
                 }
             }
             0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize] = val,
             0x8000..=0xFFFF => {
                 // CPU 32K Fixed PRG ROM bank for NROM-256
                 if self.cart.prg_rom.len() > 0x4000 {
-                    // self.cart.prg_rom[(addr & 0x7FFF) as usize] = val;
-                    // CPU 16K Fixed PRG ROM bank for NROM-128
+                    self.cart.prg_rom[(addr & 0x7FFF) as usize] = val;
+                // CPU 16K Fixed PRG ROM bank for NROM-128
                 } else {
-                    // self.cart.prg_rom[(addr & 0x3FFF) as usize] = val;
+                    self.cart.prg_rom[(addr & 0x3FFF) as usize] = val;
                 }
             }
             _ => eprintln!(

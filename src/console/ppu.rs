@@ -356,7 +356,7 @@ impl Ppu {
             }
         };
         let system_palette_idx =
-            self.vram.readb(u16::from(color) + PALETTE_START) & (SYSTEM_PALETTE_SIZE as u8) - 1;
+            self.vram.readb(u16::from(color) + PALETTE_START) & ((SYSTEM_PALETTE_SIZE as u8) - 1);
         self.screen
             .put_pixel(x as usize, y as usize, system_palette_idx);
     }
@@ -714,7 +714,7 @@ impl Vram {
             Mirroring::FourScreen => [1, 2, 3, 4],
         };
 
-        let addr = (addr - NAMETABLE_START) & (NAMETABLE_SIZE as u16) - 1;
+        let addr = (addr - NAMETABLE_START) & ((NAMETABLE_SIZE as u16) - 1);
         let table = addr / table_size;
         let offset = addr & (table_size - 1);
 

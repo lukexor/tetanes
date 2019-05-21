@@ -134,13 +134,13 @@ impl INesHeader {
         if header[7] & 0x0C == 0x08 {
             version = 2;
             // lower 4 bits of flag 8 = D8..D11 of mapper num
-            mapper_num |= u16::from((header[8] & 0x0F)) << 8;
+            mapper_num |= u16::from(header[8] & 0x0F) << 8;
             // upper 4 bits of flag 8 = D0..D3 of submapper
             submapper_num = (header[8] & 0xF0) >> 4;
             // lower 4 bits of flag 9 = D8..D11 of prg_rom_size
-            prg_rom_size |= u16::from((header[9] & 0x0F)) << 8;
+            prg_rom_size |= u16::from(header[9] & 0x0F) << 8;
             // upper 4 bits of flag 9 = D8..D11 of chr_rom_size
-            chr_rom_size |= u16::from((header[9] & 0xF0)) << 4;
+            chr_rom_size |= u16::from(header[9] & 0xF0) << 4;
             prg_ram_size = header[10];
             chr_ram_size = header[11];
             tv_mode = header[12];
