@@ -997,7 +997,7 @@ impl Ppu {
             tile_index: d.readb(addr + 1),
             palette: (attr & 3) + 4, // range 4 to 7
             pattern: 0,
-            has_priority: (attr & 0x20) > 0,    // bit 5
+            has_priority: (attr & 0x20) == 0,   // bit 5
             flip_horizontal: (attr & 0x40) > 0, // bit 6
             flip_vertical: (attr & 0x80) > 0,   // bit 7
         }
