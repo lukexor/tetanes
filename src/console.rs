@@ -68,7 +68,7 @@ impl Console {
         }
         // Step APU
         for _ in 0..cpu_cycles {
-            self.cpu.mem.apu.step();
+            self.cpu.mem.apu.clock();
         }
         cpu_cycles
     }
