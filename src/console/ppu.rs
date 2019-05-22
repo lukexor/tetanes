@@ -199,7 +199,7 @@ impl Ppu {
     // Step ticks as many cycles as needed to reach
     // target cycle to syncronize with the CPU
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
-    pub fn step(&mut self) -> StepResult {
+    pub fn clock(&mut self) -> StepResult {
         let mut step_result = StepResult::new();
         if (self.regs.nmi_delay > 0) {
             self.regs.nmi_delay -= 1;

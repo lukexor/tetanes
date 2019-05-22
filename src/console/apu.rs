@@ -2,17 +2,17 @@ use crate::console::MASTER_CLOCK_RATE;
 use crate::memory::Memory;
 use std::fmt;
 
-const FREQUENCY: f64 = 44_100.0; // in Hz
+const SAMPLE_RATE: f64 = 48_000.0; // Oversample rate in Hz
 const APU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 89_490.0;
-const CYCLES_PER_SAMPLE: f64 = MASTER_CLOCK_RATE / 12.0 / FREQUENCY;
+const CYCLES_PER_SAMPLE: f64 = MASTER_CLOCK_RATE / 12.0 / SAMPLE_RATE;
 
 // Audio Processing Unit
 pub struct Apu {
-    cycle: u64,                  // Current APU cycle = CPU cycle / 2
-    irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
-    irq_enabled: bool, // Set by $4017 D6
-    samples: Vec<f32>, // Buffer of samples
-    frame_counter: FrameCounter, // Clocks length, linear, sweep, and envelope units
+    cycle: u64,          // Current APU cycle = CPU cycle / 2
+    irq_pending: bool,   // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
+    irq_enabled: bool,   // Set by $4017 D6
+    samples: Vec<f32>,   // Buffer of samples
+    frame: FrameCounter, // Clocks length, linear, sweep, and envelope units
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
@@ -54,7 +54,7 @@ impl Apu {
             irq_pending: false,
             irq_enabled: false,
             samples: Vec::new(),
-            frame_counter: FrameCounter {
+            frame: FrameCounter {
                 step: 1u8,
                 counter: 0u16,
                 mode: FCMode::Step4,
@@ -74,7 +74,7 @@ impl Apu {
             pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
             tnd_table: [0f32; Self::TND_TABLE_SIZE],
         };
-        apu.frame_counter.counter = apu.next_frame_counter();
+        apu.frame.counter = apu.next_frame_counter();
         for i in 0..Self::PULSE_TABLE_SIZE {
             apu.pulse_table[i] = 95.52 / (8_128.0 / (i as f32) + 100.0);
         }
@@ -136,10 +136,10 @@ impl Apu {
     fn clock_frame_counter(&mut self) {
         use FCMode::*;
 
-        if self.frame_counter.counter > 0 {
-            self.frame_counter.counter -= 1;
+        if self.frame.counter > 0 {
+            self.frame.counter -= 1;
         } else {
-            match self.frame_counter.step {
+            match self.frame.step {
                 1 | 3 => self.clock_quarter_frame(),
                 2 | 5 => {
                     self.clock_quarter_frame();
@@ -148,19 +148,19 @@ impl Apu {
                 _ => (), // Noop
             }
             if self.irq_enabled
-                && self.frame_counter.mode == Step4
-                && self.frame_counter.step >= 4
-                && self.frame_counter.step <= 6
+                && self.frame.mode == Step4
+                && self.frame.step >= 4
+                && self.frame.step <= 6
             {
                 self.irq_pending = true;
             }
 
-            self.frame_counter.step += 1;
+            self.frame.step += 1;
             let max_step = 6;
-            if self.frame_counter.step > max_step {
-                self.frame_counter.step = 1;
+            if self.frame.step > max_step {
+                self.frame.step = 1;
             }
-            self.frame_counter.counter = self.next_frame_counter();
+            self.frame.counter = self.next_frame_counter();
         }
     }
 
@@ -179,25 +179,49 @@ impl Apu {
     }
 
     fn next_frame_counter(&self) -> u16 {
-        let fc = &self.frame_counter;
+        let fc = &self.frame;
+        // if self.cycle >= (89669 - 7_458) && self.cycle <= (89669 + 7_458) {
+        //     eprintln!(
+        //         "length: {} - cycle: {} - step: {}",
+        //         self.pulse1.length.counter, self.cycle, self.frame.step,
+        //     );
+        // }
+        // if self.cycle >= (44846 - 7_458) && self.cycle <= (44846 + 7_458) {
+        //     eprintln!(
+        //         "length: {} - cycle: {} - step: {}",
+        //         self.pulse1.length.counter, self.cycle, self.frame.step,
+        //     );
+        // }
+        // if self.cycle >= (209134 - 7_458) && self.cycle <= (209134 + 7_458) {
+        //     eprintln!(
+        //         "length: {} - cycle: {} - step: {}",
+        //         self.pulse1.length.counter, self.cycle, self.frame.step,
+        //     );
+        // }
+        // if self.cycle >= (358439 - 7_458) && self.cycle <= (358439 + 7_458) {
+        //     eprintln!(
+        //         "length: {} - cycle: {} - step: {}",
+        //         self.pulse1.length.counter, self.cycle, self.frame.step,
+        //     );
+        // }
         match fc.mode {
             FCMode::Step4 => match fc.step {
-                1 => 7_457, // 3728.5 APU cycles
-                2 => 7_456, // 7456.5 APU cycles
-                3 => 7_458, // 11185.5 APU cycles
-                4 => 7_457, // 14914 APU cycles
-                5 => 1,     // 14914.5 APU cycles
-                6 => 1,     // 14915 APU cycles
-                _ => 0,     // Noop
+                1 => 7457,
+                2 => 7456,
+                3 => 7458,
+                4 => 7457,
+                5 => 1,
+                6 => 1,
+                _ => panic!("shouldn't happen"),
             },
             FCMode::Step5 => match fc.step {
-                1 => 7_457, // 3728.5 APU cycles
-                2 => 7_456, // 7456.5 APU cycles
-                3 => 7_458, // 11185.5 APU cycles
-                4 => 7_458, // 14914.5 APU cycles
-                5 => 7_452, // 18640.5 APU cycles
-                6 => 1,     // 18641 APU cycles
-                _ => 0,     // Noop
+                1 => 7457,
+                2 => 7456,
+                3 => 7458,
+                4 => 7457,
+                5 => 7454,
+                6 => 1,
+                _ => panic!("shouldn't happen"),
             },
         }
     }
@@ -206,11 +230,6 @@ impl Apu {
         let pulse1 = self.pulse1.output();
         let pulse2 = self.pulse2.output();
         let triangle = self.triangle.output();
-        // FIXME
-        // self.pulse1.enabled = false;
-        // self.pulse2.enabled = false;
-        self.triangle.enabled = false;
-        self.noise.enabled = false;
         let noise = self.noise.output();
         let dmc = self.dmc.output();
 
@@ -219,19 +238,38 @@ impl Apu {
         pulse_out + tnd_out
     }
 
+    // $4015 READ
     fn read_status(&mut self) -> u8 {
-        let status = self.pulse1.enabled as u8
-            | (self.pulse2.enabled as u8) << 1
-            | (self.triangle.enabled as u8) << 2
-            | (self.noise.enabled as u8) << 3
-            | ((self.dmc.length > 0) as u8) << 4
-            | 0 << 5 // Unused
-            | (self.irq_pending as u8) << 6
-            | (self.dmc.irq_pending as u8) << 7;
+        let mut status = 0;
+        if self.pulse1.length.counter > 0 {
+            status |= 0x01;
+        }
+        if self.pulse2.length.counter > 0 {
+            status |= 0x02;
+        }
+        if self.triangle.length.counter > 0 {
+            status |= 0x04;
+        }
+        if self.noise.length.counter > 0 {
+            status |= 0x08;
+        }
+        if self.dmc.length > 0 {
+            status |= 0x10;
+        }
+        if self.irq_pending {
+            status |= 0x40;
+        }
+        if self.dmc.irq_pending {
+            status |= 0x80;
+        }
         self.irq_pending = false;
+        // eprintln!("$4015 READ: ${:02X} - cycle: {}", status, self.cycle);
+        // eprintln!("length: {}", self.pulse1.length.counter);
         status
     }
+    // $4015 WRITE
     fn write_status(&mut self, val: u8) {
+        // eprintln!("$4015 WRITE: ${:02X}", val);
         self.pulse1.enabled = val & 1 == 1;
         if !self.pulse1.enabled {
             self.pulse1.length.counter = 0;
@@ -259,21 +297,31 @@ impl Apu {
         self.dmc.irq_pending = false;
     }
 
+    // $4017 APU frame counter
     fn write_frame_counter(&mut self, val: u8) {
+        // eprintln!("$4017: ${:02X}", val);
         // D7
-        self.frame_counter.mode = if (val >> 7) & 1 == 0 {
+        self.frame.mode = if (val >> 7) & 1 == 0 {
             FCMode::Step4
         } else {
             FCMode::Step5
         };
-        self.frame_counter.step = 1;
-        self.frame_counter.counter = self.next_frame_counter();
-        if self.frame_counter.mode == FCMode::Step5 {
+        self.frame.step = 1u8;
+        self.frame.counter = self.next_frame_counter();
+        // If changing the mode on an odd cycle, delay step 1 by 3 cycles
+        // so the next clock happens on an even cycle
+        if self.cycle % 2 == 1 {
+            self.frame.counter += 1;
+        } else {
+            self.frame.counter += 2;
+        }
+        // If step 5 clock immediately
+        if self.frame.mode == FCMode::Step5 {
             self.clock_quarter_frame();
             self.clock_half_frame();
         }
         self.irq_enabled = (val >> 6) & 1 == 0; // D6
-        if !self.irq_enabled {
+        if !self.irq_enabled && self.cycle % 2 == 0 {
             self.irq_pending = false;
         }
     }
@@ -370,7 +418,7 @@ impl Pulse {
             self.freq_counter -= 1;
         } else {
             self.freq_counter = self.freq_timer;
-            self.duty_counter = self.duty_counter.wrapping_add(1) & 7;
+            self.duty_counter = (self.duty_counter + 1) % 8;
         }
     }
     fn clock_quarter_frame(&mut self) {
@@ -426,22 +474,30 @@ impl Pulse {
         }
     }
 
+    // $4000 Pulse control
     fn write_control(&mut self, val: u8) {
+        // eprintln!("$4000/4: ${:02X}", val);
         self.duty_cycle = (val >> 6) & 0x03; // D7..D6
         self.length.write_control(val);
         self.envelope.write_control(val);
     }
+    // $4001 Pulse sweep
     fn write_sweep(&mut self, val: u8) {
+        // eprintln!("$4001/5: ${:02X}", val);
         self.sweep.timer = (val >> 4) & 0x07; // D6..D4
         self.sweep.negate = (val >> 3) & 1 == 1; // D3
         self.sweep.shift = val & 0x07; // D2..D0
         self.sweep.enabled = ((val >> 7) & 1 == 1) && (self.sweep.shift != 0); // D7
         self.sweep.reload = true;
     }
+    // $4002 Pulse timer lo
     fn write_timer_lo(&mut self, val: u8) {
+        // eprintln!("$4002/6: ${:02X}", val);
         self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
     }
+    // $4003 Pulse timer hi
     fn write_timer_hi(&mut self, val: u8) {
+        // eprintln!("$4003/7: ${:02X}", val);
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
         self.freq_counter = self.freq_timer;
         self.duty_counter = 0;
@@ -616,6 +672,7 @@ impl Noise {
         self.envelope.write_control(val);
     }
 
+    // $400E Noise timer
     fn write_timer(&mut self, val: u8) {
         self.freq_timer = Self::FREQ_TABLE[(val & 0x0F) as usize];
         self.shift_mode = if (val >> 7) & 1 == 1 {
@@ -723,6 +780,7 @@ impl DMC {
         self.output as f32
     }
 
+    // $4010 DMC timer
     fn write_timer(&mut self, val: u8) {
         self.irq_enabled = (val >> 7) & 1 == 1;
         self.loops = (val >> 6) & 1 == 1;
@@ -838,7 +896,9 @@ impl Envelope {
         }
     }
 
+    // $4000/$4004/$400C Envelope control
     fn write_control(&mut self, val: u8) {
+        // eprintln!("$4000/4/C envelope: ${:02X}", val);
         self.loops = (val >> 5) & 1 == 1; // D5
         self.enabled = (val >> 4) & 1 == 0; // !D4
         self.constant_volume = val & 0x0F; // D3..D0

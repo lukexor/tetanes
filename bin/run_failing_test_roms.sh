@@ -7,11 +7,7 @@ tests/cpu/instr_timing.nes
 # D1 FD F9 F1 1E 3E 5E 7E DE FE
 # BC BE
 # failed 04-dummy_reads_apu #2
-tests/apu/03.irq_flag.nesests/cpu/instr_misc.nes
-# Passes but message doesn't disapper
-tests/cpu/registers_after_reset.nes
-# Passes but message doesn't disappear
-tests/cpu/ram_after_reset.nes
+tests/cpu/instr_misc.nes
 # 4000 FF ERROR
 # Landed at $1AB5 failed #2 to obey path
 tests/cpu/exec_space_apu.nes
@@ -21,31 +17,23 @@ tests/cpu/flag_concurrency.nes
 tests/cpu/all_instrs.nes
 # No output
 tests/cpu/interrupts.nes
-# $04
-tests/apu/08.irq_timing.nes
-# $03
-tests/apu/04.clock_jitter.nes
 # Doesn't sound right
 tests/apu/triangle.nes
 tests/apu/phase_reset.nes
 tests/apu/dmc.nes
 tests/apu/square.nes
-# $03
-tests/apu/06.len_timing_mode1.nes
-# $03
-tests/apu/10.len_halt_timing.nes
-# F8 FF 1E 02
-tests/apu/02.len_table.nes
-# $03
-tests/apu/01.len_ctr.nes
 # $02
-tests/apu/09.reset_timing.nes
-# $03
 tests/apu/05.len_timing_mode0.nes
 # $02
-tests/apu/11.len_reload_timing.nes
+tests/apu/06.len_timing_mode1.nes
 # $03
 tests/apu/07.irq_flag_timing.nes
+# $04
+tests/apu/08.irq_timing.nes
+# $04
+tests/apu/09.reset_timing.nes
+# $05
+tests/apu/11.len_reload_timing.nes
 # no output
 tests/apu/test.nes
 # 09 clock skipped too soon relative to enabling BG
@@ -89,6 +77,10 @@ tests/ppu/nmi_sync_ntsc.nes
 tests/ppu/sprite_hit.nes
 # flickers - nes_fog passes
 tests/ppu/scanline.nes
+# Passes but message doesn't disapper
+tests/cpu/registers_after_reset.nes
+# Passes but message doesn't disappear
+tests/cpu/ram_after_reset.nes
 )
 
 trap ctrl_c INT

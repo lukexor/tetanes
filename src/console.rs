@@ -55,7 +55,7 @@ impl Console {
         // Step PPU and mapper 3x
         let mut ppu_result = StepResult::new();
         for _ in 0..cpu_cycles * 3 {
-            ppu_result = self.cpu.mem.ppu.step();
+            ppu_result = self.cpu.mem.ppu.clock();
             {
                 let mut mapper = self.cpu.mem.mapper.borrow_mut();
                 mapper.step();
@@ -69,6 +69,7 @@ impl Console {
         // Step APU
         for _ in 0..cpu_cycles {
             self.cpu.mem.apu.clock();
+            // TODO IRQ
         }
         cpu_cycles
     }
