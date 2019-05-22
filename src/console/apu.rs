@@ -305,7 +305,7 @@ impl Memory for Apu {
         if addr == 0x4015 {
             self.read_status()
         } else {
-            0xFF
+            0x0
         }
     }
 
@@ -707,7 +707,7 @@ impl DMC {
                     self.output -= 2;
                 }
             }
-            self.output_bits -= 1;
+            self.output_bits = self.output_bits.saturating_sub(1);
             self.output_shift >>= 1;
 
             if self.output_bits == 0 {

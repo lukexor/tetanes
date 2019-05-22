@@ -61,7 +61,7 @@ impl Cartridge {
     /// file, then an error is returned.
     pub fn from_rom(rom: PathBuf) -> Result<Self> {
         let mut rom_data = std::fs::File::open(&rom)
-            .map_err(|e| format_err!("unable to open file {}: {}", rom.display(), e))?;
+            .map_err(|e| format_err!("unable to open file \"{}\": {}", rom.display(), e))?;
 
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;
@@ -73,6 +73,10 @@ impl Cartridge {
         let mut chr_rom = vec![0u8; header.chr_rom_size as usize * CHR_BANK_SIZE];
         rom_data.read_exact(&mut chr_rom)?;
 
+        if header.chr_rom_size == 0 {
+            chr_rom = vec![0u8; CHR_BANK_SIZE];
+        }
+
         let prg_ram = vec![0; PRG_RAM_SIZE];
 
         let cartridge = Self {
@@ -82,7 +86,6 @@ impl Cartridge {
             chr_rom,
             prg_ram,
         };
-        eprintln!("{:?}", cartridge);
         Ok(cartridge)
     }
 }
@@ -206,14 +209,8 @@ impl fmt::Debug for Cartridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mapper;
     use std::path::PathBuf;
-
-    const ROMS: &[&str] = &[
-        "roms/Zelda II - The Adventure of Link (USA).nes",
-        "roms/Super Mario Bros. (World).nes",
-        "roms/Metroid (USA).nes",
-        "roms/Gauntlet (USA).nes",
-    ];
 
     #[test]
     fn test_valid_cartridges() {
@@ -224,54 +221,57 @@ mod tests {
                 "Zelda II - The Adventure of Link (USA)",
                 8,
                 16,
-                SxROM,
-                Horizontal,
+                1,
+                0,
                 true,
             ),
             (
-                "roms/Super Mario Bros. (World).nes",
+                "roms/super_mario_bros.nes",
                 "Super Mario Bros. (World)",
                 2,
                 1,
-                NROM,
-                Vertical,
-                false,
-            ),
-            (
-                "roms/Metroid (USA).nes",
-                "Metroid (USA)",
-                8,
                 0,
-                SxROM,
-                Horizontal,
+                1,
                 false,
             ),
+            ("roms/metroid.nes", "Metroid (USA)", 8, 0, 1, 0, false),
         ];
         for rom in rom_data {
-            let c = Cartridge::new(&PathBuf::from(rom.0));
+            let c = Cartridge::from_rom(PathBuf::from(rom.0));
             assert!(c.is_ok(), "new cartridge {}", rom.0);
             let c = c.unwrap();
-            assert_eq!(c.title, rom.1, "title matches {}", rom.0);
             assert_eq!(
-                c.num_prg_banks, rom.2,
+                c.header.prg_rom_size, rom.2,
                 "PRG-ROM size matches for {}",
-                c.title
+                rom.0
             );
             assert_eq!(
-                c.num_chr_banks, rom.3,
+                c.header.chr_rom_size, rom.3,
                 "CHR-ROM size matches for {}",
-                c.title
+                rom.0
             );
-            assert_eq!(c.mirroring, rom.5, "mirroring matches for {}", c.title);
-            assert_eq!(c.battery, rom.6, "battery matches for {}", c.title);
+            assert_eq!(
+                c.header.mapper_num, rom.4,
+                "mapper num matches for {}",
+                rom.0
+            );
+            assert_eq!(
+                c.header.flags & 0x01,
+                rom.5,
+                "mirroring matches for {}",
+                rom.0
+            );
+            assert_eq!(
+                c.header.flags & 0x02 == 0x02,
+                rom.6,
+                "battery matches for {}",
+                rom.0
+            );
         }
     }
 
     #[test]
     fn test_invalid_cartridges() {
-        use std::fs;
-        use std::fs::OpenOptions;
-
         // TODO Make these tests not rely on actual cartridges
         let invalid_rom_tests = &[
             (
@@ -280,12 +280,11 @@ mod tests {
             ),
             (
                 "roms/Family Trainer 9 - Fuuun Takeshi-jou 2 (Japan).nes",
-                "unsupported mapper: 66",
+                "unsupported mapper number: 66",
             ),
-            ("roms/Gauntlet (USA).nes", "unsupported mirroring: 2"),
         ];
         for test in invalid_rom_tests {
-            let c = Cartridge::new(&PathBuf::from(test.0));
+            let c = mapper::load_rom(PathBuf::from(test.0));
             assert!(c.is_err(), "invalid cartridge {}", test.0);
             assert_eq!(
                 c.err().expect("valid cartridge error").to_string(),

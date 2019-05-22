@@ -103,23 +103,13 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::Input;
+    use std::cell::RefCell;
+    use std::rc::Rc;
     use std::{fs, path::PathBuf};
 
     const NESTEST_ADDR: u16 = 0xC000;
-    const NESTEST_LEN: usize = 8991;
-    const ROMS: &[&str] = &[
-        "roms/Zelda II - The Adventure of Link (USA).nes",
-        "roms/Super Mario Bros. (World).nes",
-        "roms/Metroid (USA).nes",
-        "roms/Gauntlet (USA).nes",
-    ];
-
-    fn new_game_console(index: usize) -> Console {
-        let rom = &PathBuf::from(ROMS[index]);
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut console = Console::power_on(rom, input).expect("powered on");
-        console
-    }
+    const NESTEST_LEN: usize = 8980;
 
     #[test]
     fn test_nestest() {
@@ -128,17 +118,18 @@ mod tests {
         let nestest_log = "tests/cpu/nestest.txt";
 
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut c = Console::power_on(&rom, input).expect("powered on");
+        let mut c = Console::power_on(rom, input).expect("powered on");
         c.trace_cpu();
 
         c.set_pc(NESTEST_ADDR);
         for _ in 0..NESTEST_LEN {
             c.step();
         }
-        fs::write(cpu_log, &c.cpu.oplog).expect("Failed to write op.log");
+        let log = c.cpu.oplog.join("");
+        fs::write(cpu_log, &log).expect("Failed to write op.log");
 
         let nestest = fs::read_to_string(nestest_log);
         assert!(nestest.is_ok(), "Read nestest");
-        assert!(c.cpu.oplog == nestest.unwrap(), "CPU log matches nestest");
+        assert!(log == nestest.unwrap(), "CPU log matches nestest");
     }
 }

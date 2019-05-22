@@ -38,14 +38,14 @@ pub enum Mirroring {
 
 /// Attempts to return a valid Mapper for the given rom.
 pub fn load_rom(rom: PathBuf) -> Result<MapperRef> {
-    let cartridge = Cartridge::from_rom(rom)?;
-    match cartridge.header.mapper_num {
-        0 => Ok(Nrom::load(cartridge)),
-        1 => Ok(Sxrom::load(cartridge)),
-        3 => Ok(Cnrom::load(cartridge)),
+    let cart = Cartridge::from_rom(rom)?;
+    match cart.header.mapper_num {
+        0 => Ok(Nrom::load(cart)),
+        1 => Ok(Sxrom::load(cart)),
+        3 => Ok(Cnrom::load(cart)),
         _ => Err(format_err!(
             "unsupported mapper number: {}",
-            cartridge.header.mapper_num
+            cart.header.mapper_num
         ))?,
     }
 }

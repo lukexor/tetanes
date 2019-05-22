@@ -8978,14 +8978,3 @@ C659  05 11     ORA $11 = 00                    A:00 X:FF Y:15 P:27 SP:FD PPU: 4
 C65B  F0 0E     BEQ $C66B                       A:00 X:FF Y:15 P:27 SP:FD PPU: 53,233 CYC:26509
 C66B  20 89 C6  JSR $C689                       A:00 X:FF Y:15 P:27 SP:FD PPU: 62,233 CYC:26512
 C689  A9 02     LDA #$02                        A:00 X:FF Y:15 P:27 SP:FB PPU: 80,233 CYC:26518
-C68B  8D 15 40  STA $4015 = FF                  A:02 X:FF Y:15 P:25 SP:FB PPU: 86,233 CYC:26520
-C68E  A9 3F     LDA #$3F                        A:02 X:FF Y:15 P:25 SP:FB PPU: 98,233 CYC:26524
-C690  8D 04 40  STA $4004 = FF                  A:3F X:FF Y:15 P:25 SP:FB PPU:104,233 CYC:26526
-C693  A9 9A     LDA #$9A                        A:3F X:FF Y:15 P:25 SP:FB PPU:116,233 CYC:26530
-C695  8D 05 40  STA $4005 = FF                  A:9A X:FF Y:15 P:A5 SP:FB PPU:122,233 CYC:26532
-C698  A9 FF     LDA #$FF                        A:9A X:FF Y:15 P:A5 SP:FB PPU:134,233 CYC:26536
-C69A  8D 06 40  STA $4006 = FF                  A:FF X:FF Y:15 P:A5 SP:FB PPU:140,233 CYC:26538
-C69D  A9 00     LDA #$00                        A:FF X:FF Y:15 P:A5 SP:FB PPU:152,233 CYC:26542
-C69F  8D 07 40  STA $4007 = FF                  A:00 X:FF Y:15 P:27 SP:FB PPU:158,233 CYC:26544
-C6A2  60        RTS                             A:00 X:FF Y:15 P:27 SP:FB PPU:170,233 CYC:26548
-C66E  60        RTS                             A:00 X:FF Y:15 P:27 SP:FD PPU:188,233 CYC:26554

@@ -129,12 +129,14 @@ impl Cpu {
         if self.trace {
             self.print_instruction(opcode);
         }
+        // if self.cycles < 100000 {
+        //     self.print_instruction(opcode);
+        // }
         self.pc = self.pc.wrapping_add(1 + u16::from(num_args));
         self.cycles += instr.cycles();
         if page_crossed {
             self.cycles += instr.page_cycles();
         }
-
         let val = val as u8;
         // Ordered by most often executed (roughly) to improve linear search time
         match instr.op() {
@@ -1216,8 +1218,8 @@ impl fmt::Debug for Instruction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::console::cartridge::Cartridge;
-    use crate::console::input::Input;
+    use crate::input::Input;
+    use crate::mapper;
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::rc::Rc;
@@ -1227,13 +1229,10 @@ mod tests {
 
     #[test]
     fn test_cpu_new() {
-        let rom = &PathBuf::from(TEST_ROM);
-        let board = Cartridge::new(rom)
-            .expect("cartridge")
-            .load_board()
-            .expect("loaded board");
+        let rom = PathBuf::from(TEST_ROM);
+        let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = CpuMemMap::init(board, input);
+        let cpu_memory = CpuMemMap::init(mapper, input);
         let c = Cpu::init(cpu_memory);
         assert_eq!(c.cycles, 7);
         assert_eq!(c.pc, TEST_PC);
@@ -1246,13 +1245,10 @@ mod tests {
 
     #[test]
     fn test_cpu_reset() {
-        let rom = &PathBuf::from(TEST_ROM);
-        let board = Cartridge::new(rom)
-            .expect("cartridge")
-            .load_board()
-            .expect("loaded board");
+        let rom = PathBuf::from(TEST_ROM);
+        let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = CpuMemMap::init(board, input);
+        let cpu_memory = CpuMemMap::init(mapper, input);
         let mut c = Cpu::init(cpu_memory);
         c.reset();
         assert_eq!(c.pc, TEST_PC);

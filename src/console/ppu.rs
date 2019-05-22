@@ -430,7 +430,7 @@ impl PpuRegs {
             open_bus: 0,
             ctrl: PpuCtrl(0),
             mask: PpuMask(0),
-            status: PpuStatus(0),
+            status: PpuStatus(0x80),
             oamaddr: 0,
             nmi_delay: 0,
             nmi_previous: false,
@@ -1267,12 +1267,13 @@ const SYSTEM_PALETTE: [Rgb; SYSTEM_PALETTE_SIZE] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::console::cartridge::Cartridge;
+    use crate::mapper;
+    use std::path::PathBuf;
 
     #[test]
     fn test_ppu_scrolling_registers() {
         // Dummy rom just to get cartridge vram loaded
-        let rom = "roms/Zelda II - The Adventure of Link (USA).nes";
+        let rom = PathBuf::from("roms/Zelda II - The Adventure of Link (USA).nes");
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let mut ppu = Ppu::init(mapper);
 
