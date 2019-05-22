@@ -22,14 +22,7 @@ pub type MapperRef = Rc<RefCell<Mapper>>;
 
 pub trait Mapper: Memory + Send {
     fn scanline_irq(&self) -> bool;
-    fn mirroring(&self) -> Mirroring {
-        Mirroring::Horizontal
-        // match self.cart.header.flags & 0x01 {
-        //     0 => Mirroring::Horizontal,
-        //     1 => Mirroring::Vertical,
-        //     _ => panic!("invalid mirroring"),
-        // }
-    }
+    fn mirroring(&self) -> Mirroring;
     fn step(&mut self);
 }
 

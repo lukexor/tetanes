@@ -80,6 +80,13 @@ impl Mapper for Cnrom {
     fn scanline_irq(&self) -> bool {
         false
     }
+    fn mirroring(&self) -> Mirroring {
+        match self.cart.header.flags & 0x01 {
+            0 => Mirroring::Horizontal,
+            1 => Mirroring::Vertical,
+            _ => panic!("invalid mirroring"),
+        }
+    }
     fn step(&mut self) {
         // NOOP
     }
