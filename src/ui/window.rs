@@ -1,37 +1,22 @@
 use crate::console::Image;
+use crate::console::{SAMPLE_RATE, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::Result;
-use failure::format_err;
-use sdl2::{
-    audio::{AudioQueue, AudioSpecDesired},
-    controller::GameController,
-    pixels::{Color, PixelFormatEnum},
-    render::{Canvas, Texture, TextureCreator},
-    video, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem,
-};
+use sdl2::audio::{AudioQueue, AudioSpecDesired};
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::render::{Canvas, Texture, TextureCreator};
+use sdl2::{video, EventPump};
 
-const AUDIO_FREQUENCY: i32 = 44100;
-const SAMPLES_PER_FRAME: u16 = 2048;
 const DEFAULT_TITLE: &str = "RustyNES";
-const SCREEN_WIDTH: usize = 256;
-const SCREEN_HEIGHT: usize = 240;
-const DEFAULT_SCALE: u32 = 3;
 
 pub struct Window {
     pub event_pump: Option<EventPump>,
-    context: Sdl,
-    video_sub: VideoSubsystem,
     canvas: Canvas<video::Window>,
     texture: Texture<'static>,
-    audio_sub: AudioSubsystem,
     audio_device: AudioQueue<f32>,
     _texture_creator: TextureCreator<video::WindowContext>,
 }
 
 impl Window {
-    pub fn new() -> Result<Self> {
-        Self::with_scale(DEFAULT_SCALE)
-    }
-
     pub fn with_scale(scale: u32) -> Result<Self> {
         let context = sdl2::init().expect("sdl context");
 
@@ -46,7 +31,7 @@ impl Window {
             .position_centered()
             .build()
             .expect("sdl window");
-        let mut canvas = window
+        let canvas = window
             .into_canvas()
             .accelerated()
             .present_vsync()
@@ -65,11 +50,11 @@ impl Window {
         // Audio
         let audio_sub = context.audio().expect("sdl audio");
         let desired_spec = AudioSpecDesired {
-            freq: Some(AUDIO_FREQUENCY),
+            freq: Some(SAMPLE_RATE),
             channels: Some(1),
-            samples: Some(SAMPLES_PER_FRAME as u16),
+            samples: None,
         };
-        let mut audio_device = audio_sub
+        let audio_device = audio_sub
             .open_queue(None, &desired_spec)
             .expect("sdl audio queue");
         audio_device.resume();
@@ -79,11 +64,8 @@ impl Window {
 
         Ok(Self {
             event_pump,
-            context,
-            video_sub,
             canvas,
             texture,
-            audio_sub,
             audio_device,
             _texture_creator: texture_creator,
         })
@@ -102,8 +84,13 @@ impl Window {
 
     pub fn enqueue_audio(&mut self, samples: &mut Vec<f32>) {
         let slice = samples.as_slice();
-        if self.audio_device.size() <= u32::from(4 * SAMPLES_PER_FRAME) {
-            self.audio_device.queue(&slice);
+        self.audio_device.queue(&slice);
+        // Keep audio in sync
+        loop {
+            let latency = self.audio_device.size() as f32 / SAMPLE_RATE as f32;
+            if latency <= 1.0 {
+                break;
+            }
         }
         samples.clear();
     }

@@ -76,10 +76,6 @@ impl Memory for CpuMemMap {
             }
             0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => 0,                             // APU/IO Test Mode
-            _ => {
-                eprintln!("unhandled CpuMemMap readb at 0x{:04X}", addr);
-                0
-            }
         }
     }
 
@@ -99,12 +95,6 @@ impl Memory for CpuMemMap {
             }
             0x2000..=0x3FFF => self.ppu.writeb(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => (),                                  // APU/IO Test Mode
-            _ => {
-                eprintln!(
-                    "unhandled CpuMemMap writeb at 0x{:04X} - val: 0x{:02x}",
-                    addr, val
-                );
-            }
         }
     }
 }

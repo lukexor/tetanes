@@ -20,7 +20,6 @@ pub struct Sxrom {
     prg_bank: u8,            // $E000-$FFFF
     shift_register: u8,      // Write every 5th write
     prg_ram: [u8; 8 * 1024], // 8KB
-    chr_ram: [u8; 8 * 1024], // 8KB
 }
 
 #[derive(Debug)]
@@ -32,13 +31,6 @@ enum SxPrgBankMode {
 
 use SxPrgBankMode::*;
 
-enum SxChrBankMode {
-    Switch8,
-    Switch4,
-}
-
-use SxChrBankMode::*;
-
 impl Sxrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         Rc::new(RefCell::new(Self {
@@ -49,7 +41,6 @@ impl Sxrom {
             prg_bank: 0u8,
             shift_register: 0x10,
             prg_ram: [0u8; 8 * 1024], // 8KB
-            chr_ram: [0u8; 8 * 1024], // 8KB
         }))
     }
 

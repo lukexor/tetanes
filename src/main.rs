@@ -50,7 +50,7 @@ pub enum NesError {
 fn main() {
     let opt = Opt::from_args();
     let roms = find_roms(opt.path).unwrap_or_else(|e| err_exit(e));
-    let mut ui = UI::init(roms, opt.scale, opt.fullscreen).unwrap_or_else(|e| err_exit(e));
+    let mut ui = UI::init(roms, opt.scale).unwrap_or_else(|e| err_exit(e));
     ui.run().unwrap_or_else(|e| err_exit(e));
 }
 

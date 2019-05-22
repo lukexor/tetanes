@@ -1,10 +1,10 @@
-use crate::console::MASTER_CLOCK_RATE;
+use crate::console::CPU_FREQUENCY;
 use crate::memory::Memory;
 use std::fmt;
 
-const SAMPLE_RATE: f64 = 48_000.0; // Oversample rate in Hz
-const APU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 89_490.0;
-const CYCLES_PER_SAMPLE: f64 = MASTER_CLOCK_RATE / 12.0 / SAMPLE_RATE;
+pub const SAMPLE_RATE: i32 = 44100; // in Hz
+pub const SAMPLES_SIZE: usize = (SAMPLE_RATE as usize / 60) * 2;
+const CYCLES_PER_SAMPLE: u64 = CPU_FREQUENCY as u64 / SAMPLE_RATE as u64;
 
 // Audio Processing Unit
 pub struct Apu {
@@ -53,7 +53,7 @@ impl Apu {
             cycle: 0u64,
             irq_pending: false,
             irq_enabled: false,
-            samples: Vec::new(),
+            samples: Vec::with_capacity(SAMPLES_SIZE),
             frame: FrameCounter {
                 step: 1u8,
                 counter: 0u16,
@@ -75,10 +75,10 @@ impl Apu {
             tnd_table: [0f32; Self::TND_TABLE_SIZE],
         };
         apu.frame.counter = apu.next_frame_counter();
-        for i in 0..Self::PULSE_TABLE_SIZE {
+        for i in 1..Self::PULSE_TABLE_SIZE {
             apu.pulse_table[i] = 95.52 / (8_128.0 / (i as f32) + 100.0);
         }
-        for i in 0..Self::TND_TABLE_SIZE {
+        for i in 1..Self::TND_TABLE_SIZE {
             apu.tnd_table[i] = 163.67 / (24_329.0 / (i as f32) + 100.0);
         }
         apu
@@ -102,7 +102,7 @@ impl Apu {
         self.triangle.clock();
         self.clock_frame_counter();
 
-        if self.cycle % CYCLES_PER_SAMPLE as u64 == 0 {
+        if self.cycle % CYCLES_PER_SAMPLE == 0 {
             let sample = self.output();
             let sample = self.apply_filter(sample);
             self.samples.push(sample);
@@ -116,18 +116,19 @@ impl Apu {
 
     fn apply_filter(&mut self, sample: f32) -> f32 {
         // low pass
-        self.filter.lowpass_out = (sample - self.filter.lowpass_out) * 0.815686;
+        self.filter.lowpass_out = (sample - self.filter.lowpass_out) * 0.815_686;
 
         // highpass 1
-        self.filter.highpass1_out = self.filter.highpass1_out * 0.996039 + self.filter.lowpass_out
+        self.filter.highpass1_out = self.filter.highpass1_out * 0.996_039 + self.filter.lowpass_out
             - self.filter.highpass1_prev;
         self.filter.highpass1_prev = self.filter.highpass1_out;
 
         // highpass 2
-        self.filter.highpass2_out = self.filter.highpass2_out * 0.999835
+        self.filter.highpass2_out = self.filter.highpass2_out * 0.999_835
             + self.filter.highpass1_out
             - self.filter.highpass2_prev;
         self.filter.highpass2_prev = self.filter.highpass2_out;
+
         self.filter.highpass2_out
     }
 
@@ -153,18 +154,6 @@ impl Apu {
                 && self.frame.step <= 5
             {
                 self.irq_pending = true;
-                if self.cycle >= (59740 - 7458) && self.cycle <= (59740 + 7458) {
-                    eprintln!(
-                        "irq set - cycle: {} - step: {}",
-                        self.cycle, self.frame.step
-                    );
-                }
-                if self.cycle >= (179200 - 7458) && self.cycle <= (179200 + 7458) {
-                    eprintln!(
-                        "irq set - cycle: {} - step: {}",
-                        self.cycle, self.frame.step
-                    );
-                }
             }
 
             self.frame.step += 1;
@@ -191,31 +180,7 @@ impl Apu {
     }
 
     fn next_frame_counter(&self) -> u16 {
-        // if self.cycle >= (89669 - 7_458) && self.cycle <= (89669 + 7_458) {
-        //     eprintln!(
-        //         "length: {} - cycle: {} - step: {}",
-        //         self.pulse1.length.counter, self.cycle, self.frame.step,
-        //     );
-        // }
-        // if self.cycle >= (44846 - 7_458) && self.cycle <= (44846 + 7_458) {
-        //     eprintln!(
-        //         "length: {} - cycle: {} - step: {}",
-        //         self.pulse1.length.counter, self.cycle, self.frame.step,
-        //     );
-        // }
-        if self.cycle >= (209134 - 7_458) && self.cycle <= (209134 + 7_458) {
-            eprintln!(
-                "length: {} - cycle: {} - step: {}",
-                self.pulse1.length.counter, self.cycle, self.frame.step,
-            );
-        }
-        // if self.cycle >= (358439 - 7_458) && self.cycle <= (358439 + 7_458) {
-        //     eprintln!(
-        //         "length: {} - cycle: {} - step: {}",
-        //         self.pulse1.length.counter, self.cycle, self.frame.step,
-        //     );
-        // }
-        let next_counter = match self.frame.mode {
+        match self.frame.mode {
             FCMode::Step4 => match self.frame.step {
                 1 => 7457,
                 2 => 7458,
@@ -234,8 +199,7 @@ impl Apu {
                 6 => 1,
                 _ => panic!("shouldn't happen"),
             },
-        };
-        next_counter
+        }
     }
 
     fn output(&mut self) -> f32 {
@@ -275,13 +239,11 @@ impl Apu {
             status |= 0x80;
         }
         self.irq_pending = false;
-        eprintln!("$4015 READ: ${:02X} - cycle: {}", status, self.cycle);
-        // eprintln!("length: {}", self.pulse1.length.counter);
         status
     }
+
     // $4015 WRITE
     fn write_status(&mut self, val: u8) {
-        // eprintln!("$4015 WRITE: ${:02X}", val);
         self.pulse1.enabled = val & 1 == 1;
         if !self.pulse1.enabled {
             self.pulse1.length.counter = 0;
@@ -311,7 +273,6 @@ impl Apu {
 
     // $4017 APU frame counter
     fn write_frame_counter(&mut self, val: u8) {
-        eprintln!("$4017: ${:02X} - cycle: {}", val, self.cycle);
         // D7
         self.frame.mode = if (val >> 7) & 1 == 0 {
             FCMode::Step4
@@ -322,10 +283,10 @@ impl Apu {
         self.frame.counter = self.next_frame_counter();
         if self.cycle % 2 == 0 {
             // During an APU cycle
-            self.frame.counter += 0;
+            self.frame.counter += 3;
         } else {
             // Between APU cycles
-            self.frame.counter -= 1;
+            self.frame.counter += 4;
         }
         // If step 5 clock immediately
         if self.frame.mode == FCMode::Step5 {
@@ -344,7 +305,6 @@ impl Memory for Apu {
         if addr == 0x4015 {
             self.read_status()
         } else {
-            // eprintln!("unhandled Apu readb at address 0x{:04X}", addr);
             0xFF
         }
     }
@@ -360,11 +320,9 @@ impl Memory for Apu {
             0x4006 => self.pulse2.write_timer_lo(val),
             0x4007 => self.pulse2.write_timer_hi(val),
             0x4008 => self.triangle.write_linear_counter(val),
-            // 0x4009 => (), // Unused
             0x400A => self.triangle.write_timer_lo(val),
             0x400B => self.triangle.write_timer_hi(val),
             0x400C => self.noise.write_control(val),
-            0x400D => (), // Unused
             0x400E => self.noise.write_timer(val),
             0x400F => self.noise.write_length(val),
             0x4010 => self.dmc.write_timer(val),
@@ -373,7 +331,7 @@ impl Memory for Apu {
             0x4013 => self.dmc.write_length(val),
             0x4015 => self.write_status(val),
             0x4017 => self.write_frame_counter(val),
-            _ => (), // eprintln!("unhandled Apu writeb at address: 0x{:04X}", addr),
+            _ => (),
         }
     }
 }
@@ -464,11 +422,7 @@ impl Pulse {
 
     fn sweep_forcing_silence(&self) -> bool {
         let next_freq = self.freq_timer + (self.freq_timer >> self.sweep.shift);
-        if self.freq_timer < 8 || (!self.sweep.negate && next_freq >= 0x800) {
-            true
-        } else {
-            false
-        }
+        self.freq_timer < 8 || (!self.sweep.negate && next_freq >= 0x800)
     }
 
     fn output(&self) -> f32 {
@@ -477,9 +431,9 @@ impl Pulse {
             && !self.sweep_forcing_silence()
         {
             if self.envelope.enabled {
-                self.envelope.volume as f32
+                f32::from(self.envelope.volume)
             } else {
-                self.envelope.constant_volume as f32
+                f32::from(self.envelope.constant_volume)
             }
         } else {
             0f32
@@ -488,14 +442,12 @@ impl Pulse {
 
     // $4000 Pulse control
     fn write_control(&mut self, val: u8) {
-        // eprintln!("$4000/4: ${:02X}", val);
         self.duty_cycle = (val >> 6) & 0x03; // D7..D6
         self.length.write_control(val);
         self.envelope.write_control(val);
     }
     // $4001 Pulse sweep
     fn write_sweep(&mut self, val: u8) {
-        // eprintln!("$4001/5: ${:02X}", val);
         self.sweep.timer = (val >> 4) & 0x07; // D6..D4
         self.sweep.negate = (val >> 3) & 1 == 1; // D3
         self.sweep.shift = val & 0x07; // D2..D0
@@ -504,12 +456,10 @@ impl Pulse {
     }
     // $4002 Pulse timer lo
     fn write_timer_lo(&mut self, val: u8) {
-        // eprintln!("$4002/6: ${:02X}", val);
         self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
     }
     // $4003 Pulse timer hi
     fn write_timer_hi(&mut self, val: u8) {
-        // eprintln!("$4003/7: ${:02X}", val);
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
         self.freq_counter = self.freq_timer;
         self.duty_counter = 0;
@@ -545,17 +495,12 @@ impl Triangle {
 
     fn clock(&mut self) {
         self.ultrasonic = false;
-        if self.freq_timer < 2 && self.freq_counter == 0 {
+        if self.length.counter > 0 && self.freq_timer < 2 && self.freq_counter == 0 {
             self.ultrasonic = true;
         }
 
         let should_clock =
-            if self.length.counter == 0 || self.linear.counter == 0 || self.ultrasonic {
-                false
-            } else {
-                true
-            };
-
+            !(self.length.counter == 0 || self.linear.counter == 0 || self.ultrasonic);
         if should_clock {
             if self.freq_counter > 0 {
                 self.freq_counter -= 1;
@@ -585,9 +530,9 @@ impl Triangle {
         if self.ultrasonic {
             7.5
         } else if self.step & 0x10 == 0x10 {
-            (self.step ^ 0x1F) as f32
+            f32::from(self.step ^ 0x1F)
         } else {
-            self.step as f32
+            f32::from(self.step)
         }
     }
 
@@ -603,6 +548,7 @@ impl Triangle {
 
     fn write_timer_hi(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
+        self.freq_counter = self.freq_timer;
         self.linear.reload = true;
         if self.enabled {
             self.length.load(val);
@@ -648,7 +594,7 @@ impl Noise {
             self.freq_counter -= 1;
         } else {
             self.freq_counter = self.freq_timer;
-            let shift_amount = if self.shift_mode == ShiftMode::Zero {
+            let shift_amount = if self.shift_mode == ShiftMode::One {
                 6
             } else {
                 1
@@ -671,9 +617,9 @@ impl Noise {
     fn output(&self) -> f32 {
         if self.shift & 1 == 0 && self.length.counter != 0 {
             if self.envelope.enabled {
-                self.envelope.volume as f32
+                f32::from(self.envelope.volume)
             } else {
-                self.envelope.constant_volume as f32
+                f32::from(self.envelope.constant_volume)
             }
         } else {
             0f32
@@ -681,6 +627,7 @@ impl Noise {
     }
 
     fn write_control(&mut self, val: u8) {
+        self.length.write_control(val);
         self.envelope.write_control(val);
     }
 
@@ -789,7 +736,7 @@ impl DMC {
     }
 
     fn output(&self) -> f32 {
-        self.output as f32
+        f32::from(self.output)
     }
 
     // $4010 DMC timer
@@ -910,7 +857,6 @@ impl Envelope {
 
     // $4000/$4004/$400C Envelope control
     fn write_control(&mut self, val: u8) {
-        // eprintln!("$4000/4/C envelope: ${:02X}", val);
         self.loops = (val >> 5) & 1 == 1; // D5
         self.enabled = (val >> 4) & 1 == 0; // !D4
         self.constant_volume = val & 0x0F; // D3..D0
@@ -924,6 +870,12 @@ struct Sweep {
     timer: u8,    // counter reload value
     counter: u8,  // current timer value
     shift: u8,
+}
+
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl fmt::Debug for Apu {

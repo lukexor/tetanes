@@ -6,27 +6,23 @@ use crate::ui::window::Window;
 use crate::Result;
 use failure::format_err;
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
-use std::{fmt, path::PathBuf};
 
 mod window;
 
 pub struct UI {
     roms: Vec<PathBuf>,
-    scale: u32, // 1, 2, or 3
-    fullscreen: bool,
     window: Window,
 }
 
 impl UI {
-    pub fn init(roms: Vec<PathBuf>, scale: u32, fullscreen: bool) -> Result<Self> {
+    pub fn init(roms: Vec<PathBuf>, scale: u32) -> Result<Self> {
         if roms.is_empty() {
             Err(format_err!("no rom files found or specified"))?;
         }
         Ok(Self {
             roms,
-            scale,
-            fullscreen,
             window: Window::with_scale(scale)?,
         })
     }

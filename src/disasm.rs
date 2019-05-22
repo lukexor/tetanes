@@ -4,7 +4,7 @@ use crate::memory::Memory;
 use AddrMode::*;
 use Operation::*;
 
-pub fn disassemble(mem: &mut Memory, mut pc: u16, x: u8, y: u8) -> (u8, String) {
+pub fn disassemble(mem: &mut Memory, pc: u16, x: u8, y: u8) -> (u8, String) {
     let opcode = mem.readb(pc);
     let instr = &INSTRUCTIONS[opcode as usize];
     let addr_mode = instr.addr_mode();

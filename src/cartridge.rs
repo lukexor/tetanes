@@ -3,14 +3,15 @@
 use crate::Result;
 use failure::format_err;
 use std::fmt;
-use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::PathBuf;
 
 const PRG_BANK_SIZE: usize = 16 * 1024;
 const CHR_BANK_SIZE: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
 
 /// Represents an NES Cartridge
+#[derive(Default)]
 pub struct Cartridge {
     pub rom: PathBuf,
     pub header: INesHeader,
@@ -23,7 +24,7 @@ pub struct Cartridge {
 // http://wiki.nesdev.com/w/index.php/INES
 // http://nesdev.com/NESDoc.pdf (page 28)
 // http://wiki.nesdev.com/w/index.php/NES_2.0
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct INesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
     pub mapper_num: u16,   // The primary mapper number
@@ -104,7 +105,7 @@ impl INesHeader {
 
     fn from_bytes(header: &[u8; 16]) -> Result<Self> {
         // Header checks
-        if &header[0..4] != *b"NES\x1a" {
+        if header[0..4] != *b"NES\x1a" {
             Err(format_err!("iNES header signature not found."))?;
         } else if (header[7] & 0x0C) == 0x04 {
             Err(format_err!(
@@ -160,8 +161,8 @@ impl INesHeader {
                 ))?;
             }
         } else {
-            for i in 8..16 {
-                if header[i] > 0 {
+            for (i, header) in header.iter().enumerate().take(16).skip(8) {
+                if *header > 0 {
                     Err(format_err!(
                         "Unregonized data found at header offset {} - repair and try again.",
                         i

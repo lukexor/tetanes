@@ -26,17 +26,6 @@ pub trait Mapper: Memory + Send {
     fn step(&mut self);
 }
 
-// http://wiki.nesdev.com/w/index.php/List_of_mappers
-#[derive(Debug, Eq, PartialEq)]
-enum Board {
-    NROM,  // mapper 0, ~51 games - Donkey Kong, Galaga, Pac Man, Super Mario Brothers
-    SxROM, // mapper 1:  ~200 games - A Boy and His Blob, Final Fantasy, Metroid, Zelda
-    UNROM, // mapper 2, ~82 games - Castlevania, Contra, Mega Man
-    CNROM, // mapper 3, ~58 games - Paperboy
-    TxROM, // mapper 4, ~175 games - Kickle Cubicle, Krusty's Fun House, Super Mario Brothers 2/3
-    AOROM, // mapper 7, ~9 games - Battle Toads, Double Dragon
-}
-
 // http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Mirroring {

@@ -1,17 +1,13 @@
 //! An NES emulator
 
-pub use ppu::Image;
+pub use apu::{SAMPLES_SIZE, SAMPLE_RATE};
+pub use ppu::{Image, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-use crate::cartridge::Cartridge;
 use crate::input::{InputRef, InputResult};
 use crate::mapper;
 use crate::memory::CpuMemMap;
 use crate::Result;
 use cpu::Cpu;
-use ppu::StepResult;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::time::Duration;
 use std::{fmt, path::PathBuf};
 
 pub mod apu;
@@ -28,8 +24,6 @@ const REFRESH_RATE: f64 = 60.0; // 60 Hz
 pub struct Console {
     cpu: Cpu,
     cycles_remaining: i64,
-    powered_on: bool,
-    logging_enabled: bool,
 }
 
 impl Console {
@@ -40,8 +34,6 @@ impl Console {
         Ok(Self {
             cpu: Cpu::init(cpu_memory),
             cycles_remaining: 0,
-            powered_on: true,
-            logging_enabled: false,
         })
     }
     pub fn power_cycle(&mut self) {
@@ -53,7 +45,7 @@ impl Console {
     pub fn step(&mut self) -> u64 {
         let cpu_cycles = self.cpu.step();
         // Step PPU and mapper 3x
-        let mut ppu_result = StepResult::new();
+        let mut ppu_result;
         for _ in 0..cpu_cycles * 3 {
             ppu_result = self.cpu.mem.ppu.clock();
             {

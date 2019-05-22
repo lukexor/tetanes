@@ -43,16 +43,15 @@ const CPU_TRACE_LOG: &str = "logs/cpu.log";
 /// The Central Processing Unit
 pub struct Cpu {
     pub mem: CpuMemMap,
-    cycles: u64,           // total number of cycles ran
-    cycles_remaining: u64, // Number of cycles remaining to run
-    stall: u64,            // number of cycles to stall/nop used mostly by write_oamdma
-    pc: u16,               // program counter
-    sp: u8,                // stack pointer - stack is at $0100-$01FF
-    acc: u8,               // accumulator
-    x: u8,                 // x register
-    y: u8,                 // y register
-    status: u8,            // Status Registers
-    interrupt: Interrupt,  // Pending interrupt
+    cycles: u64,          // total number of cycles ran
+    stall: u64,           // number of cycles to stall/nop used mostly by write_oamdma
+    pc: u16,              // program counter
+    sp: u8,               // stack pointer - stack is at $0100-$01FF
+    acc: u8,              // accumulator
+    x: u8,                // x register
+    y: u8,                // y register
+    status: u8,           // Status Registers
+    interrupt: Interrupt, // Pending interrupt
     trace: bool,
     pub oplog: Vec<String>,
 }
@@ -69,7 +68,6 @@ impl Cpu {
         Self {
             mem,
             cycles: POWER_ON_CYCLES,
-            cycles_remaining: 0u64,
             stall: 0u64,
             pc,
             sp: POWER_ON_SP,
@@ -215,7 +213,6 @@ impl Cpu {
             RLA => self.rla(target),          // ROL & AND
             ANC => self.anc(),                // AND & ASL
             SLO => self.slo(target),          // ASL & ORA
-            _ => eprintln!("unhandled operation {:?}", instr.op()),
         };
         self.cycles - start_cycles
     }
@@ -443,7 +440,7 @@ impl Cpu {
                 let addr_zp = self.mem.readw_zp(addr_zp);
                 let addr = addr_zp.wrapping_add(u16::from(self.y));
                 // dummy read
-                if u16::from(addr_zp & 0xFF) + u16::from(self.y) > 0xFF {
+                if (addr_zp & 0xFF) + u16::from(self.y) > 0xFF {
                     let dummy_addr = (addr_zp & 0xFF00) | (addr & 0xFF);
                     self.readb(dummy_addr);
                 }
@@ -512,7 +509,7 @@ impl Cpu {
     fn write_oamdma(&mut self, addr: u8) {
         let mut addr = u16::from(addr) << 8; // Start at $XX00
         let oam_addr = 0x2004;
-        for i in 0..256 {
+        for _ in 0..256 {
             // Copy 256 bytes from $XX00-$XXFF
             let val = self.readb(addr);
             self.writeb(oam_addr, val);

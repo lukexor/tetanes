@@ -52,6 +52,7 @@ impl Gamepad {
     }
 }
 
+#[derive(Default)]
 pub struct Input {
     gamepad1: Gamepad,
     gamepad2: Gamepad,
@@ -137,7 +138,7 @@ impl Memory for Input {
         }
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn writeb(&mut self, addr: u16, _val: u8) {
         if addr == 0x4016 {
             self.gamepad1.reset();
             self.gamepad2.reset();

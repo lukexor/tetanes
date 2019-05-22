@@ -2,6 +2,8 @@
 //!
 //! http://wiki.nesdev.com/w/index.php/PPU
 
+#![allow(clippy::new_without_default)]
+
 use crate::mapper::{MapperRef, Mirroring};
 use crate::memory::Memory;
 use std::fmt;
@@ -26,16 +28,13 @@ const VISIBLE_CYCLE_END: u64 = 256;
 const SPRITE_PREFETCH_CYCLE_START: u64 = 257;
 const COPY_Y_CYCLE_START: u64 = 280;
 const COPY_Y_CYCLE_END: u64 = 304;
-const SPRITE_PREFETCH_CYCLE_END: u64 = 320;
 const PREFETCH_CYCLE_START: u64 = 321;
 const PREFETCH_CYCLE_END: u64 = 336;
 const PRERENDER_CYCLE_END: u64 = 340;
 const VISIBLE_SCANLINE_CYCLE_END: u64 = 340;
 
 // Scanlines
-const VISIBLE_SCANLINE_START: u16 = 0;
 const VISIBLE_SCANLINE_END: u16 = 239;
-const POSTRENDER_SCANLINE: u16 = 240;
 const VBLANK_SCANLINE: u16 = 241;
 const PRERENDER_SCANLINE: u16 = 261;
 
@@ -59,9 +58,7 @@ const Y_OVER_COL: u16 = 31; // overscan row
 // Nametable ranges
 // $2000 upper-left corner, $2400 upper-right, $2800 lower-left, $2C00 lower-right
 const NAMETABLE_START: u16 = 0x2000;
-const NAMETABLE_END: u16 = 0x2FBF;
 const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NAMETABLEs
-const ATTRIBUTE_END: u16 = 0x2FFF;
 const PALETTE_START: u16 = 0x3F00;
 
 #[derive(Debug)]
@@ -75,7 +72,7 @@ pub struct Ppu {
     screen: Screen,    // The main screen holding pixel data
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct PpuRegs {
     open_bus: u8,       // This open bus gets set during any write to PPU registers
     ctrl: PpuCtrl,      // $2000 PPUCTRL write-only
@@ -126,7 +123,7 @@ struct Screen {
     pixels: [Rgb; PIXEL_COUNT],
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 struct Sprite {
     index: u8,
     x: u8,
@@ -139,11 +136,11 @@ struct Sprite {
     flip_vertical: bool,
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 struct PpuCtrl(u8);
-#[derive(Debug)]
+#[derive(Default, Debug)]
 struct PpuMask(u8);
-#[derive(Debug)]
+#[derive(Default, Debug)]
 struct PpuStatus(u8);
 
 // http://wiki.nesdev.com/w/index.php/PPU_nametables
@@ -152,22 +149,10 @@ struct Nametable([u8; NAMETABLE_SIZE]);
 // http://wiki.nesdev.com/w/index.php/PPU_palettes
 struct Palette([u8; PALETTE_SIZE]);
 
-#[derive(Debug)]
-enum SpriteSize {
-    Sprite8x8,
-    Sprite8x16,
-}
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 struct Rgb(u8, u8, u8);
 
-#[derive(Copy, Clone)]
-struct PaletteColor {
-    palette: u8, // (0, 3)
-    pixel: u8,   // (0, 3)
-}
-
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct StepResult {
     pub new_frame: bool,
     pub trigger_nmi: bool,
@@ -201,7 +186,7 @@ impl Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
     pub fn clock(&mut self) -> StepResult {
         let mut step_result = StepResult::new();
-        if (self.regs.nmi_delay > 0) {
+        if self.regs.nmi_delay > 0 {
             self.regs.nmi_delay -= 1;
             if self.regs.nmi_delay == 0 && self.nmi_enable() && self.vblank_started() {
                 step_result.trigger_nmi = true;
@@ -273,7 +258,7 @@ impl Ppu {
 
             if render_scanline {
                 // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-                if fetch_cycle && self.cycle & 0x07 == 0 {
+                if fetch_cycle && self.cycle.trailing_zeros() >= 3 {
                     self.regs.increment_x();
                 }
                 // Increment Fine Y when we reach the end of the screen
@@ -325,11 +310,8 @@ impl Ppu {
         let x = (self.cycle - 1) as u8; // Because we called tick() before this
         let y = self.scanline as u8;
 
-        let mut bg_color = self.background_color(x);
+        let mut bg_color = self.background_color();
         let (i, mut sprite_color) = self.sprite_color(x);
-        // if bg_color > 0 {
-        //     eprintln!("bg: {}, sp: {}", bg_color, sprite_color);
-        // }
 
         if x < 8 && !self.regs.mask.show_background() {
             bg_color = 0;
@@ -365,7 +347,7 @@ impl Ppu {
         self.frame.sprites[index].index == 0
     }
 
-    fn background_color(&mut self, x: u8) -> u8 {
+    fn background_color(&mut self) -> u8 {
         if !self.regs.mask.show_background() {
             return 0;
         }
@@ -376,8 +358,7 @@ impl Ppu {
         // +----- Background/Sprite select
 
         // TODO Explain the bit shifting here more clearly
-        let data = (self.frame.tile_data >> 32) as u32 >> ((7 - self.regs.x) * 4);
-        // eprintln!("data: {}, x: {}", self.frame.tile_data, self.regs.x);
+        let data = (self.frame.tile_data >> 32) as u32 >> ((7 - self.regs.fine_x()) * 4);
         (data & 0x0F) as u8
     }
 
@@ -386,17 +367,13 @@ impl Ppu {
             return (0, 0);
         }
         for i in 0..self.frame.sprite_count as usize {
-            let offset = (self.cycle - 1) as i16 - i16::from(self.frame.sprites[i].x);
+            let offset = i16::from(x) - i16::from(self.frame.sprites[i].x);
             if offset < 0 || offset > 7 {
                 continue;
             }
             let offset = 7 - offset;
             let color = ((self.frame.sprites[i].pattern >> (offset * 4) as u8) & 0x0F) as u8;
-            // eprintln!(
-            //     "{}, {}, {}, {}",
-            //     self.frame.sprites[i].x, self.frame.sprites[i].pattern, offset, color
-            // );
-            if color & 0x03 == 0 {
+            if color.trailing_zeros() >= 2 {
                 continue;
             }
             return (i, color);
@@ -406,7 +383,7 @@ impl Ppu {
 
     fn store_tile(&mut self) {
         let mut data = 0u32;
-        for i in 0..8 {
+        for _ in 0..8 {
             let a = self.frame.attribute;
             let p1 = (self.frame.tile_lo & 0x80) >> 7;
             let p2 = (self.frame.tile_hi & 0x80) >> 6;
@@ -518,19 +495,6 @@ impl PpuRegs {
     fn fine_y(&self) -> u8 {
         // Shift yyy over nametable, coarse y and x and return 3 bits
         ((self.v >> 12) & 0x7) as u8
-    }
-
-    // Returns Coarse X: XXXXX from PPUADDR v
-    // yyy NN YYYYY XXXXX
-    fn coarse_x(&self) -> u8 {
-        (self.v & COARSE_X_MASK) as u8
-    }
-
-    // Returns Coarse Y: YYYYY from PPUADDR v
-    // yyy NN YYYYY XXXXX
-    fn coarse_y(&self) -> u8 {
-        // Take coarse y and shift over coase x
-        ((self.v & COARSE_Y_MASK) >> 5) as u8
     }
 
     // Writes val to PPUSCROLL
@@ -678,19 +642,6 @@ impl Oam {
     }
 }
 
-impl Palette {
-    fn mirror_addr(addr: u16) -> u16 {
-        // These addresses are mirrored down
-        match addr {
-            0x3F10 => 0x3F00,
-            0x3F14 => 0x3F04,
-            0x3F18 => 0x3F08,
-            0x3F1C => 0x3F0C,
-            _ => addr,
-        }
-    }
-}
-
 impl Vram {
     fn init(mapper: MapperRef) -> Self {
         Self {
@@ -801,33 +752,6 @@ impl Rgb {
     }
 }
 
-// https://wiki.nesdev.com/w/index.php/PPU_palettes
-impl PaletteColor {
-    fn with_parts(palette: u8, pixel: u8) -> Self {
-        Self { palette, pixel }
-    }
-    fn universal_bg() -> Self {
-        Self {
-            palette: 0,
-            pixel: 0,
-        }
-    }
-
-    // self is pass by value here because clippy says it's more efficient
-    // https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
-    fn index(self) -> u16 {
-        let palette_color_size = 4;
-        let palette_start = 0x3F00;
-        palette_start + palette_color_size * u16::from(self.palette) + u16::from(self.pixel)
-    }
-    fn transparent(self) -> bool {
-        self.pixel == 0
-    }
-    fn opaque(self) -> bool {
-        !self.transparent()
-    }
-}
-
 impl StepResult {
     pub fn new() -> Self {
         Self {
@@ -935,13 +859,13 @@ impl Memory for Nametable {
 
 impl Memory for Palette {
     fn readb(&mut self, mut addr: u16) -> u8 {
-        if addr >= 16 && addr & 0x03 == 0 {
+        if addr >= 16 && addr.trailing_zeros() >= 2 {
             addr -= 16;
         }
         self.0[addr as usize]
     }
     fn writeb(&mut self, mut addr: u16, val: u8) {
-        if addr >= 16 && addr & 0x03 == 0 {
+        if addr >= 16 && addr.trailing_zeros() >= 2 {
             addr -= 16;
         }
         self.0[addr as usize] = val;
@@ -1026,10 +950,9 @@ impl Ppu {
         let a = (sprite.palette - 4) << 2;
         let mut lo_tile = self.vram.readb(addr);
         let mut hi_tile = self.vram.readb(addr + 8);
-        // eprintln!("{}, {} => ({}, {})", a, addr, lo_tile, hi_tile);
         let mut pattern = 0u32;
-        for i in 0..8 {
-            let (mut p1, mut p2) = (0u8, 0u8);
+        for _ in 0..8 {
+            let (p1, p2);
             if sprite.flip_horizontal {
                 p1 = lo_tile & 1;
                 p2 = (hi_tile & 1) << 1;
@@ -1047,21 +970,8 @@ impl Ppu {
         pattern
     }
 
-    // Returns a system RGB color by index
-    fn get_system_color(&self, palette_idx: u8) -> Rgb {
-        SYSTEM_PALETTE[palette_idx as usize & (SYSTEM_PALETTE_SIZE - 1)]
-    }
-
     fn rendering_enabled(&self) -> bool {
         self.regs.mask.show_background() || self.regs.mask.show_sprites()
-    }
-
-    fn get_bg_pixel(&mut self, x: u8) -> Option<Rgb> {
-        None
-    }
-
-    fn get_sprite_pixel(&mut self, x: u8) -> Option<Rgb> {
-        None
     }
 
     // Register read/writes
@@ -1120,9 +1030,6 @@ impl Ppu {
      * OAMADDR
      */
 
-    fn read_oamaddr(&mut self) -> u8 {
-        self.oamdata.readb(u16::from(self.regs.oamaddr))
-    }
     fn write_oamaddr(&mut self, val: u8) {
         self.regs.oamaddr = val;
     }
@@ -1202,23 +1109,6 @@ impl PpuCtrl {
         self.0 = val;
     }
 
-    fn nametable_select(&self) -> u8 {
-        self.0 & 0x03
-    }
-    fn x_scroll_offset(&self) -> u16 {
-        if self.0 & 0x01 > 0 {
-            255
-        } else {
-            0
-        }
-    }
-    fn y_scroll_offset(&self) -> u16 {
-        if self.0 & 0x02 > 0 {
-            239
-        } else {
-            0
-        }
-    }
     fn vram_increment(&self) -> u16 {
         if self.0 & 0x04 > 0 {
             32
@@ -1247,9 +1137,6 @@ impl PpuCtrl {
             8
         }
     }
-    fn master_select(&self) -> bool {
-        self.0 & 0x40 > 0
-    }
     fn nmi_enable(&self) -> bool {
         self.0 & 0x80 > 0
     }
@@ -1270,29 +1157,11 @@ impl PpuMask {
         self.0 = val;
     }
 
-    fn grayscale(&self) -> bool {
-        self.0 & 0x01 > 0
-    }
-    fn show_left_background(&self) -> bool {
-        self.0 & 0x02 > 0
-    }
-    fn show_left_sprites(&self) -> bool {
-        self.0 & 0x04 > 0
-    }
     fn show_background(&self) -> bool {
         self.0 & 0x08 > 0
     }
     fn show_sprites(&self) -> bool {
         self.0 & 0x10 > 0
-    }
-    fn emphasize_red(&self) -> bool {
-        self.0 & 0x20 > 0
-    }
-    fn emphasize_green(&self) -> bool {
-        self.0 & 0x40 > 0
-    }
-    fn emphasize_blue(&self) -> bool {
-        self.0 & 0x80 > 0
     }
 }
 
@@ -1309,20 +1178,10 @@ impl PpuStatus {
         self.0 | vblank_started // return status with original vblank
     }
 
-    pub fn write(&mut self, val: u8) {
-        self.0 = val;
-    }
-
-    fn sprite_overflow(&mut self) -> bool {
-        self.0 & 0x20 > 0
-    }
     fn set_sprite_overflow(&mut self, val: bool) {
         self.0 = if val { self.0 | 0x20 } else { self.0 & !0x20 };
     }
 
-    fn sprite_zero_hit(&mut self) -> bool {
-        self.0 & 0x40 > 0
-    }
     fn set_sprite_zero_hit(&mut self, val: bool) {
         self.0 = if val { self.0 | 0x40 } else { self.0 & !0x40 };
     }
@@ -1404,27 +1263,6 @@ const SYSTEM_PALETTE: [Rgb; SYSTEM_PALETTE_SIZE] = [
     Rgb(204, 210, 120), Rgb(180, 222, 120), Rgb(168, 226, 144), Rgb(152, 226, 180), // $39-$3B
     Rgb(160, 214, 228), Rgb(160, 162, 160), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $3C-$3F
 ];
-
-// Zips together two bit strings interlacing them
-fn combine_bitplanes(mut a: u8, mut b: u8) -> u16 {
-    let mut out = 0u16;
-    for i in 0..8 {
-        out |= u16::from((a & 1) << 1 | (b & 1)) << (i * 2);
-        a >>= 1;
-        b >>= 1;
-    }
-    out
-}
-
-fn reverse_bits(mut a: u8) -> u8 {
-    let mut out = 0u8;
-    for i in 0..8 {
-        out <<= 1;
-        out |= a & 1;
-        a >>= 1;
-    }
-    out
-}
 
 #[cfg(test)]
 mod tests {
