@@ -150,9 +150,21 @@ impl Apu {
             if self.irq_enabled
                 && self.frame.mode == Step4
                 && self.frame.step >= 4
-                && self.frame.step <= 6
+                && self.frame.step <= 5
             {
                 self.irq_pending = true;
+                if self.cycle >= (59740 - 7458) && self.cycle <= (59740 + 7458) {
+                    eprintln!(
+                        "irq set - cycle: {} - step: {}",
+                        self.cycle, self.frame.step
+                    );
+                }
+                if self.cycle >= (179200 - 7458) && self.cycle <= (179200 + 7458) {
+                    eprintln!(
+                        "irq set - cycle: {} - step: {}",
+                        self.cycle, self.frame.step
+                    );
+                }
             }
 
             self.frame.step += 1;
@@ -179,7 +191,6 @@ impl Apu {
     }
 
     fn next_frame_counter(&self) -> u16 {
-        let fc = &self.frame;
         // if self.cycle >= (89669 - 7_458) && self.cycle <= (89669 + 7_458) {
         //     eprintln!(
         //         "length: {} - cycle: {} - step: {}",
@@ -192,38 +203,39 @@ impl Apu {
         //         self.pulse1.length.counter, self.cycle, self.frame.step,
         //     );
         // }
-        // if self.cycle >= (209134 - 7_458) && self.cycle <= (209134 + 7_458) {
-        //     eprintln!(
-        //         "length: {} - cycle: {} - step: {}",
-        //         self.pulse1.length.counter, self.cycle, self.frame.step,
-        //     );
-        // }
+        if self.cycle >= (209134 - 7_458) && self.cycle <= (209134 + 7_458) {
+            eprintln!(
+                "length: {} - cycle: {} - step: {}",
+                self.pulse1.length.counter, self.cycle, self.frame.step,
+            );
+        }
         // if self.cycle >= (358439 - 7_458) && self.cycle <= (358439 + 7_458) {
         //     eprintln!(
         //         "length: {} - cycle: {} - step: {}",
         //         self.pulse1.length.counter, self.cycle, self.frame.step,
         //     );
         // }
-        match fc.mode {
-            FCMode::Step4 => match fc.step {
+        let next_counter = match self.frame.mode {
+            FCMode::Step4 => match self.frame.step {
                 1 => 7457,
-                2 => 7456,
-                3 => 7458,
-                4 => 7457,
+                2 => 7458,
+                3 => 7457,
+                4 => 7456,
                 5 => 1,
                 6 => 1,
                 _ => panic!("shouldn't happen"),
             },
-            FCMode::Step5 => match fc.step {
+            FCMode::Step5 => match self.frame.step {
                 1 => 7457,
-                2 => 7456,
-                3 => 7458,
-                4 => 7457,
+                2 => 7458,
+                3 => 7457,
+                4 => 7456,
                 5 => 7454,
                 6 => 1,
                 _ => panic!("shouldn't happen"),
             },
-        }
+        };
+        next_counter
     }
 
     fn output(&mut self) -> f32 {
@@ -263,7 +275,7 @@ impl Apu {
             status |= 0x80;
         }
         self.irq_pending = false;
-        // eprintln!("$4015 READ: ${:02X} - cycle: {}", status, self.cycle);
+        eprintln!("$4015 READ: ${:02X} - cycle: {}", status, self.cycle);
         // eprintln!("length: {}", self.pulse1.length.counter);
         status
     }
@@ -299,7 +311,7 @@ impl Apu {
 
     // $4017 APU frame counter
     fn write_frame_counter(&mut self, val: u8) {
-        // eprintln!("$4017: ${:02X}", val);
+        eprintln!("$4017: ${:02X} - cycle: {}", val, self.cycle);
         // D7
         self.frame.mode = if (val >> 7) & 1 == 0 {
             FCMode::Step4
@@ -308,12 +320,12 @@ impl Apu {
         };
         self.frame.step = 1u8;
         self.frame.counter = self.next_frame_counter();
-        // If changing the mode on an odd cycle, delay step 1 by 3 cycles
-        // so the next clock happens on an even cycle
-        if self.cycle % 2 == 1 {
-            self.frame.counter += 1;
+        if self.cycle % 2 == 0 {
+            // During an APU cycle
+            self.frame.counter += 0;
         } else {
-            self.frame.counter += 2;
+            // Between APU cycles
+            self.frame.counter -= 1;
         }
         // If step 5 clock immediately
         if self.frame.mode == FCMode::Step5 {
@@ -321,7 +333,7 @@ impl Apu {
             self.clock_half_frame();
         }
         self.irq_enabled = (val >> 6) & 1 == 0; // D6
-        if !self.irq_enabled && self.cycle % 2 == 0 {
+        if !self.irq_enabled {
             self.irq_pending = false;
         }
     }
