@@ -7,8 +7,6 @@ pub struct Debugger {
     current_step: u64,     // Current CPU instruction we're at
     steps: u64,            // Number of CPU instructions to step through
     break_type: BreakType, // Type of breakpoint
-    run_last: bool,
-    last_cmd: String,
 }
 #[derive(PartialEq, Eq, Debug)]
 enum BreakType {
@@ -41,8 +39,6 @@ impl Debugger {
             current_step: 0u64,
             steps: 0u64,
             break_type: Unset,
-            run_last: false,
-            last_cmd: String::new(),
         }
     }
 

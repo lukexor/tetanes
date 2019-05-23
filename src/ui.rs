@@ -11,12 +11,14 @@ use std::rc::Rc;
 
 mod window;
 
-const DEFAULT_SPEED: u16 = 60; // 60 Hz
+const DEFAULT_FRAME_RATE: f64 = 60.0; // 60 Hz
+const MIN_FRAME_RATE: f64 = 15.0;
+const MAX_FRAME_RATE: f64 = 240.0;
 
 pub struct UI {
     roms: Vec<PathBuf>,
     window: Window,
-    speed: u16,
+    frame_rate: f64,
     fastforward: bool,
     debug: bool,
     paused: bool,
@@ -31,7 +33,7 @@ impl UI {
         Ok(Self {
             roms,
             window: Window::with_scale(scale)?,
-            speed: DEFAULT_SPEED,
+            frame_rate: DEFAULT_FRAME_RATE,
             fastforward: false,
             debug,
             paused: false,
@@ -56,10 +58,10 @@ impl UI {
         console.debug(self.debug);
         loop {
             if !self.paused {
-                console.step_frame(self.speed);
+                console.step_frame(self.frame_rate);
                 self.window.render(&console.render());
             }
-            if self.sound_enabled {
+            if self.sound_enabled && self.frame_rate == DEFAULT_FRAME_RATE {
                 self.window.enqueue_audio(&mut console.audio_samples());
             } else {
                 console.audio_samples().clear();
@@ -71,9 +73,17 @@ impl UI {
                 Menu => self.paused = !self.paused,
                 Reset => console.reset(),
                 PowerCycle => console.power_cycle(),
-                IncSpeed => eprintln!("Increase speed not implemented"), // TODO
-                DecSpeed => eprintln!("Decrease speed not implemented"), // TODO
-                FastForward => self.fastforward = !self.fastforward,     // TODO
+                IncSpeed => {
+                    if self.frame_rate < MAX_FRAME_RATE {
+                        self.frame_rate += 0.25 * DEFAULT_FRAME_RATE;
+                    }
+                }
+                DecSpeed => {
+                    if self.frame_rate > MIN_FRAME_RATE {
+                        self.frame_rate -= 0.25 * DEFAULT_FRAME_RATE;
+                    }
+                }
+                FastForward => self.fastforward = !self.fastforward, // TODO
                 Save(slot) => eprintln!("Save {} not implemented", slot), // TODO
                 Load(slot) => eprintln!("Load {} not implemented", slot), // TODO
                 ToggleSound => self.sound_enabled = !self.sound_enabled,
@@ -82,7 +92,7 @@ impl UI {
                     self.debug = !self.debug;
                     console.debug(self.debug)
                 }
-                Screenshot => eprintln!("Screenshot not implemented"), // TODO,
+                Screenshot => crate::util::screenshot(&console.render()),
                 ToggleRecord => eprintln!("Recording not implemented"), // TODO,
             }
         }

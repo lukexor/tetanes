@@ -47,8 +47,8 @@ impl Console {
         Ok(())
     }
 
-    pub fn step_frame(&mut self, speed: u16) {
-        self.cycles_remaining += (CPU_FREQUENCY / speed as f64) as i64;
+    pub fn step_frame(&mut self, frame_rate: f64) {
+        self.cycles_remaining += (CPU_FREQUENCY / frame_rate) as i64;
         while self.cycles_remaining > 0 {
             self.cycles_remaining -= self.step() as i64;
         }
@@ -104,14 +104,14 @@ impl Console {
         let mut mapper = self.cpu.mem.mapper.borrow_mut();
         if mapper.cart().has_battery() {
             let rom_file = &mapper.cart().rom_file;
-            let save_path = util::save_path(rom_file)?;
+            let save_path = util::sram_path(rom_file)?;
             if save_path.exists() {
                 let mut sram_file = fs::File::open(&save_path).map_err(|e| {
-                    format_err!("unable to open save file {:?}: {}", save_path.display(), e)
+                    format_err!("failed to open save file {:?}: {}", save_path.display(), e)
                 })?;
                 let mut sram = Vec::with_capacity(RAM_SIZE);
                 sram_file.read_to_end(&mut sram).map_err(|e| {
-                    format_err!("unable to read save file {:?}: {}", save_path.display(), e)
+                    format_err!("failed to read save file {:?}: {}", save_path.display(), e)
                 })?;
                 mapper.cart_mut().sram = sram;
             }
@@ -123,17 +123,17 @@ impl Console {
         let mapper = self.cpu.mem.mapper.borrow();
         if mapper.cart().has_battery() {
             let rom_file = &mapper.cart().rom_file;
-            let save_path = util::save_path(rom_file)?;
+            let save_path = util::sram_path(rom_file)?;
             let save_dir = save_path.parent().unwrap(); // Safe to do
             fs::create_dir_all(save_dir).map_err(|e| {
                 format_err!(
-                    "unable to create save directory {:?}: {}",
+                    "failed to create save directory {:?}: {}",
                     save_dir.display(),
                     e
                 )
             })?;
             fs::write(&save_path, &mapper.cart().sram).map_err(|e| {
-                format_err!("unable to write save file {:?}: {}", save_path.display(), e)
+                format_err!("failed to write save file {:?}: {}", save_path.display(), e)
             })?;
         }
         Ok(())
