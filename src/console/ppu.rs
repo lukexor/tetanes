@@ -68,7 +68,7 @@ pub struct Ppu {
     pub nmi_pending: bool, // Whether the CPU should trigger an NMI next cycle
     regs: PpuRegs,         // Registers
     oamdata: Oam,          // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    vram: Vram,            // $2007 PPUDATA
+    pub vram: Vram,        // $2007 PPUDATA
     frame: Frame,          // Frame data keeps track of data and shift registers between frames
     screen: Screen,        // The main screen holding pixel data
 }
@@ -88,11 +88,11 @@ pub struct PpuRegs {
     w: bool,            // 1st or 2nd write toggle
 }
 
-struct Vram {
+pub struct Vram {
     mapper: MapperRef,
-    buffer: u8,           // PPUDATA buffer
-    nametable: Nametable, // Used to layout backgrounds on the screen
-    palette: Palette,     // Background/Sprite color palettes
+    buffer: u8,               // PPUDATA buffer
+    pub nametable: Nametable, // Used to layout backgrounds on the screen
+    pub palette: Palette,     // Background/Sprite color palettes
 }
 
 // Addr Low Nibble
@@ -146,9 +146,9 @@ struct PpuStatus(u8);
 
 // http://wiki.nesdev.com/w/index.php/PPU_nametables
 // http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
-struct Nametable([u8; NAMETABLE_SIZE]);
+pub struct Nametable(pub [u8; NAMETABLE_SIZE]);
 // http://wiki.nesdev.com/w/index.php/PPU_palettes
-struct Palette([u8; PALETTE_SIZE]);
+pub struct Palette(pub [u8; PALETTE_SIZE]);
 
 #[derive(Default, Debug, Copy, Clone)]
 struct Rgb(u8, u8, u8);
@@ -657,10 +657,9 @@ impl Vram {
             Mirroring::FourScreen => [1, 2, 3, 4],
         };
 
-        eprintln!("Mirror lookup: {:?}", mirroring);
-        let addr = (addr - NAMETABLE_START) & ((NAMETABLE_SIZE as u16) - 1);
+        let addr = (addr - NAMETABLE_START) % ((NAMETABLE_SIZE as u16) * 2);
         let table = addr / table_size;
-        let offset = addr & (table_size - 1);
+        let offset = addr % table_size;
 
         NAMETABLE_START + mirror_lookup[table as usize] * table_size + offset
     }

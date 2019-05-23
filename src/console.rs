@@ -125,7 +125,7 @@ mod tests {
         for _ in 0..NESTEST_LEN {
             c.step();
         }
-        let log = c.cpu.oplog.join("");
+        let log = c.cpu.nestestlog.join("");
         fs::write(cpu_log, &log).expect("Failed to write nestest.log");
 
         let nestest = fs::read_to_string(nestest_log);

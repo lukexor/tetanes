@@ -219,7 +219,8 @@ impl fmt::Debug for Sxrom {
         write!(
             f,
             "Sxrom {{ cart: {:?}, mirroring: {:?} }}",
-            self.cart, self.mirroring
+            self.cart,
+            self.mirroring()
         )
     }
 }

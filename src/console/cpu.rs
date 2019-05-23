@@ -144,7 +144,10 @@ impl Cpu {
         if self.debugger.enabled() {
             let debugger: *mut Debugger = &mut self.debugger;
             let cpu: *mut Cpu = self;
-            unsafe { (*debugger).on_step(&mut (*cpu), opcode, num_args + 1, disasm) };
+            #[cfg(not(test))]
+            unsafe {
+                (*debugger).on_step(&mut (*cpu), opcode, num_args + 1, disasm)
+            };
         }
         self.pc = self.pc.wrapping_add(1 + u16::from(num_args));
         self.cycles += instr.cycles();
