@@ -4,6 +4,7 @@ use crate::Result;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture, TextureCreator};
+use sdl2::video::FullscreenType;
 use sdl2::{video, EventPump};
 
 const DEFAULT_TITLE: &str = "RustyNES";
@@ -12,7 +13,7 @@ pub struct Window {
     pub event_pump: Option<EventPump>,
     canvas: Canvas<video::Window>,
     texture: Texture<'static>,
-    audio_device: AudioQueue<f32>,
+    pub audio_device: AudioQueue<f32>,
     _texture_creator: TextureCreator<video::WindowContext>,
 }
 
@@ -93,5 +94,20 @@ impl Window {
             }
         }
         samples.clear();
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
+        let state = self.canvas.window().fullscreen_state();
+        if state == FullscreenType::Off {
+            self.canvas
+                .window_mut()
+                .set_fullscreen(video::FullscreenType::True)
+                .expect("toggled fullscreen on");
+        } else {
+            self.canvas
+                .window_mut()
+                .set_fullscreen(video::FullscreenType::Off)
+                .expect("toggled fullscreen off");
+        }
     }
 }

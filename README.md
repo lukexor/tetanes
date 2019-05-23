@@ -27,13 +27,13 @@ The following is a checklist of features and their progress:
 - [x] Central Processing Unit (CPU)
   - [x] Official Instructions
   - [ ] Unofficial Instructions (mostly done)
-  - [ ] Interrupts (done but not fully functional)
+  - [x] Interrupts
 - [x] Picture Processing Unit (PPU)
   - [x] VRAM
   - [x] Background
   - [x] Sprites
   - [ ] Mid-frame Updates
-- [x] Audio Processing Unit (APU) (Implemented minus DMC but clippy)
+- [x] Audio Processing Unit (APU)
   - [ ] DMC
 - [x] Inputs
   - [x] Keyboard (Missing Turbo)
@@ -42,7 +42,7 @@ The following is a checklist of features and their progress:
 - [x] Memory
 - [x] Cartridge Support
   - [x] iNES Format
-  - [ ] NES 2.0 Format
+  - [x] NES 2.0 Format (Can read headers, but many features still unsupported)
   - [x] Mappers
     - [x] NROM (Mapper 0)
     - [x] SxROM (Mapper 1)
@@ -116,12 +116,14 @@ ARGS:
 
 ## Controls
 
-Controller is not implemented yet but should support any X-Box compatible controller.
+Controller support is not implemented yet.
 
 | Button                | Keyboard    | Controller |
 | --------------------- | ----------- | ---------- |
-| A                     | Z           | X          |
-| B                     | X           | A          |
+| A                     | Z           | A          |
+| B                     | X           | B          |
+| A (Turbo)             | A           | X          |
+| B (Turbo)             | S           | Y          |
 | Start                 | Enter       | Start      |
 | Select                | Right Shift | Select     |
 | Up, Down, Left, Right | Arrow Keys  | D-Pad      |
@@ -139,10 +141,17 @@ There are also some emulator actions:
 | Save State            | Ctrl-(1-4)       |                    |
 | Load State            | Ctrl-Shift-(1-4) |                    |
 | Toggle Sound          | Ctrl-S           |                    |
-| Toggle Debug Logging  | Ctrl-D           |                    |
-| Take Screenshot       | F9               |                    |
-| Toggle Recording      | F10              |                    |
-| Toggle Fullscreen     | F11              |                    |
+| Toggle Fullscreen     | Ctrl-F           |                    |
+| Take Screenshot       | Ctrl-C           |                    |
+| Toggle Recording      | Ctrl-V           |                    |
+| Toggle Debugger       | Ctrl-D           |                    |
+| Cycle Log Level       | Ctrl-L           |                    |
+
+### Note on Controls
+
+Ctrl-(1-4) may have conflicts in macOS with switching Desktops 1-4. You can disable this in the
+keyboard settings. I may consider changing them to something else or making macOS use the Option key
+in place of Ctrl, but I'm not bothering with OS-specific bindings just yet.
 
 ## Building/Testing
 

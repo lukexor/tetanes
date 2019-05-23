@@ -30,7 +30,7 @@ const COPY_Y_CYCLE_START: u64 = 280;
 const COPY_Y_CYCLE_END: u64 = 304;
 const PREFETCH_CYCLE_START: u64 = 321;
 const PREFETCH_CYCLE_END: u64 = 336;
-const PRERENDER_CYCLE_END: u64 = 340;
+const PRERENDER_CYCLE_END: u64 = 339;
 const VISIBLE_SCANLINE_CYCLE_END: u64 = 340;
 
 // Scanlines
@@ -250,7 +250,7 @@ impl Ppu {
 
             if render_scanline {
                 // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-                if fetch_cycle && self.cycle.trailing_zeros() >= 3 {
+                if fetch_cycle && self.cycle % 8 == 0 {
                     self.regs.increment_x();
                 }
                 // Increment Fine Y when we reach the end of the screen
@@ -303,7 +303,7 @@ impl Ppu {
         let y = self.scanline as u8;
 
         let mut bg_color = self.background_color();
-        let (i, mut sprite_color) = self.sprite_color(x);
+        let (i, mut sprite_color) = self.sprite_color();
 
         if x < 8 && !self.regs.mask.show_background() {
             bg_color = 0;
@@ -311,8 +311,8 @@ impl Ppu {
         if x < 8 && !self.regs.mask.show_sprites() {
             sprite_color = 0;
         }
-        let bg_opaque = bg_color & 0x03 != 0;
-        let sprite_opaque = sprite_color & 0x03 != 0;
+        let bg_opaque = bg_color % 4 != 0;
+        let sprite_opaque = sprite_color % 4 != 0;
         let color = if !bg_opaque && !sprite_opaque {
             0
         } else if sprite_opaque && !bg_opaque {
@@ -323,7 +323,7 @@ impl Ppu {
             if self.is_sprite_zero(i) && x < 255 {
                 self.set_sprite_zero_hit(true);
             }
-            if self.frame.sprites[i].has_priority {
+            if !self.frame.sprites[i].has_priority {
                 sprite_color | 0x10
             } else {
                 bg_color
@@ -350,22 +350,23 @@ impl Ppu {
         // +----- Background/Sprite select
 
         // TODO Explain the bit shifting here more clearly
-        let data = (self.frame.tile_data >> 32) as u32 >> ((7 - self.regs.fine_x()) * 4);
+        let tile_data = (self.frame.tile_data >> 32) as u32;
+        let data = tile_data >> ((7 - self.regs.fine_x()) * 4);
         (data & 0x0F) as u8
     }
 
-    fn sprite_color(&mut self, x: u8) -> (usize, u8) {
+    fn sprite_color(&mut self) -> (usize, u8) {
         if !self.regs.mask.show_sprites() {
             return (0, 0);
         }
         for i in 0..self.frame.sprite_count as usize {
-            let offset = i16::from(x) - i16::from(self.frame.sprites[i].x);
+            let offset = self.cycle as i16 - 1 - i16::from(self.frame.sprites[i].x);
             if offset < 0 || offset > 7 {
                 continue;
             }
             let offset = 7 - offset;
             let color = ((self.frame.sprites[i].pattern >> (offset * 4) as u8) & 0x0F) as u8;
-            if color.trailing_zeros() >= 2 {
+            if color % 4 == 0 {
                 continue;
             }
             return (i, color);
@@ -656,6 +657,7 @@ impl Vram {
             Mirroring::FourScreen => [1, 2, 3, 4],
         };
 
+        eprintln!("Mirror lookup: {:?}", mirroring);
         let addr = (addr - NAMETABLE_START) & ((NAMETABLE_SIZE as u16) - 1);
         let table = addr / table_size;
         let offset = addr & (table_size - 1);
@@ -902,9 +904,9 @@ impl Ppu {
             tile_index: d.readb(addr + 1),
             palette: (attr & 3) + 4, // range 4 to 7
             pattern: 0,
-            has_priority: (attr & 0x20) == 0,   // bit 5
-            flip_horizontal: (attr & 0x40) > 0, // bit 6
-            flip_vertical: (attr & 0x80) > 0,   // bit 7
+            has_priority: (attr & 0x20) == 0x20, // bit 5
+            flip_horizontal: (attr & 0x40) > 0,  // bit 6
+            flip_vertical: (attr & 0x80) > 0,    // bit 7
         }
     }
 

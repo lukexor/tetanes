@@ -1,7 +1,7 @@
 pub use sdl2::EventPump;
 
 use crate::console::Console;
-use crate::input::{Input, InputResult};
+use crate::input::{Input, InputResult::*};
 use crate::ui::window::Window;
 use crate::Result;
 use failure::format_err;
@@ -11,10 +11,16 @@ use std::rc::Rc;
 
 mod window;
 
+const DEFAULT_SPEED: u16 = 60; // 60 Hz
+
 pub struct UI {
     roms: Vec<PathBuf>,
     window: Window,
+    speed: u16,
+    fastforward: bool,
     debug: bool,
+    paused: bool,
+    sound_enabled: bool,
 }
 
 impl UI {
@@ -25,7 +31,11 @@ impl UI {
         Ok(Self {
             roms,
             window: Window::with_scale(scale)?,
+            speed: DEFAULT_SPEED,
+            fastforward: false,
             debug,
+            paused: false,
+            sound_enabled: true,
         })
     }
 
@@ -43,16 +53,37 @@ impl UI {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
         let mut console = Console::power_on(rom, input.clone())?;
-        // console.debug(self.debug);
+        console.debug(self.debug);
         loop {
-            console.step_frame();
-            self.window.render(&console.render());
-            self.window.enqueue_audio(&mut console.audio_samples());
+            if !self.paused {
+                console.step_frame(self.speed);
+                self.window.render(&console.render());
+            }
+            if self.sound_enabled {
+                self.window.enqueue_audio(&mut console.audio_samples());
+            } else {
+                console.audio_samples().clear();
+            }
 
             match console.poll_events() {
-                InputResult::Continue => (),
-                InputResult::Quit => break,
-                InputResult::Reset => console.reset(),
+                Continue => (),
+                Quit => break,
+                Menu => self.paused = !self.paused,
+                Reset => console.reset(),
+                PowerCycle => console.power_cycle(),
+                IncSpeed => eprintln!("Increase speed not implemented"), // TODO
+                DecSpeed => eprintln!("Decrease speed not implemented"), // TODO
+                FastForward => self.fastforward = !self.fastforward,     // TODO
+                Save(slot) => eprintln!("Save {} not implemented", slot), // TODO
+                Load(slot) => eprintln!("Load {} not implemented", slot), // TODO
+                ToggleSound => self.sound_enabled = !self.sound_enabled,
+                ToggleFullscreen => self.window.toggle_fullscreen(),
+                ToggleDebug => {
+                    self.debug = !self.debug;
+                    console.debug(self.debug)
+                }
+                Screenshot => eprintln!("Screenshot not implemented"), // TODO,
+                ToggleRecord => eprintln!("Recording not implemented"), // TODO,
             }
         }
         Ok(())

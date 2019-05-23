@@ -17,7 +17,6 @@ pub mod ppu;
 
 pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
 const CPU_FREQUENCY: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
-const REFRESH_RATE: f64 = 60.0; // 60 Hz
 
 /// The NES Console
 ///
@@ -66,8 +65,8 @@ impl Console {
         }
         cpu_cycles
     }
-    pub fn step_frame(&mut self) {
-        self.cycles_remaining += (CPU_FREQUENCY / REFRESH_RATE) as i64;
+    pub fn step_frame(&mut self, speed: u16) {
+        self.cycles_remaining += (CPU_FREQUENCY / speed as f64) as i64;
         while self.cycles_remaining > 0 {
             self.cycles_remaining -= self.step() as i64;
         }
@@ -96,8 +95,8 @@ impl Console {
         self.cpu.set_pc(addr);
     }
 
-    fn trace_cpu(&mut self) {
-        self.cpu.set_trace(true);
+    fn set_nestest(&mut self) {
+        self.cpu.set_nestest(true);
     }
 }
 
@@ -115,19 +114,19 @@ mod tests {
     #[test]
     fn test_nestest() {
         let rom = PathBuf::from("tests/cpu/nestest.nes");
-        let cpu_log = "logs/cpu.log";
+        let cpu_log = "logs/nestest.log";
         let nestest_log = "tests/cpu/nestest.txt";
 
         let input = Rc::new(RefCell::new(Input::new()));
         let mut c = Console::power_on(rom, input).expect("powered on");
-        c.trace_cpu();
+        c.set_nestest();
 
         c.set_pc(NESTEST_ADDR);
         for _ in 0..NESTEST_LEN {
             c.step();
         }
         let log = c.cpu.oplog.join("");
-        fs::write(cpu_log, &log).expect("Failed to write op.log");
+        fs::write(cpu_log, &log).expect("Failed to write nestest.log");
 
         let nestest = fs::read_to_string(nestest_log);
         assert!(nestest.is_ok(), "Read nestest");
