@@ -8,11 +8,11 @@ const CYCLES_PER_SAMPLE: u64 = CPU_FREQUENCY as u64 / SAMPLE_RATE as u64;
 
 // Audio Processing Unit
 pub struct Apu {
-    cycle: u64,          // Current APU cycle = CPU cycle / 2
-    irq_pending: bool,   // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
-    irq_enabled: bool,   // Set by $4017 D6
-    samples: Vec<f32>,   // Buffer of samples
-    frame: FrameCounter, // Clocks length, linear, sweep, and envelope units
+    cycle: u64,            // Current APU cycle = CPU cycle / 2
+    pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
+    irq_enabled: bool,     // Set by $4017 D6
+    samples: Vec<f32>,     // Buffer of samples
+    frame: FrameCounter,   // Clocks length, linear, sweep, and envelope units
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,

@@ -12,6 +12,7 @@ use std::{fmt, path::PathBuf};
 
 pub mod apu;
 pub mod cpu;
+pub mod debugger;
 pub mod ppu;
 
 pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
@@ -42,26 +43,26 @@ impl Console {
     pub fn reset(&mut self) {
         self.cpu.reset();
     }
+    pub fn debug(&mut self, val: bool) {
+        self.cpu.debug(val);
+    }
     pub fn step(&mut self) -> u64 {
         let cpu_cycles = self.cpu.step();
-        // Step PPU and mapper 3x
-        let mut ppu_result;
         for _ in 0..cpu_cycles * 3 {
-            ppu_result = self.cpu.mem.ppu.clock();
-            {
-                let mut mapper = self.cpu.mem.mapper.borrow_mut();
-                mapper.step();
-            }
-            if ppu_result.trigger_nmi {
+            self.cpu.mem.ppu.clock();
+            if self.cpu.mem.ppu.nmi_pending {
                 self.cpu.trigger_nmi();
-            } else if ppu_result.trigger_irq {
-                self.cpu.trigger_irq();
+                self.cpu.mem.ppu.nmi_pending = false;
             }
+            let mut mapper = self.cpu.mem.mapper.borrow_mut();
+            mapper.step();
         }
-        // Step APU
         for _ in 0..cpu_cycles {
             self.cpu.mem.apu.clock();
-            // TODO IRQ
+            if self.cpu.mem.apu.irq_pending {
+                self.cpu.trigger_irq();
+                self.cpu.mem.apu.irq_pending = false;
+            }
         }
         cpu_cycles
     }
@@ -130,6 +131,7 @@ mod tests {
 
         let nestest = fs::read_to_string(nestest_log);
         assert!(nestest.is_ok(), "Read nestest");
-        assert!(log == nestest.unwrap(), "CPU log matches nestest");
+        let equal = log == nestest.unwrap();
+        assert!(equal, "CPU log matches nestest");
     }
 }

@@ -211,7 +211,6 @@ impl Memory for Sxrom {
                 );
             }
         }
-        self.shift_register = 0x10; // Reset shift
     }
 }
 

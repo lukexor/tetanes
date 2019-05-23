@@ -37,6 +37,8 @@ struct Opt {
     scale: u32,
     #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
     fullscreen: bool,
+    #[structopt(short = "d", long = "debug", help = "Debug")]
+    debug: bool,
 }
 
 #[derive(Debug, Fail)]
@@ -50,7 +52,7 @@ pub enum NesError {
 fn main() {
     let opt = Opt::from_args();
     let roms = find_roms(opt.path).unwrap_or_else(|e| err_exit(e));
-    let mut ui = UI::init(roms, opt.scale).unwrap_or_else(|e| err_exit(e));
+    let mut ui = UI::init(roms, opt.scale, opt.debug).unwrap_or_else(|e| err_exit(e));
     ui.run().unwrap_or_else(|e| err_exit(e));
 }
 

@@ -14,16 +14,18 @@ mod window;
 pub struct UI {
     roms: Vec<PathBuf>,
     window: Window,
+    debug: bool,
 }
 
 impl UI {
-    pub fn init(roms: Vec<PathBuf>, scale: u32) -> Result<Self> {
+    pub fn init(roms: Vec<PathBuf>, scale: u32, debug: bool) -> Result<Self> {
         if roms.is_empty() {
             Err(format_err!("no rom files found or specified"))?;
         }
         Ok(Self {
             roms,
             window: Window::with_scale(scale)?,
+            debug,
         })
     }
 
@@ -41,6 +43,7 @@ impl UI {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
         let mut console = Console::power_on(rom, input.clone())?;
+        // console.debug(self.debug);
         loop {
             console.step_frame();
             self.window.render(&console.render());

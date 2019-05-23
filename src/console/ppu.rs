@@ -63,13 +63,14 @@ const PALETTE_START: u16 = 0x3F00;
 
 #[derive(Debug)]
 pub struct Ppu {
-    pub cycle: u64,    // (0, 340) 341 cycles happen per scanline
-    pub scanline: u16, // (0, 261) 262 total scanlines per frame
-    regs: PpuRegs,     // Registers
-    oamdata: Oam,      // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    vram: Vram,        // $2007 PPUDATA
-    frame: Frame,      // Frame data keeps track of data and shift registers between frames
-    screen: Screen,    // The main screen holding pixel data
+    pub cycle: u64,        // (0, 340) 341 cycles happen per scanline
+    pub scanline: u16,     // (0, 261) 262 total scanlines per frame
+    pub nmi_pending: bool, // Whether the CPU should trigger an NMI next cycle
+    regs: PpuRegs,         // Registers
+    oamdata: Oam,          // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    vram: Vram,            // $2007 PPUDATA
+    frame: Frame,          // Frame data keeps track of data and shift registers between frames
+    screen: Screen,        // The main screen holding pixel data
 }
 
 #[derive(Default, Debug)]
@@ -152,18 +153,12 @@ struct Palette([u8; PALETTE_SIZE]);
 #[derive(Default, Debug, Copy, Clone)]
 struct Rgb(u8, u8, u8);
 
-#[derive(Default, Debug)]
-pub struct StepResult {
-    pub new_frame: bool,
-    pub trigger_nmi: bool,
-    pub trigger_irq: bool,
-}
-
 impl Ppu {
     pub fn init(mapper: MapperRef) -> Self {
         Self {
-            cycle: 0,
-            scanline: 0,
+            cycle: 0u64,
+            scanline: 0u16,
+            nmi_pending: false,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
             vram: Vram::init(mapper),
@@ -184,12 +179,11 @@ impl Ppu {
     // Step ticks as many cycles as needed to reach
     // target cycle to syncronize with the CPU
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
-    pub fn clock(&mut self) -> StepResult {
-        let mut step_result = StepResult::new();
+    pub fn clock(&mut self) {
         if self.regs.nmi_delay > 0 {
             self.regs.nmi_delay -= 1;
             if self.regs.nmi_delay == 0 && self.nmi_enable() && self.vblank_started() {
-                step_result.trigger_nmi = true;
+                self.nmi_pending = true;
             }
         }
 
@@ -198,7 +192,6 @@ impl Ppu {
         if self.cycle == 1 {
             if self.scanline == PRERENDER_SCANLINE {
                 // Dummy scanline - set up tiles for next scanline
-                step_result.new_frame = true;
                 self.stop_vblank();
                 self.set_sprite_zero_hit(false);
                 self.set_sprite_overflow(false);
@@ -206,7 +199,6 @@ impl Ppu {
                 self.start_vblank();
             }
         }
-        step_result
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
@@ -462,7 +454,7 @@ impl PpuRegs {
     fn nmi_change(&mut self) {
         let nmi = self.ctrl.nmi_enable() && self.status.vblank_started();
         if nmi && !self.nmi_previous {
-            self.nmi_delay = 12;
+            self.nmi_delay = 15;
         }
         self.nmi_previous = nmi;
     }
@@ -559,7 +551,6 @@ impl PpuRegs {
             self.v += 1;
             assert!(self.v <= VRAM_ADDR_SIZE_MASK); // TODO should be able to remove this
         }
-        // eprintln!("DEBUG - COARSE-X {:x} {:x}", v, self.v);
     }
 
     // Increment Fine Y
@@ -749,16 +740,6 @@ impl Rgb {
     }
     fn b(self) -> u8 {
         self.2
-    }
-}
-
-impl StepResult {
-    pub fn new() -> Self {
-        Self {
-            new_frame: false,
-            trigger_nmi: false,
-            trigger_irq: false,
-        }
     }
 }
 
@@ -984,12 +965,6 @@ impl Ppu {
         self.regs.ctrl.nmi_enable()
     }
     fn write_ppuctrl(&mut self, val: u8) {
-        // Read PPUSTATUS to clear vblank before setting vblank again
-        // FIXME: Is this the correct thing to do?
-        // http://wiki.nesdev.com/w/index.php/PPU_programmer_reference#PPUCTRL
-        if val & 0x80 == 0x80 {
-            self.read_ppustatus();
-        }
         self.regs.write_ctrl(val);
     }
 
