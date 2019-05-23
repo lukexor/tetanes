@@ -1,0 +1,688 @@
+LENGTH_TABLE // used by $4003 WRITE Pulse1/2
+
+APU
+    sequencer_mode              // $4017 WRITE D7, clock_frame_sequencer()
+    sequencer_phase             // $4017 WRITE 0, clock_frame_sequencer()
+    sequencer_counter           // $4017 WRITE clocks_to_next_phase(), clock_frame_sequencer()
+    irq_pending                 // $4017 WRITE if !irq_enabled false, clock_frame_sequencer()
+                                // $4015 READ irq_pending = false
+    irq_enabled                 // $4017 WRITE !D6, clock_frame_sequencer()
+
+    clock()                     // Clocked every CPU cycle
+    clock_frame_sequencer()
+    clocks_to_next_phase()      // used in $4017 WRITE
+    clock_quarter_frame()       // used in $4017 WRITE if sequencer_mode
+    clock_half_frame()          // used in $4017 WRITE if sequencer_mode
+    sample()                    //
+
+Pulse1/2
+    DUTY_TABLE                  // used by duty_cycle/duty_counter
+
+    enabled                     // $4015 WRITE D0
+
+    duty_cycle                  // $4000 WRITE D7..D6, clock(), output()
+    duty_counter                // $4003 WRITE 0, output()
+    freq_timer                  // $4002 WRITE D7..D0, $4003 D2..D0 << 8, clock_half_frame()
+                                // sweep_forced_silent()
+    freq_counter                // $4003 WRITE freq_timer, clock()
+
+    length_enabled              // $4000 WRITE !D5, clock_half_frame()
+    length_counter              // $4003 WRITE if enabled LENGTH_TABLE[ D7..D3 ], output()
+                                // $4015 WRITE if !enabled 0, clock_half_frame()
+                                // $4015 READ
+
+    decay_enabled               // $4000 WRITE !D4, output()
+    decay_loop                  // $4000 WRITE D5, clock_quarter_frame()
+    decay_reset                 // $4003 WRITE true, clock_quarter_frame()
+    decay_volume                // $4000 WRITE D3..D0, output(), clock_quarter_frame()
+    decay_constant_volume       // output(), clock_quarter_frame()
+    decay_counter               // clock_quarter_frame()
+
+    sweep_enabled               // $4001 WRITE D7 && sweep_shift != 0, clock_half_frame()
+    sweep_reload                // $4001 WRITE true, clock_half_frame()
+    sweep_timer                 // $4001 WRITE D6..D4, clock_half_frame()
+    sweep_counter               // clock_half_frame()
+    sweep_negate                // $4001 WRITE D3, clock_half_frame(), sweep_forced_silent()
+    sweep_shift                 // $4001 WRITE D2..D0, clock_half_frame(), sweep_forced_silent()
+
+    clock()                     // Clocked every APU cycle (CPU Cycle % 2 == 0)
+    clock_quarter_frame()       //
+    clock_half_frame()          //
+    output()                    //
+    sweep_forced_silent()       // output(), clock_half_frame()
+
+Triangle
+    enabled                     //
+
+    ultrasonic                  //
+    step                        //
+    freq_timer                  //
+    freq_counter                //
+
+    length_enabled              //
+    length_counter              //
+
+    linear_control              //
+    linear_load                 //
+    linear_reload               //
+
+    clock()                     //
+    clock_quarter_frame()       //
+    clock_half_frame()          //
+    output()                    //
+
+Noise
+    FREQ_TABLE                  //
+
+    enabled                     //
+
+    freq_timer                  //
+    freq_counter                //
+
+    shift                       // u16: default to 1
+    shift_mode                  //
+
+    length_counter              //
+
+    decay_enabled               //
+    decay_reset                 //
+    decay_loop                  //
+    decay_volume                //
+    decay_constant_volume       //
+    decay_counter               //
+
+    clock()                     //
+    clock_quarter_frame()       //
+    clock_half_frame()          //
+    output()                    //
+
+DMC
+    addr                        //
+    addr_load                   //
+    length                      //
+    length_load                 //
+    irq_pending                 //
+    loops                       //
+
+    sample_buffer               //
+    output                      //
+    output_bits                 //
+    output_shift                //
+    output_silent               //
+
+    freq_timer                  //
+    freq_counter                //
+
+    clock()                     //
+    output()                    //
+
+========================================================
+
+$4000 write:
+    duty_table =        dutytables[ v.76 ] // duty_cycle
+    length_enabled =    !v.5 // length_counter.enabled
+    // envelope
+    decay_loop =        v.5 // looping
+    decay_enabled =     !v.4 // enabled
+    decay_V =           v.3210 // volume
+    
+========================================================
+    
+$4001 write:
+    sweep_timer =       v.654 // divider_period
+    sweep_negate =      v.3
+    sweep_shift =       v.210
+    sweep_reload =      true
+    sweep_enabled =     v.7  &&  sweep_shift != 0
+    
+========================================================
+    
+$4002 write:
+    freq_timer =        v           (low 8 bits) // timer_period
+    
+========================================================
+    
+$4003 write:
+    freq_timer =        v.210       (high 3 bits)
+    
+    if( channel_enabled )
+        length_counter =    lengthtable[ v.76543 ]
+        
+    ; phase is also reset here  (important for games like SMB)
+    freq_counter =      freq_timer // timer
+    duty_counter =      0 // sequencer_step
+    
+    ; decay is also flagged for reset here
+    decay_reset_flag =  true // envelope start
+    
+========================================================
+    
+$4015 write:
+    channel_enabled =   v.0
+    if( !channel_enabled )
+        length_counter = 0
+        
+    ; ... other channels and DMC here ...
+    
+========================================================
+    
+$4017 write:
+    sequencer_mode =    v.7     ; switch between 5-step (1) and 4-step (0) mode
+    irq_enabled =       !v.6
+    next_seq_phase =    0
+    sequencer_counter = ClocksToNextSequence()
+    ; see: http://wiki.nesdev.com/w/index.php/APU_Frame_Counter
+    ; for example, this will be 3728.5 APU cycles, or 7457 CPU cycles.
+    ; It might be easier to work in CPU cycles so you don't have to deal with
+    ;  half cycles.
+    
+    if(sequencer_mode)
+    {
+        Clock_QuarterFrame()                    ; see below
+        Clock_HalfFrame()
+    }
+    if(!irq_enabled)
+        irq_pending = false             ; acknowledge Frame IRQ
+        
+========================================================
+
+$4015 read:
+    output = 0
+    
+    if( length_counter != 0 )       output |= 0x01
+    ; ... other channels length counters here
+    
+    if( irq_pending )
+        output |= 0x40
+    
+    ; ... DMC IRQ state read back here
+    
+    irq_pending = false                 ; IRQ acknowledged on $4015 read
+    
+    return output
+    
+
+========================================================
+
+Every APU Cycle:
+    
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; clock pulse wave
+    
+    if( freq_counter > 0 ) // timer
+        --freq_counter
+    else
+    {
+        freq_counter = freq_timer
+        duty_counter = (duty_counter + 1) & 7
+    }
+    
+    ; ... clock other channels here
+    
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; clock frame sequencer
+    if( sequencer_counter > 0 )
+        --sequencer_counter
+    else
+    {
+        ; see http://wiki.nesdev.com/w/index.php/APU_Frame_Counter for more details on here
+        ;  I'm just giving the basic idea here to conceptualize it
+        
+        if( next_seq_phase causes a Quarter Frame Clock )
+            Clock_QuarterFrame();
+        if( next_seq_phase causes a Half Frame Clock )
+            Clock_HalfFrame();
+        if( irq_enabled && next_seq_phase causes an IRQ )
+            irq_pending = true          ; raise IRQ
+            
+        ++next_seq_phase
+        if( next_seq_phase > max phases for this mode )
+            next_seq_phase = 0
+            
+        sequencer_counter = ClocksToNextSequence()
+    }
+    
+    
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; determine audio output
+    if(    duty_table[ duty_counter ]   ; current duty phase is high
+        && length_counter != 0          ; length counter is nonzero (channel active)
+        && !IsSweepForcingSilence()     ; sweep unit is not forcing channel to be silent
+        )
+    {
+        ; output current volume
+        if(decay_enabled)       output = decay_hidden_vol
+        else                    output = decay_V
+    }
+    else            ; low duty, or channel is silent
+        output = 0
+        
+    ; ... mix other channels with output here
+    
+    
+========================================================
+
+Clock_QuarterFrame:
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; quarter frame clocks Decay
+    if( decay_reset_flag )
+    {
+        decay_reset_flag =  false
+        decay_hidden_vol =  0xF
+        decay_counter =     decay_V
+    }
+    else
+    {
+        if( decay_counter > 0 )
+            --decay_counter
+        else
+        {
+            decay_counter = decay_V
+            if( decay_hidden_vol > 0 )
+                --decay_hidden_vol
+            else if( decay_loop )
+                decay_hidden_vol = 0xF
+        }
+    }
+    
+    
+========================================================
+
+Clock_HalfFrame:
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; half frame clocks Sweep
+    if( sweep_reload )
+    {
+        sweep_counter = sweep_timer
+        ; note there's an edge case here -- see http://wiki.nesdev.com/w/index.php/APU_Sweep
+        ;   for details.  You can probably ignore it for now
+        
+        sweep_reload = false
+    }
+    else if( sweep_counter > 0 )
+        --sweep_counter
+    else
+    {
+        sweep_counter = sweep_timer
+        if( sweep_enabled && !IsSweepForcingSilence() )
+        {
+            if(sweep_negate)
+                freq_timer -= (freq_timer >> sweep_shift) + 1   ; note: +1 for Pulse1 only.  Pulse2
+                has no +1
+            else
+                freq_timer += (freq_timer >> sweep_shift)
+        }
+    }
+    
+    
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; half frame also clocks length
+    if( length_enabled && length_counter > 0 )
+        --length_counter
+        
+      
+========================================================  
+        
+IsSweepForcingSilence:
+
+    if( freq_timer < 8 )
+        return true
+        
+    else if(    !sweep_negate
+                &&
+                freq_timer + (freq_timer >> sweep_shift) >= 0x800    )
+        return true
+        
+    else
+        return false
+
+
+Pulse 2: Identical to Pulse 1 with the following changes:
+
+- use $4004-4007 instead of $4000-4003
+- $4015 reads/writes use bit 1 instead of bit 0
+- no '+ 1' when doing sweep negate
+
+Triangle:
+A few things to note about the triangle:
+
+- It's clocked at twice the rate of other channels (use CPU clock instead of APU clock)
+- To silence it, you stop clocking the tri-step unit, but do not change its output. This is in
+  contrast to other channels where you silence them by forcing output to zero.
+- There is no volume control, but Tri might appear quieter sometimes due to interference from the
+  DMC. See http://wiki.nesdev.com/w/index.php/APU_Mixer for details
+- When the freq timer is < 2, it goes "ultrasonic" and is effectively silenced by forcing output to
+  "7.5" (this causes a pop).
+
+$4015 read / write:  Same as Pulse1, only use bit 2 instead of bit 0
+        Note 4015 touches length counter only, it does not do anything with linear counter
+
+========================================================
+
+$4008 write:
+    linear_control = v.7
+    length_enabled = !v.7
+    linear_load = v.6543210
+
+========================================================
+
+$400A write:
+    freq_timer = v                  (low 8 bits)
+
+========================================================
+
+$400B write:
+    freq_timer = v.210              (high 3 bits)
+
+    if( channel_enabled )
+        length_counter = lengthtable[ v.76543 ]
+
+    linear_reload = true
+
+
+========================================================
+
+Every **CPU** Cycle:
+    ; Note the Triangle is clocked at twice the rate of other channels!
+    ; It is clocked by CPU cycle and not by APU cycle!
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; clock tri wave
+
+    ultrasonic = false
+    if( freq_timer < 2 && freq_counter == 0 )
+        ultrasonic = true
+
+    clock_triunit = true
+    if( length_counter == 0 )       clock_triunit = false
+    if( linear_counter == 0 )       clock_triunit = false
+    if( ultrasonic )                clock_triunit = false
+
+    if( clock_triunit )
+    {
+        if( freq_counter > 0 )
+            --freq_counter
+        else
+        {
+            freq_counter = freq_timer
+            tri_step = (tri_step + 1) & 0x1F    ; tri-step bound to 00..1F range
+        }
+    }
+
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; determine audio output
+
+    ; the xor here creates the 'triangle' shape
+    if( ultrasonic )                output = 7.5
+    else if( tri_step & 0x10 )      output = tri_step ^ 0x1F
+    else                            output = tri_step
+
+
+========================================================
+
+Clock_QuarterFrame:
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; quarter frame clocks Linear
+
+    if( linear_reload )
+        linear_counter = linear_load
+    else if( linear_counter > 0 )
+        --linear_counter
+
+    if( !linear_control )
+        linear_reload = false
+
+
+
+========================================================
+
+Clock_HalfFrame:
+
+    ; clock Length counter, same as Pulse
+
+Noise:
+
+Notes:
+- noise_shift must never be zero or the noise channel will never produce any output. Initialize it
+  with 1 at bootup / hard reset.
+- with below implementation, noise_shift must not be signed-16 bit (unsigned is OK, or something
+  larget than 16 bit is OK). If signed, the right-shift will feed in unwanted 1s.
+
+$4015 read / write:  Same as Pulse1, only use bit 3 instead of bit 0
+
+========================================================
+
+$400C write:
+    ; same as $4000, only ignore bits 6 and 7 because noise has no duty
+
+========================================================
+
+$400E write:
+    freq_timer = noise_freq_table[ v.3210 ]  ; see http://wiki.nesdev.com/w/index.php/APU_Noise for
+    freq table
+    shift_mode = v.7
+
+========================================================
+
+$400F write:
+    if( channel_enabled )
+        length_counter = lengthtable[ v.76543 ]
+
+    decay_reset_flag = true
+
+========================================================
+
+Every APU Cycle:
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; clock noise shift
+
+    if( freq_counter > 0 )
+        --freq_counter
+    else
+    {
+        freq_counter = freq_timer
+
+                            ; note, set bit fifteen here, not bits 1 and 5
+        if( shift_mode )    noise_shift.15 = noise_shift.6 ^ noise_shift.0
+        else                noise_shift.15 = noise_shift.1 ^ noise_shift.0
+
+        noise_shift >>= 1
+    }
+
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; determine audio output
+    if(    noise_shift.0 == 0           ; current noise output is low (output vol when low --
+    opposite of pulse)
+        && length_counter != 0          ; length counter is nonzero (channel active)
+        )
+    {
+        ; output current volume
+        if(decay_enabled)       output = decay_hidden_vol
+        else                    output = decay_V
+    }
+    else            ; high shift output, or channel is silent
+        output = 0
+
+
+========================================================
+
+Clock_QuarterFrame:
+    ; clock Decay, same as Pulse
+
+
+
+========================================================
+
+Clock_HalfFrame:
+    ; clock Length counter, same as Pulse
+
+DMC
+
+$4010 write:
+    dmcirq_enabled =    v.7
+    dmc_loop =          v.6
+    freq_timer =        dmc_freq_table[ v.3210 ]   ; see http://wiki.nesdev.com/w/index.php/APU_DMC for freq table
+    
+    if( !dmcirq_enabled )
+        dmcirq_pending = false  ; acknowledge IRQ if disabled
+      
+    
+
+
+========================================================
+
+$4011 write:
+    output = v.6543210    ; note there is some edge case weirdness here, see wiki for details
+        
+========================================================
+    
+$4012 write:
+    addrload = $C000 | v<<6
+
+========================================================
+    
+$4013 write:
+    lengthload = (v<<4) + 1
+    
+    
+========================================================
+
+$4015 write:
+    if( v.4 )
+    {
+        if( length == 0 )
+        {
+            length = lengthload
+            addr = addrload
+        }
+    }
+    else
+        length = 0
+        
+    dmcirq_pending = false      ; acknowledge DMC IRQ on write
+        
+========================================================
+
+$4015 read:
+    v.4 = (length > 0)
+    v.7 = dmcirq_pending
+    
+    ; ... other channels and frame IRQ set other bits
+
+    
+========================================================
+
+Every ?CPU? cycle????
+( not sure if DMC runs on APU cycles or CPU cycles.  It doesn't really matter because all the
+frequencies are even.  The wiki lists freqs in CPU cycles, so.... *shrug* )
+
+
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;
+    ;  Clock DMC unit
+
+    if( freq_counter > 0 )
+        --freq_counter
+    else
+    {
+        freq_counter = freq_timer
+        
+        if( !output_unit_silent )
+        {
+            if( (output_shift & 1) && output < $7E )    output += 2
+            if(!(output_shift & 1) && output > $01 )    output -= 2
+        }
+        --bits_in_output_unit
+        output_shift >>= 1
+            
+        if( bits_in_output_unit == 0 )
+        {
+            bits_in_output_unit = 8
+            output_shift = sample_buffer
+            output_unit_silent = is_sample_buffer_empty
+            is_sample_buffer_empty = true
+        }
+    }
+    
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;  Perform DMA if necessary
+    
+    if( length > 0 && is_sample_buffer_empty )
+    {
+        sample_buffer = DMAReadFromCPU( addr )
+        ; note:  this DMA halts the CPU for up to 4 cycles.
+        ;  See wiki for timing details.  Note that all commercial games will work
+        ;  fine if you ignore these stolen cycles, but some tech
+        ;  demos and test ROMs will glitch/fail.  So getting these stolen cycles
+        ;  correct is not super important unless you're putting a lot of emphasis
+        ;  on accuracy.
+        is_sample_buffer_empty = false
+        addr = (addr + 1) | $8000     ; <- wrap $FFFF to $8000
+        --length
+        
+        if(length == 0)
+        {
+            if( dmc_loop )
+            {
+                length = lengthload
+                addr = addrload
+            }
+            else if( dmcirq_enabled )
+                dmcirq_pending = true       ; raise IRQ
+        }
+    }
+    
+    
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; Determine channel output
+    
+    
+    ; output is always 'output' ... the 7 bit value written to $4011 and modified by the DMC unit
+
+
+Specifically there are 3 filters:
+
+1 lowpass:
+out[i]=(in[i]-out[i-1])*0.815686
+
+and 2 highpass:
+out[i]=out[i-1]*0.996039+in[i]-in[i-1]
+out[i]=out[i-1]*0.999835+in[i]-in[i-1]
+
+// 'sample' is your output sample as generated by your APU
+// 'output' is what you will actually output
+//
+// initialize all intermediate vars to 0.0
+
+// low pass
+LP_In = sample
+LP_Out = (LP_In - LP_Out) * 0.815686
+
+
+// high pass A
+HPA_Out = HPA_Out*0.996039 + LP_Out - HPA_Prev
+HPA_Prev = LP_Out
+
+// high pass B
+HPB_Out = HPB_Out*0.999835 + HPA_Out - HPB_Prev
+HPB_Prev = HPA_Out
+
+
+output = HPB_Out
+
+// scale output to be within min/max bounds
+
+
+Spit out a line of text at each of the following events:
+
+- 4008-400B writes
+- 4017 writes
+- linear clocks
+- Frame start
+
+On each line, include the contents of the Linear Counter so you can see how it's being updated. If you can see where your counting is going wrong, you can see where the problem in your code is.
+
+We wary of denormal numbers. Set very tiny floating point values to 0 to avoid performance issues.

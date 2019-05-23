@@ -12,9 +12,11 @@ use std::ops::{Deref, DerefMut};
 // Screen/Render
 pub type Image = [u8; RENDER_SIZE];
 pub const SCREEN_WIDTH: usize = 256;
-pub const SCREEN_HEIGHT: usize = 240;
-pub const RENDER_SIZE: usize = PIXEL_COUNT * 3;
-const PIXEL_COUNT: usize = SCREEN_HEIGHT * SCREEN_WIDTH;
+pub const SCREEN_HEIGHT: usize = 216;
+const OVERSCAN_HEIGHT: usize = 240;
+const OVERSCAN_OFFSET: usize = (OVERSCAN_HEIGHT - SCREEN_HEIGHT) / 2 * SCREEN_WIDTH;
+pub const RENDER_SIZE: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) * 3;
+const PIXEL_COUNT: usize = SCREEN_WIDTH * OVERSCAN_HEIGHT;
 
 // Sizes
 const NAMETABLE_SIZE: usize = 2 * 1024; // two 1K nametables
@@ -694,20 +696,22 @@ impl Screen {
     }
 
     // Turns a list of pixels into a list of R, G, B
+    // We want to remove overscane lines so we need to remove the top 8 and bottom 8 scanlines
+    // which is 8 * SCREEN_WIDTH * 3 from both the top and bottom of our pixels
     pub fn render(&self) -> Image {
         let mut output = [0; RENDER_SIZE];
-        for i in 0..PIXEL_COUNT {
+        for i in OVERSCAN_OFFSET..(PIXEL_COUNT - OVERSCAN_OFFSET) {
             let p = self.pixels[i];
             // index * RGB size + color offset
-            output[i * 3] = p.r();
-            output[i * 3 + 1] = p.g();
-            output[i * 3 + 2] = p.b();
+            output[(i - OVERSCAN_OFFSET) * 3] = p.r();
+            output[(i - OVERSCAN_OFFSET) * 3 + 1] = p.g();
+            output[(i - OVERSCAN_OFFSET) * 3 + 2] = p.b();
         }
         output
     }
 
     fn put_pixel(&mut self, x: usize, y: usize, system_palette_idx: u8) {
-        if x < SCREEN_WIDTH && y < SCREEN_HEIGHT {
+        if x < SCREEN_WIDTH && y < OVERSCAN_HEIGHT {
             let i = x + (y * SCREEN_WIDTH);
             self.pixels[i] = SYSTEM_PALETTE[system_palette_idx as usize];
         }

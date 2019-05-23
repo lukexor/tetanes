@@ -133,6 +133,7 @@ There are also some emulator actions:
 | Action                | Keyboard         | Controller         |
 | --------------------- | ---------------- | ------------------ |
 | Pause / Open Menu     | Escape           | Left Stick Button  |
+| Quit                  | Ctrl-Q           |                    |
 | Reset                 | Ctrl-R           |                    |
 | Power Cycle           | Ctrl-P           |                    |
 | Increase Speed 25%    | Ctrl-=           |                    |

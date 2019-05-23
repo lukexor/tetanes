@@ -119,6 +119,7 @@ impl Input {
                             self.lshift = true;
                             Continue
                         }
+                        Keycode::Q if self.lctrl => Quit,
                         Keycode::R if self.lctrl => Reset,
                         Keycode::P if self.lctrl => PowerCycle,
                         Keycode::Equals if self.lctrl => IncSpeed,
