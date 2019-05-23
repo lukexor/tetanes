@@ -23,14 +23,8 @@ impl Memory for Nrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             // PPU 8K Fixed CHR bank
-            0x0000..=0x1FFF => {
-                if self.cart.header.chr_rom_size == 0 {
-                    self.cart.prg_ram[addr as usize]
-                } else {
-                    self.cart.chr_rom[addr as usize]
-                }
-            }
-            0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize],
+            0x0000..=0x1FFF => self.cart.chr_rom[addr as usize],
+            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
             0x8000..=0xFFFF => {
                 // CPU 32K Fixed PRG ROM bank for NROM-256
                 if self.cart.prg_rom.len() > 0x4000 {
@@ -49,14 +43,8 @@ impl Memory for Nrom {
 
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => {
-                if self.cart.header.chr_rom_size == 0 {
-                    self.cart.prg_ram[addr as usize] = val;
-                } else {
-                    self.cart.chr_rom[addr as usize] = val;
-                }
-            }
-            0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize] = val,
+            0x0000..=0x1FFF => self.cart.chr_rom[addr as usize] = val,
+            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
             0x8000..=0xFFFF => {
                 // CPU 32K Fixed PRG ROM bank for NROM-256
                 if self.cart.prg_rom.len() > 0x4000 {
@@ -87,5 +75,11 @@ impl Mapper for Nrom {
     }
     fn step(&mut self) {
         // NOOP
+    }
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
     }
 }

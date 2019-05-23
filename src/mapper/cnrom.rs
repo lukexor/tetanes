@@ -90,4 +90,10 @@ impl Mapper for Cnrom {
     fn step(&mut self) {
         // NOOP
     }
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
+    }
 }

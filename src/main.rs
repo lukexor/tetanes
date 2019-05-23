@@ -11,7 +11,7 @@
 
 use failure::{format_err, Error, Fail};
 use rustynes::ui::UI;
-use rustynes::Result;
+use rustynes::util::Result;
 use std::{env, io, path::PathBuf};
 use structopt::StructOpt;
 

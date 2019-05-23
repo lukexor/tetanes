@@ -6,8 +6,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-const RAM_SIZE: usize = 8 * 1024; // 8 KB
-
 /// SxRom (Mapper 1/MMC1)
 ///
 /// http://wiki.nesdev.com/w/index.php/SxROM
@@ -25,7 +23,6 @@ pub struct Sxrom {
     chr_bank1: u8,
     prg_offsets: [i32; 2],
     chr_offsets: [i32; 2],
-    prg_ram: [u8; RAM_SIZE],
 }
 
 impl Sxrom {
@@ -42,7 +39,6 @@ impl Sxrom {
             chr_bank1: 0u8,
             prg_offsets: [0i32; 2],
             chr_offsets: [0i32; 2],
-            prg_ram: [0u8; RAM_SIZE],
         };
         sxrom.prg_offsets[1] = sxrom.prg_bank_offset(-1);
         Rc::new(RefCell::new(sxrom))
@@ -151,18 +147,6 @@ impl Sxrom {
     }
 }
 
-impl Mapper for Sxrom {
-    fn scanline_irq(&self) -> bool {
-        false
-    }
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-    fn step(&mut self) {
-        // NOOP
-    }
-}
-
 impl Memory for Sxrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
@@ -174,7 +158,7 @@ impl Memory for Sxrom {
                 self.cart.chr_rom[idx as usize]
             }
             // CPU 8 KB PRG RAM bank, (optional)
-            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize],
+            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
             // CPU 2x16 KB PRG ROM bank, either switchable or fixed to the first bank
             0x8000..=0xFFFF => {
                 let addr = addr - 0x8000;
@@ -200,7 +184,7 @@ impl Memory for Sxrom {
                 self.cart.chr_rom[idx as usize] = val;
             }
             // CPU 8 KB PRG RAM bank, (optional)
-            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize] = val,
+            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
             0x8000..=0xFFFF => {
                 self.write_register(addr, val);
             }
@@ -211,6 +195,24 @@ impl Memory for Sxrom {
                 );
             }
         }
+    }
+}
+
+impl Mapper for Sxrom {
+    fn scanline_irq(&self) -> bool {
+        false
+    }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+    fn step(&mut self) {
+        // NOOP
+    }
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
     }
 }
 

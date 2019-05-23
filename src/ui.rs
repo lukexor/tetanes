@@ -3,7 +3,7 @@ pub use sdl2::EventPump;
 use crate::console::Console;
 use crate::input::{Input, InputResult::*};
 use crate::ui::window::Window;
-use crate::Result;
+use crate::util::Result;
 use failure::format_err;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -86,6 +86,7 @@ impl UI {
                 ToggleRecord => eprintln!("Recording not implemented"), // TODO,
             }
         }
+        console.power_off()?;
         Ok(())
     }
 }

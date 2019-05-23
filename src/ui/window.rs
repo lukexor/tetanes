@@ -1,6 +1,6 @@
 use crate::console::Image;
 use crate::console::{SAMPLE_RATE, SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::Result;
+use crate::util::Result;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture, TextureCreator};

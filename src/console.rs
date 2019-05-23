@@ -3,12 +3,15 @@
 pub use apu::{SAMPLES_SIZE, SAMPLE_RATE};
 pub use ppu::{Image, SCREEN_HEIGHT, SCREEN_WIDTH};
 
+use crate::cartridge::RAM_SIZE;
 use crate::input::{InputRef, InputResult};
 use crate::mapper;
 use crate::memory::CpuMemMap;
-use crate::Result;
+use crate::util::{self, Result};
 use cpu::Cpu;
-use std::{fmt, path::PathBuf};
+use failure::format_err;
+use std::io::Read;
+use std::{fmt, fs, path::PathBuf};
 
 pub mod apu;
 pub mod cpu;
@@ -31,21 +34,52 @@ impl Console {
     pub fn power_on(rom: PathBuf, input: InputRef) -> Result<Self> {
         let mapper = mapper::load_rom(rom)?;
         let cpu_memory = CpuMemMap::init(mapper, input);
-        Ok(Self {
+        let mut console = Self {
             cpu: Cpu::init(cpu_memory),
             cycles_remaining: 0,
-        })
+        };
+        let _ = console.load_sram()?;
+        Ok(console)
     }
-    pub fn power_cycle(&mut self) {
-        self.cpu.power_cycle();
+
+    pub fn power_off(&mut self) -> Result<()> {
+        self.save_sram()?;
+        Ok(())
     }
+
+    pub fn step_frame(&mut self, speed: u16) {
+        self.cycles_remaining += (CPU_FREQUENCY / speed as f64) as i64;
+        while self.cycles_remaining > 0 {
+            self.cycles_remaining -= self.step() as i64;
+        }
+    }
+
     pub fn reset(&mut self) {
         self.cpu.reset();
     }
+
+    pub fn power_cycle(&mut self) {
+        self.cpu.power_cycle();
+    }
+
     pub fn debug(&mut self, val: bool) {
         self.cpu.debug(val);
     }
-    pub fn step(&mut self) -> u64 {
+
+    pub fn render(&self) -> Image {
+        self.cpu.mem.ppu.render()
+    }
+
+    pub fn audio_samples(&mut self) -> &mut Vec<f32> {
+        self.cpu.mem.apu.samples()
+    }
+
+    pub fn poll_events(&mut self) -> InputResult {
+        let mut input = self.cpu.mem.input.borrow_mut();
+        input.poll_events()
+    }
+
+    fn step(&mut self) -> u64 {
         let cpu_cycles = self.cpu.step();
         for _ in 0..cpu_cycles * 3 {
             self.cpu.mem.ppu.clock();
@@ -65,21 +99,36 @@ impl Console {
         }
         cpu_cycles
     }
-    pub fn step_frame(&mut self, speed: u16) {
-        self.cycles_remaining += (CPU_FREQUENCY / speed as f64) as i64;
-        while self.cycles_remaining > 0 {
-            self.cycles_remaining -= self.step() as i64;
-        }
+
+    fn load_sram(&mut self) -> Result<()> {
+        let mut mapper = self.cpu.mem.mapper.borrow_mut();
+        let rom_file = &mapper.cart().rom_file;
+        let save_path = util::save_path(rom_file)?;
+        let mut sram_file = fs::File::open(&save_path).map_err(|e| {
+            format_err!("unable to read save file {:?}: {}", save_path.display(), e)
+        })?;
+        let mut sram = Vec::with_capacity(RAM_SIZE);
+        sram_file.read_to_end(&mut sram)?;
+        mapper.cart_mut().sram = sram;
+        Ok(())
     }
-    pub fn poll_events(&mut self) -> InputResult {
-        let mut input = self.cpu.mem.input.borrow_mut();
-        input.poll_events()
-    }
-    pub fn render(&self) -> Image {
-        self.cpu.mem.ppu.render()
-    }
-    pub fn audio_samples(&mut self) -> &mut Vec<f32> {
-        self.cpu.mem.apu.samples()
+
+    fn save_sram(&mut self) -> Result<()> {
+        let mapper = self.cpu.mem.mapper.borrow();
+        let rom_file = &mapper.cart().rom_file;
+        let save_path = util::save_path(rom_file)?;
+        let save_dir = save_path.parent().unwrap(); // Safe to do
+        fs::create_dir_all(save_dir).map_err(|e| {
+            format_err!(
+                "unable to create save directory {:?}: {}",
+                save_dir.display(),
+                e
+            )
+        })?;
+        fs::write(&save_path, &mapper.cart().sram).map_err(|e| {
+            format_err!("unable to write save file {:?}: {}", save_path.display(), e)
+        })?;
+        Ok(())
     }
 }
 

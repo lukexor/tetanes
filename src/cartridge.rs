@@ -1,23 +1,24 @@
 //! An NES Cartridge
 
-use crate::Result;
+use crate::util::Result;
 use failure::format_err;
 use std::fmt;
 use std::io::Read;
 use std::path::PathBuf;
 
+pub const RAM_SIZE: usize = 8 * 1024;
 const PRG_BANK_SIZE: usize = 16 * 1024;
 const CHR_BANK_SIZE: usize = 8 * 1024;
-const PRG_RAM_SIZE: usize = 8 * 1024;
 
 /// Represents an NES Cartridge
 #[derive(Default)]
 pub struct Cartridge {
-    pub rom: PathBuf,
+    pub rom_file: PathBuf, // '.nes' rom file
     pub header: INesHeader,
-    pub prg_rom: Vec<u8>,
-    pub prg_ram: Vec<u8>,
-    pub chr_rom: Vec<u8>,
+    pub prg_rom: Vec<u8>, // Program ROM
+    pub prg_ram: Vec<u8>, // Program RAM
+    pub chr_rom: Vec<u8>, // Character ROM
+    pub sram: Vec<u8>,    // Save RAM
 }
 
 /// Represents an iNES header
@@ -41,11 +42,12 @@ pub struct INesHeader {
 impl Cartridge {
     pub fn new() -> Self {
         Self {
-            rom: PathBuf::new(),
+            rom_file: PathBuf::new(),
             header: INesHeader::new(),
-            prg_rom: Vec::new(),
-            prg_ram: Vec::new(),
-            chr_rom: Vec::new(),
+            prg_rom: Vec::with_capacity(PRG_BANK_SIZE),
+            prg_ram: Vec::with_capacity(RAM_SIZE),
+            chr_rom: Vec::with_capacity(CHR_BANK_SIZE),
+            sram: Vec::with_capacity(RAM_SIZE),
         }
     }
 
@@ -59,9 +61,9 @@ impl Cartridge {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom(rom: PathBuf) -> Result<Self> {
-        let mut rom_data = std::fs::File::open(&rom)
-            .map_err(|e| format_err!("unable to open file \"{}\": {}", rom.display(), e))?;
+    pub fn from_rom(rom_file: PathBuf) -> Result<Self> {
+        let mut rom_data = std::fs::File::open(&rom_file)
+            .map_err(|e| format_err!("unable to open file \"{}\": {}", rom_file.display(), e))?;
 
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;
@@ -77,14 +79,16 @@ impl Cartridge {
             chr_rom = vec![0u8; CHR_BANK_SIZE];
         }
 
-        let prg_ram = vec![0; PRG_RAM_SIZE];
+        let prg_ram = vec![0; RAM_SIZE];
+        let sram = vec![0; RAM_SIZE];
 
         let cartridge = Self {
-            rom,
+            rom_file,
             header,
             prg_rom,
             chr_rom,
             prg_ram,
+            sram,
         };
         Ok(cartridge)
     }
