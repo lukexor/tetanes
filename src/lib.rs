@@ -23,7 +23,7 @@ pub mod util {
         let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
         path.push(SAVE_DIR);
         path.push("sram");
-        path.set_file_name(filehash);
+        path.push(filehash);
         path.set_extension(DAT_SUFFIX);
         Ok(path)
     }

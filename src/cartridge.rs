@@ -92,6 +92,10 @@ impl Cartridge {
         };
         Ok(cartridge)
     }
+
+    pub fn has_battery(&self) -> bool {
+        self.header.flags & 0x02 == 0x02
+    }
 }
 
 impl INesHeader {

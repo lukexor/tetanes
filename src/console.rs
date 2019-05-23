@@ -38,7 +38,7 @@ impl Console {
             cpu: Cpu::init(cpu_memory),
             cycles_remaining: 0,
         };
-        let _ = console.load_sram()?;
+        console.load_sram()?;
         Ok(console)
     }
 
@@ -102,32 +102,40 @@ impl Console {
 
     fn load_sram(&mut self) -> Result<()> {
         let mut mapper = self.cpu.mem.mapper.borrow_mut();
-        let rom_file = &mapper.cart().rom_file;
-        let save_path = util::save_path(rom_file)?;
-        let mut sram_file = fs::File::open(&save_path).map_err(|e| {
-            format_err!("unable to read save file {:?}: {}", save_path.display(), e)
-        })?;
-        let mut sram = Vec::with_capacity(RAM_SIZE);
-        sram_file.read_to_end(&mut sram)?;
-        mapper.cart_mut().sram = sram;
+        if mapper.cart().has_battery() {
+            let rom_file = &mapper.cart().rom_file;
+            let save_path = util::save_path(rom_file)?;
+            if save_path.exists() {
+                let mut sram_file = fs::File::open(&save_path).map_err(|e| {
+                    format_err!("unable to open save file {:?}: {}", save_path.display(), e)
+                })?;
+                let mut sram = Vec::with_capacity(RAM_SIZE);
+                sram_file.read_to_end(&mut sram).map_err(|e| {
+                    format_err!("unable to read save file {:?}: {}", save_path.display(), e)
+                })?;
+                mapper.cart_mut().sram = sram;
+            }
+        }
         Ok(())
     }
 
     fn save_sram(&mut self) -> Result<()> {
         let mapper = self.cpu.mem.mapper.borrow();
-        let rom_file = &mapper.cart().rom_file;
-        let save_path = util::save_path(rom_file)?;
-        let save_dir = save_path.parent().unwrap(); // Safe to do
-        fs::create_dir_all(save_dir).map_err(|e| {
-            format_err!(
-                "unable to create save directory {:?}: {}",
-                save_dir.display(),
-                e
-            )
-        })?;
-        fs::write(&save_path, &mapper.cart().sram).map_err(|e| {
-            format_err!("unable to write save file {:?}: {}", save_path.display(), e)
-        })?;
+        if mapper.cart().has_battery() {
+            let rom_file = &mapper.cart().rom_file;
+            let save_path = util::save_path(rom_file)?;
+            let save_dir = save_path.parent().unwrap(); // Safe to do
+            fs::create_dir_all(save_dir).map_err(|e| {
+                format_err!(
+                    "unable to create save directory {:?}: {}",
+                    save_dir.display(),
+                    e
+                )
+            })?;
+            fs::write(&save_path, &mapper.cart().sram).map_err(|e| {
+                format_err!("unable to write save file {:?}: {}", save_path.display(), e)
+            })?;
+        }
         Ok(())
     }
 }
