@@ -1,0 +1,76 @@
+
+========================
+=  Mapper 065          =
+========================
+
+
+Example Games:
+--------------------------
+Daiku no Gen San 2
+Kaiketsu Yanchamaru 3
+Spartan X 2
+
+
+
+Registers:
+--------------------------
+
+  $8000:  PRG Reg 0 (8k @ $8000)
+  $A000:  PRG Reg 1 (8k @ $A000)
+  $C000:  PRG Reg 2 (8k @ $C000)
+
+  $B000-$B007:  CHR regs
+
+  $9001:  [M... ....]  Mirroring
+    0 = Vert
+    1 = Horz
+
+  $9003:  [E... ....]  IRQ Enable (0=disabled, 1=enabled)
+  $9004:  [.... ....]  Reload IRQ counter
+  $9005:  [IIII IIII]  High 8 bits of IRQ Reload value
+  $9006:  [IIII IIII]  Low 8 bits of IRQ Reload value
+
+
+On Powerup:
+---------------------------
+On powerup, it appears as though PRG regs are inited to specific values:
+
+  $8000 = $00
+  $A000 = $01
+  $C000 = $FE
+
+Games do rely on this and will crash otherwise.
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    | $8000 | $A000 | $C000 | { -1} |
+    +-------+-------+-------+-------+
+
+
+CHR Setup:
+---------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    | $B000 | $B001 | $B002 | $B003 | $B004 | $B005 | $B006 | $B007 |
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+
+IRQs:
+---------------------------
+
+This mapper's IRQ system is very simple.  There's a 16-bit internal down counter which (when enabled),
+decrements by 1 every CPU cycle.  When the counter reaches 0, an IRQ is fired.  The counter stops at 0 -- it
+does not wrap and isn't automatically reloaded.
+
+Any write to $9003 or $9004 will acknowledge the pending IRQ.
+
+Any write to $9004 will copy the 16-bit reload value into the counter.
+
+$9006 and $9005 set the reload value, but do not have any effect on the actual counter.  Note that $9005 is
+the HIGH bits, not the low bits.

@@ -1,0 +1,31 @@
+
+========================
+=  Mapper 097          =
+========================
+
+Example Game:
+--------------------------
+Kaiketsu Yanchamaru
+
+
+Registers:
+--------------------------
+I'm not sure whether or not this mapper suffers from bus conflicts.  Use caution!
+
+  $8000-FFFF:  [MM.. PPPP]
+    P = PRG Reg  (16k @ $C000)
+    M = Mirroring:
+       %00 = 1ScA
+       %01 = Horz
+       %10 = Vert
+       %11 = 1ScB
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     { -1}     |     $8000     |
+    +---------------+---------------+
+

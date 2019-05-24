@@ -1,0 +1,187 @@
+
+========================
+=  Mapper 024          =
+=       + 026          =
+========================
+
+aka
+--------------------------
+VRC6
+
+
+
+Example Games:
+--------------------------
+Akumajou Densetsu        (024)
+Madara                   (026)
+Esper Dream 2            (026)
+
+
+
+Multiple numbers, just one mapper:
+--------------------------
+As is the VRC way...  VRC6 comes in two varieties.  Both variants operate exactly the same, only the reigster
+addresses are different:
+
+   variant   lines     registers                       Mapper Number
+   =================================================================
+   VRC6a:    A0, A1    $x000, $x001, $x002, $x003      024
+   VRC6b:    A1, A0    $x000, $x002, $x001, $x003      026
+
+
+
+This doc will use the 'VRC6a' registers (0,1,2,3) in all following register descriptions.  For 'VRC6b',
+simply reverse $x001 and $x002.
+
+
+Registers:
+--------------------------
+Some registers are mirrored across several addresses.  For example, writing to $8003 has the same effect as
+writing to $8000.
+
+$8000-$8003:  [PPPP PPPP]   PRG Reg 0  (Select 16k @ $8000)
+$9000-$9002:                Sound, Pulse 1  (see sound section)
+$A000-$A002:                Sound, Pulse 2
+$B000-$B002:                Sound, Sawtooth
+$B003:        [.... MM..]   Mirroring:
+   %00 = Vert
+   %01 = Horz
+   %10 = 1ScA
+   %11 = 1ScB
+
+$C000-$C003:  [PPPP PPPP]   PRG Reg 1  (Select 8k @ $C000)
+$D000-$E003:  [CCCC CCCC]   CHR regs (See CHR setup)
+$F000-$F002:                IRQ regs (See IRQ section)
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+-------+-------+
+    |     $8000     | $C000 | { -1} |
+    +---------------+-------+-------+
+
+
+CHR Setup:
+--------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    | $D000 | $D001 | $D002 | $D003 | $E000 | $E001 | $E002 | $E003 |
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+IRQs:
+--------------------------
+
+VRC6 use the "VRC IRQ" setup shared by several VRCs.  It uses the following registers:
+
+
+  $F000:   [IIII IIII]   IRQ Reload
+  $F001:   [.... .MEA]   IRQ Control
+  $F002:   [.... ....]   IRQ Acknowledge
+
+For info on how these IRQs work, see the "VRC IRQs" section in mapper 021
+
+
+==========================
+Sound:
+--------------------------
+
+VRC6 has two additional pulse channels, and one sawtooth channel.  Both operate very similarly to the NES's
+native channels.
+
+
+
+  Pulse Channels:
+  ------------------------
+
+$9000, $A000:  [MDDD VVVV]
+      M = Mode (0=normal mode, 1=digitized mode)
+      D = Duty cycle (duty cycle is (D+1)/16)
+      V = Volume
+
+$9001, $A001:  [FFFF FFFF]
+      F = Low 8 bits of Frequency
+
+$9002, $A002:  [E... FFFF]
+      F = High 4 bits of Frequency
+      E = Channel Enable (0=disabled, 1=enabled)
+
+
+Pulse 1 uses regs $900x
+Pulse 2 uses regs $A00x
+
+
+  Just like the NES's own pulse channels, an internal counter is counted down each CPU cycle, and when it
+wraps, it's reloaded with the 'F' frequency value, and the duty cycle unit takes another step.  VRC6's pulses
+can have a duty cycle anywhere between 1/16 and 8/16 depending on the given 'D' value.
+
+  Channel output is either 0 or 'V', depending on the current state of the duty cycle unit (or digitized
+mode).
+
+  When 'M' is set (digitized mode), the duty cycle is ignored, and 'V' is always output.  In this mode, the
+channel essentially is no longer a Pulse wave, but rather $9000/$A000 acts like a 4-bit PCM streaming
+register (similar to $4011).
+
+  When 'E' is clear (channel disabled), output of the channel is forced to '0' (silencing the channel).
+
+Generated tone in Hz can be calculated by the following:
+
+       CPU_CLOCK
+Hz = -------------
+      (F+1) * 16
+
+
+  Sawtooth Channel:
+  ------------------------
+
+$B000:  [..AA AAAA]
+       A = Accum Rate
+
+$B001:  [FFFF FFFF]
+       F = Low 8 bits of frequency
+
+$B002:  [E... FFFF]
+       F = High 4 bits of frequency
+       E = Channel Enable (0=disabled, 1=enabled)
+
+
+  The sawtooth uses an 8-bit accumulation register.  Every time it is clocked, 'A' is added until the 7th
+clock, at which point it is reset to 0.  The high 5 bits of this accumulation reg are then used as the
+channel output.  Strangely, though, the accumulation register seems to only be clocked once for every *two*
+times the frequency divider expires.  This results in a tone that's an octave lower than you might expect.
+
+  It's difficult to put in words, so here's an example using $0B as a value for the accum rate ('A'):
+
+Step    Accum.   Channel output
+-------------------------------
+ 0       $00       $00
+ 1       $00       $00     odd steps do nothing
+ 2       $0B       $01     even steps.. add value of 'A' to accum
+ 3       $0B       $01
+ 4       $16       $02
+ 5       $16       $02
+ 6       $21       $04
+ 7       $21       $04
+ 8       $2C       $05
+ 9       $2C       $05
+10       $37       $06
+11       $37       $06
+12       $42       $08     6th and final time 'A' is added
+13       $42       $08
+ 0       $00       $00     7th time, accum is reset instead
+                         ... and the process repeats
+
+  Channel output is the high 5 bits of the accumulation reg (right shift reg by 3).  If the accum rate is too
+high, the accum reg WILL wrap at 8 bits, causing ugly distortion.  The highest accum rate you can use without
+wrapping is $2A.
+
+  If 'E' is clear (channel disabled), channel output is forced to 0 (silencing the channel).
+
+Generated tone in Hz can be calculated by the following:
+
+       CPU_CLOCK
+Hz = -------------
+      (F+1) * 14

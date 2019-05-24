@@ -1,0 +1,24 @@
+
+========================
+=  Mapper 242          =
+========================
+
+
+Example Game:
+--------------------------
+Wai Xing Zhan Shi
+
+
+
+Registers:
+---------------------------
+
+  $8000-FFFF:  A~[.... .... .PPP P.M.]
+    P = PRG Reg (32k @ $8000)
+    M = Mirroring (0=Vert, 1=Horz)
+
+
+Powerup/Reset:
+---------------------------
+
+Register set to 0 on powerup/reset.

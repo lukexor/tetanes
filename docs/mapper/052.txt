@@ -1,0 +1,67 @@
+
+========================
+=  Mapper 052          =
+========================
+
+Example Game:
+--------------------------
+Mario 7-in-1
+
+
+Notes:
+---------------------------
+
+Yet another MMC3 multicart.  For info on MMC3, see mapper 004.
+
+
+Registers:
+---------------------------
+
+  $6000-7FFF:  [.MHL SBPP]  Multicart reg
+       P = PRG Block (bits 0,1)
+       B = CHR+PRG Block Select bit (PRG bit 2, CHR bit 1)
+       S = PRG Block size (0=512k   1=256k)
+       L = CHR Block low bit (bit 0)
+       H = CHR Block high bit (bit 2)
+       M = CHR Block size (0=256k   1=128k)
+
+  $8000-FFFF:  Same as MMC3 for selected block
+
+
+$6000 can only be written to once ... and only if PRG-RAM is enabled and writable (see $A001).  Once $6000
+has been written to, $6000-7FFF maps to PRG-RAM
+
+
+
+PRG Setup:
+---------------------------
+
+   'S'    PRG-AND    PRG-OR
+   ------------------------
+    0       $1F    %BP0 0000
+    1       $0F    %BPP 0000
+
+ 'B' and 'P' bits make a 3-bit value used as PRG-OR (left shift 4).  When 'S' is clear, the low bit of that
+value is forced to 0.
+
+PRG swapping behaves just like a normal MMC3 within this selected block
+
+
+CHR Setup:
+---------------------------
+
+   'M'    CHR-AND    CHR-OR
+   ------------------------
+    0       $FF    %HB 0000 0000
+    1       $7F    %HB L000 0000
+
+ 'H', 'B' and 'L' bits make a 3-bit value used as CHR-OR (left shift 7).  When 'M' is clear, the low bit of
+that value is forced to 0.
+
+CHR swapping behaves just like a normal MMC3 within this selected block
+
+
+Powerup and Reset:
+---------------------------
+
+$6000 set to 0 on reset and powerup.

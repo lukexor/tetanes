@@ -1,0 +1,47 @@
+
+========================
+=  Mapper 002          =
+========================
+
+aka
+--------------------------
+UxROM (and compatible)
+
+
+Example Games:
+--------------------------
+Mega Man
+Castlevania
+Contra
+Duck Tales
+Metal Gear
+
+
+Notes:
+---------------------------
+UxROM has bus conflicts, however mapper 002 is meant to be UxROM and compatible.  So some mappers which were
+similar in function, but did not have bus conflicts are included.
+
+Additionally, UxROM does not have an 8 bit reg.  UNROM is capped at 128k PRG, and UOROM is capped at 256k.
+
+So to be "safe":
+ - for homebrewing:  assume bus conflicts, do not exceed 256k
+ - for emudev:  assume no bus conflicts, use all 8 PRG reg bits
+
+There is no CHR swapping.  Every mapper 002 game I've ever seen has CHR-RAM.
+
+
+Registers (**BUS CONFLICTS** sometimes):
+--------------------------
+  $8000-FFFF:  [PPPP PPPP]
+    PRG Reg
+
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $8000     |     { -1}     |
+    +---------------+---------------+

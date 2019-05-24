@@ -1,0 +1,138 @@
+
+========================
+=  Mapper 233          =
+========================
+
+
+Example Game:
+--------------------------
+???? "42-in-1"  ????
+
+
+Notes:
+---------------------------
+Sources report this mapper as "42-in-1" with description layed out below.  I did not test this,
+since I could not find a copy of the ROM in question.  The only ROM I have that's marked as
+233 is "Unknown Multicart 1", and it does *not* follow the description in this doc at all.
+
+There is a "Super 42-in-1"... but that is mapper 226.  226, by the way, is strikingly similar
+to the below description.  I wonder if below description really applies to 233?
+
+
+
+Registers:
+---------------------------
+
+ $8000-FFFF:  [MMOP PPPP]
+    M = Mirroring
+    O = PRG Mode
+    P = PRG Page
+
+
+PRG Setup:
+---------------------------
+
+              $8000   $A000   $C000   $E000  
+            +-------------------------------+
+PRG Mode 0: |            <$8000>            |
+            +-------------------------------+
+PRG Mode 1: |     $8000     |     $8000     |
+            +---------------+---------------+
+
+
+Mirroring:
+---------------------------
+
+  'M' mirroring bits:
+     %00 = See below
+     %01 = Vert
+     %10 = Horz
+     %11 = 1ScB
+
+
+  Mode %00 (almost, but not quite 1ScA):
+    [  NTA  ][  NTA  ]
+    [  NTA  ][  NTB  ]
+
+
+
+-----------------------------------------------
+--------------------------
+"Unknown Multi Cart 1"
+--------------------------
+-----------------------------------------------
+
+
+
+Notes:
+--------------------------
+
+This ROM is a mystery.
+
+It consists of 32 individual mapper 0 games, each 16k PRG + 8k CHR.
+
+Games do not use compatible mirroring modes -- the ROM includes Ice Climber (which uses H mirroring) and
+Excitebike (V mirroring).  
+
+No games seem to be modified to make any kind of writes to $8000-FFFF, so I didn't find any clue as to what
+mapper registers are being written to (if any).
+
+There does not appear to be *ANY* game selection screen for the multicart.  I have paged through every 16k
+of PRG and they all run the individual games straight up.  So unless the mapper aligns to 8k (or smaller) pages
+on startup and there's some crap hidden in there, I don't see how these games are held together.
+
+Could it be that this ROM dump is bad or incomplete?  The *only* other thing I can think of is that this cart might
+be reset based (a la mapper 060) -- but that is complicated by the fact that games use conflicting mirroring modes.
+So perhaps the mapper sets the mirroring mode based on what game is selected?
+
+
+More weirdness:  games seem to have mismatching PRG/CHR pages.  Ice Climber's PRG is on page $1F, but its CHR is
+on page $17.  It seems that you need to subtract 8 from the PRG page to get the matching CHR page (and wrap where
+appropriate)
+
+Even more weirdness:  despite each game only having 16k PRG, some of the games in the package normally have 32k!
+I don't know if the games were just hacked and had a bunch of stuff removed for what.
+
+It's possible this ROM dump is bogus and/or bad.  It might even be assigned the wrong mapper number.
+
+
+
+At any rate... here are the games.
+
+
+
+Game name          PRG page  CHR Page  Mirroring
+----------------------------------------------------------
+Galaxian              $00      $18        Horz
+10 Yard Fight         $01      $19        Horz
+DKJ Math              $02      $1A        Vert
+Antarctic Adventure   $03      $1B        Horz
+Balloon Fight         $04      $1C        Horz
+Baseball              $05      $1D        Horz
+Battle City           $06      $1E        Horz
+Binary Land           $07      $1F        Horz
+Burger Time           $08      $00        Horz
+Chack 'n Pop          $09      $01        Horz
+Clu Clu Land          $0A      $02        Horz
+Lode Runner           $0B      $03        Vert
+?? Go / Othello ??    $0C      $04        ????
+Field Combat          $0D      $05        Horz   ** really 32k PRG? **
+Devil World           $0E      $06        Horz
+Dig Dug               $0F      $07        Horz
+Donkey Kong           $10      $08        Horz
+Donkey Kong Jr.       $11      $09        Horz
+Donkey Kong 3         $12      $0A        Vert
+Door Door             $13      $0B        Vert
+Duck Hunt             $14      $0C        Vert
+Excitebike            $15      $0D        Vert
+Exerion               $16      $0E        Horz
+F1-Race               $17      $0F        Vert
+Formation Z           $18      $10        Horz
+Front Line            $19      $11        Horz
+Galaga                $1A      $12        Horz   ** really 32k PRG? **
+Golf                  $1B      $13        Vert
+Hogan's Alley         $1C      $14        Vert
+Hyper Olympic         $1D      $15        Vert
+?? some gun game ??   $1E      $16        ????
+Ice Climber           $1F      $17        Horz
+

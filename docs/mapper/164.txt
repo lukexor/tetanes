@@ -1,0 +1,31 @@
+
+========================
+=  Mapper 164          =
+========================
+
+Example Game:
+--------------------------
+Final Fantasy V
+
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $5000-FFFF, $F300
+
+   $5000, $D000:  PRG reg (32k @ $8000)
+
+$6000-7FFF may have SRAM (not sure)
+
+
+On Reset
+---------------------------
+Reg seems to contain $FF on powerup/reset
+
+
+Notes:
+---------------------------
+
+Swapping is really simple -- the thing that is funky is the register range/mask.  $5000 and $D000 will access
+the register, however $5100, $5200, etc will not.

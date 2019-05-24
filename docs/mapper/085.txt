@@ -1,0 +1,572 @@
+
+========================
+=  Mapper 085          =
+========================
+
+aka
+--------------------------
+VRC7
+
+
+Example Games:
+--------------------------
+Lagrange Point
+Tiny Toon Adventures 2  (J)
+
+
+
+VRC7a vs. VRC7b
+--------------------------
+Lagrange Point ('VRC7a') and Tiny Toon Adventures 2 ('VRC7b') both operate exactly the same, but are wired a
+bit differently.  VRC7a uses $x010 for regs, and VRC7b uses $x008.  Registers below are listed as they exist
+on VRC7a.  For VRC7b, make the appropriate adjustments
+
+Also, only Lagrange Point seems to use the extra sound.  It's unknown whether or not the sound hardware
+exists on VRC7b, as Tiny Toon doesn't use it.
+
+
+CHR-RAM note:
+--------------------------
+Lagrange Point, for some reason I still don't understand, swaps its 8k CHR-RAM around.  How this offers any
+functionality is beyond me, but the game does it, so your emu must support it.
+
+
+
+Registers:
+--------------------------
+
+$8000:   PRG Reg 0  (8k @ $8000)
+$8010:   PRG Reg 1  (8k @ $A000)
+$9000:   PRG Reg 2  (8k @ $C000)
+
+$9010:   Sound Address Reg (see below)
+$9030:   Sound Data Port (see below)
+
+$A000-$D010:  CHR Regs
+
+$E000:   [.... ..MM]   Mirroring:
+       %00 = Vert
+       %01 = Horz
+       %10 = 1ScA
+       %11 = 1ScB
+
+$E010:   [IIII IIII]   IRQ Reload value
+$F000:   [.... .MEA]   IRQ Control
+$F010:   [.... ....]   IRQ Acknowledge
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    | $8000 | $8010 | $9000 | { -1} |
+    +-------+-------+-------+-------+
+
+
+CHR Setup:
+--------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    | $A000 | $A010 | $B000 | $B010 | $C000 | $C010 | $D000 | $D010 |
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+IRQs:
+--------------------------
+
+VRC7 uses the "VRC IRQ" setup shared by several VRCs.  It uses the following registers:
+
+
+  $E010:   [IIII IIII]   IRQ Reload
+  $F000:   [.... .MEA]   IRQ Control
+  $F010:   [.... ....]   IRQ Acknowledge
+
+For info on how these IRQs work, see the "VRC IRQs" section in mapper 021
+
+
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+-----  VRC7 Sound          -------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+
+VRC7 has additional sound channels!  It is a slightly dumbed down version of the YM2413 (aka OPLL).  There
+are only 6 harmony channels and no rhythmic channels.
+
+Strap yourself in.  FM-Synth is a beast.
+
+
+---------------------------------------------
+Disclaimers:
+---------------------------------------------
+
+Information here is pieced together from the Yamaha YM2413 Application Manual ("YM2413.pdf"), and Mitsutaka
+Okazaki's "emu2413.c" emulator.  Anyone whose looked at those sources know they are not the easiest things
+to comprehend without prior experience with FM synth, so here I attempt to explain things in a more
+traditional form.
+
+I don't really care about YM2413 (I hate FM synth... I find it extremely ugly), so I only cover items on the
+VRC7 here (ie: no rhythmic information).  If you want details about a full YM2413, you'll have to look elsewhere.
+
+I am NOT confident about this information being 100% accurate.  I made every effort to be as accurate as
+possible, and my implementation based on the below info sounds *very close* to recordings of the real thing,
+but I do hear some subtle differences.  I graciously welcome any corrections anyone can offer.
+
+Bitwidths of various counters are kind of an educated guess.  With the exception of the phase accumulator,
+which is the only counter whose size is hinted at in the documentation... so I'm fairly certain it is in
+fact 18 bits wide.
+
+I mention the use of various lookup tables.  I do not know if these lookup tables actually exist on the
+hardware, or if the values are calculated at runtime.  Likewise the actual size of these lookup tables is
+entirely unknown to me.  You can choose your own size in your implementation.
+
+
+---------------------------------------------
+FM-Synth basics & other fundamental concepts:
+---------------------------------------------
+
+The basic idea of FM-Synth is you have 2 sine waves (aka, "slots"), a "modulator" and a "carrier".  The
+output of the carrier is what you actually hear.  The output of the modulator alters the frequency of the
+carrier, effectively acting like a supersonic vibrato.  This bends and twists the carrier's waveform into
+a myriad of different shapes, producing all kinds of different sounds.
+
+Each of the 6 channels have 2 slots (a Carrier and a Modulator).  Each slot behaves independently and has
+its own settings and counters.  Note that I will refer to "slots" often in these docs.  Do not confuse
+a slot for the whole channel.
+
+"ADSR" stands for Attack/Decay/Sustain/Release.  These represent 4 phases of amplitude (volume) changes in
+synthesized audio.  This is a common technique in all synth audio (not just FM-Synth).
+    - Attack is when the tone begins, and you have a rapid increase in volume, increasing to *above* the
+        desired output level.
+    - Decay is when attack has reached its maximum, and the volume starts to decline to the desired
+       output level.
+   - Sustain is when the volume has reached the desired level.  It holds the volume at that level for as
+       long as the tone is to be played.  Although sometimes the volume might slowly drop.
+   - Release is when the tone is done, and volume gradually decreases until it's completely silent.
+
+"Key on" / "Key off" represents the entry and exit into ADSR.  You can think of it like a piano or a keyboard...
+when you "key on", you are pressing a key, and when you "key off" you are releasing a key.  Effectively,
+this means that when you key on, you enter "Attack", and when you key off, you enter "Release".
+
+
+
+---------------------------------------------
+Volume and Attenuation:
+---------------------------------------------
+
+VRC7 doesn't really have a concept of an output volume.  Instead, it does everything with "attenuation",
+which is basically the opposite of volume.  Attenuation is like a forced reduction -- so high attenuation
+means low output.  Zero attenuation means the output is as high as possible.
+
+All attenuation levels are expressed in decibels (dB), which is a logarithmic (non-linear) scale.  VRC7's
+threshhold or maximum attenuation is 48 dB.  This means that at 48 dB, output is zero.
+
+Note that even though dB are non-linear, you can still work with them as if they were linear.  That is, 
+10dB + 10dB is still 20dB.  The only thing is that when converted to linear units, 20dB is MUCH
+MUCH more than 2x 10dB.
+
+Since VRC7 handles all its output levels in terms of dB, this means you will only need to convert from
+dB to linear units in exactly one place:  when determining the linear output of the "slot".
+
+Converting dB <-> Linear can be accomplished with the below formulas:
+
+    dB     = -20 * log10( Linear ) * scale      (if Linear = 0, dB = +inf)
+    Linear = 10 ^ (dB / -20 / scale)
+
+'scale' is an optional factor you can use to scale up dB so that they're in an easier to use base.
+
+I recommend using (1<<23)/48 for a scale (this would mean that 1<<23 would represent 48 dB).  This will
+make envelope calculations much easier (see Envelope Generation section for details).
+
+Remember the threshhold is 48 dB.  So if you have 48 dB or higher, Linear=0.
+
+
+---------------------------------------------
+Clock rate:
+---------------------------------------------
+
+VRC7 has its own oscillator to drive the clock rate.  It's clocked at 3.6 MHz (exactly 2x the NTSC
+NES CPU clock rate), but those clocks are divided by 72, effectively making the rate at which each individual
+unit is clocked 49715.90909 Hz.
+
+I find it very likely that clocking each individual unit is done serially across the 72 cycles, but the
+effect that detail has on the generated audio is tiny to the point of being insignificant.
+
+To think of this in terms of CPU cycles, you could say that all units are clocked once every 36 CPU
+cycles on NTSC.  However, this is techncially inaccurate, as the NES clock does not drive the VRC7.
+And on PAL systems, the clock rate doesn't sync up like that.
+
+---------------------------------------------
+Registers:
+---------------------------------------------
+
+Register descriptions to follow.  Details as to what each field actually does will not be covered here
+but will be explained in future sections.
+
+
+  $9010:  [..AA AAAA]
+    A = Address for use with $9030
+   
+  $9030:  [DDDD DDDD]  --  data port
+      R:00-R:07  ->  Custom instrument settings (see below)
+     
+     R:1x:  [FFFF FFFF] (where x=0-5, selecting the channel)
+         F = low 8 bits of F-Num (frequency control)
+        
+     R:2x:  [..SK BBBF] (where x=0-5, selecting the channel)
+         F = high bit of F-Num
+        B = Block select (or octave)
+        K = Key on  (1=key on, 0=key off)
+        S = Sustain On (poorly named, has no impact on Sustain mode -- actually affects Release)
+        
+     R:3x:  [IIII VVVV]
+         I = Instrument select
+        V = 'Volume' (poorly named, it's more like "Carrier Base Attenuation Level")
+
+  (regs R:1x, 2x, and 3x apply to both Carrier and Modulator
+   regs R:0x apply differently to each                      )
+   
+
+  R:00: [AFPK MMMM]    (applies to Modulator)
+  R:01: [AFPK MMMM]    (applies to Carrier)
+      A = Enable Amplitude Modulation (AM)
+     F = Enable Frequency Modulation (FM)
+     P = Disable Percussive Mode  (0=percussive, 1=normal)
+     K = Key Scale Rate (KSR)
+     M = 'MULTI' Freqency multiplier
+     
+  R:02:  [KKLL LLLL]
+      K = Modulator Key Scale Level (KSL)
+     L = Modulator base attenuation level
+
+  R:03:  [KK.C MFFF]
+      K = Carrier Key Scale Level (KSL)
+     C = Carrier rectify sine wave  (0=full sine wave,  1=half sine wave)
+     M = Modulator rectify sine wave
+     F = Modulator Feedback level
+   
+  R:04:  [AAAA DDDD]   (Modulator)
+  R:05:  [AAAA DDDD]   (Carrier)
+      A = Attack Rate
+     D = Decay Rate
+     
+  R:06:  [SSSS RRRR]   (Modulator)
+  R:07:  [SSSS RRRR]   (Carrier)
+      S = Sustain Level
+     R = Release Rate
+   
+There are 16 selectable instruments (selected via R:3x).  Instrument 0 is configurable via regs
+R:00 through R:07.  The other instruments are fixed at the below values:
+  
+    0x03,0x21,0x04,0x06,0x8D,0xF2,0x42,0x17  // instrument 1
+    0x13,0x41,0x05,0x0E,0x99,0x96,0x63,0x12  // instrument 2
+    0x31,0x11,0x10,0x0A,0xF0,0x9C,0x32,0x02  // instrument 3
+    0x21,0x61,0x1D,0x07,0x9F,0x64,0x20,0x27  // instrument 4
+    0x22,0x21,0x1E,0x06,0xF0,0x76,0x08,0x28  // instrument 5
+    0x02,0x01,0x06,0x00,0xF0,0xF2,0x03,0x95  // instrument 6
+    0x21,0x61,0x1C,0x07,0x82,0x81,0x16,0x07  // instrument 7
+    0x23,0x21,0x1A,0x17,0xEF,0x82,0x25,0x15  // instrument 8
+    0x25,0x11,0x1F,0x00,0x86,0x41,0x20,0x11  // instrument 9
+    0x85,0x01,0x1F,0x0F,0xE4,0xA2,0x11,0x12  // instrument A
+    0x07,0xC1,0x2B,0x45,0xB4,0xF1,0x24,0xF4  // instrument B
+    0x61,0x23,0x11,0x06,0x96,0x96,0x13,0x16  // instrument C
+    0x01,0x02,0xD3,0x05,0x82,0xA2,0x31,0x51  // instrument D
+    0x61,0x22,0x0D,0x02,0xC3,0x7F,0x24,0x05  // instrument E
+    0x21,0x62,0x0E,0x00,0xA1,0xA0,0x44,0x17  // instrument F
+   
+
+**** SIDE NOTE ****
+Writing to Regs R:00 through R:07 do NOT seem to have an immediate effect on channels using
+instrument 0.  Lagrange Point (Track 2 of the NSF) will write to these regs while a channel
+using instrument 0 is still keyed on and audible, resulting in an ugly and very noticable
+"blurp" noise at the end of a note.  This is not heard on the real hardware, so instrument
+data must be cached somehow.  Perhaps it only takes effect when the channel is keyed on,
+or when R:3x is written to?  Don't know exactly.
+
+
+
+
+---------------------------------------------
+Phase / Frequency Calculation:
+---------------------------------------------
+
+Each slot has an 18-bit up counter which determines the current phase (position in the sine wave).
+Each clock, this counter is incremented:
+    phase += F * (1 << B) * M * V / 2
+
+where:
+    F = 9-bit F-num of the channel
+   B = 3-bit Block of the channel
+   M = see below
+   V = vibrato (FM) output
+
+R:00 or R:01 specify a 4 bit 'MULTI' value.  That MULTI value is run through the below LUT to get 'M':
+
+    MULTI:  0   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F   (hex)
+    M:      1   2   4   6   8  10  12  14  16  18  20  20  24  24  30  30   (dec)
+   
+If FM is enabled for the slot (see R:00 or R:01 for the enable bit), 'V' is the output of the
+FM unit.  See AM/FM section for details.
+
+If FM is disabled, 'V' = 1
+
+
+Another 'phase_secondary' value is used to actually generate the phase:
+
+    phase_secondary = phase + adj
+   
+For the Carrier:
+ adj = the output of the Modulator.  Note that slot output is 20-bits wide, but the phase is only 18
+ bits wide... this means that the high 2 bits of the modulator output are effectively dropped.
+
+For the Modulator:
+ R:03 has a 3-bit 'F' value specifying the feedback level.
+ if F=0:     adj = 0
+ otherwise:  adj = previous_output_of_modulator >> (8 - F)
+ 
+ 
+
+The bits of the phase_secondary value are extracted and used to generate the sine wave:
+
+  phase_secondary:  [RI IIII III. .... ....]
+    R:  rectification bit
+   I:  index to half-sine lookup table
+      ** 'I' may be more or less bits depending on how big your half-sine lookup table is **
+
+'R' determines what to do with output after it's been converted to a linear level.  See next section
+for details of this bit, and details of the half-sine table.
+
+
+---------------------------------------------
+Attenuation / Output calculation:
+---------------------------------------------
+
+The attenuation level determines the slot output on each clock.  Attenuation level is determined
+as follows:
+
+  TOTAL = half_sine_table[I] + base + key_scale + envelope + AM
+
+  
+half_sine_table[I]:
+--------------
+The half-sine table mentioned in the previous section does not actually hold the output of the sine
+function.  Rather, it holds the attenuation level of the sine function.  Example:
+
+sin(pi/2) = 1   ~~~>  I='0100 0000'  ~~~>  half_sine_table[ I ] = 0 dB
+sin(0) = 0      ~~~>  I='0000 0000'  ~~~>  half_sine_table[ I ] = +inf dB
+
+This table is effectively:
+  half_sine_table[I] = Convert_Linear_To_dB(   sin( pi * I / (1 << bitwidth_of_I) )   )
+
+  
+  
+base:
+--------------
+For Modulator:  base = (0.75 * L), where L is the 6-bit base level (see register R:02)
+For Carrier:    base = (3.00 * L), where L is the 4-bit 'volume' (see register R:3x)
+
+
+
+key_scale:
+--------------
+Key Scale Level, 'K', is a 2-bit value (see regs R:02, R:03) that adds attenuation as the pitch
+of the tone increases (ie:  higher pitches = quieter).
+
+If K=0:  key_scale=0
+Otherwise:
+  F = high 4 bits of the current F-Num
+  B = 3-bit Block (Octave)
+  A = table[ F ] - 6 * (7-B)
+
+  if A < 0:   key_scale = 0
+  otherwise:  key_scale = A >> (3-K)
+  
+table:
+   F:     $0     $1     $2     $3     $4     $5     $6     $7     $8     $9     $A     $B     $C     $D     $E     $F
+   A:     0.00  18.00  24.00  27.75  30.00  32.25  33.75  35.25  36.00  37.50  38.25  39.00  39.75  40.50  41.25  42.00
+ 
+ 
+envelope:
+--------------
+Output of the envelope generator.  See Envelope Generation section for details.
+
+
+AM:
+--------------
+If Amplitude modulation is enabled for the slot (see R:00, R:01), AM is the output of the amplitude
+modulation unit.  Otherwise, AM=0.
+
+See AM/FM section for details.
+
+
+
+
+Finally... after all that, we have our 'TOTAL'.  This is the total attenuation for the slot.
+
+1) This attenutation is then converted to linear units to get the preliminary output.  This is
+scaled up to a 20-bit value
+
+2) If the high bit ('R') of the 18-bit 'phase_secondary' value (see previous section) is set, this
+means we are in the negative portion of the sine wave, which means output needs to be negated.
+However, if we are rectifying to a half sine wave (see R:03), output is zero'd instead.
+
+3) Output is then run through a filter which averages this output with the previous clock's output
+
+4) The result is the FINAL, actual output.
+
+Pseudo-code to clarify:
+
+   total = half_sine_table[I] + base + key_scale + envelope + AM
+   prevoutput = output
+   
+   // 1)
+   output = convert_dB_to_Linear( total ) * (1<<20)
+   
+   // 2)
+   if R:
+      if  halfsine:  output = 0
+     else:          output = -output
+     
+   // 3)
+      FINAL = (output + prevoutput) / 2
+     
+     
+'FINAL' is what the slot actually outputs.  This is a 20-bit value.  The modulator's output will
+be sent to the carrier, and the carrier's output will be audible (though you will want to scale it
+down... 20-bit audio is crazy loud when ouputting 16-bit samples).
+
+'FINAL' is also the value used when calculating the modulator's feedback (see prev section).
+
+
+
+---------------------------------------------
+Envelope Generation:
+---------------------------------------------
+
+Each slot has a 23-bit up counter (hereon 'EGC') for envelope generation, very similar to the
+18-bit phase counter.  It determines the output of the envelope generator... which adds attenuation
+to the output (see previous section).
+
+
+The envelope generator operates as an ADSR unit.  When the channel is keyed on, both the Carrier
+and the Modulator enter the Attack Phase.  When keyed off, they enter Release phase.
+
+When the ADSR unit completes a full ADSR cycle, it enters a 5th 'Idle' phase.
+
+EGC is incremented every clock.  The value by which it's incremented depends on which phase of ADSR
+we're in.  Those rates are then adjusted by a 'Key Scale Rate' factor (see R:00, R:01).
+
+EGC also serves as the direct output of the envelope generator (except in the Attack phase).
+When EGC=0, output is 0 dB, and whdn EGC=(1<<23), output is 48 dB.  Because of this, I
+recommend scaling all units in your emulator to work with dB in this (1<<23)/48 base.  Doing
+so results in minimal unit conversion.
+
+Formula for determining the rate to increase EGC:
+   BF   = (3-bit Channel Block << 1) + high bit of F-Num... forming a 4-bit value
+   K    = Key Scale Rate bit (see R:00, R:01)
+   if K:        KB = BF
+   otherwise:   KB = BF >> 2
+
+   R    = base rate (see subsections below)
+   RKS  = R*4 + KB
+   RH   = RKS >> 2   (if RH > 15, use RH=15)
+   RL   = RKS & 3
+   
+ 
+The subsections below will provide a value for R, then will use RH and RL to determine
+the rate by which EGC is incremented.
+
+Note that if R=0, then EGC is not incremented at all.
+
+Attack:
+-------
+   R = slot attack rate (4-bits as written to R:04, R:05)
+   EGC += (12 * (RL+4)) << RH
+   
+   Once EGC wraps, reset EGC to zero and enter Decay phase
+   
+Decay:
+-------
+   R = slot decay rate (4-bits as written to R:04, R:05)
+   EGC += (RL+4) << (RH-1)
+   
+   Once output level reaches the slot sustain level (see R:06, R:07), set EGC to the sustain
+   level (do not reset it to 0!), and enter Sustain phase.
+   
+   The sustain level is (3 dB * L), where L is the 4-bit value written to the register.
+   This means you enter Sustain when EGC >= (3 * L * (1<<23) / 48)
+   
+Sustain:
+-------
+   If slot is percussive (see R:00, R:01):  R = slot RELEASE rate (R:06, R:07, low bits)
+   otherwise:                               R = 0
+   EGC += (RL+4) << (RH-1)
+   
+   When EGC reaches (1<<23), output is fixed at 48 dB and enter Idle phase
+   
+Release:
+-------
+   If channel has "Sustain On" set (see R:2x),  R = 5
+   otherwise, if slot is percussive:            R = slot release rate (R:06, R:07)
+   otherwise:                                   R = 7
+   EGC += (RL+4) << (RH-1)
+   
+   When EGC reaches (1<<23), output is fixed at 48 dB and enter Idle phase
+   
+Idle:
+-------
+   R=0
+   EGC not incremented
+   Output fixed at 48 dB
+   
+   
+As previously mentioned, the output of the envelope generator is EGC, except in Attack phase.
+In Attack, the actual rate of attack is logarithmic (it also decreases attenuation, rather than
+increasing it).
+
+   attack_output = 48 dB - (48 dB * ln(EGC) / ln(1<<23))
+   (ln = natural log)
+
+   
+---------------------------------------------
+Key On / Key Off:
+---------------------------------------------
+
+R:2x has the Key On bit for the channel.  This bit only has an impact when its state transitions.
+Upon transition, do the following for both Carrier and Modulator:
+
+When being set (0->1):   (key on)
+   - Reset EGC to zero
+   - Reset 18-bit phase counter to zero
+   - Enter Attack phase
+   
+When being clear (1->0):  (key off)
+   - If currently in attack, EGC must be set to the current output level
+   - Enter Release phase
+
+   
+---------------------------------------------
+AM/FM:
+---------------------------------------------
+
+There is one AM unit and one FM unit.  The output of these units are shared across all slots.
+
+Both units have a 20-bit counter that is increased by 'rate' every clock.
+
+  sinx = sin(2 * pi * counter / (1<<20))
+
+AM unit:
+  'rate' = 78
+  AM_output = (1.0 + sinx) * 0.6 dB   (emu2413 uses 1.2 dB instead of 0.6, but that sounds way too steep to me)
+  
+  See the "Attenuation / Output calculation" section for how this output is applied
+
+  
+FM unit:
+  'rate' = 105
+  FM_output = 2 ^ (13.75 / 1200 * sinx)
+    (note:  '^' is exponent, not xor)
+   
+  See the "Phase / Frequency Calculation" section for how this output is applied

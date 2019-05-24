@@ -1,0 +1,9 @@
+
+========================
+=  Mapper 026          =
+========================
+
+
+Mapper 026 is a variant of VRC6, which is covered in another doc.
+
+For info, see mapper 024.

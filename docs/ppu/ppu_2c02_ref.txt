@@ -1,0 +1,879 @@
+*******************************
+*NTSC 2C02 technical reference*
+*******************************
+Brad Taylor (BTTDgroup@hotmail.com)
+5th release: April 23rd, 2004
+Thanks to the NES community. http://nesdev.parodius.com.
+Special thanks to Neal Tew for scrolling information.
+Recommended literature: Nintendo's PPU patent document (U.S.#4,824,106).
+
+Note: to display this document properly, your text viewer needs two things: 
+1. support for the classic VGA-based text mode 256 character set with 
+line-drawing characters. 2. word-wrap. windows notepad can easially do both 
+if you change the font over to terminal style.
+
+
+Topics discussed
+----------------
+2C02 integrated components list
+2C02 pin nomenclature & signal descriptions
+2C02 programming
+Video signal generation
+PPU base timing
+Miscellanious PPU info
+PPU memory access cycles
+Frame rendering details
+Scanline rendering details
+In-range object evaluation
+Details of playfield render pipeline
+Details of object pattern fetch & render
+Extra cycle frames
+The MMC3's scanline counter
+PPU pixel priority quirk
+PPU scrolling & addressing in a nutshell
+
+
++-------------------------------+
+|2C02 integrated components list|
++-------------------------------+
+- control registers and misc. flags
+- pixel & scanline counters
+- colorburst phase generator
+- VRAM address latches & counters
+- picture address buffer (tile index byte)
+- VRAM read buffer
+- object attribute memory (OAM)
+- OAM element pointer register/counter
+- OAM temporary memory & scanline comparator
+- vertical & horizontal inverter
+- OAM pixel buffers
+- playfield pixel buffer
+- multiplexer
+- palette memory
+- level decoder/phase selector/DAC
+- byte pointer flip-flop
+
+
++-------------------------------------------+
+|2C02 pin nomenclature & signal descriptions|
++-------------------------------------------+
+          ___  ___
+         |*  \/   |
+R/W  >01]        [40<  VCC
+  D0  [02]        [39>  ALE
+  D1  [03]        [38]  AD0
+  D2  [04]        [37]  AD1
+  D3  [05]        [36]  AD2
+  D4  [06]        [35]  AD3
+  D5  [07]        [34]  AD4
+  D6  [08]        [33]  AD5
+  D7  [09]        [32]  AD6
+  A2  >10]  2C02  [31]  AD7
+  A1  >11]        [30>  A8
+  A0  >12]        [29>  A9
+/CS  >13]        [28>  A10
+EXT0  [14]        [27>  A11
+EXT1  [15]        [26>  A12
+EXT2  [16]        [25>  A13
+EXT3  [17]        [24>  /R
+CLK  >18]        [23>  /W
+/VBL  <19]        [22<  /SYNC
+VEE  >20]        [21>  VOUT
+         |________|
+
+
+R/W, D0-D7, A2-A0, /CS: these are the PPU's control bus signals responsible 
+for programming the 2C02's internal registers. R/W controls data direction 
+(write data into PPU reg on zero), A0-A2 selects the internal PPU register 
+to read/write, and while /CS is set to zero, D0-D7 is used to transfer the 
+data bits to/from the selected register (if /CS=1, D0-D7 float). The next 
+section documents the operation of the registers.
+
+EXT0-EXT3: this bus can either be used as a pixel input (for overlapping 
+externally generated graphics with the 2C02's), or output (for driving 
+another graphics processor), depending on how the 2C02 is programmed. 
+Normally this bus is programmed to be an input, since NES/FC mainboards 
+always ground these four pins.
+
+CLK: this is the 2C02's 21.48 MHz clock input line.
+
+/VBL: this signal issues a zero logic level when the PPU has entered it's 
+VBLANK time, and can stay zero for as long as 20 scanlines. This signal is 
+usually tied to the 2A03's /NMI line, in order to generate the non-maskable 
+interrupt on a per-frame basis. Software acknowledging the /VBL-based 
+interrupt usually quickly clear & set again a /VBL gate bit via a register, 
+so that the time /VBL is active is usually less than a scanline. This output 
+is also open-collector.
+
+VEE, VCC: ground, and +5VDC power signals, respectfully.
+
+VOUT: the 2C02's unbuffered composite video output. This signal usually 
+travels to a two-stage common collector transistor amplifier, in order to 
+boost the video drive to support 75 ohm loads at 1 volt peak-to-peak.
+
+/SYNC: this signal when zero, will force the status of colorburst control, 
+scanline and pixel counters/flip-flops used inside the PPU to definite 
+states. Generally, this is the means of which two 2C02s connected together 
+in a master-slave config (via the EXT bus) can syncronize together; the 
+master PPU's /VBL line feeds the vblank information to the slave's /SYNC 
+input. On Famicom consoles, this pin is always tied to logical one. On the 
+NES however, this pin is tied in with the 2A03's reset input, and as a 
+result, the picture is always disabled while the reset switch is held in on 
+an NES.
+
+/R, /W, ALE, AD0-AD7, A8-A13: these signals control the PPU-related data 
+bus. ALE is activated (logical one) when the PPU puts address bits 0 thru 7 
+on the AD bus (typically a 74LS373 is used to store the low address bus 
+contents). An active /R or /W signal (when logical zero) indicates that a 
+memory device connected to the PPU's AD bus may decode the 14-bit address 
+(formed between the external A0-A7 latch, and the A8-A13 lines), and drive 
+data in the direction indicated (/R means data is being sent into the 2C02, 
+opposite for /W). Never more than one /R, /W, or ALE signal is activated 
+simultaniously.
+
+
++----------------+
+|2C02 programming|
++----------------+
+This section lays out how 2C02 ports & programmable internal memory 
+structures are organized. Names for these ports throughout the document will 
+simply consist of adding $200 to the end of the number (i.e., $2002). 
+Anything not explained here will be later on.
+
+
+Writable 2C02 registers
+-----------------------
+reg	bit	desc
+---	---	----
+0	0	X scroll name table selection.
+	1	Y scroll name table selection.
+	2	increment PPU address by 1/32 (0/1) on access to port 7
+	3	object pattern table selection (if bit 5 = 0)
+	4	playfield pattern table selection
+	5	8/16 scanline objects (0/1)
+	6	EXT bus direction (0:input; 1:output)
+	7	/VBL disable (when 0)
+
+1	0	disable composite colorburst (when 1). Effectively causes gfx to go 
+black & white.
+	1	left side screen column (8 pixels wide) playfield clipping (when 0).
+	2	left side screen column (8 pixels wide) object clipping (when 0).
+	3	enable playfield display (on 1).
+	4	enable objects display (on 1).
+	5	R (to be documented)
+	6	G (to be documented)
+	7	B (to be documented)
+
+3	-	internal object attribute memory index pointer (64 attributes, 32 bits 
+each, byte granular access). stored value post-increments on access to port 
+4.
+
+4	-	returns object attribute memory location indexed by port 3, then 
+increments port 3.
+
+5	-	scroll offset port.
+
+6	-	PPU address port to access with port 7.
+
+7	-	PPU memory write port.
+
+
+
+Readable 2C02 registers
+-----------------------
+reg	bit	desc
+---	---	----
+2	5	more than 8 objects on a single scanline have been detected in the last 
+frame
+	6	a primary object pixel has collided with a playfield pixel in the last 
+frame
+	7	vblank flag
+
+4	-	object attribute memory write port (incrementing port 3 thenafter)
+
+7	-	PPU memory read port.
+
+
+Object attribute structure (4*8 bits)
+-------------------------------------
+ofs	bit	desc
+---	---	----
+0	-	scanline coordinate minus one of object's top pixel row.
+
+1	-	tile index number. Bit 0 here controls pattern table selection when reg 
+0.5 = 1.
+
+2	0	palette select low bit
+	1	palette select high bit
+	5	object priority (> playfield's if 0; < playfield's if 1)
+	6	apply bit reversal to fetched object pattern table data
+	7	invert the 3/4-bit (8/16 scanlines/object mode) scanline address used to 
+access an object tile
+
+3	-	scanline pixel coordite of most left-hand side of object.
+
+
++-----------------------+
+|Video signal generation|
++-----------------------+
+A 21.48 MHz clock signal is fed into the 2C02. This is the NES's main clock 
+line, which is shared by the 2A03.
+
+Inside the PPU, the 21.48 MHz signal is used to clock a three-stage Johnson 
+counter. The complimentery outputs of both master and slave portions of each 
+stage are used to form 12 mutually exclusive output phases- all 3.58 MHz 
+each (the NTSC colorburst). These 12 different phases form the basis of all 
+color generation for the PPU's composite video output.
+
+Naturally, when the user programs the lower 4-bits of a palette register, 
+they are essentially selecting any 1 of 12 phases to be routed to the PPU's 
+video out pin (this corresponds to chrominance (tint/hue) video information) 
+when the appropriate pixel indexes it. Other chrominance combinations (0 & 
+13) are simply hardwired to a 1 or 0 to generate grayscale pixels.
+
+Bits 4 & 5 of a palette entry selects 1 of 4 linear DC voltage offsets to 
+apply to the selected chrominance signal (this corresponds to luminance 
+(brightness) video information) for a pixel.
+
+Chrominance values 14 & 15 yield a black pixel color, regardless of any 
+luminance value setting.
+
+Luminance value 0, mixed with chrominance value 13 yield a "blacker than 
+black" pixel color. This super black pixel has an output voltage level close 
+to the vertical/horizontal syncronization pulses. Because of this, some 
+video monitors will display warped/distorted screens for games which use 
+this color for black (Game Genie is the best example of this). Essentially 
+what is happening is the video monitor's horizontal timing is compromised by 
+what it thinks are extra syncronization pulses in the scanline. This is not 
+damaging to the monitors which are effected by it, but use of the super 
+black color should be avoided, due to the graphical distortion it causes.
+
+The amplitude of the selected chrominance signal (via the 4 lower bits of a 
+palette register) remain constant regardless of bits 4 or 5. Thus it is not 
+possible to adjust the saturation level of a particular color.
+
+
++---------------+
+|PPU base timing|
++---------------+
+Other than the 3-stage Johnson counter, the 21.48 MHz signal is not used 
+directly by any other PPU hardware. Instead, the signal is divided by 4 to 
+get 5.37 MHz, and is used as the smallest unit of timing in the PPU. All 
+following references to PPU clock cycle (abbr. "cc") timing in this document 
+will be in respect to this timing base, unless otherwise indicated.
+
+- Pixels are rendered at the same rate as the base PPU clock. In other 
+words, 1 clock cycle= 1 pixel.
+
+- 341 PPU cc's make up the time of a typical scanline (or 341/3 CPU cc's).
+
+- One frame consists of 262 scanlines. This equals 341*262 PPU cc's per 
+frame (divide by 3 for # of CPU cc's).
+
+
++------------------------+
+|PPU memory access cycles|
++------------------------+
+All PPU memory access cycles are 2 clocks long, and can be made back-to-back 
+(typically done during rendering). Here's how the access breaks down:
+
+At the beginning of the access cycle, PPU address lines 8..13 are updated 
+with the target address. This data remains here until the next time an 
+access cycle occurs.
+
+The lower 8-bits of the PPU address lines are multiplexed with the data bus, 
+to reduce the PPU's pin count. On the first clock cycle of the access, 
+A0..A7 are put on the PPU's data bus, and the ALE (address latch enable) 
+line is activated for the first half of the cycle. This loads the lower 
+8-bit address into an external 8-bit transparent latch strobed by ALE 
+(74LS373 is used).
+
+On the second clock cycle, the /RD (or /WR) line is activated, and stays 
+active for the entire cycle. Appropriate data is driven onto the bus during 
+this time.
+
+
++----------------------+
+|Miscellanious PPU info|
++----------------------+
+- The internal 25-element palette RAM can be accessed by programming the PPU 
+address port with a range in $3Fxx. Address bit [4] indicates whether the 
+playfield (0) or object (1) palettes should be selected. Address bits [3..2] 
+indicates the palette index (0..3), and bits [1..0] specify the palette 
+element index (1..3). The transparency color palette element can be accessed 
+when address bits 3..0 are all zero.
+
+- Reading from $2002 clears the vblank flag (bit 7), and resets the internal 
+$2005/6 flip-flop. Writes here have no effect.
+
+- The output of pin /VBL on the 2C02 is the logical NAND between 2002.7 and 
+2000.7.
+
+- $2002.5 and $2002.6 after being set, stay that way for the first 20 
+scanlines of the new frame, relative to the VINT.
+
+- palette RAM is accessed internally during playfield rendering (i.e., the 
+palette address/data is never put on the PPU bus during this time). 
+Additionally, when the programmer accesses palette RAM via $2006/7, the 
+palette address accessed actually does show up on the PPU address bus, but 
+the PPU's /RD & /WR flags are not activated. This is required; to prevent 
+writing over name table data falling under the approprite mirrored area 
+(since the name table RAM's address decoder simply consists of an inverter 
+connected to the A13 line- effectively decoding all addresses in 
+$2000-$3FFF).
+
+- Because the PPU cannot make a read from PPU memory immediately upon 
+request (via $2007), there is an internal buffer, which acts as a 1-stage 
+data pipeline. As a read is requested, the contents of the read buffer are 
+returned to the NES's CPU. After this, at the PPU's earliest convience 
+(according to PPU read cycle timings), the PPU will fetch the requested data 
+from the PPU memory, and throw it in the read buffer. Writes to PPU mem via 
+$2007 are pipelined as well, but I currently haven unknown to me if the PPU 
+uses this same buffer (this could be easily tested by writing somthing to 
+$2007, and seeing if the same value is returned immediately after reading).
+
+
++-----------------------+
+|Frame rendering details|
++-----------------------+
+  The following describes the PPU's status during all 262 scanlines of a 
+frame. Any scanlines where work is done (like image rendering), consists of 
+the steps which will be described in the next section.
+
+0..19:	Starting at the instant the VINT flag is pulled down (when a NMI is 
+generated), 20 scanlines make up the period of time on the PPU which I like 
+to call the VINT period. During this time, the PPU makes no access to it's 
+external memory (i.e. name / pattern tables, etc.).
+
+20:	After 20 scanlines worth of time go by (since the VINT flag was set), 
+the PPU starts to render scanlines. This first scanline is a dummy one; 
+although it will access it's external memory in the same sequence it would 
+for drawing a valid scanline, no on-screen pixels are rendered during this 
+time, making the fetched background data immaterial. Both horizontal *and* 
+vertical scroll counters are updated (presumably) at cc offset 256 in this 
+scanline. Other than that, the operation of this scanline is identical to 
+any other. The primary reason this scanline exists is to start the object 
+render pipeline, since it takes 256 cc's worth of time to determine which 
+objects are in range or not for any particular scanline.
+
+21..260: after rendering 1 dummy scanline, the PPU starts to render the 
+actual data to be displayed on the screen. This is done for 240 scanlines, 
+of course.
+
+261:	after the very last rendered scanline finishes, the PPU does nothing 
+for 1 scanline (i.e. the programmer gets screwed out of perfectly good VINT 
+time). When this scanline finishes, the VINT flag is set, and the process of 
+drawing lines starts all over again.
+
+
++--------------------------+
+|Scanline rendering details|
++--------------------------+
+Naturally, the PPU will fetch data from name, attribute, and pattern tables 
+during a scanline to produce an image on the screen. This section details 
+the PPU's doings during this time.
+
+As explained before, external PPU memory can be accessed every 2 cc's. With 
+341 cc's per scanline, this gives the PPU enough time to make 170 memory 
+accesses per scanline (and it uses all of them!). After the 170th fetch, the 
+PPU does nothing for 1 clock cycle. Remember that a single pixel is rendered 
+every clock cycle.
+
+
+Memory fetch phase 1 thru 128
+-----------------------------
+1. Name table byte
+2. Attribute table byte
+3. Pattern table bitmap #0
+4. Pattern table bitmap #1
+
+This process is repeated 32 times (32 tiles in a scanline).
+
+
+This is when the PPU retrieves the appropriate data from PPU memory for 
+rendering the playfield. The first playfield tile fetched here is actually 
+the 3rd to be drawn on the screen (the playfield data for the first 2 tiles 
+to be rendered on this scanline are fetched at the end of the scanline prior 
+to this one).
+
+All valid on-screen pixel data arrives at the PPU's video out pin during 
+this time (256 clocks). For determining the precise delay between when a 
+tile's bitmap fetch phase starts (the whole 4 memory fetches), and when the 
+first pixel of that tile's bitmap data hits the video out pin, the formula 
+is (16-n) clock cycles, where n is the fine horizontal scroll offset (0..7 
+pixels). This information is relivant for understanding the exact timing 
+operation of the "object 0 collision" flag.
+
+Note that the PPU fetches an attribute table byte for every 8 sequential 
+horizontal pixels it draws. This essentially limits the PPU's color area 
+(the area of pixels which are forced to use the same 3-color palette) to 
+only 8 horizontally sequential pixels.
+
+It is also during this time that the PPU evaluates the "Y coordinate" 
+entries of all 64 objects in object attribute RAM (OAM), to see if the 
+objects are within range (to be drawn on the screen) for the *next* scanline 
+(this is why Y-coordinate entries in the OAM must be programmed to a value 1 
+less than the scanline the object is to appear on). Each evaluation 
+(presumably) takes 4 clock cycles, for a total of 256 (which is why it's 
+done during on-screen pixel rendering).
+
+
+In-range object evaluation
+--------------------------
+An 8-bit comparator is used to calculate the 9-bit difference between the 
+current scanline (minus 21), and each Y-coordinate (plus 1) of every object 
+entry in the OAM. Objects are considered in range if the comparator produces 
+a difference in the range of 0..7 (if $2000.5 currently = 0), or 0..15 (if 
+$2000.5 currently = 1).
+
+(Note that a 9-bit comparison result is generated. This means that setting 
+object scanline coordinates for ranges -1..-15 are actually interpreted as 
+ranges 241..255. For this reason, objects with these ranges will never be 
+considered to be part of any on-screen scanline range, and will not allow 
+smooth object scrolling off the top of the screen.)
+
+Tile index (8 bits), X-coordinate (8 bits), & attribute information (4 bits; 
+vertical inversion is excluded) from the in-range OAM element, plus the 
+associated 4-bit result of the range comparison accumulate in a part of the 
+PPU called the "sprite temporary memory". Logical inversion is applied to 
+the loaded 4-bit range comparison result, if the object's vertical inversion 
+attribute bit is set.
+
+Since object range evaluations occur sequentially through the OAM (starting 
+from entry 0 to 63), the sprite temporary memory always fills in order from 
+the highest priority in-range object, to lower ones. A 4-bit "in-range" 
+counter is used to determine the number of found objects on the scanline 
+(from 0 up to 8), and serves as an index pointer for placement of found 
+object data into the 8-element sprite temporary memory. The counter is reset 
+at the beginning of the object evaluation phase, and is post-incremented 
+everytime an object is found in-range. This occurs until the counter equals 
+8, when found object data after this is discarded, and a flag (bit 5 of 
+$2002) is raised, indicating that it is going to be dropping objects for the 
+next scanline.
+
+An additional memory bit associated with the sprite temporary memory is used 
+to indicate that the primary object (#0) was found to be in range. This will 
+be used later on to detect primary object-to-playfield pixel collisions.
+
+
+Playfield render pipeline details
+---------------------------------
+As pattern table & palette select data is fetched, it is loaded into 
+internal latches (the palette select data is selected from the fetched byte 
+via a 2-bit 1-of-4 selector).
+
+At the start of a new tile fetch phase (every 8 cc's), both latched pattern 
+table bitmaps are loaded into the upper 8-bits of 2- 16-bit shift registers 
+(which both shift right every clock cycle). The palette select data is also 
+transfered into another latch during this time (which feeds the serial 
+inputs of 2 8-bit right shift registers shifted every clock). The pixel data 
+is fed into these extra shift registers in order to implement fine 
+horizontal scrolling, since the periods when the PPU fetch tile data is 
+fixed.
+
+A single bit from each shift register is selected, to form the valid 4-bit 
+playfield pixel for the current clock cycle. The bit selection offset is 
+based on the fine horizontal scroll value (this selects bit positions 0..7 
+for all 4 shift registers). The selected 4-bit pixel data will then be fed 
+into the multiplexer (described later) to be mixed with object data.
+
+
+Memory fetch phase 129 thru 160
+-------------------------------
+1. Garbage name table byte
+2. Garbage name table byte
+3. Pattern table bitmap #0 for applicable object (for next scanline)
+4. Pattern table bitmap #1 for applicable object (for next scanline)
+
+This process is repeated 8 times.
+
+
+This is the period of time when the PPU retrieves the appropriate pattern 
+table data for the objects to be drawn on the *next* scanline. When less 
+than 8 objects exist on the next scanline (as the in-range object evaluation 
+counter indicates), dummy pattern table fetches take place for the remaining 
+fetches. Internally, the fetched dummy-data is discarded, and replaced with 
+completely transparent bitmap patterns).
+
+Although the fetched name table data is thrown away, and the name table 
+address is somewhat unpredictable, the address does seem to relate to the 
+first name table tile to be fetched for the next scanline. This would seem 
+to imply that PPU cc #256 is when the PPU's scroll/address counters have 
+their horizontal scroll values automatically updated.
+
+It should also be noted that because this fetch is required for objects on 
+the next scanline, it is neccessary for a garbage scanline to exist prior to 
+the very first scanline to be actually rendered, so that object attribute 
+RAM entries can be evaluated, and the appropriate bitmap data retrieved.
+
+As far as the wasted fetch phases here, this is because Nintendo wanted to 
+reuse the playfield pattern table fetch hardware.
+
+
+Details of object pattern fetch & render
+----------------------------------------
+Where the PPU fetches pattern table data for an individual object is 
+conditioned on the contents of the sprite temporary memory element, and 
+$2000.5. If $2000.5 = 0, the tile index data is used as usual, and $2000.3 
+selects the pattern table to use. If $2000.5 = 1, the MSB of the range 
+result value become the LSB of the indexed tile, and the LSB of the tile 
+index value determines pattern table selection. The lower 3 bits of the 
+range result value are always used as the fine vertical offset into the 
+selected pattern.
+
+Horizontal inversion (bit order reversing) is applied to fetched bitmaps, if 
+indicated in the sprite temporary memory element.
+
+The fetched pattern table data (which is 2 bytes), plus the associated 3 
+attribute bits (palette select & priority), and the x coordinate byte in 
+sprite temporary memory are then loaded into a part of the PPU called the 
+"sprite buffer memory" (the primary object present bit is also copied). This 
+memory area again, is large enough to hold the contents for 8 sprites.
+
+The composition of one sprite buffer element here is: 2 8-bit shift 
+registers (the fetched pattern table data is loaded in here, where it will 
+be serialized at the appropriate time), a 3-bit latch (which holds the color 
+& priority data for an object), and an 8-bit down counter (this is where the 
+x coordinate is loaded).
+
+The counter is decremented every time the PPU renders a pixel (the first 256 
+cc's of a scanline; see "Memory fetch phase 1 thru 128" above). When the 
+counter equals 0, the pattern table data in the shift registers will start 
+to serialize (1 shift per clock). Before this time, or 8 clocks after, 
+consider the outputs of the serializers for each stage to be 0 
+(transparency).
+
+The streams of all 8 object serializers are prioritized, and ultimately only 
+one stream (with palette select & priority information) is selected for 
+output to the multiplexer (where object & playfield pixels are prioritized).
+
+The data for the first sprite buffer entry (including the primary object 
+present flag) has the first chance to enter the multiplexer, if it's output 
+pixel is non-transparent (non-zero). Otherwise, priority is passed to the 
+next serializer in the sprite buffer memory, and the test for 
+non-transparency is made again (the primary object present status will 
+always be passed to the multiplexer as false in this case). This is done 
+until the last (8th) stage is reached, when the object data is passed 
+through unconditionally. Keep in mind that this whole process occurs every 
+clock cycle (hardware is used to determine priority instantly).
+
+
+Multiplexer operation
+---------------------
+The multiplexer does 2 things: determines primary object collisions, and 
+decides which pixel data to pass through to index the palette RAM- either 
+the playfield's or the object's.
+
+Primary object collisions occur when a non-transparent playfield pixel 
+coincides with a non-transparent object pixel, while the primary object 
+present status entering the multiplexer for the current clock cycle is true. 
+This causes a flip-flop ($2002.6) to be set, and remains set until the next 
+frame starts to be rendered again.
+
+The decision for selecting the data to pass through to the palette index is 
+made rather easilly. The condition to use object (opposed to playfield) data 
+is:
+
+(OBJpri=foreground OR PFpixel=xparent) AND OBJpixel<>xparent
+
+Since the PPU has 2 palettes; one for objects, and one for playfield, the 
+appropriate palette will be selected depending on which pixel data is passed 
+through.
+
+After the palette look-up, the operation of events follows the 
+aforementioned steps in the "video signal generation" section.
+
+
+Memory fetch phase 161 thru 168
+-------------------------------
+1. Name table byte
+2. Attribute table byte
+3. Pattern table bitmap #0 (for next scanline)
+4. Pattern table bitmap #1 (for next scanline)
+
+This process is repeated 2 times.
+
+
+It is during this time that the PPU fetches the appliciable playfield data 
+for the first and second tiles to be rendered on the screen for the *next* 
+scanline. These fetches initialize the internal playfield pixel pipelines 
+(2- 16-bit shift registers) with valid bitmap data. The rest of tiles 
+(3..32) are fetched at the beginning of the following scanline.
+
+
+Memory fetch phase 169 thru 170
+-------------------------------
+1. Name table byte
+2. Name table byte
+
+
+I'm unclear of the reason why this particular access to memory is made. The 
+name table address that is accessed 2 times in a row here, is also the same 
+nametable address that points to the 3rd tile to be rendered on the screen 
+(or basically, the first name table address that will be accessed when the 
+PPU is fetching playfield data on the next scanline).
+
+
+After memory access 170
+-----------------------
+The PPU simply rests for 1 cycle here (or the equivelant of half a memory 
+access cycle) before repeating the whole pixel/scanline rendering process.
+
+
++------------------+
+|Extra cycle frames|
++------------------+
+Scanline 20 is the only scanline that has variable length. On every odd 
+frame, this scanline is only 340 cycles (the dead cycle at the end is 
+removed). This is done to cause a shift in the NTSC colorburst phase.
+
+You see, a 3.58 MHz signal, the NTSC colorburst, is required to be modulated 
+into a luminance carrying signal in order for color to be generated on an 
+NTSC monitor. Since the PPU's video out consists of basically square waves 
+(as opposed to sine waves, which would be preferred), it takes an entire 
+colorburst cycle (1/3.58 MHz) for an NTSC monitor to identify the color of a 
+PPU pixel accurately.
+
+But now you remember that the PPU renders pixels at 5.37 MHz- 1.5x the rate 
+of the colorburst. This means that if a single pixel resides on a scanline 
+with a color different to those surrounding it, the pixel will probably be 
+misrepresented on the screen, sometimes appearing faintly.
+
+Well, to somewhat fix this problem, they added this extra pixel into every 
+odd frame (shifting the colorburst phase over a bit), and changing the way 
+the monitor interprets isolated colored pixels each frame. This is why when 
+you play games with detailed background graphics, the background seems to 
+flicker a bit. Once you start scrolling the screen however, it seems as if 
+some pixels become invisible; this is how stationary PPU images would look 
+without this cycle removed from odd frames.
+
+Certain scroll rates expose this NTSC PPU color caveat regardless of the 
+toggling phase shift. Some of Zelda 2's dungeon backgrounds are a good place 
+to see this effect.
+
+
++---------------------------+
+|The MMC3's scanline counter|
++---------------------------+
+As most people know, the MMC3 bases it's scanline counter on PPU address 
+line A13 (which is why IRQ's can be fired off manually by toggling A13 a 
+bunch of times via $2006). What's not common knowledge is the number of 
+times A13 is expected to toggle in a scanline (although if you've been 
+paying close attention to the doc here, you should already know ;)
+
+A13 was probably used for the IRQ counter (as opposed to using the PPU's 
+/READ line) because this address line already needed to be connected to the 
+MMC for bankswitching purposes (so in other words, to reduce the MMC3's pin 
+count by 1). They also probably used this method of counting (as opposed to 
+a CPU cycle counter) since A13 cycles (0 -> 1) exactly 42 times per 
+scanline, whereas the CPU count of cycles per scanline is not an exact 
+integer (113.67). Having said that, I guess Nintendo wanted to provide an 
+"easy-to-use" method of generating special image effects, without making 
+programmers have to figure out how many clock cycles to program an IRQ 
+counter with (a pretty lame excuse for not providing an IRQ counter with CPU 
+clock cycle precision (which would have been more useful and versatile)).
+
+Regardless of any values PPU registers are programmed with, A13 will operate 
+in a predictable fashion during image rendering (and if you understand how 
+PPU addressing works, you should understand that A13 is the *only* address 
+line with fixed behaviour during image rendering).
+
+
++------------------------+
+|PPU pixel priority quirk|
++------------------------+
+Object data is prioritized between itself, then prioritized between the 
+playfield. There are some odd side effects to this scheme of rendering, 
+however. For instance, imagine a low priority object pixel with foreground 
+priority, a high priority object pixel with background priority, and a 
+playfield pixel all coinciding (all non-transparent).
+
+Ideally, the playfield is considered to be the middle layer between 
+background and foreground priority objects. This means that the playfield 
+pixel should hide the background priority object pixel (regardless of object 
+priority), and the foreground priority object should appear atop the PF 
+pixel.
+
+However, because of the way the PPU renders (as just described), OBJ 
+priority is evaluated first, and therefore the background object pixel wins, 
+which means that you'll only be seeing the PF pixel after this mess.
+
+A good game to demonstrate this behaviour is Megaman 2. Go into airman's 
+stage. First, jump into the energy bar, just to confirm that megaman's 
+sprite is of a higher priority than the energy bar's. Now, get to the second 
+half of the stage, where the clouds cover the energy bar. The energy bar 
+will be ontop of the clouds, but megaman will be behind them. Now, look what 
+happens when you jump into the energy bar here... you see the clouds where 
+megaman underlaps the energy bar.
+
+
++----------------------------------------+
+|PPU scrolling & addressing in a nutshell|
++----------------------------------------+
+The upcoming chart is a 2-dimensional matrix representing how address/data 
+entering/leaving the PPU relates to it's internal counters and registers.
+
+The top row of the diagram reprents data entering the PPU, and how internal 
+PPU registers are directly effected by it. The left column here describes 
+the means of how the data enters the PPU (either by programming PPU 
+registers, or when the PPU fetches data off the VRAM data bus), and the 
+right column shows how the bits of the written data is mapped to the 
+internal PPU registers (the bits of these registers are then reprogrammed 
+with value of the specified data bit). Numbers 0..7 are used here to 
+represent the data bits written (numbers bits not displayed here means that 
+this data is unused), and "-" is used to indicate that a binary value of 0 
+is to be written.
+
+The middle row and right column of the diagram represents a model of the 
+PPU's internal counters and latches directly related to 
+scrolling/addressing. The top row of the blocks represent the 
+latches/registers. If a bottom row to the blocks exist, these are counters 
+that when loaded, load with the value of the latches directly atop them. The 
+operation of the counters, and when they are loaded, will be described 
+later.
+
+The bottom row of the diagram represents how the status of internal PPU 
+registers/counters effect PPU address lines. The description of the columns 
+here are similar to the first row's. However, the digits appearing in the 
+right column now represent the PPU's physical address lines 0..13 
+(hexidecimal digits are used in the diagram). The absence of address line 
+#'s not appearing here are explained by the notes written next to the access 
+type description in the left column. Finally, address bits that map to PPU 
+registers which have counters below them get their signal only from the 
+counter part of the device, never the latch (top) part.
+
+
+
+register/counter nomenclature
+-----------------------------
+NT:	name table
+AT:	attribute/color table
+PT:	pattern table
+FV:	fine vertical scroll latch/counter
+FH:	fine horizontal scroll latch
+VT:	vertical tile index latch/counter
+HT:	horizontal tile index latch/counter
+V:	vertical name table selection latch/counter
+H:	horizontal name table selection latch/counter
+S:	playfield pattern table selection latch
+PAR:	picture address register (as named in patent document)
+AR:	tile attribute (palette select) value latch
+/1:	first  write to 2005 or 2006 since reading 2002
+/2:	second write to 2005 or 2006 since reading 2002
+
+
+ÉÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»
+º2000           ³      1  0                     4               º
+º2005/1         ³                   76543  210                  º
+º2005/2         ³ 210        76543                              º
+º2006/1         ³ -54  3  2  10                                 º
+º2006/2         ³              765  43210                       º
+ºNT read        ³                                  76543210     º
+ºAT read (4)    ³                                            10 º
+ÇÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¶
+º               ³ÉÍÍÍ»ÉÍ»ÉÍ»ÉÍÍÍÍÍ»ÉÍÍÍÍÍ»ÉÍÍÍ»ÉÍ»ÉÍÍÍÍÍÍÍÍ»ÉÍÍ»º
+ºPPU registers  ³º FVººVººHºº   VTºº   HTºº FHººSºº     PARººARºº
+ºPPU counters   ³ÇÄÄÄ¶ÇÄ¶ÇÄ¶ÇÄÄÄÄÄ¶ÇÄÄÄÄÄ¶ÈÍÍÍ¼ÈÍ¼ÈÍÍÍÍÍÍÍÍ¼ÈÍÍ¼º
+º               ³ÈÍÍÍ¼ÈÍ¼ÈÍ¼ÈÍÍÍÍÍ¼ÈÍÍÍÍÍ¼                      º
+ÇÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¶
+º2007 access    ³  DC  B  A  98765  43210                       º
+ºNT read (1)    ³      B  A  98765  43210                       º
+ºAT read (1,2,4)³      B  A  543c   210b                        º
+ºPT read (3)    ³ 210                           C  BA987654     º
+ÈÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼
+notes:
+
+1: address lines DC = 10.
+
+2: address lines 9876 = 1111.
+
+3: address line D = 0. address line 3 relates to the pattern table fetch
+occuring (the PPU always makes them in pairs).
+
+4: The PPU has an internal 4-position, 2-bit shifter, which it uses for 
+obtaining the 2-bit palette select data during an attribute table byte 
+fetch. To represent how this data is shifted in the diagram, letters c..a 
+are used in the diagram to represent the 3-bit right-shift position amount 
+to apply to the data read from the attribute data (a is always 0). This is 
+why you only see bits 0 and 1 used off the read attribute data in the 
+diagram.
+
+
+Counter operation
+-----------------
+During picture rendering, or VRAM access via 2007, the scroll counters (FV, 
+V, H, VT & HT) increment. The fashion in which they increment is determined 
+by the type of VRAM access the PPU is doing.
+
+
+VRAM access via 2007
+--------------------
+If the VRAM address increment bit (2000.2) is clear (inc. amt. = 1), all the 
+scroll counters are daisy-chained (in the order of HT, VT, H, V, FV) so that 
+the carry out of each counter controls the next counter's clock rate. The 
+result is that all 5 counters function as a single 15-bit one. Any access to 
+2007 clocks the HT counter here.
+
+If the VRAM address increment bit is set (inc. amt. = 32), the only 
+difference is that the HT counter is no longer being clocked, and the VT 
+counter is now being clocked by access to 2007.
+
+
+VRAM access during rendering
+----------------------------
+Because of how name table data is organized, the counters cannot operate in 
+the same fashion as they do during 2007 access. During the time screen data 
+is to be rendered (when 2001.3 or 2001.4 is 1, and scanline range (relative 
+to VINT) is 20..260), 2 counters are established in the PPU (to fetch name, 
+attribute, and pattern table data), and are clocked as will be described.
+
+The first one, the horizontal scroll counter, consists of 6 bits, and is 
+made up by daisy-chaining the HT counter to the H counter. The HT counter is 
+then clocked every 8 pixel dot clocks (or every 8/3 CPU clock cycles).
+
+The second counter, the vertical scroll, is 9 bits, and is made up by 
+daisy-chaining FV to VT, and VT to V. FV is clocked by the PPU's horizontal 
+blanking impulse, and therefore will increment every scanline. VT operates 
+here as a divide-by-30 counter, and will only generate a carry condition 
+when the count increments from 29 to 30 (the counter will also reset). 
+Dividing by 30 is neccessary to prevent attribute data in the name tables 
+from being used as tile index data.
+
+
+counter loading/updating
+------------------------
+There are 2 conditions that update all 5 PPU scroll counters with the 
+contents of the latches adjacent to them. The first is after a write to 
+2006/2. The second, is at the beginning of scanline 20, when the PPU starts 
+rendering data for the first time in a frame (this update won't happen if 
+all rendering is disabled via 2001.3 and 2001.4).
+
+There is one condition that updates the H & HT counters, and that is at the 
+end of the horizontal blanking period of a scanline. Again, image rendering 
+must be occuring for this update to be effective.
+
+
+establishing full split screen scrolls mid-frame
+------------------------------------------------
+although it is not possible to update FV to any desired value mid-screen 
+exclusively via 2006 (since the MSB is zero'd out from the write), it is 
+possible to mix writes to 2005 & 2006 together, so that it is possible. By 
+resetting the 2005/2006 pointer flip-flop (by reading $2002), writing bytes 
+to the below registers in this sequence, will allow all scroll counters to 
+be updated with ANY desired value, including FV. Note that only relivant 
+updates are mentioned, since data in the scroll latches is overwritten many 
+times in the example below.
+
+reg	update
+---	------
+2006:	nametable toggle bits (V, H).
+2005:	FV & bits 3,4 of VT.
+2005:	FH. This is effective immediately.
+2006:	HT & bits 0,1,2 of VT.
+
+It is on the last write to 2006 that all values previously written will be 
+loaded into the scroll counters.
+
+
+EOF
+

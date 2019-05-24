@@ -1,0 +1,50 @@
+v0.7 (Bregalad)
+================================
+- Imported changes from NESDEV wiki:
+     - mapper 005 : - Correct info for mode B CHR switching in 8k mode
+                    - Add info about Bandits king of Ancient China's emulation
+                    - Add info for sound
+                    - Fixes misspelling
+     - mapper 021 : A fixes about IRQ operation
+     - mapper 022 : Combined with mapper 025
+     - mapper 032 : A game requires an NES2.0 sumbapper, not all registers uses all bits
+     - mapper 072 : Major changes in explanation how the command/data works
+     - mapper 076 : Major changes in PRG banking explanation
+     - mapper 077 : Major changes in how CHR-RAM and NT-RAM works
+     - mapper 080 : Added info about 128 bytes internal RAM
+     - mapper 085 : Added extended information about sound (also by Disch).
+     - mapper 091 : One more example game
+     - mapper 113 : Changed example games
+     - mapper 184 : High bit of 4 is always set in hardware
+     - mapper 185 : Add note about open bus pattern table
+     - mapper 207 : Is mapper 080 with mirroring handled differently
+     - mapper 234 : Better wording of explanations of the strange way the regs are accessed
+- Mappers 072, 077, 078, 089, 093, 094, 152, 180 and 185 are confirmed to have bus conflicts
+- Did some spelling and corrects two errors in mapper 001
+
+v0.6.1
+==================================
+- Fixed minor goof in 189
+- made 4x4 bit RAM more clear in 225,228
+- fixed various spelling goofs
+- added info about vertical scrolling in 005's split screen mode
+- added some info about a common noob error in the main readme
+- added technical correction in 005 about PRG-RAM chip select
+- fixed some mapper 034 stuff (BxROM and compatible)
+- fixed mapper 067 IRQ info.  Had first/second writes backwards.
+- fixed mapper 073 IRQ info.  Had modes backwards.
+- fixed 049 -- had PRG modes mixed up
+- fixed error in 090 -- had CHR block modes backwards
+- fixed 203
+- additional notes and crap for 233
+- alternative freq formula for N106 audio was wrong.  Fixed it.
+- clarified 230
+- changed D:# naming convention to R:# to avoid confusion
+     (d is often used for bit positions)
+
+Still 111 mapper numbers  (more coming, I swear!)
+
+
+v0.6
+==================================
+First real release (111 mapper numbers)

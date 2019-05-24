@@ -1,0 +1,297 @@
+
+========================
+=  Mapper 001          =
+========================
+
+aka
+--------------------------
+MMC1
+SxROM
+
+
+Example Games:
+--------------------------
+Final Fantasy
+Mega Man 2
+Blaster Master
+Metroid
+Kid Icarus
+Zelda
+Zelda 2
+Castlevania 2
+
+
+Notes:
+---------------------------
+MMC1 is unique in that not only must the registers be written to *one bit at a time*, but also you cannot
+write to the registers directly.
+
+Internal registers are 5 bits wide.  Meaning to complete a "full" write, games must write to a register 5
+times (low bit first).  This is usually accomplished with something like the following:
+
+   LDA value_to_write
+   STA $9FFF    ; 1st bit written
+   LSR A
+   STA $9FFF    ; 2nd bit written
+   LSR A
+   STA $9FFF    ; 3rd bit written
+   LSR A
+   STA $9FFF    ; 4th bit written
+   LSR A
+   STA $9FFF    ; final 5th bit written -- full write is complete
+
+Writing to anywhere in $8000-FFFF will do -- however the address you write to on the last of the 5 writes
+will determine which internal register gets filled.  The address written to for the first 4 writes *does not
+matter at all*... though games generally write to the same address anyway (like in the above example).
+
+To illustrate this:
+
+   LDA #$00  ; we want to write 0 to a reg
+   STA $8000
+   STA $8000
+   STA $8000
+   STA $8000  ; first 4 writes go to $8000
+   STA $E000  ; 5th write goes to $E000
+
+The above code will affects reg $E000 only!!!   Despite $8000 being written to several times, reg $8000
+remains totally unchanged!
+
+How this works is that when the game writes to $8000-FFFF, it goes to a hidden temporary register.  That
+register records the bits being written.  Only after all 5 bits are written does the final 5-bit value move
+to the desired *actual* register.
+
+Only bits 7 and 0 are significant when writing to a register:
+
+Temporary reg port ($8000-FFFF):
+  [r... ...d]
+     r = reset flag
+     d = data bit
+
+When 'r' is set:
+  - 'd' is ignored
+  - hidden temporary reg is reset (so that the next write is the "first" write)
+  - bits 2,3 of reg $8000 are set (16k PRG mode, $8000 swappable)
+  - other bits of $8000 (and other regs) are unchanged
+
+When 'r' is clear:
+  - 'd' proceeds as the next bit written in the 5-bit sequence
+  - If this completes the 5-bit sequence:
+      - temporary reg is copied to actual internal reg (which reg depends on the last address written to)
+      - temporary reg is reset (so that next write is the "first" write)
+
+
+Confusing?  Yeah it looks confusing, but isn't really.  For an example:
+
+  LDA #$00
+  STA $8000 ; 1st write ('r' bit is clear)
+  STA $8000 ; 2nd write
+
+  LDA #$80
+  STA $8000 ; reset ('r' bit is set)
+
+  LDA #$00
+  STA $8000 ; 1st write (not 3rd!)
+
+
+
+Variants:
+--------------------------
+There are also a slew of board variations which are assigned to mapper 001 as well.  See the sections at the
+bottom for details.  Determining which variant a game uses is difficult -- likely you'll need to fall back
+to a CRC or hash check.
+
+
+
+Registers:
+--------------------------
+
+Note again, these registers are internal and are not accessed directly!  Read notes above.
+
+
+  $8000-9FFF:  [...C PSMM]
+    C = CHR Mode (0=8k mode, 1=4k mode)
+    P = PRG Size (0=32k mode, 1=16k mode)
+    S = Slot select:
+        0 = $C000 swappable, $8000 fixed to page $00 (mode A)
+        1 = $8000 swappable, $C000 fixed to page $0F (mode B)
+        This bit is ignored when 'P' is clear (32k mode)
+    M = Mirroring control:
+        %00 = 1ScA
+        %01 = 1ScB
+        %10 = Vert
+        %11 = Horz
+
+
+  $A000-BFFF:  [...C CCCC]
+    CHR Reg 0
+
+  $C000-DFFF:  [...C CCCC]
+    CHR Reg 1
+
+  $E000-FFFF:  [...W PPPP]
+    W = WRAM Disable (0=enabled, 1=disabled)
+    P = PRG Reg
+
+
+Disabled WRAM cannot be read or written.  Earlier MMC1 versions apparently do not have this bit implemented.
+Later ones do.
+
+
+
+CHR Setup:
+--------------------------
+There are 2 CHR regs and 2 CHR modes.
+
+            $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+          +---------------------------------------------------------------+
+C=0:      |                            <$A000>                            |
+          +---------------------------------------------------------------+
+C=1:      |             $A000             |             $C000             |
+          +-------------------------------+-------------------------------+
+
+
+
+PRG Setup:
+--------------------------
+There is 1 PRG reg and 3 PRG modes.
+
+               $8000   $A000   $C000   $E000
+             +-------------------------------+
+P=0:         |            <$E000>            |
+             +-------------------------------+
+P=1, S=0:    |     { 0 }     |     $E000     |
+             +---------------+---------------+
+P=1, S=1:    |     $E000     |     {$0F}     |
+             +---------------+---------------+
+
+
+On Powerup:
+----------------------------
+
+This varies from version to version.  Earlier MMC1 versions have no determined startup state.  Later ones do.
+
+ - bits 2,3 of $8000 are set (16k PRG mode, $8000 swappable)
+
+WRAM Disable varies wildly from version to version.  Some versions don't have it at all, other versions have
+it cleared initially, others have it set initially, and others have it random.  To be "safe", when
+homebrewing, assume it's disabled (and have your game explicitly enable it before accessing WRAM), and when
+emudeving, assume it's enabled at startup (or else some early MMC1 games will break in your emu).
+
+
+
+
+Additional Notes:
+----------------------------
+
+Consecutive writes that are too close together are apparently ignored.  One game where this is significant
+is Bill & Ted's Excellent Video Game Adventure.  That game does the following HORRIBLY SLOPPY code to reset
+the mapper:
+
+  INC $FFFF  (where $FFFF contains $FF when read)
+
+For those of you who really know your 6502... you know that this will read $FFFF (getting $FF), write that
+value ($FF) back to $FFFF, increment it by one, then write the new value ($00) to $FFFF.  This results in
+two register writes:  $FF, then $00.
+
+Normally, such writes would reset the mapper, then write a single data bit.  However if your emu does it
+like that, the game will crash, as the game expects the next write to be the 1st in a 5-bit sequence (and
+your emu will treat it like the 2nd).
+
+However these writes are performed on consecutive CPU cycles -- which apparently are too close to each other.
+As such, only the first write (of $FF) is acknowledged and performed, and the second write (of $00) is
+ignored.  Emulating in this manner results in a fully functioning game.
+
+So while it is unsure exactly how far apart the writes must be, you can assume that the distance between
+them must be at least 2 CPU cycles.  Such that Read/Modify/Write instructions (like INC) will only
+acknowledge the first write, but two consecutive write instructions (like 2 side-by-side STA's) will work
+normally.
+
+
+-----------------------------------------
+-----------------------------------------
+
+
+Special Variant -- SUROM:
+--------------------------
+
+Example Games:
+  Dragon Warrior 4
+  Dragon Quest 4
+
+
+The MMC1 PRG reg is only 4 bits wide.  This means that normally, page $0F is the highest page number you can
+access.  With 16k pages... this limits typical MMC1 to 256k PRG ($10 pages * $4000 per page).  SUROM
+"hijacks" one of the bits from the CHR registers and uses it as an additional PRG bit.  This allows for
+access to $1F pages, allowing 512k PRG.
+
+  $A000-BFFF:  [...C CCCC]     CHR reg 0
+               [...P ....]     hijacked PRG bit
+
+  $C000-DFFF:  [...C CCCC]     CHR reg 1
+               [...P ....]     hijacked PRG bit
+
+When in 4k CHR mode, 'P' in both $A000 and $C000 *must* be set to the same value, or else pages will
+constantly be swapped as graphics render!  In 8k CHR mode (which is what DQ4 uses), $C000 is irrelevant
+since it is ignored, and $A000 is used exclusively.
+
+The hijacked PRG bit selects which 256k block is used for *ALL* PRG... *including* fixed pages.  Meaning
+fixed page $0F @ $C000 can swap between page $0F and $1F.
+
+
+
+Special Variant -- SOROM:
+--------------------------
+
+Example Games:
+  Nobunaga's Ambition
+  Romance of the Three Kingdoms
+  Genghis Khan
+
+
+SOROM has 16k PRG-RAM (instead of the typical 8k), and hijacks unused bits from the CHR regs in order to
+select which 8k PRG-RAM page is at $6000-7FFF.  The first 8k of PRG-RAM (page 0) is not battery backed --
+but the second 8k is.
+
+When in 4k CHR Mode:
+
+  $A000-BFFF:  [.... R..C]
+    R = PRG-RAM page select
+    C = CHR reg 0
+
+  $C000-DFFF:  [.... R..C]
+    R = PRG-RAM page select
+    C = CHR reg 1
+
+  In 4k CHR mode, above 'R' bits MUST be set to the same value or else PRG-RAM will automatically swap as
+the PPU fetches tiles to render!
+
+
+When in 8k mode:
+
+  $A000-BFFF:  [.... R...]   PRG-RAM page select
+  $C000-DFFF:  [.... ....]   Unused
+
+
+
+Special Variant -- SXROM:
+--------------------------
+
+Example Games:
+  Final Fantasy 1 & 2  (the combo cart, not the individual games)
+  Best Play Pro Yakyuu Special
+
+
+SXROM is sort of like a combination of SUROM and SOROM.  It uses bits from CHR regs to have an additional
+PRG bit, and also to have swappable PRG-RAM.  SXROM has a whopping 32k PRG-RAM (all of which can be battery
+backed).
+
+
+When in 8k CHR mode:
+
+  $A000-BFFF:  [...P RR..]
+    P = PRG-ROM 256k block select (just like on SUROM)
+    R = PRG-RAM page select (selects 8k @ $6000-7FFF, just like SOROM)
+
+
+The behaviour when in 4k CHR mode is similar to SUROM, in that the registers must
+be identical or else undesired swapping will occur as the PPU renders.

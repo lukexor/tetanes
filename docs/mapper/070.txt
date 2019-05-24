@@ -1,0 +1,35 @@
+
+========================
+=  Mapper 070          =
+========================
+
+
+Example Games:
+--------------------------
+Family Trainer - Manhattan Police
+Family Trainer - Meiro Daisakusen
+Kamen Rider Club
+Space Shadow
+
+
+Notes:
+---------------------------
+I do not know whether or not this mapper suffers from bus conflicts.  Use caution!
+
+Many of these games use the family trainer mat as an input device.
+
+
+Registers:
+--------------------------
+  $8000-FFFF:  [PPPP CCCC]
+    P = Selects 16k PRG @ $8000
+    C = Selects 8k CHR @ $0000
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $8000     |     { -1}     |
+    +---------------+---------------+

@@ -1,0 +1,48 @@
+
+========================
+=  Mapper 078          =
+========================
+
+
+Example Games:
+--------------------------
+Holy Diver
+Uchuusen - Cosmo Carrier
+
+
+Notes:
+---------------------------
+This mapper number covers two seperate mappers which are *almost* identical... however the mirroring control
+on each is different (making them incompatible).  You'll probably have to do a CRC or Hash check to figure
+out which mirroring setup to use.
+
+I think some emus might also look at the mirroring bit in the iNES header to determine which setup to use --
+however the ROMs I have do not seem to have the mirroring bit set differently, so I don't know how well that
+would work (not to mention it's probably not a good idea anyway).
+
+
+Registers: (** BUS CONFLICTS **)
+---------------------------
+
+  $8000-FFFF:  [CCCC MPPP]
+    C = CHR Reg (8k @ $0000)
+    P = PRG Reg (16k @ $8000)
+    M = Mirroring:
+
+       --For Uchuusen - Cosmo Carrier--
+        0 = 1ScA
+        1 = 1ScB
+
+       --For Holy Diver--
+        0 = Horz
+        1 = Vert
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $8000     |     { -1}     |
+    +---------------+---------------+
+

@@ -1,0 +1,20 @@
+
+========================
+=  Mapper 107          =
+========================
+
+Example Game:
+--------------------------
+Magic Dragon
+
+
+Registers:
+---------------------------
+I do not know whether or not this mapper suffers from bus conflicts.  Use caution!
+
+  $8000-FFFF:  [PPPP PPP.]
+               [CCCC CCCC]
+    P = Selects 32k PRG @ $8000
+    C = Selects 8k CHR @ $0000
+
+This is very strange.  Bits 1-7 seem to be used by both CHR and PRG.

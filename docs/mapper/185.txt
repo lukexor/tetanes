@@ -1,0 +1,31 @@
+========================
+=  Mapper 185          =
+========================
+
+Example Games:
+--------------------------
+Spy Vs. Spy (J)
+Mighty Bomb Jack (J)
+
+Registers: (**BUS CONFLICTS**)
+---------------------------
+$8000-FFFF:  [..CC ..CC]
+CHR Reg
+
+
+Notes:
+---------------------------
+This mapper is retarded.  These games only have 8k of CHR, and they attempt to disable CHR by writing
+a specific value to the CHR Reg, then VERIFY that garbage is read back, then they swap back to the
+actual CHR.  If they don't get the expected garbage, they lock up.
+
+Perhaps this was some sort of copy protection?
+
+Each game has their own value that enables/disables CHR.  Rather than failing to attempt to list all the
+exact values used here (I don't know what all of them are), I can provide some logic:
+
+if C AND $0F is nonzero, and if C does not equal $13:  CHR is enabled
+otherwise CHR is disabled
+
+When CHR is disabled, the pattern tables are open bus. Theoretically, this should
+return the LSB of the address read, but real-world behavior may vary.

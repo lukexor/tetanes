@@ -1,0 +1,27 @@
+
+========================
+=  Mapper 047          =
+========================
+
+Example Game:
+--------------------------
+Super Spike V'Ball + Nintendo World Cup
+
+
+Notes:
+---------------------------
+
+Yet another MMC3 multicart.  See mapper 004 for info on MMC3.
+
+There is no PRG-RAM.  The multicart reg lies at $6000-7FFF, but is only writable when MMC3 PRG-RAM is enabled
+and writable (see $A001)
+
+
+Registers:
+---------------------------
+
+  $6000-7FFF:  [.... ...B]  Block select
+  $8000-FFFF:  Same as MMC3 for selected block
+
+
+Each block has 128k PRG and 128k CHR.

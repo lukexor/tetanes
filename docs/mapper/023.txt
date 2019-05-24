@@ -1,0 +1,13 @@
+
+========================
+=  Mapper 023          =
+========================
+
+
+Mapper 023 includes both a variant of VRC4, and a variant of VRC2.  Both of which are covered in other docs.
+
+
+For details see the following:
+
+mapper 021 (VRC4)
+mapper 022 (VRC2)

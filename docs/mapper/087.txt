@@ -1,0 +1,27 @@
+
+========================
+=  Mapper 087          =
+========================
+
+
+Example Games:
+--------------------------
+Argus (J)
+City Connection (J)
+Ninja Jajamaru Kun
+
+
+Notes:
+---------------------------
+Regs are at $6000-7FFF, so these games have no SRAM.
+
+
+Registers:
+--------------------------
+
+  $6000-7FFF:  [.... ..AB]
+    B = High CHR Bit
+    A = Low CHR Bit
+
+  This reg selects 8k CHR @ $0000.  Note the reversed bit orders.  Most games using this mapper only have 16k
+CHR, so the 'B' bit is usually unused.

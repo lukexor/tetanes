@@ -1,0 +1,65 @@
+========================
+=  Mapper 072          =
+========================
+
+Example Games:
+--------------------------
+Pinball Quest (J)
+Moero!! Pro Tennis
+Moero!! Juudou Warriors
+
+
+Registers (**BUS CONFLICTS**):
+---------------------------
+
+$8000-FFFF:  [PCRS DDDD]
+P = When a 1 is written after a 0 was previously written,
+ the bottom three bits of the data bus are copied to the PRG bank select
+C = When a 1 is written after a 0 was previously written,
+ the bottom four bits of the data bus are copied to the CHR bank select
+R = For games that have add-on sound, while 0,
+ the ADPCM playback IC is held in reset and unable to make sound
+S = For games that have add-on sound, when the value written here changes
+  (direction unknown because the datasheet contradicts itself), 
+ the sound specified by the bottom 5 bits of the address bus is played.
+ Leaving the value at 0 will probably result in erratic audio playback.
+D = the three- or four- bit bank number to switch to, as appropriate.
+
+
+Notes:
+---------------------------
+
+Commands pass through a latch.  Rather than writing to the regs directly, you write the
+desired page number and command to the latch, then send another command that readies it for the next time.
+
+Commands (PC bits together):
+%00 = Do nothing (prepare for next write)
+%01 = Set CHR Page
+%10 = Set PRG page
+%11 = Set both simultaneously
+
+Example:
+If a game wanted to select CHR page 3, it would first write $43, then $03.  The $43 fills the latch with command 
+bits $4, which instruct bank $3 to be used for CHR; then the write of $03 prepares for the next write by
+resetting the command bits to $0. The $03 should be able to be any value from $00 to $0F, because the command
+bits are what is crucial.
+
+No current theory explains why games go to any effort to put the bank's nybble in the second byte, although perhaps
+it has to do with not disturbing the bank registers while the logic propagates.
+
+CHR Setup:
+---------------------------
+
+$0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
++---------------------------------------------------------------+
+|                            CHR Reg                            |
++---------------------------------------------------------------+
+
+
+PRG Setup:
+---------------------------
+
+$8000   $A000   $C000   $E000  
++---------------+---------------+
+|    PRG Reg    |     { -1}     |
++---------------+---------------+

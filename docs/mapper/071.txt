@@ -1,0 +1,53 @@
+
+========================
+=  Mapper 071          =
+========================
+
+
+Example Games:
+--------------------------
+MiG 29 - Soviet Fighter
+Fire Hawk
+The Fantastic Adventures of Dizzy
+Bee 52
+
+
+Notes:
+--------------------------
+This mapper covers several Camerica/Codemasters boards.  One in paticular that needs to be noted is the board
+used by Fire Hawk -- which has mapper controlled 1-screen mirroring.  On other boards, mirroring is
+hardwired!  This is yet another one of those terrific mapper number incompatibilities.
+
+Some of these games are EXTREMELY DIFFICULT to emulate.  Not because the mapper is complicated (it's actually
+very simple), but because the games are picky about timing and use some seldom used aspects of the NES.
+
+In paticular:
+- Bee 52 uses the sprite overflow flag ($2002.5)
+- MiG 29 uses DMC IRQs, and is VERY PICKY about their timing.  If your DMC IRQ timing isn't spot on (or at
+least really freaking close), this game will glitch like hell.
+
+
+This mapper also involves a custom lockout defeat circuit which is mostly unimportant for emulation purposes.
+Details will not be mentioned here, but are outlined in Kevtris' Camerica Mappers documentation.
+
+Fire Hawk does some strange timing code when changing the mirroring mode.  It is unknown whether or not any
+special timing is required.
+
+
+Registers:
+--------------------------
+
+  $8000-9FFF:  [...M ....]  Mirroring (for Fire Hawk only!)
+     0 = 1ScA
+     1 = 1ScB
+
+  $C000-FFFF:  PRG Select (16k @ $8000)
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $C000     |     { -1}     |
+    +---------------+---------------+

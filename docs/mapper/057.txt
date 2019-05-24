@@ -1,0 +1,42 @@
+
+========================
+=  Mapper 057          =
+========================
+
+Example Games:
+--------------------------
+GK 47-in-1
+6-in-1 (SuperGK)
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $8000-FFFF, $8800
+
+  $8000:  [.H.. .AAA]
+     H = High bit of CHR reg (bit 4)
+     A = Low 3 bits of CHR Reg (OR with 'B' bits)
+
+  $8800:  [PPPO MBBB]
+     P = PRG Reg
+     O = PRG Mode
+     M = Mirroring (0=Vert, 1=Horz)
+     B = Low 3 bits of CHR Reg (OR with 'A' bits)
+
+
+CHR Setup:
+---------------------------
+'A' and 'B' bits combine with an OR to get the low 3 bits of the desired page, and the 'H' bit is the high
+bit.  This 4-bit value selects an 8k page @ $0000
+
+
+PRG Setup:
+---------------------------
+
+               $8000   $A000   $C000   $E000  
+             +---------------+---------------+
+PRG Mode 0:  |     $8800     |     $8800     |
+             +-------------------------------+
+PRG Mode 1:  |            <$8800>            |
+             +-------------------------------+

@@ -1,0 +1,92 @@
+
+========================
+=  Mapper 018          =
+========================
+
+
+Example Games:
+--------------------------
+The Lord of King
+Magic John
+Pizza Pop
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $8000-FFFF, $F003
+
+  $800x,$900x:  [.... PPPP]  PRG Regs
+  $A00x-$D00x:  [.... CCCC]  CHR Regs
+  $E00x:  [.... IIII]  IRQ Reload value
+  $F000:  [.... ....]  IRQ Reset
+  $F001:  [.... SSSE]  IRQ Control
+     S = Size of IRQ counter
+     E = Enable
+
+  $F002:  [.... ..MM]  Mirroring
+     %00 = Horz
+     %01 = Vert
+     %10 = 1ScA
+     %11 = 1ScB
+
+
+CHR Setup:
+---------------------------
+
+Only low 4 bits of written value significant [.... CCCC]
+
+2 regs combined to get an 8-bit page number
+
+$x000 or $x002 are the low 4 bits
+$x001 or $x003 are the high 4 bits
+
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    |$A000+1|$A002+3|$B000+1|$B002+3|$C000+1|$C002+3|$D000+1|$D002+3|
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+PRG Setup:
+---------------------------
+
+Same as CHR, $x000 low, $x001 high
+
+      $8000   $A000   $C000   $E000 
+    +-------+-------+-------+-------+
+    |$8000+1|$8002+3|$9000+1| { -1} |
+    +-------+-------+-------+-------+
+
+
+IRQ:
+---------------------------
+
+16-bit IRQ Reload value is set via regs $E00x.  $E000 sets the low 4 bits, $E003 sets the high 4 bits.
+
+When enabled, the IRQ counter counts down every CPU cycle.  When it wraps, an IRQ is generated.
+
+The 'S' bits in the control reg determine the size of the IRQ counter.  It can be 4, 8, 12, or 16 bits wide:
+
+  %000 = 16 bits wide
+  %001 = 12 bits wide
+  %01x = 8 bits wide
+  %1xx = 4 bits wide
+
+If the counter is less than 16 bits, the high bits are not altered by IRQ counter clocking; they retain their
+value.
+
+Example:  if the IRQ counter contains $1232, and is in 4-bit mode, it counts like so:
+
+  $1232
+  $1231
+  $1230
+  $123F  <--- IRQ here
+  $123E
+   ...
+
+
+Any write to the reset reg ($F000) will copy the 16-bit reload value into the IRQ counter (full 16 bits are
+copied, regardless of current 'S' value).
+
+Any write to $F000 or $F001 will acknowledge the IRQ.

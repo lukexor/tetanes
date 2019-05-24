@@ -1,0 +1,223 @@
+
+========================
+=  Mapper 069          =
+========================
+
+
+aka
+--------------------------
+FME-7
+Sunsoft 5B
+
+
+
+Example Games:
+--------------------------
+Gimmick!
+Batman:  Return of the Joker
+Hebereke
+Gremlins 2 (J)
+
+
+Notes:
+--------------------------
+This mapper is FME-7 and compatible.  Sunsoft 5B operates the same as FME-7, only it has additional sound
+hardware.  For a long time, it was thought Gimmick! uses FME-7, so the expansion sound is labeled as FME-7
+in various places -- however -- technically FME-7 has no extra sound.
+
+Gimmick! is the only known game to use the extra sound found on Sunsoft 5B
+
+
+Registers:
+--------------------------
+
+Range,Mask:   $8000-FFFF, $E000
+
+  $8000:  [.... AAAA]   Address for use with $A000
+
+  $A000:  [DDDD DDDD]   Data port
+    R:0-7 ->  CHR Regs
+    R:8-B ->  PRG Regs
+    R:C   ->  Mirroring
+    R=D-F ->  IRQ Control
+
+  $C000:  [.... AAAA]   Address for use with $E000 (sound)
+
+  $E000:  [DDDD DDDD]   Data port (sound -- see sound section)
+
+
+PRG Setup:
+---------------------------
+
+R:8 controls $6000-7FFF.  It can map in PRG-RAM, PRG-ROM, or leave it unmapped (open bus), depending on the
+mode it sets:
+
+R:8:  [ERPP PPPP]
+   E = Enable RAM (0=disabled, 1=enabled)
+   R = RAM/ROM select (0=ROM, 1=RAM)
+   P = PRG page
+
+ if E=0 and R=1, RAM is selected, but it's disabled, resulting in open bus.  In case it's still unclear:
+
+ R=0:       ROM @ $6000-7FFF
+ R=1, E=0:  Open Bus @ $6000-7FFF
+ R=1, E=1:  RAM @ $6000-7FFF
+
+
+R:9 - R:B appear to be a full 8 bits:  [PPPP PPPP], and select only ROM.
+
+      $6000   $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+-------+
+    |  R:8  |  R:9  |  R:A  |  R:B  | { -1} |
+    +-------+-------+-------+-------+-------+
+
+
+No games seem to use more than 8k PRG-RAM, so I'm unsure whether or not it's swappable when selected.  I
+don't see why it wouldn't be.
+
+
+
+CHR Setup:
+---------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    |  R:0  |  R:1  |  R:2  |  R:3  |  R:4  |  R:5  |  R:6  |  R:7  |
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+Mirroring:
+---------------------------
+
+R:C:  [.... ..MM]
+  %00 = Vert
+  %01 = Horz
+  %10 = 1ScA
+  %11 = 1ScB
+
+
+IRQs:
+---------------------------
+
+This mapper has a 16-bit IRQ counter which decrements every CPU cycle.  When it wraps from $0000->FFFF, an
+IRQ is tripped.
+
+ reg R:E sets the low 8 bits of the counter
+ reg R:F sets the high 8 bits
+
+  Note the regs change the actual counter -- not a reload value.
+
+ reg R:D is the IRQ control:
+   [C... ...T]
+   C = Enable countdown (0=disabled, 1=enabled)
+   T = Enable IRQ triggering (0=disabled, 1=enabled)
+
+In order for IRQs to work as expected, both bits must be set.  If either bit is cleared, an IRQ won't occur:
+
+ C=0, T=1:  IRQs are enabled, but the counter will never decrement
+ C=1, T=0:  Counter decrements, but IRQs are disabled
+
+Acknowledging IRQs can only be done by disabling them (T=0).
+
+
+
+Sound:
+---------------------------
+
+Sunsoft 5B appears to be identical to the AY 3-8910 (or a similar chip -- possibly a different AY 3-891x or a
+YM2149).  The only game to use the sound, Gimmick!, does not use the envelope or noise functionality that
+exists on the AY 3-891x, however, through testing it has been shown that such functionality does in fact
+exist.
+
+The sound info below is a simplified version of the behavior.  Envelope and Noise are not covered (aside from
+the noise shift formula), and registers relating to those areas are not mentioned.  However the information
+below is enough to satisfy Gimmick!  If you want further information and full register descriptions, consult
+an AY 3-8910 datasheet or doc.
+
+Sunsoft 5B has 3 Square channels (no configurable duty cycle -- always play at 50% duty).  Each operate
+similarly to the native NES sound channels.  They output sound at 1 octave lower than what may be expected,
+though (see below).
+
+
+Sound Regs:
+---------------------------
+
+  $C000:  [.... AAAA]   Address for use with $E000
+
+  $E000:  [DDDD DDDD]   Data port:
+
+      R:0 ->   [FFFF FFFF]   Chan 0, Low 8 bits of Freq
+      R:1 ->   [.... FFFF]   Chan 0, High 4 bits of Freq
+      R:2 ->   [FFFF FFFF]   Chan 1, Low 8 bits of Freq
+      R:3 ->   [.... FFFF]   Chan 1, High 4 bits of Freq
+      R:4 ->   [FFFF FFFF]   Chan 2, Low 8 bits of Freq
+      R:5 ->   [.... FFFF]   Chan 2, High 4 bits of Freq
+
+      R:7 ->   [.... .CBA]   Channel disable flags (0=enabled, 1=disabled)
+           C = Disable Chan 2
+           B = Disable Chan 1
+           A = Disable Chan 0
+
+      R:8 ->   [.... VVVV]   Chan 0, Volume
+      R:9 ->   [.... VVVV]   Chan 1, Volume
+      R:A ->   [.... VVVV]   Chan 2, Volume
+
+
+Operation:
+---------------------------
+
+For tone generation, a counter is counted up each CPU cycle.  When it reaches the given 'F' value, it resets
+to zero, and another step through the duty cycle is taken.  These squares' duty cycles are fixed at 50%
+(AY 3-8910 docs say 8/16, but see below).
+
+Emulating in this fashion, with a 16-step duty, these channels play 1 octave higher than they should!
+Therefore, either channels are only clocked every other CPU cycle... or (what I find to be easiest to
+emulate) the duty is actually 16/32 instead of 8/16, or something else is going on.  I do not know which is
+actually happening.
+
+The generated tone in Hz can be calculated with the following:
+
+       CPU_CLOCK
+Hz = -------------
+      (F+1) * 32
+
+
+When the duty cycle outputs high, 'V' is output, otherwise 0 is output.  When the channel is disabled (see
+R:7), 0 is forced as output for the channel.
+
+
+Non-linear volume:
+---------------------------
+
+Output volume is non-linear... increasing in steps of 3 dB.
+
+Output can be calculated with the following pseudo-code:
+
+  vol = 1.0;
+  for(i = 0; i < 0x10; ++i)
+  {
+    sunsoft_out[i] = vol * base;
+    vol *= step;
+  }
+
+Where 'base' can be adjusted to match your native NES sound channel levels, and 'step' is "10^(dB/20)".
+
+For 3 dB, 'step' would be ~1.4125
+
+
+Noise Formula:
+---------------------------
+
+      >>             >>
++-->[nnnn nnnn nnnn nnnn]->output
+|                   |  |
+|                   | ++
+|                   | |
+|                   v v
++-------------------XOR
+   
+
+- 16-bit right-shift reg
+- bits 0,3 (before shift) XOR to create new input bit
+- bit 0 is shifted to output
+- initial feed is 1

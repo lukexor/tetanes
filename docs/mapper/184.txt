@@ -1,0 +1,20 @@
+
+========================
+=  Mapper 184          =
+========================
+
+
+Example Games:
+--------------------------
+Atlantis no Nazo
+The Wing of Madoola
+
+
+Registers:
+--------------------------
+  $6000-7FFF:  [.HHH .LLL]
+    H = Selects 4k CHR @ $1000
+    L = Selects 4k CHR @ $0000
+
+Regs at $6000-7FFF means no SRAM
+The most significant bit of H is always set in hardware. (i.e. its range is 4 to 7)

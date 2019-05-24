@@ -1,0 +1,21 @@
+
+========================
+=  Mapper 140          =
+========================
+
+
+Example Game:
+--------------------------
+Bio Senshi Dan - Increaser Tono Tatakai
+
+
+Notes:
+---------------------------
+Regs lie at $6000-7FFF, so there's no SRAM
+
+
+Registers:
+--------------------------
+  $6000-7FFF:  [..PP CCCC]
+    P = Selects 32k PRG @ $8000
+    C = Selects 8k CHR @ $0000

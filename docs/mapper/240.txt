@@ -1,0 +1,17 @@
+
+========================
+=  Mapper 240          =
+========================
+
+
+Example Games:
+--------------------------
+Jing Ke Xin Zhuan
+Sheng Huo Lie Zhuan
+
+
+Registers:
+--------------------------
+  $4020-5FFF:  [PPPP CCCC]
+    P = Selects 32k PRG @ $8000
+    C = Selects 8k CHR @ $0000

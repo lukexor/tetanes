@@ -1,0 +1,41 @@
+
+========================
+=  Mapper 189          =
+========================
+
+
+Example Game:
+--------------------------
+Thunder Warrior
+
+
+Notes:
+---------------------------
+This mapper is a modified MMC3.  Everything operates just as it does on the MMC3, only the normal PRG regs
+(R:6,R:7) are ignored, and a new PRG Reg is used instead.
+
+For details on MMC3, see mapper 004
+
+
+Registers:
+---------------------------
+Regs at $6000-7FFF means no SRAM
+
+
+  $4120-7FFF:  [AAAA BBBB]
+     A,B:  PRG Reg
+
+
+  $8000-FFFF:  Same as on MMC3
+
+
+PRG Setup:
+--------------------------
+
+'A' and 'B' bits of the $4120 reg seem to be effectively OR'd.
+That is... $30, $03, and $21  will all select page 3
+
+     $8000   $A000   $C000   $E000  
+    +-------------------------------+
+    |             $4120             |
+    +-------------------------------+

@@ -1,0 +1,305 @@
+
+========================
+=  Mapper 016          =
+=       + 159          =
+========================
+
+aka
+--------------------------
+Bandai (something or other)
+
+
+Example Games:
+--------------------------
+Dragon Ball - Dai Maou Jukkatsu      (016)
+Dragon Ball Z Gaiden                 (016)
+Dragon Ball Z 2                      (016)
+Rokudenashi Blues                    (016)
+Akuma-kun - Makai no Wana            (016)
+Dragon Ball Z - Kyoushuu! Saiya Jin  (159)
+SD Gundam Gaiden                     (159)
+Magical Taruruuto Kun 1, 2           (159)
+
+
+Two Mappers:
+---------------------------
+016 and 159 are mapped the exact same way.  Registers are all the same and whatnot.  And in fact, for a
+while, both mappers were assigned the same mapper number (016).  Therefore, you may come across mapper 159
+games that are still marked as mapper 016.
+
+The difference between the two is in the EPROM.  These mappers don't have traditional SRAM (I couldn't tell
+you why).  Instead, they have EPROM that has to be written to one bit at a time, with very strange register
+writes.
+
+Mapper 016 has 256 bytes of EPROM, and is accessed high bit first
+Mapper 159 has 128 bytes of EPROM, and is accessed low bit first
+
+For further details, see the section at the bottom.
+
+Apart from EPROM, the mappers are 100% identical in function.
+
+
+
+Notes:
+---------------------------
+Since there's EPROM, there's no SRAM (EPROM is used to save games).
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $6000-FFFF, $000F
+
+Note:  below regs are listed as $800x, but note they also exist at $6000-7FFF
+
+
+  $8000-8007:   CHR Regs
+  $8008:        PRG Reg (16k @ $8000)
+
+  $8009:  [.... ..MM]   Mirroring:
+    %00 = Vert
+    %01 = Horz
+    %10 = 1ScA
+    %11 = 1ScB
+
+  $800A:  [.... ...E]   IRQ Enable (0=disabled)
+  $800B:                Low 8 bits of IRQ Counter
+  $800C:                High 8 bits of IRQ Counter
+
+  $800D:  EPROM I/O
+
+another note:   since PRG is mapped to $8000-FFFF, EPROM I/O reg can only be read via $6xxx or $7xxx.  To my
+knowledge no other registers are readable.  It also appears that reading from *ANY* address in $6xxx-7xxx
+will read the EPROM I/O reg.  Rokudenashi Blues will poll $7F00 and will wait for bit 4 to be 0 before
+continuing (so if you're giving open bus @ 7F00, the game will deadlock)
+
+CHR Setup:
+---------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    | $8000 | $8001 | $8002 | $8003 | $8004 | $8005 | $8006 | $8007 | 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $8008     |     { -1}     |
+    +---------------+---------------+
+
+
+
+IRQs:
+---------------------------
+IRQs are nice and simple.
+
+When enabled, the 16-bit IRQ counter counts down every CPU cycle, wrapping from $0000->FFFF.  When the
+counter makes the transition from $0001->$0000, an IRQ is generated.
+
+When disabled, the IRQ counter does not count.
+
+Any write to $800A will acknowledge the IRQ
+
+$800B and $800C change the IRQ counter directly -- not a reload value.
+
+
+EPROM:
+---------------------------
+EPROM is a real nightmare.  Nobody knows for sure exactly how it works -- but by examining the game code,
+patterns surface.  Games do a series of extremely cryptic writes to $800D, and occasionally read a single
+bit from $800D.  By examining some logs I made of the games I've noticed a small bit of patterns which I
+list below, along with my guess as to what the game is attempting to do by performing that pattern:
+
+
+  write $00
+  write $40
+  write $60     Start I/O
+  write $20
+  write $00
+
+  write $00
+  write $20     Output '0' bit
+  write $00
+
+  write $00
+  write $40
+  write $60     Output '1' bit
+  write $40
+  write $00
+
+  write $00
+  write $20
+  write $A0    I have absolutly no clue
+  Read
+  write $00
+
+  write $60
+  write $E0    Read a single bit
+  Read
+  write $40
+
+  write $00
+  write $20
+  write $60    Stop I/O
+  write $40
+  write $C0
+
+
+These likely aren't the only patterns that games perform.  I recall seeing occasional writes of $80 and
+other stuff thrown in there in some games.  Also -- not all games follow this pattern, so looking for these
+specific writes will not work for at least one other game.
+
+It seems that only bits 5-7 of the written value are relevent (hereon, they will be referred to as D5 - D7).
+Bit 4 ($10) is the only significant bit when read.  Other bits are most likely open bus.
+
+
+When writing bytes to EPROM, games will generally perform 8 "output" patterns (either output 0 or output 1,
+depending on the bits it wants to write), followed by a 9th output pattern, which I would assume finalizes
+the write and/or possibly moves the 8 bits from a latch to EPROM.
+
+When reading bytes, games will generally perform 8 "read" patterns, followed by a single output pattern
+(which I would assume finalizes the read).
+
+Sometimes when the game is writing bits, it's writing data to be stored on EPROM, and other times it's
+setting the desired EPROM address and/or read/write mode.  Knowing which it's doing involves keeping track
+of the state it's currently it and what it has done last, etc, etc.
+
+But again -- nobody *really* knows how it works.  The method I've employed in my emu is outlined below -- and
+it appears to work for every game I've tried, but I *KNOW* it's not accurate.  But, short of some hardware
+guru acquiring a handful of these carts and doing a thorough RE job, that's about the best anyone can do.
+
+
+
+Emulating EPROM:
+-----------------------
+
+SUPER FAT IMPORTANT NOTE:  This is just the method of EPROM emulation I employ in my emu.
+
+     ***THIS IS NOT HOW THE ACTUAL HARDWARE WORKS***
+
+Do not use this as a final word or anything -- this is simply the product of lots of guesswork, speculation,
+and trial and error.
+
+
+D5 appears to be the "trigger" bit, and D6 appears to be the "signal" bit.  I have no clue what D7 does, and
+ignoring it completely has worked for me (though I'm sure it does have some purpose).  "Commands" are sent
+by toggling D5 (0->1->0).  Two states of D6 are observed -- one when D5 rises (0->1), and one when it falls
+(1->0).  Using these two observed states, you get 4 possible commands.  The command is sent when D5 falls.
+
+Example:
+
+         byte  D6 D5 
+  write: $00    0 0
+  write: $40    1 0
+  write: $60    1 1  <--  D5 rise:    D6=1
+  write: $40    1 0  <--  D5 fall:    D6=1, command "1,1" sent here
+  write: $00    0 0
+
+The above sequence would issue a "1,1" command.
+
+Commands:
+
+  Name     rise,fall       example write sequence
+  ------------------------------------------------
+  Write 0     0,0          $00, $20, $00
+  Write 1     1,1          $00, $40, $60, $40, $00
+  Open        1,0          $00, $40, $60, $20, $00
+  Close       0,1          $00, $20, $60, $40, $C0
+
+
+The unit can be in one of several modes:
+
+  - Closed
+  - Select
+  - Address
+  - Write
+  - Read
+
+I also use an 8-bit temporary value, an 8-bit address (or 7-bit address, if 128 byte EPROM) and 9-step bit
+counter.
+
+I would assume the unit is Closed on startup (and possibly reset).
+
+
+Basic Concept overview:
+
+
+  "Write 0" and "Write 1" commands advance the 9-step bit counter.  The first 8 writes fill the appropriate
+bit in the temporary value.  The 9th write will take the temp value and move it to either the address (if in
+Address mode), or to the desired area in EPROM (if in Write mode), and the mode will update accordingly.
+Basically the first 8 writes fill the temp value and the 9th moves it to where it needs to go.
+
+  Reads operate similarly... but the temp buffer isn't affected by the writes, and the 9th step doesn't copy
+the temp value anywhere.  Note however that games will perform a write between each bit read (presumably to
+advance it to the next bit) -- so you should do nothing but return the appropriate bit when the game reads
+the EPROM I/O Reg (do not advance it to the next bit on read).
+
+  "Select" mode exists on 256 byte EPROM only (mapper 016).  It is used to select between read/write mode.
+Bit 0 of the 8-bit value written when in Select mode determines read/write mode.  On 128 byte EPROM (mapper
+159), the high bit of the address selects read/write mode.  In both cases, 1=read mode, 0=write mode.
+
+  Remember that on 128 byte, values are written low bit first... but on 256 byte, they're written high bit
+first.  Bits are read the same order they're written.
+
+  Doing anything but opening when the unit is closed has no effect.
+
+
+Logic Flow Details (256-byte ... mapper 016)
+--------------------------------------------
+
+Opening from Closed Mode:
+  a) Enter Select Mode
+
+Opening from non-Closed Mode:
+  a) if in Select Mode, increment address by 1
+  b) enter Select Mode.
+  c) Reset bit counter (next write is the first write in the 9-write sequence)
+
+Writing in Select Mode:
+  a) If low bit of written value = 1
+     -) Enter Read Mode
+  b) otherwise...
+     -) Enter Address Mode
+
+Writing in Address Mode:
+  a) written value becomes address
+  b) Enter Write mode
+
+Writing in Write Mode:
+  a) written value moves to current address of EPROM
+  b) mode is not changed
+
+Writing in Read Mode:
+  a) Enter Select Mode
+
+
+
+Logic Flow Details (128-byte ... mapper 159)
+--------------------------------------------
+
+Opening from Closed Mode:
+  a) Enter Address Mode
+
+Opening from non-Closed Mode:
+  a) increment address by 1 (wrap $7F->00)
+  b) do not change mode
+  c) Reset bit counter (next write is the first write in the 9-write sequence)
+
+Writing in Address Mode:
+  a) written value becomes address (low 7 bits only)
+  b) if high bit of written value is set...
+     -) Enter Read Mode
+  c) otherwise...
+     -) Enter Write Mode
+
+Writing in Write Mode:
+  a) written value moves to current address of EPROM
+  b) Enter Address mode
+
+Writing in Read Mode:
+  a) Enter Address Mode
+
+ 

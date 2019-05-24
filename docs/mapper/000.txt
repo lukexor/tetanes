@@ -1,0 +1,23 @@
+
+========================
+=  Mapper 000          =
+========================
+
+aka
+--------------------------
+NROM
+"no mapper"
+
+
+Example Games:
+--------------------------
+Ice Climber
+Excitebike
+Balloon Fight
+Super Mario Bros.
+
+
+
+Notes:
+--------------------------
+No swapping of any kind.  All slots fixed, mirroring is hardwired, etc.

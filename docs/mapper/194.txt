@@ -1,0 +1,25 @@
+
+========================
+=  Mapper 194          =
+========================
+
+
+aka:
+--------------------------
+Pirate MMC3 variant
+
+
+Example Game:
+--------------------------
+Dai-2-Ji - Super Robot Taisen (As)
+
+
+Notes:
+--------------------------
+This mapper is a modified MMC3 (or is based on MMC3?).
+
+In addition to any CHR-ROM present, there is also an additional 2k of CHR-RAM which is selectable.
+
+CHR Pages $00-$01 are CHR-RAM, other pages are CHR-ROM.
+
+Apart from that, this mapper behaves exactly like your typical MMC3.  See mapper 004 for details.

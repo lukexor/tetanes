@@ -1,0 +1,23 @@
+
+========================
+=  Mapper 119          =
+========================
+
+aka
+--------------------------
+TQROM
+MMC3 (alternate)
+
+
+Example Games:
+--------------------------
+High Speed
+Pinbot
+
+
+Notes:
+---------------------------
+In addition to any CHR-ROM present, this mapper has 8k CHR-RAM.  CHR-RAM is selectable just like ROM.  Bit 6
+of each CHR Reg (R:0 - R:5) indicates whether ROM or RAM is selected (1=use RAM).
+
+Other than that, this mapper is your plain, vanilla MMC3.  See mapper 004 for details.

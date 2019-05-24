@@ -1,0 +1,80 @@
+
+========================
+=  Mapper 034          =
+========================
+
+aka
+--------------------------
+BxROM
+NINA-001
+
+
+Example Games:
+--------------------------
+Darkseed               (BxROM)
+Mashou                 (BxROM)
+Impossible Mission 2   (NINA-001)
+
+
+Notes:
+--------------------------
+How these two seperate and completely imcompatible mappers got assigned the same mapper number is a mystery.
+BxROM and NINA-001 are both assigned mapper 034, however they both work totally differently.  There is no
+reliable way to tell the difference between the two apart from a CRC or Hash check.
+
+
+=================================
+BxROM
+=================================
+
+BxROM has bus conflicts... however this mapper also covers some BxROM compatible boards that do
+not suffer from bus conflicts.
+
+
+Registers (**BUS CONFLICTS** sometimes):
+--------------------------
+  $8000-FFFF:  Select 32k PRG @ $8000
+
+Note on a real BxROM, only the low 2 bits are used (PRG capped at 128k).  But since this is BxROM and
+compatible, emus should use all 8 bits
+
+
+
+PRG Setup:
+--------------------------
+
+       $8000   $A000   $C000   $E000  
+     +-------------------------------+
+     |             $8000             |
+     +-------------------------------+
+
+
+
+=================================
+NINA-001
+=================================
+
+Registers:
+--------------------------
+  $7FFD:   Select 32k PRG @ $8000
+  $7FFE:   Select 4k CHR @ $0000
+  $7FFF:   Select 4k CHR @ $1000
+
+I'm not sure whether or not WRAM can also exist at $6000-7FFF
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +-------------------------------+
+    |             $7FFD             |
+    +-------------------------------+
+
+CHR Setup:
+--------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------------------------------+-------------------------------+
+    |             $7FFE             |             $7FFF             |
+    +-------------------------------+-------------------------------+

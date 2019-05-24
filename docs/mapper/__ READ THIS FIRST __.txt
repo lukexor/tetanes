@@ -1,0 +1,304 @@
+
+     ******************************************
+     *     iNES Mappers by Mapper Number      *
+     *               v0.6.2                   *
+     *              by Disch                  *
+     *                                        *
+     *    modifications made by NESDEV wiki   *
+     *      members, commited by Bregalad     *
+     ******************************************
+
+
+Read this doc
+--------------------------
+
+  The mapper pages use charts and symbols and abbreviations and stuff which aren't clarified in each
+individual doc, but are covered here.  You could probably get away with just skimming this doc and/or only
+coming back to it if something in a specific mapper doc seems unclear.
+
+
+
+RAM Names
+--------------------------
+
+  "WRAM", "SRAM", and "PRG-RAM" are used synonymously and inconsistently in these docs.  Kind of sloppy of
+me, I know.  All three terms refer to on-cartridge RAM.
+
+
+
+Mirroring
+--------------------------
+
+  The NES only has two physical nametables.  These nametables are referred to as "NTA" and "NTB".  There are
+4 "slots" for nametables to be accessed:  $2000 (upper-left), $2400 (upper-right), $2800 (lower-left), and
+$2C00 (lower-right)
+
+  Mappers which can customize the nametable layout may have a chart like the below to illustrate which
+nametable goes to which slot:
+
+   [  $2000  ][  $2400  ]
+   [  $2800  ][  $2C00  ]
+
+
+  Most mappers which control mirroring usually pick from 2 to 4 standard mirroring configurations:
+Horizontal ("Horz"), Vertical ("Vert"), 1-Screen A ("1ScA"), and 1-Screen B ("1ScB").  These arrange the
+nametables like so:
+
+       Vert              Horz
+  --------------    --------------
+  [ NTA ][ NTB ]    [ NTA ][ NTA ]
+  [ NTA ][ NTB ]    [ NTB ][ NTB ]
+
+       1ScA              1ScB
+  --------------    --------------
+  [ NTA ][ NTA ]    [ NTB ][ NTB ]
+  [ NTA ][ NTA ]    [ NTB ][ NTB ]
+
+
+  A few mappers also support 4-screen mirroring, which uses 4 full nametables so that each slot has its own
+unique nametable.  Since the NES only has 2k for nametables, for a game to have 4-screen mirroring,
+additional VRAM must be present on the cartridge.  I only know of a grand total of three games which use
+4-screen mirroring, and they will be mentioned in their respective docs.
+
+
+
+Swap Charts
+----------------------------
+
+  PRG/CHR swapping schemes are generally outlined in a chart.  A PRG chart might look like so:
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    | $7EFA | $7EFC | $7EFE | { -1} |
+    +-------+-------+-------+-------+
+
+  This indicates which register is used to select a PRG page for which region.  In this example, the register
+at $7EFA selects an 8k page for $8000-9FFF.
+
+  Numbers surrounded by {curly braces} mean the page is fixed.  Here, $E000-FFFF is fixed to page -1.
+Negative pages indicate the last pages are used.  IE:  "-1" means to use the last page of PRG, "-2" would be
+the second last, etc.
+
+  CHR charts work similarly:
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +---------------+---------------+-------+-------+-------+-------+
+    |    <$7EF0>    |    <$7EF1>    | $7EF2 | $7EF3 | $7EF4 | $7EF5 |
+    +---------------+---------------+-------+-------+-------+-------+
+
+  
+  Here, the register at $7EF3 selects a 1k CHR page for $1400-17FF, while $7EF0 selects a 2k CHR page for
+$0000-07FF.
+
+  Numbers surrounded by <> symbols indicate the low bits of the given page number are ignored.  This is
+typical where a mapper deals with several different page sizes.  For example, $7EF0 selects a 2k page, but
+its low bit is ignored (effectively, you must right-shift its value by 1 for the actual page number).
+
+  Example:  if $7EF0=$05, 2k page $02 would be selected ($05 right shift 1 = $02)
+
+  Double <>'s (example:  "<<$7EF0>>") would mean the low 2 bits are ignored (right shift the value by 2).
+
+  Numbers without <> symbols are referred to as "actual" page numbers.
+
+  Charts may have multiple rows if there are multiple swapping modes.
+
+
+
+Erroneous noob swapping
+----------------------------
+  Some newbies tend to make an understandable, but incorrect assumption about how swapping works.  Given the
+following CHR chart:
+
+               $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+             +---------------+---------------+-------+-------+-------+-------+
+CHR Mode 0:  |     <R:0>     |     <R:1>     |  R:2  |  R:3  |  R:4  |  R:5  |
+             +---------------+---------------+---------------+---------------+
+CHR Mode 1:  |  R:2  |  R:3  |  R:4  |  R:5  |     <R:0>     |     <R:1>     |
+             +-------+-------+-------+-------+---------------+---------------+
+
+  A newbie might think that they can cleverly manipulate modes to select 1k pages across the board, rather
+than having those two 2k chunks in there.  IE:  They think that they can set R:2-R:5 in mode 0, then switch
+to mode 1, set R:2-R:5 again... and that would select each 1k page individually.
+
+  This, of course, is not now it works.  "Swapping" isn't actually swapping.  What's actually happening is
+when the NES reads from a certain address the high bits of the address are being replaced by the contents
+of a mapper register.  Because of this, mapper registers (and swapping modes) are accessed constantly at
+runtime... not just when the value is written.
+
+  For example... setting R:2 in mode 0, then switching to mode 1 will have the exact same effect as switching
+to mode 1 first, then setting R:2.  Both methods end up in mode 1, and both set only R:2... meaning the end
+result is selecting a 1k page at $0000.
+
+  You might say a second "swap" occurs when the mode is changed.  That is... if a game were to change modes,
+they would see the pattern tables "flip", even though they didn't swap anything.
+
+
+
+Register bit layouts
+----------------------------
+
+  Registers often have different bits of the written value do different things.  Or sometimes only some bits
+are significant and others are ignored.  In these situations, bitfields are indicated by a pair of brackets.
+Example:
+
+  $8000:  [CP.. .AAA]
+
+  The above shows 3 seperate things ('A', 'P', and 'C') that the register controls, and which bits are
+assigned to those things.  Bits marked as '.' are irrelevent and unused.  These bits are listed high bit
+first (here, 'C' would be bit 7)
+
+  Some mappers (usually multicarts) also take bits from the address written to -- not just the value
+written.  These instances will be marked with brackets with "A~" before them.  A good example of this:
+
+  $8000-FFFF:    [.... ..CC]
+               A~[..MH HPPP PPO. CCCC]
+
+  The first bracket represents the value written, and the second bracket (with the A~) represents the address
+written to.
+
+
+Address/Data ports
+----------------------------
+
+  Many mappers have several registers which are accessed by writing an address to one area, then writing the
+data you want to write to the reg to another area.  The most common example of this is MMC3 (mapper 004).
+$8000 is the address port, and $8001 is the data port.
+
+  Since $8001 actually accesses 8 different registers, $8001 can't appear in charts and descriptions and
+stuff.  So for address/data ports like this, the accessed registers are referred to as "R:#"  (where # is the
+hex address by which they're accessed).  For example MMC3's 8 regs would be "R:0" through "R:7".
+
+  For example, if a game wanted to change R:4, it would do the following:
+
+LDA #$04
+STA $8000  ; set address to $04
+LDA whatever
+STA $8001  ; since address is $04, this sets R:4
+
+
+
+Timing / Dots
+----------------------------
+
+  When discussing the timing of PPU triggered IRQs, I refer to 'dots'.  IE:  "The IRQ will fire on dot 260 of
+the scanline".  'Dots' are otherwise known as PPU Cycles.  Each scanline consists of 341 dots -- and on NTSC,
+there are 3 dots to every 1 CPU cycle.
+
+
+
+Bus Conflicts
+-----------------------------
+
+  Some simple mappers suffer from bus conflicts.  This means that when registers share CPU space with PRG,
+the value you write to the address must match what is read from that address or bad things will happen!
+
+
+Many games do this by having a LUT of common values somewhere and indexing it:
+
+     Swap_LUT:
+     .db $00, $01, $02, $03, $04, $05, $06, $07
+
+     PRG_Swap:
+         ;  assume A is the desired page to swap to (00-07)
+       TAX
+       STA Swap_LUT,X
+       RTS
+
+This ABSOLUTELY NEEDS TO BE DONE for these mappers!  Do not try to shortcut this!  You will break your ROM!
+
+I'm sure I missed some mappers that have bus conflicts -- but I tried to mark all the ones I know do, and
+suspect might.
+
+When a bus conflicting write occurs, the result is usually an AND of the two potential values -- but such
+behavior should not be relied on.
+
+
+
+
+Register Masking / Ranges
+------------------------------
+
+  Many times, a single register can be accessed by several addresses.  For example when you see something
+like:
+
+  $8000-FFFF:   PRG Reg
+
+  That means a write to anywhere between $8000-FFFF will access the PRG Reg.
+
+  In that same vein, sometimes not all address lines are used when decoding which register is to be accessed.
+That is, some bits of the address don't matter.  This creates a masking effect where registers are mirrored
+in a semi-weird fashion accross an address range.  This would be marked in docs with something like:
+
+
+Range,Mask:   $8000-FFFF, $E001
+
+
+This would mean that within the range $8000-FFFF, you'd use $E001 as a mask for determining which register to
+use.  IE:  $D3F7 would mirror $C001, because $D3F7 AND $E001 = $C001.
+
+
+
+PRG/CHR Masking
+------------------------------
+
+  When a game selects a page higher than there is ROM for, the page number would be masked to select an
+appropriate page.  For example... if a game only has $08 pages of CHR, and it selects page $0A, then it would
+actually select page $02 (because $0A AND ($08-1) = $02).
+
+  In that same vein... fixed "last pages" {-1}, {-2}, etc are really pages $FFFF, $FFFE, etc -- and the mask
+happens to make that select the last or second last page.
+
+  This is why PRG/CHR sizes must always be a power of 2, except in extremely rare cases where there's an odd
+number of chips (and those cases are handled specially by the mapper).
+
+
+
+Powerup/Reset
+-----------------------------
+
+  Do not assume the state of anything at startup.  Mapper registers, like RAM, contain pseudo-random garbage
+on system powerup, except in special cases, which will be noted in the appropriate docs.
+
+  If no such note is made, you cannot assume anything.
+
+
+
+PRG-AND, PRG-OR, Blocks, etc
+-----------------------------
+
+  Multicarts (and even some single game carts) employ a type of block system which lets the game choose a
+block, and then will only swap to pages within that block.  In these docs I often illustrate this with PRG-OR
+and PRG-AND values.
+
+  For an example, let's say you have a game with the following PRG pages selected:
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    |  $02  |  $16  | { -2} | { -1} |
+    +-------+-------+-------+-------+
+
+  And let's say the PRG-AND is $0F, and the PRG-OR is $20.  This would result in the following pages being
+selected:
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    |  $22  |  $26  |  $2E  |  $2F  |
+    +-------+-------+-------+-------+
+
+  simply, it's  "(desiredpage AND PRGAND) OR PRGOR".  Note that even the fixed pages are affected by this.
+
+  CHR-AND and CHR-OR operate the same way, but with CHR pages.
+
+  Always apply these values *before* any downshifting caused by <> symbols.
+
+Bregalad's notice
+-----------------
+
+I imported changes that were made from Disch's original documents and compiled them into a new version.
+Disch himself clarified that changes to his own work were welcome in a NESDEV forums post : http://forums.nesdev.com/viewtopic.php?f=3&t=10275
+He also said he keeps his distance to emulation scene and is probably not going to ever update this himself, so that is the reason for me to update the doccuments instead.
+I did not do any of these changes, rather, they were made by NESDEV wiki members such as lidnariq, Rainwarrior, and tepples (among possibly others).
+The details are in the changelog. I just reviewed them and integrated them here in order to keep the documents up to date.
+
+Finally I'd want to say a big thank to disch and congratulations for doing such a huge work of documenting so many mappers at the same time,
+while keeping it coherent and very comprehensive.

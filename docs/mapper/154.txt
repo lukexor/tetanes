@@ -1,0 +1,58 @@
+
+========================
+=  Mapper 154          =
+========================
+
+Example Game:
+--------------------------
+Devil Man
+
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $8000-FFFF, $8001
+
+
+  $8000:  [.M.. .AAA]
+    M = Mirroring
+       0 = 1ScA
+       1 = 1ScB
+    A = Address for use with $8001
+
+
+  $8001:  [DDDD DDDD]
+    Data port:
+      R:0 ->  CHR reg 0
+      R:1 ->  CHR reg 1
+      R:2 ->  CHR reg 2
+      R:3 ->  CHR reg 3
+      R:4 ->  CHR reg 4
+      R:5 ->  CHR reg 5
+      R:6 ->  PRG reg 0  (8k @ $8000)
+      R:7 ->  PRG reg 1  (8k @ $A000)
+
+
+
+CHR Setup:
+---------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +---------------+---------------+-------+-------+-------+-------+
+    |     <R:0>     |     <R:1>     |  R:2  |  R:3  |  R:4  |  R:5  |
+    +---------------+---------------+-------+-------+-------+-------+
+
+R:0,R:1  select CHR from the first 64k block.  R:2-R:5 select CHR from the second 64k block.
+
+Therefore, you must effectively AND the written values to R:0,R:1 with $3F, and OR the written values to
+R:2-R:5 with $40.
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    |  R:6  |  R:7  | { -2} | { -1} |
+    +-------+-------+-------+-------+

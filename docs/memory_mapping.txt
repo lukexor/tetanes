@@ -1,0 +1,488 @@
+                     **************************************
+                     **                                  **
+                     **        NES Memory Mapping        **
+                     **           version 1.0            **
+                     **                                  **
+                     **             by Disch!            **
+                     **************************************
+
+===================================
+Introduction
+===================================
+
+    There are a bunch of docs around which cover 6502 and asm hacking in NES
+games.  They do a good job of showing how you can modify existing game code to
+make it do something new.  Some even cover how to insert your own code and jump
+to it, allowing you to add new stuff to your hack.  But one related area which
+is crucial to really understanding how to do all this is either only briefly
+touched on with little explanation, or is not touched on at all.  Leaving the
+reader with many unanswered questions.
+
+    I'm talking, of course, about mappers.  People hear terms like "mapper",
+and "PRG swapping" thrown around...  but not everyone understands what they do
+or how they work.  If you're one of these people, hopefully this doc will shed
+some light on the subject.
+
+    This doc primarily focuses on the PRG/CHR swapping aspect of mappers.
+Other aspects of mappers (such as IRQ generation, mirroring control, sound,
+etc) are not covered in this document.
+
+
+===================================
+What should you know?
+===================================
+
+    This doc does not cover 6502.  It doesn't assume you know any 6502, however
+I doubt much of the information here will be very useful without it.
+
+    This doc will assume you know nothing about NES architecture, and will
+cover some basic ares that relate to NES<->Mapper interaction.
+
+    However... despite it not relying on you having much previous experience,
+the information gained will probably be useless unless you've been around the
+block a few times.
+
+
+===================================
+ROM offsets vs. CPU Addresses
+===================================
+
+    ROM offsets and CPU Addresses are two distinctly different things.  ROM
+offsets indicate a position the .nes file -- and CPU addresses indicate an
+area in the NES CPU memory map.  Mappers are the key to translating between
+the two.
+
+    In this doc... ROM offsets will always be prefixed with '0x', and CPU
+addresses will always be prefixed with '$'.
+
+    Tangent note:  some docs and tutorials erroneously call CPU addresses "RAM
+offsets" (and in fact, it says this in FCEUXD as well).  I want to punch these
+authors, as that term is false and misleading (you're not always dealing with
+RAM, and it doesn't really offset anything).  I urge you to refrain from using
+these terms, and to just say "address" for CPU addresses and "offset" for ROM
+offsets.  It may not seem like a big deal, but it may ultimately lead to
+confusion when you really do need to differentiate between what's RAM and what
+isn't (and when you actually do have to deal with real RAM offsets).
+
+===================================
+A look at the NES Memory Map
+===================================
+
+    The first step to understanding the mapper's primary function (memory
+mapping) is to examine the basic NES memory Map.  You may have seen similar
+charts in other NES docs, but they usually clump the cartridge and NES
+together:
+
+     NES CPU Memory Map:
+     +-------------+----------------------------+
+     | Address     |  Mapped to                 |
+     +-------------+----------------------------+
+     |$0000 - $1FFF|  System RAM                |
+     |$2000 - $3FFF|  PPU Registers             |
+     |$4000 - $401F|  CPU/pAPU/Joypad Registers |
+     |$4020 - $FFFF|  Cartridge                 |
+     +-------------+----------------------------+
+        The NES cannot address anything higher than $FFFF
+
+     Typical Cartridge memory map:
+     +-------------+----------------------------------+
+     | Address     |  Mapped to                       |
+     +-------------+----------------------------------+
+     |$4020 - $5FFF|  Unused                          |
+     |$6000 - $7FFF|  PRG-RAM (aka SRAM)              |
+     |$8000 - $FFFF|  PRG-ROM (ie:  the actual game)  |
+     +-------------+----------------------------------+
+
+    This is how the vast majority of NES games look.  The NES CPU Memory Map
+as listed above is *always* the same.  However, the cartridge memory map can
+vary wildly according to the cartridge layout and the mapper.
+
+    What the hell does this mean?  Well this means that any time the game reads
+or writes to an address below $4020, it's doing something local to the NES.
+However when it reads/writes to an address above $4020, it's accessing
+something on the cartridge and is subject to mapper intervention:
+
+LDA $0300   ;  reading from NES system RAM
+LDA $8123   ;  reading from cartridge (typically PRG-ROM)
+
+
+===================================
+A look at .nes ROM files
+===================================
+
+    The next step to understanding how mappers map cartridge information is
+understand what we'll be mapping.  This is actually pretty straightforward...
+the .nes file contains 3 main parts:
+
+
+1)  iNES Header
+2)  PRG-ROM
+3)  CHR-ROM  (assuming the game has any)
+
+    PRG and CHR ROM sizes are indicated by the header.
+
+    The iNES header is $10 bytes in size, which means that PRG-ROM starts at
+offset 0x00010 in the .nes file.
+
+
+
+===================================
+Why a mapper is needed
+===================================
+
+    For our first example... let's take a look at a small, simple game like
+Super Mario Bros.  This ROM has 32K PRG.  You can see this in FCEUXD by loading
+the ROM, then going to Help | Message Log (it will say "2 x 16KiB")
+
+    32K is $8000 bytes.  This fits PERFECTLY into the typical cartridge memory
+map.  For this paticular situation... a mapper isn't needed, because all of
+the PRG can fit into the allotted space at address range $8000-$FFFF.  This
+means that when the game is reading from address $8000, it's reading offset
+0x00010 (the first byte of PRG-ROM).
+
+    Note, however... that this is ALL of the space in the CPU memory map that
+is designated for PRG-ROM.  So how on Earth are games able to fit in more PRG?
+This is accomplished by a technique performed by mappers called PRG swapping.
+
+    But before we get into PRG swapping... let's start with something a little
+easier to visualize....
+
+
+===================================
+CHR Swapping
+===================================
+
+    CHR Swapping is the same concept as PRG swapping, only it deals with CHR
+instead of PRG.  This makes it a bit easier to visualize.
+
+    A good game to use as an example is Super Mario Bros. 2.  Load up this ROM
+in FCEUXD, start the first level, and open up the PPU Viewer (Tools | PPU
+Viewer).  At the same tile, load up the ROM in your favorite tile editor and
+jump to offset 0x26010
+
+    Notice how in FCEUXD, the tiles on the bottom of the right-hand pattern
+table are animating.  By looking at how the tiles are layed out in your tile
+editor, you should be able to see that the game is just cycling through a list
+of tiles.
+
+    This actually is a great demonstration of what swapping is and how it
+works.  Instead of looking at the pattern tables and seeing a bunch of
+tiles... try to look at it and see "slots":
+
+   +----------------------------++----------------------------+
+   |           Slot 0           ||           Slot 4           |
+   |                            ||                            |
+   +----------------------------++----------------------------+
+   |           Slot 1           ||           Slot 5           |
+   |                            ||                            |
+   +----------------------------++----------------------------+
+   |           Slot 2           ||           Slot 6           |
+   |                            ||                            |
+   +----------------------------++----------------------------+
+   |           Slot 3           ||           Slot 7           |
+   |                            ||                            |
+   +----------------------------++----------------------------+
+
+    Each slot holds 4 rows of tiles (64 tiles)... this represents 1k ($400
+bytes) of CHR.  Now the NES cannot "see" more than 8k at a time (the above 8
+slots).  However... games can have more graphics by putting different CHR
+"pages" in those slots.  When it wants to change which page is in the slot, it
+"swaps in" a new page.  The page that was previously visible is removed, and
+the new page becomes visible.
+
+    SMB2 is constantly switching which CHR page is put in slots 6 and 7.  By
+constantly swapping in new pages, it appears as though the tiles are animating.
+This is a common animation technique used by NES games.
+
+    The pages themselves can be seen in a tile editor.  SMB2's CHR-ROM starts
+at offset 0x20010.  Which means:
+
+page $00 = 0x20010 - 0x2040F   (the first 64 tiles)
+page $01 = 0x20410 - 0x2080F   (the next 64 tiles)
+page $02 = 0x20810 - 0x20C0F
+...
+page $7F = 0x3FC10 - 0x4000F   (the last 64 tiles)
+  (the above assumes 1k pages)
+
+
+
+Note about CHR-RAM:
+   Some games use CHR-RAM instead of CHR-ROM (these games don't have any
+CHR-ROM, and all their graphics data is intermingled in the PRG.  Castlevania,
+Final Fantasy are examples of these types of games).  For these games, the
+above doesn't apply.  CHR-RAM is handled differently from CHR-ROM and is beyond
+the scope of this document (it's more related to PPU registers than mapper
+stuff)
+
+===================================
+PRG Swapping
+===================================
+
+    Some people can pick up the concept of CHR swapping pretty quick, but then
+struggle with PRG swapping.  Which is a little strange, because it's the EXACT
+same concept.  Rather than looking at the $8000-$FFFF area in CPU addressing
+space as a big chunk of PRG... look at it as a series of slots.  For another
+visual of a typical NES CPU memory map:
+
+
+    $0000  +-----------------+      $8000  +-----------------+
+           |                 |             |                 |
+           |  System RAM     |             |  PRG Slot 0     |
+           |                 |             |                 |
+    $2000  +-----------------+      $A000  +-----------------+
+           |                 |             |                 |
+           |  PPU Registers  |             |  PRG Slot 1     |
+           |                 |             |                 |
+    $4000  +-----------------+      $C000  +-----------------+
+           |  CPU/etc Regs   |             |                 |
+    $5000  +-----------------+             |  PRG Slot 2     |
+           |  Unused         |             |                 |
+    $6000  +-----------------+      $E000  +-----------------+
+           |                 |             |                 |
+           |  SRAM           |             |  PRG Slot 3     |
+           |                 |             |                 |
+           +-----------------+             +-----------------+
+
+
+    Just like how in CHR swapping, slots are filled with pages of tiles... with
+PRG swapping, slots are filled by pages of PRG.
+
+    So while a game can only "see" 32k of PRG at any one time... it can still
+access much more than 32k by swapping out different pages.
+
+    Just as CHR pages are stored in order in the .nes file, so are PRG pages:
+
+page $00 = 0x00010 - 0x0200F
+page $01 = 0x02010 - 0x0400F
+page $02 = 0x04010 - 0x0600F
+...
+etc
+   (the above assumes 8k pages)
+
+
+
+
+===================================
+Converting ROM Offsets and CPU Addresses
+===================================
+
+    6502 code and NES games all deal with CPU addresses.  None of it deals with
+ROM offsets.  This is why NES pointers appear so funky to newcomers.  People
+sometimes come across a pointer such as "63 91", and get confused when they
+find that it actually points to offset 0x15173.  But when you consider
+everything mentioned above.. it really does make perfect sense:
+
+
+- "63 91" = $9163 (CPU address)
+- $9163 is in "Slot 0" ($8000-9FFF)
+- $9163 is $1163 bytes into the slot (slot starts at $8000)
+- for this to point to 0x15173... page $0A (assuming 8k pages) must be swapped
+     in slot 0:
+
+$0A * $2000 = 0x14000      (page# * page_size = start_of_page)
+0x14000 + $1163 = 0x15163  (start_of_page + bytes_into_slot = offset)
+0x15163 + 0x10 =  0x15173  (adjust for iNES header)
+
+    That same pointer, however, could point to 0x0D173 or 0x05173 or 0x11173.
+It all depends on which page is swapped in.
+
+    So how do you find out which page is swapped in?  Well it's quite easy in
+FCEUXD.  Simply open up the hex editor (Tools | Hex Editor), go to View | NES
+Memory, go to the desired CPU address, right click on it, and select "Go Here
+In ROM File".  The hex editor will flip over to ROM offset mode and will give
+you the offset to the desired PRG.
+
+    Note, however, that games are CONSTANTLY swapping PRG pages.  It's not
+uncommon for games to swap pages multiple times every frame.  Therefore it's
+recommended you snap the debugger at the appropriate time before finding which
+pages are swapped in.  And remember that just because a page is swapped in now,
+doesn't mean it will be swapped in later.
+
+
+===================================
+Variable slot sizes, swappable slots, and hardwired slots
+===================================
+
+    Up until now, I've been using 8k pages as examples.  This is because the
+most common mapper (MMC3, mapper 4) uses 8k PRG pages.  However, other mappers
+use different sizes.  Some mappers even let the game PICK the size!
+
+    Different size pages operate just like you may expect.  16k pages ($4000
+bytes) would be stored in the ROM as:
+
+page $00 = 0x00010 - 0x0400F
+page $01 = 0x04010 - 0x0800F
+... etc
+
+    And 32k pages ($8000 bytes -- yes, some mappers use pages this big) would
+be stored as:
+
+page $00 = 0x00010 - 0x0800F
+page $01 = 0x08010 - 0x1000F
+... etc
+
+
+   Generally slots are arranged like so:
+
+            8k         16k         32k
+$8000   +--------+  +--------+  +--------+
+        |        |  |        |  |        |
+$A000   +--------+  |        |  |        |
+        |        |  |        |  |        |
+$C000   +--------+  +--------+  |        |
+        |        |  |        |  |        |
+$E000   +--------+  |        |  |        |
+        |        |  |        |  |        |
+        +--------+  +--------+  +--------+
+
+
+    Mappers don't always let the game select a page for every slot.  Some slots
+are fixed so that they always contain a specific page.  These slots are often
+called "hardwired" (even though that term is technically inaccurate... "fixed"
+is more appropriate).  Usually, the last slot is fixed to the last page of PRG,
+and cannot be swapped out.  This all depends on the mapper being used and
+possibly the settings of that mapper.
+
+
+
+===================================
+Nitty Gritty specific mapper details
+===================================
+
+    Everything mentioned so far as been intentionally generic.  The concepts
+are sound and apply to every mapper out there.  However each individual mapper
+does vary slightly in slot arrangement, PRG/CHR swapping ability,
+swappable/fixed slots, and even additional features not mentioned in this doc.
+And while the info mentioned above is all sound... you're eventually going to
+need to know the specifics.
+
+    So here is a short list of some common mappers and their arrangement.  This
+is by no means a complete list.  I have no intention of making a complete list.
+There are sources for mapper details elsewhere -- if the mapper your game uses
+is not listed here, you'll have to find a different resource.
+
+    This list also does not go into details of mapper registers.  If you want
+to know how to manually swap out pages or do other things with the mapper,
+you'd be best suited to find a technical doc on said mapper.
+
+
+    Finding out which mapper your game uses is pretty easy.  Many emulators
+will tell you this information after the ROM is loaded.  In FCEUXD, once you
+load the ROM, go to Help | Message Log, and it will tell you the mapper number.
+
+
+************************
+*  Mapper 0  --  NROM  *
+************************
+
+    Mapper 0 is no mapper.  There is no PRG/CHR swapping ability.
+
+
+************************
+*  Mapper 1  --  MMC1  *
+************************
+
+    Mapper 1 lets the game choose between 3 different PRG swapping schemes.
+99% of games using this mapper use the first scheme listed:
+
+PRG:
+16k Slot @ $8000 = Swappable
+16k Slot @ $C000 = Fixed to last PRG page
+---------OR--------
+16k Slot @ $8000 = Fixed to first PRG page (page 0)
+16k Slot @ $C000 = Swappable
+---------OR--------
+32k Slot @ $8000 = Swappable
+
+    Mapper 1 also let's game switch between 2 different CHR swapping schemes.
+However, many games using this mapper use CHR-RAM.  For those that don't:
+
+CHR:
+4k Slot @ ppu$0000 = Swappable
+4k Slot @ ppu$1000 = Swappable
+---------OR--------
+8k Slot @ ppu$0000 = Swappable
+
+
+    There are a handful of rare exceptions which rewire MMC1 in funky ways.
+Dragon Warrior 4, for instance, in a way breaks the above PRG swapping rules.
+For these games, refer to an MMC1 technical doc.
+
+
+*************************
+*  Mapper 2  --  UxROM  *
+*************************
+
+    Mapper 2 is very simple.  Only 1 swapping scheme.  All games using this
+mapper have CHR-RAM, and thus do not swap CHR.
+
+PRG:
+16k Slot @ $8000 = Swappable
+16k Slot @ $C000 = Fixed to last PRG page
+
+
+*************************
+*  Mapper 4  --  MMC3   *
+*************************
+
+    MMC3 is hands down the most common mapper around.  Odds are whatever game
+you're hacking (if it's a US release) is MMC3.  Most games using this mapper
+use CHR-ROM and swap as indicated below:
+
+PRG:
+8k Slot @ $8000 = Swappable
+8k Slot @ $A000 = Swappable
+8k Slot @ $C000 = Fixed to 2nd last PRG page
+8k Slot @ $E000 = Fixed to last PRG page
+----------OR----------
+8k Slot @ $8000 = Fixed to 2nd last PRG page
+8k Slot @ $A000 = Swappable
+8k Slot @ $C000 = Swappable
+8k Slot @ $E000 = Fixed to last PRG page
+
+
+CHR:
+2k Slot @ ppu$0000 = Swappable
+2k Slot @ ppu$0800 = Swappable
+1k Slot @ ppu$1000 = Swappable
+1k Slot @ ppu$1400 = Swappable
+1k Slot @ ppu$1800 = Swappable
+1k Slot @ ppu$1C00 = Swappable
+----------OR----------
+1k Slot @ ppu$0000 = Swappable
+1k Slot @ ppu$0400 = Swappable
+1k Slot @ ppu$0800 = Swappable
+1k Slot @ ppu$0C00 = Swappable
+2k Slot @ ppu$1000 = Swappable
+2k Slot @ ppu$1800 = Swappable
+
+
+===================================
+One final note
+===================================
+
+    When it comes to mappers... anything and everything goes.  A "mapper"
+is really a combination of cartridge layout, wiring, MMC, and anything
+additional on the cart.  Theoretically, it is even possible for an
+additional processor to be on the cartridge!
+
+    So while there are general traits that are shared by many mappers...
+there are no "rules".  The charts and explanations should be absorbed
+with the understanding that they are not carved in stone... and that there
+are mappers out there which deviate from the normal patterns.
+
+
+===================================
+That's it!
+===================================
+
+    That's about everything I can think of.  Hopefully this will clarify some
+of the grey areas left by other docs.
+
+
+
+===================================
+Version History
+===================================
+
+June 25, 2007    -   version 1.0  -  Initial release

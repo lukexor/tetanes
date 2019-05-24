@@ -1,0 +1,34 @@
+
+========================
+=  Mapper 066          =
+========================
+
+aka
+--------------------------
+GxROM and compatible
+
+
+Example Games:
+--------------------------
+Doraemon
+Dragon Power
+Gumshoe
+Thunder & Lightning
+Super Mario Bros. + Duck Hunt
+
+
+Notes:
+---------------------------
+I do not know whether or not this mapper suffers from bus conflicts.  Use caution!
+
+This mapper is INFAMOUS for having bad headers.  Probably 80% or more of these ROMs floating around out
+there have the wrong mirroring mode set in the header.
+
+Some games are marked as mapper 066 that are really mapper 140.  See mapper 140 for info.
+
+
+Registers:
+--------------------------
+  $8000-FFFF:  [..PP ..CC]
+    P = Selects 32k PRG @ $8000
+    C = Selects 8k CHR @ $0000

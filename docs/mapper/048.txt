@@ -1,0 +1,91 @@
+
+========================
+=  Mapper 048          =
+========================
+
+
+Example Games:
+--------------------------
+Bubble Bobble 2 (J)
+Don Doko Don 2
+Captain Saver
+Flintstones, The (J)
+
+
+Notes:
+--------------------------
+Most dumps of mapper 048 games floating around are erroneously labelled as mapper 033.  Mapper 033 does not
+have IRQs, mapper 048 does, and mirroring on each is handled a bit differently.  Apart from that, the two are
+very similar.
+
+This mapper is very similar to MMC3 in a lot of ways, including how the IRQ counter operates.
+
+
+Registers:
+--------------------------
+
+Range,Mask:   $8000-FFFF, $E003
+
+  $8000:    PRG Reg 0 (8k @ $8000)
+  $8001:    PRG Reg 1 (8k @ $A000)
+
+  $8002:    CHR Reg 0 (2k @ $0000)
+  $8003:    CHR Reg 1 (2k @ $0800)
+  $A000:    CHR Reg 2 (1k @ $1000)
+  $A001:    CHR Reg 3 (1k @ $1400)
+  $A002:    CHR Reg 4 (1k @ $1800)
+  $A003:    CHR Reg 5 (1k @ $1C00)
+
+  $C000:    IRQ Reload
+  $C001:    IRQ Clear
+  $C002:    IRQ Enable
+  $C003:    IRQ Acknowledge
+
+  $E000: [.M.. ....]   Mirroring
+    0 = Vert
+    1 = Horz
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    | $8000 | $8001 | { -2} | { -1} |
+    +-------+-------+-------+-------+
+
+
+CHR Setup:
+---------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +---------------+---------------+-------+-------+-------+-------+
+    |     $8002     |     $8003     | $A000 | $A001 | $A002 | $A003 |
+    +---------------+---------------+-------+-------+-------+-------+
+
+
+
+IRQs:
+---------------------------
+
+IRQs on this mapper seem to behave exactly like MMC3's IRQs, with 2 exceptions:
+
+ 1)  The written reload value is inverted.  EG:  Writing $06 to the reload reg on this mapper would be like
+writing $F9 on MMC3.  You can simply XOR the writes with $FF and it will work just like MMC3.
+
+ 2)  The IRQ seems to trip a little later than it does on MMC3.  It looks like about a 4 CPU cycle delay from
+the normal MMC3 IRQ time.  Failure to put in this delay results in shaking and other graphical quirks in some
+games.
+
+
+The registers on this mapper corespond directly to regs on the MMC3:
+
+  048  -  MMC3
+---------------
+ $C000   $C000   (XOR written value with $FF)
+ $C001   $C001
+ $C002   $E001
+ $C003   $E000
+
+
+For details on MMC3 IRQ operation, see mapper 004.

@@ -1,0 +1,55 @@
+
+========================
+=  Mapper 075          =
+========================
+
+
+aka:
+--------------------------
+VRC1
+
+
+Example Games:
+--------------------------
+Tetsuwan Atom
+Ganbare Goemon! - Karakuri Douchuu
+
+
+
+Registers:
+--------------------------
+
+Range,Mask:   $8000-FFFF, $F000
+
+  $8000:  [.... PPPP]   PRG Reg 0 (8k @ $8000)
+  $A000:  [.... PPPP]   PRG Reg 1 (8k @ $A000)
+  $C000:  [.... PPPP]   PRG Reg 2 (8k @ $C000)
+
+  $9000:  [.... .BAM]   Mirroring, CHR reg high bits
+     M = Mirroring (0=Vert, 1=Horz)
+     A = High bit of CHR Reg 0
+     B = High bit of CHR Reg 1
+
+  $E000:  [.... CCCC]   Low 4 bits of CHR Reg 0 (4k @ $0000)
+  $F000:  [.... CCCC]   Low 4 bits of CHR Reg 1 (4k @ $1000)
+
+
+PRG Setup:
+---------------------------
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    | $8000 | $A000 | $C000 | { -1} |
+    +-------+-------+-------+-------+
+
+
+CHR Setup:
+---------------------------
+
+  CHR regs are 5 bits wide.  The low 4 bits of each reg are set by $E000 and $F000, and the high bit is taken
+from the appropriate bits of $9000.
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------------------------------+-------------------------------+
+    |       $9000.1 + $E000         |       $9000.2 + $F000         |
+    +-------------------------------+-------------------------------+
+

@@ -1,0 +1,9 @@
+
+========================
+=  Mapper 025          =
+========================
+
+
+Mapper 025 is a variant of VRC4, which is covered in another doc.
+
+For info, see mapper 021.

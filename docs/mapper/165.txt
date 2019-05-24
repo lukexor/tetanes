@@ -1,0 +1,46 @@
+
+========================
+=  Mapper 165          =
+========================
+
+
+Example Games:
+--------------------------
+Fire Emblem (Unl)  (some weird ?Chinese? pirate version)
+
+
+Notes:
+---------------------------
+This mapper is a strange MMC2+MMC3 hybrid.  Register style, PRG, mirroring, ?and even IRQs? of MMC3, with the
+CHR swapping and CHR latch functionality of MMC2.
+
+There is 4k CHR-RAM in addition to any CHR-ROM present.
+
+For details on MMC3, see mapper 004.  For details on MMC2, see mapper 009.  Both will be referenced heavily
+in this doc.
+
+
+Operation:
+---------------------------
+Register layout, PRG Setup, SRAM enabling, Mirroring, all function as they do on your vanilla MMC3.
+
+The CHR Regs (R:0 - R:5) are used in MMC2 style:
+
+
+CHR Setup:
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------------------------------+-------------------------------+
+    |      <<R:0>> or <<R:1>>       |      <<R:2>> or <<R:4>>       |
+    +-------------------------------+-------------------------------+
+
+The same latches that exist on MMC2 exist on this mapper as well, and determine the appropriate reg.
+
+CHR page 0 is CHR-RAM, other pages are CHR-ROM.
+
+
+Notes:
+---------------------------
+
+This game specifically will read ppu$xFD0 or ppu$xFE0 via $2007 to manually toggle the latch (specifically,
+to swap in the CHR-RAM page).  Failure to emulate this method of MMC2 latch toggling will result in garbled
+graphics.

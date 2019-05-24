@@ -1,0 +1,52 @@
+
+========================
+=  Mapper 182          =
+========================
+
+
+Example Games:
+--------------------------
+Pocahontas
+Super Donkey Kong
+
+
+Registers:
+---------------------------
+
+This mapper is an MMC3 with its registers all scrambled to hell.  Rather than a typical register outline,
+this section will "translate" mapper 182 registers to their coresponding "normal" MMC3 counterpart.  For MMC3
+details, see mapper 004.
+
+Range, Mask:   $8000-FFFF, $E001
+
+
+   Mapper 182    MMC3
+  --------------------
+     $8000        -
+     $8001      $A000
+     $A000      $8000 (addresses further scrambled, see below)
+     $A001        -
+     $C000      $8001
+     $C001      $C000+$C001 *
+     $E000      $E000
+     $E001      $E001
+
+
+A write to $C001 would be like a write to both $C000 and $C001 on a normal MMC3 (sets reload value, and
+clears the IRQ counter).
+
+The Address/Data port registers are further scrambled:
+
+
+   Mapper 182    MMC3
+  --------------------
+       R:0       R:0
+       R:1       R:3
+       R:2       R:1
+       R:3       R:5
+       R:4       R:6
+       R:5       R:7
+       R:6       R:2
+       R:7       R:4
+
+Other than this scrambling mess, the mapper operates exactly like a normal MMC3.

@@ -1,0 +1,48 @@
+
+========================
+=  Mapper 050          =
+========================
+
+Example Game:
+--------------------------
+Super Mario Bros. (JU) (Alt Levels)   (SMB2j pirate cart)
+
+
+Notes:
+---------------------------
+No PRG-RAM.  PRG setup is bizarre, as is the scrambled PRG reg.
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $4020-5FFF, $4120
+
+
+  $4020:  [.... HLLM]
+    L,M,H = Low, middle, and high bits of PRG Reg
+
+
+  $4120:  [.... ...E]  IRQ Enable (0=Disabled, 1=Enabled)
+
+
+
+PRG Setup:
+---------------------------
+
+      $6000   $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+-------+
+    | {$0F} | { 8 } | { 9 } | $4020 | {$0B} |
+    +-------+-------+-------+-------+-------+
+
+
+IRQs:
+---------------------------
+
+  Writing to $4120 with E=0 will disable IRQs, acknowledge the pending IRQ, and reset the IRQ counter to 0.
+Writing with E=1 will just enable IRQs (but will not change anything else).
+
+  When enabled, The IRQ counter will count up every CPU cycle.  When it makes the transition from
+$0FFF->$1000, and IRQ is generated.  The counter appears to be a full 16-bits (so it will not wrap until
+$FFFF)
+

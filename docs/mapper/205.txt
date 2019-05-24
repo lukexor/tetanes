@@ -1,0 +1,39 @@
+
+========================
+=  Mapper 205          =
+========================
+
+
+Example Games:
+--------------------------
+15-in-1
+3-in-1
+
+
+Registers:
+---------------------------
+Regs at $6000-7FFF means no SRAM
+
+  $6000-7FFF:   [.... ..MM]  Game Mode / Block
+
+  $8000-FFFF:   MMC3
+
+
+Notes:
+---------------------------
+These multicarts select the game mode by writing to $6000-7FFF, the individual games then use traditional
+MMC3 style regs at $8000-FFFF.  The MMC3 regs only swap to pages *within* the block specifed by the game
+mode.  This can be easily emulated by ANDing the page numbers written to MMC3 with certain values, and then
+ORing them with other values, based on the selected block.
+
+Chart below to illustrate:
+
+  Block    PRG-AND     PRG-OR    CHR-AND    CHR-OR
+  -------------------------------------------------
+   0         $1F        $00        $FF       $000
+   1         $1F        $10        $FF       $080
+   2         $0F        $20        $7F       $100
+   3         $0F        $30        $7F       $180
+
+
+For details on MMC3, see mapper 004

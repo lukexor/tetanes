@@ -1,0 +1,27 @@
+
+========================
+=  Mapper 079          =
+========================
+
+Example Games:
+--------------------------
+Blackjack
+Dudes with Attitude
+F-15 City War
+Krazy Kreatures
+
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $4100-5FFF, $4100
+
+   be sure to make note of the mask -- $4200 does not map to the register, but $4300 does.
+
+
+  $4100:  [.CPP PCCC]
+    C = CHR Reg (8k @ $0000)
+    P = PRG Reg (32k @ $8000)
+
+Note the high bit of the CHR Reg.

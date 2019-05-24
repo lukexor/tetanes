@@ -1,0 +1,31 @@
+
+========================
+=  Mapper 046          =
+========================
+
+Example Game:
+--------------------------
+Rumblestation 15-in-1
+
+
+Bus Conflicts?:
+---------------------------
+No idea whether or not this mapper suffers from bus conflicts.  Use caution!
+
+
+Registers:
+---------------------------
+
+Regs at $6000-7FFF means no PRG-RAM.
+
+
+  $6000-7FFF:  [CCCC PPPP]   High CHR, PRG bits
+  $8000-FFFF:  [.CCC ...P]   Low CHR, PRG bits
+
+'C' selects 8k CHR @ $0000
+'P' select 32k PRG @ $8000
+
+
+Powerup:
+---------------------------
+$6000 set to 0 on powerup.

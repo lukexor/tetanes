@@ -1,0 +1,97 @@
+
+========================
+=  Mapper 045          =
+========================
+
+Example Games:
+--------------------------
+Super 8-in-1
+Super 4-in-1
+Super 1000000-in-1
+
+
+Notes:
+---------------------------
+
+This mapper is another MMC3 multicart, only it works a bit strangely.  The multicart selects PRG/CHR blocks
+independently through 4 internal registers (accessed via $6000-7FFF).  MMC3 registers then operate normally
+within the current block.
+
+For info on MMC3, see mapper 004.
+
+
+Registers:
+---------------------------
+
+  $6000-7FFF:  Multicart regs
+  $8000-FFFF:  Same as MMC3 for selected blocks
+
+When Multicart regs are locked, writes to $6000-7FFF proceed to PRG-RAM, as normal.
+
+Where the game writes in the $6000-7FFF range doesn't matter.  An internal counter selects which reg gets
+written to.  ie:
+
+  LDA #$00
+  STA $6000 ; first write, goes to reg 0
+  STA $6000 ; second write, goes to reg 1
+  STA $6000 ; reg 2
+  STA $6000 ; reg 3
+  STA $6000 ; back to reg 0, etc
+
+
+  Reg 0:  [CCCC CCCC]   Low 8 bits of CHR-OR
+  Reg 1:  [PPPP PPPP]   PRG-OR
+  Reg 2:  [CCCC SSSS]
+          S = CHR-AND block size
+          C = High 4 bits of CHR-OR
+  Reg 3:  [.LAA AAAA]
+          L = Lock Multicart regs (1=locked)
+          A = Inverted PRG-AND
+
+Once multicart regs are locked, the only way to unlock is to Reset the system.
+
+
+CHR Setup:
+--------------------------
+
+'S' bits are somewhat strange.  They seem to select the size of the CHR block to mask out:
+  'S'   Block size     CHR-AND
+  ----------------------------
+  $F       256k          $FF
+  $E       128k          $7F
+  $D        64k          $3F
+       ...
+  $8         2k          $01
+  7-0        1k          $00
+
+
+An easy way to emulate this:
+
+   chr_and = 0xFF >> ~S_bits;
+
+CHR-OR is straightforward
+
+
+
+PRG Setup:
+-------------------------
+
+PRG-OR is straightforward.
+
+PRG-AND is inverted.  XOR written value with $3F for actual PRG-AND.
+
+
+
+Odd game behavior:
+-------------------------
+
+Games seem to set the multicart registers in a loop that runs 256 times.  Why it does this isn't known,
+neither is whether or not it is actually necessary.
+
+
+
+Powerup and reset:
+-------------------------
+
+Block 0 must be selected on powerup and reset.  Regs must be unlocked, as well... and they must be reset so
+that the next write will write to reg 0.

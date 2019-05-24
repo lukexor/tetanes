@@ -1,0 +1,40 @@
+
+========================
+=  Mapper 086          =
+========================
+
+
+Example Games:
+--------------------------
+Moero!! Pro Yakyuu (Black)
+Moero!! Pro Yakyuu (Red)
+
+
+Notes:
+---------------------------
+Regs are at $6000-7FFF, so these games have no SRAM.
+
+
+Registers:
+--------------------------
+
+  $6000-6FFF:  [.CPP ..CC]
+    P = Selects 32k PRG @ $8000
+    C = Selects 8k CHR @ $0000
+
+  $7000-7FFF:  [..SS IIII]  Sound control  **not sure about this**
+    S = Sound Start/Stop:
+                 %10 = start sound effect?
+       anything else = stop sound effect?
+
+    I = Sound effect ID
+
+
+Sound:
+--------------------------
+
+This mapper has some sort of sample playback mechanism.  Writing to $7xxx starts/stops the currently playing
+sample.  How this playback works (apart from the sketchy notes above) is a complete mystery to me.
+
+The sound effects themselves are NOT PART of the .nes file.  Therefore the only real way to support them
+currently would be to load external .wav files or something and play them back when they're triggered.

@@ -1,0 +1,51 @@
+
+ ========================
+ =  Mapper 032          =
+ ========================
+ 
+ Example Games:
+ --------------------------
+ Image Fight
+ Major League
+ Kaiketsu Yanchamaru 2
+   
+ Registers:
+ --------------------------
+ 
+ Range,Mask:   $8000-BFFF, $F007
+ 
+   $8000-$8007:  [...P PPPP]    PRG Reg 0
+   $9000-$9007:  [.... ..PM]  ** see footnote
+       P = PRG Mode
+       M = Mirroring (0=Vert, 1=Horz)
+   $A000-$A007:  [...P PPPP]    PRG Reg 1
+   $B000-$B007:  [CCCC CCCC]    CHR Regs
+ 
+ 
+ PRG Setup:
+ ---------------------------
+ 
+                $8000   $A000   $C000   $E000  
+              +-------+-------+-------+-------+
+ PRG Mode 0:  | $8000 | $A000 | { -2} | { -1} |
+              +-------+-------+-------+-------+
+ PRG Mode 1:  | { -2} | $A000 | $8000 | { -1} |
+              +-------+-------+-------+-------+
+ 
+ 
+ CHR Setup:
+ ---------------------------
+ 
+       $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+     +-------+-------+-------+-------+-------+-------+-------+-------+
+     | $B000 | $B001 | $B002 | $B003 | $B004 | $B005 | $B006 | $B007 |
+     +-------+-------+-------+-------+-------+-------+-------+-------+
+
+ Footnote:
+ --------------------------
+ Major League wants hardwired 1-screen mirroring. (CIRAM A10 is tied to +5V
+ on this game). Additionally, the register at $9000 is entirely disabled: 
+ the game can only request "PRG mode 0".
+
+ A NES 2.0 submapper has been assigned for this difference.
+ Otherwise you'll have to use a hash check.

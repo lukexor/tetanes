@@ -1,0 +1,33 @@
+========================
+=  Mapper 077          =
+========================
+
+Example Game:
+--------------------------
+Napoleon Senki
+
+
+Notes:
+---------------------------
+This mapper uses an 8 KiB SRAM to provide both 6 KiB of CHR-RAM and
+four-screen mirroring.
+
+Registers: (** BUS CONFLICTS **)
+---------------------------
+
+$8000-FFFF:  [CCCC PPPP]
+C = CHR Reg (2k @ $0000)
+P = PRG Reg (32k @ $8000)
+
+
+CHR Setup:
+---------------------------
+CHR-RAM is fixed at $0800-$1FFF.  CHR-ROM is swappable at $0000:
+
+$0000-$0400 $0800-$0C00 $1000-$1400 $1800-$1C00 $2000-$2400  $2800-$2C00
++-----------+-----------+-----------+-----------+-----------+-------------+
+| $8000,ROM |  {1},RAM  |  {2},RAM  |  {3},RAM  |  {0},RAM  |Internal VRAM|
++-----------+-----------+-----------+-----------+-----------+-------------+
+
+When making an emulator, you do not need to care about the specific order of
+the CHR-RAM banks: just provide 10KiB from $0800-$2FFF.

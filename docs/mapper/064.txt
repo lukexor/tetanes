@@ -1,0 +1,167 @@
+
+========================
+=  Mapper 064          =
+========================
+
+
+aka
+--------------------------
+Tengen RAMBO-1
+
+
+
+Example Games:
+--------------------------
+Klax
+Skull and Crossbones
+Shinobi
+
+
+Notes:
+--------------------------
+This mapper is very similar to MMC3.  It uses a similar swapping system, but adds a little functionality.
+
+IRQs are set up similar as well... but have some major differences.
+
+This is one of those mappers that is a big pain to impliment in an emu -- especially since so few games use
+it.  And the games that use it really blow hard.
+
+
+Registers:
+--------------------------
+
+Range,Mask:   $8000-FFFF, $E001
+
+  $8000:  [CPK. AAAA]
+    C = CHR mode select
+    P = PRG mode select
+    K = full 1k CHR mode select (see CHR setup)
+    A = Address for use with $8001
+
+  $8001:  [DDDD DDDD]   Data port
+    R:0 ->  CHR reg 0
+    R:1 ->  CHR reg 1
+    R:2 ->  CHR reg 2
+    R:3 ->  CHR reg 3
+    R:4 ->  CHR reg 4
+    R:5 ->  CHR reg 5
+    R:6 ->  PRG reg 0
+    R:7 ->  PRG reg 1
+    R:8 ->  CHR reg 6
+    R:9 ->  CHR reg 7
+       R:A - R:E not used
+    R:F ->  PRG reg 2
+
+  $A000:  [.... ...M]   Mirroring
+    0 = Vert
+    1 = Horz
+
+
+
+  $C000:  [IIII IIII]   IRQ Reload value
+  $C001:  [.... ...M]   IRQ Mode select and reset
+    0 = Scanline (A12) mode
+    1 = Cycle mode
+
+  $E000:  [.... ....]   IRQ Acknowledge/Disable
+  $E001:  [.... ....]   IRQ Enable
+
+
+PRG Setup:
+---------------------------
+
+PRG mode is selected via $8000.6
+
+               $8000   $A000   $C000   $E000  
+             +-------+-------+-------+-------+
+PRG Mode 0:  |  R:6  |  R:7  |  R:F  | { -1} |
+             +-------+-------+-------+-------+
+PRG Mode 1:  |  R:F  |  R:6  |  R:7  | { -1} |
+             +-------+-------+-------+-------+
+
+
+CHR Setup:
+---------------------------
+
+$8000 has 2 bits to configure CHR modes.  Therefore there are effectively 4 CHR modes.
+
+  $8000:  [CPK. AAAA]   <---  C and K bits relevent to CHR
+
+
+              $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+            +---------------+---------------+-------+-------+-------+-------+
+C=0, K=0    |     <R:0>     |     <R:1>     |  R:2  |  R:3  |  R:4  |  R:5  |
+            +---------------+---------------+-------+-------+-------+-------+
+C=0, K=1    |  R:0  |  R:8  |  R:1  |  R:9  |  R:2  |  R:3  |  R:4  |  R:5  |
+            +-------+-------+-------+-------+---------------+---------------+
+C=1, K=0    |  R:2  |  R:3  |  R:4  |  R:5  |     <R:0>     |     <R:1>     |
+            +-------+-------+-------+-------+---------------+---------------+
+C=1, K=1    |  R:2  |  R:3  |  R:4  |  R:5  |  R:0  |  R:8  |  R:1  |  R:9  |
+            +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+
+IRQs:
+---------------------------
+
+There are two seperate IRQ modes.  One uses A12 to count scanlines in a manner just like MMC3 does (see
+mapper 004 for details on how scanlines are counted and the restrictions involved).  The other mode uses CPU
+cycles with a 4-step prescaler (so the IRQ counter gets clocked every 4 CPU cycles).
+
+Regardless of the mode used to clock the counter... every time the counter is clocked, the following actions
+occur:
+
+- If Reset reg ($C001) was written to after previous clock...
+     a)  reload IRQ counter with IRQ Reload value **PLUS ONE**
+
+- Otherwise... If IRQ Counter is 0...
+     a)  reload IRQ counter with IRQ Reload value
+
+- Otherwise...
+     a)  Decrement IRQ counter by 1
+     b)  If IRQ counter is now 0 and IRQs are enabled, trigger IRQ
+
+
+Just like with MMC3, the counter is clocked and updated even when IRQs are disabled -- however IRQs will only
+be triggered when enabled.
+
+Note about the plus one:  I'm not sure if 1 is really added or if there's simply an additional 1 clock delay
+before the IRQ counter is updated.  From a software standpoint, it doesn't really matter -- adding the
+additional 1 works without any side-effects.
+
+
+Registers involved with IRQs:
+---------------------------
+
+  $C000:   [IIII IIII] - IRQ Reload value
+
+  $C001:   [.... ...M] - IRQ Reset reg, mode select
+    0 = Scanline mode (A12)
+    1 = CPU Cycle mode (with prescaler)
+
+    Any write to this register will make it so that the IRQ counter will reload with the reload value +1 on
+its next clock.  Whether or not writing to this register clears the IRQ counter like it does with MMC3 isn't
+known... and doesn't matter, since it's reloaded later anyway.
+
+    Also, any write to this register will reset the CPU cycle prescaler (so that it will be 4 CPU cycles
+until the next clock).
+
+  $E000:   [.... ....] - IRQ Acknowledge/Disable
+    Any write to this register will acknowledge the pending IRQ, and disable IRQs
+
+  $E001:   [.... ....] - IRQ Enable
+    Any write to this register will enable IRQs
+
+
+
+A note about IRQs:
+------------------
+
+  Scanline IRQs seem to trip a little later than they do on the MMC3.  It looks like about a 5 dot delay
+from the normal MMC3 IRQ time (265 instead of 260).  Failure to put in this delay results in shaking and
+other graphical quirks in some games... notably Klax.  This delay also seems to exist for CPU cycle driven
+IRQs (Skull & Crossbones will suffer without it).  Perhaps the RAMBO-1's IRQ generating hardware is a little
+slower than usual?
+
+  Apart from that timing difference, A12 clocks RAMBO-1's IRQ counter just exactly like it does MMC3, so all
+the notes about A12, $2006/7, etc from the mapper 004 documenation apply to this mapper as well.

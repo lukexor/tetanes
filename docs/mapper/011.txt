@@ -1,0 +1,27 @@
+
+========================
+=  Mapper 011          =
+========================
+
+Example Games:
+--------------------------
+Crystal Mines
+Metal Fighter
+
+Notes:
+--------------------------
+This mapper suffers from bus conflicts!
+
+
+Registers **BUS CONFLICTS**:
+--------------------------
+  $8000-FFFF:  [CCCC LLPP]
+    P = Select 32k PRG page @ $8000-FFFF
+    L = Lockout defeat usage
+    C = Select 8k CHR page @ $0000-1FFF
+
+
+Lockout defeat:
+--------------------------
+I have no idea how this works.  Kevtris page makes mention of it.  From an emulation standpoint, it's not all
+that important.

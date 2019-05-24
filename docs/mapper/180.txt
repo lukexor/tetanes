@@ -1,0 +1,35 @@
+
+========================
+=  Mapper 180          =
+========================
+
+Example Game:
+--------------------------
+Crazy Climber (J)
+
+
+Notes:
+---------------------------
+This game uses a special input device (the crazy climber controller), so you'll need to emulate that in order
+to really test this mapper.
+
+
+Registers: (*** BUS CONFLICTS ***)
+--------------------------
+
+$8000-FFFF:  [.... .PPP]
+PRG Reg (16k @ $C000)
+
+
+PRG Setup:
+--------------------------
+
+$8000   $A000   $C000   $E000  
++---------------+---------------+
+|     { 0 }     |     $8000     |
++---------------+---------------+
+
+
+Powerup:
+--------------------------
+The register will probably contain 0 on cold powerup, but this is not guaranteed. The contents will be unchanged on reboot.

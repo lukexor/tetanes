@@ -1,0 +1,107 @@
+ ========================
+=  Mapper 022          =
+=       + 023          =
+=       + 025          =
+========================
+
+aka
+--------------------------
+VRC2
+
+
+
+Example Games:
+--------------------------
+Ganbare Pennant Race     (022)
+TwinBee 3                (022)
+Wai Wai World            (023)
+Ganbare Goemon Gaiden    (025)
+
+
+
+
+Multiple numbers, just one mapper:
+--------------------------
+These mapper numbers (022, 023) represent 2 wiring variations of the same mapper:  VRC2.  Each variation
+operates the same, only the registers used are different because their lines are reversed from each other:
+
+variant   lines     registers                       Mapper Number
+=================================================================
+VRC2a:    A1, A0    $x000, $x002, $x001, $x003      022   * divides CHR bank select by two
+VRC2b:    A0, A1    $x000, $x001, $x002, $x003      023
+VRC2c:    A1, A0    $x000, $x002, $x001, $x003      025   * does NOT divide CHR bank select by two
+
+This doc will use the 'VRC2b' registers (0,1,2,3) in all following register descriptions.  For 'VRC2a',
+simply reverse $x001 and $x002 registers.
+
+
+VRC2a CHR:
+---------------------------
+Important note!  On VRC2a (mapper 022) only the high 7 bits of the CHR regs are used -- the low bit is
+ignored.  Therefore, you effectively have to right-shift the CHR page by 1 to get the actual page number.
+
+For example... both $06 and $07 would both indicate page $03
+
+This applies to VRC2a only.  VRC2b (mapper 023) behaves normally.
+
+
+
+VRC2 vs. VRC4:
+--------------------------
+VRC2 is strikingly similar to VRC4 (see mapper 021).  The differences are:
+
+1)  VRC4 has IRQs, VRC2 does not
+2)  VRC4 has 5 bits for PRG regs, VRC2 only has 4 bits
+3)  VRC4 has 2 PRG modes, VRC2 does not.
+4)  VRC4 has 9 bit CHR banks, VRC2 only has 8
+5)  VRC4 internally supports external RAM, VRC2 does not
+
+
+Those differences aside -- they act exactly the same.
+
+
+
+Registers:
+--------------------------
+Some registers are mirrored across several addresses.  For example, writing to $8003 has the same effect as
+writing to $8000.
+
+
+$8000-$8003:  [.... PPPP]   PRG Reg 0 (select 8k @ $8000)
+$9000-$9003:  [.... ..MM]   Mirroring:
+%00 = Vert
+%01 = Horz
+%10 = 1ScA
+%11 = 1ScB
+
+$A000-$A003:  [.... PPPP]   PRG Reg 1 (select 8k @ $A000)
+$B000-$E003:  [.... CCCC]   CHR Regs (see CHR Setup)
+
+
+PRG Setup:
+--------------------------
+
+$8000   $A000   $C000   $E000  
++-------+-------+-------+-------+
+| $8000 | $A000 | { -2} | { -1} |
++-------+-------+-------+-------+
+
+
+
+CHR Setup:
+--------------------------
+The VRC2 only has 4 data pins for CHR Regs.  To compensate, two CHR regs are combined to form a single page
+number.  One reg contains the high 4 bits and the other reg contains the low 4 bits (allowing for 8-bit page
+numbers)
+
+Example:  $B000+$B001  select 1k CHR page @ $0000
+if   $B000=$03
+and  $B001=$01
+then use page $13 (VRC2b)
+   or page $09 (VRC2a -- see notes above)
+
+
+$0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
++-------+-------+-------+-------+-------+-------+-------+-------+
+|$B000+1|$B002+3|$C000+1|$C002+3|$D000+1|$D002+3|$E000+1|$E002+3|
++-------+-------+-------+-------+-------+-------+-------+-------+

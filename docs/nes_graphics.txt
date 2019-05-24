@@ -1,0 +1,84 @@
+How NES Graphics work
+The Basics
+---------------------
+
+        All the graphical information is stored within the 16kb memory of
+the Picture Processing Unit (PPU).
+
+        The first area of PPU memory is known as the "Pattern Tables."  The
+pattern tables are 8kb in size, which is usually split in half, one part
+for the background, the other for sprites.  The usage of the pattern tables
+is determined by the PPU control registers.  All graphics are stored in 8x8
+pixel "tiles" within the pattern tables which are arranged to form
+backgrounds and sprites.  The pattern tables (also known as VROM) contains
+half the graphics information for these tiles.  The NES is capable of
+displaying 16 colors at once, since each pixel is 4 bits that are a lookup of
+the palette.  The pattern table contains the low two bits, and the upper two
+either come from the attribute table (for the background) or from sprite
+ram (for sprites).
+
+        Some roms contain what is known as CHR-RAM.  CHR-RAM stands for
+CHaRacter RAM and contains 8kb banks of pattern tables which can be swapped
+in and out of the PPU via an MMC.  This saves the trouble of copying it
+from within the program code to the PPU like games without CHR-RAM do.
+
+        The second area of PPU memory is known as "Name Tables."  There are
+usually two, although there are addresses for 4.  The other two are mirrors
+of the actual tables, which is determined by the mirroring bit of the .NES
+header.  Each name table is 960 bytes, which corresponds with 960 8x8 tiles
+that make up the background.  The background is 32x30 tiles, or 256x240 pixels.
+In a NTSC NES, however, the top and bottom 8 lines are not displayed, making
+the actual resolution 256x224.  Note that some games use only one name table,
+and others can use 4.  These settings are dependant on the memory mapper used.
+
+        Paired with each name table is an attribute table.  These tables
+contain the upper two bits of each pixel's color that are matched with the
+lower two bits from the pattern table.  However, the attribute table is only
+64 bytes in size, meaning that each byte contains the upper two bits for a
+group of 4x4 tiles (or 32x32 pixels).  This puts a limitation on your choice
+of colors in the background.  However, you can get around the attribute table
+limitation by using MMC5, which allows you to use 4 name tables and the
+upper two bits for each individual tile.  For more information, read
+Y0SHi's very informative NESTECH.DOC
+
+        Also stored in PPU memory are two 16 color palettes.  One is used for
+the background, the other for sprites.  These are not actual rgb palettes, but
+lookup tables of a 256 color palette that the PPU translates into tv signals.
+You can modify the values stored in the palette, allowing you to create many
+effects such as fades, flashing, or transparency.
+
+        There is an independent area of memory known as sprite ram, which is
+256 bytes in size.  This memory stores 4 bytes of information for 64 sprites.
+These 4 bytes contain the x and y location of the sprite on the screen, the
+upper two color bits, the tile index number (pattern table tile of the sprite),
+and information about flipping (horizontal and vertical), and priority
+(behind/on top of background).  Sprite ram can be accessed byte-by-byte through
+the NES registers, or also can be loaded via DMA transfer through another
+register.
+
+        There are various other aspects of the PPU that can be controlled via
+several nes registers.  Here's a list of registers and what they do:
+
+PPU Control register 1 (PPUCTRL0):
+* Selects the Name table to display
+* Sets the ppu address increment (for reading/writing)
+* Sets the address within the pattern table for sprite tiles
+* Sets the address within the pattern table for background tiles
+* Selects the sprite size (8x8 or 8x16)
+* Sets whether to execute an interupt when drawing sprite 0
+* Sets whether to execute an interupt during the Vblank period
+
+PPU Control register 2 (PPUCTRL1):
+* Sets the disply to color or mono-tone
+* Sets whether to clip the left 8 pixels of the background
+* Sets whether to clip sprites within the left 8 pixels of the background
+* Sets whether to display the screen or not
+* Selects the screen background color (black, red, blue, green)
+
+PPU Status register (PPUSTAT):
+* Returns whether PPU is in a Vblank period
+* Returns whether there are more than 8 sprites on the current scanline
+* Returns whether sprite 0 has been drawn on the current scanline
+
+Background Scroll (BGSCROLL):
+* Sets the horizontal and vertical scroll (written to twice)

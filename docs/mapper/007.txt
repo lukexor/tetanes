@@ -1,0 +1,43 @@
+
+========================
+=  Mapper 007          =
+========================
+
+aka
+--------------------------
+AxROM
+
+
+Example Games:
+--------------------------
+Battletoads
+Time Lord
+Marble Madness
+
+
+Notes:
+---------------------------
+AMROM and AOROM have bus conflicts, ANROM does not
+AMROM and ANROM are capped at 128k PRG
+AOROM is capped at 256k PRG
+
+There is no CHR swapping.  Every mapper 007 game I've ever seen has CHR-RAM.
+
+
+Registers (**BUS CONFLICTS** sometimes):
+--------------------------
+  $8000-FFFF:  [...M .PPP]
+    M = Mirroring:
+        0 = 1ScA
+        1 = 1ScB
+
+    P = PRG Reg  (only 2 bits wide on AMROM/ANROM)
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +-------------------------------+
+    |             $8000             |
+    +-------------------------------+

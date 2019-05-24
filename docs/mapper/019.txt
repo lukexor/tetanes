@@ -1,0 +1,283 @@
+
+========================
+=  Mapper 019          =
+=       + 210          =
+========================
+
+aka
+--------------------------
+Namcot 106
+N106
+
+
+
+Example Games:
+--------------------------
+Digital Devil Story - Megami Tensei 2   (019)
+Final Lap                      (019)
+Rolling Thunder (J)            (019)
+Splatter House                 (019)
+Mappy Kids                     (019)
+Family Circuit '91             (210)
+Wagyan Land 2,3                (210)
+Dream Master                   (210)
+
+
+
+General Notes:
+--------------------------
+For a while, this mapper number was shared with 210.  Therefore, there are a lot of ROMs floating around that
+are labelled as mapper 019 that are really mapper 210.  
+
+Some games require CHR-RAM in addition to any CHR-ROM present.  I'm uncertain exactly how much, but giving
+them 8k seems to work.
+
+Mapper 019 also has an additional 128 bytes of Sound RAM, which is used for waveform tables and sound
+registers.  Kaijuu Monogatari uses this as battery backed SRAM.
+
+The rest of the doc applies to both mapper numbers.  Differences between the two (mirroring and sound) will
+be noted where appropriate.
+
+
+Registers:
+--------------------------
+
+Range,Mask:   $4800-FFFF, $F800
+
+Writable and Readable:
+  $4800:  [DDDD DDDD]    Sound Data port (see Sound section for details)
+                           (mapper 019 only)
+
+  $5000:  [IIII IIII]    Low 8 bits of IRQ counter
+  $5800:  [EIII IIII]
+      E = IRQ Enable (0=disabled, 1=enabled)
+      I = High 7 bits of IRQ counter
+
+
+
+  $6000-7FFF:   mapped to PRG-RAM, not registers
+
+Writable only:
+  $8000-B800:          CHR Regs
+  $C000-D800:          Mirroring Regs   (mapper 019 only)
+  $E000:  [..PP PPPP]  PRG Reg 0 (8k @ $8000)
+  $E800:  [HLPP PPPP]
+      H = High CHR RAM Disable  (see CHR setup for details)
+      L = Low CHR RAM Disable
+      P = PRG Reg 1 (8k @ A000)
+
+  $F000:  [..PP PPPP]  PRG Reg 2 (8k @ $C000)
+
+  $F800:  [IAAA AAAA]  Sound Address (with auto-increment enable bit)
+                       (See Sound section for details) (mapper 019 only)
+
+
+
+PRG Setup:
+--------------------------
+
+      $8000   $A000   $C000   $E000  
+    +-------+-------+-------+-------+
+    | $E000 | $E800 | $F000 | { -1} |
+    +-------+-------+-------+-------+
+
+
+CHR Setup:
+--------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    | $8000 | $8800 | $9000 | $9800 | $A000 | $A800 | $B000 | $B800 |
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+Page numbers lower than $E0 will select CHR-ROM.  Page numbers greater than or equal to $E0 will select
+CHR-RAM (RAM page N - $E0)  *unless* CHR-RAM for the region is disabled via the appropriate bit in $E800.
+
+$E800.6, when set, disables RAM selection for $0xxx ($8000-9800 will always select ROM)
+$E800.7, when set, disables RAM selection for $1xxx ($A000-B800 will always select ROM)
+
+CHR-RAM disable allows games to utilize all 256k of CHR-ROM.  When CHR-RAM is enabled, only 224k can be
+accessed.
+
+
+Mirroring:
+--------------------------
+
+This section applies to mapper 019 only.  210 has hardwired mirroring
+
+  [ $C000 ][ $C800 ]
+  [ $D000 ][ $D800 ]
+
+Values less than $E0 select a CHR-ROM page for a NT.  Values $E0 and up use NES's internal nametables
+(low bit selects which).
+
+Typical Examples:
+         $C000 $C800 $D000 $D800
+         -----------------------
+Horz:     $E0   $E0   $E1   $E1
+Vert:     $E0   $E1   $E0   $E1
+
+
+
+IRQ Operation:
+--------------------------
+
+IRQs are driven by a 15-bit CPU cycle up-counter.  $5000 and $5800 are *direct* access to the IRQ counter
+(they are not a reload value).  Games can also read back the real-time state of the IRQ counter by reading
+those regs.
+
+When IRQs are enabled, the following occurs every CPU cycle:
+
+- If IRQ Counter = $7FFF
+   a) Trip IRQ
+
+- otherwise...
+   a) Increment IRQ counter by 1
+
+Reading/Writing $5000 or $5800 will acknowledge the pending IRQ.
+
+
+Sources on the behavior of this IRQ counter vary.  Some say that the IRQ counter wraps from $7FFF to $0000,
+and trips an IRQ only when it wraps -- however Sangokushi 2 polls $5800, and emulating IRQs that way results
+in the game locking up shortly after it starts (once it sees that $5800 is not what it expects, it resets the
+IRQ counter and loops)
+
+Emulating the IRQ counter as above seems to work for every game out there -- although it probably isn't 100%
+accurate.
+
+
+
+
+Sound:
+--------------------------
+
+Sound applies to mapper 019 only.  Mapper 210 has no extra sound.
+
+N106 has some pretty sweet expansion sound.  And it's used in several games to boot!  (More than any other
+expansion except for FDS)
+
+The N106 has up to 8 additional sound channels, each which plays back a configurable waveform of variable
+length, as well as having full volume control for each channel.
+
+There are 128 bytes of Sound RAM inside the N106 which is used to hold the waveform data, as well as sound
+registers.  This RAM is accessed by setting the desired address by writing to $F800, then writing the
+desired data to $4800.  $4800 is also readable.
+
+  $F800:  [IAAA AAAA]
+     I = Auto-increment flag
+     A = Sound RAM Address
+
+If the auto-increment flag is set, the Sound RAM address will increment (wrapping $7F->00) after every $4800
+read/write.
+
+Sound Channel registers (inside Sound RAM):
+
+regs:  "A"   "B"   "C"   "D"   "E"
+      ------------------------------
+Ch 0 - $40   $42   $44   $46   $47
+Ch 1 - $48   $4A   $4C   $4E   $4F
+Ch 2 - $50   $52   $54   $56   $57
+Ch 3 - $58   $5A   $5C   $5E   $5F
+Ch 4 - $60   $62   $64   $66   $67
+Ch 5 - $68   $6A   $6C   $6E   $6F
+Ch 6 - $70   $72   $74   $76   $77
+Ch 7 - $78   $7A   $7C   $7E   $7F
+
+
+  "A":  [FFFF FFFF]     Low 8 freq bits
+  "B":  [FFFF FFFF]     Mid 8 freq bits
+  "C":  [...L LLFF]
+      F = High 2 freq bits
+      L = Instrument Length (4 * (8-L))
+
+  "D":  [AAAA AAAA]     Instrument address
+  "E":  [.... VVVV]     Volume
+
+
+Special Reg $7F:
+   [.EEE VVVV]
+      E = Number of Enabled channels (E+1)
+      V = Channel 7's volume control
+
+
+
+      Instruments:
+
+Instruments are in 4-bit samples.  Each byte in sound RAM represents two samples (low 4 bits being the first
+sample, high 4 bits being the second sample).  Each channel has an address which it uses to look for the
+instrument ('A' bits in reg "D"), as well as a length indicating how many samples are in the instrument ('L'
+bits in reg "C").
+
+The instrument address is in 4-bit samples.  IE:  When the instrument address is $20, the instrument starts
+at the low 4 bits of byte address $10.  A instrument address of $41 would be the high 4 bits of byte address
+$20.
+
+Instrument Length is 4 * (8-L)  4-bit samples.  Therefore if L=3, the instrument is 20 4-bit samples long.
+
+Samples are unsigned:  '0' is low, 'F' is high.
+
+For an example waveform... given the following instrument:
+
+  $A8 DC EE FF FF EF DE AC 58 23 11 00 00 10 21 53  (length of 32 ... L=0)
+
+The following waveform (a pseudo-sine wave) would be produced:
+
+
+F -       *****
+E -     **     **
+D -    *         *
+C -   *           *
+B -
+A -  *             *
+9 - 
+8 - *               *
+7 - 
+6 -
+5 -                  *             *
+4 -
+3 -                   *           *
+2 -                    *         *
+1 -                     **     **
+0 -                       *****
+  __________________________________
+
+The waveform would continually loop this pattern
+
+
+
+      Channel Disabling:
+
+Reg $7F controls the number of enabled channels.  As little as 1 or as many as all 8 channels can be enabled.
+When not all channels are enabled, the high channels are the ones being used.  That is, if only 3 channels
+are enabled, channels 5, 6, and 7 are the ones enabled, and the others are disabled.
+
+Disabling channels frees up more Sound RAM space for instruments (since the lower channels' registers are
+unused when disabled).  Also, since there are fewer channels to clock, the enabled channels are clocked more
+quickly, resulting in higher quality sound and potentially higher tones (see frequency calculation)
+
+
+       Frequency Calculation:
+
+The generated tone of each channel can be calculated with the following formula:
+
+                F * CPU_CLOCK
+  Hz =   --------------------------
+          $F0000 * (E+1) * (8-L)*4
+
+where:
+            F = the 18-bit Freq value
+    CPU_CLOCK = CPU clock rate (1789772.727272 on NTSC)
+            E = Enabled Channels (bits as written to reg $7F)
+            L = Instrument Length (bits as written)
+
+
+  Or... you can figure it as the number of CPU cycles that have to pass before the channel takes the next
+step through its instrument:
+
+            $F0000 * (E+1)
+Cycs =    ------------------
+                  F
+
+
+  When F is 0, the channel is essentially "frozen" at it's current position and does not update (and thus,
+becomes silent).

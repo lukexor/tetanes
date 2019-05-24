@@ -1,0 +1,25 @@
+
+========================
+=  Mapper 092          =
+========================
+
+Example Games:
+--------------------------
+Moero!! Pro Soccer
+Moero!! Pro Yakyuu '88 - Ketteiban
+
+
+Notes:
+---------------------------
+
+   This mapper is identical to mapper 072 except for the different PRG Setup.  See mapper 072 for details.
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     { 0 }     |    PRG Reg    |
+    +---------------+---------------+
+

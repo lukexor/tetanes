@@ -1,0 +1,66 @@
+
+========================
+=  Mapper 067          =
+========================
+
+
+Example Games:
+--------------------------
+Fantasy Zone 2 (J)
+Mito Koumon - Sekai Manyuu Ki
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $8000-FFFF, $F800
+
+  $8800:  CHR Reg 0  (2k @ $0000)
+  $9800:  CHR Reg 1  (2k @ $0800)
+  $A800:  CHR Reg 2  (2k @ $1000)
+  $B800:  CHR Reg 3  (2k @ $1800)
+
+  $C800:  IRQ Load (write twice)
+  $D800:  [...E ....]  IRQ Enable (0=disabled, 1=enabled)
+
+  $E800:  [.... ..MM]  Mirroring
+    %00 = Vert
+    %01 = Horz
+    %10 = 1ScA
+    %11 = 1ScB
+
+  $F800:  PRG Reg  (16k @ $8000)
+
+
+
+CHR Setup:
+---------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +---------------+---------------+---------------+---------------+
+    |     $8800     |     $9800     |     $A800     |     $B800     |
+    +---------------+---------------+---------------+---------------+
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $F800     |     { -1}     |
+    +---------------+---------------+
+
+
+
+IRQ Operation:
+---------------------------
+
+  $C800 is a write-twice register (similar to $2005 and $2006).  The first write sets the *high* 8 bits of the
+IRQ counter, and the second write sets the *low* 8 bits.  This directly changes the actual IRQ counter -- not
+a reload value.
+
+  Any write to $D800 will acknowledge the IRQ, and will also reset the toggle so that the next write to
+$C800 will be the first write.  $D800, of course, also enables/disables IRQs (bit 4).
+
+  The IRQ counter, when enabled, counts down every CPU cycle.  When it wraps ($0000->FFFF), it disables
+itself and triggers an IRQ.

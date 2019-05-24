@@ -1,0 +1,51 @@
+
+========================
+=  Mapper 115          =
+========================
+
+Example Game:
+--------------------------
+Yuu Yuu Hakusho Final - Makai Saikyou Retsuden
+
+
+Notes:
+---------------------------
+MMC3 variant.  For info on MMC3, see mapper 004.
+
+Regs at $6000-7FFF means no PRG-RAM
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $6000-7FFF, $6001
+
+  $6000:  [O... PPPP]
+    O = PRG Mode
+    P = 16k PRG Page
+
+  $6001:  [.... ...C]
+    C = CHR Block select
+
+  $8000-FFFF:  Same as MMC3
+
+
+CHR Setup:
+---------------------------
+
+ 'C' selects a 256k CHR block for all the CHR selected by the MMC3.  You can think of this as a CHR-OR of
+$000 or $100 depending on 'C'.
+
+
+PRG Setup:
+---------------------------
+
+       $8000   $A000   $C000   $E000  
+      +-------------------------------+
+O=0:  |              MMC3             |
+      +-------------------------------+
+O=1:  |     $6000     |     MMC3      |
+      +---------------+---------------+
+
+Normal MMC3 PRG setup applies.  If the O mode bit is set, then $8000-BFFF no longer reflects the typical MMC3
+setup, and instead has a 16k page selected by $6000.

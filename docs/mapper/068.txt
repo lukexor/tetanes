@@ -1,0 +1,77 @@
+
+========================
+=  Mapper 068          =
+========================
+
+
+Example Games:
+--------------------------
+After Burner 2
+Maharaja
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $8000-FFFF, $F000
+
+  $8000:  CHR Reg 0  (2k @ $0000)
+  $9000:  CHR Reg 1  (2k @ $0800)
+  $A000:  CHR Reg 2  (2k @ $1000)
+  $B000:  CHR Reg 3  (2k @ $1800)
+
+  $C000:  [.NNN NNNN]  NT-ROM Reg 0
+  $D000:  [.NNN NNNN]  NT-ROM Reg 1
+  $E000:  [...R ...M]  Mirroring (see section below)
+
+  $F000:  PRG Reg (16k @ $8000)
+
+
+CHR Setup:
+---------------------------
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +---------------+---------------+---------------+---------------+
+    |     $8000     |     $9000     |     $A000     |     $B000     |
+    +---------------+---------------+---------------+---------------+
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $F000     |     { -1}     |
+    +---------------+---------------+
+
+
+
+Mirroring:
+---------------------------
+
+The mirroring reg has two significant bits:
+
+  $E000:  [...R ...M]
+
+  'M' selects H/V:
+     0 = Vert
+     1 = Horz
+
+  'R' selects whether or not to use CHR-ROM as nametables.
+     0 = normal mirroring
+     1 = use CHR-ROM
+
+When 'R' is set, $C000 and $D000 are used to select 1k CHR-ROM pages to use as nametables.  They are arranged
+in either Horz or Vert mirroring fashion depending on the 'M' bit ($C000 would be used in place of NTA,
+$D000 in place of NTB).
+
+ R=1, M=0:
+      [ $C000 ][ $D000 ]
+      [ $C000 ][ $D000 ]
+
+ R=1, M=1:
+      [ $C000 ][ $C000 ]
+      [ $D000 ][ $D000 ]
+
+Note that CHR-ROM for nametables is taken from the last 128k of CHR.  This means you must effectively OR the
+value written to $C000/$D000 with $80.

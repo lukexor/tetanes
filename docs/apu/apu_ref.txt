@@ -1,0 +1,804 @@
+NES APU Sound Hardware Reference
+--------------------------------
+
+This reference covers Nintendo Entertainment System (NES) sound hardware in as
+much detail as I know. It is intended primarily to assist in the implementation
+of emulators and might also be useful as a programmer reference.
+
+Tables, diagrams, and formulas are formatted for a mono-spaced font, like
+Courier. 
+
+The latest version is kept at http://www.slack.net/~ant/nes-emu/apu_ref.txt
+
+
+-----
+Intro
+-----
+
+This reference is based on the results of tests I have run on a 1988-model US
+NTSC NES which contains the G revision of the 2A03 CPU/APU and the NES-CPU-07
+version of the main board. PAL hardware will be covered once tests are
+performed on it. Feel free to incorporate this information in references and
+other documentation.
+
+While implementing a NES sound emulator, even after reading the available
+documentation I still had many unanswered questions, so I made a simple
+development cartridge to test on a real NES. This was very successful and
+revealed many new details. My notes consisted of differences from existing
+documentation, but this didn't seem to be a very reliable way to release my
+findings, so I decided to write a concise reference.
+
+For those familiar with NESSOUND.TXT and DMC.TXT, the following differences
+should be specifically noted:
+
+Corrections:
+    - DMC table entry $D should be $2A0 instead of $2A8
+    - Frame sequencer
+    - Square's duty generator
+
+Clarifications:
+    - DMC
+    - Triangle's linear counter
+    - Length Counter operation and status register behavior
+
+It should go without saying that the model presented here probably doesn't
+match the actual logic gate arrangement in the NES. It makes no difference how
+the hardware is implemented, as long as its behavior matches what is described
+here
+
+Corrections, questions and additions are welcome. I keep up with the forum at
+http://nesdev.parodius.com/ and can be contacted via blargg at the mail.com
+domain.
+
+
+-----
+To Do
+-----
+
+- See if comprehensive emulator test ROM is even practical.
+
+- Probe complete power-up state and reset state.
+
+- Test PAL hardware to determine APU frame rate, DMC and noise period tables.
+
+- Check complete behavior of each unit of each channel to be sure common units
+behave the same for all channels.
+
+- Double-check details on NES hardware again.
+
+- Determine post-DAC filtering done before output.
+
+
+--------
+Overview
+--------
+
+The APU is composed of five channels: square 1, square 2, triangle, noise,
+delta modulation channel (DMC). Each has a variable-rate timer clocking a
+waveform generator, and various modulators driven by low-frequency clocks from
+a frame sequencer. The DMC plays samples while the other channels play
+waveforms. The waveform channels have duration control, some have a volume
+envelope unit, and a couple have a frequency sweep unit.
+
+        Square 1/Square 2
+
+$4000/4 ddle nnnn   duty, loop env/disable length, env disable, vol/env
+period
+$4001/5 eppp nsss   enable sweep, period, negative, shift
+$4002/6 pppp pppp   period low
+$4003/7 llll lppp   length index, period high
+
+        Triangle
+
+$4008   clll llll   control, linear counter load
+$400A   pppp pppp   period low
+$400B   llll lppp   length index, period high
+
+        Noise
+
+$400C   --le nnnn   loop env/disable length, env disable, vol/env period
+$400E   s--- pppp   short mode, period index
+$400F   llll l---   length index
+
+        DMC
+
+$4010   il-- ffff   IRQ enable, loop, frequency index
+$4011   -ddd dddd   DAC
+$4012   aaaa aaaa   sample address
+$4013   llll llll   sample length
+
+        Common
+
+$4015   ---d nt21   length ctr enable: DMC, noise, triangle, pulse 2, 1
+$4017   fd-- ----   5-frame cycle, disable frame interrupt
+
+        Status (read)
+
+$4015   if-d nt21   DMC IRQ, frame IRQ, length counter statuses
+
+
+------
+Basics
+------
+
+Hexadecimal values are prefixed by a $ except for some single-hex-digit
+sequences where it's clear that they are hex. Bits are numbered from 0 to 7,
+corresponding with the least to most significant bits of a byte; bit n has a
+binary weight of 2^n.
+
+A flag is a two-state variable that can be either set or clear. When
+implemented in a bit, clear = 0 and set = 1.
+
+A divider outputs a clock every n input clocks, where n is the divider's
+period. It contains a counter which is decremented on the arrival of each
+clock. When it reaches 0, it is reloaded with the period and an output clock is
+generated. Resetting a divider reloads its counter without generating an output
+clock. Changing a divider's period doesn't affect its current count.
+
+A sequencer generates a series of values or events based on the repetition of a
+series of steps, starting with the first. When clocked the next step of the
+sequence is generated.
+
+In the block diagrams, the triangular symbol is a control gate; if control is
+non-zero, the input is passed unchanged to the output, otherwise the output is
+0.
+
+        control
+           | 
+           v 
+          |\
+    in -->| >-- out
+          |/
+
+
+Except for the status register, all other registers are write-only. The "value
+of the register" refers to the last value written to the register.
+
+The NTSC NES has a master clock based on a 21.47727 MHz crystal which is
+divided by 12 to obtain a ~1.79 MHz clock source. Both clocks are used by the
+APU.
+
+The CPU's IRQ line is level-sensitive, so the APU's interrupt flags must be
+cleared once a CPU IRQ is acknowledged, otherwise the CPU will immediately be
+interrupt again once its inhibit flag is cleared.
+
+In general, the APU is a collection of many independent units which are always
+running in parallel. Modification of a channel's parameter usually affects only
+one sub-unit and doesn't take effect until that unit's next internal cycle
+begins.
+
+Each section begins with an overview and an optional block diagram, which
+provide a framework for the information that follows. In order to reduce
+ambiguity, there is very little re-statement of information.
+
+
+---------------
+Frame Sequencer
+---------------
+
+The frame sequencer contains a divider and a sequencer which clocks various
+units.
+
+The divider generates an output clock rate of just under 240 Hz, and appears to
+be derived by dividing the 21.47727 MHz system clock by 89490. The sequencer is
+clocked by the divider's output.
+
+On a write to $4017, the divider and sequencer are reset, then the sequencer is
+configured. Two sequences are available, and frame IRQ generation can be
+disabled.
+
+    mi-- ----       mode, IRQ disable
+
+If the mode flag is clear, the 4-step sequence is selected, otherwise the
+5-step sequence is selected and the sequencer is immediately clocked once.
+
+    f = set interrupt flag
+    l = clock length counters and sweep units
+    e = clock envelopes and triangle's linear counter
+
+mode 0: 4-step  effective rate (approx)
+---------------------------------------
+    - - - f      60 Hz
+    - l - l     120 Hz
+    e e e e     240 Hz
+
+mode 1: 5-step  effective rate (approx)
+---------------------------------------
+    - - - - -   (interrupt flag never set)
+    l - l - -    96 Hz
+    e e e e -   192 Hz
+
+At any time if the interrupt flag is set and the IRQ disable is clear, the
+CPU's IRQ line is asserted.
+
+
+--------------
+Length Counter
+--------------
+
+A length counter allows automatic duration control. Counting can be halted and
+the counter can be disabled by clearing the appropriate bit in the status
+register, which immediately sets the counter to 0 and keeps it there.
+
+The halt flag is in the channel's first register. For the square and noise
+channels, it is bit 5, and for the triangle, bit 7:
+
+    --h- ----       halt (noise and square channels)
+    h--- ----       halt (triangle channel)
+
+Note that the bit position for the halt flag is also mapped to another flag in
+the Length Counter (noise and square) or Linear Counter (triangle).
+
+Unless disabled, a write the channel's fourth register immediately reloads the
+counter with the value from a lookup table, based on the index formed by the
+upper 5 bits:
+
+    iiii i---       length index
+    
+    bits  bit 3
+    7-4   0   1
+        -------
+    0   $0A $FE
+    1   $14 $02
+    2   $28 $04
+    3   $50 $06
+    4   $A0 $08
+    5   $3C $0A
+    6   $0E $0C
+    7   $1A $0E
+    8   $0C $10
+    9   $18 $12
+    A   $30 $14
+    B   $60 $16
+    C   $C0 $18
+    D   $48 $1A
+    E   $10 $1C
+    F   $20 $1E
+
+See the clarifications section for a possible explanation for the values left
+column of the table.
+
+When clocked by the frame sequencer, if the halt flag is clear and the counter
+is non-zero, it is decremented.
+
+
+---------------
+Status Register
+---------------
+
+The status register at $4015 allows control and query of the channels' length
+counters, and query of the DMC and frame interrupts. It is the only register
+which can also be read.
+
+When $4015 is read, the status of the channels' length counters and bytes
+remaining in the current DMC sample, and interrupt flags are returned.
+Afterwards the Frame Sequencer's frame interrupt flag is cleared.
+
+    if-d nt21
+    
+    IRQ from DMC
+    frame interrupt
+    DMC sample bytes remaining > 0
+    triangle length counter > 0
+    square 2 length counter > 0
+    square 1 length counter > 0
+
+When $4015 is written to, the channels' length counter enable flags are set, 
+the DMC is possibly started or stopped, and the DMC's IRQ occurred flag is
+cleared.
+
+    ---d nt21   DMC, noise, triangle, square 2, square 1
+
+If d is set and the DMC's DMA reader has no more sample bytes to fetch, the DMC
+sample is restarted. If d is clear then the DMA reader's sample bytes remaining
+is set to 0.
+
+
+------------------
+Envelope Generator
+------------------
+
+An envelope generator can generate a constant volume or a saw envelope with
+optional looping. It contains a divider and a counter.
+
+A channel's first register controls the envelope:
+
+    --ld nnnn       loop, disable, n
+
+Note that the bit position for the loop flag is also mapped to a flag in the
+Length Counter.
+
+The divider's period is set to n + 1.
+
+When clocked by the frame sequencer, one of two actions occurs: if there was a
+write to the fourth channel register since the last clock, the counter is set
+to 15 and the divider is reset, otherwise the divider is clocked.
+
+When the divider outputs a clock, one of two actions occurs: if loop is set and
+counter is zero, it is set to 15, otherwise if counter is non-zero, it is
+decremented.
+
+When disable is set, the channel's volume is n, otherwise it is the value in
+the counter. Unless overridden by some other condition, the channel's DAC
+receives the channel's volume value.
+
+
+-----
+Timer
+-----
+
+All channels use a timer which is a divider driven by the ~1.79 MHz clock.
+
+The noise channel and DMC use lookup tables to set the timer's period. For the
+square and triangle channels, the third and fourth registers form an 11-bit
+value and the divider's period is set to this value *plus one*.
+
+    llll llll       low 8 bits of period   (third register)
+    ---- -hhh       upper 3 bits of period (fourth register)
+
+
+----------
+Sweep Unit
+----------
+
+The sweep unit can adjust a square channel's period periodically. It contains a
+divider and a shifter.
+
+A channel's second register configures the sweep unit:
+
+    eppp nsss       enable, period, negate, shift
+
+The divider's period is set to p + 1.
+
+The shifter continuously calculates a result based on the channel's period. The
+channel's period (from the third and fourth registers) is first shifted right
+by s bits. If negate is set, the shifted value's bits are inverted, and on the
+second square channel, the inverted value is incremented by 1. The resulting
+value is added with the channel's current period, yielding the final result.
+
+When the sweep unit is clocked, the divider is *first* clocked and then if
+there was a write to the sweep register since the last sweep clock, the divider
+is reset.
+
+When the channel's period is less than 8 or the result of the shifter is
+greater than $7FF, the channel's DAC receives 0 and the sweep unit doesn't
+change the channel's period. Otherwise, if the sweep unit is enabled and the
+shift count is greater than 0, when the divider outputs a clock, the channel's
+period in the third and fourth registers are updated with the result of the
+shifter.
+
+
+--------------
+Square Channel
+--------------
+
+                   +---------+    +---------+
+                   |  Sweep  |--->|Timer / 2|
+                   +---------+    +---------+
+                        |              |
+                        |              v 
+                        |         +---------+    +---------+
+                        |         |Sequencer|    | Length  |
+                        |         +---------+    +---------+
+                        |              |              |
+                        v              v              v
+    +---------+        |\             |\             |\          +---------+
+    |Envelope |------->| >----------->| >----------->| >-------->|   DAC   |
+    +---------+        |/             |/             |/          +---------+
+
+There are two square channels beginning at registers $4000 and $4004. Each
+contains the following: Envelope Generator, Sweep Unit, Timer with
+divide-by-two on the output, 8-step sequencer, Length Counter.
+
+$4000/$4004: duty, envelope
+$4001/$4005: sweep unit
+$4002/$4006: period low
+$4003/$4007: reload length counter, period high
+
+In addition to the envelope, the first register controls the duty cycle of the
+square wave, without resetting the position of the sequencer:
+
+    dd-- ----       duty cycle select
+    
+    d   waveform sequence
+    ---------------------
+         _       1
+    0   - ------ 0 (12.5%)
+
+         __      1
+    1   -  ----- 0 (25%)
+
+         ____    1
+    2   -    --- 0 (50%)
+
+        _  _____ 1
+    3    --      0 (25% negated)
+
+
+When the fourth register is written to, the sequencer is restarted.
+
+The sequencer is clocked by the divided timer output.
+
+When the sequencer output is low, the DAC receives 0.
+
+
+--------------
+Linear Counter
+--------------
+
+The Linear Counter serves as a second more-accurate duration counter for the
+triangle channel. It contains a counter and an internal halt flag.
+
+Register $4008 contains a control flag and reload value:
+
+    crrr rrrr   control flag, reload value
+
+Note that the bit position for the control flag is also mapped to a flag in the
+Length Counter.
+
+When register $400B is written to, the halt flag is set.
+
+When clocked by the frame sequencer, the following actions occur in order:
+
+    1) If halt flag is set, set counter to reload value, otherwise if counter
+is non-zero, decrement it.
+
+    2) If control flag is clear, clear halt flag.
+
+
+----------------
+Triangle Channel
+----------------
+
+                   +---------+    +---------+
+                   |LinearCtr|    | Length  |
+                   +---------+    +---------+
+                        |              |
+                        v              v
+    +---------+        |\             |\         +---------+    +---------+ 
+    |  Timer  |------->| >----------->| >------->|Sequencer|--->|   DAC   |
+    +---------+        |/             |/         +---------+    +---------+ 
+
+The triangle channel contains the following: Timer, 32-step sequencer, Length
+Counter, Linear Counter, 4-bit DAC.
+
+$4008: length counter disable, linear counter
+$400A: period low
+$400B: length counter reload, period high
+
+When the timer generates a clock and the Length Counter and Linear Counter both
+have a non-zero count, the sequencer is clocked.
+
+The sequencer feeds the following repeating 32-step sequence to the DAC:
+
+    F E D C B A 9 8 7 6 5 4 3 2 1 0 0 1 2 3 4 5 6 7 8 9 A B C D E F
+
+At the lowest two periods ($400B = 0 and $400A = 0 or 1), the resulting
+frequency is so high that the DAC effectively outputs a value half way between
+7 and 8.
+
+
+-------------   
+Noise Channel
+-------------
+
+    +---------+    +---------+    +---------+
+    |  Timer  |--->| Random  |    | Length  |
+    +---------+    +---------+    +---------+
+                        |              |
+                        v              v
+    +---------+        |\             |\         +---------+
+    |Envelope |------->| >----------->| >------->|   DAC   |
+    +---------+        |/             |/         +---------+
+
+The noise channel starts at register $400C and contains the following: Length
+Counter, Envelope Generator, Timer, 15-bit right shift register with feedback,
+4-bit DAC.
+
+$400C: envelope
+$400E: mode, period
+$400F: reload length counter                   
+
+Register $400E sets the random generator mode and timer period based on a 4-bit
+index into a period table:
+
+    m--- iiii       mode, period index 
+    
+    i   timer period
+    ----------------
+    0     $004
+    1     $008
+    2     $010
+    3     $020
+    4     $040
+    5     $060
+    6     $080
+    7     $0A0
+    8     $0CA
+    9     $0FE
+    A     $17C
+    B     $1FC
+    C     $2FA
+    D     $3F8
+    E     $7F2
+    F     $FE4
+
+The shift register is clocked by the timer and the vacated bit 14 is filled
+with the exclusive-OR of *pre-shifted* bits 0 and 1 (mode = 0) or bits 0 and 6
+(mode = 1), resulting in 32767-bit and 93-bit sequences, respectively.
+
+When bit 0 of the shift register is set, the DAC receives 0.
+
+On power-up, the shift register is loaded with the value 1.
+
+
+------------------------------
+Delta Modulation Channel (DMC)
+------------------------------
+
+    +----------+    +---------+
+    |DMA Reader|    |  Timer  |
+    +----------+    +---------+
+         |               |
+         |               v
+    +----------+    +---------+     +---------+     +---------+ 
+    |  Buffer  |----| Output  |---->| Counter |---->|   DAC   |
+    +----------+    +---------+     +---------+     +---------+ 
+
+The DMC can output samples composed of 1-bit deltas and its DAC can be directly
+changed. It contains the following: DMA reader, interrupt flag, sample buffer,
+Timer, output unit, 7-bit counter tied to 7-bit DAC.
+
+$4010: mode, frequency
+$4011: DAC
+$4012: address
+$4013: length
+
+On power-up, the DAC counter contains 0.
+
+Register $4010 sets the interrupt enable, loop, and timer period. If the new
+interrupt enabled status is clear, the interrupt flag is cleared.
+
+    il-- ffff       interrupt enabled, loop, frequency index
+    
+    f   period
+    ----------
+    0   $1AC
+    1   $17C
+    2   $154
+    3   $140
+    4   $11E
+    5   $0FE
+    6   $0E2
+    7   $0D6
+    8   $0BE
+    9   $0A0
+    A   $08E
+    B   $080
+    C   $06A
+    D   $054
+    E   $048
+    F   $036
+
+A write to $4011 sets the counter and DAC to a new value:
+
+    -ddd dddd       new DAC value
+
+Sample Buffer
+-------------
+The sample buffer either holds a single sample byte or is empty. It is filled
+by the DMA reader and can only be emptied by the output unit, so once loaded
+with a sample it will be eventually output.
+
+DMA Reader
+----------
+The DMA reader fills the sample buffer with successive bytes from the current
+sample, whenever it becomes empty. It has an address counter and a bytes remain
+counter.
+
+When the DMC sample is restarted, the address counter is set to register $4012
+* $40 + $C000 and the bytes counter is set to register $4013 * $10 + 1.
+
+When the sample buffer is in an empty state and the bytes counter is non-zero,
+the following occur: The sample buffer is filled with the next sample byte read
+from memory at the current address, subject to whatever mapping hardware is
+present (the same as CPU memory accesses). The address is incremented; if it
+exceeds $FFFF, it is wrapped around to $8000. The bytes counter is decremented;
+if it becomes zero and the loop flag is set, the sample is restarted (see
+above), otherwise if the bytes counter becomes zero and the interrupt enabled
+flag is set, the interrupt flag is set.
+
+When the DMA reader accesses a byte of memory, the CPU is suspended for 4 clock
+cycles.
+
+Output Unit
+-----------
+The output unit continually outputs complete sample bytes or silences of equal
+duration. It contains an 8-bit right shift register, a counter, and a silence
+flag.
+
+When an output cycle is started, the counter is loaded with 8 and if the sample
+buffer is empty, the silence flag is set, otherwise the silence flag is cleared
+and the sample buffer is emptied into the shift register.
+
+On the arrival of a clock from the timer, the following actions occur in order:
+
+    1. If the silence flag is clear, bit 0 of the shift register is applied to
+the DAC counter: If bit 0 is clear and the counter is greater than 1, the
+counter is decremented by 2, otherwise if bit 0 is set and the counter is less
+than 126, the counter is incremented by 2.
+
+    1) The shift register is clocked.
+    
+    2) The counter is decremented. If it becomes zero, a new cycle is started.
+
+
+----------
+DAC Output
+----------
+
+The DACs for each channel are implemented in a way that causes non-linearity
+and interaction between channels, so calculation of the resulting amplitude is
+somewhat involved.
+
+The normalized audio output level is the sum of two groups of channels:
+
+    output = square_out + tnd_out
+    
+    
+                          95.88
+    square_out = -----------------------
+                        8128
+                 ----------------- + 100
+                 square1 + square2
+
+
+                          159.79
+    tnd_out = ------------------------------
+                          1
+              ------------------------ + 100
+              triangle   noise    dmc
+              -------- + ----- + -----
+                8227     12241   22638
+
+
+where triangle, noise, dmc, square1 and square2 are the values fed to their
+DACs. The dmc ranges from 0 to 127 and the others range from 0 to 15. When the
+sub-denominator of a group is zero, its output is 0. The output ranges from 0.0
+to 1.0.
+
+
+Implementation Using Lookup Table 
+---------------------------------
+The formulas can be efficiently implemented using two lookup tables: a 31-entry
+table for the two square channels and a 203-entry table for the remaining
+channels (due to the approximation of tnd_out, the numerators are adjusted
+slightly to preserve the normalized output range).
+
+    square_table [n] = 95.52 / (8128.0 / n + 100)
+    
+    square_out = square_table [square1 + square2]
+    
+The latter table is approximated (within 4%) by using a base unit close to the
+DMC's DAC.
+
+    tnd_table [n] = 163.67 / (24329.0 / n + 100)
+    
+    tnd_out = tnd_table [3 * triangle + 2 * noise + dmc]
+
+
+Linear Approximation
+--------------------
+A linear approximation can also be used, which results in slightly louder DMC
+samples, but otherwise fairly accurate operation since the wave channels use a
+small portion of the transfer curve. The overall volume will be reduced due to
+the headroom required by the DMC approximation.
+
+    square_out = 0.00752 * (square1 + square2)
+    
+    tnd_out = 0.00851 * triangle + 0.00494 * noise + 0.00335 * dmc
+
+This linear approximation neglects the attenuating effect the DMC has when its
+DAC is in the upper level. This factor can be calculated using the main formula
+to form a ratio, and precalculated into a 128-entry lookup table.
+
+                     tnd_out(triangle=15,dmc=d) - tnd_out(triangle=0,dmc=d)
+    attenuation(d) = ------------------------------------------------------
+                                  tnd_out(triangle=15,dmc=0)
+
+-------------------
+Unreliable Behavior
+-------------------
+
+(The following behaviors probably don't need to be emulated due to their
+unreliability since stable code will avoid invoking it, and since their
+behavior is somewhat difficult to precisely predict.)
+
+If the frame IRQ is set just as register $4015 is being read, it seems to be
+ignored (similar to polling $2002 for the vbl flag).
+
+The DMC's DMA reader seems to check for an empty buffer every few CPU cycles,
+rather than every cycle or continuously.
+
+Writing to the DAC register ($4011) while a sample is playing sometimes has no
+effect, probably because the DMC's output unit is clocking the counter at the
+same moment as the write.
+
+
+--------------
+Clarifications
+--------------
+
+(The following are meant only as re-statements of the main content, rather than
+additions of new content.)
+
+Because the envelope loop and length counter disable flags are mapped to the
+same bit, the length counter can't be used while the envelope is in loop mode.
+Similar applies to the triangle channel, where the linear counter and length
+counter are both controlled by the same bit in register $4008.
+
+Unlike the other waveform channels, the triangle channel is silenced by
+stopping its waveform at whatever phase it's at, rather than causing zero to be
+sent to its DAC.
+
+The length counter table seems to be set up for standard note durations for 4/4
+time at 160 bpm and 180 bpm. If bit 3 is 0, the following results (Dn is bit n
+of the fourth channel register):
+
+            180bpm  160bpm
+    D6-D4   D7=0    D7=1    note
+    -------------------------------
+    $00     10      12      16th
+    $01     20      24      8th
+    $02     40      48      4th (one beat)
+    $03     80      96      half
+    $04     160     192     whole
+    $05     60      72      4th dotted
+    $06     14      16      8th triplet (*3 = a 4th)
+    $07     26      32      4th triplet (*3 = a half)
+
+
+-------------
+Collaborators
+-------------
+
+Brad Taylor's NESSOUND.TXT and DMC.TXT as a starting point for testing.
+NTSC NES for testing on.
+Nesdev forum for feedback.
+xodnizel for testing results, correction to DMC table, feedback.
+Bloopaws/Draci for feedback, possible explanation of length counter table
+values.
+
+
+-------
+History
+-------
+
+2003.12.01
+    Made development cartridge and started testing on NES hardware.
+
+2003.12.14
+    Started project.
+
+2003.12.20
+    A few draft sections were posted to Nesdev or e-mailed privately.
+
+2004.01.02
+    Draft version posted to Nesdev. Corrected tnd_table formula.
+
+2004.01.02
+    Corrected incorrect "correction" to tnd_table formula. Double-checked them.
+
+2004.01.03
+    Corrected envelope flag name to "disable" (it was named "enable").
+    Added effective frequencies of frame sequencer outputs.
+    Added Overview, Unreliable Behavior, Clarifications, and Collaborators
+sections.
+
+2004.01.04
+    Adjusted linear approximation (difficult to find a compromise).
+    A few minor edits.
+
+2004.01.30
+    First release. Probably won't be doing much with it for a while.
+

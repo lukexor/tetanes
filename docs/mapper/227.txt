@@ -1,0 +1,51 @@
+
+========================
+=  Mapper 227          =
+========================
+
+
+Example Game:
+--------------------------
+1200-in-1
+
+
+Notes:
+---------------------------
+This mapper has 8k CHR-RAM, and also has the ability to write protect it's CHR-RAM!
+
+
+Registers:
+---------------------------
+
+  $8000-FFFF:  A~[.... ..LP  OPPP PPMS]
+    L = Last PRG Page Mode
+    P = PRG Reg
+    O = Mode
+    M = Mirroring (0=Vert, 1=Horz)
+    S = PRG Size
+
+
+Setup:
+---------------------------
+
+When 'O' is set, CHR-RAM is write protected (writes have no effect).  'O' also changes the PRG mode.
+
+Note there is funky ANDs and ORs going on below depending on the modes:
+
+
+                  $8000   $A000   $C000   $E000  
+                +---------------+---------------+
+O=1, S=0:       |       P       |       P       |
+                +-------------------------------+
+O=1, S=1:       |             < P >             |
+                +-------------------------------+
+O=0, S=0, L=0:  |       P       |   P AND $38   |
+                +---------------+---------------+
+O=0, S=1, L=0:  |   P AND $3E   |   P AND $38   |
+                +---------------+---------------+
+O=0, S=0, L=1:  |       P       |   P  OR $07   |
+                +---------------+---------------+
+O=0, S=1, L=1:  |   P AND $3E   |   P  OR $07   |
+                +---------------+---------------+
+
+

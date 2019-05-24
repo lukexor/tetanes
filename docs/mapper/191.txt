@@ -1,0 +1,24 @@
+
+========================
+=  Mapper 191          =
+========================
+
+
+aka:
+--------------------------
+Pirate MMC3 variant
+
+
+Example Game:
+--------------------------
+Sugoro Quest - Dice no Senshitachi (As)
+
+
+Notes:
+--------------------------
+This mapper is a modified MMC3 (or is based on MMC3?).
+
+In addition to any CHR-ROM present, there is also an additional 2k of CHR-RAM which is selectable.  Bit 7 of
+each CHR reg selects RAM or ROM (1=RAM, 0=ROM)
+
+Apart from that, this mapper behaves exactly like your typical MMC3.  See mapper 004 for details.

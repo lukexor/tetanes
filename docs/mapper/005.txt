@@ -1,0 +1,518 @@
+
+========================
+=  Mapper 005          =
+========================
+
+aka
+--------------------------
+MMC5
+ExROM
+
+
+
+Example Games:
+--------------------------
+Castlevania 3
+Just Breed
+Uncharted Waters
+Romance of the 3 Kingdoms 2
+Laser Invasion
+Metal Slader Glory
+Uchuu Keibitai SDF
+Shin 4 Nin Uchi Mahjong - Yakuman Tengoku
+
+
+Test ROM Notes:
+---------------------------
+- Uchuu Keibitai SDF is the only known game to use split screen mode (during the intro, where it shows ship
+  stats)
+- Shin 4 Nin Uchi Mahjong uses the extra PCM channel ($5011) as well as the other extra sound
+- Uncharted Waters does PRG-RAM swapping
+- Just Breed uses ExAttribute mode everywhere, as well as the extra sound.
+ - Bandit Kings of Ancient China writes PRG-RAM through the $8000+ ROM area. Failure to emulate this causes
+   corruption when the background is restored on the world map.
+
+
+General Notes:
+---------------------------
+MMC5 is the infamous juggernaut mapper.  It does a whole slew of neat tricks, making it far more powerful
+than any other mapper around.  Though despite its apparent complexity, it's surprisingly straightforward to
+emulate (that doesn't mean it's easy, though).
+
+It's a shame that the only real games to use this mapper were a ton of really, really terrible Koei strategy
+games.  Such a waste.
+
+
+RAM Notes:
+----------------------------
+MMC5 can address up to 64k PRG-RAM!  This is significantly more than the usual 8k.  When emulating, it's
+easiest just to give MMC5 games a full 64k, since the header doesn't really provide a decent way to indicate
+how much PRG-RAM actually exists.
+
+In addition to PRG-RAM, the MMC5 itself has a full 1k of 'ExRAM' which can be accessed by both the CPU and
+PPU.  This ExRAM can be used for many things... from plain vanilla WRAM, to an extra nametable, to a seperate
+split screen, to extending normal attribute tables.
+
+
+This document's organization:
+---------------------------
+Since there are so many registers for this mapper, and it has so many features, registers will be listed and
+outlined as the features are explained... and the overall registers section will be extremely brief --
+serving primarily as a very quick reference or checklist.
+
+Misc Modes and Setup:
+---------------------------
+
+  $5102:  [.... ..AA]    PRG-RAM Protect A
+  $5103:  [.... ..BB]    PRG-RAM Protect B
+      To allow writing to PRG-RAM you must set these regs to the following values:
+         A=%10
+         B=%01
+      Any other values will prevent PRG-RAM writing.
+
+  $5104:  [.... ..XX]    ExRAM mode
+      %00 = Extra Nametable mode    ("Ex0")
+      %01 = Extended Attribute mode ("Ex1")
+      %10 = CPU access mode         ("Ex2")
+      %11 = CPU read-only mode      ("Ex3")
+
+
+CHR Setup:
+---------------------------
+The MMC5 has two sets of CHR regs.  One set is used for sprites, the other is used for BG.  The MMC5
+carefully watches what tiles are being fetched and when (or has some other way of syncing with the NES
+somehow), which allows it to tell when the NES is fetching BG tiles, and when it's fetching sprite tiles.
+As such, it can use different regs accordingly, allowing games to basically have 12k of CHR "active" at once
+instead of the usual 8k!  This means you can have a full 512 tiles exclusively for sprites, and have an
+additional 256 tiles for the BG!
+
+CHR Mode Select Reg:
+ $5101:  [.... ..CC]
+      %00 = 8k Mode
+      %01 = 4k Mode
+      %10 = 2k Mode
+      %11 = 1k Mode
+
+'High' CHR Reg:
+  $5130  [.... ..HH]  (see below)
+
+'A' Regs:
+  $5120 - $5127
+'B' Regs:
+  $5128 - $512B
+
+When in 8x16 sprite mode, both sets of registers are used.  The 'A' set is used for sprite tiles, and the
+'B' set is used for BG.  This makes it so that sprites can have a full 8k of CHR available, without having
+to share any of the tiles with the BG (since the BG uses its own 4k of CHR, designated by the 'B' set).  It
+is unsure what you will get when reading CHR via $2007.
+
+When in 8x8 sprite mode, only one set is used for both BG and sprites.  Either 'A' or 'B', depending on which
+set is written to last.  If 'B' is used, $1000-1FFF always mirrors $0000-0FFF (making the 'B' set pretty
+worthless with 8x8 sprites)
+
+
+'A' Set (sprites):
+              $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+            +---------------------------------------------------------------+
+  C=%00:    |                             $5127                             |
+            +---------------------------------------------------------------+
+  C=%01:    |             $5123             |             $5127             |
+            +-------------------------------+-------------------------------+
+  C=%10:    |     $5121     |     $5123     |     $5125     |     $5127     |
+            +---------------+---------------+---------------+---------------+
+  C=%11:    | $5120 | $5121 | $5122 | $5123 | $5124 | $5125 | $5126 | $5127 |
+            +-------+-------+-------+-------+-------+-------+-------+-------+
+
+'B' Set (BG):
+              $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+ 'B' Set (BG):
+               $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+             +-------------------------------+-------------------------------+
+   C=%00:    |                             $512B                             |
+             +-------------------------------+-------------------------------+
+   C=%01:    |             $512B             |             $512B             |
+             +-------------------------------+-------------------------------+
+   C=%10:    |     $5129     |     $512B     |     $5129     |     $512B     |
+             +---------------+---------------+---------------+---------------+
+   C=%11:    | $5128 | $5129 | $512A | $512B | $5128 | $5129 | $512A | $512B |
+             +-------+-------+-------+-------+-------+-------+-------+-------+
+
+Note that unlike most other mappers, these CHR pages are in *actual* sizes.  IE:  when in 4k mode, registers
+contain 4k page numbers.  But when in 2k mode, register contain 2k page numbers.
+
+CHR Regs are actually 10 bits wide, not just 8.  When you write to the regs, the value written is the low 8
+bits, and the high 2 bits are copied from $5130.  Example:
+
+  LDA #$00
+  STA $5130  ; high bits = 0
+  LDA #$20
+  STA $5127  ; $5127 now = $020
+
+  LDA #$02
+  STA $5130
+  LDA #$41
+  STA $5123  ; $5123 now = $241
+             ; and $5127 still = $020 (not $220)
+
+$5130 has an additional role in ExAttribute mode.
+
+
+
+PRG/RAM Setup:
+---------------------------
+
+
+$5100:  [.... ..PP]    PRG Mode Select:
+    %00 = 32k
+    %01 = 16k
+    %10 = 16k+8k
+    %11 = 8k
+
+$5113:  [.... .PPP]        (simplified, but technically inaccurate -- see below)
+  8k PRG-RAM page @ $6000
+
+$5114-5117:  [RPPP PPPP]
+  R = ROM select (0=select RAM, 1=select ROM)  **unused in $5117**
+  P = PRG page
+
+The high bit allows the game to select between ROM and RAM.  This allows the game to put PRG-RAM anywhere
+between $6000-DFFF (but no higher, since $5117 always selects ROM)
+
+Only RAM can be swapped to $6000-7FFF.
+$5117 always selects ROM, never RAM (ROM always at $E000-FFFF).
+
+                $6000   $8000   $A000   $C000   $E000  
+              +-------+-------------------------------+
+   P=%00:     | $5113 |           <<$5117>>           |
+              +-------+-------------------------------+
+   P=%01:     | $5113 |    <$5115>    |    <$5117>    |
+              +-------+---------------+-------+-------+
+   P=%10:     | $5113 |    <$5115>    | $5116 | $5117 |
+              +-------+---------------+-------+-------+
+   P=%11:     | $5113 | $5114 | $5115 | $5116 | $5117 |
+              +-------+-------+-------+-------+-------+
+
+
+Technically, $5113 should look something like:
+   [.... .CPP]
+     C = Chip select
+     P = 8k PRG-RAM page on selected chip
+
+MMC5 can address two seperate RAM chips, each up to 32k in size.
+
+This detail can impact how RAM is mirrored across pages if the chip sizes are less than 32k.  For example,
+Uncharted Waters has two 8k chips (only 16k total -- but on two seperate chips), so it uses selects pages
+$00 and $04, rather than $00 and $01 like you may expect.  This is because bit 2 is the chip select, and
+the 8k on each chip is mirrored to every page on that chip... that is... $00-$03 would all select the first
+8k.
+
+Note that no commercial games rely on this mirroring -- therefore you can take the easy way out and simply give
+all MMC5 games 64k PRG-RAM.
+
+
+Mirroring:
+---------------------------
+  $5105:  [DDCC BBAA]
+
+
+MMC5 allows each NT slot to be configured:
+  [   A   ][   B   ]
+  [   C   ][   D   ]
+
+Values can be the following:
+  %00 = NES internal NTA
+  %01 = NES internal NTB
+  %10 = use ExRAM as NT
+  %11 = Fill Mode
+
+
+For example... some typical mirroring setups would be:
+              (  D  C  B  A)
+  Horz:  $50  (%01 01 00 00)
+  Vert:  $44  (%01 00 01 00)
+  1ScA:  $00  (%00 00 00 00)
+  1ScB:  $55  (%01 01 01 01)
+  Fill:  $ff  (%11 11 11 11)
+
+
+ExRAM can act as a 3rd nametable here... but only in Ex0 or Ex1 (see $5104 above).  If in Ex2 or Ex3, the PPU
+will get $00 when it attempts to read from the nametable.  Note that while ExRAM can be used as a nametable
+in Ex1, it's probably a bad idea, since ExRAM is also used for Extended attributes in that mode.  Therefore,
+when using ExRAM as a nametable, you should stick to Ex0.
+
+Fill Mode is a virtual nametable.  It is not a full nametable, but rather, as the PPU attempts to read it,
+the MMC5 will feed it a specific tile -- thus appearing as though there's a full nametable filled with a
+single tile.  The tile can be configured by the game with the following regs:
+
+  $5106:  [TTTT TTTT]     Fill Tile
+  $5107:  [.... ..AA]     Fill Attribute bits
+
+
+
+Extended Attribute Mode:
+---------------------------
+When in Ex1 mode (see $5104 above), ordinary attribute tables and BG CHR regs are ignored, and instead, each
+byte in ExRAM coresponds with an onscreen tile, and assigns that tile a 4k CHR page (allowing you to choose
+from 16k tiles instead of 256) and its own attribute bits (allowing each 8x8 tile to have its own palette,
+rather than having the normal 16x16 blocks).
+
+Bytes in ExRAM:
+  [AACC CCCC]
+    A = Attribute bits
+    C = 4k CHR Page
+
+Additionally... $5130 is used directly as the high 2 bits of CHR for every on-screen BG tile when in this
+mode.  It effectively selects a 256k block for BG to use (in addition to its normal use with CHR swapping).
+$5130's runtime value affects all BG tiles, therefore changing $5130 will immediately swap all on-screen BG
+when in this mode.  Therefore, if/when you change $5130 to swap CHR for sprites, you must write to $5130
+again with the desired value for the BG.
+
+Sprites are unaffected by this mode and still use the normal CHR regs.
+
+Which tile uses which byte in ExRAM depends on its position in the nametable.  Scrolling is irrelevent.  The
+tile at $2000 always uses the first byte in ExRAM, $2001 uses the second, etc.  $2400, $2800, and $2C00 also
+use the first byte of ExRAM.
+
+
+CPU Accessing ExRAM:
+---------------------------
+ExRAM can be accessed by the CPU via $5C00-$5FFF.  Whether or not you can read or write depends on the
+current mode (see $5104):
+
+   Mode   Readable  Writable
+   -------------------------
+   Ex0       no        *
+   Ex1       no        *
+   Ex2      yes       yes
+   Ex3      yes        no
+
+In Ex0 and Ex1, ExRAM can only be written DURING RENDERING (insane, I know).  If a game attempts to write
+outside of rendering, $00 is written instead of the desired value.  Writes have absolutely no effect in Ex3.
+
+Attempting to read when not readable will return open bus.
+
+
+
+
+8 * 8 -> 16 Multiplier:
+---------------------------
+MMC5 has a nifty multiplier, similar to the SNES's.
+
+on write:
+  $5205:  multiplicand
+  $5206:  multiplier
+
+on read:
+  $5205:  low 8 bits of product
+  $5206:  high 8 bits of product
+
+Basic functionality is, you write two values you want multiplied to $5205 and $5206, then read the product
+back.  Multiplication is unsigned.  There is no noticable delay -- that is, the product can be read back
+right after writing.
+
+
+
+
+Split Screen:
+---------------------------
+A unique feature to MMC5 is its ability to split the screen vertically down the middle.  However due to some
+limitations that couldn't be avoided, it ended up not being that useful of a feature.
+
+Note:  Split screen mode is only allowed in Ex0 or Ex1.  When in Ex2 and Ex3, it is always disabled.  I do
+not know whether or not the split is affected by Extended Attributes when in Ex1.  Judging by the $5202, I
+would assume it isn't, but that's a total guess.
+
+  $5200:  [ER.T TTTT]    Split control
+    E = Enable  (0=split mode disabled, 1=split mode enabled)
+    R = Right side  (0=split will be on left side, 1=split will be on right)
+    T = tile number to split at
+
+  $5201:  [YYYY YYYY]    Split Y scroll
+
+  $5202:  [CCCC CCCC]    4k CHR Page for split
+
+34 BG tiles are fetched per scanline.  MMC5 performs the split by watching which BG tile is being fetched,
+and if it is within the split region, replacing the normal NT data with the split screen data according to
+the absolute screen position of the tile (i.e., ignoring the coarse horizontal and vertical scroll output
+as part of the VRAM address for the fetch).  Since it operates on a per-tile basis... fine horizontal
+scrolling "carries into" the split region.  Setting the horizontal scroll to 1-7 will result in the split
+being moved to the left 1-7 pixels, however when you scroll to 8, the split will "snap" back to its normal
+position.
+
+
+Left Split:
+  Tiles 0 to T-1 are the split.
+  Tiles T and on are rendered normally.
+
+Right Split:
+  Tiles 0 to T-1 are rendered normally.
+  Tiles T and on are the split.
+
+
+There is no coarse horizontal scrolling of any kind for the split.  Right-side splits will always show the
+right-hand side of the nametable, and left-hand splits will always show the left-hand side of the nametable.
+Coarse horizontal scrolling can still be used for the non-split region.
+
+ExRAM is always used as the nametable in split screen mode.
+
+Vertical scrolling for the split operates like normal vertical scrolling.  0-239 are valid scroll values,
+whereas 240-255 will display Attribute table data as NT data for the first few scanlines.  The split nametable
+will wrap so that the top of the nametable will appear below as you scroll (just as if vertical mirroring
+were employed).
+
+$5202 selects (yet another) CHR page to use for the BG.  This page is used for the split region only.
+
+
+
+
+IRQ Operation:
+---------------------------
+MMC5 has a scanline counter for IRQs, however it is significantly more sophisticated than MMC3's, and doesn't
+suffer from the same restrictions.  It is also a bit easier to use.
+
+Write:
+  $5203:  [IIII IIII]    IRQ Target
+  $5204:  [E... ....]    IRQ Enable (0=disabled, 1=enabled)
+
+Read:
+  $5204:  [PI.. ....]
+    P = IRQ currently pending
+    I = "In Frame" signal
+
+  Reading $5204 will clear the pending flag (acknowledging the IRQ).
+
+
+
+Basic operation:
+1)  Write the desired scanline number to $5203
+2)  Enable IRQs by setting $5204.7
+
+   IRQ will then trip on the given scanline number (provided PPU rendering is enabled).  The only thing to
+note here is that this behavior changes drastically if you turn the PPU off mid-frame... and that an IRQ will
+never occur when the target scanline number is 0 or greater than (?or equal to?) $F0.
+
+   The "In Frame" signal will read back as set when the PPU is rendering (during scanlines 0-239).  Though
+its actual behavior and how it interacts with the IRQ counter is a bit more complex.
+
+
+
+Detailed Operation:
+
+   The IRQ counter is an up counter, rather than a down counter (like MMC3).  Every time the MMC5 detects a
+scanline, it does the following:
+
+- If In Frame Signal is clear...
+   a) Set In Frame signal
+   b) Reset IRQ counter to 0
+   c) Clear IRQ pending flag (automatically acknowledging IRQ)
+
+- otherwise...
+   a) Increment IRQ counter
+   b) If IRQ counter now equals the trigger value, raise IRQ pending flag
+
+Note that the IRQ pending flag is raised *regardless* of whether or not IRQs are enabled.  However, this will
+only trigger an IRQ on the 6502 if both this flag *and* the IRQ enable flag is set.  Therefore IRQs must
+still be enabled for this to have an effect, however the pending flag can still be read back as set via $5204
+even when IRQs are disabled.
+
+Also note that the IRQ counter is compared after it is incremented.  This is why a trigger value of 0 will
+never trigger an IRQ.
+
+At any time when the MMC5 detects that the PPU is inactive, the In Frame signal is automatically cleared.
+The MMC5 will detect this after rendering for the frame is complete, and as soon as the PPU is turned off via
+$2001.  This is why turning off the PPU mid-frame will disrupt IRQs -- since the In Frame signal being
+cleared will reset the IRQ counter next scanline.
+
+HOW the MMC5 detects scanlines is still unknown.  One theory is that it looks for the two dummy nametable
+fetches at the end of the scanline.  Or perhaps it counts the number of fetches the PPU performs.  Nobody
+knows for sure.
+
+The IRQ will trip at the *start* of the desired scanline.  Or, more precisely, near the very end of the
+previous scanline (closest I can figure is dot 336).  That is... if the trigger line is set to 1, the IRQ
+will trip on dot 336 of scanline 0.
+
+I am unsure whether or not the last rendered scanline (239) is detected by the MMC5.  I would assume it is,
+which would mean a trigger value of $F0 would trip an IRQ at the end of rendering.  Trigger values above $F0
+will never be reached, since rendering stops before then, and the in-frame signal would automatically clear.
+
+
+
+
+Sound:
+---------------------------
+The MMC5 also has 3 additional sound channels!  (Will the list of features ever stop?!?!).  Unfortunately,
+due to the NES being dumbed down, these can only be heard on a Famicom (or a modified NES).
+
+There are 2 additional Pulse channels, and 1 additional PCM channel.
+
+Registers for them are as follows:
+
+Write:
+  $5000-5003:  Regs for Pulse 1
+  $5004-5007:  Regs for Pulse 2
+  $5010:       PCM read-only mode output (no games use this part of the PCM)
+  $5011:       PCM read/write mode output
+  $5015:  [.... ..BA]   Enable flags for Pulse 1 (A), 2 (B)  (0=disable, 1=enable)
+
+Read:
+  $5015   [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
+
+
+Pulse channels behave identically to the native NES pulse channels, only they lack a sweep unit.  Rather than
+going into details on their function, I recommend you pick up blargg's apu reference.
+
+$5000-5007 operate just as $4000-4007 do
+$5015 operates just as $4015 does (for reads and writes)
+
+
+Nobody knows exactly how the PCM channel of the MMC5 works.  The patent documentation is unclear, and no
+games seem to use it apart from $5011.  $5010 likely does *something*... but nobody knows what.
+
+$5011 operates exactly like $4011, only it is 8 bits wide instead of 7.  Games *do* use this register to
+output sound.
+
+
+Powerup:
+---------------------------
+Games seem to expect $5117 to be $FF on powerup (last PRG page swapped in).  Additionally, Romance of the 3
+Kingdoms 2 seems to expect it to be in 8k PRG mode ($5100 = $03).
+
+
+
+Register Overview:
+---------------------------
+Due to the massive number of registers on this mapper, this section will be brief.  Registers were all
+covered in detail in the sections above -- this is just to recap them all:
+
+
+Writable Regs:
+  $5000-5003:  Sound, Pulse 1
+  $5004-5007:  Sound, Pulse 2
+  $5010-5011:  Sound, PCM
+  $5015:       Sound, General
+  $5100:       PRG Mode Select
+  $5101:       CHR Mode Select
+  $5102-5103:  PRG-RAM Write protect
+  $5104:       ExRAM Mode
+  $5105:       Mirroring Mode
+  $5106:       Fill Tile
+  $5107:       Fill Attribute
+  $5113:       PRG-RAM reg
+  $5114-5117:  PRG regs
+  $5120-5127:  CHR regs 'A'
+  $5128-512B:  CHR regs 'B'
+  $5130:       CHR high bits
+  $5200:       Split Screen control
+  $5201:       Split Screen V Scroll
+  $5202:       Split Screen CHR Page
+  $5203:       IRQ Trigger
+  $5204:       IRQ Control
+  $5205-5206:  8*8->16 Multiplier
+  $5C00-5FFF:  ExRAM CPU Access
+
+
+Readable Regs:
+  $5015:       Sound Status
+  $5204:       IRQ Status
+  $5205-5206:  8*8->16 Multiplier Product
+  $5C00-5FFF:  ExRAM CPU Access

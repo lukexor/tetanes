@@ -1,0 +1,72 @@
+
+========================
+=  Mapper 009          =
+========================
+
+aka
+--------------------------
+MMC2
+PxROM
+
+
+Example Game:
+--------------------------
+Mike Tyson's Punch Out!!
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $A000-FFFF, $F000
+
+
+  $A000:      PRG Reg
+  $B000:      CHR Reg 0A
+  $C000:      CHR Reg 0B
+  $D000:      CHR Reg 1A
+  $E000:      CHR Reg 1B
+  $F000:  [.... ...M]   Mirroring:
+    0 = Vert
+    1 = Horz
+
+
+
+PRG Setup:
+---------------------------
+       $8000   $A000   $C000   $E000  
+     +-------+-------+-------+-------+
+     | $A000 | { -3} | { -2} | { -1} |
+     +-------+-------+-------+-------+
+
+
+
+CHR Setup:
+---------------------------
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------------------------------+-------------------------------+
+    |        $B000 or $C000         |        $D000 or $E000         |
+    +-------------------------------+-------------------------------+
+
+
+Which reg is used depends on the state of the respective latch.  See below.
+
+
+Latch:
+---------------------------
+There are two latches on the MMC2.  One associated with the left pattern table ($0xxx) and another associated
+with right ($1xxx).  Each latch operates independently.
+
+Whenever tile $FD is fetched, the appropriate latch is cleared, and whenever tile $FE is fetched, the
+appropriate latch is set.  This allows games to do mid-scanline swapping automatically by having $FD and $FE
+be special marker tiles.
+
+When the $0xxx latch is clear, $B000 is used.  When set, $C000 is used.
+When the $1xxx latch is clear, $D000 is used.  When set, $E000 is used.
+
+The swap occurs after the tile is fetched, not before.  So if the latch is clear, and tile $FE is loaded,
+tile $FE from the first reg will be drawn to the screen, but the next tile drawn will be from the second reg.
+
+Latches can be manipulated by hand by reading from the appropriate PPU address ($0FDx, $0FEx, $1FDx, $1FEx)
+via $2007.
+
+

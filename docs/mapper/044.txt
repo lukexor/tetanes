@@ -1,0 +1,57 @@
+
+========================
+=  Mapper 044          =
+========================
+
+
+Example Game:
+--------------------------
+Super Big 7-in-1
+
+
+
+Notes:
+---------------------------
+
+This mapper is an MMC3 based multicart.  The multicart selects a block of PRG and CHR depending on the
+selected game, and the MMC3 regs act as they normally would within the given block.  For info on MMC3, see
+mapper 004.
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $8000-FFFF, $E001
+
+All registers behave exactly like a normal MMC3, except for:
+
+  $A001:  [EW.. .BBB]
+    E,W = Same as on typical MMC3
+    B = Block select
+
+
+Blocks:
+---------------------------
+
+Selecting block 7 is the same as selecting block 6.
+
+All blocks have 128k PRG and CHR... except for block 6 which has 256k PRG and CHR.  All MMC3 selected pages
+are chosen from the given block (including fixed pages).  This can be accomplished by ANDing the MMC3 regs
+with a given value, and ORing them with a value based on the current block:
+
+  Block   PRG-AND   PRG-OR    CHR-AND   CHR-OR
+  ---------------------------------------------
+    0       $0F      $00        $7F      $000
+    1       $0F      $10        $7F      $080
+    2       $0F      $20        $7F      $100
+    3       $0F      $30        $7F      $180
+    4       $0F      $40        $7F      $200
+    5       $0F      $50        $7F      $280
+   6,7      $1F      $60        $FF      $300
+
+
+
+Powerup:
+---------------------------
+
+Block 0 must be selected at powerup (and possibly reset?)

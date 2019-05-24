@@ -1,0 +1,172 @@
+
+========================
+=  Mapper 021          =
+=       + 023          =
+=       + 025          =  
+========================
+
+aka
+--------------------------
+VRC4
+
+
+
+Example Games:
+--------------------------
+Wai Wai World 2          (021)
+Ganbare Goemon Gaiden 2  (021)
+Boku Dracula-kun         (023)
+Tiny Toon Adventures (J) (023)
+Gradius 2 (J)            (025)
+Bio Miracle Bokutte Upa  (025)
+
+
+
+Multiple numbers, just one mapper:
+--------------------------
+These three mapper numbers (021, 023, 025) collectively represent different wiring variations of the same mapper:
+VRC4.  Each variation operates exactly the same, only the registers used are different because they all use
+different address lines.  Some lines are even reversed from the norm.
+
+   variant   lines     registers                       Mapper Number
+   =================================================================
+   VRC4a:    A1, A2    $x000, $x002, $x004, $x006      021
+   VRC4b:    A1, A0    $x000, $x002, $x001, $x003      025
+   VRC4c:    A6, A7    $x000, $x040, $x080, $x0C0      021
+   VRC4d:    A3, A2    $x000, $x008, $x004, $x00C      025
+   VRC4e:    A2, A3    $x000, $x004, $x008, $x00C      023
+   VRC4f:    A0, A1    $x000, $x001, $x002, $x003      023  * see below *
+
+
+This doc will use the 'VRC4a' registers (0,2,4,6) in all following register descriptions.  For other
+variants, use the above chart to convert.
+
+I'm unsure whether or not 'VRC4f' really exists.  It seems to use the same registers are mapper 023's VRC2
+counterpart (see 022.txt) but also has IRQ functionality (appears to be used by Tiny Toon Adventures).  Could
+it be that 023 is really VRC4 and not a VRC4+VRC2 mix?
+
+
+Registers:
+--------------------------
+Some registers are mirrored across several addresses.  For example, writing to $9004 has the same effect as
+writing to $9006.
+
+$8000-$8006:  [...P PPPP]   PRG Reg 0
+$9000,$9002:  [.... ..MM]   Mirroring:
+   %00 = Vert
+   %01 = Horz
+   %10 = 1ScA
+   %11 = 1ScB
+
+$9004,$9006:  [.... ..M.]   PRG Swap Mode Select
+$A000-$A006:  [...P PPPP]   PRG Reg 1
+$B000-$E006:  [.... CCCC]   CHR Regs (see CHR Setup)
+
+$F000+$F002:  [.... IIII]   IRQ Reload Value (see IRQ section)
+$F004         [.... .MEA]   IRQ Control (see IRQ section)
+$F006         [.... ....]   IRQ Acknowledge (see IRQ section)
+
+
+PRG Setup:
+--------------------------
+There are two PRG modes, which can be seleted via $9004.
+
+               $8000   $A000   $C000   $E000  
+             +-------+-------+-------+-------+
+PRG Mode 0:  | $8000 | $A000 | { -2} | { -1} |
+             +-------+-------+-------+-------+
+PRG Mode 1:  | { -2} | $A000 | $8000 | { -1} |
+             +-------+-------+-------+-------+
+
+
+CHR Setup:
+--------------------------
+The VRC4 only has 5 data pins.  To compensate, two CHR regs are combined to form a single page number. 
+One reg contains the high 5 bits and the other reg contains the low 4 bits (allowing for 9-bit page numbers)
+
+Example:  $B000+$B002  select 1k CHR page @ $0000
+    if   $B000=$03
+    and  $B002=$01
+    then use page $13
+
+
+      $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+    |$B000+2|$B004+6|$C000+2|$C004+6|$D000+2|$D004+6|$E000+2|$E004+6|
+    +-------+-------+-------+-------+-------+-------+-------+-------+
+
+
+--------------------------------------------------
+--------------------------------------------------
+
+
+VRC IRQs:
+--------------------------
+VRC IRQ logic is shared by VRC4, VRC6, and VRC7.  IRQs for all of those mappers operate exactly the same way.
+Therefore, this section applies to all of those mappers (other docs refer here).
+
+One thing in paticular to note with VRC4 that is different from VRC6, VRC7 is that the reload register is
+split in two just as CHR regs are.  $F000 specifies the low 4 bits of the reload value, and $F002 specfies
+the high 4 bits.  This only happens in VRC4.   VRC6 and VRC7 have a single 8-bit register to specify the
+reload value.  The rest of this doc will refer to this reload value as a single register.
+
+
+Notes:
+--------------------------
+VRC IRQs are unique in that they simulate a scanline counter, without actually counting scanlines.  The IRQ
+counter is actually a CPU cycle counter, with a prescaler that divides clocks by ~113.666667 CPU cycles (one
+NTSC scanline).  This results in the IRQ counter being clocked once per scanline -- however unlike true
+scanline counters, it will be clocked even when the PPU is inactive, and even during VBlank!
+
+
+
+Registers:
+--------------------------
+
+There are 3 registers relevant to VRC IRQs.  See respective mapper doc for which register corresponds to
+which address:
+
+  IRQ Reload:       [IIII IIII]
+     This register specifies the counter reload value.  It does not affect the counter itself.
+
+  IRQ Control:      [.... .MEA]
+     M = IRQ Mode (0=scanline mode, 1=CPU cycle mode)
+     E = Enable (0=disabled, 1=enabled)
+     A = Enable-on-acknowledge (see below)
+
+     - If 'E' is written as set, the IRQ counter will be immediately reloaded with the 
+       reload value, and the prescaler will be reset.  IRQs will also be enabled.
+     - If 'E' is written as clear, the IRQ counter and prescaler are not changed, and IRQs are disabled.
+     - Any write to this register will acknowledge the IRQ.
+
+
+  IRQ Acknowledge:  [.... ....]
+     Any write to this register will acknowledge the IRQ.  In addition, the 'A' control bit is copied to the
+'E' control bit (enabling or disabling IRQs).  No write to this register will change the state of the IRQ
+counter or prescaler.
+
+
+Operation:
+--------------------------
+
+When in scanline mode ('M' control bit clear), a prescaler divides the passing CPU cycles by 114, 114, then
+113 (and then repeats that pattern).  This averages 113 + 2/3 CPU cycles (1 NTSC scanline).  When the
+prescaler is reset, the sequence is reset, and it will be 114 CPU cycles until the next IRQ counter clock.
+
+A simple way to emulate prescaler behavior is to have it reset to 341, and subtract 3 every CPU cycle.  When
+it drops to or below 0, increment it by 341 and clock the IRQ counter once.  This will produce the
+114,114,113 repeating pattern.
+
+When in cycle mode ('M' control bit set), the prescaler is effectively bypassed, and the IRQ counter gets
+clocked every CPU cycle.  In this mode, the prescaler remains unchanged by passing CPU cycles.
+
+If IRQs are disabled, neither the prescaler nor IRQ counter get clocked.
+
+
+When the IRQ counter is clocked:
+ - If IRQ counter = $FF...
+    a) reload IRQ counter with reload value
+    b) trip IRQ
+
+ - otherwise...
+    a) increment IRQ counter by 1

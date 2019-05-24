@@ -1,0 +1,48 @@
+
+========================
+=  Mapper 095          =
+========================
+
+aka
+--------------------------
+MMC3  (modified)
+
+
+Example Game:
+--------------------------
+Dragon Buster (J)
+
+
+Notes:
+---------------------------
+This mapper is a modified MMC3.  It behaves exactly like your normal MMC3, only mirroring is handled
+differently.  For details on MMC3, refer to mapper 004.
+
+
+Regs:
+---------------------------
+
+$8000:  [CP.. .AAA]
+   C = CHR Mode
+   P = PRG Mode
+   A = Address for $8001
+
+
+This register operates exactly like it does on your normal MMC3.  It is mentioned here because the 'C' bit
+has another usage for mirroring.
+
+
+
+The normal mirroring reg ($A000) is totally ignored, and the CHR regs select nametables:
+
+When 'C' is set:
+   [ R:2 ][ R:3 ]
+   [ R:4 ][ R:5 ]
+
+When 'C' is clear:
+   [ R:0 ][ R:0 ]
+   [ R:1 ][ R:1 ]
+
+
+For mirroring, only bit 5 of the CHR regs is significant.  Bit 5 of the appropriate reg selects either NTA or
+NTB.

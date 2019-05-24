@@ -1,0 +1,77 @@
+
+========================
+=  Mapper 073          =
+========================
+
+aka
+--------------------------
+VRC3
+
+
+Example Games:
+--------------------------
+Salamander
+
+
+Registers:
+--------------------------
+
+Range,Mask:   $8000-FFFF, $F000
+
+  $8000:  [.... IIII]   Bits  0- 3 of IRQ reload value
+  $9000:  [.... IIII]   Bits  4- 7 of IRQ reload value
+  $A000:  [.... IIII]   Bits  8-11 of IRQ reload value
+  $B000:  [.... IIII]   Bits 12-15 of IRQ reload value
+
+  $C000:  [.... .MEA]   IRQ Control
+     M = IRQ Mode (0=16-bit mode, 1=8-bit mode)
+     E = IRQ Enable (0=disabled, 1=enabled)
+     A = Enable-on-Acknowledge (see IRQ section)
+
+  $D000:  [.... ....]   IRQ Acknowledge (see IRQ section)
+
+  $F000:  [.... PPPP]   PRG Select (16k @ $8000)
+
+
+PRG Setup:
+---------------------------
+
+      $8000   $A000   $C000   $E000  
+    +---------------+---------------+
+    |     $F000     |     { -1}     |
+    +---------------+---------------+
+
+
+IRQs:
+---------------------------
+
+VRC3 IRQs operate differently from other VRCs.  The counter is 16 bits instead of 8 bits, and there is no
+scanline mode -- only CPU cycle mode.  Other aspects, however, are very similar.
+
+$8000-B000 set the 16-bit reload value (not the actual IRQ counter).  When $C000 is written to with the 'E'
+bit set, the reload value is copied into the actual IRQ counter.
+
+When enabled, the IRQ counter will increment by 1 every CPU cycle until it wraps, at which point the IRQ
+counter is reloaded with the reload value (relevent bits only!  see Modes below) and an IRQ is tripped.
+
+Any write to $C000 or $D000 will acknowledge the IRQ.
+
+Any write to $D000 will also copy the 'A' control bit to the 'E' control bit... enabling or disabling IRQs.
+This does not change the contents of the IRQ counter.
+
+
+Modes:
+---------------------------
+There are 8-bit and 16-bit modes for the IRQ counter, as controlled by the 'M' bit in $C000.
+
+  In 16-bit mode (M=0):
+    - Counter is a full 16-bits.
+    - IRQ is triggered when IRQ counter is incremented from $FFFF
+
+
+  In 8-bit mode (M=1):
+    - Only the low 8-bit bits of counter are used
+    - IRQ is triggered when low 8 bits of IRQ counter are incremented from $FF
+    - Incrementing the low bits *never* alters the high bits of the counter
+    - When low 8 bits wrap, only the low 8 bits are copied from the reload value... high bits remain unchanged
+    - Reloading via $C000 write will still reload all 16 bits.

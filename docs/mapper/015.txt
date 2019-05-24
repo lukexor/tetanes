@@ -1,0 +1,50 @@
+
+========================
+=  Mapper 015          =
+========================
+
+Example Game:
+--------------------------
+100-in-1 Contra Function 16
+
+
+Notes:
+---------------------------
+
+Possible bus conflicts???
+
+
+
+Registers:
+---------------------------
+
+  $8000-FFFF:  A~[.... .... .... ..OO]
+                 [pMPP PPPP]
+    O = Mode
+    p = Low bit of PRG page (not always used)
+    P = High bits of PRG page
+    M = Mirroring  (0=Vert, 1=Horz)
+
+
+PRG Setup:
+---------------------------
+
+Depending on the Mode used, the 'p' bit may not be used.  In the chart below, "P" will indicate that only the
+'P' bits are used to form a 6-bit page number... whereas "Pp" will indicate the full 7-bit page number.
+
+
+           $8000   $A000   $C000   $E000  
+         +---------------+---------------+
+Mode 0:  |       P       |     P OR 1    |
+         +---------------+---------------+
+Mode 1:  |       P       |     { -1}     |
+         +---------------+---------------+
+Mode 2:  |  Pp   |  Pp   |  Pp   |  Pp   |
+         +---------------+---------------+
+Mode 3:  |       P       |       P       |
+         +---------------+---------------+
+
+
+Powerup:
+---------------------------
+All regs reset to 0 on powerup.

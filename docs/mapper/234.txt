@@ -1,0 +1,89 @@
+========================
+=  Mapper 234          =
+========================
+
+Example Game:
+--------------------------
+Maxi 15
+
+
+Notes:
+--------------------------
+Typical for the Atari 2600, but strange for the NES: Registers lie at
+$FF80-$FFFF but bankswitching happens on reads, as well as writes. Bus
+conflicts are thus avoided by storing the library of desired bankswitch
+values in ROM.
+
+Example:
+
+LDA $FF80  ; where $FF80 contains $62
+
+would (ignoring bus conflicts) have the same effect on the mapper as:
+
+LDA #$62
+STA $FF80
+
+
+Registers:
+---------------------------
+
+Range,Mask:   $FF80-FFFF, $FFF8
+
+$FF80, $FF88, $FF90, $FF98:  [MOQq BBBb]  Reg 0
+M = Mirroring (0=Vert, 1=Horz)
+O = Mode (0=CNROM, 1=NINA-03)
+B,b = Block selection
+q = ROMs 3+4 /Enable (0=normal, 1=disable ROM further from cartridge edge)
+
+ Since the cartridge was distributed with only ROMs 1+2
+  populated, this is irrelevant.
+
+ This bit seems to have been intended to have been an extra
+  address line for ROMs 3+4, enabling a total of 1.5M/1.5M in the
+  cartridge, but a mistake prevents it from working.
+
+Q = ROM switch (0=enable ROMs 1+2, 1=enable ROMs 3+4)
+ i.e. 0 for normal operation
+
+$FFC0, $FFC8, $FFD0, $FFD8:  [.... ..LL]  Reg 1
+L = Lockout defeat (charge pump drive)
+
+$FFE8, $FFF0:   [.cCC ...P]               Reg 2
+C,c = CHR page
+P = PRG page
+
+
+Once the bottom 6 bits of Reg 0 contain a non-zero value, Reg 0 and Reg 1
+are locked and cannot be changed until the system is reset.
+
+Reg 2 is never locked.
+
+
+
+CHR Setup:
+---------------------------
+
+8k page @ $0000 selected by the following:
+
+'O'     CHR page
+---------------------
+0      %BB BbCC
+1      %BB BcCC
+
+
+PRG Setup:
+---------------------------
+
+32k page @ $8000 selected by the following:
+
+'O'     PRG page
+---------------------
+0      %BBBb
+1      %BBBP
+
+
+
+On Powerup/Reset:
+---------------------------
+
+Regs all filled with 0 and unlocked.
