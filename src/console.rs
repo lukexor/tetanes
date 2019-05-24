@@ -88,8 +88,14 @@ impl Console {
                 self.cpu.trigger_nmi();
                 self.cpu.mem.ppu.nmi_pending = false;
             }
-            let mut mapper = self.cpu.mem.mapper.borrow_mut();
-            mapper.step();
+            let irq_pending = {
+                let mut mapper = self.cpu.mem.mapper.borrow_mut();
+                mapper.step(&self.cpu.mem.ppu);
+                mapper.irq_pending()
+            };
+            if irq_pending {
+                self.cpu.trigger_irq();
+            }
         }
         for _ in 0..cpu_cycles {
             self.cpu.mem.apu.clock();

@@ -1,4 +1,5 @@
 use crate::cartridge::Cartridge;
+use crate::console::ppu::Ppu;
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::Memory;
@@ -63,7 +64,7 @@ impl Memory for Nrom {
 }
 
 impl Mapper for Nrom {
-    fn scanline_irq(&self) -> bool {
+    fn irq_pending(&self) -> bool {
         false
     }
     fn mirroring(&self) -> Mirroring {
@@ -73,9 +74,7 @@ impl Mapper for Nrom {
             _ => panic!("invalid mirroring"),
         }
     }
-    fn step(&mut self) {
-        // NOOP
-    }
+    fn step(&mut self, _ppu: &Ppu) {}
     fn cart(&self) -> &Cartridge {
         &self.cart
     }

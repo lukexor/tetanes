@@ -1,4 +1,5 @@
 use crate::cartridge::Cartridge;
+use crate::console::ppu::Ppu;
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::Memory;
@@ -185,9 +186,7 @@ impl Memory for Sxrom {
             }
             // CPU 8 KB PRG RAM bank, (optional)
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
-            0x8000..=0xFFFF => {
-                self.write_register(addr, val);
-            }
+            0x8000..=0xFFFF => self.write_register(addr, val),
             _ => {
                 eprintln!(
                     "unhandled Sxrom writeb at address: 0x{:04X} - val: 0x{:02X}",
@@ -199,15 +198,13 @@ impl Memory for Sxrom {
 }
 
 impl Mapper for Sxrom {
-    fn scanline_irq(&self) -> bool {
+    fn irq_pending(&self) -> bool {
         false
     }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn step(&mut self) {
-        // NOOP
-    }
+    fn step(&mut self, _ppu: &Ppu) {}
     fn cart(&self) -> &Cartridge {
         &self.cart
     }

@@ -3,6 +3,7 @@
 //! http://wiki.nesdev.com/w/index.php/Mapper
 
 use crate::cartridge::Cartridge;
+use crate::console::ppu::Ppu;
 use crate::memory::Memory;
 use crate::util::Result;
 use failure::format_err;
@@ -13,19 +14,21 @@ use std::rc::Rc;
 use cnrom::Cnrom;
 use nrom::Nrom;
 use sxrom::Sxrom;
+use txrom::Txrom;
 use uxrom::Uxrom;
 
 mod cnrom;
 mod nrom;
 mod sxrom;
+mod txrom;
 mod uxrom;
 
 pub type MapperRef = Rc<RefCell<Mapper>>;
 
 pub trait Mapper: Memory + Send {
-    fn scanline_irq(&self) -> bool;
+    fn irq_pending(&self) -> bool;
     fn mirroring(&self) -> Mirroring;
-    fn step(&mut self);
+    fn step(&mut self, ppu: &Ppu);
     fn cart(&self) -> &Cartridge;
     fn cart_mut(&mut self) -> &mut Cartridge;
 }
@@ -48,6 +51,7 @@ pub fn load_rom(rom: PathBuf) -> Result<MapperRef> {
         1 => Ok(Sxrom::load(cart)),
         2 => Ok(Uxrom::load(cart)),
         3 => Ok(Cnrom::load(cart)),
+        4 => Ok(Txrom::load(cart)),
         _ => Err(format_err!(
             "unsupported mapper number: {}",
             cart.header.mapper_num

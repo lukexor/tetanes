@@ -49,7 +49,7 @@ The following is a checklist of features and their progress:
     - [x] SxROM (Mapper 1)
     - [x] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
-    - [ ] TxROM (Mapper 4)
+    - [x] TxROM (Mapper 4)
     - [ ] AxROM (Mapper 7)
 - [x] User Interface (UI)
   - [x] Window

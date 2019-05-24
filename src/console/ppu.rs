@@ -36,7 +36,7 @@ const PRERENDER_CYCLE_END: u64 = 339;
 const VISIBLE_SCANLINE_CYCLE_END: u64 = 340;
 
 // Scanlines
-const VISIBLE_SCANLINE_END: u16 = 239;
+pub const VISIBLE_SCANLINE_END: u16 = 239;
 const VBLANK_SCANLINE: u16 = 241;
 const PRERENDER_SCANLINE: u16 = 261;
 
@@ -448,7 +448,7 @@ impl Ppu {
         pattern
     }
 
-    fn rendering_enabled(&self) -> bool {
+    pub fn rendering_enabled(&self) -> bool {
         self.regs.mask.show_background() || self.regs.mask.show_sprites()
     }
 

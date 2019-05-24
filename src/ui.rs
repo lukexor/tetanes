@@ -58,11 +58,12 @@ impl UI {
             if !self.paused {
                 console.step_frame(self.frame_rate);
                 self.window.render(&console.render());
-            }
-            if self.sound_enabled && self.frame_rate == DEFAULT_FRAME_RATE {
-                self.window.enqueue_audio(&mut console.audio_samples());
-            } else {
-                console.audio_samples().clear();
+
+                if self.sound_enabled && self.frame_rate == DEFAULT_FRAME_RATE {
+                    self.window.enqueue_audio(&mut console.audio_samples());
+                } else {
+                    console.audio_samples().clear();
+                }
             }
 
             match console.poll_events() {
