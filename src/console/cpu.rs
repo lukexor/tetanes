@@ -138,16 +138,13 @@ impl Cpu {
         #[cfg(test)]
         {
             if self.nestest {
-                self.print_instruction(opcode, num_args + 1, disasm);
+                self.print_instruction(opcode, num_args + 1, disasm.clone());
             }
         }
         if self.debugger.enabled() {
             let debugger: *mut Debugger = &mut self.debugger;
             let cpu: *mut Cpu = self;
-            #[cfg(not(test))]
-            unsafe {
-                (*debugger).on_step(&mut (*cpu), opcode, num_args + 1, disasm)
-            };
+            unsafe { (*debugger).on_step(&mut (*cpu), opcode, num_args + 1, disasm) };
         }
         self.pc = self.pc.wrapping_add(1 + u16::from(num_args));
         self.cycles += instr.cycles();
@@ -429,6 +426,11 @@ impl Cpu {
             _ => true,
         };
 
+        // TODO
+        // nestest wants to "peek" values without actually reading them
+        // Need to find a way to do that without actually reading the values
+        // but only in test mode
+        // Hence all the commented out vald values
         match mode {
             Implied => {
                 let _ = self.readb(addr); // dummy read
@@ -438,7 +440,8 @@ impl Cpu {
             ZeroPage => {
                 let addr = u16::from(self.readb(addr));
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                let disasm = format!("{:?} ${:02X} = {:02X}", instr, addr, val);
+                // let vald = u16::from(self.readb(addr));
+                let disasm = { format!("{:?} ${:02X} = {:02X}", instr, addr, val) };
                 (val, Some(addr), 1, false, disasm)
             }
             Absolute => {
@@ -447,6 +450,7 @@ impl Cpu {
                 let disasm = if instr.op() == JMP || instr.op() == JSR {
                     format!("{:?} ${:04X}", instr, addr)
                 } else {
+                    // let vald = u16::from(self.readb(addr));
                     format!("{:?} ${:04X} = {:02X}", instr, addr, val)
                 };
                 (val, Some(addr), 2, false, disasm)
@@ -457,10 +461,10 @@ impl Cpu {
                 (val, Some(addr), 1, false, disasm)
             }
             Relative => {
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                let val = if read { self.readb(addr) } else { 0 };
                 let disasm = {
                     let offset = 2 + val;
-                    let addr = if offset & 0x80 > 0 {
+                    let addr = if offset & 0x80 == 0x80 {
                         // Result is negative signed number in twos complement
                         let offset = !offset + 1;
                         self.pc.wrapping_sub(offset.into())
@@ -488,6 +492,7 @@ impl Cpu {
                     self.readb(addr);
                 }
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                // let vald = u16::from(self.readb(addr));
                 let page_crossed = Cpu::pages_differ(addr0, addr);
                 let disasm = format!("{:?} ${:04X},X @ {:04X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 2, page_crossed, disasm)
@@ -502,6 +507,7 @@ impl Cpu {
                     self.readb(dummy_addr);
                 }
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                // let vald = u16::from(self.readb(addr));
                 let page_crossed = Cpu::pages_differ(addr_zp, addr);
                 let disasm = format!(
                     "{:?} (${:02X}),Y = {:04X} @ {:04X} = {:02X}",
@@ -518,6 +524,7 @@ impl Cpu {
                     self.readb(dummy_addr);
                 }
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                // let vald = u16::from(self.readb(addr));
                 let page_crossed = Cpu::pages_differ(addr0, addr);
                 let disasm = format!("{:?} ${:04X},Y @ {:04X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 2, page_crossed, disasm)
@@ -526,6 +533,7 @@ impl Cpu {
                 let addr0 = self.readb(addr);
                 let addr = u16::from(addr0.wrapping_add(self.x));
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                // let vald = u16::from(self.readb(addr));
                 let disasm = format!("{:?} ${:02X},X @ {:02X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 1, false, disasm)
             }
@@ -533,6 +541,7 @@ impl Cpu {
                 let addr0 = self.readb(addr);
                 let addr = u16::from(addr0.wrapping_add(self.y));
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                // let vald = u16::from(self.readb(addr));
                 let disasm = format!("{:?} ${:02X},Y @ {:02X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 1, false, disasm)
             }
@@ -551,6 +560,7 @@ impl Cpu {
                 let addr_zp = addr_zp0.wrapping_add(self.x);
                 let addr = self.mem.readw_zp(addr_zp);
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                // let vald = u16::from(self.readb(addr));
                 let disasm = format!(
                     "{:?} (${:02X},X) @ {:02X} = {:04X} = {:02X}",
                     instr, addr_zp0, addr_zp, addr, val
@@ -748,6 +758,7 @@ pub const INSTRUCTIONS: [Instruction; 256] = [
     Instruction(0x8A, TXA, IMP, 2, 0), Instruction(0x8B, XAA, IMM, 2, 1), Instruction(0x8C, STY, ABS, 4, 0),
     Instruction(0x8D, STA, ABS, 4, 0), Instruction(0x8E, STX, ABS, 4, 0), Instruction(0x8F, SAX, ABS, 4, 0),
     Instruction(0x90, BCC, REL, 2, 1), Instruction(0x91, STA, IDY, 6, 0), Instruction(0x92, KIL, IMP, 0, 0),
+
     Instruction(0x93, AHX, IDY, 6, 0), Instruction(0x94, STY, ZRX, 4, 0), Instruction(0x95, STA, ZRX, 4, 0),
     Instruction(0x96, STX, ZRY, 4, 0), Instruction(0x97, SAX, ZRY, 4, 0), Instruction(0x98, TYA, IMP, 2, 0),
     Instruction(0x99, STA, ABY, 5, 0), Instruction(0x9A, TXS, IMP, 2, 0), Instruction(0x9B, TAS, ABY, 5, 0),

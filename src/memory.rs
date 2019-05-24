@@ -69,13 +69,14 @@ impl Memory for CpuMemMap {
                 let mut mapper = self.mapper.borrow_mut();
                 mapper.readb(addr)
             }
-            0x4000..=0x4015 => self.apu.readb(addr),
+            0x4000..=0x4013 | 0x4015 => self.apu.readb(addr),
             0x4016..=0x4017 => {
                 let mut input = self.input.borrow_mut();
                 input.readb(addr)
             }
             0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => 0,                             // APU/IO Test Mode
+            0x4014 => 0,                                      // Handled inside the CPU
         }
     }
 
@@ -88,13 +89,14 @@ impl Memory for CpuMemMap {
                 let mut mapper = self.mapper.borrow_mut();
                 mapper.writeb(addr, val);
             }
-            0x4000..=0x4015 | 0x4017 => self.apu.writeb(addr, val),
+            0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.writeb(addr, val),
             0x4016 => {
                 let mut input = self.input.borrow_mut();
                 input.writeb(addr, val);
             }
             0x2000..=0x3FFF => self.ppu.writeb(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => (),                                  // APU/IO Test Mode
+            0x4014 => (),                                           // Handled inside the CPU
         }
     }
 }

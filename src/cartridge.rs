@@ -218,22 +218,12 @@ impl fmt::Debug for Cartridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mapper;
     use std::path::PathBuf;
 
     #[test]
     fn test_valid_cartridges() {
         let rom_data = &[
             // (File, PRG, CHR, Mapper, Mirroring, Battery)
-            (
-                "roms/Zelda II - The Adventure of Link (USA).nes",
-                "Zelda II - The Adventure of Link (USA)",
-                8,
-                16,
-                1,
-                0,
-                true,
-            ),
             (
                 "roms/super_mario_bros.nes",
                 "Super Mario Bros. (World)",
@@ -275,31 +265,6 @@ mod tests {
                 rom.6,
                 "battery matches for {}",
                 rom.0
-            );
-        }
-    }
-
-    #[test]
-    fn test_invalid_cartridges() {
-        // TODO Make these tests not rely on actual cartridges
-        let invalid_rom_tests = &[
-            (
-                "invalid_file.nes",
-                "unable to open file \"invalid_file.nes\": No such file or directory (os error 2)",
-            ),
-            (
-                "roms/Family Trainer 9 - Fuuun Takeshi-jou 2 (Japan).nes",
-                "unsupported mapper number: 66",
-            ),
-        ];
-        for test in invalid_rom_tests {
-            let c = mapper::load_rom(PathBuf::from(test.0));
-            assert!(c.is_err(), "invalid cartridge {}", test.0);
-            assert_eq!(
-                c.err().expect("valid cartridge error").to_string(),
-                test.1,
-                "error matches {}",
-                test.0
             );
         }
     }

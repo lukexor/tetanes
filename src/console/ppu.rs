@@ -1257,7 +1257,7 @@ mod tests {
     #[test]
     fn test_ppu_scrolling_registers() {
         // Dummy rom just to get cartridge vram loaded
-        let rom = PathBuf::from("roms/Zelda II - The Adventure of Link (USA).nes");
+        let rom = PathBuf::from("roms/super_mario_bros.nes");
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let mut ppu = Ppu::init(mapper);
 

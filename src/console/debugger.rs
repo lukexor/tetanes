@@ -104,10 +104,12 @@ impl Debugger {
                             // Ctrl-D was pressed
                             if bytes == 0 {
                                 self.enabled = false;
+                                eprintln!();
                             }
                             // Enter was pressed - use last command TODO
                         }
                         "h" => self.usage(),
+                        "e" => std::process::exit(1),
                         "q" => {
                             self.enabled = false;
                             break;
@@ -161,6 +163,7 @@ impl Debugger {
             "List of commands:
     h         This help
     q         Disable debugger
+    e         Exit emulator
     {}
     {}
     c [step]  Continue CPU execution until [step] or the next breakpoint (if any)

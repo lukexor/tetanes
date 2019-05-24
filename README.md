@@ -32,12 +32,12 @@ The following is a checklist of features and their progress:
   - [x] VRAM
   - [x] Background
   - [x] Sprites
-  - [ ] Mid-frame Updates
+  - [ ] Rastering effects
 - [x] Audio Processing Unit (APU)
-  - [ ] DMC
+  - [ ] Delta Mulation Channel (DMC)
 - [x] Inputs
   - [x] Keyboard (Missing Turbo)
-  - [ ] NES Standard Controller
+  - [ ] Standard Controller
   - [x] Turbo support
 - [x] Memory
 - [x] Cartridge Support
@@ -64,6 +64,7 @@ The following is a checklist of features and their progress:
   - [ ] Toggle Recording
   - [x] Toggle Sound
   - [x] Toggle Debugger
+  - [ ] Custom Keybinds
 
 ## Supported Mappers
 
