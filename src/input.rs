@@ -57,6 +57,8 @@ pub struct Input {
     gamepad1: Gamepad,
     gamepad2: Gamepad,
     event_pump: Option<EventPump>,
+    turboa: bool,
+    turbob: bool,
     lctrl: bool,
     lshift: bool,
 }
@@ -69,7 +71,7 @@ pub enum InputResult {
     PowerCycle,
     IncSpeed,
     DecSpeed,
-    FastForward,
+    FastForward(bool),
     Save(u8),
     Load(u8),
     ToggleSound,
@@ -77,6 +79,7 @@ pub enum InputResult {
     Screenshot,
     ToggleRecord,
     ToggleFullscreen,
+    CycleLogLevel,
 }
 
 use InputResult::*;
@@ -87,6 +90,8 @@ impl Input {
             gamepad1: Gamepad::default(),
             gamepad2: Gamepad::default(),
             event_pump: None,
+            turboa: false,
+            turbob: false,
             lctrl: false,
             lshift: false,
         }
@@ -97,12 +102,20 @@ impl Input {
             gamepad1: Gamepad::default(),
             gamepad2: Gamepad::default(),
             event_pump: Some(event_pump),
+            turboa: false,
+            turbob: false,
             lctrl: false,
             lshift: false,
         }
     }
 
-    pub fn poll_events(&mut self) -> InputResult {
+    pub fn poll_events(&mut self, turbo: bool) -> InputResult {
+        if self.turboa {
+            self.gamepad1.a = self.turboa && turbo;
+        }
+        if self.turbob {
+            self.gamepad1.b = self.turbob && turbo;
+        }
         if let Some(event_pump) = &mut self.event_pump {
             if let Some(event) = event_pump.poll_event() {
                 let result = match event {
@@ -124,7 +137,7 @@ impl Input {
                         Keycode::P if self.lctrl => PowerCycle,
                         Keycode::Equals if self.lctrl => IncSpeed,
                         Keycode::Minus if self.lctrl => DecSpeed,
-                        Keycode::Space => FastForward,
+                        Keycode::Space => FastForward(true),
                         Keycode::Num1 if self.lctrl && !self.lshift => Save(1),
                         Keycode::Num2 if self.lctrl && !self.lshift => Save(2),
                         Keycode::Num3 if self.lctrl && !self.lshift => Save(3),
@@ -151,7 +164,7 @@ impl Input {
                             self.lshift = false;
                             Continue
                         }
-                        Keycode::Space => FastForward,
+                        Keycode::Space => FastForward(false),
                         _ => self.handle_gamepad_event(key, false),
                     },
                     _ => Continue,
@@ -166,8 +179,8 @@ impl Input {
         match key {
             Keycode::Z => self.gamepad1.a = down,
             Keycode::X => self.gamepad1.b = down,
-            Keycode::A => self.gamepad1.a = down,
-            Keycode::S => self.gamepad1.b = down,
+            Keycode::A => self.turboa = down,
+            Keycode::S => self.turbob = down,
             Keycode::RShift => self.gamepad1.select = down,
             Keycode::Return => self.gamepad1.start = down,
             Keycode::Up => self.gamepad1.up = down,

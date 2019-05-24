@@ -83,7 +83,13 @@ impl UI {
                         self.frame_rate -= 0.25 * DEFAULT_FRAME_RATE;
                     }
                 }
-                FastForward => self.fastforward = !self.fastforward, // TODO
+                FastForward(toggle) => {
+                    if toggle {
+                        self.frame_rate = MIN_FRAME_RATE;
+                    } else {
+                        self.frame_rate = DEFAULT_FRAME_RATE;
+                    }
+                }
                 Save(slot) => eprintln!("Save {} not implemented", slot), // TODO
                 Load(slot) => eprintln!("Load {} not implemented", slot), // TODO
                 ToggleSound => self.sound_enabled = !self.sound_enabled,
@@ -93,7 +99,8 @@ impl UI {
                     console.debug(self.debug)
                 }
                 Screenshot => crate::util::screenshot(&console.render()),
-                ToggleRecord => eprintln!("Recording not implemented"), // TODO,
+                ToggleRecord => eprintln!("Recording not implemented"), // TODO
+                CycleLogLevel => eprintln!("Logging not implemented"),  // TODO
             }
         }
         console.power_off()?;

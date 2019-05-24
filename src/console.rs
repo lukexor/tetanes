@@ -76,7 +76,8 @@ impl Console {
 
     pub fn poll_events(&mut self) -> InputResult {
         let mut input = self.cpu.mem.input.borrow_mut();
-        input.poll_events()
+        let turbo = self.cpu.mem.ppu.frame() % 6 < 3;
+        input.poll_events(turbo)
     }
 
     fn step(&mut self) -> u64 {

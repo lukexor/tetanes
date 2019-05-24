@@ -90,6 +90,7 @@ impl Cartridge {
             prg_ram,
             sram,
         };
+        eprintln!("{:?}", cartridge);
         Ok(cartridge)
     }
 

@@ -26,7 +26,7 @@ The following is a checklist of features and their progress:
   - [ ] Dendy
 - [x] Central Processing Unit (CPU)
   - [x] Official Instructions
-  - [ ] Unofficial Instructions (mostly done)
+  - [x] Unofficial Instructions
   - [x] Interrupts
 - [x] Picture Processing Unit (PPU)
   - [x] VRAM
@@ -38,30 +38,32 @@ The following is a checklist of features and their progress:
 - [x] Inputs
   - [x] Keyboard (Missing Turbo)
   - [ ] NES Standard Controller
-  - [ ] Turbo support
+  - [x] Turbo support
 - [x] Memory
 - [x] Cartridge Support
+  - [x] Battery-backed Save RAM
   - [x] iNES Format
   - [x] NES 2.0 Format (Can read headers, but many features still unsupported)
   - [x] Mappers
     - [x] NROM (Mapper 0)
     - [x] SxROM (Mapper 1)
-    - [ ] UxROM (Mapper 2)
+    - [x] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
     - [ ] TxROM (Mapper 4)
     - [ ] AxROM (Mapper 7)
 - [x] User Interface (UI)
   - [x] Window
-  - [ ] Main Menu/Pause with settings
-  - [ ] Toggle Fullscreen
+  - [ ] Main Menu
+  - [x] Pause
+  - [x] Toggle Fullscreen
   - [x] Reset
-  - [ ] Power Cycle
-  - [ ] Increase/Decrease Speed/Fast-forward
+  - [x] Power Cycle
+  - [x] Increase/Decrease Speed/Fast-forward
   - [ ] Save/Load State
-  - [ ] Take Screenshots
+  - [x] Take Screenshots
   - [ ] Toggle Recording
-  - [ ] Toggle Sound
-  - [ ] Toggle Debug Logging
+  - [x] Toggle Sound
+  - [x] Toggle Debugger
 
 ## Supported Mappers
 
@@ -71,6 +73,7 @@ Some of the more popular mappers are implemented with more to come!
 | -   | ---------- | ----------------------------------------- |
 | 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros. |
 | 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris          |
+| 002 | UxROM      | Castlevania, Contra, Mega Man             |
 | 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream            |
 
 ## Dependencies

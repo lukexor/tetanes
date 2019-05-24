@@ -75,77 +75,6 @@ pub struct Ppu {
     screen: Screen,        // The main screen holding pixel data
 }
 
-#[derive(Default, Debug)]
-pub struct PpuRegs {
-    open_bus: u8,       // This open bus gets set during any write to PPU registers
-    ctrl: PpuCtrl,      // $2000 PPUCTRL write-only
-    mask: PpuMask,      // $2001 PPUMASK write-only
-    status: PpuStatus,  // $2002 PPUSTATUS read-only
-    oamaddr: u8,        // $2003 OAMADDR write-only
-    nmi_delay: u8,      // Some games need a delay after vblank before nmi is triggered
-    nmi_previous: bool, // Keeps track of repeated nmi to handle delay timing
-    v: u16,             // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
-    t: u16,             // Temporary v - Also the addr of top-left onscreen tile
-    x: u8,              // Fine X
-    w: bool,            // 1st or 2nd write toggle
-}
-
-pub struct Vram {
-    mapper: MapperRef,
-    buffer: u8,               // PPUDATA buffer
-    pub nametable: Nametable, // Used to layout backgrounds on the screen
-    pub palette: Palette,     // Background/Sprite color palettes
-}
-
-// Addr Low Nibble
-// $00, $04, $08, $0C   Sprite Y coord
-// $01, $05, $09, $0D   Sprite tile #
-// $02, $06, $0A, $0E   Sprite attribute
-// $03, $07, $0B, $0F   Sprite X coord
-struct Oam {
-    entries: [u8; OAM_SIZE],
-}
-
-#[derive(Debug)]
-struct Frame {
-    num: u32,
-    parity: bool,
-    // Shift registers
-    tile_lo: u8,
-    tile_hi: u8,
-    // tile data - stored in cycles 0 mod 8
-    nametable: u8,
-    attribute: u8,
-    tile_data: u64,
-    // sprite data
-    sprite_count: u8,
-    sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
-}
-
-struct Screen {
-    pixels: [Rgb; PIXEL_COUNT],
-}
-
-#[derive(Default, Debug, Copy, Clone)]
-struct Sprite {
-    index: u8,
-    x: u8,
-    y: u8,
-    tile_index: u8,
-    palette: u8,
-    pattern: u32,
-    has_priority: bool,
-    flip_horizontal: bool,
-    flip_vertical: bool,
-}
-
-#[derive(Default, Debug)]
-struct PpuCtrl(u8);
-#[derive(Default, Debug)]
-struct PpuMask(u8);
-#[derive(Default, Debug)]
-struct PpuStatus(u8);
-
 // http://wiki.nesdev.com/w/index.php/PPU_nametables
 // http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
 pub struct Nametable(pub [u8; NAMETABLE_SIZE]);
@@ -176,6 +105,10 @@ impl Ppu {
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_oamaddr(0);
+    }
+
+    pub fn frame(&self) -> u32 {
+        self.frame.num
     }
 
     // Step ticks as many cycles as needed to reach
@@ -417,448 +350,7 @@ impl Ppu {
         let addr = bg_select + u16::from(tile) * 16 + u16::from(fine_y);
         self.frame.tile_hi = self.vram.readb(addr + 8);
     }
-}
 
-impl PpuRegs {
-    fn new() -> Self {
-        Self {
-            open_bus: 0,
-            ctrl: PpuCtrl(0),
-            mask: PpuMask(0),
-            status: PpuStatus(0x80),
-            oamaddr: 0,
-            nmi_delay: 0,
-            nmi_previous: false,
-            v: 0,
-            t: 0,
-            x: 0,
-            w: false,
-        }
-    }
-
-    /*
-     * PPUCTRL
-     */
-
-    // Resets 1st/2nd Write latch for PPUSCROLL and PPUADDR
-    fn reset_rw(&mut self) {
-        self.w = false;
-    }
-
-    fn write_ctrl(&mut self, val: u8) {
-        let nn_mask = NAMETABLE_Y_MASK | NAMETABLE_X_MASK;
-        // val: ......BA
-        // t: ....BA.. ........
-        self.t = (self.t & !nn_mask) | (u16::from(val) & 0x03) << 10; // take lo 2 bits and set NN
-        self.ctrl.write(val);
-        self.nmi_change();
-    }
-
-    fn nmi_change(&mut self) {
-        let nmi = self.ctrl.nmi_enable() && self.status.vblank_started();
-        if nmi && !self.nmi_previous {
-            self.nmi_delay = 15;
-        }
-        self.nmi_previous = nmi;
-    }
-
-    /*
-     * PPUSTATUS
-     */
-
-    fn read_status(&mut self) -> u8 {
-        self.reset_rw();
-        // Include garbage from open bus
-        let status = self.status.read() | (self.open_bus & 0x1F);
-        self.nmi_change();
-        status
-    }
-
-    /*
-     * PPUSCROLL
-     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSCROLL
-     * http://wiki.nesdev.com/w/index.php/PPU_scrolling
-     */
-
-    // Returns Fine X: xxx from x register
-    fn fine_x(&self) -> u8 {
-        self.x
-    }
-
-    // Returns Fine Y: yyy from PPUADDR v
-    // yyy NN YYYYY XXXXX
-    fn fine_y(&self) -> u8 {
-        // Shift yyy over nametable, coarse y and x and return 3 bits
-        ((self.v >> 12) & 0x7) as u8
-    }
-
-    // Writes val to PPUSCROLL
-    // 1st write writes X
-    // 2nd write writes Y
-    fn write_scroll(&mut self, val: u8) {
-        let val = u16::from(val);
-        let lo_5_bit_mask: u16 = 0x1F;
-        let fine_mask: u16 = 0x07;
-        let fine_rshift = 3;
-        if !self.w {
-            // Write X on first write
-            // lo 3 bits goes into fine x, remaining 5 bits go into t for coarse x
-            // val: HGFEDCBA
-            // t: ........ ...HGFED
-            // x:               CBA
-            self.t &= !COARSE_X_MASK; // Empty coarse X
-            self.t |= (val >> fine_rshift) & lo_5_bit_mask; // Set coarse X
-            self.x = (val & fine_mask) as u8; // Set fine X
-        } else {
-            // Write Y on second write
-            // lo 3 bits goes into fine y, remaining 5 bits go into t for coarse y
-            // val: HGFEDCBA
-            // t: .CBA..HG FED.....
-            let coarse_y_lshift = 5;
-            let fine_y_lshift = 12;
-            self.t &= !(FINE_Y_MASK | COARSE_Y_MASK); // Empty Y
-            self.t |= ((val >> fine_rshift) & lo_5_bit_mask) << coarse_y_lshift; // Set coarse Y
-            self.t |= (val & fine_mask) << fine_y_lshift; // Set fine Y
-        }
-        self.w = !self.w;
-    }
-
-    // Copy Coarse X from register t and add it to PPUADDR v
-    fn copy_x(&mut self) {
-        //    .....N.. ...XXXXX
-        // t: .....F.. ...EDCBA
-        // v: .....F.. ...EDCBA
-        let x_mask = NAMETABLE_X_MASK | COARSE_X_MASK;
-        self.v = (self.v & !x_mask) | (self.t & x_mask);
-    }
-
-    // Copy Fine y and Coarse Y from register t and add it to PPUADDR v
-    fn copy_y(&mut self) {
-        //    .yyyN.YY YYY.....
-        // t: .IHGF.ED CBA.....
-        // v: .IHGF.ED CBA.....
-        let y_mask = FINE_Y_MASK | NAMETABLE_Y_MASK | COARSE_Y_MASK;
-        self.v = (self.v & !y_mask) | (self.t & y_mask);
-    }
-
-    // Increment Coarse X
-    // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
-    // nametable
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    fn increment_x(&mut self) {
-        // let v = self.v;
-        // If we've reached the last column, toggle horizontal nametable
-        if (self.v & COARSE_X_MASK) == X_MAX_COL {
-            self.v = (self.v & !COARSE_X_MASK) ^ NAMETABLE_X_MASK; // toggles X nametable
-        } else {
-            self.v += 1;
-            assert!(self.v <= VRAM_ADDR_SIZE_MASK); // TODO should be able to remove this
-        }
-    }
-
-    // Increment Fine Y
-    // Bits 12-14 are incremented for Fine Y, with overflow incrementing coarse Y in bits 5-9 with
-    // overflow toggling bit 11 which switches the vertical nametable
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    fn increment_y(&mut self) {
-        if (self.v & FINE_Y_MASK) != FINE_Y_MASK {
-            // If fine y < 7 (0b111), increment
-            self.v += 0x1000;
-        } else {
-            self.v &= !FINE_Y_MASK; // set fine y = 0 and overflow into coarse y
-            let mut y = (self.v & COARSE_Y_MASK) >> 5; // Get 5 bits of coarse y
-            if y == Y_MAX_COL {
-                y = 0;
-                // switches vertical nametable
-                self.v ^= NAMETABLE_Y_MASK;
-            } else if y == Y_OVER_COL {
-                // Out of bounds. Does not switch nametable
-                // Some games use this
-                y = 0;
-            } else {
-                y += 1; // increment coarse y
-            }
-            self.v = (self.v & !COARSE_Y_MASK) | (y << 5); // put coarse y back into v
-        }
-    }
-
-    /*
-     * PPUADDR
-     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUADDR
-     */
-
-    fn read_addr(&self) -> u16 {
-        self.v & 0x3FFF // Bits 0-14
-    }
-
-    // Write val to PPUADDR v
-    // 1st write writes hi 6 bits
-    // 2nd write writes lo 8 bits
-    // Total size is a 14 bit addr
-    fn write_addr(&mut self, val: u8) {
-        let val = u16::from(val);
-        if !self.w {
-            // Write hi address on first write
-            let hi_bits_mask = 0xC0FF;
-            let hi_lshift = 8;
-            let six_bits_mask = 0x003F;
-            // val: ..FEDCBA
-            //    FEDCBA98 76543210
-            // t: 00FEDCBA ........
-            self.t &= hi_bits_mask; // Empty bits 8-F
-            self.t |= (val & six_bits_mask) << hi_lshift; // Set hi 6 bits 8-E
-        } else {
-            // Write lo address on second write
-            let lo_bits_mask = 0xFF00;
-            // val: HGFEDCBA
-            // t: ........ HGFEDCBA
-            // v: t
-            self.t = (self.t & lo_bits_mask) | val;
-            self.v = self.t;
-        }
-        self.w = !self.w;
-    }
-
-    // Increment PPUADDR v
-    // Address wraps and uses vram_increment which is either 1 (going across) or 32 (going down)
-    // based on bit 7 in PPUCTRL
-    fn increment_v(&mut self) {
-        // TODO vram increment is more complex during rendering
-        self.v = self.v.wrapping_add(self.ctrl.vram_increment());
-    }
-}
-
-impl Oam {
-    fn new() -> Self {
-        Self {
-            entries: [0; OAM_SIZE],
-        }
-    }
-}
-
-impl Vram {
-    fn init(mapper: MapperRef) -> Self {
-        Self {
-            mapper,
-            buffer: 0,
-            nametable: Nametable([0; NAMETABLE_SIZE]),
-            palette: Palette([0; PALETTE_SIZE]),
-        }
-    }
-
-    fn nametable_mirror_addr(&self, addr: u16) -> u16 {
-        let mapper = self.mapper.borrow();
-        let mirroring = mapper.mirroring();
-
-        let table_size = 0x0400; // Each nametable quandrant is 1K
-        let mirror_lookup = match mirroring {
-            Mirroring::Horizontal => [0, 0, 1, 1],
-            Mirroring::Vertical => [0, 1, 0, 1],
-            Mirroring::SingleScreen0 => [0, 0, 0, 0],
-            Mirroring::SingleScreen1 => [1, 1, 1, 1],
-            Mirroring::FourScreen => [1, 2, 3, 4],
-        };
-
-        let addr = (addr - NAMETABLE_START) % ((NAMETABLE_SIZE as u16) * 2);
-        let table = addr / table_size;
-        let offset = addr % table_size;
-
-        NAMETABLE_START + mirror_lookup[table as usize] * table_size + offset
-    }
-}
-
-impl Frame {
-    fn new() -> Self {
-        Self {
-            num: 0,
-            parity: false,
-            nametable: 0,
-            attribute: 0,
-            tile_lo: 0,
-            tile_hi: 0,
-            tile_data: 0,
-            sprite_count: 0,
-            sprites: [Sprite::new(); 8],
-        }
-    }
-
-    fn increment(&mut self) {
-        self.num += 1;
-        self.parity = !self.parity;
-    }
-}
-
-impl Screen {
-    fn new() -> Self {
-        Self {
-            pixels: [Rgb(0, 0, 0); PIXEL_COUNT],
-        }
-    }
-
-    // Turns a list of pixels into a list of R, G, B
-    // We want to remove overscane lines so we need to remove the top 8 and bottom 8 scanlines
-    // which is 8 * SCREEN_WIDTH * 3 from both the top and bottom of our pixels
-    pub fn render(&self) -> Image {
-        let mut output = [0; RENDER_SIZE];
-        for i in OVERSCAN_OFFSET..(PIXEL_COUNT - OVERSCAN_OFFSET) {
-            let p = self.pixels[i];
-            // index * RGB size + color offset
-            output[(i - OVERSCAN_OFFSET) * 3] = p.r();
-            output[(i - OVERSCAN_OFFSET) * 3 + 1] = p.g();
-            output[(i - OVERSCAN_OFFSET) * 3 + 2] = p.b();
-        }
-        output
-    }
-
-    fn put_pixel(&mut self, x: usize, y: usize, system_palette_idx: u8) {
-        if x < SCREEN_WIDTH && y < OVERSCAN_HEIGHT {
-            let i = x + (y * SCREEN_WIDTH);
-            self.pixels[i] = SYSTEM_PALETTE[system_palette_idx as usize];
-        }
-    }
-}
-
-impl Sprite {
-    fn new() -> Self {
-        Self {
-            index: 0,
-            x: 0,
-            y: 0,
-            tile_index: 0,
-            palette: 0,
-            pattern: 0,
-            has_priority: false,
-            flip_horizontal: false,
-            flip_vertical: false,
-        }
-    }
-}
-
-impl Rgb {
-    // self is pass by value here because clippy says it's more efficient
-    // https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
-    fn r(self) -> u8 {
-        self.0
-    }
-    fn g(self) -> u8 {
-        self.1
-    }
-    fn b(self) -> u8 {
-        self.2
-    }
-}
-
-impl Memory for Ppu {
-    fn readb(&mut self, addr: u16) -> u8 {
-        // TODO emulate decay of open bus bits
-        let val = match addr {
-            0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
-            0x2001 => self.regs.open_bus,    // PPUMASK is write-only
-            0x2002 => self.read_ppustatus(), // PPUSTATUS
-            0x2003 => self.regs.open_bus,    // OAMADDR is write-only
-            0x2004 => self.read_oamdata(),   // OAMDATA
-            0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
-            0x2006 => self.regs.open_bus,    // PPUADDR is write-only
-            0x2007 => self.read_ppudata(),   // PPUDATA
-            _ => {
-                eprintln!("unhandled Ppu readb at 0x{:04X}", addr);
-                0
-            }
-        };
-        self.regs.open_bus = val;
-        val
-    }
-
-    fn writeb(&mut self, addr: u16, val: u8) {
-        // TODO emulate decay of open bus bits
-        self.regs.open_bus = val;
-        // Write least sig bits to ppustatus since they're not written to
-        *self.regs.status |= val & 0x1F;
-        match addr {
-            0x2000 => self.write_ppuctrl(val),   // PPUCTRL
-            0x2001 => self.write_ppumask(val),   // PPUMASK
-            0x2002 => (),                        // PPUSTATUS is read-only
-            0x2003 => self.write_oamaddr(val),   // OAMADDR
-            0x2004 => self.write_oamdata(val),   // OAMDATA
-            0x2005 => self.write_ppuscroll(val), // PPUSCROLL
-            0x2006 => self.write_ppuaddr(val),   // PPUADDR
-            0x2007 => self.write_ppudata(val),   // PPUDATA
-            _ => eprintln!("unhandled Ppu readb at 0x{:04X}", addr),
-        }
-    }
-}
-
-impl Memory for Vram {
-    fn readb(&mut self, addr: u16) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => {
-                // CHR-ROM
-                let mut mapper = self.mapper.borrow_mut();
-                mapper.readb(addr)
-            }
-            0x2000..=0x3EFF => {
-                let addr = self.nametable_mirror_addr(addr);
-                self.nametable.readb(addr & 2047)
-            }
-            0x3F00..=0x3FFF => self.palette.readb(addr & 31),
-            _ => {
-                eprintln!("invalid Vram readb at 0x{:04X}", addr);
-                0
-            }
-        }
-    }
-
-    fn writeb(&mut self, addr: u16, val: u8) {
-        match addr {
-            0x0000..=0x1FFF => {
-                // CHR-ROM
-                let mut mapper = self.mapper.borrow_mut();
-                mapper.writeb(addr, val);
-            }
-            0x2000..=0x3EFF => {
-                let addr = self.nametable_mirror_addr(addr);
-                self.nametable.writeb(addr & 2047, val)
-            }
-            0x3F00..=0x3FFF => self.palette.writeb(addr & 31, val),
-            _ => eprintln!("invalid Vram readb at 0x{:04X}", addr),
-        }
-    }
-}
-
-impl Memory for Oam {
-    fn readb(&mut self, addr: u16) -> u8 {
-        self.entries[addr as usize]
-    }
-    fn writeb(&mut self, addr: u16, val: u8) {
-        self.entries[addr as usize] = val;
-    }
-}
-
-impl Memory for Nametable {
-    fn readb(&mut self, addr: u16) -> u8 {
-        self.0[addr as usize]
-    }
-    fn writeb(&mut self, addr: u16, val: u8) {
-        self.0[addr as usize] = val;
-    }
-}
-
-impl Memory for Palette {
-    fn readb(&mut self, mut addr: u16) -> u8 {
-        if addr >= 16 && addr.trailing_zeros() >= 2 {
-            addr -= 16;
-        }
-        self.0[addr as usize]
-    }
-    fn writeb(&mut self, mut addr: u16, val: u8) {
-        if addr >= 16 && addr.trailing_zeros() >= 2 {
-            addr -= 16;
-        }
-        self.0[addr as usize] = val;
-    }
-}
-
-impl Ppu {
     fn tick(&mut self) {
         if self.rendering_enabled() {
             // Reached the end of a frame cycle
@@ -1072,6 +564,509 @@ impl Ppu {
     }
 }
 
+#[derive(Default, Debug)]
+pub struct PpuRegs {
+    open_bus: u8,       // This open bus gets set during any write to PPU registers
+    ctrl: PpuCtrl,      // $2000 PPUCTRL write-only
+    mask: PpuMask,      // $2001 PPUMASK write-only
+    status: PpuStatus,  // $2002 PPUSTATUS read-only
+    oamaddr: u8,        // $2003 OAMADDR write-only
+    nmi_delay: u8,      // Some games need a delay after vblank before nmi is triggered
+    nmi_previous: bool, // Keeps track of repeated nmi to handle delay timing
+    v: u16,             // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
+    t: u16,             // Temporary v - Also the addr of top-left onscreen tile
+    x: u8,              // Fine X
+    w: bool,            // 1st or 2nd write toggle
+}
+
+impl PpuRegs {
+    fn new() -> Self {
+        Self {
+            open_bus: 0,
+            ctrl: PpuCtrl(0),
+            mask: PpuMask(0),
+            status: PpuStatus(0x80),
+            oamaddr: 0,
+            nmi_delay: 0,
+            nmi_previous: false,
+            v: 0,
+            t: 0,
+            x: 0,
+            w: false,
+        }
+    }
+
+    /*
+     * PPUCTRL
+     */
+
+    // Resets 1st/2nd Write latch for PPUSCROLL and PPUADDR
+    fn reset_rw(&mut self) {
+        self.w = false;
+    }
+
+    fn write_ctrl(&mut self, val: u8) {
+        let nn_mask = NAMETABLE_Y_MASK | NAMETABLE_X_MASK;
+        // val: ......BA
+        // t: ....BA.. ........
+        self.t = (self.t & !nn_mask) | (u16::from(val) & 0x03) << 10; // take lo 2 bits and set NN
+        self.ctrl.write(val);
+        self.nmi_change();
+    }
+
+    fn nmi_change(&mut self) {
+        let nmi = self.ctrl.nmi_enable() && self.status.vblank_started();
+        if nmi && !self.nmi_previous {
+            self.nmi_delay = 15;
+        }
+        self.nmi_previous = nmi;
+    }
+
+    /*
+     * PPUSTATUS
+     */
+
+    fn read_status(&mut self) -> u8 {
+        self.reset_rw();
+        // Include garbage from open bus
+        let status = self.status.read() | (self.open_bus & 0x1F);
+        self.nmi_change();
+        status
+    }
+
+    /*
+     * PPUSCROLL
+     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSCROLL
+     * http://wiki.nesdev.com/w/index.php/PPU_scrolling
+     */
+
+    // Returns Fine X: xxx from x register
+    fn fine_x(&self) -> u8 {
+        self.x
+    }
+
+    // Returns Fine Y: yyy from PPUADDR v
+    // yyy NN YYYYY XXXXX
+    fn fine_y(&self) -> u8 {
+        // Shift yyy over nametable, coarse y and x and return 3 bits
+        ((self.v >> 12) & 0x7) as u8
+    }
+
+    // Writes val to PPUSCROLL
+    // 1st write writes X
+    // 2nd write writes Y
+    fn write_scroll(&mut self, val: u8) {
+        let val = u16::from(val);
+        let lo_5_bit_mask: u16 = 0x1F;
+        let fine_mask: u16 = 0x07;
+        let fine_rshift = 3;
+        if !self.w {
+            // Write X on first write
+            // lo 3 bits goes into fine x, remaining 5 bits go into t for coarse x
+            // val: HGFEDCBA
+            // t: ........ ...HGFED
+            // x:               CBA
+            self.t &= !COARSE_X_MASK; // Empty coarse X
+            self.t |= (val >> fine_rshift) & lo_5_bit_mask; // Set coarse X
+            self.x = (val & fine_mask) as u8; // Set fine X
+        } else {
+            // Write Y on second write
+            // lo 3 bits goes into fine y, remaining 5 bits go into t for coarse y
+            // val: HGFEDCBA
+            // t: .CBA..HG FED.....
+            let coarse_y_lshift = 5;
+            let fine_y_lshift = 12;
+            self.t &= !(FINE_Y_MASK | COARSE_Y_MASK); // Empty Y
+            self.t |= ((val >> fine_rshift) & lo_5_bit_mask) << coarse_y_lshift; // Set coarse Y
+            self.t |= (val & fine_mask) << fine_y_lshift; // Set fine Y
+        }
+        self.w = !self.w;
+    }
+
+    // Copy Coarse X from register t and add it to PPUADDR v
+    fn copy_x(&mut self) {
+        //    .....N.. ...XXXXX
+        // t: .....F.. ...EDCBA
+        // v: .....F.. ...EDCBA
+        let x_mask = NAMETABLE_X_MASK | COARSE_X_MASK;
+        self.v = (self.v & !x_mask) | (self.t & x_mask);
+    }
+
+    // Copy Fine y and Coarse Y from register t and add it to PPUADDR v
+    fn copy_y(&mut self) {
+        //    .yyyN.YY YYY.....
+        // t: .IHGF.ED CBA.....
+        // v: .IHGF.ED CBA.....
+        let y_mask = FINE_Y_MASK | NAMETABLE_Y_MASK | COARSE_Y_MASK;
+        self.v = (self.v & !y_mask) | (self.t & y_mask);
+    }
+
+    // Increment Coarse X
+    // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
+    // nametable
+    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
+    fn increment_x(&mut self) {
+        // let v = self.v;
+        // If we've reached the last column, toggle horizontal nametable
+        if (self.v & COARSE_X_MASK) == X_MAX_COL {
+            self.v = (self.v & !COARSE_X_MASK) ^ NAMETABLE_X_MASK; // toggles X nametable
+        } else {
+            self.v += 1;
+            assert!(self.v <= VRAM_ADDR_SIZE_MASK); // TODO should be able to remove this
+        }
+    }
+
+    // Increment Fine Y
+    // Bits 12-14 are incremented for Fine Y, with overflow incrementing coarse Y in bits 5-9 with
+    // overflow toggling bit 11 which switches the vertical nametable
+    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
+    fn increment_y(&mut self) {
+        if (self.v & FINE_Y_MASK) != FINE_Y_MASK {
+            // If fine y < 7 (0b111), increment
+            self.v += 0x1000;
+        } else {
+            self.v &= !FINE_Y_MASK; // set fine y = 0 and overflow into coarse y
+            let mut y = (self.v & COARSE_Y_MASK) >> 5; // Get 5 bits of coarse y
+            if y == Y_MAX_COL {
+                y = 0;
+                // switches vertical nametable
+                self.v ^= NAMETABLE_Y_MASK;
+            } else if y == Y_OVER_COL {
+                // Out of bounds. Does not switch nametable
+                // Some games use this
+                y = 0;
+            } else {
+                y += 1; // increment coarse y
+            }
+            self.v = (self.v & !COARSE_Y_MASK) | (y << 5); // put coarse y back into v
+        }
+    }
+
+    /*
+     * PPUADDR
+     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUADDR
+     */
+
+    fn read_addr(&self) -> u16 {
+        self.v & 0x3FFF // Bits 0-14
+    }
+
+    // Write val to PPUADDR v
+    // 1st write writes hi 6 bits
+    // 2nd write writes lo 8 bits
+    // Total size is a 14 bit addr
+    fn write_addr(&mut self, val: u8) {
+        let val = u16::from(val);
+        if !self.w {
+            // Write hi address on first write
+            let hi_bits_mask = 0xC0FF;
+            let hi_lshift = 8;
+            let six_bits_mask = 0x003F;
+            // val: ..FEDCBA
+            //    FEDCBA98 76543210
+            // t: 00FEDCBA ........
+            self.t &= hi_bits_mask; // Empty bits 8-F
+            self.t |= (val & six_bits_mask) << hi_lshift; // Set hi 6 bits 8-E
+        } else {
+            // Write lo address on second write
+            let lo_bits_mask = 0xFF00;
+            // val: HGFEDCBA
+            // t: ........ HGFEDCBA
+            // v: t
+            self.t = (self.t & lo_bits_mask) | val;
+            self.v = self.t;
+        }
+        self.w = !self.w;
+    }
+
+    // Increment PPUADDR v
+    // Address wraps and uses vram_increment which is either 1 (going across) or 32 (going down)
+    // based on bit 7 in PPUCTRL
+    fn increment_v(&mut self) {
+        // TODO vram increment is more complex during rendering
+        self.v = self.v.wrapping_add(self.ctrl.vram_increment());
+    }
+}
+
+// Addr Low Nibble
+// $00, $04, $08, $0C   Sprite Y coord
+// $01, $05, $09, $0D   Sprite tile #
+// $02, $06, $0A, $0E   Sprite attribute
+// $03, $07, $0B, $0F   Sprite X coord
+struct Oam {
+    entries: [u8; OAM_SIZE],
+}
+
+impl Oam {
+    fn new() -> Self {
+        Self {
+            entries: [0; OAM_SIZE],
+        }
+    }
+}
+
+pub struct Vram {
+    mapper: MapperRef,
+    buffer: u8,               // PPUDATA buffer
+    pub nametable: Nametable, // Used to layout backgrounds on the screen
+    pub palette: Palette,     // Background/Sprite color palettes
+}
+
+impl Vram {
+    fn init(mapper: MapperRef) -> Self {
+        Self {
+            mapper,
+            buffer: 0,
+            nametable: Nametable([0; NAMETABLE_SIZE]),
+            palette: Palette([0; PALETTE_SIZE]),
+        }
+    }
+
+    fn nametable_mirror_addr(&self, addr: u16) -> u16 {
+        let mapper = self.mapper.borrow();
+        let mirroring = mapper.mirroring();
+
+        let table_size = 0x0400; // Each nametable quandrant is 1K
+        let mirror_lookup = match mirroring {
+            Mirroring::Horizontal => [0, 0, 1, 1],
+            Mirroring::Vertical => [0, 1, 0, 1],
+            Mirroring::SingleScreen0 => [0, 0, 0, 0],
+            Mirroring::SingleScreen1 => [1, 1, 1, 1],
+            Mirroring::FourScreen => [1, 2, 3, 4],
+        };
+
+        let addr = (addr - NAMETABLE_START) % ((NAMETABLE_SIZE as u16) * 2);
+        let table = addr / table_size;
+        let offset = addr % table_size;
+
+        NAMETABLE_START + mirror_lookup[table as usize] * table_size + offset
+    }
+}
+
+#[derive(Debug)]
+struct Frame {
+    num: u32,
+    parity: bool,
+    // Shift registers
+    tile_lo: u8,
+    tile_hi: u8,
+    // tile data - stored in cycles 0 mod 8
+    nametable: u8,
+    attribute: u8,
+    tile_data: u64,
+    // sprite data
+    sprite_count: u8,
+    sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
+}
+
+impl Frame {
+    fn new() -> Self {
+        Self {
+            num: 0,
+            parity: false,
+            nametable: 0,
+            attribute: 0,
+            tile_lo: 0,
+            tile_hi: 0,
+            tile_data: 0,
+            sprite_count: 0,
+            sprites: [Sprite::new(); 8],
+        }
+    }
+
+    fn increment(&mut self) {
+        self.num += 1;
+        self.parity = !self.parity;
+    }
+}
+
+struct Screen {
+    pixels: [Rgb; PIXEL_COUNT],
+}
+
+impl Screen {
+    fn new() -> Self {
+        Self {
+            pixels: [Rgb(0, 0, 0); PIXEL_COUNT],
+        }
+    }
+
+    // Turns a list of pixels into a list of R, G, B
+    // We want to remove overscane lines so we need to remove the top 8 and bottom 8 scanlines
+    // which is 8 * SCREEN_WIDTH * 3 from both the top and bottom of our pixels
+    pub fn render(&self) -> Image {
+        let mut output = [0; RENDER_SIZE];
+        for i in OVERSCAN_OFFSET..(PIXEL_COUNT - OVERSCAN_OFFSET) {
+            let p = self.pixels[i];
+            // index * RGB size + color offset
+            output[(i - OVERSCAN_OFFSET) * 3] = p.r();
+            output[(i - OVERSCAN_OFFSET) * 3 + 1] = p.g();
+            output[(i - OVERSCAN_OFFSET) * 3 + 2] = p.b();
+        }
+        output
+    }
+
+    fn put_pixel(&mut self, x: usize, y: usize, system_palette_idx: u8) {
+        if x < SCREEN_WIDTH && y < OVERSCAN_HEIGHT {
+            let i = x + (y * SCREEN_WIDTH);
+            self.pixels[i] = SYSTEM_PALETTE[system_palette_idx as usize];
+        }
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+struct Sprite {
+    index: u8,
+    x: u8,
+    y: u8,
+    tile_index: u8,
+    palette: u8,
+    pattern: u32,
+    has_priority: bool,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+}
+
+impl Sprite {
+    fn new() -> Self {
+        Self {
+            index: 0,
+            x: 0,
+            y: 0,
+            tile_index: 0,
+            palette: 0,
+            pattern: 0,
+            has_priority: false,
+            flip_horizontal: false,
+            flip_vertical: false,
+        }
+    }
+}
+
+impl Rgb {
+    // self is pass by value here because clippy says it's more efficient
+    // https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+    fn r(self) -> u8 {
+        self.0
+    }
+    fn g(self) -> u8 {
+        self.1
+    }
+    fn b(self) -> u8 {
+        self.2
+    }
+}
+
+impl Memory for Ppu {
+    fn readb(&mut self, addr: u16) -> u8 {
+        // TODO emulate decay of open bus bits
+        let val = match addr {
+            0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
+            0x2001 => self.regs.open_bus,    // PPUMASK is write-only
+            0x2002 => self.read_ppustatus(), // PPUSTATUS
+            0x2003 => self.regs.open_bus,    // OAMADDR is write-only
+            0x2004 => self.read_oamdata(),   // OAMDATA
+            0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
+            0x2006 => self.regs.open_bus,    // PPUADDR is write-only
+            0x2007 => self.read_ppudata(),   // PPUDATA
+            _ => {
+                eprintln!("unhandled Ppu readb at 0x{:04X}", addr);
+                0
+            }
+        };
+        self.regs.open_bus = val;
+        val
+    }
+
+    fn writeb(&mut self, addr: u16, val: u8) {
+        // TODO emulate decay of open bus bits
+        self.regs.open_bus = val;
+        // Write least sig bits to ppustatus since they're not written to
+        *self.regs.status |= val & 0x1F;
+        match addr {
+            0x2000 => self.write_ppuctrl(val),   // PPUCTRL
+            0x2001 => self.write_ppumask(val),   // PPUMASK
+            0x2002 => (),                        // PPUSTATUS is read-only
+            0x2003 => self.write_oamaddr(val),   // OAMADDR
+            0x2004 => self.write_oamdata(val),   // OAMDATA
+            0x2005 => self.write_ppuscroll(val), // PPUSCROLL
+            0x2006 => self.write_ppuaddr(val),   // PPUADDR
+            0x2007 => self.write_ppudata(val),   // PPUDATA
+            _ => eprintln!("unhandled Ppu readb at 0x{:04X}", addr),
+        }
+    }
+}
+
+impl Memory for Vram {
+    fn readb(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x1FFF => {
+                // CHR-ROM
+                let mut mapper = self.mapper.borrow_mut();
+                mapper.readb(addr)
+            }
+            0x2000..=0x3EFF => {
+                let addr = self.nametable_mirror_addr(addr);
+                self.nametable.readb(addr & 2047)
+            }
+            0x3F00..=0x3FFF => self.palette.readb(addr & 31),
+            _ => {
+                eprintln!("invalid Vram readb at 0x{:04X}", addr);
+                0
+            }
+        }
+    }
+
+    fn writeb(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x0000..=0x1FFF => {
+                // CHR-ROM
+                let mut mapper = self.mapper.borrow_mut();
+                mapper.writeb(addr, val);
+            }
+            0x2000..=0x3EFF => {
+                let addr = self.nametable_mirror_addr(addr);
+                self.nametable.writeb(addr & 2047, val)
+            }
+            0x3F00..=0x3FFF => self.palette.writeb(addr & 31, val),
+            _ => eprintln!("invalid Vram readb at 0x{:04X}", addr),
+        }
+    }
+}
+
+impl Memory for Oam {
+    fn readb(&mut self, addr: u16) -> u8 {
+        self.entries[addr as usize]
+    }
+    fn writeb(&mut self, addr: u16, val: u8) {
+        self.entries[addr as usize] = val;
+    }
+}
+
+impl Memory for Nametable {
+    fn readb(&mut self, addr: u16) -> u8 {
+        self.0[addr as usize]
+    }
+    fn writeb(&mut self, addr: u16, val: u8) {
+        self.0[addr as usize] = val;
+    }
+}
+
+impl Memory for Palette {
+    fn readb(&mut self, mut addr: u16) -> u8 {
+        if addr >= 16 && addr.trailing_zeros() >= 2 {
+            addr -= 16;
+        }
+        self.0[addr as usize]
+    }
+    fn writeb(&mut self, mut addr: u16, val: u8) {
+        if addr >= 16 && addr.trailing_zeros() >= 2 {
+            addr -= 16;
+        }
+        self.0[addr as usize] = val;
+    }
+}
+
 // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL
 // VPHB SINN
 // |||| ||++- Nametable Select: 0 = $2000 (upper-left); 1 = $2400 (upper-right);
@@ -1084,6 +1079,9 @@ impl Ppu {
 // ||+------- Sprite Height: 0 = 8x8, 1 = 8x16
 // |+-------- PPU Master/Slave: 0 = read from EXT, 1 = write to EXT
 // +--------- NMI Enable: NMI at next vblank: 0 = off, 1: on
+#[derive(Default, Debug)]
+struct PpuCtrl(u8);
+
 impl PpuCtrl {
     fn write(&mut self, val: u8) {
         self.0 = val;
@@ -1132,6 +1130,9 @@ impl PpuCtrl {
 // ||+------- Emphasize red
 // |+-------- Emphasize green
 // +--------- Emphasize blue
+#[derive(Default, Debug)]
+struct PpuMask(u8);
+
 impl PpuMask {
     fn write(&mut self, val: u8) {
         self.0 = val;
@@ -1151,6 +1152,9 @@ impl PpuMask {
 // ||+------- Sprite overflow.
 // |+-------- Sprite 0 Hit.
 // +--------- Vertical blank has started (0: not in vblank; 1: in vblank)
+#[derive(Default, Debug)]
+struct PpuStatus(u8);
+
 impl PpuStatus {
     pub fn read(&mut self) -> u8 {
         let vblank_started = self.0 & 0x80;
