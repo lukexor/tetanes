@@ -3,8 +3,11 @@ use crate::console::ppu::{Ppu, VISIBLE_SCANLINE_END};
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::Memory;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::cell::RefCell;
 use std::fmt;
+use std::io::{Read, Write};
 use std::rc::Rc;
 
 /// TxRom (Mapper 4)
@@ -13,6 +16,7 @@ use std::rc::Rc;
 
 pub struct Txrom {
     cart: Cartridge,
+    mirroring: Mirroring,
     irq_enable: bool,
     counter: u8,
     reload: u8,
@@ -22,13 +26,13 @@ pub struct Txrom {
     banks: [u8; 8],
     prg_offsets: [i32; 4],
     chr_offsets: [i32; 8],
-    mirroring: Mirroring,
 }
 
 impl Txrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let mut txrom = Self {
             cart,
+            mirroring: Mirroring::Horizontal,
             irq_enable: false,
             counter: 0u8,
             reload: 0u8,
@@ -38,7 +42,6 @@ impl Txrom {
             banks: [0u8; 8],
             prg_offsets: [0i32; 4],
             chr_offsets: [0i32; 8],
-            mirroring: Mirroring::Horizontal,
         };
         txrom.prg_offsets[0] = txrom.prg_bank_offset(0);
         txrom.prg_offsets[1] = txrom.prg_bank_offset(1);
@@ -147,6 +150,34 @@ impl Txrom {
     }
 }
 
+impl Mapper for Txrom {
+    fn irq_pending(&self) -> bool {
+        if self.counter == 0 && self.irq_enable {
+            true
+        } else {
+            false
+        }
+    }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+    fn step(&mut self, ppu: &Ppu) {
+        if ppu.cycle == 280 && ppu.scanline <= VISIBLE_SCANLINE_END && ppu.rendering_enabled() {
+            if self.counter > 0 {
+                self.counter -= 1;
+            } else {
+                self.counter = self.reload;
+            }
+        }
+    }
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
+    }
+}
+
 impl Memory for Txrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
@@ -191,31 +222,32 @@ impl Memory for Txrom {
     }
 }
 
-impl Mapper for Txrom {
-    fn irq_pending(&self) -> bool {
-        if self.counter == 0 && self.irq_enable {
-            true
-        } else {
-            false
-        }
+impl Savable for Txrom {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.mirroring.save(fh)?;
+        self.irq_enable.save(fh)?;
+        self.counter.save(fh)?;
+        self.reload.save(fh)?;
+        self.prg_mode.save(fh)?;
+        self.chr_mode.save(fh)?;
+        self.bank_select.save(fh)?;
+        self.banks.save(fh)?;
+        self.prg_offsets.save(fh)?;
+        self.chr_offsets.save(fh)?;
+        Ok(())
     }
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-    fn step(&mut self, ppu: &Ppu) {
-        if ppu.cycle == 280 && ppu.scanline <= VISIBLE_SCANLINE_END && ppu.rendering_enabled() {
-            if self.counter > 0 {
-                self.counter -= 1;
-            } else {
-                self.counter = self.reload;
-            }
-        }
-    }
-    fn cart(&self) -> &Cartridge {
-        &self.cart
-    }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.mirroring.load(fh)?;
+        self.irq_enable.load(fh)?;
+        self.counter.load(fh)?;
+        self.reload.load(fh)?;
+        self.prg_mode.load(fh)?;
+        self.chr_mode.load(fh)?;
+        self.bank_select.load(fh)?;
+        self.banks.load(fh)?;
+        self.prg_offsets.load(fh)?;
+        self.chr_offsets.load(fh)?;
+        Ok(())
     }
 }
 

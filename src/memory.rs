@@ -2,7 +2,10 @@ use crate::console::apu::Apu;
 use crate::console::ppu::Ppu;
 use crate::input::InputRef;
 use crate::mapper::MapperRef;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::fmt;
+use std::io::{Read, Write};
 
 const WRAM_SIZE: usize = 2 * 1024;
 
@@ -65,7 +68,7 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram[(addr & 0x07FF) as usize], // 0x0800..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => {
+            0x6000..=0xFFFF => {
                 let mut mapper = self.mapper.borrow_mut();
                 mapper.readb(addr)
             }
@@ -77,6 +80,7 @@ impl Memory for CpuMemMap {
             0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => 0,                             // APU/IO Test Mode
             0x4014 => 0,                                      // Handled inside the CPU
+            _ => 0,
         }
     }
 
@@ -85,7 +89,7 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram[(addr & 0x07FF) as usize] = val, // 0x8000..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => {
+            0x6000..=0xFFFF => {
                 let mut mapper = self.mapper.borrow_mut();
                 mapper.writeb(addr, val);
             }
@@ -97,7 +101,25 @@ impl Memory for CpuMemMap {
             0x2000..=0x3FFF => self.ppu.writeb(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => (),                                  // APU/IO Test Mode
             0x4014 => (),                                           // Handled inside the CPU
+            _ => (),
         }
+    }
+}
+
+impl Savable for CpuMemMap {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.wram.save(fh)?;
+        self.ppu.save(fh)?;
+        // self.apu.save(fh)?;
+        // self.mapper.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.wram.load(fh)?;
+        self.ppu.load(fh)?;
+        // self.apu.load(fh)?;
+        // self.mapper.load(fh)?;
+        Ok(())
     }
 }
 

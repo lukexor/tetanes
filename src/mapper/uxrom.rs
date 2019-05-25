@@ -1,10 +1,12 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
-use crate::mapper::Mirroring;
-use crate::mapper::{Mapper, MapperRef};
+use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::Memory;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::cell::RefCell;
 use std::fmt;
+use std::io::{Read, Write};
 use std::rc::Rc;
 
 /// UxRom (Mapper 2)
@@ -28,6 +30,26 @@ impl Uxrom {
             prg_bank2: prg_banks - 1,
         };
         Rc::new(RefCell::new(uxrom))
+    }
+}
+
+impl Mapper for Uxrom {
+    fn irq_pending(&self) -> bool {
+        false
+    }
+    fn mirroring(&self) -> Mirroring {
+        match self.cart.header.flags & 0x01 {
+            0 => Mirroring::Horizontal,
+            1 => Mirroring::Vertical,
+            _ => panic!("invalid mirroring"),
+        }
+    }
+    fn step(&mut self, _ppu: &Ppu) {}
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
     }
 }
 
@@ -68,23 +90,18 @@ impl Memory for Uxrom {
     }
 }
 
-impl Mapper for Uxrom {
-    fn irq_pending(&self) -> bool {
-        false
+impl Savable for Uxrom {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.prg_banks.save(fh)?;
+        self.prg_bank1.save(fh)?;
+        self.prg_bank2.save(fh)?;
+        Ok(())
     }
-    fn mirroring(&self) -> Mirroring {
-        match self.cart.header.flags & 0x01 {
-            0 => Mirroring::Horizontal,
-            1 => Mirroring::Vertical,
-            _ => panic!("invalid mirroring"),
-        }
-    }
-    fn step(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
-    }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.prg_banks.load(fh)?;
+        self.prg_bank1.load(fh)?;
+        self.prg_bank2.load(fh)?;
+        Ok(())
     }
 }
 

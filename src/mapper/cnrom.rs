@@ -1,9 +1,11 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
-use crate::mapper::Mirroring;
-use crate::mapper::{Mapper, MapperRef};
+use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::Memory;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::cell::RefCell;
+use std::io::{Read, Write};
 use std::rc::Rc;
 
 /// CNROM (Mapper 3)
@@ -28,6 +30,26 @@ impl Cnrom {
             prg_bank_1: 0u16,
             prg_bank_2,
         }))
+    }
+}
+
+impl Mapper for Cnrom {
+    fn irq_pending(&self) -> bool {
+        false
+    }
+    fn mirroring(&self) -> Mirroring {
+        match self.cart.header.flags & 0x01 {
+            0 => Mirroring::Horizontal,
+            1 => Mirroring::Vertical,
+            _ => panic!("invalid mirroring"),
+        }
+    }
+    fn step(&mut self, _ppu: &Ppu) {}
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
     }
 }
 
@@ -62,13 +84,6 @@ impl Memory for Cnrom {
 
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
-            // $0000-$1FFF PPU
-            0x0000..=0x1FFF => {
-                if self.cart.header.chr_rom_size == 0 {
-                    let addr = self.chr_bank * 0x2000 + addr;
-                    self.cart.prg_rom[addr as usize] = val;
-                }
-            }
             0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize] = val,
             // $8000-$FFFF CPU
             0x8000..=0xFFFF => self.chr_bank = u16::from(val & 3),
@@ -77,22 +92,17 @@ impl Memory for Cnrom {
     }
 }
 
-impl Mapper for Cnrom {
-    fn irq_pending(&self) -> bool {
-        false
+impl Savable for Cnrom {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.chr_bank.save(fh)?;
+        self.prg_bank_1.save(fh)?;
+        self.prg_bank_2.save(fh)?;
+        Ok(())
     }
-    fn mirroring(&self) -> Mirroring {
-        match self.cart.header.flags & 0x01 {
-            0 => Mirroring::Horizontal,
-            1 => Mirroring::Vertical,
-            _ => panic!("invalid mirroring"),
-        }
-    }
-    fn step(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
-    }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.chr_bank.load(fh)?;
+        self.prg_bank_1.load(fh)?;
+        self.prg_bank_2.load(fh)?;
+        Ok(())
     }
 }

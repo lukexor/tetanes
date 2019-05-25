@@ -59,7 +59,7 @@ The following is a checklist of features and their progress:
   - [x] Reset
   - [x] Power Cycle
   - [x] Increase/Decrease Speed/Fast-forward
-  - [ ] Save/Load State
+  - [x] Save/Load State
   - [x] Take Screenshots
   - [ ] Toggle Recording
   - [x] Toggle Sound

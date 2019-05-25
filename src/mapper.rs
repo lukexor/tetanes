@@ -5,9 +5,11 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::memory::Memory;
+use crate::serialization::Savable;
 use crate::util::Result;
 use failure::format_err;
 use std::cell::RefCell;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -18,29 +20,19 @@ use txrom::Txrom;
 use uxrom::Uxrom;
 
 mod cnrom;
-mod nrom;
+pub mod nrom;
 mod sxrom;
 mod txrom;
 mod uxrom;
 
 pub type MapperRef = Rc<RefCell<Mapper>>;
 
-pub trait Mapper: Memory + Send {
+pub trait Mapper: Memory + Send + Savable {
     fn irq_pending(&self) -> bool;
     fn mirroring(&self) -> Mirroring;
     fn step(&mut self, ppu: &Ppu);
     fn cart(&self) -> &Cartridge;
     fn cart_mut(&mut self) -> &mut Cartridge;
-}
-
-// http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Mirroring {
-    Horizontal,
-    Vertical,
-    SingleScreen0,
-    SingleScreen1,
-    FourScreen, // Only ~3 games use 4-screen - maybe implement some day
 }
 
 /// Attempts to return a valid Mapper for the given rom.
@@ -56,5 +48,35 @@ pub fn load_rom(rom: PathBuf) -> Result<MapperRef> {
             "unsupported mapper number: {}",
             cart.header.mapper_num
         ))?,
+    }
+}
+
+// http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Mirroring {
+    Horizontal,
+    Vertical,
+    SingleScreen0,
+    SingleScreen1,
+    FourScreen, // Only ~3 games use 4-screen - maybe implement some day
+}
+
+impl Savable for Mirroring {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Mirroring::Horizontal,
+            1 => Mirroring::Vertical,
+            2 => Mirroring::SingleScreen0,
+            3 => Mirroring::SingleScreen1,
+            4 => Mirroring::FourScreen,
+            _ => panic!("invalid Mirroring value"),
+        };
+        Ok(())
     }
 }

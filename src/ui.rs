@@ -89,8 +89,8 @@ impl UI {
                         self.frame_rate = DEFAULT_FRAME_RATE;
                     }
                 }
-                Save(slot) => eprintln!("Save {} not implemented", slot), // TODO
-                Load(slot) => eprintln!("Load {} not implemented", slot), // TODO
+                Save(slot) => console.save_state(slot)?,
+                Load(slot) => console.load_state(slot)?,
                 ToggleSound => self.sound_enabled = !self.sound_enabled,
                 ToggleFullscreen => self.window.toggle_fullscreen(),
                 ToggleDebug => {

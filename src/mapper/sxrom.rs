@@ -1,10 +1,12 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
-use crate::mapper::Mirroring;
-use crate::mapper::{Mapper, MapperRef};
+use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::Memory;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::cell::RefCell;
 use std::fmt;
+use std::io::{Read, Write};
 use std::rc::Rc;
 
 /// SxRom (Mapper 1/MMC1)
@@ -148,6 +150,22 @@ impl Sxrom {
     }
 }
 
+impl Mapper for Sxrom {
+    fn irq_pending(&self) -> bool {
+        false
+    }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+    fn step(&mut self, _ppu: &Ppu) {}
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
+    }
+}
+
 impl Memory for Sxrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
@@ -197,19 +215,34 @@ impl Memory for Sxrom {
     }
 }
 
-impl Mapper for Sxrom {
-    fn irq_pending(&self) -> bool {
-        false
+impl Savable for Sxrom {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.cart.save(fh)?;
+        self.mirroring.save(fh)?;
+        self.shift_register.save(fh)?;
+        self.ctrl.save(fh)?;
+        self.prg_mode.save(fh)?;
+        self.chr_mode.save(fh)?;
+        self.prg_bank.save(fh)?;
+        self.chr_bank0.save(fh)?;
+        self.chr_bank1.save(fh)?;
+        self.prg_offsets.save(fh)?;
+        self.chr_offsets.save(fh)?;
+        Ok(())
     }
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-    fn step(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
-    }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.cart.load(fh)?;
+        self.mirroring.load(fh)?;
+        self.shift_register.load(fh)?;
+        self.ctrl.load(fh)?;
+        self.prg_mode.load(fh)?;
+        self.chr_mode.load(fh)?;
+        self.prg_bank.load(fh)?;
+        self.chr_bank0.load(fh)?;
+        self.chr_bank1.load(fh)?;
+        self.prg_offsets.load(fh)?;
+        self.chr_offsets.load(fh)?;
+        Ok(())
     }
 }
 

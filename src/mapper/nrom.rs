@@ -1,9 +1,11 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
-use crate::mapper::Mirroring;
-use crate::mapper::{Mapper, MapperRef};
+use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::Memory;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::cell::RefCell;
+use std::io::{Read, Write};
 use std::rc::Rc;
 
 /// NROM (mapper 0)
@@ -17,6 +19,26 @@ pub struct Nrom {
 impl Nrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         Rc::new(RefCell::new(Self { cart }))
+    }
+}
+
+impl Mapper for Nrom {
+    fn irq_pending(&self) -> bool {
+        false
+    }
+    fn mirroring(&self) -> Mirroring {
+        match self.cart.header.flags & 0x01 {
+            0 => Mirroring::Horizontal,
+            1 => Mirroring::Vertical,
+            _ => panic!("invalid mirroring"),
+        }
+    }
+    fn step(&mut self, _ppu: &Ppu) {}
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
     }
 }
 
@@ -63,22 +85,11 @@ impl Memory for Nrom {
     }
 }
 
-impl Mapper for Nrom {
-    fn irq_pending(&self) -> bool {
-        false
+impl Savable for Nrom {
+    fn save(&self, _fh: &mut Write) -> Result<()> {
+        Ok(())
     }
-    fn mirroring(&self) -> Mirroring {
-        match self.cart.header.flags & 0x01 {
-            0 => Mirroring::Horizontal,
-            1 => Mirroring::Vertical,
-            _ => panic!("invalid mirroring"),
-        }
-    }
-    fn step(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
-    }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn load(&mut self, _fh: &mut Read) -> Result<()> {
+        Ok(())
     }
 }

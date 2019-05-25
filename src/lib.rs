@@ -4,6 +4,7 @@ pub mod disasm;
 pub mod input;
 pub mod mapper;
 pub mod memory;
+mod serialization;
 pub mod ui;
 
 pub mod util {
@@ -21,21 +22,22 @@ pub mod util {
     const CONFIG_DIR: &str = ".rustynes";
 
     pub fn sram_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf> {
-        let filehash = hash_file(path)?;
+        let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
         let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
         path.push(CONFIG_DIR);
         path.push("sram");
-        path.push(filehash);
+        path.push(save_name);
         path.set_extension("dat");
         Ok(path)
     }
 
-    pub fn save_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf> {
-        let filehash = hash_file(path)?;
+    pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> Result<PathBuf> {
+        let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
         let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
         path.push(CONFIG_DIR);
         path.push("save");
-        path.push(filehash);
+        path.push(save_name);
+        path.push(format!("{}", slot));
         path.set_extension("dat");
         Ok(path)
     }

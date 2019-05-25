@@ -2,11 +2,12 @@
 //!
 //! http://wiki.nesdev.com/w/index.php/PPU
 
-#![allow(clippy::new_without_default)]
-
 use crate::mapper::{MapperRef, Mirroring};
 use crate::memory::Memory;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::fmt;
+use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 
 // Screen/Render
@@ -74,15 +75,6 @@ pub struct Ppu {
     frame: Frame,          // Frame data keeps track of data and shift registers between frames
     screen: Screen,        // The main screen holding pixel data
 }
-
-// http://wiki.nesdev.com/w/index.php/PPU_nametables
-// http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
-pub struct Nametable(pub [u8; NAMETABLE_SIZE]);
-// http://wiki.nesdev.com/w/index.php/PPU_palettes
-pub struct Palette(pub [u8; PALETTE_SIZE]);
-
-#[derive(Default, Debug, Copy, Clone)]
-struct Rgb(u8, u8, u8);
 
 impl Ppu {
     pub fn init(mapper: MapperRef) -> Self {
@@ -564,6 +556,124 @@ impl Ppu {
     }
 }
 
+impl Memory for Ppu {
+    fn readb(&mut self, addr: u16) -> u8 {
+        // TODO emulate decay of open bus bits
+        let val = match addr {
+            0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
+            0x2001 => self.regs.open_bus,    // PPUMASK is write-only
+            0x2002 => self.read_ppustatus(), // PPUSTATUS
+            0x2003 => self.regs.open_bus,    // OAMADDR is write-only
+            0x2004 => self.read_oamdata(),   // OAMDATA
+            0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
+            0x2006 => self.regs.open_bus,    // PPUADDR is write-only
+            0x2007 => self.read_ppudata(),   // PPUDATA
+            _ => {
+                eprintln!("unhandled Ppu readb at 0x{:04X}", addr);
+                0
+            }
+        };
+        self.regs.open_bus = val;
+        val
+    }
+
+    fn writeb(&mut self, addr: u16, val: u8) {
+        // TODO emulate decay of open bus bits
+        self.regs.open_bus = val;
+        // Write least sig bits to ppustatus since they're not written to
+        *self.regs.status |= val & 0x1F;
+        match addr {
+            0x2000 => self.write_ppuctrl(val),   // PPUCTRL
+            0x2001 => self.write_ppumask(val),   // PPUMASK
+            0x2002 => (),                        // PPUSTATUS is read-only
+            0x2003 => self.write_oamaddr(val),   // OAMADDR
+            0x2004 => self.write_oamdata(val),   // OAMDATA
+            0x2005 => self.write_ppuscroll(val), // PPUSCROLL
+            0x2006 => self.write_ppuaddr(val),   // PPUADDR
+            0x2007 => self.write_ppudata(val),   // PPUDATA
+            _ => eprintln!("unhandled Ppu readb at 0x{:04X}", addr),
+        }
+    }
+}
+
+impl Savable for Ppu {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.cycle.save(fh)?;
+        self.scanline.save(fh)?;
+        self.nmi_pending.save(fh)?;
+        self.regs.save(fh)?;
+        self.oamdata.save(fh)?;
+        self.vram.save(fh)?;
+        self.frame.save(fh)?;
+        self.screen.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.cycle.load(fh)?;
+        self.scanline.load(fh)?;
+        self.nmi_pending.load(fh)?;
+        self.regs.load(fh)?;
+        self.oamdata.load(fh)?;
+        self.vram.load(fh)?;
+        self.frame.load(fh)?;
+        self.screen.load(fh)?;
+        Ok(())
+    }
+}
+
+// http://wiki.nesdev.com/w/index.php/PPU_nametables
+// http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
+pub struct Nametable(pub [u8; NAMETABLE_SIZE]);
+
+impl Memory for Nametable {
+    fn readb(&mut self, addr: u16) -> u8 {
+        self.0[addr as usize]
+    }
+    fn writeb(&mut self, addr: u16, val: u8) {
+        self.0[addr as usize] = val;
+    }
+}
+
+impl Savable for Nametable {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.0.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.0.load(fh)?;
+        Ok(())
+    }
+}
+
+// http://wiki.nesdev.com/w/index.php/PPU_palettes
+pub struct Palette(pub [u8; PALETTE_SIZE]);
+
+impl Memory for Palette {
+    fn readb(&mut self, mut addr: u16) -> u8 {
+        if addr >= 16 && addr.trailing_zeros() >= 2 {
+            addr -= 16;
+        }
+        self.0[addr as usize]
+    }
+    fn writeb(&mut self, mut addr: u16, val: u8) {
+        if addr >= 16 && addr.trailing_zeros() >= 2 {
+            addr -= 16;
+        }
+        self.0[addr as usize] = val;
+    }
+}
+
+impl Savable for Palette {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.0.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.0.load(fh)?;
+        Ok(())
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct PpuRegs {
     open_bus: u8,       // This open bus gets set during any write to PPU registers
@@ -788,6 +898,37 @@ impl PpuRegs {
     }
 }
 
+impl Savable for PpuRegs {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.open_bus.save(fh)?;
+        self.ctrl.save(fh)?;
+        self.mask.save(fh)?;
+        self.status.save(fh)?;
+        self.oamaddr.save(fh)?;
+        self.nmi_delay.save(fh)?;
+        self.nmi_previous.save(fh)?;
+        self.v.save(fh)?;
+        self.t.save(fh)?;
+        self.x.save(fh)?;
+        self.w.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.open_bus.load(fh)?;
+        self.ctrl.load(fh)?;
+        self.mask.load(fh)?;
+        self.status.load(fh)?;
+        self.oamaddr.load(fh)?;
+        self.nmi_delay.load(fh)?;
+        self.nmi_previous.load(fh)?;
+        self.v.load(fh)?;
+        self.t.load(fh)?;
+        self.x.load(fh)?;
+        self.w.load(fh)?;
+        Ok(())
+    }
+}
+
 // Addr Low Nibble
 // $00, $04, $08, $0C   Sprite Y coord
 // $01, $05, $09, $0D   Sprite tile #
@@ -802,6 +943,26 @@ impl Oam {
         Self {
             entries: [0; OAM_SIZE],
         }
+    }
+}
+
+impl Memory for Oam {
+    fn readb(&mut self, addr: u16) -> u8 {
+        self.entries[addr as usize]
+    }
+    fn writeb(&mut self, addr: u16, val: u8) {
+        self.entries[addr as usize] = val;
+    }
+}
+
+impl Savable for Oam {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.entries.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.entries.load(fh)?;
+        Ok(())
     }
 }
 
@@ -843,160 +1004,6 @@ impl Vram {
     }
 }
 
-#[derive(Debug)]
-struct Frame {
-    num: u32,
-    parity: bool,
-    // Shift registers
-    tile_lo: u8,
-    tile_hi: u8,
-    // tile data - stored in cycles 0 mod 8
-    nametable: u8,
-    attribute: u8,
-    tile_data: u64,
-    // sprite data
-    sprite_count: u8,
-    sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
-}
-
-impl Frame {
-    fn new() -> Self {
-        Self {
-            num: 0,
-            parity: false,
-            nametable: 0,
-            attribute: 0,
-            tile_lo: 0,
-            tile_hi: 0,
-            tile_data: 0,
-            sprite_count: 0,
-            sprites: [Sprite::new(); 8],
-        }
-    }
-
-    fn increment(&mut self) {
-        self.num += 1;
-        self.parity = !self.parity;
-    }
-}
-
-struct Screen {
-    pixels: [Rgb; PIXEL_COUNT],
-}
-
-impl Screen {
-    fn new() -> Self {
-        Self {
-            pixels: [Rgb(0, 0, 0); PIXEL_COUNT],
-        }
-    }
-
-    // Turns a list of pixels into a list of R, G, B
-    // We want to remove overscane lines so we need to remove the top 8 and bottom 8 scanlines
-    // which is 8 * SCREEN_WIDTH * 3 from both the top and bottom of our pixels
-    pub fn render(&self) -> Image {
-        let mut output = [0; RENDER_SIZE];
-        for i in OVERSCAN_OFFSET..(PIXEL_COUNT - OVERSCAN_OFFSET) {
-            let p = self.pixels[i];
-            // index * RGB size + color offset
-            output[(i - OVERSCAN_OFFSET) * 3] = p.r();
-            output[(i - OVERSCAN_OFFSET) * 3 + 1] = p.g();
-            output[(i - OVERSCAN_OFFSET) * 3 + 2] = p.b();
-        }
-        output
-    }
-
-    fn put_pixel(&mut self, x: usize, y: usize, system_palette_idx: u8) {
-        if x < SCREEN_WIDTH && y < OVERSCAN_HEIGHT {
-            let i = x + (y * SCREEN_WIDTH);
-            self.pixels[i] = SYSTEM_PALETTE[system_palette_idx as usize];
-        }
-    }
-}
-
-#[derive(Default, Debug, Copy, Clone)]
-struct Sprite {
-    index: u8,
-    x: u8,
-    y: u8,
-    tile_index: u8,
-    palette: u8,
-    pattern: u32,
-    has_priority: bool,
-    flip_horizontal: bool,
-    flip_vertical: bool,
-}
-
-impl Sprite {
-    fn new() -> Self {
-        Self {
-            index: 0,
-            x: 0,
-            y: 0,
-            tile_index: 0,
-            palette: 0,
-            pattern: 0,
-            has_priority: false,
-            flip_horizontal: false,
-            flip_vertical: false,
-        }
-    }
-}
-
-impl Rgb {
-    // self is pass by value here because clippy says it's more efficient
-    // https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
-    fn r(self) -> u8 {
-        self.0
-    }
-    fn g(self) -> u8 {
-        self.1
-    }
-    fn b(self) -> u8 {
-        self.2
-    }
-}
-
-impl Memory for Ppu {
-    fn readb(&mut self, addr: u16) -> u8 {
-        // TODO emulate decay of open bus bits
-        let val = match addr {
-            0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
-            0x2001 => self.regs.open_bus,    // PPUMASK is write-only
-            0x2002 => self.read_ppustatus(), // PPUSTATUS
-            0x2003 => self.regs.open_bus,    // OAMADDR is write-only
-            0x2004 => self.read_oamdata(),   // OAMDATA
-            0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
-            0x2006 => self.regs.open_bus,    // PPUADDR is write-only
-            0x2007 => self.read_ppudata(),   // PPUDATA
-            _ => {
-                eprintln!("unhandled Ppu readb at 0x{:04X}", addr);
-                0
-            }
-        };
-        self.regs.open_bus = val;
-        val
-    }
-
-    fn writeb(&mut self, addr: u16, val: u8) {
-        // TODO emulate decay of open bus bits
-        self.regs.open_bus = val;
-        // Write least sig bits to ppustatus since they're not written to
-        *self.regs.status |= val & 0x1F;
-        match addr {
-            0x2000 => self.write_ppuctrl(val),   // PPUCTRL
-            0x2001 => self.write_ppumask(val),   // PPUMASK
-            0x2002 => (),                        // PPUSTATUS is read-only
-            0x2003 => self.write_oamaddr(val),   // OAMADDR
-            0x2004 => self.write_oamdata(val),   // OAMDATA
-            0x2005 => self.write_ppuscroll(val), // PPUSCROLL
-            0x2006 => self.write_ppuaddr(val),   // PPUADDR
-            0x2007 => self.write_ppudata(val),   // PPUDATA
-            _ => eprintln!("unhandled Ppu readb at 0x{:04X}", addr),
-        }
-    }
-}
-
 impl Memory for Vram {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
@@ -1034,36 +1041,223 @@ impl Memory for Vram {
     }
 }
 
-impl Memory for Oam {
-    fn readb(&mut self, addr: u16) -> u8 {
-        self.entries[addr as usize]
+impl Savable for Vram {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        {
+            let mapper = self.mapper.borrow();
+            mapper.save(fh)?;
+        }
+        self.buffer.save(fh)?;
+        self.nametable.save(fh)?;
+        self.palette.save(fh)?;
+        Ok(())
     }
-    fn writeb(&mut self, addr: u16, val: u8) {
-        self.entries[addr as usize] = val;
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        {
+            let mut mapper = self.mapper.borrow_mut();
+            mapper.load(fh)?;
+        }
+        self.buffer.load(fh)?;
+        self.nametable.load(fh)?;
+        self.palette.load(fh)?;
+        Ok(())
     }
 }
 
-impl Memory for Nametable {
-    fn readb(&mut self, addr: u16) -> u8 {
-        self.0[addr as usize]
+#[derive(Debug)]
+struct Frame {
+    num: u32,
+    parity: bool,
+    // Shift registers
+    tile_lo: u8,
+    tile_hi: u8,
+    // tile data - stored in cycles 0 mod 8
+    nametable: u8,
+    attribute: u8,
+    tile_data: u64,
+    // sprite data
+    sprite_count: u8,
+    sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
+}
+
+impl Frame {
+    fn new() -> Self {
+        Self {
+            num: 0,
+            parity: false,
+            nametable: 0,
+            attribute: 0,
+            tile_lo: 0,
+            tile_hi: 0,
+            tile_data: 0,
+            sprite_count: 0,
+            sprites: [Sprite::new(); 8],
+        }
     }
-    fn writeb(&mut self, addr: u16, val: u8) {
-        self.0[addr as usize] = val;
+
+    fn increment(&mut self) {
+        self.num += 1;
+        self.parity = !self.parity;
     }
 }
 
-impl Memory for Palette {
-    fn readb(&mut self, mut addr: u16) -> u8 {
-        if addr >= 16 && addr.trailing_zeros() >= 2 {
-            addr -= 16;
-        }
-        self.0[addr as usize]
+impl Savable for Frame {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.num.save(fh)?;
+        self.parity.save(fh)?;
+        self.tile_lo.save(fh)?;
+        self.tile_hi.save(fh)?;
+        self.nametable.save(fh)?;
+        self.attribute.save(fh)?;
+        self.tile_data.save(fh)?;
+        self.sprite_count.save(fh)?;
+        self.sprites.save(fh)?;
+        Ok(())
     }
-    fn writeb(&mut self, mut addr: u16, val: u8) {
-        if addr >= 16 && addr.trailing_zeros() >= 2 {
-            addr -= 16;
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.num.load(fh)?;
+        self.parity.load(fh)?;
+        self.tile_lo.load(fh)?;
+        self.tile_hi.load(fh)?;
+        self.nametable.load(fh)?;
+        self.attribute.load(fh)?;
+        self.tile_data.load(fh)?;
+        self.sprite_count.load(fh)?;
+        self.sprites.load(fh)?;
+        Ok(())
+    }
+}
+
+struct Screen {
+    pixels: [Rgb; PIXEL_COUNT],
+}
+
+impl Screen {
+    fn new() -> Self {
+        Self {
+            pixels: [Rgb(0, 0, 0); PIXEL_COUNT],
         }
-        self.0[addr as usize] = val;
+    }
+
+    // Turns a list of pixels into a list of R, G, B
+    // We want to remove overscane lines so we need to remove the top 8 and bottom 8 scanlines
+    // which is 8 * SCREEN_WIDTH * 3 from both the top and bottom of our pixels
+    pub fn render(&self) -> Image {
+        let mut output = [0; RENDER_SIZE];
+        for i in OVERSCAN_OFFSET..(PIXEL_COUNT - OVERSCAN_OFFSET) {
+            let p = self.pixels[i];
+            // index * RGB size + color offset
+            output[(i - OVERSCAN_OFFSET) * 3] = p.r();
+            output[(i - OVERSCAN_OFFSET) * 3 + 1] = p.g();
+            output[(i - OVERSCAN_OFFSET) * 3 + 2] = p.b();
+        }
+        output
+    }
+
+    fn put_pixel(&mut self, x: usize, y: usize, system_palette_idx: u8) {
+        if x < SCREEN_WIDTH && y < OVERSCAN_HEIGHT {
+            let i = x + (y * SCREEN_WIDTH);
+            self.pixels[i] = SYSTEM_PALETTE[system_palette_idx as usize];
+        }
+    }
+}
+
+impl Savable for Screen {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.pixels.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.pixels.load(fh)?;
+        Ok(())
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+struct Sprite {
+    index: u8,
+    x: u8,
+    y: u8,
+    tile_index: u8,
+    palette: u8,
+    pattern: u32,
+    has_priority: bool,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+}
+
+impl Sprite {
+    fn new() -> Self {
+        Self {
+            index: 0,
+            x: 0,
+            y: 0,
+            tile_index: 0,
+            palette: 0,
+            pattern: 0,
+            has_priority: false,
+            flip_horizontal: false,
+            flip_vertical: false,
+        }
+    }
+}
+
+impl Savable for Sprite {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.index.save(fh)?;
+        self.x.save(fh)?;
+        self.y.save(fh)?;
+        self.tile_index.save(fh)?;
+        self.palette.save(fh)?;
+        self.pattern.save(fh)?;
+        self.has_priority.save(fh)?;
+        self.flip_horizontal.save(fh)?;
+        self.flip_vertical.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.index.load(fh)?;
+        self.x.load(fh)?;
+        self.y.load(fh)?;
+        self.tile_index.load(fh)?;
+        self.palette.load(fh)?;
+        self.pattern.load(fh)?;
+        self.has_priority.load(fh)?;
+        self.flip_horizontal.load(fh)?;
+        self.flip_vertical.load(fh)?;
+        Ok(())
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+struct Rgb(u8, u8, u8);
+
+impl Rgb {
+    // self is pass by value here because clippy says it's more efficient
+    // https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
+    fn r(self) -> u8 {
+        self.0
+    }
+    fn g(self) -> u8 {
+        self.1
+    }
+    fn b(self) -> u8 {
+        self.2
+    }
+}
+
+impl Savable for Rgb {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.0.save(fh)?;
+        self.1.save(fh)?;
+        self.2.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.0.load(fh)?;
+        self.1.load(fh)?;
+        self.2.load(fh)?;
+        Ok(())
     }
 }
 
@@ -1120,6 +1314,17 @@ impl PpuCtrl {
     }
 }
 
+impl Savable for PpuCtrl {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.0.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.0.load(fh)?;
+        Ok(())
+    }
+}
+
 // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUMASK
 // BGRs bMmG
 // |||| |||+- Greyscale (0: normal color, 1: produce a greyscale display)
@@ -1143,6 +1348,17 @@ impl PpuMask {
     }
     fn show_sprites(&self) -> bool {
         self.0 & 0x10 > 0
+    }
+}
+
+impl Savable for PpuMask {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.0.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.0.load(fh)?;
+        Ok(())
     }
 }
 
@@ -1178,6 +1394,17 @@ impl PpuStatus {
     }
     fn stop_vblank(&mut self) {
         self.0 &= !0x80;
+    }
+}
+
+impl Savable for PpuStatus {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.0.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.0.load(fh)?;
+        Ok(())
     }
 }
 

@@ -4,7 +4,10 @@
 
 use crate::console::debugger::Debugger;
 use crate::memory::{CpuMemMap, Memory};
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::fmt;
+use std::io::{Read, Write};
 
 // 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
 // const CPU_CLOCK_FREQ: Frequency = 1_789_773.0;
@@ -56,13 +59,6 @@ pub struct Cpu {
     nestest: bool,
     #[cfg(test)]
     pub nestestlog: Vec<String>,
-}
-
-#[derive(PartialEq, Eq)]
-pub enum Interrupt {
-    None,
-    IRQ,
-    NMI,
 }
 
 impl Cpu {
@@ -659,6 +655,62 @@ impl Memory for Cpu {
         } else {
             self.mem.writeb(addr, val);
         }
+    }
+}
+
+impl Savable for Cpu {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.mem.save(fh)?;
+        self.cycles.save(fh)?;
+        self.step.save(fh)?;
+        self.stall.save(fh)?;
+        self.pc.save(fh)?;
+        self.sp.save(fh)?;
+        self.acc.save(fh)?;
+        self.x.save(fh)?;
+        self.y.save(fh)?;
+        self.status.save(fh)?;
+        self.interrupt.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.mem.load(fh)?;
+        self.cycles.load(fh)?;
+        self.step.load(fh)?;
+        self.stall.load(fh)?;
+        self.pc.load(fh)?;
+        self.sp.load(fh)?;
+        self.acc.load(fh)?;
+        self.x.load(fh)?;
+        self.y.load(fh)?;
+        self.status.load(fh)?;
+        self.interrupt.load(fh)?;
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Copy, Clone)]
+pub enum Interrupt {
+    None,
+    IRQ,
+    NMI,
+}
+
+impl Savable for Interrupt {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Interrupt::None,
+            1 => Interrupt::IRQ,
+            2 => Interrupt::NMI,
+            _ => panic!("invalid Interrupt value"),
+        };
+        Ok(())
     }
 }
 
@@ -1280,7 +1332,7 @@ fn is_negative(val: u8) -> bool {
 }
 
 impl fmt::Debug for Cpu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
             "CPU {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
@@ -1289,7 +1341,7 @@ impl fmt::Debug for Cpu {
     }
 }
 impl fmt::Debug for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         let unofficial = match self.op() {
             KIL | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SHX | RRA | TAS | SHY | ARR
             | SRE | ALR | RLA | ANC | SLO => "*",
