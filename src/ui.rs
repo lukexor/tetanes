@@ -22,6 +22,7 @@ pub struct UI {
     debug: bool,
     paused: bool,
     sound_enabled: bool,
+    state_slot: u8,
 }
 
 impl UI {
@@ -36,6 +37,7 @@ impl UI {
             debug,
             paused: false,
             sound_enabled: true,
+            state_slot: 1u8,
         })
     }
 
@@ -69,6 +71,7 @@ impl UI {
             match console.poll_events() {
                 Continue => (),
                 Quit => break,
+                Open => eprintln!("Open not implemented"), // TODO
                 Menu => self.paused = !self.paused,
                 Reset => console.reset(),
                 PowerCycle => console.power_cycle(),
@@ -89,8 +92,9 @@ impl UI {
                         self.frame_rate = DEFAULT_FRAME_RATE;
                     }
                 }
-                Save(slot) => console.save_state(slot)?,
-                Load(slot) => console.load_state(slot)?,
+                SetState(slot) => self.state_slot = slot,
+                Save => console.save_state(self.state_slot)?,
+                Load => console.load_state(self.state_slot)?,
                 ToggleSound => self.sound_enabled = !self.sound_enabled,
                 ToggleFullscreen => self.window.toggle_fullscreen(),
                 ToggleDebug => {

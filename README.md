@@ -136,21 +136,23 @@ There are also some emulator actions:
 
 | Action                | Keyboard         | Controller         |
 | --------------------- | ---------------- | ------------------ |
+| Open/Run ROM          | Ctrl-O           |                    |
 | Pause / Open Menu     | Escape           | Left Stick Button  |
 | Quit                  | Ctrl-Q           |                    |
 | Reset                 | Ctrl-R           |                    |
 | Power Cycle           | Ctrl-P           |                    |
+| Fast-Forward          | Space            | Right Stick Button |
 | Increase Speed 25%    | Ctrl-=           |                    |
 | Decrease Speed 25%    | Ctrl--           |                    |
-| Fast-Forward          | Space            | Right Stick Button |
-| Save State            | Ctrl-(1-4)       |                    |
-| Load State            | Ctrl-Shift-(1-4) |                    |
-| Toggle Sound          | Ctrl-S           |                    |
-| Toggle Fullscreen     | Ctrl-F           |                    |
-| Take Screenshot       | Ctrl-C           |                    |
+| Set State Slot        | Ctrl-(1-4)       |                    |
+| Save State            | Ctrl-S           |                    |
+| Load State            | Ctrl-L           |                    |
+| Toggle Music/Sound    | Ctrl-M           |                    |
 | Toggle Recording      | Ctrl-V           |                    |
 | Toggle Debugger       | Ctrl-D           |                    |
-| Cycle Log Level       | Ctrl-L           |                    |
+| Toggle Fullscreen     | Ctrl-Enter       |                    |
+| Take Screenshot       | F10              |                    |
+| Cycle Log Level       | F9               |                    |
 
 ### Note on Controls
 

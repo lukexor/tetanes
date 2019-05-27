@@ -121,7 +121,6 @@ impl Console {
             })?;
             let mut reader = BufReader::new(save_file);
             self.load(&mut reader)?;
-            eprintln!("Loaded slot {}: {}", slot, save_path.display());
         }
         Ok(())
     }
@@ -145,7 +144,6 @@ impl Console {
         })?;
         let mut writer = BufWriter::new(save_file);
         self.save(&mut writer)?;
-        eprintln!("Saved slot {}: {}", slot, save_path.display());
         Ok(())
     }
 
