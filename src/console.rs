@@ -11,7 +11,7 @@ use crate::serialization::Savable;
 use crate::util::{self, Result};
 use cpu::Cpu;
 use failure::format_err;
-use std::io::{Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::{fmt, fs};
 
@@ -116,10 +116,11 @@ impl Console {
         };
         let save_path = util::save_path(&rom_file, slot)?;
         if save_path.exists() {
-            let mut save_file = fs::File::open(&save_path).map_err(|e| {
+            let save_file = fs::File::open(&save_path).map_err(|e| {
                 format_err!("failed to open save file {:?}: {}", save_path.display(), e)
             })?;
-            self.load(&mut save_file)?;
+            let mut reader = BufReader::new(save_file);
+            self.load(&mut reader)?;
             eprintln!("Loaded slot {}: {}", slot, save_path.display());
         }
         Ok(())
@@ -139,10 +140,11 @@ impl Console {
                 )
             })?;
         }
-        let mut save_file = fs::File::create(&save_path).map_err(|e| {
+        let save_file = fs::File::create(&save_path).map_err(|e| {
             format_err!("failed to open save file {:?}: {}", save_path.display(), e)
         })?;
-        self.save(&mut save_file)?;
+        let mut writer = BufWriter::new(save_file);
+        self.save(&mut writer)?;
         eprintln!("Saved slot {}: {}", slot, save_path.display());
         Ok(())
     }
