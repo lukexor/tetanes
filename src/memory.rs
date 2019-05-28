@@ -110,15 +110,19 @@ impl Savable for CpuMemMap {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.wram.save(fh)?;
         self.ppu.save(fh)?;
-        // self.apu.save(fh)?;
-        // self.mapper.save(fh)?;
+        {
+            let mapper = self.mapper.borrow();
+            mapper.save(fh)?;
+        }
         Ok(())
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.wram.load(fh)?;
         self.ppu.load(fh)?;
-        // self.apu.load(fh)?;
-        // self.mapper.load(fh)?;
+        {
+            let mut mapper = self.mapper.borrow_mut();
+            mapper.load(fh)?;
+        }
         Ok(())
     }
 }
