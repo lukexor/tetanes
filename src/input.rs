@@ -181,8 +181,18 @@ impl Input {
         match key {
             Keycode::Z => self.gamepad1.a = down,
             Keycode::X => self.gamepad1.b = down,
-            Keycode::A => self.turboa = down,
-            Keycode::S => self.turbob = down,
+            Keycode::A => {
+                self.turboa = down;
+                if !self.turboa {
+                    self.gamepad1.a = false;
+                }
+            }
+            Keycode::S => {
+                self.turbob = down;
+                if !self.turbob {
+                    self.gamepad1.b = false;
+                }
+            }
             Keycode::RShift => self.gamepad1.select = down,
             Keycode::Return => self.gamepad1.start = down,
             Keycode::Up => self.gamepad1.up = down,
