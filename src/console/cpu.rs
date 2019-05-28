@@ -220,11 +220,11 @@ impl Cpu {
             RRA => self.rra(target),          // ROR & ADC
             TAS => self.tas(target),          // STA & TXS
             SHY => self.shy(),                // Store Y & H in M
-            ARR => self.arr(),                // AND & ROR
+            ARR => self.arr(val, target),     // AND & ROR
             SRE => self.sre(target),          // LSR & EOR
-            ALR => self.alr(),                // AND & LSR
+            ALR => self.alr(val, target),     // AND & LSR
             RLA => self.rla(target),          // ROL & AND
-            ANC => self.anc(),                // AND & ASL
+            ANC => self.anc(val, target),     // AND & ASL
             SLO => self.slo(target),          // ASL & ORA
         };
         self.cycles - start_cycles
@@ -1294,9 +1294,10 @@ impl Cpu {
     fn shy(&mut self) {
         unimplemented!();
     }
-    // ARR: TODO
-    fn arr(&mut self) {
-        unimplemented!();
+    // ARR: Shortcut for AND then ROR
+    fn arr(&mut self, val: u8, target: Option<u16>) {
+        self.and(val);
+        self.ror(target);
     }
     // SRA: Shortcut for LSR then EOR
     fn sre(&mut self, target: Option<u16>) {
@@ -1304,9 +1305,10 @@ impl Cpu {
         let val = self.read_target(target);
         self.eor(val);
     }
-    // ALR: TODO
-    fn alr(&mut self) {
-        unimplemented!();
+    // ALR: Shortcut for AND then LSR
+    fn alr(&mut self, val: u8, target: Option<u16>) {
+        self.and(val);
+        self.lsr(target);
     }
     // RLA: Shortcut for ROL then AND
     fn rla(&mut self, target: Option<u16>) {
@@ -1314,9 +1316,10 @@ impl Cpu {
         let val = self.read_target(target);
         self.and(val);
     }
-    // anc: TODO
-    fn anc(&mut self) {
-        unimplemented!();
+    // anc: Shortcut for AND then ASL
+    fn anc(&mut self, val: u8, target: Option<u16>) {
+        self.and(val);
+        self.asl(target);
     }
     // SLO: Shortcut for ASL then ORA
     fn slo(&mut self, target: Option<u16>) {
