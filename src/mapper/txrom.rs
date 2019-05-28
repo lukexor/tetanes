@@ -10,9 +10,10 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-/// TxRom (Mapper 4)
+/// TxRom/MMC3 (Mapper 4)
 ///
 /// https://wiki.nesdev.com/w/index.php/TxROM
+/// https://wiki.nesdev.com/w/index.php/MMC3
 
 pub struct Txrom {
     cart: Cartridge,

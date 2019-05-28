@@ -9,7 +9,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-/// SxRom (Mapper 1/MMC1)
+/// SxRom/MMC1 (Mapper 1)
 ///
 /// http://wiki.nesdev.com/w/index.php/SxROM
 /// http://wiki.nesdev.com/w/index.php/MMC1

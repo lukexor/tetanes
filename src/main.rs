@@ -23,22 +23,24 @@ use structopt::StructOpt;
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
 struct Opt {
+    #[structopt(short = "d", long = "debug", help = "Debug")]
+    debug: bool,
+    #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
+    fullscreen: bool,
+    #[structopt(short = "l", long = "load", help = "Load Save State")]
+    load: Option<u8>,
+    #[structopt(
+        short = "s",
+        long = "scale",
+        default_value = "3",
+        help = "Window scale"
+    )]
+    scale: u32,
     #[structopt(
         parse(from_os_str),
         help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
     )]
     path: Option<PathBuf>,
-    #[structopt(
-        short = "s",
-        long = "scale",
-        default_value = "3",
-        help = "Window scale (options: 1, 2, or 3)"
-    )]
-    scale: u32,
-    #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
-    fullscreen: bool,
-    #[structopt(short = "d", long = "debug", help = "Debug")]
-    debug: bool,
 }
 
 #[derive(Debug, Fail)]
@@ -53,7 +55,8 @@ fn main() {
     let opt = Opt::from_args();
     let roms = find_roms(opt.path).unwrap_or_else(|e| err_exit(e));
     let mut ui = UI::init(roms, opt.scale, opt.debug).unwrap_or_else(|e| err_exit(e));
-    ui.run().unwrap_or_else(|e| err_exit(e));
+    ui.run(opt.fullscreen, opt.load)
+        .unwrap_or_else(|e| err_exit(e));
 }
 
 // Searches for valid NES rom files ending in `.nes`

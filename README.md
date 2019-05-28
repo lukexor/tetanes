@@ -3,12 +3,12 @@
 ## Summary
 
 `RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
-using Rust and SDL2.
+using [Rust][rust] and [SDL2][sdl2].
 
-It started as a personal curiosity project that turned into a project for two classes to demonstrate
+It started as a personal curiosity that turned into a project for two classes to demonstrate
 a proficiency in Rust and in digital sound production. It is still a work-in-progress, but I hope to
-continue development on it and complete it to satisfactory level to play most games. It's my hope to
-see a Rust emulator rise in popularity and compete with the popular C and C++ versions.
+transform it into a fully-featured NES emulator that can play most games. It is my hope to see
+a Rust emulator rise in popularity and compete with the more popular C and C++ versions.
 
 `RustyNES` is also meant to showcase how clean and readable low-level Rust programs can be in addition
 to them having the type and memory-safety guarantees that Rust is known for.
@@ -18,102 +18,60 @@ to them having the type and memory-safety guarantees that Rust is known for.
 <img src="https://github.com/lukexor/rustynes/blob/master/static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/rustynes/blob/master/static/super_mario_bros.png" width="400">
 <img src="https://github.com/lukexor/rustynes/blob/master/static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/rustynes/blob/master/static/metroid.png" width="400">
 
-## Features
-
-The following is a checklist of features and their progress:
-- [x] Console
-  - [x] NTSC
-  - [ ] PAL
-  - [ ] Dendy
-- [x] Central Processing Unit (CPU)
-  - [x] Official Instructions
-  - [x] Unofficial Instructions
-  - [x] Interrupts
-- [x] Picture Processing Unit (PPU)
-  - [x] VRAM
-  - [x] Background
-  - [x] Sprites
-  - [ ] Rastering effects
-- [x] Audio Processing Unit (APU)
-  - [ ] Delta Mulation Channel (DMC)
-- [x] Inputs
-  - [x] Keyboard
-  - [ ] Standard Controller
-  - [x] Turbo support
-- [x] Memory
-- [x] Cartridge Support
-  - [x] Battery-backed Save RAM
-  - [x] iNES Format
-  - [x] NES 2.0 Format (Can read headers, but many features still unsupported)
-  - [x] Mappers
-    - [x] NROM (Mapper 0)
-    - [x] SxROM (Mapper 1)
-    - [x] UxROM (Mapper 2)
-    - [x] CNROM (Mapper 3)
-    - [x] TxROM (Mapper 4)
-    - [ ] AxROM (Mapper 7)
-- [x] User Interface (UI)
-  - [x] Window
-  - [ ] Main Menu
-  - [x] Pause
-  - [x] Toggle Fullscreen
-  - [x] Reset
-  - [x] Power Cycle
-  - [x] Increase/Decrease Speed/Fast-forward
-  - [x] Save/Load State
-  - [x] Take Screenshots
-  - [ ] Toggle Recording
-  - [x] Toggle Sound
-  - [x] Toggle Debugger
-  - [ ] Custom Keybinds
-
 ## Supported Mappers
 
 Some of the more popular mappers are implemented with more to come!
 
-| #   | Name       | Example Games                             |
-| -   | ---------- | ----------------------------------------- |
-| 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros. |
-| 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris          |
-| 002 | UxROM      | Castlevania, Contra, Mega Man             |
-| 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream            |
+| #   | Name       | Example Games                                           |
+| -   | ---------- | --------------------------------------------------------|
+| 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros.               |
+| 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris                        |
+| 002 | UxROM      | Castlevania, Contra, Mega Man                           |
+| 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream                          |
+| 004 | TxROM/MMC3 | Kickle Cubicle, Kirby's Adventure, Super Maro Bros. 2/3 |
 
 ## Dependencies
 
-* [Rust](https://www.rust-lang.org/tools/install)
-* [SDL2](https://www.libsdl.org/)
+* [Rust][rust]
+* [SDL2][sdl2]
 
 ## Installation
 
 While this should work on any platform that supports Rust and SDL2, it's only being developed and
-tested on macOS at this time. I make no guarantees it'll work elsewhere.
+tested on macOS at this time. I make no guarantees it'll work elsewhere. Send me a line if it does
+work though and I'll update this section.
 
-* Install [Rust](https://www.rust-lang.org/tools/install)
-* Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) libraries
-* Download & install `RustyNES`:
+* Install [Rust][rust]
+* Install [SDL2][sdl2] libraries
+* Download & install `RustyNES`. Stable releases can be found on the `Releases` tab at the top of
+the page. To build directly from a release tag, follow these steps (Replace `<TAG>` with the
+appropraite release tag, e.g. v0.1.0):
 
         $ git clone https://github.com/lukexor/rustynes.git
         $ cd rustynes/
+        $ git checkout <TAG>
         $ cargo install --path ./
 
 This will install the `RustyNES` binary to your `cargo` bin directory located at either
 `$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on Windows.
 
-As long as that bin location is in your `$PATH` variable as outlined in the Rust installation, you
-should be able to start up a game ROM following the usage below.
+As long as that bin location is in your `$PATH` variable as outlined in the Rust install
+instructions, you should be able to start up a game ROM following the usage below.
 
-# Usage
+## Usage
 
 ```
 rustynes [FLAGS] [OPTIONS] [path]
 
 FLAGS:
+    -d, --debug         Debug
     -f, --fullscreen    Fullscreen
     -h, --help          Prints help information
     -V, --version       Prints version information
 
 OPTIONS:
-    -s, --scale <scale>    Window scale (options: 1, 2, or 3) [default: 3]
+    -l, --load <load>      Load Save State
+    -s, --scale <scale>    Window scale [default: 3]
 
 ARGS:
     <path>    The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
@@ -176,16 +134,70 @@ cargo run --release tests/cpu/nestest.nes
 
 ## Known Issues
 
-* Super Mario Bros 3 hangs at the title screen
-* Horizontal scrolling on Fester's Quest is glitchy
-* Mid-scanline updates don't work correctly
-* Mid-scanline palette changes don't work correctly
-* Likely many others - I haven't done a ton of extensive testing on games yet
+See the github issue tracker.
+
+## Roadmap
+
+The following is a checklist of features and their progress:
+- [x] Console
+  - [x] NTSC
+  - [ ] PAL
+  - [ ] Dendy
+- [x] Central Processing Unit (CPU)
+  - [x] Official Instructions
+  - [x] Unofficial Instructions (Not fully tested)
+  - [x] Interrupts
+- [x] Picture Processing Unit (PPU)
+  - [x] VRAM
+  - [x] Background
+  - [x] Sprites
+  - [ ] TV Raster Effects
+  - [ ] Emphasize RGB/Grayscale
+- [x] Audio Processing Unit (APU)
+  - [ ] Delta Mulation Channel (DMC)
+- [x] Inputs
+  - [x] Keyboard
+  - [ ] Standard Controller
+  - [x] Turbo support
+- [x] Memory
+- [x] Cartridge
+  - [x] Battery-backed Save RAM
+  - [x] iNES Format
+  - [x] NES 2.0 Format (Can read headers, but many features still unsupported)
+  - [x] Mappers
+    - [x] NROM (Mapper 0)
+    - [x] SxROM (Mapper 1)
+    - [x] UxROM (Mapper 2)
+    - [x] CNROM (Mapper 3)
+    - [x] TxROM (Mapper 4)
+    - [ ] AxROM (Mapper 7)
+    - [ ] PxROM (Mapper 9)
+- [x] User Interface (UI)
+  - [x] Window
+  - [ ] Main Menu
+  - [ ] Open/Run ROM with file browser
+  - [x] Pause
+  - [x] Toggle Fullscreen
+  - [x] Reset
+  - [x] Power Cycle
+  - [x] Increase/Decrease Speed/Fast-forward
+  - [x] Save/Load State
+  - [x] Take Screenshots
+  - [ ] Toggle Recording
+  - [x] Toggle Sound
+  - [x] Toggle Debugger
+  - [ ] Custom Keybinds
+  - [ ] Rewind
+  - [ ] Game Genie
+  - [ ] WideNES
 
 ## Documentation
 
+In addition to the wealth of information in the `docs` directory, I also referenced these websites
+extensively during development:
+
 * [NES Documentation (PDF)](http://nesdev.com/NESDoc.pdf)
-* [NES Reference Guide (Wiki)](http://wiki.nesdev.com/w/index.php/NES_reference_guide)
+* [NES Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
 
 ## License
 
@@ -193,17 +205,24 @@ cargo run --release tests/cpu/nestest.nes
 
 ## Contact
 
-For issue reporting, please use the github issue trackeer.
+For issue reporting, please use the github issue tracker. You can contact me directly
+[here](https://lukeworks.tech/contact/).
 
 ## Contributing
 
-While this is primarily a personal project, I welcome any contributions or advice. Feel free
-to submit a pull request if you want to help out!
+While this is primarily a personal project, I welcome any contributions or suggestions. Feel free to
+submit a pull request if you want to help out!
 
 ## Credits
 
-Implementation was inspiried by several NES projects:
+Implementation was inspiried by several amazing NES projects, without which I would not have been
+able to understand or digest all the information on the NES wiki.
+
 - https://github.com/fogleman/nes
 - https://github.com/pcwalton/sprocketnes
 - https://github.com/MichaelBurge/nes-emulator
 - https://github.com/AndreaOrru/LaiNES
+- https://github.com/daniel5151/ANESE
+
+[rust]: https://www.rust-lang.org/tools/install
+[sdl2]: https://www.libsdl.org/

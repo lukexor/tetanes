@@ -43,21 +43,35 @@ impl UI {
         })
     }
 
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run(&mut self, fullscreen: bool, load_slot: Option<u8>) -> Result<()> {
+        if let Some(slot) = load_slot {
+            self.state_slot = slot;
+        }
         if self.roms.len() == 1 {
             let rom = self.roms[0].clone();
-            self.play_game(rom)?;
+            self.play_game(rom, fullscreen, load_slot)?;
         } else {
             // TODO Menu view
         };
         Ok(())
     }
 
-    pub fn play_game(&mut self, rom: PathBuf) -> Result<()> {
+    pub fn play_game(
+        &mut self,
+        rom: PathBuf,
+        fullscreen: bool,
+        load_slot: Option<u8>,
+    ) -> Result<()> {
         let event_pump = self.window.event_pump.take().unwrap();
         let input = Rc::new(RefCell::new(Input::init(event_pump)));
         let mut console = Console::power_on(rom, input.clone())?;
         console.debug(self.debug);
+        if fullscreen {
+            self.window.toggle_fullscreen();
+        }
+        if let Some(slot) = load_slot {
+            console.load_state(slot)?;
+        }
         loop {
             if !self.paused {
                 let mut frames_to_run = (self.speed / DEFAULT_SPEED).floor() as usize;
