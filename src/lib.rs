@@ -1,10 +1,11 @@
 pub mod cartridge;
 pub mod console;
 pub mod disasm;
+pub mod filter;
 pub mod input;
 pub mod mapper;
 pub mod memory;
-mod serialization;
+pub mod serialization;
 pub mod ui;
 
 pub mod util {

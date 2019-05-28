@@ -51,7 +51,7 @@ impl Window {
         // Audio
         let audio_sub = context.audio().expect("sdl audio");
         let desired_spec = AudioSpecDesired {
-            freq: Some(SAMPLE_RATE),
+            freq: Some(SAMPLE_RATE as i32),
             channels: Some(1),
             samples: None,
         };

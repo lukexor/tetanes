@@ -11,14 +11,14 @@ use std::rc::Rc;
 
 mod window;
 
-const DEFAULT_FRAME_RATE: f64 = 60.0; // 60 Hz
-const MIN_FRAME_RATE: f64 = 15.0;
-const MAX_FRAME_RATE: f64 = 240.0;
+const DEFAULT_SPEED: f64 = 100.0; // 100% - 60 Hz
+const MIN_SPEED: f64 = 25.0; // 25% - 240 Hz
+const MAX_SPEED: f64 = 200.0; // 200% - 30 Hz
 
 pub struct UI {
     roms: Vec<PathBuf>,
     window: Window,
-    frame_rate: f64,
+    speed: f64,
     debug: bool,
     fastforward: bool,
     paused: bool,
@@ -34,7 +34,7 @@ impl UI {
         Ok(Self {
             roms,
             window: Window::with_scale(scale)?,
-            frame_rate: DEFAULT_FRAME_RATE,
+            speed: DEFAULT_SPEED,
             debug,
             fastforward: false,
             paused: false,
@@ -60,10 +60,16 @@ impl UI {
         console.debug(self.debug);
         loop {
             if !self.paused {
-                console.step_frame(self.frame_rate);
+                let mut frames_to_run = (self.speed / DEFAULT_SPEED).floor() as usize;
+                if frames_to_run == 0 {
+                    frames_to_run = 1;
+                }
+                for _ in 0..frames_to_run {
+                    console.step_frame();
+                }
                 self.window.render(&console.render());
 
-                if self.sound_enabled && self.frame_rate == DEFAULT_FRAME_RATE {
+                if self.sound_enabled {
                     self.window.enqueue_audio(&mut console.audio_samples());
                 } else {
                     console.audio_samples().clear();
@@ -78,22 +84,25 @@ impl UI {
                 Reset => console.reset(),
                 PowerCycle => console.power_cycle(),
                 IncSpeed => {
-                    if self.frame_rate < MAX_FRAME_RATE {
-                        self.frame_rate += 0.25 * DEFAULT_FRAME_RATE;
+                    if self.speed < MAX_SPEED {
+                        self.speed += 25.0;
+                        console.set_speed(self.speed / DEFAULT_SPEED);
                     }
                 }
                 DecSpeed => {
-                    if self.frame_rate > MIN_FRAME_RATE {
-                        self.frame_rate -= 0.25 * DEFAULT_FRAME_RATE;
+                    if self.speed > MIN_SPEED {
+                        self.speed -= 25.0;
+                        console.set_speed(self.speed / DEFAULT_SPEED);
                     }
                 }
                 FastForward => {
                     self.fastforward = !self.fastforward;
                     if self.fastforward {
-                        self.frame_rate = MIN_FRAME_RATE;
+                        self.speed = MAX_SPEED;
                     } else {
-                        self.frame_rate = DEFAULT_FRAME_RATE;
+                        self.speed = DEFAULT_SPEED;
                     }
+                    console.set_speed(self.speed / DEFAULT_SPEED);
                 }
                 SetState(slot) => self.state_slot = slot,
                 Save => console.save_state(self.state_slot)?,

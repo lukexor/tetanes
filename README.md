@@ -175,7 +175,6 @@ cargo run --release tests/cpu/nestest.nes
 
 ## Known Issues
 
-* Audio is silenced during increases or decreases in game speed
 * Super Mario Bros 3 hangs at the title screen
 * Horizontal scrolling on Fester's Quest is glitchy
 * Mid-scanline updates don't work correctly

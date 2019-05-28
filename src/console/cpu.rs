@@ -9,8 +9,12 @@ use crate::util::Result;
 use std::fmt;
 use std::io::{Read, Write};
 
+pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
+
 // 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
-// const CPU_CLOCK_FREQ: Frequency = 1_789_773.0;
+// http://forums.nesdev.com/viewtopic.php?p=223679#p223679
+pub const CPU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
+
 const NMI_ADDR: u16 = 0xFFFA;
 const IRQ_ADDR: u16 = 0xFFFE;
 const RESET_ADDR: u16 = 0xFFFC;

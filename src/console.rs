@@ -1,6 +1,7 @@
 //! An NES emulator
 
-pub use apu::{SAMPLES_SIZE, SAMPLE_RATE};
+pub use apu::{SAMPLE_BUFFER_SIZE, SAMPLE_RATE};
+pub use cpu::CPU_CLOCK_RATE;
 pub use ppu::{Image, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use crate::cartridge::RAM_SIZE;
@@ -19,9 +20,6 @@ pub mod apu;
 pub mod cpu;
 pub mod debugger;
 pub mod ppu;
-
-pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
-const CPU_FREQUENCY: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
 
 /// The NES Console
 ///
@@ -49,8 +47,8 @@ impl Console {
         Ok(())
     }
 
-    pub fn step_frame(&mut self, frame_rate: f64) {
-        self.cycles_remaining += (CPU_FREQUENCY / frame_rate) as i64;
+    pub fn step_frame(&mut self) {
+        self.cycles_remaining += (CPU_CLOCK_RATE / 60.0) as i64;
         while self.cycles_remaining > 0 {
             self.cycles_remaining -= self.step() as i64;
         }
@@ -80,6 +78,10 @@ impl Console {
         let mut input = self.cpu.mem.input.borrow_mut();
         let turbo = self.cpu.mem.ppu.frame() % 6 < 3;
         input.poll_events(turbo)
+    }
+
+    pub fn set_speed(&mut self, speed: f64) {
+        self.cpu.mem.apu.set_speed(speed);
     }
 
     fn step(&mut self) -> u64 {

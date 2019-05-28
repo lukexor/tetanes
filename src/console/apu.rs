@@ -1,16 +1,17 @@
-use crate::console::CPU_FREQUENCY;
+use crate::console::CPU_CLOCK_RATE;
+use crate::filter::{Filter, HiPassFilter, LoPassFilter};
 use crate::memory::Memory;
 use std::fmt;
 
-pub const SAMPLE_RATE: i32 = 44100; // in Hz
-pub const SAMPLES_SIZE: usize = (SAMPLE_RATE as usize / 60) * 2;
-const CYCLES_PER_SAMPLE: u64 = CPU_FREQUENCY as u64 / SAMPLE_RATE as u64;
+pub const SAMPLE_RATE: f64 = 96_000.0; // in Hz
+pub const SAMPLE_BUFFER_SIZE: usize = 4096;
 
 // Audio Processing Unit
 pub struct Apu {
-    cycle: u64,            // Current APU cycle = CPU cycle / 2
     pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_enabled: bool,     // Set by $4017 D6
+    clock_rate: f64,       // Same as CPU but is affected by speed changes
+    cycle: u64,            // Current APU cycle = CPU cycle / 2
     samples: Vec<f32>,     // Buffer of samples
     frame: FrameCounter,   // Clocks length, linear, sweep, and envelope units
     pulse1: Pulse,
@@ -18,7 +19,7 @@ pub struct Apu {
     triangle: Triangle,
     noise: Noise,
     dmc: DMC,
-    filter: Filter,
+    filters: [Box<Filter>; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
 }
@@ -36,24 +37,17 @@ enum FCMode {
     Step5,
 }
 
-struct Filter {
-    lowpass_out: f32,
-    highpass1_out: f32,
-    highpass1_prev: f32,
-    highpass2_out: f32,
-    highpass2_prev: f32,
-}
-
 impl Apu {
     const PULSE_TABLE_SIZE: usize = 31;
     const TND_TABLE_SIZE: usize = 203;
 
     pub fn new() -> Self {
         let mut apu = Self {
-            cycle: 0u64,
             irq_pending: false,
             irq_enabled: false,
-            samples: Vec::with_capacity(SAMPLES_SIZE),
+            cycle: 0u64,
+            clock_rate: CPU_CLOCK_RATE,
+            samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
             frame: FrameCounter {
                 step: 1u8,
                 counter: 0u16,
@@ -64,13 +58,11 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: DMC::new(),
-            filter: Filter {
-                lowpass_out: 0f32,
-                highpass1_out: 0f32,
-                highpass1_prev: 0f32,
-                highpass2_out: 0f32,
-                highpass2_prev: 0f32,
-            },
+            filters: [
+                Box::new(HiPassFilter::new(90.0, SAMPLE_RATE)),
+                Box::new(HiPassFilter::new(440.0, SAMPLE_RATE)),
+                Box::new(LoPassFilter::new(14_000.0, SAMPLE_RATE)),
+            ],
             pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
             tnd_table: [0f32; Self::TND_TABLE_SIZE],
         };
@@ -100,11 +92,18 @@ impl Apu {
             self.dmc.clock();
         }
         self.triangle.clock();
-        self.clock_frame_counter();
 
-        if self.cycle % CYCLES_PER_SAMPLE == 0 {
-            let sample = self.output();
-            let sample = self.apply_filter(sample);
+        // Clocks at 240 Hz
+        if self.cycle % (self.clock_rate / 240.0) as u64 == 0 {
+            self.clock_frame_counter();
+        }
+
+        if self.cycle % (self.clock_rate / SAMPLE_RATE) as u64 == 0 {
+            let mut sample = self.output();
+            for i in 0..self.filters.len() {
+                let filter = &mut self.filters[i];
+                sample = filter.process(sample);
+            }
             self.samples.push(sample);
         }
         self.cycle += 1;
@@ -114,22 +113,8 @@ impl Apu {
         &mut self.samples
     }
 
-    fn apply_filter(&mut self, sample: f32) -> f32 {
-        // low pass
-        self.filter.lowpass_out = (sample - self.filter.lowpass_out) * 0.815_686;
-
-        // highpass 1
-        self.filter.highpass1_out = self.filter.highpass1_out * 0.996_039 + self.filter.lowpass_out
-            - self.filter.highpass1_prev;
-        self.filter.highpass1_prev = self.filter.highpass1_out;
-
-        // highpass 2
-        self.filter.highpass2_out = self.filter.highpass2_out * 0.999_835
-            + self.filter.highpass1_out
-            - self.filter.highpass2_prev;
-        self.filter.highpass2_prev = self.filter.highpass2_out;
-
-        self.filter.highpass2_out
+    pub fn set_speed(&mut self, speed: f64) {
+        self.clock_rate = CPU_CLOCK_RATE * speed;
     }
 
     // Counts CPU clocks and determines when to clock quarter/half frames
