@@ -20,6 +20,7 @@ pub struct UI {
     window: Window,
     frame_rate: f64,
     debug: bool,
+    fastforward: bool,
     paused: bool,
     sound_enabled: bool,
     state_slot: u8,
@@ -35,6 +36,7 @@ impl UI {
             window: Window::with_scale(scale)?,
             frame_rate: DEFAULT_FRAME_RATE,
             debug,
+            fastforward: false,
             paused: false,
             sound_enabled: true,
             state_slot: 1u8,
@@ -85,8 +87,9 @@ impl UI {
                         self.frame_rate -= 0.25 * DEFAULT_FRAME_RATE;
                     }
                 }
-                FastForward(toggle) => {
-                    if toggle {
+                FastForward => {
+                    self.fastforward = !self.fastforward;
+                    if self.fastforward {
                         self.frame_rate = MIN_FRAME_RATE;
                     } else {
                         self.frame_rate = DEFAULT_FRAME_RATE;

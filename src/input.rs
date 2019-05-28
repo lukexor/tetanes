@@ -72,7 +72,7 @@ pub enum InputResult {
     PowerCycle,
     IncSpeed,
     DecSpeed,
-    FastForward(bool),
+    FastForward,
     SetState(u8),
     Save,
     Load,
@@ -140,7 +140,7 @@ impl Input {
                         Keycode::P if self.lctrl => PowerCycle,
                         Keycode::Equals if self.lctrl => IncSpeed,
                         Keycode::Minus if self.lctrl => DecSpeed,
-                        Keycode::Space => FastForward(true),
+                        Keycode::Space => FastForward,
                         Keycode::Num1 if self.lctrl => SetState(1),
                         Keycode::Num2 if self.lctrl => SetState(2),
                         Keycode::Num3 if self.lctrl => SetState(3),
@@ -166,7 +166,6 @@ impl Input {
                             self.lshift = false;
                             Continue
                         }
-                        Keycode::Space => FastForward(false),
                         _ => self.handle_gamepad_event(key, false),
                     },
                     _ => Continue,

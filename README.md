@@ -36,7 +36,7 @@ The following is a checklist of features and their progress:
 - [x] Audio Processing Unit (APU)
   - [ ] Delta Mulation Channel (DMC)
 - [x] Inputs
-  - [x] Keyboard (Missing Turbo)
+  - [x] Keyboard
   - [ ] Standard Controller
   - [x] Turbo support
 - [x] Memory
@@ -141,9 +141,9 @@ There are also some emulator actions:
 | Quit                  | Ctrl-Q           |                    |
 | Reset                 | Ctrl-R           |                    |
 | Power Cycle           | Ctrl-P           |                    |
-| Fast-Forward          | Space            | Right Stick Button |
 | Increase Speed 25%    | Ctrl-=           |                    |
 | Decrease Speed 25%    | Ctrl--           |                    |
+| Toggle Fast-Forward   | Space            | Right Stick Button |
 | Set State Slot        | Ctrl-(1-4)       |                    |
 | Save State            | Ctrl-S           |                    |
 | Load State            | Ctrl-L           |                    |
@@ -175,7 +175,12 @@ cargo run --release tests/cpu/nestest.nes
 
 ## Known Issues
 
-* Many - not much works yet besides a few title screens and some test ROMs
+* Audio is silenced during increases or decreases in game speed
+* Super Mario Bros 3 hangs at the title screen
+* Horizontal scrolling on Fester's Quest is glitchy
+* Mid-scanline updates don't work correctly
+* Mid-scanline palette changes don't work correctly
+* Likely many others - I haven't done a ton of extensive testing on games yet
 
 ## Documentation
 
