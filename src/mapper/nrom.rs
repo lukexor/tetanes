@@ -25,7 +25,7 @@ impl Nrom {
 }
 
 impl Mapper for Nrom {
-    fn irq_pending(&self) -> bool {
+    fn irq_pending(&mut self) -> bool {
         false
     }
     fn mirroring(&self) -> Mirroring {

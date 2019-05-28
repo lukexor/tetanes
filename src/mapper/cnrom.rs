@@ -35,7 +35,7 @@ impl Cnrom {
 }
 
 impl Mapper for Cnrom {
-    fn irq_pending(&self) -> bool {
+    fn irq_pending(&mut self) -> bool {
         false
     }
     fn mirroring(&self) -> Mirroring {

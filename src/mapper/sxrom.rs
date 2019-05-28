@@ -152,7 +152,7 @@ impl Sxrom {
 }
 
 impl Mapper for Sxrom {
-    fn irq_pending(&self) -> bool {
+    fn irq_pending(&mut self) -> bool {
         false
     }
     fn mirroring(&self) -> Mirroring {

@@ -35,7 +35,7 @@ impl Uxrom {
 }
 
 impl Mapper for Uxrom {
-    fn irq_pending(&self) -> bool {
+    fn irq_pending(&mut self) -> bool {
         false
     }
     fn mirroring(&self) -> Mirroring {

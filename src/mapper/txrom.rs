@@ -20,6 +20,7 @@ pub struct Txrom {
     cart: Cartridge,
     mirroring: Mirroring,
     irq_enable: bool,
+    irq_pending: bool,
     counter: u8,
     reload: u8,
     prg_mode: u8,
@@ -36,6 +37,7 @@ impl Txrom {
             cart,
             mirroring: Mirroring::Horizontal,
             irq_enable: false,
+            irq_pending: false,
             counter: 0u8,
             reload: 0u8,
             prg_mode: 0u8,
@@ -153,16 +155,21 @@ impl Txrom {
 }
 
 impl Mapper for Txrom {
-    fn irq_pending(&self) -> bool {
-        self.counter == 0 && self.irq_enable
+    fn irq_pending(&mut self) -> bool {
+        let irq = self.irq_pending;
+        self.irq_pending = false;
+        irq
     }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
     fn step(&mut self, ppu: &Ppu) {
-        if ppu.cycle == 280 && ppu.scanline <= VISIBLE_SCANLINE_END && ppu.rendering_enabled() {
+        if ppu.cycle == 260 && ppu.scanline <= VISIBLE_SCANLINE_END && ppu.rendering_enabled() {
             if self.counter > 0 {
                 self.counter -= 1;
+                if self.counter == 0 && self.irq_enable {
+                    self.irq_pending = true;
+                }
             } else {
                 self.counter = self.reload;
             }
