@@ -1,6 +1,6 @@
-//! NES Mappers
+//! NES Memory Mappers for Cartridges
 //!
-//! http://wiki.nesdev.com/w/index.php/Mapper
+//! [http://wiki.nesdev.com/w/index.php/Mapper]()
 
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
@@ -19,14 +19,16 @@ use sxrom::Sxrom;
 use txrom::Txrom;
 use uxrom::Uxrom;
 
-mod cnrom;
+pub mod cnrom;
 pub mod nrom;
-mod sxrom;
-mod txrom;
-mod uxrom;
+pub mod sxrom;
+pub mod txrom;
+pub mod uxrom;
 
+/// Alias for Mapper wrapped in a Rc/RefCell
 pub type MapperRef = Rc<RefCell<Mapper>>;
 
+/// Mapper trait requiring Memory + Send + Savable
 pub trait Mapper: Memory + Send + Savable {
     fn irq_pending(&self) -> bool;
     fn mirroring(&self) -> Mirroring;
@@ -51,7 +53,9 @@ pub fn load_rom(rom: PathBuf) -> Result<MapperRef> {
     }
 }
 
-// http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring
+/// Nametable Mirroring Mode
+///
+/// [http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring]()
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Mirroring {
     Horizontal,

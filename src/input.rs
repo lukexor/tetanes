@@ -1,3 +1,5 @@
+//! NES Controller Inputs
+
 use crate::memory::Memory;
 use crate::ui::EventPump;
 use sdl2::event::Event;
@@ -6,6 +8,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
+/// Alias for Input wrapped in a Rc/RefCell
 pub type InputRef = Rc<RefCell<Input>>;
 
 // The "strobe state": the order in which the NES reads the buttons.
@@ -18,6 +21,7 @@ const STROBE_DOWN: u8 = 5;
 const STROBE_LEFT: u8 = 6;
 const STROBE_RIGHT: u8 = 7;
 
+/// Represents an NES Joypad
 #[derive(Default, Debug)]
 struct Gamepad {
     left: bool,
@@ -52,6 +56,7 @@ impl Gamepad {
     }
 }
 
+/// Input containing gamepad input state
 #[derive(Default)]
 pub struct Input {
     gamepad1: Gamepad,
@@ -63,6 +68,7 @@ pub struct Input {
     lshift: bool,
 }
 
+/// Result of Input events
 pub enum InputResult {
     Continue,
     Quit,
@@ -87,6 +93,7 @@ pub enum InputResult {
 use InputResult::*;
 
 impl Input {
+    /// Returns an empty Input instance with no event pump
     pub fn new() -> Self {
         Self {
             gamepad1: Gamepad::default(),
@@ -99,6 +106,7 @@ impl Input {
         }
     }
 
+    /// Returns a valid Input instance with an SDL2 event pump
     pub fn init(event_pump: EventPump) -> Self {
         Self {
             gamepad1: Gamepad::default(),
@@ -111,6 +119,7 @@ impl Input {
         }
     }
 
+    /// Polls the SDL2 event pump and returns an InputResult
     pub fn poll_events(&mut self, turbo: bool) -> InputResult {
         if self.turboa {
             self.gamepad1.a = self.turboa && turbo;

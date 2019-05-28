@@ -1,3 +1,7 @@
+//! UxRom (Mapper 2)
+//!
+//! [https://wiki.nesdev.com/w/index.php/UxROM]()
+
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
@@ -9,10 +13,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-/// UxRom (Mapper 2)
-///
-/// https://wiki.nesdev.com/w/index.php/UxROM
-
+/// UXROM
 pub struct Uxrom {
     cart: Cartridge,
     prg_banks: u8,

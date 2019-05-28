@@ -1,9 +1,12 @@
+//! A Disassembler for the C6502 CPU
+
 use crate::console::cpu::{AddrMode, Operation, INSTRUCTIONS};
 use crate::memory::Memory;
 
 use AddrMode::*;
 use Operation::*;
 
+/// Disaassembles a single CPU instruction
 pub fn disassemble(mem: &mut Memory, pc: u16, x: u8, y: u8) -> (u8, String) {
     let opcode = mem.readb(pc);
     let instr = &INSTRUCTIONS[opcode as usize];

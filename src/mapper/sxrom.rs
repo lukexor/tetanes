@@ -1,3 +1,8 @@
+//! SxRom/MMC1 (Mapper 1)
+//!
+//! [http://wiki.nesdev.com/w/index.php/SxROM]()
+//! [http://wiki.nesdev.com/w/index.php/MMC1]()
+
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
@@ -9,11 +14,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-/// SxRom/MMC1 (Mapper 1)
-///
-/// http://wiki.nesdev.com/w/index.php/SxROM
-/// http://wiki.nesdev.com/w/index.php/MMC1
-
+/// SXROM
 pub struct Sxrom {
     cart: Cartridge,
     mirroring: Mirroring,

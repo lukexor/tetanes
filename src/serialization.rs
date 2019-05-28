@@ -1,7 +1,13 @@
+//! Serialization/Deserialization for internal game state
+//!
+//! Converts primative types and arrays of primatives from/to Big-Endian byte arrays and writes
+//! them to a file handle that implements Read/Write.
+
 use crate::util::Result;
 use std::io::Read;
 use std::io::Write;
 
+/// Savable trait
 pub trait Savable {
     fn save(&self, fh: &mut Write) -> Result<()>;
     fn load(&mut self, fh: &mut Read) -> Result<()>;

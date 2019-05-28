@@ -1,3 +1,5 @@
+//! Memory Map
+
 use crate::console::apu::Apu;
 use crate::console::ppu::Ppu;
 use crate::input::InputRef;
@@ -10,7 +12,6 @@ use std::io::{Read, Write};
 const WRAM_SIZE: usize = 2 * 1024;
 
 /// Memory Trait
-
 pub trait Memory: fmt::Debug {
     fn readb(&mut self, addr: u16) -> u8;
     fn writeb(&mut self, addr: u16, val: u8);
@@ -41,7 +42,7 @@ pub trait Memory: fmt::Debug {
 
 /// CPU Memory Map
 ///
-/// http://wiki.nesdev.com/w/index.php/CPU_memory_map
+/// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
 pub struct CpuMemMap {
     wram: [u8; WRAM_SIZE],
     pub ppu: Ppu,

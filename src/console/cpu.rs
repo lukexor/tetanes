@@ -1,6 +1,6 @@
-//! A 6502 NES Central Processing Unit
+//! A 6502 Central Processing Unit
 //!
-//! http://wiki.nesdev.com/w/index.php/CPU
+//! [http://wiki.nesdev.com/w/index.php/CPU]()
 
 use crate::console::debugger::Debugger;
 use crate::memory::{CpuMemMap, Memory};
@@ -45,7 +45,7 @@ const UNUSED_FLAG: u8 = 0x20;
 const OVERFLOW_FLAG: u8 = 0x40;
 const NEGATIVE_FLAG: u8 = 0x80;
 
-/// The Central Processing Unit
+/// The Central Processing Unit status and registers
 pub struct Cpu {
     pub mem: CpuMemMap,
     cycles: u64,              // total number of cycles ran

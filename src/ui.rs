@@ -1,3 +1,5 @@
+//! User Interface around the NES Console
+
 pub use sdl2::EventPump;
 
 use crate::console::Console;
@@ -15,6 +17,7 @@ const DEFAULT_SPEED: f64 = 100.0; // 100% - 60 Hz
 const MIN_SPEED: f64 = 25.0; // 25% - 240 Hz
 const MAX_SPEED: f64 = 200.0; // 200% - 30 Hz
 
+/// User Interface
 pub struct UI {
     roms: Vec<PathBuf>,
     window: Window,

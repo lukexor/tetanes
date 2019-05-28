@@ -1,3 +1,5 @@
+//! Window Management using SDL2
+
 use crate::console::Image;
 use crate::console::{SAMPLE_RATE, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::util::Result;
@@ -9,19 +11,22 @@ use sdl2::{video, EventPump};
 
 const DEFAULT_TITLE: &str = "RustyNES";
 
+/// A Window instance
 pub struct Window {
     pub event_pump: Option<EventPump>,
+    pub audio_device: AudioQueue<f32>,
     canvas: Canvas<video::Window>,
     texture: Texture<'static>,
-    pub audio_device: AudioQueue<f32>,
     _texture_creator: TextureCreator<video::WindowContext>,
 }
 
 impl Window {
+    /// Creates a new Window instance containing the necessary window, audio, and input components
+    /// used by the UI
     pub fn with_scale(scale: u32) -> Result<Self> {
         let context = sdl2::init().expect("sdl context");
 
-        // Window/Graphics
+        // Set up window canvas
         let video_sub = context.video().expect("sdl video subsystem");
         let window = video_sub
             .window(
@@ -48,7 +53,7 @@ impl Window {
             )
             .expect("sdl texture");
 
-        // Audio
+        // Set up Audio
         let audio_sub = context.audio().expect("sdl audio");
         let desired_spec = AudioSpecDesired {
             freq: Some(SAMPLE_RATE as i32),
@@ -60,18 +65,19 @@ impl Window {
             .expect("sdl audio queue");
         audio_device.resume();
 
-        // Input
+        // Set up Input event pump
         let event_pump = Some(context.event_pump().expect("sdl event_pump"));
 
         Ok(Self {
             event_pump,
+            audio_device,
             canvas,
             texture,
-            audio_device,
             _texture_creator: texture_creator,
         })
     }
 
+    /// Updates the Window canvas texture with the passed in pixel data
     pub fn render(&mut self, pixels: &Image) {
         self.texture
             .update(None, pixels, SCREEN_WIDTH * 3)
@@ -83,6 +89,7 @@ impl Window {
         self.canvas.present();
     }
 
+    /// Add audio samples to the audio queue
     pub fn enqueue_audio(&mut self, samples: &mut Vec<f32>) {
         let slice = samples.as_slice();
         self.audio_device.queue(&slice);
@@ -96,6 +103,7 @@ impl Window {
         samples.clear();
     }
 
+    /// Toggles fullscreen mode on the SDL2 window
     pub fn toggle_fullscreen(&mut self) {
         let state = self.canvas.window().fullscreen_state();
         if state == FullscreenType::Off {

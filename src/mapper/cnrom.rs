@@ -1,3 +1,8 @@
+//! CNROM (Mapper 3)
+//!
+//! [https://wiki.nesdev.com/w/index.php/CNROM]()
+//! [https://wiki.nesdev.com/w/index.php/INES_Mapper_003]()
+
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
@@ -8,11 +13,7 @@ use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-/// CNROM (Mapper 3)
-///
-/// https://wiki.nesdev.com/w/index.php/CNROM
-/// https://wiki.nesdev.com/w/index.php/INES_Mapper_003
-
+/// CNROM
 #[derive(Debug)]
 pub struct Cnrom {
     cart: Cartridge,

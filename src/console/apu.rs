@@ -1,3 +1,7 @@
+//! Audio Processing Unit
+//!
+//! [https://wiki.nesdev.com/w/index.php/APU]()
+
 use crate::console::CPU_CLOCK_RATE;
 use crate::filter::{Filter, HiPassFilter, LoPassFilter};
 use crate::memory::Memory;
@@ -6,7 +10,7 @@ use std::fmt;
 pub const SAMPLE_RATE: f64 = 96_000.0; // in Hz
 pub const SAMPLE_BUFFER_SIZE: usize = 4096;
 
-// Audio Processing Unit
+/// Audio Processing Unit
 pub struct Apu {
     pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_enabled: bool,     // Set by $4017 D6
@@ -24,7 +28,9 @@ pub struct Apu {
     tnd_table: [f32; Self::TND_TABLE_SIZE],
 }
 
-// https://wiki.nesdev.com/w/index.php/APU_Frame_Counter
+/// Frame Counter for the APU
+///
+/// [https://wiki.nesdev.com/w/index.php/APU_Frame_Counter]()
 struct FrameCounter {
     step: u8,     // The current step # of the 4-Step or 5-Step sequence
     counter: u16, // Counts CPU clocks until next step in the sequence

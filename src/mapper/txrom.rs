@@ -1,3 +1,8 @@
+//! TxRom/MMC3 (Mapper 4)
+//!
+//! [https://wiki.nesdev.com/w/index.php/TxROM]()
+//! [https://wiki.nesdev.com/w/index.php/MMC3]()
+
 use crate::cartridge::Cartridge;
 use crate::console::ppu::{Ppu, VISIBLE_SCANLINE_END};
 use crate::mapper::Mirroring;
@@ -10,11 +15,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-/// TxRom/MMC3 (Mapper 4)
-///
-/// https://wiki.nesdev.com/w/index.php/TxROM
-/// https://wiki.nesdev.com/w/index.php/MMC3
-
+/// TXROM
 pub struct Txrom {
     cart: Cartridge,
     mirroring: Mirroring,
@@ -153,11 +154,7 @@ impl Txrom {
 
 impl Mapper for Txrom {
     fn irq_pending(&self) -> bool {
-        if self.counter == 0 && self.irq_enable {
-            true
-        } else {
-            false
-        }
+        self.counter == 0 && self.irq_enable
     }
     fn mirroring(&self) -> Mirroring {
         self.mirroring

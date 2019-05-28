@@ -1,3 +1,5 @@
+//! Console Debugger
+
 use crate::console::cpu::{Cpu, Interrupt};
 
 pub struct Debugger {
@@ -241,8 +243,8 @@ impl Debugger {
             let line_len = line_data.len();
 
             let mut line = String::with_capacity(80);
-            for byte in 0..line_len {
-                line.push_str(&format!(" {:02X}", line_data[byte]));
+            for byte in line_data.iter() {
+                line.push_str(&format!(" {:02X}", byte));
             }
 
             if line_len % 16 > 0 {
@@ -264,7 +266,7 @@ impl Debugger {
                 line.push_str("|");
             }
             if last_line == line {
-                if last_line_same == false {
+                if !last_line_same {
                     last_line_same = true;
                     eprintln!("*");
                 }

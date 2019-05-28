@@ -1,4 +1,4 @@
-//! An NES Cartridge
+//! Handles reading NES Cartridge headers and ROMs
 
 use crate::serialization::Savable;
 use crate::util::Result;
@@ -23,6 +23,7 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
+    /// Creates an empty cartridge not loaded with any ROM
     pub fn new() -> Self {
         Self {
             rom_file: PathBuf::new(),
@@ -38,7 +39,7 @@ impl Cartridge {
     ///
     /// # Arguments
     ///
-    /// * `rom` - An object that implements AsRef<PAth> that holds the path to a valid '.nes' file
+    /// * `rom` - An object that implements AsRef<Path> that holds the path to a valid '.nes' file
     ///
     /// # Errors
     ///
@@ -65,6 +66,11 @@ impl Cartridge {
         let prg_ram = vec![0; RAM_SIZE];
         let sram = vec![0; RAM_SIZE];
 
+        eprintln!(
+            "Loaded `{}` - Mapper {}",
+            rom_file.display(),
+            header.mapper_num
+        );
         let cartridge = Self {
             rom_file,
             header,
@@ -73,10 +79,10 @@ impl Cartridge {
             prg_ram,
             sram,
         };
-        eprintln!("{:?}", cartridge);
         Ok(cartridge)
     }
 
+    /// Returns whether this cartridge has battery-backed Save RAM
     pub fn has_battery(&self) -> bool {
         self.header.flags & 0x02 == 0x02
     }
@@ -98,9 +104,10 @@ impl Savable for Cartridge {
 }
 
 /// Represents an iNES header
-// http://wiki.nesdev.com/w/index.php/INES
-// http://nesdev.com/NESDoc.pdf (page 28)
-// http://wiki.nesdev.com/w/index.php/NES_2.0
+///
+/// [http://wiki.nesdev.com/w/index.php/INES]()
+/// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
+/// [http://nesdev.com/NESDoc.pdf (page 28)]()
 #[derive(Default, Debug)]
 pub struct INesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
@@ -116,6 +123,7 @@ pub struct INesHeader {
 }
 
 impl INesHeader {
+    /// Returns an empty INesHeader not loaded with any data
     fn new() -> Self {
         Self {
             version: 1u8,
@@ -131,6 +139,7 @@ impl INesHeader {
         }
     }
 
+    /// Parses a slice of `u8` bytes and returns a valid INesHeader instance
     fn from_bytes(header: &[u8; 16]) -> Result<Self> {
         // Header checks
         if header[0..4] != *b"NES\x1a" {

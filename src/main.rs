@@ -9,12 +9,13 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
-use failure::{format_err, Error, Fail};
+use failure::{format_err, Error};
 use rustynes::ui::UI;
 use rustynes::util::Result;
-use std::{env, io, path::PathBuf};
+use std::{env, path::PathBuf};
 use structopt::StructOpt;
 
+/// Command-Line Options
 #[derive(StructOpt, Debug)]
 #[structopt(
     name = "nes",
@@ -43,14 +44,6 @@ struct Opt {
     path: Option<PathBuf>,
 }
 
-#[derive(Debug, Fail)]
-pub enum NesError {
-    #[fail(display = "{}: {}", _0, _1)]
-    Io(String, #[cause] io::Error),
-    #[fail(display = "{}", _0)]
-    Ui(String),
-}
-
 fn main() {
     let opt = Opt::from_args();
     let roms = find_roms(opt.path).unwrap_or_else(|e| err_exit(e));
@@ -71,7 +64,7 @@ fn find_roms(path: Option<PathBuf>) -> Result<Vec<PathBuf>> {
     if rom_path.is_dir() {
         rom_path
             .read_dir()
-            .map_err(|e| NesError::Io(format!("unable to read directory {:?}", rom_path), e))?
+            .map_err(|e| format_err!("unable to read directory {:?}: {}", rom_path, e))?
             .filter_map(|f| f.ok())
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .for_each(|f| roms.push(f.path()));

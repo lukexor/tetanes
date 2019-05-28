@@ -1,4 +1,4 @@
-//! An NES emulator
+//! Handles NES Control Deck operations
 
 pub use apu::{SAMPLE_BUFFER_SIZE, SAMPLE_RATE};
 pub use cpu::CPU_CLOCK_RATE;
@@ -21,9 +21,9 @@ pub mod cpu;
 pub mod debugger;
 pub mod ppu;
 
-/// The NES Console
+/// Represents the NES Control Deck
 ///
-/// Contains all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
+/// Manages all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
     cpu: Cpu,
     cycles_remaining: i64,
@@ -42,11 +42,7 @@ impl Console {
         Ok(console)
     }
 
-    pub fn power_off(&mut self) -> Result<()> {
-        self.save_sram()?;
-        Ok(())
-    }
-
+    /// Steps the console the number of instructions required to generate an entire frame
     pub fn step_frame(&mut self) {
         self.cycles_remaining += (CPU_CLOCK_RATE / 60.0) as i64;
         while self.cycles_remaining > 0 {
@@ -54,36 +50,50 @@ impl Console {
         }
     }
 
+    /// Powers off the console
+    pub fn power_off(&mut self) -> Result<()> {
+        self.save_sram()?;
+        Ok(())
+    }
+
+    /// Soft-resets the console
     pub fn reset(&mut self) {
         self.cpu.reset();
     }
 
+    /// Hard-resets the console
     pub fn power_cycle(&mut self) {
         self.cpu.power_cycle();
     }
 
+    /// Enable/Disable the debugger
     pub fn debug(&mut self, val: bool) {
         self.cpu.debug(val);
     }
 
+    /// Returns a rendered frame worth of data from the PPU
     pub fn render(&self) -> Image {
         self.cpu.mem.ppu.render()
     }
 
+    /// Returns a frame worth of audio samples from the APU
     pub fn audio_samples(&mut self) -> &mut Vec<f32> {
         self.cpu.mem.apu.samples()
     }
 
+    /// Process input events and return a result
     pub fn poll_events(&mut self) -> InputResult {
         let mut input = self.cpu.mem.input.borrow_mut();
         let turbo = self.cpu.mem.ppu.frame() % 6 < 3;
         input.poll_events(turbo)
     }
 
+    /// Changes the running speed of the console
     pub fn set_speed(&mut self, speed: f64) {
         self.cpu.mem.apu.set_speed(speed);
     }
 
+    /// Steps the console a single CPU instruction at a time
     fn step(&mut self) -> u64 {
         let cpu_cycles = self.cpu.step();
         for _ in 0..cpu_cycles * 3 {
@@ -111,6 +121,7 @@ impl Console {
         cpu_cycles
     }
 
+    /// Load the console with data saved from a save state
     pub fn load_state(&mut self, slot: u8) -> Result<()> {
         let rom_file = {
             let mapper = self.cpu.mem.mapper.borrow();
@@ -123,10 +134,12 @@ impl Console {
             })?;
             let mut reader = BufReader::new(save_file);
             self.load(&mut reader)?;
+            eprintln!("Loaded #{}", slot);
         }
         Ok(())
     }
 
+    /// Save the current state of the console into a save file
     pub fn save_state(&mut self, slot: u8) -> Result<()> {
         let mapper = self.cpu.mem.mapper.borrow();
         let rom_file = &mapper.cart().rom_file;
@@ -146,9 +159,11 @@ impl Console {
         })?;
         let mut writer = BufWriter::new(save_file);
         self.save(&mut writer)?;
+        eprintln!("Saved #{}", slot);
         Ok(())
     }
 
+    /// Load battery-backed Save RAM from a file (if cartridge supports it)
     fn load_sram(&mut self) -> Result<()> {
         let mut mapper = self.cpu.mem.mapper.borrow_mut();
         if mapper.cart().has_battery() {
@@ -168,6 +183,7 @@ impl Console {
         Ok(())
     }
 
+    /// Save battery-backed Save RAM to a file (if cartridge supports it)
     fn save_sram(&mut self) -> Result<()> {
         let mapper = self.cpu.mem.mapper.borrow();
         if mapper.cart().has_battery() {

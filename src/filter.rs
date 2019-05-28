@@ -1,9 +1,13 @@
+//! Contains the Filter Trait for both High Pass and Low Pass filters
+
 use std::f64::consts;
 
+/// Filter trait
 pub trait Filter {
     fn process(&mut self, sample: f32) -> f32;
 }
 
+/// High Pass Filter
 pub struct HiPassFilter {
     b0: f32,
     b1: f32,
@@ -35,6 +39,7 @@ impl Filter for HiPassFilter {
     }
 }
 
+/// Low Pass Filter
 pub struct LoPassFilter {
     b0: f32,
     b1: f32,

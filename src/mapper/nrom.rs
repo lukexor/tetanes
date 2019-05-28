@@ -1,3 +1,7 @@
+//! NROM (mapper 0)
+//!
+//! [http://wiki.nesdev.com/w/index.php/NROM]()
+
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
@@ -8,9 +12,7 @@ use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-/// NROM (mapper 0)
-///
-/// http://wiki.nesdev.com/w/index.php/NROM
+/// NROM
 #[derive(Debug)]
 pub struct Nrom {
     cart: Cartridge,

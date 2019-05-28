@@ -1,6 +1,6 @@
 //! Picture Processing Unit
 //!
-//! http://wiki.nesdev.com/w/index.php/PPU
+//! [http://wiki.nesdev.com/w/index.php/PPU]()
 
 use crate::mapper::{MapperRef, Mirroring};
 use crate::memory::Memory;
@@ -14,9 +14,9 @@ use std::ops::{Deref, DerefMut};
 pub type Image = [u8; RENDER_SIZE];
 pub const SCREEN_WIDTH: usize = 256;
 pub const SCREEN_HEIGHT: usize = 224;
+pub const RENDER_SIZE: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) * 3;
 const OVERSCAN_HEIGHT: usize = 240;
 const OVERSCAN_OFFSET: usize = (OVERSCAN_HEIGHT - SCREEN_HEIGHT) / 2 * SCREEN_WIDTH;
-pub const RENDER_SIZE: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) * 3;
 const PIXEL_COUNT: usize = SCREEN_WIDTH * OVERSCAN_HEIGHT;
 
 // Sizes
