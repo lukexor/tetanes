@@ -15,7 +15,8 @@ to them having the type and memory-safety guarantees that Rust is known for.
 
 ## Screenshots
 
-<img src="https://github.com/lukexor/rustynes/blob/master/static/donky_kong_title.png" width="300">  <img src="https://github.com/lukexor/rustynes/blob/master/static/mario_bros_title.png" width="300">
+<img src="https://github.com/lukexor/rustynes/blob/master/static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/rustynes/blob/master/static/super_mario_bros.png" width="400">
+<img src="https://github.com/lukexor/rustynes/blob/master/static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/rustynes/blob/master/static/metroid.png" width="400">
 
 ## Features
 
