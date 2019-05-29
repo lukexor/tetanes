@@ -25,7 +25,7 @@ pub mod ppu;
 ///
 /// Manages all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
-    cpu: Cpu,
+    cpu: Box<Cpu>,
     cycles_remaining: i64,
 }
 
@@ -34,8 +34,10 @@ impl Console {
     pub fn power_on(rom: PathBuf, input: InputRef) -> Result<Self> {
         let mapper = mapper::load_rom(rom)?;
         let cpu_memory = CpuMemMap::init(mapper, input);
+        let mut cpu = Box::new(Cpu::init(cpu_memory));
+        cpu.mem.apu.dmc.cpu = (&mut *cpu) as *mut Cpu; // TODO ugly work-around for DMC memory
         let mut console = Self {
-            cpu: Cpu::init(cpu_memory),
+            cpu,
             cycles_remaining: 0,
         };
         console.load_sram()?;

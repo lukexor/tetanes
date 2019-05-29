@@ -60,7 +60,7 @@ impl Debugger {
         self.break_type = Unset;
     }
 
-    pub fn on_step(&mut self, cpu: &mut Cpu, opcode: u8, num_args: u8, disasm: String) {
+    pub fn on_clock(&mut self, cpu: &mut Cpu, opcode: u8, num_args: u8, disasm: String) {
         if self.tracing && (self.break_type == Step || cpu.interrupt != Interrupt::None) {
             cpu.print_instruction(opcode, num_args, disasm);
         }

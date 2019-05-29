@@ -154,7 +154,7 @@ The following is a checklist of features and their progress:
   - [ ] TV Raster Effects
   - [ ] Emphasize RGB/Grayscale
 - [x] Audio Processing Unit (APU)
-  - [ ] Delta Mulation Channel (DMC)
+  - [x] Delta Mulation Channel (DMC)
 - [x] Inputs
   - [x] Keyboard
   - [ ] Standard Controller
@@ -166,12 +166,14 @@ The following is a checklist of features and their progress:
   - [x] NES 2.0 Format (Can read headers, but many features still unsupported)
   - [x] Mappers
     - [x] NROM (Mapper 0)
-    - [x] SxROM (Mapper 1)
+    - [x] SxROM/MMC1 (Mapper 1)
     - [x] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
-    - [x] TxROM (Mapper 4)
+    - [x] TxROM/MMC3 (Mapper 4)
+    - [ ] ExROM/MMC5 (Mapper 7)
     - [ ] AxROM (Mapper 7)
-    - [ ] PxROM (Mapper 9)
+    - [ ] PxROM/MMC2 (Mapper 9)
+    - [ ] FxROM/MMC4 (Mapper 10)
 - [x] User Interface (UI)
   - [x] Window
   - [ ] Main Menu

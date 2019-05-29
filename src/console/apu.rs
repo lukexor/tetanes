@@ -2,6 +2,7 @@
 //!
 //! [https://wiki.nesdev.com/w/index.php/APU]()
 
+use crate::console::cpu::Cpu;
 use crate::console::CPU_CLOCK_RATE;
 use crate::filter::{Filter, HiPassFilter, LoPassFilter};
 use crate::memory::Memory;
@@ -22,7 +23,7 @@ pub struct Apu {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
-    dmc: DMC,
+    pub dmc: DMC,
     filters: [Box<Filter>; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
@@ -247,7 +248,8 @@ impl Apu {
         if !self.noise.enabled {
             self.noise.length.counter = 0;
         }
-        if (val >> 4) & 1 == 1 {
+        let dmc_enabled = (val >> 4) & 1 == 1;
+        if dmc_enabled {
             if self.dmc.length == 0 {
                 self.dmc.length = self.dmc.length_load;
                 self.dmc.addr = self.dmc.addr_load;
@@ -636,7 +638,8 @@ impl Noise {
     }
 }
 
-struct DMC {
+pub struct DMC {
+    pub cpu: *mut Cpu,
     irq_enabled: bool,
     irq_pending: bool,
     loops: bool,
@@ -663,6 +666,7 @@ impl DMC {
     // TODO PAL
     fn new() -> Self {
         Self {
+            cpu: std::ptr::null_mut(),
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -694,9 +698,9 @@ impl DMC {
                     self.output -= 2;
                 }
             }
-            self.output_bits = self.output_bits.saturating_sub(1);
             self.output_shift >>= 1;
 
+            self.output_bits = self.output_bits.saturating_sub(1);
             if self.output_bits == 0 {
                 self.output_bits = 8;
                 self.output_shift = self.sample_buffer;
@@ -706,7 +710,8 @@ impl DMC {
         }
 
         if self.length > 0 && self.sample_buffer_empty {
-            // TODO self.sample_buffer = readDMAFromCPU;
+            let cpu: &mut Cpu = unsafe { &mut *self.cpu }; // TODO ugly work-around to access CPU
+            self.sample_buffer = cpu.readb(self.addr);
             self.sample_buffer_empty = false;
             self.addr = (self.addr + 1) | 0x8000;
             self.length -= 1;
@@ -736,14 +741,17 @@ impl DMC {
         }
     }
 
+    // $4011 DMC output
     fn write_output(&mut self, val: u8) {
         self.output = val >> 1;
     }
 
+    // $4012 DMC addr load
     fn write_addr_load(&mut self, val: u8) {
         self.addr_load = 0xC000 | (u16::from(val) << 6);
     }
 
+    // $4013 DMC length
     fn write_length(&mut self, val: u8) {
         self.length_load = (val << 4) + 1;
     }
