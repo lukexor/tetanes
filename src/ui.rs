@@ -1,12 +1,12 @@
 //! User Interface around the NES Console
 
-pub use sdl2::EventPump;
-
 use crate::console::Console;
-use crate::input::{Input, InputResult::*};
+use crate::input::{Input, InputRef};
 use crate::ui::window::Window;
 use crate::util::Result;
 use failure::format_err;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -65,8 +65,8 @@ impl UI {
         fullscreen: bool,
         load_slot: Option<u8>,
     ) -> Result<()> {
-        let event_pump = self.window.event_pump.take().unwrap();
-        let input = Rc::new(RefCell::new(Input::init(event_pump)));
+        let mut event_pump = self.window.event_pump.take().unwrap();
+        let input = Rc::new(RefCell::new(Input::new()));
         let mut console = Console::power_on(rom, input.clone())?;
         console.debug(self.debug);
         if fullscreen {
@@ -75,7 +75,70 @@ impl UI {
         if let Some(slot) = load_slot {
             console.load_state(slot)?;
         }
-        loop {
+        let mut lctrl = false;
+        let mut turbo = false;
+        'running: loop {
+            turbo = console.cpu.mem.ppu.frame() % 6 < 3;
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::Quit { .. } => break 'running,
+                    Event::KeyDown {
+                        keycode: Some(key), ..
+                    } => match key {
+                        Keycode::Escape => self.paused = !self.paused,
+                        Keycode::LCtrl => lctrl = true,
+                        Keycode::O if lctrl => eprintln!("Open not implemented"), // TODO
+                        Keycode::Q if lctrl => break 'running,
+                        Keycode::R if lctrl => console.reset(),
+                        Keycode::P if lctrl => console.power_cycle(),
+                        Keycode::Equals if lctrl => {
+                            if self.speed < MAX_SPEED {
+                                self.speed += 25.0;
+                                console.set_speed(self.speed / DEFAULT_SPEED);
+                            }
+                        }
+                        Keycode::Minus if lctrl => {
+                            if self.speed > MIN_SPEED {
+                                self.speed -= 25.0;
+                                console.set_speed(self.speed / DEFAULT_SPEED);
+                            }
+                        }
+                        Keycode::Space => {
+                            self.fastforward = !self.fastforward;
+                            if self.fastforward {
+                                self.speed = MAX_SPEED;
+                            } else {
+                                self.speed = DEFAULT_SPEED;
+                            }
+                            console.set_speed(self.speed / DEFAULT_SPEED);
+                        }
+                        Keycode::Num1 if lctrl => self.state_slot = 1,
+                        Keycode::Num2 if lctrl => self.state_slot = 2,
+                        Keycode::Num3 if lctrl => self.state_slot = 2,
+                        Keycode::Num4 if lctrl => self.state_slot = 3,
+                        Keycode::S if lctrl => console.save_state(self.state_slot)?,
+                        Keycode::L if lctrl => console.load_state(self.state_slot)?,
+                        Keycode::M if lctrl => self.sound_enabled = !self.sound_enabled,
+                        Keycode::V if lctrl => eprintln!("Recording not implemented"), // TODO
+                        Keycode::D if lctrl => {
+                            self.debug = !self.debug;
+                            console.debug(self.debug);
+                        }
+                        Keycode::Return if lctrl => self.window.toggle_fullscreen(),
+                        Keycode::F10 => crate::util::screenshot(&console.render()),
+                        Keycode::F9 => eprintln!("Logging not implemented"), // TODO
+                        _ => self.handle_gamepad_event(&input, key, true, turbo),
+                    },
+                    Event::KeyUp {
+                        keycode: Some(key), ..
+                    } => match key {
+                        Keycode::LCtrl => lctrl = false,
+                        _ => self.handle_gamepad_event(&input, key, false, turbo),
+                    },
+                    _ => (),
+                }
+            }
+
             if !self.paused {
                 let mut frames_to_run = (self.speed / DEFAULT_SPEED).floor() as usize;
                 if frames_to_run == 0 {
@@ -92,50 +155,26 @@ impl UI {
                     console.audio_samples().clear();
                 }
             }
-
-            match console.poll_events() {
-                Continue => (),
-                Quit => break,
-                Open => eprintln!("Open not implemented"), // TODO
-                Menu => self.paused = !self.paused,
-                Reset => console.reset(),
-                PowerCycle => console.power_cycle(),
-                IncSpeed => {
-                    if self.speed < MAX_SPEED {
-                        self.speed += 25.0;
-                        console.set_speed(self.speed / DEFAULT_SPEED);
-                    }
-                }
-                DecSpeed => {
-                    if self.speed > MIN_SPEED {
-                        self.speed -= 25.0;
-                        console.set_speed(self.speed / DEFAULT_SPEED);
-                    }
-                }
-                FastForward => {
-                    self.fastforward = !self.fastforward;
-                    if self.fastforward {
-                        self.speed = MAX_SPEED;
-                    } else {
-                        self.speed = DEFAULT_SPEED;
-                    }
-                    console.set_speed(self.speed / DEFAULT_SPEED);
-                }
-                SetState(slot) => self.state_slot = slot,
-                Save => console.save_state(self.state_slot)?,
-                Load => console.load_state(self.state_slot)?,
-                ToggleSound => self.sound_enabled = !self.sound_enabled,
-                ToggleFullscreen => self.window.toggle_fullscreen(),
-                ToggleDebug => {
-                    self.debug = !self.debug;
-                    console.debug(self.debug)
-                }
-                Screenshot => crate::util::screenshot(&console.render()),
-                ToggleRecord => eprintln!("Recording not implemented"), // TODO
-                CycleLogLevel => eprintln!("Logging not implemented"),  // TODO
-            }
         }
+
         console.power_off()?;
         Ok(())
+    }
+
+    fn handle_gamepad_event(&mut self, input: &InputRef, key: Keycode, down: bool, turbo: bool) {
+        let mut input = input.borrow_mut();
+        match key {
+            Keycode::Z => input.gamepad1.a = down,
+            Keycode::X => input.gamepad1.b = down,
+            Keycode::A => input.gamepad1.a = turbo && down,
+            Keycode::S => input.gamepad1.b = turbo && down,
+            Keycode::RShift => input.gamepad1.select = down,
+            Keycode::Return => input.gamepad1.start = down,
+            Keycode::Up => input.gamepad1.up = down,
+            Keycode::Down => input.gamepad1.down = down,
+            Keycode::Left => input.gamepad1.left = down,
+            Keycode::Right => input.gamepad1.right = down,
+            _ => {}
+        }
     }
 }

@@ -1,9 +1,6 @@
 //! NES Controller Inputs
 
 use crate::memory::Memory;
-use crate::ui::EventPump;
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
@@ -23,16 +20,16 @@ const STROBE_RIGHT: u8 = 7;
 
 /// Represents an NES Joypad
 #[derive(Default, Debug)]
-struct Gamepad {
-    left: bool,
-    right: bool,
-    up: bool,
-    down: bool,
-    a: bool,
-    b: bool,
-    select: bool,
-    start: bool,
-    strobe_state: u8,
+pub struct Gamepad {
+    pub left: bool,
+    pub right: bool,
+    pub up: bool,
+    pub down: bool,
+    pub a: bool,
+    pub b: bool,
+    pub select: bool,
+    pub start: bool,
+    pub strobe_state: u8,
 }
 
 impl Gamepad {
@@ -59,38 +56,11 @@ impl Gamepad {
 /// Input containing gamepad input state
 #[derive(Default)]
 pub struct Input {
-    gamepad1: Gamepad,
-    gamepad2: Gamepad,
-    event_pump: Option<EventPump>,
-    turboa: bool,
-    turbob: bool,
-    lctrl: bool,
-    lshift: bool,
+    pub gamepad1: Gamepad,
+    pub gamepad2: Gamepad,
+    pub turboa: bool,
+    pub turbob: bool,
 }
-
-/// Result of Input events
-pub enum InputResult {
-    Continue,
-    Quit,
-    Open,
-    Menu,
-    Reset,
-    PowerCycle,
-    IncSpeed,
-    DecSpeed,
-    FastForward,
-    SetState(u8),
-    Save,
-    Load,
-    ToggleSound,
-    ToggleDebug,
-    Screenshot,
-    ToggleRecord,
-    ToggleFullscreen,
-    CycleLogLevel,
-}
-
-use InputResult::*;
 
 impl Input {
     /// Returns an empty Input instance with no event pump
@@ -98,118 +68,9 @@ impl Input {
         Self {
             gamepad1: Gamepad::default(),
             gamepad2: Gamepad::default(),
-            event_pump: None,
             turboa: false,
             turbob: false,
-            lctrl: false,
-            lshift: false,
         }
-    }
-
-    /// Returns a valid Input instance with an SDL2 event pump
-    pub fn init(event_pump: EventPump) -> Self {
-        Self {
-            gamepad1: Gamepad::default(),
-            gamepad2: Gamepad::default(),
-            event_pump: Some(event_pump),
-            turboa: false,
-            turbob: false,
-            lctrl: false,
-            lshift: false,
-        }
-    }
-
-    /// Polls the SDL2 event pump and returns an InputResult
-    pub fn poll_events(&mut self, turbo: bool) -> InputResult {
-        if self.turboa {
-            self.gamepad1.a = self.turboa && turbo;
-        }
-        if self.turbob {
-            self.gamepad1.b = self.turbob && turbo;
-        }
-        if let Some(event_pump) = &mut self.event_pump {
-            if let Some(event) = event_pump.poll_event() {
-                let result = match event {
-                    Event::Quit { .. } => Quit,
-                    Event::KeyDown {
-                        keycode: Some(key), ..
-                    } => match key {
-                        Keycode::Escape => Menu,
-                        Keycode::LCtrl => {
-                            self.lctrl = true;
-                            Continue
-                        }
-                        Keycode::LShift => {
-                            self.lshift = true;
-                            Continue
-                        }
-                        Keycode::O if self.lctrl => Open,
-                        Keycode::Q if self.lctrl => Quit,
-                        Keycode::R if self.lctrl => Reset,
-                        Keycode::P if self.lctrl => PowerCycle,
-                        Keycode::Equals if self.lctrl => IncSpeed,
-                        Keycode::Minus if self.lctrl => DecSpeed,
-                        Keycode::Space => FastForward,
-                        Keycode::Num1 if self.lctrl => SetState(1),
-                        Keycode::Num2 if self.lctrl => SetState(2),
-                        Keycode::Num3 if self.lctrl => SetState(3),
-                        Keycode::Num4 if self.lctrl => SetState(4),
-                        Keycode::S if self.lctrl => Save,
-                        Keycode::L if self.lctrl => Load,
-                        Keycode::M if self.lctrl => ToggleSound,
-                        Keycode::V if self.lctrl => ToggleRecord,
-                        Keycode::D if self.lctrl => ToggleDebug,
-                        Keycode::Return if self.lctrl => ToggleFullscreen,
-                        Keycode::F10 => Screenshot,
-                        Keycode::F9 => CycleLogLevel,
-                        _ => self.handle_gamepad_event(key, true),
-                    },
-                    Event::KeyUp {
-                        keycode: Some(key), ..
-                    } => match key {
-                        Keycode::LCtrl => {
-                            self.lctrl = false;
-                            Continue
-                        }
-                        Keycode::LShift => {
-                            self.lshift = false;
-                            Continue
-                        }
-                        _ => self.handle_gamepad_event(key, false),
-                    },
-                    _ => Continue,
-                };
-                return result;
-            }
-        }
-        InputResult::Continue
-    }
-
-    fn handle_gamepad_event(&mut self, key: Keycode, down: bool) -> InputResult {
-        match key {
-            Keycode::Z => self.gamepad1.a = down,
-            Keycode::X => self.gamepad1.b = down,
-            Keycode::A => {
-                self.turboa = down;
-                if !self.turboa {
-                    self.gamepad1.a = false;
-                }
-            }
-            Keycode::S => {
-                self.turbob = down;
-                if !self.turbob {
-                    self.gamepad1.b = false;
-                }
-            }
-            Keycode::RShift => self.gamepad1.select = down,
-            Keycode::Return => self.gamepad1.start = down,
-            Keycode::Up => self.gamepad1.up = down,
-            Keycode::Down => self.gamepad1.down = down,
-            Keycode::Left => self.gamepad1.left = down,
-            Keycode::Right => self.gamepad1.right = down,
-            _ => {}
-        }
-        Continue
     }
 }
 

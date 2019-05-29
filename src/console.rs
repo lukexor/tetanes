@@ -5,7 +5,7 @@ pub use cpu::CPU_CLOCK_RATE;
 pub use ppu::{Image, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use crate::cartridge::RAM_SIZE;
-use crate::input::{InputRef, InputResult};
+use crate::input::InputRef;
 use crate::mapper;
 use crate::memory::CpuMemMap;
 use crate::serialization::Savable;
@@ -25,7 +25,7 @@ pub mod ppu;
 ///
 /// Manages all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
-    cpu: Box<Cpu>,
+    pub cpu: Box<Cpu>,
     cycles_remaining: i64,
 }
 
@@ -81,13 +81,6 @@ impl Console {
     /// Returns a frame worth of audio samples from the APU
     pub fn audio_samples(&mut self) -> &mut Vec<f32> {
         self.cpu.mem.apu.samples()
-    }
-
-    /// Process input events and return a result
-    pub fn poll_events(&mut self) -> InputResult {
-        let mut input = self.cpu.mem.input.borrow_mut();
-        let turbo = self.cpu.mem.ppu.frame() % 6 < 3;
-        input.poll_events(turbo)
     }
 
     /// Changes the running speed of the console
