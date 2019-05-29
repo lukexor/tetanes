@@ -51,8 +51,8 @@ impl Apu {
         let mut apu = Self {
             irq_pending: false,
             irq_enabled: false,
-            cycle: 0u64,
             clock_rate: CPU_CLOCK_RATE,
+            cycle: 0u64,
             samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
             frame: FrameCounter {
                 step: 1u8,
@@ -98,11 +98,7 @@ impl Apu {
             self.dmc.clock();
         }
         self.triangle.clock();
-
-        // Clocks at 240 Hz
-        if self.cycle % (self.clock_rate / 240.0) as u64 == 0 {
-            self.clock_frame_counter();
-        }
+        self.clock_frame_counter();
 
         if self.cycle % (self.clock_rate / SAMPLE_RATE) as u64 == 0 {
             let mut sample = self.output();
