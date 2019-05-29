@@ -22,13 +22,13 @@ to them having the type and memory-safety guarantees that Rust is known for.
 
 Some of the more popular mappers are implemented with more to come!
 
-| #   | Name       | Example Games                                           |
-| -   | ---------- | --------------------------------------------------------|
-| 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros.               |
-| 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris                        |
-| 002 | UxROM      | Castlevania, Contra, Mega Man                           |
-| 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream                          |
-| 004 | TxROM/MMC3 | Kickle Cubicle, Kirby's Adventure, Super Maro Bros. 2/3 |
+| #   | Name       | Example Games                                            |
+| -   | ---------- | ---------------------------------------------------------|
+| 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros.                |
+| 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris                         |
+| 002 | UxROM      | Castlevania, Contra, Mega Man                            |
+| 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream                           |
+| 004 | TxROM/MMC3 | Kickle Cubicle, Kirby's Adventure, Super Mario Bros. 2/3 |
 
 ## Dependencies
 
