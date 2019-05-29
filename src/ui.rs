@@ -82,7 +82,7 @@ impl UI {
                     frames_to_run = 1;
                 }
                 for _ in 0..frames_to_run {
-                    console.step_frame();
+                    console.clock_frame();
                 }
                 self.window.render(&console.render());
 

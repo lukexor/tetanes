@@ -32,7 +32,7 @@ pub type MapperRef = Rc<RefCell<Mapper>>;
 pub trait Mapper: Memory + Send + Savable {
     fn irq_pending(&mut self) -> bool;
     fn mirroring(&self) -> Mirroring;
-    fn step(&mut self, ppu: &Ppu);
+    fn clock(&mut self, ppu: &Ppu);
     fn cart(&self) -> &Cartridge;
     fn cart_mut(&mut self) -> &mut Cartridge;
 }

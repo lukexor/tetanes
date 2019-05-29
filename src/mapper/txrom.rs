@@ -4,7 +4,7 @@
 //! [https://wiki.nesdev.com/w/index.php/MMC3]()
 
 use crate::cartridge::Cartridge;
-use crate::console::ppu::{Ppu, VISIBLE_SCANLINE_END};
+use crate::console::ppu::{Ppu, PRERENDER_SCANLINE, VISIBLE_SCANLINE_END};
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::Memory;
@@ -163,16 +163,20 @@ impl Mapper for Txrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn step(&mut self, ppu: &Ppu) {
-        if ppu.cycle == 260 && ppu.scanline <= VISIBLE_SCANLINE_END && ppu.rendering_enabled() {
-            if self.counter > 0 {
-                self.counter -= 1;
-                if self.counter == 0 && self.irq_enable {
-                    self.irq_pending = true;
-                }
-            } else {
-                self.counter = self.reload;
+    fn clock(&mut self, ppu: &Ppu) {
+        if ppu.cycle != 280
+            || (ppu.scanline > VISIBLE_SCANLINE_END && ppu.scanline < PRERENDER_SCANLINE)
+            || !ppu.rendering_enabled()
+        {
+            return;
+        }
+        if self.counter > 0 {
+            self.counter -= 1;
+            if self.counter == 0 && self.irq_enable {
+                self.irq_pending = true;
             }
+        } else {
+            self.counter = self.reload;
         }
     }
     fn cart(&self) -> &Cartridge {

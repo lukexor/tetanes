@@ -45,7 +45,7 @@ impl Mapper for Cnrom {
             _ => panic!("invalid mirroring"),
         }
     }
-    fn step(&mut self, _ppu: &Ppu) {}
+    fn clock(&mut self, _ppu: &Ppu) {}
     fn cart(&self) -> &Cartridge {
         &self.cart
     }

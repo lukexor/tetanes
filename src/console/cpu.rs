@@ -20,7 +20,7 @@ const IRQ_ADDR: u16 = 0xFFFE;
 const RESET_ADDR: u16 = 0xFFFC;
 const POWER_ON_SP: u8 = 0xFD; // FD because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
-const POWER_ON_CYCLES: u64 = 7;
+const POWER_ON_CYCLE: u64 = 7;
 const SP_BASE: u16 = 0x100;
 
 // Status Registers
@@ -48,7 +48,7 @@ const NEGATIVE_FLAG: u8 = 0x80;
 /// The Central Processing Unit status and registers
 pub struct Cpu {
     pub mem: CpuMemMap,
-    cycles: u64,              // total number of cycles ran
+    pub cycle: u64,           // total number of cycles ran
     pub step: u64,            // total number of CPU instructions run
     stall: u64,               // number of cycles to stall/nop used mostly by write_oamdma
     pc: u16,                  // program counter
@@ -70,7 +70,7 @@ impl Cpu {
         let pc = mem.readw(RESET_ADDR);
         Self {
             mem,
-            cycles: POWER_ON_CYCLES,
+            cycle: POWER_ON_CYCLE,
             step: 0u64,
             stall: 0u64,
             pc,
@@ -88,13 +88,13 @@ impl Cpu {
         }
     }
 
-    /// Power cycles the CPU
+    /// Power cycle the CPU
     ///
     /// Updates all status as if powered on for the first time
     ///
-    /// These operations take the CPU 7 cycles.
+    /// These operations take the CPU 7 cycle.
     pub fn power_cycle(&mut self) {
-        self.cycles = POWER_ON_CYCLES;
+        self.cycle = POWER_ON_CYCLE;
         self.stall = 0u64;
         self.pc = self.mem.readw(RESET_ADDR);
         self.sp = POWER_ON_SP;
@@ -110,26 +110,30 @@ impl Cpu {
     ///
     /// Updates the PC, SP, and Status values to defined constants.
     ///
-    /// These operations take the CPU 7 cycles.
+    /// These operations take the CPU 7 cycle.
     pub fn reset(&mut self) {
         self.pc = self.mem.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_irq_disable(true);
-        self.cycles = 7;
+        self.cycle = 7;
     }
 
-    /// Runs the CPU the passed in number of cycles
-    pub fn step(&mut self) -> u64 {
+    /// Runs the CPU the passed in number of cycle
+    pub fn clock(&mut self) -> u64 {
         if self.stall > 0 {
             self.stall -= 1;
+            return 1;
         }
+
+        let start_cycle = self.cycle;
+
         match self.interrupt {
             Interrupt::IRQ => self.irq(),
             Interrupt::NMI => self.nmi(),
             _ => (),
         }
         self.interrupt = Interrupt::None;
-        let start_cycles = self.cycles;
+
         let opcode = self.readb(self.pc);
         let instr = &INSTRUCTIONS[opcode as usize];
         let (val, target, num_args, page_crossed, disasm) =
@@ -144,14 +148,16 @@ impl Cpu {
         if self.debugger.enabled() {
             let debugger: *mut Debugger = &mut self.debugger;
             let cpu: *mut Cpu = self;
-            unsafe { (*debugger).on_step(&mut (*cpu), opcode, num_args + 1, disasm) };
+            unsafe { (*debugger).on_clock(&mut (*cpu), opcode, num_args + 1, disasm) };
         }
+
         self.pc = self.pc.wrapping_add(1 + u16::from(num_args));
-        self.cycles += instr.cycles();
+        self.cycle += instr.cycle();
         self.step += 1;
         if page_crossed {
-            self.cycles += instr.page_cycles();
+            self.cycle += instr.page_cycles();
         }
+
         let val = val as u8;
         // Ordered by most often executed (roughly) to improve linear search time
         match instr.op() {
@@ -231,7 +237,7 @@ impl Cpu {
             ANC => self.anc(val, target),     // AND & ASL
             SLO => self.slo(target),          // ASL & ORA
         };
-        self.cycles - start_cycles
+        self.cycle - start_cycle
     }
 
     pub fn debug(&mut self, val: bool) {
@@ -260,7 +266,7 @@ impl Cpu {
         self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.status |= INTERRUPTD_FLAG;
         self.pc = self.mem.readw(IRQ_ADDR);
-        self.cycles = self.cycles.wrapping_add(7);
+        self.cycle = self.cycle.wrapping_add(7);
         self.set_irq_disable(true);
     }
 
@@ -278,7 +284,7 @@ impl Cpu {
         self.push_stackw(self.pc);
         self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.pc = self.mem.readw(NMI_ADDR);
-        self.cycles = self.cycles.wrapping_add(7);
+        self.cycle = self.cycle.wrapping_add(7);
         self.set_irq_disable(true);
     }
 
@@ -602,7 +608,7 @@ impl Cpu {
             addr = addr.saturating_add(1);
         }
         self.stall += 513; // +2 for every read/write and +1 dummy cycle
-        if self.cycles & 0x01 == 1 {
+        if self.cycle & 0x01 == 1 {
             // +1 cycle if on an odd cycle
             self.stall += 1;
         }
@@ -634,9 +640,9 @@ impl Cpu {
             self.sp,
             self.mem.ppu.cycle,
             self.mem.ppu.scanline,
-            self.cycles,
+            self.cycle,
         );
-        #[cfg(not(test))]
+        // #[cfg(not(test))]
         eprint!("{}", opstr);
         #[cfg(test)]
         self.nestestlog.push(opstr);
@@ -665,7 +671,7 @@ impl Memory for Cpu {
 impl Savable for Cpu {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.mem.save(fh)?;
-        self.cycles.save(fh)?;
+        self.cycle.save(fh)?;
         self.step.save(fh)?;
         self.stall.save(fh)?;
         self.pc.save(fh)?;
@@ -679,7 +685,7 @@ impl Savable for Cpu {
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.mem.load(fh)?;
-        self.cycles.load(fh)?;
+        self.cycle.load(fh)?;
         self.step.load(fh)?;
         self.stall.load(fh)?;
         self.pc.load(fh)?;
@@ -760,7 +766,7 @@ const REL: AddrMode = Relative;
 const ACC: AddrMode = Accumulator;
 const IMP: AddrMode = Implied;
 
-// (opcode, Operation, Addressing Mode, Cycles taken, extra cycles taken if page crossed)
+// (opcode, Operation, Addressing Mode, cycle taken, extra cycle taken if page crossed)
 pub struct Instruction(u8, Operation, AddrMode, u64, u64);
 
 #[rustfmt::skip]
@@ -868,7 +874,7 @@ impl Instruction {
     pub fn addr_mode(&self) -> AddrMode {
         self.2
     }
-    pub fn cycles(&self) -> u64 {
+    pub fn cycle(&self) -> u64 {
         self.3
     }
     pub fn page_cycles(&self) -> u64 {
@@ -1055,9 +1061,9 @@ impl Cpu {
     fn branch(&mut self, val: u8) {
         let old_pc = self.pc;
         self.pc = self.pc.wrapping_add((val as i8) as u16);
-        self.cycles += 1;
+        self.cycle += 1;
         if Cpu::pages_differ(self.pc, old_pc) {
-            self.cycles += 1;
+            self.cycle += 1;
         }
     }
     // BCC: Branch on Carry Clear
@@ -1343,7 +1349,7 @@ impl fmt::Debug for Cpu {
         write!(
             f,
             "CPU {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
-            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycles,
+            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycle,
         )
     }
 }
@@ -1379,7 +1385,7 @@ mod tests {
         let input = Rc::new(RefCell::new(Input::new()));
         let cpu_memory = CpuMemMap::init(mapper, input);
         let c = Cpu::init(cpu_memory);
-        assert_eq!(c.cycles, 7);
+        assert_eq!(c.cycle, 7);
         assert_eq!(c.pc, TEST_PC);
         assert_eq!(c.sp, POWER_ON_SP);
         assert_eq!(c.acc, 0);
@@ -1399,6 +1405,6 @@ mod tests {
         assert_eq!(c.pc, TEST_PC);
         assert_eq!(c.sp, POWER_ON_SP - 3);
         assert_eq!(c.status, POWER_ON_STATUS);
-        assert_eq!(c.cycles, 7);
+        assert_eq!(c.cycle, 7);
     }
 }

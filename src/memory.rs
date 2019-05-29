@@ -44,7 +44,7 @@ pub trait Memory: fmt::Debug {
 ///
 /// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
 pub struct CpuMemMap {
-    wram: [u8; WRAM_SIZE],
+    pub wram: [u8; WRAM_SIZE],
     pub ppu: Ppu,
     pub apu: Apu,
     pub mapper: MapperRef,

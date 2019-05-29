@@ -26,20 +26,20 @@ const SYSTEM_PALETTE_SIZE: usize = 64;
 const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 
 // Cycles
-const VISIBLE_CYCLE_START: u64 = 1;
-const VISIBLE_CYCLE_END: u64 = 256;
-const SPRITE_PREFETCH_CYCLE_START: u64 = 257;
-const COPY_Y_CYCLE_START: u64 = 280;
-const COPY_Y_CYCLE_END: u64 = 304;
-const PREFETCH_CYCLE_START: u64 = 321;
-const PREFETCH_CYCLE_END: u64 = 336;
-const PRERENDER_CYCLE_END: u64 = 339;
-const VISIBLE_SCANLINE_CYCLE_END: u64 = 340;
+const VISIBLE_CYCLE_START: u16 = 1;
+const VISIBLE_CYCLE_END: u16 = 256;
+const SPRITE_PREFETCH_CYCLE_START: u16 = 257;
+const COPY_Y_CYCLE_START: u16 = 280;
+const COPY_Y_CYCLE_END: u16 = 304;
+const PREFETCH_CYCLE_START: u16 = 321;
+const PREFETCH_CYCLE_END: u16 = 336;
+const PRERENDER_CYCLE_END: u16 = 339;
+const VISIBLE_SCANLINE_CYCLE_END: u16 = 340;
 
 // Scanlines
 pub const VISIBLE_SCANLINE_END: u16 = 239;
+pub const PRERENDER_SCANLINE: u16 = 261;
 const VBLANK_SCANLINE: u16 = 241;
-const PRERENDER_SCANLINE: u16 = 261;
 
 // PPUSCROLL masks
 // yyy NN YYYYY XXXXX
@@ -66,7 +66,7 @@ const PALETTE_START: u16 = 0x3F00;
 
 #[derive(Debug)]
 pub struct Ppu {
-    pub cycle: u64,        // (0, 340) 341 cycles happen per scanline
+    pub cycle: u16,        // (0, 340) 341 cycles happen per scanline
     pub scanline: u16,     // (0, 261) 262 total scanlines per frame
     pub nmi_pending: bool, // Whether the CPU should trigger an NMI next cycle
     regs: PpuRegs,         // Registers
@@ -79,7 +79,7 @@ pub struct Ppu {
 impl Ppu {
     pub fn init(mapper: MapperRef) -> Self {
         Self {
-            cycle: 0u64,
+            cycle: 0u16,
             scanline: 0u16,
             nmi_pending: false,
             regs: PpuRegs::new(),
@@ -107,13 +107,6 @@ impl Ppu {
     // target cycle to syncronize with the CPU
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
     pub fn clock(&mut self) {
-        if self.regs.nmi_delay > 0 {
-            self.regs.nmi_delay -= 1;
-            if self.regs.nmi_delay == 0 && self.nmi_enable() && self.vblank_started() {
-                self.nmi_pending = true;
-            }
-        }
-
         self.tick();
         self.render_scanline();
         if self.cycle == 1 {
@@ -181,12 +174,12 @@ impl Ppu {
                     self.regs.increment_x();
                 }
                 // Increment Fine Y when we reach the end of the screen
-                if self.cycle == SCREEN_WIDTH as u64 {
+                if self.cycle == SCREEN_WIDTH as u16 {
                     self.regs.increment_y();
                 }
                 // Copy X bits at the start of a new line since we're going to start writing
                 // new x values to t
-                if self.cycle == (SCREEN_WIDTH + 1) as u64 {
+                if self.cycle == (SCREEN_WIDTH + 1) as u16 {
                     self.regs.copy_x();
                 }
             }
@@ -232,10 +225,10 @@ impl Ppu {
         let mut bg_color = self.background_color();
         let (i, mut sprite_color) = self.sprite_color();
 
-        if x < 8 && !self.regs.mask.show_background() {
+        if x < 8 && !self.regs.mask.show_left_background() {
             bg_color = 0;
         }
-        if x < 8 && !self.regs.mask.show_sprites() {
+        if x < 8 && !self.regs.mask.show_left_sprites() {
             sprite_color = 0;
         }
         let bg_opaque = bg_color % 4 != 0;
@@ -344,6 +337,13 @@ impl Ppu {
     }
 
     fn tick(&mut self) {
+        if self.regs.nmi_delay > 0 {
+            self.regs.nmi_delay -= 1;
+            if self.regs.nmi_delay == 0 && self.nmi_enable() && self.vblank_started() {
+                self.nmi_pending = true;
+            }
+        }
+
         if self.rendering_enabled() {
             // Reached the end of a frame cycle
             // Jump to (0, 0) (Cycles, Scanline) and start on the next frame
@@ -580,8 +580,6 @@ impl Memory for Ppu {
     fn writeb(&mut self, addr: u16, val: u8) {
         // TODO emulate decay of open bus bits
         self.regs.open_bus = val;
-        // Write least sig bits to ppustatus since they're not written to
-        *self.regs.status |= val & 0x1F;
         match addr {
             0x2000 => self.write_ppuctrl(val),   // PPUCTRL
             0x2001 => self.write_ppumask(val),   // PPUMASK
@@ -695,7 +693,7 @@ impl PpuRegs {
             open_bus: 0,
             ctrl: PpuCtrl(0),
             mask: PpuMask(0),
-            status: PpuStatus(0x80),
+            status: PpuStatus(0),
             oamaddr: 0,
             nmi_delay: 0,
             nmi_previous: false,
@@ -739,7 +737,7 @@ impl PpuRegs {
     fn read_status(&mut self) -> u8 {
         self.reset_rw();
         // Include garbage from open bus
-        let status = self.status.read() | (self.open_bus & 0x1F);
+        let status = (self.status.read() & !0x1F) | (self.open_bus & 0x1F);
         self.nmi_change();
         status
     }
@@ -869,14 +867,13 @@ impl PpuRegs {
         let val = u16::from(val);
         if !self.w {
             // Write hi address on first write
-            let hi_bits_mask = 0xC0FF;
+            let hi_bits_mask = 0x80FF;
             let hi_lshift = 8;
             let six_bits_mask = 0x003F;
             // val: ..FEDCBA
             //    FEDCBA98 76543210
             // t: 00FEDCBA ........
-            self.t &= hi_bits_mask; // Empty bits 8-F
-            self.t |= (val & six_bits_mask) << hi_lshift; // Set hi 6 bits 8-E
+            self.t = (self.t & hi_bits_mask) | ((val & six_bits_mask) << hi_lshift);
         } else {
             // Write lo address on second write
             let lo_bits_mask = 0xFF00;
@@ -1342,7 +1339,12 @@ impl PpuMask {
     fn write(&mut self, val: u8) {
         self.0 = val;
     }
-
+    fn show_left_background(&self) -> bool {
+        self.0 & 0x02 > 0
+    }
+    fn show_left_sprites(&self) -> bool {
+        self.0 & 0x04 > 0
+    }
     fn show_background(&self) -> bool {
         self.0 & 0x08 > 0
     }

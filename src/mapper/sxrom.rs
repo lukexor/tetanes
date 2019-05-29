@@ -158,7 +158,7 @@ impl Mapper for Sxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn step(&mut self, _ppu: &Ppu) {}
+    fn clock(&mut self, _ppu: &Ppu) {}
     fn cart(&self) -> &Cartridge {
         &self.cart
     }

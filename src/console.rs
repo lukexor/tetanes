@@ -43,10 +43,10 @@ impl Console {
     }
 
     /// Steps the console the number of instructions required to generate an entire frame
-    pub fn step_frame(&mut self) {
+    pub fn clock_frame(&mut self) {
         self.cycles_remaining += (CPU_CLOCK_RATE / 60.0) as i64;
         while self.cycles_remaining > 0 {
-            self.cycles_remaining -= self.step() as i64;
+            self.cycles_remaining -= self.clock() as i64;
         }
     }
 
@@ -94,9 +94,10 @@ impl Console {
     }
 
     /// Steps the console a single CPU instruction at a time
-    fn step(&mut self) -> u64 {
-        let cpu_cycles = self.cpu.step();
-        for _ in 0..cpu_cycles * 3 {
+    fn clock(&mut self) -> u64 {
+        let cpu_cycles = self.cpu.clock();
+        let ppu_cycles = cpu_cycles * 3;
+        for _ in 0..ppu_cycles {
             self.cpu.mem.ppu.clock();
             if self.cpu.mem.ppu.nmi_pending {
                 self.cpu.trigger_nmi();
@@ -104,7 +105,7 @@ impl Console {
             }
             let irq_pending = {
                 let mut mapper = self.cpu.mem.mapper.borrow_mut();
-                mapper.step(&self.cpu.mem.ppu);
+                mapper.clock(&self.cpu.mem.ppu);
                 mapper.irq_pending()
             };
             if irq_pending {
@@ -258,7 +259,7 @@ mod tests {
 
         c.set_pc(NESTEST_ADDR);
         for _ in 0..NESTEST_LEN {
-            c.step();
+            c.clock();
         }
         let log = c.cpu.nestestlog.join("");
         fs::write(cpu_log, &log).expect("Failed to write nestest.log");
