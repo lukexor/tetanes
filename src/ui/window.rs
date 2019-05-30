@@ -6,15 +6,15 @@ use crate::util::Result;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture, TextureCreator};
-use sdl2::video::FullscreenType;
-use sdl2::{video, EventPump};
+use sdl2::video::{self, FullscreenType};
+use sdl2::{EventPump, GameControllerSubsystem};
 
 const DEFAULT_TITLE: &str = "RustyNES";
 
 /// A Window instance
 pub struct Window {
-    pub event_pump: Option<EventPump>,
-    pub audio_device: AudioQueue<f32>,
+    pub controller_sub: GameControllerSubsystem,
+    audio_device: AudioQueue<f32>,
     canvas: Canvas<video::Window>,
     texture: Texture<'static>,
     _texture_creator: TextureCreator<video::WindowContext>,
@@ -23,7 +23,7 @@ pub struct Window {
 impl Window {
     /// Creates a new Window instance containing the necessary window, audio, and input components
     /// used by the UI
-    pub fn with_scale(scale: u32) -> Result<Self> {
+    pub fn with_scale(scale: u32) -> Result<(Self, EventPump)> {
         let context = sdl2::init().expect("sdl context");
 
         // Set up window canvas
@@ -66,15 +66,17 @@ impl Window {
         audio_device.resume();
 
         // Set up Input event pump
-        let event_pump = Some(context.event_pump().expect("sdl event_pump"));
+        let event_pump = context.event_pump().expect("sdl event_pump");
+        let controller_sub = context.game_controller().expect("sdl controller_sub");
 
-        Ok(Self {
-            event_pump,
+        let window = Self {
+            controller_sub,
             audio_device,
             canvas,
             texture,
             _texture_creator: texture_creator,
-        })
+        };
+        Ok((window, event_pump))
     }
 
     /// Updates the Window canvas texture with the passed in pixel data

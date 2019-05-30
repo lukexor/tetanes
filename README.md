@@ -79,8 +79,6 @@ ARGS:
 
 ## Controls
 
-Controller support is not implemented yet.
-
 | Button                | Keyboard    | Controller |
 | --------------------- | ----------- | ---------- |
 | A                     | Z           | A          |
@@ -104,8 +102,8 @@ There are also some emulator actions:
 | Decrease Speed 25%    | Ctrl--           |                    |
 | Toggle Fast-Forward   | Space            | Right Stick Button |
 | Set State Slot        | Ctrl-(1-4)       |                    |
-| Save State            | Ctrl-S           |                    |
-| Load State            | Ctrl-L           |                    |
+| Save State            | Ctrl-S           | Left Shoulder      |
+| Load State            | Ctrl-L           | Right Shoulder     |
 | Toggle Music/Sound    | Ctrl-M           |                    |
 | Toggle Recording      | Ctrl-V           |                    |
 | Toggle Debugger       | Ctrl-D           |                    |
@@ -157,7 +155,7 @@ The following is a checklist of features and their progress:
   - [x] Delta Mulation Channel (DMC)
 - [x] Inputs
   - [x] Keyboard
-  - [ ] Standard Controller
+  - [x] Standard Controller
   - [x] Turbo support
 - [x] Memory
 - [x] Cartridge
