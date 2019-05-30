@@ -91,6 +91,19 @@ impl Savable for u64 {
     }
 }
 
+impl Savable for usize {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        fh.write_all(&self.to_be_bytes())?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut bytes = [0u8; 8];
+        fh.read_exact(&mut bytes)?;
+        *self = usize::from_be_bytes(bytes);
+        Ok(())
+    }
+}
+
 impl<T: Savable> Savable for [T] {
     fn save(&self, fh: &mut Write) -> Result<()> {
         let len: usize = self.len();
