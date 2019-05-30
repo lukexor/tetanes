@@ -27,6 +27,8 @@ pub struct Gamepad {
     pub down: bool,
     pub a: bool,
     pub b: bool,
+    pub turbo_a: bool,
+    pub turbo_b: bool,
     pub select: bool,
     pub start: bool,
     pub strobe_state: u8,
@@ -58,8 +60,6 @@ impl Gamepad {
 pub struct Input {
     pub gamepad1: Gamepad,
     pub gamepad2: Gamepad,
-    pub turboa: bool,
-    pub turbob: bool,
 }
 
 impl Input {
@@ -68,8 +68,6 @@ impl Input {
         Self {
             gamepad1: Gamepad::default(),
             gamepad2: Gamepad::default(),
-            turboa: false,
-            turbob: false,
         }
     }
 }

@@ -5,6 +5,7 @@ use crate::input::{Input, InputRef};
 use crate::ui::window::Window;
 use crate::util::Result;
 use failure::format_err;
+use sdl2::controller::Axis;
 use sdl2::controller::{Button, GameController};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -18,6 +19,7 @@ mod window;
 const DEFAULT_SPEED: f64 = 100.0; // 100% - 60 Hz
 const MIN_SPEED: f64 = 25.0; // 25% - 240 Hz
 const MAX_SPEED: f64 = 200.0; // 200% - 30 Hz
+const CONTROLLER_AXIS_DEADZONE: i16 = 8000;
 
 /// User Interface
 pub struct UI {
@@ -128,11 +130,17 @@ impl UI {
         let turbo = console.cpu.mem.ppu.frame() % 6 < 3;
         {
             let mut input = input.borrow_mut();
-            if input.turboa {
+            if input.gamepad1.turbo_a {
                 input.gamepad1.a = turbo;
             }
-            if input.turbob {
+            if input.gamepad1.turbo_b {
                 input.gamepad1.b = turbo;
+            }
+            if input.gamepad2.turbo_a {
+                input.gamepad2.a = turbo;
+            }
+            if input.gamepad2.turbo_b {
+                input.gamepad2.b = turbo;
             }
         }
         for event in event_pump.poll_iter() {
@@ -191,15 +199,50 @@ impl UI {
                     Keycode::LCtrl => self.lctrl = false,
                     _ => self.handle_keyboard_event(&input, key, false, turbo),
                 },
-                Event::ControllerButtonDown { button, .. } => match button {
+                Event::ControllerButtonDown { which, button, .. } => match button {
                     Button::LeftStick => self.toggle_menu(),
                     Button::RightStick => self.toggle_fastforward(console),
                     Button::LeftShoulder => console.save_state(self.state_slot)?,
                     Button::RightShoulder => console.load_state(self.state_slot)?,
-                    _ => self.handle_controller_event(&input, button, true, turbo),
+                    _ => self.handle_controller_event(&input, which, button, true, turbo),
                 },
-                Event::ControllerButtonUp { button, .. } => {
-                    self.handle_controller_event(&input, button, false, turbo)
+                Event::ControllerButtonUp { which, button, .. } => {
+                    self.handle_controller_event(&input, which, button, false, turbo)
+                }
+                Event::ControllerAxisMotion {
+                    which, axis, value, ..
+                } => {
+                    let mut input = input.borrow_mut();
+                    let mut gamepad = match which {
+                        0 => &mut input.gamepad1,
+                        1 => &mut input.gamepad2,
+                        _ => panic!("invalid controller id: {}", which),
+                    };
+                    match axis {
+                        // Left/Right
+                        Axis::LeftX => {
+                            if value < -CONTROLLER_AXIS_DEADZONE {
+                                gamepad.left = true;
+                            } else if value > CONTROLLER_AXIS_DEADZONE {
+                                gamepad.right = true;
+                            } else {
+                                gamepad.left = false;
+                                gamepad.right = false;
+                            }
+                        }
+                        // Down/Up
+                        Axis::LeftY => {
+                            if value < -CONTROLLER_AXIS_DEADZONE {
+                                gamepad.up = true;
+                            } else if value > CONTROLLER_AXIS_DEADZONE {
+                                gamepad.down = true;
+                            } else {
+                                gamepad.up = false;
+                                gamepad.down = false;
+                            }
+                        }
+                        _ => (),
+                    }
                 }
                 _ => (),
             }
@@ -228,11 +271,11 @@ impl UI {
             Keycode::Z => input.gamepad1.a = down,
             Keycode::X => input.gamepad1.b = down,
             Keycode::A => {
-                input.turboa = down;
+                input.gamepad1.turbo_a = down;
                 input.gamepad1.a = turbo && down;
             }
             Keycode::S => {
-                input.turbob = down;
+                input.gamepad1.turbo_b = down;
                 input.gamepad1.b = turbo && down;
             }
             Keycode::RShift => input.gamepad1.select = down,
@@ -248,28 +291,36 @@ impl UI {
     fn handle_controller_event(
         &mut self,
         input: &InputRef,
+        controller_id: i32,
         button: Button,
         down: bool,
         turbo: bool,
     ) {
         let mut input = input.borrow_mut();
+        let mut gamepad = match controller_id {
+            0 => &mut input.gamepad1,
+            1 => &mut input.gamepad2,
+            _ => panic!("invalid controller id: {}", controller_id),
+        };
         match button {
-            Button::A => input.gamepad1.a = down,
-            Button::B => input.gamepad1.b = down,
+            Button::A => {
+                gamepad.a = down;
+            }
+            Button::B => gamepad.b = down,
             Button::X => {
-                input.turboa = down;
-                input.gamepad1.a = turbo && down;
+                gamepad.turbo_a = down;
+                gamepad.a = turbo && down;
             }
             Button::Y => {
-                input.turbob = down;
-                input.gamepad1.b = turbo && down;
+                gamepad.turbo_b = down;
+                gamepad.b = turbo && down;
             }
-            Button::Back => input.gamepad1.select = down,
-            Button::Start => input.gamepad1.start = down,
-            Button::DPadUp => input.gamepad1.up = down,
-            Button::DPadDown => input.gamepad1.down = down,
-            Button::DPadLeft => input.gamepad1.left = down,
-            Button::DPadRight => input.gamepad1.right = down,
+            Button::Back => gamepad.select = down,
+            Button::Start => gamepad.start = down,
+            Button::DPadUp => gamepad.up = down,
+            Button::DPadDown => gamepad.down = down,
+            Button::DPadLeft => gamepad.left = down,
+            Button::DPadRight => gamepad.right = down,
             _ => {}
         }
     }
