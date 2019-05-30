@@ -204,46 +204,14 @@ impl UI {
                     Button::RightStick => self.toggle_fastforward(console),
                     Button::LeftShoulder => console.save_state(self.state_slot)?,
                     Button::RightShoulder => console.load_state(self.state_slot)?,
-                    _ => self.handle_controller_event(&input, which, button, true, turbo),
+                    _ => self.handle_controller_button(&input, which, button, true, turbo),
                 },
                 Event::ControllerButtonUp { which, button, .. } => {
-                    self.handle_controller_event(&input, which, button, false, turbo)
+                    self.handle_controller_button(&input, which, button, false, turbo)
                 }
                 Event::ControllerAxisMotion {
                     which, axis, value, ..
-                } => {
-                    let mut input = input.borrow_mut();
-                    let mut gamepad = match which {
-                        0 => &mut input.gamepad1,
-                        1 => &mut input.gamepad2,
-                        _ => panic!("invalid controller id: {}", which),
-                    };
-                    match axis {
-                        // Left/Right
-                        Axis::LeftX => {
-                            if value < -CONTROLLER_AXIS_DEADZONE {
-                                gamepad.left = true;
-                            } else if value > CONTROLLER_AXIS_DEADZONE {
-                                gamepad.right = true;
-                            } else {
-                                gamepad.left = false;
-                                gamepad.right = false;
-                            }
-                        }
-                        // Down/Up
-                        Axis::LeftY => {
-                            if value < -CONTROLLER_AXIS_DEADZONE {
-                                gamepad.up = true;
-                            } else if value > CONTROLLER_AXIS_DEADZONE {
-                                gamepad.down = true;
-                            } else {
-                                gamepad.up = false;
-                                gamepad.down = false;
-                            }
-                        }
-                        _ => (),
-                    }
-                }
+                } => self.handle_controller_axis(&input, which, axis, value, turbo),
                 _ => (),
             }
         }
@@ -288,7 +256,7 @@ impl UI {
         }
     }
 
-    fn handle_controller_event(
+    fn handle_controller_button(
         &mut self,
         input: &InputRef,
         controller_id: i32,
@@ -322,6 +290,65 @@ impl UI {
             Button::DPadLeft => gamepad.left = down,
             Button::DPadRight => gamepad.right = down,
             _ => {}
+        }
+    }
+
+    fn handle_controller_axis(
+        &mut self,
+        input: &InputRef,
+        controller_id: i32,
+        axis: Axis,
+        value: i16,
+        turbo: bool,
+    ) {
+        let mut input = input.borrow_mut();
+        let mut gamepad = match controller_id {
+            0 => &mut input.gamepad1,
+            1 => &mut input.gamepad2,
+            _ => panic!("invalid controller id: {}", controller_id),
+        };
+        match axis {
+            // Left/Right
+            Axis::LeftX => {
+                if value < -CONTROLLER_AXIS_DEADZONE {
+                    gamepad.left = true;
+                } else if value > CONTROLLER_AXIS_DEADZONE {
+                    gamepad.right = true;
+                } else {
+                    gamepad.left = false;
+                    gamepad.right = false;
+                }
+            }
+            // Down/Up
+            Axis::LeftY => {
+                if value < -CONTROLLER_AXIS_DEADZONE {
+                    gamepad.up = true;
+                } else if value > CONTROLLER_AXIS_DEADZONE {
+                    gamepad.down = true;
+                } else {
+                    gamepad.up = false;
+                    gamepad.down = false;
+                }
+            }
+            Axis::TriggerLeft => {
+                if value > CONTROLLER_AXIS_DEADZONE {
+                    gamepad.turbo_a = true;
+                    gamepad.a = turbo;
+                } else {
+                    gamepad.turbo_a = false;
+                    gamepad.a = false;
+                }
+            }
+            Axis::TriggerRight => {
+                if value > CONTROLLER_AXIS_DEADZONE {
+                    gamepad.turbo_b = true;
+                    gamepad.b = turbo;
+                } else {
+                    gamepad.turbo_b = false;
+                    gamepad.b = false;
+                }
+            }
+            _ => (),
         }
     }
 }

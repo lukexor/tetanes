@@ -79,15 +79,15 @@ ARGS:
 
 ## Controls
 
-| Button                | Keyboard    | Controller |
-| --------------------- | ----------- | ---------- |
-| A                     | Z           | A          |
-| B                     | X           | B          |
-| A (Turbo)             | A           | X          |
-| B (Turbo)             | S           | Y          |
-| Start                 | Enter       | Start      |
-| Select                | Right Shift | Select     |
-| Up, Down, Left, Right | Arrow Keys  | D-Pad      |
+| Button                | Keyboard    | Controller       |
+| --------------------- | ----------- | ---------------- |
+| A                     | Z           | A                |
+| B                     | X           | B                |
+| A (Turbo)             | A           | X/Left Trigger   |
+| B (Turbo)             | S           | Y/Right Trigger  |
+| Start                 | Enter       | Start            |
+| Select                | Right Shift | Select           |
+| Up, Down, Left, Right | Arrow Keys  | Left Stick/D-Pad |
 
 There are also some emulator actions:
 
