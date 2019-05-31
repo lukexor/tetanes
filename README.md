@@ -42,18 +42,21 @@ tested on macOS at this time. I make no guarantees it'll work elsewhere. Send me
 work though and I'll update this section.
 
 * Install [Rust][rust]
-* Install [SDL2][sdl2] libraries
+* Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) development libraries
+  * Linux and macOS should be straightforward
+  * Windows makes this a bit more complicated. Be sure to follow the above link carefully. For the simple case of using `rustup`, all of the files in `lib\` from the Visual C++ 32/64-bit development zip should go in your `C:\Users\{Your Username}\.rustup\toolchains\{current toolchain}\lib\rustlib\{current toolchain}\lib` directory (where the `{current toolchain}` will likely have `x86_64-pc-windows` in its name) and then a copy of `lib\SDl2.dll` needs to go in your `%USERPROFILE%\.cargo\bin` directory next to the `rustynes.exe` binary.
 * Download & install `RustyNES`. Stable releases can be found on the `Releases` tab at the top of
-the page. To build directly from a release tag, follow these steps (Replace `<TAG>` with the
-appropraite release tag, e.g. v0.1.0):
+the page. To build directly from a release tag, follow these steps:
 
         $ git clone https://github.com/lukexor/rustynes.git
         $ cd rustynes/
-        $ git checkout <TAG>
+        $ git checkout v0.2.0
         $ cargo install --path ./
 
-This will install the `RustyNES` binary to your `cargo` bin directory located at either
-`$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on Windows.
+This will install the `v0.2.0` tagged release of the `RustyNES` binary to your `cargo` bin directory located at either
+`$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on Windows. You can see which release tags are available by running this command:
+
+        $ git tag -l
 
 As long as that bin location is in your `$PATH` variable as outlined in the Rust install
 instructions, you should be able to start up a game ROM following the usage below.
