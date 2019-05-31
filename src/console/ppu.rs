@@ -90,6 +90,10 @@ impl Ppu {
         }
     }
 
+    pub fn load_mapper(&mut self, mapper: MapperRef) {
+        self.vram.mapper = mapper;
+    }
+
     pub fn reset(&mut self) {
         self.cycle = 0;
         self.scanline = 0;
@@ -1525,7 +1529,7 @@ mod tests {
 
         // Test 1st write to ppuaddr
         let addr_write: u8 = 0b0011_1101;
-        let t_result: u16 = 0b111_11_01011_01111;
+        let t_result: u16 = 0b011_11_01011_01111;
         ppu.writeb(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
@@ -1533,7 +1537,7 @@ mod tests {
 
         // Test 2nd write to ppuaddr
         let addr_write: u8 = 0b1111_0000;
-        let t_result: u16 = 0b111_11_01111_10000;
+        let t_result: u16 = 0b011_11_01111_10000;
         ppu.writeb(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.v, t_result);

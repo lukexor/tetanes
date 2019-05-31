@@ -197,7 +197,7 @@ In addition to the wealth of information in the `docs` directory, I also referen
 extensively during development:
 
 * [NES Documentation (PDF)](http://nesdev.com/NESDoc.pdf)
-* [NES Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
+* [NES Dev Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
 
 ## License
 

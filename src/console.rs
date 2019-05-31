@@ -13,7 +13,7 @@ use crate::util::{self, Result};
 use cpu::Cpu;
 use failure::format_err;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::{fmt, fs};
 
 pub mod apu;
@@ -26,36 +26,42 @@ pub mod ppu;
 /// Manages all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
     pub cpu: Box<Cpu>,
-    cycles_remaining: i64,
 }
 
 impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
-    pub fn power_on(rom: PathBuf, input: InputRef) -> Result<Self> {
-        let mapper = mapper::load_rom(rom)?;
-        let cpu_memory = CpuMemMap::init(mapper, input);
+    pub fn init(input: InputRef) -> Self {
+        let cpu_memory = CpuMemMap::init(input);
         let mut cpu = Box::new(Cpu::init(cpu_memory));
         cpu.mem.apu.dmc.cpu = (&mut *cpu) as *mut Cpu; // TODO ugly work-around for DMC memory
-        let mut console = Self {
-            cpu,
-            cycles_remaining: 0,
-        };
-        console.load_sram()?;
-        Ok(console)
+        Self { cpu }
     }
 
-    /// Steps the console the number of instructions required to generate an entire frame
-    pub fn clock_frame(&mut self) {
-        self.cycles_remaining += (CPU_CLOCK_RATE / 60.0) as i64;
-        while self.cycles_remaining > 0 {
-            self.cycles_remaining -= self.clock() as i64;
-        }
+    pub fn load_rom<P: AsRef<Path>>(&mut self, rom: P) -> Result<()> {
+        let mapper = mapper::load_rom(rom)?;
+        self.cpu.mem.load_mapper(mapper);
+        Ok(())
+    }
+
+    /// Powers on the console
+    pub fn power_on(&mut self) -> Result<()> {
+        self.cpu.power_on();
+        self.load_sram()?;
+        Ok(())
     }
 
     /// Powers off the console
     pub fn power_off(&mut self) -> Result<()> {
         self.save_sram()?;
         Ok(())
+    }
+
+    /// Steps the console the number of instructions required to generate an entire frame
+    pub fn clock_frame(&mut self) {
+        let mut cycles_remaining = (CPU_CLOCK_RATE / 60.0) as i64;
+        while cycles_remaining > 0 {
+            cycles_remaining -= self.clock() as i64;
+        }
     }
 
     /// Soft-resets the console
@@ -221,17 +227,6 @@ impl fmt::Debug for Console {
 }
 
 #[cfg(test)]
-impl Console {
-    pub fn set_pc(&mut self, addr: u16) {
-        self.cpu.set_pc(addr);
-    }
-
-    fn set_nestest(&mut self) {
-        self.cpu.set_nestest(true);
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::input::Input;
@@ -249,10 +244,12 @@ mod tests {
         let nestest_log = "tests/cpu/nestest.txt";
 
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut c = Console::power_on(rom, input).expect("powered on");
-        c.set_nestest();
+        let mut c = Console::init(input);
+        c.load_rom(rom).expect("loaded rom");
+        c.power_on().expect("powered on");
+        c.cpu.nestest = true;
 
-        c.set_pc(NESTEST_ADDR);
+        c.cpu.pc = NESTEST_ADDR;
         for _ in 0..NESTEST_LEN {
             c.clock();
         }
@@ -261,7 +258,7 @@ mod tests {
 
         let nestest = fs::read_to_string(nestest_log);
         assert!(nestest.is_ok(), "Read nestest");
-        let equal = log == nestest.unwrap();
+        let equal = if log == nestest.unwrap() { true } else { false };
         assert!(equal, "CPU log matches nestest");
     }
 }

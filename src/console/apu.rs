@@ -6,7 +6,10 @@ use crate::console::cpu::Cpu;
 use crate::console::CPU_CLOCK_RATE;
 use crate::filter::{Filter, HiPassFilter, LoPassFilter};
 use crate::memory::Memory;
+use crate::serialization::Savable;
+use crate::util::Result;
 use std::fmt;
+use std::io::{Read, Write};
 
 pub const SAMPLE_RATE: f64 = 96_000.0; // in Hz
 pub const SAMPLE_BUFFER_SIZE: usize = 4096;
@@ -27,21 +30,6 @@ pub struct Apu {
     filters: [Box<Filter>; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
-}
-
-/// Frame Counter for the APU
-///
-/// [https://wiki.nesdev.com/w/index.php/APU_Frame_Counter]()
-struct FrameCounter {
-    step: u8,     // The current step # of the 4-Step or 5-Step sequence
-    counter: u16, // Counts CPU clocks until next step in the sequence
-    mode: FCMode, // Either 4-Step sequence or 5-Step sequence
-}
-
-#[derive(PartialEq, Eq)]
-enum FCMode {
-    Step4,
-    Step5,
 }
 
 impl Apu {
@@ -325,6 +313,82 @@ impl Memory for Apu {
     }
 }
 
+impl Savable for Apu {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.irq_pending.save(fh)?;
+        self.irq_enabled.save(fh)?;
+        self.cycle.save(fh)?;
+        self.samples.save(fh)?;
+        self.frame.save(fh)?;
+        self.pulse1.save(fh)?;
+        self.pulse2.save(fh)?;
+        self.triangle.save(fh)?;
+        self.noise.save(fh)?;
+        self.dmc.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.irq_pending.load(fh)?;
+        self.irq_enabled.load(fh)?;
+        self.cycle.load(fh)?;
+        self.samples.load(fh)?;
+        self.frame.load(fh)?;
+        self.pulse1.load(fh)?;
+        self.pulse2.load(fh)?;
+        self.triangle.load(fh)?;
+        self.noise.load(fh)?;
+        self.dmc.load(fh)?;
+        Ok(())
+    }
+}
+
+/// Frame Counter for the APU
+///
+/// [https://wiki.nesdev.com/w/index.php/APU_Frame_Counter]()
+struct FrameCounter {
+    step: u8,     // The current step # of the 4-Step or 5-Step sequence
+    counter: u16, // Counts CPU clocks until next step in the sequence
+    mode: FCMode, // Either 4-Step sequence or 5-Step sequence
+}
+
+impl Savable for FrameCounter {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.step.save(fh)?;
+        self.counter.save(fh)?;
+        self.mode.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.step.load(fh)?;
+        self.counter.load(fh)?;
+        self.mode.load(fh)?;
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum FCMode {
+    Step4,
+    Step5,
+}
+
+impl Savable for FCMode {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => FCMode::Step4,
+            1 => FCMode::Step5,
+            _ => panic!("invalid FCMode value"),
+        };
+        Ok(())
+    }
+}
+
 struct Pulse {
     enabled: bool,
     duty_cycle: u8,        // Select row in DUTY_TABLE
@@ -335,12 +399,6 @@ struct Pulse {
     length: LengthCounter,
     envelope: Envelope,
     sweep: Sweep,
-}
-
-#[derive(PartialEq, Eq)]
-enum PulseChannel {
-    One,
-    Two,
 }
 
 impl Pulse {
@@ -454,8 +512,58 @@ impl Pulse {
         self.duty_counter = 0;
         self.envelope.reset = true;
         if self.enabled {
-            self.length.load(val);
+            self.length.load_value(val);
         }
+    }
+}
+
+impl Savable for Pulse {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.enabled.save(fh)?;
+        self.duty_cycle.save(fh)?;
+        self.duty_counter.save(fh)?;
+        self.freq_timer.save(fh)?;
+        self.freq_counter.save(fh)?;
+        self.channel.save(fh)?;
+        self.length.save(fh)?;
+        self.envelope.save(fh)?;
+        self.sweep.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.enabled.load(fh)?;
+        self.duty_cycle.load(fh)?;
+        self.duty_counter.load(fh)?;
+        self.freq_timer.load(fh)?;
+        self.freq_counter.load(fh)?;
+        self.channel.load(fh)?;
+        self.length.load(fh)?;
+        self.envelope.load(fh)?;
+        self.sweep.load(fh)?;
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum PulseChannel {
+    One,
+    Two,
+}
+
+impl Savable for PulseChannel {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => PulseChannel::One,
+            1 => PulseChannel::Two,
+            _ => panic!("invalid PulseChannel value"),
+        };
+        Ok(())
     }
 }
 
@@ -528,7 +636,7 @@ impl Triangle {
     fn write_linear_counter(&mut self, val: u8) {
         self.linear.control = (val >> 7) & 1 == 1; // D7
         self.length.enabled = (val >> 7) & 1 == 0; // !D7
-        self.linear.load(val);
+        self.linear.load_value(val);
     }
 
     fn write_timer_lo(&mut self, val: u8) {
@@ -540,8 +648,31 @@ impl Triangle {
         self.freq_counter = self.freq_timer;
         self.linear.reload = true;
         if self.enabled {
-            self.length.load(val);
+            self.length.load_value(val);
         }
+    }
+}
+
+impl Savable for Triangle {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.enabled.save(fh)?;
+        self.ultrasonic.save(fh)?;
+        self.step.save(fh)?;
+        self.freq_timer.save(fh)?;
+        self.freq_counter.save(fh)?;
+        self.length.save(fh)?;
+        self.linear.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.enabled.load(fh)?;
+        self.ultrasonic.load(fh)?;
+        self.step.load(fh)?;
+        self.freq_timer.load(fh)?;
+        self.freq_counter.load(fh)?;
+        self.length.load(fh)?;
+        self.linear.load(fh)?;
+        Ok(())
     }
 }
 
@@ -553,11 +684,6 @@ struct Noise {
     shift_mode: ShiftMode, // Zero (XOR bits 0 and 1) or One (XOR bits 0 and 6)
     length: LengthCounter,
     envelope: Envelope,
-}
-#[derive(PartialEq, Eq)]
-enum ShiftMode {
-    Zero,
-    One,
 }
 
 impl Noise {
@@ -632,9 +758,55 @@ impl Noise {
 
     fn write_length(&mut self, val: u8) {
         if self.enabled {
-            self.length.load(val);
+            self.length.load_value(val);
         }
         self.envelope.reset = true;
+    }
+}
+
+impl Savable for Noise {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.enabled.save(fh)?;
+        self.freq_timer.save(fh)?;
+        self.freq_counter.save(fh)?;
+        self.shift.save(fh)?;
+        self.shift_mode.save(fh)?;
+        self.length.save(fh)?;
+        self.envelope.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.enabled.load(fh)?;
+        self.freq_timer.load(fh)?;
+        self.freq_counter.load(fh)?;
+        self.shift.load(fh)?;
+        self.shift_mode.load(fh)?;
+        self.length.load(fh)?;
+        self.envelope.load(fh)?;
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum ShiftMode {
+    Zero,
+    One,
+}
+
+impl Savable for ShiftMode {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => ShiftMode::Zero,
+            1 => ShiftMode::One,
+            _ => panic!("invalid ShiftMode value"),
+        };
+        Ok(())
     }
 }
 
@@ -757,6 +929,45 @@ impl DMC {
     }
 }
 
+impl Savable for DMC {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.irq_enabled.save(fh)?;
+        self.irq_pending.save(fh)?;
+        self.loops.save(fh)?;
+        self.freq_timer.save(fh)?;
+        self.freq_counter.save(fh)?;
+        self.addr.save(fh)?;
+        self.addr_load.save(fh)?;
+        self.length.save(fh)?;
+        self.length_load.save(fh)?;
+        self.sample_buffer.save(fh)?;
+        self.sample_buffer_empty.save(fh)?;
+        self.output.save(fh)?;
+        self.output_bits.save(fh)?;
+        self.output_shift.save(fh)?;
+        self.output_silent.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.irq_enabled.load(fh)?;
+        self.irq_pending.load(fh)?;
+        self.loops.load(fh)?;
+        self.freq_timer.load(fh)?;
+        self.freq_counter.load(fh)?;
+        self.addr.load(fh)?;
+        self.addr_load.load(fh)?;
+        self.length.load(fh)?;
+        self.length_load.load(fh)?;
+        self.sample_buffer.load(fh)?;
+        self.sample_buffer_empty.load(fh)?;
+        self.output.load(fh)?;
+        self.output_bits.load(fh)?;
+        self.output_shift.load(fh)?;
+        self.output_silent.load(fh)?;
+        Ok(())
+    }
+}
+
 struct LengthCounter {
     enabled: bool,
     counter: u8, // Entry into LENGTH_TABLE
@@ -781,12 +992,25 @@ impl LengthCounter {
         }
     }
 
-    fn load(&mut self, val: u8) {
+    fn load_value(&mut self, val: u8) {
         self.counter = Self::LENGTH_TABLE[(val >> 3) as usize]; // D7..D3
     }
 
     fn write_control(&mut self, val: u8) {
         self.enabled = (val >> 5) & 1 == 0; // !D5
+    }
+}
+
+impl Savable for LengthCounter {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.enabled.save(fh)?;
+        self.counter.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.enabled.load(fh)?;
+        self.counter.load(fh)?;
+        Ok(())
     }
 }
 
@@ -807,8 +1031,25 @@ impl LinearCounter {
         }
     }
 
-    fn load(&mut self, val: u8) {
+    fn load_value(&mut self, val: u8) {
         self.load = val >> 1; // D6..D0
+    }
+}
+
+impl Savable for LinearCounter {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.reload.save(fh)?;
+        self.control.save(fh)?;
+        self.load.save(fh)?;
+        self.counter.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.reload.load(fh)?;
+        self.control.load(fh)?;
+        self.load.load(fh)?;
+        self.counter.load(fh)?;
+        Ok(())
     }
 }
 
@@ -858,6 +1099,27 @@ impl Envelope {
     }
 }
 
+impl Savable for Envelope {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.enabled.save(fh)?;
+        self.loops.save(fh)?;
+        self.reset.save(fh)?;
+        self.volume.save(fh)?;
+        self.constant_volume.save(fh)?;
+        self.counter.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.enabled.load(fh)?;
+        self.loops.load(fh)?;
+        self.reset.load(fh)?;
+        self.volume.load(fh)?;
+        self.constant_volume.load(fh)?;
+        self.counter.load(fh)?;
+        Ok(())
+    }
+}
+
 struct Sweep {
     enabled: bool,
     reload: bool,
@@ -867,6 +1129,27 @@ struct Sweep {
     shift: u8,
 }
 
+impl Savable for Sweep {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.enabled.save(fh)?;
+        self.reload.save(fh)?;
+        self.negate.save(fh)?;
+        self.timer.save(fh)?;
+        self.counter.save(fh)?;
+        self.shift.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.enabled.load(fh)?;
+        self.reload.load(fh)?;
+        self.negate.load(fh)?;
+        self.timer.load(fh)?;
+        self.counter.load(fh)?;
+        self.shift.load(fh)?;
+        Ok(())
+    }
+}
+
 impl Default for Apu {
     fn default() -> Self {
         Self::new()
@@ -874,7 +1157,7 @@ impl Default for Apu {
 }
 
 impl fmt::Debug for Apu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(f, "APU {{ cyc: {} }}", self.cycle)
     }
 }

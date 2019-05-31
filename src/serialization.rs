@@ -78,6 +78,19 @@ impl Savable for u32 {
     }
 }
 
+impl Savable for f32 {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.to_bits().save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u32;
+        val.load(fh)?;
+        *self = f32::from_bits(val);
+        Ok(())
+    }
+}
+
 impl Savable for u64 {
     fn save(&self, fh: &mut Write) -> Result<()> {
         fh.write_all(&self.to_be_bytes())?;
@@ -87,6 +100,19 @@ impl Savable for u64 {
         let mut bytes = [0u8; 8];
         fh.read_exact(&mut bytes)?;
         *self = u64::from_be_bytes(bytes);
+        Ok(())
+    }
+}
+
+impl Savable for f64 {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.to_bits().save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u64;
+        val.load(fh)?;
+        *self = f64::from_bits(val);
         Ok(())
     }
 }

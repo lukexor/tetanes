@@ -23,20 +23,21 @@ pub struct Window {
 impl Window {
     /// Creates a new Window instance containing the necessary window, audio, and input components
     /// used by the UI
-    pub fn with_scale(scale: u32) -> Result<(Self, EventPump)> {
+    pub fn init(scale: usize, fullscreen: bool) -> Result<(Self, EventPump)> {
         let context = sdl2::init().expect("sdl context");
 
         // Set up window canvas
         let video_sub = context.video().expect("sdl video subsystem");
-        let window = video_sub
-            .window(
-                DEFAULT_TITLE,
-                SCREEN_WIDTH as u32 * scale,
-                SCREEN_HEIGHT as u32 * scale,
-            )
-            .position_centered()
-            .build()
-            .expect("sdl window");
+        let mut window_builder = video_sub.window(
+            DEFAULT_TITLE,
+            (SCREEN_WIDTH * scale) as u32,
+            (SCREEN_HEIGHT * scale) as u32,
+        );
+        window_builder.position_centered();
+        if fullscreen {
+            window_builder.fullscreen();
+        }
+        let window = window_builder.build().expect("sdl window");
         let canvas = window
             .into_canvas()
             .accelerated()
@@ -92,9 +93,8 @@ impl Window {
     }
 
     /// Add audio samples to the audio queue
-    pub fn enqueue_audio(&mut self, samples: &mut Vec<f32>) {
-        let slice = samples.as_slice();
-        self.audio_device.queue(&slice);
+    pub fn enqueue_audio(&mut self, samples: &[f32]) {
+        self.audio_device.queue(samples);
         // Keep audio in sync
         loop {
             let latency = self.audio_device.size() as f32 / SAMPLE_RATE as f32;
@@ -102,7 +102,6 @@ impl Window {
                 break;
             }
         }
-        samples.clear();
     }
 
     /// Toggles fullscreen mode on the SDL2 window

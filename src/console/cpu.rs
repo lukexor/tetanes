@@ -50,8 +50,8 @@ pub struct Cpu {
     pub mem: CpuMemMap,
     pub cycle: u64,           // total number of cycles ran
     pub step: u64,            // total number of CPU instructions run
+    pub pc: u16,              // program counter
     stall: u64,               // number of cycles to stall/nop used mostly by write_oamdma
-    pc: u16,                  // program counter
     sp: u8,                   // stack pointer - stack is at $0100-$01FF
     acc: u8,                  // accumulator
     x: u8,                    // x register
@@ -60,7 +60,7 @@ pub struct Cpu {
     pub interrupt: Interrupt, // Pending interrupt
     debugger: Debugger,
     #[cfg(test)]
-    nestest: bool,
+    pub nestest: bool,
     #[cfg(test)]
     pub nestestlog: Vec<String>,
 }
@@ -86,6 +86,10 @@ impl Cpu {
             #[cfg(test)]
             nestestlog: Vec::with_capacity(10000),
         }
+    }
+
+    pub fn power_on(&mut self) {
+        self.pc = self.mem.readw(RESET_ADDR);
     }
 
     /// Power cycle the CPU
@@ -428,7 +432,16 @@ impl Cpu {
         // ST* instructions should not read memory as it adversly affects the
         // PPU state
         let read = match instr.op() {
-            STA | STX | STY => false,
+            STA | STX | STY => {
+                #[cfg(test)]
+                {
+                    true
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            }
             _ => true,
         };
 
@@ -446,7 +459,6 @@ impl Cpu {
             ZeroPage => {
                 let addr = u16::from(self.readb(addr));
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                // let vald = u16::from(self.readb(addr));
                 let disasm = { format!("{:?} ${:02X} = {:02X}", instr, addr, val) };
                 (val, Some(addr), 1, false, disasm)
             }
@@ -456,7 +468,6 @@ impl Cpu {
                 let disasm = if instr.op() == JMP || instr.op() == JSR {
                     format!("{:?} ${:04X}", instr, addr)
                 } else {
-                    // let vald = u16::from(self.readb(addr));
                     format!("{:?} ${:04X} = {:02X}", instr, addr, val)
                 };
                 (val, Some(addr), 2, false, disasm)
@@ -498,7 +509,6 @@ impl Cpu {
                     self.readb(addr);
                 }
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                // let vald = u16::from(self.readb(addr));
                 let page_crossed = Cpu::pages_differ(addr0, addr);
                 let disasm = format!("{:?} ${:04X},X @ {:04X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 2, page_crossed, disasm)
@@ -513,7 +523,6 @@ impl Cpu {
                     self.readb(dummy_addr);
                 }
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                // let vald = u16::from(self.readb(addr));
                 let page_crossed = Cpu::pages_differ(addr_zp, addr);
                 let disasm = format!(
                     "{:?} (${:02X}),Y = {:04X} @ {:04X} = {:02X}",
@@ -530,7 +539,6 @@ impl Cpu {
                     self.readb(dummy_addr);
                 }
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                // let vald = u16::from(self.readb(addr));
                 let page_crossed = Cpu::pages_differ(addr0, addr);
                 let disasm = format!("{:?} ${:04X},Y @ {:04X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 2, page_crossed, disasm)
@@ -539,7 +547,6 @@ impl Cpu {
                 let addr0 = self.readb(addr);
                 let addr = u16::from(addr0.wrapping_add(self.x));
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                // let vald = u16::from(self.readb(addr));
                 let disasm = format!("{:?} ${:02X},X @ {:02X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 1, false, disasm)
             }
@@ -547,7 +554,6 @@ impl Cpu {
                 let addr0 = self.readb(addr);
                 let addr = u16::from(addr0.wrapping_add(self.y));
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                // let vald = u16::from(self.readb(addr));
                 let disasm = format!("{:?} ${:02X},Y @ {:02X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 1, false, disasm)
             }
@@ -566,7 +572,6 @@ impl Cpu {
                 let addr_zp = addr_zp0.wrapping_add(self.x);
                 let addr = self.mem.readw_zp(addr_zp);
                 let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                // let vald = u16::from(self.readb(addr));
                 let disasm = format!(
                     "{:?} (${:02X},X) @ {:02X} = {:04X} = {:02X}",
                     instr, addr_zp0, addr_zp, addr, val
@@ -642,7 +647,7 @@ impl Cpu {
             self.mem.ppu.scanline,
             self.cycle,
         );
-        // #[cfg(not(test))]
+        #[cfg(not(test))]
         eprint!("{}", opstr);
         #[cfg(test)]
         self.nestestlog.push(opstr);
@@ -1383,7 +1388,8 @@ mod tests {
         let rom = PathBuf::from(TEST_ROM);
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let cpu_memory = CpuMemMap::init(mapper, input);
+        let mut cpu_memory = CpuMemMap::init(input);
+        cpu_memory.load_mapper(mapper);
         let c = Cpu::init(cpu_memory);
         assert_eq!(c.cycle, 7);
         assert_eq!(c.pc, TEST_PC);
@@ -1399,7 +1405,8 @@ mod tests {
         let rom = PathBuf::from(TEST_ROM);
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let cpu_memory = CpuMemMap::init(mapper, input);
+        let mut cpu_memory = CpuMemMap::init(input);
+        cpu_memory.load_mapper(mapper);
         let mut c = Cpu::init(cpu_memory);
         c.reset();
         assert_eq!(c.pc, TEST_PC);

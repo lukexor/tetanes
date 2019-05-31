@@ -5,7 +5,7 @@ use crate::util::Result;
 use failure::format_err;
 use std::fmt;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const RAM_SIZE: usize = 8 * 1024;
 const PRG_BANK_SIZE: usize = 16 * 1024;
@@ -45,9 +45,14 @@ impl Cartridge {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom(rom_file: PathBuf) -> Result<Self> {
-        let mut rom_data = std::fs::File::open(&rom_file)
-            .map_err(|e| format_err!("unable to open file \"{}\": {}", rom_file.display(), e))?;
+    pub fn from_rom<P: AsRef<Path>>(rom_file: P) -> Result<Self> {
+        let mut rom_data = std::fs::File::open(&rom_file).map_err(|e| {
+            format_err!(
+                "unable to open file \"{}\": {}",
+                rom_file.as_ref().display(),
+                e
+            )
+        })?;
 
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;
@@ -68,11 +73,11 @@ impl Cartridge {
 
         eprintln!(
             "Loaded `{}` - Mapper {}",
-            rom_file.display(),
+            rom_file.as_ref().display(),
             header.mapper_num
         );
         let cartridge = Self {
-            rom_file,
+            rom_file: rom_file.as_ref().to_path_buf(),
             header,
             prg_rom,
             chr_rom,
@@ -243,7 +248,6 @@ impl fmt::Debug for Cartridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_valid_cartridges() {

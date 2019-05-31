@@ -3,7 +3,7 @@
 use crate::console::apu::Apu;
 use crate::console::ppu::Ppu;
 use crate::input::InputRef;
-use crate::mapper::MapperRef;
+use crate::mapper::{self, MapperRef};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::fmt;
@@ -52,14 +52,19 @@ pub struct CpuMemMap {
 }
 
 impl CpuMemMap {
-    pub fn init(mapper: MapperRef, input: InputRef) -> Self {
+    pub fn init(input: InputRef) -> Self {
         Self {
             wram: [0; WRAM_SIZE],
-            ppu: Ppu::init(mapper.clone()),
+            ppu: Ppu::init(mapper::null()),
             apu: Apu::new(),
             input,
-            mapper,
+            mapper: mapper::null(),
         }
+    }
+
+    pub fn load_mapper(&mut self, mapper: MapperRef) {
+        self.mapper = mapper.clone();
+        self.ppu.load_mapper(mapper);
     }
 }
 
@@ -111,6 +116,7 @@ impl Savable for CpuMemMap {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.wram.save(fh)?;
         self.ppu.save(fh)?;
+        self.apu.save(fh)?;
         {
             let mapper = self.mapper.borrow();
             mapper.save(fh)?;
@@ -120,6 +126,7 @@ impl Savable for CpuMemMap {
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.wram.load(fh)?;
         self.ppu.load(fh)?;
+        self.apu.load(fh)?;
         {
             let mut mapper = self.mapper.borrow_mut();
             mapper.load(fh)?;
@@ -177,7 +184,8 @@ mod tests {
         let rom = PathBuf::from(test_rom);
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut mem = CpuMemMap::init(mapper, input);
+        let mut mem = CpuMemMap::init(input);
+        mem.load_mapper(mapper);
         mem.writeb(0x0005, 0x0015);
         mem.writeb(0x0015, 0x0050);
         mem.writeb(0x0016, 0x0025);

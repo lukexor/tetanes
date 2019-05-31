@@ -10,7 +10,7 @@ use crate::util::Result;
 use failure::format_err;
 use std::cell::RefCell;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::rc::Rc;
 
 use cnrom::Cnrom;
@@ -37,8 +37,12 @@ pub trait Mapper: Memory + Send + Savable {
     fn cart_mut(&mut self) -> &mut Cartridge;
 }
 
+pub fn null() -> MapperRef {
+    NullMapper::load()
+}
+
 /// Attempts to return a valid Mapper for the given rom.
-pub fn load_rom(rom: PathBuf) -> Result<MapperRef> {
+pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
     let cart = Cartridge::from_rom(rom)?;
     match cart.header.mapper_num {
         0 => Ok(Nrom::load(cart)),
@@ -81,6 +85,51 @@ impl Savable for Mirroring {
             4 => Mirroring::FourScreen,
             _ => panic!("invalid Mirroring value"),
         };
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct NullMapper {
+    cart: Cartridge,
+}
+
+impl NullMapper {
+    pub fn load() -> MapperRef {
+        Rc::new(RefCell::new(Self {
+            cart: Cartridge::new(),
+        }))
+    }
+}
+
+impl Mapper for NullMapper {
+    fn irq_pending(&mut self) -> bool {
+        false
+    }
+    fn mirroring(&self) -> Mirroring {
+        Mirroring::Horizontal
+    }
+    fn clock(&mut self, _ppu: &Ppu) {}
+    fn cart(&self) -> &Cartridge {
+        &self.cart
+    }
+    fn cart_mut(&mut self) -> &mut Cartridge {
+        &mut self.cart
+    }
+}
+
+impl Memory for NullMapper {
+    fn readb(&mut self, _addr: u16) -> u8 {
+        0
+    }
+    fn writeb(&mut self, _addr: u16, _val: u8) {}
+}
+
+impl Savable for NullMapper {
+    fn save(&self, _fh: &mut Write) -> Result<()> {
+        Ok(())
+    }
+    fn load(&mut self, _fh: &mut Read) -> Result<()> {
         Ok(())
     }
 }
