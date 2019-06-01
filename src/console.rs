@@ -37,6 +37,7 @@ impl Console {
         Self { cpu }
     }
 
+    /// Loads a ROM cartridge into memory
     pub fn load_rom<P: AsRef<Path>>(&mut self, rom: P) -> Result<()> {
         let mapper = mapper::load_rom(rom)?;
         self.cpu.mem.load_mapper(mapper);
@@ -135,8 +136,13 @@ impl Console {
                 format_err!("failed to open save file {:?}: {}", save_path.display(), e)
             })?;
             let mut reader = BufReader::new(save_file);
-            self.load(&mut reader)?;
-            eprintln!("Loaded #{}", slot);
+            match util::validate_save_header(&mut reader, &save_path) {
+                Ok(_) => {
+                    self.load(&mut reader)?;
+                    eprintln!("Loaded Slot #{}", slot);
+                }
+                Err(e) => eprintln!("Failed to Load Slot #{}: {}", slot, e),
+            }
         }
         Ok(())
     }
@@ -160,8 +166,9 @@ impl Console {
             format_err!("failed to open save file {:?}: {}", save_path.display(), e)
         })?;
         let mut writer = BufWriter::new(save_file);
+        util::write_save_header(&mut writer, &save_path)?;
         self.save(&mut writer)?;
-        eprintln!("Saved #{}", slot);
+        eprintln!("Saved Slot #{}", slot);
         Ok(())
     }
 
@@ -176,10 +183,15 @@ impl Console {
                     format_err!("failed to open sram file {:?}: {}", sram_path.display(), e)
                 })?;
                 let mut sram = Vec::with_capacity(RAM_SIZE);
-                sram_file.read_to_end(&mut sram).map_err(|e| {
-                    format_err!("failed to read sram file {:?}: {}", sram_path.display(), e)
-                })?;
-                mapper.cart_mut().sram = sram;
+                match util::validate_save_header(&mut sram_file, &sram_path) {
+                    Ok(_) => {
+                        sram_file.read_to_end(&mut sram).map_err(|e| {
+                            format_err!("failed to read sram file {:?}: {}", sram_path.display(), e)
+                        })?;
+                        mapper.cart_mut().sram = sram;
+                    }
+                    Err(e) => eprintln!("Failed to Load SRAM: {}", e),
+                }
             }
         }
         Ok(())
@@ -201,7 +213,11 @@ impl Console {
                     )
                 })?;
             }
-            fs::write(&sram_path, &mapper.cart().sram).map_err(|e| {
+            let mut sram_file = fs::File::create(&sram_path).map_err(|e| {
+                format_err!("failed to open sram file {:?}: {}", sram_path.display(), e)
+            })?;
+            util::write_save_header(&mut sram_file, &sram_path)?;
+            sram_file.write_all(&mapper.cart().sram).map_err(|e| {
                 format_err!("failed to write sram file {:?}: {}", sram_path.display(), e)
             })?;
         }

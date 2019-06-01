@@ -237,10 +237,22 @@ impl Ui {
                 }
             }
             Keycode::Space => self.toggle_fastforward(),
-            Keycode::Num1 if self.lctrl => self.save_slot = 1,
-            Keycode::Num2 if self.lctrl => self.save_slot = 2,
-            Keycode::Num3 if self.lctrl => self.save_slot = 2,
-            Keycode::Num4 if self.lctrl => self.save_slot = 3,
+            Keycode::Num1 if self.lctrl => {
+                self.save_slot = 1;
+                eprintln!("Changed to Save Slot #{}", self.save_slot);
+            }
+            Keycode::Num2 if self.lctrl => {
+                self.save_slot = 2;
+                eprintln!("Changed to Save Slot #{}", self.save_slot);
+            }
+            Keycode::Num3 if self.lctrl => {
+                self.save_slot = 3;
+                eprintln!("Changed to Save Slot #{}", self.save_slot);
+            }
+            Keycode::Num4 if self.lctrl => {
+                self.save_slot = 4;
+                eprintln!("Changed to Save Slot #{}", self.save_slot);
+            }
             Keycode::S if self.lctrl => self.console.save_state(self.save_slot)?,
             Keycode::L if self.lctrl => self.console.load_state(self.save_slot)?,
             Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,

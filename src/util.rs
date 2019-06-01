@@ -7,13 +7,15 @@ use failure::{format_err, Error};
 use image::{png, ColorType};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 /// Alias for Result<T, failure::Error>
 pub type Result<T> = std::result::Result<T, Error>;
 
 const CONFIG_DIR: &str = ".rustynes";
+const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
+const VERSION: [u8; 6] = *b"v0.2.0";
 
 /// Searches for valid NES rom files ending in `.nes`
 ///
@@ -181,6 +183,40 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &Image) {
         );
     }
     eprintln!("{}", png_path.display());
+}
+
+pub fn write_save_header(fh: &mut Write, save_path: &PathBuf) -> Result<()> {
+    let mut header: Vec<u8> = Vec::new();
+    header.extend(&SAVE_FILE_MAGIC.to_vec());
+    header.extend(&VERSION.len().to_be_bytes());
+    header.extend(&VERSION.to_vec());
+    fh.write_all(&header)
+        .map_err(|e| format_err!("failed to write save file {:?}: {}", save_path.display(), e))?;
+    Ok(())
+}
+
+pub fn validate_save_header(fh: &mut Read, save_path: &PathBuf) -> Result<()> {
+    let mut magic = [0u8; 9];
+    fh.read_exact(&mut magic)?;
+    if magic != SAVE_FILE_MAGIC {
+        Err(format_err!(
+            "invalid save file format {:?}",
+            save_path.display()
+        ))?;
+    }
+    let mut version_len = [0u8; 8];
+    fh.read_exact(&mut version_len)?;
+    let mut version = vec![0; usize::from_be_bytes(version_len)];
+    fh.read_exact(&mut version)?;
+    if version != VERSION {
+        Err(format_err!(
+            "invalid save file version {:?}. current: {}, save file: {}",
+            save_path.display(),
+            std::str::from_utf8(&VERSION)?,
+            std::str::from_utf8(&version)?,
+        ))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
