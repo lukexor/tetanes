@@ -2,7 +2,7 @@
 
 pub use apu::{SAMPLE_BUFFER_SIZE, SAMPLE_RATE};
 pub use cpu::CPU_CLOCK_RATE;
-pub use ppu::{Image, SCREEN_HEIGHT, SCREEN_WIDTH};
+pub use ppu::{Image, RENDER_HEIGHT, RENDER_WIDTH};
 
 use crate::cartridge::RAM_SIZE;
 use crate::input::InputRef;
@@ -47,14 +47,12 @@ impl Console {
     /// Powers on the console
     pub fn power_on(&mut self) -> Result<()> {
         self.cpu.power_on();
-        self.load_sram()?;
-        Ok(())
+        self.load_sram()
     }
 
     /// Powers off the console
     pub fn power_off(&mut self) -> Result<()> {
-        self.save_sram()?;
-        Ok(())
+        self.save_sram()
     }
 
     /// Steps the console the number of instructions required to generate an entire frame
@@ -132,16 +130,12 @@ impl Console {
         };
         let save_path = util::save_path(&rom_file, slot)?;
         if save_path.exists() {
-            let save_file = fs::File::open(&save_path).map_err(|e| {
-                format_err!("failed to open save file {:?}: {}", save_path.display(), e)
-            })?;
+            let save_file = fs::File::open(&save_path)
+                .map_err(|e| format_err!("failed to open file {:?}: {}", save_path.display(), e))?;
             let mut reader = BufReader::new(save_file);
-            match util::validate_save_header(&mut reader, &save_path) {
-                Ok(_) => {
-                    self.load(&mut reader)?;
-                    eprintln!("Loaded Slot #{}", slot);
-                }
-                Err(e) => eprintln!("Failed to Load Slot #{}: {}", slot, e),
+            match util::validate_save_header(&mut reader) {
+                Ok(_) => self.load(&mut reader)?,
+                Err(e) => eprintln!("failed to load save slot #{}: {}", slot, e),
             }
         }
         Ok(())
@@ -152,23 +146,18 @@ impl Console {
         let mapper = self.cpu.mem.mapper.borrow();
         let rom_file = &mapper.cart().rom_file;
         let save_path = util::save_path(rom_file, slot)?;
-        let save_dir = save_path.parent().unwrap(); // Safe to do
+        let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
         if !save_dir.exists() {
             fs::create_dir_all(save_dir).map_err(|e| {
-                format_err!(
-                    "failed to create save directory {:?}: {}",
-                    save_dir.display(),
-                    e
-                )
+                format_err!("failed to create directory {:?}: {}", save_dir.display(), e)
             })?;
         }
-        let save_file = fs::File::create(&save_path).map_err(|e| {
-            format_err!("failed to open save file {:?}: {}", save_path.display(), e)
-        })?;
+        let save_file = fs::File::create(&save_path)
+            .map_err(|e| format_err!("failed to create file {:?}: {}", save_path.display(), e))?;
         let mut writer = BufWriter::new(save_file);
-        util::write_save_header(&mut writer, &save_path)?;
+        util::write_save_header(&mut writer)
+            .map_err(|e| format_err!("failed to write header {:?}: {}", save_path.display(), e))?;
         self.save(&mut writer)?;
-        eprintln!("Saved Slot #{}", slot);
         Ok(())
     }
 
@@ -180,17 +169,21 @@ impl Console {
             let sram_path = util::sram_path(rom_file)?;
             if sram_path.exists() {
                 let mut sram_file = fs::File::open(&sram_path).map_err(|e| {
-                    format_err!("failed to open sram file {:?}: {}", sram_path.display(), e)
+                    format_err!("failed to open file {:?}: {}", sram_path.display(), e)
                 })?;
                 let mut sram = Vec::with_capacity(RAM_SIZE);
-                match util::validate_save_header(&mut sram_file, &sram_path) {
+                match util::validate_save_header(&mut sram_file) {
                     Ok(_) => {
                         sram_file.read_to_end(&mut sram).map_err(|e| {
-                            format_err!("failed to read sram file {:?}: {}", sram_path.display(), e)
+                            format_err!("failed to read file {:?}: {}", sram_path.display(), e)
                         })?;
                         mapper.cart_mut().sram = sram;
                     }
-                    Err(e) => eprintln!("Failed to Load SRAM: {}", e),
+                    Err(e) => eprintln!(
+                        "failed to load sram: {}.\n  move or delete `{}` before exiting, otherwise sram data will be lost.",
+                        e,
+                        sram_path.display()
+                    ),
                 }
             }
         }
@@ -203,23 +196,39 @@ impl Console {
         if mapper.cart().has_battery() {
             let rom_file = &mapper.cart().rom_file;
             let sram_path = util::sram_path(rom_file)?;
-            let sram_dir = sram_path.parent().unwrap(); // Safe to do
+            let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
             if !sram_dir.exists() {
                 fs::create_dir_all(sram_dir).map_err(|e| {
-                    format_err!(
-                        "failed to create sram directory {:?}: {}",
-                        sram_dir.display(),
-                        e
-                    )
+                    format_err!("failed to create directory {:?}: {}", sram_dir.display(), e)
                 })?;
             }
-            let mut sram_file = fs::File::create(&sram_path).map_err(|e| {
-                format_err!("failed to open sram file {:?}: {}", sram_path.display(), e)
-            })?;
-            util::write_save_header(&mut sram_file, &sram_path)?;
-            sram_file.write_all(&mapper.cart().sram).map_err(|e| {
-                format_err!("failed to write sram file {:?}: {}", sram_path.display(), e)
-            })?;
+
+            let mut sram_file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&sram_path)
+                .map_err(|e| format_err!("failed to open file {:?}: {}", sram_path.display(), e))?;
+
+            // Empty file means we just created it
+            if sram_file.metadata()?.len() == 0 {
+                util::write_save_header(&mut sram_file).map_err(|e| {
+                    format_err!("failed to write header {:?}: {}", sram_path.display(), e)
+                })?;
+                sram_file.write_all(&mapper.cart().sram).map_err(|e| {
+                    format_err!("failed to write file {:?}: {}", sram_path.display(), e)
+                })?;
+            } else {
+                // Check if exists and header is different, so we avoid overwriting
+                match util::validate_save_header(&mut sram_file) {
+                    Ok(_) => {
+                        sram_file.write_all(&mapper.cart().sram).map_err(|e| {
+                            format_err!("failed to write file {:?}: {}", sram_path.display(), e)
+                        })?;
+                    }
+                    Err(e) => eprintln!("failed to write sram due to invalid header. error: {}", e),
+                }
+            }
         }
         Ok(())
     }
@@ -227,12 +236,10 @@ impl Console {
 
 impl Savable for Console {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.cpu.save(fh)?;
-        Ok(())
+        self.cpu.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.cpu.load(fh)?;
-        Ok(())
+        self.cpu.load(fh)
     }
 }
 

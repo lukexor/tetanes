@@ -44,17 +44,19 @@ pub trait Memory: fmt::Debug {
 ///
 /// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
 pub struct CpuMemMap {
-    pub wram: [u8; WRAM_SIZE],
+    wram: [u8; WRAM_SIZE],
+    open_bus: u8,
     pub ppu: Ppu,
     pub apu: Apu,
     pub mapper: MapperRef,
-    pub input: InputRef,
+    input: InputRef,
 }
 
 impl CpuMemMap {
     pub fn init(input: InputRef) -> Self {
         Self {
             wram: [0; WRAM_SIZE],
+            open_bus: 0u8,
             ppu: Ppu::init(mapper::null()),
             apu: Apu::new(),
             input,
@@ -71,7 +73,7 @@ impl CpuMemMap {
 impl Memory for CpuMemMap {
     fn readb(&mut self, addr: u16) -> u8 {
         // Order of frequently accessed
-        match addr {
+        let val = match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram[(addr & 0x07FF) as usize], // 0x0800..=0x1FFFF are mirrored
             0x6000..=0xFFFF => {
@@ -84,13 +86,16 @@ impl Memory for CpuMemMap {
                 input.readb(addr)
             }
             0x2000..=0x3FFF => self.ppu.readb(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => 0,                             // APU/IO Test Mode
-            0x4014 => 0,                                      // Handled inside the CPU
-            _ => 0,
-        }
+            0x4018..=0x401F => self.open_bus,                 // APU/IO Test Mode
+            0x4014 => self.open_bus,
+            _ => self.open_bus,
+        };
+        self.open_bus = val;
+        val
     }
 
     fn writeb(&mut self, addr: u16, val: u8) {
+        self.open_bus = val;
         // Order of frequently accessed
         match addr {
             // Start..End => Read memory
@@ -119,9 +124,8 @@ impl Savable for CpuMemMap {
         self.apu.save(fh)?;
         {
             let mapper = self.mapper.borrow();
-            mapper.save(fh)?;
+            mapper.save(fh)
         }
-        Ok(())
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.wram.load(fh)?;
@@ -129,9 +133,8 @@ impl Savable for CpuMemMap {
         self.apu.load(fh)?;
         {
             let mut mapper = self.mapper.borrow_mut();
-            mapper.load(fh)?;
+            mapper.load(fh)
         }
-        Ok(())
     }
 }
 

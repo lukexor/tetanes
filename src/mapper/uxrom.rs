@@ -57,7 +57,7 @@ impl Mapper for Uxrom {
 impl Memory for Uxrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => self.cart.chr_rom[addr as usize],
+            0x0000..=0x1FFF => self.cart.chr[addr as usize],
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
             0x8000..=0xBFFF => {
                 let idx = u32::from(self.prg_bank1) * 0x4000 + u32::from(addr - 0x8000);
@@ -76,7 +76,7 @@ impl Memory for Uxrom {
 
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => self.cart.chr_rom[addr as usize] = val,
+            0x0000..=0x1FFF => self.cart.chr[addr as usize] = val,
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
             0x8000..=0xFFFF => {
                 self.prg_bank1 = val % self.prg_banks;
@@ -95,14 +95,12 @@ impl Savable for Uxrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.prg_banks.save(fh)?;
         self.prg_bank1.save(fh)?;
-        self.prg_bank2.save(fh)?;
-        Ok(())
+        self.prg_bank2.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.prg_banks.load(fh)?;
         self.prg_bank1.load(fh)?;
-        self.prg_bank2.load(fh)?;
-        Ok(())
+        self.prg_bank2.load(fh)
     }
 }
 

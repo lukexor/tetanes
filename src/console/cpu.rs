@@ -92,6 +92,23 @@ impl Cpu {
         self.pc = self.mem.readw(RESET_ADDR);
     }
 
+    /// Resets the CPU
+    ///
+    /// Updates the PC, SP, and Status values to defined constants.
+    ///
+    /// These operations take the CPU 7 cycle.
+    pub fn reset(&mut self) {
+        self.cycle = 7;
+        self.stall = 0u64;
+        self.pc = self.mem.readw(RESET_ADDR);
+        self.sp = self.sp.saturating_sub(3);
+        self.set_irq_disable(true);
+        self.mem.apu.reset();
+        self.mem.ppu.reset();
+        #[cfg(test)]
+        self.nestestlog.clear();
+    }
+
     /// Power cycle the CPU
     ///
     /// Updates all status as if powered on for the first time
@@ -106,20 +123,10 @@ impl Cpu {
         self.x = 0u8;
         self.y = 0u8;
         self.status = POWER_ON_STATUS;
+        self.mem.apu.power_cycle();
+        self.mem.ppu.power_cycle();
         #[cfg(test)]
         self.nestestlog.clear();
-    }
-
-    /// Resets the CPU
-    ///
-    /// Updates the PC, SP, and Status values to defined constants.
-    ///
-    /// These operations take the CPU 7 cycle.
-    pub fn reset(&mut self) {
-        self.pc = self.mem.readw(RESET_ADDR);
-        self.sp = self.sp.saturating_sub(3);
-        self.set_irq_disable(true);
-        self.cycle = 7;
     }
 
     /// Runs the CPU the passed in number of cycle
@@ -129,6 +136,8 @@ impl Cpu {
             return 1;
         }
 
+        self.cycle %= 65_536; // Don't need to keep track of large cycle counts
+        self.step %= 65_536;
         let start_cycle = self.cycle;
 
         match self.interrupt {
@@ -167,7 +176,7 @@ impl Cpu {
         match instr.op() {
             LDA => self.lda(val),             // LoaD A with M
             BNE => self.bne(val),             // Branch if Not Equal to zero
-            JMP => self.jmp(target.unwrap()), // JuMP
+            JMP => self.jmp(target.unwrap()), // JuMP - safe to unwrap because JMP is Absolute
             INX => self.inx(),                // INcrement X
             BPL => self.bpl(val),             // Branch on PLus (positive)
             CMP => self.cmp(val),             // CoMPare
@@ -180,7 +189,7 @@ impl Cpu {
             TAY => self.tay(),                // Transfer A to Y
             INC => self.inc(target),          // INCrement M or A
             BCS => self.bcs(val),             // Branch if Carry Set
-            JSR => self.jsr(target.unwrap()), // Jump and Save Return addr
+            JSR => self.jsr(target.unwrap()), // Jump and Save Return addr - safe to unwrap because JSR is Absolute
             LSR => self.lsr(target),          // Logical Shift Right M or A
             RTS => self.rts(),                // ReTurn from Subroutine
             AND => self.and(val),             // AND M with A
@@ -685,8 +694,7 @@ impl Savable for Cpu {
         self.x.save(fh)?;
         self.y.save(fh)?;
         self.status.save(fh)?;
-        self.interrupt.save(fh)?;
-        Ok(())
+        self.interrupt.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.mem.load(fh)?;
@@ -699,8 +707,7 @@ impl Savable for Cpu {
         self.x.load(fh)?;
         self.y.load(fh)?;
         self.status.load(fh)?;
-        self.interrupt.load(fh)?;
-        Ok(())
+        self.interrupt.load(fh)
     }
 }
 
@@ -713,8 +720,7 @@ pub enum Interrupt {
 
 impl Savable for Interrupt {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        (*self as u8).save(fh)?;
-        Ok(())
+        (*self as u8).save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut val = 0u8;
@@ -1279,7 +1285,7 @@ impl Cpu {
     }
     // AHX: TODO
     fn ahx(&mut self) {
-        unimplemented!();
+        eprintln!("ahx not implemented");
     }
     // SAX: AND A with X
     fn sax(&mut self, target: Option<u16>) {
@@ -1288,11 +1294,11 @@ impl Cpu {
     }
     // XAA: TODO
     fn xaa(&mut self) {
-        unimplemented!();
+        eprintln!("xaa not implemented");
     }
     // SHX: TODO
     fn shx(&mut self) {
-        unimplemented!();
+        eprintln!("shx not implemented");
     }
     // RRA: Shortcut for ROR then ADC
     fn rra(&mut self, target: Option<u16>) {
@@ -1307,7 +1313,7 @@ impl Cpu {
     }
     // SHY: TODO
     fn shy(&mut self) {
-        unimplemented!();
+        eprintln!("shy not implemented");
     }
     // ARR: Shortcut for AND then ROR
     fn arr(&mut self, val: u8, target: Option<u16>) {

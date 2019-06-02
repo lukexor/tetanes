@@ -60,11 +60,7 @@ impl Memory for Cnrom {
             // $0000-$1FFF PPU
             0x0000..=0x1FFF => {
                 let addr = self.chr_bank * 0x2000 + addr;
-                if self.cart.header.chr_rom_size == 0 {
-                    self.cart.prg_rom[addr as usize]
-                } else {
-                    self.cart.chr_rom[addr as usize]
-                }
+                self.cart.chr[addr as usize]
             }
             0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize],
             // $8000-$FFFF CPU
@@ -85,10 +81,11 @@ impl Memory for Cnrom {
 
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
+            0x0000..=0x1FFF => (), // ROM is read-only
             0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize] = val,
             // $8000-$FFFF CPU
             0x8000..=0xFFFF => self.chr_bank = u16::from(val & 3),
-            _ => eprintln!("unhandled Cnrom readb at address: 0x{:04X}", addr),
+            _ => eprintln!("unhandled Cnrom writeb at address: 0x{:04X}", addr),
         }
     }
 }
@@ -97,13 +94,11 @@ impl Savable for Cnrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.chr_bank.save(fh)?;
         self.prg_bank_1.save(fh)?;
-        self.prg_bank_2.save(fh)?;
-        Ok(())
+        self.prg_bank_2.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.chr_bank.load(fh)?;
         self.prg_bank_1.load(fh)?;
-        self.prg_bank_2.load(fh)?;
-        Ok(())
+        self.prg_bank_2.load(fh)
     }
 }

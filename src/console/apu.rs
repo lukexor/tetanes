@@ -18,6 +18,7 @@ pub const SAMPLE_BUFFER_SIZE: usize = 4096;
 pub struct Apu {
     pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_enabled: bool,     // Set by $4017 D6
+    pub open_bus: u8,      // This open bus gets set during any write to PPU registers
     clock_rate: f64,       // Same as CPU but is affected by speed changes
     cycle: u64,            // Current APU cycle = CPU cycle / 2
     samples: Vec<f32>,     // Buffer of samples
@@ -40,6 +41,7 @@ impl Apu {
         let mut apu = Self {
             irq_pending: false,
             irq_enabled: false,
+            open_bus: 0u8,
             clock_rate: CPU_CLOCK_RATE,
             cycle: 0u64,
             samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
@@ -76,7 +78,20 @@ impl Apu {
         self.samples.clear();
         self.irq_pending = false;
         self.irq_enabled = false;
-        // TODO clear channels too
+        self.frame = FrameCounter {
+            step: 1u8,
+            counter: 0u16,
+            mode: FCMode::Step4,
+        };
+        self.pulse1.reset();
+        self.pulse2.reset();
+        self.triangle.reset();
+        self.noise.reset();
+        self.dmc.reset();
+    }
+
+    pub fn power_cycle(&mut self) {
+        self.reset();
     }
 
     pub fn clock(&mut self) {
@@ -179,6 +194,7 @@ impl Apu {
     }
 
     fn output(&mut self) -> f32 {
+        self.triangle.enabled = false;
         let pulse1 = self.pulse1.output();
         let pulse2 = self.pulse2.output();
         let triangle = self.triangle.output();
@@ -280,13 +296,16 @@ impl Apu {
 impl Memory for Apu {
     fn readb(&mut self, addr: u16) -> u8 {
         if addr == 0x4015 {
-            self.read_status()
+            let val = self.read_status();
+            self.open_bus = val;
+            val
         } else {
-            0x0
+            self.open_bus
         }
     }
 
     fn writeb(&mut self, addr: u16, val: u8) {
+        self.open_bus = val;
         match addr {
             0x4000 => self.pulse1.write_control(val),
             0x4001 => self.pulse1.write_sweep(val),
@@ -324,8 +343,7 @@ impl Savable for Apu {
         self.pulse2.save(fh)?;
         self.triangle.save(fh)?;
         self.noise.save(fh)?;
-        self.dmc.save(fh)?;
-        Ok(())
+        self.dmc.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.irq_pending.load(fh)?;
@@ -337,8 +355,7 @@ impl Savable for Apu {
         self.pulse2.load(fh)?;
         self.triangle.load(fh)?;
         self.noise.load(fh)?;
-        self.dmc.load(fh)?;
-        Ok(())
+        self.dmc.load(fh)
     }
 }
 
@@ -355,14 +372,12 @@ impl Savable for FrameCounter {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.step.save(fh)?;
         self.counter.save(fh)?;
-        self.mode.save(fh)?;
-        Ok(())
+        self.mode.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.step.load(fh)?;
         self.counter.load(fh)?;
-        self.mode.load(fh)?;
-        Ok(())
+        self.mode.load(fh)
     }
 }
 
@@ -374,8 +389,7 @@ enum FCMode {
 
 impl Savable for FCMode {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        (*self as u8).save(fh)?;
-        Ok(())
+        (*self as u8).save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut val = 0u8;
@@ -428,6 +442,10 @@ impl Pulse {
                 shift: 0u8,
             },
         }
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new(self.channel);
     }
 
     fn clock(&mut self) {
@@ -527,8 +545,7 @@ impl Savable for Pulse {
         self.channel.save(fh)?;
         self.length.save(fh)?;
         self.envelope.save(fh)?;
-        self.sweep.save(fh)?;
-        Ok(())
+        self.sweep.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.enabled.load(fh)?;
@@ -539,8 +556,7 @@ impl Savable for Pulse {
         self.channel.load(fh)?;
         self.length.load(fh)?;
         self.envelope.load(fh)?;
-        self.sweep.load(fh)?;
-        Ok(())
+        self.sweep.load(fh)
     }
 }
 
@@ -552,8 +568,7 @@ enum PulseChannel {
 
 impl Savable for PulseChannel {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        (*self as u8).save(fh)?;
-        Ok(())
+        (*self as u8).save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut val = 0u8;
@@ -588,6 +603,10 @@ impl Triangle {
             length: LengthCounter::new(),
             linear: LinearCounter::new(),
         }
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
     }
 
     fn clock(&mut self) {
@@ -661,8 +680,7 @@ impl Savable for Triangle {
         self.freq_timer.save(fh)?;
         self.freq_counter.save(fh)?;
         self.length.save(fh)?;
-        self.linear.save(fh)?;
-        Ok(())
+        self.linear.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.enabled.load(fh)?;
@@ -671,8 +689,7 @@ impl Savable for Triangle {
         self.freq_timer.load(fh)?;
         self.freq_counter.load(fh)?;
         self.length.load(fh)?;
-        self.linear.load(fh)?;
-        Ok(())
+        self.linear.load(fh)
     }
 }
 
@@ -702,6 +719,10 @@ impl Noise {
             length: LengthCounter::new(),
             envelope: Envelope::new(),
         }
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
     }
 
     fn clock(&mut self) {
@@ -772,8 +793,7 @@ impl Savable for Noise {
         self.shift.save(fh)?;
         self.shift_mode.save(fh)?;
         self.length.save(fh)?;
-        self.envelope.save(fh)?;
-        Ok(())
+        self.envelope.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.enabled.load(fh)?;
@@ -782,8 +802,7 @@ impl Savable for Noise {
         self.shift.load(fh)?;
         self.shift_mode.load(fh)?;
         self.length.load(fh)?;
-        self.envelope.load(fh)?;
-        Ok(())
+        self.envelope.load(fh)
     }
 }
 
@@ -795,8 +814,7 @@ enum ShiftMode {
 
 impl Savable for ShiftMode {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        (*self as u8).save(fh)?;
-        Ok(())
+        (*self as u8).save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut val = 0u8;
@@ -855,6 +873,10 @@ impl DMC {
             output_shift: 0u8,
             output_silent: false,
         }
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
     }
 
     fn clock(&mut self) {
@@ -945,8 +967,7 @@ impl Savable for DMC {
         self.output.save(fh)?;
         self.output_bits.save(fh)?;
         self.output_shift.save(fh)?;
-        self.output_silent.save(fh)?;
-        Ok(())
+        self.output_silent.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.irq_enabled.load(fh)?;
@@ -963,8 +984,7 @@ impl Savable for DMC {
         self.output.load(fh)?;
         self.output_bits.load(fh)?;
         self.output_shift.load(fh)?;
-        self.output_silent.load(fh)?;
-        Ok(())
+        self.output_silent.load(fh)
     }
 }
 
@@ -1004,13 +1024,11 @@ impl LengthCounter {
 impl Savable for LengthCounter {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.enabled.save(fh)?;
-        self.counter.save(fh)?;
-        Ok(())
+        self.counter.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.enabled.load(fh)?;
-        self.counter.load(fh)?;
-        Ok(())
+        self.counter.load(fh)
     }
 }
 
@@ -1041,15 +1059,13 @@ impl Savable for LinearCounter {
         self.reload.save(fh)?;
         self.control.save(fh)?;
         self.load.save(fh)?;
-        self.counter.save(fh)?;
-        Ok(())
+        self.counter.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.reload.load(fh)?;
         self.control.load(fh)?;
         self.load.load(fh)?;
-        self.counter.load(fh)?;
-        Ok(())
+        self.counter.load(fh)
     }
 }
 
@@ -1106,8 +1122,7 @@ impl Savable for Envelope {
         self.reset.save(fh)?;
         self.volume.save(fh)?;
         self.constant_volume.save(fh)?;
-        self.counter.save(fh)?;
-        Ok(())
+        self.counter.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.enabled.load(fh)?;
@@ -1115,8 +1130,7 @@ impl Savable for Envelope {
         self.reset.load(fh)?;
         self.volume.load(fh)?;
         self.constant_volume.load(fh)?;
-        self.counter.load(fh)?;
-        Ok(())
+        self.counter.load(fh)
     }
 }
 
@@ -1136,8 +1150,7 @@ impl Savable for Sweep {
         self.negate.save(fh)?;
         self.timer.save(fh)?;
         self.counter.save(fh)?;
-        self.shift.save(fh)?;
-        Ok(())
+        self.shift.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.enabled.load(fh)?;
@@ -1145,8 +1158,7 @@ impl Savable for Sweep {
         self.negate.load(fh)?;
         self.timer.load(fh)?;
         self.counter.load(fh)?;
-        self.shift.load(fh)?;
-        Ok(())
+        self.shift.load(fh)
     }
 }
 

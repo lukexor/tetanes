@@ -106,8 +106,7 @@ impl Savable for u64 {
 
 impl Savable for f64 {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.to_bits().save(fh)?;
-        Ok(())
+        self.to_bits().save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut val = 0u64;

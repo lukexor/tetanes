@@ -1,6 +1,6 @@
 //! Various utility functions for the UI and Console
 
-use crate::console::{Image, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::console::{Image, RENDER_HEIGHT, RENDER_WIDTH};
 use chrono::prelude::*;
 use dirs;
 use failure::{format_err, Error};
@@ -171,38 +171,30 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &Image) {
     let png = png::PNGEncoder::new(png_file.unwrap());
     let encode = png.encode(
         pixels,
-        SCREEN_WIDTH as u32,
-        SCREEN_HEIGHT as u32,
+        RENDER_WIDTH as u32,
+        RENDER_HEIGHT as u32,
         ColorType::RGB(8),
     );
-    if encode.is_err() {
-        eprintln!(
-            "failed to save screenshot {:?}: {}",
-            png_path.display(),
-            encode.err().unwrap(),
-        );
+    if let Err(e) = encode {
+        eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
     }
     eprintln!("{}", png_path.display());
 }
 
-pub fn write_save_header(fh: &mut Write, save_path: &PathBuf) -> Result<()> {
+pub fn write_save_header(fh: &mut Write) -> Result<()> {
     let mut header: Vec<u8> = Vec::new();
     header.extend(&SAVE_FILE_MAGIC.to_vec());
     header.extend(&VERSION.len().to_be_bytes());
     header.extend(&VERSION.to_vec());
-    fh.write_all(&header)
-        .map_err(|e| format_err!("failed to write save file {:?}: {}", save_path.display(), e))?;
+    fh.write_all(&header)?;
     Ok(())
 }
 
-pub fn validate_save_header(fh: &mut Read, save_path: &PathBuf) -> Result<()> {
+pub fn validate_save_header(fh: &mut Read) -> Result<()> {
     let mut magic = [0u8; 9];
     fh.read_exact(&mut magic)?;
     if magic != SAVE_FILE_MAGIC {
-        Err(format_err!(
-            "invalid save file format {:?}",
-            save_path.display()
-        ))?;
+        Err(format_err!("invalid save file format",))?;
     }
     let mut version_len = [0u8; 8];
     fh.read_exact(&mut version_len)?;
@@ -210,8 +202,7 @@ pub fn validate_save_header(fh: &mut Read, save_path: &PathBuf) -> Result<()> {
     fh.read_exact(&mut version)?;
     if version != VERSION {
         Err(format_err!(
-            "invalid save file version {:?}. current: {}, save file: {}",
-            save_path.display(),
+            "invalid save file version. current: {}, save file: {}",
             std::str::from_utf8(&VERSION)?,
             std::str::from_utf8(&version)?,
         ))?;
@@ -219,9 +210,19 @@ pub fn validate_save_header(fh: &mut Read, save_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+pub fn str_to_err(string: String) -> Error {
+    format_err!("{}", string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_save_header() {
+        let mut file = fs::File::create("header.dat").unwrap();
+        write_save_header(&mut file).unwrap();
+    }
 
     #[test]
     fn test_find_roms() {

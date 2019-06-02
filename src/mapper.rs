@@ -71,8 +71,7 @@ pub enum Mirroring {
 
 impl Savable for Mirroring {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        (*self as u8).save(fh)?;
-        Ok(())
+        (*self as u8).save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut val = 0u8;

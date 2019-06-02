@@ -115,7 +115,7 @@ impl Sxrom {
         if index >= 0x80 {
             index -= 0x100;
         }
-        let len = self.cart.chr_rom.len() as i32;
+        let len = self.cart.chr.len() as i32;
         index %= len / 0x1000;
         let mut offset = index * 0x1000;
         if offset < 0 {
@@ -175,7 +175,7 @@ impl Memory for Sxrom {
                 let bank = addr / 0x1000;
                 let offset = addr % 0x1000;
                 let idx = self.chr_offsets[bank as usize] + i32::from(offset);
-                self.cart.chr_rom[idx as usize]
+                self.cart.chr[idx as usize]
             }
             // CPU 8 KB PRG RAM bank, (optional)
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
@@ -201,7 +201,7 @@ impl Memory for Sxrom {
                 let bank = addr / 0x1000;
                 let offset = addr % 0x1000;
                 let idx = self.chr_offsets[bank as usize] + i32::from(offset);
-                self.cart.chr_rom[idx as usize] = val;
+                self.cart.chr[idx as usize] = val;
             }
             // CPU 8 KB PRG RAM bank, (optional)
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
@@ -228,8 +228,7 @@ impl Savable for Sxrom {
         self.chr_bank0.save(fh)?;
         self.chr_bank1.save(fh)?;
         self.prg_offsets.save(fh)?;
-        self.chr_offsets.save(fh)?;
-        Ok(())
+        self.chr_offsets.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.cart.load(fh)?;
@@ -242,8 +241,7 @@ impl Savable for Sxrom {
         self.chr_bank0.load(fh)?;
         self.chr_bank1.load(fh)?;
         self.prg_offsets.load(fh)?;
-        self.chr_offsets.load(fh)?;
-        Ok(())
+        self.chr_offsets.load(fh)
     }
 }
 

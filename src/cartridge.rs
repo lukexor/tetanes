@@ -18,7 +18,7 @@ pub struct Cartridge {
     pub header: INesHeader,
     pub prg_rom: Vec<u8>, // Program ROM
     pub prg_ram: Vec<u8>, // Program RAM
-    pub chr_rom: Vec<u8>, // Character ROM
+    pub chr: Vec<u8>,     // Character ROM/RAM
     pub sram: Vec<u8>,    // Save RAM
 }
 
@@ -30,7 +30,7 @@ impl Cartridge {
             header: INesHeader::new(),
             prg_rom: Vec::with_capacity(PRG_BANK_SIZE),
             prg_ram: Vec::with_capacity(RAM_SIZE),
-            chr_rom: Vec::with_capacity(CHR_BANK_SIZE),
+            chr: Vec::with_capacity(CHR_BANK_SIZE),
             sram: Vec::with_capacity(RAM_SIZE),
         }
     }
@@ -61,11 +61,11 @@ impl Cartridge {
         let mut prg_rom = vec![0u8; header.prg_rom_size as usize * PRG_BANK_SIZE];
         rom_data.read_exact(&mut prg_rom)?;
 
-        let mut chr_rom = vec![0u8; header.chr_rom_size as usize * CHR_BANK_SIZE];
-        rom_data.read_exact(&mut chr_rom)?;
+        let mut chr = vec![0u8; header.chr_rom_size as usize * CHR_BANK_SIZE];
+        rom_data.read_exact(&mut chr)?;
 
         if header.chr_rom_size == 0 {
-            chr_rom = vec![0u8; CHR_BANK_SIZE];
+            chr = vec![0u8; CHR_BANK_SIZE]
         }
 
         let prg_ram = vec![0; RAM_SIZE];
@@ -76,15 +76,14 @@ impl Cartridge {
             rom_file.as_ref().display(),
             header.mapper_num
         );
-        let cartridge = Self {
+        Ok(Self {
             rom_file: rom_file.as_ref().to_path_buf(),
             header,
             prg_rom,
-            chr_rom,
+            chr,
             prg_ram,
             sram,
-        };
-        Ok(cartridge)
+        })
     }
 
     /// Returns whether this cartridge has battery-backed Save RAM
@@ -96,15 +95,13 @@ impl Cartridge {
 impl Savable for Cartridge {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.prg_ram.save(fh)?;
-        self.chr_rom.save(fh)?;
-        self.sram.save(fh)?;
-        Ok(())
+        self.chr.save(fh)?;
+        self.sram.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.prg_ram.load(fh)?;
-        self.chr_rom.load(fh)?;
-        self.sram.load(fh)?;
-        Ok(())
+        self.chr.load(fh)?;
+        self.sram.load(fh)
     }
 }
 
@@ -239,7 +236,7 @@ impl fmt::Debug for Cartridge {
             "Cartridge {{ header: {:?}, PRG-ROM: {}, CHR-ROM: {}, PRG-RAM: {}",
             self.header,
             self.prg_rom.len(),
-            self.chr_rom.len(),
+            self.chr.len(),
             self.prg_ram.len(),
         )
     }

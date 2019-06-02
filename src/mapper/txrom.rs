@@ -106,7 +106,7 @@ impl Txrom {
         if index >= 0x80 {
             index -= 0x100;
         }
-        let len = self.cart.chr_rom.len() as i32;
+        let len = self.cart.chr.len() as i32;
         index %= len / 0x0400;
         let mut offset = index * 0x0400;
         if offset < 0 {
@@ -194,7 +194,7 @@ impl Memory for Txrom {
                 let bank = addr / 0x0400;
                 let offset = addr % 0x0400;
                 let idx = self.chr_offsets[bank as usize] + i32::from(offset);
-                self.cart.chr_rom[idx as usize]
+                self.cart.chr[idx as usize]
             }
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
             0x8000..=0xFFFF => {
@@ -217,7 +217,7 @@ impl Memory for Txrom {
                 let bank = addr / 0x0400;
                 let offset = addr % 0x0400;
                 let idx = self.chr_offsets[bank as usize] + i32::from(offset);
-                self.cart.chr_rom[idx as usize] = val;
+                self.cart.chr[idx as usize] = val;
             }
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
             0x8000..=0xFFFF => self.write_register(addr, val),
@@ -242,8 +242,7 @@ impl Savable for Txrom {
         self.bank_select.save(fh)?;
         self.banks.save(fh)?;
         self.prg_offsets.save(fh)?;
-        self.chr_offsets.save(fh)?;
-        Ok(())
+        self.chr_offsets.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.mirroring.load(fh)?;
@@ -255,8 +254,7 @@ impl Savable for Txrom {
         self.bank_select.load(fh)?;
         self.banks.load(fh)?;
         self.prg_offsets.load(fh)?;
-        self.chr_offsets.load(fh)?;
-        Ok(())
+        self.chr_offsets.load(fh)
     }
 }
 

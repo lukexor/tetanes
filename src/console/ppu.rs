@@ -11,13 +11,11 @@ use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 
 // Screen/Render
-pub type Image = [u8; RENDER_SIZE];
-pub const SCREEN_WIDTH: usize = 256;
-pub const SCREEN_HEIGHT: usize = 224;
-pub const RENDER_SIZE: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) * 3;
-const OVERSCAN_HEIGHT: usize = 240;
-const OVERSCAN_OFFSET: usize = (OVERSCAN_HEIGHT - SCREEN_HEIGHT) / 2 * SCREEN_WIDTH;
-const PIXEL_COUNT: usize = SCREEN_WIDTH * OVERSCAN_HEIGHT;
+pub type Image = [u8; IMAGE_SIZE];
+const IMAGE_SIZE: usize = RENDER_WIDTH * RENDER_HEIGHT * 3;
+pub const RENDER_WIDTH: usize = 256;
+pub const RENDER_HEIGHT: usize = 240;
+const PIXEL_COUNT: usize = RENDER_WIDTH * RENDER_HEIGHT;
 
 // Sizes
 const NAMETABLE_SIZE: usize = 2 * 1024; // two 1K nametables
@@ -90,10 +88,6 @@ impl Ppu {
         }
     }
 
-    pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.vram.mapper = mapper;
-    }
-
     pub fn reset(&mut self) {
         self.cycle = 0;
         self.scanline = 0;
@@ -101,6 +95,14 @@ impl Ppu {
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_oamaddr(0);
+    }
+
+    pub fn power_cycle(&mut self) {
+        self.reset();
+    }
+
+    pub fn load_mapper(&mut self, mapper: MapperRef) {
+        self.vram.mapper = mapper;
     }
 
     pub fn frame(&self) -> u32 {
@@ -125,7 +127,7 @@ impl Ppu {
         }
     }
 
-    // Returns a fully rendered frame of RENDER_SIZE RGB colors
+    // Returns a fully rendered frame of IMAGE_SIZE RGB colors
     pub fn render(&self) -> Image {
         self.screen.render()
     }
@@ -178,12 +180,12 @@ impl Ppu {
                     self.regs.increment_x();
                 }
                 // Increment Fine Y when we reach the end of the screen
-                if self.cycle == SCREEN_WIDTH as u16 {
+                if self.cycle == RENDER_WIDTH as u16 {
                     self.regs.increment_y();
                 }
                 // Copy X bits at the start of a new line since we're going to start writing
                 // new x values to t
-                if self.cycle == (SCREEN_WIDTH + 1) as u16 {
+                if self.cycle == (RENDER_WIDTH + 1) as u16 {
                     self.regs.copy_x();
                 }
             }
@@ -229,10 +231,11 @@ impl Ppu {
         let mut bg_color = self.background_color();
         let (i, mut sprite_color) = self.sprite_color();
 
-        if x < 8 && !self.regs.mask.show_left_background() {
+        let border_pixel = x < 8;
+        if border_pixel && !self.regs.mask.show_left_background() {
             bg_color = 0;
         }
-        if x < 8 && !self.regs.mask.show_left_sprites() {
+        if border_pixel && !self.regs.mask.show_left_sprites() {
             sprite_color = 0;
         }
         let bg_opaque = bg_color % 4 != 0;
@@ -255,8 +258,8 @@ impl Ppu {
         };
         let system_palette_idx =
             self.vram.readb(u16::from(color) + PALETTE_START) & ((SYSTEM_PALETTE_SIZE as u8) - 1);
-        self.screen
-            .put_pixel(x as usize, y as usize, system_palette_idx);
+        let pixel = SYSTEM_PALETTE[system_palette_idx as usize];
+        self.screen.put_pixel(x as usize, y as usize, pixel);
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {
@@ -607,8 +610,7 @@ impl Savable for Ppu {
         self.oamdata.save(fh)?;
         self.vram.save(fh)?;
         self.frame.save(fh)?;
-        self.screen.save(fh)?;
-        Ok(())
+        self.screen.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.cycle.load(fh)?;
@@ -618,8 +620,7 @@ impl Savable for Ppu {
         self.oamdata.load(fh)?;
         self.vram.load(fh)?;
         self.frame.load(fh)?;
-        self.screen.load(fh)?;
-        Ok(())
+        self.screen.load(fh)
     }
 }
 
@@ -638,12 +639,10 @@ impl Memory for Nametable {
 
 impl Savable for Nametable {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.0.save(fh)?;
-        Ok(())
+        self.0.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.0.load(fh)?;
-        Ok(())
+        self.0.load(fh)
     }
 }
 
@@ -667,12 +666,10 @@ impl Memory for Palette {
 
 impl Savable for Palette {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.0.save(fh)?;
-        Ok(())
+        self.0.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.0.load(fh)?;
-        Ok(())
+        self.0.load(fh)
     }
 }
 
@@ -911,8 +908,7 @@ impl Savable for PpuRegs {
         self.v.save(fh)?;
         self.t.save(fh)?;
         self.x.save(fh)?;
-        self.w.save(fh)?;
-        Ok(())
+        self.w.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.open_bus.load(fh)?;
@@ -925,8 +921,7 @@ impl Savable for PpuRegs {
         self.v.load(fh)?;
         self.t.load(fh)?;
         self.x.load(fh)?;
-        self.w.load(fh)?;
-        Ok(())
+        self.w.load(fh)
     }
 }
 
@@ -958,12 +953,10 @@ impl Memory for Oam {
 
 impl Savable for Oam {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.entries.save(fh)?;
-        Ok(())
+        self.entries.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.entries.load(fh)?;
-        Ok(())
+        self.entries.load(fh)
     }
 }
 
@@ -1050,8 +1043,7 @@ impl Savable for Vram {
         }
         self.buffer.save(fh)?;
         self.nametable.save(fh)?;
-        self.palette.save(fh)?;
-        Ok(())
+        self.palette.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         {
@@ -1060,8 +1052,7 @@ impl Savable for Vram {
         }
         self.buffer.load(fh)?;
         self.nametable.load(fh)?;
-        self.palette.load(fh)?;
-        Ok(())
+        self.palette.load(fh)
     }
 }
 
@@ -1112,8 +1103,7 @@ impl Savable for Frame {
         self.attribute.save(fh)?;
         self.tile_data.save(fh)?;
         self.sprite_count.save(fh)?;
-        self.sprites.save(fh)?;
-        Ok(())
+        self.sprites.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.num.load(fh)?;
@@ -1124,8 +1114,7 @@ impl Savable for Frame {
         self.attribute.load(fh)?;
         self.tile_data.load(fh)?;
         self.sprite_count.load(fh)?;
-        self.sprites.load(fh)?;
-        Ok(())
+        self.sprites.load(fh)
     }
 }
 
@@ -1141,36 +1130,33 @@ impl Screen {
     }
 
     // Turns a list of pixels into a list of R, G, B
-    // We want to remove overscane lines so we need to remove the top 8 and bottom 8 scanlines
-    // which is 8 * SCREEN_WIDTH * 3 from both the top and bottom of our pixels
+    // We want to chop off the borders
     pub fn render(&self) -> Image {
-        let mut output = [0; RENDER_SIZE];
-        for i in OVERSCAN_OFFSET..(PIXEL_COUNT - OVERSCAN_OFFSET) {
+        let mut image = [0u8; IMAGE_SIZE];
+        for i in 0..PIXEL_COUNT {
             let p = self.pixels[i];
             // index * RGB size + color offset
-            output[(i - OVERSCAN_OFFSET) * 3] = p.r();
-            output[(i - OVERSCAN_OFFSET) * 3 + 1] = p.g();
-            output[(i - OVERSCAN_OFFSET) * 3 + 2] = p.b();
+            image[i * 3] = p.r();
+            image[i * 3 + 1] = p.g();
+            image[i * 3 + 2] = p.b();
         }
-        output
+        image
     }
 
-    fn put_pixel(&mut self, x: usize, y: usize, system_palette_idx: u8) {
-        if x < SCREEN_WIDTH && y < OVERSCAN_HEIGHT {
-            let i = x + (y * SCREEN_WIDTH);
-            self.pixels[i] = SYSTEM_PALETTE[system_palette_idx as usize];
+    fn put_pixel(&mut self, x: usize, y: usize, pixel: Rgb) {
+        if x < RENDER_WIDTH && y < RENDER_HEIGHT {
+            let i = x + (y * RENDER_WIDTH);
+            self.pixels[i] = pixel;
         }
     }
 }
 
 impl Savable for Screen {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.pixels.save(fh)?;
-        Ok(())
+        self.pixels.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.pixels.load(fh)?;
-        Ok(())
+        self.pixels.load(fh)
     }
 }
 
@@ -1213,8 +1199,7 @@ impl Savable for Sprite {
         self.pattern.save(fh)?;
         self.has_priority.save(fh)?;
         self.flip_horizontal.save(fh)?;
-        self.flip_vertical.save(fh)?;
-        Ok(())
+        self.flip_vertical.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.index.load(fh)?;
@@ -1225,8 +1210,7 @@ impl Savable for Sprite {
         self.pattern.load(fh)?;
         self.has_priority.load(fh)?;
         self.flip_horizontal.load(fh)?;
-        self.flip_vertical.load(fh)?;
-        Ok(())
+        self.flip_vertical.load(fh)
     }
 }
 
@@ -1251,14 +1235,12 @@ impl Savable for Rgb {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.0.save(fh)?;
         self.1.save(fh)?;
-        self.2.save(fh)?;
-        Ok(())
+        self.2.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.0.load(fh)?;
         self.1.load(fh)?;
-        self.2.load(fh)?;
-        Ok(())
+        self.2.load(fh)
     }
 }
 
@@ -1317,12 +1299,10 @@ impl PpuCtrl {
 
 impl Savable for PpuCtrl {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.0.save(fh)?;
-        Ok(())
+        self.0.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.0.load(fh)?;
-        Ok(())
+        self.0.load(fh)
     }
 }
 
@@ -1359,12 +1339,10 @@ impl PpuMask {
 
 impl Savable for PpuMask {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.0.save(fh)?;
-        Ok(())
+        self.0.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.0.load(fh)?;
-        Ok(())
+        self.0.load(fh)
     }
 }
 
@@ -1405,12 +1383,10 @@ impl PpuStatus {
 
 impl Savable for PpuStatus {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.0.save(fh)?;
-        Ok(())
+        self.0.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.0.load(fh)?;
-        Ok(())
+        self.0.load(fh)
     }
 }
 

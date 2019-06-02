@@ -48,7 +48,7 @@ impl Memory for Nrom {
     fn readb(&mut self, addr: u16) -> u8 {
         match addr {
             // PPU 8K Fixed CHR bank
-            0x0000..=0x1FFF => self.cart.chr_rom[addr as usize],
+            0x0000..=0x1FFF => self.cart.chr[addr as usize],
             0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
             0x8000..=0xFFFF => {
                 // CPU 32K Fixed PRG ROM bank for NROM-256
@@ -60,7 +60,7 @@ impl Memory for Nrom {
                 }
             }
             _ => {
-                eprintln!("unhandled Nrom readb at address: 0x{:04X}", addr);
+                eprintln!("invalid Nrom readb at address: 0x{:04X}", addr);
                 0
             }
         }
@@ -68,17 +68,12 @@ impl Memory for Nrom {
 
     fn writeb(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => self.cart.chr_rom[addr as usize] = val,
-            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
-            0x8000..=0xFFFF => {
-                // CPU 32K Fixed PRG ROM bank for NROM-256
-                if self.cart.prg_rom.len() > 0x4000 {
-                    self.cart.prg_rom[(addr & 0x7FFF) as usize] = val;
-                // CPU 16K Fixed PRG ROM bank for NROM-128
-                } else {
-                    self.cart.prg_rom[(addr & 0x3FFF) as usize] = val;
-                }
+            0x0000..=0x1FFF if self.cart.header.chr_rom_size == 0 => {
+                // Only CHR-RAM can be written to
+                self.cart.chr[addr as usize] = val;
             }
+            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
+            0x8000..=0xFFFF => (), // ROM is read-only
             _ => eprintln!(
                 "invalid Nrom writeb at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val
