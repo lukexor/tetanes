@@ -258,12 +258,17 @@ impl Ppu {
         };
         let system_palette_idx =
             self.vram.readb(u16::from(color) + PALETTE_START) & ((SYSTEM_PALETTE_SIZE as u8) - 1);
-        let pixel = SYSTEM_PALETTE[system_palette_idx as usize];
-        self.screen.put_pixel(x as usize, y as usize, pixel);
+        let color = SYSTEM_PALETTE[system_palette_idx as usize];
+        self.screen.put_pixel(x as usize, y as usize, color);
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {
         self.frame.sprites[index].index == 0
+    }
+
+    pub fn default_bg_color(&mut self) -> Rgb {
+        let system_palette_idx = self.vram.readb(PALETTE_START);
+        SYSTEM_PALETTE[system_palette_idx as usize]
     }
 
     fn background_color(&mut self) -> u8 {
@@ -1135,10 +1140,10 @@ impl Screen {
         image
     }
 
-    fn put_pixel(&mut self, x: usize, y: usize, pixel: Rgb) {
+    fn put_pixel(&mut self, x: usize, y: usize, color: Rgb) {
         if x < RENDER_WIDTH && y < RENDER_HEIGHT {
             let i = x + (y * RENDER_WIDTH);
-            self.pixels[i] = pixel;
+            self.pixels[i] = color;
         }
     }
 }
@@ -1207,18 +1212,18 @@ impl Savable for Sprite {
 }
 
 #[derive(Default, Debug, Copy, Clone)]
-struct Rgb(u8, u8, u8);
+pub struct Rgb(u8, u8, u8);
 
 impl Rgb {
     // self is pass by value here because clippy says it's more efficient
     // https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
-    fn r(self) -> u8 {
+    pub fn r(self) -> u8 {
         self.0
     }
-    fn g(self) -> u8 {
+    pub fn g(self) -> u8 {
         self.1
     }
-    fn b(self) -> u8 {
+    pub fn b(self) -> u8 {
         self.2
     }
 }

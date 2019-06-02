@@ -129,6 +129,8 @@ impl Ui {
             self.console.load_rom(&self.roms[0])?;
             self.console.power_on()?;
             self.console.load_state(self.save_slot)?;
+            self.window
+                .set_default_bg_color(self.console.default_bg_color());
         }
 
         let mut start = Instant::now();

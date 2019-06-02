@@ -1,9 +1,10 @@
 //! Window Management using SDL2
 
-use crate::console::{Image, RENDER_HEIGHT, RENDER_WIDTH, SAMPLE_RATE};
+use crate::console::{Image, Rgb, RENDER_HEIGHT, RENDER_WIDTH, SAMPLE_RATE};
 use crate::util::{self, Result};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
-use sdl2::pixels::PixelFormatEnum;
+use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture, TextureCreator};
 use sdl2::video::{self, FullscreenType};
 use sdl2::{EventPump, GameControllerSubsystem};
@@ -15,7 +16,10 @@ pub struct Window {
     pub controller_sub: GameControllerSubsystem,
     audio_device: AudioQueue<f32>,
     canvas: Canvas<video::Window>,
+    overscan_src: Rect,
+    overscan_dst: Rect,
     texture: Texture<'static>,
+    default_bg_color: Color,
     _texture_creator: TextureCreator<video::WindowContext>,
 }
 
@@ -30,7 +34,7 @@ impl Window {
         let mut window_builder = video_sub.window(
             title,
             (WINDOW_WIDTH * scale) as u32, // Ensures 8:7 Aspect Ratio
-            (RENDER_HEIGHT * scale) as u32,
+            ((RENDER_HEIGHT - 16) * scale) as u32,
         );
         window_builder.position_centered();
         if fullscreen {
@@ -66,7 +70,20 @@ impl Window {
             controller_sub,
             audio_device,
             canvas,
+            overscan_src: Rect::new(
+                0,
+                8,
+                (WINDOW_WIDTH * scale) as u32,
+                ((RENDER_HEIGHT - 16) * scale) as u32,
+            ),
+            overscan_dst: Rect::new(
+                0,
+                0,
+                (WINDOW_WIDTH * scale) as u32,
+                ((RENDER_HEIGHT - 8) * scale) as u32,
+            ),
             texture,
+            default_bg_color: Color::RGB(0, 0, 0),
             _texture_creator: texture_creator,
         };
         Ok((window, event_pump))
@@ -75,12 +92,17 @@ impl Window {
     /// Updates the Window canvas texture with the passed in pixel data
     pub fn render(&mut self, pixels: &Image) -> Result<()> {
         self.texture.update(None, pixels, RENDER_WIDTH * 3)?;
+        self.canvas.set_draw_color(self.default_bg_color);
         self.canvas.clear();
         self.canvas
-            .copy(&self.texture, None, None)
+            .copy(&self.texture, self.overscan_src, self.overscan_dst)
             .map_err(util::str_to_err)?;
         self.canvas.present();
         Ok(())
+    }
+
+    pub fn set_default_bg_color(&mut self, color: Rgb) {
+        self.default_bg_color = Color::RGB(color.r(), color.g(), color.b());
     }
 
     /// Add audio samples to the audio queue

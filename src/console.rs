@@ -2,7 +2,7 @@
 
 pub use apu::{SAMPLE_BUFFER_SIZE, SAMPLE_RATE};
 pub use cpu::CPU_CLOCK_RATE;
-pub use ppu::{Image, RENDER_HEIGHT, RENDER_WIDTH};
+pub use ppu::{Image, Rgb, RENDER_HEIGHT, RENDER_WIDTH};
 
 use crate::cartridge::RAM_SIZE;
 use crate::input::InputRef;
@@ -83,6 +83,10 @@ impl Console {
         self.cpu.mem.ppu.render()
     }
 
+    pub fn default_bg_color(&mut self) -> Rgb {
+        self.cpu.mem.ppu.default_bg_color()
+    }
+
     /// Returns a frame worth of audio samples from the APU
     pub fn audio_samples(&mut self) -> &mut Vec<f32> {
         self.cpu.mem.apu.samples()
@@ -91,35 +95,6 @@ impl Console {
     /// Changes the running speed of the console
     pub fn set_speed(&mut self, speed: f64) {
         self.cpu.mem.apu.set_speed(speed);
-    }
-
-    /// Steps the console a single CPU instruction at a time
-    fn clock(&mut self) -> u64 {
-        let cpu_cycles = self.cpu.clock();
-        let ppu_cycles = cpu_cycles * 3;
-        for _ in 0..ppu_cycles {
-            self.cpu.mem.ppu.clock();
-            if self.cpu.mem.ppu.nmi_pending {
-                self.cpu.trigger_nmi();
-                self.cpu.mem.ppu.nmi_pending = false;
-            }
-            let irq_pending = {
-                let mut mapper = self.cpu.mem.mapper.borrow_mut();
-                mapper.clock(&self.cpu.mem.ppu);
-                mapper.irq_pending()
-            };
-            if irq_pending {
-                self.cpu.trigger_irq();
-            }
-        }
-        for _ in 0..cpu_cycles {
-            self.cpu.mem.apu.clock();
-            if self.cpu.mem.apu.irq_pending {
-                self.cpu.trigger_irq();
-                self.cpu.mem.apu.irq_pending = false;
-            }
-        }
-        cpu_cycles
     }
 
     /// Load the console with data saved from a save state
@@ -159,6 +134,35 @@ impl Console {
             .map_err(|e| format_err!("failed to write header {:?}: {}", save_path.display(), e))?;
         self.save(&mut writer)?;
         Ok(())
+    }
+
+    /// Steps the console a single CPU instruction at a time
+    fn clock(&mut self) -> u64 {
+        let cpu_cycles = self.cpu.clock();
+        let ppu_cycles = cpu_cycles * 3;
+        for _ in 0..ppu_cycles {
+            self.cpu.mem.ppu.clock();
+            if self.cpu.mem.ppu.nmi_pending {
+                self.cpu.trigger_nmi();
+                self.cpu.mem.ppu.nmi_pending = false;
+            }
+            let irq_pending = {
+                let mut mapper = self.cpu.mem.mapper.borrow_mut();
+                mapper.clock(&self.cpu.mem.ppu);
+                mapper.irq_pending()
+            };
+            if irq_pending {
+                self.cpu.trigger_irq();
+            }
+        }
+        for _ in 0..cpu_cycles {
+            self.cpu.mem.apu.clock();
+            if self.cpu.mem.apu.irq_pending {
+                self.cpu.trigger_irq();
+                self.cpu.mem.apu.irq_pending = false;
+            }
+        }
+        cpu_cycles
     }
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
