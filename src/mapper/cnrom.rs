@@ -59,17 +59,19 @@ impl Memory for Cnrom {
         match addr {
             // $0000-$1FFF PPU
             0x0000..=0x1FFF => {
-                let addr = self.chr_bank * 0x2000 + addr;
+                let addr = (self.chr_bank & self.cart.header.chr_rom_size - 1) * 0x2000 + addr;
                 self.cart.chr[addr as usize]
             }
             0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize],
             // $8000-$FFFF CPU
             0x8000..=0xBFFF => {
-                let addr = self.prg_bank_1 * 0x4000 + (addr - 0x8000);
+                let addr = (self.prg_bank_1 & self.cart.header.prg_rom_size - 1) * 0x4000
+                    + (addr - 0x8000);
                 self.cart.prg_rom[addr as usize]
             }
             0xC000..=0xFFFF => {
-                let addr = self.prg_bank_2 * 0x4000 + (addr - 0xC000);
+                let addr = (self.prg_bank_2 & self.cart.header.prg_rom_size - 1) * 0x4000
+                    + (addr - 0xC000);
                 self.cart.prg_rom[addr as usize]
             }
             _ => {
