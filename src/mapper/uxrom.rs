@@ -93,11 +93,13 @@ impl Memory for Uxrom {
 
 impl Savable for Uxrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
+        self.cart.save(fh)?;
         self.prg_banks.save(fh)?;
         self.prg_bank1.save(fh)?;
         self.prg_bank2.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.cart.load(fh)?;
         self.prg_banks.load(fh)?;
         self.prg_bank1.load(fh)?;
         self.prg_bank2.load(fh)

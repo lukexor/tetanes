@@ -336,6 +336,7 @@ impl Savable for Apu {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.irq_pending.save(fh)?;
         self.irq_enabled.save(fh)?;
+        self.open_bus.save(fh)?;
         self.cycle.save(fh)?;
         self.samples.save(fh)?;
         self.frame.save(fh)?;
@@ -348,6 +349,7 @@ impl Savable for Apu {
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.irq_pending.load(fh)?;
         self.irq_enabled.load(fh)?;
+        self.open_bus.load(fh)?;
         self.cycle.load(fh)?;
         self.samples.load(fh)?;
         self.frame.load(fh)?;

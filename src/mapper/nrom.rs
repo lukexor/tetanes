@@ -83,10 +83,10 @@ impl Memory for Nrom {
 }
 
 impl Savable for Nrom {
-    fn save(&self, _fh: &mut Write) -> Result<()> {
-        Ok(())
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.cart.save(fh)
     }
-    fn load(&mut self, _fh: &mut Read) -> Result<()> {
-        Ok(())
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.cart.load(fh)
     }
 }

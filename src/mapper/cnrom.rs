@@ -92,11 +92,13 @@ impl Memory for Cnrom {
 
 impl Savable for Cnrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
+        self.cart.save(fh)?;
         self.chr_bank.save(fh)?;
         self.prg_bank_1.save(fh)?;
         self.prg_bank_2.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.cart.load(fh)?;
         self.chr_bank.load(fh)?;
         self.prg_bank_1.load(fh)?;
         self.prg_bank_2.load(fh)

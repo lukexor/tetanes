@@ -687,8 +687,8 @@ impl Savable for Cpu {
         self.mem.save(fh)?;
         self.cycle.save(fh)?;
         self.step.save(fh)?;
-        self.stall.save(fh)?;
         self.pc.save(fh)?;
+        self.stall.save(fh)?;
         self.sp.save(fh)?;
         self.acc.save(fh)?;
         self.x.save(fh)?;
@@ -700,8 +700,8 @@ impl Savable for Cpu {
         self.mem.load(fh)?;
         self.cycle.load(fh)?;
         self.step.load(fh)?;
-        self.stall.load(fh)?;
         self.pc.load(fh)?;
+        self.stall.load(fh)?;
         self.sp.load(fh)?;
         self.acc.load(fh)?;
         self.x.load(fh)?;

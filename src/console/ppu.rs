@@ -1037,19 +1037,11 @@ impl Memory for Vram {
 
 impl Savable for Vram {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        {
-            let mapper = self.mapper.borrow();
-            mapper.save(fh)?;
-        }
         self.buffer.save(fh)?;
         self.nametable.save(fh)?;
         self.palette.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        {
-            let mut mapper = self.mapper.borrow_mut();
-            mapper.load(fh)?;
-        }
         self.buffer.load(fh)?;
         self.nametable.load(fh)?;
         self.palette.load(fh)

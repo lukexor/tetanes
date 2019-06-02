@@ -233,8 +233,10 @@ impl Memory for Txrom {
 
 impl Savable for Txrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
+        self.cart.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_enable.save(fh)?;
+        self.irq_pending.save(fh)?;
         self.counter.save(fh)?;
         self.reload.save(fh)?;
         self.prg_mode.save(fh)?;
@@ -245,8 +247,10 @@ impl Savable for Txrom {
         self.chr_offsets.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.cart.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_enable.load(fh)?;
+        self.irq_pending.load(fh)?;
         self.counter.load(fh)?;
         self.reload.load(fh)?;
         self.prg_mode.load(fh)?;
