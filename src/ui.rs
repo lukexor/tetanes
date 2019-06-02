@@ -29,9 +29,11 @@ pub struct UiBuilder {
     path: PathBuf,
     debug: bool,
     fullscreen: bool,
-    sound: bool,
+    sound_off: bool,
+    log_cpu: bool,
+    no_save: bool,
     save_slot: u8,
-    scale: usize,
+    scale: u32,
 }
 
 impl UiBuilder {
@@ -40,9 +42,11 @@ impl UiBuilder {
             path: PathBuf::new(),
             debug: false,
             fullscreen: false,
-            sound: true,
+            sound_off: false,
+            log_cpu: false,
+            no_save: false,
             save_slot: 1u8,
-            scale: 1usize,
+            scale: 1u32,
         }
     }
 
@@ -58,15 +62,23 @@ impl UiBuilder {
         self.fullscreen = fullscreen;
         self
     }
-    pub fn sound(&mut self, sound: bool) -> &mut Self {
-        self.sound = sound;
+    pub fn sound_off(&mut self, sound: bool) -> &mut Self {
+        self.sound_off = sound;
+        self
+    }
+    pub fn log_cpu(&mut self, log_cpu: bool) -> &mut Self {
+        self.log_cpu = log_cpu;
+        self
+    }
+    pub fn no_save(&mut self, no_save: bool) -> &mut Self {
+        self.no_save = no_save;
         self
     }
     pub fn save_slot(&mut self, save_slot: u8) -> &mut Self {
         self.save_slot = save_slot;
         self
     }
-    pub fn scale(&mut self, scale: usize) -> &mut Self {
+    pub fn scale(&mut self, scale: u32) -> &mut Self {
         self.scale = scale;
         self
     }
@@ -74,6 +86,8 @@ impl UiBuilder {
         let input = Rc::new(RefCell::new(Input::new()));
         let mut console = Console::init(input.clone());
         console.debug(self.debug);
+        console.log_cpu(self.log_cpu);
+        console.no_save(self.no_save);
 
         let (window, event_pump) = Window::init(DEFAULT_TITLE, self.scale, self.fullscreen)?;
         Ok(Ui {
@@ -81,7 +95,7 @@ impl UiBuilder {
             roms: Vec::new(),
             paused: false,
             should_close: false,
-            sound_enabled: true,
+            sound_enabled: !self.sound_off,
             fastforward: false,
             lctrl: false,
             save_slot: 1u8,
@@ -129,9 +143,21 @@ impl Ui {
             self.console.load_rom(&self.roms[0])?;
             self.console.power_on()?;
             self.console.load_state(self.save_slot)?;
-            self.window
-                .set_default_bg_color(self.console.default_bg_color());
         }
+
+        let startup_frames = 40;
+        for _ in 0..startup_frames {
+            self.poll_events()?;
+            self.console.clock_frame();
+            self.window.render_bg()?;
+            let samples = self.console.audio_samples();
+            if self.sound_enabled {
+                self.window.enqueue_audio(&samples);
+            }
+            samples.clear();
+        }
+        self.window
+            .set_default_bg_color(self.console.default_bg_color());
 
         let mut start = Instant::now();
         while !self.should_close {

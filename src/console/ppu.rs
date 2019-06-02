@@ -8,7 +8,6 @@ use crate::serialization::Savable;
 use crate::util::Result;
 use std::fmt;
 use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
 
 // Screen/Render
 pub type Image = [u8; IMAGE_SIZE];
@@ -64,14 +63,15 @@ const PALETTE_START: u16 = 0x3F00;
 
 #[derive(Debug)]
 pub struct Ppu {
-    pub cycle: u16,        // (0, 340) 341 cycles happen per scanline
-    pub scanline: u16,     // (0, 261) 262 total scanlines per frame
-    pub nmi_pending: bool, // Whether the CPU should trigger an NMI next cycle
-    regs: PpuRegs,         // Registers
-    oamdata: Oam,          // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    pub vram: Vram,        // $2007 PPUDATA
-    frame: Frame,          // Frame data keeps track of data and shift registers between frames
-    screen: Screen,        // The main screen holding pixel data
+    pub cycle: u16,              // (0, 340) 341 cycles happen per scanline
+    pub scanline: u16,           // (0, 261) 262 total scanlines per frame
+    pub nmi_delay_enabled: bool, // Fixes some games by delaying nmi
+    pub nmi_pending: bool,       // Whether the CPU should trigger an NMI next cycle
+    regs: PpuRegs,               // Registers
+    oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    pub vram: Vram,              // $2007 PPUDATA
+    frame: Frame,   // Frame data keeps track of data and shift registers between frames
+    screen: Screen, // The main screen holding pixel data
 }
 
 impl Ppu {
@@ -79,6 +79,7 @@ impl Ppu {
         Self {
             cycle: 0u16,
             scanline: 0u16,
+            nmi_delay_enabled: true,
             nmi_pending: false,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
@@ -152,18 +153,20 @@ impl Ppu {
 
             let should_fetch = render_scanline && fetch_cycle;
             if should_fetch {
-                self.frame.tile_data <<= 4;
-                // Fetch 4 tiles and write out shift registers every 8th cycle
-                // Each tile fetch takes 2 cycles
-                match self.cycle & 0x07 {
-                    0 => self.store_tile(),
-                    1 => self.fetch_bg_nametable(),
-                    3 => self.fetch_bg_attribute(),
-                    5 => self.fetch_bg_tile_lo(),
-                    7 => self.fetch_bg_tile_hi(),
-                    _ => (),
-                }
+                self.evaluate_background();
             }
+
+            // Two dummy byte fetches
+            if self.cycle >= PREFETCH_CYCLE_END
+                && self.cycle <= VISIBLE_SCANLINE_CYCLE_END
+                && self.cycle % 2 == 0
+            {
+                self.frame.nametable = self
+                    .vram
+                    .read(NAMETABLE_START | (self.regs.v & 0x0FFF))
+                    .into();
+            }
+
             // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
             // if rendering is enabled
             // http://wiki.nesdev.com/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
@@ -201,27 +204,95 @@ impl Ppu {
         }
     }
 
+    fn evaluate_background(&mut self) {
+        self.frame.tile_data <<= 4;
+        // Fetch 4 tiles and write out shift registers every 8th cycle
+        // Each tile fetch takes 2 cycles
+        match self.cycle % 8 {
+            0 => {
+                // Store tiles
+                let mut data = 0u32;
+                for _ in 0..8 {
+                    let a = self.frame.attribute;
+                    let p1 = (self.frame.tile_lo & 0x80) >> 7;
+                    let p2 = (self.frame.tile_hi & 0x80) >> 6;
+                    self.frame.tile_lo <<= 1;
+                    self.frame.tile_hi <<= 1;
+                    data <<= 4;
+                    data |= u32::from(a | p1 | p2);
+                }
+                self.frame.tile_data |= u64::from(data);
+            }
+            1 => {
+                // Fetch BG nametable
+                // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
+                let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
+                let addr = NAMETABLE_START | (self.regs.v & nametable_addr_mask);
+                self.frame.nametable = u16::from(self.vram.read(addr));
+            }
+            3 => {
+                // Fetch BG attribute table
+                // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
+                // NN 1111 YYY XXX
+                // || |||| ||| +++-- high 3 bits of coarse X (x/4)
+                // || |||| +++------ high 3 bits of coarse Y (y/4)
+                // || ++++---------- attribute offset (960 bytes)
+                // ++--------------- nametable select
+                let v = self.regs.v;
+                let nametable_select = v & (NAMETABLE_X_MASK | NAMETABLE_Y_MASK);
+                let y_bits = (v >> 4) & 0x38;
+                let x_bits = (v >> 2) & 0x07;
+                let addr = ATTRIBUTE_START | nametable_select | y_bits | x_bits;
+                self.frame.attribute = self.vram.read(addr);
+                // If the top bit of the low 3 bits is set, shift to next quadrant
+                if self.regs.coarse_y() & 2 > 0 {
+                    self.frame.attribute >>= 4;
+                }
+                if self.regs.coarse_x() & 2 > 0 {
+                    self.frame.attribute >>= 2;
+                }
+                self.frame.attribute = (self.frame.attribute & 3) << 2;
+            }
+            5 => {
+                // Fetch BG tile lo bitmap
+                let tile_addr = self.regs.ctrl.background_select()
+                    + self.frame.nametable * 16
+                    + self.regs.fine_y();
+                self.frame.tile_lo = self.vram.read(tile_addr);
+            }
+            7 => {
+                // Fetch BG tile hi bitmap
+                let tile_addr = self.regs.ctrl.background_select()
+                    + self.frame.nametable * 16
+                    + self.regs.fine_y();
+                self.frame.tile_hi = self.vram.read(tile_addr + 8);
+            }
+            _ => (),
+        }
+    }
+
     fn evaluate_sprites(&mut self) {
-        let mut count = 0;
-        let sprite_height = i16::from(self.regs.ctrl.sprite_height());
+        self.frame.sprite_count = 0;
+        let sprite_height = self.regs.ctrl.sprite_height();
         for i in 0..OAM_SIZE / 4 {
-            let mut sprite = self.get_sprite(i * 4);
-            let row = self.scanline as i16 - i16::from(sprite.y);
-            // Sprite is outside of our scanline range for evaluation
-            if row < 0 || row >= sprite_height {
+            let sprite_y = u16::from(self.oamdata.read((i * 4) as u16));
+            let sprite_on_line =
+                sprite_y <= self.scanline && self.scanline < sprite_y + sprite_height;
+            if !sprite_on_line {
                 continue;
             }
-            if count < 8 {
-                sprite.pattern = self.get_sprite_pattern(&sprite, row);
-                self.frame.sprites[count] = sprite;
+            if i == 0 {
+                self.frame.sprite_zero_on_line = true;
             }
-            count += 1;
+            if self.frame.sprite_count < 8 {
+                self.frame.sprites[self.frame.sprite_count as usize] = self.get_sprite(i * 4);
+            }
+            self.frame.sprite_count += 1;
         }
-        if count > 8 {
-            count = 8;
+        if self.frame.sprite_count > 8 {
+            self.frame.sprite_count = 8;
             self.set_sprite_overflow(true);
         }
-        self.frame.sprite_count = count as u8;
     }
 
     fn render_pixel(&mut self) {
@@ -247,7 +318,13 @@ impl Ppu {
         } else if bg_opaque && !sprite_opaque {
             bg_color
         } else {
-            if self.is_sprite_zero(i) && x < 255 {
+            if self.is_sprite_zero(i)
+                && self.frame.sprite_zero_on_line
+                && !self.sprite_zero_hit()
+                && self.frame.sprites[i].x != 255
+                && x < 255
+                && bg_opaque
+            {
                 self.set_sprite_zero_hit(true);
             }
             if !self.frame.sprites[i].has_priority {
@@ -257,7 +334,7 @@ impl Ppu {
             }
         };
         let system_palette_idx =
-            self.vram.readb(u16::from(color) + PALETTE_START) & ((SYSTEM_PALETTE_SIZE as u8) - 1);
+            self.vram.read(u16::from(color) + PALETTE_START) & ((SYSTEM_PALETTE_SIZE as u8) - 1);
         let color = SYSTEM_PALETTE[system_palette_idx as usize];
         self.screen.put_pixel(x as usize, y as usize, color);
     }
@@ -267,7 +344,7 @@ impl Ppu {
     }
 
     pub fn default_bg_color(&mut self) -> Rgb {
-        let system_palette_idx = self.vram.readb(PALETTE_START);
+        let system_palette_idx = self.vram.read(PALETTE_START);
         SYSTEM_PALETTE[system_palette_idx as usize]
     }
 
@@ -292,7 +369,7 @@ impl Ppu {
             return (0, 0);
         }
         for i in 0..self.frame.sprite_count as usize {
-            let offset = self.cycle as i16 - 1 - i16::from(self.frame.sprites[i].x);
+            let offset = self.cycle as i16 - 1 - self.frame.sprites[i].x as i16;
             if offset < 0 || offset > 7 {
                 continue;
             }
@@ -306,52 +383,10 @@ impl Ppu {
         (0, 0)
     }
 
-    fn store_tile(&mut self) {
-        let mut data = 0u32;
-        for _ in 0..8 {
-            let a = self.frame.attribute;
-            let p1 = (self.frame.tile_lo & 0x80) >> 7;
-            let p2 = (self.frame.tile_hi & 0x80) >> 6;
-            self.frame.tile_lo <<= 1;
-            self.frame.tile_hi <<= 1;
-            data <<= 4;
-            data |= u32::from(a | p1 | p2);
-        }
-        self.frame.tile_data |= u64::from(data);
-    }
-
-    fn fetch_bg_nametable(&mut self) {
-        let addr = NAMETABLE_START | (self.regs.v & 0x0FFF);
-        self.frame.nametable = self.vram.readb(addr);
-    }
-
-    fn fetch_bg_attribute(&mut self) {
-        let v = self.regs.v;
-        let addr = ATTRIBUTE_START | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-        let shift = ((v >> 4) & 4) | (v & 2);
-        self.frame.attribute = ((self.vram.readb(addr) >> shift) & 3) << 2;
-    }
-
-    fn fetch_bg_tile_lo(&mut self) {
-        let fine_y = self.regs.fine_y();
-        let bg_select = self.regs.ctrl.background_select();
-        let tile = self.frame.nametable;
-        let addr = bg_select + u16::from(tile) * 16 + u16::from(fine_y);
-        self.frame.tile_lo = self.vram.readb(addr);
-    }
-
-    fn fetch_bg_tile_hi(&mut self) {
-        let fine_y = self.regs.fine_y();
-        let bg_select = self.regs.ctrl.background_select();
-        let tile = self.frame.nametable;
-        let addr = bg_select + u16::from(tile) * 16 + u16::from(fine_y);
-        self.frame.tile_hi = self.vram.readb(addr + 8);
-    }
-
     fn tick(&mut self) {
-        if self.regs.nmi_delay > 0 {
+        if self.nmi_delay_enabled && self.regs.nmi_delay > 0 {
             self.regs.nmi_delay -= 1;
-            if self.regs.nmi_delay == 0 && self.nmi_enable() && self.vblank_started() {
+            if self.regs.nmi_delay == 0 && self.nmi_enabled() && self.vblank_started() {
                 self.nmi_pending = true;
             }
         }
@@ -395,44 +430,55 @@ impl Ppu {
         // ||+------ Priority (0: in front of background; 1: behind background)
         // |+------- Flip sprite horizontally
         // +-------- Flip sprite vertically
-        let attr = d.readb(addr + 2);
-        Sprite {
+        let attr = d.read(addr + 2);
+        let mut sprite = Sprite {
             index: i as u8,
-            x: d.readb(addr + 3),
-            y: d.readb(addr),
-            tile_index: d.readb(addr + 1),
+            x: d.read(addr + 3).into(),
+            y: d.read(addr).into(),
+            tile_index: d.read(addr + 1).into(),
             palette: (attr & 3) + 4, // range 4 to 7
             pattern: 0,
             has_priority: (attr & 0x20) == 0x20, // bit 5
             flip_horizontal: (attr & 0x40) > 0,  // bit 6
             flip_vertical: (attr & 0x80) > 0,    // bit 7
-        }
-    }
-
-    fn get_sprite_pattern(&mut self, sprite: &Sprite, mut row: i16) -> u32 {
-        // TODO explain these steps better
-        let sprite_height = i16::from(self.regs.ctrl.sprite_height());
-        if sprite.flip_vertical {
-            row = sprite_height - 1 - row;
-        }
-        let addr = if sprite_height == 8 {
-            let pattern_table = self.regs.ctrl.sprite_select();
-            pattern_table + u16::from(sprite.tile_index) * 16 + row as u16
-        } else {
-            let pattern_table = 0x1000 * (u16::from(sprite.tile_index) & 0x01); // use bit 1 of tile index
-            let mut tile_index = sprite.tile_index & 0xFE;
-            if row >= 8 {
-                tile_index += 1;
-                row -= 8;
-            }
-            pattern_table + u16::from(tile_index) * 16 + row as u16
         };
+
+        // Now fetch sprite pattern graphics
+
+        // Dummy sprite
+        let dummy_sprite =
+            sprite.x == 0xFF && sprite.y == 0xFF && sprite.tile_index == 0xFF && attr == 0xFF;
+
+        let sprite_height = self.regs.ctrl.sprite_height();
+        let mut sprite_row = self.scanline - sprite.y;
+        if sprite.flip_vertical {
+            sprite_row = sprite_height - 1 - sprite_row;
+        }
+        let sprite_table = if sprite_height == 8 {
+            self.regs.ctrl.sprite_select()
+        } else {
+            // use bit 1 of tile index to determine pattern table
+            0x1000 * (sprite.tile_index & 0x01)
+        };
+        if sprite_height == 16 {
+            sprite.tile_index &= 0xFE;
+            // Finished the top half, read from adjacent tile
+            if sprite_row > 7 {
+                sprite.tile_index += 1;
+                sprite_row -= 8;
+            }
+        }
+
+        if dummy_sprite {
+            sprite_row = 0;
+        }
+
+        let tile_addr = sprite_table + sprite.tile_index * 16 + sprite_row;
 
         // Flip bits for horizontal flipping
         let a = (sprite.palette - 4) << 2;
-        let mut lo_tile = self.vram.readb(addr);
-        let mut hi_tile = self.vram.readb(addr + 8);
-        let mut pattern = 0u32;
+        let mut lo_tile = self.vram.read(tile_addr);
+        let mut hi_tile = self.vram.read(tile_addr + 8);
         for _ in 0..8 {
             let (p1, p2);
             if sprite.flip_horizontal {
@@ -446,10 +492,10 @@ impl Ppu {
                 lo_tile <<= 1;
                 hi_tile <<= 1;
             }
-            pattern <<= 4;
-            pattern |= u32::from(a | p1 | p2);
+            sprite.pattern <<= 4;
+            sprite.pattern |= u32::from(a | p1 | p2);
         }
-        pattern
+        sprite
     }
 
     pub fn rendering_enabled(&self) -> bool {
@@ -462,11 +508,17 @@ impl Ppu {
      * PPUCTRL
      */
 
-    fn nmi_enable(&self) -> bool {
-        self.regs.ctrl.nmi_enable()
+    fn nmi_enabled(&self) -> bool {
+        self.regs.ctrl.nmi_enabled()
     }
     fn write_ppuctrl(&mut self, val: u8) {
         self.regs.write_ctrl(val);
+        if !self.nmi_delay_enabled
+            && self.regs.ctrl.nmi_enabled()
+            && self.regs.status.vblank_started()
+        {
+            self.nmi_pending = true;
+        }
     }
 
     /*
@@ -484,6 +536,12 @@ impl Ppu {
     fn read_ppustatus(&mut self) -> u8 {
         self.regs.read_status()
     }
+    fn peek_ppustatus(&self) -> u8 {
+        self.regs.peek_status()
+    }
+    fn sprite_zero_hit(&mut self) -> bool {
+        self.regs.status.sprite_zero_hit()
+    }
     fn set_sprite_zero_hit(&mut self, val: bool) {
         self.regs.status.set_sprite_zero_hit(val);
     }
@@ -493,6 +551,9 @@ impl Ppu {
     fn start_vblank(&mut self) {
         self.regs.status.start_vblank();
         self.regs.nmi_change();
+        if !self.nmi_delay_enabled && self.regs.ctrl.nmi_enabled() {
+            self.nmi_pending = true;
+        }
     }
     fn stop_vblank(&mut self) {
         self.regs.status.stop_vblank();
@@ -515,10 +576,13 @@ impl Ppu {
      */
 
     fn read_oamdata(&mut self) -> u8 {
-        self.oamdata.readb(u16::from(self.regs.oamaddr))
+        self.oamdata.read(u16::from(self.regs.oamaddr))
+    }
+    fn peek_oamdata(&self) -> u8 {
+        self.oamdata.peek(u16::from(self.regs.oamaddr))
     }
     fn write_oamdata(&mut self, val: u8) {
-        self.oamdata.writeb(u16::from(self.regs.oamaddr), val);
+        self.oamdata.write(u16::from(self.regs.oamaddr), val);
         self.regs.oamaddr = self.regs.oamaddr.wrapping_add(1);
     }
 
@@ -546,7 +610,7 @@ impl Ppu {
      */
 
     fn read_ppudata(&mut self) -> u8 {
-        let val = self.vram.readb(self.read_ppuaddr());
+        let val = self.vram.read(self.read_ppuaddr());
         // Buffering quirk resulting in a dummy read for the CPU
         // for reading pre-palette data in 0 - $3EFF
         // Keep addr within 15 bits
@@ -556,20 +620,31 @@ impl Ppu {
             buffer
         } else {
             // Set internal buffer with mirrors of nametable when reading palettes
-            self.vram.buffer = self.vram.readb(self.read_ppuaddr() - 0x1000);
+            self.vram.buffer = self.vram.read(self.read_ppuaddr());
             val
         };
         self.regs.increment_v();
         val
     }
+    fn peek_ppudata(&self) -> u8 {
+        let val = self.vram.peek(self.read_ppuaddr());
+        // Buffering quirk resulting in a dummy read for the CPU
+        // for reading pre-palette data in 0 - $3EFF
+        // Keep addr within 15 bits
+        if self.read_ppuaddr() <= 0x3EFF {
+            self.vram.buffer
+        } else {
+            val
+        }
+    }
     fn write_ppudata(&mut self, val: u8) {
-        self.vram.writeb(self.read_ppuaddr(), val);
+        self.vram.write(self.read_ppuaddr(), val);
         self.regs.increment_v();
     }
 }
 
 impl Memory for Ppu {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         // TODO emulate decay of open bus bits
         let val = match addr {
             0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
@@ -581,7 +656,7 @@ impl Memory for Ppu {
             0x2006 => self.regs.open_bus,    // PPUADDR is write-only
             0x2007 => self.read_ppudata(),   // PPUDATA
             _ => {
-                eprintln!("unhandled Ppu readb at 0x{:04X}", addr);
+                eprintln!("unhandled Ppu read at 0x{:04X}", addr);
                 0
             }
         };
@@ -589,7 +664,24 @@ impl Memory for Ppu {
         val
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
+            0x2001 => self.regs.open_bus,    // PPUMASK is write-only
+            0x2002 => self.peek_ppustatus(), // PPUSTATUS
+            0x2003 => self.regs.open_bus,    // OAMADDR is write-only
+            0x2004 => self.peek_oamdata(),   // OAMDATA
+            0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
+            0x2006 => self.regs.open_bus,    // PPUADDR is write-only
+            0x2007 => self.peek_ppudata(),   // PPUDATA
+            _ => {
+                eprintln!("unhandled Ppu peek at 0x{:04X}", addr);
+                0
+            }
+        }
+    }
+
+    fn write(&mut self, addr: u16, val: u8) {
         // TODO emulate decay of open bus bits
         self.regs.open_bus = val;
         match addr {
@@ -601,7 +693,7 @@ impl Memory for Ppu {
             0x2005 => self.write_ppuscroll(val), // PPUSCROLL
             0x2006 => self.write_ppuaddr(val),   // PPUADDR
             0x2007 => self.write_ppudata(val),   // PPUDATA
-            _ => eprintln!("unhandled Ppu readb at 0x{:04X}", addr),
+            _ => eprintln!("unhandled Ppu read at 0x{:04X}", addr),
         }
     }
 }
@@ -634,10 +726,13 @@ impl Savable for Ppu {
 pub struct Nametable(pub [u8; NAMETABLE_SIZE]);
 
 impl Memory for Nametable {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
+    }
+    fn peek(&self, addr: u16) -> u8 {
         self.0[addr as usize]
     }
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8) {
         self.0[addr as usize] = val;
     }
 }
@@ -655,13 +750,16 @@ impl Savable for Nametable {
 pub struct Palette(pub [u8; PALETTE_SIZE]);
 
 impl Memory for Palette {
-    fn readb(&mut self, mut addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
+    }
+    fn peek(&self, mut addr: u16) -> u8 {
         if addr >= 16 && addr.trailing_zeros() >= 2 {
             addr -= 16;
         }
         self.0[addr as usize]
     }
-    fn writeb(&mut self, mut addr: u16, val: u8) {
+    fn write(&mut self, mut addr: u16, val: u8) {
         if addr >= 16 && addr.trailing_zeros() >= 2 {
             addr -= 16;
         }
@@ -689,7 +787,7 @@ pub struct PpuRegs {
     nmi_previous: bool, // Keeps track of repeated nmi to handle delay timing
     v: u16,             // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
     t: u16,             // Temporary v - Also the addr of top-left onscreen tile
-    x: u8,              // Fine X
+    x: u16,             // Fine X
     w: bool,            // 1st or 2nd write toggle
 }
 
@@ -699,7 +797,7 @@ impl PpuRegs {
             open_bus: 0,
             ctrl: PpuCtrl(0),
             mask: PpuMask(0),
-            status: PpuStatus(0),
+            status: PpuStatus(0xA0),
             oamaddr: 0,
             nmi_delay: 0,
             nmi_previous: false,
@@ -729,7 +827,7 @@ impl PpuRegs {
     }
 
     fn nmi_change(&mut self) {
-        let nmi = self.ctrl.nmi_enable() && self.status.vblank_started();
+        let nmi = self.ctrl.nmi_enabled() && self.status.vblank_started();
         if nmi && !self.nmi_previous {
             self.nmi_delay = 15;
         }
@@ -747,6 +845,10 @@ impl PpuRegs {
         self.nmi_change();
         status
     }
+    fn peek_status(&self) -> u8 {
+        // Include garbage from open bus
+        (self.status.peek() & !0x1F) | (self.open_bus & 0x1F)
+    }
 
     /*
      * PPUSCROLL
@@ -754,16 +856,27 @@ impl PpuRegs {
      * http://wiki.nesdev.com/w/index.php/PPU_scrolling
      */
 
+    // Returns Coarse X: XXXXX from PPUADDR v
+    // yyy NN YYYYY XXXXX
+    fn coarse_x(&self) -> u16 {
+        self.v & COARSE_X_MASK
+    }
+
     // Returns Fine X: xxx from x register
-    fn fine_x(&self) -> u8 {
+    fn fine_x(&self) -> u16 {
         self.x
+    }
+
+    // Returns Coarse Y: YYYYY from PPUADDR v
+    // yyy NN YYYYY XXXXX
+    fn coarse_y(&self) -> u16 {
+        (self.v & COARSE_Y_MASK) >> 5
     }
 
     // Returns Fine Y: yyy from PPUADDR v
     // yyy NN YYYYY XXXXX
-    fn fine_y(&self) -> u8 {
-        // Shift yyy over nametable, coarse y and x and return 3 bits
-        ((self.v >> 12) & 0x7) as u8
+    fn fine_y(&self) -> u16 {
+        (self.v & FINE_Y_MASK) >> 12
     }
 
     // Writes val to PPUSCROLL
@@ -782,7 +895,7 @@ impl PpuRegs {
             // x:               CBA
             self.t &= !COARSE_X_MASK; // Empty coarse X
             self.t |= (val >> fine_rshift) & lo_5_bit_mask; // Set coarse X
-            self.x = (val & fine_mask) as u8; // Set fine X
+            self.x = val & fine_mask; // Set fine X
         } else {
             // Write Y on second write
             // lo 3 bits goes into fine y, remaining 5 bits go into t for coarse y
@@ -948,10 +1061,13 @@ impl Oam {
 }
 
 impl Memory for Oam {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
+    }
+    fn peek(&self, addr: u16) -> u8 {
         self.entries[addr as usize]
     }
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8) {
         self.entries[addr as usize] = val;
     }
 }
@@ -986,7 +1102,7 @@ impl Vram {
         let mapper = self.mapper.borrow();
         let mirroring = mapper.mirroring();
 
-        let table_size = 0x0400; // Each nametable quandrant is 1K
+        let table_size = 1024;
         let mirror_lookup = match mirroring {
             Mirroring::Horizontal => [0, 0, 1, 1],
             Mirroring::Vertical => [0, 1, 0, 1],
@@ -995,6 +1111,7 @@ impl Vram {
             Mirroring::FourScreen => [1, 2, 3, 4],
         };
 
+        // 4K worth of nametable addr space
         let addr = (addr - NAMETABLE_START) % ((NAMETABLE_SIZE as u16) * 2);
         let table = addr / table_size;
         let offset = addr % table_size;
@@ -1004,38 +1121,54 @@ impl Vram {
 }
 
 impl Memory for Vram {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => {
-                // CHR-ROM
                 let mut mapper = self.mapper.borrow_mut();
-                mapper.readb(addr)
+                mapper.read(addr)
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
-                self.nametable.readb(addr & 2047)
+                self.nametable.read(addr % NAMETABLE_SIZE as u16)
             }
-            0x3F00..=0x3FFF => self.palette.readb(addr & 31),
+            0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
             _ => {
-                eprintln!("invalid Vram readb at 0x{:04X}", addr);
+                eprintln!("invalid Vram read at 0x{:04X}", addr);
                 0
             }
         }
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => {
-                // CHR-ROM
-                let mut mapper = self.mapper.borrow_mut();
-                mapper.writeb(addr, val);
+                let mapper = self.mapper.borrow();
+                mapper.peek(addr)
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
-                self.nametable.writeb(addr & 2047, val)
+                self.nametable.peek(addr % NAMETABLE_SIZE as u16)
             }
-            0x3F00..=0x3FFF => self.palette.writeb(addr & 31, val),
-            _ => eprintln!("invalid Vram readb at 0x{:04X}", addr),
+            0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
+            _ => {
+                eprintln!("invalid Vram read at 0x{:04X}", addr);
+                0
+            }
+        }
+    }
+
+    fn write(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x0000..=0x1FFF => {
+                let mut mapper = self.mapper.borrow_mut();
+                mapper.write(addr, val);
+            }
+            0x2000..=0x3EFF => {
+                let addr = self.nametable_mirror_addr(addr);
+                self.nametable.write(addr % NAMETABLE_SIZE as u16, val)
+            }
+            0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
+            _ => eprintln!("invalid Vram read at 0x{:04X}", addr),
         }
     }
 }
@@ -1061,11 +1194,12 @@ struct Frame {
     tile_lo: u8,
     tile_hi: u8,
     // tile data - stored in cycles 0 mod 8
-    nametable: u8,
+    nametable: u16,
     attribute: u8,
     tile_data: u64,
     // sprite data
     sprite_count: u8,
+    sprite_zero_on_line: bool,
     sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
 }
 
@@ -1080,6 +1214,7 @@ impl Frame {
             tile_hi: 0,
             tile_data: 0,
             sprite_count: 0,
+            sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
         }
     }
@@ -1160,9 +1295,9 @@ impl Savable for Screen {
 #[derive(Default, Debug, Copy, Clone)]
 struct Sprite {
     index: u8,
-    x: u8,
-    y: u8,
-    tile_index: u8,
+    x: u16,
+    y: u16,
+    tile_index: u16,
     palette: u8,
     pattern: u32,
     has_priority: bool,
@@ -1173,12 +1308,12 @@ struct Sprite {
 impl Sprite {
     fn new() -> Self {
         Self {
-            index: 0,
-            x: 0,
-            y: 0,
-            tile_index: 0,
-            palette: 0,
-            pattern: 0,
+            index: 0u8,
+            x: 0u16,
+            y: 0u16,
+            tile_index: 0u16,
+            palette: 0u8,
+            pattern: 0u32,
             has_priority: false,
             flip_horizontal: false,
             flip_vertical: false,
@@ -1282,14 +1417,15 @@ impl PpuCtrl {
             0x0000
         }
     }
-    fn sprite_height(&self) -> u8 {
+    fn sprite_height(&self) -> u16 {
         if self.0 & 0x20 > 0 {
             16
         } else {
             8
         }
     }
-    fn nmi_enable(&self) -> bool {
+
+    fn nmi_enabled(&self) -> bool {
         self.0 & 0x80 > 0
     }
 }
@@ -1358,11 +1494,17 @@ impl PpuStatus {
         self.0 &= !0x80; // Set vblank to 0
         self.0 | vblank_started // return status with original vblank
     }
+    pub fn peek(&self) -> u8 {
+        self.0
+    }
 
     fn set_sprite_overflow(&mut self, val: bool) {
         self.0 = if val { self.0 | 0x20 } else { self.0 & !0x20 };
     }
 
+    fn sprite_zero_hit(&mut self) -> bool {
+        self.0 & 0x40 == 0x40
+    }
     fn set_sprite_zero_hit(&mut self, val: bool) {
         self.0 = if val { self.0 | 0x40 } else { self.0 & !0x40 };
     }
@@ -1417,18 +1559,6 @@ impl fmt::Debug for Palette {
     }
 }
 
-impl Deref for PpuStatus {
-    type Target = u8;
-    fn deref(&self) -> &u8 {
-        &self.0
-    }
-}
-impl DerefMut for PpuStatus {
-    fn deref_mut(&mut self) -> &mut u8 {
-        &mut self.0
-    }
-}
-
 // 64 total possible colors, though only 32 can be loaded at a time
 #[rustfmt::skip]
 const SYSTEM_PALETTE: [Rgb; SYSTEM_PALETTE_SIZE] = [
@@ -1475,19 +1605,19 @@ mod tests {
         // Test write to ppuctrl
         let ctrl_write: u8 = 0b11; // Write two 1 bits
         let t_result: u16 = 0b11 << 10; // Make sure they're in the NN place of t
-        ppu.writeb(ppuctrl, ctrl_write);
+        ppu.write(ppuctrl, ctrl_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.v, 0);
 
         // Test read to ppustatus
-        ppu.readb(ppustatus);
+        ppu.read(ppustatus);
         assert_eq!(ppu.regs.w, false);
 
         // Test 1st write to ppuscroll
         let scroll_write: u8 = 0b0111_1101;
         let t_result: u16 = 0b000_11_00000_01111;
         let x_result: u8 = 0b101;
-        ppu.writeb(ppuscroll, scroll_write);
+        ppu.write(ppuscroll, scroll_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
         assert_eq!(ppu.regs.w, true);
@@ -1495,7 +1625,7 @@ mod tests {
         // Test 2nd write to ppuscroll
         let scroll_write: u8 = 0b0101_1110;
         let t_result: u16 = 0b110_11_01011_01111;
-        ppu.writeb(ppuscroll, scroll_write);
+        ppu.write(ppuscroll, scroll_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
         assert_eq!(ppu.regs.w, false);
@@ -1503,7 +1633,7 @@ mod tests {
         // Test 1st write to ppuaddr
         let addr_write: u8 = 0b0011_1101;
         let t_result: u16 = 0b011_11_01011_01111;
-        ppu.writeb(ppuaddr, addr_write);
+        ppu.write(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
         assert_eq!(ppu.regs.w, true);
@@ -1511,7 +1641,7 @@ mod tests {
         // Test 2nd write to ppuaddr
         let addr_write: u8 = 0b1111_0000;
         let t_result: u16 = 0b011_11_01111_10000;
-        ppu.writeb(ppuaddr, addr_write);
+        ppu.write(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.v, t_result);
         assert_eq!(ppu.regs.x, x_result);
@@ -1519,10 +1649,10 @@ mod tests {
 
         // Test a 2006/2005/2005/2006 write
         // http://forums.nesdev.com/viewtopic.php?p=78593#p78593
-        ppu.writeb(ppuaddr, 0b0000_1000); // nametable select $10
-        ppu.writeb(ppuscroll, 0b0100_0101); // $01 hi bits coarse Y scroll, $101 fine Y scroll
-        ppu.writeb(ppuscroll, 0b0000_0011); // $011 fine X scroll
-        ppu.writeb(ppuaddr, 0b1001_0110); // $100 lo bits coarse Y scroll, $10110 coarse X scroll
+        ppu.write(ppuaddr, 0b0000_1000); // nametable select $10
+        ppu.write(ppuscroll, 0b0100_0101); // $01 hi bits coarse Y scroll, $101 fine Y scroll
+        ppu.write(ppuscroll, 0b0000_0011); // $011 fine X scroll
+        ppu.write(ppuaddr, 0b1001_0110); // $100 lo bits coarse Y scroll, $10110 coarse X scroll
         let t_result: u16 = 0b101_10_01100_10110;
         assert_eq!(ppu.regs.v, t_result);
     }

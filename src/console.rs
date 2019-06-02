@@ -4,16 +4,15 @@ pub use apu::{SAMPLE_BUFFER_SIZE, SAMPLE_RATE};
 pub use cpu::CPU_CLOCK_RATE;
 pub use ppu::{Image, Rgb, RENDER_HEIGHT, RENDER_WIDTH};
 
-use crate::cartridge::RAM_SIZE;
 use crate::input::InputRef;
-use crate::mapper;
+use crate::mapper::{self, MapperRef};
 use crate::memory::CpuMemMap;
 use crate::serialization::Savable;
 use crate::util::{self, Result};
 use cpu::Cpu;
 use failure::format_err;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{fmt, fs};
 
 pub mod apu;
@@ -25,7 +24,10 @@ pub mod ppu;
 ///
 /// Manages all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
+    no_save: bool,
+    loaded_rom: PathBuf,
     pub cpu: Box<Cpu>,
+    mapper: MapperRef,
 }
 
 impl Console {
@@ -34,12 +36,19 @@ impl Console {
         let cpu_memory = CpuMemMap::init(input);
         let mut cpu = Box::new(Cpu::init(cpu_memory));
         cpu.mem.apu.dmc.cpu = (&mut *cpu) as *mut Cpu; // TODO ugly work-around for DMC memory
-        Self { cpu }
+        Self {
+            no_save: false,
+            loaded_rom: PathBuf::new(),
+            cpu,
+            mapper: mapper::null(),
+        }
     }
 
     /// Loads a ROM cartridge into memory
     pub fn load_rom<P: AsRef<Path>>(&mut self, rom: P) -> Result<()> {
+        self.loaded_rom = rom.as_ref().to_path_buf();
         let mapper = mapper::load_rom(rom)?;
+        self.mapper = mapper.clone();
         self.cpu.mem.load_mapper(mapper);
         Ok(())
     }
@@ -66,16 +75,28 @@ impl Console {
     /// Soft-resets the console
     pub fn reset(&mut self) {
         self.cpu.reset();
+        self.mapper.borrow_mut().reset();
     }
 
     /// Hard-resets the console
     pub fn power_cycle(&mut self) {
         self.cpu.power_cycle();
+        self.mapper.borrow_mut().power_cycle();
     }
 
     /// Enable/Disable the debugger
     pub fn debug(&mut self, val: bool) {
         self.cpu.debug(val);
+    }
+
+    /// Enable/Disable CPU logging
+    pub fn log_cpu(&mut self, val: bool) {
+        self.cpu.log(val);
+    }
+
+    /// Enable/Disable Save states
+    pub fn no_save(&mut self, val: bool) {
+        self.no_save = val;
     }
 
     /// Returns a rendered frame worth of data from the PPU
@@ -97,30 +118,12 @@ impl Console {
         self.cpu.mem.apu.set_speed(speed);
     }
 
-    /// Load the console with data saved from a save state
-    pub fn load_state(&mut self, slot: u8) -> Result<()> {
-        let rom_file = {
-            let mapper = self.cpu.mem.mapper.borrow();
-            mapper.cart().rom_file.clone()
-        };
-        let save_path = util::save_path(&rom_file, slot)?;
-        if save_path.exists() {
-            let save_file = fs::File::open(&save_path)
-                .map_err(|e| format_err!("failed to open file {:?}: {}", save_path.display(), e))?;
-            let mut reader = BufReader::new(save_file);
-            match util::validate_save_header(&mut reader) {
-                Ok(_) => self.load(&mut reader)?,
-                Err(e) => eprintln!("failed to load save slot #{}: {}", slot, e),
-            }
-        }
-        Ok(())
-    }
-
     /// Save the current state of the console into a save file
     pub fn save_state(&mut self, slot: u8) -> Result<()> {
-        let mapper = self.cpu.mem.mapper.borrow();
-        let rom_file = &mapper.cart().rom_file;
-        let save_path = util::save_path(rom_file, slot)?;
+        if self.no_save {
+            return Ok(());
+        }
+        let save_path = util::save_path(&self.loaded_rom, slot)?;
         let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
         if !save_dir.exists() {
             fs::create_dir_all(save_dir).map_err(|e| {
@@ -133,6 +136,24 @@ impl Console {
         util::write_save_header(&mut writer)
             .map_err(|e| format_err!("failed to write header {:?}: {}", save_path.display(), e))?;
         self.save(&mut writer)?;
+        Ok(())
+    }
+
+    /// Load the console with data saved from a save state
+    pub fn load_state(&mut self, slot: u8) -> Result<()> {
+        if self.no_save {
+            return Ok(());
+        }
+        let save_path = util::save_path(&self.loaded_rom, slot)?;
+        if save_path.exists() {
+            let save_file = fs::File::open(&save_path)
+                .map_err(|e| format_err!("failed to open file {:?}: {}", save_path.display(), e))?;
+            let mut reader = BufReader::new(save_file);
+            match util::validate_save_header(&mut reader) {
+                Ok(_) => self.load(&mut reader)?,
+                Err(e) => eprintln!("failed to load save slot #{}: {}", slot, e),
+            }
+        }
         Ok(())
     }
 
@@ -165,41 +186,14 @@ impl Console {
         cpu_cycles
     }
 
-    /// Load battery-backed Save RAM from a file (if cartridge supports it)
-    fn load_sram(&mut self) -> Result<()> {
-        let mut mapper = self.cpu.mem.mapper.borrow_mut();
-        if mapper.cart().has_battery() {
-            let rom_file = &mapper.cart().rom_file;
-            let sram_path = util::sram_path(rom_file)?;
-            if sram_path.exists() {
-                let mut sram_file = fs::File::open(&sram_path).map_err(|e| {
-                    format_err!("failed to open file {:?}: {}", sram_path.display(), e)
-                })?;
-                let mut sram = Vec::with_capacity(RAM_SIZE);
-                match util::validate_save_header(&mut sram_file) {
-                    Ok(_) => {
-                        sram_file.read_to_end(&mut sram).map_err(|e| {
-                            format_err!("failed to read file {:?}: {}", sram_path.display(), e)
-                        })?;
-                        mapper.cart_mut().sram = sram;
-                    }
-                    Err(e) => eprintln!(
-                        "failed to load sram: {}.\n  move or delete `{}` before exiting, otherwise sram data will be lost.",
-                        e,
-                        sram_path.display()
-                    ),
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
     fn save_sram(&mut self) -> Result<()> {
+        if self.no_save {
+            return Ok(());
+        }
         let mapper = self.cpu.mem.mapper.borrow();
-        if mapper.cart().has_battery() {
-            let rom_file = &mapper.cart().rom_file;
-            let sram_path = util::sram_path(rom_file)?;
+        if mapper.battery_backed() {
+            let sram_path = util::sram_path(&self.loaded_rom)?;
             let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
             if !sram_dir.exists() {
                 fs::create_dir_all(sram_dir).map_err(|e| {
@@ -219,18 +213,41 @@ impl Console {
                 util::write_save_header(&mut sram_file).map_err(|e| {
                     format_err!("failed to write header {:?}: {}", sram_path.display(), e)
                 })?;
-                sram_file.write_all(&mapper.cart().sram).map_err(|e| {
-                    format_err!("failed to write file {:?}: {}", sram_path.display(), e)
-                })?;
+                mapper.save_sram(&mut sram_file)?;
             } else {
                 // Check if exists and header is different, so we avoid overwriting
                 match util::validate_save_header(&mut sram_file) {
                     Ok(_) => {
-                        sram_file.write_all(&mapper.cart().sram).map_err(|e| {
-                            format_err!("failed to write file {:?}: {}", sram_path.display(), e)
-                        })?;
+                        mapper.save_sram(&mut sram_file)?;
                     }
                     Err(e) => eprintln!("failed to write sram due to invalid header. error: {}", e),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Load battery-backed Save RAM from a file (if cartridge supports it)
+    fn load_sram(&mut self) -> Result<()> {
+        if self.no_save {
+            return Ok(());
+        }
+        let mut mapper = self.mapper.borrow_mut();
+        if mapper.battery_backed() {
+            let sram_path = util::sram_path(&self.loaded_rom)?;
+            if sram_path.exists() {
+                let mut sram_file = fs::File::open(&sram_path).map_err(|e| {
+                    format_err!("failed to open file {:?}: {}", sram_path.display(), e)
+                })?;
+                match util::validate_save_header(&mut sram_file) {
+                    Ok(_) => {
+                        mapper.load_sram(&mut sram_file)?;
+                    }
+                    Err(e) => eprintln!(
+                        "failed to load sram: {}.\n  move or delete `{}` before exiting, otherwise sram data will be lost.",
+                        e,
+                        sram_path.display()
+                    ),
                 }
             }
         }

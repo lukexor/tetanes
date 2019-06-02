@@ -50,6 +50,20 @@ impl Gamepad {
         self.strobe_state = (self.strobe_state + 1) & 7;
         state as u8
     }
+    fn peek_state(&self) -> u8 {
+        let state = match self.strobe_state {
+            STROBE_A => self.a,
+            STROBE_B => self.b,
+            STROBE_SELECT => self.select,
+            STROBE_START => self.start,
+            STROBE_UP => self.up,
+            STROBE_DOWN => self.down,
+            STROBE_LEFT => self.left,
+            STROBE_RIGHT => self.right,
+            _ => panic!("invalid state {}", self.strobe_state),
+        };
+        state as u8
+    }
     fn reset(&mut self) {
         self.strobe_state = STROBE_A;
     }
@@ -73,7 +87,7 @@ impl Input {
 }
 
 impl Memory for Input {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         match addr {
             0x4016 => self.gamepad1.next_state(),
             0x4017 => self.gamepad2.next_state(),
@@ -81,7 +95,15 @@ impl Memory for Input {
         }
     }
 
-    fn writeb(&mut self, addr: u16, _val: u8) {
+    fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x4016 => self.gamepad1.peek_state(),
+            0x4017 => self.gamepad2.peek_state(),
+            _ => 0,
+        }
+    }
+
+    fn write(&mut self, addr: u16, _val: u8) {
         if addr == 0x4016 {
             self.gamepad1.reset();
             self.gamepad2.reset();

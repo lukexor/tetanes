@@ -4,11 +4,12 @@
 
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
-use crate::memory::Memory;
+use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
 use crate::util::Result;
 use failure::format_err;
 use std::cell::RefCell;
+use std::fmt;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::rc::Rc;
@@ -29,12 +30,18 @@ pub mod uxrom;
 pub type MapperRef = Rc<RefCell<Mapper>>;
 
 /// Mapper trait requiring Memory + Send + Savable
-pub trait Mapper: Memory + Send + Savable {
+pub trait Mapper: Memory + Savable + fmt::Debug {
     fn irq_pending(&mut self) -> bool;
     fn mirroring(&self) -> Mirroring;
     fn clock(&mut self, ppu: &Ppu);
-    fn cart(&self) -> &Cartridge;
-    fn cart_mut(&mut self) -> &mut Cartridge;
+    fn battery_backed(&self) -> bool;
+    fn save_sram(&self, fh: &mut Write) -> Result<()>;
+    fn load_sram(&mut self, fh: &mut Read) -> Result<()>;
+    fn chr(&self) -> Option<&Banks<Ram>>;
+    fn prg_rom(&self) -> Option<&Banks<Rom>>;
+    fn prg_ram(&self) -> Option<&Ram>;
+    fn reset(&mut self);
+    fn power_cycle(&mut self);
 }
 
 pub fn null() -> MapperRef {
@@ -89,15 +96,11 @@ impl Savable for Mirroring {
 }
 
 #[derive(Debug)]
-pub struct NullMapper {
-    cart: Cartridge,
-}
+pub struct NullMapper {}
 
 impl NullMapper {
     pub fn load() -> MapperRef {
-        Rc::new(RefCell::new(Self {
-            cart: Cartridge::new(),
-        }))
+        Rc::new(RefCell::new(Self {}))
     }
 }
 
@@ -109,26 +112,43 @@ impl Mapper for NullMapper {
         Mirroring::Horizontal
     }
     fn clock(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
+    fn battery_backed(&self) -> bool {
+        false
     }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn save_sram(&self, _fh: &mut Write) -> Result<()> {
+        Ok(())
     }
+    fn load_sram(&mut self, _fh: &mut Read) -> Result<()> {
+        Ok(())
+    }
+    fn chr(&self) -> Option<&Banks<Ram>> {
+        None
+    }
+    fn prg_rom(&self) -> Option<&Banks<Rom>> {
+        None
+    }
+    fn prg_ram(&self) -> Option<&Ram> {
+        None
+    }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Memory for NullMapper {
-    fn readb(&mut self, _addr: u16) -> u8 {
+    fn read(&mut self, _addr: u16) -> u8 {
         0
     }
-    fn writeb(&mut self, _addr: u16, _val: u8) {}
+    fn peek(&self, _addr: u16) -> u8 {
+        0
+    }
+    fn write(&mut self, _addr: u16, _val: u8) {}
 }
 
 impl Savable for NullMapper {
-    fn save(&self, fh: &mut Write) -> Result<()> {
-        self.cart.save(fh)
+    fn save(&self, _fh: &mut Write) -> Result<()> {
+        Ok(())
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.cart.load(fh)
+    fn load(&mut self, _fh: &mut Read) -> Result<()> {
+        Ok(())
     }
 }

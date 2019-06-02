@@ -6,7 +6,7 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::Memory;
+use crate::memory::{Banks, Memory, Ram, Rom, CHR_ROM_BANK_SIZE, PRG_ROM_BANK_SIZE};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::cell::RefCell;
@@ -16,21 +16,29 @@ use std::rc::Rc;
 /// CNROM
 #[derive(Debug)]
 pub struct Cnrom {
-    cart: Cartridge,
-    chr_bank: u16, // $0000-$1FFF 8K CHR-ROM
-    prg_bank_1: u16,
-    prg_bank_2: u16,
+    mirroring: Mirroring,
+    prg_rom_bank_lo: usize,
+    prg_rom_bank_hi: usize,
+    chr_bank: usize,
+    // CPU $8000-$FFFF 16 KB PRG ROM Bank 1 Fixed
+    // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 Fixed or Bank 1 Mirror if only 16 KB PRG ROM
+    prg_rom_banks: Banks<Rom>,
+    chr_banks: Banks<Ram>, // PPU $0000..=$1FFFF 8K CHR ROM Banks Switchable
 }
 
 impl Cnrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_bank_2 = (cart.header.prg_rom_size - 1) as u16;
-        Rc::new(RefCell::new(Self {
-            cart,
-            chr_bank: 0u16,
-            prg_bank_1: 0u16,
-            prg_bank_2,
-        }))
+        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
+        let chr_banks = Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE);
+        let cnrom = Self {
+            mirroring: cart.mirroring(),
+            prg_rom_bank_lo: 0usize,
+            prg_rom_bank_hi: prg_rom_banks.len() - 1,
+            chr_bank: 0usize,
+            prg_rom_banks,
+            chr_banks,
+        };
+        Rc::new(RefCell::new(cnrom))
     }
 }
 
@@ -39,70 +47,75 @@ impl Mapper for Cnrom {
         false
     }
     fn mirroring(&self) -> Mirroring {
-        match self.cart.header.flags & 0x01 {
-            0 => Mirroring::Horizontal,
-            1 => Mirroring::Vertical,
-            _ => panic!("invalid mirroring"),
-        }
+        self.mirroring
     }
-    fn clock(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
+    fn clock(&mut self, _ppu: &Ppu) {} // no clocking
+    fn battery_backed(&self) -> bool {
+        false
     }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn save_sram(&self, _fh: &mut Write) -> Result<()> {
+        Ok(())
+    }
+    fn load_sram(&mut self, _fh: &mut Read) -> Result<()> {
+        Ok(())
+    }
+    fn chr(&self) -> Option<&Banks<Ram>> {
+        Some(&self.chr_banks)
+    }
+    fn prg_rom(&self) -> Option<&Banks<Rom>> {
+        Some(&self.prg_rom_banks)
+    }
+    fn prg_ram(&self) -> Option<&Ram> {
+        None
+    }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {
+        self.reset();
     }
 }
 
 impl Memory for Cnrom {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
+    }
+
+    fn peek(&self, addr: u16) -> u8 {
         match addr {
-            // $0000-$1FFF PPU
-            0x0000..=0x1FFF => {
-                let addr = (self.chr_bank & self.cart.header.chr_rom_size - 1) * 0x2000 + addr;
-                self.cart.chr[addr as usize]
-            }
-            0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize],
-            // $8000-$FFFF CPU
-            0x8000..=0xBFFF => {
-                let addr = (self.prg_bank_1 & self.cart.header.prg_rom_size - 1) * 0x4000
-                    + (addr - 0x8000);
-                self.cart.prg_rom[addr as usize]
-            }
-            0xC000..=0xFFFF => {
-                let addr = (self.prg_bank_2 & self.cart.header.prg_rom_size - 1) * 0x4000
-                    + (addr - 0xC000);
-                self.cart.prg_rom[addr as usize]
-            }
+            0x0000..=0x1FFF => self.chr_banks[self.chr_bank].peek(addr),
+            0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
+            0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x6000..=0x7FFF => 0, // No Save RAM
             _ => {
-                eprintln!("unhandled Cnrom readb at address: 0x{:04X}", addr);
+                eprintln!("unhandled Cnrom read at address: 0x{:04X}", addr);
                 0
             }
         }
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => (), // ROM is read-only
-            0x6000..=0x7FFF => self.cart.prg_ram[(addr - 0x6000) as usize] = val,
-            // $8000-$FFFF CPU
-            0x8000..=0xFFFF => self.chr_bank = u16::from(val & 3),
-            _ => eprintln!("unhandled Cnrom writeb at address: 0x{:04X}", addr),
+            0x8000..=0xFFFF => self.chr_bank = val as usize & 3,
+            0x6000..=0x7FFF => (), // No Save RAM
+            _ => eprintln!("unhandled Cnrom write at address: 0x{:04X}", addr),
         }
     }
 }
 
 impl Savable for Cnrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.cart.save(fh)?;
+        self.mirroring.save(fh)?;
+        self.prg_rom_bank_lo.save(fh)?;
+        self.prg_rom_bank_hi.save(fh)?;
         self.chr_bank.save(fh)?;
-        self.prg_bank_1.save(fh)?;
-        self.prg_bank_2.save(fh)
+        self.prg_rom_banks.save(fh)?;
+        self.chr_banks.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.cart.load(fh)?;
+        self.mirroring.load(fh)?;
+        self.prg_rom_bank_lo.load(fh)?;
+        self.prg_rom_bank_hi.load(fh)?;
         self.chr_bank.load(fh)?;
-        self.prg_bank_1.load(fh)?;
-        self.prg_bank_2.load(fh)
+        self.prg_rom_banks.load(fh)?;
+        self.chr_banks.load(fh)
     }
 }

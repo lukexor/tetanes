@@ -14,7 +14,6 @@
 
 pub mod cartridge;
 pub mod console;
-pub mod disasm;
 pub mod filter;
 pub mod input;
 pub mod mapper;

@@ -5,7 +5,9 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::Memory;
+use crate::memory::{
+    Banks, Memory, Ram, Rom, CHR_RAM_SIZE, CHR_ROM_BANK_SIZE, PRG_RAM_8K, PRG_ROM_BANK_SIZE,
+};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::cell::RefCell;
@@ -15,12 +17,47 @@ use std::rc::Rc;
 /// NROM
 #[derive(Debug)]
 pub struct Nrom {
-    cart: Cartridge,
+    battery_backed: bool,
+    mirroring: Mirroring,
+    nrom_size: NromSize,
+    prg_ram: Ram, // CPU $6000-$7FFF 2K or 4K PRG RAM Family Basic only. 8K is provided
+    // CPU $8000-$BFFF 16 KB PRG ROM Bank 1 for NROM128 or NROM256
+    // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
+    prg_rom_banks: Banks<Rom>,
+    chr_banks: Banks<Ram>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Bank
 }
+
+#[derive(Debug, Copy, Clone)]
+pub enum NromSize {
+    Nrom128,
+    Nrom256,
+}
+use NromSize::*;
 
 impl Nrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        Rc::new(RefCell::new(Self { cart }))
+        let prg_ram = Ram::init(PRG_RAM_8K);
+        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
+        let chr_banks = if cart.chr_rom.len() == 0 {
+            let chr_ram = Ram::init(CHR_RAM_SIZE);
+            Banks::init(&chr_ram, CHR_ROM_BANK_SIZE)
+        } else {
+            Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE)
+        };
+        let nrom_size = if cart.prg_rom.len() > 0x4000 {
+            Nrom256
+        } else {
+            Nrom128
+        };
+        let nrom = Self {
+            battery_backed: cart.battery_backed(),
+            mirroring: cart.mirroring(),
+            nrom_size,
+            prg_ram,
+            prg_rom_banks,
+            chr_banks,
+        };
+        Rc::new(RefCell::new(nrom))
     }
 }
 
@@ -29,53 +66,71 @@ impl Mapper for Nrom {
         false
     }
     fn mirroring(&self) -> Mirroring {
-        match self.cart.header.flags & 0x01 {
-            0 => Mirroring::Horizontal,
-            1 => Mirroring::Vertical,
-            _ => panic!("invalid mirroring"),
+        self.mirroring
+    }
+    fn clock(&mut self, _ppu: &Ppu) {} // No clocking
+    fn battery_backed(&self) -> bool {
+        self.battery_backed
+    }
+    fn save_sram(&self, fh: &mut Write) -> Result<()> {
+        if self.battery_backed {
+            self.prg_ram.save(fh)?;
         }
+        Ok(())
     }
-    fn clock(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
+    fn load_sram(&mut self, fh: &mut Read) -> Result<()> {
+        if self.battery_backed {
+            self.prg_ram.load(fh)?;
+        }
+        Ok(())
     }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn chr(&self) -> Option<&Banks<Ram>> {
+        Some(&self.chr_banks)
+    }
+    fn prg_rom(&self) -> Option<&Banks<Rom>> {
+        Some(&self.prg_rom_banks)
+    }
+    fn prg_ram(&self) -> Option<&Ram> {
+        Some(&self.prg_ram)
+    }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {
+        if self.battery_backed {
+            self.prg_ram = Ram::init(self.prg_ram.len());
+        }
+        self.reset();
     }
 }
 
 impl Memory for Nrom {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
+    }
+
+    fn peek(&self, addr: u16) -> u8 {
         match addr {
             // PPU 8K Fixed CHR bank
-            0x0000..=0x1FFF => self.cart.chr[addr as usize],
-            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
-            0x8000..=0xFFFF => {
-                // CPU 32K Fixed PRG ROM bank for NROM-256
-                if self.cart.prg_rom.len() > 0x4000 {
-                    self.cart.prg_rom[(addr & 0x7FFF) as usize]
-                // CPU 16K Fixed PRG ROM bank for NROM-128
-                } else {
-                    self.cart.prg_rom[(addr & 0x3FFF) as usize]
-                }
-            }
+            0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
+            0x6000..=0x7FFF => self.prg_ram.peek(addr - 0x6000),
+            0x8000..=0xBFFF => self.prg_rom_banks[0].peek(addr & 0x3FFF),
+            0xC000..=0xFFFF => match self.nrom_size {
+                Nrom128 => self.prg_rom_banks[0].peek(addr & 0x3FFF),
+                Nrom256 => self.prg_rom_banks[1].peek(addr & 0x7FFF),
+            },
             _ => {
-                eprintln!("invalid Nrom readb at address: 0x{:04X}", addr);
+                eprintln!("invalid Nrom read at address: 0x{:04X}", addr);
                 0
             }
         }
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF if self.cart.header.chr_rom_size == 0 => {
-                // Only CHR-RAM can be written to
-                self.cart.chr[addr as usize] = val;
-            }
-            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
-            0x8000..=0xFFFF => (), // ROM is read-only
+            // Only CHR-RAM can be written to
+            0x0000..=0x1FFF if self.battery_backed => self.chr_banks[0].write(addr, val),
+            0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
             _ => eprintln!(
-                "invalid Nrom writeb at address: 0x{:04X} - val: 0x{:02X}",
+                "invalid Nrom write at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val
             ),
         }
@@ -84,9 +139,35 @@ impl Memory for Nrom {
 
 impl Savable for Nrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.cart.save(fh)
+        self.battery_backed.save(fh)?;
+        self.mirroring.save(fh)?;
+        self.nrom_size.save(fh)?;
+        self.prg_ram.save(fh)?;
+        self.prg_rom_banks.save(fh)?;
+        self.chr_banks.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.cart.load(fh)
+        self.battery_backed.load(fh)?;
+        self.mirroring.load(fh)?;
+        self.nrom_size.load(fh)?;
+        self.prg_ram.load(fh)?;
+        self.prg_rom_banks.load(fh)?;
+        self.chr_banks.load(fh)
+    }
+}
+
+impl Savable for NromSize {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => NromSize::Nrom128,
+            1 => NromSize::Nrom256,
+            _ => panic!("invalid NromSize value"),
+        };
+        Ok(())
     }
 }

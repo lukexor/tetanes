@@ -1,5 +1,7 @@
 //! Handles reading NES Cartridge headers and ROMs
 
+use crate::mapper::Mirroring;
+use crate::memory::{Rom, CHR_ROM_BANK_SIZE, PRG_ROM_BANK_SIZE};
 use crate::serialization::Savable;
 use crate::util::Result;
 use failure::format_err;
@@ -7,19 +9,13 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-pub const RAM_SIZE: usize = 8 * 1024;
-const PRG_BANK_SIZE: usize = 16 * 1024;
-const CHR_BANK_SIZE: usize = 8 * 1024;
-
 /// Represents an NES Cartridge
 #[derive(Default)]
 pub struct Cartridge {
     pub rom_file: PathBuf, // '.nes' rom file
     pub header: INesHeader,
-    pub prg_rom: Vec<u8>, // Program ROM
-    pub prg_ram: Vec<u8>, // Program RAM
-    pub chr: Vec<u8>,     // Character ROM/RAM
-    pub sram: Vec<u8>,    // Save RAM
+    pub prg_rom: Rom, // Program ROM
+    pub chr_rom: Rom, // Character ROM
 }
 
 impl Cartridge {
@@ -28,10 +24,8 @@ impl Cartridge {
         Self {
             rom_file: PathBuf::new(),
             header: INesHeader::new(),
-            prg_rom: Vec::with_capacity(PRG_BANK_SIZE),
-            prg_ram: Vec::with_capacity(RAM_SIZE),
-            chr: Vec::with_capacity(CHR_BANK_SIZE),
-            sram: Vec::with_capacity(RAM_SIZE),
+            prg_rom: Rom::init(PRG_ROM_BANK_SIZE),
+            chr_rom: Rom::init(CHR_ROM_BANK_SIZE),
         }
     }
 
@@ -58,50 +52,64 @@ impl Cartridge {
         rom_data.read_exact(&mut header)?;
         let header = INesHeader::from_bytes(&header)?;
 
-        let mut prg_rom = vec![0u8; header.prg_rom_size as usize * PRG_BANK_SIZE];
+        let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
         rom_data.read_exact(&mut prg_rom)?;
+        let prg_rom = Rom::from_vec(prg_rom);
 
-        let mut chr = vec![0u8; header.chr_rom_size as usize * CHR_BANK_SIZE];
-        rom_data.read_exact(&mut chr)?;
-
-        if header.chr_rom_size == 0 {
-            chr = vec![0u8; CHR_BANK_SIZE]
-        }
-
-        let prg_ram = vec![0; RAM_SIZE];
-        let sram = vec![0; RAM_SIZE];
+        let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_BANK_SIZE];
+        rom_data.read_exact(&mut chr_rom)?;
+        let chr_rom = Rom::from_vec(chr_rom);
 
         eprintln!(
-            "Loaded `{}` - Mapper {}",
+            "Loaded `{}` - Mapper: {}, PRG ROM: {}, CHR ROM: {}",
             rom_file.as_ref().display(),
-            header.mapper_num
+            header.mapper_num,
+            header.prg_rom_size,
+            header.chr_rom_size,
         );
         Ok(Self {
             rom_file: rom_file.as_ref().to_path_buf(),
             header,
             prg_rom,
-            chr,
-            prg_ram,
-            sram,
+            chr_rom,
         })
     }
 
+    /// The nametable mirroring mode defined in the header
+    pub fn mirroring(&self) -> Mirroring {
+        if self.header.flags & 0x08 == 0x08 {
+            Mirroring::FourScreen
+        } else {
+            match self.header.flags & 0x01 {
+                0 => Mirroring::Horizontal,
+                1 => Mirroring::Vertical,
+                _ => panic!("impossible mirroring"),
+            }
+        }
+    }
+
     /// Returns whether this cartridge has battery-backed Save RAM
-    pub fn has_battery(&self) -> bool {
+    pub fn battery_backed(&self) -> bool {
         self.header.flags & 0x02 == 0x02
+    }
+
+    pub fn prg_ram_size(&self) -> usize {
+        if self.header.prg_ram_size > 0 {
+            (64 << self.header.prg_ram_size) as usize
+        } else {
+            0
+        }
     }
 }
 
 impl Savable for Cartridge {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.prg_ram.save(fh)?;
-        self.chr.save(fh)?;
-        self.sram.save(fh)
+        self.prg_rom.save(fh)?;
+        self.chr_rom.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.prg_ram.load(fh)?;
-        self.chr.load(fh)?;
-        self.sram.load(fh)
+        self.prg_rom.load(fh)?;
+        self.chr_rom.load(fh)
     }
 }
 
@@ -233,11 +241,10 @@ impl fmt::Debug for Cartridge {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
-            "Cartridge {{ header: {:?}, PRG-ROM: {}, CHR-ROM: {}, PRG-RAM: {}",
+            "Cartridge {{ header: {:?}, PRG-ROM: {}, CHR-ROM: {}",
             self.header,
             self.prg_rom.len(),
-            self.chr.len(),
-            self.prg_ram.len(),
+            self.chr_rom.len(),
         )
     }
 }

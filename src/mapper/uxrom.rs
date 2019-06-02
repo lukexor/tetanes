@@ -5,30 +5,41 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::Memory;
+use crate::memory::{Banks, Memory, Ram, Rom, CHR_RAM_SIZE, CHR_ROM_BANK_SIZE, PRG_ROM_BANK_SIZE};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::cell::RefCell;
-use std::fmt;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
 /// UXROM
+#[derive(Debug)]
 pub struct Uxrom {
-    cart: Cartridge,
-    prg_banks: u8,
-    prg_bank1: u8,
-    prg_bank2: u8,
+    mirroring: Mirroring,
+    prg_rom_bank_lo: usize,
+    prg_rom_bank_hi: usize, // prg_bank_hi is fixed to last bank
+    // CPU $8000-$BFFF 16 KB PRG ROM Bank Switchable
+    // CPU $C000-$FFFF 16 KB PRG ROM Fixed to Last Bank
+    prg_rom_banks: Banks<Rom>,
+    chr_banks: Banks<Ram>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Banks
 }
 
 impl Uxrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_banks = (cart.prg_rom.len() / 0x4000) as u8;
+        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
+        // Just 1 bank
+        let chr_banks = if cart.chr_rom.len() == 0 {
+            let chr_ram = Ram::init(CHR_RAM_SIZE);
+            Banks::init(&chr_ram, CHR_ROM_BANK_SIZE)
+        } else {
+            Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE)
+        };
         let uxrom = Self {
-            cart,
-            prg_banks,
-            prg_bank1: 0u8,
-            prg_bank2: prg_banks - 1,
+            mirroring: cart.mirroring(),
+            prg_rom_bank_lo: 0usize,
+            prg_rom_bank_hi: prg_rom_banks.len() - 1,
+            prg_rom_banks,
+            chr_banks,
         };
         Rc::new(RefCell::new(uxrom))
     }
@@ -39,51 +50,59 @@ impl Mapper for Uxrom {
         false
     }
     fn mirroring(&self) -> Mirroring {
-        match self.cart.header.flags & 0x01 {
-            0 => Mirroring::Horizontal,
-            1 => Mirroring::Vertical,
-            _ => panic!("invalid mirroring"),
-        }
+        self.mirroring
     }
-    fn clock(&mut self, _ppu: &Ppu) {}
-    fn cart(&self) -> &Cartridge {
-        &self.cart
+    fn clock(&mut self, _ppu: &Ppu) {} // no clocking
+    fn battery_backed(&self) -> bool {
+        false
     }
-    fn cart_mut(&mut self) -> &mut Cartridge {
-        &mut self.cart
+    fn save_sram(&self, _fh: &mut Write) -> Result<()> {
+        Ok(())
+    }
+    fn load_sram(&mut self, _fh: &mut Read) -> Result<()> {
+        Ok(())
+    }
+    fn chr(&self) -> Option<&Banks<Ram>> {
+        Some(&self.chr_banks)
+    }
+    fn prg_rom(&self) -> Option<&Banks<Rom>> {
+        Some(&self.prg_rom_banks)
+    }
+    fn prg_ram(&self) -> Option<&Ram> {
+        None
+    }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {
+        self.reset();
     }
 }
 
 impl Memory for Uxrom {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
+    }
+
+    fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => self.cart.chr[addr as usize],
-            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize],
-            0x8000..=0xBFFF => {
-                let idx = u32::from(self.prg_bank1) * 0x4000 + u32::from(addr - 0x8000);
-                self.cart.prg_rom[idx as usize]
-            }
-            0xC000..=0xFFFF => {
-                let idx = u32::from(self.prg_bank2) * 0x4000 + u32::from(addr - 0xC000);
-                self.cart.prg_rom[idx as usize]
-            }
+            0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
+            0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
+            0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x6000..=0x7FFF => 0, // No Save RAM
             _ => {
-                eprintln!("unhandled Uxrom readb at address: 0x{:04X}", addr);
+                eprintln!("unhandled Uxrom read at address: 0x{:04X}", addr);
                 0
             }
         }
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => self.cart.chr[addr as usize] = val,
-            0x6000..=0x7FFF => self.cart.sram[(addr - 0x6000) as usize] = val,
-            0x8000..=0xFFFF => {
-                self.prg_bank1 = val % self.prg_banks;
-            }
+            0x0000..=0x1FFF => self.chr_banks[0].write(addr, val),
+            0x8000..=0xFFFF => self.prg_rom_bank_lo = (val as usize) % self.prg_rom_banks.len(),
+            0x6000..=0x7FFF => (), // No Save RAM
             _ => {
                 eprintln!(
-                    "unhandled Sxrom writeb at address: 0x{:04X} - val: 0x{:02X}",
+                    "unhandled Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
                     addr, val
                 );
             }
@@ -93,26 +112,17 @@ impl Memory for Uxrom {
 
 impl Savable for Uxrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.cart.save(fh)?;
-        self.prg_banks.save(fh)?;
-        self.prg_bank1.save(fh)?;
-        self.prg_bank2.save(fh)
+        self.mirroring.save(fh)?;
+        self.prg_rom_bank_lo.save(fh)?;
+        self.prg_rom_bank_hi.save(fh)?;
+        self.prg_rom_banks.save(fh)?;
+        self.chr_banks.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.cart.load(fh)?;
-        self.prg_banks.load(fh)?;
-        self.prg_bank1.load(fh)?;
-        self.prg_bank2.load(fh)
-    }
-}
-
-impl fmt::Debug for Uxrom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Uxrom {{ cart: {:?}, mirroring: {:?} }}",
-            self.cart,
-            self.mirroring()
-        )
+        self.mirroring.load(fh)?;
+        self.prg_rom_bank_lo.load(fh)?;
+        self.prg_rom_bank_hi.load(fh)?;
+        self.prg_rom_banks.load(fh)?;
+        self.chr_banks.load(fh)
     }
 }

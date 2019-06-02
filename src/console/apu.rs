@@ -208,6 +208,12 @@ impl Apu {
 
     // $4015 READ
     fn read_status(&mut self) -> u8 {
+        let val = self.peek_status();
+        self.irq_pending = false;
+        val
+    }
+
+    fn peek_status(&self) -> u8 {
         let mut status = 0;
         if self.pulse1.length.counter > 0 {
             status |= 0x01;
@@ -230,7 +236,6 @@ impl Apu {
         if self.dmc.irq_pending {
             status |= 0x80;
         }
-        self.irq_pending = false;
         status
     }
 
@@ -294,7 +299,7 @@ impl Apu {
 }
 
 impl Memory for Apu {
-    fn readb(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         if addr == 0x4015 {
             let val = self.read_status();
             self.open_bus = val;
@@ -304,7 +309,15 @@ impl Memory for Apu {
         }
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn peek(&self, addr: u16) -> u8 {
+        if addr == 0x4015 {
+            self.peek_status()
+        } else {
+            self.open_bus
+        }
+    }
+
+    fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         match addr {
             0x4000 => self.pulse1.write_control(val),
@@ -358,6 +371,18 @@ impl Savable for Apu {
         self.triangle.load(fh)?;
         self.noise.load(fh)?;
         self.dmc.load(fh)
+    }
+}
+
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for Apu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        write!(f, "APU {{ cyc: {} }}", self.cycle)
     }
 }
 
@@ -907,7 +932,7 @@ impl DMC {
 
         if self.length > 0 && self.sample_buffer_empty {
             let cpu: &mut Cpu = unsafe { &mut *self.cpu }; // TODO ugly work-around to access CPU
-            self.sample_buffer = cpu.readb(self.addr);
+            self.sample_buffer = cpu.read(self.addr);
             self.sample_buffer_empty = false;
             self.addr = (self.addr + 1) | 0x8000;
             self.length -= 1;
@@ -1161,17 +1186,5 @@ impl Savable for Sweep {
         self.timer.load(fh)?;
         self.counter.load(fh)?;
         self.shift.load(fh)
-    }
-}
-
-impl Default for Apu {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl fmt::Debug for Apu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(f, "APU {{ cyc: {} }}", self.cycle)
     }
 }

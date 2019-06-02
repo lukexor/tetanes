@@ -20,7 +20,9 @@ fn main() {
         .path(opt.path)
         .debug(opt.debug)
         .fullscreen(opt.fullscreen)
-        .sound(!opt.sound_off)
+        .sound_off(opt.sound_off)
+        .log_cpu(opt.log_cpu)
+        .no_save(opt.no_save)
         .save_slot(opt.save_slot)
         .scale(opt.scale)
         .build()
@@ -42,10 +44,29 @@ fn err_exit(err: Error) -> ! {
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
 struct Opt {
-    #[structopt(short = "d", long = "debug", help = "Debug")]
+    #[structopt(
+        parse(from_os_str),
+        help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
+    )]
+    path: Option<PathBuf>,
+    #[structopt(
+        short = "d",
+        long = "debug",
+        help = "Start with debugger enabled. Stops at first CPU instruction."
+    )]
     debug: bool,
     #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
     fullscreen: bool,
+    #[structopt(long = "sound_off", help = "Disable Sound")]
+    sound_off: bool,
+    #[structopt(
+        short = "l",
+        long = "log_cpu",
+        help = "Print CPU instructions to STDOUT"
+    )]
+    log_cpu: bool,
+    #[structopt(long = "no-save", help = "Don't load or save game state.")]
+    no_save: bool,
     #[structopt(
         long = "save_slot",
         default_value = "1",
@@ -58,12 +79,5 @@ struct Opt {
         default_value = "3",
         help = "Window scale"
     )]
-    scale: usize,
-    #[structopt(long = "sound_off", help = "Disable Sound")]
-    sound_off: bool,
-    #[structopt(
-        parse(from_os_str),
-        help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
-    )]
-    path: Option<PathBuf>,
+    scale: u32,
 }

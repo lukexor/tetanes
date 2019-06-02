@@ -18,7 +18,7 @@ pub const CPU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
 const NMI_ADDR: u16 = 0xFFFA;
 const IRQ_ADDR: u16 = 0xFFFE;
 const RESET_ADDR: u16 = 0xFFFC;
-const POWER_ON_SP: u8 = 0xFD; // FD because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
+const POWER_ON_SP: u8 = 0xFA; // Because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 const POWER_ON_CYCLE: u64 = 7;
 const SP_BASE: u16 = 0x100;
@@ -59,21 +59,19 @@ pub struct Cpu {
     status: u8,               // Status Registers
     pub interrupt: Interrupt, // Pending interrupt
     debugger: Debugger,
-    #[cfg(test)]
-    pub nestest: bool,
+    pub log_enabled: bool,
     #[cfg(test)]
     pub nestestlog: Vec<String>,
 }
 
 impl Cpu {
-    pub fn init(mut mem: CpuMemMap) -> Self {
-        let pc = mem.readw(RESET_ADDR);
-        Self {
+    pub fn init(mem: CpuMemMap) -> Self {
+        let mut cpu = Self {
             mem,
             cycle: POWER_ON_CYCLE,
             step: 0u64,
             stall: 0u64,
-            pc,
+            pc: 0u16,
             sp: POWER_ON_SP,
             acc: 0u8,
             x: 0u8,
@@ -81,15 +79,16 @@ impl Cpu {
             status: POWER_ON_STATUS,
             interrupt: Interrupt::None,
             debugger: Debugger::new(),
-            #[cfg(test)]
-            nestest: false,
+            log_enabled: false,
             #[cfg(test)]
             nestestlog: Vec::with_capacity(10000),
-        }
+        };
+        cpu.pc = cpu.readw(RESET_ADDR);
+        cpu
     }
 
     pub fn power_on(&mut self) {
-        self.pc = self.mem.readw(RESET_ADDR);
+        self.pc = self.readw(RESET_ADDR);
     }
 
     /// Resets the CPU
@@ -100,7 +99,7 @@ impl Cpu {
     pub fn reset(&mut self) {
         self.cycle = 7;
         self.stall = 0u64;
-        self.pc = self.mem.readw(RESET_ADDR);
+        self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_irq_disable(true);
         self.mem.apu.reset();
@@ -117,7 +116,7 @@ impl Cpu {
     pub fn power_cycle(&mut self) {
         self.cycle = POWER_ON_CYCLE;
         self.stall = 0u64;
-        self.pc = self.mem.readw(RESET_ADDR);
+        self.pc = self.readw(RESET_ADDR);
         self.sp = POWER_ON_SP;
         self.acc = 0u8;
         self.x = 0u8;
@@ -127,6 +126,10 @@ impl Cpu {
         self.mem.ppu.power_cycle();
         #[cfg(test)]
         self.nestestlog.clear();
+    }
+
+    pub fn log(&mut self, val: bool) {
+        self.log_enabled = val;
     }
 
     /// Runs the CPU the passed in number of cycle
@@ -147,16 +150,13 @@ impl Cpu {
         }
         self.interrupt = Interrupt::None;
 
-        let opcode = self.readb(self.pc);
+        let opcode = self.read(self.pc);
         let instr = &INSTRUCTIONS[opcode as usize];
         let (val, target, num_args, page_crossed, disasm) =
             self.decode_addr_mode(instr.addr_mode(), self.pc.wrapping_add(1), instr);
 
-        #[cfg(test)]
-        {
-            if self.nestest {
-                self.print_instruction(opcode, num_args + 1, disasm.clone());
-            }
+        if self.log_enabled {
+            self.print_instruction(opcode, num_args + 1, disasm.clone());
         }
         if self.debugger.enabled() {
             let debugger: *mut Debugger = &mut self.debugger;
@@ -278,7 +278,7 @@ impl Cpu {
         self.push_stackw(self.pc);
         self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.status |= INTERRUPTD_FLAG;
-        self.pc = self.mem.readw(IRQ_ADDR);
+        self.pc = self.readw(IRQ_ADDR);
         self.cycle = self.cycle.wrapping_add(7);
         self.set_irq_disable(true);
     }
@@ -296,7 +296,7 @@ impl Cpu {
         }
         self.push_stackw(self.pc);
         self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
-        self.pc = self.mem.readw(NMI_ADDR);
+        self.pc = self.readw(NMI_ADDR);
         self.cycle = self.cycle.wrapping_add(7);
         self.set_irq_disable(true);
     }
@@ -401,14 +401,14 @@ impl Cpu {
 
     // Push a byte to the stack
     fn push_stackb(&mut self, val: u8) {
-        self.writeb(SP_BASE | u16::from(self.sp), val);
+        self.write(SP_BASE | u16::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Pull a byte from the stack
     fn pop_stackb(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.readb(SP_BASE | u16::from(self.sp))
+        self.read(SP_BASE | u16::from(self.sp))
     }
 
     // Push a word (two bytes) to the stack
@@ -441,55 +441,40 @@ impl Cpu {
         // ST* instructions should not read memory as it adversly affects the
         // PPU state
         let read = match instr.op() {
-            STA | STX | STY => {
-                #[cfg(test)]
-                {
-                    true
-                }
-                #[cfg(not(test))]
-                {
-                    false
-                }
-            }
+            STA | STX | STY => false,
             _ => true,
         };
 
-        // TODO
-        // nestest wants to "peek" values without actually reading them
-        // Need to find a way to do that without actually reading the values
-        // but only in test mode
-        // Hence all the commented out vald values
         match mode {
             Implied => {
-                let _ = self.readb(addr); // dummy read
+                let _ = self.read(addr); // dummy read
                 let disasm = format!("{:?}", instr);
                 (0, None, 0, false, disasm)
             }
             ZeroPage => {
-                let addr = u16::from(self.readb(addr));
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                let disasm = { format!("{:?} ${:02X} = {:02X}", instr, addr, val) };
+                let addr = u16::from(self.read(addr));
+                let disasm = { format!("{:?} ${:02X} = {:02X}", instr, addr, self.peek(addr)) };
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 (val, Some(addr), 1, false, disasm)
             }
             Absolute => {
-                let addr = self.mem.readw(addr);
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                let addr = self.readw(addr);
                 let disasm = if instr.op() == JMP || instr.op() == JSR {
                     format!("{:?} ${:04X}", instr, addr)
                 } else {
-                    format!("{:?} ${:04X} = {:02X}", instr, addr, val)
+                    format!("{:?} ${:04X} = {:02X}", instr, addr, self.peek(addr))
                 };
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 (val, Some(addr), 2, false, disasm)
             }
             Immediate => {
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                let disasm = format!("{:?} #${:02X}", instr, val);
+                let disasm = format!("{:?} #${:02X}", instr, self.peek(addr));
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 (val, Some(addr), 1, false, disasm)
             }
             Relative => {
-                let val = if read { self.readb(addr) } else { 0 };
                 let disasm = {
-                    let offset = 2 + val;
+                    let offset = 2 + self.peek(addr);
                     let addr = if offset & 0x80 == 0x80 {
                         // Result is negative signed number in twos complement
                         let offset = !offset + 1;
@@ -499,76 +484,105 @@ impl Cpu {
                     };
                     format!("{:?} ${:04X}", instr, addr)
                 };
+                let val = if read { self.read(addr) } else { 0 };
                 (u16::from(val), Some(addr), 1, false, disasm)
             }
             Accumulator => {
-                let _ = self.readb(addr); // dummy read
+                let _ = self.read(addr); // dummy read
                 let disasm = format!("{:?} A", instr);
                 (u16::from(self.acc), None, 0, false, disasm)
             }
             AbsoluteX => {
-                let addr0 = self.mem.readw(addr);
+                let addr0 = self.readw(addr);
                 let addr = addr0.wrapping_add(u16::from(self.x));
                 // dummy read
                 if ((addr0 & 0xFF) + u16::from(self.x)) > 0xFF {
                     let dummy_addr = (addr0 & 0xFF00) | (addr & 0xFF);
-                    self.readb(dummy_addr);
+                    self.read(dummy_addr);
                 }
                 if addr0 == 0x2000 && self.x == 0x7 {
-                    self.readb(addr);
+                    self.read(addr);
                 }
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                let disasm = format!(
+                    "{:?} ${:04X},X @ {:04X} = {:02X}",
+                    instr,
+                    addr0,
+                    addr,
+                    self.peek(addr)
+                );
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 let page_crossed = Cpu::pages_differ(addr0, addr);
-                let disasm = format!("{:?} ${:04X},X @ {:04X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 2, page_crossed, disasm)
             }
             IndirectY => {
-                let addr_zp0 = self.readb(addr);
-                let addr_zp = self.mem.readw_zp(addr_zp0);
+                let addr_zp0 = self.read(addr);
+                let addr_zp = self.readw_zp(addr_zp0);
                 let addr = addr_zp.wrapping_add(u16::from(self.y));
                 // dummy read
                 if (addr_zp & 0xFF) + u16::from(self.y) > 0xFF {
                     let dummy_addr = (addr_zp & 0xFF00) | (addr & 0xFF);
-                    self.readb(dummy_addr);
+                    self.read(dummy_addr);
                 }
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                let page_crossed = Cpu::pages_differ(addr_zp, addr);
                 let disasm = format!(
                     "{:?} (${:02X}),Y = {:04X} @ {:04X} = {:02X}",
-                    instr, addr_zp0, addr_zp, addr, val
+                    instr,
+                    addr_zp0,
+                    addr_zp,
+                    addr,
+                    self.peek(addr)
                 );
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
+                let page_crossed = Cpu::pages_differ(addr_zp, addr);
                 (val, Some(addr), 1, page_crossed, disasm)
             }
             AbsoluteY => {
-                let addr0 = self.mem.readw(addr);
+                let addr0 = self.readw(addr);
                 let addr = addr0.wrapping_add(u16::from(self.y));
                 // dummy ST* read
                 if !read && addr == 0x2007 {
                     let dummy_addr = (addr0 & 0xFF00) | (addr & 0xFF);
-                    self.readb(dummy_addr);
+                    self.read(dummy_addr);
                 }
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                let disasm = format!(
+                    "{:?} ${:04X},Y @ {:04X} = {:02X}",
+                    instr,
+                    addr0,
+                    addr,
+                    self.peek(addr)
+                );
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 let page_crossed = Cpu::pages_differ(addr0, addr);
-                let disasm = format!("{:?} ${:04X},Y @ {:04X} = {:02X}", instr, addr0, addr, val);
                 (val, Some(addr), 2, page_crossed, disasm)
             }
             ZeroPageX => {
-                let addr0 = self.readb(addr);
+                let addr0 = self.read(addr);
                 let addr = u16::from(addr0.wrapping_add(self.x));
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                let disasm = format!("{:?} ${:02X},X @ {:02X} = {:02X}", instr, addr0, addr, val);
+                let disasm = format!(
+                    "{:?} ${:02X},X @ {:02X} = {:02X}",
+                    instr,
+                    addr0,
+                    addr,
+                    self.peek(addr)
+                );
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 (val, Some(addr), 1, false, disasm)
             }
             ZeroPageY => {
-                let addr0 = self.readb(addr);
+                let addr0 = self.read(addr);
                 let addr = u16::from(addr0.wrapping_add(self.y));
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
-                let disasm = format!("{:?} ${:02X},Y @ {:02X} = {:02X}", instr, addr0, addr, val);
+                let disasm = format!(
+                    "{:?} ${:02X},Y @ {:02X} = {:02X}",
+                    instr,
+                    addr0,
+                    addr,
+                    self.peek(addr)
+                );
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 (val, Some(addr), 1, false, disasm)
             }
             Indirect => {
-                let addr0 = self.mem.readw(addr);
-                let addr = self.mem.readw_pagewrap(addr0);
+                let addr0 = self.readw(addr);
+                let addr = self.readw_pagewrap(addr0);
                 let disasm = if instr.op() == JMP {
                     format!("{:?} (${:04X}) = {:04X}", instr, addr0, addr)
                 } else {
@@ -577,17 +591,43 @@ impl Cpu {
                 (0, Some(addr), 2, false, disasm)
             }
             IndirectX => {
-                let addr_zp0 = self.readb(addr);
+                let addr_zp0 = self.read(addr);
                 let addr_zp = addr_zp0.wrapping_add(self.x);
-                let addr = self.mem.readw_zp(addr_zp);
-                let val = if read { u16::from(self.readb(addr)) } else { 0 };
+                let addr = self.readw_zp(addr_zp);
                 let disasm = format!(
                     "{:?} (${:02X},X) @ {:02X} = {:04X} = {:02X}",
-                    instr, addr_zp0, addr_zp, addr, val
+                    instr,
+                    addr_zp0,
+                    addr_zp,
+                    addr,
+                    self.peek(addr)
                 );
+                let val = if read { u16::from(self.read(addr)) } else { 0 };
                 (val, Some(addr), 1, false, disasm)
             }
         }
+    }
+
+    fn readw(&mut self, addr: u16) -> u16 {
+        let lo = u16::from(self.read(addr));
+        let hi = u16::from(self.read(addr.wrapping_add(1)));
+        lo | hi << 8
+    }
+
+    // Same as readw but wraps around for address 0xFF
+    fn readw_zp(&mut self, addr: u8) -> u16 {
+        let lo = u16::from(self.read(u16::from(addr)));
+        let hi = u16::from(self.read(u16::from(addr.wrapping_add(1))));
+        lo | hi << 8
+    }
+
+    // Emulates a 6502 bug that caused the low byte to wrap without incrementing the high byte
+    // e.g. reading from 0x01FF will read from 0x0100
+    fn readw_pagewrap(&mut self, addr: u16) -> u16 {
+        let lo = u16::from(self.read(addr));
+        let addr = (addr & 0xFF00) | u16::from(addr.wrapping_add(1) as u8);
+        let hi = u16::from(self.read(addr));
+        lo | hi << 8
     }
 
     // Reads from either a target address or the accumulator register.
@@ -595,7 +635,7 @@ impl Cpu {
     // target is either Some(u16) or None based on the addressing mode
     fn read_target(&mut self, target: Option<u16>) -> u8 {
         match target {
-            Some(addr) => self.readb(addr),
+            Some(addr) => self.read(addr),
             None => self.acc,
         }
     }
@@ -605,7 +645,7 @@ impl Cpu {
     // target is either Some(u16) or None based on the addressing mode
     fn write_target(&mut self, target: Option<u16>, val: u8) {
         match target {
-            Some(addr) => self.writeb(addr, val),
+            Some(addr) => self.write(addr, val),
             None => self.acc = val,
         }
     }
@@ -617,8 +657,8 @@ impl Cpu {
         let oam_addr = 0x2004;
         for _ in 0..256 {
             // Copy 256 bytes from $XX00-$XXFF
-            let val = self.readb(addr);
-            self.writeb(oam_addr, val);
+            let val = self.read(addr);
+            self.write(oam_addr, val);
             addr = addr.saturating_add(1);
         }
         self.stall += 513; // +2 for every read/write and +1 dummy cycle
@@ -633,12 +673,12 @@ impl Cpu {
         let word1 = if num_args < 2 {
             "  ".to_string()
         } else {
-            format!("{:02X}", self.readb(self.pc.wrapping_add(1)))
+            format!("{:02X}", self.read(self.pc.wrapping_add(1)))
         };
         let word2 = if num_args < 3 {
             "  ".to_string()
         } else {
-            format!("{:02X}", self.readb(self.pc.wrapping_add(2)))
+            format!("{:02X}", self.read(self.pc.wrapping_add(2)))
         };
         let opstr = format!(
             "{:04X}  {:02X} {} {} {:<31}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}\n",
@@ -656,8 +696,7 @@ impl Cpu {
             self.mem.ppu.scanline,
             self.cycle,
         );
-        #[cfg(not(test))]
-        eprint!("{}", opstr);
+        print!("{}", opstr);
         #[cfg(test)]
         self.nestestlog.push(opstr);
     }
@@ -669,15 +708,19 @@ impl Cpu {
 }
 
 impl Memory for Cpu {
-    fn readb(&mut self, addr: u16) -> u8 {
-        self.mem.readb(addr)
+    fn read(&mut self, addr: u16) -> u8 {
+        self.mem.read(addr)
     }
 
-    fn writeb(&mut self, addr: u16, val: u8) {
+    fn peek(&self, addr: u16) -> u8 {
+        self.mem.peek(addr)
+    }
+
+    fn write(&mut self, addr: u16, val: u8) {
         if addr == 0x4014 {
             self.write_oamdma(val);
         } else {
-            self.mem.writeb(addr, val);
+            self.mem.write(addr, val);
         }
     }
 }
@@ -1010,7 +1053,7 @@ impl Cpu {
     // ASL: Shift Left One Bit (M or A)
     fn asl(&mut self, target: Option<u16>) {
         let val = self.read_target(target);
-        self.write_target(target, val);
+        self.write_target(target, val); // dummy write
         self.set_carry((val >> 7) & 1 > 0);
         let val = val.wrapping_shl(1);
         self.set_zn(val);
@@ -1030,7 +1073,7 @@ impl Cpu {
     // LSR: Shift Right One Bit (M or A)
     fn lsr(&mut self, target: Option<u16>) {
         let val = self.read_target(target);
-        self.write_target(target, val);
+        self.write_target(target, val); // dummy write
         self.set_carry(val & 1 > 0);
         let val = val.wrapping_shr(1);
         self.set_zn(val);
@@ -1241,7 +1284,7 @@ impl Cpu {
         self.push_stackw(self.pc);
         self.php();
         self.sei();
-        self.pc = self.mem.readw(IRQ_ADDR);
+        self.pc = self.readw(IRQ_ADDR);
     }
     // NOP: No Operation
     fn nop(&mut self) {}
@@ -1254,7 +1297,7 @@ impl Cpu {
     // ISC/ISB: Shortcut for INC then SBC
     fn isb(&mut self, target: Option<u16>) {
         let val = self.read_target(target);
-        self.write_target(target, val);
+        self.write_target(target, val); // dummy write
         let val = val.wrapping_add(1);
         self.set_zn(val);
         self.sbc(val);
@@ -1263,7 +1306,7 @@ impl Cpu {
     // DCP: Shortcut for DEC then CMP
     fn dcp(&mut self, target: Option<u16>) {
         let val = self.read_target(target);
-        self.write_target(target, val);
+        self.write_target(target, val); // dummy write
         let val = val.wrapping_sub(1);
         self.compare(self.acc, val);
         self.write_target(target, val);
@@ -1304,7 +1347,9 @@ impl Cpu {
     fn rra(&mut self, target: Option<u16>) {
         self.ror(target);
         let val = self.read_target(target);
+        self.write_target(target, val); // dummy write
         self.adc(val);
+        self.write_target(target, val);
     }
     // TAS: Shortcut for STA then TXS
     fn tas(&mut self, addr: Option<u16>) {
@@ -1324,7 +1369,9 @@ impl Cpu {
     fn sre(&mut self, target: Option<u16>) {
         self.lsr(target);
         let val = self.read_target(target);
+        self.write_target(target, val); // dummy write
         self.eor(val);
+        self.write_target(target, val);
     }
     // ALR: Shortcut for AND then LSR
     fn alr(&mut self, val: u8, target: Option<u16>) {
@@ -1335,7 +1382,9 @@ impl Cpu {
     fn rla(&mut self, target: Option<u16>) {
         self.rol(target);
         let val = self.read_target(target);
+        self.write_target(target, val); // dummy write
         self.and(val);
+        self.write_target(target, val);
     }
     // anc: Shortcut for AND then ASL
     fn anc(&mut self, val: u8, target: Option<u16>) {
@@ -1346,7 +1395,9 @@ impl Cpu {
     fn slo(&mut self, target: Option<u16>) {
         self.asl(target);
         let val = self.read_target(target);
+        self.write_target(target, val); // dummy write
         self.ora(val);
+        self.write_target(target, val);
     }
 }
 
@@ -1359,7 +1410,7 @@ impl fmt::Debug for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
-            "CPU {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
+            "Cpu {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
             self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycle,
         )
     }

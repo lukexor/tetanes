@@ -117,10 +117,6 @@ impl Debugger {
                             break;
                         }
                         "c" => {
-                            if self.breakpoint == 0 {
-                                self.break_type = Unset;
-                                self.enabled = false;
-                            }
                             break;
                         }
                         "nmi" => {
@@ -211,16 +207,34 @@ impl Debugger {
         if cmd.len() > 2 {
             let (_, obj) = cmd.split_at(2);
             match obj {
-                "cpu" => eprintln!("not implemented yet"),
-                "cpu_mem" => eprintln!("not implemented yet"),
-                "ppu" => eprintln!("not implemented yet"),
-                "ppu_vram" => {
+                "cpu" => eprintln!("{:?}", cpu),
+                "wram" => {
+                    Self::hexdump(&cpu.mem.wram);
+                }
+                "ppu" => eprintln!("{:?}", cpu.mem.ppu),
+                "vram" => {
                     Self::hexdump(&cpu.mem.ppu.vram.nametable.0);
                 }
-                "apu" => eprintln!("not implemented yet"),
-                "cart" => eprintln!("{:?}", cpu.mem.mapper),
-                "cart_prg" => eprintln!("not implemented yet"),
-                "cart_chr" => eprintln!("not implemented yet"),
+                "apu" => eprintln!("{:?}", cpu.mem.apu),
+                "mapper" => eprintln!("{:?}", cpu.mem.mapper),
+                "prg_rom" => {
+                    let mapper = cpu.mem.mapper.borrow();
+                    for bank in &**mapper.prg_rom().unwrap() {
+                        Self::hexdump(&bank);
+                    }
+                }
+                "prg_ram" => {
+                    let mapper = cpu.mem.mapper.borrow();
+                    if let Some(ram) = mapper.prg_ram() {
+                        Self::hexdump(&ram);
+                    }
+                }
+                "chr" => {
+                    let mapper = cpu.mem.mapper.borrow();
+                    for bank in &**mapper.chr().unwrap() {
+                        Self::hexdump(&bank);
+                    }
+                }
                 _ => {
                     eprintln!("invalid obj: {:?}", obj);
                 }
