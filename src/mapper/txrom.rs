@@ -109,7 +109,7 @@ impl Txrom {
             },
             mirroring,
             irq_pending: false,
-            mmc3_alt_behavior: true,
+            mmc3_alt_behavior: false,
             battery_backed: cart.battery_backed(),
             prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
             chr_bank_idx: [0usize; 8],
@@ -170,7 +170,7 @@ impl Txrom {
             // IRQ
             0xC000 => self.regs.irq_latch = val,
             0xC001 => {
-                if self.mmc3_alt_behavior {
+                if !self.mmc3_alt_behavior {
                     self.regs.irq_reset = true;
                 }
                 self.regs.irq_counter = 0;
