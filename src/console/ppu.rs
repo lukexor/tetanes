@@ -1616,7 +1616,7 @@ mod tests {
         // Test 1st write to ppuscroll
         let scroll_write: u8 = 0b0111_1101;
         let t_result: u16 = 0b000_11_00000_01111;
-        let x_result: u8 = 0b101;
+        let x_result: u16 = 0b101;
         ppu.write(ppuscroll, scroll_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);

@@ -480,7 +480,6 @@ mod tests {
         mem.write(0x0016, 0x0025);
 
         assert_eq!(mem.read(0x0008), 0x00, "read uninitialized byte: 0x00");
-        assert_eq!(mem.readw(0x0008), 0x0000, "read uninitialized word: 0x0000");
         assert_eq!(
             mem.read(0x0005),
             0x15,
@@ -488,20 +487,9 @@ mod tests {
             0x15
         );
         assert_eq!(
-            mem.readw(0x0015),
-            0x2550,
-            "read initialized word: 0x{:04X}",
-            0x2550
-        );
-        assert_eq!(
             mem.read(0x0808),
             0x00,
             "read uninitialized mirror1 byte: 0x00"
-        );
-        assert_eq!(
-            mem.readw(0x0808),
-            0x0000,
-            "read uninitialized mirror1 word: 0x0000"
         );
         assert_eq!(
             mem.read(0x0805),
@@ -510,20 +498,9 @@ mod tests {
             0x15,
         );
         assert_eq!(
-            mem.readw(0x0815),
-            0x2550,
-            "read initialized mirror1 word: 0x{:04X}",
-            0x2550,
-        );
-        assert_eq!(
             mem.read(0x1008),
             0x00,
             "read uninitialized mirror2 byte: 0x00"
-        );
-        assert_eq!(
-            mem.readw(0x1008),
-            0x0000,
-            "read uninitialized mirror2 word: 0x0000"
         );
         assert_eq!(
             mem.read(0x1005),
@@ -531,16 +508,8 @@ mod tests {
             "read initialized mirror2 byte: 0x{:02X}",
             0x15,
         );
-        assert_eq!(
-            mem.readw(0x1015),
-            0x2550,
-            "read initialized mirror2 word: 0x{:04X}",
-            0x2550,
-        );
         // The following are test mode addresses, Not mapped
         assert_eq!(mem.read(0x0418), 0x00, "read unmapped byte: 0x00");
         assert_eq!(mem.read(0x0418), 0x00, "write unmapped byte: 0x00");
-        assert_eq!(mem.readw(0x0418), 0x0000, "read unmapped word: 0x0000");
-        assert_eq!(mem.readw(0x0418), 0x0000, "read unmapped word: 0x0000");
     }
 }

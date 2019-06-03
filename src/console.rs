@@ -296,7 +296,7 @@ mod tests {
         let mut c = Console::init(input);
         c.load_rom(rom).expect("loaded rom");
         c.power_on().expect("powered on");
-        c.cpu.nestest = true;
+        c.cpu.log_enabled = true;
 
         c.cpu.pc = NESTEST_ADDR;
         for _ in 0..NESTEST_LEN {

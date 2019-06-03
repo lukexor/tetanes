@@ -324,12 +324,6 @@ impl Cpu {
         self.pc = addr;
     }
 
-    // Used for testing to print a log of CPU instructions
-    #[cfg(test)]
-    pub fn set_nestest(&mut self, val: bool) {
-        self.nestest = val;
-    }
-
     // Status Register functions
 
     fn carry(&self) -> bool {
