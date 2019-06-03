@@ -345,7 +345,7 @@ impl Ppu {
 
     pub fn default_bg_color(&mut self) -> Rgb {
         let system_palette_idx = self.vram.read(PALETTE_START);
-        SYSTEM_PALETTE[system_palette_idx as usize]
+        SYSTEM_PALETTE[system_palette_idx as usize % PALETTE_SIZE]
     }
 
     fn background_color(&mut self) -> u8 {

@@ -100,7 +100,8 @@ impl UiBuilder {
             lctrl: false,
             save_slot: 1u8,
             turbo_clock: 0u8,
-            fps: 0u16,
+            avg_fps: Duration::from_millis(60),
+            past_fps: [Duration::from_millis(60); 60],
             speed: DEFAULT_SPEED,
             console,
             window,
@@ -122,7 +123,8 @@ pub struct Ui {
     lctrl: bool,
     save_slot: u8,
     turbo_clock: u8,
-    fps: u16,
+    avg_fps: Duration,
+    past_fps: [Duration; 60], // Running total of last X frames to avoid value jitter
     speed: f64,
     console: Console,
     window: Window,
@@ -160,6 +162,7 @@ impl Ui {
             .set_default_bg_color(self.console.default_bg_color());
 
         let mut start = Instant::now();
+        let mut fps_frame = 0;
         while !self.should_close {
             self.poll_events()?;
             if !self.paused {
@@ -182,12 +185,18 @@ impl Ui {
                     self.console.audio_samples().clear();
                 }
                 let end = Instant::now();
-                self.fps += 1;
-                if end - start >= Duration::from_secs(1) {
-                    self.update_title()?;
-                    start = end;
-                    self.fps = 0;
+
+                fps_frame += 1;
+                let delta = (end - start).as_millis() as u32;
+                self.past_fps[fps_frame % 60] =
+                    Duration::from_millis(1000).checked_div(delta).unwrap();
+
+                for fps in self.past_fps.iter() {
+                    self.avg_fps += *fps;
                 }
+                self.avg_fps /= 60;
+                self.update_title()?;
+                start = end;
             }
         }
 
@@ -214,7 +223,6 @@ impl Ui {
                         1 => {
                             self.gamepad2 = Some(self.window.controller_sub.open(id)?);
                             self.input.borrow_mut().gamepad2.connected = true;
-
                         }
                         _ => (),
                     }
@@ -226,19 +234,21 @@ impl Ui {
                 Event::KeyUp {
                     keycode: Some(key), ..
                 } => match key {
+                    Keycode::Space => self.set_fastforward(false)?,
                     Keycode::LCtrl => self.lctrl = false,
                     _ => self.handle_keyboard_event(key, false, turbo),
                 },
                 Event::ControllerButtonDown { which, button, .. } => match button {
                     Button::LeftStick => self.toggle_menu()?,
-                    Button::RightStick => self.toggle_fastforward()?,
+                    Button::RightStick => self.set_fastforward(true)?,
                     Button::LeftShoulder => self.console.save_state(self.save_slot)?,
                     Button::RightShoulder => self.console.load_state(self.save_slot)?,
                     _ => self.handle_gamepad_button(which, button, true, turbo),
                 },
-                Event::ControllerButtonUp { which, button, .. } => {
-                    self.handle_gamepad_button(which, button, false, turbo)
-                }
+                Event::ControllerButtonUp { which, button, .. } => match button {
+                    Button::RightStick => self.set_fastforward(false)?,
+                    _ => self.handle_gamepad_button(which, button, false, turbo),
+                },
                 Event::ControllerAxisMotion {
                     which, axis, value, ..
                 } => self.handle_gamepad_axis(which, axis, value, turbo),
@@ -274,7 +284,7 @@ impl Ui {
             Keycode::P if self.lctrl => self.console.power_cycle(),
             Keycode::Equals if self.lctrl => self.change_speed(25.0)?,
             Keycode::Minus if self.lctrl => self.change_speed(-25.0)?,
-            Keycode::Space => self.toggle_fastforward()?,
+            Keycode::Space => self.set_fastforward(true)?,
             Keycode::Num1 if self.lctrl => {
                 self.save_slot = 1;
                 self.update_title()?;
@@ -321,7 +331,8 @@ impl Ui {
         } else {
             title.push_str(&format!(
                 " - FPS: {} - Save Slot: {}",
-                self.fps, self.save_slot
+                self.avg_fps.as_millis(),
+                self.save_slot
             ));
             if self.speed != DEFAULT_SPEED {
                 title.push_str(&format!(" - Speed: {}%", self.speed));
@@ -336,15 +347,19 @@ impl Ui {
         // TODO menu overlay
     }
 
-    fn toggle_fastforward(&mut self) -> Result<()> {
-        self.fastforward = !self.fastforward;
-        if self.fastforward {
-            self.speed = MAX_SPEED;
-        } else {
-            self.speed = DEFAULT_SPEED;
+    fn set_fastforward(&mut self, val: bool) -> Result<()> {
+        let old_fastforward = self.fastforward;
+        self.fastforward = val;
+        if old_fastforward != self.fastforward {
+            if self.fastforward {
+                self.speed = MAX_SPEED;
+            } else {
+                self.speed = DEFAULT_SPEED;
+            }
+            self.console.set_speed(self.speed / DEFAULT_SPEED);
+            self.update_title()?;
         }
-        self.console.set_speed(self.speed / DEFAULT_SPEED);
-        self.update_title()
+        Ok(())
     }
 
     fn handle_keyboard_event(&mut self, key: Keycode, down: bool, turbo: bool) {
