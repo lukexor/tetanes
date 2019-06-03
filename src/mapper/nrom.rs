@@ -127,8 +127,13 @@ impl Memory for Nrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             // Only CHR-RAM can be written to
-            0x0000..=0x1FFF if self.battery_backed => self.chr_banks[0].write(addr, val),
+            0x0000..=0x1FFF => {
+                if self.battery_backed {
+                    self.chr_banks[0].write(addr, val);
+                }
+            }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
+            0x8000..=0xFFFF => (), // ROM is write-only
             _ => eprintln!(
                 "invalid Nrom write at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val

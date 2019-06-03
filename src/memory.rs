@@ -6,6 +6,7 @@ use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
 use crate::serialization::Savable;
 use crate::util::Result;
+use rand::Rng;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -42,7 +43,12 @@ impl Ram {
             eprintln!("warning: RAM size of {} is not 16-bit addressable", size);
             size = 0x10000;
         }
-        Self(vec![0u8; size])
+        let mut rng = rand::thread_rng();
+        let mut ram = Vec::with_capacity(size);
+        for _ in 0..size {
+            ram.push(rng.gen_range(0x00, 0xFF));
+        }
+        Self(ram)
     }
     pub fn null() -> Self {
         Self(Vec::new())
