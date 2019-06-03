@@ -2,7 +2,7 @@
 
 ## Summary
 
-`RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
+`RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1985, written
 using [Rust][rust] and [SDL2][sdl2].
 
 It started as a personal curiosity that turned into a project for two classes to demonstrate
