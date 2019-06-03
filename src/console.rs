@@ -6,7 +6,7 @@ pub use ppu::{Image, Rgb, RENDER_HEIGHT, RENDER_WIDTH};
 
 use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
-use crate::memory::CpuMemMap;
+use crate::memory::{self, CpuMemMap};
 use crate::serialization::Savable;
 use crate::util::{self, Result};
 use cpu::Cpu;
@@ -82,6 +82,11 @@ impl Console {
     pub fn power_cycle(&mut self) {
         self.cpu.power_cycle();
         self.mapper.borrow_mut().power_cycle();
+    }
+
+    /// Enable/Disable RAM randomization
+    pub fn randomize_ram(&mut self, val: bool) {
+        unsafe { memory::RANDOMIZE_RAM = val }
     }
 
     /// Enable/Disable the debugger

@@ -19,6 +19,7 @@ pub const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 pub const CHR_RAM_SIZE: usize = 8 * 1024;
 pub const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 pub const CHR_BANK_SIZE: usize = 4 * 1024;
+pub static mut RANDOMIZE_RAM: bool = false;
 const WRAM_SIZE: usize = 2 * 1024;
 
 /// Memory Trait
@@ -43,11 +44,17 @@ impl Ram {
             eprintln!("warning: RAM size of {} is not 16-bit addressable", size);
             size = 0x10000;
         }
-        let mut rng = rand::thread_rng();
-        let mut ram = Vec::with_capacity(size);
-        for _ in 0..size {
-            ram.push(rng.gen_range(0x00, 0xFF));
-        }
+        let randomize = unsafe { RANDOMIZE_RAM };
+        let ram = if randomize {
+            let mut rng = rand::thread_rng();
+            let mut ram = Vec::with_capacity(size);
+            for _ in 0..size {
+                ram.push(rng.gen_range(0x00, 0xFF));
+            }
+            ram
+        } else {
+            vec![0u8; size]
+        };
         Self(ram)
     }
     pub fn null() -> Self {

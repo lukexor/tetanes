@@ -31,6 +31,7 @@ pub struct UiBuilder {
     fullscreen: bool,
     sound_off: bool,
     concurrent_dpad: bool,
+    randomize_ram: bool,
     log_cpu: bool,
     no_save: bool,
     save_slot: u8,
@@ -45,6 +46,7 @@ impl UiBuilder {
             fullscreen: false,
             sound_off: false,
             concurrent_dpad: false,
+            randomize_ram: false,
             log_cpu: false,
             no_save: false,
             save_slot: 1u8,
@@ -72,6 +74,10 @@ impl UiBuilder {
         self.concurrent_dpad = val;
         self
     }
+    pub fn randomize_ram(&mut self, val: bool) -> &mut Self {
+        self.randomize_ram = val;
+        self
+    }
     pub fn log_cpu(&mut self, val: bool) -> &mut Self {
         self.log_cpu = val;
         self
@@ -94,6 +100,7 @@ impl UiBuilder {
         console.debug(self.debug);
         console.log_cpu(self.log_cpu);
         console.no_save(self.no_save);
+        console.randomize_ram(self.randomize_ram);
 
         let (window, event_pump) = Window::init(DEFAULT_TITLE, self.scale, self.fullscreen)?;
         Ok(Ui {

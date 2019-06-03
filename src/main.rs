@@ -22,6 +22,7 @@ fn main() {
         .fullscreen(opt.fullscreen)
         .sound_off(opt.sound_off)
         .concurrent_dpad(opt.concurrent_dpad)
+        .randomize_ram(opt.randomize_ram)
         .log_cpu(opt.log_cpu)
         .no_save(opt.no_save)
         .save_slot(opt.save_slot)
@@ -65,6 +66,11 @@ struct Opt {
         help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad"
     )]
     concurrent_dpad: bool,
+    #[structopt(
+        long = "randomize_ram",
+        help = "By default RAM initializes to 0x00 on power up. This affects some games RNG seed generators."
+    )]
+    randomize_ram: bool,
     #[structopt(
         short = "l",
         long = "log_cpu",
