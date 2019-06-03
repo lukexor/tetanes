@@ -17,6 +17,7 @@ use std::rc::Rc;
 /// NROM
 #[derive(Debug)]
 pub struct Nrom {
+    has_chr_ram: bool,
     battery_backed: bool,
     mirroring: Mirroring,
     nrom_size: NromSize,
@@ -50,6 +51,7 @@ impl Nrom {
             Nrom128
         };
         let nrom = Self {
+            has_chr_ram: cart.chr_rom.len() == 0,
             battery_backed: cart.battery_backed(),
             mirroring: cart.mirroring(),
             nrom_size,
@@ -128,7 +130,7 @@ impl Memory for Nrom {
         match addr {
             // Only CHR-RAM can be written to
             0x0000..=0x1FFF => {
-                if self.battery_backed {
+                if self.has_chr_ram {
                     self.chr_banks[0].write(addr, val);
                 }
             }
