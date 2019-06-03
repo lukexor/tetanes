@@ -139,8 +139,6 @@ impl Cpu {
             return 1;
         }
 
-        self.cycle %= 65_536; // Don't need to keep track of large cycle counts
-        self.step %= 65_536;
         let start_cycle = self.cycle;
 
         match self.interrupt {

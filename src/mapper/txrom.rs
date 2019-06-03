@@ -67,7 +67,7 @@ struct TxRegs {
     irq_latch: u8,
     irq_counter: u8,
     irq_enabled: bool,
-    irq_reload: bool,
+    irq_reset: bool,
     last_clock: u16,
     open_bus: u8,
 }
@@ -98,13 +98,13 @@ impl Txrom {
                 irq_latch: 0u8,
                 irq_counter: 0u8,
                 irq_enabled: false,
-                irq_reload: false,
+                irq_reset: false,
                 last_clock: 0u16,
                 open_bus: 0u8,
             },
             mirroring,
             irq_pending: false,
-            mmc3_alt_behavior: false,
+            mmc3_alt_behavior: true,
             battery_backed: cart.battery_backed(),
             prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
             chr_bank_idx: [0usize; 8],
@@ -164,11 +164,14 @@ impl Txrom {
             }
             // IRQ
             0xC000 => self.regs.irq_latch = val,
-            0xC001 => self.regs.irq_counter = 0,
-            0xE000 => {
+            0xC001 => {
                 if self.mmc3_alt_behavior {
-                    self.regs.irq_reload = true;
+                    self.regs.irq_reset = true;
                 }
+                self.regs.irq_counter = 0;
+            }
+            0xE000 => {
+                self.irq_pending = false;
                 self.regs.irq_enabled = false;
             }
             0xE001 => self.regs.irq_enabled = true,
@@ -231,14 +234,20 @@ impl Mapper for Txrom {
         {
             return;
         }
-        if self.regs.irq_counter > 0 {
-            self.regs.irq_counter -= 1;
-            if self.regs.irq_counter == 0 && self.regs.irq_enabled {
-                self.irq_pending = true;
-            }
-        } else {
+        let old_counter = self.regs.irq_counter;
+        if self.regs.irq_counter == 0 || self.regs.irq_reset {
             self.regs.irq_counter = self.regs.irq_latch;
+        } else {
+            self.regs.irq_counter -= 1;
         }
+
+        if (self.mmc3_alt_behavior || old_counter != 0 || self.regs.irq_reset)
+            && self.regs.irq_counter == 0
+            && self.regs.irq_enabled
+        {
+            self.irq_pending = true;
+        }
+        self.regs.irq_reset = false;
     }
     fn battery_backed(&self) -> bool {
         self.battery_backed
@@ -272,7 +281,7 @@ impl Mapper for Txrom {
             irq_latch: 0u8,
             irq_counter: 0u8,
             irq_enabled: false,
-            irq_reload: false,
+            irq_reset: false,
             last_clock: 0u16,
             open_bus: 0u8,
         };
