@@ -30,6 +30,7 @@ pub struct UiBuilder {
     debug: bool,
     fullscreen: bool,
     sound_off: bool,
+    concurrent_dpad: bool,
     log_cpu: bool,
     no_save: bool,
     save_slot: u8,
@@ -43,6 +44,7 @@ impl UiBuilder {
             debug: false,
             fullscreen: false,
             sound_off: false,
+            concurrent_dpad: false,
             log_cpu: false,
             no_save: false,
             save_slot: 1u8,
@@ -54,32 +56,36 @@ impl UiBuilder {
         self.path = path.unwrap_or_else(|| env::current_dir().unwrap_or_default());
         self
     }
-    pub fn debug(&mut self, debug: bool) -> &mut Self {
-        self.debug = debug;
+    pub fn debug(&mut self, val: bool) -> &mut Self {
+        self.debug = val;
         self
     }
-    pub fn fullscreen(&mut self, fullscreen: bool) -> &mut Self {
-        self.fullscreen = fullscreen;
+    pub fn fullscreen(&mut self, val: bool) -> &mut Self {
+        self.fullscreen = val;
         self
     }
-    pub fn sound_off(&mut self, sound: bool) -> &mut Self {
-        self.sound_off = sound;
+    pub fn sound_off(&mut self, val: bool) -> &mut Self {
+        self.sound_off = val;
         self
     }
-    pub fn log_cpu(&mut self, log_cpu: bool) -> &mut Self {
-        self.log_cpu = log_cpu;
+    pub fn concurrent_dpad(&mut self, val: bool) -> &mut Self {
+        self.concurrent_dpad = val;
         self
     }
-    pub fn no_save(&mut self, no_save: bool) -> &mut Self {
-        self.no_save = no_save;
+    pub fn log_cpu(&mut self, val: bool) -> &mut Self {
+        self.log_cpu = val;
         self
     }
-    pub fn save_slot(&mut self, save_slot: u8) -> &mut Self {
-        self.save_slot = save_slot;
+    pub fn no_save(&mut self, val: bool) -> &mut Self {
+        self.no_save = val;
         self
     }
-    pub fn scale(&mut self, scale: u32) -> &mut Self {
-        self.scale = scale;
+    pub fn save_slot(&mut self, val: u8) -> &mut Self {
+        self.save_slot = val;
+        self
+    }
+    pub fn scale(&mut self, val: u32) -> &mut Self {
+        self.scale = val;
         self
     }
     pub fn build(&self) -> Result<Ui> {
@@ -96,6 +102,7 @@ impl UiBuilder {
             paused: false,
             should_close: false,
             sound_enabled: !self.sound_off,
+            concurrent_dpad: self.concurrent_dpad,
             fastforward: false,
             lctrl: false,
             save_slot: 1u8,
@@ -120,6 +127,7 @@ pub struct Ui {
     should_close: bool,
     fastforward: bool,
     sound_enabled: bool,
+    concurrent_dpad: bool,
     lctrl: bool,
     save_slot: u8,
     turbo_clock: u8,
@@ -377,10 +385,30 @@ impl Ui {
             }
             Keycode::RShift => input.gamepad1.select = down,
             Keycode::Return => input.gamepad1.start = down,
-            Keycode::Up => input.gamepad1.up = down,
-            Keycode::Down => input.gamepad1.down = down,
-            Keycode::Left => input.gamepad1.left = down,
-            Keycode::Right => input.gamepad1.right = down,
+            Keycode::Up => {
+                if !self.concurrent_dpad && down {
+                    input.gamepad1.down = false;
+                }
+                input.gamepad1.up = down;
+            }
+            Keycode::Down => {
+                if !self.concurrent_dpad && down {
+                    input.gamepad1.up = false;
+                }
+                input.gamepad1.down = down;
+            }
+            Keycode::Left => {
+                if !self.concurrent_dpad && down {
+                    input.gamepad1.right = false;
+                }
+                input.gamepad1.left = down;
+            }
+            Keycode::Right => {
+                if !self.concurrent_dpad && down {
+                    input.gamepad1.left = false;
+                }
+                input.gamepad1.right = down;
+            }
             _ => {}
         }
     }

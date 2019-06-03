@@ -21,6 +21,7 @@ fn main() {
         .debug(opt.debug)
         .fullscreen(opt.fullscreen)
         .sound_off(opt.sound_off)
+        .concurrent_dpad(opt.concurrent_dpad)
         .log_cpu(opt.log_cpu)
         .no_save(opt.no_save)
         .save_slot(opt.save_slot)
@@ -59,6 +60,11 @@ struct Opt {
     fullscreen: bool,
     #[structopt(long = "sound_off", help = "Disable Sound")]
     sound_off: bool,
+    #[structopt(
+        long = "concurrent_dpad",
+        help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad"
+    )]
+    concurrent_dpad: bool,
     #[structopt(
         short = "l",
         long = "log_cpu",
