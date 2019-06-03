@@ -94,6 +94,7 @@ impl Memory for Cnrom {
 
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
+            0x0000..=0x1FFF => (), // ROM is write-only
             0x8000..=0xFFFF => self.chr_bank = val as usize & 3,
             0x6000..=0x7FFF => (), // No Save RAM
             _ => eprintln!("unhandled Cnrom write at address: 0x{:04X}", addr),
