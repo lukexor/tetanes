@@ -126,8 +126,6 @@ impl Apu {
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
     fn clock_frame_counter(&mut self) {
-        use FCMode::*;
-
         if self.frame.counter > 0 {
             self.frame.counter -= 1;
         } else {
@@ -139,11 +137,7 @@ impl Apu {
                 }
                 _ => (), // Noop
             }
-            if self.irq_enabled
-                && self.frame.mode == Step4
-                && self.frame.step >= 4
-                && self.frame.step <= 5
-            {
+            if self.irq_enabled && self.frame.mode == FCMode::Step4 && self.frame.step >= 4 {
                 self.irq_pending = true;
             }
 
@@ -174,19 +168,19 @@ impl Apu {
         match self.frame.mode {
             FCMode::Step4 => match self.frame.step {
                 1 => 7457,
-                2 => 7458,
-                3 => 7457,
-                4 => 7456,
+                2 => 7456,
+                3 => 7458,
+                4 => 7457,
                 5 => 1,
                 6 => 1,
                 _ => panic!("shouldn't happen"),
             },
             FCMode::Step5 => match self.frame.step {
                 1 => 7457,
-                2 => 7458,
-                3 => 7457,
-                4 => 7456,
-                5 => 7454,
+                2 => 7456,
+                3 => 7458,
+                4 => 7457,
+                5 => 7452,
                 6 => 1,
                 _ => panic!("shouldn't happen"),
             },
