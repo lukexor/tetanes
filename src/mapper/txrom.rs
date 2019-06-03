@@ -84,7 +84,12 @@ impl Txrom {
         let prg_ram = Ram::init(PRG_RAM_8K);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let chr_banks = if cart.chr_rom.len() == 0 {
-            let chr_ram = Ram::init(CHR_RAM_SIZE);
+            let chr_ram_size = if cart.chr_ram_size() > 0 {
+                cart.chr_ram_size()
+            } else {
+                CHR_RAM_SIZE
+            };
+            let chr_ram = Ram::init(chr_ram_size);
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
             Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)

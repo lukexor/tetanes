@@ -100,6 +100,14 @@ impl Cartridge {
             0
         }
     }
+
+    pub fn chr_ram_size(&self) -> usize {
+        if self.header.chr_ram_size > 0 {
+            (64 << self.header.chr_ram_size) as usize
+        } else {
+            0
+        }
+    }
 }
 
 impl Savable for Cartridge {
