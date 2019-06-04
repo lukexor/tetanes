@@ -22,6 +22,7 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 pub struct Axrom {
     has_chr_ram: bool,
     mirroring: Mirroring,
+    open_bus: u8,
     prg_rom_bank: usize,
     prg_rom_banks: Banks<Rom>,
     chr_banks: Banks<Ram>,
@@ -39,6 +40,7 @@ impl Axrom {
         let axrom = Self {
             has_chr_ram: cart.chr_rom.len() == 0,
             mirroring: cart.mirroring(),
+            open_bus: 0u8,
             prg_rom_bank: 0usize,
             prg_rom_banks,
             chr_banks,
@@ -79,12 +81,15 @@ impl Mapper for Axrom {
 
 impl Memory for Axrom {
     fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
+        let val = self.peek(addr);
+        self.open_bus = val;
+        val
     }
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
+            0x6000..=0x7FFF => self.open_bus,
             0x8000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank].peek(addr - 0x8000),
             _ => {
                 eprintln!("unhandled Axrom read at address: 0x{:04X}", addr);
@@ -94,6 +99,7 @@ impl Memory for Axrom {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
+        self.open_bus = val;
         match addr {
             0x0000..=0x1FFF => {
                 if self.has_chr_ram {
