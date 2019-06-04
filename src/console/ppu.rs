@@ -8,6 +8,7 @@ use crate::serialization::Savable;
 use crate::util::Result;
 use std::fmt;
 use std::io::{Read, Write};
+use std::time::{Duration, Instant};
 
 // Screen/Render
 pub type Image = [u8; IMAGE_SIZE];
@@ -203,7 +204,6 @@ impl Ppu {
             }
         }
     }
-
     fn evaluate_background(&mut self) {
         self.frame.tile_data <<= 4;
         // Fetch 4 tiles and write out shift registers every 8th cycle
@@ -334,7 +334,7 @@ impl Ppu {
             }
         };
         let system_palette_idx =
-            self.vram.read(u16::from(color) + PALETTE_START) & ((SYSTEM_PALETTE_SIZE as u8) - 1);
+            self.vram.read(u16::from(color) + PALETTE_START) % SYSTEM_PALETTE_SIZE as u8;
         let color = SYSTEM_PALETTE[system_palette_idx as usize];
         self.screen.put_pixel(x as usize, y as usize, color);
     }
@@ -384,6 +384,10 @@ impl Ppu {
     }
 
     fn tick(&mut self) {
+        if Instant::now() - self.regs.open_bus_updated >= Duration::from_millis(800) {
+            self.regs.open_bus = 0x0;
+            self.regs.open_bus_updated = Instant::now();
+        }
         if self.nmi_delay_enabled && self.regs.nmi_delay > 0 {
             self.regs.nmi_delay -= 1;
             if self.regs.nmi_delay == 0 && self.nmi_enabled() && self.vblank_started() {
@@ -513,12 +517,6 @@ impl Ppu {
     }
     fn write_ppuctrl(&mut self, val: u8) {
         self.regs.write_ctrl(val);
-        if !self.nmi_delay_enabled
-            && self.regs.ctrl.nmi_enabled()
-            && self.regs.status.vblank_started()
-        {
-            self.nmi_pending = true;
-        }
     }
 
     /*
@@ -551,9 +549,6 @@ impl Ppu {
     fn start_vblank(&mut self) {
         self.regs.status.start_vblank();
         self.regs.nmi_change();
-        if !self.nmi_delay_enabled && self.regs.ctrl.nmi_enabled() {
-            self.nmi_pending = true;
-        }
     }
     fn stop_vblank(&mut self) {
         self.regs.status.stop_vblank();
@@ -620,17 +615,17 @@ impl Ppu {
             buffer
         } else {
             // Set internal buffer with mirrors of nametable when reading palettes
-            self.vram.buffer = self.vram.read(self.read_ppuaddr());
-            val
+            // Since we're reading from > 0x3EFF subtract 0x1000 to fill
+            // buffer with nametable mirror data
+            self.vram.buffer = self.vram.read(self.read_ppuaddr() - 0x1000);
+            // Hi 2 bits of palette should be open bus
+            val | (self.regs.open_bus & 0xC0)
         };
         self.regs.increment_v();
         val
     }
     fn peek_ppudata(&self) -> u8 {
         let val = self.vram.peek(self.read_ppuaddr());
-        // Buffering quirk resulting in a dummy read for the CPU
-        // for reading pre-palette data in 0 - $3EFF
-        // Keep addr within 15 bits
         if self.read_ppuaddr() <= 0x3EFF {
             self.vram.buffer
         } else {
@@ -645,23 +640,34 @@ impl Ppu {
 
 impl Memory for Ppu {
     fn read(&mut self, addr: u16) -> u8 {
-        // TODO emulate decay of open bus bits
-        let val = match addr {
-            0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
-            0x2001 => self.regs.open_bus,    // PPUMASK is write-only
-            0x2002 => self.read_ppustatus(), // PPUSTATUS
-            0x2003 => self.regs.open_bus,    // OAMADDR is write-only
-            0x2004 => self.read_oamdata(),   // OAMDATA
-            0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
-            0x2006 => self.regs.open_bus,    // PPUADDR is write-only
-            0x2007 => self.read_ppudata(),   // PPUDATA
+        match addr {
+            0x2000 => self.regs.open_bus, // PPUCTRL is write-only
+            0x2001 => self.regs.open_bus, // PPUMASK is write-only
+            0x2002 => {
+                let val = self.read_ppustatus(); // PPUSTATUS
+                self.regs.open_bus |= val & !0x1F;
+                (val & !0x1F) | (self.regs.open_bus & 0x1F)
+            }
+            0x2003 => self.regs.open_bus, // OAMADDR is write-only
+            0x2004 => {
+                let val = self.read_oamdata(); // OAMDATA
+                self.regs.open_bus = val;
+                self.regs.open_bus_updated = Instant::now();
+                val
+            }
+            0x2005 => self.regs.open_bus, // PPUSCROLL is write-only
+            0x2006 => self.regs.open_bus, // PPUADDR is write-only
+            0x2007 => {
+                let val = self.read_ppudata(); // PPUDATA
+                self.regs.open_bus = val;
+                self.regs.open_bus_updated = Instant::now();
+                val
+            }
             _ => {
                 eprintln!("unhandled Ppu read at 0x{:04X}", addr);
                 0
             }
-        };
-        self.regs.open_bus = val;
-        val
+        }
     }
 
     fn peek(&self, addr: u16) -> u8 {
@@ -682,7 +688,10 @@ impl Memory for Ppu {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        // TODO emulate decay of open bus bits
+        // Only refresh decay on write addresses
+        if addr != 0x2002 {
+            self.regs.open_bus_updated = Instant::now();
+        }
         self.regs.open_bus = val;
         match addr {
             0x2000 => self.write_ppuctrl(val),   // PPUCTRL
@@ -776,34 +785,36 @@ impl Savable for Palette {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct PpuRegs {
-    open_bus: u8,       // This open bus gets set during any write to PPU registers
-    ctrl: PpuCtrl,      // $2000 PPUCTRL write-only
-    mask: PpuMask,      // $2001 PPUMASK write-only
-    status: PpuStatus,  // $2002 PPUSTATUS read-only
-    oamaddr: u8,        // $2003 OAMADDR write-only
-    nmi_delay: u8,      // Some games need a delay after vblank before nmi is triggered
-    nmi_previous: bool, // Keeps track of repeated nmi to handle delay timing
-    v: u16,             // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
-    t: u16,             // Temporary v - Also the addr of top-left onscreen tile
-    x: u16,             // Fine X
-    w: bool,            // 1st or 2nd write toggle
+    open_bus: u8,              // This open bus gets set during any write to PPU registers
+    open_bus_updated: Instant, // Last updated value used to emualte open_bus decay
+    ctrl: PpuCtrl,             // $2000 PPUCTRL write-only
+    mask: PpuMask,             // $2001 PPUMASK write-only
+    status: PpuStatus,         // $2002 PPUSTATUS read-only
+    oamaddr: u8,               // $2003 OAMADDR write-only
+    nmi_delay: u8,             // Some games need a delay after vblank before nmi is triggered
+    nmi_previous: bool,        // Keeps track of repeated nmi to handle delay timing
+    v: u16,                    // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
+    t: u16,                    // Temporary v - Also the addr of top-left onscreen tile
+    x: u16,                    // Fine X
+    w: bool,                   // 1st or 2nd write toggle
 }
 
 impl PpuRegs {
     fn new() -> Self {
         Self {
-            open_bus: 0,
-            ctrl: PpuCtrl(0),
-            mask: PpuMask(0),
-            status: PpuStatus(0xA0),
-            oamaddr: 0,
-            nmi_delay: 0,
+            open_bus: 0u8,
+            open_bus_updated: Instant::now(),
+            ctrl: PpuCtrl(0u8),
+            mask: PpuMask(0u8),
+            status: PpuStatus(0u8),
+            oamaddr: 0u8,
+            nmi_delay: 0u8,
             nmi_previous: false,
-            v: 0,
-            t: 0,
-            x: 0,
+            v: 0u16,
+            t: 0u16,
+            x: 0u16,
             w: false,
         }
     }
@@ -840,14 +851,12 @@ impl PpuRegs {
 
     fn read_status(&mut self) -> u8 {
         self.reset_rw();
-        // Include garbage from open bus
-        let status = (self.status.read() & !0x1F) | (self.open_bus & 0x1F);
+        let status = self.status.read();
         self.nmi_change();
         status
     }
     fn peek_status(&self) -> u8 {
-        // Include garbage from open bus
-        (self.status.peek() & !0x1F) | (self.open_bus & 0x1F)
+        self.status.peek()
     }
 
     /*
@@ -1043,6 +1052,12 @@ impl Savable for PpuRegs {
     }
 }
 
+impl Default for PpuRegs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // Addr Low Nibble
 // $00, $04, $08, $0C   Sprite Y coord
 // $01, $05, $09, $0D   Sprite tile #
@@ -1065,7 +1080,13 @@ impl Memory for Oam {
         self.peek(addr)
     }
     fn peek(&self, addr: u16) -> u8 {
-        self.entries[addr as usize]
+        let val = self.entries[addr as usize];
+        // Bits 2-4 of Sprite attribute should always be 0
+        if let 0x02 | 0x06 | 0x0A | 0x0E = addr & 0x0F {
+            val & 0xE3
+        } else {
+            val
+        }
     }
     fn write(&mut self, addr: u16, val: u8) {
         self.entries[addr as usize] = val;

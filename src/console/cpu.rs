@@ -274,11 +274,10 @@ impl Cpu {
             unsafe { (*debugger).on_irq(&self) };
         }
         self.push_stackw(self.pc);
-        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
-        self.status |= INTERRUPTD_FLAG;
+        self.php();
         self.pc = self.readw(IRQ_ADDR);
-        self.cycle = self.cycle.wrapping_add(7);
         self.set_irq_disable(true);
+        self.cycle = self.cycle.wrapping_add(7);
     }
 
     /// Sends a NMI Interrupt to the CPU
@@ -293,10 +292,10 @@ impl Cpu {
             unsafe { (*debugger).on_nmi(&self) };
         }
         self.push_stackw(self.pc);
-        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
+        self.php();
         self.pc = self.readw(NMI_ADDR);
-        self.cycle = self.cycle.wrapping_add(7);
         self.set_irq_disable(true);
+        self.cycle = self.cycle.wrapping_add(7);
     }
 
     // Getters/Setters
