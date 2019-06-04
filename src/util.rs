@@ -4,6 +4,7 @@ use crate::console::{Image, RENDER_HEIGHT, RENDER_WIDTH};
 use chrono::prelude::*;
 use dirs;
 use failure::{format_err, Error};
+use image::Pixel;
 use image::{png, ColorType};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -16,6 +17,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 const CONFIG_DIR: &str = ".rustynes";
 const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
 const VERSION: [u8; 6] = *b"v0.2.0";
+const ICON_PATH: &str = "static/rustynes_icon.png";
 
 /// Searches for valid NES rom files ending in `.nes`
 ///
@@ -181,6 +183,7 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &Image) {
     eprintln!("{}", png_path.display());
 }
 
+/// Writes a header including a magic string and a version
 pub fn write_save_header(fh: &mut Write) -> Result<()> {
     let mut header: Vec<u8> = Vec::new();
     header.extend(&SAVE_FILE_MAGIC.to_vec());
@@ -190,6 +193,7 @@ pub fn write_save_header(fh: &mut Write) -> Result<()> {
     Ok(())
 }
 
+/// Validates a file to ensure it matches the current version and magic
 pub fn validate_save_header(fh: &mut Read) -> Result<()> {
     let mut magic = [0u8; 9];
     fh.read_exact(&mut magic)?;
@@ -208,6 +212,17 @@ pub fn validate_save_header(fh: &mut Read) -> Result<()> {
         ))?;
     }
     Ok(())
+}
+
+/// Loads pixel values for an image icon
+pub fn load_icon() -> Result<Vec<u8>> {
+    let image = image::open(&ICON_PATH)?.to_rgb();
+    let (width, height) = image.dimensions();
+    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+    for pixel in image.pixels() {
+        pixels.extend_from_slice(pixel.channels());
+    }
+    Ok(pixels)
 }
 
 pub fn str_to_err(string: String) -> Error {

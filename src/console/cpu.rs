@@ -1364,7 +1364,7 @@ impl Cpu {
             ret &= !(1 << 7);
         }
         self.set_carry((ret & 0x40 >> 6) > 0);
-        self.set_overflow((ret & 0x40 >> 6) ^ (ret & 0x20 >> 5) != 0);
+        self.set_overflow(((ret >> 6) & 1) ^ ((ret >> 5) & 1) != 0);
         self.set_zn(ret);
     }
     // SRA: Shortcut for LSR then EOR
