@@ -1,4 +1,4 @@
-//! SxRom/MMC1 (Mapper 1)
+//! SxROM/MMC1 (Mapper 1)
 //!
 //! [http://wiki.nesdev.com/w/index.php/SxROM]()
 //! [http://wiki.nesdev.com/w/index.php/MMC1]()
@@ -6,14 +6,17 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{
-    Banks, Memory, Ram, Rom, CHR_BANK_SIZE, CHR_RAM_SIZE, PRG_RAM_32K, PRG_ROM_BANK_SIZE,
-};
+use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
+
+const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
+const CHR_BANK_SIZE: usize = 4 * 1024;
+const PRG_RAM_SIZE: usize = 32 * 1024; // 32KB is safely compatible sans NES 2.0 header
+const CHR_RAM_SIZE: usize = 8 * 1024;
 
 const SHIFT_REG_RESET: u8 = 0x80; // Reset shift register when bit 7 is set
 const DEFAULT_SHIFT_REGISTER: u8 = 0x10; // 0b10000 the 1 is used to tell when register is full
@@ -25,7 +28,7 @@ const PRG_MODE_FIX_LAST: u8 = 0x0C; // Mode 3
 const CHR_MODE_MASK: u8 = 0x10; // 0b10000
 const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 
-/// SXROM
+/// SxROM
 #[derive(Debug)]
 pub struct Sxrom {
     regs: SxRegs,
@@ -57,7 +60,7 @@ impl Sxrom {
         let prg_ram_size = if cart.prg_ram_size() > 0 {
             cart.prg_ram_size()
         } else {
-            PRG_RAM_32K
+            PRG_RAM_SIZE
         };
         let prg_ram = Ram::init(prg_ram_size);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);

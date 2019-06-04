@@ -5,14 +5,17 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{
-    Banks, Memory, Ram, Rom, CHR_RAM_SIZE, CHR_ROM_BANK_SIZE, PRG_RAM_8K, PRG_ROM_BANK_SIZE,
-};
+use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
+
+const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
+const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
+const PRG_RAM_SIZE: usize = 8 * 1024;
+const CHR_RAM_SIZE: usize = 8 * 1024;
 
 /// NROM
 #[derive(Debug)]
@@ -37,7 +40,7 @@ use NromSize::*;
 
 impl Nrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_ram = Ram::init(PRG_RAM_8K);
+        let prg_ram = Ram::init(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let chr_banks = if cart.chr_rom.len() == 0 {
             let chr_ram = Ram::init(CHR_RAM_SIZE);
@@ -146,6 +149,7 @@ impl Memory for Nrom {
 
 impl Savable for Nrom {
     fn save(&self, fh: &mut Write) -> Result<()> {
+        self.has_chr_ram.save(fh)?;
         self.battery_backed.save(fh)?;
         self.mirroring.save(fh)?;
         self.nrom_size.save(fh)?;
@@ -154,6 +158,7 @@ impl Savable for Nrom {
         self.chr_banks.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.has_chr_ram.load(fh)?;
         self.battery_backed.load(fh)?;
         self.mirroring.load(fh)?;
         self.nrom_size.load(fh)?;

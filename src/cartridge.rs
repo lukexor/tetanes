@@ -1,13 +1,16 @@
 //! Handles reading NES Cartridge headers and ROMs
 
 use crate::mapper::Mirroring;
-use crate::memory::{Rom, CHR_ROM_BANK_SIZE, PRG_ROM_BANK_SIZE};
+use crate::memory::Rom;
 use crate::serialization::Savable;
 use crate::util::Result;
 use failure::format_err;
 use std::fmt;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+
+const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
+const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
 /// Represents an NES Cartridge
 #[derive(Default)]

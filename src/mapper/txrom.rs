@@ -1,4 +1,4 @@
-//! TxRom/MMC3 (Mapper 4)
+//! TxROM/MMC3 (Mapper 4)
 //!
 //! [https://wiki.nesdev.com/w/index.php/TxROM]()
 //! [https://wiki.nesdev.com/w/index.php/MMC3]()
@@ -7,20 +7,24 @@ use crate::cartridge::Cartridge;
 use crate::console::ppu::{Ppu, PRERENDER_SCANLINE, VISIBLE_SCANLINE_END};
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
-use crate::memory::{Banks, Memory, Ram, Rom, CHR_RAM_SIZE, FOUR_SCREEN_RAM_SIZE, PRG_RAM_8K};
+use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
 
-const PRG_ROM_BANK_SIZE: usize = 8 * 1024; // 8 KB
-const CHR_BANK_SIZE: usize = 1024; // 1 KB
+const PRG_ROM_BANK_SIZE: usize = 8 * 1024; // 8 KB ROM
+const CHR_BANK_SIZE: usize = 1024; // 1 KB ROM/RAM
+
+const FOUR_SCREEN_RAM_SIZE: usize = 4 * 1024;
+const PRG_RAM_SIZE: usize = 8 * 1024;
+const CHR_RAM_SIZE: usize = 8 * 1024;
 
 const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
 const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
-/// TXROM
+/// TxROM
 #[derive(Debug)]
 pub struct Txrom {
     regs: TxRegs,
@@ -81,7 +85,7 @@ impl Txrom {
             Ram::null()
         };
 
-        let prg_ram = Ram::init(PRG_RAM_8K);
+        let prg_ram = Ram::init(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let chr_banks = if cart.chr_rom.len() == 0 {
             let chr_ram_size = if cart.chr_ram_size() > 0 {

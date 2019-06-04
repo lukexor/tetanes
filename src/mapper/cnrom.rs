@@ -6,12 +6,15 @@
 use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{Banks, Memory, Ram, Rom, CHR_ROM_BANK_SIZE, PRG_ROM_BANK_SIZE};
+use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
 use crate::util::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
+
+const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
+const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
 /// CNROM
 #[derive(Debug)]

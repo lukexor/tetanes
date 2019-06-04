@@ -14,13 +14,17 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::rc::Rc;
 
-use cnrom::Cnrom;
-use nrom::Nrom;
-use sxrom::Sxrom;
-use txrom::Txrom;
-use uxrom::Uxrom;
+use axrom::Axrom;
+use cnrom::Cnrom; // Mapper 3
+                  // use exrom::Exrom;
+use nrom::Nrom; // Mapper 0
+use sxrom::Sxrom; // Mapper 1
+use txrom::Txrom; // Mapper 4
+use uxrom::Uxrom; // Mapper 2 // Mapper 5 // Mapper 7
 
+pub mod axrom;
 pub mod cnrom;
+// pub mod exrom;
 pub mod nrom;
 pub mod sxrom;
 pub mod txrom;
@@ -57,6 +61,8 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
         2 => Ok(Uxrom::load(cart)),
         3 => Ok(Cnrom::load(cart)),
         4 => Ok(Txrom::load(cart)),
+        // 5 => Ok(Exrom::load(cart)),
+        7 => Ok(Axrom::load(cart)),
         _ => Err(format_err!(
             "unsupported mapper number: {}",
             cart.header.mapper_num

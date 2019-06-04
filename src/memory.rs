@@ -11,14 +11,6 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 
-pub const FOUR_SCREEN_RAM_SIZE: usize = 4 * 1024;
-pub const PRG_RAM_8K: usize = 8 * 1024;
-pub const PRG_RAM_32K: usize = 32 * 1024; // 32KB is safely compatible sans NES 2.0 header
-pub const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
-pub const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
-pub const CHR_RAM_SIZE: usize = 8 * 1024;
-pub const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
-pub const CHR_BANK_SIZE: usize = 4 * 1024;
 pub static mut RANDOMIZE_RAM: bool = false;
 const WRAM_SIZE: usize = 2 * 1024;
 

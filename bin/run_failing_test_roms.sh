@@ -2,7 +2,6 @@ cargo build --release
 TESTS=(
 tests/cpu/instr_timing.nes # passes, but calls ahx(), xaa(), shy(), shx()
 tests/cpu/instr_misc.nes # ROL abs 03-dummy_reads #9 3/4
-tests/cpu/exec_space_apu.nes # 4016 00 ERROR landed at $4018 #2
 tests/cpu/flag_concurrency.nes # Timing doesn't match 29823 table should match OpenEMU results
 tests/cpu/registers_after_reset.nes # Message doesn't disappear
 tests/cpu/ram_after_reset.nes # Message doesn't disappear
@@ -37,7 +36,6 @@ tests/ppu/vbl_nmi_timing/3.even_odd_frames.nes # #3
 tests/ppu/vbl_nmi_timing/7.nmi_timing.nes # #7
 tests/ppu/vbl_nmi_timing/2.vbl_timing.nes # #8
 tests/ppu/ntsc_torture.nes # No NTSC raster effects
-tests/ppu/open_bus.nes # ppu_open_bus #3 - should decay after 1 sec
 tests/ppu/sprdma_and_dmc_dma.nes # Supposed to print a table
 tests/ppu/sprite_overflow.nes # flag cleared too late at end of VBL 03-timing #4 3/5
 tests/ppu/nmi_sync_ntsc.nes # Not sure what it tests

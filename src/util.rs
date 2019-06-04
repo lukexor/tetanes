@@ -16,7 +16,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 const CONFIG_DIR: &str = ".rustynes";
 const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
-const VERSION: [u8; 6] = *b"v0.2.0";
+const VERSION: [u8; 6] = *b"v0.3.0";
 const ICON_PATH: &str = "static/rustynes_icon.png";
 
 /// Searches for valid NES rom files ending in `.nes`

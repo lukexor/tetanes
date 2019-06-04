@@ -22,17 +22,18 @@ to them having the type and memory-safety guarantees that Rust is known for.
 <img src="static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="static/super_mario_bros.png" width="400">
 <img src="static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="static/metroid.png" width="400">
 
-## Supported Mappers
-
-Some of the more popular mappers are implemented with more to come!
+## Mappers
 
 | #   | Name       | Example Games                                            |
-| -   | ---------- | ---------------------------------------------------------|
+| -   | ---------- | -------------------------------------------------------- |
 | 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros.                |
 | 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris                         |
 | 002 | UxROM      | Castlevania, Contra, Mega Man                            |
 | 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream                           |
 | 004 | TxROM/MMC3 | Kickle Cubicle, Kirby's Adventure, Super Mario Bros. 2/3 |
+| 005 | ExROM/MMC5 | Castlevania 3, Uncharted Waters, Laser Invasion          |
+| 007 | AxROM      | Battletoads, Marble Madness, Wizards & Warriors          |
+| 009 | PxROM/MMC2 | Punch Out!!                                              |
 
 ## Dependencies
 
@@ -175,10 +176,9 @@ The following is a checklist of features and their progress:
     - [x] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
     - [x] TxROM/MMC3 (Mapper 4)
-    - [ ] ExROM/MMC5 (Mapper 7)
+    - [ ] ExROM/MMC5 (Mapper 5)
     - [ ] AxROM (Mapper 7)
     - [ ] PxROM/MMC2 (Mapper 9)
-    - [ ] FxROM/MMC4 (Mapper 10)
 - [x] User Interface (UI)
   - [x] Window
   - [ ] Main Menu
