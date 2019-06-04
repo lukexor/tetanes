@@ -168,7 +168,7 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &Image) {
         );
         return;
     }
-    let png = png::PNGEncoder::new(png_file.unwrap());
+    let png = png::PNGEncoder::new(png_file.unwrap()); // Safe to unwrap
     let encode = png.encode(
         pixels,
         RENDER_WIDTH as u32,

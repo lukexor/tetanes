@@ -2,6 +2,7 @@
 
 use crate::console::{Image, Rgb, RENDER_HEIGHT, RENDER_WIDTH, SAMPLE_RATE};
 use crate::util::{self, Result};
+use image::Pixel;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
@@ -42,7 +43,24 @@ impl Window {
         if fullscreen {
             window_builder.fullscreen();
         }
-        let window = window_builder.build()?;
+        let mut window = window_builder.build()?;
+
+        // Load window icon
+        let png_path = "static/rustynes_logo_256.png";
+        let png = image::open(&png_path).unwrap().to_rgb();
+        let mut pixels = Vec::new();
+        for pixel in png.pixels() {
+            pixels.extend_from_slice(pixel.channels());
+        }
+        let surface = sdl2::surface::Surface::from_data(
+            &mut pixels,
+            256,
+            256,
+            256 * 3,
+            PixelFormatEnum::RGB24,
+        )
+        .unwrap();
+        window.set_icon(surface);
 
         // Canvas
         let mut canvas = window.into_canvas().accelerated().present_vsync().build()?;

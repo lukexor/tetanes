@@ -231,7 +231,7 @@ impl Cpu {
             KIL => self.kil(),                // KILl (stops CPU)
             ISB => self.isb(target),          // INC & SBC
             DCP => self.dcp(target),          // DEC & CMP
-            AXS => self.axs(),                // A & X into X
+            AXS => self.axs(val),             // (A & X) - val into X
             LAS => self.las(val),             // LDA & TSX
             LAX => self.lax(val),             // LDA & TAX
             AHX => self.ahx(),                // Store A & X & H in M
@@ -241,11 +241,11 @@ impl Cpu {
             RRA => self.rra(target),          // ROR & ADC
             TAS => self.tas(target),          // STA & TXS
             SHY => self.shy(),                // Store Y & H in M
-            ARR => self.arr(val, target),     // AND & ROR
+            ARR => self.arr(val),             // AND #imm & ROR
             SRE => self.sre(target),          // LSR & EOR
-            ALR => self.alr(val, target),     // AND & LSR
+            ALR => self.alr(val),             // AND #imm & LSR
             RLA => self.rla(target),          // ROL & AND
-            ANC => self.anc(val, target),     // AND & ASL
+            ANC => self.anc(val),             // AND #imm
             SLO => self.slo(target),          // ASL & ORA
         };
         self.cycle - start_cycle
@@ -274,7 +274,8 @@ impl Cpu {
             unsafe { (*debugger).on_irq(&self) };
         }
         self.push_stackw(self.pc);
-        self.php();
+        // Handles status flags differently than php()
+        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.pc = self.readw(IRQ_ADDR);
         self.set_irq_disable(true);
         self.cycle = self.cycle.wrapping_add(7);
@@ -292,7 +293,8 @@ impl Cpu {
             unsafe { (*debugger).on_nmi(&self) };
         }
         self.push_stackw(self.pc);
-        self.php();
+        // Handles status flags differently than php()
+        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
         self.pc = self.readw(NMI_ADDR);
         self.set_irq_disable(true);
         self.cycle = self.cycle.wrapping_add(7);
@@ -1303,8 +1305,9 @@ impl Cpu {
         self.write_target(target, val);
     }
     // AXS: A & X into X
-    fn axs(&mut self) {
-        self.x &= self.acc;
+    fn axs(&mut self, val: u8) {
+        self.set_carry(self.x <= val);
+        self.x = (self.acc & self.x).wrapping_sub(val);
         self.set_zn(self.x);
     }
     // LAS: Shortcut for LDA then TSX
@@ -1351,10 +1354,18 @@ impl Cpu {
     fn shy(&mut self) {
         eprintln!("shy not implemented");
     }
-    // ARR: Shortcut for AND then ROR
-    fn arr(&mut self, val: u8, target: Option<u16>) {
+    // ARR: Shortcut for AND #imm then ROR
+    fn arr(&mut self, val: u8) {
         self.and(val);
-        self.ror(target);
+        let mut ret = self.acc.rotate_right(1);
+        if self.carry() {
+            ret |= 1 << 7;
+        } else {
+            ret &= !(1 << 7);
+        }
+        self.set_carry((ret & 0x40 >> 6) > 0);
+        self.set_overflow((ret & 0x40 >> 6) ^ (ret & 0x20 >> 5) != 0);
+        self.set_zn(ret);
     }
     // SRA: Shortcut for LSR then EOR
     fn sre(&mut self, target: Option<u16>) {
@@ -1364,10 +1375,12 @@ impl Cpu {
         self.eor(val);
         self.write_target(target, val);
     }
-    // ALR: Shortcut for AND then LSR
-    fn alr(&mut self, val: u8, target: Option<u16>) {
+    // ALR/ASR: Shortcut for AND #imm then LSR
+    fn alr(&mut self, val: u8) {
         self.and(val);
-        self.lsr(target);
+        self.set_carry(self.acc & 1 > 0);
+        self.acc = self.acc.wrapping_shr(1);
+        self.set_zn(self.acc);
     }
     // RLA: Shortcut for ROL then AND
     fn rla(&mut self, target: Option<u16>) {
@@ -1377,10 +1390,10 @@ impl Cpu {
         self.and(val);
         self.write_target(target, val);
     }
-    // anc: Shortcut for AND then ASL
-    fn anc(&mut self, val: u8, target: Option<u16>) {
+    // ANC/AAC: AND #imm but puts bit 7 into carry as if ASL was executed
+    fn anc(&mut self, val: u8) {
         self.and(val);
-        self.asl(target);
+        self.set_carry((self.acc >> 7) & 1 > 0);
     }
     // SLO: Shortcut for ASL then ORA
     fn slo(&mut self, target: Option<u16>) {

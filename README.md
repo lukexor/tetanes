@@ -2,6 +2,10 @@
 
 ## Summary
 
+<p align="center">
+  <img src="static/rustynes.png" width="800">
+</p>
+
 `RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1985, written
 using [Rust][rust] and [SDL2][sdl2].
 
@@ -15,8 +19,8 @@ to them having the type and memory-safety guarantees that Rust is known for.
 
 ## Screenshots
 
-<img src="https://github.com/lukexor/rustynes/blob/master/static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/rustynes/blob/master/static/super_mario_bros.png" width="400">
-<img src="https://github.com/lukexor/rustynes/blob/master/static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/rustynes/blob/master/static/metroid.png" width="400">
+<img src="static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="static/super_mario_bros.png" width="400">
+<img src="static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="static/metroid.png" width="400">
 
 ## Supported Mappers
 
