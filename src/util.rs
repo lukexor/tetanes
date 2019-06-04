@@ -1,6 +1,7 @@
 //! Various utility functions for the UI and Console
 
 use crate::console::{Image, RENDER_HEIGHT, RENDER_WIDTH};
+use crate::serialization::Savable;
 use chrono::prelude::*;
 use dirs;
 use failure::{format_err, Error};
@@ -15,9 +16,10 @@ use std::path::{Path, PathBuf};
 pub type Result<T> = std::result::Result<T, Error>;
 
 const CONFIG_DIR: &str = ".rustynes";
-const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
-const VERSION: [u8; 6] = *b"v0.3.0";
 const ICON_PATH: &str = "static/rustynes_icon.png";
+const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
+// MAJOR version of SemVer. Increases when save file format isn't backwards compatible
+const VERSION: u8 = 0;
 
 /// Searches for valid NES rom files ending in `.nes`
 ///
@@ -185,44 +187,50 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &Image) {
 
 /// Writes a header including a magic string and a version
 pub fn write_save_header(fh: &mut Write) -> Result<()> {
-    let mut header: Vec<u8> = Vec::new();
-    header.extend(&SAVE_FILE_MAGIC.to_vec());
-    header.extend(&VERSION.len().to_be_bytes());
-    header.extend(&VERSION.to_vec());
-    fh.write_all(&header)?;
-    Ok(())
+    SAVE_FILE_MAGIC.save(fh)?;
+    VERSION.save(fh)
 }
 
 /// Validates a file to ensure it matches the current version and magic
 pub fn validate_save_header(fh: &mut Read) -> Result<()> {
     let mut magic = [0u8; 9];
-    fh.read_exact(&mut magic)?;
+    magic.load(fh)?;
     if magic != SAVE_FILE_MAGIC {
         Err(format_err!("invalid save file format",))?;
     }
-    let mut version_len = [0u8; 8];
-    fh.read_exact(&mut version_len)?;
-    let mut version = vec![0; usize::from_be_bytes(version_len)];
-    fh.read_exact(&mut version)?;
+    let mut version = 0u8;
+    version.load(fh)?;
     if version != VERSION {
         Err(format_err!(
             "invalid save file version. current: {}, save file: {}",
-            std::str::from_utf8(&VERSION)?,
-            std::str::from_utf8(&version)?,
+            VERSION,
+            version,
         ))?;
     }
     Ok(())
 }
 
-/// Loads pixel values for an image icon
-pub fn load_icon() -> Result<Vec<u8>> {
-    let image = image::open(&ICON_PATH)?.to_rgb();
-    let (width, height) = image.dimensions();
-    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-    for pixel in image.pixels() {
-        pixels.extend_from_slice(pixel.channels());
+pub struct WindowIcon {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
+impl WindowIcon {
+    /// Loads pixel values for an image icon
+    pub fn load() -> Result<Self> {
+        let image = image::open(&ICON_PATH)?.to_rgb();
+        let (width, height) = image.dimensions();
+        let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+        for pixel in image.pixels() {
+            pixels.extend_from_slice(pixel.channels());
+        }
+        Ok(Self {
+            width,
+            height,
+            pixels,
+        })
     }
-    Ok(pixels)
 }
 
 pub fn str_to_err(string: String) -> Error {

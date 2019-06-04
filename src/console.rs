@@ -155,7 +155,12 @@ impl Console {
                 .map_err(|e| format_err!("failed to open file {:?}: {}", save_path.display(), e))?;
             let mut reader = BufReader::new(save_file);
             match util::validate_save_header(&mut reader) {
-                Ok(_) => self.load(&mut reader)?,
+                Ok(_) => {
+                    if let Err(e) = self.load(&mut reader) {
+                        eprintln!("failed to load save slot #{}: {}", slot, e);
+                        self.reset();
+                    }
+                }
                 Err(e) => eprintln!("failed to load save slot #{}: {}", slot, e),
             }
         }
@@ -237,24 +242,33 @@ impl Console {
         if self.no_save {
             return Ok(());
         }
-        let mut mapper = self.mapper.borrow_mut();
-        if mapper.battery_backed() {
-            let sram_path = util::sram_path(&self.loaded_rom)?;
-            if sram_path.exists() {
-                let mut sram_file = fs::File::open(&sram_path).map_err(|e| {
-                    format_err!("failed to open file {:?}: {}", sram_path.display(), e)
-                })?;
-                match util::validate_save_header(&mut sram_file) {
-                    Ok(_) => {
-                        mapper.load_sram(&mut sram_file)?;
+        let mut load_failure = false;
+        {
+            let mut mapper = self.mapper.borrow_mut();
+            if mapper.battery_backed() {
+                let sram_path = util::sram_path(&self.loaded_rom)?;
+                if sram_path.exists() {
+                    let mut sram_file = fs::File::open(&sram_path).map_err(|e| {
+                        format_err!("failed to open file {:?}: {}", sram_path.display(), e)
+                    })?;
+                    match util::validate_save_header(&mut sram_file) {
+                        Ok(_) => {
+                            if let Err(e) = mapper.load_sram(&mut sram_file) {
+                                eprintln!("failed to load save sram: {}", e);
+                                load_failure = true;
+                            }
+                        }
+                        Err(e) => eprintln!(
+                            "failed to load sram: {}.\n  move or delete `{}` before exiting, otherwise sram data will be lost.",
+                            e,
+                            sram_path.display()
+                        ),
                     }
-                    Err(e) => eprintln!(
-                        "failed to load sram: {}.\n  move or delete `{}` before exiting, otherwise sram data will be lost.",
-                        e,
-                        sram_path.display()
-                    ),
                 }
             }
+        }
+        if load_failure {
+            self.reset();
         }
         Ok(())
     }
@@ -262,9 +276,11 @@ impl Console {
 
 impl Savable for Console {
     fn save(&self, fh: &mut Write) -> Result<()> {
+        self.no_save.save(fh)?;
         self.cpu.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.no_save.load(fh)?;
         self.cpu.load(fh)
     }
 }

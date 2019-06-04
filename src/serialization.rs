@@ -4,6 +4,7 @@
 //! them to a file handle that implements Read/Write.
 
 use crate::util::Result;
+use failure::format_err;
 use std::io::Read;
 use std::io::Write;
 
@@ -145,6 +146,9 @@ impl<T: Savable> Savable for [T] {
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut len = 0u32;
         len.load(fh)?;
+        if len > self.len() as u32 {
+            Err(format_err!("read len does not match"))?;
+        }
         for i in 0..len {
             self[i as usize].load(fh)?;
         }
@@ -152,7 +156,7 @@ impl<T: Savable> Savable for [T] {
     }
 }
 
-impl<T: Savable + Default> Savable for Vec<T> {
+impl<T: Savable> Savable for Vec<T> {
     fn save(&self, fh: &mut Write) -> Result<()> {
         let len: usize = self.len();
         if len > std::u32::MAX as usize {
@@ -168,12 +172,11 @@ impl<T: Savable + Default> Savable for Vec<T> {
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         let mut len = 0u32;
         len.load(fh)?;
-        self.truncate(0);
-        self.reserve(len as usize);
-        for _ in 0..len {
-            let mut x: T = Default::default();
-            x.load(fh)?;
-            self.push(x);
+        if len > self.len() as u32 {
+            Err(format_err!("read len does not match"))?;
+        }
+        for i in 0..len {
+            self[i as usize].load(fh)?;
         }
         Ok(())
     }

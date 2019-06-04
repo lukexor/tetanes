@@ -10,7 +10,7 @@ use sdl2::video::{self, FullscreenType};
 use sdl2::{EventPump, GameControllerSubsystem};
 
 const WINDOW_WIDTH: u32 = 292; // 256 * 8/7 for 8:7 Aspect Ratio
-const WINDOW_HEIGHT: u32 = (RENDER_HEIGHT - 16) as u32;
+const WINDOW_HEIGHT: u32 = (RENDER_HEIGHT - 16) as u32; // Minus top/bottom 8 pixels for overscan
 
 /// A Window instance
 pub struct Window {
@@ -45,12 +45,12 @@ impl Window {
         let mut window = window_builder.build()?;
 
         // Load window icon
-        if let Ok(mut icon_pixels) = util::load_icon() {
+        if let Ok(mut icon) = util::WindowIcon::load() {
             let surface = sdl2::surface::Surface::from_data(
-                &mut icon_pixels,
-                256,
-                256,
-                256 * 3,
+                &mut icon.pixels,
+                icon.width,
+                icon.height,
+                icon.width * 3,
                 PixelFormatEnum::RGB24,
             );
             if let Ok(surface) = surface {

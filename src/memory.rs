@@ -242,7 +242,7 @@ where
     }
 
     pub fn init(data: &T, size: usize) -> Self {
-        let mut banks: Vec<T> = Vec::new();
+        let mut banks: Vec<T> = Vec::with_capacity(data.len());
         if data.len() > 0 {
             for bank in data.chunks(size) {
                 banks.push(bank);
