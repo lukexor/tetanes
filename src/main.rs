@@ -19,6 +19,7 @@ fn main() {
     let mut ui = UiBuilder::new()
         .path(opt.path)
         .debug(opt.debug)
+        .ppu_debug(opt.ppu_debug)
         .fullscreen(opt.fullscreen)
         .sound_off(opt.sound_off)
         .concurrent_dpad(opt.concurrent_dpad)
@@ -54,9 +55,14 @@ struct Opt {
     #[structopt(
         short = "d",
         long = "debug",
-        help = "Start with debugger enabled. Stops at first CPU instruction."
+        help = "Start with CPU debugger enabled. Stops at first CPU instruction."
     )]
     debug: bool,
+    #[structopt(
+        long = "ppu_debug",
+        help = "Start with PPU debugger enabled. Displays nametables, patterns, and palettes."
+    )]
+    ppu_debug: bool,
     #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
     fullscreen: bool,
     #[structopt(long = "sound_off", help = "Disable Sound")]

@@ -2,7 +2,7 @@
 
 pub use apu::{SAMPLE_BUFFER_SIZE, SAMPLE_RATE};
 pub use cpu::CPU_CLOCK_RATE;
-pub use ppu::{Image, Rgb, RENDER_HEIGHT, RENDER_WIDTH};
+pub use ppu::{RENDER_HEIGHT, RENDER_WIDTH};
 
 use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
@@ -25,6 +25,7 @@ pub mod ppu;
 /// Manages all the components of the console like the CPU, PPU, APU, Cartridge, and Controllers
 pub struct Console {
     no_save: bool,
+    running: bool,
     loaded_rom: PathBuf,
     pub cpu: Box<Cpu>,
     mapper: MapperRef,
@@ -38,6 +39,7 @@ impl Console {
         cpu.mem.apu.dmc.cpu = (&mut *cpu) as *mut Cpu; // TODO ugly work-around for DMC memory
         Self {
             no_save: false,
+            running: false,
             loaded_rom: PathBuf::new(),
             cpu,
             mapper: mapper::null(),
@@ -56,19 +58,26 @@ impl Console {
     /// Powers on the console
     pub fn power_on(&mut self) -> Result<()> {
         self.cpu.power_on();
-        self.load_sram()
+        self.load_sram()?;
+        self.running = true;
+        Ok(())
     }
 
     /// Powers off the console
     pub fn power_off(&mut self) -> Result<()> {
-        self.save_sram()
+        self.save_sram()?;
+        self.power_cycle();
+        self.running = false;
+        Ok(())
     }
 
     /// Steps the console the number of instructions required to generate an entire frame
     pub fn clock_frame(&mut self) {
-        let mut cycles_remaining = (CPU_CLOCK_RATE / 60.0) as i64;
-        while cycles_remaining > 0 {
-            cycles_remaining -= self.clock() as i64;
+        if self.running {
+            let mut cycles_remaining = (CPU_CLOCK_RATE / 60.0) as i64;
+            while cycles_remaining > 0 {
+                cycles_remaining -= self.clock() as i64;
+            }
         }
     }
 
@@ -105,12 +114,23 @@ impl Console {
     }
 
     /// Returns a rendered frame worth of data from the PPU
-    pub fn render(&self) -> Image {
-        self.cpu.mem.ppu.render()
+    pub fn render_frame(&self) -> Vec<u8> {
+        self.cpu.mem.ppu.render_frame()
     }
 
-    pub fn default_bg_color(&mut self) -> Rgb {
-        self.cpu.mem.ppu.default_bg_color()
+    /// Returns nametable graphics
+    pub fn render_nametables(&self) -> Vec<Vec<u8>> {
+        self.cpu.mem.ppu.render_nametables()
+    }
+
+    /// Returns pattern table graphics
+    pub fn render_pattern_tables(&self) -> Vec<Vec<u8>> {
+        self.cpu.mem.ppu.render_pattern_tables()
+    }
+
+    /// Returns palette graphics
+    pub fn render_palettes(&self) -> Vec<Vec<u8>> {
+        self.cpu.mem.ppu.render_palettes()
     }
 
     /// Returns a frame worth of audio samples from the APU

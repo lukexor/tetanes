@@ -11,14 +11,13 @@ use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 // Screen/Render
-pub type Image = [u8; IMAGE_SIZE];
 const IMAGE_SIZE: usize = RENDER_WIDTH * RENDER_HEIGHT * 3;
 pub const RENDER_WIDTH: usize = 256;
 pub const RENDER_HEIGHT: usize = 240;
 const PIXEL_COUNT: usize = RENDER_WIDTH * RENDER_HEIGHT;
 
 // Sizes
-const NAMETABLE_SIZE: usize = 2 * 1024; // two 1K nametables
+const NT_SIZE: usize = 2 * 1024; // two 1K nametables
 const PALETTE_SIZE: usize = 32;
 const SYSTEM_PALETTE_SIZE: usize = 64;
 const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
@@ -48,8 +47,8 @@ const VBLANK_SCANLINE: u16 = 241;
 // +++---------------- 3 bit fine Y
 const COARSE_X_MASK: u16 = 0x001F;
 const COARSE_Y_MASK: u16 = 0x03E0;
-const NAMETABLE_X_MASK: u16 = 0x0400;
-const NAMETABLE_Y_MASK: u16 = 0x0800;
+const NT_X_MASK: u16 = 0x0400;
+const NT_Y_MASK: u16 = 0x0800;
 const FINE_Y_MASK: u16 = 0x7000;
 const VRAM_ADDR_SIZE_MASK: u16 = 0x7FFF; // 15 bits
 const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width / 8 pixel wide tiles
@@ -58,9 +57,11 @@ const Y_OVER_COL: u16 = 31; // overscan row
 
 // Nametable ranges
 // $2000 upper-left corner, $2400 upper-right, $2800 lower-left, $2C00 lower-right
-const NAMETABLE_START: u16 = 0x2000;
+const NT_START: u16 = 0x2000;
 const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NAMETABLEs
 const PALETTE_START: u16 = 0x3F00;
+const PALETTE_END: u16 = 0x3F20;
+const SPRITE_PALETTE_START: u16 = 0x3F10;
 
 #[derive(Debug)]
 pub struct Ppu {
@@ -68,11 +69,10 @@ pub struct Ppu {
     pub scanline: u16,           // (0, 261) 262 total scanlines per frame
     pub nmi_delay_enabled: bool, // Fixes some games by delaying nmi
     pub nmi_pending: bool,       // Whether the CPU should trigger an NMI next cycle
+    pub vram: Vram,              // $2007 PPUDATA
     regs: PpuRegs,               // Registers
     oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    pub vram: Vram,              // $2007 PPUDATA
-    frame: Frame,   // Frame data keeps track of data and shift registers between frames
-    screen: Screen, // The main screen holding pixel data
+    frame: Frame, // Frame data keeps track of data and shift registers between frames
 }
 
 impl Ppu {
@@ -86,7 +86,6 @@ impl Ppu {
             oamdata: Oam::new(),
             vram: Vram::init(mapper),
             frame: Frame::new(),
-            screen: Screen::new(),
         }
     }
 
@@ -116,7 +115,7 @@ impl Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
     pub fn clock(&mut self) {
         self.tick();
-        self.render_scanline();
+        self.render_dot();
         if self.cycle == 1 {
             if self.scanline == PRERENDER_SCANLINE {
                 // Dummy scanline - set up tiles for next scanline
@@ -130,12 +129,116 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of IMAGE_SIZE RGB colors
-    pub fn render(&self) -> Image {
-        self.screen.render()
+    pub fn render_frame(&self) -> Vec<u8> {
+        self.frame.render()
     }
 
-    // Render a single frame scanline
-    fn render_scanline(&mut self) {
+    pub fn render_nametables(&self) -> Vec<Vec<u8>> {
+        let image = vec![
+            self.load_nametable(NT_START),
+            self.load_nametable(NT_START + 0x0400),
+            self.load_nametable(NT_START + 0x0800),
+            self.load_nametable(NT_START + 0x0C00),
+        ];
+        image
+    }
+
+    fn load_nametable(&self, base_addr: u16) -> Vec<u8> {
+        let mut table = vec![0u8; RENDER_WIDTH * RENDER_HEIGHT * 3];
+        for addr in base_addr..(base_addr + 0x0400 - 64) {
+            let x_scroll = addr & COARSE_X_MASK;
+            let y_scroll = (addr & COARSE_Y_MASK) >> 5;
+
+            let nt_base_addr = NT_START + (addr & (NT_X_MASK | NT_Y_MASK));
+            let tile_addr =
+                self.regs.ctrl.background_select() + u16::from(self.vram.peek(addr)) * 16;
+            let supertile_num = (x_scroll / 4) + (y_scroll / 4) * 8;
+            let attr = u16::from(self.vram.peek(nt_base_addr + 0x3C0 + supertile_num));
+            let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
+            let mask = 0x03 << corner;
+            let palette = (attr & mask) >> corner;
+
+            let tile_num = x_scroll + y_scroll * 32;
+            let tile_x = (tile_num % 32) * 8;
+            let tile_y = (tile_num / 32) * 8;
+
+            self.load_tile(tile_addr, RENDER_WIDTH, tile_x, tile_y, palette, &mut table);
+        }
+        table
+    }
+
+    pub fn render_pattern_tables(&self) -> Vec<Vec<u8>> {
+        let mut image: Vec<Vec<u8>> = Vec::new();
+        for i in 0..2 {
+            let mut table = vec![0u8; RENDER_WIDTH / 2 * RENDER_WIDTH / 2 * 3];
+            let start = i * 0x1000;
+            let end = start + 0x1000;
+            for addr in (start..end).step_by(16) {
+                let tile_x = ((addr % 0x1000) % 256) / 2;
+                let tile_y = ((addr % 0x1000) / 256) * 8;
+                self.load_tile(addr, RENDER_WIDTH / 2, tile_x, tile_y, 0, &mut table);
+            }
+            image.push(table)
+        }
+        image
+    }
+
+    fn load_tile(
+        &self,
+        addr: u16,
+        width: usize,
+        tile_x: u16,
+        tile_y: u16,
+        palette: u16,
+        image: &mut Vec<u8>,
+    ) {
+        for y in 0..8 {
+            let lo = u16::from(self.vram.peek(addr + y));
+            let hi = u16::from(self.vram.peek(addr + y + 8));
+
+            for x in 0..8 {
+                let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
+                let idx = self.vram.peek(PALETTE_START + palette * 4 + pix_type)
+                    % SYSTEM_PALETTE_SIZE as u8;
+                let color = SYSTEM_PALETTE[idx as usize];
+                let x = (tile_x + (7 - x)) as usize;
+                let y = (tile_y + y) as usize;
+                image[(3 * (x + y * width)) as usize] = color.r();
+                image[(3 * (x + y * width) + 1) as usize] = color.g();
+                image[(3 * (x + y * width) + 2) as usize] = color.b();
+            }
+        }
+    }
+
+    pub fn render_palettes(&self) -> Vec<Vec<u8>> {
+        let mut image = vec![SYSTEM_PALETTE_RAW.to_vec()];
+
+        // Global  // BG 0 ----------------------------------  // Unused    // SPR 0 -------------------------------
+        // 0x3F00: 0,0  0x3F01: 1,0  0x3F02: 2,0  0x3F03: 3,0  0x3F10: 5,0  0x3F11: 6,0  0x3F12: 7,0  0x3F13: 8,0
+        // Unused  // BG 1 ----------------------------------  // Unused    // SPR 1 -------------------------------
+        // 0x3F04: 0,1  0x3F05: 1,1  0x3F06: 2,1  0x3F07: 3,1  0x3F14: 5,1  0x3F15: 6,1  0x3F16: 7,1  0x3F17: 8,1
+        // Unused  // BG 2 ----------------------------------  // Unused    // SPR 2 -------------------------------
+        // 0x3F08: 0,2  0x3F09: 1,2  0x3F0A: 2,2  0x3F0B: 3,2  0x3F18: 5,2  0x3F19: 6,2  0x3F1A: 7,2  0x3F1B: 8,2
+        // Unused  // BG 3 ----------------------------------  // Unused    // SPR 3 -------------------------------
+        // 0x3F0C: 0,3  0x3F0D: 1,3  0x3F0E: 2,3  0x3F0F: 3,3  0x3F1C: 5,3  0x3F1D: 6,3  0x3F1E: 7,3  0x3F1F: 8,3
+        let mut palette = vec![0u8; (PALETTE_SIZE + 4) * 3];
+        for addr in PALETTE_START..PALETTE_END {
+            let (x, y) = if addr >= SPRITE_PALETTE_START {
+                ((addr % 4) + 5, (addr - SPRITE_PALETTE_START) / 4)
+            } else {
+                (addr % 4, (addr - PALETTE_START) / 4)
+            };
+            let idx = self.vram.peek(addr) % SYSTEM_PALETTE_SIZE as u8;
+            let color = SYSTEM_PALETTE[idx as usize];
+            palette[(3 * (x + y * 9)) as usize] = color.r();
+            palette[(3 * (x + y * 9) + 1) as usize] = color.g();
+            palette[(3 * (x + y * 9) + 2) as usize] = color.b();
+        }
+        image.push(palette);
+        image
+    }
+
+    fn render_dot(&mut self) {
         if self.rendering_enabled() {
             let visible_scanline = self.scanline <= VISIBLE_SCANLINE_END;
             let visible_cycle =
@@ -162,10 +265,7 @@ impl Ppu {
                 && self.cycle <= VISIBLE_SCANLINE_CYCLE_END
                 && self.cycle % 2 == 0
             {
-                self.frame.nametable = self
-                    .vram
-                    .read(NAMETABLE_START | (self.regs.v & 0x0FFF))
-                    .into();
+                self.frame.nametable = self.vram.read(NT_START | (self.regs.v & 0x0FFF)).into();
             }
 
             // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
@@ -212,8 +312,8 @@ impl Ppu {
             0 => {
                 // Store tiles
                 let mut data = 0u32;
+                let a = self.frame.attribute;
                 for _ in 0..8 {
-                    let a = self.frame.attribute;
                     let p1 = (self.frame.tile_lo & 0x80) >> 7;
                     let p2 = (self.frame.tile_hi & 0x80) >> 6;
                     self.frame.tile_lo <<= 1;
@@ -227,7 +327,7 @@ impl Ppu {
                 // Fetch BG nametable
                 // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
                 let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
-                let addr = NAMETABLE_START | (self.regs.v & nametable_addr_mask);
+                let addr = NT_START | (self.regs.v & nametable_addr_mask);
                 self.frame.nametable = u16::from(self.vram.read(addr));
             }
             3 => {
@@ -239,7 +339,7 @@ impl Ppu {
                 // || ++++---------- attribute offset (960 bytes)
                 // ++--------------- nametable select
                 let v = self.regs.v;
-                let nametable_select = v & (NAMETABLE_X_MASK | NAMETABLE_Y_MASK);
+                let nametable_select = v & (NT_X_MASK | NT_Y_MASK);
                 let y_bits = (v >> 4) & 0x38;
                 let x_bits = (v >> 2) & 0x07;
                 let addr = ATTRIBUTE_START | nametable_select | y_bits | x_bits;
@@ -336,19 +436,14 @@ impl Ppu {
         let system_palette_idx =
             self.vram.read(u16::from(color) + PALETTE_START) % SYSTEM_PALETTE_SIZE as u8;
         let color = SYSTEM_PALETTE[system_palette_idx as usize];
-        self.screen.put_pixel(x as usize, y as usize, color);
+        self.frame.put_pixel(x as usize, y as usize, color);
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {
         self.frame.sprites[index].index == 0
     }
 
-    pub fn default_bg_color(&mut self) -> Rgb {
-        let system_palette_idx = self.vram.read(PALETTE_START);
-        SYSTEM_PALETTE[system_palette_idx as usize % PALETTE_SIZE]
-    }
-
-    fn background_color(&mut self) -> u8 {
+    fn background_color(&self) -> u8 {
         if !self.regs.mask.show_background() {
             return 0;
         }
@@ -364,7 +459,7 @@ impl Ppu {
         (data & 0x0F) as u8
     }
 
-    fn sprite_color(&mut self) -> (usize, u8) {
+    fn sprite_color(&self) -> (usize, u8) {
         if !self.regs.mask.show_sprites() {
             return (0, 0);
         }
@@ -715,8 +810,7 @@ impl Savable for Ppu {
         self.regs.save(fh)?;
         self.oamdata.save(fh)?;
         self.vram.save(fh)?;
-        self.frame.save(fh)?;
-        self.screen.save(fh)
+        self.frame.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.cycle.load(fh)?;
@@ -725,14 +819,13 @@ impl Savable for Ppu {
         self.regs.load(fh)?;
         self.oamdata.load(fh)?;
         self.vram.load(fh)?;
-        self.frame.load(fh)?;
-        self.screen.load(fh)
+        self.frame.load(fh)
     }
 }
 
 // http://wiki.nesdev.com/w/index.php/PPU_nametables
 // http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
-pub struct Nametable(pub [u8; NAMETABLE_SIZE]);
+pub struct Nametable(pub [u8; NT_SIZE]);
 
 impl Memory for Nametable {
     fn read(&mut self, addr: u16) -> u8 {
@@ -829,7 +922,7 @@ impl PpuRegs {
     }
 
     fn write_ctrl(&mut self, val: u8) {
-        let nn_mask = NAMETABLE_Y_MASK | NAMETABLE_X_MASK;
+        let nn_mask = NT_Y_MASK | NT_X_MASK;
         // val: ......BA
         // t: ....BA.. ........
         self.t = (self.t & !nn_mask) | (u16::from(val) & 0x03) << 10; // take lo 2 bits and set NN
@@ -924,7 +1017,7 @@ impl PpuRegs {
         //    .....N.. ...XXXXX
         // t: .....F.. ...EDCBA
         // v: .....F.. ...EDCBA
-        let x_mask = NAMETABLE_X_MASK | COARSE_X_MASK;
+        let x_mask = NT_X_MASK | COARSE_X_MASK;
         self.v = (self.v & !x_mask) | (self.t & x_mask);
     }
 
@@ -933,7 +1026,7 @@ impl PpuRegs {
         //    .yyyN.YY YYY.....
         // t: .IHGF.ED CBA.....
         // v: .IHGF.ED CBA.....
-        let y_mask = FINE_Y_MASK | NAMETABLE_Y_MASK | COARSE_Y_MASK;
+        let y_mask = FINE_Y_MASK | NT_Y_MASK | COARSE_Y_MASK;
         self.v = (self.v & !y_mask) | (self.t & y_mask);
     }
 
@@ -945,7 +1038,7 @@ impl PpuRegs {
         // let v = self.v;
         // If we've reached the last column, toggle horizontal nametable
         if (self.v & COARSE_X_MASK) == X_MAX_COL {
-            self.v = (self.v & !COARSE_X_MASK) ^ NAMETABLE_X_MASK; // toggles X nametable
+            self.v = (self.v & !COARSE_X_MASK) ^ NT_X_MASK; // toggles X nametable
         } else {
             self.v += 1;
             assert!(self.v <= VRAM_ADDR_SIZE_MASK); // TODO should be able to remove this
@@ -966,7 +1059,7 @@ impl PpuRegs {
             if y == Y_MAX_COL {
                 y = 0;
                 // switches vertical nametable
-                self.v ^= NAMETABLE_Y_MASK;
+                self.v ^= NT_Y_MASK;
             } else if y == Y_OVER_COL {
                 // Out of bounds. Does not switch nametable
                 // Some games use this
@@ -1114,7 +1207,7 @@ impl Vram {
         Self {
             mapper,
             buffer: 0,
-            nametable: Nametable([0; NAMETABLE_SIZE]),
+            nametable: Nametable([0; NT_SIZE]),
             palette: Palette([0; PALETTE_SIZE]),
         }
     }
@@ -1133,11 +1226,11 @@ impl Vram {
         };
 
         // 4K worth of nametable addr space
-        let addr = (addr - NAMETABLE_START) % ((NAMETABLE_SIZE as u16) * 2);
+        let addr = (addr - NT_START) % ((NT_SIZE as u16) * 2);
         let table = addr / table_size;
         let offset = addr % table_size;
 
-        NAMETABLE_START + mirror_lookup[table as usize] * table_size + offset
+        NT_START + mirror_lookup[table as usize] * table_size + offset
     }
 }
 
@@ -1150,7 +1243,7 @@ impl Memory for Vram {
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
-                self.nametable.read(addr % NAMETABLE_SIZE as u16)
+                self.nametable.read(addr % NT_SIZE as u16)
             }
             0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
             _ => {
@@ -1168,7 +1261,7 @@ impl Memory for Vram {
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
-                self.nametable.peek(addr % NAMETABLE_SIZE as u16)
+                self.nametable.peek(addr % NT_SIZE as u16)
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
             _ => {
@@ -1186,7 +1279,7 @@ impl Memory for Vram {
             }
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
-                self.nametable.write(addr % NAMETABLE_SIZE as u16, val)
+                self.nametable.write(addr % NT_SIZE as u16, val)
             }
             0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
             _ => eprintln!("invalid Vram read at 0x{:04X}", addr),
@@ -1207,7 +1300,6 @@ impl Savable for Vram {
     }
 }
 
-#[derive(Debug)]
 struct Frame {
     num: u32,
     parity: bool,
@@ -1222,6 +1314,7 @@ struct Frame {
     sprite_count: u8,
     sprite_zero_on_line: bool,
     sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
+    pixels: [Rgb; PIXEL_COUNT],
 }
 
 impl Frame {
@@ -1237,6 +1330,7 @@ impl Frame {
             sprite_count: 0,
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
+            pixels: [Rgb(0, 0, 0); PIXEL_COUNT],
         }
     }
 
@@ -1244,48 +1338,11 @@ impl Frame {
         self.num += 1;
         self.parity = !self.parity;
     }
-}
-
-impl Savable for Frame {
-    fn save(&self, fh: &mut Write) -> Result<()> {
-        self.num.save(fh)?;
-        self.parity.save(fh)?;
-        self.tile_lo.save(fh)?;
-        self.tile_hi.save(fh)?;
-        self.nametable.save(fh)?;
-        self.attribute.save(fh)?;
-        self.tile_data.save(fh)?;
-        self.sprite_count.save(fh)?;
-        self.sprites.save(fh)
-    }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.num.load(fh)?;
-        self.parity.load(fh)?;
-        self.tile_lo.load(fh)?;
-        self.tile_hi.load(fh)?;
-        self.nametable.load(fh)?;
-        self.attribute.load(fh)?;
-        self.tile_data.load(fh)?;
-        self.sprite_count.load(fh)?;
-        self.sprites.load(fh)
-    }
-}
-
-struct Screen {
-    pixels: [Rgb; PIXEL_COUNT],
-}
-
-impl Screen {
-    fn new() -> Self {
-        Self {
-            pixels: [Rgb(0, 0, 0); PIXEL_COUNT],
-        }
-    }
 
     // Turns a list of pixels into a list of R, G, B
     // We want to chop off the borders
-    pub fn render(&self) -> Image {
-        let mut image = [0u8; IMAGE_SIZE];
+    pub fn render(&self) -> Vec<u8> {
+        let mut image = vec![0u8; IMAGE_SIZE];
         for i in 0..PIXEL_COUNT {
             let p = self.pixels[i];
             // index * RGB size + color offset
@@ -1304,11 +1361,29 @@ impl Screen {
     }
 }
 
-impl Savable for Screen {
+impl Savable for Frame {
     fn save(&self, fh: &mut Write) -> Result<()> {
+        self.num.save(fh)?;
+        self.parity.save(fh)?;
+        self.tile_lo.save(fh)?;
+        self.tile_hi.save(fh)?;
+        self.nametable.save(fh)?;
+        self.attribute.save(fh)?;
+        self.tile_data.save(fh)?;
+        self.sprite_count.save(fh)?;
+        self.sprites.save(fh)?;
         self.pixels.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.num.load(fh)?;
+        self.parity.load(fh)?;
+        self.tile_lo.load(fh)?;
+        self.tile_hi.load(fh)?;
+        self.nametable.load(fh)?;
+        self.attribute.load(fh)?;
+        self.tile_data.load(fh)?;
+        self.sprite_count.load(fh)?;
+        self.sprites.load(fh)?;
         self.pixels.load(fh)
     }
 }
@@ -1556,21 +1631,21 @@ impl fmt::Debug for Oam {
     }
 }
 
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Frame {{ }}")
+    }
+}
+
 impl fmt::Debug for Vram {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Vram {{ }}")
     }
 }
 
-impl fmt::Debug for Screen {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Screen {{ pixels: {} bytes }}", PIXEL_COUNT)
-    }
-}
-
 impl fmt::Debug for Nametable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Nametable {{ size: {}KB }}", NAMETABLE_SIZE / 1024)
+        write!(f, "Nametable {{ size: {}KB }}", NT_SIZE / 1024)
     }
 }
 
@@ -1603,6 +1678,17 @@ const SYSTEM_PALETTE: [Rgb; SYSTEM_PALETTE_SIZE] = [
     Rgb(236, 174, 236), Rgb(236, 174, 212), Rgb(236, 180, 176), Rgb(228, 196, 144), // $35-$38
     Rgb(204, 210, 120), Rgb(180, 222, 120), Rgb(168, 226, 144), Rgb(152, 226, 180), // $39-$3B
     Rgb(160, 214, 228), Rgb(160, 162, 160), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $3C-$3F
+];
+const SYSTEM_PALETTE_RAW: [u8; SYSTEM_PALETTE_SIZE * 3] = [
+    84, 84, 84, 0, 30, 116, 8, 16, 144, 48, 0, 136, 68, 0, 100, 92, 0, 48, 84, 4, 0, 60, 24, 0, 32,
+    42, 0, 8, 58, 0, 0, 64, 0, 0, 60, 0, 0, 50, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 152, 150, 152, 8,
+    76, 196, 48, 50, 236, 92, 30, 228, 136, 20, 176, 160, 20, 100, 152, 34, 32, 120, 60, 0, 84, 90,
+    0, 40, 114, 0, 8, 124, 0, 0, 118, 40, 0, 102, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 236, 238, 236,
+    76, 154, 236, 120, 124, 236, 176, 98, 236, 228, 84, 236, 236, 88, 180, 236, 106, 100, 212, 136,
+    32, 160, 170, 0, 116, 196, 0, 76, 208, 32, 56, 204, 108, 56, 180, 204, 60, 60, 60, 0, 0, 0, 0,
+    0, 0, 236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, 236, 174, 236, 236, 174, 212,
+    236, 180, 176, 228, 196, 144, 204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, 160,
+    214, 228, 160, 162, 160, 0, 0, 0, 0, 0, 0,
 ];
 
 #[cfg(test)]

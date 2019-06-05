@@ -28,6 +28,7 @@ const GAMEPAD_AXIS_DEADZONE: i16 = 8000;
 pub struct UiBuilder {
     path: PathBuf,
     debug: bool,
+    ppu_debug: bool,
     fullscreen: bool,
     sound_off: bool,
     concurrent_dpad: bool,
@@ -43,6 +44,7 @@ impl UiBuilder {
         Self {
             path: PathBuf::new(),
             debug: false,
+            ppu_debug: false,
             fullscreen: false,
             sound_off: false,
             concurrent_dpad: false,
@@ -60,6 +62,10 @@ impl UiBuilder {
     }
     pub fn debug(&mut self, val: bool) -> &mut Self {
         self.debug = val;
+        self
+    }
+    pub fn ppu_debug(&mut self, val: bool) -> &mut Self {
+        self.ppu_debug = val;
         self
     }
     pub fn fullscreen(&mut self, val: bool) -> &mut Self {
@@ -106,6 +112,7 @@ impl UiBuilder {
         Ok(Ui {
             path: self.path.clone(),
             roms: Vec::new(),
+            ppu_debug: self.ppu_debug,
             paused: false,
             should_close: false,
             sound_enabled: !self.sound_off,
@@ -130,6 +137,7 @@ impl UiBuilder {
 pub struct Ui {
     path: PathBuf,
     roms: Vec<PathBuf>,
+    ppu_debug: bool,
     paused: bool,
     should_close: bool,
     fastforward: bool,
@@ -160,6 +168,9 @@ impl Ui {
             self.console.load_rom(&self.roms[0])?;
             self.console.power_on()?;
             self.console.load_state(self.save_slot)?;
+            if self.ppu_debug {
+                self.window.set_debug_size();
+            }
         }
 
         let startup_frames = 40;
@@ -173,8 +184,6 @@ impl Ui {
             }
             samples.clear();
         }
-        self.window
-            .set_default_bg_color(self.console.default_bg_color());
 
         let mut start = Instant::now();
         let mut fps_frame = 0;
@@ -189,8 +198,17 @@ impl Ui {
                     self.console.clock_frame();
                     self.turbo_clock = (1 + self.turbo_clock) % 6;
                 }
-                let frame = self.console.render();
-                self.window.render(&frame)?;
+                if self.ppu_debug {
+                    let frame = self.console.render_frame();
+                    let nametables = self.console.render_nametables();
+                    let pattern_tables = self.console.render_pattern_tables();
+                    let palettes = self.console.render_palettes();
+                    self.window
+                        .render_debug(frame, nametables, pattern_tables, palettes)?;
+                } else {
+                    let frame = self.console.render_frame();
+                    self.window.render_frame(frame)?;
+                }
 
                 if self.sound_enabled {
                     let samples = self.console.audio_samples();
@@ -322,7 +340,7 @@ impl Ui {
             Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
             Keycode::D if self.lctrl => self.console.debug(true),
             Keycode::Return if self.lctrl => self.window.toggle_fullscreen()?,
-            Keycode::F10 => util::screenshot(&self.console.render()),
+            Keycode::F10 => util::screenshot(&self.console.render_frame()),
             Keycode::F9 => eprintln!("Logging not implemented"), // TODO
             _ => self.handle_keyboard_event(key, true, turbo),
         }

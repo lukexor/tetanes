@@ -1,6 +1,6 @@
 //! Various utility functions for the UI and Console
 
-use crate::console::{Image, RENDER_HEIGHT, RENDER_WIDTH};
+use crate::console::{RENDER_HEIGHT, RENDER_WIDTH};
 use crate::serialization::Savable;
 use chrono::prelude::*;
 use dirs;
@@ -139,7 +139,7 @@ pub fn home_dir() -> Option<PathBuf> {
 ///
 /// It's possible for this method to fail, but instead of erroring the program,
 /// it'll simply log the error out to STDERR
-pub fn screenshot(pixels: &Image) {
+pub fn screenshot(pixels: &[u8]) {
     let datetime: DateTime<Local> = Local::now();
     let mut png_path = PathBuf::from(format!(
         "screenshot_{}",
@@ -161,7 +161,7 @@ pub fn screenshot(pixels: &Image) {
 ///
 /// It's possible for this method to fail, but instead of erroring the program,
 /// it'll simply log the error out to STDERR
-pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &Image) {
+pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) {
     let png_path = png_path.as_ref();
     let png_file = fs::File::create(&png_path);
     if png_file.is_err() {
@@ -213,6 +213,7 @@ pub fn validate_save_header(fh: &mut Read) -> Result<()> {
 pub struct WindowIcon {
     pub width: u32,
     pub height: u32,
+    pub pitch: u32, // Number of pixels per row
     pub pixels: Vec<u8>,
 }
 
@@ -228,6 +229,7 @@ impl WindowIcon {
         Ok(Self {
             width,
             height,
+            pitch: width * 3,
             pixels,
         })
     }
