@@ -151,6 +151,7 @@ The following is a checklist of features and their progress:
   - [x] NTSC
   - [ ] PAL
   - [ ] Dendy
+  - [ ] Headless mode
 - [x] Central Processing Unit (CPU)
   - [x] Official Instructions
   - [x] Unofficial Instructions (Not fully tested)
@@ -179,12 +180,15 @@ The following is a checklist of features and their progress:
     - [x] CNROM (Mapper 3)
     - [x] TxROM/MMC3 (Mapper 4)
     - [ ] ExROM/MMC5 (Mapper 5)
-    - [ ] AxROM (Mapper 7)
+    - [x] AxROM (Mapper 7)
     - [ ] PxROM/MMC2 (Mapper 9)
 - [x] User Interface (UI)
+  - [x] SDL2
+  - [ ] WebAssembly
   - [x] Window
-  - [ ] Main Menu
-  - [ ] Open/Run ROM with file browser
+  - [ ] Menu
+    - [ ] Open/Run ROM with file browser
+    - [ ] Configuration options
   - [x] Pause
   - [x] Toggle Fullscreen
   - [x] Reset
@@ -196,9 +200,18 @@ The following is a checklist of features and their progress:
   - [x] Toggle Sound
   - [x] Toggle Debugger
   - [ ] Custom Keybinds
-  - [ ] Rewind
   - [ ] Game Genie
   - [ ] WideNES
+- [x] Testing/Debugging/Documentation
+  - [x] Breakpoint CPU debugger (missing some features)
+  - [x] PPU Debug mode (displays palettes, nametables, and sprite patterns)
+  - [x] Unit/Integration tests (run with cargo test)
+    - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
+    - [ ] Other tests (Missing a lot here)
+  - [x] Test ROMs (most pass, many still do not)
+      - [ ] Automated rom tests
+  - [ ] Rust Docs (work in progress)
+  - [ ] Debug/Trace logging
 
 ## Documentation
 

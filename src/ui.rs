@@ -122,7 +122,7 @@ impl UiBuilder {
             save_slot: 1u8,
             turbo_clock: 0u8,
             avg_fps: Duration::from_millis(60),
-            past_fps: [Duration::from_millis(60); 60],
+            past_fps: [Duration::from_millis(60); 20],
             speed: DEFAULT_SPEED,
             console,
             window,
@@ -147,7 +147,7 @@ pub struct Ui {
     save_slot: u8,
     turbo_clock: u8,
     avg_fps: Duration,
-    past_fps: [Duration; 60], // Running total of last X frames to avoid value jitter
+    past_fps: [Duration; 20], // Running total of last X frames to avoid value jitter
     speed: f64,
     console: Console,
     window: Window,
@@ -221,13 +221,13 @@ impl Ui {
 
                 fps_frame += 1;
                 let delta = (end - start).as_millis() as u32;
-                self.past_fps[fps_frame % 60] =
+                self.past_fps[fps_frame % 20] =
                     Duration::from_millis(1000).checked_div(delta).unwrap();
 
                 for fps in self.past_fps.iter() {
                     self.avg_fps += *fps;
                 }
-                self.avg_fps /= 60;
+                self.avg_fps /= 20;
                 self.update_title()?;
                 start = end;
             }
