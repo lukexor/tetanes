@@ -262,7 +262,6 @@ impl Window {
         } else {
             video::FullscreenType::Off
         };
-        self.canvas.window_mut().maximize();
         self.canvas
             .window_mut()
             .set_fullscreen(mode)

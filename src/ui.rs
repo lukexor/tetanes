@@ -114,6 +114,7 @@ impl UiBuilder {
             roms: Vec::new(),
             ppu_debug: self.ppu_debug,
             paused: false,
+            fullscreen: self.fullscreen,
             should_close: false,
             sound_enabled: !self.sound_off,
             concurrent_dpad: self.concurrent_dpad,
@@ -139,6 +140,7 @@ pub struct Ui {
     roms: Vec<PathBuf>,
     ppu_debug: bool,
     paused: bool,
+    fullscreen: bool,
     should_close: bool,
     fastforward: bool,
     sound_enabled: bool,
@@ -338,8 +340,15 @@ impl Ui {
             Keycode::L if self.lctrl => self.console.load_state(self.save_slot)?,
             Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,
             Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
-            Keycode::D if self.lctrl => self.console.debug(true),
-            Keycode::Return if self.lctrl => self.window.toggle_fullscreen()?,
+            Keycode::D if self.lctrl => {
+                if !self.fullscreen {
+                    self.console.debug(true);
+                }
+            }
+            Keycode::Return if self.lctrl => {
+                self.fullscreen = !self.fullscreen;
+                self.window.toggle_fullscreen()?;
+            }
             Keycode::F10 => util::screenshot(&self.console.render_frame()),
             Keycode::F9 => eprintln!("Logging not implemented"), // TODO
             _ => self.handle_keyboard_event(key, true, turbo),
