@@ -83,7 +83,7 @@ struct Opt {
         help = "Print CPU instructions to STDOUT"
     )]
     log_cpu: bool,
-    #[structopt(long = "no-save", help = "Don't load or save game state.")]
+    #[structopt(long = "no_save", help = "Don't load or save game state.")]
     no_save: bool,
     #[structopt(
         long = "save_slot",
