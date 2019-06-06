@@ -6,6 +6,8 @@
   <img src="static/rustynes.png" width="800">
 </p>
 
+> photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
+
 `RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1985, written
 using [Rust][rust] and [SDL2][sdl2].
 
