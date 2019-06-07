@@ -114,23 +114,23 @@ impl Console {
     }
 
     /// Returns a rendered frame worth of data from the PPU
-    pub fn render_frame(&self) -> Vec<u8> {
-        self.cpu.mem.ppu.render_frame()
+    pub fn frame(&self) -> Vec<u8> {
+        self.cpu.mem.ppu.frame()
     }
 
     /// Returns nametable graphics
-    pub fn render_nametables(&self) -> Vec<Vec<u8>> {
-        self.cpu.mem.ppu.render_nametables()
+    pub fn nametables(&self) -> Vec<Vec<u8>> {
+        self.cpu.mem.ppu.nametables()
     }
 
     /// Returns pattern table graphics
-    pub fn render_pattern_tables(&self) -> Vec<Vec<u8>> {
-        self.cpu.mem.ppu.render_pattern_tables()
+    pub fn pattern_tables(&self) -> Vec<Vec<u8>> {
+        self.cpu.mem.ppu.pattern_tables()
     }
 
     /// Returns palette graphics
-    pub fn render_palettes(&self) -> Vec<Vec<u8>> {
-        self.cpu.mem.ppu.render_palettes()
+    pub fn palettes(&self) -> Vec<Vec<u8>> {
+        self.cpu.mem.ppu.palettes()
     }
 
     /// Returns a frame worth of audio samples from the APU

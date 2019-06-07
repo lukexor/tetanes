@@ -467,7 +467,7 @@ impl Cpu {
             }
             Relative => {
                 let disasm = {
-                    let offset = 2 + self.peek(addr);
+                    let offset = self.peek(addr).wrapping_add(2);
                     let addr = if offset & 0x80 == 0x80 {
                         // Result is negative signed number in twos complement
                         let offset = !offset + 1;

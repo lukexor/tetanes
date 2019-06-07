@@ -106,10 +106,6 @@ impl Ppu {
         self.vram.mapper = mapper;
     }
 
-    pub fn frame(&self) -> u32 {
-        self.frame.num
-    }
-
     // Step ticks as many cycles as needed to reach
     // target cycle to syncronize with the CPU
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
@@ -129,11 +125,11 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of IMAGE_SIZE RGB colors
-    pub fn render_frame(&self) -> Vec<u8> {
-        self.frame.render()
+    pub fn frame(&self) -> Vec<u8> {
+        self.frame.to_rgb()
     }
 
-    pub fn render_nametables(&self) -> Vec<Vec<u8>> {
+    pub fn nametables(&self) -> Vec<Vec<u8>> {
         let image = vec![
             self.load_nametable(NT_START),
             self.load_nametable(NT_START + 0x0400),
@@ -167,7 +163,7 @@ impl Ppu {
         table
     }
 
-    pub fn render_pattern_tables(&self) -> Vec<Vec<u8>> {
+    pub fn pattern_tables(&self) -> Vec<Vec<u8>> {
         let mut image: Vec<Vec<u8>> = Vec::new();
         for i in 0..2 {
             let mut table = vec![0u8; RENDER_WIDTH / 2 * RENDER_WIDTH / 2 * 3];
@@ -210,7 +206,7 @@ impl Ppu {
         }
     }
 
-    pub fn render_palettes(&self) -> Vec<Vec<u8>> {
+    pub fn palettes(&self) -> Vec<Vec<u8>> {
         let mut image = vec![SYSTEM_PALETTE_RAW.to_vec()];
 
         // Global  // BG 0 ----------------------------------  // Unused    // SPR 0 -------------------------------
@@ -1356,7 +1352,7 @@ impl Frame {
 
     // Turns a list of pixels into a list of R, G, B
     // We want to chop off the borders
-    pub fn render(&self) -> Vec<u8> {
+    pub fn to_rgb(&self) -> Vec<u8> {
         let mut image = vec![0u8; IMAGE_SIZE];
         for i in 0..PIXEL_COUNT {
             let p = self.pixels[i];

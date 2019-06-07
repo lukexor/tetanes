@@ -144,8 +144,12 @@ impl Window {
     }
 
     /// Updates the Window canvas texture with the passed in pixel data
-    pub fn render_frame(&mut self, pixels: Vec<u8>) -> Result<()> {
+    pub fn update_frame(&mut self, pixels: Vec<u8>) -> Result<()> {
         self.frame_tex.update(None, &pixels, RENDER_WIDTH * 3)?;
+        self.render_frame()
+    }
+
+    pub fn render_frame(&mut self) -> Result<()> {
         self.canvas.clear();
         self.canvas
             .copy(&self.frame_tex, self.overscan, None)
@@ -164,13 +168,39 @@ impl Window {
             .set_size(self.width, self.height - (self.height / 6));
     }
 
-    pub fn render_debug(
+    pub fn update_debug(
         &mut self,
         frame: Vec<u8>,
         nametables: Vec<Vec<u8>>,
         pattern_tables: Vec<Vec<u8>>,
         palettes: Vec<Vec<u8>>,
     ) -> Result<()> {
+        // Frame
+        self.frame_tex.update(None, &frame, RENDER_WIDTH * 3)?;
+
+        // Nametables
+        let ntbl_pitch = (NT_TEX_WIDTH * 3) as usize;
+        self.ntbl_texs[0].update(None, &nametables[0], ntbl_pitch)?;
+        self.ntbl_texs[1].update(None, &nametables[1], ntbl_pitch)?;
+        self.ntbl_texs[2].update(None, &nametables[2], ntbl_pitch)?;
+        self.ntbl_texs[3].update(None, &nametables[3], ntbl_pitch)?;
+
+        // Pattern tables
+        let pat_pitch = (PAT_TEX_WIDTH * 3) as usize;
+        self.pat_texs[0].update(None, &pattern_tables[0], pat_pitch)?;
+        self.pat_texs[1].update(None, &pattern_tables[1], pat_pitch)?;
+
+        // Palettes
+        let sys_pal_pitch = 16 * 3;
+        self.pal_texs[0].update(None, &palettes[0], sys_pal_pitch)?;
+
+        let pal_pitch = (8 + 1) * 3;
+        self.pal_texs[1].update(None, &palettes[1], pal_pitch)?;
+
+        self.render_debug()
+    }
+
+    pub fn render_debug(&mut self) -> Result<()> {
         self.canvas.clear();
 
         let width_pad = 5;
@@ -183,12 +213,10 @@ impl Window {
         let bottom_y = (half_height + height_pad) as i32;
 
         // Frame
-        self.frame_tex.update(None, &frame, RENDER_WIDTH * 3)?;
         let frame_rect = Rect::new(0, 0, half_width, half_height);
         let _ = self.canvas.copy(&self.frame_tex, self.overscan, frame_rect);
 
         // Nametables
-        let ntbl_pitch = (NT_TEX_WIDTH * 3) as usize;
         let ntbl_x_right = right_x + (quart_width + width_pad) as i32;
         let ntbl_y_top = 0;
         let ntbl_y_bot = (quart_height + height_pad) as i32;
@@ -196,40 +224,25 @@ impl Window {
         let ntbl2_rect = Rect::new(ntbl_x_right, ntbl_y_top, quart_width, quart_height);
         let ntbl3_rect = Rect::new(right_x, ntbl_y_bot, quart_width, quart_height);
         let ntbl4_rect = Rect::new(ntbl_x_right, ntbl_y_bot, quart_width, quart_height);
-
-        self.ntbl_texs[0].update(None, &nametables[0], ntbl_pitch)?;
         let _ = self.canvas.copy(&self.ntbl_texs[0], None, ntbl1_rect);
-        self.ntbl_texs[1].update(None, &nametables[1], ntbl_pitch)?;
         let _ = self.canvas.copy(&self.ntbl_texs[1], None, ntbl2_rect);
-        self.ntbl_texs[2].update(None, &nametables[2], ntbl_pitch)?;
         let _ = self.canvas.copy(&self.ntbl_texs[2], None, ntbl3_rect);
-        self.ntbl_texs[3].update(None, &nametables[3], ntbl_pitch)?;
         let _ = self.canvas.copy(&self.ntbl_texs[3], None, ntbl4_rect);
 
         // Pattern tables
-        let pat_pitch = (PAT_TEX_WIDTH * 3) as usize;
         let pat_x_right = right_x + (quart_width + width_pad) as i32;
         let pat1_rect = Rect::new(right_x, bottom_y, quart_width, quart_height);
         let pat2_rect = Rect::new(pat_x_right, bottom_y, quart_width, quart_height);
-
-        self.pat_texs[0].update(None, &pattern_tables[0], pat_pitch)?;
         let _ = self.canvas.copy(&self.pat_texs[0], None, pat1_rect);
-        self.pat_texs[1].update(None, &pattern_tables[1], pat_pitch)?;
         let _ = self.canvas.copy(&self.pat_texs[1], None, pat2_rect);
 
         // Palettes
-        let sys_pal_pitch = 16 * 3;
         let pal_height = half_width / 4;
         let sys_pal_rect = Rect::new(0, bottom_y, half_width, pal_height);
-
-        self.pal_texs[0].update(None, &palettes[0], sys_pal_pitch)?;
         let _ = self.canvas.copy(&self.pal_texs[0], None, sys_pal_rect);
 
-        let pal_pitch = (8 + 1) * 3;
         let pal_y_bot = bottom_y + (pal_height + height_pad) as i32;
         let pal_rect = Rect::new(0, pal_y_bot, half_width / 16 * (8 + 1), pal_height);
-
-        self.pal_texs[1].update(None, &palettes[1], pal_pitch)?;
         let _ = self.canvas.copy(&self.pal_texs[1], None, pal_rect);
 
         self.canvas.present();

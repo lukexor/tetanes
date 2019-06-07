@@ -6,7 +6,7 @@ use crate::ui::window::Window;
 use crate::util::{self, Result};
 use sdl2::controller::Axis;
 use sdl2::controller::{Button, GameController};
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::EventPump;
 use std::cell::RefCell;
@@ -200,16 +200,15 @@ impl Ui {
                     self.console.clock_frame();
                     self.turbo_clock = (1 + self.turbo_clock) % 6;
                 }
+                let frame = self.console.frame();
                 if self.ppu_debug {
-                    let frame = self.console.render_frame();
-                    let nametables = self.console.render_nametables();
-                    let pattern_tables = self.console.render_pattern_tables();
-                    let palettes = self.console.render_palettes();
+                    let nametables = self.console.nametables();
+                    let pattern_tables = self.console.pattern_tables();
+                    let palettes = self.console.palettes();
                     self.window
-                        .render_debug(frame, nametables, pattern_tables, palettes)?;
+                        .update_debug(frame, nametables, pattern_tables, palettes)?;
                 } else {
-                    let frame = self.console.render_frame();
-                    self.window.render_frame(frame)?;
+                    self.window.update_frame(frame)?;
                 }
 
                 if self.sound_enabled {
@@ -256,7 +255,17 @@ impl Ui {
                         _ => (),
                     }
                 }
-                Event::Quit { .. } => self.should_close = true,
+                Event::Quit { .. } | Event::AppTerminating { .. } => self.should_close = true,
+                Event::Window { win_event, .. } => match win_event {
+                    WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) => {
+                        if self.ppu_debug {
+                            self.window.render_debug()?
+                        } else {
+                            self.window.render_frame()?
+                        }
+                    }
+                    _ => (),
+                },
                 Event::KeyDown {
                     keycode: Some(key), ..
                 } => self.handle_keydown(key, turbo)?,
@@ -343,7 +352,7 @@ impl Ui {
                 self.fullscreen = !self.fullscreen;
                 self.window.toggle_fullscreen()?;
             }
-            Keycode::F10 => util::screenshot(&self.console.render_frame()),
+            Keycode::F10 => util::screenshot(&self.console.frame()),
             Keycode::F9 => eprintln!("Logging not implemented"), // TODO
             _ => self.handle_keyboard_event(key, true, turbo),
         }
