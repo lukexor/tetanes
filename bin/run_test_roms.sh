@@ -1,2 +1,2 @@
-cargo build --release
-find tests -iname '*.nes' -exec target/release/rustynes {} \;
+cargo build
+find tests -iname '*.nes' -exec target/debug/rustynes {} \;

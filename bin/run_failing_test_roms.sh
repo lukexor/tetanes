@@ -1,4 +1,4 @@
-cargo build --release
+cargo build
 TESTS=(
 tests/cpu/instr_timing.nes # passes, but calls ahx(), xaa(), shy(), shx()
 tests/cpu/instr_misc.nes # ROL abs 03-dummy_reads #9 3/4
@@ -51,6 +51,6 @@ function ctrl_c() {
 
 for test in ${TESTS[*]}; do
     echo $test
-    target/release/rustynes $test
+    target/debug/rustynes $test
 done
 
