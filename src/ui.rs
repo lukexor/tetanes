@@ -108,7 +108,8 @@ impl UiBuilder {
         console.no_save(self.no_save);
         console.randomize_ram(self.randomize_ram);
 
-        let (window, event_pump) = Window::init(DEFAULT_TITLE, self.scale, self.fullscreen)?;
+        let (window, event_pump) =
+            Window::init(DEFAULT_TITLE, self.scale, self.fullscreen, self.ppu_debug)?;
         Ok(Ui {
             path: self.path.clone(),
             roms: Vec::new(),
@@ -171,7 +172,7 @@ impl Ui {
             self.console.power_on()?;
             self.console.load_state(self.save_slot)?;
             if self.ppu_debug {
-                self.window.set_debug_size();
+                self.window.set_debug_size()?;
             }
         }
 
@@ -200,15 +201,15 @@ impl Ui {
                     self.console.clock_frame();
                     self.turbo_clock = (1 + self.turbo_clock) % 6;
                 }
-                let frame = self.console.frame();
+                let game_view = self.console.frame();
                 if self.ppu_debug {
                     let nametables = self.console.nametables();
                     let pattern_tables = self.console.pattern_tables();
                     let palettes = self.console.palettes();
                     self.window
-                        .update_debug(frame, nametables, pattern_tables, palettes)?;
+                        .update_debug(game_view, nametables, pattern_tables, palettes)?;
                 } else {
-                    self.window.update_frame(frame)?;
+                    self.window.update_frame(game_view)?;
                 }
 
                 if self.sound_enabled {

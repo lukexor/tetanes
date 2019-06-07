@@ -10,12 +10,15 @@ use sdl2::video::{self, FullscreenType};
 use sdl2::{EventPump, GameControllerSubsystem};
 
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0) as u32; // for 8:7 Aspect Ratio
-const WINDOW_HEIGHT: u32 = RENDER_HEIGHT as u32;
+const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
+const DEBUG_PADDING: u32 = 5;
 
-const NT_TEX_WIDTH: u32 = RENDER_WIDTH as u32;
-const NT_TEX_HEIGHT: u32 = RENDER_HEIGHT as u32;
-const PAT_TEX_WIDTH: u32 = 128;
-const PAT_TEX_HEIGHT: u32 = 128;
+pub struct TextureMap {
+    tex: Texture<'static>,
+    pitch: usize,
+    src: Rect,
+    dst: Rect,
+}
 
 /// A Window instance
 pub struct Window {
@@ -24,18 +27,22 @@ pub struct Window {
     pub controller_sub: GameControllerSubsystem,
     audio_device: AudioQueue<f32>,
     canvas: Canvas<video::Window>,
-    overscan: Rect,
-    frame_tex: Texture<'static>,
-    ntbl_texs: Vec<Texture<'static>>,
-    pat_texs: Vec<Texture<'static>>,
-    pal_texs: Vec<Texture<'static>>,
+    game_view: TextureMap,
+    ntbls: Vec<TextureMap>,
+    pats: Vec<TextureMap>,
+    pals: Vec<TextureMap>,
     _texture_creator: TextureCreator<video::WindowContext>,
 }
 
 impl Window {
     /// Creates a new Window instance containing the necessary window, audio, and input components
     /// used by the UI
-    pub fn init(title: &str, scale: u32, fullscreen: bool) -> Result<(Self, EventPump)> {
+    pub fn init(
+        title: &str,
+        scale: u32,
+        fullscreen: bool,
+        debug: bool,
+    ) -> Result<(Self, EventPump)> {
         let context = sdl2::init().map_err(util::str_to_err)?;
 
         let width = WINDOW_WIDTH * scale;
@@ -68,47 +75,14 @@ impl Window {
         let mut canvas = window.into_canvas().accelerated().present_vsync().build()?;
         canvas.set_logical_size(width, height)?;
 
-        // Texture
+        // Textures
         let texture_creator = canvas.texture_creator();
         let texture_creator_ptr = &texture_creator as *const TextureCreator<video::WindowContext>;
-        let frame_tex = unsafe { &*texture_creator_ptr }.create_texture_streaming(
-            PixelFormatEnum::RGB24,
-            RENDER_WIDTH as u32,
-            RENDER_HEIGHT as u32,
-        )?;
-        let mut ntbl_texs = Vec::new();
-        for _ in 0..4 {
-            let tex = unsafe { &*texture_creator_ptr }.create_texture_streaming(
-                PixelFormatEnum::RGB24,
-                NT_TEX_WIDTH as u32,
-                NT_TEX_HEIGHT as u32,
-            )?;
-            ntbl_texs.push(tex);
-        }
 
-        let mut pat_texs = Vec::new();
-        for _ in 0..2 {
-            let tex = unsafe { &*texture_creator_ptr }.create_texture_streaming(
-                PixelFormatEnum::RGB24,
-                PAT_TEX_WIDTH,
-                PAT_TEX_HEIGHT,
-            )?;
-            pat_texs.push(tex);
-        }
-
-        let mut pal_texs = Vec::new();
-        let sys_pal_tex = unsafe { &*texture_creator_ptr }.create_texture_streaming(
-            PixelFormatEnum::RGB24,
-            16 as u32,
-            4 as u32,
-        )?;
-        let pal_tex = unsafe { &*texture_creator_ptr }.create_texture_streaming(
-            PixelFormatEnum::RGB24,
-            (8 + 1) as u32,
-            4 as u32,
-        )?;
-        pal_texs.push(sys_pal_tex);
-        pal_texs.push(pal_tex);
+        let game_view = Self::game_view_tex_map(texture_creator_ptr, width, height, debug)?;
+        let ntbls = Self::nametable_tex_maps(texture_creator_ptr, width, height)?;
+        let pats = Self::pattern_tex_maps(texture_creator_ptr, width, height)?;
+        let pals = Self::palette_tex_maps(texture_creator_ptr, width, height)?;
 
         // Set up Audio
         let audio_sub = context.audio().map_err(util::str_to_err)?;
@@ -126,18 +100,18 @@ impl Window {
         let event_pump = context.event_pump().map_err(util::str_to_err)?;
         let controller_sub = context.game_controller().map_err(util::str_to_err)?;
 
+        // Takes off top 8 and bottom 8
+
         let window = Self {
             width,
             height,
             controller_sub,
             audio_device,
             canvas,
-            // Takes off top 8 and bottom 8
-            overscan: Rect::new(0, 8, RENDER_WIDTH as u32, RENDER_HEIGHT as u32 - 16),
-            frame_tex,
-            ntbl_texs,
-            pat_texs,
-            pal_texs,
+            game_view,
+            ntbls,
+            pats,
+            pals,
             _texture_creator: texture_creator,
         };
         Ok((window, event_pump))
@@ -145,106 +119,72 @@ impl Window {
 
     /// Updates the Window canvas texture with the passed in pixel data
     pub fn update_frame(&mut self, pixels: Vec<u8>) -> Result<()> {
-        self.frame_tex.update(None, &pixels, RENDER_WIDTH * 3)?;
+        self.game_view
+            .tex
+            .update(None, &pixels, self.game_view.pitch)?;
         self.render_frame()
     }
 
     pub fn render_frame(&mut self) -> Result<()> {
         self.canvas.clear();
         self.canvas
-            .copy(&self.frame_tex, self.overscan, None)
+            .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
             .map_err(util::str_to_err)?;
         self.canvas.present();
         Ok(())
     }
 
-    pub fn set_debug_size(&mut self) {
-        let _ = self
-            .canvas
-            .set_logical_size(self.width, self.height - (self.height / 6));
-        let _ = self
-            .canvas
+    pub fn set_debug_size(&mut self) -> Result<()> {
+        self.canvas
+            .set_logical_size(self.width, self.height - (self.height / 6))?;
+        self.canvas
             .window_mut()
-            .set_size(self.width, self.height - (self.height / 6));
+            .set_size(self.width, self.height - (self.height / 6))?;
+        Ok(())
     }
 
     pub fn update_debug(
         &mut self,
-        frame: Vec<u8>,
+        game_view: Vec<u8>,
         nametables: Vec<Vec<u8>>,
         pattern_tables: Vec<Vec<u8>>,
         palettes: Vec<Vec<u8>>,
     ) -> Result<()> {
-        // Frame
-        self.frame_tex.update(None, &frame, RENDER_WIDTH * 3)?;
-
-        // Nametables
-        let ntbl_pitch = (NT_TEX_WIDTH * 3) as usize;
-        self.ntbl_texs[0].update(None, &nametables[0], ntbl_pitch)?;
-        self.ntbl_texs[1].update(None, &nametables[1], ntbl_pitch)?;
-        self.ntbl_texs[2].update(None, &nametables[2], ntbl_pitch)?;
-        self.ntbl_texs[3].update(None, &nametables[3], ntbl_pitch)?;
-
-        // Pattern tables
-        let pat_pitch = (PAT_TEX_WIDTH * 3) as usize;
-        self.pat_texs[0].update(None, &pattern_tables[0], pat_pitch)?;
-        self.pat_texs[1].update(None, &pattern_tables[1], pat_pitch)?;
-
-        // Palettes
-        let sys_pal_pitch = 16 * 3;
-        self.pal_texs[0].update(None, &palettes[0], sys_pal_pitch)?;
-
-        let pal_pitch = (8 + 1) * 3;
-        self.pal_texs[1].update(None, &palettes[1], pal_pitch)?;
-
+        self.game_view
+            .tex
+            .update(None, &game_view, self.game_view.pitch)?;
+        for (i, ntbl) in self.ntbls.iter_mut().enumerate() {
+            ntbl.tex.update(None, &nametables[i], ntbl.pitch)?;
+        }
+        for (i, pat) in self.pats.iter_mut().enumerate() {
+            pat.tex.update(None, &pattern_tables[i], pat.pitch)?;
+        }
+        for (i, pal) in self.pals.iter_mut().enumerate() {
+            pal.tex.update(None, &palettes[i], pal.pitch)?;
+        }
         self.render_debug()
     }
 
     pub fn render_debug(&mut self) -> Result<()> {
         self.canvas.clear();
-
-        let width_pad = 5;
-        let height_pad = 5;
-        let half_width = (self.width / 2) - width_pad;
-        let half_height = (self.height / 2) - height_pad;
-        let quart_width = half_width / 2;
-        let quart_height = (half_height / 2) - height_pad / 2;
-        let right_x = (half_width + width_pad) as i32;
-        let bottom_y = (half_height + height_pad) as i32;
-
-        // Frame
-        let frame_rect = Rect::new(0, 0, half_width, half_height);
-        let _ = self.canvas.copy(&self.frame_tex, self.overscan, frame_rect);
-
-        // Nametables
-        let ntbl_x_right = right_x + (quart_width + width_pad) as i32;
-        let ntbl_y_top = 0;
-        let ntbl_y_bot = (quart_height + height_pad) as i32;
-        let ntbl1_rect = Rect::new(right_x, ntbl_y_top, quart_width, quart_height);
-        let ntbl2_rect = Rect::new(ntbl_x_right, ntbl_y_top, quart_width, quart_height);
-        let ntbl3_rect = Rect::new(right_x, ntbl_y_bot, quart_width, quart_height);
-        let ntbl4_rect = Rect::new(ntbl_x_right, ntbl_y_bot, quart_width, quart_height);
-        let _ = self.canvas.copy(&self.ntbl_texs[0], None, ntbl1_rect);
-        let _ = self.canvas.copy(&self.ntbl_texs[1], None, ntbl2_rect);
-        let _ = self.canvas.copy(&self.ntbl_texs[2], None, ntbl3_rect);
-        let _ = self.canvas.copy(&self.ntbl_texs[3], None, ntbl4_rect);
-
-        // Pattern tables
-        let pat_x_right = right_x + (quart_width + width_pad) as i32;
-        let pat1_rect = Rect::new(right_x, bottom_y, quart_width, quart_height);
-        let pat2_rect = Rect::new(pat_x_right, bottom_y, quart_width, quart_height);
-        let _ = self.canvas.copy(&self.pat_texs[0], None, pat1_rect);
-        let _ = self.canvas.copy(&self.pat_texs[1], None, pat2_rect);
-
-        // Palettes
-        let pal_height = half_width / 4;
-        let sys_pal_rect = Rect::new(0, bottom_y, half_width, pal_height);
-        let _ = self.canvas.copy(&self.pal_texs[0], None, sys_pal_rect);
-
-        let pal_y_bot = bottom_y + (pal_height + height_pad) as i32;
-        let pal_rect = Rect::new(0, pal_y_bot, half_width / 16 * (8 + 1), pal_height);
-        let _ = self.canvas.copy(&self.pal_texs[1], None, pal_rect);
-
+        self.canvas
+            .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
+            .map_err(util::str_to_err)?;
+        for ntbl in self.ntbls.iter() {
+            self.canvas
+                .copy(&ntbl.tex, ntbl.src, ntbl.dst)
+                .map_err(util::str_to_err)?;
+        }
+        for pat in self.pats.iter() {
+            self.canvas
+                .copy(&pat.tex, pat.src, pat.dst)
+                .map_err(util::str_to_err)?;
+        }
+        for pal in self.pals.iter() {
+            self.canvas
+                .copy(&pal.tex, pal.src, pal.dst)
+                .map_err(util::str_to_err)?;
+        }
         self.canvas.present();
         Ok(())
     }
@@ -287,5 +227,158 @@ impl Window {
     pub fn set_title(&mut self, title: &str) -> Result<()> {
         self.canvas.window_mut().set_title(title)?;
         Ok(())
+    }
+
+    fn game_view_tex_map(
+        creator: *const TextureCreator<video::WindowContext>,
+        width: u32,
+        height: u32,
+        debug: bool,
+    ) -> Result<TextureMap> {
+        let half_width = (width / 2) - DEBUG_PADDING;
+        let half_height = (height / 2) - DEBUG_PADDING;
+        let tex_width = RENDER_WIDTH;
+        let tex_height = RENDER_HEIGHT;
+
+        let game_view = TextureMap {
+            tex: unsafe { &*creator }.create_texture_streaming(
+                PixelFormatEnum::RGB24,
+                tex_width,
+                tex_height,
+            )?,
+            pitch: (tex_width * 3) as usize,
+            src: Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 16), // Cuts off overscan
+            dst: if debug {
+                Rect::new(0, 0, half_width, half_height)
+            } else {
+                Rect::new(0, 0, width, height)
+            },
+        };
+        Ok(game_view)
+    }
+
+    fn nametable_tex_maps(
+        creator: *const TextureCreator<video::WindowContext>,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<TextureMap>> {
+        let half_width = (width / 2) - DEBUG_PADDING;
+        let half_height = (height / 2) - DEBUG_PADDING;
+        let quart_width = half_width / 2;
+        let quart_height = (half_height / 2) - DEBUG_PADDING / 2;
+        let right_x = (half_width + DEBUG_PADDING) as i32;
+        let ntbl_x_right = right_x + (quart_width + DEBUG_PADDING) as i32;
+        let ntbl_y_top = 0;
+        let ntbl_y_bot = (quart_height + DEBUG_PADDING) as i32;
+
+        let ntbl_rects = vec![
+            Rect::new(right_x, ntbl_y_top, quart_width, quart_height),
+            Rect::new(ntbl_x_right, ntbl_y_top, quart_width, quart_height),
+            Rect::new(right_x, ntbl_y_bot, quart_width, quart_height),
+            Rect::new(ntbl_x_right, ntbl_y_bot, quart_width, quart_height),
+        ];
+
+        let mut ntbls = Vec::with_capacity(4);
+        let tex_width = RENDER_WIDTH;
+        let tex_height = RENDER_HEIGHT;
+        for rect in ntbl_rects {
+            let tex_map = TextureMap {
+                tex: unsafe { &*creator }.create_texture_streaming(
+                    PixelFormatEnum::RGB24,
+                    tex_width,
+                    tex_height,
+                )?,
+                pitch: (tex_width * 3) as usize,
+                src: Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT),
+                dst: rect,
+            };
+            ntbls.push(tex_map);
+        }
+        Ok(ntbls)
+    }
+
+    fn pattern_tex_maps(
+        creator: *const TextureCreator<video::WindowContext>,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<TextureMap>> {
+        let half_width = (width / 2) - DEBUG_PADDING;
+        let half_height = (height / 2) - DEBUG_PADDING;
+        let quart_width = half_width / 2;
+        let quart_height = (half_height / 2) - DEBUG_PADDING / 2;
+        let right_x = (half_width + DEBUG_PADDING) as i32;
+        let right_x2 = right_x + (quart_width + DEBUG_PADDING) as i32;
+        let bottom_y = (half_height + DEBUG_PADDING) as i32;
+
+        let pat_rects = vec![
+            Rect::new(right_x, bottom_y, quart_width, quart_height),
+            Rect::new(right_x2, bottom_y, quart_width, quart_height),
+        ];
+
+        let mut pats = Vec::with_capacity(2);
+        let tex_width = RENDER_WIDTH / 2;
+        let tex_height = tex_width;
+        for rect in pat_rects {
+            let tex_map = TextureMap {
+                tex: unsafe { &*creator }.create_texture_streaming(
+                    PixelFormatEnum::RGB24,
+                    tex_width,
+                    tex_height,
+                )?,
+                pitch: (tex_width * 3) as usize,
+                src: Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT),
+                dst: rect,
+            };
+            pats.push(tex_map);
+        }
+        Ok(pats)
+    }
+
+    fn palette_tex_maps(
+        creator: *const TextureCreator<video::WindowContext>,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<TextureMap>> {
+        let half_width = (width / 2) - DEBUG_PADDING;
+        let half_height = (height / 2) - DEBUG_PADDING;
+        let pal_height = half_width / 4;
+        let bottom_y_1 = (half_height + DEBUG_PADDING) as i32;
+        let bottom_y_2 = bottom_y_1 + (pal_height + DEBUG_PADDING) as i32;
+
+        let system_pal_tex_width = 16;
+        let game_pal_tex_width = 9;
+        let pal_tex_height = 4;
+        let game_pal_width = half_width / system_pal_tex_width * game_pal_tex_width;
+        let pal_texs = vec![
+            (
+                system_pal_tex_width,
+                pal_tex_height,
+                Rect::new(0, bottom_y_1, half_width, pal_height),
+            ),
+            (
+                game_pal_tex_width,
+                pal_tex_height,
+                Rect::new(0, bottom_y_2, game_pal_width, pal_height),
+            ),
+        ];
+
+        let mut pals = Vec::with_capacity(2);
+        for tex in pal_texs {
+            let tex_width = tex.0;
+            let tex_height = tex.1;
+            let rect = tex.2;
+            let tex_map = TextureMap {
+                tex: unsafe { &*creator }.create_texture_streaming(
+                    PixelFormatEnum::RGB24,
+                    tex_width,
+                    tex_height,
+                )?,
+                pitch: (tex_width * 3) as usize,
+                src: Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT),
+                dst: rect,
+            };
+            pals.push(tex_map);
+        }
+        Ok(pals)
     }
 }

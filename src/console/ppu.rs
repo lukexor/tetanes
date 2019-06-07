@@ -11,10 +11,10 @@ use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 // Screen/Render
-const IMAGE_SIZE: usize = RENDER_WIDTH * RENDER_HEIGHT * 3;
-pub const RENDER_WIDTH: usize = 256;
-pub const RENDER_HEIGHT: usize = 240;
-const PIXEL_COUNT: usize = RENDER_WIDTH * RENDER_HEIGHT;
+const IMAGE_SIZE: usize = (RENDER_WIDTH * RENDER_HEIGHT * 3) as usize;
+pub const RENDER_WIDTH: u32 = 256;
+pub const RENDER_HEIGHT: u32 = 240;
+const PIXEL_COUNT: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
 
 // Sizes
 const NT_SIZE: usize = 2 * 1024; // two 1K nametables
@@ -140,7 +140,7 @@ impl Ppu {
     }
 
     fn load_nametable(&self, base_addr: u16) -> Vec<u8> {
-        let mut table = vec![0u8; RENDER_WIDTH * RENDER_HEIGHT * 3];
+        let mut table = vec![0u8; IMAGE_SIZE];
         for addr in base_addr..(base_addr + 0x0400 - 64) {
             let x_scroll = addr & COARSE_X_MASK;
             let y_scroll = (addr & COARSE_Y_MASK) >> 5;
@@ -166,7 +166,7 @@ impl Ppu {
     pub fn pattern_tables(&self) -> Vec<Vec<u8>> {
         let mut image: Vec<Vec<u8>> = Vec::new();
         for i in 0..2 {
-            let mut table = vec![0u8; RENDER_WIDTH / 2 * RENDER_WIDTH / 2 * 3];
+            let mut table = vec![0u8; (RENDER_WIDTH / 2 * RENDER_WIDTH / 2 * 3) as usize];
             let start = i * 0x1000;
             let end = start + 0x1000;
             for addr in (start..end).step_by(16) {
@@ -182,7 +182,7 @@ impl Ppu {
     fn load_tile(
         &self,
         addr: u16,
-        width: usize,
+        width: u32,
         tile_x: u16,
         tile_y: u16,
         palette: u16,
@@ -197,8 +197,8 @@ impl Ppu {
                 let idx = self.vram.peek(PALETTE_START + palette * 4 + pix_type)
                     % SYSTEM_PALETTE_SIZE as u8;
                 let color = SYSTEM_PALETTE[idx as usize];
-                let x = (tile_x + (7 - x)) as usize;
-                let y = (tile_y + y) as usize;
+                let x = u32::from(tile_x + (7 - x));
+                let y = u32::from(tile_y + y);
                 image[(3 * (x + y * width)) as usize] = color.r();
                 image[(3 * (x + y * width) + 1) as usize] = color.g();
                 image[(3 * (x + y * width) + 2) as usize] = color.b();
@@ -432,7 +432,7 @@ impl Ppu {
         let system_palette_idx =
             self.vram.read(u16::from(color) + PALETTE_START) % SYSTEM_PALETTE_SIZE as u8;
         let color = SYSTEM_PALETTE[system_palette_idx as usize];
-        self.frame.put_pixel(x as usize, y as usize, color);
+        self.frame.put_pixel(u32::from(x), u32::from(y), color);
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {
@@ -1364,10 +1364,10 @@ impl Frame {
         image
     }
 
-    fn put_pixel(&mut self, x: usize, y: usize, color: Rgb) {
+    fn put_pixel(&mut self, x: u32, y: u32, color: Rgb) {
         if x < RENDER_WIDTH && y < RENDER_HEIGHT {
             let i = x + (y * RENDER_WIDTH);
-            self.pixels[i] = color;
+            self.pixels[i as usize] = color;
         }
     }
 }
