@@ -716,7 +716,15 @@ impl Ppu {
             // Hi 2 bits of palette should be open bus
             val | (self.regs.open_bus & 0xC0)
         };
-        self.regs.increment_v();
+        // During rendering, v increments coarse X and coarse Y at the simultaneously
+        if self.rendering_enabled()
+            && (self.scanline == PRERENDER_SCANLINE || self.scanline <= VISIBLE_SCANLINE_END)
+        {
+            self.regs.increment_x();
+            self.regs.increment_y();
+        } else {
+            self.regs.increment_v();
+        }
         val
     }
     fn peek_ppudata(&self) -> u8 {
@@ -729,7 +737,15 @@ impl Ppu {
     }
     fn write_ppudata(&mut self, val: u8) {
         self.vram.write(self.read_ppuaddr(), val);
-        self.regs.increment_v();
+        if self.rendering_enabled()
+        // During rendering, v increments coarse X and coarse Y simultaneously
+            && (self.scanline == PRERENDER_SCANLINE || self.scanline <= VISIBLE_SCANLINE_END)
+        {
+            self.regs.increment_x();
+            self.regs.increment_y();
+        } else {
+            self.regs.increment_v();
+        }
     }
 }
 
@@ -1111,7 +1127,6 @@ impl PpuRegs {
     // Address wraps and uses vram_increment which is either 1 (going across) or 32 (going down)
     // based on bit 7 in PPUCTRL
     fn increment_v(&mut self) {
-        // TODO vram increment is more complex during rendering
         self.v = self.v.wrapping_add(self.ctrl.vram_increment());
     }
 }
