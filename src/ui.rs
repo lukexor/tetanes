@@ -251,14 +251,8 @@ impl Ui {
                 Event::ControllerDeviceAdded { which: id, .. } => {
                     eprintln!("Gamepad {} connected.", id);
                     match id {
-                        0 => {
-                            self.gamepad1 = Some(self.window.controller_sub.open(id)?);
-                            self.input.borrow_mut().gamepad1.connected = true;
-                        }
-                        1 => {
-                            self.gamepad2 = Some(self.window.controller_sub.open(id)?);
-                            self.input.borrow_mut().gamepad2.connected = true;
-                        }
+                        0 => self.gamepad1 = Some(self.window.controller_sub.open(id)?),
+                        1 => self.gamepad2 = Some(self.window.controller_sub.open(id)?),
                         _ => (),
                     }
                 }
