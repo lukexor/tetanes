@@ -3,7 +3,7 @@
 use crate::console::{RENDER_HEIGHT, RENDER_WIDTH, SAMPLE_RATE};
 use crate::util::{self, Result};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
-use sdl2::pixels::PixelFormatEnum;
+use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture, TextureCreator};
 use sdl2::video::{self, FullscreenType};
@@ -189,8 +189,12 @@ impl Window {
         Ok(())
     }
 
-    pub fn render_bg(&mut self) -> Result<()> {
+    pub fn render_blank(&mut self) -> Result<()> {
         self.canvas.clear();
+        self.canvas.set_draw_color(Color::RGB(0, 0, 0));
+        self.canvas
+            .draw_rect(Rect::new(0, 0, self.width, self.height))
+            .map_err(util::str_to_err)?;
         self.canvas.present();
         Ok(())
     }

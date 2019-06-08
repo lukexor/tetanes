@@ -180,7 +180,7 @@ impl Ui {
         for _ in 0..startup_frames {
             self.poll_events()?;
             self.console.clock_frame();
-            self.window.render_bg()?;
+            self.window.render_blank()?;
             let samples = self.console.audio_samples();
             if self.sound_enabled {
                 self.window.enqueue_audio(&samples);
@@ -190,10 +190,14 @@ impl Ui {
 
         let mut start = Instant::now();
         let mut fps_frame = 0;
+        let one_sec = Duration::from_secs(1);
         while !self.should_close {
             self.poll_events()?;
             if !self.paused {
                 let mut frames_to_run = (self.speed / DEFAULT_SPEED).floor() as usize;
+                if self.ppu_debug {
+                    frames_to_run *= 2;
+                }
                 if frames_to_run == 0 {
                     frames_to_run = 1;
                 }
@@ -223,8 +227,7 @@ impl Ui {
 
                 fps_frame += 1;
                 let delta = (end - start).as_millis() as u32;
-                self.past_fps[fps_frame % 20] =
-                    Duration::from_millis(1000).checked_div(delta).unwrap();
+                self.past_fps[fps_frame % 20] = one_sec.checked_div(delta).unwrap();
 
                 for fps in self.past_fps.iter() {
                     self.avg_fps += *fps;

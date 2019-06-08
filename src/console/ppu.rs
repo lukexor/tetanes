@@ -11,10 +11,9 @@ use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 // Screen/Render
-const IMAGE_SIZE: usize = (RENDER_WIDTH * RENDER_HEIGHT * 3) as usize;
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
-const PIXEL_COUNT: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
+const RENDER_SIZE: usize = (RENDER_WIDTH * RENDER_HEIGHT * 3) as usize;
 
 // Sizes
 const NT_SIZE: usize = 2 * 1024; // two 1K nametables
@@ -124,9 +123,9 @@ impl Ppu {
         }
     }
 
-    // Returns a fully rendered frame of IMAGE_SIZE RGB colors
+    // Returns a fully rendered frame of RENDER_SIZE RGB colors
     pub fn frame(&self) -> Vec<u8> {
-        self.frame.to_rgb()
+        self.frame.pixels.to_vec()
     }
 
     pub fn nametables(&self) -> Vec<Vec<u8>> {
@@ -140,7 +139,7 @@ impl Ppu {
     }
 
     fn load_nametable(&self, base_addr: u16) -> Vec<u8> {
-        let mut table = vec![0u8; IMAGE_SIZE];
+        let mut nametable = vec![0u8; RENDER_SIZE];
         for addr in base_addr..(base_addr + 0x0400 - 64) {
             let x_scroll = addr & COARSE_X_MASK;
             let y_scroll = (addr & COARSE_Y_MASK) >> 5;
@@ -158,56 +157,60 @@ impl Ppu {
             let tile_x = (tile_num % 32) * 8;
             let tile_y = (tile_num / 32) * 8;
 
-            self.load_tile(tile_addr, RENDER_WIDTH, tile_x, tile_y, palette, &mut table);
+            self.fetch_and_put_tile(
+                tile_addr,
+                palette,
+                tile_x,
+                tile_y,
+                RENDER_WIDTH,
+                &mut nametable,
+            );
         }
-        table
+        nametable
     }
 
     pub fn pattern_tables(&self) -> Vec<Vec<u8>> {
         let mut image: Vec<Vec<u8>> = Vec::new();
+        let width = RENDER_WIDTH / 2;
+        let height = width;
         for i in 0..2 {
-            let mut table = vec![0u8; (RENDER_WIDTH / 2 * RENDER_WIDTH / 2 * 3) as usize];
+            let mut pat = vec![0u8; (width * height * 3) as usize];
             let start = i * 0x1000;
             let end = start + 0x1000;
-            for addr in (start..end).step_by(16) {
-                let tile_x = ((addr % 0x1000) % 256) / 2;
-                let tile_y = ((addr % 0x1000) / 256) * 8;
-                self.load_tile(addr, RENDER_WIDTH / 2, tile_x, tile_y, 0, &mut table);
+            for tile_addr in (start..end).step_by(16) {
+                let tile_x = ((tile_addr % 0x1000) % 256) / 2;
+                let tile_y = ((tile_addr % 0x1000) / 256) * 8;
+                self.fetch_and_put_tile(tile_addr, 0, tile_x, tile_y, width, &mut pat);
             }
-            image.push(table)
+            image.push(pat);
         }
         image
     }
 
-    fn load_tile(
+    fn fetch_and_put_tile(
         &self,
         addr: u16,
-        width: u32,
+        palette: u16,
         tile_x: u16,
         tile_y: u16,
-        palette: u16,
-        image: &mut Vec<u8>,
+        width: u32,
+        mut pixels: &mut Vec<u8>,
     ) {
         for y in 0..8 {
             let lo = u16::from(self.vram.peek(addr + y));
             let hi = u16::from(self.vram.peek(addr + y + 8));
-
             for x in 0..8 {
                 let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
-                let idx = self.vram.peek(PALETTE_START + palette * 4 + pix_type)
-                    % SYSTEM_PALETTE_SIZE as u8;
-                let color = SYSTEM_PALETTE[idx as usize];
-                let x = u32::from(tile_x + (7 - x));
-                let y = u32::from(tile_y + y);
-                image[(3 * (x + y * width)) as usize] = color.r();
-                image[(3 * (x + y * width) + 1) as usize] = color.g();
-                image[(3 * (x + y * width) + 2) as usize] = color.b();
+                let palette_idx = self.vram.peek(PALETTE_START + palette * 4 + pix_type) as usize;
+                let x = tile_x + (7 - x);
+                let y = tile_y + y;
+                Self::put_pixel(palette_idx, x.into(), y.into(), width, &mut pixels);
             }
         }
     }
 
     pub fn palettes(&self) -> Vec<Vec<u8>> {
-        let mut image = vec![SYSTEM_PALETTE_RAW.to_vec()];
+        let mut image = vec![SYSTEM_PALETTE.to_vec()];
 
         // Global  // BG 0 ----------------------------------  // Unused    // SPR 0 -------------------------------
         // 0x3F00: 0,0  0x3F01: 1,0  0x3F02: 2,0  0x3F03: 3,0  0x3F10: 5,0  0x3F11: 6,0  0x3F12: 7,0  0x3F13: 8,0
@@ -218,17 +221,15 @@ impl Ppu {
         // Unused  // BG 3 ----------------------------------  // Unused    // SPR 3 -------------------------------
         // 0x3F0C: 0,3  0x3F0D: 1,3  0x3F0E: 2,3  0x3F0F: 3,3  0x3F1C: 5,3  0x3F1D: 6,3  0x3F1E: 7,3  0x3F1F: 8,3
         let mut palette = vec![0u8; (PALETTE_SIZE + 4) * 3];
+        let width = 9;
         for addr in PALETTE_START..PALETTE_END {
             let (x, y) = if addr >= SPRITE_PALETTE_START {
                 ((addr % 4) + 5, (addr - SPRITE_PALETTE_START) / 4)
             } else {
                 (addr % 4, (addr - PALETTE_START) / 4)
             };
-            let idx = self.vram.peek(addr) % SYSTEM_PALETTE_SIZE as u8;
-            let color = SYSTEM_PALETTE[idx as usize];
-            palette[(3 * (x + y * 9)) as usize] = color.r();
-            palette[(3 * (x + y * 9) + 1) as usize] = color.g();
-            palette[(3 * (x + y * 9) + 2) as usize] = color.b();
+            let palette_idx = self.vram.peek(addr) as usize;
+            Self::put_pixel(palette_idx, x.into(), y.into(), width, &mut palette);
         }
         image.push(palette);
         image
@@ -392,8 +393,8 @@ impl Ppu {
     }
 
     fn render_pixel(&mut self) {
-        let x = (self.cycle - 1) as u8; // Because we called tick() before this
-        let y = self.scanline as u8;
+        let x = self.cycle - 1; // Because we called tick() before this
+        let y = self.scanline;
 
         let mut bg_color = self.background_color();
         let (i, mut sprite_color) = self.sprite_color();
@@ -429,10 +430,18 @@ impl Ppu {
                 bg_color
             }
         };
-        let system_palette_idx =
-            self.vram.read(u16::from(color) + PALETTE_START) % SYSTEM_PALETTE_SIZE as u8;
-        let color = SYSTEM_PALETTE[system_palette_idx as usize];
-        self.frame.put_pixel(u32::from(x), u32::from(y), color);
+        let palette_idx = self.vram.read(u16::from(color) + PALETTE_START) as usize;
+        self.frame.put_pixel(palette_idx, x.into(), y.into());
+    }
+
+    fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut Vec<u8>) {
+        let idx = (palette_idx % SYSTEM_PALETTE_SIZE) * 3;
+        let red = SYSTEM_PALETTE[idx];
+        let green = SYSTEM_PALETTE[idx + 1];
+        let blue = SYSTEM_PALETTE[idx + 2];
+        pixels[(3 * (x + y * width)) as usize] = red;
+        pixels[(3 * (x + y * width) + 1) as usize] = green;
+        pixels[(3 * (x + y * width) + 2) as usize] = blue;
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {
@@ -1217,9 +1226,9 @@ impl Vram {
     fn init(mapper: MapperRef) -> Self {
         Self {
             mapper,
-            buffer: 0,
-            nametable: Nametable([0; NT_SIZE]),
-            palette: Palette([0; PALETTE_SIZE]),
+            buffer: 0u8,
+            nametable: Nametable([0u8; NT_SIZE]),
+            palette: Palette([0u8; PALETTE_SIZE]),
         }
     }
 
@@ -1325,23 +1334,23 @@ struct Frame {
     sprite_count: u8,
     sprite_zero_on_line: bool,
     sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
-    pixels: [Rgb; PIXEL_COUNT],
+    pixels: Vec<u8>,
 }
 
 impl Frame {
     fn new() -> Self {
         Self {
-            num: 0,
+            num: 0u32,
             parity: false,
-            nametable: 0,
-            attribute: 0,
-            tile_lo: 0,
-            tile_hi: 0,
-            tile_data: 0,
-            sprite_count: 0,
+            nametable: 0u16,
+            attribute: 0u8,
+            tile_lo: 0u8,
+            tile_hi: 0u8,
+            tile_data: 0u64,
+            sprite_count: 0u8,
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
-            pixels: [Rgb(0, 0, 0); PIXEL_COUNT],
+            pixels: vec![0u8; RENDER_SIZE],
         }
     }
 
@@ -1350,25 +1359,12 @@ impl Frame {
         self.parity = !self.parity;
     }
 
-    // Turns a list of pixels into a list of R, G, B
-    // We want to chop off the borders
-    pub fn to_rgb(&self) -> Vec<u8> {
-        let mut image = vec![0u8; IMAGE_SIZE];
-        for i in 0..PIXEL_COUNT {
-            let p = self.pixels[i];
-            // index * RGB size + color offset
-            image[i * 3] = p.r();
-            image[i * 3 + 1] = p.g();
-            image[i * 3 + 2] = p.b();
+    fn put_pixel(&mut self, palette_idx: usize, x: u32, y: u32) {
+        if x > RENDER_WIDTH || y > RENDER_HEIGHT {
+            return;
         }
-        image
-    }
-
-    fn put_pixel(&mut self, x: u32, y: u32, color: Rgb) {
-        if x < RENDER_WIDTH && y < RENDER_HEIGHT {
-            let i = x + (y * RENDER_WIDTH);
-            self.pixels[i as usize] = color;
-        }
+        let width = RENDER_WIDTH;
+        Ppu::put_pixel(palette_idx, x, y, width, &mut self.pixels);
     }
 }
 
@@ -1450,36 +1446,6 @@ impl Savable for Sprite {
         self.has_priority.load(fh)?;
         self.flip_horizontal.load(fh)?;
         self.flip_vertical.load(fh)
-    }
-}
-
-#[derive(Default, Debug, Copy, Clone)]
-pub struct Rgb(u8, u8, u8);
-
-impl Rgb {
-    // self is pass by value here because clippy says it's more efficient
-    // https://rust-lang.github.io/rust-clippy/master/index.html#trivially_copy_pass_by_ref
-    pub fn r(self) -> u8 {
-        self.0
-    }
-    pub fn g(self) -> u8 {
-        self.1
-    }
-    pub fn b(self) -> u8 {
-        self.2
-    }
-}
-
-impl Savable for Rgb {
-    fn save(&self, fh: &mut Write) -> Result<()> {
-        self.0.save(fh)?;
-        self.1.save(fh)?;
-        self.2.save(fh)
-    }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.0.load(fh)?;
-        self.1.load(fh)?;
-        self.2.load(fh)
     }
 }
 
@@ -1668,38 +1634,27 @@ impl fmt::Debug for Palette {
 
 // 64 total possible colors, though only 32 can be loaded at a time
 #[rustfmt::skip]
-const SYSTEM_PALETTE: [Rgb; SYSTEM_PALETTE_SIZE] = [
+const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
     // 0x00
-    Rgb(84, 84, 84),    Rgb(0, 30, 116),    Rgb(8, 16, 144),    Rgb(48, 0, 136),    // $00-$04
-    Rgb(68, 0, 100),    Rgb(92, 0, 48),     Rgb(84, 4, 0),      Rgb(60, 24, 0),     // $05-$08
-    Rgb(32, 42, 0),     Rgb(8, 58, 0),      Rgb(0, 64, 0),      Rgb(0, 60, 0),      // $09-$0B
-    Rgb(0, 50, 60),     Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $0C-$0F
+    84, 84, 84,    0, 30, 116,    8, 16, 144,    48, 0, 136,    // $00-$03
+    68, 0, 100,    92, 0, 48,     84, 4, 0,      60, 24, 0,     // $04-$07
+    32, 42, 0,     8, 58, 0,      0, 64, 0,      0, 60, 0,      // $08-$0B
+    0, 50, 60,     0, 0, 0,       0, 0, 0,       0, 0, 0,       // $0C-$0F
     // 0x10                                                                                   
-    Rgb(152, 150, 152), Rgb(8, 76, 196),    Rgb(48, 50, 236),   Rgb(92, 30, 228),   // $10-$14
-    Rgb(136, 20, 176),  Rgb(160, 20, 100),  Rgb(152, 34, 32),   Rgb(120, 60, 0),    // $15-$18
-    Rgb(84, 90, 0),     Rgb(40, 114, 0),    Rgb(8, 124, 0),     Rgb(0, 118, 40),    // $19-$1B
-    Rgb(0, 102, 120),   Rgb(0, 0, 0),       Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $1C-$1F
+    152, 150, 152, 8, 76, 196,    48, 50, 236,   92, 30, 228,   // $10-$13
+    136, 20, 176,  160, 20, 100,  152, 34, 32,   120, 60, 0,    // $14-$17
+    84, 90, 0,     40, 114, 0,    8, 124, 0,     0, 118, 40,    // $18-$1B
+    0, 102, 120,   0, 0, 0,       0, 0, 0,       0, 0, 0,       // $1C-$1F
     // 0x20                                                                                   
-    Rgb(236, 238, 236), Rgb(76, 154, 236),  Rgb(120, 124, 236), Rgb(176, 98, 236),  // $20-$24
-    Rgb(228, 84, 236),  Rgb(236, 88, 180),  Rgb(236, 106, 100), Rgb(212, 136, 32),  // $25-$28
-    Rgb(160, 170, 0),   Rgb(116, 196, 0),   Rgb(76, 208, 32),   Rgb(56, 204, 108),  // $29-$2B
-    Rgb(56, 180, 204),  Rgb(60, 60, 60),    Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $2C-$2F
+    236, 238, 236, 76, 154, 236,  120, 124, 236, 176, 98, 236,  // $20-$23
+    228, 84, 236,  236, 88, 180,  236, 106, 100, 212, 136, 32,  // $24-$27
+    160, 170, 0,   116, 196, 0,   76, 208, 32,   56, 204, 108,  // $28-$2B
+    56, 180, 204,  60, 60, 60,    0, 0, 0,       0, 0, 0,       // $2C-$2F
     // 0x30                                                                                   
-    Rgb(236, 238, 236), Rgb(168, 204, 236), Rgb(188, 188, 236), Rgb(212, 178, 236), // $30-$34
-    Rgb(236, 174, 236), Rgb(236, 174, 212), Rgb(236, 180, 176), Rgb(228, 196, 144), // $35-$38
-    Rgb(204, 210, 120), Rgb(180, 222, 120), Rgb(168, 226, 144), Rgb(152, 226, 180), // $39-$3B
-    Rgb(160, 214, 228), Rgb(160, 162, 160), Rgb(0, 0, 0),       Rgb(0, 0, 0),       // $3C-$3F
-];
-const SYSTEM_PALETTE_RAW: [u8; SYSTEM_PALETTE_SIZE * 3] = [
-    84, 84, 84, 0, 30, 116, 8, 16, 144, 48, 0, 136, 68, 0, 100, 92, 0, 48, 84, 4, 0, 60, 24, 0, 32,
-    42, 0, 8, 58, 0, 0, 64, 0, 0, 60, 0, 0, 50, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 152, 150, 152, 8,
-    76, 196, 48, 50, 236, 92, 30, 228, 136, 20, 176, 160, 20, 100, 152, 34, 32, 120, 60, 0, 84, 90,
-    0, 40, 114, 0, 8, 124, 0, 0, 118, 40, 0, 102, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 236, 238, 236,
-    76, 154, 236, 120, 124, 236, 176, 98, 236, 228, 84, 236, 236, 88, 180, 236, 106, 100, 212, 136,
-    32, 160, 170, 0, 116, 196, 0, 76, 208, 32, 56, 204, 108, 56, 180, 204, 60, 60, 60, 0, 0, 0, 0,
-    0, 0, 236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, 236, 174, 236, 236, 174, 212,
-    236, 180, 176, 228, 196, 144, 204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, 160,
-    214, 228, 160, 162, 160, 0, 0, 0, 0, 0, 0,
+    236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, // $30-$33
+    236, 174, 236, 236, 174, 212, 236, 180, 176, 228, 196, 144, // $34-$37
+    204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, // $38-$3B
+    160, 214, 228, 160, 162, 160, 0, 0, 0,       0, 0, 0,       // $3C-$3F
 ];
 
 #[cfg(test)]
