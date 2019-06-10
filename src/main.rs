@@ -9,12 +9,12 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
+use failure::Error;
 use rustynes::ui::UiBuilder;
-use rustynes::util::Result;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-fn main() -> Result<()> {
+fn main() {
     let opt = Opt::from_args();
     let mut ui = UiBuilder::new()
         .path(opt.path)
@@ -28,8 +28,14 @@ fn main() -> Result<()> {
         .no_save(opt.no_save)
         .save_slot(opt.save_slot)
         .scale(opt.scale)
-        .build()?;
-    ui.run()
+        .build()
+        .unwrap_or_else(|e| err_exit(e));
+    ui.run().unwrap_or_else(|e| err_exit(e));
+}
+
+fn err_exit(err: Error) -> ! {
+    eprintln!("Error: {}", err.to_string());
+    std::process::exit(1);
 }
 
 /// Command-Line Options
