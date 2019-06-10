@@ -126,6 +126,7 @@ impl UiBuilder {
             avg_fps: Duration::from_millis(60),
             past_fps: [Duration::from_millis(60); 20],
             speed: DEFAULT_SPEED,
+            speed_counter: 0i32,
             console,
             window,
             event_pump: RefCell::new(event_pump),
@@ -152,6 +153,7 @@ pub struct Ui {
     avg_fps: Duration,
     past_fps: [Duration; 20], // Running total of last X frames to avoid value jitter
     speed: f64,
+    speed_counter: i32,
     console: Console,
     window: Window,
     event_pump: RefCell<EventPump>,
@@ -194,12 +196,13 @@ impl Ui {
         while !self.should_close {
             self.poll_events()?;
             if !self.paused {
-                let mut frames_to_run = (self.speed / DEFAULT_SPEED).floor() as usize;
-                if self.ppu_debug {
-                    frames_to_run *= 2;
-                }
-                if frames_to_run == 0 {
-                    frames_to_run = 1;
+                // Frames that aren't multiples of the default render 1 more/less
+                // frames every other frame
+                let mut frames_to_run = 0;
+                self.speed_counter += self.speed as i32;
+                while self.speed_counter > 0 {
+                    self.speed_counter -= 100;
+                    frames_to_run += 1;
                 }
                 for _ in 0..frames_to_run {
                     self.console.clock_frame();
@@ -271,15 +274,27 @@ impl Ui {
                     _ => (),
                 },
                 Event::KeyDown {
-                    keycode: Some(key), ..
-                } => self.handle_keydown(key, turbo)?,
+                    keycode: Some(key),
+                    repeat,
+                    ..
+                } => {
+                    if !repeat {
+                        self.handle_keydown(key, turbo)?;
+                    }
+                }
                 Event::KeyUp {
-                    keycode: Some(key), ..
-                } => match key {
-                    Keycode::Space => self.set_fastforward(false)?,
-                    Keycode::LCtrl => self.lctrl = false,
-                    _ => self.handle_keyboard_event(key, false, turbo),
-                },
+                    keycode: Some(key),
+                    repeat,
+                    ..
+                } => {
+                    if !repeat {
+                        match key {
+                            Keycode::Space => self.set_fastforward(false)?,
+                            Keycode::LCtrl => self.lctrl = false,
+                            _ => self.handle_keyboard_event(key, false, turbo),
+                        }
+                    }
+                }
                 Event::ControllerButtonDown { which, button, .. } => match button {
                     Button::LeftStick => self.toggle_menu()?,
                     Button::RightStick => self.set_fastforward(true)?,
@@ -365,8 +380,10 @@ impl Ui {
 
     fn change_speed(&mut self, delta: f64) -> Result<()> {
         if delta > 0.0 && self.speed < MAX_SPEED {
+            self.speed_counter = 0;
             self.speed += 25.0;
         } else if delta < 0.0 && self.speed > MIN_SPEED {
+            self.speed_counter = 0;
             self.speed -= 25.0;
         }
         self.console.set_speed(self.speed / DEFAULT_SPEED);
@@ -397,6 +414,7 @@ impl Ui {
     }
 
     fn set_fastforward(&mut self, val: bool) -> Result<()> {
+        self.speed_counter = 0;
         let old_fastforward = self.fastforward;
         self.fastforward = val;
         if old_fastforward != self.fastforward {
