@@ -3,6 +3,7 @@
 use crate::console::{RENDER_HEIGHT, RENDER_WIDTH, SAMPLE_RATE};
 use crate::util::{self, Result};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
+use sdl2::mouse::MouseUtil;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture, TextureCreator};
@@ -26,6 +27,7 @@ pub struct Window {
     height: u32,
     pub controller_sub: GameControllerSubsystem,
     audio_device: AudioQueue<f32>,
+    mouse: MouseUtil,
     canvas: Canvas<video::Window>,
     game_view: TextureMap,
     ntbls: Vec<TextureMap>,
@@ -53,6 +55,7 @@ impl Window {
         let mut window_builder = video_sub.window(title, width, height);
         window_builder.position_centered().resizable();
         if fullscreen {
+            self.mouse.show_cursor(false);
             window_builder.fullscreen();
         }
         let mut window = window_builder.build()?;
@@ -100,13 +103,12 @@ impl Window {
         let event_pump = context.event_pump().map_err(util::str_to_err)?;
         let controller_sub = context.game_controller().map_err(util::str_to_err)?;
 
-        // Takes off top 8 and bottom 8
-
         let window = Self {
             width,
             height,
             controller_sub,
             audio_device,
+            mouse: context.mouse(),
             canvas,
             game_view,
             ntbls,
@@ -215,8 +217,10 @@ impl Window {
     pub fn toggle_fullscreen(&mut self) -> Result<()> {
         let state = self.canvas.window().fullscreen_state();
         let mode = if state == FullscreenType::Off {
+            self.mouse.show_cursor(false);
             video::FullscreenType::True
         } else {
+            self.mouse.show_cursor(true);
             video::FullscreenType::Off
         };
         self.canvas
