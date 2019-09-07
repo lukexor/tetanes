@@ -54,8 +54,9 @@ impl Window {
         let video_sub = context.video().map_err(util::str_to_err)?;
         let mut window_builder = video_sub.window(title, width, height);
         window_builder.position_centered().resizable();
+        let mouse = context.mouse();
         if fullscreen {
-            self.mouse.show_cursor(false);
+            mouse.show_cursor(false);
             window_builder.fullscreen();
         }
         let mut window = window_builder.build()?;
@@ -108,7 +109,7 @@ impl Window {
             height,
             controller_sub,
             audio_device,
-            mouse: context.mouse(),
+            mouse,
             canvas,
             game_view,
             ntbls,
