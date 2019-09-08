@@ -181,7 +181,7 @@ The following is a checklist of features and their progress:
     - [x] TxROM/MMC3 (Mapper 4)
     - [ ] ExROM/MMC5 (Mapper 5)
     - [x] AxROM (Mapper 7)
-    - [ ] PxROM/MMC2 (Mapper 9)
+    - [x] PxROM/MMC2 (Mapper 9)
 - [x] User Interface (UI)
   - [x] SDL2
   - [ ] WebAssembly
