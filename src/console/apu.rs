@@ -928,7 +928,7 @@ impl DMC {
             let cpu: &mut Cpu = unsafe { &mut *self.cpu }; // TODO ugly work-around to access CPU
             self.sample_buffer = cpu.read(self.addr);
             self.sample_buffer_empty = false;
-            self.addr = (self.addr + 1) | 0x8000;
+            self.addr = self.addr.wrapping_add(1) | 0x8000;
             self.length -= 1;
 
             if self.length == 0 {
