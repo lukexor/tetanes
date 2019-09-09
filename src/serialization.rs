@@ -119,13 +119,15 @@ impl Savable for f64 {
 
 impl Savable for usize {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        fh.write_all(&self.to_be_bytes())?;
+        let val = *self as u32;
+        fh.write_all(&val.to_be_bytes())?;
         Ok(())
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        let mut bytes = [0u8; 8];
+        let mut bytes = [0u8; 4];
         fh.read_exact(&mut bytes)?;
-        *self = usize::from_be_bytes(bytes);
+        let val = u32::from_be_bytes(bytes);
+        *self = val as usize;
         Ok(())
     }
 }

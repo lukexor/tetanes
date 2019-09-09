@@ -30,12 +30,7 @@ impl fmt::Debug for Memory {
 pub struct Ram(Vec<u8>);
 
 impl Ram {
-    pub fn init(mut size: usize) -> Self {
-        // Ensure we are 16-bit addressable
-        if size >= 0x10000 {
-            eprintln!("warning: RAM size of {} is not 16-bit addressable", size);
-            size = 0x10000;
-        }
+    pub fn init(size: usize) -> Self {
         let randomize = unsafe { RANDOMIZE_RAM };
         let ram = if randomize {
             let mut rng = rand::thread_rng();
@@ -136,12 +131,7 @@ impl DerefMut for Ram {
 pub struct Rom(Vec<u8>);
 
 impl Rom {
-    pub fn init(mut size: usize) -> Self {
-        // Ensure we are 16-bit addressable
-        if size >= 0x10000 {
-            eprintln!("warning: ROM size of {} is not 16-bit addressable", size);
-            size = 0x10000;
-        }
+    pub fn init(size: usize) -> Self {
         Self(vec![0u8; size as usize])
     }
     pub fn from_bytes(bytes: &[u8]) -> Self {
@@ -227,7 +217,7 @@ where
     T: Memory + Bankable,
 {
     banks: Vec<T>,
-    size: usize,
+    pub size: usize,
 }
 
 impl<T> Banks<T>

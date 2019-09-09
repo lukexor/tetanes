@@ -69,7 +69,7 @@ pub struct Ppu {
     pub nmi_delay_enabled: bool, // Fixes some games by delaying nmi
     pub nmi_pending: bool,       // Whether the CPU should trigger an NMI next cycle
     pub vram: Vram,              // $2007 PPUDATA
-    regs: PpuRegs,               // Registers
+    pub regs: PpuRegs,           // Registers
     oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
     frame: Frame, // Frame data keeps track of data and shift registers between frames
 }
@@ -903,8 +903,8 @@ impl Savable for Palette {
 pub struct PpuRegs {
     open_bus: u8,              // This open bus gets set during any write to PPU registers
     open_bus_updated: Instant, // Last updated value used to emualte open_bus decay
-    ctrl: PpuCtrl,             // $2000 PPUCTRL write-only
-    mask: PpuMask,             // $2001 PPUMASK write-only
+    pub ctrl: PpuCtrl,         // $2000 PPUCTRL write-only
+    pub mask: PpuMask,         // $2001 PPUMASK write-only
     status: PpuStatus,         // $2002 PPUSTATUS read-only
     oamaddr: u8,               // $2003 OAMADDR write-only
     nmi_delay: u8,             // Some games need a delay after vblank before nmi is triggered
@@ -1462,7 +1462,7 @@ impl Savable for Sprite {
 // |+-------- PPU Master/Slave: 0 = read from EXT, 1 = write to EXT
 // +--------- NMI Enable: NMI at next vblank: 0 = off, 1: on
 #[derive(Default, Debug)]
-struct PpuCtrl(u8);
+pub struct PpuCtrl(pub u8);
 
 impl PpuCtrl {
     fn write(&mut self, val: u8) {
@@ -1523,7 +1523,7 @@ impl Savable for PpuCtrl {
 // |+-------- Emphasize green
 // +--------- Emphasize blue
 #[derive(Default, Debug)]
-struct PpuMask(u8);
+pub struct PpuMask(pub u8);
 
 impl PpuMask {
     fn write(&mut self, val: u8) {

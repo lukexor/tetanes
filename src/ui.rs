@@ -296,19 +296,21 @@ impl Ui {
                     }
                 }
                 Event::ControllerButtonDown { which, button, .. } => match button {
-                    Button::LeftStick => self.toggle_menu()?,
-                    Button::RightStick => self.set_fastforward(true)?,
+                    Button::RightStick => self.toggle_menu()?,
                     Button::LeftShoulder => self.console.save_state(self.save_slot)?,
                     Button::RightShoulder => self.console.load_state(self.save_slot)?,
-                    _ => self.handle_gamepad_button(which, button, true, turbo),
+                    _ => self.handle_gamepad_button(which, button, true, turbo)?,
                 },
                 Event::ControllerButtonUp { which, button, .. } => match button {
-                    Button::RightStick => self.set_fastforward(false)?,
-                    _ => self.handle_gamepad_button(which, button, false, turbo),
+                    _ => self.handle_gamepad_button(which, button, false, turbo)?,
                 },
                 Event::ControllerAxisMotion {
                     which, axis, value, ..
-                } => self.handle_gamepad_axis(which, axis, value, turbo),
+                } => match axis {
+                    Axis::TriggerLeft => self.change_speed(-25.0)?,
+                    Axis::TriggerRight => self.change_speed(25.0)?,
+                    _ => self.handle_gamepad_axis(which, axis, value)?,
+                },
                 _ => (),
             }
         }
@@ -339,8 +341,8 @@ impl Ui {
             Keycode::Q if self.lctrl => self.should_close = true,
             Keycode::R if self.lctrl => self.console.reset(),
             Keycode::P if self.lctrl => self.console.power_cycle(),
-            Keycode::Equals if self.lctrl => self.change_speed(25.0)?,
             Keycode::Minus if self.lctrl => self.change_speed(-25.0)?,
+            Keycode::Equals if self.lctrl => self.change_speed(25.0)?,
             Keycode::Space => self.set_fastforward(true)?,
             Keycode::Num1 if self.lctrl => {
                 self.save_slot = 1;
@@ -472,7 +474,13 @@ impl Ui {
         }
     }
 
-    fn handle_gamepad_button(&mut self, gamepad_id: i32, button: Button, down: bool, turbo: bool) {
+    fn handle_gamepad_button(
+        &mut self,
+        gamepad_id: i32,
+        button: Button,
+        down: bool,
+        turbo: bool,
+    ) -> Result<()> {
         let mut input = self.input.borrow_mut();
         let mut gamepad = match gamepad_id {
             0 => &mut input.gamepad1,
@@ -500,9 +508,10 @@ impl Ui {
             Button::DPadRight => gamepad.right = down,
             _ => {}
         }
+        Ok(())
     }
 
-    fn handle_gamepad_axis(&mut self, gamepad_id: i32, axis: Axis, value: i16, turbo: bool) {
+    fn handle_gamepad_axis(&mut self, gamepad_id: i32, axis: Axis, value: i16) -> Result<()> {
         let mut input = self.input.borrow_mut();
         let mut gamepad = match gamepad_id {
             0 => &mut input.gamepad1,
@@ -532,25 +541,8 @@ impl Ui {
                     gamepad.down = false;
                 }
             }
-            Axis::TriggerLeft => {
-                if value > GAMEPAD_AXIS_DEADZONE {
-                    gamepad.turbo_a = true;
-                    gamepad.a = turbo;
-                } else {
-                    gamepad.turbo_a = false;
-                    gamepad.a = false;
-                }
-            }
-            Axis::TriggerRight => {
-                if value > GAMEPAD_AXIS_DEADZONE {
-                    gamepad.turbo_b = true;
-                    gamepad.b = turbo;
-                } else {
-                    gamepad.turbo_b = false;
-                    gamepad.b = false;
-                }
-            }
             _ => (),
         }
+        Ok(())
     }
 }

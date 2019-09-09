@@ -93,8 +93,8 @@ ARGS:
 | --------------------- | ----------- | ---------------- |
 | A                     | Z           | A                |
 | B                     | X           | B                |
-| A (Turbo)             | A           | X/Left Trigger   |
-| B (Turbo)             | S           | Y/Right Trigger  |
+| A (Turbo)             | A           | X                |
+| B (Turbo)             | S           | Y                |
 | Start                 | Enter       | Start            |
 | Select                | Right Shift | Select           |
 | Up, Down, Left, Right | Arrow Keys  | Left Stick/D-Pad |
@@ -104,13 +104,13 @@ There are also some emulator actions:
 | Action                | Keyboard         | Controller         |
 | --------------------- | ---------------- | ------------------ |
 | Open/Run ROM          | Ctrl-O           |                    |
-| Pause / Open Menu     | Escape           | Left Stick Button  |
+| Pause / Open Menu     | Escape           | Right Stick Button |
 | Quit                  | Ctrl-Q           |                    |
 | Reset                 | Ctrl-R           |                    |
 | Power Cycle           | Ctrl-P           |                    |
-| Increase Speed 25%    | Ctrl-=           |                    |
-| Decrease Speed 25%    | Ctrl--           |                    |
-| Toggle Fast-Forward   | Space            | Right Stick Button |
+| Increase Speed 25%    | Ctrl-=           | Right Trigger      |
+| Decrease Speed 25%    | Ctrl--           | Left Trigger       |
+| Toggle Fast-Forward   | Space            |                    |
 | Set State Slot        | Ctrl-(1-4)       |                    |
 | Save State            | Ctrl-S           | Left Shoulder      |
 | Load State            | Ctrl-L           | Right Shoulder     |
@@ -181,7 +181,7 @@ The following is a checklist of features and their progress:
     - [x] TxROM/MMC3 (Mapper 4)
     - [ ] ExROM/MMC5 (Mapper 5)
     - [x] AxROM (Mapper 7)
-    - [ ] PxROM/MMC2 (Mapper 9)
+    - [x] PxROM/MMC2 (Mapper 9)
 - [x] User Interface (UI)
   - [x] SDL2
   - [ ] WebAssembly
