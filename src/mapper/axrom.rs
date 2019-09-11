@@ -56,6 +56,7 @@ impl Mapper for Axrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {}
     fn battery_backed(&self) -> bool {
         false

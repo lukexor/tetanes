@@ -71,7 +71,7 @@ pub struct Ppu {
     pub vram: Vram,              // $2007 PPUDATA
     pub regs: PpuRegs,           // Registers
     oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    frame: Frame, // Frame data keeps track of data and shift registers between frames
+    pub frame: Frame, // Frame data keeps track of data and shift registers between frames
 }
 
 impl Ppu {
@@ -326,6 +326,8 @@ impl Ppu {
                 let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
                 let addr = NT_START | (self.regs.v & nametable_addr_mask);
                 self.frame.nametable = u16::from(self.vram.read(addr));
+                let mut mapper = self.vram.mapper.borrow_mut();
+                mapper.vram_change(&self, addr);
             }
             3 => {
                 // Fetch BG attribute table
@@ -349,6 +351,8 @@ impl Ppu {
                     self.frame.attribute >>= 2;
                 }
                 self.frame.attribute = (self.frame.attribute & 3) << 2;
+                let mut mapper = self.vram.mapper.borrow_mut();
+                mapper.vram_change(&self, addr);
             }
             5 => {
                 // Fetch BG tile lo bitmap
@@ -356,6 +360,8 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_lo = self.vram.read(tile_addr);
+                let mut mapper = self.vram.mapper.borrow_mut();
+                mapper.vram_change(&self, tile_addr);
             }
             7 => {
                 // Fetch BG tile hi bitmap
@@ -363,6 +369,8 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_hi = self.vram.read(tile_addr + 8);
+                let mut mapper = self.vram.mapper.borrow_mut();
+                mapper.vram_change(&self, tile_addr);
             }
             _ => (),
         }
@@ -599,6 +607,8 @@ impl Ppu {
             sprite.pattern <<= 4;
             sprite.pattern |= u32::from(a | p1 | p2);
         }
+        let mut mapper = self.vram.mapper.borrow_mut();
+        mapper.vram_change(&self, tile_addr);
         sprite
     }
 
@@ -698,6 +708,8 @@ impl Ppu {
     }
     fn write_ppuaddr(&mut self, val: u8) {
         self.regs.write_addr(val);
+        let mut mapper = self.vram.mapper.borrow_mut();
+        mapper.vram_change(&self, self.regs.v);
     }
 
     /*
@@ -730,6 +742,8 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
+        let mut mapper = self.vram.mapper.borrow_mut();
+        mapper.vram_change(&self, self.regs.v);
         val
     }
     fn peek_ppudata(&self) -> u8 {
@@ -751,6 +765,8 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
+        let mut mapper = self.vram.mapper.borrow_mut();
+        mapper.vram_change(&self, self.regs.v);
     }
 }
 
@@ -909,7 +925,7 @@ pub struct PpuRegs {
     oamaddr: u8,               // $2003 OAMADDR write-only
     nmi_delay: u8,             // Some games need a delay after vblank before nmi is triggered
     nmi_previous: bool,        // Keeps track of repeated nmi to handle delay timing
-    v: u16,                    // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
+    pub v: u16,                // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
     t: u16,                    // Temporary v - Also the addr of top-left onscreen tile
     x: u16,                    // Fine X
     w: bool,                   // 1st or 2nd write toggle
@@ -1320,8 +1336,8 @@ impl Savable for Vram {
     }
 }
 
-struct Frame {
-    num: u32,
+pub struct Frame {
+    pub num: u32,
     parity: bool,
     // Shift registers
     tile_lo: u8,

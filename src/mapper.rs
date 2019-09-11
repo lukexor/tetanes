@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use axrom::Axrom; // Mapper 7
 use cnrom::Cnrom; // Mapper 3
-                  // use exrom::Exrom; // Mapper 5
+use exrom::Exrom; // Mapper 5
 use nrom::Nrom; // Mapper 0
 use pxrom::Pxrom; // Mapper 9
 use sxrom::Sxrom; // Mapper 1
@@ -25,7 +25,7 @@ use uxrom::Uxrom; // Mapper 2
 
 pub mod axrom;
 pub mod cnrom;
-// pub mod exrom;
+pub mod exrom;
 pub mod nrom;
 pub mod pxrom;
 pub mod sxrom;
@@ -39,6 +39,7 @@ pub type MapperRef = Rc<RefCell<Mapper>>;
 pub trait Mapper: Memory + Savable + fmt::Debug {
     fn irq_pending(&mut self) -> bool;
     fn mirroring(&self) -> Mirroring;
+    fn vram_change(&mut self, ppu: &Ppu, addr: u16);
     fn clock(&mut self, ppu: &Ppu);
     fn battery_backed(&self) -> bool;
     fn save_sram(&self, fh: &mut Write) -> Result<()>;
@@ -63,7 +64,7 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
         2 => Ok(Uxrom::load(cart)),
         3 => Ok(Cnrom::load(cart)),
         4 => Ok(Txrom::load(cart)),
-        // 5 => Ok(Exrom::load(cart)),
+        5 => Ok(Exrom::load(cart)),
         7 => Ok(Axrom::load(cart)),
         9 => Ok(Pxrom::load(cart)),
         _ => Err(format_err!(
@@ -120,6 +121,7 @@ impl Mapper for NullMapper {
     fn mirroring(&self) -> Mirroring {
         Mirroring::Horizontal
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {}
     fn battery_backed(&self) -> bool {
         false

@@ -9,6 +9,7 @@ pub struct Debugger {
     current_step: u64,     // Current CPU instruction we're at
     steps: u64,            // Number of CPU instructions to step through
     break_type: BreakType, // Type of breakpoint
+    break_pc: u16,
 }
 #[derive(PartialEq, Eq, Debug)]
 enum BreakType {
@@ -41,6 +42,7 @@ impl Debugger {
             current_step: 0u64,
             steps: 0u64,
             break_type: Unset,
+            break_pc: 0u16,
         }
     }
 
@@ -63,6 +65,9 @@ impl Debugger {
     pub fn on_clock(&mut self, cpu: &mut Cpu, opcode: u8, num_args: u8, disasm: String) {
         if self.tracing && (self.break_type == Step || cpu.interrupt != Interrupt::None) {
             cpu.print_instruction(opcode, num_args, disasm);
+        }
+        if cpu.pc == self.break_pc {
+            self.prompt(cpu);
         }
         self.current_step = cpu.step;
         if self.enabled && self.break_type == Step {
@@ -180,6 +185,7 @@ impl Debugger {
         let bp = self.extract_num(cmd);
         if let Ok(bp) = bp {
             self.breakpoint = bp;
+            self.break_pc = bp as u16;
         } else {
             eprintln!("{}", Self::B_USAGE);
         }
@@ -244,7 +250,7 @@ impl Debugger {
         }
     }
 
-    fn hexdump(data: &[u8]) {
+    pub fn hexdump(data: &[u8]) {
         use std::cmp;
 
         let mut addr = 0;

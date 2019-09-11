@@ -171,7 +171,7 @@ impl INesHeader {
             ))?;
         } else if (header[7] & 0x0C) == 0x0C {
             Err(format_err!(
-                "Unrecognied header format - repair and try again."
+                "Unrecognized header format - repair and try again."
             ))?;
         }
 

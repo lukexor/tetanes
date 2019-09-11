@@ -320,7 +320,7 @@ impl Memory for CpuMemMap {
         let val = match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x6000..=0xFFFF => {
+            0x4020..=0xFFFF => {
                 let mut mapper = self.mapper.borrow_mut();
                 mapper.read(addr)
             }
@@ -332,7 +332,6 @@ impl Memory for CpuMemMap {
             0x2000..=0x3FFF => self.ppu.read(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
             0x4014 => self.open_bus,
-            _ => self.open_bus,
         };
         self.open_bus = val;
         val
@@ -343,7 +342,7 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x6000..=0xFFFF => {
+            0x4020..=0xFFFF => {
                 let mapper = self.mapper.borrow();
                 mapper.peek(addr)
             }
@@ -355,7 +354,6 @@ impl Memory for CpuMemMap {
             0x2000..=0x3FFF => self.ppu.peek(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
             0x4014 => self.open_bus,
-            _ => self.open_bus,
         }
     }
 
@@ -365,7 +363,7 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
-            0x6000..=0xFFFF => {
+            0x4020..=0xFFFF => {
                 let mut mapper = self.mapper.borrow_mut();
                 mapper.write(addr, val);
             }
@@ -377,7 +375,6 @@ impl Memory for CpuMemMap {
             0x2000..=0x3FFF => self.ppu.write(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => (),                                 // APU/IO Test Mode
             0x4014 => (),                                          // Handled inside the CPU
-            _ => (),
         }
     }
 }

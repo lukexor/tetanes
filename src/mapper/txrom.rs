@@ -236,6 +236,7 @@ impl Mapper for Txrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, ppu: &Ppu) {
         if ppu.cycle != 280
             || (ppu.scanline > VISIBLE_SCANLINE_END && ppu.scanline < PRERENDER_SCANLINE)
