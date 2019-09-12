@@ -815,8 +815,7 @@ impl Savable for Cpu {
         self.abs_addr.save(fh)?;
         self.rel_addr.save(fh)?;
         self.fetched_data.save(fh)?;
-        self.interrupt.save(fh)?;
-        self.log_enabled.save(fh)
+        self.interrupt.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.mem.load(fh)?;
@@ -833,8 +832,7 @@ impl Savable for Cpu {
         self.abs_addr.load(fh)?;
         self.rel_addr.load(fh)?;
         self.fetched_data.load(fh)?;
-        self.interrupt.load(fh)?;
-        self.log_enabled.load(fh)
+        self.interrupt.load(fh)
     }
 }
 
