@@ -186,7 +186,7 @@ impl Cpu {
 
             self.step += 1;
         }
-        self.cycles_count.wrapping_add(1);
+        self.cycles_count = self.cycles_count.wrapping_add(1);
         self.cycles_remaining = self.cycles_remaining.saturating_sub(1);
     }
 
@@ -308,7 +308,7 @@ impl Cpu {
     /// function returns either 0 or 1 if it requires an extra clock. This combined with the return
     /// from the operation will determine if a page boundary was crossed and if an extra clock was
     /// required.
-    ///
+
     /// Accumulator
     /// No additional data is required, but the default target will be the accumulator.
     fn acc(&mut self) -> u8 {
@@ -328,6 +328,7 @@ impl Cpu {
     /// Immediate
     /// Uses the next byte as the value, so we'll update the abs_addr to the next byte.
     fn imm(&mut self) -> u8 {
+        let _ = self.read(self.pc); // dummy read
         self.abs_addr = self.pc;
         self.pc = self.pc.wrapping_add(1);
         return 0;
@@ -379,6 +380,15 @@ impl Cpu {
     /// Uses a full 16-bit address as the next value.
     fn abs(&mut self) -> u8 {
         self.abs_addr = self.readw(self.pc);
+
+        // dummy read for read-modify-write instructions
+        match self.instr.op() {
+            ASL | LSR | ROL | ROR | INC | DEC | SLO | SRE | RLA | RRA | ISB | DCP => {
+                let _ = self.read(self.abs_addr);
+            }
+            _ => (), // Do nothing
+        }
+
         self.pc = self.pc.wrapping_add(2);
         return 0;
     }
@@ -396,7 +406,7 @@ impl Cpu {
             self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
         }
 
-        if (self.abs_addr & 0xFF00) != (addr & 0xFF00) {
+        if Cpu::pages_differ(addr, self.abs_addr) {
             return 1;
         } else {
             return 0;
@@ -419,7 +429,7 @@ impl Cpu {
             _ => (), // Do nothing
         }
 
-        if (self.abs_addr & 0xFF00) != (addr & 0xFF00) {
+        if Cpu::pages_differ(addr, self.abs_addr) {
             return 1;
         } else {
             return 0;
@@ -469,7 +479,7 @@ impl Cpu {
             self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
         }
 
-        if (self.abs_addr & 0xFF00) != (addr & 0xFF00) {
+        if Cpu::pages_differ(addr, self.abs_addr) {
             return 1;
         } else {
             return 0;
@@ -1290,7 +1300,7 @@ impl Cpu {
     fn las(&mut self) -> u8 {
         self.lda();
         self.tsx();
-        return 0;
+        return 1;
     }
     /// LAX: Shortcut for LDA then TAX
     fn lax(&mut self) -> u8 {
@@ -1336,7 +1346,9 @@ impl Cpu {
         eprintln!("shy not implemented");
         return 0;
     }
-    /// ARR: Shortcut for AND #imm then ROR
+    /// ARR: Shortcut for AND #imm then ROR, but sets flags differently
+    /// C is bit 6 and V is bit 6 xor bit 5
+    /// TODO doesn't pass tests
     fn arr(&mut self) -> u8 {
         self.and();
         self.ror();
@@ -1349,6 +1361,7 @@ impl Cpu {
         return 0;
     }
     /// ALR/ASR: Shortcut for AND #imm then LSR
+    /// TODO doesn't pass tests
     fn alr(&mut self) -> u8 {
         self.and();
         self.lsr();
