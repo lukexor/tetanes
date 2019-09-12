@@ -2,6 +2,7 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/CPU]()
 
+#[cfg(debug_assertions)]
 use crate::console::debugger::Debugger;
 use crate::memory::{CpuMemMap, Memory};
 use crate::serialization::Savable;
@@ -15,13 +16,13 @@ pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
 // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
 pub const CPU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
 
-const NMI_ADDR: u16 = 0xFFFA;
-const IRQ_ADDR: u16 = 0xFFFE;
-const RESET_ADDR: u16 = 0xFFFC;
+const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
+const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
+const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
 const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
-const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
-const POWER_ON_CYCLE: u64 = 7;
-const SP_BASE: u16 = 0x100;
+const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set - nestest seems to keep Unused set
+const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles according to nestest - though some docs say 8
+const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
 // Status Registers
 // http://wiki.nesdev.com/w/index.php/Status_flags
@@ -31,34 +32,43 @@ const SP_BASE: u16 = 0x100;
 // |||| |||+- Carry
 // |||| ||+-- Zero
 // |||| |+--- Interrupt Disable
-// |||| +---- Decimal - Not used in the NES but still has to function
-// |||+------ Break Flag - 1 when pushed to stack from PHP/BRK, 0 from IRQ/NMI
+// |||| +---- Decimal Mode - Not used in the NES but still has to function
+// |||+------ Break - 1 when pushed to stack from PHP/BRK, 0 from IRQ/NMI
 // ||+------- Unused - always set to 1 when pushed to stack
 // |+-------- Overflow
 // +--------- Negative
-const CARRY_FLAG: u8 = 0x1;
-const ZERO_FLAG: u8 = 0x2;
-const INTERRUPTD_FLAG: u8 = 0x4;
-const DECIMAL_FLAG: u8 = 0x8;
-const BREAK_FLAG: u8 = 0x10;
-const UNUSED_FLAG: u8 = 0x20;
-const OVERFLOW_FLAG: u8 = 0x40;
-const NEGATIVE_FLAG: u8 = 0x80;
+enum StatusRegs {
+    C = 1,        // Carry
+    Z = (1 << 1), // Zero
+    I = (1 << 2), // Disable Interrupt
+    D = (1 << 3), // Decimal Mode
+    B = (1 << 4), // Break
+    U = (1 << 5), // Unused
+    V = (1 << 6), // Overflow
+    N = (1 << 7), // Negative
+}
+use StatusRegs::*;
 
 /// The Central Processing Unit status and registers
 pub struct Cpu {
     pub mem: CpuMemMap,
-    pub cycle: u64,           // total number of cycles ran
+    pub cycles_count: u64,    // total number of cycles ran
+    cycles_remaining: u64,    // Number of cycles remaining in the current instruction
     pub step: u64,            // total number of CPU instructions run
     pub pc: u16,              // program counter
-    stall: u64,               // number of cycles to stall/nop used mostly by write_oamdma
     sp: u8,                   // stack pointer - stack is at $0100-$01FF
     acc: u8,                  // accumulator
     x: u8,                    // x register
     y: u8,                    // y register
     status: u8,               // Status Registers
+    instr: Instr,             // The currently executing instruction
+    abs_addr: u16,            // Used memory addresses get set here
+    rel_addr: u16,            // Relative address for branch instructions
+    fetched_data: u8,         // Represents data fetched for the ALU
     pub interrupt: Interrupt, // Pending interrupt
+    #[cfg(debug_assertions)]
     debugger: Debugger,
+    #[cfg(debug_assertions)]
     pub log_enabled: bool,
     #[cfg(test)]
     pub nestestlog: Vec<String>,
@@ -68,17 +78,23 @@ impl Cpu {
     pub fn init(mem: CpuMemMap) -> Self {
         let mut cpu = Self {
             mem,
-            cycle: POWER_ON_CYCLE,
+            cycles_count: POWER_ON_CYCLES,
+            cycles_remaining: 0u64,
             step: 0u64,
-            stall: 0u64,
-            pc: 0u16,
+            pc: 0x0000,
             sp: POWER_ON_SP,
-            acc: 0u8,
-            x: 0u8,
-            y: 0u8,
+            acc: 0x00,
+            x: 0x00,
+            y: 0x00,
             status: POWER_ON_STATUS,
+            instr: INSTRUCTIONS[0x00],
+            abs_addr: 0x0000,
+            rel_addr: 0x0000,
+            fetched_data: 0x00,
             interrupt: Interrupt::None,
+            #[cfg(debug_assertions)]
             debugger: Debugger::new(),
+            #[cfg(debug_assertions)]
             log_enabled: false,
             #[cfg(test)]
             nestestlog: Vec::with_capacity(10000),
@@ -97,11 +113,11 @@ impl Cpu {
     ///
     /// These operations take the CPU 7 cycle.
     pub fn reset(&mut self) {
-        self.cycle = 7;
-        self.stall = 0u64;
+        self.cycles_count = POWER_ON_CYCLES;
+        self.cycles_remaining = 0u64;
         self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
-        self.set_irq_disable(true);
+        self.set_flag(I, true);
         self.mem.apu.reset();
         self.mem.ppu.reset();
         #[cfg(test)]
@@ -114,8 +130,8 @@ impl Cpu {
     ///
     /// These operations take the CPU 7 cycle.
     pub fn power_cycle(&mut self) {
-        self.cycle = POWER_ON_CYCLE;
-        self.stall = 0u64;
+        self.cycles_count = POWER_ON_CYCLES;
+        self.cycles_remaining = 0u64;
         self.pc = self.readw(RESET_ADDR);
         self.sp = POWER_ON_SP;
         self.acc = 0u8;
@@ -128,129 +144,53 @@ impl Cpu {
         self.nestestlog.clear();
     }
 
+    #[cfg(debug_assertions)]
     pub fn log(&mut self, val: bool) {
         self.log_enabled = val;
     }
 
-    /// Runs the CPU the passed in number of cycle
-    pub fn clock(&mut self) -> u64 {
-        if self.stall > 0 {
-            self.stall -= 1;
-            return 1;
+    /// Runs the CPU one cycle
+    pub fn clock(&mut self) {
+        if self.cycles_remaining == 0 {
+            match self.interrupt {
+                Interrupt::IRQ => self.irq(),
+                Interrupt::NMI => self.nmi(),
+                _ => (),
+            }
+            self.interrupt = Interrupt::None;
+
+            let opcode = self.read(self.pc);
+            self.set_flag(U, true);
+            #[cfg(debug_assertions)]
+            let log_pc = self.pc;
+            self.pc = self.pc.wrapping_add(1);
+
+            self.instr = INSTRUCTIONS[opcode as usize];
+            self.cycles_remaining = self.instr.cycles();
+
+            let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
+
+            #[cfg(debug_assertions)]
+            {
+                if self.log_enabled {
+                    self.print_instruction(log_pc.wrapping_add(1));
+                } else if self.debugger.enabled() {
+                    let debugger: *mut Debugger = &mut self.debugger;
+                    let cpu: *mut Cpu = self;
+                    unsafe { (*debugger).on_clock(&mut (*cpu), log_pc.wrapping_add(1)) };
+                }
+            }
+
+            let extra_cycle_req2 = (self.instr.execute())(self); // Execute operation
+            self.cycles_remaining += u64::from(extra_cycle_req1 & extra_cycle_req2);
+
+            self.step += 1;
         }
-
-        let start_cycle = self.cycle;
-
-        match self.interrupt {
-            Interrupt::IRQ => self.irq(),
-            Interrupt::NMI => self.nmi(),
-            _ => (),
-        }
-        self.interrupt = Interrupt::None;
-
-        let opcode = self.read(self.pc);
-        let instr = &INSTRUCTIONS[opcode as usize];
-        let (val, target, num_args, page_crossed, disasm) =
-            self.decode_addr_mode(instr.addr_mode(), self.pc.wrapping_add(1), instr);
-
-        if self.log_enabled {
-            self.print_instruction(opcode, num_args + 1, disasm.clone());
-        }
-        if self.debugger.enabled() {
-            let debugger: *mut Debugger = &mut self.debugger;
-            let cpu: *mut Cpu = self;
-            unsafe { (*debugger).on_clock(&mut (*cpu), opcode, num_args + 1, disasm) };
-        }
-
-        self.pc = self.pc.wrapping_add(1 + u16::from(num_args));
-        self.cycle += instr.cycle();
-        self.step += 1;
-        if page_crossed {
-            self.cycle += instr.page_cycles();
-        }
-
-        let val = val as u8;
-        // Ordered by most often executed (roughly) to improve linear search time
-        match instr.op() {
-            LDA => self.lda(val),             // LoaD A with M
-            BNE => self.bne(val),             // Branch if Not Equal to zero
-            JMP => self.jmp(target.unwrap()), // JuMP - safe to unwrap because JMP is Absolute
-            INX => self.inx(),                // INcrement X
-            BPL => self.bpl(val),             // Branch on PLus (positive)
-            CMP => self.cmp(val),             // CoMPare
-            BMI => self.bmi(val),             // Branch on MInus (negative)
-            BEQ => self.beq(val),             // Branch if EQual to zero
-            BIT => self.bit(val),             // Test BITs of M with A (Affects N, V and Z)
-            STA => self.sta(target),          // STore A into M
-            DEX => self.dex(),                // DEcrement X
-            INY => self.iny(),                // INcrement Y
-            TAY => self.tay(),                // Transfer A to Y
-            INC => self.inc(target),          // INCrement M or A
-            BCS => self.bcs(val),             // Branch if Carry Set
-            JSR => self.jsr(target.unwrap()), // Jump and Save Return addr - safe to unwrap because JSR is Absolute
-            LSR => self.lsr(target),          // Logical Shift Right M or A
-            RTS => self.rts(),                // ReTurn from Subroutine
-            AND => self.and(val),             // AND M with A
-            CLC => self.clc(),                // CLear Carry flag
-            NOP => self.nop(),                // NO oPeration
-            BCC => self.bcc(val),             // Branch on Carry Clear
-            BVS => self.bvs(val),             // Branch on oVerflow Set
-            SEC => self.sec(),                // SEt Carry flag
-            BVC => self.bvc(val),             // Branch if no oVerflow Set
-            LDY => self.ldy(val),             // LoaD Y with M
-            CLV => self.clv(),                // CLear oVerflow flag
-            LDX => self.ldx(val),             // LoaD X with M
-            PLA => self.pla(),                // PulL A from the stack
-            CPX => self.cpx(val),             // ComPare with X
-            PHA => self.pha(),                // PusH A to the stack
-            CPY => self.cpy(val),             // ComPare with Y
-            PHP => self.php(),                // PusH Processor status to the stack
-            SBC => self.sbc(val),             // Subtract M from A with carry
-            PLP => self.plp(),                // PulL Processor status from the stack
-            ADC => self.adc(val),             // ADd with Carry M with A
-            DEC => self.dec(target),          // DECrement M or A
-            ORA => self.ora(val),             // OR with A
-            EOR => self.eor(val),             // Exclusive-OR M with A
-            ROR => self.ror(target),          // ROtate Right M or A
-            ROL => self.rol(target),          // ROtate Left M or A
-            ASL => self.asl(target),          // Arithmatic Shift Left M or A
-            STX => self.stx(target),          // STore X into M
-            TAX => self.tax(),                // Transfer A to X
-            TSX => self.tsx(),                // Transfer SP to X
-            STY => self.sty(target),          // STore Y into M
-            TXS => self.txs(),                // Transfer X to SP
-            DEY => self.dey(),                // DEcrement Y
-            TYA => self.tya(),                // Transfer Y to A
-            TXA => self.txa(),                // TRansfer X to A
-            SED => self.sed(),                // SEt Decimal mode
-            RTI => self.rti(),                // ReTurn from Interrupt
-            CLD => self.cld(),                // CLear Decimal mode
-            SEI => self.sei(),                // SEt Interrupt disable
-            CLI => self.cli(),                // CLear Interrupt disable
-            BRK => self.brk(),                // BReaK (forced interrupt)
-            KIL => self.kil(),                // KILl (stops CPU)
-            ISB => self.isb(target),          // INC & SBC
-            DCP => self.dcp(target),          // DEC & CMP
-            AXS => self.axs(val),             // (A & X) - val into X
-            LAS => self.las(val),             // LDA & TSX
-            LAX => self.lax(val),             // LDA & TAX
-            AHX => self.ahx(),                // Store A & X & H in M
-            SAX => self.sax(target),          // Sotre A & X in M
-            XAA => self.xaa(),                // TXA & AND
-            SHX => self.shx(),                // Store X & H in M
-            RRA => self.rra(target),          // ROR & ADC
-            TAS => self.tas(target),          // STA & TXS
-            SHY => self.shy(),                // Store Y & H in M
-            ARR => self.arr(val),             // AND #imm & ROR
-            SRE => self.sre(target),          // LSR & EOR
-            ALR => self.alr(val),             // AND #imm & LSR
-            RLA => self.rla(target),          // ROL & AND
-            ANC => self.anc(val),             // AND #imm
-            SLO => self.slo(target),          // ASL & ORA
-        };
-        self.cycle - start_cycle
+        self.cycles_count.wrapping_add(1);
+        self.cycles_remaining = self.cycles_remaining.saturating_sub(1);
     }
 
+    #[cfg(debug_assertions)]
     pub fn debug(&mut self, val: bool) {
         if val {
             self.debugger.start();
@@ -263,22 +203,23 @@ impl Cpu {
     ///
     /// http://wiki.nesdev.com/w/index.php/IRQ
     pub fn trigger_irq(&mut self) {
-        if self.irq_disabled() {
+        if self.get_flag(I) > 0 {
             return;
         }
         self.interrupt = Interrupt::IRQ;
     }
     pub fn irq(&mut self) {
-        if self.debugger.enabled() {
+        #[cfg(debug_assertions)]
+        {
             let debugger: *mut Debugger = &mut self.debugger;
             unsafe { (*debugger).on_irq(&self) };
         }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
-        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
+        self.push_stackb((self.status | U as u8) & !(B as u8));
         self.pc = self.readw(IRQ_ADDR);
-        self.set_irq_disable(true);
-        self.cycle = self.cycle.wrapping_add(7);
+        self.set_flag(I, true);
+        self.cycles_remaining = self.cycles_remaining.wrapping_add(7);
     }
 
     /// Sends a NMI Interrupt to the CPU
@@ -288,105 +229,44 @@ impl Cpu {
         self.interrupt = Interrupt::NMI;
     }
     fn nmi(&mut self) {
-        if self.debugger.enabled() {
+        #[cfg(debug_assertions)]
+        {
             let debugger: *mut Debugger = &mut self.debugger;
             unsafe { (*debugger).on_nmi(&self) };
         }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
-        self.push_stackb((self.status | UNUSED_FLAG) & !BREAK_FLAG);
+        self.push_stackb((self.status | U as u8) & !(B as u8));
         self.pc = self.readw(NMI_ADDR);
-        self.set_irq_disable(true);
-        self.cycle = self.cycle.wrapping_add(7);
+        self.set_flag(I, true);
+        self.cycles_remaining = self.cycles_remaining.wrapping_add(7);
     }
 
     // Getters/Setters
 
-    // Sets the zero and negative registers appropriately
-    fn set_zn(&mut self, val: u8) {
-        match val {
-            0 => {
-                self.set_zero(true);
-                self.set_negative(false);
-            }
-            v if is_negative(v) => {
-                self.set_zero(false);
-                self.set_negative(true);
-            }
-            _ => {
-                self.set_zero(false);
-                self.set_negative(false);
-            }
-        }
-    }
-
     // Used for testing to manually set the PC to a known value
+    #[cfg(test)]
     pub fn set_pc(&mut self, addr: u16) {
         self.pc = addr;
     }
 
     // Status Register functions
 
-    fn carry(&self) -> bool {
-        (self.status & CARRY_FLAG) == CARRY_FLAG
-    }
-    fn set_carry(&mut self, val: bool) {
-        if val {
-            self.status |= CARRY_FLAG;
-        } else {
-            self.status &= !CARRY_FLAG;
-        }
+    // Convenience method to set both Z and N
+    fn set_flags_zn(&mut self, val: u8) {
+        self.set_flag(Z, val == 0x00);
+        self.set_flag(N, val & 0x80 == 0x80);
     }
 
-    fn zero(&self) -> bool {
-        (self.status & ZERO_FLAG) == ZERO_FLAG
-    }
-    fn set_zero(&mut self, val: bool) {
-        if val {
-            self.status |= ZERO_FLAG;
-        } else {
-            self.status &= !ZERO_FLAG;
-        }
+    fn get_flag(&self, flag: StatusRegs) -> u8 {
+        return if (self.status & flag as u8) > 0 { 1 } else { 0 };
     }
 
-    fn irq_disabled(&self) -> bool {
-        (self.status & INTERRUPTD_FLAG) == INTERRUPTD_FLAG
-    }
-    fn set_irq_disable(&mut self, val: bool) {
+    fn set_flag(&mut self, flag: StatusRegs, val: bool) {
         if val {
-            self.status |= INTERRUPTD_FLAG;
+            self.status |= flag as u8;
         } else {
-            self.status &= !INTERRUPTD_FLAG;
-        }
-    }
-
-    fn set_decimal(&mut self, val: bool) {
-        if val {
-            self.status |= DECIMAL_FLAG;
-        } else {
-            self.status &= !DECIMAL_FLAG;
-        }
-    }
-
-    fn overflow(&self) -> bool {
-        (self.status & OVERFLOW_FLAG) == OVERFLOW_FLAG
-    }
-    fn set_overflow(&mut self, val: bool) {
-        if val {
-            self.status |= OVERFLOW_FLAG;
-        } else {
-            self.status &= !OVERFLOW_FLAG;
-        }
-    }
-
-    fn negative(&self) -> bool {
-        (self.status & NEGATIVE_FLAG) == NEGATIVE_FLAG
-    }
-    fn set_negative(&mut self, val: bool) {
-        if val {
-            self.status |= NEGATIVE_FLAG;
-        } else {
-            self.status &= !NEGATIVE_FLAG;
+            self.status &= !(flag as u8);
         }
     }
 
@@ -419,228 +299,231 @@ impl Cpu {
         hi << 8 | lo
     }
 
-    // Decodes the addressing mode of the instruction and returns the target value, address (if
-    // there is one), number of bytes used after the opcode, and whether it crossed a page
-    // boundary
-    fn decode_addr_mode(
-        &mut self,
-        mode: AddrMode,
-        addr: u16,
-        instr: &Instruction,
-    ) -> (u16, Option<u16>, u8, bool, String) {
-        // (Memory value, Optional address, Number of bytes used, page crossed)
-        // Ordered (roughly) by most commonly used
+    /// Addressing Modes
+    ///
+    /// The 6502 can address 64KB from 0x0000 - 0xFFFF. The high byte is usually the page and the
+    /// low byte the offset into the page. There are 256 total pages of 256 bytes.
+    ///
+    /// Several addressing modes require an additional clock if they cross a page boundary.  Each
+    /// function returns either 0 or 1 if it requires an extra clock. This combined with the return
+    /// from the operation will determine if a page boundary was crossed and if an extra clock was
+    /// required.
+    ///
+    /// Accumulator
+    /// No additional data is required, but the default target will be the accumulator.
+    fn acc(&mut self) -> u8 {
+        let _ = self.read(self.pc); // dummy read
+        self.fetched_data = self.acc;
+        return 0;
+    }
 
-        // ST* instructions should not read memory as it adversly affects the
-        // PPU state
-        let read = match instr.op() {
-            STA | STX | STY => false,
-            _ => true,
-        };
+    /// Implied
+    /// No additional data is required, but the default target will be the accumulator.
+    fn imp(&mut self) -> u8 {
+        let _ = self.read(self.pc); // dummy read
+        self.fetched_data = self.acc;
+        return 0;
+    }
 
-        match mode {
-            Implied => {
-                let _ = self.read(addr); // dummy read
-                let disasm = format!("{:?}", instr);
-                (0, None, 0, false, disasm)
-            }
-            ZeroPage => {
-                let addr = u16::from(self.read(addr));
-                let disasm = { format!("{:?} ${:02X} = {:02X}", instr, addr, self.peek(addr)) };
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                (val, Some(addr), 1, false, disasm)
-            }
-            Absolute => {
-                let addr = self.readw(addr);
-                let disasm = if instr.op() == JMP || instr.op() == JSR {
-                    format!("{:?} ${:04X}", instr, addr)
-                } else {
-                    format!("{:?} ${:04X} = {:02X}", instr, addr, self.peek(addr))
-                };
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                (val, Some(addr), 2, false, disasm)
-            }
-            Immediate => {
-                let disasm = format!("{:?} #${:02X}", instr, self.peek(addr));
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                (val, Some(addr), 1, false, disasm)
-            }
-            Relative => {
-                let disasm = {
-                    let offset = self.peek(addr).wrapping_add(2);
-                    let addr = if offset & 0x80 == 0x80 {
-                        // Result is negative signed number in twos complement
-                        let offset = !offset + 1;
-                        self.pc.wrapping_sub(offset.into())
-                    } else {
-                        self.pc.wrapping_add(offset.into())
-                    };
-                    format!("{:?} ${:04X}", instr, addr)
-                };
-                let val = if read { self.read(addr) } else { 0 };
-                (u16::from(val), Some(addr), 1, false, disasm)
-            }
-            Accumulator => {
-                let _ = self.read(addr); // dummy read
-                let disasm = format!("{:?} A", instr);
-                (u16::from(self.acc), None, 0, false, disasm)
-            }
-            AbsoluteX => {
-                let addr0 = self.readw(addr);
-                let addr = addr0.wrapping_add(u16::from(self.x));
-                // dummy read
-                if ((addr0 & 0xFF) + u16::from(self.x)) > 0xFF {
-                    let dummy_addr = (addr0 & 0xFF00) | (addr & 0xFF);
-                    self.read(dummy_addr);
-                }
-                if addr0 == 0x2000 && self.x == 0x7 {
-                    self.read(addr);
-                }
-                let disasm = format!(
-                    "{:?} ${:04X},X @ {:04X} = {:02X}",
-                    instr,
-                    addr0,
-                    addr,
-                    self.peek(addr)
-                );
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                let page_crossed = Cpu::pages_differ(addr0, addr);
-                (val, Some(addr), 2, page_crossed, disasm)
-            }
-            IndirectY => {
-                let addr_zp0 = self.read(addr);
-                let addr_zp = self.readw_zp(addr_zp0);
-                let addr = addr_zp.wrapping_add(u16::from(self.y));
-                // dummy read
-                if (addr_zp & 0xFF) + u16::from(self.y) > 0xFF {
-                    let dummy_addr = (addr_zp & 0xFF00) | (addr & 0xFF);
-                    self.read(dummy_addr);
-                }
-                let disasm = format!(
-                    "{:?} (${:02X}),Y = {:04X} @ {:04X} = {:02X}",
-                    instr,
-                    addr_zp0,
-                    addr_zp,
-                    addr,
-                    self.peek(addr)
-                );
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                let page_crossed = Cpu::pages_differ(addr_zp, addr);
-                (val, Some(addr), 1, page_crossed, disasm)
-            }
-            AbsoluteY => {
-                let addr0 = self.readw(addr);
-                let addr = addr0.wrapping_add(u16::from(self.y));
-                // dummy ST* read
-                if !read && addr == 0x2007 {
-                    let dummy_addr = (addr0 & 0xFF00) | (addr & 0xFF);
-                    self.read(dummy_addr);
-                }
-                let disasm = format!(
-                    "{:?} ${:04X},Y @ {:04X} = {:02X}",
-                    instr,
-                    addr0,
-                    addr,
-                    self.peek(addr)
-                );
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                let page_crossed = Cpu::pages_differ(addr0, addr);
-                (val, Some(addr), 2, page_crossed, disasm)
-            }
-            ZeroPageX => {
-                let addr0 = self.read(addr);
-                let addr = u16::from(addr0.wrapping_add(self.x));
-                let disasm = format!(
-                    "{:?} ${:02X},X @ {:02X} = {:02X}",
-                    instr,
-                    addr0,
-                    addr,
-                    self.peek(addr)
-                );
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                (val, Some(addr), 1, false, disasm)
-            }
-            ZeroPageY => {
-                let addr0 = self.read(addr);
-                let addr = u16::from(addr0.wrapping_add(self.y));
-                let disasm = format!(
-                    "{:?} ${:02X},Y @ {:02X} = {:02X}",
-                    instr,
-                    addr0,
-                    addr,
-                    self.peek(addr)
-                );
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                (val, Some(addr), 1, false, disasm)
-            }
-            Indirect => {
-                let addr0 = self.readw(addr);
-                let addr = self.readw_pagewrap(addr0);
-                let disasm = if instr.op() == JMP {
-                    format!("{:?} (${:04X}) = {:04X}", instr, addr0, addr)
-                } else {
-                    format!("{:?} (${:04X})", instr, addr)
-                };
-                (0, Some(addr), 2, false, disasm)
-            }
-            IndirectX => {
-                let addr_zp0 = self.read(addr);
-                let addr_zp = addr_zp0.wrapping_add(self.x);
-                let addr = self.readw_zp(addr_zp);
-                let disasm = format!(
-                    "{:?} (${:02X},X) @ {:02X} = {:04X} = {:02X}",
-                    instr,
-                    addr_zp0,
-                    addr_zp,
-                    addr,
-                    self.peek(addr)
-                );
-                let val = if read { u16::from(self.read(addr)) } else { 0 };
-                (val, Some(addr), 1, false, disasm)
-            }
+    /// Immediate
+    /// Uses the next byte as the value, so we'll update the abs_addr to the next byte.
+    fn imm(&mut self) -> u8 {
+        self.abs_addr = self.pc;
+        self.pc = self.pc.wrapping_add(1);
+        return 0;
+    }
+
+    /// Zero Page
+    /// Accesses the first 0xFF bytes of the address range, so this only requires one extra byte
+    /// instead of the usual two.
+    fn zp0(&mut self) -> u8 {
+        self.abs_addr = self.read(self.pc).into();
+        self.pc = self.pc.wrapping_add(1);
+        self.abs_addr &= 0x00FF;
+        return 0;
+    }
+
+    /// Zero Page w/ X offset
+    /// Same as Zero Page, but is offset by adding the x register.
+    fn zpx(&mut self) -> u8 {
+        self.abs_addr = self.read(self.pc).wrapping_add(self.x).into();
+        self.pc = self.pc.wrapping_add(1);
+        self.abs_addr &= 0x00FF;
+        return 0;
+    }
+
+    /// Zero Page w/ Y offset
+    /// Same as Zero Page, but is offset by adding the y register.
+    fn zpy(&mut self) -> u8 {
+        self.abs_addr = self.read(self.pc).wrapping_add(self.y).into();
+        self.pc = self.pc.wrapping_add(1);
+        self.abs_addr &= 0x00FF;
+        return 0;
+    }
+
+    /// Relative
+    /// This mode is only used by branching instructions. The address must be between -128 and +127,
+    /// allowing the branching instruction to move backward or forward relative to the current
+    /// program counter.
+    fn rel(&mut self) -> u8 {
+        self.rel_addr = self.read(self.pc).into();
+        self.pc = self.pc.wrapping_add(1);
+        if self.rel_addr & 0x80 == 0x80 {
+            // If address is negative, extend sign to 16-bits
+            self.rel_addr |= 0xFF00;
+        }
+        return 0;
+    }
+
+    /// Absolute
+    /// Uses a full 16-bit address as the next value.
+    fn abs(&mut self) -> u8 {
+        self.abs_addr = self.readw(self.pc);
+        self.pc = self.pc.wrapping_add(2);
+        return 0;
+    }
+
+    /// Absolute w/ X offset
+    /// Same as Absolute, but is offset by adding the x register. If a page boundary is crossed, an
+    /// additional clock is required.
+    fn abx(&mut self) -> u8 {
+        let addr = self.readw(self.pc);
+        self.pc = self.pc.wrapping_add(2);
+        self.abs_addr = addr.wrapping_add(self.x.into());
+
+        // dummy read
+        if (addr & 0x00FF).wrapping_add(self.x.into()) > 0x00FF {
+            self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
+        }
+
+        if (self.abs_addr & 0xFF00) != (addr & 0xFF00) {
+            return 1;
+        } else {
+            return 0;
         }
     }
 
+    /// Absolute w/ Y offset
+    /// Same as Absolute, but is offset by adding the y register. If a page boundary is crossed, an
+    /// additional clock is required.
+    fn aby(&mut self) -> u8 {
+        let addr = self.readw(self.pc);
+        self.pc = self.pc.wrapping_add(2);
+        self.abs_addr = addr.wrapping_add(self.y.into());
+
+        // dummy ST* read
+        match self.instr.op() {
+            STA | STX | STY if self.abs_addr == 0x2007 => {
+                self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
+            }
+            _ => (), // Do nothing
+        }
+
+        if (self.abs_addr & 0xFF00) != (addr & 0xFF00) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    /// Indirect
+    /// The next 16-bit address is used to get the actual 16-bit address. This instruction has
+    /// a bug in the original hardware. If the lo byte is 0xFF, the hi byte would cross a page
+    /// boundary. However, this doesn't work correctly on the original hardware and instead
+    /// wraps back around to 0.
+    fn ind(&mut self) -> u8 {
+        let addr = self.readw(self.pc);
+        self.pc = self.pc.wrapping_add(2);
+        if addr & 0x00FF == 0x00FF {
+            // Simulate bug
+            self.abs_addr = (u16::from(self.read(addr & 0xFF00)) << 8) | u16::from(self.read(addr));
+        } else {
+            // Normal behavior
+            self.abs_addr = (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr));
+        }
+        return 0;
+    }
+
+    /// Indirect X
+    /// The next 8-bit address is offset by the X register to get the actual 16-bit address from
+    /// page 0x00.
+    fn idx(&mut self) -> u8 {
+        let addr = self.read(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        let x_offset = addr.wrapping_add(self.x);
+        self.abs_addr = self.readw_zp(x_offset);
+        return 0;
+    }
+
+    /// Indirect Y
+    /// The next 8-bit address is read to get a 16-bit address from page 0x00, which is then offset
+    /// by the Y register. If a page boundary is crossed, add a clock cycle.
+    fn idy(&mut self) -> u8 {
+        let addr = self.read(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        let addr = self.readw_zp(addr);
+        self.abs_addr = addr.wrapping_add(self.y.into());
+
+        // dummy read
+        if (addr & 0x00FF).wrapping_add(self.y.into()) > 0x00FF {
+            self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
+        }
+
+        if (self.abs_addr & 0xFF00) != (addr & 0xFF00) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    // Source the data used by an instruction. Some instructions don't fetch data as the source
+    // is implied by the instruction such as INX which increments the X register.
+    fn fetch_data(&mut self) {
+        let mode = self.instr.addr_mode();
+        if mode != IMP && mode != ACC {
+            self.fetched_data = self.read(self.abs_addr);
+        }
+    }
+
+    // Writes data back to where fetched_data was sourced from. Either accumulator or memory
+    // specified in abs_addr.
+    fn write_fetched(&mut self, val: u8) {
+        let mode = self.instr.addr_mode();
+        if mode == IMP || mode == ACC {
+            self.acc = val;
+        } else {
+            self.write(self.abs_addr, val);
+        }
+    }
+
+    // Memory accesses
+
+    // Utility to read a full 16-bit word
     fn readw(&mut self, addr: u16) -> u16 {
         let lo = u16::from(self.read(addr));
         let hi = u16::from(self.read(addr.wrapping_add(1)));
-        lo | hi << 8
+        (hi << 8) | lo
     }
 
-    // Same as readw but wraps around for address 0xFF
+    // readw but don't accidentally modify state
+    fn peekw(&self, addr: u16) -> u16 {
+        let lo = u16::from(self.peek(addr));
+        let hi = u16::from(self.peek(addr.wrapping_add(1)));
+        (hi << 8) | lo
+    }
+
+    // Like readw, but for Zero Page which means it'll wrap around at 0xFF
     fn readw_zp(&mut self, addr: u8) -> u16 {
-        let lo = u16::from(self.read(u16::from(addr)));
-        let hi = u16::from(self.read(u16::from(addr.wrapping_add(1))));
-        lo | hi << 8
+        let lo = u16::from(self.read(addr.into()));
+        let hi = u16::from(self.read(addr.wrapping_add(1).into()));
+        (hi << 8) | lo
     }
 
-    // Emulates a 6502 bug that caused the low byte to wrap without incrementing the high byte
-    // e.g. reading from 0x01FF will read from 0x0100
-    fn readw_pagewrap(&mut self, addr: u16) -> u16 {
-        let lo = u16::from(self.read(addr));
-        let addr = (addr & 0xFF00) | u16::from(addr.wrapping_add(1) as u8);
-        let hi = u16::from(self.read(addr));
-        lo | hi << 8
-    }
-
-    // Reads from either a target address or the accumulator register.
-    //
-    // target is either Some(u16) or None based on the addressing mode
-    fn read_target(&mut self, target: Option<u16>) -> u8 {
-        match target {
-            Some(addr) => self.read(addr),
-            None => self.acc,
-        }
-    }
-
-    // Reads from either a target address or the accumulator register.
-    //
-    // target is either Some(u16) or None based on the addressing mode
-    fn write_target(&mut self, target: Option<u16>, val: u8) {
-        match target {
-            Some(addr) => self.write(addr, val),
-            None => self.acc = val,
-        }
+    // Like peekw, but for Zero Page which means it'll wrap around at 0xFF
+    fn peekw_zp(&self, addr: u8) -> u16 {
+        let lo = u16::from(self.peek(addr.into()));
+        let hi = u16::from(self.peek(addr.wrapping_add(1).into()));
+        (hi << 8) | lo
     }
 
     // Copies data to the PPU OAMDATA ($2004) using DMA (Direct Memory Access)
@@ -654,31 +537,121 @@ impl Cpu {
             self.write(oam_addr, val);
             addr = addr.saturating_add(1);
         }
-        self.stall += 513; // +2 for every read/write and +1 dummy cycle
-        if self.cycle & 0x01 == 1 {
+        self.cycles_remaining += 513; // +2 for every read/write and +1 dummy cycle
+        if self.cycles_remaining & 0x01 == 1 {
             // +1 cycle if on an odd cycle
-            self.stall += 1;
+            self.cycles_remaining += 1;
         }
     }
 
     // Print the current instruction and status
-    pub fn print_instruction(&mut self, opcode: u8, num_args: u8, disasm: String) {
-        let word1 = if num_args < 2 {
-            "  ".to_string()
-        } else {
-            format!("{:02X}", self.read(self.pc.wrapping_add(1)))
+    pub fn print_instruction(&mut self, pc: u16) {
+        let mut bytes = Vec::new();
+        let disasm = match self.instr.addr_mode() {
+            IMM => {
+                bytes.push(self.peek(pc));
+                format!("#${:02X}", bytes[0])
+            }
+            ZP0 => {
+                bytes.push(self.peek(pc));
+                let val = self.peek(bytes[0].into());
+                format!("${:02X} = {:02X}", bytes[0], val)
+            }
+            ZPX => {
+                bytes.push(self.peek(pc));
+                let x_offset = bytes[0].wrapping_add(self.x);
+                let val = self.peek(x_offset.into());
+                format!("${:02X},X @ {:02X} = {:02X}", bytes[0], x_offset, val)
+            }
+            ZPY => {
+                bytes.push(self.peek(pc));
+                let y_offset = bytes[0].wrapping_add(self.y);
+                let val = self.peek(y_offset.into());
+                format!("${:02X},Y @ {:02X} = {:02X}", bytes[0], y_offset, val)
+            }
+            ABS => {
+                bytes.push(self.peek(pc));
+                bytes.push(self.peek(pc.wrapping_add(1)));
+                let addr = self.peekw(pc);
+                if self.instr.op() == JMP || self.instr.op() == JSR {
+                    format!("${:04X}", addr)
+                } else {
+                    let val = self.peek(addr.into());
+                    format!("${:04X} = {:02X}", addr, val)
+                }
+            }
+            ABX => {
+                bytes.push(self.peek(pc));
+                bytes.push(self.peek(pc.wrapping_add(1)));
+                let addr = self.peekw(pc);
+                let x_offset = addr.wrapping_add(self.x.into());
+                let val = self.peek(x_offset.into());
+                format!("${:04X},X @ {:04X} = {:02X}", addr, x_offset, val)
+            }
+            ABY => {
+                bytes.push(self.peek(pc));
+                bytes.push(self.peek(pc.wrapping_add(1)));
+                let addr = self.peekw(pc);
+                let y_offset = addr.wrapping_add(self.y.into());
+                let val = self.peek(y_offset.into());
+                format!("${:04X},Y @ {:04X} = {:02X}", addr, y_offset, val)
+            }
+            IND => {
+                bytes.push(self.peek(pc));
+                bytes.push(self.peek(pc.wrapping_add(1)));
+                let addr = self.peekw(pc);
+                let val = if addr & 0x00FF == 0x00FF {
+                    (u16::from(self.read(addr & 0xFF00)) << 8) | u16::from(self.read(addr))
+                } else {
+                    (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr))
+                };
+                if self.instr.op() == JMP {
+                    format!("(${:04X}) = {:04X}", addr, val)
+                } else {
+                    format!("(${:04X})", val)
+                }
+            }
+            IDX => {
+                bytes.push(self.peek(pc));
+                let x_offset = bytes[0].wrapping_add(self.x);
+                let addr = self.peekw_zp(x_offset);
+                let val = self.peek(addr);
+                format!(
+                    "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
+                    bytes[0], x_offset, addr, val,
+                )
+            }
+            IDY => {
+                bytes.push(self.peek(pc));
+                let addr = self.peekw_zp(bytes[0]);
+                let y_offset = addr.wrapping_add(self.y.into());
+                let val = self.peek(y_offset);
+                format!(
+                    "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
+                    bytes[0], addr, y_offset, val,
+                )
+            }
+            REL => {
+                bytes.push(self.read(pc));
+                format!("${:04X}", pc.wrapping_add(1).wrapping_add(self.rel_addr))
+            }
+            ACC => "A ".to_string(),
+            IMP => "".to_string(),
         };
-        let word2 = if num_args < 3 {
-            "  ".to_string()
-        } else {
-            format!("{:02X}", self.read(self.pc.wrapping_add(2)))
-        };
+        let mut bytes_str = String::new();
+        for i in 0..2 {
+            if i < bytes.len() {
+                bytes_str.push_str(&format!("{:02X} ", bytes[i]));
+            } else {
+                bytes_str.push_str(&"   ".to_string());
+            }
+        }
         let opstr = format!(
-            "{:04X}  {:02X} {} {} {:<31}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}\n",
-            self.pc,
-            opcode,
-            word1,
-            word2,
+            "{:04X}  {:02X} {}{:?} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}\n",
+            pc.wrapping_sub(1),
+            self.instr.opcode(),
+            bytes_str,
+            self.instr,
             disasm,
             self.acc,
             self.x,
@@ -687,16 +660,17 @@ impl Cpu {
             self.sp,
             self.mem.ppu.cycle,
             self.mem.ppu.scanline,
-            self.cycle,
+            self.cycles_count,
         );
         print!("{}", opstr);
         #[cfg(test)]
         self.nestestlog.push(opstr);
     }
 
-    // Determines if address a and address b are on different pages
-    fn pages_differ(a: u16, b: u16) -> bool {
-        a & 0xFF00 != b & 0xFF00
+    /// Utilities
+
+    fn pages_differ(addr1: u16, addr2: u16) -> bool {
+        return (addr1 & 0xFF00) != (addr2 & 0xFF00);
     }
 }
 
@@ -720,29 +694,29 @@ impl Memory for Cpu {
 
 impl Savable for Cpu {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        self.mem.save(fh)?;
-        self.cycle.save(fh)?;
-        self.step.save(fh)?;
-        self.pc.save(fh)?;
-        self.stall.save(fh)?;
-        self.sp.save(fh)?;
-        self.acc.save(fh)?;
-        self.x.save(fh)?;
-        self.y.save(fh)?;
-        self.status.save(fh)?;
+        // TODO add missing fields
+        // self.mem.save(fh)?;
+        // self.cycle.save(fh)?;
+        // self.step.save(fh)?;
+        // self.pc.save(fh)?;
+        // self.sp.save(fh)?;
+        // self.acc.save(fh)?;
+        // self.x.save(fh)?;
+        // self.y.save(fh)?;
+        // self.status.save(fh)?;
         self.interrupt.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        self.mem.load(fh)?;
-        self.cycle.load(fh)?;
-        self.step.load(fh)?;
-        self.pc.load(fh)?;
-        self.stall.load(fh)?;
-        self.sp.load(fh)?;
-        self.acc.load(fh)?;
-        self.x.load(fh)?;
-        self.y.load(fh)?;
-        self.status.load(fh)?;
+        // TODO add missing fields
+        // self.mem.load(fh)?;
+        // self.cycle.load(fh)?;
+        // self.step.load(fh)?;
+        // self.pc.load(fh)?;
+        // self.sp.load(fh)?;
+        // self.acc.load(fh)?;
+        // self.x.load(fh)?;
+        // self.y.load(fh)?;
+        // self.status.load(fh)?;
         self.interrupt.load(fh)
     }
 }
@@ -775,639 +749,629 @@ impl Savable for Interrupt {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 // List of all CPU official and unofficial operations
 // http://wiki.nesdev.com/w/index.php/6502_instructions
+// http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf
 pub enum Operation {
     ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC, CLD, CLI, CLV, CMP, CPX,
     CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP, JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA,
     PLP, ROL, ROR, RTI, RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
     // "Unofficial" opcodes
-    KIL, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SHX, RRA, TAS, SHY, ARR, SRE, ALR, RLA, ANC, SLO,
+    XXX, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SHX, RRA, TAS, SHY, ARR, SRE, ALR, RLA, ANC, SLO,
 }
-
-#[rustfmt::skip]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-// List of all addressing modes
+#[rustfmt::skip]
 pub enum AddrMode {
-    Immediate,
-    ZeroPage, ZeroPageX, ZeroPageY,
-    Absolute, AbsoluteX, AbsoluteY,
-    Indirect, IndirectX, IndirectY,
-    Relative,
-    Accumulator,
-    Implied,
+    IMM,
+    ZP0, ZPX, ZPY,
+    ABS, ABX, ABY,
+    IND, IDX, IDY,
+    REL, ACC, IMP,
 }
 
 use AddrMode::*;
 use Operation::*;
 
-const IMM: AddrMode = Immediate;
-const ZRP: AddrMode = ZeroPage;
-const ZRX: AddrMode = ZeroPageX;
-const ZRY: AddrMode = ZeroPageY;
-const ABS: AddrMode = Absolute;
-const ABX: AddrMode = AbsoluteX;
-const ABY: AddrMode = AbsoluteY;
-const IND: AddrMode = Indirect;
-const IDX: AddrMode = IndirectX;
-const IDY: AddrMode = IndirectY;
-const REL: AddrMode = Relative;
-const ACC: AddrMode = Accumulator;
-const IMP: AddrMode = Implied;
+// (opcode, Addressing Mode, Operation, Addressing Mode Fn, Operation Fn, cycles taken)
+#[derive(Copy, Clone)]
+pub struct Instr(
+    u8,
+    AddrMode,
+    Operation,
+    fn(&mut Cpu) -> u8,
+    fn(&mut Cpu) -> u8,
+    u64,
+);
 
-// (opcode, Operation, Addressing Mode, cycle taken, extra cycle taken if page crossed)
-pub struct Instruction(u8, Operation, AddrMode, u64, u64);
-
+// 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
 #[rustfmt::skip]
-pub const INSTRUCTIONS: [Instruction; 256] = [
-    Instruction(0x00, BRK, IMM, 7, 0), Instruction(0x01, ORA, IDX, 6, 0), Instruction(0x02, KIL, IMP, 0, 0),
-    Instruction(0x03, SLO, IDX, 8, 0), Instruction(0x04, NOP, ZRP, 3, 0), Instruction(0x05, ORA, ZRP, 3, 0),
-    Instruction(0x06, ASL, ZRP, 5, 0), Instruction(0x07, SLO, ZRP, 5, 0), Instruction(0x08, PHP, IMP, 3, 0),
-    Instruction(0x09, ORA, IMM, 2, 0), Instruction(0x0A, ASL, ACC, 2, 0), Instruction(0x0B, ANC, IMM, 2, 0),
-    Instruction(0x0C, NOP, ABS, 4, 0), Instruction(0x0D, ORA, ABS, 4, 0), Instruction(0x0E, ASL, ABS, 6, 0),
-    Instruction(0x0F, SLO, ABS, 6, 0), Instruction(0x10, BPL, REL, 2, 1), Instruction(0x11, ORA, IDY, 5, 1),
-    Instruction(0x12, KIL, IMP, 0, 0), Instruction(0x13, SLO, IDY, 8, 0), Instruction(0x14, NOP, ZRX, 4, 0),
-    Instruction(0x15, ORA, ZRX, 4, 0), Instruction(0x16, ASL, ZRX, 6, 0), Instruction(0x17, SLO, ZRX, 6, 0),
-    Instruction(0x18, CLC, IMP, 2, 0), Instruction(0x19, ORA, ABY, 4, 1), Instruction(0x1A, NOP, IMP, 2, 0),
-    Instruction(0x1B, SLO, ABY, 7, 0), Instruction(0x1C, NOP, ABX, 4, 1), Instruction(0x1D, ORA, ABX, 4, 1),
-    Instruction(0x1E, ASL, ABX, 7, 0), Instruction(0x1F, SLO, ABX, 7, 0), Instruction(0x20, JSR, ABS, 6, 0),
-    Instruction(0x21, AND, IDX, 6, 0), Instruction(0x22, KIL, IMP, 0, 0), Instruction(0x23, RLA, IDX, 8, 0),
-    Instruction(0x24, BIT, ZRP, 3, 0), Instruction(0x25, AND, ZRP, 3, 0), Instruction(0x26, ROL, ZRP, 5, 0),
-    Instruction(0x27, RLA, ZRP, 5, 0), Instruction(0x28, PLP, IMP, 4, 0), Instruction(0x29, AND, IMM, 2, 0),
-    Instruction(0x2A, ROL, ACC, 2, 0), Instruction(0x2B, ANC, IMM, 2, 0), Instruction(0x2C, BIT, ABS, 4, 0),
-    Instruction(0x2D, AND, ABS, 4, 0), Instruction(0x2E, ROL, ABS, 6, 0), Instruction(0x2F, RLA, ABS, 6, 0),
-    Instruction(0x30, BMI, REL, 2, 1), Instruction(0x31, AND, IDY, 5, 1), Instruction(0x32, KIL, IMP, 0, 0),
-    Instruction(0x33, RLA, IDY, 8, 0), Instruction(0x34, NOP, ZRX, 4, 0), Instruction(0x35, AND, ZRX, 4, 0),
-    Instruction(0x36, ROL, ZRX, 6, 0), Instruction(0x37, RLA, ZRX, 6, 0), Instruction(0x38, SEC, IMP, 2, 0),
-    Instruction(0x39, AND, ABY, 4, 1), Instruction(0x3A, NOP, IMP, 2, 0), Instruction(0x3B, RLA, ABY, 7, 0),
-    Instruction(0x3C, NOP, ABX, 4, 1), Instruction(0x3D, AND, ABX, 4, 1), Instruction(0x3E, ROL, ABX, 7, 0),
-    Instruction(0x3F, RLA, ABX, 7, 0), Instruction(0x40, RTI, IMP, 6, 0), Instruction(0x41, EOR, IDX, 6, 0),
-    Instruction(0x42, KIL, IMP, 0, 0), Instruction(0x43, SRE, IDX, 8, 0), Instruction(0x44, NOP, ZRP, 3, 0),
-    Instruction(0x45, EOR, ZRP, 3, 0), Instruction(0x46, LSR, ZRP, 5, 0), Instruction(0x47, SRE, ZRP, 5, 0),
-    Instruction(0x48, PHA, IMP, 3, 0), Instruction(0x49, EOR, IMM, 2, 0), Instruction(0x4A, LSR, ACC, 2, 0),
-    Instruction(0x4B, ALR, IMM, 2, 0), Instruction(0x4C, JMP, ABS, 3, 0), Instruction(0x4D, EOR, ABS, 4, 0),
-    Instruction(0x4E, LSR, ABS, 6, 0), Instruction(0x4F, SRE, ABS, 6, 0), Instruction(0x50, BVC, REL, 2, 1),
-    Instruction(0x51, EOR, IDY, 5, 1), Instruction(0x52, KIL, IMP, 0, 0), Instruction(0x53, SRE, IDY, 8, 0),
-    Instruction(0x54, NOP, ZRX, 4, 0), Instruction(0x55, EOR, ZRX, 4, 0), Instruction(0x56, LSR, ZRX, 6, 0),
-    Instruction(0x57, SRE, ZRX, 6, 0), Instruction(0x58, CLI, IMP, 2, 0), Instruction(0x59, EOR, ABY, 4, 1),
-    Instruction(0x5A, NOP, IMP, 2, 0), Instruction(0x5B, SRE, ABY, 7, 0), Instruction(0x5C, NOP, ABX, 4, 1),
-    Instruction(0x5D, EOR, ABX, 4, 1), Instruction(0x5E, LSR, ABX, 7, 0), Instruction(0x5F, SRE, ABX, 7, 0),
-    Instruction(0x60, RTS, IMP, 6, 0), Instruction(0x61, ADC, IDX, 6, 0), Instruction(0x62, KIL, IMP, 0, 0),
-    Instruction(0x63, RRA, IDX, 8, 0), Instruction(0x64, NOP, ZRP, 3, 0), Instruction(0x65, ADC, ZRP, 3, 0),
-    Instruction(0x66, ROR, ZRP, 5, 0), Instruction(0x67, RRA, ZRP, 5, 0), Instruction(0x68, PLA, IMP, 4, 0),
-    Instruction(0x69, ADC, IMM, 2, 0), Instruction(0x6A, ROR, ACC, 2, 0), Instruction(0x6B, ARR, IMM, 2, 0),
-    Instruction(0x6C, JMP, IND, 5, 0), Instruction(0x6D, ADC, ABS, 4, 0), Instruction(0x6E, ROR, ABS, 6, 0),
-    Instruction(0x6F, RRA, ABS, 6, 0), Instruction(0x70, BVS, REL, 2, 1), Instruction(0x71, ADC, IDY, 5, 1),
-    Instruction(0x72, KIL, IMP, 0, 0), Instruction(0x73, RRA, IDY, 8, 0), Instruction(0x74, NOP, ZRX, 4, 0),
-    Instruction(0x75, ADC, ZRX, 4, 0), Instruction(0x76, ROR, ZRX, 6, 0), Instruction(0x77, RRA, ZRX, 6, 0),
-    Instruction(0x78, SEI, IMP, 2, 0), Instruction(0x79, ADC, ABY, 4, 1), Instruction(0x7A, NOP, IMP, 2, 0),
-    Instruction(0x7B, RRA, ABY, 7, 0), Instruction(0x7C, NOP, ABX, 4, 1), Instruction(0x7D, ADC, ABX, 4, 1),
-    Instruction(0x7E, ROR, ABX, 7, 0), Instruction(0x7F, RRA, ABX, 7, 0), Instruction(0x80, NOP, IMM, 2, 0),
-    Instruction(0x81, STA, IDX, 6, 0), Instruction(0x82, NOP, IMM, 2, 0), Instruction(0x83, SAX, IDX, 6, 0),
-    Instruction(0x84, STY, ZRP, 3, 0), Instruction(0x85, STA, ZRP, 3, 0), Instruction(0x86, STX, ZRP, 3, 0),
-    Instruction(0x87, SAX, ZRP, 3, 0), Instruction(0x88, DEY, IMP, 2, 0), Instruction(0x89, NOP, IMM, 2, 0),
-    Instruction(0x8A, TXA, IMP, 2, 0), Instruction(0x8B, XAA, IMM, 2, 1), Instruction(0x8C, STY, ABS, 4, 0),
-    Instruction(0x8D, STA, ABS, 4, 0), Instruction(0x8E, STX, ABS, 4, 0), Instruction(0x8F, SAX, ABS, 4, 0),
-    Instruction(0x90, BCC, REL, 2, 1), Instruction(0x91, STA, IDY, 6, 0), Instruction(0x92, KIL, IMP, 0, 0),
-
-    Instruction(0x93, AHX, IDY, 6, 0), Instruction(0x94, STY, ZRX, 4, 0), Instruction(0x95, STA, ZRX, 4, 0),
-    Instruction(0x96, STX, ZRY, 4, 0), Instruction(0x97, SAX, ZRY, 4, 0), Instruction(0x98, TYA, IMP, 2, 0),
-    Instruction(0x99, STA, ABY, 5, 0), Instruction(0x9A, TXS, IMP, 2, 0), Instruction(0x9B, TAS, ABY, 5, 0),
-    Instruction(0x9C, SHY, ABX, 5, 0), Instruction(0x9D, STA, ABX, 5, 0), Instruction(0x9E, SHX, ABY, 5, 0),
-    Instruction(0x9F, AHX, ABY, 5, 0), Instruction(0xA0, LDY, IMM, 2, 0), Instruction(0xA1, LDA, IDX, 6, 0),
-    Instruction(0xA2, LDX, IMM, 2, 0), Instruction(0xA3, LAX, IDX, 6, 0), Instruction(0xA4, LDY, ZRP, 3, 0),
-    Instruction(0xA5, LDA, ZRP, 3, 0), Instruction(0xA6, LDX, ZRP, 3, 0), Instruction(0xA7, LAX, ZRP, 3, 0),
-    Instruction(0xA8, TAY, IMP, 2, 0), Instruction(0xA9, LDA, IMM, 2, 0), Instruction(0xAA, TAX, IMP, 2, 0),
-    Instruction(0xAB, LAX, IMM, 2, 0), Instruction(0xAC, LDY, ABS, 4, 0), Instruction(0xAD, LDA, ABS, 4, 0),
-    Instruction(0xAE, LDX, ABS, 4, 0), Instruction(0xAF, LAX, ABS, 4, 0), Instruction(0xB0, BCS, REL, 2, 1),
-    Instruction(0xB1, LDA, IDY, 5, 1), Instruction(0xB2, KIL, IMP, 0, 0), Instruction(0xB3, LAX, IDY, 5, 1),
-    Instruction(0xB4, LDY, ZRX, 4, 0), Instruction(0xB5, LDA, ZRX, 4, 0), Instruction(0xB6, LDX, ZRY, 4, 0),
-    Instruction(0xB7, LAX, ZRY, 4, 0), Instruction(0xB8, CLV, IMP, 2, 0), Instruction(0xB9, LDA, ABY, 4, 1),
-    Instruction(0xBA, TSX, IMP, 2, 0), Instruction(0xBB, LAS, ABY, 4, 1), Instruction(0xBC, LDY, ABX, 4, 1),
-    Instruction(0xBD, LDA, ABX, 4, 1), Instruction(0xBE, LDX, ABY, 4, 1), Instruction(0xBF, LAX, ABY, 4, 1),
-    Instruction(0xC0, CPY, IMM, 2, 0), Instruction(0xC1, CMP, IDX, 6, 0), Instruction(0xC2, NOP, IMM, 2, 0),
-    Instruction(0xC3, DCP, IDX, 8, 0), Instruction(0xC4, CPY, ZRP, 3, 0), Instruction(0xC5, CMP, ZRP, 3, 0),
-    Instruction(0xC6, DEC, ZRP, 5, 0), Instruction(0xC7, DCP, ZRP, 5, 0), Instruction(0xC8, INY, IMP, 2, 0),
-    Instruction(0xC9, CMP, IMM, 2, 0), Instruction(0xCA, DEX, IMP, 2, 0), Instruction(0xCB, AXS, IMM, 2, 0),
-    Instruction(0xCC, CPY, ABS, 4, 0), Instruction(0xCD, CMP, ABS, 4, 0), Instruction(0xCE, DEC, ABS, 6, 0),
-    Instruction(0xCF, DCP, ABS, 6, 0), Instruction(0xD0, BNE, REL, 2, 1), Instruction(0xD1, CMP, IDY, 5, 1),
-    Instruction(0xD2, KIL, IMP, 0, 0), Instruction(0xD3, DCP, IDY, 8, 0), Instruction(0xD4, NOP, ZRX, 4, 0),
-    Instruction(0xD5, CMP, ZRX, 4, 0), Instruction(0xD6, DEC, ZRX, 6, 0), Instruction(0xD7, DCP, ZRX, 6, 0),
-    Instruction(0xD8, CLD, IMP, 2, 0), Instruction(0xD9, CMP, ABY, 4, 1), Instruction(0xDA, NOP, IMP, 2, 0),
-    Instruction(0xDB, DCP, ABY, 7, 0), Instruction(0xDC, NOP, ABX, 4, 1), Instruction(0xDD, CMP, ABX, 4, 1),
-    Instruction(0xDE, DEC, ABX, 7, 0), Instruction(0xDF, DCP, ABX, 7, 0), Instruction(0xE0, CPX, IMM, 2, 0),
-    Instruction(0xE1, SBC, IDX, 6, 0), Instruction(0xE2, NOP, IMM, 2, 0), Instruction(0xE3, ISB, IDX, 8, 0),
-    Instruction(0xE4, CPX, ZRP, 3, 0), Instruction(0xE5, SBC, ZRP, 3, 0), Instruction(0xE6, INC, ZRP, 5, 0),
-    Instruction(0xE7, ISB, ZRP, 5, 0), Instruction(0xE8, INX, IMP, 2, 0), Instruction(0xE9, SBC, IMM, 2, 0),
-    Instruction(0xEA, NOP, IMP, 2, 0), Instruction(0xEB, SBC, IMM, 2, 0), Instruction(0xEC, CPX, ABS, 4, 0),
-    Instruction(0xED, SBC, ABS, 4, 0), Instruction(0xEE, INC, ABS, 6, 0), Instruction(0xEF, ISB, ABS, 6, 0),
-    Instruction(0xF0, BEQ, REL, 2, 1), Instruction(0xF1, SBC, IDY, 5, 1), Instruction(0xF2, KIL, IMP, 0, 0),
-    Instruction(0xF3, ISB, IDY, 8, 0), Instruction(0xF4, NOP, ZRX, 4, 0), Instruction(0xF5, SBC, ZRX, 4, 0),
-    Instruction(0xF6, INC, ZRX, 6, 0), Instruction(0xF7, ISB, ZRX, 6, 0), Instruction(0xF8, SED, IMP, 2, 0),
-    Instruction(0xF9, SBC, ABY, 4, 1),
-    Instruction(0xFA, NOP, IMP, 2, 0),
-    Instruction(0xFB, ISB, ABY, 7, 0),
-    Instruction(0xFC, NOP, ABX, 4, 1),
-    Instruction(0xFD, SBC, ABX, 4, 1),
-    Instruction(0xFE, INC, ABX, 7, 0),
-    Instruction(0xFF, ISB, ABX, 7, 0),
+pub const INSTRUCTIONS: [Instr; 256] = [
+    Instr(0x00, IMM, BRK, Cpu::imm, Cpu::brk, 7), Instr(0x01, IDX, ORA, Cpu::idx, Cpu::ora, 6), Instr(0x02, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x03, IDX, SLO, Cpu::idx, Cpu::slo, 8), Instr(0x04, ZP0, NOP, Cpu::zp0, Cpu::nop, 3), Instr(0x05, ZP0, ORA, Cpu::zp0, Cpu::ora, 3), Instr(0x06, ZP0, ASL, Cpu::zp0, Cpu::asl, 5), Instr(0x07, ZP0, SLO, Cpu::zp0, Cpu::slo, 5), Instr(0x08, IMP, PHP, Cpu::imp, Cpu::php, 3), Instr(0x09, IMM, ORA, Cpu::imm, Cpu::ora, 2), Instr(0x0A, ACC, ASL, Cpu::acc, Cpu::asl, 2), Instr(0x0B, IMM, ANC, Cpu::imm, Cpu::anc, 2), Instr(0x0C, ABS, NOP, Cpu::abs, Cpu::nop, 4), Instr(0x0D, ABS, ORA, Cpu::abs, Cpu::ora, 4), Instr(0x0E, ABS, ASL, Cpu::abs, Cpu::asl, 6), Instr(0x0F, ABS, SLO, Cpu::abs, Cpu::slo, 6),
+    Instr(0x10, REL, BPL, Cpu::rel, Cpu::bpl, 2), Instr(0x11, IDY, ORA, Cpu::idy, Cpu::ora, 5), Instr(0x12, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x13, IDY, SLO, Cpu::idy, Cpu::slo, 8), Instr(0x14, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x15, ZPX, ORA, Cpu::zpx, Cpu::ora, 4), Instr(0x16, ZPX, ASL, Cpu::zpx, Cpu::asl, 6), Instr(0x17, ZPX, SLO, Cpu::zpx, Cpu::slo, 6), Instr(0x18, IMP, CLC, Cpu::imp, Cpu::clc, 2), Instr(0x19, ABY, ORA, Cpu::aby, Cpu::ora, 4), Instr(0x1A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x1B, ABY, SLO, Cpu::aby, Cpu::slo, 7), Instr(0x1C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x1D, ABX, ORA, Cpu::abx, Cpu::ora, 4), Instr(0x1E, ABX, ASL, Cpu::abx, Cpu::asl, 7), Instr(0x1F, ABX, SLO, Cpu::abx, Cpu::slo, 7),
+    Instr(0x20, ABS, JSR, Cpu::abs, Cpu::jsr, 6), Instr(0x21, IDX, AND, Cpu::idx, Cpu::and, 6), Instr(0x22, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x23, IDX, RLA, Cpu::idx, Cpu::rla, 8), Instr(0x24, ZP0, BIT, Cpu::zp0, Cpu::bit, 3), Instr(0x25, ZP0, AND, Cpu::zp0, Cpu::and, 3), Instr(0x26, ZP0, ROL, Cpu::zp0, Cpu::rol, 5), Instr(0x27, ZP0, RLA, Cpu::zp0, Cpu::rla, 5), Instr(0x28, IMP, PLP, Cpu::imp, Cpu::plp, 4), Instr(0x29, IMM, AND, Cpu::imm, Cpu::and, 2), Instr(0x2A, ACC, ROL, Cpu::acc, Cpu::rol, 2), Instr(0x2B, IMM, ANC, Cpu::imm, Cpu::anc, 2), Instr(0x2C, ABS, BIT, Cpu::abs, Cpu::bit, 4), Instr(0x2D, ABS, AND, Cpu::abs, Cpu::and, 4), Instr(0x2E, ABS, ROL, Cpu::abs, Cpu::rol, 6), Instr(0x2F, ABS, RLA, Cpu::abs, Cpu::rla, 6),
+    Instr(0x30, REL, BMI, Cpu::rel, Cpu::bmi, 2), Instr(0x31, IDY, AND, Cpu::idy, Cpu::and, 5), Instr(0x32, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x33, IDY, RLA, Cpu::idy, Cpu::rla, 8), Instr(0x34, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x35, ZPX, AND, Cpu::zpx, Cpu::and, 4), Instr(0x36, ZPX, ROL, Cpu::zpx, Cpu::rol, 6), Instr(0x37, ZPX, RLA, Cpu::zpx, Cpu::rla, 6), Instr(0x38, IMP, SEC, Cpu::imp, Cpu::sec, 2), Instr(0x39, ABY, AND, Cpu::aby, Cpu::and, 4), Instr(0x3A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x3B, ABY, RLA, Cpu::aby, Cpu::rla, 7), Instr(0x3C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x3D, ABX, AND, Cpu::abx, Cpu::and, 4), Instr(0x3E, ABX, ROL, Cpu::abx, Cpu::rol, 7), Instr(0x3F, ABX, RLA, Cpu::abx, Cpu::rla, 7),
+    Instr(0x40, IMP, RTI, Cpu::imp, Cpu::rti, 6), Instr(0x41, IDX, EOR, Cpu::idx, Cpu::eor, 6), Instr(0x42, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x43, IDX, SRE, Cpu::idx, Cpu::sre, 8), Instr(0x44, ZP0, NOP, Cpu::zp0, Cpu::nop, 3), Instr(0x45, ZP0, EOR, Cpu::zp0, Cpu::eor, 3), Instr(0x46, ZP0, LSR, Cpu::zp0, Cpu::lsr, 5), Instr(0x47, ZP0, SRE, Cpu::zp0, Cpu::sre, 5), Instr(0x48, IMP, PHA, Cpu::imp, Cpu::pha, 3), Instr(0x49, IMM, EOR, Cpu::imm, Cpu::eor, 2), Instr(0x4A, ACC, LSR, Cpu::acc, Cpu::lsr, 2), Instr(0x4B, IMM, ALR, Cpu::imm, Cpu::alr, 2), Instr(0x4C, ABS, JMP, Cpu::abs, Cpu::jmp, 3), Instr(0x4D, ABS, EOR, Cpu::abs, Cpu::eor, 4), Instr(0x4E, ABS, LSR, Cpu::abs, Cpu::lsr, 6), Instr(0x4F, ABS, SRE, Cpu::abs, Cpu::sre, 6),
+    Instr(0x50, REL, BVC, Cpu::rel, Cpu::bvc, 2), Instr(0x51, IDY, EOR, Cpu::idy, Cpu::eor, 5), Instr(0x52, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x53, IDY, SRE, Cpu::idy, Cpu::sre, 8), Instr(0x54, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x55, ZPX, EOR, Cpu::zpx, Cpu::eor, 4), Instr(0x56, ZPX, LSR, Cpu::zpx, Cpu::lsr, 6), Instr(0x57, ZPX, SRE, Cpu::zpx, Cpu::sre, 6), Instr(0x58, IMP, CLI, Cpu::imp, Cpu::cli, 2), Instr(0x59, ABY, EOR, Cpu::aby, Cpu::eor, 4), Instr(0x5A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x5B, ABY, SRE, Cpu::aby, Cpu::sre, 7), Instr(0x5C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x5D, ABX, EOR, Cpu::abx, Cpu::eor, 4), Instr(0x5E, ABX, LSR, Cpu::abx, Cpu::lsr, 7), Instr(0x5F, ABX, SRE, Cpu::abx, Cpu::sre, 7),
+    Instr(0x60, IMP, RTS, Cpu::imp, Cpu::rts, 6), Instr(0x61, IDX, ADC, Cpu::idx, Cpu::adc, 6), Instr(0x62, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x63, IDX, RRA, Cpu::idx, Cpu::rra, 8), Instr(0x64, ZP0, NOP, Cpu::zp0, Cpu::nop, 3), Instr(0x65, ZP0, ADC, Cpu::zp0, Cpu::adc, 3), Instr(0x66, ZP0, ROR, Cpu::zp0, Cpu::ror, 5), Instr(0x67, ZP0, RRA, Cpu::zp0, Cpu::rra, 5), Instr(0x68, IMP, PLA, Cpu::imp, Cpu::pla, 4), Instr(0x69, IMM, ADC, Cpu::imm, Cpu::adc, 2), Instr(0x6A, ACC, ROR, Cpu::acc, Cpu::ror, 2), Instr(0x6B, IMM, ARR, Cpu::imm, Cpu::arr, 2), Instr(0x6C, IND, JMP, Cpu::ind, Cpu::jmp, 5), Instr(0x6D, ABS, ADC, Cpu::abs, Cpu::adc, 4), Instr(0x6E, ABS, ROR, Cpu::abs, Cpu::ror, 6), Instr(0x6F, ABS, RRA, Cpu::abs, Cpu::rra, 6),
+    Instr(0x70, REL, BVS, Cpu::rel, Cpu::bvs, 2), Instr(0x71, IDY, ADC, Cpu::idy, Cpu::adc, 5), Instr(0x72, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x73, IDY, RRA, Cpu::idy, Cpu::rra, 8), Instr(0x74, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x75, ZPX, ADC, Cpu::zpx, Cpu::adc, 4), Instr(0x76, ZPX, ROR, Cpu::zpx, Cpu::ror, 6), Instr(0x77, ZPX, RRA, Cpu::zpx, Cpu::rra, 6), Instr(0x78, IMP, SEI, Cpu::imp, Cpu::sei, 2), Instr(0x79, ABY, ADC, Cpu::aby, Cpu::adc, 4), Instr(0x7A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x7B, ABY, RRA, Cpu::aby, Cpu::rra, 7), Instr(0x7C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x7D, ABX, ADC, Cpu::abx, Cpu::adc, 4), Instr(0x7E, ABX, ROR, Cpu::abx, Cpu::ror, 7), Instr(0x7F, ABX, RRA, Cpu::abx, Cpu::rra, 7),
+    Instr(0x80, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0x81, IDX, STA, Cpu::idx, Cpu::sta, 6), Instr(0x82, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0x83, IDX, SAX, Cpu::idx, Cpu::sax, 6), Instr(0x84, ZP0, STY, Cpu::zp0, Cpu::sty, 3), Instr(0x85, ZP0, STA, Cpu::zp0, Cpu::sta, 3), Instr(0x86, ZP0, STX, Cpu::zp0, Cpu::stx, 3), Instr(0x87, ZP0, SAX, Cpu::zp0, Cpu::sax, 3), Instr(0x88, IMP, DEY, Cpu::imp, Cpu::dey, 2), Instr(0x89, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0x8A, IMP, TXA, Cpu::imp, Cpu::txa, 2), Instr(0x8B, IMM, XAA, Cpu::imm, Cpu::xaa, 2), Instr(0x8C, ABS, STY, Cpu::abs, Cpu::sty, 4), Instr(0x8D, ABS, STA, Cpu::abs, Cpu::sta, 4), Instr(0x8E, ABS, STX, Cpu::abs, Cpu::stx, 4), Instr(0x8F, ABS, SAX, Cpu::abs, Cpu::sax, 4),
+    Instr(0x90, REL, BCC, Cpu::rel, Cpu::bcc, 2), Instr(0x91, IDY, STA, Cpu::idy, Cpu::sta, 6), Instr(0x92, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x93, IDY, AHX, Cpu::idy, Cpu::ahx, 6), Instr(0x94, ZPX, STY, Cpu::zpx, Cpu::sty, 4), Instr(0x95, ZPX, STA, Cpu::zpx, Cpu::sta, 4), Instr(0x96, ZPY, STX, Cpu::zpy, Cpu::stx, 4), Instr(0x97, ZPY, SAX, Cpu::zpy, Cpu::sax, 4), Instr(0x98, IMP, TYA, Cpu::imp, Cpu::tya, 2), Instr(0x99, ABY, STA, Cpu::aby, Cpu::sta, 5), Instr(0x9A, IMP, TXS, Cpu::imp, Cpu::txs, 2), Instr(0x9B, ABY, TAS, Cpu::aby, Cpu::tas, 5), Instr(0x9C, ABX, SHY, Cpu::abx, Cpu::shy, 5), Instr(0x9D, ABX, STA, Cpu::abx, Cpu::sta, 5), Instr(0x9E, ABY, SHX, Cpu::aby, Cpu::shx, 5), Instr(0x9F, ABY, AHX, Cpu::aby, Cpu::ahx, 5),
+    Instr(0xA0, IMM, LDY, Cpu::imm, Cpu::ldy, 2), Instr(0xA1, IDX, LDA, Cpu::idx, Cpu::lda, 6), Instr(0xA2, IMM, LDX, Cpu::imm, Cpu::ldx, 2), Instr(0xA3, IDX, LAX, Cpu::idx, Cpu::lax, 6), Instr(0xA4, ZP0, LDY, Cpu::zp0, Cpu::ldy, 3), Instr(0xA5, ZP0, LDA, Cpu::zp0, Cpu::lda, 3), Instr(0xA6, ZP0, LDX, Cpu::zp0, Cpu::ldx, 3), Instr(0xA7, ZP0, LAX, Cpu::zp0, Cpu::lax, 3), Instr(0xA8, IMP, TAY, Cpu::imp, Cpu::tay, 2), Instr(0xA9, IMM, LDA, Cpu::imm, Cpu::lda, 2), Instr(0xAA, IMP, TAX, Cpu::imp, Cpu::tax, 2), Instr(0xAB, IMM, LAX, Cpu::imm, Cpu::lax, 2), Instr(0xAC, ABS, LDY, Cpu::abs, Cpu::ldy, 4), Instr(0xAD, ABS, LDA, Cpu::abs, Cpu::lda, 4), Instr(0xAE, ABS, LDX, Cpu::abs, Cpu::ldx, 4), Instr(0xAF, ABS, LAX, Cpu::abs, Cpu::lax, 4),
+    Instr(0xB0, REL, BCS, Cpu::rel, Cpu::bcs, 2), Instr(0xB1, IDY, LDA, Cpu::idy, Cpu::lda, 5), Instr(0xB2, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0xB3, IDY, LAX, Cpu::idy, Cpu::lax, 5), Instr(0xB4, ZPX, LDY, Cpu::zpx, Cpu::ldy, 4), Instr(0xB5, ZPX, LDA, Cpu::zpx, Cpu::lda, 4), Instr(0xB6, ZPY, LDX, Cpu::zpy, Cpu::ldx, 4), Instr(0xB7, ZPY, LAX, Cpu::zpy, Cpu::lax, 4), Instr(0xB8, IMP, CLV, Cpu::imp, Cpu::clv, 2), Instr(0xB9, ABY, LDA, Cpu::aby, Cpu::lda, 4), Instr(0xBA, IMP, TSX, Cpu::imp, Cpu::tsx, 2), Instr(0xBB, ABY, LAS, Cpu::aby, Cpu::las, 4), Instr(0xBC, ABX, LDY, Cpu::abx, Cpu::ldy, 4), Instr(0xBD, ABX, LDA, Cpu::abx, Cpu::lda, 4), Instr(0xBE, ABY, LDX, Cpu::aby, Cpu::ldx, 4), Instr(0xBF, ABY, LAX, Cpu::aby, Cpu::lax, 4),
+    Instr(0xC0, IMM, CPY, Cpu::imm, Cpu::cpy, 2), Instr(0xC1, IDX, CMP, Cpu::idx, Cpu::cmp, 6), Instr(0xC2, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0xC3, IDX, DCP, Cpu::idx, Cpu::dcp, 8), Instr(0xC4, ZP0, CPY, Cpu::zp0, Cpu::cpy, 3), Instr(0xC5, ZP0, CMP, Cpu::zp0, Cpu::cmp, 3), Instr(0xC6, ZP0, DEC, Cpu::zp0, Cpu::dec, 5), Instr(0xC7, ZP0, DCP, Cpu::zp0, Cpu::dcp, 5), Instr(0xC8, IMP, INY, Cpu::imp, Cpu::iny, 2), Instr(0xC9, IMM, CMP, Cpu::imm, Cpu::cmp, 2), Instr(0xCA, IMP, DEX, Cpu::imp, Cpu::dex, 2), Instr(0xCB, IMM, AXS, Cpu::imm, Cpu::axs, 2), Instr(0xCC, ABS, CPY, Cpu::abs, Cpu::cpy, 4), Instr(0xCD, ABS, CMP, Cpu::abs, Cpu::cmp, 4), Instr(0xCE, ABS, DEC, Cpu::abs, Cpu::dec, 6), Instr(0xCF, ABS, DCP, Cpu::abs, Cpu::dcp, 6),
+    Instr(0xD0, REL, BNE, Cpu::rel, Cpu::bne, 2), Instr(0xD1, IDY, CMP, Cpu::idy, Cpu::cmp, 5), Instr(0xD2, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0xD3, IDY, DCP, Cpu::idy, Cpu::dcp, 8), Instr(0xD4, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0xD5, ZPX, CMP, Cpu::zpx, Cpu::cmp, 4), Instr(0xD6, ZPX, DEC, Cpu::zpx, Cpu::dec, 6), Instr(0xD7, ZPX, DCP, Cpu::zpx, Cpu::dcp, 6), Instr(0xD8, IMP, CLD, Cpu::imp, Cpu::cld, 2), Instr(0xD9, ABY, CMP, Cpu::aby, Cpu::cmp, 4), Instr(0xDA, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0xDB, ABY, DCP, Cpu::aby, Cpu::dcp, 7), Instr(0xDC, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0xDD, ABX, CMP, Cpu::abx, Cpu::cmp, 4), Instr(0xDE, ABX, DEC, Cpu::abx, Cpu::dec, 7), Instr(0xDF, ABX, DCP, Cpu::abx, Cpu::dcp, 7),
+    Instr(0xE0, IMM, CPX, Cpu::imm, Cpu::cpx, 2), Instr(0xE1, IDX, SBC, Cpu::idx, Cpu::sbc, 6), Instr(0xE2, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0xE3, IDX, ISB, Cpu::idx, Cpu::isb, 8), Instr(0xE4, ZP0, CPX, Cpu::zp0, Cpu::cpx, 3), Instr(0xE5, ZP0, SBC, Cpu::zp0, Cpu::sbc, 3), Instr(0xE6, ZP0, INC, Cpu::zp0, Cpu::inc, 5), Instr(0xE7, ZP0, ISB, Cpu::zp0, Cpu::isb, 5), Instr(0xE8, IMP, INX, Cpu::imp, Cpu::inx, 2), Instr(0xE9, IMM, SBC, Cpu::imm, Cpu::sbc, 2), Instr(0xEA, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0xEB, IMM, SBC, Cpu::imm, Cpu::sbc, 2), Instr(0xEC, ABS, CPX, Cpu::abs, Cpu::cpx, 4), Instr(0xED, ABS, SBC, Cpu::abs, Cpu::sbc, 4), Instr(0xEE, ABS, INC, Cpu::abs, Cpu::inc, 6), Instr(0xEF, ABS, ISB, Cpu::abs, Cpu::isb, 6),
+    Instr(0xF0, REL, BEQ, Cpu::rel, Cpu::beq, 2), Instr(0xF1, IDY, SBC, Cpu::idy, Cpu::sbc, 5), Instr(0xF2, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0xF3, IDY, ISB, Cpu::idy, Cpu::isb, 8), Instr(0xF4, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0xF5, ZPX, SBC, Cpu::zpx, Cpu::sbc, 4), Instr(0xF6, ZPX, INC, Cpu::zpx, Cpu::inc, 6), Instr(0xF7, ZPX, ISB, Cpu::zpx, Cpu::isb, 6), Instr(0xF8, IMP, SED, Cpu::imp, Cpu::sed, 2), Instr(0xF9, ABY, SBC, Cpu::aby, Cpu::sbc, 4), Instr(0xFA, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0xFB, ABY, ISB, Cpu::aby, Cpu::isb, 7), Instr(0xFC, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0xFD, ABX, SBC, Cpu::abx, Cpu::sbc, 4), Instr(0xFE, ABX, INC, Cpu::abx, Cpu::inc, 7), Instr(0xFF, ABX, ISB, Cpu::abx, Cpu::isb, 7),
 ];
 
-impl Instruction {
+impl Instr {
     pub fn opcode(&self) -> u8 {
         self.0
     }
-    pub fn op(&self) -> Operation {
+    pub fn addr_mode(&self) -> AddrMode {
         self.1
     }
-    pub fn addr_mode(&self) -> AddrMode {
+    pub fn op(&self) -> Operation {
         self.2
     }
-    pub fn cycle(&self) -> u64 {
+    pub fn decode_addr_mode(&self) -> fn(&mut Cpu) -> u8 {
         self.3
     }
-    pub fn page_cycles(&self) -> u64 {
+    pub fn execute(&self) -> fn(&mut Cpu) -> u8 {
         self.4
     }
+    pub fn cycles(&self) -> u64 {
+        self.5
+    }
 }
 
+/// CPU instructions
 impl Cpu {
-    // Storage opcodes
+    /// Storage opcodes
 
-    // LDA: Load A with M
-    fn lda(&mut self, val: u8) {
-        self.acc = val;
-        self.set_zn(self.acc);
+    /// LDA: Load A with M
+    fn lda(&mut self) -> u8 {
+        self.fetch_data();
+        self.acc = self.fetched_data;
+        self.set_flags_zn(self.acc);
+        return 1;
     }
-    // LDX: Load X with M
-    fn ldx(&mut self, val: u8) {
-        self.x = val;
-        self.set_zn(val);
+    /// LDX: Load X with M
+    fn ldx(&mut self) -> u8 {
+        self.fetch_data();
+        self.x = self.fetched_data;
+        self.set_flags_zn(self.x);
+        return 1;
     }
-    // LDY: Load Y with M
-    fn ldy(&mut self, val: u8) {
-        self.y = val;
-        self.set_zn(val);
+    /// LDY: Load Y with M
+    fn ldy(&mut self) -> u8 {
+        self.fetch_data();
+        self.y = self.fetched_data;
+        self.set_flags_zn(self.y);
+        return 1;
     }
-    // TAX: Transfer A to X
-    fn tax(&mut self) {
+    /// STA: Store A into M
+    fn sta(&mut self) -> u8 {
+        self.write(self.abs_addr, self.acc);
+        return 0;
+    }
+    /// STX: Store X into M
+    fn stx(&mut self) -> u8 {
+        self.write(self.abs_addr, self.x);
+        return 0;
+    }
+    /// STY: Store Y into M
+    fn sty(&mut self) -> u8 {
+        self.write(self.abs_addr, self.y);
+        return 0;
+    }
+    /// TAX: Transfer A to X
+    fn tax(&mut self) -> u8 {
         self.x = self.acc;
-        self.set_zn(self.x);
+        self.set_flags_zn(self.x);
+        return 0;
     }
-    // TAY: Transfer A to Y
-    fn tay(&mut self) {
+    /// TAY: Transfer A to Y
+    fn tay(&mut self) -> u8 {
         self.y = self.acc;
-        self.set_zn(self.y);
+        self.set_flags_zn(self.y);
+        return 0;
     }
-    // TSX: Transfer Stack Pointer to X
-    fn tsx(&mut self) {
+    /// TSX: Transfer Stack Pointer to X
+    fn tsx(&mut self) -> u8 {
         self.x = self.sp;
-        self.set_zn(self.x);
+        self.set_flags_zn(self.x);
+        return 0;
     }
-    // TXA: Transfer X to A
-    fn txa(&mut self) {
+    /// TXA: Transfer X to A
+    fn txa(&mut self) -> u8 {
         self.acc = self.x;
-        self.set_zn(self.acc);
+        self.set_flags_zn(self.acc);
+        return 0;
     }
-    // TXS: Transfer X to Stack Pointer
-    fn txs(&mut self) {
+    /// TXS: Transfer X to Stack Pointer
+    fn txs(&mut self) -> u8 {
         self.sp = self.x;
+        return 0;
     }
-    // TYA: Transfer Y to A
-    fn tya(&mut self) {
+    /// TYA: Transfer Y to A
+    fn tya(&mut self) -> u8 {
         self.acc = self.y;
-        self.set_zn(self.acc);
+        self.set_flags_zn(self.acc);
+        return 0;
     }
 
-    // Arithmetic opcodes
+    /// Arithmetic opcodes
 
-    // ADC: Add M to A with Carry
-    fn adc(&mut self, val: u8) {
+    /// ADC: Add M to A with Carry
+    fn adc(&mut self) -> u8 {
+        self.fetch_data();
         let a = self.acc;
-        let (x1, o1) = val.overflowing_add(a);
-        let (x2, o2) = x1.overflowing_add(self.carry() as u8);
+        let (x1, o1) = self.fetched_data.overflowing_add(a);
+        let (x2, o2) = x1.overflowing_add(self.get_flag(C));
         self.acc = x2;
-        self.set_carry(o1 | o2);
-        self.set_overflow((a ^ val) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0);
-        self.set_zn(self.acc);
+        self.set_flag(C, o1 | o2);
+        self.set_flag(
+            V,
+            (a ^ self.fetched_data) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0,
+        );
+        self.set_flags_zn(self.acc);
+        return 1;
     }
-    // SBC: Subtract M from A with Carry
-    fn sbc(&mut self, val: u8) {
+    /// SBC: Subtract M from A with Carry
+    fn sbc(&mut self) -> u8 {
+        self.fetch_data();
         let a = self.acc;
-        let (x1, o1) = a.overflowing_sub(val);
-        let (x2, o2) = x1.overflowing_sub(1 - self.carry() as u8);
+        let (x1, o1) = a.overflowing_sub(self.fetched_data);
+        let (x2, o2) = x1.overflowing_sub(1 - self.get_flag(C));
         self.acc = x2;
-        self.set_carry(!(o1 | o2));
-        self.set_overflow((a ^ val) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0);
-        self.set_zn(self.acc);
+        self.set_flag(C, !(o1 | o2));
+        self.set_flag(
+            V,
+            (a ^ self.fetched_data) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0,
+        );
+        self.set_flags_zn(self.acc);
+        return 1;
     }
-    // DEC: Decrement M by One
-    fn dec(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        let val = val.wrapping_sub(1);
-        self.set_zn(val);
-        self.write_target(target, val);
+    /// DEC: Decrement M by One
+    fn dec(&mut self) -> u8 {
+        self.fetch_data();
+        self.write_fetched(self.fetched_data); // dummy write
+        let val = self.fetched_data.wrapping_sub(1);
+        self.write_fetched(val);
+        self.set_flags_zn(val);
+        return 0;
     }
-    // DEX: Decrement X by One
-    fn dex(&mut self) {
+    /// DEX: Decrement X by One
+    fn dex(&mut self) -> u8 {
         self.x = self.x.wrapping_sub(1);
-        self.set_zn(self.x);
+        self.set_flags_zn(self.x);
+        return 0;
     }
-    // DEY: Decrement Y by One
-    fn dey(&mut self) {
+    /// DEY: Decrement Y by One
+    fn dey(&mut self) -> u8 {
         self.y = self.y.wrapping_sub(1);
-        self.set_zn(self.y);
+        self.set_flags_zn(self.y);
+        return 0;
     }
-    // INC: Increment M by One
-    fn inc(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        let val = val.wrapping_add(1);
-        self.set_zn(val);
-        self.write_target(target, val);
+    /// INC: Increment M by One
+    fn inc(&mut self) -> u8 {
+        self.fetch_data();
+        self.write_fetched(self.fetched_data); // dummy write
+        let val = self.fetched_data.wrapping_add(1);
+        self.set_flags_zn(val);
+        self.write_fetched(val);
+        return 0;
     }
-    // INX: Increment X by One
-    fn inx(&mut self) {
+    /// INX: Increment X by One
+    fn inx(&mut self) -> u8 {
         self.x = self.x.wrapping_add(1);
-        self.set_zn(self.x);
+        self.set_flags_zn(self.x);
+        return 0;
     }
-    // INY: Increment Y by One
-    fn iny(&mut self) {
+    /// INY: Increment Y by One
+    fn iny(&mut self) -> u8 {
         self.y = self.y.wrapping_add(1);
-        self.set_zn(self.y);
+        self.set_flags_zn(self.y);
+        return 0;
     }
 
-    // Bitwise opcodes
+    /// Bitwise opcodes
 
-    // AND: "And" M with A
-    fn and(&mut self, val: u8) {
-        self.acc &= val;
-        self.set_zn(self.acc);
+    /// AND: "And" M with A
+    fn and(&mut self) -> u8 {
+        self.fetch_data();
+        self.acc &= self.fetched_data;
+        self.set_flags_zn(self.acc);
+        return 1;
     }
-    // ASL: Shift Left One Bit (M or A)
-    fn asl(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        self.set_carry((val >> 7) & 1 > 0);
-        let val = val.wrapping_shl(1);
-        self.set_zn(val);
-        self.write_target(target, val);
+    /// ASL: Shift Left One Bit (M or A)
+    fn asl(&mut self) -> u8 {
+        self.fetch_data();
+        self.write_fetched(self.fetched_data); // dummy write
+        self.set_flag(C, (self.fetched_data >> 7) & 1 > 0);
+        let val = self.fetched_data.wrapping_shl(1);
+        self.set_flags_zn(val);
+        self.write_fetched(val);
+        return 0;
     }
-    // BIT: Test Bits in M with A (Affects N, V, and Z)
-    fn bit(&mut self, val: u8) {
-        self.set_overflow((val >> 6) & 1 > 0);
-        self.set_zero((val & self.acc) == 0);
-        self.set_negative(is_negative(val));
+    /// BIT: Test Bits in M with A (Affects N, V, and Z)
+    fn bit(&mut self) -> u8 {
+        self.fetch_data();
+        let val = self.acc & self.fetched_data;
+        self.set_flag(Z, val == 0);
+        self.set_flag(N, self.fetched_data & (1 << 7) > 0);
+        self.set_flag(V, self.fetched_data & (1 << 6) > 0);
+        return 0;
     }
-    // EOR: "Exclusive-Or" M with A
-    fn eor(&mut self, val: u8) {
-        self.acc ^= val;
-        self.set_zn(self.acc);
+    /// EOR: "Exclusive-Or" M with A
+    fn eor(&mut self) -> u8 {
+        self.fetch_data();
+        self.acc ^= self.fetched_data;
+        self.set_flags_zn(self.acc);
+        return 1;
     }
-    // LSR: Shift Right One Bit (M or A)
-    fn lsr(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        self.set_carry(val & 1 > 0);
-        let val = val.wrapping_shr(1);
-        self.set_zn(val);
-        self.write_target(target, val);
+    /// LSR: Shift Right One Bit (M or A)
+    fn lsr(&mut self) -> u8 {
+        self.fetch_data();
+        self.write_fetched(self.fetched_data); // dummy write
+        self.set_flag(C, self.fetched_data & 1 > 0);
+        let val = self.fetched_data.wrapping_shr(1);
+        self.set_flags_zn(val);
+        self.write_fetched(val);
+        return 0;
     }
-    // ORA: "OR" M with A
-    fn ora(&mut self, val: u8) {
-        self.acc |= val;
-        self.set_zn(self.acc);
+    /// ORA: "OR" M with A
+    fn ora(&mut self) -> u8 {
+        self.fetch_data();
+        self.acc |= self.fetched_data;
+        self.set_flags_zn(self.acc);
+        return 1;
     }
-    // ROL: Rotate One Bit Left (M or A)
-    fn rol(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        let old_c = self.carry() as u8;
-        self.set_carry((val >> 7) & 1 > 0);
-        let val = (val << 1) | old_c;
-        self.set_zn(val);
-        self.write_target(target, val);
+    /// ROL: Rotate One Bit Left (M or A)
+    fn rol(&mut self) -> u8 {
+        self.fetch_data();
+        self.write_fetched(self.fetched_data); // dummy write
+        let old_c = self.get_flag(C);
+        self.set_flag(C, (self.fetched_data >> 7) & 1 > 0);
+        let val = (self.fetched_data << 1) | old_c;
+        self.set_flags_zn(val);
+        self.write_fetched(val);
+        return 0;
     }
-    // ROR: Rotate One Bit Right (M or A)
-    fn ror(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val);
-        let mut ret = val.rotate_right(1);
-        if self.carry() {
+    /// ROR: Rotate One Bit Right (M or A)
+    fn ror(&mut self) -> u8 {
+        self.fetch_data();
+        self.write_fetched(self.fetched_data); // dummy write
+        let mut ret = self.fetched_data.rotate_right(1);
+        if self.get_flag(C) == 1 {
             ret |= 1 << 7;
         } else {
             ret &= !(1 << 7);
         }
-        self.set_carry(val & 1 > 0);
-        self.set_zn(ret);
-        self.write_target(target, ret);
+        self.set_flag(C, self.fetched_data & 1 > 0);
+        self.set_flags_zn(ret);
+        self.write_fetched(ret);
+        return 0;
     }
 
-    // Branch opcodes
+    /// Branch opcodes
 
-    // Utility function used by all branch instructions
-    fn branch(&mut self, val: u8) {
-        let old_pc = self.pc;
-        self.pc = self.pc.wrapping_add((val as i8) as u16);
-        self.cycle += 1;
-        if Cpu::pages_differ(self.pc, old_pc) {
-            self.cycle += 1;
+    /// Utility function used by all branch instructions
+    fn branch(&mut self) {
+        self.cycles_remaining += 1;
+        self.abs_addr = self.pc.wrapping_add((self.rel_addr as i16) as u16);
+        if Cpu::pages_differ(self.abs_addr, self.pc) {
+            self.cycles_remaining += 1;
         }
+        self.pc = self.abs_addr;
     }
-    // BCC: Branch on Carry Clear
-    fn bcc(&mut self, val: u8) {
-        if !self.carry() {
-            self.branch(val);
+    /// BCC: Branch on Carry Clear
+    fn bcc(&mut self) -> u8 {
+        if self.get_flag(C) == 0 {
+            self.branch();
         }
+        return 0;
     }
-    // BCS: Branch on Carry Set
-    fn bcs(&mut self, val: u8) {
-        if self.carry() {
-            self.branch(val);
+    /// BCS: Branch on Carry Set
+    fn bcs(&mut self) -> u8 {
+        if self.get_flag(C) == 1 {
+            self.branch();
         }
+        return 0;
     }
-    // BEQ: Branch on Result Zero
-    fn beq(&mut self, val: u8) {
-        if self.zero() {
-            self.branch(val);
+    /// BEQ: Branch on Result Zero
+    fn beq(&mut self) -> u8 {
+        if self.get_flag(Z) == 1 {
+            self.branch();
         }
+        return 0;
     }
-    // BMI: Branch on Result Negative
-    fn bmi(&mut self, val: u8) {
-        if self.negative() {
-            self.branch(val);
+    /// BMI: Branch on Result Negative
+    fn bmi(&mut self) -> u8 {
+        if self.get_flag(N) == 1 {
+            self.branch();
         }
+        return 0;
     }
-    // BNE: Branch on Result Not Zero
-    fn bne(&mut self, val: u8) {
-        if !self.zero() {
-            self.branch(val);
+    /// BNE: Branch on Result Not Zero
+    fn bne(&mut self) -> u8 {
+        if self.get_flag(Z) == 0 {
+            self.branch();
         }
+        return 0;
     }
-    // BPL: Branch on Result Positive
-    fn bpl(&mut self, val: u8) {
-        if !self.negative() {
-            self.branch(val);
+    /// BPL: Branch on Result Positive
+    fn bpl(&mut self) -> u8 {
+        if self.get_flag(N) == 0 {
+            self.branch();
         }
+        return 0;
     }
-    // BVC: Branch on Overflow Clear
-    fn bvc(&mut self, val: u8) {
-        if !self.overflow() {
-            self.branch(val);
+    /// BVC: Branch on Overflow Clear
+    fn bvc(&mut self) -> u8 {
+        if self.get_flag(V) == 0 {
+            self.branch();
         }
+        return 0;
     }
-    // BVS: Branch on Overflow Set
-    fn bvs(&mut self, val: u8) {
-        if self.overflow() {
-            self.branch(val);
+    /// BVS: Branch on Overflow Set
+    fn bvs(&mut self) -> u8 {
+        if self.get_flag(V) == 1 {
+            self.branch();
         }
+        return 0;
     }
 
-    // Jump opcodes
+    /// Jump opcodes
 
-    // JMP: Jump to Location
-    fn jmp(&mut self, addr: u16) {
-        self.pc = addr;
+    /// JMP: Jump to Location
+    fn jmp(&mut self) -> u8 {
+        self.pc = self.abs_addr;
+        return 0;
     }
-    // JSR: Jump to Location Save Return addr
-    fn jsr(&mut self, addr: u16) {
+    /// JSR: Jump to Location Save Return addr
+    fn jsr(&mut self) -> u8 {
         self.push_stackw(self.pc.wrapping_sub(1));
-        self.pc = addr;
+        self.pc = self.abs_addr;
+        return 0;
     }
-    // RTI: Return from Interrupt
-    fn rti(&mut self) {
-        self.status = (self.pop_stackb() | UNUSED_FLAG) & !BREAK_FLAG;
+    /// RTI: Return from Interrupt
+    fn rti(&mut self) -> u8 {
+        self.status = self.pop_stackb();
+        self.status &= !(U as u8);
+        self.status &= !(B as u8);
         self.pc = self.pop_stackw();
+        return 0;
     }
-    // RTS: Return from Subroutine
-    fn rts(&mut self) {
+    /// RTS: Return from Subroutine
+    fn rts(&mut self) -> u8 {
         self.pc = self.pop_stackw().wrapping_add(1);
+        return 0;
     }
 
-    // Register opcodes
+    ///  Register opcodes
 
-    // CLC: Clear Carry Flag
-    fn clc(&mut self) {
-        self.set_carry(false);
+    /// CLC: Clear Carry Flag
+    fn clc(&mut self) -> u8 {
+        self.set_flag(C, false);
+        return 0;
     }
-    // SEC: Set Carry Flag
-    fn sec(&mut self) {
-        self.set_carry(true);
+    /// SEC: Set Carry Flag
+    fn sec(&mut self) -> u8 {
+        self.set_flag(C, true);
+        return 0;
     }
-    // CLD: Clear Decimal Mode
-    fn cld(&mut self) {
-        self.set_decimal(false);
+    /// CLD: Clear Decimal Mode
+    fn cld(&mut self) -> u8 {
+        self.set_flag(D, false);
+        return 0;
     }
-    // SED: Set Decimal Mode
-    fn sed(&mut self) {
-        self.set_decimal(true);
+    /// SED: Set Decimal Mode
+    fn sed(&mut self) -> u8 {
+        self.set_flag(D, true);
+        return 0;
     }
-    // CLI: Clear Interrupt Disable Bit
-    fn cli(&mut self) {
-        self.set_irq_disable(false);
+    /// CLI: Clear Interrupt Disable Bit
+    fn cli(&mut self) -> u8 {
+        self.set_flag(I, false);
+        return 0;
     }
-    // SEI: Set Interrupt Disable Status
-    fn sei(&mut self) {
-        self.set_irq_disable(true);
+    /// SEI: Set Interrupt Disable Status
+    fn sei(&mut self) -> u8 {
+        self.set_flag(I, true);
+        return 0;
     }
-    // STA: Store A into M
-    fn sta(&mut self, addr: Option<u16>) {
-        self.write_target(addr, self.acc);
-    }
-    // STX: Store X into M
-    fn stx(&mut self, addr: Option<u16>) {
-        self.write_target(addr, self.x);
-    }
-    // STY: Store Y into M
-    fn sty(&mut self, addr: Option<u16>) {
-        self.write_target(addr, self.y);
-    }
-    // CLV: Clear Overflow Flag
-    fn clv(&mut self) {
-        self.set_overflow(false);
+    /// CLV: Clear Overflow Flag
+    fn clv(&mut self) -> u8 {
+        self.set_flag(V, false);
+        return 0;
     }
 
-    // Compare opcodes
+    /// Compare opcodes
 
-    // Utility function used by all compare instructions
+    /// Utility function used by all compare instructions
     fn compare(&mut self, a: u8, b: u8) {
         let result = a.wrapping_sub(b);
-        self.set_zn(result);
-        self.set_carry(a >= b);
+        self.set_flags_zn(result);
+        self.set_flag(C, a >= b);
     }
-    // CMP: Compare M and A
-    fn cmp(&mut self, val: u8) {
-        let a = self.acc;
-        self.compare(a, val);
+    /// CMP: Compare M and A
+    fn cmp(&mut self) -> u8 {
+        self.fetch_data();
+        self.compare(self.acc, self.fetched_data);
+        return 1;
     }
-    // CPX: Compare M and X
-    fn cpx(&mut self, val: u8) {
-        let x = self.x;
-        self.compare(x, val);
+    /// CPX: Compare M and X
+    fn cpx(&mut self) -> u8 {
+        self.fetch_data();
+        self.compare(self.x, self.fetched_data);
+        return 0;
     }
-    // CPY: Compare M and Y
-    fn cpy(&mut self, val: u8) {
-        let y = self.y;
-        self.compare(y, val);
+    /// CPY: Compare M and Y
+    fn cpy(&mut self) -> u8 {
+        self.fetch_data();
+        self.compare(self.y, self.fetched_data);
+        return 0;
     }
 
-    // Stack opcodes
+    /// Stack opcodes
 
-    // PHP: Push Processor Status on Stack
-    fn php(&mut self) {
-        self.push_stackb(self.status | UNUSED_FLAG | BREAK_FLAG);
+    /// PHP: Push Processor Status on Stack
+    fn php(&mut self) -> u8 {
+        self.push_stackb(self.status | U as u8 | B as u8);
+        self.set_flag(B, false);
+        self.set_flag(U, false);
+        return 0;
     }
-    // PLP: Pull Processor Status from Stack
-    fn plp(&mut self) {
-        self.status = (self.pop_stackb() | UNUSED_FLAG) & !BREAK_FLAG;
+    /// PLP: Pull Processor Status from Stack
+    fn plp(&mut self) -> u8 {
+        self.status = (self.pop_stackb() | U as u8) & !(B as u8);
+        return 0;
     }
-    // PHA: Push A on Stack
-    fn pha(&mut self) {
+    /// PHA: Push A on Stack
+    fn pha(&mut self) -> u8 {
         self.push_stackb(self.acc);
+        return 0;
     }
-    // PLA: Pull A from Stack
-    fn pla(&mut self) {
+    /// PLA: Pull A from Stack
+    fn pla(&mut self) -> u8 {
         self.acc = self.pop_stackb();
-        self.set_zn(self.acc);
+        self.set_flags_zn(self.acc);
+        return 0;
     }
 
-    // System opcodes
+    /// System opcodes
 
-    // BRK: Force Break Interrupt
-    fn brk(&mut self) {
-        self.push_stackw(self.pc);
+    /// BRK: Force Break Interrupt
+    fn brk(&mut self) -> u8 {
+        self.set_flag(I, true);
+        self.push_stackw(self.pc.wrapping_add(1));
+        self.set_flag(B, true);
         self.php();
-        self.sei();
         self.pc = self.readw(IRQ_ADDR);
+        return 0;
     }
-    // NOP: No Operation
-    fn nop(&mut self) {}
+    /// NOP: No Operation
+    fn nop(&mut self) -> u8 {
+        // Certain NOP instructions can take an extra cycle
+        return match self.instr.opcode() {
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => 1,
+            _ => 0,
+        };
+    }
 
-    // Unofficial opcodes
+    /// Unofficial opcodes
 
-    fn kil(&self) {
-        panic!("KIL encountered");
+    /// XXX: Captures all unimplemented opcodes
+    fn xxx(&mut self) -> u8 {
+        eprintln!("Invalid opcode encountered!");
+        return 0;;
     }
-    // ISC/ISB: Shortcut for INC then SBC
-    fn isb(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        let val = val.wrapping_add(1);
-        self.set_zn(val);
-        self.sbc(val);
-        self.write_target(target, val);
+    /// ISC/ISB: Shortcut for INC then SBC
+    fn isb(&mut self) -> u8 {
+        self.inc();
+        self.sbc();
+        return 0;
     }
-    // DCP: Shortcut for DEC then CMP
-    fn dcp(&mut self, target: Option<u16>) {
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        let val = val.wrapping_sub(1);
-        self.compare(self.acc, val);
-        self.write_target(target, val);
+    /// DCP: Shortcut for DEC then CMP
+    fn dcp(&mut self) -> u8 {
+        self.dec();
+        self.cmp();
+        return 0;
     }
-    // AXS: A & X into X
-    fn axs(&mut self, val: u8) {
-        self.set_carry(self.x <= val);
-        self.x = (self.acc & self.x).wrapping_sub(val);
-        self.set_zn(self.x);
+    /// AXS: A & X into X
+    fn axs(&mut self) -> u8 {
+        self.fetch_data();
+        self.set_flag(C, self.x <= self.fetched_data);
+        self.x = (self.acc & self.x).wrapping_sub(self.fetched_data);
+        self.set_flags_zn(self.x);
+        return 0;
     }
-    // LAS: Shortcut for LDA then TSX
-    fn las(&mut self, val: u8) {
-        self.lda(val);
+    /// LAS: Shortcut for LDA then TSX
+    fn las(&mut self) -> u8 {
+        self.lda();
         self.tsx();
+        return 0;
     }
-    // LAX: Shortcut for LDA then TAX
-    fn lax(&mut self, val: u8) {
-        self.lda(val);
+    /// LAX: Shortcut for LDA then TAX
+    fn lax(&mut self) -> u8 {
+        self.lda();
         self.tax();
+        return 1;
     }
-    // AHX: TODO
-    fn ahx(&mut self) {
+    /// AHX: TODO
+    fn ahx(&mut self) -> u8 {
         eprintln!("ahx not implemented");
+        return 0;
     }
-    // SAX: AND A with X
-    fn sax(&mut self, target: Option<u16>) {
+    /// SAX: AND A with X
+    fn sax(&mut self) -> u8 {
         let val = self.acc & self.x;
-        self.write_target(target, val);
+        self.write_fetched(val);
+        return 0;
     }
-    // XAA: TODO
-    fn xaa(&mut self) {
+    /// XAA: TODO
+    fn xaa(&mut self) -> u8 {
         eprintln!("xaa not implemented");
+        return 0;
     }
-    // SHX: TODO
-    fn shx(&mut self) {
+    /// SHX: TODO
+    fn shx(&mut self) -> u8 {
         eprintln!("shx not implemented");
+        return 0;
     }
-    // RRA: Shortcut for ROR then ADC
-    fn rra(&mut self, target: Option<u16>) {
-        self.ror(target);
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        self.adc(val);
-        self.write_target(target, val);
+    /// RRA: Shortcut for ROR then ADC
+    fn rra(&mut self) -> u8 {
+        self.ror();
+        self.adc();
+        return 0;
     }
-    // TAS: Shortcut for STA then TXS
-    fn tas(&mut self, addr: Option<u16>) {
-        self.sta(addr);
+    /// TAS: Shortcut for STA then TXS
+    fn tas(&mut self) -> u8 {
+        self.sta();
         self.txs();
+        return 0;
     }
-    // SHY: TODO
-    fn shy(&mut self) {
+    /// SHY: TODO
+    fn shy(&mut self) -> u8 {
         eprintln!("shy not implemented");
+        return 0;
     }
-    // ARR: Shortcut for AND #imm then ROR
-    fn arr(&mut self, val: u8) {
-        self.and(val);
-        let mut ret = self.acc.rotate_right(1);
-        if self.carry() {
-            ret |= 1 << 7;
-        } else {
-            ret &= !(1 << 7);
-        }
-        self.set_carry((ret & 0x40 >> 6) > 0);
-        self.set_overflow(((ret >> 6) & 1) ^ ((ret >> 5) & 1) != 0);
-        self.set_zn(ret);
+    /// ARR: Shortcut for AND #imm then ROR
+    fn arr(&mut self) -> u8 {
+        self.and();
+        self.ror();
+        return 0;
     }
-    // SRA: Shortcut for LSR then EOR
-    fn sre(&mut self, target: Option<u16>) {
-        self.lsr(target);
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        self.eor(val);
-        self.write_target(target, val);
+    /// SRA: Shortcut for LSR then EOR
+    fn sre(&mut self) -> u8 {
+        self.lsr();
+        self.eor();
+        return 0;
     }
-    // ALR/ASR: Shortcut for AND #imm then LSR
-    fn alr(&mut self, val: u8) {
-        self.and(val);
-        self.set_carry(self.acc & 1 > 0);
-        self.acc = self.acc.wrapping_shr(1);
-        self.set_zn(self.acc);
+    /// ALR/ASR: Shortcut for AND #imm then LSR
+    fn alr(&mut self) -> u8 {
+        self.and();
+        self.lsr();
+        return 0;
     }
-    // RLA: Shortcut for ROL then AND
-    fn rla(&mut self, target: Option<u16>) {
-        self.rol(target);
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        self.and(val);
-        self.write_target(target, val);
+    /// RLA: Shortcut for ROL then AND
+    fn rla(&mut self) -> u8 {
+        self.rol();
+        self.and();
+        return 0;
     }
-    // ANC/AAC: AND #imm but puts bit 7 into carry as if ASL was executed
-    fn anc(&mut self, val: u8) {
-        self.and(val);
-        self.set_carry((self.acc >> 7) & 1 > 0);
+    /// ANC/AAC: AND #imm but puts bit 7 into carry as if ASL was executed
+    fn anc(&mut self) -> u8 {
+        let ret = self.and();
+        self.set_flag(C, (self.acc >> 7) & 1 > 0);
+        return ret;
     }
-    // SLO: Shortcut for ASL then ORA
-    fn slo(&mut self, target: Option<u16>) {
-        self.asl(target);
-        let val = self.read_target(target);
-        self.write_target(target, val); // dummy write
-        self.ora(val);
-        self.write_target(target, val);
+    /// SLO: Shortcut for ASL then ORA
+    fn slo(&mut self) -> u8 {
+        self.asl();
+        self.ora();
+        return 0;
     }
-}
-
-// Since we're working with u8s, we need a way to check for negative numbers
-fn is_negative(val: u8) -> bool {
-    val >= 128
 }
 
 impl fmt::Debug for Cpu {
@@ -1415,14 +1379,14 @@ impl fmt::Debug for Cpu {
         write!(
             f,
             "Cpu {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
-            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycle,
+            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycles_count,
         )
     }
 }
-impl fmt::Debug for Instruction {
+impl fmt::Debug for Instr {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         let unofficial = match self.op() {
-            KIL | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SHX | RRA | TAS | SHY | ARR
+            XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SHX | RRA | TAS | SHY | ARR
             | SRE | ALR | RLA | ANC | SLO => "*",
             NOP if self.opcode() != 0xEA => "*",
             SBC if self.opcode() == 0xEB => "*",
@@ -1452,7 +1416,7 @@ mod tests {
         let mut cpu_memory = CpuMemMap::init(input);
         cpu_memory.load_mapper(mapper);
         let c = Cpu::init(cpu_memory);
-        assert_eq!(c.cycle, 7);
+        assert_eq!(c.cycles_count, 7);
         assert_eq!(c.pc, TEST_PC);
         assert_eq!(c.sp, POWER_ON_SP);
         assert_eq!(c.acc, 0);
@@ -1473,6 +1437,6 @@ mod tests {
         assert_eq!(c.pc, TEST_PC);
         assert_eq!(c.sp, POWER_ON_SP - 3);
         assert_eq!(c.status, POWER_ON_STATUS);
-        assert_eq!(c.cycle, 7);
+        assert_eq!(c.cycles_count, 7);
     }
 }

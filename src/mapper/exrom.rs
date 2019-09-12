@@ -5,7 +5,7 @@
 
 use crate::cartridge::Cartridge;
 use crate::console::debugger::Debugger;
-use crate::console::ppu::{Ppu, PRERENDER_SCANLINE, VISIBLE_SCANLINE_END};
+use crate::console::ppu::{Ppu, PRERENDER_SCANLINE};
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
@@ -255,7 +255,7 @@ impl Mapper for Exrom {
 
         if vram_addr == self.regs.prev_vram_addr[0] && vram_addr == self.regs.prev_vram_addr[1] {
             // not in-frame
-            if (!self.regs.in_frame) {
+            if !self.regs.in_frame {
                 self.regs.in_frame = true;
                 self.irq_pending = false;
                 self.regs.irq_counter = 0;

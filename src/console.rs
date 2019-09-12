@@ -26,6 +26,7 @@ pub mod ppu;
 pub struct Console {
     no_save: bool,
     running: bool,
+    clock_counter: u64,
     loaded_rom: PathBuf,
     pub cpu: Box<Cpu>,
     mapper: MapperRef,
@@ -40,6 +41,7 @@ impl Console {
         Self {
             no_save: false,
             running: false,
+            clock_counter: 0u64,
             loaded_rom: PathBuf::new(),
             cpu,
             mapper: mapper::null(),
@@ -74,21 +76,33 @@ impl Console {
     /// Steps the console the number of instructions required to generate an entire frame
     pub fn clock_frame(&mut self) {
         if self.running {
+            // if self.residual_time.as_millis() > 0 {
+            //     if Some(time) = self.residual_time.checked_sub(self.elapsed_time) {
+            //         self.residual_time = time;
+            //     } else {
+            //         self.residual_time =
+            //     }
+            // } else {
+            // }
+            // self.clock();
             let mut cycles_remaining = (CPU_CLOCK_RATE / 60.0) as i64;
             while cycles_remaining > 0 {
-                cycles_remaining -= self.clock() as i64;
+                cycles_remaining -= 1;
+                self.clock();
             }
         }
     }
 
     /// Soft-resets the console
     pub fn reset(&mut self) {
+        self.clock_counter = 0u64;
         self.cpu.reset();
         self.mapper.borrow_mut().reset();
     }
 
     /// Hard-resets the console
     pub fn power_cycle(&mut self) {
+        self.clock_counter = 0u64;
         self.cpu.power_cycle();
         self.mapper.borrow_mut().power_cycle();
     }
@@ -99,11 +113,13 @@ impl Console {
     }
 
     /// Enable/Disable the debugger
+    #[cfg(debug_assertions)]
     pub fn debug(&mut self, val: bool) {
         self.cpu.debug(val);
     }
 
     /// Enable/Disable CPU logging
+    #[cfg(debug_assertions)]
     pub fn log_cpu(&mut self, val: bool) {
         self.cpu.log(val);
     }
@@ -188,15 +204,16 @@ impl Console {
     }
 
     /// Steps the console a single CPU instruction at a time
-    fn clock(&mut self) -> u64 {
-        let cpu_cycles = self.cpu.clock();
-        let ppu_cycles = cpu_cycles * 3;
-        for _ in 0..ppu_cycles {
+    fn clock(&mut self) {
+        self.cpu.clock();
+
+        for _ in 0..3 {
             self.cpu.mem.ppu.clock();
             if self.cpu.mem.ppu.nmi_pending {
                 self.cpu.trigger_nmi();
                 self.cpu.mem.ppu.nmi_pending = false;
             }
+
             let irq_pending = {
                 let mut mapper = self.cpu.mem.mapper.borrow_mut();
                 mapper.clock(&self.cpu.mem.ppu);
@@ -206,14 +223,39 @@ impl Console {
                 self.cpu.trigger_irq();
             }
         }
-        for _ in 0..cpu_cycles {
-            self.cpu.mem.apu.clock();
-            if self.cpu.mem.apu.irq_pending {
-                self.cpu.trigger_irq();
-                self.cpu.mem.apu.irq_pending = false;
-            }
+
+        self.cpu.mem.apu.clock();
+        if self.cpu.mem.apu.irq_pending {
+            self.cpu.trigger_irq();
+            self.cpu.mem.apu.irq_pending = false;
         }
-        cpu_cycles
+
+        // if self.clock_counter % 3 == 0 {
+        //     self.cpu.clock();
+
+        //     self.cpu.mem.apu.clock();
+        //     if self.cpu.mem.apu.irq_pending {
+        //         self.cpu.trigger_irq();
+        //         self.cpu.mem.apu.irq_pending = false;
+        //     }
+        // }
+
+        // self.cpu.mem.ppu.clock();
+        // if self.cpu.mem.ppu.nmi_pending {
+        //     self.cpu.trigger_nmi();
+        //     self.cpu.mem.ppu.nmi_pending = false;
+        // }
+
+        // let irq_pending = {
+        //     let mut mapper = self.cpu.mem.mapper.borrow_mut();
+        //     mapper.clock(&self.cpu.mem.ppu);
+        //     mapper.irq_pending()
+        // };
+        // if irq_pending {
+        //     self.cpu.trigger_irq();
+        // }
+
+        // self.clock_counter += 1;
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
@@ -319,8 +361,8 @@ mod tests {
     use std::rc::Rc;
     use std::{fs, path::PathBuf};
 
-    const NESTEST_ADDR: u16 = 0xC000;
-    const NESTEST_LEN: usize = 8980;
+    const NESTEST_START_ADDR: u16 = 0xC000;
+    const NESTEST_END_ADDR: u16 = 0xC689 + 2;
 
     #[test]
     fn test_nestest() {
@@ -334,8 +376,8 @@ mod tests {
         c.power_on().expect("powered on");
         c.cpu.log_enabled = true;
 
-        c.cpu.pc = NESTEST_ADDR;
-        for _ in 0..NESTEST_LEN {
+        c.cpu.pc = NESTEST_START_ADDR;
+        while c.cpu.pc != NESTEST_END_ADDR {
             c.clock();
         }
         let log = c.cpu.nestestlog.join("");
