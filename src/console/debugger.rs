@@ -88,6 +88,7 @@ impl Debugger {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == NMI {
             eprintln!("DEBUG - VBLANK");
+            cpu.print_instruction(cpu.pc);
             self.prompt(cpu);
         }
     }
@@ -96,6 +97,7 @@ impl Debugger {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == IRQ {
             eprintln!("DEBUG - SCANLINE");
+            cpu.print_instruction(cpu.pc);
             self.prompt(cpu);
         }
     }

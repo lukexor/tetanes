@@ -52,8 +52,8 @@ use StatusRegs::*;
 /// The Central Processing Unit status and registers
 pub struct Cpu {
     pub mem: CpuMemMap,
-    pub cycles_count: u64,    // total number of cycles ran
-    cycles_remaining: u64,    // Number of cycles remaining in the current instruction
+    pub cycle_count: u64,     // total number of cycles ran
+    stall: u64,               // Number of cycles to stall with nop (used by DMA)
     pub step: u64,            // total number of CPU instructions run
     pub pc: u16,              // program counter
     sp: u8,                   // stack pointer - stack is at $0100-$01FF
@@ -78,8 +78,8 @@ impl Cpu {
     pub fn init(mem: CpuMemMap) -> Self {
         let mut cpu = Self {
             mem,
-            cycles_count: POWER_ON_CYCLES,
-            cycles_remaining: 0u64,
+            cycle_count: POWER_ON_CYCLES,
+            stall: 0u64,
             step: 0u64,
             pc: 0x0000,
             sp: POWER_ON_SP,
@@ -113,8 +113,8 @@ impl Cpu {
     ///
     /// These operations take the CPU 7 cycle.
     pub fn reset(&mut self) {
-        self.cycles_count = POWER_ON_CYCLES;
-        self.cycles_remaining = 0u64;
+        self.cycle_count = POWER_ON_CYCLES;
+        self.stall = 0u64;
         self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
@@ -130,8 +130,8 @@ impl Cpu {
     ///
     /// These operations take the CPU 7 cycle.
     pub fn power_cycle(&mut self) {
-        self.cycles_count = POWER_ON_CYCLES;
-        self.cycles_remaining = 0u64;
+        self.cycle_count = POWER_ON_CYCLES;
+        self.stall = 0u64;
         self.pc = self.readw(RESET_ADDR);
         self.sp = POWER_ON_SP;
         self.acc = 0u8;
@@ -150,44 +150,50 @@ impl Cpu {
     }
 
     /// Runs the CPU one cycle
-    pub fn clock(&mut self) {
-        if self.cycles_remaining == 0 {
-            match self.interrupt {
-                Interrupt::IRQ => self.irq(),
-                Interrupt::NMI => self.nmi(),
-                _ => (),
-            }
-            self.interrupt = Interrupt::None;
-
-            let opcode = self.read(self.pc);
-            self.set_flag(U, true);
-            #[cfg(debug_assertions)]
-            let log_pc = self.pc;
-            self.pc = self.pc.wrapping_add(1);
-
-            self.instr = INSTRUCTIONS[opcode as usize];
-            self.cycles_remaining = self.instr.cycles();
-
-            let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
-
-            #[cfg(debug_assertions)]
-            {
-                if self.log_enabled {
-                    self.print_instruction(log_pc.wrapping_add(1));
-                } else if self.debugger.enabled() {
-                    let debugger: *mut Debugger = &mut self.debugger;
-                    let cpu: *mut Cpu = self;
-                    unsafe { (*debugger).on_clock(&mut (*cpu), log_pc.wrapping_add(1)) };
-                }
-            }
-
-            let extra_cycle_req2 = (self.instr.execute())(self); // Execute operation
-            self.cycles_remaining += u64::from(extra_cycle_req1 & extra_cycle_req2);
-
-            self.step += 1;
+    pub fn clock(&mut self) -> u64 {
+        if self.stall > 0 {
+            self.stall -= 1;
+            return 1;
         }
-        self.cycles_count = self.cycles_count.wrapping_add(1);
-        self.cycles_remaining = self.cycles_remaining.saturating_sub(1);
+
+        let start_cycle = self.cycle_count;
+
+        match self.interrupt {
+            Interrupt::IRQ => self.irq(),
+            Interrupt::NMI => self.nmi(),
+            _ => (),
+        }
+        self.interrupt = Interrupt::None;
+
+        let opcode = self.read(self.pc);
+        self.set_flag(U, true);
+        self.pc = self.pc.wrapping_add(1);
+        #[cfg(debug_assertions)]
+        let log_pc = self.pc;
+
+        self.instr = INSTRUCTIONS[opcode as usize];
+
+        let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
+
+        #[cfg(debug_assertions)]
+        {
+            if self.log_enabled {
+                self.print_instruction(log_pc);
+            } else if self.debugger.enabled() {
+                let debugger: *mut Debugger = &mut self.debugger;
+                let cpu: *mut Cpu = self;
+                unsafe { (*debugger).on_clock(&mut (*cpu), log_pc) };
+            }
+        }
+
+        self.cycle_count = self.cycle_count.wrapping_add(self.instr.cycles());
+        let extra_cycle_req2 = (self.instr.execute())(self); // Execute operation
+        self.cycle_count = self
+            .cycle_count
+            .wrapping_add(u64::from(extra_cycle_req1 & extra_cycle_req2));
+
+        self.step += 1;
+        self.cycle_count - start_cycle
     }
 
     #[cfg(debug_assertions)]
@@ -219,7 +225,7 @@ impl Cpu {
         self.push_stackb((self.status | U as u8) & !(B as u8));
         self.pc = self.readw(IRQ_ADDR);
         self.set_flag(I, true);
-        self.cycles_remaining = self.cycles_remaining.wrapping_add(7);
+        self.cycle_count = self.cycle_count.wrapping_add(7);
     }
 
     /// Sends a NMI Interrupt to the CPU
@@ -239,7 +245,7 @@ impl Cpu {
         self.push_stackb((self.status | U as u8) & !(B as u8));
         self.pc = self.readw(NMI_ADDR);
         self.set_flag(I, true);
-        self.cycles_remaining = self.cycles_remaining.wrapping_add(7);
+        self.cycle_count = self.cycle_count.wrapping_add(7);
     }
 
     // Getters/Setters
@@ -547,15 +553,15 @@ impl Cpu {
             self.write(oam_addr, val);
             addr = addr.saturating_add(1);
         }
-        self.cycles_remaining += 513; // +2 for every read/write and +1 dummy cycle
-        if self.cycles_remaining & 0x01 == 1 {
+        self.stall += 513; // +2 for every read/write and +1 dummy cycle
+        if self.cycle_count & 0x01 == 1 {
             // +1 cycle if on an odd cycle
-            self.cycles_remaining += 1;
+            self.stall += 1;
         }
     }
 
     // Print the current instruction and status
-    pub fn print_instruction(&mut self, pc: u16) {
+    pub fn print_instruction(&self, pc: u16) {
         let mut bytes = Vec::new();
         let disasm = match self.instr.addr_mode() {
             IMM => {
@@ -611,9 +617,9 @@ impl Cpu {
                 bytes.push(self.peek(pc.wrapping_add(1)));
                 let addr = self.peekw(pc);
                 let val = if addr & 0x00FF == 0x00FF {
-                    (u16::from(self.read(addr & 0xFF00)) << 8) | u16::from(self.read(addr))
+                    (u16::from(self.peek(addr & 0xFF00)) << 8) | u16::from(self.peek(addr))
                 } else {
-                    (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr))
+                    (u16::from(self.peek(addr + 1)) << 8) | u16::from(self.peek(addr))
                 };
                 if self.instr.op() == JMP {
                     format!("(${:04X}) = {:04X}", addr, val)
@@ -642,7 +648,7 @@ impl Cpu {
                 )
             }
             REL => {
-                bytes.push(self.read(pc));
+                bytes.push(self.peek(pc));
                 format!("${:04X}", pc.wrapping_add(1).wrapping_add(self.rel_addr))
             }
             ACC => "A ".to_string(),
@@ -670,7 +676,7 @@ impl Cpu {
             self.sp,
             self.mem.ppu.cycle,
             self.mem.ppu.scanline,
-            self.cycles_count,
+            self.cycle_count,
         );
         print!("{}", opstr);
         #[cfg(test)]
@@ -1067,10 +1073,10 @@ impl Cpu {
 
     /// Utility function used by all branch instructions
     fn branch(&mut self) {
-        self.cycles_remaining += 1;
-        self.abs_addr = self.pc.wrapping_add((self.rel_addr as i16) as u16);
+        self.cycle_count = self.cycle_count.wrapping_add(1);
+        self.abs_addr = self.pc.wrapping_add(self.rel_addr);
         if Cpu::pages_differ(self.abs_addr, self.pc) {
-            self.cycles_remaining += 1;
+            self.cycle_count = self.cycle_count.wrapping_add(1);
         }
         self.pc = self.abs_addr;
     }
@@ -1391,8 +1397,15 @@ impl fmt::Debug for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
-            "Cpu {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} }}",
-            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycles_count,
+            "Cpu {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} rel_addr:{} }}",
+            self.pc,
+            self.acc,
+            self.x,
+            self.y,
+            self.status,
+            self.sp,
+            self.cycle_count,
+            self.rel_addr
         )
     }
 }
@@ -1429,7 +1442,7 @@ mod tests {
         let mut cpu_memory = CpuMemMap::init(input);
         cpu_memory.load_mapper(mapper);
         let c = Cpu::init(cpu_memory);
-        assert_eq!(c.cycles_count, 7);
+        assert_eq!(c.cycle_count, 7);
         assert_eq!(c.pc, TEST_PC);
         assert_eq!(c.sp, POWER_ON_SP);
         assert_eq!(c.acc, 0);
@@ -1450,6 +1463,6 @@ mod tests {
         assert_eq!(c.pc, TEST_PC);
         assert_eq!(c.sp, POWER_ON_SP - 3);
         assert_eq!(c.status, POWER_ON_STATUS);
-        assert_eq!(c.cycles_count, 7);
+        assert_eq!(c.cycle_count, 7);
     }
 }

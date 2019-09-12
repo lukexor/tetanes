@@ -1337,7 +1337,6 @@ impl Savable for Vram {
 }
 
 pub struct Frame {
-    pub complete: bool,
     num: u32,
     parity: bool,
     // Shift registers
@@ -1358,7 +1357,6 @@ impl Frame {
     fn new() -> Self {
         Self {
             num: 0u32,
-            complete: false,
             parity: false,
             nametable: 0u16,
             attribute: 0u8,
@@ -1374,7 +1372,6 @@ impl Frame {
 
     fn increment(&mut self) {
         self.num += 1;
-        self.complete = true;
         self.parity = !self.parity;
     }
 

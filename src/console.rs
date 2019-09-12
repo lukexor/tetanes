@@ -26,8 +26,6 @@ pub mod ppu;
 pub struct Console {
     no_save: bool,
     running: bool,
-    pub frame_complete: bool,
-    clock_counter: u64,
     loaded_rom: PathBuf,
     pub cpu: Box<Cpu>,
     mapper: MapperRef,
@@ -42,8 +40,6 @@ impl Console {
         Self {
             no_save: false,
             running: false,
-            frame_complete: false,
-            clock_counter: 0u64,
             loaded_rom: PathBuf::new(),
             cpu,
             mapper: mapper::null(),
@@ -78,24 +74,21 @@ impl Console {
     /// Steps the console the number of instructions required to generate an entire frame
     pub fn clock_frame(&mut self) {
         if self.running {
-            let mut cycles_remaining = (CPU_CLOCK_RATE * 3.0 / 60.0) as i64;
+            let mut cycles_remaining = (CPU_CLOCK_RATE / 60.0) as i64;
             while cycles_remaining > 0 {
-                cycles_remaining -= 1;
-                self.clock();
+                cycles_remaining -= self.clock() as i64;
             }
         }
     }
 
     /// Soft-resets the console
     pub fn reset(&mut self) {
-        self.clock_counter = 0u64;
         self.cpu.reset();
         self.mapper.borrow_mut().reset();
     }
 
     /// Hard-resets the console
     pub fn power_cycle(&mut self) {
-        self.clock_counter = 0u64;
         self.cpu.power_cycle();
         self.mapper.borrow_mut().power_cycle();
     }
@@ -197,10 +190,28 @@ impl Console {
     }
 
     /// Steps the console a single CPU instruction at a time
-    pub fn clock(&mut self) {
-        if self.clock_counter % 3 == 0 {
-            self.cpu.clock();
+    pub fn clock(&mut self) -> u64 {
+        let cpu_cycles = self.cpu.clock();
+        let ppu_cycles = 3 * cpu_cycles;
 
+        for _ in 0..ppu_cycles {
+            self.cpu.mem.ppu.clock();
+            if self.cpu.mem.ppu.nmi_pending {
+                self.cpu.trigger_nmi();
+                self.cpu.mem.ppu.nmi_pending = false;
+            }
+
+            let irq_pending = {
+                let mut mapper = self.cpu.mem.mapper.borrow_mut();
+                mapper.clock(&self.cpu.mem.ppu);
+                mapper.irq_pending()
+            };
+            if irq_pending {
+                self.cpu.trigger_irq();
+            }
+        }
+
+        for _ in 0..cpu_cycles {
             self.cpu.mem.apu.clock();
             if self.cpu.mem.apu.irq_pending {
                 self.cpu.trigger_irq();
@@ -208,26 +219,7 @@ impl Console {
             }
         }
 
-        self.cpu.mem.ppu.clock();
-        if self.cpu.mem.ppu.frame.complete {
-            self.frame_complete = true;
-            self.cpu.mem.ppu.frame.complete = false;
-        }
-        if self.cpu.mem.ppu.nmi_pending {
-            self.cpu.trigger_nmi();
-            self.cpu.mem.ppu.nmi_pending = false;
-        }
-
-        let irq_pending = {
-            let mut mapper = self.cpu.mem.mapper.borrow_mut();
-            mapper.clock(&self.cpu.mem.ppu);
-            mapper.irq_pending()
-        };
-        if irq_pending {
-            self.cpu.trigger_irq();
-        }
-
-        self.clock_counter += 1;
+        cpu_cycles
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)

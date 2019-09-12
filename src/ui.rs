@@ -193,8 +193,6 @@ impl Ui {
         }
 
         let mut start = Instant::now();
-        // let zero_time = Duration::new(0, 0);
-        // let mut residual_time = Duration::new(0, 0);
         let mut fps_frame = 0;
         let one_sec = Duration::from_secs(1);
         while !self.should_close {
@@ -208,28 +206,10 @@ impl Ui {
                     self.speed_counter -= 100;
                     frames_to_run += 1;
                 }
-                // let frame_time = Duration::from_millis(1000 / 60 / frames_to_run);
-                // if residual_time > zero_time {
-                //     if let Some(time) = residual_time.checked_sub(start.elapsed()) {
-                //         residual_time = time;
-                //     } else {
-                //         residual_time = zero_time;
-                //     }
-                // } else {
-                //     let to_add = if let Some(time) = frame_time.checked_sub(start.elapsed()) {
-                //         time
-                //     } else {
-                //         zero_time
-                //     };
-                //     residual_time.checked_add(to_add);
                 for _ in 0..frames_to_run {
-                    while !self.console.frame_complete {
-                        self.console.clock();
-                    }
-                    self.console.frame_complete = false;
+                    self.console.clock_frame();
                     self.turbo_clock = (1 + self.turbo_clock) % 6;
                 }
-                // }
                 let game_view = self.console.frame();
                 if self.ppu_debug {
                     let nametables = self.console.nametables();
