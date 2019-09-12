@@ -303,10 +303,12 @@ impl Console {
 impl Savable for Console {
     fn save(&self, fh: &mut Write) -> Result<()> {
         self.no_save.save(fh)?;
+        self.running.save(fh)?;
         self.cpu.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
         self.no_save.load(fh)?;
+        self.running.load(fh)?;
         self.cpu.load(fh)
     }
 }

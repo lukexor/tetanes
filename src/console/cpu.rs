@@ -173,7 +173,22 @@ impl Cpu {
 
         self.instr = INSTRUCTIONS[opcode as usize];
 
-        let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
+        // let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
+        let mode_cycle = match self.instr.addr_mode() {
+            IMM => self.imm(),
+            ZP0 => self.zp0(),
+            ZPX => self.zpx(),
+            ZPY => self.zpy(),
+            ABS => self.abs(),
+            ABX => self.abx(),
+            ABY => self.aby(),
+            IND => self.ind(),
+            IDX => self.idx(),
+            IDY => self.idy(),
+            REL => self.rel(),
+            ACC => self.acc(),
+            IMP => self.imp(),
+        } as u64;
 
         #[cfg(debug_assertions)]
         {
@@ -182,17 +197,94 @@ impl Cpu {
             } else if self.debugger.enabled() {
                 let debugger: *mut Debugger = &mut self.debugger;
                 let cpu: *mut Cpu = self;
+
                 unsafe { (*debugger).on_clock(&mut (*cpu), log_pc) };
             }
         }
 
-        self.cycle_count = self.cycle_count.wrapping_add(self.instr.cycles());
-        let extra_cycle_req2 = (self.instr.execute())(self); // Execute operation
+        // let op_cycle = (self.instr.execute())(self); // Execute operation
+        let op_cycle = match self.instr.op() {
+            ADC => self.adc(), // ADd with Carry M with A
+            AND => self.and(), // AND M with A
+            ASL => self.asl(), // Arithmatic Shift Left M or A
+            BCC => self.bcc(), // Branch on Carry Clear
+            BCS => self.bcs(), // Branch if Carry Set
+            BEQ => self.beq(), // Branch if EQual to zero
+            BIT => self.bit(), // Test BITs of M with A (Affects N, V and Z)
+            BMI => self.bmi(), // Branch on MInus (negative)
+            BNE => self.bne(), // Branch if Not Equal to zero
+            BPL => self.bpl(), // Branch on PLus (positive)
+            BRK => self.brk(), // BReaK (forced interrupt)
+            BVC => self.bvc(), // Branch if no oVerflow Set
+            BVS => self.bvs(), // Branch on oVerflow Set
+            CLC => self.clc(), // CLear Carry flag
+            CLD => self.cld(), // CLear Decimal mode
+            CLI => self.cli(), // CLear Interrupt disable
+            CLV => self.clv(), // CLear oVerflow flag
+            CMP => self.cmp(), // CoMPare
+            CPX => self.cpx(), // ComPare with X
+            CPY => self.cpy(), // ComPare with Y
+            DEC => self.dec(), // DECrement M or A
+            DEX => self.dex(), // DEcrement X
+            DEY => self.dey(), // DEcrement Y
+            EOR => self.eor(), // Exclusive-OR M with A
+            INC => self.inc(), // INCrement M or A
+            INX => self.inx(), // INcrement X
+            INY => self.iny(), // INcrement Y
+            JMP => self.jmp(), // JuMP - safe to unwrap because JMP is Absolute
+            JSR => self.jsr(), // Jump and Save Return addr - safe to unwrap because JSR is Absolute
+            LDA => self.lda(), // LoaD A with M
+            LDX => self.ldx(), // LoaD X with M
+            LDY => self.ldy(), // LoaD Y with M
+            LSR => self.lsr(), // Logical Shift Right M or A
+            NOP => self.nop(), // NO oPeration
+            ORA => self.ora(), // OR with A
+            PHA => self.pha(), // PusH A to the stack
+            PHP => self.php(), // PusH Processor status to the stack
+            PLA => self.pla(), // PulL A from the stack
+            PLP => self.plp(), // PulL Processor status from the stack
+            ROL => self.rol(), // ROtate Left M or A
+            ROR => self.ror(), // ROtate Right M or A
+            RTI => self.rti(), // ReTurn from Interrupt
+            RTS => self.rts(), // ReTurn from Subroutine
+            SBC => self.sbc(), // Subtract M from A with carry
+            SEC => self.sec(), // SEt Carry flag
+            SED => self.sed(), // SEt Decimal mode
+            SEI => self.sei(), // SEt Interrupt disable
+            STA => self.sta(), // STore A into M
+            STX => self.stx(), // STore X into M
+            STY => self.sty(), // STore Y into M
+            TAX => self.tax(), // Transfer A to X
+            TAY => self.tay(), // Transfer A to Y
+            TSX => self.tsx(), // Transfer SP to X
+            TXA => self.txa(), // TRansfer X to A
+            TXS => self.txs(), // Transfer X to SP
+            TYA => self.tya(), // Transfer Y to A
+            ISB => self.isb(), // INC & SBC
+            DCP => self.dcp(), // DEC & CMP
+            AXS => self.axs(), // (A & X) - val into X
+            LAS => self.las(), // LDA & TSX
+            LAX => self.lax(), // LDA & TAX
+            AHX => self.ahx(), // Store A & X & H in M
+            SAX => self.sax(), // Sotre A & X in M
+            XAA => self.xaa(), // TXA & AND
+            SHX => self.shx(), // Store X & H in M
+            RRA => self.rra(), // ROR & ADC
+            TAS => self.tas(), // STA & TXS
+            SHY => self.shy(), // Store Y & H in M
+            ARR => self.arr(), // AND #imm & ROR
+            SRE => self.sre(), // LSR & EOR
+            ALR => self.alr(), // AND #imm & LSR
+            RLA => self.rla(), // ROL & AND
+            ANC => self.anc(), // AND #imm
+            SLO => self.slo(), // ASL & ORA
+            XXX => self.xxx(), // Unimplemented opcode
+        } as u64;
+        self.step += 1;
         self.cycle_count = self
             .cycle_count
-            .wrapping_add(u64::from(extra_cycle_req1 & extra_cycle_req2));
-
-        self.step += 1;
+            .wrapping_add(self.instr.cycles())
+            .wrapping_add(mode_cycle & op_cycle);
         self.cycle_count - start_cycle
     }
 
@@ -218,7 +310,8 @@ impl Cpu {
         #[cfg(debug_assertions)]
         {
             let debugger: *mut Debugger = &mut self.debugger;
-            unsafe { (*debugger).on_irq(&self) };
+            let cpu: *mut Cpu = self;
+            unsafe { (*debugger).on_nmi(&mut (*cpu)) };
         }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
@@ -238,7 +331,8 @@ impl Cpu {
         #[cfg(debug_assertions)]
         {
             let debugger: *mut Debugger = &mut self.debugger;
-            unsafe { (*debugger).on_nmi(&self) };
+            let cpu: *mut Cpu = self;
+            unsafe { (*debugger).on_nmi(&mut (*cpu)) };
         }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
@@ -344,27 +438,24 @@ impl Cpu {
     /// Accesses the first 0xFF bytes of the address range, so this only requires one extra byte
     /// instead of the usual two.
     fn zp0(&mut self) -> u8 {
-        self.abs_addr = self.read(self.pc).into();
+        self.abs_addr = u16::from(self.read(self.pc)) & 0x00FF;
         self.pc = self.pc.wrapping_add(1);
-        self.abs_addr &= 0x00FF;
         return 0;
     }
 
     /// Zero Page w/ X offset
     /// Same as Zero Page, but is offset by adding the x register.
     fn zpx(&mut self) -> u8 {
-        self.abs_addr = self.read(self.pc).wrapping_add(self.x).into();
+        self.abs_addr = u16::from(self.read(self.pc).wrapping_add(self.x)) & 0x00FF;
         self.pc = self.pc.wrapping_add(1);
-        self.abs_addr &= 0x00FF;
         return 0;
     }
 
     /// Zero Page w/ Y offset
     /// Same as Zero Page, but is offset by adding the y register.
     fn zpy(&mut self) -> u8 {
-        self.abs_addr = self.read(self.pc).wrapping_add(self.y).into();
+        self.abs_addr = u16::from(self.read(self.pc).wrapping_add(self.y)) & 0x00FF;
         self.pc = self.pc.wrapping_add(1);
-        self.abs_addr &= 0x00FF;
         return 0;
     }
 
@@ -561,7 +652,7 @@ impl Cpu {
     }
 
     // Print the current instruction and status
-    pub fn print_instruction(&self, pc: u16) {
+    pub fn print_instruction(&mut self, pc: u16) {
         let mut bytes = Vec::new();
         let disasm = match self.instr.addr_mode() {
             IMM => {
@@ -710,30 +801,40 @@ impl Memory for Cpu {
 
 impl Savable for Cpu {
     fn save(&self, fh: &mut Write) -> Result<()> {
-        // TODO add missing fields
-        // self.mem.save(fh)?;
-        // self.cycle.save(fh)?;
-        // self.step.save(fh)?;
-        // self.pc.save(fh)?;
-        // self.sp.save(fh)?;
-        // self.acc.save(fh)?;
-        // self.x.save(fh)?;
-        // self.y.save(fh)?;
-        // self.status.save(fh)?;
-        self.interrupt.save(fh)
+        self.mem.save(fh)?;
+        self.cycle_count.save(fh)?;
+        self.stall.save(fh)?;
+        self.step.save(fh)?;
+        self.pc.save(fh)?;
+        self.sp.save(fh)?;
+        self.acc.save(fh)?;
+        self.x.save(fh)?;
+        self.y.save(fh)?;
+        self.status.save(fh)?;
+        self.instr.save(fh)?;
+        self.abs_addr.save(fh)?;
+        self.rel_addr.save(fh)?;
+        self.fetched_data.save(fh)?;
+        self.interrupt.save(fh)?;
+        self.log_enabled.save(fh)
     }
     fn load(&mut self, fh: &mut Read) -> Result<()> {
-        // TODO add missing fields
-        // self.mem.load(fh)?;
-        // self.cycle.load(fh)?;
-        // self.step.load(fh)?;
-        // self.pc.load(fh)?;
-        // self.sp.load(fh)?;
-        // self.acc.load(fh)?;
-        // self.x.load(fh)?;
-        // self.y.load(fh)?;
-        // self.status.load(fh)?;
-        self.interrupt.load(fh)
+        self.mem.load(fh)?;
+        self.cycle_count.load(fh)?;
+        self.stall.load(fh)?;
+        self.step.load(fh)?;
+        self.pc.load(fh)?;
+        self.sp.load(fh)?;
+        self.acc.load(fh)?;
+        self.x.load(fh)?;
+        self.y.load(fh)?;
+        self.status.load(fh)?;
+        self.instr.load(fh)?;
+        self.abs_addr.load(fh)?;
+        self.rel_addr.load(fh)?;
+        self.fetched_data.load(fh)?;
+        self.interrupt.load(fh)?;
+        self.log_enabled.load(fh)
     }
 }
 
@@ -771,8 +872,98 @@ pub enum Operation {
     CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP, JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA,
     PLP, ROL, ROR, RTI, RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
     // "Unofficial" opcodes
-    XXX, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SHX, RRA, TAS, SHY, ARR, SRE, ALR, RLA, ANC, SLO,
+    ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SHX, RRA, TAS, SHY, ARR, SRE, ALR, RLA, ANC, SLO, XXX
 }
+
+impl Savable for Operation {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Operation::ADC,
+            1 => Operation::AND,
+            2 => Operation::ASL,
+            3 => Operation::BCC,
+            4 => Operation::BCS,
+            5 => Operation::BEQ,
+            6 => Operation::BIT,
+            7 => Operation::BMI,
+            8 => Operation::BNE,
+            9 => Operation::BPL,
+            10 => Operation::BRK,
+            11 => Operation::BVC,
+            12 => Operation::BVS,
+            13 => Operation::CLC,
+            14 => Operation::CLD,
+            15 => Operation::CLI,
+            16 => Operation::CLV,
+            17 => Operation::CMP,
+            18 => Operation::CPX,
+            19 => Operation::CPY,
+            20 => Operation::DEC,
+            21 => Operation::DEX,
+            22 => Operation::DEY,
+            23 => Operation::EOR,
+            24 => Operation::INC,
+            25 => Operation::INX,
+            26 => Operation::INY,
+            27 => Operation::JMP,
+            28 => Operation::JSR,
+            29 => Operation::LDA,
+            30 => Operation::LDX,
+            31 => Operation::LDY,
+            32 => Operation::LSR,
+            33 => Operation::NOP,
+            34 => Operation::ORA,
+            35 => Operation::PHA,
+            36 => Operation::PHP,
+            37 => Operation::PLA,
+            38 => Operation::PLP,
+            39 => Operation::ROL,
+            40 => Operation::ROR,
+            41 => Operation::RTI,
+            42 => Operation::RTS,
+            43 => Operation::SBC,
+            44 => Operation::SEC,
+            45 => Operation::SED,
+            46 => Operation::SEI,
+            47 => Operation::STA,
+            48 => Operation::STX,
+            49 => Operation::STY,
+            50 => Operation::TAX,
+            51 => Operation::TAY,
+            52 => Operation::TSX,
+            53 => Operation::TXA,
+            54 => Operation::TXS,
+            55 => Operation::TYA,
+            56 => Operation::ISB,
+            57 => Operation::DCP,
+            58 => Operation::AXS,
+            59 => Operation::LAS,
+            60 => Operation::LAX,
+            61 => Operation::AHX,
+            62 => Operation::SAX,
+            63 => Operation::XAA,
+            64 => Operation::SHX,
+            65 => Operation::RRA,
+            66 => Operation::TAS,
+            67 => Operation::SHY,
+            68 => Operation::ARR,
+            69 => Operation::SRE,
+            70 => Operation::ALR,
+            71 => Operation::RLA,
+            72 => Operation::ANC,
+            73 => Operation::SLO,
+            74 => Operation::XXX,
+            _ => panic!("invalid Operation value"),
+        };
+        Ok(())
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[rustfmt::skip]
 pub enum AddrMode {
@@ -783,39 +974,74 @@ pub enum AddrMode {
     REL, ACC, IMP,
 }
 
+impl Savable for AddrMode {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => AddrMode::IMM,
+            1 => AddrMode::ZP0,
+            2 => AddrMode::ZPX,
+            3 => AddrMode::ZPY,
+            4 => AddrMode::ABS,
+            5 => AddrMode::ABX,
+            6 => AddrMode::ABY,
+            7 => AddrMode::IND,
+            8 => AddrMode::IDX,
+            9 => AddrMode::IDY,
+            10 => AddrMode::REL,
+            11 => AddrMode::ACC,
+            12 => AddrMode::IMP,
+            _ => panic!("invalid AddrMode value"),
+        };
+        Ok(())
+    }
+}
+
 use AddrMode::*;
 use Operation::*;
 
-// (opcode, Addressing Mode, Operation, Addressing Mode Fn, Operation Fn, cycles taken)
+// (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Copy, Clone)]
-pub struct Instr(
-    u8,
-    AddrMode,
-    Operation,
-    fn(&mut Cpu) -> u8,
-    fn(&mut Cpu) -> u8,
-    u64,
-);
+pub struct Instr(u8, AddrMode, Operation, u64);
+
+impl Savable for Instr {
+    fn save(&self, fh: &mut Write) -> Result<()> {
+        self.0.save(fh)?;
+        self.1.save(fh)?;
+        self.2.save(fh)?;
+        self.3.save(fh)
+    }
+    fn load(&mut self, fh: &mut Read) -> Result<()> {
+        self.0.load(fh)?;
+        self.1.load(fh)?;
+        self.2.load(fh)?;
+        self.3.load(fh)
+    }
+}
 
 // 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
 #[rustfmt::skip]
 pub const INSTRUCTIONS: [Instr; 256] = [
-    Instr(0x00, IMM, BRK, Cpu::imm, Cpu::brk, 7), Instr(0x01, IDX, ORA, Cpu::idx, Cpu::ora, 6), Instr(0x02, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x03, IDX, SLO, Cpu::idx, Cpu::slo, 8), Instr(0x04, ZP0, NOP, Cpu::zp0, Cpu::nop, 3), Instr(0x05, ZP0, ORA, Cpu::zp0, Cpu::ora, 3), Instr(0x06, ZP0, ASL, Cpu::zp0, Cpu::asl, 5), Instr(0x07, ZP0, SLO, Cpu::zp0, Cpu::slo, 5), Instr(0x08, IMP, PHP, Cpu::imp, Cpu::php, 3), Instr(0x09, IMM, ORA, Cpu::imm, Cpu::ora, 2), Instr(0x0A, ACC, ASL, Cpu::acc, Cpu::asl, 2), Instr(0x0B, IMM, ANC, Cpu::imm, Cpu::anc, 2), Instr(0x0C, ABS, NOP, Cpu::abs, Cpu::nop, 4), Instr(0x0D, ABS, ORA, Cpu::abs, Cpu::ora, 4), Instr(0x0E, ABS, ASL, Cpu::abs, Cpu::asl, 6), Instr(0x0F, ABS, SLO, Cpu::abs, Cpu::slo, 6),
-    Instr(0x10, REL, BPL, Cpu::rel, Cpu::bpl, 2), Instr(0x11, IDY, ORA, Cpu::idy, Cpu::ora, 5), Instr(0x12, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x13, IDY, SLO, Cpu::idy, Cpu::slo, 8), Instr(0x14, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x15, ZPX, ORA, Cpu::zpx, Cpu::ora, 4), Instr(0x16, ZPX, ASL, Cpu::zpx, Cpu::asl, 6), Instr(0x17, ZPX, SLO, Cpu::zpx, Cpu::slo, 6), Instr(0x18, IMP, CLC, Cpu::imp, Cpu::clc, 2), Instr(0x19, ABY, ORA, Cpu::aby, Cpu::ora, 4), Instr(0x1A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x1B, ABY, SLO, Cpu::aby, Cpu::slo, 7), Instr(0x1C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x1D, ABX, ORA, Cpu::abx, Cpu::ora, 4), Instr(0x1E, ABX, ASL, Cpu::abx, Cpu::asl, 7), Instr(0x1F, ABX, SLO, Cpu::abx, Cpu::slo, 7),
-    Instr(0x20, ABS, JSR, Cpu::abs, Cpu::jsr, 6), Instr(0x21, IDX, AND, Cpu::idx, Cpu::and, 6), Instr(0x22, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x23, IDX, RLA, Cpu::idx, Cpu::rla, 8), Instr(0x24, ZP0, BIT, Cpu::zp0, Cpu::bit, 3), Instr(0x25, ZP0, AND, Cpu::zp0, Cpu::and, 3), Instr(0x26, ZP0, ROL, Cpu::zp0, Cpu::rol, 5), Instr(0x27, ZP0, RLA, Cpu::zp0, Cpu::rla, 5), Instr(0x28, IMP, PLP, Cpu::imp, Cpu::plp, 4), Instr(0x29, IMM, AND, Cpu::imm, Cpu::and, 2), Instr(0x2A, ACC, ROL, Cpu::acc, Cpu::rol, 2), Instr(0x2B, IMM, ANC, Cpu::imm, Cpu::anc, 2), Instr(0x2C, ABS, BIT, Cpu::abs, Cpu::bit, 4), Instr(0x2D, ABS, AND, Cpu::abs, Cpu::and, 4), Instr(0x2E, ABS, ROL, Cpu::abs, Cpu::rol, 6), Instr(0x2F, ABS, RLA, Cpu::abs, Cpu::rla, 6),
-    Instr(0x30, REL, BMI, Cpu::rel, Cpu::bmi, 2), Instr(0x31, IDY, AND, Cpu::idy, Cpu::and, 5), Instr(0x32, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x33, IDY, RLA, Cpu::idy, Cpu::rla, 8), Instr(0x34, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x35, ZPX, AND, Cpu::zpx, Cpu::and, 4), Instr(0x36, ZPX, ROL, Cpu::zpx, Cpu::rol, 6), Instr(0x37, ZPX, RLA, Cpu::zpx, Cpu::rla, 6), Instr(0x38, IMP, SEC, Cpu::imp, Cpu::sec, 2), Instr(0x39, ABY, AND, Cpu::aby, Cpu::and, 4), Instr(0x3A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x3B, ABY, RLA, Cpu::aby, Cpu::rla, 7), Instr(0x3C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x3D, ABX, AND, Cpu::abx, Cpu::and, 4), Instr(0x3E, ABX, ROL, Cpu::abx, Cpu::rol, 7), Instr(0x3F, ABX, RLA, Cpu::abx, Cpu::rla, 7),
-    Instr(0x40, IMP, RTI, Cpu::imp, Cpu::rti, 6), Instr(0x41, IDX, EOR, Cpu::idx, Cpu::eor, 6), Instr(0x42, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x43, IDX, SRE, Cpu::idx, Cpu::sre, 8), Instr(0x44, ZP0, NOP, Cpu::zp0, Cpu::nop, 3), Instr(0x45, ZP0, EOR, Cpu::zp0, Cpu::eor, 3), Instr(0x46, ZP0, LSR, Cpu::zp0, Cpu::lsr, 5), Instr(0x47, ZP0, SRE, Cpu::zp0, Cpu::sre, 5), Instr(0x48, IMP, PHA, Cpu::imp, Cpu::pha, 3), Instr(0x49, IMM, EOR, Cpu::imm, Cpu::eor, 2), Instr(0x4A, ACC, LSR, Cpu::acc, Cpu::lsr, 2), Instr(0x4B, IMM, ALR, Cpu::imm, Cpu::alr, 2), Instr(0x4C, ABS, JMP, Cpu::abs, Cpu::jmp, 3), Instr(0x4D, ABS, EOR, Cpu::abs, Cpu::eor, 4), Instr(0x4E, ABS, LSR, Cpu::abs, Cpu::lsr, 6), Instr(0x4F, ABS, SRE, Cpu::abs, Cpu::sre, 6),
-    Instr(0x50, REL, BVC, Cpu::rel, Cpu::bvc, 2), Instr(0x51, IDY, EOR, Cpu::idy, Cpu::eor, 5), Instr(0x52, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x53, IDY, SRE, Cpu::idy, Cpu::sre, 8), Instr(0x54, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x55, ZPX, EOR, Cpu::zpx, Cpu::eor, 4), Instr(0x56, ZPX, LSR, Cpu::zpx, Cpu::lsr, 6), Instr(0x57, ZPX, SRE, Cpu::zpx, Cpu::sre, 6), Instr(0x58, IMP, CLI, Cpu::imp, Cpu::cli, 2), Instr(0x59, ABY, EOR, Cpu::aby, Cpu::eor, 4), Instr(0x5A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x5B, ABY, SRE, Cpu::aby, Cpu::sre, 7), Instr(0x5C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x5D, ABX, EOR, Cpu::abx, Cpu::eor, 4), Instr(0x5E, ABX, LSR, Cpu::abx, Cpu::lsr, 7), Instr(0x5F, ABX, SRE, Cpu::abx, Cpu::sre, 7),
-    Instr(0x60, IMP, RTS, Cpu::imp, Cpu::rts, 6), Instr(0x61, IDX, ADC, Cpu::idx, Cpu::adc, 6), Instr(0x62, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x63, IDX, RRA, Cpu::idx, Cpu::rra, 8), Instr(0x64, ZP0, NOP, Cpu::zp0, Cpu::nop, 3), Instr(0x65, ZP0, ADC, Cpu::zp0, Cpu::adc, 3), Instr(0x66, ZP0, ROR, Cpu::zp0, Cpu::ror, 5), Instr(0x67, ZP0, RRA, Cpu::zp0, Cpu::rra, 5), Instr(0x68, IMP, PLA, Cpu::imp, Cpu::pla, 4), Instr(0x69, IMM, ADC, Cpu::imm, Cpu::adc, 2), Instr(0x6A, ACC, ROR, Cpu::acc, Cpu::ror, 2), Instr(0x6B, IMM, ARR, Cpu::imm, Cpu::arr, 2), Instr(0x6C, IND, JMP, Cpu::ind, Cpu::jmp, 5), Instr(0x6D, ABS, ADC, Cpu::abs, Cpu::adc, 4), Instr(0x6E, ABS, ROR, Cpu::abs, Cpu::ror, 6), Instr(0x6F, ABS, RRA, Cpu::abs, Cpu::rra, 6),
-    Instr(0x70, REL, BVS, Cpu::rel, Cpu::bvs, 2), Instr(0x71, IDY, ADC, Cpu::idy, Cpu::adc, 5), Instr(0x72, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x73, IDY, RRA, Cpu::idy, Cpu::rra, 8), Instr(0x74, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0x75, ZPX, ADC, Cpu::zpx, Cpu::adc, 4), Instr(0x76, ZPX, ROR, Cpu::zpx, Cpu::ror, 6), Instr(0x77, ZPX, RRA, Cpu::zpx, Cpu::rra, 6), Instr(0x78, IMP, SEI, Cpu::imp, Cpu::sei, 2), Instr(0x79, ABY, ADC, Cpu::aby, Cpu::adc, 4), Instr(0x7A, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0x7B, ABY, RRA, Cpu::aby, Cpu::rra, 7), Instr(0x7C, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0x7D, ABX, ADC, Cpu::abx, Cpu::adc, 4), Instr(0x7E, ABX, ROR, Cpu::abx, Cpu::ror, 7), Instr(0x7F, ABX, RRA, Cpu::abx, Cpu::rra, 7),
-    Instr(0x80, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0x81, IDX, STA, Cpu::idx, Cpu::sta, 6), Instr(0x82, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0x83, IDX, SAX, Cpu::idx, Cpu::sax, 6), Instr(0x84, ZP0, STY, Cpu::zp0, Cpu::sty, 3), Instr(0x85, ZP0, STA, Cpu::zp0, Cpu::sta, 3), Instr(0x86, ZP0, STX, Cpu::zp0, Cpu::stx, 3), Instr(0x87, ZP0, SAX, Cpu::zp0, Cpu::sax, 3), Instr(0x88, IMP, DEY, Cpu::imp, Cpu::dey, 2), Instr(0x89, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0x8A, IMP, TXA, Cpu::imp, Cpu::txa, 2), Instr(0x8B, IMM, XAA, Cpu::imm, Cpu::xaa, 2), Instr(0x8C, ABS, STY, Cpu::abs, Cpu::sty, 4), Instr(0x8D, ABS, STA, Cpu::abs, Cpu::sta, 4), Instr(0x8E, ABS, STX, Cpu::abs, Cpu::stx, 4), Instr(0x8F, ABS, SAX, Cpu::abs, Cpu::sax, 4),
-    Instr(0x90, REL, BCC, Cpu::rel, Cpu::bcc, 2), Instr(0x91, IDY, STA, Cpu::idy, Cpu::sta, 6), Instr(0x92, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0x93, IDY, AHX, Cpu::idy, Cpu::ahx, 6), Instr(0x94, ZPX, STY, Cpu::zpx, Cpu::sty, 4), Instr(0x95, ZPX, STA, Cpu::zpx, Cpu::sta, 4), Instr(0x96, ZPY, STX, Cpu::zpy, Cpu::stx, 4), Instr(0x97, ZPY, SAX, Cpu::zpy, Cpu::sax, 4), Instr(0x98, IMP, TYA, Cpu::imp, Cpu::tya, 2), Instr(0x99, ABY, STA, Cpu::aby, Cpu::sta, 5), Instr(0x9A, IMP, TXS, Cpu::imp, Cpu::txs, 2), Instr(0x9B, ABY, TAS, Cpu::aby, Cpu::tas, 5), Instr(0x9C, ABX, SHY, Cpu::abx, Cpu::shy, 5), Instr(0x9D, ABX, STA, Cpu::abx, Cpu::sta, 5), Instr(0x9E, ABY, SHX, Cpu::aby, Cpu::shx, 5), Instr(0x9F, ABY, AHX, Cpu::aby, Cpu::ahx, 5),
-    Instr(0xA0, IMM, LDY, Cpu::imm, Cpu::ldy, 2), Instr(0xA1, IDX, LDA, Cpu::idx, Cpu::lda, 6), Instr(0xA2, IMM, LDX, Cpu::imm, Cpu::ldx, 2), Instr(0xA3, IDX, LAX, Cpu::idx, Cpu::lax, 6), Instr(0xA4, ZP0, LDY, Cpu::zp0, Cpu::ldy, 3), Instr(0xA5, ZP0, LDA, Cpu::zp0, Cpu::lda, 3), Instr(0xA6, ZP0, LDX, Cpu::zp0, Cpu::ldx, 3), Instr(0xA7, ZP0, LAX, Cpu::zp0, Cpu::lax, 3), Instr(0xA8, IMP, TAY, Cpu::imp, Cpu::tay, 2), Instr(0xA9, IMM, LDA, Cpu::imm, Cpu::lda, 2), Instr(0xAA, IMP, TAX, Cpu::imp, Cpu::tax, 2), Instr(0xAB, IMM, LAX, Cpu::imm, Cpu::lax, 2), Instr(0xAC, ABS, LDY, Cpu::abs, Cpu::ldy, 4), Instr(0xAD, ABS, LDA, Cpu::abs, Cpu::lda, 4), Instr(0xAE, ABS, LDX, Cpu::abs, Cpu::ldx, 4), Instr(0xAF, ABS, LAX, Cpu::abs, Cpu::lax, 4),
-    Instr(0xB0, REL, BCS, Cpu::rel, Cpu::bcs, 2), Instr(0xB1, IDY, LDA, Cpu::idy, Cpu::lda, 5), Instr(0xB2, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0xB3, IDY, LAX, Cpu::idy, Cpu::lax, 5), Instr(0xB4, ZPX, LDY, Cpu::zpx, Cpu::ldy, 4), Instr(0xB5, ZPX, LDA, Cpu::zpx, Cpu::lda, 4), Instr(0xB6, ZPY, LDX, Cpu::zpy, Cpu::ldx, 4), Instr(0xB7, ZPY, LAX, Cpu::zpy, Cpu::lax, 4), Instr(0xB8, IMP, CLV, Cpu::imp, Cpu::clv, 2), Instr(0xB9, ABY, LDA, Cpu::aby, Cpu::lda, 4), Instr(0xBA, IMP, TSX, Cpu::imp, Cpu::tsx, 2), Instr(0xBB, ABY, LAS, Cpu::aby, Cpu::las, 4), Instr(0xBC, ABX, LDY, Cpu::abx, Cpu::ldy, 4), Instr(0xBD, ABX, LDA, Cpu::abx, Cpu::lda, 4), Instr(0xBE, ABY, LDX, Cpu::aby, Cpu::ldx, 4), Instr(0xBF, ABY, LAX, Cpu::aby, Cpu::lax, 4),
-    Instr(0xC0, IMM, CPY, Cpu::imm, Cpu::cpy, 2), Instr(0xC1, IDX, CMP, Cpu::idx, Cpu::cmp, 6), Instr(0xC2, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0xC3, IDX, DCP, Cpu::idx, Cpu::dcp, 8), Instr(0xC4, ZP0, CPY, Cpu::zp0, Cpu::cpy, 3), Instr(0xC5, ZP0, CMP, Cpu::zp0, Cpu::cmp, 3), Instr(0xC6, ZP0, DEC, Cpu::zp0, Cpu::dec, 5), Instr(0xC7, ZP0, DCP, Cpu::zp0, Cpu::dcp, 5), Instr(0xC8, IMP, INY, Cpu::imp, Cpu::iny, 2), Instr(0xC9, IMM, CMP, Cpu::imm, Cpu::cmp, 2), Instr(0xCA, IMP, DEX, Cpu::imp, Cpu::dex, 2), Instr(0xCB, IMM, AXS, Cpu::imm, Cpu::axs, 2), Instr(0xCC, ABS, CPY, Cpu::abs, Cpu::cpy, 4), Instr(0xCD, ABS, CMP, Cpu::abs, Cpu::cmp, 4), Instr(0xCE, ABS, DEC, Cpu::abs, Cpu::dec, 6), Instr(0xCF, ABS, DCP, Cpu::abs, Cpu::dcp, 6),
-    Instr(0xD0, REL, BNE, Cpu::rel, Cpu::bne, 2), Instr(0xD1, IDY, CMP, Cpu::idy, Cpu::cmp, 5), Instr(0xD2, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0xD3, IDY, DCP, Cpu::idy, Cpu::dcp, 8), Instr(0xD4, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0xD5, ZPX, CMP, Cpu::zpx, Cpu::cmp, 4), Instr(0xD6, ZPX, DEC, Cpu::zpx, Cpu::dec, 6), Instr(0xD7, ZPX, DCP, Cpu::zpx, Cpu::dcp, 6), Instr(0xD8, IMP, CLD, Cpu::imp, Cpu::cld, 2), Instr(0xD9, ABY, CMP, Cpu::aby, Cpu::cmp, 4), Instr(0xDA, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0xDB, ABY, DCP, Cpu::aby, Cpu::dcp, 7), Instr(0xDC, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0xDD, ABX, CMP, Cpu::abx, Cpu::cmp, 4), Instr(0xDE, ABX, DEC, Cpu::abx, Cpu::dec, 7), Instr(0xDF, ABX, DCP, Cpu::abx, Cpu::dcp, 7),
-    Instr(0xE0, IMM, CPX, Cpu::imm, Cpu::cpx, 2), Instr(0xE1, IDX, SBC, Cpu::idx, Cpu::sbc, 6), Instr(0xE2, IMM, NOP, Cpu::imm, Cpu::nop, 2), Instr(0xE3, IDX, ISB, Cpu::idx, Cpu::isb, 8), Instr(0xE4, ZP0, CPX, Cpu::zp0, Cpu::cpx, 3), Instr(0xE5, ZP0, SBC, Cpu::zp0, Cpu::sbc, 3), Instr(0xE6, ZP0, INC, Cpu::zp0, Cpu::inc, 5), Instr(0xE7, ZP0, ISB, Cpu::zp0, Cpu::isb, 5), Instr(0xE8, IMP, INX, Cpu::imp, Cpu::inx, 2), Instr(0xE9, IMM, SBC, Cpu::imm, Cpu::sbc, 2), Instr(0xEA, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0xEB, IMM, SBC, Cpu::imm, Cpu::sbc, 2), Instr(0xEC, ABS, CPX, Cpu::abs, Cpu::cpx, 4), Instr(0xED, ABS, SBC, Cpu::abs, Cpu::sbc, 4), Instr(0xEE, ABS, INC, Cpu::abs, Cpu::inc, 6), Instr(0xEF, ABS, ISB, Cpu::abs, Cpu::isb, 6),
-    Instr(0xF0, REL, BEQ, Cpu::rel, Cpu::beq, 2), Instr(0xF1, IDY, SBC, Cpu::idy, Cpu::sbc, 5), Instr(0xF2, IMP, XXX, Cpu::imp, Cpu::xxx, 2), Instr(0xF3, IDY, ISB, Cpu::idy, Cpu::isb, 8), Instr(0xF4, ZPX, NOP, Cpu::zpx, Cpu::nop, 4), Instr(0xF5, ZPX, SBC, Cpu::zpx, Cpu::sbc, 4), Instr(0xF6, ZPX, INC, Cpu::zpx, Cpu::inc, 6), Instr(0xF7, ZPX, ISB, Cpu::zpx, Cpu::isb, 6), Instr(0xF8, IMP, SED, Cpu::imp, Cpu::sed, 2), Instr(0xF9, ABY, SBC, Cpu::aby, Cpu::sbc, 4), Instr(0xFA, IMP, NOP, Cpu::imp, Cpu::nop, 2), Instr(0xFB, ABY, ISB, Cpu::aby, Cpu::isb, 7), Instr(0xFC, ABX, NOP, Cpu::abx, Cpu::nop, 4), Instr(0xFD, ABX, SBC, Cpu::abx, Cpu::sbc, 4), Instr(0xFE, ABX, INC, Cpu::abx, Cpu::inc, 7), Instr(0xFF, ABX, ISB, Cpu::abx, Cpu::isb, 7),
+    Instr(0x00, IMM, BRK, 7), Instr(0x01, IDX, ORA, 6), Instr(0x02, IMP, XXX, 2), Instr(0x03, IDX, SLO, 8), Instr(0x04, ZP0, NOP, 3), Instr(0x05, ZP0, ORA, 3), Instr(0x06, ZP0, ASL, 5), Instr(0x07, ZP0, SLO, 5), Instr(0x08, IMP, PHP, 3), Instr(0x09, IMM, ORA, 2), Instr(0x0A, ACC, ASL, 2), Instr(0x0B, IMM, ANC, 2), Instr(0x0C, ABS, NOP, 4), Instr(0x0D, ABS, ORA, 4), Instr(0x0E, ABS, ASL, 6), Instr(0x0F, ABS, SLO, 6),
+    Instr(0x10, REL, BPL, 2), Instr(0x11, IDY, ORA, 5), Instr(0x12, IMP, XXX, 2), Instr(0x13, IDY, SLO, 8), Instr(0x14, ZPX, NOP, 4), Instr(0x15, ZPX, ORA, 4), Instr(0x16, ZPX, ASL, 6), Instr(0x17, ZPX, SLO, 6), Instr(0x18, IMP, CLC, 2), Instr(0x19, ABY, ORA, 4), Instr(0x1A, IMP, NOP, 2), Instr(0x1B, ABY, SLO, 7), Instr(0x1C, ABX, NOP, 4), Instr(0x1D, ABX, ORA, 4), Instr(0x1E, ABX, ASL, 7), Instr(0x1F, ABX, SLO, 7),
+    Instr(0x20, ABS, JSR, 6), Instr(0x21, IDX, AND, 6), Instr(0x22, IMP, XXX, 2), Instr(0x23, IDX, RLA, 8), Instr(0x24, ZP0, BIT, 3), Instr(0x25, ZP0, AND, 3), Instr(0x26, ZP0, ROL, 5), Instr(0x27, ZP0, RLA, 5), Instr(0x28, IMP, PLP, 4), Instr(0x29, IMM, AND, 2), Instr(0x2A, ACC, ROL, 2), Instr(0x2B, IMM, ANC, 2), Instr(0x2C, ABS, BIT, 4), Instr(0x2D, ABS, AND, 4), Instr(0x2E, ABS, ROL, 6), Instr(0x2F, ABS, RLA, 6),
+    Instr(0x30, REL, BMI, 2), Instr(0x31, IDY, AND, 5), Instr(0x32, IMP, XXX, 2), Instr(0x33, IDY, RLA, 8), Instr(0x34, ZPX, NOP, 4), Instr(0x35, ZPX, AND, 4), Instr(0x36, ZPX, ROL, 6), Instr(0x37, ZPX, RLA, 6), Instr(0x38, IMP, SEC, 2), Instr(0x39, ABY, AND, 4), Instr(0x3A, IMP, NOP, 2), Instr(0x3B, ABY, RLA, 7), Instr(0x3C, ABX, NOP, 4), Instr(0x3D, ABX, AND, 4), Instr(0x3E, ABX, ROL, 7), Instr(0x3F, ABX, RLA, 7),
+    Instr(0x40, IMP, RTI, 6), Instr(0x41, IDX, EOR, 6), Instr(0x42, IMP, XXX, 2), Instr(0x43, IDX, SRE, 8), Instr(0x44, ZP0, NOP, 3), Instr(0x45, ZP0, EOR, 3), Instr(0x46, ZP0, LSR, 5), Instr(0x47, ZP0, SRE, 5), Instr(0x48, IMP, PHA, 3), Instr(0x49, IMM, EOR, 2), Instr(0x4A, ACC, LSR, 2), Instr(0x4B, IMM, ALR, 2), Instr(0x4C, ABS, JMP, 3), Instr(0x4D, ABS, EOR, 4), Instr(0x4E, ABS, LSR, 6), Instr(0x4F, ABS, SRE, 6),
+    Instr(0x50, REL, BVC, 2), Instr(0x51, IDY, EOR, 5), Instr(0x52, IMP, XXX, 2), Instr(0x53, IDY, SRE, 8), Instr(0x54, ZPX, NOP, 4), Instr(0x55, ZPX, EOR, 4), Instr(0x56, ZPX, LSR, 6), Instr(0x57, ZPX, SRE, 6), Instr(0x58, IMP, CLI, 2), Instr(0x59, ABY, EOR, 4), Instr(0x5A, IMP, NOP, 2), Instr(0x5B, ABY, SRE, 7), Instr(0x5C, ABX, NOP, 4), Instr(0x5D, ABX, EOR, 4), Instr(0x5E, ABX, LSR, 7), Instr(0x5F, ABX, SRE, 7),
+    Instr(0x60, IMP, RTS, 6), Instr(0x61, IDX, ADC, 6), Instr(0x62, IMP, XXX, 2), Instr(0x63, IDX, RRA, 8), Instr(0x64, ZP0, NOP, 3), Instr(0x65, ZP0, ADC, 3), Instr(0x66, ZP0, ROR, 5), Instr(0x67, ZP0, RRA, 5), Instr(0x68, IMP, PLA, 4), Instr(0x69, IMM, ADC, 2), Instr(0x6A, ACC, ROR, 2), Instr(0x6B, IMM, ARR, 2), Instr(0x6C, IND, JMP, 5), Instr(0x6D, ABS, ADC, 4), Instr(0x6E, ABS, ROR, 6), Instr(0x6F, ABS, RRA, 6),
+    Instr(0x70, REL, BVS, 2), Instr(0x71, IDY, ADC, 5), Instr(0x72, IMP, XXX, 2), Instr(0x73, IDY, RRA, 8), Instr(0x74, ZPX, NOP, 4), Instr(0x75, ZPX, ADC, 4), Instr(0x76, ZPX, ROR, 6), Instr(0x77, ZPX, RRA, 6), Instr(0x78, IMP, SEI, 2), Instr(0x79, ABY, ADC, 4), Instr(0x7A, IMP, NOP, 2), Instr(0x7B, ABY, RRA, 7), Instr(0x7C, ABX, NOP, 4), Instr(0x7D, ABX, ADC, 4), Instr(0x7E, ABX, ROR, 7), Instr(0x7F, ABX, RRA, 7),
+    Instr(0x80, IMM, NOP, 2), Instr(0x81, IDX, STA, 6), Instr(0x82, IMM, NOP, 2), Instr(0x83, IDX, SAX, 6), Instr(0x84, ZP0, STY, 3), Instr(0x85, ZP0, STA, 3), Instr(0x86, ZP0, STX, 3), Instr(0x87, ZP0, SAX, 3), Instr(0x88, IMP, DEY, 2), Instr(0x89, IMM, NOP, 2), Instr(0x8A, IMP, TXA, 2), Instr(0x8B, IMM, XAA, 2), Instr(0x8C, ABS, STY, 4), Instr(0x8D, ABS, STA, 4), Instr(0x8E, ABS, STX, 4), Instr(0x8F, ABS, SAX, 4),
+    Instr(0x90, REL, BCC, 2), Instr(0x91, IDY, STA, 6), Instr(0x92, IMP, XXX, 2), Instr(0x93, IDY, AHX, 6), Instr(0x94, ZPX, STY, 4), Instr(0x95, ZPX, STA, 4), Instr(0x96, ZPY, STX, 4), Instr(0x97, ZPY, SAX, 4), Instr(0x98, IMP, TYA, 2), Instr(0x99, ABY, STA, 5), Instr(0x9A, IMP, TXS, 2), Instr(0x9B, ABY, TAS, 5), Instr(0x9C, ABX, SHY, 5), Instr(0x9D, ABX, STA, 5), Instr(0x9E, ABY, SHX, 5), Instr(0x9F, ABY, AHX, 5),
+    Instr(0xA0, IMM, LDY, 2), Instr(0xA1, IDX, LDA, 6), Instr(0xA2, IMM, LDX, 2), Instr(0xA3, IDX, LAX, 6), Instr(0xA4, ZP0, LDY, 3), Instr(0xA5, ZP0, LDA, 3), Instr(0xA6, ZP0, LDX, 3), Instr(0xA7, ZP0, LAX, 3), Instr(0xA8, IMP, TAY, 2), Instr(0xA9, IMM, LDA, 2), Instr(0xAA, IMP, TAX, 2), Instr(0xAB, IMM, LAX, 2), Instr(0xAC, ABS, LDY, 4), Instr(0xAD, ABS, LDA, 4), Instr(0xAE, ABS, LDX, 4), Instr(0xAF, ABS, LAX, 4),
+    Instr(0xB0, REL, BCS, 2), Instr(0xB1, IDY, LDA, 5), Instr(0xB2, IMP, XXX, 2), Instr(0xB3, IDY, LAX, 5), Instr(0xB4, ZPX, LDY, 4), Instr(0xB5, ZPX, LDA, 4), Instr(0xB6, ZPY, LDX, 4), Instr(0xB7, ZPY, LAX, 4), Instr(0xB8, IMP, CLV, 2), Instr(0xB9, ABY, LDA, 4), Instr(0xBA, IMP, TSX, 2), Instr(0xBB, ABY, LAS, 4), Instr(0xBC, ABX, LDY, 4), Instr(0xBD, ABX, LDA, 4), Instr(0xBE, ABY, LDX, 4), Instr(0xBF, ABY, LAX, 4),
+    Instr(0xC0, IMM, CPY, 2), Instr(0xC1, IDX, CMP, 6), Instr(0xC2, IMM, NOP, 2), Instr(0xC3, IDX, DCP, 8), Instr(0xC4, ZP0, CPY, 3), Instr(0xC5, ZP0, CMP, 3), Instr(0xC6, ZP0, DEC, 5), Instr(0xC7, ZP0, DCP, 5), Instr(0xC8, IMP, INY, 2), Instr(0xC9, IMM, CMP, 2), Instr(0xCA, IMP, DEX, 2), Instr(0xCB, IMM, AXS, 2), Instr(0xCC, ABS, CPY, 4), Instr(0xCD, ABS, CMP, 4), Instr(0xCE, ABS, DEC, 6), Instr(0xCF, ABS, DCP, 6),
+    Instr(0xD0, REL, BNE, 2), Instr(0xD1, IDY, CMP, 5), Instr(0xD2, IMP, XXX, 2), Instr(0xD3, IDY, DCP, 8), Instr(0xD4, ZPX, NOP, 4), Instr(0xD5, ZPX, CMP, 4), Instr(0xD6, ZPX, DEC, 6), Instr(0xD7, ZPX, DCP, 6), Instr(0xD8, IMP, CLD, 2), Instr(0xD9, ABY, CMP, 4), Instr(0xDA, IMP, NOP, 2), Instr(0xDB, ABY, DCP, 7), Instr(0xDC, ABX, NOP, 4), Instr(0xDD, ABX, CMP, 4), Instr(0xDE, ABX, DEC, 7), Instr(0xDF, ABX, DCP, 7),
+    Instr(0xE0, IMM, CPX, 2), Instr(0xE1, IDX, SBC, 6), Instr(0xE2, IMM, NOP, 2), Instr(0xE3, IDX, ISB, 8), Instr(0xE4, ZP0, CPX, 3), Instr(0xE5, ZP0, SBC, 3), Instr(0xE6, ZP0, INC, 5), Instr(0xE7, ZP0, ISB, 5), Instr(0xE8, IMP, INX, 2), Instr(0xE9, IMM, SBC, 2), Instr(0xEA, IMP, NOP, 2), Instr(0xEB, IMM, SBC, 2), Instr(0xEC, ABS, CPX, 4), Instr(0xED, ABS, SBC, 4), Instr(0xEE, ABS, INC, 6), Instr(0xEF, ABS, ISB, 6),
+    Instr(0xF0, REL, BEQ, 2), Instr(0xF1, IDY, SBC, 5), Instr(0xF2, IMP, XXX, 2), Instr(0xF3, IDY, ISB, 8), Instr(0xF4, ZPX, NOP, 4), Instr(0xF5, ZPX, SBC, 4), Instr(0xF6, ZPX, INC, 6), Instr(0xF7, ZPX, ISB, 6), Instr(0xF8, IMP, SED, 2), Instr(0xF9, ABY, SBC, 4), Instr(0xFA, IMP, NOP, 2), Instr(0xFB, ABY, ISB, 7), Instr(0xFC, ABX, NOP, 4), Instr(0xFD, ABX, SBC, 4), Instr(0xFE, ABX, INC, 7), Instr(0xFF, ABX, ISB, 7),
 ];
 
 impl Instr {
@@ -828,14 +1054,8 @@ impl Instr {
     pub fn op(&self) -> Operation {
         self.2
     }
-    pub fn decode_addr_mode(&self) -> fn(&mut Cpu) -> u8 {
-        self.3
-    }
-    pub fn execute(&self) -> fn(&mut Cpu) -> u8 {
-        self.4
-    }
     pub fn cycles(&self) -> u64 {
-        self.5
+        self.3
     }
 }
 

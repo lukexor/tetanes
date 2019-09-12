@@ -8,7 +8,7 @@ use crate::serialization::Savable;
 use crate::util::Result;
 use std::fmt;
 use std::io::{Read, Write};
-use std::time::{Duration, Instant};
+// use std::time::{Duration, Instant};
 
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
@@ -492,10 +492,10 @@ impl Ppu {
     }
 
     fn tick(&mut self) {
-        if Instant::now() - self.regs.open_bus_updated >= Duration::from_millis(800) {
-            self.regs.open_bus = 0x0;
-            self.regs.open_bus_updated = Instant::now();
-        }
+        // if Instant::now() - self.regs.open_bus_updated >= Duration::from_millis(800) {
+        //     self.regs.open_bus = 0x0;
+        //     self.regs.open_bus_updated = Instant::now();
+        // }
         if self.nmi_delay_enabled && self.regs.nmi_delay > 0 {
             self.regs.nmi_delay -= 1;
             if self.regs.nmi_delay == 0 && self.nmi_enabled() && self.vblank_started() {
@@ -784,7 +784,7 @@ impl Memory for Ppu {
             0x2004 => {
                 let val = self.read_oamdata(); // OAMDATA
                 self.regs.open_bus = val;
-                self.regs.open_bus_updated = Instant::now();
+                // self.regs.open_bus_updated = Instant::now();
                 val
             }
             0x2005 => self.regs.open_bus, // PPUSCROLL is write-only
@@ -792,7 +792,7 @@ impl Memory for Ppu {
             0x2007 => {
                 let val = self.read_ppudata(); // PPUDATA
                 self.regs.open_bus = val;
-                self.regs.open_bus_updated = Instant::now();
+                // self.regs.open_bus_updated = Instant::now();
                 val
             }
             _ => {
@@ -821,9 +821,9 @@ impl Memory for Ppu {
 
     fn write(&mut self, addr: u16, val: u8) {
         // Only refresh decay on write addresses
-        if addr != 0x2002 {
-            self.regs.open_bus_updated = Instant::now();
-        }
+        // if addr != 0x2002 {
+        //     self.regs.open_bus_updated = Instant::now();
+        // }
         self.regs.open_bus = val;
         match addr {
             0x2000 => self.write_ppuctrl(val),   // PPUCTRL
@@ -917,25 +917,25 @@ impl Savable for Palette {
 
 #[derive(Debug)]
 pub struct PpuRegs {
-    open_bus: u8,              // This open bus gets set during any write to PPU registers
-    open_bus_updated: Instant, // Last updated value used to emualte open_bus decay
-    pub ctrl: PpuCtrl,         // $2000 PPUCTRL write-only
-    pub mask: PpuMask,         // $2001 PPUMASK write-only
-    status: PpuStatus,         // $2002 PPUSTATUS read-only
-    oamaddr: u8,               // $2003 OAMADDR write-only
-    nmi_delay: u8,             // Some games need a delay after vblank before nmi is triggered
-    nmi_previous: bool,        // Keeps track of repeated nmi to handle delay timing
-    pub v: u16,                // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
-    t: u16,                    // Temporary v - Also the addr of top-left onscreen tile
-    x: u16,                    // Fine X
-    w: bool,                   // 1st or 2nd write toggle
+    open_bus: u8, // This open bus gets set during any write to PPU registers
+    // open_bus_updated: Instant, // Last updated value used to emualte open_bus decay
+    pub ctrl: PpuCtrl,  // $2000 PPUCTRL write-only
+    pub mask: PpuMask,  // $2001 PPUMASK write-only
+    status: PpuStatus,  // $2002 PPUSTATUS read-only
+    oamaddr: u8,        // $2003 OAMADDR write-only
+    nmi_delay: u8,      // Some games need a delay after vblank before nmi is triggered
+    nmi_previous: bool, // Keeps track of repeated nmi to handle delay timing
+    pub v: u16,         // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
+    t: u16,             // Temporary v - Also the addr of top-left onscreen tile
+    x: u16,             // Fine X
+    w: bool,            // 1st or 2nd write toggle
 }
 
 impl PpuRegs {
     fn new() -> Self {
         Self {
             open_bus: 0u8,
-            open_bus_updated: Instant::now(),
+            // open_bus_updated: Instant::now(),
             ctrl: PpuCtrl(0u8),
             mask: PpuMask(0u8),
             status: PpuStatus(0u8),

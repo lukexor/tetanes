@@ -10,6 +10,7 @@ use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::EventPump;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::env;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -125,8 +126,8 @@ impl UiBuilder {
             lctrl: false,
             save_slot: 1u8,
             turbo_clock: 0u8,
-            avg_fps: Duration::from_millis(60),
-            past_fps: [Duration::from_millis(60); 20],
+            avg_fps: 0usize,
+            past_fps: VecDeque::with_capacity(128),
             speed: DEFAULT_SPEED,
             speed_counter: 0i32,
             console,
@@ -152,8 +153,8 @@ pub struct Ui {
     lctrl: bool,
     save_slot: u8,
     turbo_clock: u8,
-    avg_fps: Duration,
-    past_fps: [Duration; 20], // Running total of last X frames to avoid value jitter
+    avg_fps: usize,
+    past_fps: VecDeque<Instant>,
     speed: f64,
     speed_counter: i32,
     console: Console,
@@ -192,8 +193,6 @@ impl Ui {
             samples.clear();
         }
 
-        let mut start = Instant::now();
-        let mut fps_frame = 0;
         let one_sec = Duration::from_secs(1);
         while !self.should_close {
             self.poll_events()?;
@@ -207,6 +206,16 @@ impl Ui {
                     frames_to_run += 1;
                 }
                 for _ in 0..frames_to_run {
+                    // Calc FPS
+                    let now = Instant::now();
+                    let a_sec_ago = now - one_sec;
+
+                    while self.past_fps.front().map_or(false, |t| *t < a_sec_ago) {
+                        self.past_fps.pop_front();
+                    }
+                    self.past_fps.push_back(now);
+                    self.avg_fps = self.past_fps.len();
+                    self.update_title()?;
                     self.console.clock_frame();
                     self.turbo_clock = (1 + self.turbo_clock) % 6;
                 }
@@ -228,18 +237,6 @@ impl Ui {
                 } else {
                     self.console.audio_samples().clear();
                 }
-                let end = Instant::now();
-
-                fps_frame += 1;
-                let delta = (end - start).as_millis() as u32;
-                self.past_fps[fps_frame % 20] = one_sec.checked_div(delta).unwrap();
-
-                for fps in self.past_fps.iter() {
-                    self.avg_fps += *fps;
-                }
-                self.avg_fps /= 20;
-                self.update_title()?;
-                start = end;
             }
         }
 
@@ -402,8 +399,7 @@ impl Ui {
         } else {
             title.push_str(&format!(
                 " - FPS: {} - Save Slot: {}",
-                self.avg_fps.as_millis(),
-                self.save_slot
+                self.avg_fps, self.save_slot
             ));
             if self.speed != DEFAULT_SPEED {
                 title.push_str(&format!(" - Speed: {}%", self.speed));

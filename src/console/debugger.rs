@@ -84,7 +84,7 @@ impl Debugger {
         }
     }
 
-    pub fn on_nmi(&mut self, cpu: &Cpu) {
+    pub fn on_nmi(&mut self, cpu: &mut Cpu) {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == NMI {
             eprintln!("DEBUG - VBLANK");
@@ -93,7 +93,7 @@ impl Debugger {
         }
     }
 
-    pub fn on_irq(&mut self, cpu: &Cpu) {
+    pub fn on_irq(&mut self, cpu: &mut Cpu) {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == IRQ {
             eprintln!("DEBUG - SCANLINE");

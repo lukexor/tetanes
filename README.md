@@ -26,16 +26,22 @@ to them having the type and memory-safety guarantees that Rust is known for.
 
 ## Mappers
 
-| #   | Name       | Example Games                                            |
-| -   | ---------- | -------------------------------------------------------- |
-| 000 | NROM       | Bomberman, Donkey Kong, Super Mario Bros.                |
-| 001 | SxROM/MMC1 | Metroid, Legend of Zelda, Tetris                         |
-| 002 | UxROM      | Castlevania, Contra, Mega Man                            |
-| 003 | CNROM      | Arkanoid, Paperboy, Pipe Dream                           |
-| 004 | TxROM/MMC3 | Kickle Cubicle, Kirby's Adventure, Super Mario Bros. 2/3 |
-| 005 | ExROM/MMC5 | Castlevania 3, Uncharted Waters, Laser Invasion          |
-| 007 | AxROM      | Battletoads, Marble Madness, Wizards & Warriors          |
-| 009 | PxROM/MMC2 | Punch Out!!                                              |
+Support for the following mappers is currently implemented or in development:
+
+| #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
+| --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
+| 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                 10.14% |
+| 001 | SxROM/MMC1             | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.91% |
+| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~269                   |                 11.04% |
+| 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
+| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.59% |
+| 005 | ExROM/MMC5<sup>2</sup> | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
+| 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
+| 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
+|     |                        |                                           | ~2050                   |                 84.11% |
+
+1 [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
+2. ExROM is still in development
 
 ## Dependencies
 
@@ -101,27 +107,29 @@ ARGS:
 
 There are also some emulator actions:
 
-| Action                | Keyboard         | Controller         |
-| --------------------- | ---------------- | ------------------ |
-| Open/Run ROM          | Ctrl-O           |                    |
-| Pause / Open Menu     | Escape           | Right Stick Button |
-| Quit                  | Ctrl-Q           |                    |
-| Reset                 | Ctrl-R           |                    |
-| Power Cycle           | Ctrl-P           |                    |
-| Increase Speed 25%    | Ctrl-=           | Right Trigger      |
-| Decrease Speed 25%    | Ctrl--           | Left Trigger       |
-| Toggle Fast-Forward   | Space            |                    |
-| Set State Slot        | Ctrl-(1-4)       |                    |
-| Save State            | Ctrl-S           | Left Shoulder      |
-| Load State            | Ctrl-L           | Right Shoulder     |
-| Toggle Music/Sound    | Ctrl-M           |                    |
-| Toggle Recording      | Ctrl-V           |                    |
-| Toggle Debugger       | Ctrl-D           |                    |
-| Toggle Fullscreen     | Ctrl-Enter       |                    |
-| Take Screenshot       | F10              |                    |
-| Cycle Log Level       | F9               |                    |
+| Action                            | Keyboard         | Controller         |
+| --------------------------------- | ---------------- | ------------------ |
+| Open/Run ROM<sup>*</sup>          | Ctrl-O           |                    |
+| Pause / Open Menu                 | Escape           | Right Stick Button |
+| Quit                              | Ctrl-Q           |                    |
+| Reset                             | Ctrl-R           |                    |
+| Power Cycle                       | Ctrl-P           |                    |
+| Increase Speed 25%                | Ctrl-=           | Right Trigger      |
+| Decrease Speed 25%                | Ctrl--           | Left Trigger       |
+| Toggle Fast-Forward               | Space            |                    |
+| Set State Slot                    | Ctrl-(1-4)       |                    |
+| Save State                        | Ctrl-S           | Left Shoulder      |
+| Load State                        | Ctrl-L           | Right Shoulder     |
+| Toggle Music/Sound                | Ctrl-M           |                    |
+| Toggle Recording<sup>*</sup>      | Ctrl-V           |                    |
+| Toggle Debugger                   | Ctrl-D           |                    |
+| Toggle Fullscreen                 | Ctrl-Enter       |                    |
+| Take Screenshot                   | F10              |                    |
+| Cycle Log Level<sup>*</sup>       | F9               |                    |
 
 ### Note on Controls
+
+Not all controls are implemented yet. Those that aren't are marked with an <sup>*</sup>.
 
 Ctrl-(1-4) may have conflicts in macOS with switching Desktops 1-4. You can disable this in the
 keyboard settings. I may consider changing them to something else or making macOS use the Option key
