@@ -1649,14 +1649,19 @@ impl fmt::Debug for Cpu {
 }
 impl fmt::Debug for Instr {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        let mut op = self.op();
         let unofficial = match self.op() {
             XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SHX | RRA | TAS | SHY | ARR
             | SRE | ALR | RLA | ANC | SLO => "*",
-            NOP if self.opcode() != 0xEA => "*",
+            NOP if self.opcode() != 0xEA => "*", // 0xEA is the only official NOP
+            SKB | IGN => {
+                op = NOP;
+                "*"
+            }
             SBC if self.opcode() == 0xEB => "*",
             _ => "",
         };
-        write!(f, "{:1}{:?}", unofficial, self.op())
+        write!(f, "{:1}{:?}", unofficial, op)
     }
 }
 

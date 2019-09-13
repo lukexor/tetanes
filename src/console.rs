@@ -233,7 +233,7 @@ impl Console {
                 })?;
             }
 
-            let mut sram_file = fs::OpenOptions::new()
+            let mut sram_opts = fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
@@ -241,15 +241,17 @@ impl Console {
                 .map_err(|e| format_err!("failed to open file {:?}: {}", sram_path.display(), e))?;
 
             // Empty file means we just created it
-            if sram_file.metadata()?.len() == 0 {
+            if sram_opts.metadata()?.len() == 0 {
+                let mut sram_file = BufWriter::new(sram_opts);
                 util::write_save_header(&mut sram_file).map_err(|e| {
                     format_err!("failed to write header {:?}: {}", sram_path.display(), e)
                 })?;
                 mapper.save_sram(&mut sram_file)?;
             } else {
                 // Check if exists and header is different, so we avoid overwriting
-                match util::validate_save_header(&mut sram_file) {
+                match util::validate_save_header(&mut sram_opts) {
                     Ok(_) => {
+                        let mut sram_file = BufWriter::new(sram_opts);
                         mapper.save_sram(&mut sram_file)?;
                     }
                     Err(e) => eprintln!("failed to write sram due to invalid header. error: {}", e),
@@ -270,9 +272,10 @@ impl Console {
             if mapper.battery_backed() {
                 let sram_path = util::sram_path(&self.loaded_rom)?;
                 if sram_path.exists() {
-                    let mut sram_file = fs::File::open(&sram_path).map_err(|e| {
+                    let sram_file = fs::File::open(&sram_path).map_err(|e| {
                         format_err!("failed to open file {:?}: {}", sram_path.display(), e)
                     })?;
+                    let mut sram_file = BufReader::new(sram_file);
                     match util::validate_save_header(&mut sram_file) {
                         Ok(_) => {
                             if let Err(e) = mapper.load_sram(&mut sram_file) {
@@ -333,7 +336,7 @@ mod tests {
         let nestest_log = "tests/cpu/nestest.txt";
 
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut c = Console::init(input);
+        let mut c = Console::init(input, false);
         c.load_rom(rom).expect("loaded rom");
         c.power_on().expect("powered on");
         c.cpu.log_enabled = true;

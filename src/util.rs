@@ -9,7 +9,7 @@ use image::Pixel;
 use image::{png, ColorType};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 /// Alias for Result<T, failure::Error>
@@ -118,7 +118,9 @@ pub fn thumbnail_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf> {
 ///
 /// Panics if path is not a valid path or if there are permissions issues reading the file
 pub fn hash_file<P: AsRef<Path>>(path: &P) -> Result<String> {
-    let mut file = fs::File::open(path)?;
+    let file = fs::File::open(path)
+        .map_err(|e| format_err!("failed to open file {:?}: {}", path.as_ref().display(), e))?;
+    let mut file = BufReader::new(file);
     let mut buf = [0u8; 255];
     file.read_exact(&mut buf)?;
     Ok(format!("{:x}", Sha256::digest(&buf)))
