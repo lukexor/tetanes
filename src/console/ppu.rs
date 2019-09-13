@@ -938,7 +938,7 @@ impl PpuRegs {
             // open_bus_updated: Instant::now(),
             ctrl: PpuCtrl(0u8),
             mask: PpuMask(0u8),
-            status: PpuStatus(0u8),
+            status: PpuStatus(0x20),
             oamaddr: 0u8,
             nmi_delay: 0u8,
             nmi_previous: false,
