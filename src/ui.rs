@@ -83,6 +83,7 @@ impl UiBuilder {
     }
     pub fn randomize_ram(&mut self, val: bool) -> &mut Self {
         self.randomize_ram = val;
+
         self
     }
     pub fn log_cpu(&mut self, val: bool) -> &mut Self {
@@ -103,13 +104,12 @@ impl UiBuilder {
     }
     pub fn build(&self) -> Result<Ui> {
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut console = Console::init(input.clone());
+        let mut console = Console::init(input.clone(), self.randomize_ram);
         #[cfg(debug_assertions)]
         console.debug(self.debug);
         #[cfg(debug_assertions)]
         console.log_cpu(self.log_cpu);
         console.no_save(self.no_save);
-        console.randomize_ram(self.randomize_ram);
 
         let (window, event_pump) =
             Window::init(DEFAULT_TITLE, self.scale, self.fullscreen, self.ppu_debug)?;

@@ -33,7 +33,8 @@ pub struct Console {
 
 impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
-    pub fn init(input: InputRef) -> Self {
+    pub fn init(input: InputRef, randomize_ram: bool) -> Self {
+        unsafe { memory::RANDOMIZE_RAM = randomize_ram }
         let cpu_memory = CpuMemMap::init(input);
         let mut cpu = Box::new(Cpu::init(cpu_memory));
         cpu.mem.apu.dmc.cpu = (&mut *cpu) as *mut Cpu; // TODO ugly work-around for DMC memory
@@ -91,11 +92,6 @@ impl Console {
     pub fn power_cycle(&mut self) {
         self.cpu.power_cycle();
         self.mapper.borrow_mut().power_cycle();
-    }
-
-    /// Enable/Disable RAM randomization
-    pub fn randomize_ram(&mut self, val: bool) {
-        unsafe { memory::RANDOMIZE_RAM = val }
     }
 
     /// Enable/Disable the debugger
