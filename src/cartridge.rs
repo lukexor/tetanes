@@ -6,7 +6,7 @@ use crate::serialization::Savable;
 use crate::util::Result;
 use failure::format_err;
 use std::fmt;
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
@@ -43,24 +43,49 @@ impl Cartridge {
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
     pub fn from_rom<P: AsRef<Path>>(rom_file: P) -> Result<Self> {
-        let mut rom_data = std::fs::File::open(&rom_file).map_err(|e| {
+        let rom_data = std::fs::File::open(&rom_file).map_err(|e| {
             format_err!(
                 "unable to open file \"{}\": {}",
                 rom_file.as_ref().display(),
                 e
             )
         })?;
+        let mut rom_data = BufReader::new(rom_data);
 
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;
         let header = INesHeader::from_bytes(&header)?;
 
         let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut prg_rom)?;
+        rom_data.read_exact(&mut prg_rom).map_err(|e| {
+            let bytes_rem = if let Ok(bytes) = rom_data.read_to_end(&mut prg_rom) {
+                bytes.to_string()
+            } else {
+                "unknown".to_string()
+            };
+            format_err!(
+                "PRG-ROM banks: {}. Bytes remaining: {}. Err: {}",
+                header.prg_rom_size,
+                bytes_rem,
+                e
+            )
+        })?;
         let prg_rom = Rom::from_vec(prg_rom);
 
         let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut chr_rom)?;
+        rom_data.read_exact(&mut chr_rom).map_err(|e| {
+            let bytes_rem = if let Ok(bytes) = rom_data.read_to_end(&mut chr_rom) {
+                bytes.to_string()
+            } else {
+                "unknown".to_string()
+            };
+            format_err!(
+                "CHR-ROM banks: {}. Bytes remaining: {}. Err: {}",
+                header.chr_rom_size,
+                bytes_rem,
+                e
+            )
+        })?;
         let chr_rom = Rom::from_vec(chr_rom);
 
         eprintln!(
