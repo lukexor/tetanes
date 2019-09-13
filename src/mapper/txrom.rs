@@ -28,6 +28,7 @@ const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 #[derive(Debug)]
 pub struct Txrom {
     regs: TxRegs,
+    has_chr_ram: bool,
     mirroring: Mirroring,
     irq_pending: bool,
     // http://forums.nesdev.com/viewtopic.php?p=62546#p62546
@@ -87,6 +88,7 @@ impl Txrom {
 
         let prg_ram = Ram::init(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
+        let mut has_chr_ram = false;
         let chr_banks = if cart.chr_rom.len() == 0 {
             let chr_ram_size = if cart.chr_ram_size() > 0 {
                 cart.chr_ram_size()
@@ -94,6 +96,7 @@ impl Txrom {
                 CHR_RAM_SIZE
             };
             let chr_ram = Ram::init(chr_ram_size);
+            has_chr_ram = true;
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
             Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)
@@ -111,6 +114,7 @@ impl Txrom {
                 last_clock: 0u16,
                 open_bus: 0u8,
             },
+            has_chr_ram,
             mirroring,
             irq_pending: false,
             mmc3_alt_behavior: false,
@@ -343,10 +347,12 @@ impl Memory for Txrom {
         self.regs.open_bus = val;
         match addr {
             0x0000..=0x1FFF => {
-                let bank = addr as usize / CHR_BANK_SIZE;
-                let addr = addr % CHR_BANK_SIZE as u16;
-                let idx = self.chr_bank_idx[bank];
-                self.chr_banks[idx].write(addr, val);
+                if self.has_chr_ram {
+                    let bank = addr as usize / CHR_BANK_SIZE;
+                    let addr = addr % CHR_BANK_SIZE as u16;
+                    let idx = self.chr_bank_idx[bank];
+                    self.chr_banks[idx].write(addr, val);
+                }
             }
             0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
                 self.four_screen_ram.write(addr - 0x2000, val)

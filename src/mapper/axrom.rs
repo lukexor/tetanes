@@ -41,7 +41,7 @@ impl Axrom {
             has_chr_ram: cart.chr_rom.len() == 0,
             mirroring: cart.mirroring(),
             open_bus: 0u8,
-            prg_rom_bank: 0usize,
+            prg_rom_bank: prg_rom_banks.len() - 1,
             prg_rom_banks,
             chr_banks,
         };
@@ -90,6 +90,7 @@ impl Memory for Axrom {
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
+            0x4020..=0x5FFF => 0, // Nothing at this range
             0x6000..=0x7FFF => self.open_bus,
             0x8000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank].peek(addr - 0x8000),
             _ => {
@@ -107,8 +108,14 @@ impl Memory for Axrom {
                     self.chr_banks[0].write(addr, val)
                 }
             }
+            0x4020..=0x7FFF => (), // Nothing at this range
             0x8000..=0xFFFF => {
-                self.prg_rom_bank = (val & 0x07) as usize;
+                let bank = (val & 0x07) as usize;
+                self.prg_rom_bank = if bank >= self.prg_rom_banks.len() {
+                    (val & 0x03) as usize
+                } else {
+                    bank
+                };
                 self.mirroring = if val & 0x10 == 0x10 {
                     Mirroring::SingleScreen1
                 } else {

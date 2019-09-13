@@ -1497,7 +1497,7 @@ impl Cpu {
 
     /// XXX: Captures all unimplemented opcodes
     fn xxx(&mut self) -> u8 {
-        eprintln!("Invalid opcode encountered!");
+        panic!("Invalid opcode ${:02X} encountered!", self.instr.opcode());
         return 0;;
     }
     /// ISC/ISB: Shortcut for INC then SBC
