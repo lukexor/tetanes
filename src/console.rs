@@ -8,9 +8,9 @@ use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
 use crate::memory::{self, CpuMemMap};
 use crate::serialization::Savable;
-use crate::util::{self, Result};
+use crate::util;
+use crate::{nes_err, Result};
 use cpu::Cpu;
-use failure::format_err;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
@@ -150,14 +150,14 @@ impl Console {
         let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
         if !save_dir.exists() {
             fs::create_dir_all(save_dir).map_err(|e| {
-                format_err!("failed to create directory {:?}: {}", save_dir.display(), e)
+                nes_err!("failed to create directory {:?}: {}", save_dir.display(), e)
             })?;
         }
         let save_file = fs::File::create(&save_path)
-            .map_err(|e| format_err!("failed to create file {:?}: {}", save_path.display(), e))?;
+            .map_err(|e| nes_err!("failed to create file {:?}: {}", save_path.display(), e))?;
         let mut writer = BufWriter::new(save_file);
         util::write_save_header(&mut writer)
-            .map_err(|e| format_err!("failed to write header {:?}: {}", save_path.display(), e))?;
+            .map_err(|e| nes_err!("failed to write header {:?}: {}", save_path.display(), e))?;
         self.save(&mut writer)?;
         Ok(())
     }
@@ -170,7 +170,7 @@ impl Console {
         let save_path = util::save_path(&self.loaded_rom, slot)?;
         if save_path.exists() {
             let save_file = fs::File::open(&save_path)
-                .map_err(|e| format_err!("failed to open file {:?}: {}", save_path.display(), e))?;
+                .map_err(|e| nes_err!("failed to open file {:?}: {}", save_path.display(), e))?;
             let mut reader = BufReader::new(save_file);
             match util::validate_save_header(&mut reader) {
                 Ok(_) => {
@@ -229,7 +229,7 @@ impl Console {
             let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
             if !sram_dir.exists() {
                 fs::create_dir_all(sram_dir).map_err(|e| {
-                    format_err!("failed to create directory {:?}: {}", sram_dir.display(), e)
+                    nes_err!("failed to create directory {:?}: {}", sram_dir.display(), e)
                 })?;
             }
 
@@ -238,13 +238,13 @@ impl Console {
                 .write(true)
                 .create(true)
                 .open(&sram_path)
-                .map_err(|e| format_err!("failed to open file {:?}: {}", sram_path.display(), e))?;
+                .map_err(|e| nes_err!("failed to open file {:?}: {}", sram_path.display(), e))?;
 
             // Empty file means we just created it
             if sram_opts.metadata()?.len() == 0 {
                 let mut sram_file = BufWriter::new(sram_opts);
                 util::write_save_header(&mut sram_file).map_err(|e| {
-                    format_err!("failed to write header {:?}: {}", sram_path.display(), e)
+                    nes_err!("failed to write header {:?}: {}", sram_path.display(), e)
                 })?;
                 mapper.save_sram(&mut sram_file)?;
             } else {
@@ -273,7 +273,7 @@ impl Console {
                 let sram_path = util::sram_path(&self.loaded_rom)?;
                 if sram_path.exists() {
                     let sram_file = fs::File::open(&sram_path).map_err(|e| {
-                        format_err!("failed to open file {:?}: {}", sram_path.display(), e)
+                        nes_err!("failed to open file {:?}: {}", sram_path.display(), e)
                     })?;
                     let mut sram_file = BufReader::new(sram_file);
                     match util::validate_save_header(&mut sram_file) {
@@ -300,12 +300,12 @@ impl Console {
 }
 
 impl Savable for Console {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.no_save.save(fh)?;
         self.running.save(fh)?;
         self.cpu.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.no_save.load(fh)?;
         self.running.load(fh)?;
         self.cpu.load(fh)

@@ -6,7 +6,7 @@
 use crate::console::debugger::Debugger;
 use crate::memory::{CpuMemMap, Memory};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -802,7 +802,7 @@ impl Memory for Cpu {
 }
 
 impl Savable for Cpu {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.mem.save(fh)?;
         self.cycle_count.save(fh)?;
         self.stall.save(fh)?;
@@ -819,7 +819,7 @@ impl Savable for Cpu {
         self.fetched_data.save(fh)?;
         self.interrupt.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.mem.load(fh)?;
         self.cycle_count.load(fh)?;
         self.stall.load(fh)?;
@@ -846,10 +846,10 @@ pub enum Interrupt {
 }
 
 impl Savable for Interrupt {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -877,10 +877,10 @@ pub enum Operation {
 }
 
 impl Savable for Operation {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -978,10 +978,10 @@ pub enum AddrMode {
 }
 
 impl Savable for AddrMode {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -1027,13 +1027,13 @@ impl Instr {
 }
 
 impl Savable for Instr {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)?;
         self.1.save(fh)?;
         self.2.save(fh)?;
         self.3.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)?;
         self.1.load(fh)?;
         self.2.load(fh)?;

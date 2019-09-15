@@ -9,7 +9,6 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
-use failure::Error;
 use rustynes::ui::UiBuilder;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -33,7 +32,7 @@ fn main() {
     ui.run().unwrap_or_else(|e| err_exit(e));
 }
 
-fn err_exit(err: Error) -> ! {
+fn err_exit(err: Box<dyn std::error::Error>) -> ! {
     eprintln!("Error: {}", err.to_string());
     std::process::exit(1);
 }

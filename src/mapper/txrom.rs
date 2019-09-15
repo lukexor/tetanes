@@ -9,7 +9,7 @@ use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -266,13 +266,13 @@ impl Mapper for Txrom {
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -370,7 +370,7 @@ impl Memory for Txrom {
 }
 
 impl Savable for Txrom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.regs.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -382,7 +382,7 @@ impl Savable for Txrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.regs.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
@@ -397,7 +397,7 @@ impl Savable for Txrom {
 }
 
 impl Savable for TxRegs {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.bank_select.save(fh)?;
         self.bank_values.save(fh)?;
         self.irq_latch.save(fh)?;
@@ -406,7 +406,7 @@ impl Savable for TxRegs {
         self.last_clock.save(fh)?;
         self.open_bus.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.bank_select.load(fh)?;
         self.bank_values.load(fh)?;
         self.irq_latch.load(fh)?;

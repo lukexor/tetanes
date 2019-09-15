@@ -7,7 +7,7 @@ use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -78,13 +78,13 @@ impl Mapper for Nrom {
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -149,7 +149,7 @@ impl Memory for Nrom {
 }
 
 impl Savable for Nrom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.has_chr_ram.save(fh)?;
         self.battery_backed.save(fh)?;
         self.mirroring.save(fh)?;
@@ -158,7 +158,7 @@ impl Savable for Nrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.has_chr_ram.load(fh)?;
         self.battery_backed.load(fh)?;
         self.mirroring.load(fh)?;
@@ -170,10 +170,10 @@ impl Savable for Nrom {
 }
 
 impl Savable for NromSize {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {

@@ -6,8 +6,7 @@ use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
-use failure::format_err;
+use crate::{nes_err, Result};
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{Read, Write};
@@ -33,7 +32,7 @@ pub mod txrom;
 pub mod uxrom;
 
 /// Alias for Mapper wrapped in a Rc/RefCell
-pub type MapperRef = Rc<RefCell<Mapper>>;
+pub type MapperRef = Rc<RefCell<dyn Mapper>>;
 
 /// Mapper trait requiring Memory + Send + Savable
 pub trait Mapper: Memory + Savable + fmt::Debug {
@@ -42,8 +41,8 @@ pub trait Mapper: Memory + Savable + fmt::Debug {
     fn vram_change(&mut self, ppu: &Ppu, addr: u16);
     fn clock(&mut self, ppu: &Ppu);
     fn battery_backed(&self) -> bool;
-    fn save_sram(&self, fh: &mut Write) -> Result<()>;
-    fn load_sram(&mut self, fh: &mut Read) -> Result<()>;
+    fn save_sram(&self, fh: &mut dyn Write) -> Result<()>;
+    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()>;
     fn chr(&self) -> Option<&Banks<Ram>>;
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
@@ -67,7 +66,7 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
         // 5 => Ok(Exrom::load(cart)),
         7 => Ok(Axrom::load(cart)),
         9 => Ok(Pxrom::load(cart)),
-        _ => Err(format_err!(
+        _ => Err(nes_err!(
             "unsupported mapper number: {}",
             cart.header.mapper_num
         ))?,
@@ -87,10 +86,10 @@ pub enum Mirroring {
 }
 
 impl Savable for Mirroring {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -126,10 +125,10 @@ impl Mapper for NullMapper {
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -156,10 +155,10 @@ impl Memory for NullMapper {
 }
 
 impl Savable for NullMapper {
-    fn save(&self, _fh: &mut Write) -> Result<()> {
+    fn save(&self, _fh: &mut dyn Write) -> Result<()> {
         Ok(())
     }
-    fn load(&mut self, _fh: &mut Read) -> Result<()> {
+    fn load(&mut self, _fh: &mut dyn Read) -> Result<()> {
         Ok(())
     }
 }

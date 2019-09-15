@@ -3,8 +3,7 @@
 use crate::mapper::Mirroring;
 use crate::memory::Rom;
 use crate::serialization::Savable;
-use crate::util::Result;
-use failure::format_err;
+use crate::{nes_err, Result};
 use std::fmt;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -44,10 +43,10 @@ impl Cartridge {
     /// file, then an error is returned.
     pub fn from_rom<P: AsRef<Path>>(rom_file: P) -> Result<Self> {
         let rom_data = std::fs::File::open(&rom_file).map_err(|e| {
-            format_err!(
+            nes_err!(
                 "unable to open file \"{}\": {}",
                 rom_file.as_ref().display(),
-                e
+                e,
             )
         })?;
         let mut rom_data = BufReader::new(rom_data);
@@ -63,11 +62,12 @@ impl Cartridge {
             } else {
                 "unknown".to_string()
             };
-            format_err!(
+
+            nes_err!(
                 "PRG-ROM banks: {}. Bytes remaining: {}. Err: {}",
                 header.prg_rom_size,
                 bytes_rem,
-                e
+                e,
             )
         })?;
         let prg_rom = Rom::from_vec(prg_rom);
@@ -79,16 +79,17 @@ impl Cartridge {
             } else {
                 "unknown".to_string()
             };
-            format_err!(
+
+            nes_err!(
                 "CHR-ROM banks: {}. Bytes remaining: {}. Err: {}",
                 header.chr_rom_size,
                 bytes_rem,
-                e
+                e,
             )
         })?;
         let chr_rom = Rom::from_vec(chr_rom);
 
-        eprintln!(
+        println!(
             "Loaded `{}` - Mapper: {}, PRG ROM: {}, CHR ROM: {}",
             rom_file.as_ref().display(),
             header.mapper_num,
@@ -139,11 +140,11 @@ impl Cartridge {
 }
 
 impl Savable for Cartridge {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.prg_rom.save(fh)?;
         self.chr_rom.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.prg_rom.load(fh)?;
         self.chr_rom.load(fh)
     }
@@ -189,14 +190,14 @@ impl INesHeader {
     fn from_bytes(header: &[u8; 16]) -> Result<Self> {
         // Header checks
         if header[0..4] != *b"NES\x1a" {
-            Err(format_err!("iNES header signature not found."))?;
+            Err(nes_err!("iNES header signature not found."))?;
         } else if (header[7] & 0x0C) == 0x04 {
-            Err(format_err!(
-                "Header is corrupted by \"DiskDude!\" - repair and try again."
+            Err(nes_err!(
+                "Header is corrupted by \"DiskDude!\" - repair and try again.",
             ))?;
         } else if (header[7] & 0x0C) == 0x0C {
-            Err(format_err!(
-                "Unrecognized header format - repair and try again."
+            Err(nes_err!(
+                "Unrecognized header format - repair and try again.",
             ))?;
         }
 
@@ -231,24 +232,22 @@ impl INesHeader {
             vs_data = header[13];
 
             if prg_ram_size & 0x0F == 0x0F || prg_ram_size & 0xF0 == 0xF0 {
-                Err(format_err!("Invalid PRG-RAM size in header."))?;
+                Err(nes_err!("Invalid PRG-RAM size in header."))?;
             } else if chr_ram_size & 0x0F == 0x0F || chr_ram_size & 0xF0 == 0xF0 {
-                Err(format_err!("Invalid CHR-RAM size in header."))?;
+                Err(nes_err!("Invalid CHR-RAM size in header."))?;
             } else if chr_ram_size & 0xF0 == 0xF0 {
-                Err(format_err!(
-                    "Battery-backed CHR-RAM is currently not supported."
+                Err(nes_err!(
+                    "Battery-backed CHR-RAM is currently not supported.",
                 ))?;
             } else if header[14] > 0 || header[15] > 0 {
-                Err(format_err!(
-                    "Unrecognized data found at header offsets 14-15."
-                ))?;
+                Err(nes_err!("Unrecognized data found at header offsets 14-15."))?;
             }
         } else {
             for (i, header) in header.iter().enumerate().take(16).skip(8) {
                 if *header > 0 {
-                    Err(format_err!(
+                    Err(nes_err!(
                         "Unregonized data found at header offset {} - repair and try again.",
-                        i
+                        i,
                     ))?;
                 }
             }
@@ -256,7 +255,7 @@ impl INesHeader {
 
         // Trainer
         if flags & 0x04 == 0x04 {
-            Err(format_err!("Trained ROMs are currently not supported."))?;
+            Err(nes_err!("Trained ROMs are currently not supported."))?;
         }
         Ok(Self {
             mapper_num,

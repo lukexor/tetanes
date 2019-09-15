@@ -3,7 +3,8 @@
 use crate::console::Console;
 use crate::input::{Input, InputRef};
 use crate::ui::window::Window;
-use crate::util::{self, Result};
+use crate::util;
+use crate::Result;
 use sdl2::controller::Axis;
 use sdl2::controller::{Button, GameController};
 use sdl2::event::{Event, WindowEvent};

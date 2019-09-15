@@ -7,7 +7,7 @@ use crate::console::CPU_CLOCK_RATE;
 use crate::filter::{Filter, HiPassFilter, LoPassFilter};
 use crate::memory::Memory;
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -28,7 +28,7 @@ pub struct Apu {
     triangle: Triangle,
     noise: Noise,
     pub dmc: DMC,
-    filters: [Box<Filter>; 3],
+    filters: [Box<dyn Filter>; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
 }
@@ -340,7 +340,7 @@ impl Memory for Apu {
 }
 
 impl Savable for Apu {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.irq_pending.save(fh)?;
         self.irq_enabled.save(fh)?;
         self.open_bus.save(fh)?;
@@ -353,7 +353,7 @@ impl Savable for Apu {
         self.noise.save(fh)?;
         self.dmc.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.irq_pending.load(fh)?;
         self.irq_enabled.load(fh)?;
         self.open_bus.load(fh)?;
@@ -390,12 +390,12 @@ struct FrameCounter {
 }
 
 impl Savable for FrameCounter {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.step.save(fh)?;
         self.counter.save(fh)?;
         self.mode.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.step.load(fh)?;
         self.counter.load(fh)?;
         self.mode.load(fh)
@@ -409,10 +409,10 @@ enum FCMode {
 }
 
 impl Savable for FCMode {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -557,7 +557,7 @@ impl Pulse {
 }
 
 impl Savable for Pulse {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.enabled.save(fh)?;
         self.duty_cycle.save(fh)?;
         self.duty_counter.save(fh)?;
@@ -568,7 +568,7 @@ impl Savable for Pulse {
         self.envelope.save(fh)?;
         self.sweep.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.enabled.load(fh)?;
         self.duty_cycle.load(fh)?;
         self.duty_counter.load(fh)?;
@@ -588,10 +588,10 @@ enum PulseChannel {
 }
 
 impl Savable for PulseChannel {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -694,7 +694,7 @@ impl Triangle {
 }
 
 impl Savable for Triangle {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.enabled.save(fh)?;
         self.ultrasonic.save(fh)?;
         self.step.save(fh)?;
@@ -703,7 +703,7 @@ impl Savable for Triangle {
         self.length.save(fh)?;
         self.linear.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.enabled.load(fh)?;
         self.ultrasonic.load(fh)?;
         self.step.load(fh)?;
@@ -807,7 +807,7 @@ impl Noise {
 }
 
 impl Savable for Noise {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.enabled.save(fh)?;
         self.freq_timer.save(fh)?;
         self.freq_counter.save(fh)?;
@@ -816,7 +816,7 @@ impl Savable for Noise {
         self.length.save(fh)?;
         self.envelope.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.enabled.load(fh)?;
         self.freq_timer.load(fh)?;
         self.freq_counter.load(fh)?;
@@ -834,10 +834,10 @@ enum ShiftMode {
 }
 
 impl Savable for ShiftMode {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -973,7 +973,7 @@ impl DMC {
 }
 
 impl Savable for DMC {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.irq_enabled.save(fh)?;
         self.irq_pending.save(fh)?;
         self.loops.save(fh)?;
@@ -990,7 +990,7 @@ impl Savable for DMC {
         self.output_shift.save(fh)?;
         self.output_silent.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.irq_enabled.load(fh)?;
         self.irq_pending.load(fh)?;
         self.loops.load(fh)?;
@@ -1043,11 +1043,11 @@ impl LengthCounter {
 }
 
 impl Savable for LengthCounter {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.enabled.save(fh)?;
         self.counter.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.enabled.load(fh)?;
         self.counter.load(fh)
     }
@@ -1076,13 +1076,13 @@ impl LinearCounter {
 }
 
 impl Savable for LinearCounter {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.reload.save(fh)?;
         self.control.save(fh)?;
         self.load.save(fh)?;
         self.counter.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.reload.load(fh)?;
         self.control.load(fh)?;
         self.load.load(fh)?;
@@ -1137,7 +1137,7 @@ impl Envelope {
 }
 
 impl Savable for Envelope {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.enabled.save(fh)?;
         self.loops.save(fh)?;
         self.reset.save(fh)?;
@@ -1145,7 +1145,7 @@ impl Savable for Envelope {
         self.constant_volume.save(fh)?;
         self.counter.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.enabled.load(fh)?;
         self.loops.load(fh)?;
         self.reset.load(fh)?;
@@ -1165,7 +1165,7 @@ struct Sweep {
 }
 
 impl Savable for Sweep {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.enabled.save(fh)?;
         self.reload.save(fh)?;
         self.negate.save(fh)?;
@@ -1173,7 +1173,7 @@ impl Savable for Sweep {
         self.counter.save(fh)?;
         self.shift.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.enabled.load(fh)?;
         self.reload.load(fh)?;
         self.negate.load(fh)?;

@@ -5,7 +5,7 @@ use crate::console::ppu::Ppu;
 use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use rand::Rng;
 use std::fmt;
 use std::io::{Read, Write};
@@ -21,7 +21,7 @@ pub trait Memory {
     fn write(&mut self, addr: u16, val: u8);
 }
 
-impl fmt::Debug for Memory {
+impl fmt::Debug for dyn Memory {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "")
     }
@@ -79,10 +79,10 @@ impl Memory for Ram {
 }
 
 impl Savable for Ram {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)
     }
 }
@@ -160,10 +160,10 @@ impl Memory for Rom {
 }
 
 impl Savable for Rom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)
     }
 }
@@ -380,7 +380,7 @@ impl Memory for CpuMemMap {
 }
 
 impl Savable for CpuMemMap {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.wram.save(fh)?;
         self.open_bus.save(fh)?;
         self.ppu.save(fh)?;
@@ -390,7 +390,7 @@ impl Savable for CpuMemMap {
             mapper.save(fh)
         }
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.wram.load(fh)?;
         self.open_bus.load(fh)?;
         self.ppu.load(fh)?;

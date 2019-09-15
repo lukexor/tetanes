@@ -5,7 +5,7 @@
 use crate::mapper::{MapperRef, Mirroring};
 use crate::memory::Memory;
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::fmt;
 use std::io::{Read, Write};
 // use std::time::{Duration, Instant};
@@ -840,7 +840,7 @@ impl Memory for Ppu {
 }
 
 impl Savable for Ppu {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.cycle.save(fh)?;
         self.scanline.save(fh)?;
         self.nmi_pending.save(fh)?;
@@ -849,7 +849,7 @@ impl Savable for Ppu {
         self.vram.save(fh)?;
         self.frame.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.cycle.load(fh)?;
         self.scanline.load(fh)?;
         self.nmi_pending.load(fh)?;
@@ -877,10 +877,10 @@ impl Memory for Nametable {
 }
 
 impl Savable for Nametable {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)
     }
 }
@@ -907,10 +907,10 @@ impl Memory for Palette {
 }
 
 impl Savable for Palette {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)
     }
 }
@@ -1153,7 +1153,7 @@ impl PpuRegs {
 }
 
 impl Savable for PpuRegs {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.open_bus.save(fh)?;
         self.ctrl.save(fh)?;
         self.mask.save(fh)?;
@@ -1166,7 +1166,7 @@ impl Savable for PpuRegs {
         self.x.save(fh)?;
         self.w.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.open_bus.load(fh)?;
         self.ctrl.load(fh)?;
         self.mask.load(fh)?;
@@ -1223,10 +1223,10 @@ impl Memory for Oam {
 }
 
 impl Savable for Oam {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.entries.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.entries.load(fh)
     }
 }
@@ -1324,12 +1324,12 @@ impl Memory for Vram {
 }
 
 impl Savable for Vram {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.buffer.save(fh)?;
         self.nametable.save(fh)?;
         self.palette.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.buffer.load(fh)?;
         self.nametable.load(fh)?;
         self.palette.load(fh)
@@ -1385,7 +1385,7 @@ impl Frame {
 }
 
 impl Savable for Frame {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.num.save(fh)?;
         self.parity.save(fh)?;
         self.tile_lo.save(fh)?;
@@ -1397,7 +1397,7 @@ impl Savable for Frame {
         self.sprites.save(fh)?;
         self.pixels.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.num.load(fh)?;
         self.parity.load(fh)?;
         self.tile_lo.load(fh)?;
@@ -1441,7 +1441,7 @@ impl Sprite {
 }
 
 impl Savable for Sprite {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.index.save(fh)?;
         self.x.save(fh)?;
         self.y.save(fh)?;
@@ -1452,7 +1452,7 @@ impl Savable for Sprite {
         self.flip_horizontal.save(fh)?;
         self.flip_vertical.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.index.load(fh)?;
         self.x.load(fh)?;
         self.y.load(fh)?;
@@ -1520,10 +1520,10 @@ impl PpuCtrl {
 }
 
 impl Savable for PpuCtrl {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)
     }
 }
@@ -1560,10 +1560,10 @@ impl PpuMask {
 }
 
 impl Savable for PpuMask {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)
     }
 }
@@ -1610,10 +1610,10 @@ impl PpuStatus {
 }
 
 impl Savable for PpuStatus {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.0.load(fh)
     }
 }
