@@ -182,6 +182,7 @@ impl Ui {
             }
         }
 
+        // Smooths out startup graphic glitches for some games
         let startup_frames = 40;
         for _ in 0..startup_frames {
             self.poll_events()?;
@@ -194,6 +195,8 @@ impl Ui {
             samples.clear();
         }
 
+        let mut next_fps_update = Instant::now();
+        let fps_interval = Duration::from_millis(500);
         let one_sec = Duration::from_secs(1);
         while !self.should_close {
             self.poll_events()?;
@@ -210,16 +213,21 @@ impl Ui {
                     // Calc FPS
                     let now = Instant::now();
                     let a_sec_ago = now - one_sec;
-
                     while self.past_fps.front().map_or(false, |t| *t < a_sec_ago) {
                         self.past_fps.pop_front();
                     }
                     self.past_fps.push_back(now);
                     self.avg_fps = self.past_fps.len();
-                    self.update_title()?;
+
+                    if now > next_fps_update {
+                        next_fps_update = now + fps_interval;
+                        self.update_title()?;
+                    }
+
                     self.console.clock_frame();
                     self.turbo_clock = (1 + self.turbo_clock) % 6;
                 }
+
                 let game_view = self.console.frame();
                 if self.ppu_debug {
                     let nametables = self.console.nametables();
