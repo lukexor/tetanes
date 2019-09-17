@@ -91,12 +91,6 @@ impl Console {
         self.cpu.power_cycle();
     }
 
-    /// Enable/Disable the debugger
-    #[cfg(debug_assertions)]
-    pub fn debug(&mut self, val: bool) {
-        self.cpu.debug(val);
-    }
-
     /// Enable/Disable CPU logging
     #[cfg(debug_assertions)]
     pub fn log_cpu(&mut self, val: bool) {

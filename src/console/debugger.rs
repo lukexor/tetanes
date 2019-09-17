@@ -1,4 +1,4 @@
-//! Console Debugger
+//! Debugger
 
 use crate::console::cpu::{Cpu, Interrupt};
 use crate::console::memory::MemoryMap;
@@ -88,7 +88,7 @@ impl Debugger {
     pub fn on_nmi(&mut self, cpu: &mut Cpu<MemoryMap>) {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == NMI {
-            eprintln!("DEBUG - VBLANK");
+            println!("DEBUG - VBLANK");
             cpu.print_instruction(cpu.pc);
             self.prompt(cpu);
         }
@@ -97,7 +97,7 @@ impl Debugger {
     pub fn on_irq(&mut self, cpu: &mut Cpu<MemoryMap>) {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == IRQ {
-            eprintln!("DEBUG - SCANLINE");
+            println!("DEBUG - SCANLINE");
             cpu.print_instruction(cpu.pc);
             self.prompt(cpu);
         }
@@ -105,7 +105,7 @@ impl Debugger {
 
     fn prompt(&mut self, cpu: &Cpu<MemoryMap>) {
         loop {
-            eprint!("debugger (step: {}) > ", self.current_step);
+            print!("debugger (step: {}) > ", self.current_step);
             let mut input = String::new();
             match std::io::stdin().read_line(&mut input) {
                 Ok(bytes) => {
@@ -114,7 +114,7 @@ impl Debugger {
                             // Ctrl-D was pressed
                             if bytes == 0 {
                                 self.enabled = false;
-                                eprintln!();
+                                println!();
                             }
                             // Enter was pressed - use last command TODO
                         }
@@ -154,18 +154,18 @@ impl Debugger {
                                 self.print_obj(cpu, cmd);
                             }
                             _ => {
-                                eprintln!("unknown command {:?}", cmd);
+                                println!("unknown command {:?}", cmd);
                             }
                         },
                     }
                 }
-                Err(x) => eprintln!("error reading input: {}", x),
+                Err(x) => println!("error reading input: {}", x),
             }
         }
     }
 
     fn usage(&mut self) {
-        eprintln!(
+        println!(
             "List of commands:
     h         This help
     q         Disable debugger
@@ -190,7 +190,7 @@ impl Debugger {
             self.breakpoint = bp;
             self.break_pc = bp as u16;
         } else {
-            eprintln!("{}", Self::B_USAGE);
+            println!("{}", Self::B_USAGE);
         }
     }
 
@@ -199,7 +199,7 @@ impl Debugger {
         if let Ok(steps) = steps {
             self.steps = steps;
         } else {
-            eprintln!("{}", Self::S_USAGE);
+            println!("{}", Self::S_USAGE);
         }
     }
 
@@ -216,16 +216,16 @@ impl Debugger {
         if cmd.len() > 2 {
             let (_, obj) = cmd.split_at(2);
             match obj {
-                "cpu" => eprintln!("{:?}", cpu),
+                "cpu" => println!("{:?}", cpu),
                 "wram" => {
                     Self::hexdump(&cpu.mem.wram);
                 }
-                "ppu" => eprintln!("{:?}", cpu.mem.ppu),
+                "ppu" => println!("{:?}", cpu.mem.ppu),
                 "vram" => {
                     Self::hexdump(&cpu.mem.ppu.vram.nametable.0);
                 }
-                "apu" => eprintln!("{:?}", cpu.mem.apu),
-                "mapper" => eprintln!("{:?}", cpu.mem.mapper),
+                "apu" => println!("{:?}", cpu.mem.apu),
+                "mapper" => println!("{:?}", cpu.mem.mapper),
                 "prg_rom" => {
                     let mapper = cpu.mem.mapper.borrow();
                     for bank in &**mapper.prg_rom().unwrap() {
@@ -245,11 +245,11 @@ impl Debugger {
                     }
                 }
                 _ => {
-                    eprintln!("invalid obj: {:?}", obj);
+                    println!("invalid obj: {:?}", obj);
                 }
             }
         } else {
-            eprintln!("{}", Self::P_USAGE);
+            println!("{}", Self::P_USAGE);
         }
     }
 
@@ -291,11 +291,11 @@ impl Debugger {
             if last_line == line {
                 if !last_line_same {
                     last_line_same = true;
-                    eprintln!("*");
+                    println!("*");
                 }
             } else {
                 last_line_same = false;
-                eprintln!("{:08x} {}", addr, line);
+                println!("{:08x} {}", addr, line);
             }
             last_line = line;
 

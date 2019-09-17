@@ -107,8 +107,6 @@ impl UiBuilder {
         let input = Rc::new(RefCell::new(Input::new()));
         let mut console = Console::init(input.clone(), self.randomize_ram);
         #[cfg(debug_assertions)]
-        console.debug(self.debug);
-        #[cfg(debug_assertions)]
         console.log_cpu(self.log_cpu);
         console.no_save(self.no_save);
 
@@ -373,10 +371,7 @@ impl Ui {
             Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,
             Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
             Keycode::D if self.lctrl => {
-                if !self.fullscreen {
-                    #[cfg(debug_assertions)]
-                    self.console.debug(true);
-                }
+                // TODO
             }
             Keycode::Return if self.lctrl => {
                 self.fullscreen = !self.fullscreen;

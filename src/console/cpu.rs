@@ -2,8 +2,6 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/CPU]()
 
-#[cfg(debug_assertions)]
-use crate::console::debugger::Debugger;
 use crate::memory::Memory;
 use crate::serialization::Savable;
 use crate::Result;
@@ -70,8 +68,6 @@ where
     fetched_data: u8,         // Represents data fetched for the ALU
     pub interrupt: Interrupt, // Pending interrupt
     #[cfg(debug_assertions)]
-    debugger: Debugger,
-    #[cfg(debug_assertions)]
     pub log_enabled: bool,
     #[cfg(test)]
     pub nestestlog: Vec<String>,
@@ -98,8 +94,6 @@ where
             rel_addr: 0x0000,
             fetched_data: 0x00,
             interrupt: Interrupt::None,
-            #[cfg(debug_assertions)]
-            debugger: Debugger::new(),
             #[cfg(debug_assertions)]
             log_enabled: false,
             #[cfg(test)]
@@ -164,12 +158,6 @@ where
             if self.log_enabled {
                 self.print_instruction(log_pc);
             }
-            // else if self.debugger.enabled() {
-            //     let debugger: *mut Debugger = &mut self.debugger;
-            //     let cpu: *mut Cpu<MemoryMap> = self;
-
-            //     unsafe { (*debugger).on_clock(&mut (*cpu), log_pc) };
-            // }
         }
 
         // let op_cycle = (self.instr.execute())(self); // Execute operation
@@ -260,15 +248,6 @@ where
         self.cycle_count - start_cycle
     }
 
-    #[cfg(debug_assertions)]
-    pub fn debug(&mut self, val: bool) {
-        if val {
-            self.debugger.start();
-        } else {
-            self.debugger.stop();
-        }
-    }
-
     /// Sends an IRQ Interrupt to the CPU
     ///
     /// http://wiki.nesdev.com/w/index.php/IRQ
@@ -279,12 +258,6 @@ where
         self.interrupt = Interrupt::IRQ;
     }
     pub fn irq(&mut self) {
-        // #[cfg(debug_assertions)]
-        // {
-        //     let debugger: *mut Debugger = &mut self.debugger;
-        //     let cpu: *mut Cpu<MemoryMap> = self;
-        //     unsafe { (*debugger).on_nmi(&mut (*cpu)) };
-        // }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
         self.push_stackb((self.status | U as u8) & !(B as u8));
@@ -300,12 +273,6 @@ where
         self.interrupt = Interrupt::NMI;
     }
     fn nmi(&mut self) {
-        // #[cfg(debug_assertions)]
-        // {
-        //     let debugger: *mut Debugger = &mut self.debugger;
-        //     let cpu: *mut Cpu<MemoryMap> = self;
-        //     unsafe { (*debugger).on_nmi(&mut (*cpu)) };
-        // }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
         self.push_stackb((self.status | U as u8) & !(B as u8));
