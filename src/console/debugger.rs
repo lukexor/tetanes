@@ -1,6 +1,7 @@
 //! Console Debugger
 
 use crate::console::cpu::{Cpu, Interrupt};
+use crate::console::memory::MemoryMap;
 
 pub struct Debugger {
     enabled: bool,         // Whether debugger is enabled at all or not
@@ -62,7 +63,7 @@ impl Debugger {
         self.break_type = Unset;
     }
 
-    pub fn on_clock(&mut self, cpu: &mut Cpu, pc: u16) {
+    pub fn on_clock(&mut self, cpu: &mut Cpu<MemoryMap>, pc: u16) {
         if self.tracing && (self.break_type == Step || cpu.interrupt != Interrupt::None) {
             cpu.print_instruction(pc);
         }
@@ -84,7 +85,7 @@ impl Debugger {
         }
     }
 
-    pub fn on_nmi(&mut self, cpu: &mut Cpu) {
+    pub fn on_nmi(&mut self, cpu: &mut Cpu<MemoryMap>) {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == NMI {
             eprintln!("DEBUG - VBLANK");
@@ -93,7 +94,7 @@ impl Debugger {
         }
     }
 
-    pub fn on_irq(&mut self, cpu: &mut Cpu) {
+    pub fn on_irq(&mut self, cpu: &mut Cpu<MemoryMap>) {
         self.current_step = cpu.step;
         if self.enabled && self.break_type == IRQ {
             eprintln!("DEBUG - SCANLINE");
@@ -102,7 +103,7 @@ impl Debugger {
         }
     }
 
-    fn prompt(&mut self, cpu: &Cpu) {
+    fn prompt(&mut self, cpu: &Cpu<MemoryMap>) {
         loop {
             eprint!("debugger (step: {}) > ", self.current_step);
             let mut input = String::new();
@@ -211,7 +212,7 @@ impl Debugger {
         }
     }
 
-    fn print_obj(&mut self, cpu: &Cpu, cmd: &str) {
+    fn print_obj(&mut self, cpu: &Cpu<MemoryMap>, cmd: &str) {
         if cmd.len() > 2 {
             let (_, obj) = cmd.split_at(2);
             match obj {

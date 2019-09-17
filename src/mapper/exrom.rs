@@ -302,13 +302,6 @@ impl Mapper for Exrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {
-        self.regs.prg_mode = 0xFF;
-        self.regs.chr_mode = 0xFF;
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
 }
 
 impl Memory for Exrom {
@@ -505,6 +498,14 @@ impl Memory for Exrom {
                 addr, val
             ),
         }
+    }
+
+    fn reset(&mut self) {
+        self.regs.prg_mode = 0xFF;
+        self.regs.chr_mode = 0xFF;
+    }
+    fn power_cycle(&mut self) {
+        self.reset();
     }
 }
 

@@ -46,8 +46,6 @@ pub trait Mapper: Memory + Savable + fmt::Debug {
     fn chr(&self) -> Option<&Banks<Ram>>;
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
-    fn reset(&mut self);
-    fn power_cycle(&mut self);
 }
 
 pub fn null() -> MapperRef {
@@ -140,8 +138,6 @@ impl Mapper for NullMapper {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
 
 impl Memory for NullMapper {
@@ -152,6 +148,8 @@ impl Memory for NullMapper {
         0
     }
     fn write(&mut self, _addr: u16, _val: u8) {}
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for NullMapper {

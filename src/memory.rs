@@ -19,6 +19,8 @@ pub trait Memory {
     fn read(&mut self, addr: u16) -> u8;
     fn peek(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, val: u8);
+    fn reset(&mut self);
+    fn power_cycle(&mut self);
 }
 
 impl fmt::Debug for dyn Memory {
@@ -76,6 +78,8 @@ impl Memory for Ram {
         let addr = addr as usize % self.0.len();
         self.0[addr] = val;
     }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Ram {
@@ -157,6 +161,8 @@ impl Memory for Rom {
         self.0[addr]
     }
     fn write(&mut self, _addr: u16, _val: u8) {} // ROM is read-only
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Rom {
@@ -287,7 +293,7 @@ where
 /// CPU Memory Map
 ///
 /// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
-pub struct CpuMemMap {
+pub struct MemoryMap {
     pub wram: Ram,
     open_bus: u8,
     pub ppu: Ppu,
@@ -296,12 +302,12 @@ pub struct CpuMemMap {
     input: InputRef,
 }
 
-impl CpuMemMap {
+impl MemoryMap {
     pub fn init(input: InputRef) -> Self {
         Self {
             wram: Ram::init(WRAM_SIZE),
             open_bus: 0u8,
-            ppu: Ppu::init(mapper::null()),
+            ppu: Ppu::new(),
             apu: Apu::new(),
             input,
             mapper: mapper::null(),
@@ -310,25 +316,20 @@ impl CpuMemMap {
 
     pub fn load_mapper(&mut self, mapper: MapperRef) {
         self.mapper = mapper.clone();
-        self.ppu.load_mapper(mapper);
+        self.ppu.load_mapper(mapper.clone());
+        self.apu.load_mapper(mapper);
     }
 }
 
-impl Memory for CpuMemMap {
+impl Memory for MemoryMap {
     fn read(&mut self, addr: u16) -> u8 {
         // Order of frequently accessed
         let val = match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => {
-                let mut mapper = self.mapper.borrow_mut();
-                mapper.read(addr)
-            }
+            0x4020..=0xFFFF => self.mapper.borrow_mut().read(addr),
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
-            0x4016..=0x4017 => {
-                let mut input = self.input.borrow_mut();
-                input.read(addr)
-            }
+            0x4016..=0x4017 => self.input.borrow_mut().read(addr),
             0x2000..=0x3FFF => self.ppu.read(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
             0x4014 => self.open_bus,
@@ -342,15 +343,9 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => {
-                let mapper = self.mapper.borrow();
-                mapper.peek(addr)
-            }
+            0x4020..=0xFFFF => self.mapper.borrow().peek(addr),
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
-            0x4016..=0x4017 => {
-                let input = self.input.borrow();
-                input.peek(addr)
-            }
+            0x4016..=0x4017 => self.input.borrow().peek(addr),
             0x2000..=0x3FFF => self.ppu.peek(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
             0x4014 => self.open_bus,
@@ -363,49 +358,47 @@ impl Memory for CpuMemMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => {
-                let mut mapper = self.mapper.borrow_mut();
-                mapper.write(addr, val);
-            }
+            0x4020..=0xFFFF => self.mapper.borrow_mut().write(addr, val),
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
-            0x4016 => {
-                let mut input = self.input.borrow_mut();
-                input.write(addr, val);
-            }
+            0x4016 => self.input.borrow_mut().write(addr, val),
             0x2000..=0x3FFF => self.ppu.write(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
             0x4018..=0x401F => (),                                 // APU/IO Test Mode
             0x4014 => (),                                          // Handled inside the CPU
         }
     }
+
+    fn reset(&mut self) {
+        self.apu.reset();
+        self.ppu.reset();
+        self.mapper.borrow_mut().reset();
+    }
+    fn power_cycle(&mut self) {
+        self.apu.power_cycle();
+        self.ppu.power_cycle();
+        self.mapper.borrow_mut().power_cycle();
+    }
 }
 
-impl Savable for CpuMemMap {
+impl Savable for MemoryMap {
     fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.wram.save(fh)?;
         self.open_bus.save(fh)?;
         self.ppu.save(fh)?;
         self.apu.save(fh)?;
-        {
-            let mapper = self.mapper.borrow();
-            mapper.save(fh)
-        }
+        self.mapper.borrow().save(fh)
     }
     fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.wram.load(fh)?;
         self.open_bus.load(fh)?;
         self.ppu.load(fh)?;
         self.apu.load(fh)?;
-        {
-            let mut mapper = self.mapper.borrow_mut();
-            mapper.load(fh)?;
-        }
-        Ok(())
+        self.mapper.borrow_mut().load(fh)
     }
 }
 
-impl fmt::Debug for CpuMemMap {
+impl fmt::Debug for MemoryMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CpuMemMap {{ }}")
+        write!(f, "MemoryMap {{ }}")
     }
 }
 
@@ -452,7 +445,7 @@ mod tests {
         let rom = PathBuf::from(test_rom);
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut mem = CpuMemMap::init(input);
+        let mut mem = MemoryMap::init(input);
         mem.load_mapper(mapper);
         mem.write(0x0005, 0x0015);
         mem.write(0x0015, 0x0050);

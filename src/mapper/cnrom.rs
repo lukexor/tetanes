@@ -72,10 +72,6 @@ impl Mapper for Cnrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
 }
 
 impl Memory for Cnrom {
@@ -104,6 +100,9 @@ impl Memory for Cnrom {
             _ => eprintln!("unhandled Cnrom write at address: 0x{:04X}", addr),
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Cnrom {

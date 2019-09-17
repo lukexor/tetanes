@@ -243,22 +243,6 @@ impl Mapper for Sxrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn reset(&mut self) {
-        self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
-        self.regs.prg_bank = PRG_MODE_FIX_LAST;
-        self.prg_rom_bank_hi = self.prg_rom_banks.len() - 1;
-        self.update_banks();
-    }
-    fn power_cycle(&mut self) {
-        self.regs.write_just_occurred = 0;
-        if self.battery_backed {
-            for bank in &mut *self.chr_banks {
-                *bank = Ram::init(bank.len());
-            }
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
-        self.reset();
-    }
 }
 
 impl Memory for Sxrom {
@@ -304,6 +288,23 @@ impl Memory for Sxrom {
                 addr, val
             ),
         }
+    }
+
+    fn reset(&mut self) {
+        self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
+        self.regs.prg_bank = PRG_MODE_FIX_LAST;
+        self.prg_rom_bank_hi = self.prg_rom_banks.len() - 1;
+        self.update_banks();
+    }
+    fn power_cycle(&mut self) {
+        self.regs.write_just_occurred = 0;
+        if self.battery_backed {
+            for bank in &mut *self.chr_banks {
+                *bank = Ram::init(bank.len());
+            }
+            self.prg_ram = Ram::init(self.prg_ram.len());
+        }
+        self.reset();
     }
 }
 

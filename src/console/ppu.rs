@@ -2,7 +2,7 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/PPU]()
 
-use crate::mapper::{MapperRef, Mirroring};
+use crate::mapper::{self, MapperRef, Mirroring};
 use crate::memory::Memory;
 use crate::serialization::Savable;
 use crate::Result;
@@ -75,7 +75,7 @@ pub struct Ppu {
 }
 
 impl Ppu {
-    pub fn init(mapper: MapperRef) -> Self {
+    pub fn new() -> Self {
         Self {
             cycle: 0u16,
             scanline: 0u16,
@@ -83,22 +83,9 @@ impl Ppu {
             nmi_pending: false,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
-            vram: Vram::init(mapper),
+            vram: Vram::new(),
             frame: Frame::new(),
         }
-    }
-
-    pub fn reset(&mut self) {
-        self.cycle = 0;
-        self.scanline = 0;
-        self.frame.num = 0;
-        self.write_ppuctrl(0);
-        self.write_ppumask(0);
-        self.write_oamaddr(0);
-    }
-
-    pub fn power_cycle(&mut self) {
-        self.reset();
     }
 
     pub fn load_mapper(&mut self, mapper: MapperRef) {
@@ -236,22 +223,22 @@ impl Ppu {
     }
 
     fn render_dot(&mut self) {
+        let visible_scanline = self.scanline <= VISIBLE_SCANLINE_END;
+        let visible_cycle = self.cycle >= VISIBLE_CYCLE_START && self.cycle <= VISIBLE_CYCLE_END;
+        let prerender_scanline = self.scanline == PRERENDER_SCANLINE;
+        let render_scanline = prerender_scanline || visible_scanline;
+        let prefetch_cycle = self.cycle >= PREFETCH_CYCLE_START && self.cycle <= PREFETCH_CYCLE_END;
+        let fetch_cycle = prefetch_cycle || visible_cycle;
+
+        // Pixels should be put even if rendering is disabled, as this is what blanks out the
+        // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
+        let should_render = visible_scanline && visible_cycle;
+        if should_render {
+            self.render_pixel();
+        }
+
         if self.rendering_enabled() {
-            let visible_scanline = self.scanline <= VISIBLE_SCANLINE_END;
-            let visible_cycle =
-                self.cycle >= VISIBLE_CYCLE_START && self.cycle <= VISIBLE_CYCLE_END;
-            let prerender_scanline = self.scanline == PRERENDER_SCANLINE;
-            let render_scanline = prerender_scanline || visible_scanline;
-            let prefetch_cycle =
-                self.cycle >= PREFETCH_CYCLE_START && self.cycle <= PREFETCH_CYCLE_END;
-            let fetch_cycle = prefetch_cycle || visible_cycle;
-
             // evaluate background
-            let should_render = visible_scanline && visible_cycle;
-            if should_render {
-                self.render_pixel();
-            }
-
             let should_fetch = render_scanline && fetch_cycle;
             if should_fetch {
                 self.evaluate_background();
@@ -326,8 +313,7 @@ impl Ppu {
                 let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
                 let addr = NT_START | (self.regs.v & nametable_addr_mask);
                 self.frame.nametable = u16::from(self.vram.read(addr));
-                let mut mapper = self.vram.mapper.borrow_mut();
-                mapper.vram_change(&self, addr);
+                self.vram.mapper.borrow_mut().vram_change(&self, addr);
             }
             3 => {
                 // Fetch BG attribute table
@@ -351,8 +337,7 @@ impl Ppu {
                     self.frame.attribute >>= 2;
                 }
                 self.frame.attribute = (self.frame.attribute & 3) << 2;
-                let mut mapper = self.vram.mapper.borrow_mut();
-                mapper.vram_change(&self, addr);
+                self.vram.mapper.borrow_mut().vram_change(&self, addr);
             }
             5 => {
                 // Fetch BG tile lo bitmap
@@ -360,8 +345,7 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_lo = self.vram.read(tile_addr);
-                let mut mapper = self.vram.mapper.borrow_mut();
-                mapper.vram_change(&self, tile_addr);
+                self.vram.mapper.borrow_mut().vram_change(&self, tile_addr);
             }
             7 => {
                 // Fetch BG tile hi bitmap
@@ -369,8 +353,7 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_hi = self.vram.read(tile_addr + 8);
-                let mut mapper = self.vram.mapper.borrow_mut();
-                mapper.vram_change(&self, tile_addr);
+                self.vram.mapper.borrow_mut().vram_change(&self, tile_addr);
             }
             _ => (),
         }
@@ -607,8 +590,7 @@ impl Ppu {
             sprite.pattern <<= 4;
             sprite.pattern |= u32::from(a | p1 | p2);
         }
-        let mut mapper = self.vram.mapper.borrow_mut();
-        mapper.vram_change(&self, tile_addr);
+        self.vram.mapper.borrow_mut().vram_change(&self, tile_addr);
         sprite
     }
 
@@ -708,8 +690,10 @@ impl Ppu {
     }
     fn write_ppuaddr(&mut self, val: u8) {
         self.regs.write_addr(val);
-        let mut mapper = self.vram.mapper.borrow_mut();
-        mapper.vram_change(&self, self.regs.v);
+        self.vram
+            .mapper
+            .borrow_mut()
+            .vram_change(&self, self.regs.v);
     }
 
     /*
@@ -742,8 +726,10 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        let mut mapper = self.vram.mapper.borrow_mut();
-        mapper.vram_change(&self, self.regs.v);
+        self.vram
+            .mapper
+            .borrow_mut()
+            .vram_change(&self, self.regs.v);
         val
     }
     fn peek_ppudata(&self) -> u8 {
@@ -756,8 +742,8 @@ impl Ppu {
     }
     fn write_ppudata(&mut self, val: u8) {
         self.vram.write(self.read_ppuaddr(), val);
-        if self.rendering_enabled()
         // During rendering, v increments coarse X and coarse Y simultaneously
+        if self.rendering_enabled()
             && (self.scanline == PRERENDER_SCANLINE || self.scanline <= VISIBLE_SCANLINE_END)
         {
             self.regs.increment_x();
@@ -765,8 +751,10 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        let mut mapper = self.vram.mapper.borrow_mut();
-        mapper.vram_change(&self, self.regs.v);
+        self.vram
+            .mapper
+            .borrow_mut()
+            .vram_change(&self, self.regs.v);
     }
 }
 
@@ -837,6 +825,21 @@ impl Memory for Ppu {
             _ => eprintln!("unhandled Ppu read at 0x{:04X}", addr),
         }
     }
+
+    fn reset(&mut self) {
+        self.cycle = 0;
+        self.scanline = 0;
+        self.frame.reset();
+        self.set_sprite_zero_hit(false);
+        self.set_sprite_overflow(false);
+        self.write_ppuctrl(0);
+        self.write_ppumask(0);
+        self.write_oamaddr(0);
+    }
+
+    fn power_cycle(&mut self) {
+        self.reset();
+    }
 }
 
 impl Savable for Ppu {
@@ -874,6 +877,8 @@ impl Memory for Nametable {
     fn write(&mut self, addr: u16, val: u8) {
         self.0[addr as usize] = val;
     }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Nametable {
@@ -904,6 +909,8 @@ impl Memory for Palette {
         }
         self.0[addr as usize] = val;
     }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Palette {
@@ -1220,6 +1227,8 @@ impl Memory for Oam {
     fn write(&mut self, addr: u16, val: u8) {
         self.entries[addr as usize] = val;
     }
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Oam {
@@ -1239,9 +1248,9 @@ pub struct Vram {
 }
 
 impl Vram {
-    fn init(mapper: MapperRef) -> Self {
+    fn new() -> Self {
         Self {
-            mapper,
+            mapper: mapper::null(),
             buffer: 0u8,
             nametable: Nametable([0u8; NT_SIZE]),
             palette: Palette([0u8; PALETTE_SIZE]),
@@ -1249,8 +1258,7 @@ impl Vram {
     }
 
     fn nametable_mirror_addr(&self, addr: u16) -> u16 {
-        let mapper = self.mapper.borrow();
-        let mirroring = mapper.mirroring();
+        let mirroring = self.mapper.borrow().mirroring();
 
         let table_size = 1024;
         let mirror_lookup = match mirroring {
@@ -1273,10 +1281,7 @@ impl Vram {
 impl Memory for Vram {
     fn read(&mut self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => {
-                let mut mapper = self.mapper.borrow_mut();
-                mapper.read(addr)
-            }
+            0x0000..=0x1FFF => self.mapper.borrow_mut().read(addr),
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
                 self.nametable.read(addr % NT_SIZE as u16)
@@ -1291,10 +1296,7 @@ impl Memory for Vram {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => {
-                let mapper = self.mapper.borrow();
-                mapper.peek(addr)
-            }
+            0x0000..=0x1FFF => self.mapper.borrow().peek(addr),
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
                 self.nametable.peek(addr % NT_SIZE as u16)
@@ -1309,10 +1311,7 @@ impl Memory for Vram {
 
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => {
-                let mut mapper = self.mapper.borrow_mut();
-                mapper.write(addr, val);
-            }
+            0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
             0x2000..=0x3EFF => {
                 let addr = self.nametable_mirror_addr(addr);
                 self.nametable.write(addr % NT_SIZE as u16, val)
@@ -1321,6 +1320,9 @@ impl Memory for Vram {
             _ => eprintln!("invalid Vram read at 0x{:04X}", addr),
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Vram {
@@ -1368,6 +1370,11 @@ impl Frame {
             sprites: [Sprite::new(); 8],
             pixels: vec![0u8; RENDER_SIZE],
         }
+    }
+
+    fn reset(&mut self) {
+        self.num = 0;
+        self.parity = false;
     }
 
     fn increment(&mut self) {

@@ -76,10 +76,6 @@ impl Mapper for Uxrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
 }
 
 impl Memory for Uxrom {
@@ -113,6 +109,9 @@ impl Memory for Uxrom {
             }
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Uxrom {

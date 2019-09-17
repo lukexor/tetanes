@@ -99,13 +99,6 @@ impl Mapper for Nrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {
-        if self.battery_backed {
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
-        self.reset();
-    }
 }
 
 impl Memory for Nrom {
@@ -145,6 +138,14 @@ impl Memory for Nrom {
                 addr, val
             ),
         }
+    }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {
+        if self.battery_backed {
+            self.prg_ram = Ram::init(self.prg_ram.len());
+        }
+        self.reset();
     }
 }
 

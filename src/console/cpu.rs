@@ -4,7 +4,7 @@
 
 #[cfg(debug_assertions)]
 use crate::console::debugger::Debugger;
-use crate::memory::{CpuMemMap, Memory};
+use crate::memory::Memory;
 use crate::serialization::Savable;
 use crate::Result;
 use std::fmt;
@@ -50,8 +50,11 @@ enum StatusRegs {
 use StatusRegs::*;
 
 /// The Central Processing Unit status and registers
-pub struct Cpu {
-    pub mem: CpuMemMap,
+pub struct Cpu<M>
+where
+    M: Memory,
+{
+    pub mem: M,
     pub cycle_count: u64,     // total number of cycles ran
     stall: u64,               // Number of cycles to stall with nop (used by DMA)
     pub step: u64,            // total number of CPU instructions run
@@ -74,8 +77,11 @@ pub struct Cpu {
     pub nestestlog: Vec<String>,
 }
 
-impl Cpu {
-    pub fn init(mem: CpuMemMap) -> Self {
+impl<M> Cpu<M>
+where
+    M: Memory,
+{
+    pub fn init(mem: M) -> Self {
         let mut cpu = Self {
             mem,
             cycle_count: POWER_ON_CYCLES,
@@ -105,43 +111,6 @@ impl Cpu {
 
     pub fn power_on(&mut self) {
         self.pc = self.readw(RESET_ADDR);
-    }
-
-    /// Resets the CPU
-    ///
-    /// Updates the PC, SP, and Status values to defined constants.
-    ///
-    /// These operations take the CPU 7 cycle.
-    pub fn reset(&mut self) {
-        self.cycle_count = POWER_ON_CYCLES;
-        self.stall = 0u64;
-        self.pc = self.readw(RESET_ADDR);
-        self.sp = self.sp.saturating_sub(3);
-        self.set_flag(I, true);
-        self.mem.apu.reset();
-        self.mem.ppu.reset();
-        #[cfg(test)]
-        self.nestestlog.clear();
-    }
-
-    /// Power cycle the CPU
-    ///
-    /// Updates all status as if powered on for the first time
-    ///
-    /// These operations take the CPU 7 cycle.
-    pub fn power_cycle(&mut self) {
-        self.cycle_count = POWER_ON_CYCLES;
-        self.stall = 0u64;
-        self.pc = self.readw(RESET_ADDR);
-        self.sp = POWER_ON_SP;
-        self.acc = 0u8;
-        self.x = 0u8;
-        self.y = 0u8;
-        self.status = POWER_ON_STATUS;
-        self.mem.apu.power_cycle();
-        self.mem.ppu.power_cycle();
-        #[cfg(test)]
-        self.nestestlog.clear();
     }
 
     #[cfg(debug_assertions)]
@@ -194,12 +163,13 @@ impl Cpu {
         {
             if self.log_enabled {
                 self.print_instruction(log_pc);
-            } else if self.debugger.enabled() {
-                let debugger: *mut Debugger = &mut self.debugger;
-                let cpu: *mut Cpu = self;
-
-                unsafe { (*debugger).on_clock(&mut (*cpu), log_pc) };
             }
+            // else if self.debugger.enabled() {
+            //     let debugger: *mut Debugger = &mut self.debugger;
+            //     let cpu: *mut Cpu<MemoryMap> = self;
+
+            //     unsafe { (*debugger).on_clock(&mut (*cpu), log_pc) };
+            // }
         }
 
         // let op_cycle = (self.instr.execute())(self); // Execute operation
@@ -309,12 +279,12 @@ impl Cpu {
         self.interrupt = Interrupt::IRQ;
     }
     pub fn irq(&mut self) {
-        #[cfg(debug_assertions)]
-        {
-            let debugger: *mut Debugger = &mut self.debugger;
-            let cpu: *mut Cpu = self;
-            unsafe { (*debugger).on_nmi(&mut (*cpu)) };
-        }
+        // #[cfg(debug_assertions)]
+        // {
+        //     let debugger: *mut Debugger = &mut self.debugger;
+        //     let cpu: *mut Cpu<MemoryMap> = self;
+        //     unsafe { (*debugger).on_nmi(&mut (*cpu)) };
+        // }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
         self.push_stackb((self.status | U as u8) & !(B as u8));
@@ -330,12 +300,12 @@ impl Cpu {
         self.interrupt = Interrupt::NMI;
     }
     fn nmi(&mut self) {
-        #[cfg(debug_assertions)]
-        {
-            let debugger: *mut Debugger = &mut self.debugger;
-            let cpu: *mut Cpu = self;
-            unsafe { (*debugger).on_nmi(&mut (*cpu)) };
-        }
+        // #[cfg(debug_assertions)]
+        // {
+        //     let debugger: *mut Debugger = &mut self.debugger;
+        //     let cpu: *mut Cpu<MemoryMap> = self;
+        //     unsafe { (*debugger).on_nmi(&mut (*cpu)) };
+        // }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
         self.push_stackb((self.status | U as u8) & !(B as u8));
@@ -505,7 +475,7 @@ impl Cpu {
             self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
         }
 
-        if Cpu::pages_differ(addr, self.abs_addr) {
+        if self.pages_differ(addr, self.abs_addr) {
             return 1;
         } else {
             return 0;
@@ -528,7 +498,7 @@ impl Cpu {
             _ => (), // Do nothing
         }
 
-        if Cpu::pages_differ(addr, self.abs_addr) {
+        if self.pages_differ(addr, self.abs_addr) {
             return 1;
         } else {
             return 0;
@@ -578,7 +548,7 @@ impl Cpu {
             self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
         }
 
-        if Cpu::pages_differ(addr, self.abs_addr) {
+        if self.pages_differ(addr, self.abs_addr) {
             return 1;
         } else {
             return 0;
@@ -767,8 +737,8 @@ impl Cpu {
             self.y,
             self.status,
             self.sp,
-            self.mem.ppu.cycle,
-            self.mem.ppu.scanline,
+            0, // self.mem.ppu.cycle,
+            0, // self.mem.ppu.scanline,
             self.cycle_count,
         );
         print!("{}", opstr);
@@ -778,12 +748,15 @@ impl Cpu {
 
     /// Utilities
 
-    fn pages_differ(addr1: u16, addr2: u16) -> bool {
+    fn pages_differ(&self, addr1: u16, addr2: u16) -> bool {
         return (addr1 & 0xFF00) != (addr2 & 0xFF00);
     }
 }
 
-impl Memory for Cpu {
+impl<M> Memory for Cpu<M>
+where
+    M: Memory,
+{
     fn read(&mut self, addr: u16) -> u8 {
         self.mem.read(addr)
     }
@@ -799,9 +772,47 @@ impl Memory for Cpu {
             self.mem.write(addr, val);
         }
     }
+
+    /// Resets the CPU
+    ///
+    /// Updates the PC, SP, and Status values to defined constants.
+    ///
+    /// These operations take the CPU 7 cycle.
+    fn reset(&mut self) {
+        self.mem.reset();
+        self.cycle_count = POWER_ON_CYCLES;
+        self.stall = 0u64;
+        self.pc = self.readw(RESET_ADDR);
+        self.sp = self.sp.saturating_sub(3);
+        self.set_flag(I, true);
+        #[cfg(test)]
+        self.nestestlog.clear();
+    }
+
+    /// Power cycle the CPU
+    ///
+    /// Updates all status as if powered on for the first time
+    ///
+    /// These operations take the CPU 7 cycle.
+    fn power_cycle(&mut self) {
+        self.mem.power_cycle();
+        self.cycle_count = POWER_ON_CYCLES;
+        self.stall = 0u64;
+        self.pc = self.readw(RESET_ADDR);
+        self.sp = POWER_ON_SP;
+        self.acc = 0u8;
+        self.x = 0u8;
+        self.y = 0u8;
+        self.status = POWER_ON_STATUS;
+        #[cfg(test)]
+        self.nestestlog.clear();
+    }
 }
 
-impl Savable for Cpu {
+impl<M> Savable for Cpu<M>
+where
+    M: Memory + Savable,
+{
     fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.mem.save(fh)?;
         self.cycle_count.save(fh)?;
@@ -1063,7 +1074,10 @@ pub const INSTRUCTIONS: [Instr; 256] = [
 ];
 
 /// CPU instructions
-impl Cpu {
+impl<M> Cpu<M>
+where
+    M: Memory,
+{
     /// Storage opcodes
 
     /// LDA: Load A with M
@@ -1298,7 +1312,7 @@ impl Cpu {
     fn branch(&mut self) {
         self.cycle_count = self.cycle_count.wrapping_add(1);
         self.abs_addr = self.pc.wrapping_add(self.rel_addr);
-        if Cpu::pages_differ(self.abs_addr, self.pc) {
+        if self.pages_differ(self.abs_addr, self.pc) {
             self.cycle_count = self.cycle_count.wrapping_add(1);
         }
         self.pc = self.abs_addr;
@@ -1631,7 +1645,10 @@ impl Cpu {
     }
 }
 
-impl fmt::Debug for Cpu {
+impl<M> fmt::Debug for Cpu<M>
+where
+    M: Memory,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
@@ -1682,7 +1699,7 @@ mod tests {
         let rom = PathBuf::from(TEST_ROM);
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = CpuMemMap::init(input);
+        let mut cpu_memory = MemoryMap::init(input);
         cpu_memory.load_mapper(mapper);
         let c = Cpu::init(cpu_memory);
         assert_eq!(c.cycle_count, 7);
@@ -1699,7 +1716,7 @@ mod tests {
         let rom = PathBuf::from(TEST_ROM);
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = CpuMemMap::init(input);
+        let mut cpu_memory = MemoryMap::init(input);
         cpu_memory.load_mapper(mapper);
         let mut c = Cpu::init(cpu_memory);
         c.reset();

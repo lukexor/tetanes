@@ -287,28 +287,6 @@ impl Mapper for Txrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn reset(&mut self) {
-        self.irq_pending = false;
-        self.regs = TxRegs {
-            bank_select: 0u8,
-            bank_values: [0u8; 8],
-            irq_latch: 0u8,
-            irq_counter: 0u8,
-            irq_enabled: false,
-            irq_reset: false,
-            last_clock: 0u16,
-            open_bus: 0u8,
-        };
-    }
-    fn power_cycle(&mut self) {
-        if self.battery_backed {
-            for bank in &mut *self.chr_banks {
-                *bank = Ram::init(bank.len());
-            }
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
-        self.reset();
-    }
 }
 
 impl Memory for Txrom {
@@ -366,6 +344,29 @@ impl Memory for Txrom {
                 );
             }
         }
+    }
+
+    fn reset(&mut self) {
+        self.irq_pending = false;
+        self.regs = TxRegs {
+            bank_select: 0u8,
+            bank_values: [0u8; 8],
+            irq_latch: 0u8,
+            irq_counter: 0u8,
+            irq_enabled: false,
+            irq_reset: false,
+            last_clock: 0u16,
+            open_bus: 0u8,
+        };
+    }
+    fn power_cycle(&mut self) {
+        if self.battery_backed {
+            for bank in &mut *self.chr_banks {
+                *bank = Ram::init(bank.len());
+            }
+            self.prg_ram = Ram::init(self.prg_ram.len());
+        }
+        self.reset();
     }
 }
 

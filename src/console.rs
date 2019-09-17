@@ -6,7 +6,7 @@ pub use ppu::{RENDER_HEIGHT, RENDER_WIDTH};
 
 use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
-use crate::memory::{self, CpuMemMap};
+use crate::memory::{self, Memory, MemoryMap};
 use crate::serialization::Savable;
 use crate::util;
 use crate::{nes_err, Result};
@@ -27,7 +27,7 @@ pub struct Console {
     no_save: bool,
     running: bool,
     loaded_rom: PathBuf,
-    pub cpu: Box<Cpu>,
+    pub cpu: Cpu<MemoryMap>,
     mapper: MapperRef,
 }
 
@@ -35,9 +35,8 @@ impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
     pub fn init(input: InputRef, randomize_ram: bool) -> Self {
         unsafe { memory::RANDOMIZE_RAM = randomize_ram }
-        let cpu_memory = CpuMemMap::init(input);
-        let mut cpu = Box::new(Cpu::init(cpu_memory));
-        cpu.mem.apu.dmc.cpu = (&mut *cpu) as *mut Cpu; // TODO ugly work-around for DMC memory
+        let memory_map = MemoryMap::init(input);
+        let cpu = Cpu::init(memory_map);
         Self {
             no_save: false,
             running: false,
@@ -85,13 +84,11 @@ impl Console {
     /// Soft-resets the console
     pub fn reset(&mut self) {
         self.cpu.reset();
-        self.mapper.borrow_mut().reset();
     }
 
     /// Hard-resets the console
     pub fn power_cycle(&mut self) {
         self.cpu.power_cycle();
-        self.mapper.borrow_mut().power_cycle();
     }
 
     /// Enable/Disable the debugger

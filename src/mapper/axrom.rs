@@ -76,8 +76,6 @@ impl Mapper for Axrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
 
 impl Memory for Axrom {
@@ -125,6 +123,9 @@ impl Memory for Axrom {
             _ => eprintln!("unhandled Axrom write at address: 0x{:04X}", addr),
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Axrom {

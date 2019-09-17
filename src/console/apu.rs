@@ -2,9 +2,9 @@
 //!
 //! [https://wiki.nesdev.com/w/index.php/APU]()
 
-use crate::console::cpu::Cpu;
 use crate::console::CPU_CLOCK_RATE;
 use crate::filter::{Filter, HiPassFilter, LoPassFilter};
+use crate::mapper::{self, MapperRef};
 use crate::memory::Memory;
 use crate::serialization::Savable;
 use crate::Result;
@@ -73,25 +73,8 @@ impl Apu {
         apu
     }
 
-    pub fn reset(&mut self) {
-        self.cycle = 0;
-        self.samples.clear();
-        self.irq_pending = false;
-        self.irq_enabled = false;
-        self.frame = FrameCounter {
-            step: 1u8,
-            counter: 0u16,
-            mode: FCMode::Step4,
-        };
-        self.pulse1.reset();
-        self.pulse2.reset();
-        self.triangle.reset();
-        self.noise.reset();
-        self.dmc.reset();
-    }
-
-    pub fn power_cycle(&mut self) {
-        self.reset();
+    pub fn load_mapper(&mut self, mapper: MapperRef) {
+        self.dmc.mapper = mapper;
     }
 
     pub fn clock(&mut self) {
@@ -336,6 +319,27 @@ impl Memory for Apu {
             0x4017 => self.write_frame_counter(val),
             _ => (),
         }
+    }
+
+    fn reset(&mut self) {
+        self.cycle = 0;
+        self.samples.clear();
+        self.irq_pending = false;
+        self.irq_enabled = false;
+        self.frame = FrameCounter {
+            step: 1u8,
+            counter: 0u16,
+            mode: FCMode::Step4,
+        };
+        self.pulse1.reset();
+        self.pulse2.reset();
+        self.triangle.reset();
+        self.noise.reset();
+        self.dmc.reset();
+    }
+
+    fn power_cycle(&mut self) {
+        self.reset();
     }
 }
 
@@ -850,7 +854,7 @@ impl Savable for ShiftMode {
 }
 
 pub struct DMC {
-    pub cpu: *mut Cpu,
+    mapper: MapperRef,
     irq_enabled: bool,
     irq_pending: bool,
     loops: bool,
@@ -877,7 +881,7 @@ impl DMC {
     // TODO PAL
     fn new() -> Self {
         Self {
-            cpu: std::ptr::null_mut(),
+            mapper: mapper::null(),
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -925,8 +929,7 @@ impl DMC {
         }
 
         if self.length > 0 && self.sample_buffer_empty {
-            let cpu: &mut Cpu = unsafe { &mut *self.cpu }; // TODO ugly work-around to access CPU
-            self.sample_buffer = cpu.read(self.addr);
+            self.sample_buffer = self.mapper.borrow_mut().read(self.addr);
             self.sample_buffer_empty = false;
             self.addr = self.addr.wrapping_add(1) | 0x8000;
             self.length -= 1;

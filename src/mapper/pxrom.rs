@@ -88,12 +88,6 @@ impl Mapper for Pxrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn reset(&mut self) {
-        self.chr_rom_latch = [true; 2];
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
 }
 
 impl Memory for Pxrom {
@@ -159,6 +153,13 @@ impl Memory for Pxrom {
                 addr, val
             ),
         }
+    }
+
+    fn reset(&mut self) {
+        self.chr_rom_latch = [true; 2];
+    }
+    fn power_cycle(&mut self) {
+        self.reset();
     }
 }
 
