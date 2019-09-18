@@ -276,32 +276,28 @@ impl Ppu {
                 if self.cycle == (RENDER_WIDTH + 1) as u16 {
                     self.regs.copy_x();
                 }
-            }
 
-            // evaluate sprites
-            if self.cycle == SPRITE_PREFETCH_CYCLE_START {
-                if render_scanline {
+                if self.cycle == SPRITE_PREFETCH_CYCLE_START {
                     self.evaluate_sprites();
-                } else {
-                    self.frame.sprite_count = 0;
                 }
-            }
-            if render_scanline && self.cycle >= 257 && self.cycle <= 320 {
-                let sprite_idx = (self.cycle as usize - 257) / 8;
-                let sprite = self.frame.sprites[sprite_idx];
-                if self.cycle % 8 == 5 {
-                    let _ = self.vram.read(sprite.tile_addr);
-                    self.vram
-                        .mapper
-                        .borrow_mut()
-                        .vram_change(&self, sprite.tile_addr);
-                } else if self.cycle % 8 == 7 {
-                    let _ = self.vram.read(sprite.tile_addr + 8);
-                    self.vram
-                        .mapper
-                        .borrow_mut()
-                        .vram_change(&self, sprite.tile_addr + 8);
-                };
+
+                if self.cycle >= 257 && self.cycle <= 320 {
+                    let sprite_idx = (self.cycle as usize - 257) / 8;
+                    let sprite = self.frame.sprites[sprite_idx];
+                    if self.cycle % 8 == 5 {
+                        let _ = self.vram.read(sprite.tile_addr);
+                        self.vram
+                            .mapper
+                            .borrow_mut()
+                            .vram_change(&self, sprite.tile_addr);
+                    } else if self.cycle % 8 == 7 {
+                        let _ = self.vram.read(sprite.tile_addr + 8);
+                        self.vram
+                            .mapper
+                            .borrow_mut()
+                            .vram_change(&self, sprite.tile_addr + 8);
+                    };
+                }
             }
         }
     }
@@ -378,9 +374,19 @@ impl Ppu {
 
     fn evaluate_sprites(&mut self) {
         self.frame.sprite_count = 0;
-        // for i in 0..8 {
-        //     self.frame.sprites[i] = Sprite::new();
-        // }
+        for i in 0..8 {
+            let mut sprite = Sprite::new();
+            let sprite_height = self.regs.ctrl.sprite_height();
+            let sprite_table = if sprite_height == 8 {
+                self.regs.ctrl.sprite_select()
+            } else {
+                // use bit 1 of tile index to determine pattern table
+                0x1000 * (sprite.tile_index & 0x01)
+            };
+
+            sprite.tile_addr = sprite_table + sprite.tile_index * 16;
+            self.frame.sprites[i] = sprite;
+        }
         let sprite_height = self.regs.ctrl.sprite_height();
         for i in 0..OAM_SIZE / 4 {
             let sprite_y = u16::from(self.oamdata.read((i * 4) as u16));
@@ -554,9 +560,9 @@ impl Ppu {
             tile_addr: 0u16,
             palette: (attr & 3) + 4, // range 4 to 7
             pattern: 0,
-            has_priority: (attr & 0x20) == 0x20, // bit 5
-            flip_horizontal: (attr & 0x40) > 0,  // bit 6
-            flip_vertical: (attr & 0x80) > 0,    // bit 7
+            has_priority: (attr & 0x20) == 0x20,    // bit 5
+            flip_horizontal: (attr & 0x40) == 0x40, // bit 6
+            flip_vertical: (attr & 0x80) == 0x80,   // bit 7
         };
 
         // Now fetch sprite pattern graphics
@@ -1308,7 +1314,7 @@ impl Memory for Vram {
             }
             0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
             _ => {
-                // eprintln!("invalid Vram read at 0x{:04X}", addr);
+                eprintln!("invalid Vram read at 0x{:04X}", addr);
                 0
             }
         }
@@ -1323,7 +1329,7 @@ impl Memory for Vram {
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
             _ => {
-                // eprintln!("invalid Vram read at 0x{:04X}", addr);
+                eprintln!("invalid Vram read at 0x{:04X}", addr);
                 0
             }
         }
@@ -1337,7 +1343,7 @@ impl Memory for Vram {
                 self.nametable.write(addr % NT_SIZE as u16, val)
             }
             0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
-            _ => (), //eprintln!("invalid Vram write at 0x{:04X}", addr),
+            _ => eprintln!("invalid Vram write at 0x{:04X}", addr),
         }
     }
 
@@ -1460,7 +1466,7 @@ impl Sprite {
             y: 0xFF,
             tile_index: 0xFF,
             tile_addr: 0xFF,
-            palette: 0xFF,
+            palette: 0x07,
             pattern: 0u32,
             has_priority: true,
             flip_horizontal: true,
