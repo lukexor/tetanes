@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 64 * 1024;
-const EX_RAM_SIZE: usize = 1 * 1024;
+// const EX_RAM_SIZE: usize = 1 * 1024;
 
 /// ExROM
 #[derive(Debug)]
@@ -106,7 +106,6 @@ pub struct ExRegs {
 impl Exrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let prg_ram = Ram::init(PRG_RAM_SIZE);
-        let prg_len = cart.prg_rom.len();
         let num_rom_banks = cart.prg_rom.len() / (8 * 1024); // Default PRG ROM Bank size
         let mut exrom = Self {
             regs: ExRegs {
@@ -213,13 +212,13 @@ impl Exrom {
         self.regs.mult_result = u16::from(self.regs.multiplicand) * u16::from(val);
     }
 
-    fn read_expansion_ram(&self, addr: u16) -> u8 {
+    fn read_expansion_ram(&self, _addr: u16) -> u8 {
         // TODO
         eprintln!("Tried to read expansion ram");
         0
     }
 
-    fn write_expansion_ram(&mut self, addr: u16, val: u8) {
+    fn write_expansion_ram(&mut self, _addr: u16, _val: u8) {
         // TODO
         eprintln!("Tried to write expansion ram");
     }
@@ -249,7 +248,7 @@ impl Mapper for Exrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, ppu: &Ppu, addr: u16) {
+    fn vram_change(&mut self, _ppu: &Ppu, addr: u16) {
         let vram_addr = addr;
         self.regs.sp_fetch_count = self.regs.sp_fetch_count.wrapping_add(1);
 
@@ -510,11 +509,11 @@ impl Memory for Exrom {
 }
 
 impl Savable for Exrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, _fh: &mut dyn Write) -> Result<()> {
         // TODO
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, _fh: &mut dyn Read) -> Result<()> {
         // TODO
         Ok(())
     }

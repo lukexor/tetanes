@@ -265,6 +265,7 @@ impl Memory for Sxrom {
             }
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x4020..=0x5FFF => 0, // Nothing at this range
             _ => {
                 eprintln!("unhandled Sxrom read at address: 0x{:04X}", addr);
                 0
@@ -283,6 +284,7 @@ impl Memory for Sxrom {
                 }
             }
             0x8000..=0xFFFF => self.write_registers(addr, val),
+            0x4020..=0x5FFF => (), // Nothing at this range
             _ => eprintln!(
                 "invalid Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val

@@ -124,6 +124,7 @@ impl Memory for Pxrom {
                 let addr = addr % PRG_ROM_BANK_SIZE as u16;
                 self.prg_rom_banks[self.prg_rom_bank_idx[bank]].peek(addr)
             }
+            0x4020..=0x5FFF => 0, // Nothing at this range
             _ => {
                 eprintln!("invalid Pxrom read at address: 0x{:04X}", addr);
                 0
@@ -133,9 +134,7 @@ impl Memory for Pxrom {
 
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => (), // ROM is write-only
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
-            0x8000..=0x9FFF => (), // ROM is write-only
             0xA000..=0xAFFF => self.prg_rom_bank_idx[0] = (val & 0x0F) as usize,
             0xB000..=0xBFFF => self.chr_rom_bank_idx[0] = (val & 0x1F) as usize,
             0xC000..=0xCFFF => self.chr_rom_bank_idx[1] = (val & 0x1F) as usize,
@@ -148,6 +147,9 @@ impl Memory for Pxrom {
                     _ => panic!("impossible mirroring mode"),
                 }
             }
+            0x0000..=0x1FFF => (), // ROM is write-only
+            0x4020..=0x5FFF => (), // Nothing at this range
+            0x8000..=0x9FFF => (), // ROM is write-only
             _ => eprintln!(
                 "invalid Pxrom write at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val

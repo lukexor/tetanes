@@ -84,6 +84,7 @@ impl Memory for Cnrom {
             0x0000..=0x1FFF => self.chr_banks[self.chr_bank].peek(addr),
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x4020..=0x5FFF => 0, // Nothing at this range
             0x6000..=0x7FFF => 0, // No Save RAM
             _ => {
                 eprintln!("unhandled Cnrom read at address: 0x{:04X}", addr);
@@ -94,8 +95,9 @@ impl Memory for Cnrom {
 
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => (), // ROM is write-only
             0x8000..=0xFFFF => self.chr_bank = val as usize & 3,
+            0x0000..=0x1FFF => (), // ROM is write-only
+            0x4020..=0x5FFF => (), // Nothing at this range
             0x6000..=0x7FFF => (), // No Save RAM
             _ => eprintln!("unhandled Cnrom write at address: 0x{:04X}", addr),
         }

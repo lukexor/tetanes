@@ -4,7 +4,7 @@
 //! [https://wiki.nesdev.com/w/index.php/MMC3]()
 
 use crate::cartridge::Cartridge;
-use crate::console::ppu::{Ppu, PRERENDER_SCANLINE, VISIBLE_SCANLINE_END};
+use crate::console::ppu::Ppu;
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
@@ -241,27 +241,8 @@ impl Mapper for Txrom {
         self.mirroring
     }
     fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
-    fn clock(&mut self, ppu: &Ppu) {
-        if ppu.cycle != 280
-            || (ppu.scanline > VISIBLE_SCANLINE_END && ppu.scanline < PRERENDER_SCANLINE)
-            || !ppu.rendering_enabled()
-        {
-            return;
-        }
-        let old_counter = self.regs.irq_counter;
-        if self.regs.irq_counter == 0 || self.regs.irq_reset {
-            self.regs.irq_counter = self.regs.irq_latch;
-        } else {
-            self.regs.irq_counter -= 1;
-        }
-
-        if (self.mmc3_alt_behavior || old_counter != 0 || self.regs.irq_reset)
-            && self.regs.irq_counter == 0
-            && self.regs.irq_enabled
-        {
-            self.irq_pending = true;
-        }
-        self.regs.irq_reset = false;
+    fn clock(&mut self, _ppu: &Ppu) {
+        // IRQ clocking is handled in read()
     }
     fn battery_backed(&self) -> bool {
         self.battery_backed
@@ -291,6 +272,23 @@ impl Mapper for Txrom {
 
 impl Memory for Txrom {
     fn read(&mut self, addr: u16) -> u8 {
+        if addr <= 0x1FFF {
+            let next = (addr >> 12) & 1;
+            if self.regs.last_clock == 0 && next == 1 {
+                // Rising edge
+                if self.regs.irq_counter == 0 {
+                    self.regs.irq_counter = self.regs.irq_latch;
+                } else {
+                    self.regs.irq_counter -= 1;
+                }
+
+                if self.regs.irq_counter == 0 && self.regs.irq_enabled {
+                    self.irq_pending = true;
+                }
+            }
+            self.regs.last_clock = next;
+        }
+
         let val = self.peek(addr);
         self.regs.open_bus = val;
         val
@@ -314,6 +312,7 @@ impl Memory for Txrom {
                 let idx = self.prg_rom_bank_idx[bank];
                 self.prg_rom_banks[idx].peek(addr)
             }
+            0x4020..=0x5FFF => 0, // Nothing at this range
             _ => {
                 eprintln!("unhandled Uxrom read at address: 0x{:04X}", addr);
                 0
@@ -337,6 +336,7 @@ impl Memory for Txrom {
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
             0x8000..=0xFFFF => self.write_register(addr, val),
+            0x4020..=0x5FFF => (), // Nothing at this range
             _ => {
                 eprintln!(
                     "unhandled Sxrom write at address: 0x{:04X} - val: 0x{:02X}",

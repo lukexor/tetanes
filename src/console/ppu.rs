@@ -286,6 +286,23 @@ impl Ppu {
                     self.frame.sprite_count = 0;
                 }
             }
+            if self.cycle >= 257 && self.cycle <= 320 {
+                let sprite_idx = (self.cycle as usize - 257) / 8;
+                let sprite = self.frame.sprites[sprite_idx];
+                if self.cycle % 8 == 5 {
+                    let _ = self.vram.read(sprite.tile_addr);
+                    self.vram
+                        .mapper
+                        .borrow_mut()
+                        .vram_change(&self, sprite.tile_addr);
+                } else if self.cycle % 8 == 7 {
+                    let _ = self.vram.read(sprite.tile_addr + 8);
+                    self.vram
+                        .mapper
+                        .borrow_mut()
+                        .vram_change(&self, sprite.tile_addr + 8);
+                };
+            }
         }
     }
     fn evaluate_background(&mut self) {
@@ -531,6 +548,7 @@ impl Ppu {
             x: d.read(addr + 3).into(),
             y: d.read(addr).into(),
             tile_index: d.read(addr + 1).into(),
+            tile_addr: 0u16,
             palette: (attr & 3) + 4, // range 4 to 7
             pattern: 0,
             has_priority: (attr & 0x20) == 0x20, // bit 5
@@ -568,12 +586,12 @@ impl Ppu {
             sprite_row = 0;
         }
 
-        let tile_addr = sprite_table + sprite.tile_index * 16 + sprite_row;
+        sprite.tile_addr = sprite_table + sprite.tile_index * 16 + sprite_row;
 
         // Flip bits for horizontal flipping
         let a = (sprite.palette - 4) << 2;
-        let mut lo_tile = self.vram.read(tile_addr);
-        let mut hi_tile = self.vram.read(tile_addr + 8);
+        let mut lo_tile = self.vram.peek(sprite.tile_addr);
+        let mut hi_tile = self.vram.peek(sprite.tile_addr + 8);
         for _ in 0..8 {
             let (p1, p2);
             if sprite.flip_horizontal {
@@ -590,7 +608,6 @@ impl Ppu {
             sprite.pattern <<= 4;
             sprite.pattern |= u32::from(a | p1 | p2);
         }
-        self.vram.mapper.borrow_mut().vram_change(&self, tile_addr);
         sprite
     }
 
@@ -1288,7 +1305,7 @@ impl Memory for Vram {
             }
             0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
             _ => {
-                eprintln!("invalid Vram read at 0x{:04X}", addr);
+                // eprintln!("invalid Vram read at 0x{:04X}", addr);
                 0
             }
         }
@@ -1303,7 +1320,7 @@ impl Memory for Vram {
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
             _ => {
-                eprintln!("invalid Vram read at 0x{:04X}", addr);
+                // eprintln!("invalid Vram read at 0x{:04X}", addr);
                 0
             }
         }
@@ -1317,7 +1334,7 @@ impl Memory for Vram {
                 self.nametable.write(addr % NT_SIZE as u16, val)
             }
             0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
-            _ => eprintln!("invalid Vram read at 0x{:04X}", addr),
+            _ => (), //eprintln!("invalid Vram write at 0x{:04X}", addr),
         }
     }
 
@@ -1424,6 +1441,7 @@ struct Sprite {
     x: u16,
     y: u16,
     tile_index: u16,
+    tile_addr: u16,
     palette: u8,
     pattern: u32,
     has_priority: bool,
@@ -1438,6 +1456,7 @@ impl Sprite {
             x: 0u16,
             y: 0u16,
             tile_index: 0u16,
+            tile_addr: 0u16,
             palette: 0u8,
             pattern: 0u32,
             has_priority: false,
@@ -1453,6 +1472,7 @@ impl Savable for Sprite {
         self.x.save(fh)?;
         self.y.save(fh)?;
         self.tile_index.save(fh)?;
+        self.tile_addr.save(fh)?;
         self.palette.save(fh)?;
         self.pattern.save(fh)?;
         self.has_priority.save(fh)?;
@@ -1464,6 +1484,7 @@ impl Savable for Sprite {
         self.x.load(fh)?;
         self.y.load(fh)?;
         self.tile_index.load(fh)?;
+        self.tile_addr.load(fh)?;
         self.palette.load(fh)?;
         self.pattern.load(fh)?;
         self.has_priority.load(fh)?;

@@ -116,6 +116,7 @@ impl Memory for Nrom {
                 Nrom128 => self.prg_rom_banks[0].peek(addr & 0x3FFF),
                 Nrom256 => self.prg_rom_banks[1].peek(addr & 0x7FFF),
             },
+            0x4020..=0x7FFF => 0, // Nothing at this range
             _ => {
                 eprintln!("invalid Nrom read at address: 0x{:04X}", addr);
                 0
@@ -132,6 +133,7 @@ impl Memory for Nrom {
                 }
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
+            0x4020..=0x7FFF => (), // Nothing at this range
             0x8000..=0xFFFF => (), // ROM is write-only
             _ => eprintln!(
                 "invalid Nrom write at address: 0x{:04X} - val: 0x{:02X}",
