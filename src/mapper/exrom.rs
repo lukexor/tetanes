@@ -4,8 +4,7 @@
 //! [https://wiki.nesdev.com/w/index.php/MMC5]()
 
 use crate::cartridge::Cartridge;
-use crate::console::debugger::Debugger;
-use crate::console::ppu::{Ppu, PRERENDER_SCANLINE};
+use crate::console::ppu::Ppu;
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
@@ -24,11 +23,12 @@ const PRG_RAM_SIZE: usize = 64 * 1024;
 pub struct Exrom {
     regs: ExRegs,
     irq_pending: bool,
+    logging: bool,
     mirroring: Mirroring,
     battery_backed: bool,
     prg_banks: [usize; 5],
-    chr_banks_a: [usize; 8],
-    chr_banks_b: [usize; 4],
+    chr_banks_spr: [usize; 8],
+    chr_banks_bg: [usize; 4],
     prg_ram: Ram,
     prg_rom: Rom,
     chr: Ram,
@@ -36,8 +36,8 @@ pub struct Exrom {
 
 #[derive(Debug, PartialEq, Eq)]
 enum ChrBank {
-    A,
-    B,
+    Spr,
+    Bg,
 }
 
 #[derive(Debug)]
@@ -76,8 +76,8 @@ pub struct ExRegs {
     chr_hi_bit: usize,
     last_chr_write: ChrBank,
     sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
-    sp_fetch_count: u16,
-    prev_vram_addr: [u16; 2],
+    scanline: u16,
+    sp_fetch_count: u32,
     rendering_enabled: bool, // $2001 PPUMASK: false = rendering disabled, true = enabled
     prg_ram_protect1: u8,    // $5102: Write $02 to enable PRG RAM writing
     prg_ram_protect2: u8,    // $5103: Write $01 to enable PRG RAM writing
@@ -95,7 +95,9 @@ pub struct ExRegs {
     vertical_split_bank: u8,   // $5202
     scanline_num_irq: u8,      // $5203: Write $00 to disable IRQs
     irq_enabled: bool,         // $5204
-    irq_counter: u8,
+    irq_counter: u16,
+    ppu_reading: bool,
+    idle_count: u8,
     in_frame: bool,
     multiplicand: u8, // $5205: write
     multiplier: u8,   // $5206: write
@@ -107,15 +109,16 @@ impl Exrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let prg_ram = Ram::init(PRG_RAM_SIZE);
         let num_rom_banks = cart.prg_rom.len() / (8 * 1024); // Default PRG ROM Bank size
+
         let mut exrom = Self {
             regs: ExRegs {
                 prg_mode: 0xFF,
                 chr_mode: 0xFF,
                 chr_hi_bit: 0usize,
-                last_chr_write: ChrBank::A,
+                last_chr_write: ChrBank::Spr,
                 sprite8x16: false,
-                sp_fetch_count: 0u16,
-                prev_vram_addr: [0u16; 2],
+                scanline: 0u16,
+                sp_fetch_count: 0u32,
                 rendering_enabled: true,
                 prg_ram_protect1: 0xFF,
                 prg_ram_protect2: 0xFF,
@@ -128,7 +131,9 @@ impl Exrom {
                 vertical_split_bank: 0xFF,
                 scanline_num_irq: 0xFF,
                 irq_enabled: false,
-                irq_counter: 0u8,
+                irq_counter: 0u16,
+                ppu_reading: false,
+                idle_count: 0u8,
                 in_frame: false,
                 multiplicand: 0xFF,
                 multiplier: 0xFF,
@@ -136,42 +141,18 @@ impl Exrom {
                 open_bus: 0u8,
             },
             irq_pending: false,
+            logging: false,
             mirroring: cart.mirroring(),
             battery_backed: cart.battery_backed(),
             prg_banks: [0; 5],
-            chr_banks_a: [0; 8],
-            chr_banks_b: [0; 4],
+            chr_banks_spr: [0; 8],
+            chr_banks_bg: [0; 4],
             prg_ram,
             prg_rom: cart.prg_rom,
             chr: cart.chr_rom.to_ram(),
         };
         exrom.prg_banks[3] = 0x80 | num_rom_banks - 2;
         exrom.prg_banks[4] = 0x80 | num_rom_banks - 1;
-        for bank in 0..128 {
-            let idx = bank * 1024;
-            eprintln!("bank: {}", bank);
-            Debugger::hexdump(&exrom.chr[idx..idx + 100]);
-        }
-        // eprintln!("Banks:");
-        // for bank in exrom.prg_banks.iter() {
-        //     let bank_size = match exrom.regs.prg_mode {
-        //         0 => 32 * 1024,
-        //         1 => 16 * 1024,
-        //         2 => match bank {
-        //             1 => 16 * 1024,
-        //             _ => 8 * 1024,
-        //         },
-        //         3 | 0xFF => 8 * 1024,
-        //         _ => panic!("invalid prg_mode"),
-        //     };
-        //     let idx = (bank & 0x7F) * bank_size;
-        //     eprintln!("bank: {}", bank & 0x7F);
-        //     if bank & 0x80 == 0x80 {
-        //         Debugger::hexdump(&exrom.prg_rom[idx..idx + 100]);
-        //     } else {
-        //         Debugger::hexdump(&exrom.prg_ram[idx..idx + 100]);
-        //     }
-        // }
         Rc::new(RefCell::new(exrom))
     }
 
@@ -230,58 +211,72 @@ impl Exrom {
             0x44 => Mirroring::Vertical,
             0x00 => Mirroring::SingleScreen0,
             0x55 => Mirroring::SingleScreen1,
+            0xAA => Mirroring::SingleScreenEx,
             0xE4 => Mirroring::FourScreen,
-            // _ => Mirroring::Horizontal,
-            0xFF => {
-                eprintln!("Fill mode not supported yet");
-                Mirroring::Horizontal
+            0xFF => Mirroring::SingleScreenFill,
+            0x14 => Mirroring::Diagonal,
+            _ => {
+                eprint!("impossible mirroring mode: ${:02X}", val);
+                self.mirroring
             }
-            _ => panic!("impossible mirroring mode"),
+        };
+        if self.logging {
+            println!("{:?}", self.mirroring);
+        }
+    }
+
+    fn clock_irq(&mut self) {
+        // not in-frame
+        if !self.regs.in_frame {
+            self.regs.in_frame = true;
+            self.regs.irq_counter = 0;
+            self.irq_pending = false;
+        } else {
+            self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
+            if self.regs.irq_counter == u16::from(self.regs.scanline_num_irq) {
+                if self.logging {
+                    println!("irq {}", self.regs.scanline_num_irq);
+                }
+                self.irq_pending = true;
+                self.regs.irq_counter = 0;
+            }
         }
     }
 }
 
 impl Mapper for Exrom {
     fn irq_pending(&mut self) -> bool {
-        self.irq_pending
+        if self.regs.irq_enabled {
+            let irq = self.irq_pending;
+            self.irq_pending = false;
+            irq
+        } else {
+            false
+        }
     }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
     fn vram_change(&mut self, _ppu: &Ppu, addr: u16) {
-        let vram_addr = addr;
-        self.regs.sp_fetch_count = self.regs.sp_fetch_count.wrapping_add(1);
-
-        if vram_addr == self.regs.prev_vram_addr[0] && vram_addr == self.regs.prev_vram_addr[1] {
-            // not in-frame
-            if !self.regs.in_frame {
-                self.regs.in_frame = true;
-                self.irq_pending = false;
-                self.regs.irq_counter = 0;
-            } else {
-                self.regs.in_frame = true;
-                self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
-                if self.regs.scanline_num_irq > 0
-                    && self.regs.irq_counter == self.regs.scanline_num_irq
-                    && self.regs.irq_enabled
-                {
-                    self.irq_pending = false;
-                }
-            }
-            self.regs.sp_fetch_count = 0;
+        if addr <= 0x1FFF {
+            self.regs.sp_fetch_count += 1;
         }
-
-        self.regs.prev_vram_addr[1] = self.regs.prev_vram_addr[0];
-        self.regs.prev_vram_addr[0] = vram_addr;
     }
     fn clock(&mut self, ppu: &Ppu) {
-        // 5th bit of PPUCTRL
-        self.regs.sprite8x16 = ppu.regs.ctrl.0 & 0x20 == 0x20;
-        // 4th & 5th bits of PPUMASK
-        self.regs.rendering_enabled = ppu.regs.mask.0 & 0x18 > 0;
-        if ppu.scanline >= PRERENDER_SCANLINE - 1 && ppu.scanline < PRERENDER_SCANLINE {
+        if ppu.scanline == 0 {
+            self.irq_pending = false;
+        } else if ppu.vblank_started() || ppu.scanline > 260 || !ppu.rendering_enabled() {
             self.regs.in_frame = false;
+            self.irq_pending = false;
+            self.regs.irq_counter = 0;
+        } else if self.regs.scanline != ppu.scanline {
+            self.clock_irq();
+            self.regs.sp_fetch_count = 0;
+            self.regs.scanline = ppu.scanline;
         }
+
+        self.regs.sprite8x16 = ppu.regs.ctrl.sprite_height() == 16;
+        self.regs.rendering_enabled = ppu.rendering_enabled();
     }
     fn battery_backed(&self) -> bool {
         false
@@ -301,18 +296,25 @@ impl Mapper for Exrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
+    fn set_logging(&mut self, logging: bool) {
+        self.logging = logging;
+    }
 }
 
 impl Memory for Exrom {
     fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
+        let val = self.peek(addr);
+        if addr == 0x5204 {
+            self.irq_pending = false;
+        }
+        val
     }
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => {
                 let mut bank_size = 1;
-                let mut bank_idx_a = (addr >> 10) as usize;
+                let mut bank_idx_a = ((addr >> 10) & 0x0F) as usize;
                 let mut bank_idx_b = ((addr >> 10) & 3) as usize;
                 match self.regs.chr_mode {
                     0 => {
@@ -346,15 +348,15 @@ impl Memory for Exrom {
                 }
                 bank_size *= 1024;
                 let bank = if self.regs.sprite8x16 {
-                    if self.regs.sp_fetch_count > 128 && self.regs.sp_fetch_count < 160 {
-                        self.chr_banks_a[bank_idx_a]
+                    if self.regs.sp_fetch_count >= 32 && self.regs.sp_fetch_count < 40 {
+                        self.chr_banks_spr[bank_idx_a]
                     } else {
-                        self.chr_banks_b[bank_idx_b]
+                        self.chr_banks_bg[bank_idx_b]
                     }
-                } else if self.regs.last_chr_write == ChrBank::A {
-                    self.chr_banks_a[bank_idx_a]
+                } else if self.regs.last_chr_write == ChrBank::Spr {
+                    self.chr_banks_spr[bank_idx_a]
                 } else {
-                    self.chr_banks_b[bank_idx_b]
+                    self.chr_banks_bg[bank_idx_b]
                 };
                 let offset = addr as usize % bank_size;
                 self.chr[bank * bank_size + offset]
@@ -434,30 +436,23 @@ impl Memory for Exrom {
             0x5107 => self.regs.fill_attr = val & 0x03,
             0x5113..=0x5117 => self.write_prg_bankswitching(addr, val),
             0x5120..=0x5127 => {
-                self.regs.last_chr_write = ChrBank::A;
-                self.chr_banks_a[(addr & 0x07) as usize] = val as usize | self.regs.chr_hi_bit;
-                // if val > 1 && val != 127 {
-                //     eprintln!("bank val: {}", val as usize | self.regs.chr_hi_bit);
-                //     for (i, bank) in self.chr_banks_a.iter().enumerate() {
-                //         if *bank > 0 && *bank != 127 {
-                //             let idx = bank * 1024;
-                //             eprintln!("bank: {}, idx: {}, size: {}", bank, idx, 1024);
-                //             Debugger::hexdump(&self.chr[idx..idx + 100]);
-                //         }
-                //     }
-                //     eprint!("> ");
-                //     let mut input = String::new();
-                //     std::io::stdin().read_line(&mut input);
-                // }
+                self.regs.last_chr_write = ChrBank::Spr;
+                self.chr_banks_spr[(addr & 0x07) as usize] = val as usize | self.regs.chr_hi_bit;
+                if self.logging {
+                    println!("SSPR: ${:04X} > ${:02X} ", addr & 0x07, val);
+                }
             }
             0x5128..=0x512B => {
-                self.regs.last_chr_write = ChrBank::B;
-                self.chr_banks_b[(addr & 0x03) as usize] = val as usize | self.regs.chr_hi_bit;
+                self.regs.last_chr_write = ChrBank::Bg;
+                if self.logging {
+                    println!("SBG: ${:04X} > ${:02X} ", addr & 0x03, val);
+                }
+                self.chr_banks_bg[(addr & 0x03) as usize] = val as usize | self.regs.chr_hi_bit;
             }
             0x5130 => self.regs.chr_hi_bit = (val as usize & 0x3) << 8,
             0x5200 => self.regs.vertical_split_mode = val,
-            0x5201 => self.regs.vertical_split_scroll = val,
-            0x5202 => self.regs.vertical_split_bank = val,
+            0x5201 => self.regs.vertical_split_scroll = (val >> 3) & 0x1F,
+            0x5202 => self.regs.vertical_split_bank = val & 0x3F,
             0x5203 => self.regs.scanline_num_irq = val,
             0x5204 => self.regs.irq_enabled = val & 0x80 == 0x80,
             0x5205 => self.regs.multiplicand = val,

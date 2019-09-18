@@ -285,6 +285,10 @@ impl Ppu {
                     let sprite = self.frame.sprites[sprite_idx];
                     if self.cycle % 8 == 5 {
                         let _ = self.vram.read(sprite.tile_addr);
+                        self.vram
+                            .mapper
+                            .borrow_mut()
+                            .vram_change(&self, sprite.tile_addr);
                     } else if self.cycle % 8 == 7 {
                         let _ = self.vram.read(sprite.tile_addr + 8);
                     };
@@ -317,6 +321,7 @@ impl Ppu {
                 let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
                 let addr = NT_START | (self.regs.v & nametable_addr_mask);
                 self.frame.nametable = u16::from(self.vram.read(addr));
+                self.vram.mapper.borrow_mut().vram_change(&self, addr);
             }
             3 => {
                 // Fetch BG attribute table
@@ -332,6 +337,7 @@ impl Ppu {
                 let x_bits = (v >> 2) & 0x07;
                 let addr = ATTRIBUTE_START | nametable_select | y_bits | x_bits;
                 self.frame.attribute = self.vram.read(addr);
+                self.vram.mapper.borrow_mut().vram_change(&self, addr);
                 // If the top bit of the low 3 bits is set, shift to next quadrant
                 if self.regs.coarse_y() & 2 > 0 {
                     self.frame.attribute >>= 4;
@@ -347,6 +353,7 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_lo = self.vram.read(tile_addr);
+                self.vram.mapper.borrow_mut().vram_change(&self, tile_addr);
             }
             7 => {
                 // Fetch BG tile hi bitmap
@@ -664,7 +671,7 @@ impl Ppu {
         self.regs.status.stop_vblank();
         self.regs.nmi_change();
     }
-    fn vblank_started(&mut self) -> bool {
+    pub fn vblank_started(&self) -> bool {
         self.regs.status.vblank_started()
     }
 
@@ -1275,11 +1282,14 @@ impl Vram {
 
         let table_size = 1024;
         let mirror_lookup = match mirroring {
-            Mirroring::Horizontal => [0, 0, 1, 1],
-            Mirroring::Vertical => [0, 1, 0, 1],
+            Mirroring::Horizontal => [1, 1, 0, 0],
+            Mirroring::Vertical => [1, 0, 1, 0],
             Mirroring::SingleScreen0 => [0, 0, 0, 0],
             Mirroring::SingleScreen1 => [1, 1, 1, 1],
+            Mirroring::SingleScreenEx => [0, 0, 0, 0],
+            Mirroring::SingleScreenFill => [0, 0, 0, 0],
             Mirroring::FourScreen => [1, 2, 3, 4],
+            Mirroring::Diagonal => [1, 0, 0, 1],
         };
 
         // 4K worth of nametable addr space
@@ -1539,7 +1549,7 @@ impl PpuCtrl {
             0x0000
         }
     }
-    fn sprite_height(&self) -> u16 {
+    pub fn sprite_height(&self) -> u16 {
         if self.0 & 0x20 > 0 {
             16
         } else {
@@ -1624,14 +1634,14 @@ impl PpuStatus {
         self.0 = if val { self.0 | 0x20 } else { self.0 & !0x20 };
     }
 
-    fn sprite_zero_hit(&mut self) -> bool {
+    fn sprite_zero_hit(&self) -> bool {
         self.0 & 0x40 == 0x40
     }
     fn set_sprite_zero_hit(&mut self, val: bool) {
         self.0 = if val { self.0 | 0x40 } else { self.0 & !0x40 };
     }
 
-    fn vblank_started(&mut self) -> bool {
+    fn vblank_started(&self) -> bool {
         self.0 & 0x80 > 0
     }
     fn start_vblank(&mut self) {

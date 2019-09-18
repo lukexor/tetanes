@@ -46,6 +46,7 @@ pub trait Mapper: Memory + Savable + fmt::Debug {
     fn chr(&self) -> Option<&Banks<Ram>>;
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
+    fn set_logging(&mut self, logging: bool);
 }
 
 pub fn null() -> MapperRef {
@@ -80,6 +81,9 @@ pub enum Mirroring {
     Vertical,
     SingleScreen0,
     SingleScreen1,
+    SingleScreenEx,
+    SingleScreenFill,
+    Diagonal,
     FourScreen, // Only ~3 games use 4-screen - maybe implement some day
 }
 
@@ -138,6 +142,7 @@ impl Mapper for NullMapper {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for NullMapper {

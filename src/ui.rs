@@ -115,6 +115,7 @@ impl UiBuilder {
         Ok(Ui {
             path: self.path.clone(),
             roms: Vec::new(),
+            running: false,
             ppu_debug: self.ppu_debug,
             paused: false,
             fullscreen: self.fullscreen,
@@ -142,6 +143,7 @@ impl UiBuilder {
 pub struct Ui {
     path: PathBuf,
     roms: Vec<PathBuf>,
+    running: bool,
     ppu_debug: bool,
     paused: bool,
     fullscreen: bool,
@@ -178,6 +180,7 @@ impl Ui {
             if self.ppu_debug {
                 self.window.set_debug_size()?;
             }
+            self.running = true;
         }
 
         // Smooths out startup graphic glitches for some games
@@ -207,23 +210,25 @@ impl Ui {
                     self.speed_counter -= 100;
                     frames_to_run += 1;
                 }
-                for _ in 0..frames_to_run {
-                    // Calc FPS
-                    let now = Instant::now();
-                    let a_sec_ago = now - one_sec;
-                    while self.past_fps.front().map_or(false, |t| *t < a_sec_ago) {
-                        self.past_fps.pop_front();
-                    }
-                    self.past_fps.push_back(now);
-                    self.avg_fps = self.past_fps.len();
+                if self.running {
+                    for _ in 0..frames_to_run {
+                        // Calc FPS
+                        let now = Instant::now();
+                        let a_sec_ago = now - one_sec;
+                        while self.past_fps.front().map_or(false, |t| *t < a_sec_ago) {
+                            self.past_fps.pop_front();
+                        }
+                        self.past_fps.push_back(now);
+                        self.avg_fps = self.past_fps.len();
 
-                    if now > next_fps_update {
-                        next_fps_update = now + fps_interval;
-                        self.update_title()?;
-                    }
+                        if now > next_fps_update {
+                            next_fps_update = now + fps_interval;
+                            self.update_title()?;
+                        }
 
-                    self.console.clock_frame();
-                    self.turbo_clock = (1 + self.turbo_clock) % 6;
+                        self.console.clock_frame();
+                        self.turbo_clock = (1 + self.turbo_clock) % 6;
+                    }
                 }
 
                 let game_view = self.console.frame();
@@ -286,6 +291,11 @@ impl Ui {
                 } => {
                     if !repeat {
                         self.handle_keydown(key, turbo)?;
+                    } else {
+                        match key {
+                            Keycode::F => self.console.clock_frame(),
+                            _ => (),
+                        }
                     }
                 }
                 Event::KeyUp {
@@ -345,8 +355,16 @@ impl Ui {
             Keycode::LCtrl => self.lctrl = true,
             Keycode::O if self.lctrl => eprintln!("Open not implemented"), // TODO
             Keycode::Q if self.lctrl => self.should_close = true,
-            Keycode::R if self.lctrl => self.console.reset(),
-            Keycode::P if self.lctrl => self.console.power_cycle(),
+            Keycode::R if self.lctrl => {
+                self.running = true;
+                self.console.log_cpu(false);
+                self.console.reset();
+            }
+            Keycode::P if self.lctrl => {
+                self.running = true;
+                self.console.log_cpu(false);
+                self.console.power_cycle();
+            }
             Keycode::Minus if self.lctrl => self.change_speed(-25.0)?,
             Keycode::Equals if self.lctrl => self.change_speed(25.0)?,
             Keycode::Space => self.set_fastforward(true)?,
@@ -371,8 +389,13 @@ impl Ui {
             Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,
             Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
             Keycode::D if self.lctrl => {
-                // TODO
+                self.console.log_cpu(self.running);
+                self.running = !self.running;
             }
+            Keycode::C => {
+                let _ = self.console.clock();
+            }
+            Keycode::F => self.console.clock_frame(),
             Keycode::Return if self.lctrl => {
                 self.fullscreen = !self.fullscreen;
                 self.window.toggle_fullscreen()?;

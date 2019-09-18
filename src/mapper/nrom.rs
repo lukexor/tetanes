@@ -101,6 +101,7 @@ impl Mapper for Nrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for Nrom {
