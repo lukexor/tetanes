@@ -120,7 +120,7 @@ impl Txrom {
             mmc3_alt_behavior: false,
             battery_backed: cart.battery_backed(),
             prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
-            chr_bank_idx: [0usize; 8],
+            chr_bank_idx: [0, 1, 2, 3, 4, 5, 6, 7],
             four_screen_ram,
             prg_ram,
             prg_rom_banks,
@@ -176,7 +176,13 @@ impl Txrom {
                 // TODO RAM protect? Might conflict with MMC6
             }
             // IRQ
-            0xC000 => self.regs.irq_latch = val,
+            0xC000 => {
+                if val > 0 {
+                    self.regs.irq_latch = val;
+                } else {
+                    self.regs.irq_enabled = false;
+                }
+            }
             0xC001 => {
                 if !self.mmc3_alt_behavior {
                     self.regs.irq_reset = true;
@@ -229,6 +235,23 @@ impl Txrom {
             self.chr_bank_idx[7] = (self.regs.bank_values[5] as usize) % chr_len;
         }
     }
+
+    fn clock_irq(&mut self, addr: u16) {
+        let next = (addr >> 12) & 1;
+        if self.regs.last_clock == 0 && next == 1 {
+            // Rising edge
+            if self.regs.irq_counter == 0 {
+                self.regs.irq_counter = self.regs.irq_latch;
+            } else {
+                self.regs.irq_counter -= 1;
+            }
+
+            if self.regs.irq_counter == 0 && self.regs.irq_enabled {
+                self.irq_pending = true;
+            }
+        }
+        self.regs.last_clock = next;
+    }
 }
 
 impl Mapper for Txrom {
@@ -240,9 +263,11 @@ impl Mapper for Txrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
+    fn vram_change(&mut self, _ppu: &Ppu, addr: u16) {
+        self.clock_irq(addr);
+    }
     fn clock(&mut self, _ppu: &Ppu) {
-        // IRQ clocking is handled in read()
+        // IRQ clocking is handled in read and vram_change
     }
     fn battery_backed(&self) -> bool {
         self.battery_backed
@@ -273,20 +298,7 @@ impl Mapper for Txrom {
 impl Memory for Txrom {
     fn read(&mut self, addr: u16) -> u8 {
         if addr <= 0x1FFF {
-            let next = (addr >> 12) & 1;
-            if self.regs.last_clock == 0 && next == 1 {
-                // Rising edge
-                if self.regs.irq_counter == 0 {
-                    self.regs.irq_counter = self.regs.irq_latch;
-                } else {
-                    self.regs.irq_counter -= 1;
-                }
-
-                if self.regs.irq_counter == 0 && self.regs.irq_enabled {
-                    self.irq_pending = true;
-                }
-            }
-            self.regs.last_clock = next;
+            self.clock_irq(addr);
         }
 
         let val = self.peek(addr);

@@ -8,7 +8,6 @@ use crate::serialization::Savable;
 use crate::Result;
 use std::fmt;
 use std::io::{Read, Write};
-// use std::time::{Duration, Instant};
 
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
@@ -286,16 +285,8 @@ impl Ppu {
                     let sprite = self.frame.sprites[sprite_idx];
                     if self.cycle % 8 == 5 {
                         let _ = self.vram.read(sprite.tile_addr);
-                        self.vram
-                            .mapper
-                            .borrow_mut()
-                            .vram_change(&self, sprite.tile_addr);
                     } else if self.cycle % 8 == 7 {
                         let _ = self.vram.read(sprite.tile_addr + 8);
-                        self.vram
-                            .mapper
-                            .borrow_mut()
-                            .vram_change(&self, sprite.tile_addr + 8);
                     };
                 }
             }
@@ -326,7 +317,6 @@ impl Ppu {
                 let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
                 let addr = NT_START | (self.regs.v & nametable_addr_mask);
                 self.frame.nametable = u16::from(self.vram.read(addr));
-                self.vram.mapper.borrow_mut().vram_change(&self, addr);
             }
             3 => {
                 // Fetch BG attribute table
@@ -350,7 +340,6 @@ impl Ppu {
                     self.frame.attribute >>= 2;
                 }
                 self.frame.attribute = (self.frame.attribute & 3) << 2;
-                self.vram.mapper.borrow_mut().vram_change(&self, addr);
             }
             5 => {
                 // Fetch BG tile lo bitmap
@@ -358,7 +347,6 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_lo = self.vram.read(tile_addr);
-                self.vram.mapper.borrow_mut().vram_change(&self, tile_addr);
             }
             7 => {
                 // Fetch BG tile hi bitmap
@@ -366,7 +354,6 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_hi = self.vram.read(tile_addr + 8);
-                self.vram.mapper.borrow_mut().vram_change(&self, tile_addr);
             }
             _ => (),
         }
@@ -390,8 +377,9 @@ impl Ppu {
         let sprite_height = self.regs.ctrl.sprite_height();
         for i in 0..OAM_SIZE / 4 {
             let sprite_y = u16::from(self.oamdata.read((i * 4) as u16));
-            let sprite_on_line =
-                sprite_y <= self.scanline && self.scanline < sprite_y + sprite_height;
+            let sprite_on_line = sprite_y <= self.scanline
+                && self.scanline < sprite_y + sprite_height
+                && self.scanline < 255;
             if !sprite_on_line {
                 continue;
             }
@@ -402,10 +390,10 @@ impl Ppu {
                 self.frame.sprites[self.frame.sprite_count as usize] = self.get_sprite(i * 4);
             }
             self.frame.sprite_count += 1;
-        }
-        if self.frame.sprite_count > 8 {
-            self.frame.sprite_count = 8;
-            self.set_sprite_overflow(true);
+            if self.frame.sprite_count > 8 {
+                self.frame.sprite_count = 8;
+                self.set_sprite_overflow(true);
+            }
         }
     }
 
@@ -434,10 +422,13 @@ impl Ppu {
         } else {
             if self.is_sprite_zero(i)
                 && self.frame.sprite_zero_on_line
+                && self.rendering_enabled()
                 && !self.sprite_zero_hit()
-                && self.frame.sprites[i].x != 255
+                && self.frame.sprites[i].x < 255
                 && x < 255
+                && self.frame.sprites[i].y < 255
                 && bg_opaque
+                && sprite_opaque
             {
                 self.set_sprite_zero_hit(true);
             }
@@ -501,15 +492,16 @@ impl Ppu {
     }
 
     fn tick(&mut self) {
-        // if Instant::now() - self.regs.open_bus_updated >= Duration::from_millis(800) {
-        //     self.regs.open_bus = 0x0;
-        //     self.regs.open_bus_updated = Instant::now();
-        // }
         if self.nmi_delay_enabled && self.regs.nmi_delay > 0 {
             self.regs.nmi_delay -= 1;
             if self.regs.nmi_delay == 0 && self.nmi_enabled() && self.vblank_started() {
                 self.nmi_pending = true;
             }
+        }
+
+        // Clear open bus roughly once every frame
+        if self.scanline == 0 {
+            self.regs.open_bus = 0x0;
         }
 
         if self.rendering_enabled() {
@@ -715,11 +707,14 @@ impl Ppu {
         self.regs.read_addr()
     }
     fn write_ppuaddr(&mut self, val: u8) {
+        let w = self.regs.w;
         self.regs.write_addr(val);
-        self.vram
-            .mapper
-            .borrow_mut()
-            .vram_change(&self, self.regs.v);
+        if w {
+            self.vram
+                .mapper
+                .borrow_mut()
+                .vram_change(&self, self.regs.v);
+        }
     }
 
     /*
@@ -798,7 +793,6 @@ impl Memory for Ppu {
             0x2004 => {
                 let val = self.read_oamdata(); // OAMDATA
                 self.regs.open_bus = val;
-                // self.regs.open_bus_updated = Instant::now();
                 val
             }
             0x2005 => self.regs.open_bus, // PPUSCROLL is write-only
@@ -806,7 +800,6 @@ impl Memory for Ppu {
             0x2007 => {
                 let val = self.read_ppudata(); // PPUDATA
                 self.regs.open_bus = val;
-                // self.regs.open_bus_updated = Instant::now();
                 val
             }
             _ => {
@@ -834,10 +827,6 @@ impl Memory for Ppu {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        // Only refresh decay on write addresses
-        // if addr != 0x2002 {
-        //     self.regs.open_bus_updated = Instant::now();
-        // }
         self.regs.open_bus = val;
         match addr {
             0x2000 => self.write_ppuctrl(val),   // PPUCTRL
@@ -950,8 +939,7 @@ impl Savable for Palette {
 
 #[derive(Debug)]
 pub struct PpuRegs {
-    open_bus: u8, // This open bus gets set during any write to PPU registers
-    // open_bus_updated: Instant, // Last updated value used to emualte open_bus decay
+    open_bus: u8,       // This open bus gets set during any write to PPU registers
     pub ctrl: PpuCtrl,  // $2000 PPUCTRL write-only
     pub mask: PpuMask,  // $2001 PPUMASK write-only
     status: PpuStatus,  // $2002 PPUSTATUS read-only
@@ -968,7 +956,6 @@ impl PpuRegs {
     fn new() -> Self {
         Self {
             open_bus: 0u8,
-            // open_bus_updated: Instant::now(),
             ctrl: PpuCtrl(0u8),
             mask: PpuMask(0u8),
             status: PpuStatus(0x20),
@@ -1305,7 +1292,10 @@ impl Vram {
 }
 
 impl Memory for Vram {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, mut addr: u16) -> u8 {
+        if addr > 0x3FFF {
+            addr %= 0x3FFF;
+        }
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow_mut().read(addr),
             0x2000..=0x3EFF => {
@@ -1320,7 +1310,10 @@ impl Memory for Vram {
         }
     }
 
-    fn peek(&self, addr: u16) -> u8 {
+    fn peek(&self, mut addr: u16) -> u8 {
+        if addr > 0x3FFF {
+            addr %= 0x3FFF;
+        }
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow().peek(addr),
             0x2000..=0x3EFF => {
@@ -1335,7 +1328,10 @@ impl Memory for Vram {
         }
     }
 
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, mut addr: u16, val: u8) {
+        if addr > 0x3FFF {
+            addr %= 0x3FFF;
+        }
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
             0x2000..=0x3EFF => {

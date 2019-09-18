@@ -1495,11 +1495,12 @@ where
 
     /// XXX: Captures all unimplemented opcodes
     fn xxx(&mut self) -> u8 {
-        panic!(
+        eprintln!(
             "Invalid opcode ${:02X} {{{:?}}} encountered!",
             self.instr.opcode(),
             self.instr.addr_mode()
         );
+        return 0;
     }
     /// ISC/ISB: Shortcut for INC then SBC
     fn isb(&mut self) -> u8 {

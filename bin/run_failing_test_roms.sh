@@ -11,8 +11,6 @@ tests/cpu/instr_misc.nes # ROL abs 03-dummy_reads #9 3/4
 
 # Passes but maybe somethings wrong?
 tests/cpu/instr_timing.nes # passes but calls ahx(), xaa(), shy(), shx()
-tests/cpu/ram_after_reset.nes # Message doesn't disappear
-tests/cpu/registers_after_reset.nes # Message doesn't disappear (should it?)
 
 ## APU ============================================================================================
 tests/apu/03.irq_flag.nes # $04

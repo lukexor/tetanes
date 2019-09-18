@@ -93,7 +93,7 @@ impl Memory for Axrom {
             0x4020..=0x5FFF => self.open_bus, // Nothing at this range
             _ => {
                 eprintln!("unhandled Axrom read at address: 0x{:04X}", addr);
-                0
+                self.open_bus
             }
         }
     }
