@@ -29,12 +29,6 @@ tests/apu/test_8.nes # failed
 tests/apu/test_9.nes # failed
 tests/apu/test_10.nes # failed
 
-# Runs fine but could be tweaked
-tests/apu/noise_pitch.nes # Compare to other emus
-tests/apu/sweep_sub.nes # Supposed to be a constant beat (test in other emus)
-tests/apu/triangle.nes # Not silent during step #2 (test in other emus)
-tests/apu/triangle_pitch.nes
-
 ## PPU ============================================================================================
 tests/ppu/sprdma_and_dmc_dma.nes # Supposed to print a table
 tests/ppu/sprdma_and_dmc_dma_512.nes # Supposed to print a table
@@ -53,16 +47,15 @@ tests/ppu/ntsc_torture.nes # No NTSC raster effects
 tests/ppu/palette.nes # Doesn't support emphasis or grayscale
 tests/ppu/tv.nes # Passes ratio, but not chroma/luma
 
-# May need checking
-tests/ppu/oamtest3.nes # Lots of dots, not sure what result should be - compare to other emus
-
 ## MAPPERS ========================================================================================
-tests/mapper/mmc3/1-clocking.nes # Garbled text (3 beeps)
-tests/mapper/mmc3/2-details.nes # Garbled text (3 beeps)
-tests/mapper/mmc3/3-A12_clocking.nes # Garbled text (4 beeps)
-tests/mapper/mmc3/4-scanline_timing.nes # Garbled text (3 beeps)
-tests/mapper/mmc3/5-MMC3.nes # Garbled text (3 beeps)
-tests/mapper/mmc3/6-MMC3_alt.nes # Garbled text (3 beeps)
+# All of these seem to fail on regular EMUs that work fine - I think the way they check for IRQs
+# comes too late with most emulators
+# tests/mapper/mmc3/1-clocking.nes # Should decrement when A12 is tolgged #3
+# tests/mapper/mmc3/2-details.nes # Counter isn't working with 255 #2
+# tests/mapper/mmc3/3-A12_clocking.nes # Should be clocked when A12 0->1 #4
+# tests/mapper/mmc3/4-scanline_timing.nes # Scanline 0 IRQ should occur sooner #3
+# tests/mapper/mmc3/5-MMC3.nes # Should reload and set IRQ every clock #2
+# tests/mapper/mmc3/6-MMC3_alt.nes # Shouldnt IRQ when reload is 0 #2
 )
 
 trap ctrl_c INT

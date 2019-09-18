@@ -57,7 +57,6 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
     let cart = Cartridge::from_rom(rom)?;
     match cart.header.mapper_num {
         0 => Ok(Nrom::load(cart)),
-
         1 => Ok(Sxrom::load(cart)),
         2 => Ok(Uxrom::load(cart)),
         3 => Ok(Cnrom::load(cart)),

@@ -45,7 +45,7 @@ pub struct Txrom {
     // Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
     // Crystalis (MMC3B 9024KPO53)
     // Legacy of the Wizard (MMC3A 8940EP)
-    mmc3_alt_behavior: bool,
+    mmc3_alt: u8,
     battery_backed: bool,
     prg_rom_bank_idx: [usize; 4],
     chr_bank_idx: [usize; 8],
@@ -72,7 +72,7 @@ struct TxRegs {
     irq_latch: u8,
     irq_counter: u8,
     irq_enabled: bool,
-    irq_reset: bool,
+    irq_reload: bool,
     last_clock: u16,
     open_bus: u8,
 }
@@ -110,14 +110,14 @@ impl Txrom {
                 irq_latch: 0u8,
                 irq_counter: 0u8,
                 irq_enabled: false,
-                irq_reset: false,
+                irq_reload: false,
                 last_clock: 0u16,
                 open_bus: 0u8,
             },
             has_chr_ram,
             mirroring,
             irq_pending: false,
-            mmc3_alt_behavior: false,
+            mmc3_alt: 1,
             battery_backed: cart.battery_backed(),
             prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
             chr_bank_idx: [0, 1, 2, 3, 4, 5, 6, 7],
@@ -176,19 +176,8 @@ impl Txrom {
                 // TODO RAM protect? Might conflict with MMC6
             }
             // IRQ
-            0xC000 => {
-                if val > 0 {
-                    self.regs.irq_latch = val;
-                } else {
-                    self.regs.irq_enabled = false;
-                }
-            }
-            0xC001 => {
-                if !self.mmc3_alt_behavior {
-                    self.regs.irq_reset = true;
-                }
-                self.regs.irq_counter = 0;
-            }
+            0xC000 => self.regs.irq_latch = val,
+            0xC001 => self.regs.irq_reload = true,
             0xE000 => {
                 self.irq_pending = false;
                 self.regs.irq_enabled = false;
@@ -240,13 +229,16 @@ impl Txrom {
         let next = (addr >> 12) & 1;
         if self.regs.last_clock == 0 && next == 1 {
             // Rising edge
-            if self.regs.irq_counter == 0 {
+            let counter = self.regs.irq_counter;
+            if counter == 0 || self.regs.irq_reload {
                 self.regs.irq_counter = self.regs.irq_latch;
+                self.regs.irq_reload = false;
             } else {
                 self.regs.irq_counter -= 1;
             }
 
-            if self.regs.irq_counter == 0 && self.regs.irq_enabled {
+            if self.regs.irq_counter == 0 && (counter | self.mmc3_alt) > 0 && self.regs.irq_enabled
+            {
                 self.irq_pending = true;
             }
         }
@@ -366,7 +358,7 @@ impl Memory for Txrom {
             irq_latch: 0u8,
             irq_counter: 0u8,
             irq_enabled: false,
-            irq_reset: false,
+            irq_reload: false,
             last_clock: 0u16,
             open_bus: 0u8,
         };
