@@ -90,7 +90,7 @@ impl Memory for Axrom {
             0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
             0x6000..=0x7FFF => self.open_bus,
             0x8000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank].peek(addr - 0x8000),
-            0x4020..=0x5FFF => 0, // Nothing at this range
+            0x4020..=0x5FFF => self.open_bus, // Nothing at this range
             _ => {
                 eprintln!("unhandled Axrom read at address: 0x{:04X}", addr);
                 0
