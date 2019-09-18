@@ -280,13 +280,13 @@ impl Ppu {
 
             // evaluate sprites
             if self.cycle == SPRITE_PREFETCH_CYCLE_START {
-                if visible_scanline {
+                if render_scanline {
                     self.evaluate_sprites();
                 } else {
                     self.frame.sprite_count = 0;
                 }
             }
-            if visible_scanline && self.cycle >= 257 && self.cycle <= 320 {
+            if render_scanline && self.cycle >= 257 && self.cycle <= 320 {
                 let sprite_idx = (self.cycle as usize - 257) / 8;
                 let sprite = self.frame.sprites[sprite_idx];
                 if self.cycle % 8 == 5 {
@@ -378,6 +378,9 @@ impl Ppu {
 
     fn evaluate_sprites(&mut self) {
         self.frame.sprite_count = 0;
+        // for i in 0..8 {
+        //     self.frame.sprites[i] = Sprite::new();
+        // }
         let sprite_height = self.regs.ctrl.sprite_height();
         for i in 0..OAM_SIZE / 4 {
             let sprite_y = u16::from(self.oamdata.read((i * 4) as u16));
@@ -1453,15 +1456,15 @@ impl Sprite {
     fn new() -> Self {
         Self {
             index: 0u8,
-            x: 0u16,
-            y: 0u16,
-            tile_index: 0u16,
-            tile_addr: 0u16,
-            palette: 0u8,
+            x: 0xFF,
+            y: 0xFF,
+            tile_index: 0xFF,
+            tile_addr: 0xFF,
+            palette: 0xFF,
             pattern: 0u32,
-            has_priority: false,
-            flip_horizontal: false,
-            flip_vertical: false,
+            has_priority: true,
+            flip_horizontal: true,
+            flip_vertical: true,
         }
     }
 }
