@@ -286,7 +286,7 @@ impl Ppu {
                     self.frame.sprite_count = 0;
                 }
             }
-            if self.cycle >= 257 && self.cycle <= 320 {
+            if visible_scanline && self.cycle >= 257 && self.cycle <= 320 {
                 let sprite_idx = (self.cycle as usize - 257) / 8;
                 let sprite = self.frame.sprites[sprite_idx];
                 if self.cycle % 8 == 5 {
