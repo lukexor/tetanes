@@ -357,11 +357,13 @@ impl Ui {
             Keycode::Q if self.lctrl => self.should_close = true,
             Keycode::R if self.lctrl => {
                 self.running = true;
+                self.paused = false;
                 self.console.log_cpu(false);
                 self.console.reset();
             }
             Keycode::P if self.lctrl => {
                 self.running = true;
+                self.paused = false;
                 self.console.log_cpu(false);
                 self.console.power_cycle();
             }
