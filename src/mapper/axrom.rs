@@ -8,7 +8,7 @@ use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -41,7 +41,7 @@ impl Axrom {
             has_chr_ram: cart.chr_rom.len() == 0,
             mirroring: cart.mirroring(),
             open_bus: 0u8,
-            prg_rom_bank: 0usize,
+            prg_rom_bank: prg_rom_banks.len() - 1,
             prg_rom_banks,
             chr_banks,
         };
@@ -56,14 +56,15 @@ impl Mapper for Axrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {}
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -75,8 +76,7 @@ impl Mapper for Axrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for Axrom {
@@ -91,9 +91,10 @@ impl Memory for Axrom {
             0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
             0x6000..=0x7FFF => self.open_bus,
             0x8000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank].peek(addr - 0x8000),
+            0x4020..=0x5FFF => self.open_bus, // Nothing at this range
             _ => {
                 eprintln!("unhandled Axrom read at address: 0x{:04X}", addr);
-                0
+                self.open_bus
             }
         }
     }
@@ -107,27 +108,36 @@ impl Memory for Axrom {
                 }
             }
             0x8000..=0xFFFF => {
-                self.prg_rom_bank = (val & 0x07) as usize;
+                let bank = (val & 0x07) as usize;
+                self.prg_rom_bank = if bank >= self.prg_rom_banks.len() {
+                    (val & 0x03) as usize
+                } else {
+                    bank
+                };
                 self.mirroring = if val & 0x10 == 0x10 {
                     Mirroring::SingleScreen1
                 } else {
                     Mirroring::SingleScreen0
                 };
             }
+            0x4020..=0x7FFF => (), // Nothing at this range
             _ => eprintln!("unhandled Axrom write at address: 0x{:04X}", addr),
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Axrom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
         self.prg_rom_bank.save(fh)?;
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.prg_rom_bank.load(fh)?;

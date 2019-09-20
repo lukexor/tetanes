@@ -7,7 +7,7 @@ use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -56,14 +56,15 @@ impl Mapper for Uxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {} // no clocking
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -75,10 +76,7 @@ impl Mapper for Uxrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for Uxrom {
@@ -91,6 +89,7 @@ impl Memory for Uxrom {
             0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x4020..=0x5FFF => 0, // Nothing at this range
             0x6000..=0x7FFF => 0, // No Save RAM
             _ => {
                 eprintln!("unhandled Uxrom read at address: 0x{:04X}", addr);
@@ -103,6 +102,7 @@ impl Memory for Uxrom {
         match addr {
             0x0000..=0x1FFF => self.chr_banks[0].write(addr, val),
             0x8000..=0xFFFF => self.prg_rom_bank_lo = (val as usize) % self.prg_rom_banks.len(),
+            0x4020..=0x5FFF => (), // Nothing at this range
             0x6000..=0x7FFF => (), // No Save RAM
             _ => {
                 eprintln!(
@@ -112,17 +112,20 @@ impl Memory for Uxrom {
             }
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Uxrom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.mirroring.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
         self.prg_rom_bank_hi.save(fh)?;
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.mirroring.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
         self.prg_rom_bank_hi.load(fh)?;

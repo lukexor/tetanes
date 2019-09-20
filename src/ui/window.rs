@@ -1,7 +1,8 @@
 //! Window Management using SDL2
 
 use crate::console::{RENDER_HEIGHT, RENDER_WIDTH, SAMPLE_RATE};
-use crate::util::{self, Result};
+use crate::Result;
+use crate::{to_nes_err, util};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::mouse::MouseUtil;
 use sdl2::pixels::{Color, PixelFormatEnum};
@@ -45,13 +46,13 @@ impl Window {
         fullscreen: bool,
         debug: bool,
     ) -> Result<(Self, EventPump)> {
-        let context = sdl2::init().map_err(util::str_to_err)?;
+        let context = sdl2::init().map_err(to_nes_err)?;
 
         let width = WINDOW_WIDTH * scale;
         let height = WINDOW_HEIGHT * scale;
 
         // Window
-        let video_sub = context.video().map_err(util::str_to_err)?;
+        let video_sub = context.video().map_err(to_nes_err)?;
         let mut window_builder = video_sub.window(title, width, height);
         window_builder.position_centered().resizable();
         let mouse = context.mouse();
@@ -89,7 +90,7 @@ impl Window {
         let pals = Self::palette_tex_maps(texture_creator_ptr, width, height)?;
 
         // Set up Audio
-        let audio_sub = context.audio().map_err(util::str_to_err)?;
+        let audio_sub = context.audio().map_err(to_nes_err)?;
         let desired_spec = AudioSpecDesired {
             freq: Some(SAMPLE_RATE as i32),
             channels: Some(1),
@@ -97,12 +98,12 @@ impl Window {
         };
         let audio_device = audio_sub
             .open_queue(None, &desired_spec)
-            .map_err(util::str_to_err)?;
+            .map_err(to_nes_err)?;
         audio_device.resume();
 
         // Set up Input event pump
-        let event_pump = context.event_pump().map_err(util::str_to_err)?;
-        let controller_sub = context.game_controller().map_err(util::str_to_err)?;
+        let event_pump = context.event_pump().map_err(to_nes_err)?;
+        let controller_sub = context.game_controller().map_err(to_nes_err)?;
 
         let window = Self {
             width,
@@ -132,7 +133,7 @@ impl Window {
         self.canvas.clear();
         self.canvas
             .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
-            .map_err(util::str_to_err)?;
+            .map_err(to_nes_err)?;
         self.canvas.present();
         Ok(())
     }
@@ -172,21 +173,21 @@ impl Window {
         self.canvas.clear();
         self.canvas
             .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
-            .map_err(util::str_to_err)?;
+            .map_err(to_nes_err)?;
         for ntbl in self.ntbls.iter() {
             self.canvas
                 .copy(&ntbl.tex, ntbl.src, ntbl.dst)
-                .map_err(util::str_to_err)?;
+                .map_err(to_nes_err)?;
         }
         for pat in self.pats.iter() {
             self.canvas
                 .copy(&pat.tex, pat.src, pat.dst)
-                .map_err(util::str_to_err)?;
+                .map_err(to_nes_err)?;
         }
         for pal in self.pals.iter() {
             self.canvas
                 .copy(&pal.tex, pal.src, pal.dst)
-                .map_err(util::str_to_err)?;
+                .map_err(to_nes_err)?;
         }
         self.canvas.present();
         Ok(())
@@ -197,7 +198,7 @@ impl Window {
         self.canvas.set_draw_color(Color::RGB(0, 0, 0));
         self.canvas
             .draw_rect(Rect::new(0, 0, self.width, self.height))
-            .map_err(util::str_to_err)?;
+            .map_err(to_nes_err)?;
         self.canvas.present();
         Ok(())
     }
@@ -227,7 +228,7 @@ impl Window {
         self.canvas
             .window_mut()
             .set_fullscreen(mode)
-            .map_err(util::str_to_err)?;
+            .map_err(to_nes_err)?;
         self.canvas.window_mut().set_size(self.width, self.height)?;
         Ok(())
     }

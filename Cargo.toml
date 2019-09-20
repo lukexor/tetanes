@@ -1,21 +1,31 @@
 [package]
 name = "rustynes"
-version = "0.3.0"
-authors = ["Luke Petherbridge <lukexor@gmail.com>"]
+version = "0.4.0"
+license = "GNU"
+description = "NES Emulator written in Rust"
+authors = ["Luke Petherbridge <me@lukeworks.tech>"]
+readme = "README.md"
+documentation = "https://github.com/lukexor/rustynes"
+repository = "https://github.com/lukexor/rustynes.git"
+homepage = "https://github.com/lukexor/rustynes"
 edition = "2018"
 
 [dependencies]
-dirs = "1.0.5"
-failure = "0.1.5"
-image = "0.21.1"
+dirs = "2.0.2"
 sdl2 = "0.32.2"
-sha2 = "0.8.0"
-structopt = "0.2"
-chrono = "0.4.6"
-rand = "0.6.5"
+structopt = "0.3.1"
+chrono = "0.4.9"
+rand = "0.7.1"
+
+[dependencies.image]
+version = "0.22.2"
+default-features = false
+features = ["png_codec"]
 
 [profile.dev]
 opt-level = 2
 
 [profile.release]
 lto = true
+codegen-units = 1
+panic = 'abort'

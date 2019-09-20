@@ -3,13 +3,15 @@
 use crate::console::Console;
 use crate::input::{Input, InputRef};
 use crate::ui::window::Window;
-use crate::util::{self, Result};
+use crate::util;
+use crate::Result;
 use sdl2::controller::Axis;
 use sdl2::controller::{Button, GameController};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::EventPump;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::env;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -82,6 +84,7 @@ impl UiBuilder {
     }
     pub fn randomize_ram(&mut self, val: bool) -> &mut Self {
         self.randomize_ram = val;
+
         self
     }
     pub fn log_cpu(&mut self, val: bool) -> &mut Self {
@@ -102,17 +105,17 @@ impl UiBuilder {
     }
     pub fn build(&self) -> Result<Ui> {
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut console = Console::init(input.clone());
-        console.debug(self.debug);
+        let mut console = Console::init(input.clone(), self.randomize_ram);
+        #[cfg(debug_assertions)]
         console.log_cpu(self.log_cpu);
         console.no_save(self.no_save);
-        console.randomize_ram(self.randomize_ram);
 
         let (window, event_pump) =
             Window::init(DEFAULT_TITLE, self.scale, self.fullscreen, self.ppu_debug)?;
         Ok(Ui {
             path: self.path.clone(),
             roms: Vec::new(),
+            running: false,
             ppu_debug: self.ppu_debug,
             paused: false,
             fullscreen: self.fullscreen,
@@ -123,8 +126,8 @@ impl UiBuilder {
             lctrl: false,
             save_slot: 1u8,
             turbo_clock: 0u8,
-            avg_fps: Duration::from_millis(60),
-            past_fps: [Duration::from_millis(60); 20],
+            avg_fps: 0usize,
+            past_fps: VecDeque::with_capacity(128),
             speed: DEFAULT_SPEED,
             speed_counter: 0i32,
             console,
@@ -140,6 +143,7 @@ impl UiBuilder {
 pub struct Ui {
     path: PathBuf,
     roms: Vec<PathBuf>,
+    running: bool,
     ppu_debug: bool,
     paused: bool,
     fullscreen: bool,
@@ -150,8 +154,8 @@ pub struct Ui {
     lctrl: bool,
     save_slot: u8,
     turbo_clock: u8,
-    avg_fps: Duration,
-    past_fps: [Duration; 20], // Running total of last X frames to avoid value jitter
+    avg_fps: usize,
+    past_fps: VecDeque<Instant>,
     speed: f64,
     speed_counter: i32,
     console: Console,
@@ -176,8 +180,10 @@ impl Ui {
             if self.ppu_debug {
                 self.window.set_debug_size()?;
             }
+            self.running = true;
         }
 
+        // Smooths out startup graphic glitches for some games
         let startup_frames = 40;
         for _ in 0..startup_frames {
             self.poll_events()?;
@@ -190,8 +196,8 @@ impl Ui {
             samples.clear();
         }
 
-        let mut start = Instant::now();
-        let mut fps_frame = 0;
+        let mut next_fps_update = Instant::now();
+        let fps_interval = Duration::from_millis(500);
         let one_sec = Duration::from_secs(1);
         while !self.should_close {
             self.poll_events()?;
@@ -204,10 +210,27 @@ impl Ui {
                     self.speed_counter -= 100;
                     frames_to_run += 1;
                 }
-                for _ in 0..frames_to_run {
-                    self.console.clock_frame();
-                    self.turbo_clock = (1 + self.turbo_clock) % 6;
+                if self.running {
+                    for _ in 0..frames_to_run {
+                        // Calc FPS
+                        let now = Instant::now();
+                        let a_sec_ago = now - one_sec;
+                        while self.past_fps.front().map_or(false, |t| *t < a_sec_ago) {
+                            self.past_fps.pop_front();
+                        }
+                        self.past_fps.push_back(now);
+                        self.avg_fps = self.past_fps.len();
+
+                        if now > next_fps_update {
+                            next_fps_update = now + fps_interval;
+                            self.update_title()?;
+                        }
+
+                        self.console.clock_frame();
+                        self.turbo_clock = (1 + self.turbo_clock) % 6;
+                    }
                 }
+
                 let game_view = self.console.frame();
                 if self.ppu_debug {
                     let nametables = self.console.nametables();
@@ -226,18 +249,6 @@ impl Ui {
                 } else {
                     self.console.audio_samples().clear();
                 }
-                let end = Instant::now();
-
-                fps_frame += 1;
-                let delta = (end - start).as_millis() as u32;
-                self.past_fps[fps_frame % 20] = one_sec.checked_div(delta).unwrap();
-
-                for fps in self.past_fps.iter() {
-                    self.avg_fps += *fps;
-                }
-                self.avg_fps /= 20;
-                self.update_title()?;
-                start = end;
             }
         }
 
@@ -280,6 +291,11 @@ impl Ui {
                 } => {
                     if !repeat {
                         self.handle_keydown(key, turbo)?;
+                    } else {
+                        match key {
+                            Keycode::F => self.console.clock_frame(),
+                            _ => (),
+                        }
                     }
                 }
                 Event::KeyUp {
@@ -339,8 +355,18 @@ impl Ui {
             Keycode::LCtrl => self.lctrl = true,
             Keycode::O if self.lctrl => eprintln!("Open not implemented"), // TODO
             Keycode::Q if self.lctrl => self.should_close = true,
-            Keycode::R if self.lctrl => self.console.reset(),
-            Keycode::P if self.lctrl => self.console.power_cycle(),
+            Keycode::R if self.lctrl => {
+                self.running = true;
+                self.paused = false;
+                self.console.log_cpu(false);
+                self.console.reset();
+            }
+            Keycode::P if self.lctrl => {
+                self.running = true;
+                self.paused = false;
+                self.console.log_cpu(false);
+                self.console.power_cycle();
+            }
             Keycode::Minus if self.lctrl => self.change_speed(-25.0)?,
             Keycode::Equals if self.lctrl => self.change_speed(25.0)?,
             Keycode::Space => self.set_fastforward(true)?,
@@ -365,10 +391,13 @@ impl Ui {
             Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,
             Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
             Keycode::D if self.lctrl => {
-                if !self.fullscreen {
-                    self.console.debug(true);
-                }
+                self.console.log_cpu(self.running);
+                self.running = !self.running;
             }
+            Keycode::C => {
+                let _ = self.console.clock();
+            }
+            Keycode::F => self.console.clock_frame(),
             Keycode::Return if self.lctrl => {
                 self.fullscreen = !self.fullscreen;
                 self.window.toggle_fullscreen()?;
@@ -399,8 +428,7 @@ impl Ui {
         } else {
             title.push_str(&format!(
                 " - FPS: {} - Save Slot: {}",
-                self.avg_fps.as_millis(),
-                self.save_slot
+                self.avg_fps, self.save_slot
             ));
             if self.speed != DEFAULT_SPEED {
                 title.push_str(&format!(" - Speed: {}%", self.speed));

@@ -114,6 +114,9 @@ impl Memory for Input {
             self.gamepad2.reset();
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl fmt::Debug for Input {

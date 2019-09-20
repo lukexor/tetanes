@@ -7,7 +7,7 @@ use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -23,6 +23,7 @@ pub struct Nrom {
     has_chr_ram: bool,
     battery_backed: bool,
     mirroring: Mirroring,
+    open_bus: u8,
     nrom_size: NromSize,
     prg_ram: Ram, // CPU $6000-$7FFF 2K or 4K PRG RAM Family Basic only. 8K is provided
     // CPU $8000-$BFFF 16 KB PRG ROM Bank 1 for NROM128 or NROM256
@@ -57,6 +58,7 @@ impl Nrom {
             has_chr_ram: cart.chr_rom.len() == 0,
             battery_backed: cart.battery_backed(),
             mirroring: cart.mirroring(),
+            open_bus: 0u8,
             nrom_size,
             prg_ram,
             prg_rom_banks,
@@ -73,17 +75,18 @@ impl Mapper for Nrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {} // No clocking
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -98,18 +101,14 @@ impl Mapper for Nrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {
-        if self.battery_backed {
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
-        self.reset();
-    }
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for Nrom {
     fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
+        let val = self.peek(addr);
+        self.open_bus = val;
+        val
     }
 
     fn peek(&self, addr: u16) -> u8 {
@@ -122,14 +121,16 @@ impl Memory for Nrom {
                 Nrom128 => self.prg_rom_banks[0].peek(addr & 0x3FFF),
                 Nrom256 => self.prg_rom_banks[1].peek(addr & 0x7FFF),
             },
+            0x4020..=0x5FFF => self.open_bus, // Nothing at this range
             _ => {
                 eprintln!("invalid Nrom read at address: 0x{:04X}", addr);
-                0
+                self.open_bus
             }
         }
     }
 
     fn write(&mut self, addr: u16, val: u8) {
+        self.open_bus = val;
         match addr {
             // Only CHR-RAM can be written to
             0x0000..=0x1FFF => {
@@ -138,6 +139,7 @@ impl Memory for Nrom {
                 }
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
+            0x4020..=0x5FFF => (), // Nothing at this range
             0x8000..=0xFFFF => (), // ROM is write-only
             _ => eprintln!(
                 "invalid Nrom write at address: 0x{:04X} - val: 0x{:02X}",
@@ -145,10 +147,18 @@ impl Memory for Nrom {
             ),
         }
     }
+
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {
+        if self.battery_backed {
+            self.prg_ram = Ram::init(self.prg_ram.len());
+        }
+        self.reset();
+    }
 }
 
 impl Savable for Nrom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.has_chr_ram.save(fh)?;
         self.battery_backed.save(fh)?;
         self.mirroring.save(fh)?;
@@ -157,7 +167,7 @@ impl Savable for Nrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.has_chr_ram.load(fh)?;
         self.battery_backed.load(fh)?;
         self.mirroring.load(fh)?;
@@ -169,10 +179,10 @@ impl Savable for Nrom {
 }
 
 impl Savable for NromSize {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {

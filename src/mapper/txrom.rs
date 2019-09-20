@@ -4,12 +4,12 @@
 //! [https://wiki.nesdev.com/w/index.php/MMC3]()
 
 use crate::cartridge::Cartridge;
-use crate::console::ppu::{Ppu, PRERENDER_SCANLINE, VISIBLE_SCANLINE_END};
+use crate::console::ppu::Ppu;
 use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -28,6 +28,7 @@ const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 #[derive(Debug)]
 pub struct Txrom {
     regs: TxRegs,
+    has_chr_ram: bool,
     mirroring: Mirroring,
     irq_pending: bool,
     // http://forums.nesdev.com/viewtopic.php?p=62546#p62546
@@ -44,7 +45,7 @@ pub struct Txrom {
     // Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
     // Crystalis (MMC3B 9024KPO53)
     // Legacy of the Wizard (MMC3A 8940EP)
-    mmc3_alt_behavior: bool,
+    mmc3_alt: u8,
     battery_backed: bool,
     prg_rom_bank_idx: [usize; 4],
     chr_bank_idx: [usize; 8],
@@ -71,7 +72,7 @@ struct TxRegs {
     irq_latch: u8,
     irq_counter: u8,
     irq_enabled: bool,
-    irq_reset: bool,
+    irq_reload: bool,
     last_clock: u16,
     open_bus: u8,
 }
@@ -87,6 +88,7 @@ impl Txrom {
 
         let prg_ram = Ram::init(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
+        let mut has_chr_ram = false;
         let chr_banks = if cart.chr_rom.len() == 0 {
             let chr_ram_size = if cart.chr_ram_size() > 0 {
                 cart.chr_ram_size()
@@ -94,6 +96,7 @@ impl Txrom {
                 CHR_RAM_SIZE
             };
             let chr_ram = Ram::init(chr_ram_size);
+            has_chr_ram = true;
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
             Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)
@@ -107,16 +110,17 @@ impl Txrom {
                 irq_latch: 0u8,
                 irq_counter: 0u8,
                 irq_enabled: false,
-                irq_reset: false,
+                irq_reload: false,
                 last_clock: 0u16,
                 open_bus: 0u8,
             },
+            has_chr_ram,
             mirroring,
             irq_pending: false,
-            mmc3_alt_behavior: false,
+            mmc3_alt: 1,
             battery_backed: cart.battery_backed(),
             prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
-            chr_bank_idx: [0usize; 8],
+            chr_bank_idx: [0, 1, 2, 3, 4, 5, 6, 7],
             four_screen_ram,
             prg_ram,
             prg_rom_banks,
@@ -173,12 +177,7 @@ impl Txrom {
             }
             // IRQ
             0xC000 => self.regs.irq_latch = val,
-            0xC001 => {
-                if !self.mmc3_alt_behavior {
-                    self.regs.irq_reset = true;
-                }
-                self.regs.irq_counter = 0;
-            }
+            0xC001 => self.regs.irq_reload = true,
             0xE000 => {
                 self.irq_pending = false;
                 self.regs.irq_enabled = false;
@@ -225,6 +224,26 @@ impl Txrom {
             self.chr_bank_idx[7] = (self.regs.bank_values[5] as usize) % chr_len;
         }
     }
+
+    fn clock_irq(&mut self, addr: u16) {
+        let next = (addr >> 12) & 1;
+        if self.regs.last_clock == 0 && next == 1 {
+            // Rising edge
+            let counter = self.regs.irq_counter;
+            if counter == 0 || self.regs.irq_reload {
+                self.regs.irq_counter = self.regs.irq_latch;
+                self.regs.irq_reload = false;
+            } else {
+                self.regs.irq_counter -= 1;
+            }
+
+            if self.regs.irq_counter == 0 && (counter | self.mmc3_alt) > 0 && self.regs.irq_enabled
+            {
+                self.irq_pending = true;
+            }
+        }
+        self.regs.last_clock = next;
+    }
 }
 
 impl Mapper for Txrom {
@@ -236,38 +255,22 @@ impl Mapper for Txrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn clock(&mut self, ppu: &Ppu) {
-        if ppu.cycle != 280
-            || (ppu.scanline > VISIBLE_SCANLINE_END && ppu.scanline < PRERENDER_SCANLINE)
-            || !ppu.rendering_enabled()
-        {
-            return;
-        }
-        let old_counter = self.regs.irq_counter;
-        if self.regs.irq_counter == 0 || self.regs.irq_reset {
-            self.regs.irq_counter = self.regs.irq_latch;
-        } else {
-            self.regs.irq_counter -= 1;
-        }
-
-        if (self.mmc3_alt_behavior || old_counter != 0 || self.regs.irq_reset)
-            && self.regs.irq_counter == 0
-            && self.regs.irq_enabled
-        {
-            self.irq_pending = true;
-        }
-        self.regs.irq_reset = false;
+    fn vram_change(&mut self, _ppu: &Ppu, addr: u16) {
+        self.clock_irq(addr);
+    }
+    fn clock(&mut self, _ppu: &Ppu) {
+        // IRQ clocking is handled in read and vram_change
     }
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -282,32 +285,15 @@ impl Mapper for Txrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn reset(&mut self) {
-        self.irq_pending = false;
-        self.regs = TxRegs {
-            bank_select: 0u8,
-            bank_values: [0u8; 8],
-            irq_latch: 0u8,
-            irq_counter: 0u8,
-            irq_enabled: false,
-            irq_reset: false,
-            last_clock: 0u16,
-            open_bus: 0u8,
-        };
-    }
-    fn power_cycle(&mut self) {
-        if self.battery_backed {
-            for bank in &mut *self.chr_banks {
-                *bank = Ram::init(bank.len());
-            }
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
-        self.reset();
-    }
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for Txrom {
     fn read(&mut self, addr: u16) -> u8 {
+        if addr <= 0x1FFF {
+            self.clock_irq(addr);
+        }
+
         let val = self.peek(addr);
         self.regs.open_bus = val;
         val
@@ -331,6 +317,7 @@ impl Memory for Txrom {
                 let idx = self.prg_rom_bank_idx[bank];
                 self.prg_rom_banks[idx].peek(addr)
             }
+            0x4020..=0x5FFF => 0, // Nothing at this range
             _ => {
                 eprintln!("unhandled Uxrom read at address: 0x{:04X}", addr);
                 0
@@ -342,16 +329,19 @@ impl Memory for Txrom {
         self.regs.open_bus = val;
         match addr {
             0x0000..=0x1FFF => {
-                let bank = addr as usize / CHR_BANK_SIZE;
-                let addr = addr % CHR_BANK_SIZE as u16;
-                let idx = self.chr_bank_idx[bank];
-                self.chr_banks[idx].write(addr, val);
+                if self.has_chr_ram {
+                    let bank = addr as usize / CHR_BANK_SIZE;
+                    let addr = addr % CHR_BANK_SIZE as u16;
+                    let idx = self.chr_bank_idx[bank];
+                    self.chr_banks[idx].write(addr, val);
+                }
             }
             0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
                 self.four_screen_ram.write(addr - 0x2000, val)
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
             0x8000..=0xFFFF => self.write_register(addr, val),
+            0x4020..=0x5FFF => (), // Nothing at this range
             _ => {
                 eprintln!(
                     "unhandled Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
@@ -360,10 +350,33 @@ impl Memory for Txrom {
             }
         }
     }
+
+    fn reset(&mut self) {
+        self.irq_pending = false;
+        self.regs = TxRegs {
+            bank_select: 0u8,
+            bank_values: [0u8; 8],
+            irq_latch: 0u8,
+            irq_counter: 0u8,
+            irq_enabled: false,
+            irq_reload: false,
+            last_clock: 0u16,
+            open_bus: 0u8,
+        };
+    }
+    fn power_cycle(&mut self) {
+        if self.battery_backed {
+            for bank in &mut *self.chr_banks {
+                *bank = Ram::init(bank.len());
+            }
+            self.prg_ram = Ram::init(self.prg_ram.len());
+        }
+        self.reset();
+    }
 }
 
 impl Savable for Txrom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.regs.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -375,7 +388,7 @@ impl Savable for Txrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.regs.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
@@ -390,7 +403,7 @@ impl Savable for Txrom {
 }
 
 impl Savable for TxRegs {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.bank_select.save(fh)?;
         self.bank_values.save(fh)?;
         self.irq_latch.save(fh)?;
@@ -399,7 +412,7 @@ impl Savable for TxRegs {
         self.last_clock.save(fh)?;
         self.open_bus.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.bank_select.load(fh)?;
         self.bank_values.load(fh)?;
         self.irq_latch.load(fh)?;

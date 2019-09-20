@@ -2,18 +2,13 @@
 
 use crate::console::{RENDER_HEIGHT, RENDER_WIDTH};
 use crate::serialization::Savable;
-use chrono::prelude::*;
+use crate::{nes_err, Result};
+use chrono::prelude::{DateTime, Local};
 use dirs;
-use failure::{format_err, Error};
-use image::Pixel;
-use image::{png, ColorType};
-use sha2::{Digest, Sha256};
+use image::{png, ColorType, Pixel};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-
-/// Alias for Result<T, failure::Error>
-pub type Result<T> = std::result::Result<T, Error>;
 
 const CONFIG_DIR: &str = ".rustynes";
 const ICON_PATH: &str = "static/rustynes_icon.png";
@@ -31,17 +26,17 @@ pub fn find_roms<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
     let mut roms = Vec::new();
     if path.is_dir() {
         path.read_dir()
-            .map_err(|e| format_err!("unable to read directory {:?}: {}", path, e))?
+            .map_err(|e| nes_err!("unable to read directory {:?}: {}", path, e))?
             .filter_map(|f| f.ok())
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .for_each(|f| roms.push(f.path()));
     } else if path.is_file() {
         roms.push(path.to_path_buf());
     } else {
-        Err(format_err!("invalid path: {:?}", path))?;
+        Err(nes_err!("invalid path: {:?}", path))?;
     }
     if roms.is_empty() {
-        Err(format_err!("no rom files found or specified"))?;
+        Err(nes_err!("no rom files found or specified"))?;
     }
     Ok(roms)
 }
@@ -85,43 +80,6 @@ pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> Result<PathBuf> {
     path.push(format!("{}", slot));
     path.set_extension("dat");
     Ok(path)
-}
-
-/// Returns the path where ROM thumbnails have been downloaded to
-///
-/// # Arguments
-///
-/// * `path` - An object that implements AsRef<Path> that holds the path to the currently
-/// running ROM
-///
-/// # Errors
-///
-/// Panics if path is not a valid path
-pub fn thumbnail_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf> {
-    let filehash = hash_file(path)?;
-    let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
-    path.push(CONFIG_DIR);
-    path.push("thumbnail");
-    path.push(filehash);
-    path.set_extension("png");
-    Ok(path)
-}
-
-/// Returns a SHA256 hash of the first 255 bytes of a file to uniquely identify it
-///
-/// # Arguments
-///
-/// * `path` - An object that implements AsRef<Path> that holds the path to the currently
-/// running ROM
-///
-/// # Errors
-///
-/// Panics if path is not a valid path or if there are permissions issues reading the file
-pub fn hash_file<P: AsRef<Path>>(path: &P) -> Result<String> {
-    let mut file = fs::File::open(path)?;
-    let mut buf = [0u8; 255];
-    file.read_exact(&mut buf)?;
-    Ok(format!("{:x}", Sha256::digest(&buf)))
 }
 
 /// Returns the users current HOME directory (if one exists)
@@ -181,27 +139,28 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) {
     );
     if let Err(e) = encode {
         eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
+        return;
     }
-    eprintln!("{}", png_path.display());
+    println!("{}", png_path.display());
 }
 
 /// Writes a header including a magic string and a version
-pub fn write_save_header(fh: &mut Write) -> Result<()> {
+pub fn write_save_header(fh: &mut dyn Write) -> Result<()> {
     SAVE_FILE_MAGIC.save(fh)?;
     VERSION.save(fh)
 }
 
 /// Validates a file to ensure it matches the current version and magic
-pub fn validate_save_header(fh: &mut Read) -> Result<()> {
+pub fn validate_save_header(fh: &mut dyn Read) -> Result<()> {
     let mut magic = [0u8; 9];
     magic.load(fh)?;
     if magic != SAVE_FILE_MAGIC {
-        Err(format_err!("invalid save file format",))?;
+        Err(nes_err!("invalid save file format"))?;
     }
     let mut version = 0u8;
     version.load(fh)?;
     if version != VERSION {
-        Err(format_err!(
+        Err(nes_err!(
             "invalid save file version. current: {}, save file: {}",
             VERSION,
             version,
@@ -233,10 +192,6 @@ impl WindowIcon {
             pixels,
         })
     }
-}
-
-pub fn str_to_err(string: String) -> Error {
-    format_err!("{}", string)
 }
 
 #[cfg(test)]

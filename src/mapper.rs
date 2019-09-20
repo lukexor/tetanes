@@ -6,8 +6,7 @@ use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
-use failure::format_err;
+use crate::{nes_err, Result};
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{Read, Write};
@@ -16,7 +15,7 @@ use std::rc::Rc;
 
 use axrom::Axrom; // Mapper 7
 use cnrom::Cnrom; // Mapper 3
-                  // use exrom::Exrom; // Mapper 5
+use exrom::Exrom; // Mapper 5
 use nrom::Nrom; // Mapper 0
 use pxrom::Pxrom; // Mapper 9
 use sxrom::Sxrom; // Mapper 1
@@ -25,7 +24,7 @@ use uxrom::Uxrom; // Mapper 2
 
 pub mod axrom;
 pub mod cnrom;
-// pub mod exrom;
+pub mod exrom;
 pub mod nrom;
 pub mod pxrom;
 pub mod sxrom;
@@ -33,21 +32,21 @@ pub mod txrom;
 pub mod uxrom;
 
 /// Alias for Mapper wrapped in a Rc/RefCell
-pub type MapperRef = Rc<RefCell<Mapper>>;
+pub type MapperRef = Rc<RefCell<dyn Mapper>>;
 
 /// Mapper trait requiring Memory + Send + Savable
 pub trait Mapper: Memory + Savable + fmt::Debug {
     fn irq_pending(&mut self) -> bool;
     fn mirroring(&self) -> Mirroring;
+    fn vram_change(&mut self, ppu: &Ppu, addr: u16);
     fn clock(&mut self, ppu: &Ppu);
     fn battery_backed(&self) -> bool;
-    fn save_sram(&self, fh: &mut Write) -> Result<()>;
-    fn load_sram(&mut self, fh: &mut Read) -> Result<()>;
+    fn save_sram(&self, fh: &mut dyn Write) -> Result<()>;
+    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()>;
     fn chr(&self) -> Option<&Banks<Ram>>;
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
-    fn reset(&mut self);
-    fn power_cycle(&mut self);
+    fn set_logging(&mut self, logging: bool);
 }
 
 pub fn null() -> MapperRef {
@@ -63,10 +62,10 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
         2 => Ok(Uxrom::load(cart)),
         3 => Ok(Cnrom::load(cart)),
         4 => Ok(Txrom::load(cart)),
-        // 5 => Ok(Exrom::load(cart)),
+        5 => Ok(Exrom::load(cart)),
         7 => Ok(Axrom::load(cart)),
         9 => Ok(Pxrom::load(cart)),
-        _ => Err(format_err!(
+        _ => Err(nes_err!(
             "unsupported mapper number: {}",
             cart.header.mapper_num
         ))?,
@@ -82,14 +81,17 @@ pub enum Mirroring {
     Vertical,
     SingleScreen0,
     SingleScreen1,
+    SingleScreenEx,
+    SingleScreenFill,
+    Diagonal,
     FourScreen, // Only ~3 games use 4-screen - maybe implement some day
 }
 
 impl Savable for Mirroring {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -120,14 +122,15 @@ impl Mapper for NullMapper {
     fn mirroring(&self) -> Mirroring {
         Mirroring::Horizontal
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {}
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -139,8 +142,7 @@ impl Mapper for NullMapper {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for NullMapper {
@@ -151,13 +153,15 @@ impl Memory for NullMapper {
         0
     }
     fn write(&mut self, _addr: u16, _val: u8) {}
+    fn reset(&mut self) {}
+    fn power_cycle(&mut self) {}
 }
 
 impl Savable for NullMapper {
-    fn save(&self, _fh: &mut Write) -> Result<()> {
+    fn save(&self, _fh: &mut dyn Write) -> Result<()> {
         Ok(())
     }
-    fn load(&mut self, _fh: &mut Read) -> Result<()> {
+    fn load(&mut self, _fh: &mut dyn Read) -> Result<()> {
         Ok(())
     }
 }

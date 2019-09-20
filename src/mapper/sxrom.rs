@@ -8,7 +8,7 @@ use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::util::Result;
+use crate::Result;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -213,6 +213,7 @@ impl Mapper for Sxrom {
             _ => panic!("impossible mirroring mode"),
         }
     }
+    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
@@ -221,13 +222,13 @@ impl Mapper for Sxrom {
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -242,22 +243,7 @@ impl Mapper for Sxrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn reset(&mut self) {
-        self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
-        self.regs.prg_bank = PRG_MODE_FIX_LAST;
-        self.prg_rom_bank_hi = self.prg_rom_banks.len() - 1;
-        self.update_banks();
-    }
-    fn power_cycle(&mut self) {
-        self.regs.write_just_occurred = 0;
-        if self.battery_backed {
-            for bank in &mut *self.chr_banks {
-                *bank = Ram::init(bank.len());
-            }
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
-        self.reset();
-    }
+    fn set_logging(&mut self, _logging: bool) {}
 }
 
 impl Memory for Sxrom {
@@ -280,6 +266,7 @@ impl Memory for Sxrom {
             }
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x4020..=0x5FFF => 0, // Nothing at this range
             _ => {
                 eprintln!("unhandled Sxrom read at address: 0x{:04X}", addr);
                 0
@@ -298,16 +285,34 @@ impl Memory for Sxrom {
                 }
             }
             0x8000..=0xFFFF => self.write_registers(addr, val),
+            0x4020..=0x5FFF => (), // Nothing at this range
             _ => eprintln!(
                 "invalid Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
                 addr, val
             ),
         }
     }
+
+    fn reset(&mut self) {
+        self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
+        self.regs.prg_bank = PRG_MODE_FIX_LAST;
+        self.prg_rom_bank_hi = self.prg_rom_banks.len() - 1;
+        self.update_banks();
+    }
+    fn power_cycle(&mut self) {
+        self.regs.write_just_occurred = 0;
+        if self.battery_backed {
+            for bank in &mut *self.chr_banks {
+                *bank = Ram::init(bank.len());
+            }
+            self.prg_ram = Ram::init(self.prg_ram.len());
+        }
+        self.reset();
+    }
 }
 
 impl Savable for Sxrom {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.regs.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
@@ -318,7 +323,7 @@ impl Savable for Sxrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.regs.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
@@ -332,7 +337,7 @@ impl Savable for Sxrom {
 }
 
 impl Savable for SxRegs {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.write_just_occurred.save(fh)?;
         self.shift_register.save(fh)?;
         self.control.save(fh)?;
@@ -341,7 +346,7 @@ impl Savable for SxRegs {
         self.prg_bank.save(fh)?;
         self.open_bus.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.write_just_occurred.load(fh)?;
         self.shift_register.load(fh)?;
         self.control.load(fh)?;

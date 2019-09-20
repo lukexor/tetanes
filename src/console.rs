@@ -6,11 +6,11 @@ pub use ppu::{RENDER_HEIGHT, RENDER_WIDTH};
 
 use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
-use crate::memory::{self, CpuMemMap};
+use crate::memory::{self, Memory, MemoryMap};
 use crate::serialization::Savable;
-use crate::util::{self, Result};
+use crate::util;
+use crate::{nes_err, Result};
 use cpu::Cpu;
-use failure::format_err;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
@@ -27,16 +27,16 @@ pub struct Console {
     no_save: bool,
     running: bool,
     loaded_rom: PathBuf,
-    pub cpu: Box<Cpu>,
+    pub cpu: Cpu<MemoryMap>,
     mapper: MapperRef,
 }
 
 impl Console {
     /// Creates a new Console instance and maps the appropriate memory address spaces
-    pub fn init(input: InputRef) -> Self {
-        let cpu_memory = CpuMemMap::init(input);
-        let mut cpu = Box::new(Cpu::init(cpu_memory));
-        cpu.mem.apu.dmc.cpu = (&mut *cpu) as *mut Cpu; // TODO ugly work-around for DMC memory
+    pub fn init(input: InputRef, randomize_ram: bool) -> Self {
+        unsafe { memory::RANDOMIZE_RAM = randomize_ram }
+        let memory_map = MemoryMap::init(input);
+        let cpu = Cpu::init(memory_map);
         Self {
             no_save: false,
             running: false,
@@ -84,28 +84,18 @@ impl Console {
     /// Soft-resets the console
     pub fn reset(&mut self) {
         self.cpu.reset();
-        self.mapper.borrow_mut().reset();
     }
 
     /// Hard-resets the console
     pub fn power_cycle(&mut self) {
         self.cpu.power_cycle();
-        self.mapper.borrow_mut().power_cycle();
-    }
-
-    /// Enable/Disable RAM randomization
-    pub fn randomize_ram(&mut self, val: bool) {
-        unsafe { memory::RANDOMIZE_RAM = val }
-    }
-
-    /// Enable/Disable the debugger
-    pub fn debug(&mut self, val: bool) {
-        self.cpu.debug(val);
     }
 
     /// Enable/Disable CPU logging
+    #[cfg(debug_assertions)]
     pub fn log_cpu(&mut self, val: bool) {
-        self.cpu.log(val);
+        // self.cpu.log(val);
+        self.mapper.borrow_mut().set_logging(val);
     }
 
     /// Enable/Disable Save states
@@ -152,14 +142,14 @@ impl Console {
         let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
         if !save_dir.exists() {
             fs::create_dir_all(save_dir).map_err(|e| {
-                format_err!("failed to create directory {:?}: {}", save_dir.display(), e)
+                nes_err!("failed to create directory {:?}: {}", save_dir.display(), e)
             })?;
         }
         let save_file = fs::File::create(&save_path)
-            .map_err(|e| format_err!("failed to create file {:?}: {}", save_path.display(), e))?;
+            .map_err(|e| nes_err!("failed to create file {:?}: {}", save_path.display(), e))?;
         let mut writer = BufWriter::new(save_file);
         util::write_save_header(&mut writer)
-            .map_err(|e| format_err!("failed to write header {:?}: {}", save_path.display(), e))?;
+            .map_err(|e| nes_err!("failed to write header {:?}: {}", save_path.display(), e))?;
         self.save(&mut writer)?;
         Ok(())
     }
@@ -172,7 +162,7 @@ impl Console {
         let save_path = util::save_path(&self.loaded_rom, slot)?;
         if save_path.exists() {
             let save_file = fs::File::open(&save_path)
-                .map_err(|e| format_err!("failed to open file {:?}: {}", save_path.display(), e))?;
+                .map_err(|e| nes_err!("failed to open file {:?}: {}", save_path.display(), e))?;
             let mut reader = BufReader::new(save_file);
             match util::validate_save_header(&mut reader) {
                 Ok(_) => {
@@ -188,15 +178,17 @@ impl Console {
     }
 
     /// Steps the console a single CPU instruction at a time
-    fn clock(&mut self) -> u64 {
+    pub fn clock(&mut self) -> u64 {
         let cpu_cycles = self.cpu.clock();
-        let ppu_cycles = cpu_cycles * 3;
+        let ppu_cycles = 3 * cpu_cycles;
+
         for _ in 0..ppu_cycles {
             self.cpu.mem.ppu.clock();
             if self.cpu.mem.ppu.nmi_pending {
                 self.cpu.trigger_nmi();
                 self.cpu.mem.ppu.nmi_pending = false;
             }
+
             let irq_pending = {
                 let mut mapper = self.cpu.mem.mapper.borrow_mut();
                 mapper.clock(&self.cpu.mem.ppu);
@@ -206,6 +198,7 @@ impl Console {
                 self.cpu.trigger_irq();
             }
         }
+
         for _ in 0..cpu_cycles {
             self.cpu.mem.apu.clock();
             if self.cpu.mem.apu.irq_pending {
@@ -213,6 +206,7 @@ impl Console {
                 self.cpu.mem.apu.irq_pending = false;
             }
         }
+
         cpu_cycles
     }
 
@@ -227,27 +221,29 @@ impl Console {
             let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
             if !sram_dir.exists() {
                 fs::create_dir_all(sram_dir).map_err(|e| {
-                    format_err!("failed to create directory {:?}: {}", sram_dir.display(), e)
+                    nes_err!("failed to create directory {:?}: {}", sram_dir.display(), e)
                 })?;
             }
 
-            let mut sram_file = fs::OpenOptions::new()
+            let mut sram_opts = fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .open(&sram_path)
-                .map_err(|e| format_err!("failed to open file {:?}: {}", sram_path.display(), e))?;
+                .map_err(|e| nes_err!("failed to open file {:?}: {}", sram_path.display(), e))?;
 
             // Empty file means we just created it
-            if sram_file.metadata()?.len() == 0 {
+            if sram_opts.metadata()?.len() == 0 {
+                let mut sram_file = BufWriter::new(sram_opts);
                 util::write_save_header(&mut sram_file).map_err(|e| {
-                    format_err!("failed to write header {:?}: {}", sram_path.display(), e)
+                    nes_err!("failed to write header {:?}: {}", sram_path.display(), e)
                 })?;
                 mapper.save_sram(&mut sram_file)?;
             } else {
                 // Check if exists and header is different, so we avoid overwriting
-                match util::validate_save_header(&mut sram_file) {
+                match util::validate_save_header(&mut sram_opts) {
                     Ok(_) => {
+                        let mut sram_file = BufWriter::new(sram_opts);
                         mapper.save_sram(&mut sram_file)?;
                     }
                     Err(e) => eprintln!("failed to write sram due to invalid header. error: {}", e),
@@ -268,9 +264,10 @@ impl Console {
             if mapper.battery_backed() {
                 let sram_path = util::sram_path(&self.loaded_rom)?;
                 if sram_path.exists() {
-                    let mut sram_file = fs::File::open(&sram_path).map_err(|e| {
-                        format_err!("failed to open file {:?}: {}", sram_path.display(), e)
+                    let sram_file = fs::File::open(&sram_path).map_err(|e| {
+                        nes_err!("failed to open file {:?}: {}", sram_path.display(), e)
                     })?;
+                    let mut sram_file = BufReader::new(sram_file);
                     match util::validate_save_header(&mut sram_file) {
                         Ok(_) => {
                             if let Err(e) = mapper.load_sram(&mut sram_file) {
@@ -295,12 +292,14 @@ impl Console {
 }
 
 impl Savable for Console {
-    fn save(&self, fh: &mut Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.no_save.save(fh)?;
+        self.running.save(fh)?;
         self.cpu.save(fh)
     }
-    fn load(&mut self, fh: &mut Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.no_save.load(fh)?;
+        self.running.load(fh)?;
         self.cpu.load(fh)
     }
 }
@@ -319,8 +318,8 @@ mod tests {
     use std::rc::Rc;
     use std::{fs, path::PathBuf};
 
-    const NESTEST_ADDR: u16 = 0xC000;
-    const NESTEST_LEN: usize = 8980;
+    const NESTEST_START_ADDR: u16 = 0xC000;
+    const NESTEST_END_ADDR: u16 = 0xC689 + 2;
 
     #[test]
     fn test_nestest() {
@@ -329,13 +328,13 @@ mod tests {
         let nestest_log = "tests/cpu/nestest.txt";
 
         let input = Rc::new(RefCell::new(Input::new()));
-        let mut c = Console::init(input);
+        let mut c = Console::init(input, false);
         c.load_rom(rom).expect("loaded rom");
         c.power_on().expect("powered on");
         c.cpu.log_enabled = true;
 
-        c.cpu.pc = NESTEST_ADDR;
-        for _ in 0..NESTEST_LEN {
+        c.cpu.pc = NESTEST_START_ADDR;
+        while c.cpu.pc != NESTEST_END_ADDR {
             c.clock();
         }
         let log = c.cpu.nestestlog.join("");
