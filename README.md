@@ -167,7 +167,7 @@ in place of Ctrl, but I'm not bothering with OS-specific bindings just yet.
 
 ## Building/Testing
 
-To build the project run `cargo build` or `cargo build --release` (if you want playable framerates).
+To build the project run `cargo build` or `cargo build --release` (if you want better framerates).
 
 Unit and integration tests can be run with `cargo test`. There are also several test roms that can
 be run to test various capabilities of the emulator. They are all located in the `tests/` directory.
@@ -234,14 +234,16 @@ The following is a checklist of features and their progress:
   - [x] Increase/Decrease Speed/Fast-forward
   - [x] Save/Load State
   - [x] Take Screenshots
-  - [ ] Toggle Recording
+  - [ ] Toggle Action Recording
   - [x] Toggle Sound
   - [x] Toggle Debugger
   - [ ] Custom Keybinds
   - [ ] Game Genie
   - [ ] WideNES
+- [ ] Misc
+  - [ ] Network Multi-player
 - [x] Testing/Debugging/Documentation
-  - [x] Breakpoint CPU debugger (missing some features)
+  - [ ] Debugger for CPU and Memory
   - [x] PPU Debug mode (displays palettes, nametables, and sprite patterns)
   - [x] Unit/Integration tests (run with cargo test)
     - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
@@ -253,11 +255,12 @@ The following is a checklist of features and their progress:
 
 ## Documentation
 
-In addition to the wealth of information in the `docs` directory, I also referenced these websites
+In addition to the wealth of information in the `docs/` directory, I also referenced these websites
 extensively during development:
 
 * [NES Documentation (PDF)](http://nesdev.com/NESDoc.pdf)
 * [NES Dev Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
+* [6502 Datasheet](http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf)
 
 ## License
 
@@ -283,6 +286,7 @@ able to understand or digest all the information on the NES wiki.
 - https://github.com/MichaelBurge/nes-emulator
 - https://github.com/AndreaOrru/LaiNES
 - https://github.com/daniel5151/ANESE
+- http://www.fceux.com/web/home.html
 
 [rust]: https://www.rust-lang.org/tools/install
 [sdl2]: https://www.libsdl.org/
