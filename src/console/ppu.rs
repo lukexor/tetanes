@@ -1727,7 +1727,8 @@ mod tests {
         // Dummy rom just to get cartridge vram loaded
         let rom = PathBuf::from("roms/super_mario_bros.nes");
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
-        let mut ppu = Ppu::init(mapper);
+        let mut ppu = Ppu::new();
+        ppu.load_mapper(mapper);
 
         let ppuctrl = 0x2000;
         let ppustatus = 0x2002;

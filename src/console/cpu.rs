@@ -1655,6 +1655,7 @@ mod tests {
     use super::*;
     use crate::input::Input;
     use crate::mapper;
+    use crate::memory::MemoryMap;
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::rc::Rc;

@@ -50,44 +50,74 @@ Support for the following mappers is currently implemented or in development:
 
 ## Installation
 
-While this should work on any platform that supports Rust and SDL2, it's only being developed and
-tested on macOS at this time. I make no guarantees it'll work elsewhere. Send me a line if it does
-work though and I'll update this section.
+This should run on most platforms that supports Rust and SDL2, howeer, it's only being developed and
+tested on macOS at this time. So far, I've tested on Windows 7, Windows 10, Fedora Linux, and
+Raspberry Pi 4 (though performance is less than desired). When 1.0.0 is released, I'll make binaries
+available for all major platforms. Until then, follow the below instructions to build for your
+platform.
 
-* Install [Rust][rust]
-* Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) development libraries
+* Install [Rust][rust] (follow the link)
+* Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) development libraries (follow the link)
   * Linux and macOS should be straightforward
-  * Windows makes this a bit more complicated. Be sure to follow the above link carefully. For the simple case of using `rustup`, all of the files in `lib\` from the Visual C++ 32/64-bit development zip should go in your `C:\Users\{Your Username}\.rustup\toolchains\{current toolchain}\lib\rustlib\{current toolchain}\lib` directory (where the `{current toolchain}` will likely have `x86_64-pc-windows` in its name) and then a copy of `lib\SDl2.dll` needs to go in your `%USERPROFILE%\.cargo\bin` directory next to the `rustynes.exe` binary.
+  * Windows makes this a bit more complicated. Be sure to follow the above link instructions
+    carefully. For the simple case of using `rustup`, all of the files in `lib\` from the Visual C++
+    32/64-bit development zip should go in your `C:\Users\{Your Username}\.rustup\toolchains\
+    {current toolchain}\lib\rustlib\{current toolchain}\lib` directory (where the
+    `{current toolchain}` will likely have `x86_64-pc-windows` in its name) and then a copy of
+    `lib\SDl2.dll` needs to go in your `%USERPROFILE%\.cargo\bin` directory next to the
+    `rustynes.exe` binary.
 * Download & install `RustyNES`. Stable releases can be found on the `Releases` tab at the top of
 the page. To build directly from a release tag, follow these steps:
 
         $ git clone https://github.com/lukexor/rustynes.git
         $ cd rustynes/
-        $ git checkout v0.2.0
+        $ git checkout v0.5.0
         $ cargo install --path ./
 
-This will install the `v0.2.0` tagged release of the `RustyNES` binary to your `cargo` bin directory located at either
-`$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on Windows. You can see which release tags are available by running this command:
+This will install the `v0.5.0` tagged release of the `RustyNES` binary to your `cargo` bin directory
+located at either `$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on
+Windows. Replace the release tag with the one you want to install. The latest is recommended. You
+can see which release tags are available by clicking the `Releases` tab at the top of this page or
+by running the following command from the checked out git repository:
 
         $ git tag -l
 
-As long as that bin location is in your `$PATH` variable as outlined in the Rust install
-instructions, you should be able to start up a game ROM following the usage below.
-
 ## Usage
+
+For each platform, the first command may not be needed depending on the contents of your `$PATH`
+environment variable.
+
+### Windows
+
+        $ cd %USERPROFILE%\.cargo\bin
+        $ rustynes.exe {Path to your game}
+
+### MacOS/Linux
+
+        $ cd $HOME/.cargo/bin/
+        $ rustynes {Path to your game}
+
+### Additional Options
 
 ```
 rustynes [FLAGS] [OPTIONS] [path]
 
 FLAGS:
-    -d, --debug         Debug
-    -f, --fullscreen    Fullscreen
-    -h, --help          Prints help information
-    -V, --version       Prints version information
+        --concurrent_dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad
+    -d, --debug              Debug
+    -f, --fullscreen         Fullscreen
+    -h, --help               Prints help information
+    -l, --log_cpu            Print CPU instructions to STDOUT
+        --no_save            Don't load or save game state.
+        --ppu_debug          Start with PPU debugger enabled. Displays nametables, patterns, and palettes.
+        --randomize_ram      By default RAM initializes to 0x00 on power up. This affects some games RNG seed
+                             generators.
+        --sound_off          Disable Sound
+    -V, --version            Prints version information
 
 OPTIONS:
-    -l, --load <load>      Load Save State
-    -s, --scale <scale>    Window scale [default: 3]
+        --save_slot <save-slot>    Use Save Slot # (Options: 1-4) [default: 1]
+    -s, --scale <scale>            Window scale [default: 3]
 
 ARGS:
     <path>    The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
