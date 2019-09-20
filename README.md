@@ -157,9 +157,9 @@ There are also some emulator actions:
 | Take Screenshot                   | F10              |                    |
 | Cycle Log Level<sup>*</sup>       | F9               |                    |
 
-### Note on Controls
+&ast; Not yet implemented
 
-Not all controls are implemented yet. Those that aren't are marked with an <sup>*</sup>.
+### Note on Controls
 
 Ctrl-(1-4) may have conflicts in macOS with switching Desktops 1-4. You can disable this in the
 keyboard settings. I may consider changing them to something else or making macOS use the Option key
