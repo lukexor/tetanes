@@ -40,7 +40,7 @@ Support for the following mappers is currently implemented or in development:
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
 |     |                        |                                           | ~2050                   |                 84.11% |
 
-1 [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
+1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
 2. ExROM is still in development
 
 ## Dependencies
