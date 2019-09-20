@@ -51,10 +51,10 @@ Support for the following mappers is currently implemented or in development:
 ## Installation
 
 This should run on most platforms that supports Rust and SDL2, howeer, it's only being developed and
-tested on macOS at this time. So far, I've tested on Windows 7, Windows 10, Fedora Linux, and
-Raspberry Pi 4 (though performance is less than desired). When 1.0.0 is released, I'll make binaries
-available for all major platforms. Until then, follow the below instructions to build for your
-platform.
+tested on macOS High Sierra at this time. So far, I've tested on macOS High Sierra, Mojave, Windows
+7, Windows 10, Fedora Linux, and Raspberry Pi 4 (though performance is less than desired). When
+1.0.0 is released, I'll make binaries available for all major platforms. Until then, follow the
+below instructions to build for your platform.
 
 * Install [Rust][rust] (follow the link)
 * Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) development libraries (follow the link)
@@ -92,7 +92,7 @@ environment variable.
         $ cd %USERPROFILE%\.cargo\bin
         $ rustynes.exe {Path to your game}
 
-### MacOS/Linux
+### macOS/Linux
 
         $ cd $HOME/.cargo/bin/
         $ rustynes {Path to your game}
