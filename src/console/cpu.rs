@@ -258,6 +258,13 @@ where
         self.interrupt = Interrupt::IRQ;
     }
     pub fn irq(&mut self) {
+        if self.log_enabled {
+            println!(
+                "IRQ pushing PC: ${:04X} and S: ${:02X} to the stack",
+                self.pc,
+                (self.status | U as u8) & !(B as u8)
+            );
+        }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
         self.push_stackb((self.status | U as u8) & !(B as u8));
@@ -273,6 +280,13 @@ where
         self.interrupt = Interrupt::NMI;
     }
     fn nmi(&mut self) {
+        if self.log_enabled {
+            println!(
+                "NMI pushing PC: ${:04X} and S: ${:02X} to the stack",
+                self.pc,
+                (self.status | U as u8) & !(B as u8)
+            );
+        }
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
         self.push_stackb((self.status | U as u8) & !(B as u8));
@@ -1350,6 +1364,12 @@ where
     }
     /// JSR: Jump to Location Save Return addr
     fn jsr(&mut self) -> u8 {
+        if self.log_enabled {
+            println!(
+                "Jumping Pushing PC: ${:04X} to the stack",
+                self.pc.wrapping_sub(1)
+            );
+        }
         self.push_stackw(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
         return 0;
@@ -1360,11 +1380,23 @@ where
         self.status &= !(U as u8);
         self.status &= !(B as u8);
         self.pc = self.pop_stackw();
+        if self.log_enabled {
+            println!(
+                "Returning from interrupt, Pulling PC: ${:04X} and S: ${:02X} from the stack",
+                self.pc, self.status
+            );
+        }
         return 0;
     }
     /// RTS: Return from Subroutine
     fn rts(&mut self) -> u8 {
         self.pc = self.pop_stackw().wrapping_add(1);
+        if self.log_enabled {
+            println!(
+                "Returning from sub, Pulling PC: ${:04X} from the stack",
+                self.pc
+            );
+        }
         return 0;
     }
 

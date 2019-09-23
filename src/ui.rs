@@ -116,6 +116,7 @@ impl UiBuilder {
             path: self.path.clone(),
             roms: Vec::new(),
             running: false,
+            debug: self.debug,
             ppu_debug: self.ppu_debug,
             paused: false,
             fullscreen: self.fullscreen,
@@ -124,7 +125,7 @@ impl UiBuilder {
             concurrent_dpad: self.concurrent_dpad,
             fastforward: false,
             lctrl: false,
-            save_slot: 1u8,
+            save_slot: self.save_slot,
             turbo_clock: 0u8,
             avg_fps: 0usize,
             past_fps: VecDeque::with_capacity(128),
@@ -144,6 +145,7 @@ pub struct Ui {
     path: PathBuf,
     roms: Vec<PathBuf>,
     running: bool,
+    debug: bool,
     ppu_debug: bool,
     paused: bool,
     fullscreen: bool,
@@ -177,23 +179,29 @@ impl Ui {
             self.console.load_rom(&self.roms[0])?;
             self.console.power_on()?;
             self.console.load_state(self.save_slot)?;
+            if self.debug {
+                self.console.log_cpu(true);
+            } else {
+                self.running = true;
+            }
             if self.ppu_debug {
                 self.window.set_debug_size()?;
             }
-            self.running = true;
         }
 
         // Smooths out startup graphic glitches for some games
-        let startup_frames = 40;
-        for _ in 0..startup_frames {
-            self.poll_events()?;
-            self.console.clock_frame();
-            self.window.render_blank()?;
-            let samples = self.console.audio_samples();
-            if self.sound_enabled {
-                self.window.enqueue_audio(&samples);
+        if self.running {
+            let startup_frames = 40;
+            for _ in 0..startup_frames {
+                self.poll_events()?;
+                self.console.clock_frame();
+                self.window.render_blank()?;
+                let samples = self.console.audio_samples();
+                if self.sound_enabled {
+                    self.window.enqueue_audio(&samples);
+                }
+                samples.clear();
             }
-            samples.clear();
         }
 
         let mut next_fps_update = Instant::now();
@@ -294,6 +302,9 @@ impl Ui {
                     } else {
                         match key {
                             Keycode::F => self.console.clock_frame(),
+                            Keycode::C => {
+                                let _ = self.console.clock();
+                            }
                             _ => (),
                         }
                     }

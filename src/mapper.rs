@@ -62,7 +62,7 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
         2 => Ok(Uxrom::load(cart)),
         3 => Ok(Cnrom::load(cart)),
         4 => Ok(Txrom::load(cart)),
-        // 5 => Ok(Exrom::load(cart)),
+        5 => Ok(Exrom::load(cart)),
         7 => Ok(Axrom::load(cart)),
         9 => Ok(Pxrom::load(cart)),
         _ => Err(nes_err!(

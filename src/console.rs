@@ -94,7 +94,7 @@ impl Console {
     /// Enable/Disable CPU logging
     #[cfg(debug_assertions)]
     pub fn log_cpu(&mut self, val: bool) {
-        // self.cpu.log(val);
+        self.cpu.log(val);
         self.mapper.borrow_mut().set_logging(val);
     }
 
