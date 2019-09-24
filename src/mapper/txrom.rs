@@ -80,7 +80,7 @@ struct TxRegs {
 impl Txrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let mirroring = cart.mirroring();
-        let four_screen_ram = if mirroring == Mirroring::FourScreen {
+        let four_screen_ram = if mirroring == Mirroring::Mapper {
             Ram::init(FOUR_SCREEN_RAM_SIZE)
         } else {
             Ram::null()
@@ -163,7 +163,7 @@ impl Txrom {
                 self.update_banks();
             }
             0xA000 => {
-                if self.mirroring != Mirroring::FourScreen {
+                if self.mirroring != Mirroring::Mapper {
                     self.mirroring = match val & 0x01 {
                         0 => Mirroring::Vertical,
                         1 => Mirroring::Horizontal,
@@ -286,6 +286,9 @@ impl Mapper for Txrom {
         Some(&self.prg_ram)
     }
     fn set_logging(&mut self, _logging: bool) {}
+    fn nametable_mapping(&self, _addr: u16) -> bool {
+        false
+    }
 }
 
 impl Memory for Txrom {
@@ -307,7 +310,7 @@ impl Memory for Txrom {
                 let idx = self.chr_bank_idx[bank];
                 self.chr_banks[idx].peek(addr)
             }
-            0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
+            0x2000..=0x2FFF if self.mirroring == Mirroring::Mapper => {
                 self.four_screen_ram.peek(addr - 0x2000)
             }
             0x6000..=0x7FFF => self.prg_ram.peek(addr - 0x6000),
@@ -336,7 +339,7 @@ impl Memory for Txrom {
                     self.chr_banks[idx].write(addr, val);
                 }
             }
-            0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
+            0x2000..=0x2FFF if self.mirroring == Mirroring::Mapper => {
                 self.four_screen_ram.write(addr - 0x2000, val)
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),

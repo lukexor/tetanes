@@ -13,23 +13,23 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::rc::Rc;
 
-use axrom::Axrom; // Mapper 7
-use cnrom::Cnrom; // Mapper 3
+// use axrom::Axrom; // Mapper 7
+// use cnrom::Cnrom; // Mapper 3
 use exrom::Exrom; // Mapper 5
-use nrom::Nrom; // Mapper 0
-use pxrom::Pxrom; // Mapper 9
-use sxrom::Sxrom; // Mapper 1
-use txrom::Txrom; // Mapper 4
-use uxrom::Uxrom; // Mapper 2
+                  // use nrom::Nrom; // Mapper 0
+                  // use pxrom::Pxrom; // Mapper 9
+                  // use sxrom::Sxrom; // Mapper 1
+                  // use txrom::Txrom; // Mapper 4
+                  // use uxrom::Uxrom; // Mapper 2
 
-pub mod axrom;
-pub mod cnrom;
+// pub mod axrom;
+// pub mod cnrom;
 pub mod exrom;
-pub mod nrom;
-pub mod pxrom;
-pub mod sxrom;
-pub mod txrom;
-pub mod uxrom;
+// pub mod nrom;
+// pub mod pxrom;
+// pub mod sxrom;
+// pub mod txrom;
+// pub mod uxrom;
 
 /// Alias for Mapper wrapped in a Rc/RefCell
 pub type MapperRef = Rc<RefCell<dyn Mapper>>;
@@ -38,7 +38,7 @@ pub type MapperRef = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper: Memory + Savable + fmt::Debug {
     fn irq_pending(&mut self) -> bool;
     fn mirroring(&self) -> Mirroring;
-    fn vram_change(&mut self, ppu: &Ppu, addr: u16);
+    fn vram_change(&mut self, addr: u16);
     fn clock(&mut self, ppu: &Ppu);
     fn battery_backed(&self) -> bool;
     fn save_sram(&self, fh: &mut dyn Write) -> Result<()>;
@@ -47,6 +47,7 @@ pub trait Mapper: Memory + Savable + fmt::Debug {
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
     fn set_logging(&mut self, logging: bool);
+    fn nametable_mirror_addr(&self, addr: u16) -> u16;
 }
 
 pub fn null() -> MapperRef {
@@ -57,14 +58,14 @@ pub fn null() -> MapperRef {
 pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
     let cart = Cartridge::from_rom(rom)?;
     match cart.header.mapper_num {
-        0 => Ok(Nrom::load(cart)),
-        1 => Ok(Sxrom::load(cart)),
-        2 => Ok(Uxrom::load(cart)),
-        3 => Ok(Cnrom::load(cart)),
-        4 => Ok(Txrom::load(cart)),
+        // 0 => Ok(Nrom::load(cart)),
+        // 1 => Ok(Sxrom::load(cart)),
+        // 2 => Ok(Uxrom::load(cart)),
+        // 3 => Ok(Cnrom::load(cart)),
+        // 4 => Ok(Txrom::load(cart)),
         5 => Ok(Exrom::load(cart)),
-        7 => Ok(Axrom::load(cart)),
-        9 => Ok(Pxrom::load(cart)),
+        // 7 => Ok(Axrom::load(cart)),
+        // 9 => Ok(Pxrom::load(cart)),
         _ => Err(nes_err!(
             "unsupported mapper number: {}",
             cart.header.mapper_num
@@ -79,13 +80,19 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
 pub enum Mirroring {
     Horizontal,
     Vertical,
-    SingleScreen0,
-    SingleScreen1,
-    SingleScreenEx,
-    SingleScreenFill,
-    Diagonal,
-    FourScreen, // Only ~3 games use 4-screen - maybe implement some day
+    SingleScreenA,
+    SingleScreenB,
+    FourScreen,
 }
+
+#[rustfmt::skip]
+pub static MIRRORING_LOOKUP: [[u16; 4]; 4] = [
+    [0, 0, 1, 1], // Horizontal
+    [0, 1, 0, 1], // Vertical
+    [0, 0, 0, 0], // SingleScreenA
+    [1, 1, 1, 1], // SingleScreenB
+    // FourScreen defers to mapper for addressing
+];
 
 impl Savable for Mirroring {
     fn save(&self, fh: &mut dyn Write) -> Result<()> {
@@ -97,10 +104,10 @@ impl Savable for Mirroring {
         *self = match val {
             0 => Mirroring::Horizontal,
             1 => Mirroring::Vertical,
-            2 => Mirroring::SingleScreen0,
-            3 => Mirroring::SingleScreen1,
+            2 => Mirroring::SingleScreenA,
+            3 => Mirroring::SingleScreenB,
             4 => Mirroring::FourScreen,
-            _ => panic!("invalid Mirroring value"),
+            _ => panic!("invalid Mirroring value {}", val),
         };
         Ok(())
     }
@@ -122,7 +129,7 @@ impl Mapper for NullMapper {
     fn mirroring(&self) -> Mirroring {
         Mirroring::Horizontal
     }
-    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
+    fn vram_change(&mut self, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {}
     fn battery_backed(&self) -> bool {
         false
@@ -143,6 +150,9 @@ impl Mapper for NullMapper {
         None
     }
     fn set_logging(&mut self, _logging: bool) {}
+    fn nametable_mirror_addr(&self, _addr: u16) -> u16 {
+        0
+    }
 }
 
 impl Memory for NullMapper {

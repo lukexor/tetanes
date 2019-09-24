@@ -94,8 +94,13 @@ impl Console {
     /// Enable/Disable CPU logging
     #[cfg(debug_assertions)]
     pub fn log_cpu(&mut self, val: bool) {
-        self.cpu.log(val);
+        self.cpu.logging(val);
+        self.cpu.mem.ppu.logging(val);
         self.mapper.borrow_mut().set_logging(val);
+    }
+
+    pub fn ppu_debug(&mut self, val: bool) {
+        self.cpu.mem.ppu.debug(val);
     }
 
     /// Enable/Disable Save states
@@ -109,17 +114,17 @@ impl Console {
     }
 
     /// Returns nametable graphics
-    pub fn nametables(&self) -> Vec<Vec<u8>> {
+    pub fn nametables(&self) -> &Vec<Vec<u8>> {
         self.cpu.mem.ppu.nametables()
     }
 
     /// Returns pattern table graphics
-    pub fn pattern_tables(&self) -> Vec<Vec<u8>> {
+    pub fn pattern_tables(&self) -> &Vec<Vec<u8>> {
         self.cpu.mem.ppu.pattern_tables()
     }
 
     /// Returns palette graphics
-    pub fn palettes(&self) -> Vec<Vec<u8>> {
+    pub fn palettes(&self) -> &Vec<Vec<u8>> {
         self.cpu.mem.ppu.palettes()
     }
 

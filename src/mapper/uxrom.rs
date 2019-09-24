@@ -77,6 +77,9 @@ impl Mapper for Uxrom {
         None
     }
     fn set_logging(&mut self, _logging: bool) {}
+    fn nametable_mapping(&self, _addr: u16) -> bool {
+        false
+    }
 }
 
 impl Memory for Uxrom {

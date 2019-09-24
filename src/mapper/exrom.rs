@@ -78,11 +78,10 @@ pub struct ExRegs {
     chr_hi_bit: u8,
     last_chr_write: ChrBank,
     sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
-    scanline: u16,
     sp_fetch_count: u32,
-    rendering_enabled: bool, // $2001 PPUMASK: false = rendering disabled, true = enabled
-    prg_ram_protect1: u8,    // $5102: Write $02 to enable PRG RAM writing
-    prg_ram_protect2: u8,    // $5103: Write $01 to enable PRG RAM writing
+    prev_vaddr: [u16; 3],
+    prg_ram_protect1: u8, // $5102: Write $02 to enable PRG RAM writing
+    prg_ram_protect2: u8, // $5103: Write $01 to enable PRG RAM writing
     // $5104
     // 0 - Use as extra nametable (possibly for split mode)
     // 1 - Use as extended attribute data (can also be used as extended nametable)
@@ -117,9 +116,8 @@ impl Exrom {
                 chr_hi_bit: 0u8,
                 last_chr_write: ChrBank::Spr,
                 sprite8x16: false,
-                scanline: 0u16,
                 sp_fetch_count: 0u32,
-                rendering_enabled: true,
+                prev_vaddr: [0u16; 3],
                 prg_ram_protect1: 0xFF,
                 prg_ram_protect2: 0xFF,
                 extended_ram_mode: 0xFF,
@@ -188,6 +186,45 @@ impl Exrom {
         }
     }
 
+    fn get_chr_addr(&self, addr: u16) -> usize {
+        let (bank_size, bank_idx_a, bank_idx_b) = match self.regs.chr_mode {
+            0 => (8 * 1024, 7, 3),
+            1 => (4 * 1024, if addr < 0x1000 { 3 } else { 7 }, 3),
+            2 => {
+                let bank_size = 2 * 1024;
+                let bank_idx_a = match addr {
+                    0x0000..=0x07FF => 1,
+                    0x0800..=0x0FFF => 3,
+                    0x1000..=0x17FF => 5,
+                    0x1800..=0x1FFF => 7,
+                    _ => panic!("invalid addr"),
+                };
+                let bank_idx_b = match addr {
+                    0x0000..=0x07FF => 1,
+                    0x0800..=0x0FFF => 3,
+                    0x1000..=0x17FF => 1,
+                    0x1800..=0x1FFF => 3,
+                    _ => panic!("invalid addr"),
+                };
+                (bank_size, bank_idx_a, bank_idx_b)
+            }
+            _ => (1 * 1024, (addr >> 10) & 0x0F, (addr >> 10) & 3),
+        };
+        let bank = if self.regs.sprite8x16 {
+            if self.regs.sp_fetch_count == 126 {
+                self.chr_banks_spr[bank_idx_a as usize]
+            } else {
+                self.chr_banks_bg[bank_idx_b as usize]
+            }
+        } else if self.regs.last_chr_write == ChrBank::Spr {
+            self.chr_banks_spr[bank_idx_a as usize]
+        } else {
+            self.chr_banks_bg[bank_idx_b as usize]
+        };
+        let offset = addr as usize % bank_size;
+        bank * bank_size + offset
+    }
+
     fn multiplier(&mut self, val: u8) {
         self.regs.mult_result = u16::from(self.regs.multiplicand) * u16::from(val);
     }
@@ -197,33 +234,13 @@ impl Exrom {
         if self.regs.extended_ram_mode < 2 {
             return self.open_bus;
         }
-        if self.logging {
-            eprintln!(
-                "Reading ${:02X} from EX RAM: ${:04X} - mode: {}",
-                self.ex_ram[addr as usize - 0x5C00],
-                addr as usize - 0x5C00,
-                self.regs.extended_ram_mode
-            );
-        }
-        self.ex_ram[addr as usize - 0x5C00]
+        self.ex_ram[addr as usize % 0x0400]
     }
 
-    fn write_expansion_ram(&mut self, addr: u16, mut val: u8) {
-        // Modes 0-2 are writable
-        if self.regs.extended_ram_mode < 3 {
-            // Modes 0-1 are for nametable and attributes, so write 0 if not rendering
-            if self.regs.extended_ram_mode < 2 && !self.regs.rendering_enabled {
-                val = 0;
-            }
-            if self.logging {
-                eprintln!(
-                    "Writing ${:02X} to EX RAM: ${:04X} - mode: {}",
-                    val,
-                    addr as usize - 0x5C00,
-                    self.regs.extended_ram_mode
-                );
-            }
-            self.ex_ram[addr as usize - 0x5C00] = val;
+    fn write_expansion_ram(&mut self, addr: u16, val: u8) {
+        // Mode 2 is writable
+        if self.regs.extended_ram_mode & 0x03 == 0x02 {
+            self.ex_ram[addr as usize % 0x0400] = val;
         }
     }
 
@@ -232,52 +249,33 @@ impl Exrom {
         self.mirroring = match val {
             0x50 => Mirroring::Horizontal,
             0x44 => Mirroring::Vertical,
-            0x00 => Mirroring::SingleScreen0,
-            0x55 => Mirroring::SingleScreen1,
-            0xAA => Mirroring::SingleScreenEx,
-            0xE4 => Mirroring::FourScreen,
-            0xFF => Mirroring::SingleScreenFill,
-            0x14 => Mirroring::Diagonal,
-            _ => {
-                // $D8 = 11 01 10 00
-                // 11: $2C00-$2FFF - Fill-mode
-                // 01: $2800-$2BFF - nametable 1
-                // 10: $2400-$27FF - nametable EX RAM or all 0s
-                // 00: $2000-$23FF - nametable 0
-                //
-                // +-------+-------+
-                // | $2000 | $2400 |
-                // |   0   |  EXR  |
-                // |       |       |
-                // +-------+-------+
-                // | $2800 | $2C00 |
-                // |   1   |  FIL  |
-                // |       |       |
-                // +-------+-------+
-                eprintln!("impossible mirroring mode: ${:02X}", val);
-                self.mirroring
-            }
+            0x00 => Mirroring::SingleScreenA,
+            0x55 => Mirroring::SingleScreenB,
+            // $E4 +----+----+
+            //     | NA | NB |
+            //     +----+----+
+            //     | EX | FL |
+            //     +----+----+
+            // $D8 +----+----+
+            //     | NA | EX |
+            //     +----+----+
+            //     | NB | FL |
+            //     +----+----+
+            _ => Mirroring::FourScreen,
         };
         if self.logging {
-            println!("{:?}", self.mirroring);
+            println!(
+                "Switched mapping: ${:02X} - {:?}",
+                self.regs.nametable_mapping, self.mirroring
+            );
         }
     }
 
     fn clock_irq(&mut self) {
-        // not in-frame
         if self.logging {
-            println!(
-                "scanline: {}, scanline irq: {}, irq counter: {}, in_frame: {}",
-                self.regs.scanline,
-                self.regs.scanline_num_irq,
-                self.regs.irq_counter,
-                self.regs.in_frame
-            );
+            println!("clock irq {}", self.regs.irq_counter);
         }
         if !self.regs.in_frame {
-            if self.logging {
-                println!("irq reset");
-            }
             self.regs.in_frame = true;
             self.irq_pending = false;
             self.regs.irq_counter = 0;
@@ -285,10 +283,9 @@ impl Exrom {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
             if self.regs.irq_counter == u16::from(self.regs.scanline_num_irq) {
                 if self.logging {
-                    println!("irq triggered {}", self.regs.scanline_num_irq);
+                    println!("irq {}", self.regs.irq_counter);
                 }
                 self.irq_pending = true;
-                // self.regs.irq_counter = 0;
             }
         }
     }
@@ -307,24 +304,28 @@ impl Mapper for Exrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _ppu: &Ppu, addr: u16) {
-        if addr <= 0x1FFF {
-            self.regs.sp_fetch_count += 1;
+    fn vram_change(&mut self, addr: u16) {
+        self.regs.sp_fetch_count += 1;
+
+        if (addr >> 12) == 0x02 {
+            if addr != self.regs.prev_vaddr[0]
+                && self.regs.prev_vaddr[0] == self.regs.prev_vaddr[1]
+                && self.regs.prev_vaddr[1] == self.regs.prev_vaddr[2]
+            {
+                self.clock_irq();
+                self.regs.sp_fetch_count = 0;
+            }
+            self.regs.prev_vaddr[2] = self.regs.prev_vaddr[1];
+            self.regs.prev_vaddr[1] = self.regs.prev_vaddr[0];
+            self.regs.prev_vaddr[0] = addr;
         }
     }
     fn clock(&mut self, ppu: &Ppu) {
-        if ppu.vblank_started() || ppu.scanline == PRERENDER_SCANLINE {
+        if ppu.scanline == PRERENDER_SCANLINE || !ppu.rendering_enabled() {
             self.regs.in_frame = false;
         }
 
-        if self.regs.scanline != ppu.scanline {
-            self.clock_irq();
-            self.regs.sp_fetch_count = 0;
-            self.regs.scanline = ppu.scanline;
-        }
-
         self.regs.sprite8x16 = ppu.regs.ctrl.sprite_height() == 16;
-        self.regs.rendering_enabled = ppu.rendering_enabled();
     }
     fn battery_backed(&self) -> bool {
         false
@@ -347,6 +348,30 @@ impl Mapper for Exrom {
     fn set_logging(&mut self, logging: bool) {
         self.logging = logging;
     }
+    fn nametable_mirror_addr(&self, addr: u16) -> u16 {
+        let table_size = 0x0400;
+        // $3000..=$4000 are mirrors of $2000..=$3000
+        let addr = (addr - 0x2000) % 0x1000 as u16;
+        let table = addr / table_size;
+        let offset = addr % table_size;
+        // 7654 3210
+        // DDCC BBAA
+        // |||| ||||
+        // |||| ||++- Select nametable at PPU $2000-$23FF
+        // |||| ++--- Select nametable at PPU $2400-$27FF
+        // ||++------ Select nametable at PPU $2800-$2BFF
+        // ++-------- Select nametable at PPU $2C00-$2FFF
+        let mode = (self.regs.nametable_mapping >> (2 * table)) & 0x03;
+        if mode < 2 {
+            // 0 and 1 use PPU nametable data
+            (0x2000 + u16::from(mode) * table_size + offset) % 0x0800
+        } else {
+            // addr should return 0 so it routes back to here for read/write
+            // 2 uses EX RAM
+            // 3 uses Fill-mode
+            0
+        }
+    }
 }
 
 impl Memory for Exrom {
@@ -362,53 +387,32 @@ impl Memory for Exrom {
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => {
-                let mut bank_size = 1;
-                let mut bank_idx_a = ((addr >> 10) & 0x0F) as usize;
-                let mut bank_idx_b = ((addr >> 10) & 3) as usize;
-                match self.regs.chr_mode {
-                    0 => {
-                        bank_size = 8;
-                        bank_idx_a = 7;
-                        bank_idx_b = 3;
-                    }
-                    1 => {
-                        bank_size = 4;
-                        bank_idx_a = if addr < 0x1000 { 3 } else { 7 };
-                        bank_idx_b = 3;
-                    }
+                let addr = self.get_chr_addr(addr);
+                self.chr[addr]
+            }
+            0x2000..=0x3EFF => {
+                let table_size = 0x0400;
+                let addr = (addr - 0x2000) % 0x1000 as u16;
+                let table = addr / table_size;
+                let offset = addr % table_size;
+                let mode = (self.regs.nametable_mapping >> (2 * table)) & 0x03;
+                match mode {
                     2 => {
-                        bank_size = 2;
-                        bank_idx_a = match addr {
-                            0x0000..=0x07FF => 1,
-                            0x0800..=0x0FFF => 3,
-                            0x1000..=0x17FF => 5,
-                            0x1800..=0x1FFF => 7,
-                            _ => panic!("invalid addr"),
-                        };
-                        bank_idx_b = match addr {
-                            0x0000..=0x07FF => 1,
-                            0x0800..=0x0FFF => 3,
-                            0x1000..=0x17FF => 1,
-                            0x1800..=0x1FFF => 3,
-                            _ => panic!("invalid addr"),
-                        };
+                        if self.regs.extended_ram_mode & 0x02 == 0x02 {
+                            0
+                        } else {
+                            self.ex_ram[offset as usize]
+                        }
                     }
-                    _ => (), // Use Default
+                    3 => {
+                        if offset < 0x03C0 {
+                            self.regs.fill_tile
+                        } else {
+                            self.regs.fill_attr
+                        }
+                    }
+                    _ => 0,
                 }
-                bank_size *= 1024;
-                let bank = if self.regs.sprite8x16 {
-                    if self.regs.sp_fetch_count >= 32 && self.regs.sp_fetch_count < 40 {
-                        self.chr_banks_spr[bank_idx_a]
-                    } else {
-                        self.chr_banks_bg[bank_idx_b]
-                    }
-                } else if self.regs.last_chr_write == ChrBank::Spr {
-                    self.chr_banks_spr[bank_idx_a]
-                } else {
-                    self.chr_banks_bg[bank_idx_b]
-                };
-                let offset = addr as usize % bank_size;
-                self.chr[bank * bank_size + offset]
             }
             0x6000..=0x7FFF => {
                 let bank = self.prg_banks[(addr - 0x6000) as usize / PRG_RAM_BANK_SIZE];
@@ -437,7 +441,8 @@ impl Memory for Exrom {
             }
             0x5C00..=0x5FFF => self.read_expansion_ram(addr),
             0x5113..=0x5117 => 0, // TODO read prg_bank?
-            0x5120..=0x512B => 0, // TODO read chr_bank?
+            0x5120..=0x5127 => self.chr_banks_spr[(addr & 0x07) as usize] as u8,
+            0x5128..=0x512B => self.chr_banks_bg[(addr & 0x03) as usize] as u8,
             0x5000..=0x5003 => 0, // TODO Sound Pulse 1
             0x5004..=0x5007 => 0, // TODO Sound Pulse 2
             0x5010..=0x5011 => 0, // TODO Sound PCM
@@ -468,7 +473,25 @@ impl Memory for Exrom {
 
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
+        if self.logging {
+            println!("Writing to ${:04X}: ${:02X}", addr, val);
+        }
         match addr {
+            0x2000..=0x3EFF => {
+                let table_size = 0x0400;
+                let addr = (addr - 0x2000) % 0x1000 as u16;
+                let table = addr / table_size;
+                let offset = addr % table_size;
+                let mode = (self.regs.nametable_mapping >> (2 * table)) & 0x03;
+                match mode {
+                    2 => {
+                        if self.regs.extended_ram_mode & 0x02 != 0x02 {
+                            self.ex_ram[offset as usize] = val;
+                        }
+                    }
+                    _ => (),
+                }
+            }
             0x6000..=0x7FFF => {
                 let bank = self.prg_banks[(addr - 0x6000) as usize / PRG_RAM_BANK_SIZE];
                 let offset = addr as usize % PRG_RAM_BANK_SIZE;
@@ -520,9 +543,14 @@ impl Memory for Exrom {
             0x5106 => self.regs.fill_tile = val,
             0x5107 => self.regs.fill_attr = val & 0x03,
             0x5200 => self.regs.vertical_split_mode = val,
-            0x5201 => self.regs.vertical_split_scroll = (val >> 3) & 0x1F,
-            0x5202 => self.regs.vertical_split_bank = val & 0x3F,
-            0x5203 => self.regs.scanline_num_irq = val,
+            0x5201 => self.regs.vertical_split_scroll = val,
+            0x5202 => self.regs.vertical_split_bank = val,
+            0x5203 => {
+                self.regs.scanline_num_irq = val;
+                if self.logging {
+                    println!("sirq: {}", self.regs.scanline_num_irq);
+                }
+            }
             0x5204 => self.regs.irq_enabled = val & 0x80 == 0x80,
             0x5205 => self.regs.multiplicand = val,
             0x5206 => self.multiplier(val),
@@ -585,9 +613,7 @@ impl Savable for ExRegs {
         self.chr_hi_bit.save(fh)?;
         self.last_chr_write.save(fh)?;
         self.sprite8x16.save(fh)?;
-        self.scanline.save(fh)?;
         self.sp_fetch_count.save(fh)?;
-        self.rendering_enabled.save(fh)?;
         self.prg_ram_protect1.save(fh)?;
         self.prg_ram_protect2.save(fh)?;
         self.extended_ram_mode.save(fh)?;
@@ -611,9 +637,7 @@ impl Savable for ExRegs {
         self.chr_hi_bit.load(fh)?;
         self.last_chr_write.load(fh)?;
         self.sprite8x16.load(fh)?;
-        self.scanline.load(fh)?;
         self.sp_fetch_count.load(fh)?;
-        self.rendering_enabled.load(fh)?;
         self.prg_ram_protect1.load(fh)?;
         self.prg_ram_protect2.load(fh)?;
         self.extended_ram_mode.load(fh)?;

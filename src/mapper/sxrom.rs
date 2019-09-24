@@ -206,8 +206,8 @@ impl Mapper for Sxrom {
     }
     fn mirroring(&self) -> Mirroring {
         match self.regs.control & MIRRORING_MASK {
-            0 => Mirroring::SingleScreen0,
-            1 => Mirroring::SingleScreen1,
+            0 => Mirroring::SingleScreenA,
+            1 => Mirroring::SingleScreenB,
             2 => Mirroring::Vertical,
             3 => Mirroring::Horizontal,
             _ => panic!("impossible mirroring mode"),
@@ -244,6 +244,9 @@ impl Mapper for Sxrom {
         Some(&self.prg_ram)
     }
     fn set_logging(&mut self, _logging: bool) {}
+    fn nametable_mapping(&self, _addr: u16) -> bool {
+        false
+    }
 }
 
 impl Memory for Sxrom {

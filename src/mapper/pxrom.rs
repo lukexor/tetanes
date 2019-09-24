@@ -89,6 +89,9 @@ impl Mapper for Pxrom {
         Some(&self.prg_ram)
     }
     fn set_logging(&mut self, _logging: bool) {}
+    fn nametable_mapping(&self, _addr: u16) -> bool {
+        false
+    }
 }
 
 impl Memory for Pxrom {

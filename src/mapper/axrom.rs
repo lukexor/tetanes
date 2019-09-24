@@ -77,6 +77,9 @@ impl Mapper for Axrom {
         None
     }
     fn set_logging(&mut self, _logging: bool) {}
+    fn nametable_mapping(&self, _addr: u16) -> bool {
+        false
+    }
 }
 
 impl Memory for Axrom {
@@ -115,9 +118,9 @@ impl Memory for Axrom {
                     bank
                 };
                 self.mirroring = if val & 0x10 == 0x10 {
-                    Mirroring::SingleScreen1
+                    Mirroring::SingleScreenB
                 } else {
-                    Mirroring::SingleScreen0
+                    Mirroring::SingleScreenA
                 };
             }
             0x4020..=0x7FFF => (), // Nothing at this range

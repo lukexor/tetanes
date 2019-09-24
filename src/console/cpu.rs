@@ -108,7 +108,7 @@ where
     }
 
     #[cfg(debug_assertions)]
-    pub fn log(&mut self, val: bool) {
+    pub fn logging(&mut self, val: bool) {
         self.log_enabled = val;
     }
 

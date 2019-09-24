@@ -108,6 +108,7 @@ impl UiBuilder {
         let mut console = Console::init(input.clone(), self.randomize_ram);
         #[cfg(debug_assertions)]
         console.log_cpu(self.log_cpu);
+        console.ppu_debug(self.ppu_debug);
         console.no_save(self.no_save);
 
         let (window, event_pump) =
