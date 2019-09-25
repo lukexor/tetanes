@@ -89,19 +89,21 @@ impl Cartridge {
         })?;
         let chr_rom = Rom::from_vec(chr_rom);
 
-        println!(
-            "Loaded `{}` - Mapper: {}, PRG ROM: {}, CHR ROM: {}",
-            rom_file.as_ref().display(),
-            header.mapper_num,
-            header.prg_rom_size,
-            header.chr_rom_size,
-        );
-        Ok(Self {
+        let cart = Self {
             rom_file: rom_file.as_ref().to_path_buf(),
             header,
             prg_rom,
             chr_rom,
-        })
+        };
+        println!(
+            "Loaded `{}` - Mapper: {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}",
+            rom_file.as_ref().display(),
+            cart.header.mapper_num,
+            cart.header.prg_rom_size,
+            cart.header.chr_rom_size,
+            cart.mirroring(),
+        );
+        Ok(cart)
     }
 
     /// The nametable mirroring mode defined in the header

@@ -17,7 +17,6 @@ use std::{fmt, fs};
 
 pub mod apu;
 pub mod cpu;
-pub mod debugger;
 pub mod ppu;
 
 /// Represents the NES Control Deck
@@ -93,8 +92,8 @@ impl Console {
 
     /// Enable/Disable CPU logging
     #[cfg(debug_assertions)]
-    pub fn log_cpu(&mut self, val: bool) {
-        self.cpu.logging(val);
+    pub fn logging(&mut self, val: bool) {
+        // self.cpu.logging(val);
         self.cpu.mem.ppu.logging(val);
         self.mapper.borrow_mut().set_logging(val);
     }

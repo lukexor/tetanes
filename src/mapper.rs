@@ -13,23 +13,23 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::rc::Rc;
 
-// use axrom::Axrom; // Mapper 7
-// use cnrom::Cnrom; // Mapper 3
+use axrom::Axrom; // Mapper 7
+use cnrom::Cnrom; // Mapper 3
 use exrom::Exrom; // Mapper 5
-                  // use nrom::Nrom; // Mapper 0
-                  // use pxrom::Pxrom; // Mapper 9
-                  // use sxrom::Sxrom; // Mapper 1
-                  // use txrom::Txrom; // Mapper 4
-                  // use uxrom::Uxrom; // Mapper 2
+use nrom::Nrom; // Mapper 0
+use pxrom::Pxrom; // Mapper 9
+use sxrom::Sxrom; // Mapper 1
+use txrom::Txrom; // Mapper 4
+use uxrom::Uxrom; // Mapper 2
 
-// pub mod axrom;
-// pub mod cnrom;
+pub mod axrom;
+pub mod cnrom;
 pub mod exrom;
-// pub mod nrom;
-// pub mod pxrom;
-// pub mod sxrom;
-// pub mod txrom;
-// pub mod uxrom;
+pub mod nrom;
+pub mod pxrom;
+pub mod sxrom;
+pub mod txrom;
+pub mod uxrom;
 
 /// Alias for Mapper wrapped in a Rc/RefCell
 pub type MapperRef = Rc<RefCell<dyn Mapper>>;
@@ -47,7 +47,8 @@ pub trait Mapper: Memory + Savable + fmt::Debug {
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
     fn set_logging(&mut self, logging: bool);
-    fn nametable_mirror_addr(&self, addr: u16) -> u16;
+    fn use_ciram(&self, addr: u16) -> bool;
+    fn nametable_addr(&self, addr: u16) -> u16;
 }
 
 pub fn null() -> MapperRef {
@@ -58,14 +59,14 @@ pub fn null() -> MapperRef {
 pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
     let cart = Cartridge::from_rom(rom)?;
     match cart.header.mapper_num {
-        // 0 => Ok(Nrom::load(cart)),
-        // 1 => Ok(Sxrom::load(cart)),
-        // 2 => Ok(Uxrom::load(cart)),
-        // 3 => Ok(Cnrom::load(cart)),
-        // 4 => Ok(Txrom::load(cart)),
+        0 => Ok(Nrom::load(cart)),
+        1 => Ok(Sxrom::load(cart)),
+        2 => Ok(Uxrom::load(cart)),
+        3 => Ok(Cnrom::load(cart)),
+        4 => Ok(Txrom::load(cart)),
         5 => Ok(Exrom::load(cart)),
-        // 7 => Ok(Axrom::load(cart)),
-        // 9 => Ok(Pxrom::load(cart)),
+        7 => Ok(Axrom::load(cart)),
+        9 => Ok(Pxrom::load(cart)),
         _ => Err(nes_err!(
             "unsupported mapper number: {}",
             cart.header.mapper_num
@@ -84,15 +85,6 @@ pub enum Mirroring {
     SingleScreenB,
     FourScreen,
 }
-
-#[rustfmt::skip]
-pub static MIRRORING_LOOKUP: [[u16; 4]; 4] = [
-    [0, 0, 1, 1], // Horizontal
-    [0, 1, 0, 1], // Vertical
-    [0, 0, 0, 0], // SingleScreenA
-    [1, 1, 1, 1], // SingleScreenB
-    // FourScreen defers to mapper for addressing
-];
 
 impl Savable for Mirroring {
     fn save(&self, fh: &mut dyn Write) -> Result<()> {
@@ -150,7 +142,10 @@ impl Mapper for NullMapper {
         None
     }
     fn set_logging(&mut self, _logging: bool) {}
-    fn nametable_mirror_addr(&self, _addr: u16) -> u16 {
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
         0
     }
 }

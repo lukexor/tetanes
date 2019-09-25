@@ -75,7 +75,7 @@ impl Mapper for Nrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
+    fn vram_change(&mut self, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {} // No clocking
     fn battery_backed(&self) -> bool {
         self.battery_backed
@@ -102,8 +102,11 @@ impl Mapper for Nrom {
         Some(&self.prg_ram)
     }
     fn set_logging(&mut self, _logging: bool) {}
-    fn nametable_mapping(&self, _addr: u16) -> bool {
-        false
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
+        0
     }
 }
 

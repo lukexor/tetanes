@@ -35,7 +35,7 @@ pub struct UiBuilder {
     sound_off: bool,
     concurrent_dpad: bool,
     randomize_ram: bool,
-    log_cpu: bool,
+    logging: bool,
     no_save: bool,
     save_slot: u8,
     scale: u32,
@@ -51,7 +51,7 @@ impl UiBuilder {
             sound_off: false,
             concurrent_dpad: false,
             randomize_ram: false,
-            log_cpu: false,
+            logging: false,
             no_save: false,
             save_slot: 1u8,
             scale: 1u32,
@@ -87,8 +87,8 @@ impl UiBuilder {
 
         self
     }
-    pub fn log_cpu(&mut self, val: bool) -> &mut Self {
-        self.log_cpu = val;
+    pub fn logging(&mut self, val: bool) -> &mut Self {
+        self.logging = val;
         self
     }
     pub fn no_save(&mut self, val: bool) -> &mut Self {
@@ -107,7 +107,7 @@ impl UiBuilder {
         let input = Rc::new(RefCell::new(Input::new()));
         let mut console = Console::init(input.clone(), self.randomize_ram);
         #[cfg(debug_assertions)]
-        console.log_cpu(self.log_cpu);
+        console.logging(self.logging);
         console.ppu_debug(self.ppu_debug);
         console.no_save(self.no_save);
 
@@ -181,7 +181,7 @@ impl Ui {
             self.console.power_on()?;
             self.console.load_state(self.save_slot)?;
             if self.debug {
-                self.console.log_cpu(true);
+                self.console.logging(true);
             } else {
                 self.running = true;
             }
@@ -370,13 +370,13 @@ impl Ui {
             Keycode::R if self.lctrl => {
                 self.running = true;
                 self.paused = false;
-                self.console.log_cpu(false);
+                self.console.logging(false);
                 self.console.reset();
             }
             Keycode::P if self.lctrl => {
                 self.running = true;
                 self.paused = false;
-                self.console.log_cpu(false);
+                self.console.logging(false);
                 self.console.power_cycle();
             }
             Keycode::Minus if self.lctrl => self.change_speed(-25.0)?,
@@ -403,7 +403,7 @@ impl Ui {
             Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,
             Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
             Keycode::D if self.lctrl => {
-                self.console.log_cpu(self.running);
+                self.console.logging(self.running);
                 self.running = !self.running;
             }
             Keycode::C => {

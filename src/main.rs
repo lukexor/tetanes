@@ -23,7 +23,7 @@ fn main() {
         .sound_off(opt.sound_off)
         .concurrent_dpad(opt.concurrent_dpad)
         .randomize_ram(opt.randomize_ram)
-        .log_cpu(opt.log_cpu)
+        .logging(opt.logging)
         .no_save(opt.no_save)
         .save_slot(opt.save_slot)
         .scale(opt.scale)
@@ -76,13 +76,9 @@ struct Opt {
         help = "By default RAM initializes to 0x00 on power up. This affects some games RNG seed generators."
     )]
     randomize_ram: bool,
-    #[structopt(
-        short = "l",
-        long = "log_cpu",
-        help = "Print CPU instructions to STDOUT"
-    )]
-    log_cpu: bool,
-    #[structopt(long = "no_save", help = "Don't load or save game state.")]
+    #[structopt(short = "l", long = "logging", help = "Enable logging")]
+    logging: bool,
+    #[structopt(long = "no_save", help = "Don't load or save quick-save slots.")]
     no_save: bool,
     #[structopt(
         long = "save_slot",

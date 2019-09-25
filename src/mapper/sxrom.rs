@@ -213,7 +213,7 @@ impl Mapper for Sxrom {
             _ => panic!("impossible mirroring mode"),
         }
     }
-    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
+    fn vram_change(&mut self, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
@@ -244,8 +244,11 @@ impl Mapper for Sxrom {
         Some(&self.prg_ram)
     }
     fn set_logging(&mut self, _logging: bool) {}
-    fn nametable_mapping(&self, _addr: u16) -> bool {
-        false
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
+        0
     }
 }
 

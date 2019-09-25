@@ -2,7 +2,7 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/PPU]()
 
-use crate::mapper::{self, MapperRef, MIRRORING_LOOKUP};
+use crate::mapper::{self, MapperRef, Mirroring};
 use crate::memory::Memory;
 use crate::serialization::Savable;
 use crate::Result;
@@ -877,6 +877,7 @@ impl Memory for Ppu {
         self.cycle = 0;
         self.scanline = 0;
         self.frame.reset();
+        self.vram.reset();
         self.set_sprite_zero_hit(false);
         self.set_sprite_overflow(false);
         self.write_ppuctrl(0);
@@ -897,7 +898,9 @@ impl Savable for Ppu {
         self.regs.save(fh)?;
         self.oamdata.save(fh)?;
         self.vram.save(fh)?;
-        self.frame.save(fh)
+        self.frame.save(fh)?;
+        self.logging.save(fh)?;
+        self.debug.save(fh)
     }
     fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.cycle.load(fh)?;
@@ -906,7 +909,9 @@ impl Savable for Ppu {
         self.regs.load(fh)?;
         self.oamdata.load(fh)?;
         self.vram.load(fh)?;
-        self.frame.load(fh)
+        self.frame.load(fh)?;
+        self.logging.load(fh)?;
+        self.debug.load(fh)
     }
 }
 
@@ -1304,22 +1309,20 @@ impl Vram {
         }
     }
 
-    fn nametable_mirror_addr(&self, addr: u16) -> u16 {
+    fn nametable_addr(&self, addr: u16) -> u16 {
         let mirroring = self.mapper.borrow().mirroring();
-        if mirroring as usize > MIRRORING_LOOKUP.len() - 1 {
-            return 0;
-        }
-
-        // Maps addresses to nametable pages
-        let mirror_lookup = MIRRORING_LOOKUP[mirroring as usize];
-
+        // Maps addresses to nametable pages based on mirroring mode
+        let mirroring_shift = match mirroring {
+            Mirroring::Horizontal => 11,
+            Mirroring::Vertical => 10,
+            Mirroring::SingleScreenA => 14,
+            Mirroring::SingleScreenB => 13,
+            _ => panic!("Invalid mirroring mode"),
+        };
+        let page = (addr >> mirroring_shift) & 1;
         let table_size = 0x0400;
-        // $3000..=$4000 are mirrors of $2000..=$3000
-        let addr = (addr - NT_START) % (2 * NT_SIZE) as u16;
-        let table = addr / table_size;
         let offset = addr % table_size;
-
-        (NT_START + mirror_lookup[table as usize] * table_size + offset) % NT_SIZE as u16
+        NT_START + page * table_size + offset
     }
 }
 
@@ -1331,14 +1334,14 @@ impl Memory for Vram {
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow_mut().read(addr),
             0x2000..=0x3EFF => {
-                let mut mirror_addr = self.nametable_mirror_addr(addr);
-                if mirror_addr == 0 {
-                    mirror_addr = self.mapper.borrow().nametable_mirror_addr(addr);
-                }
-                if mirror_addr == 0 {
-                    self.mapper.borrow_mut().read(addr)
+                if self.mapper.borrow().use_ciram(addr) {
+                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
+                    if mirror_addr == 0 {
+                        mirror_addr = self.nametable_addr(addr);
+                    }
+                    self.nametable.read(mirror_addr % NT_SIZE as u16)
                 } else {
-                    self.nametable.read(mirror_addr)
+                    self.mapper.borrow_mut().read(addr)
                 }
             }
             0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
@@ -1356,14 +1359,14 @@ impl Memory for Vram {
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow().peek(addr),
             0x2000..=0x3EFF => {
-                let mut mirror_addr = self.nametable_mirror_addr(addr);
-                if mirror_addr == 0 {
-                    mirror_addr = self.mapper.borrow().nametable_mirror_addr(addr);
-                }
-                if mirror_addr == 0 {
-                    self.mapper.borrow().peek(addr)
+                if self.mapper.borrow().use_ciram(addr) {
+                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
+                    if mirror_addr == 0 {
+                        mirror_addr = self.nametable_addr(addr);
+                    }
+                    self.nametable.peek(mirror_addr % NT_SIZE as u16)
                 } else {
-                    self.nametable.peek(mirror_addr)
+                    self.mapper.borrow().peek(addr)
                 }
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
@@ -1381,14 +1384,14 @@ impl Memory for Vram {
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
             0x2000..=0x3EFF => {
-                let mut mirror_addr = self.nametable_mirror_addr(addr);
-                if mirror_addr == 0 {
-                    mirror_addr = self.mapper.borrow().nametable_mirror_addr(addr);
-                }
-                if mirror_addr == 0 {
-                    self.mapper.borrow_mut().write(addr, val)
+                if self.mapper.borrow().use_ciram(addr) {
+                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
+                    if mirror_addr == 0 {
+                        mirror_addr = self.nametable_addr(addr);
+                    }
+                    self.nametable.write(mirror_addr % NT_SIZE as u16, val);
                 } else {
-                    self.nametable.write(mirror_addr, val)
+                    self.mapper.borrow_mut().write(addr, val);
                 }
             }
             0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
@@ -1396,20 +1399,27 @@ impl Memory for Vram {
         }
     }
 
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
+    fn reset(&mut self) {
+        self.nametable = Nametable([0u8; NT_SIZE]);
+        self.palette = Palette([0u8; PALETTE_SIZE]);
+    }
+    fn power_cycle(&mut self) {
+        self.reset();
+    }
 }
 
 impl Savable for Vram {
     fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.buffer.save(fh)?;
         self.nametable.save(fh)?;
-        self.palette.save(fh)
+        self.palette.save(fh)?;
+        self.logging.save(fh)
     }
     fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.buffer.load(fh)?;
         self.nametable.load(fh)?;
-        self.palette.load(fh)
+        self.palette.load(fh)?;
+        self.logging.load(fh)
     }
 }
 

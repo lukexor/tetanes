@@ -2,6 +2,7 @@
 
 use crate::console::cpu::{Cpu, Interrupt};
 use crate::console::memory::MemoryMap;
+use crate::util;
 
 pub struct Debugger {
     enabled: bool,         // Whether debugger is enabled at all or not
@@ -218,30 +219,30 @@ impl Debugger {
             match obj {
                 "cpu" => println!("{:?}", cpu),
                 "wram" => {
-                    Self::hexdump(&cpu.mem.wram);
+                    util::hexdump(&cpu.mem.wram);
                 }
                 "ppu" => println!("{:?}", cpu.mem.ppu),
                 "vram" => {
-                    Self::hexdump(&cpu.mem.ppu.vram.nametable.0);
+                    util::hexdump(&cpu.mem.ppu.vram.nametable.0);
                 }
                 "apu" => println!("{:?}", cpu.mem.apu),
                 "mapper" => println!("{:?}", cpu.mem.mapper),
                 "prg_rom" => {
                     let mapper = cpu.mem.mapper.borrow();
                     for bank in &**mapper.prg_rom().unwrap() {
-                        Self::hexdump(&bank);
+                        util::hexdump(&bank);
                     }
                 }
                 "prg_ram" => {
                     let mapper = cpu.mem.mapper.borrow();
                     if let Some(ram) = mapper.prg_ram() {
-                        Self::hexdump(&ram);
+                        util::hexdump(&ram);
                     }
                 }
                 "chr" => {
                     let mapper = cpu.mem.mapper.borrow();
                     for bank in &**mapper.chr().unwrap() {
-                        Self::hexdump(&bank);
+                        util::hexdump(&bank);
                     }
                 }
                 _ => {
@@ -250,56 +251,6 @@ impl Debugger {
             }
         } else {
             println!("{}", Self::P_USAGE);
-        }
-    }
-
-    pub fn hexdump(data: &[u8]) {
-        use std::cmp;
-
-        let mut addr = 0;
-        let len = data.len();
-        let mut last_line_same = false;
-        let mut last_line = String::with_capacity(80);
-        while addr <= len {
-            let end = cmp::min(addr + 16, len);
-            let line_data = &data[addr..end];
-            let line_len = line_data.len();
-
-            let mut line = String::with_capacity(80);
-            for byte in line_data.iter() {
-                line.push_str(&format!(" {:02X}", byte));
-            }
-
-            if line_len % 16 > 0 {
-                let words_left = (16 - line_len) / 2;
-                for _ in 0..3 * words_left {
-                    line.push_str(" ");
-                }
-            }
-
-            if line_len > 0 {
-                line.push_str("  |");
-                for c in line_data {
-                    if (*c as char).is_ascii() && !(*c as char).is_control() {
-                        line.push_str(&format!("{}", (*c as char)));
-                    } else {
-                        line.push_str(".");
-                    }
-                }
-                line.push_str("|");
-            }
-            if last_line == line {
-                if !last_line_same {
-                    last_line_same = true;
-                    println!("*");
-                }
-            } else {
-                last_line_same = false;
-                println!("{:08x} {}", addr, line);
-            }
-            last_line = line;
-
-            addr += 16;
         }
     }
 }

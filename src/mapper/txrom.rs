@@ -80,7 +80,7 @@ struct TxRegs {
 impl Txrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let mirroring = cart.mirroring();
-        let four_screen_ram = if mirroring == Mirroring::Mapper {
+        let four_screen_ram = if mirroring == Mirroring::FourScreen {
             Ram::init(FOUR_SCREEN_RAM_SIZE)
         } else {
             Ram::null()
@@ -163,7 +163,7 @@ impl Txrom {
                 self.update_banks();
             }
             0xA000 => {
-                if self.mirroring != Mirroring::Mapper {
+                if self.mirroring != Mirroring::FourScreen {
                     self.mirroring = match val & 0x01 {
                         0 => Mirroring::Vertical,
                         1 => Mirroring::Horizontal,
@@ -255,7 +255,7 @@ impl Mapper for Txrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _ppu: &Ppu, addr: u16) {
+    fn vram_change(&mut self, addr: u16) {
         self.clock_irq(addr);
     }
     fn clock(&mut self, _ppu: &Ppu) {
@@ -286,8 +286,11 @@ impl Mapper for Txrom {
         Some(&self.prg_ram)
     }
     fn set_logging(&mut self, _logging: bool) {}
-    fn nametable_mapping(&self, _addr: u16) -> bool {
-        false
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
+        0
     }
 }
 
@@ -310,7 +313,7 @@ impl Memory for Txrom {
                 let idx = self.chr_bank_idx[bank];
                 self.chr_banks[idx].peek(addr)
             }
-            0x2000..=0x2FFF if self.mirroring == Mirroring::Mapper => {
+            0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
                 self.four_screen_ram.peek(addr - 0x2000)
             }
             0x6000..=0x7FFF => self.prg_ram.peek(addr - 0x6000),
@@ -339,7 +342,7 @@ impl Memory for Txrom {
                     self.chr_banks[idx].write(addr, val);
                 }
             }
-            0x2000..=0x2FFF if self.mirroring == Mirroring::Mapper => {
+            0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
                 self.four_screen_ram.write(addr - 0x2000, val)
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
