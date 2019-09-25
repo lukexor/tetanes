@@ -1714,6 +1714,12 @@ impl Savable for PpuStatus {
     }
 }
 
+impl Default for Ppu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl fmt::Debug for Oam {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Oam {{ entries: {} bytes }}", OAM_SIZE)

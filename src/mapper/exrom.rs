@@ -122,8 +122,8 @@ impl Exrom {
             prg_rom: cart.prg_rom,
             chr: cart.chr_rom.to_ram(),
         };
-        exrom.prg_banks[3] = 0x80 | num_rom_banks - 2;
-        exrom.prg_banks[4] = 0x80 | num_rom_banks - 1;
+        exrom.prg_banks[3] = 0x80 | (num_rom_banks - 2);
+        exrom.prg_banks[4] = 0x80 | (num_rom_banks - 1);
         Rc::new(RefCell::new(exrom))
     }
 
@@ -218,7 +218,7 @@ impl Exrom {
                 };
                 (bank_size, bank_idx_a, bank_idx_b)
             }
-            _ => (1 * 1024, (addr >> 10) & 0x0F, (addr >> 10) & 0x03),
+            _ => (1024, (addr >> 10) & 0x0F, (addr >> 10) & 0x03),
         };
         let bank = if self.regs.sprite8x16 {
             // Means we've gotten our 32 BG tiles fetched (32 * 4)
@@ -250,9 +250,6 @@ impl Exrom {
         } else {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
             if self.regs.irq_counter == self.regs.scanline_num_irq {
-                if self.logging {
-                    println!("irq {}", self.regs.irq_counter);
-                }
                 self.irq_pending = true;
             }
         }
@@ -496,7 +493,7 @@ impl Memory for Exrom {
                 {
                     let chip = (addr as usize >> 2) & 0x01;
                     let addr = ((bank & 0x7F) * bank_size + offset) % self.prg_ram.len();
-                    self.prg_ram[chip][addr];
+                    self.prg_ram[chip][addr] = val;
                 }
             }
             0x5105 => {
@@ -547,7 +544,7 @@ impl Memory for Exrom {
             //         A=%10
             //         B=%01
             //     Any other values will prevent PRG-RAM writing.
-            0x5102 => self.regs.prg_ram_protect_a = (val & 0x03) == 0x10,
+            0x5102 => self.regs.prg_ram_protect_a = (val & 0x03) == 0x02,
             0x5103 => self.regs.prg_ram_protect_b = (val & 0x03) == 0x01,
             // [.... ..XX]    ExRAM mode
             //     %00 = Extra Nametable mode    ("Ex0")
@@ -560,12 +557,7 @@ impl Memory for Exrom {
             0x5200 => self.regs.vertical_split_mode = val,
             0x5201 => self.regs.vertical_split_scroll = val,
             0x5202 => self.regs.vertical_split_bank = val,
-            0x5203 => {
-                self.regs.scanline_num_irq = u16::from(val);
-                if self.logging {
-                    println!("sirq: {}", self.regs.scanline_num_irq);
-                }
-            }
+            0x5203 => self.regs.scanline_num_irq = u16::from(val),
             0x5204 => self.regs.irq_enabled = val & 0x80 == 0x80,
             0x5205 => self.regs.multiplicand = val,
             0x5206 => self.regs.mult_result = u16::from(self.regs.multiplicand) * u16::from(val),
