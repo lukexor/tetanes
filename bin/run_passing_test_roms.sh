@@ -17,7 +17,6 @@ tests/cpu/registers_after_reset.nes
 ## APU ============================================================================================
 tests/apu/01.len_ctr.nes
 tests/apu/02.len_table.nes
-tests/apu/08.irq_timing.nes
 tests/apu/apu_env.nes
 tests/apu/dmc.nes
 tests/apu/dmc_pitch.nes
@@ -56,6 +55,7 @@ tests/ppu/vbl_nmi_timing/4.vbl_clear_timing.nes
 tests/ppu/vram_access.nes
 
 ## MAPPERS ========================================================================================
+tests/mapper/mmc3/5-MMC3.nes
 tests/mapper/mmc3/mmc3bigchrram.nes
 )
 

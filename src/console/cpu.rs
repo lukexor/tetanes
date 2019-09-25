@@ -53,22 +53,24 @@ where
     M: Memory,
 {
     pub mem: M,
-    pub cycle_count: u64,     // total number of cycles ran
-    stall: u64,               // Number of cycles to stall with nop (used by DMA)
-    pub step: u64,            // total number of CPU instructions run
-    pub pc: u16,              // program counter
-    sp: u8,                   // stack pointer - stack is at $0100-$01FF
-    acc: u8,                  // accumulator
-    x: u8,                    // x register
-    y: u8,                    // y register
-    status: u8,               // Status Registers
-    instr: Instr,             // The currently executing instruction
-    abs_addr: u16,            // Used memory addresses get set here
-    rel_addr: u16,            // Relative address for branch instructions
-    fetched_data: u8,         // Represents data fetched for the ALU
-    pub interrupt: Interrupt, // Pending interrupt
+    pub cycle_count: u64, // total number of cycles ran
+    stall: u64,           // Number of cycles to stall with nop (used by DMA)
+    pub step: u64,        // total number of CPU instructions run
+    pub pc: u16,          // program counter
+    sp: u8,               // stack pointer - stack is at $0100-$01FF
+    acc: u8,              // accumulator
+    x: u8,                // x register
+    y: u8,                // y register
+    status: u8,           // Status Registers
+    instr: Instr,         // The currently executing instruction
+    abs_addr: u16,        // Used memory addresses get set here
+    rel_addr: u16,        // Relative address for branch instructions
+    fetched_data: u8,     // Represents data fetched for the ALU
+    pending_irq: bool,    // Pending interrupts
+    pending_nmi: bool,
+    irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
     #[cfg(debug_assertions)]
-    pub logging: bool,
+    logging: bool,
     #[cfg(test)]
     pub nestestlog: Vec<String>,
 }
@@ -93,7 +95,9 @@ where
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            interrupt: Interrupt::None,
+            pending_irq: false,
+            pending_nmi: false,
+            irq_delay: 0x00,
             #[cfg(debug_assertions)]
             logging: false,
             #[cfg(test)]
@@ -121,14 +125,13 @@ where
 
         let start_cycle = self.cycle_count;
 
-        match self.interrupt {
-            Interrupt::IRQ => self.irq(),
-            Interrupt::NMI => self.nmi(),
-            _ => (),
+        if self.pending_nmi {
+            self.nmi();
+        } else if self.pending_irq {
+            self.irq();
         }
 
         let opcode = self.read(self.pc);
-        self.set_flag(U, true);
         self.pc = self.pc.wrapping_add(1);
         #[cfg(debug_assertions)]
         let log_pc = self.pc;
@@ -227,10 +230,10 @@ where
             AHX => self.ahx(), // Store A & X & H in M
             SAX => self.sax(), // Sotre A & X in M
             XAA => self.xaa(), // TXA & AND
-            SHX => self.shx(), // Store X & H in M
+            SXA => self.sxa(), // Store X & H in M
             RRA => self.rra(), // ROR & ADC
             TAS => self.tas(), // STA & TXS
-            SHY => self.shy(), // Store Y & H in M
+            SYA => self.sya(), // Store Y & H in M
             ARR => self.arr(), // AND #imm & ROR
             SRE => self.sre(), // LSR & EOR
             ALR => self.alr(), // AND #imm & LSR
@@ -251,10 +254,12 @@ where
     ///
     /// http://wiki.nesdev.com/w/index.php/IRQ
     pub fn trigger_irq(&mut self) {
-        self.interrupt = Interrupt::IRQ;
+        self.pending_irq = true;
     }
     pub fn irq(&mut self) {
-        if self.get_flag(I) == 0 {
+        if self.irq_delay > 0 {
+            self.irq_delay -= 1;
+        } else if self.get_flag(I) == 0 {
             self.push_stackw(self.pc);
             // Handles status flags differently than php()
             self.set_flag(B, false);
@@ -263,7 +268,7 @@ where
             self.set_flag(I, true);
             self.pc = self.readw(IRQ_ADDR);
             self.cycle_count = self.cycle_count.wrapping_add(7);
-            self.interrupt = Interrupt::None;
+            self.pending_irq = false;
         }
     }
 
@@ -271,7 +276,7 @@ where
     ///
     /// http://wiki.nesdev.com/w/index.php/NMI
     pub fn trigger_nmi(&mut self) {
-        self.interrupt = Interrupt::NMI;
+        self.pending_nmi = true;
     }
     fn nmi(&mut self) {
         self.push_stackw(self.pc);
@@ -282,7 +287,7 @@ where
         self.set_flag(I, true);
         self.pc = self.readw(NMI_ADDR);
         self.cycle_count = self.cycle_count.wrapping_add(7);
-        self.interrupt = Interrupt::None;
+        self.pending_nmi = false;
     }
 
     // Getters/Setters
@@ -428,7 +433,7 @@ where
         // dummy read for read-modify-write instructions
         match self.instr.op() {
             ASL | LSR | ROL | ROR | INC | DEC | SLO | SRE | RLA | RRA | ISB | DCP => {
-                let _ = self.read(self.abs_addr);
+                let _ = self.read(self.pc);
             }
             _ => (), // Do nothing
         }
@@ -445,7 +450,15 @@ where
         self.pc = self.pc.wrapping_add(2);
         self.abs_addr = addr.wrapping_add(self.x.into());
 
-        // dummy read
+        // Dummy read 1
+        match self.instr.op() {
+            ASL | LSR | ROL | ROR | INC | DEC | SLO | SRE | RLA | RRA | ISB | DCP => {
+                let _ = self.read(self.abs_addr);
+            }
+            _ => (), // Do nothing
+        }
+
+        // Dummy read 2
         if (addr & 0x00FF).wrapping_add(self.x.into()) > 0x00FF {
             self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
         }
@@ -754,12 +767,12 @@ where
     ///
     /// These operations take the CPU 7 cycle.
     fn reset(&mut self) {
-        self.mem.reset();
         self.cycle_count = POWER_ON_CYCLES;
         self.stall = 0u64;
         self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
+        self.mem.reset();
         #[cfg(test)]
         self.nestestlog.clear();
     }
@@ -803,7 +816,9 @@ where
         self.abs_addr.save(fh)?;
         self.rel_addr.save(fh)?;
         self.fetched_data.save(fh)?;
-        self.interrupt.save(fh)
+        self.pending_irq.save(fh)?;
+        self.pending_nmi.save(fh)?;
+        self.irq_delay.save(fh)
     }
     fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.mem.load(fh)?;
@@ -820,31 +835,9 @@ where
         self.abs_addr.load(fh)?;
         self.rel_addr.load(fh)?;
         self.fetched_data.load(fh)?;
-        self.interrupt.load(fh)
-    }
-}
-
-#[derive(PartialEq, Eq, Copy, Clone)]
-pub enum Interrupt {
-    None,
-    IRQ,
-    NMI,
-}
-
-impl Savable for Interrupt {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
-        (*self as u8).save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => Interrupt::None,
-            1 => Interrupt::IRQ,
-            2 => Interrupt::NMI,
-            _ => panic!("invalid Interrupt value"),
-        };
-        Ok(())
+        self.pending_irq.load(fh)?;
+        self.pending_nmi.load(fh)?;
+        self.irq_delay.load(fh)
     }
 }
 
@@ -858,7 +851,7 @@ pub enum Operation {
     CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP, JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA,
     PLP, ROL, ROR, RTI, RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
     // "Unofficial" opcodes
-    SKB, IGN, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SHX, RRA, TAS, SHY, ARR, SRE, ALR, RLA, ANC,
+    SKB, IGN, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SXA, RRA, TAS, SYA, ARR, SRE, ALR, RLA, ANC,
     SLO, XXX
 }
 
@@ -936,10 +929,10 @@ impl Savable for Operation {
             63 => Operation::AHX,
             64 => Operation::SAX,
             65 => Operation::XAA,
-            66 => Operation::SHX,
+            66 => Operation::SXA,
             67 => Operation::RRA,
             68 => Operation::TAS,
-            69 => Operation::SHY,
+            69 => Operation::SYA,
             70 => Operation::ARR,
             71 => Operation::SRE,
             72 => Operation::ALR,
@@ -1039,7 +1032,7 @@ pub const INSTRUCTIONS: [Instr; 256] = [
     Instr(0x60, IMP, RTS, 6), Instr(0x61, IDX, ADC, 6), Instr(0x62, IMP, XXX, 2), Instr(0x63, IDX, RRA, 8), Instr(0x64, ZP0, NOP, 3), Instr(0x65, ZP0, ADC, 3), Instr(0x66, ZP0, ROR, 5), Instr(0x67, ZP0, RRA, 5), Instr(0x68, IMP, PLA, 4), Instr(0x69, IMM, ADC, 2), Instr(0x6A, ACC, ROR, 2), Instr(0x6B, IMM, ARR, 2), Instr(0x6C, IND, JMP, 5), Instr(0x6D, ABS, ADC, 4), Instr(0x6E, ABS, ROR, 6), Instr(0x6F, ABS, RRA, 6),
     Instr(0x70, REL, BVS, 2), Instr(0x71, IDY, ADC, 5), Instr(0x72, IMP, XXX, 2), Instr(0x73, IDY, RRA, 8), Instr(0x74, ZPX, NOP, 4), Instr(0x75, ZPX, ADC, 4), Instr(0x76, ZPX, ROR, 6), Instr(0x77, ZPX, RRA, 6), Instr(0x78, IMP, SEI, 2), Instr(0x79, ABY, ADC, 4), Instr(0x7A, IMP, NOP, 2), Instr(0x7B, ABY, RRA, 7), Instr(0x7C, ABX, IGN, 4), Instr(0x7D, ABX, ADC, 4), Instr(0x7E, ABX, ROR, 7), Instr(0x7F, ABX, RRA, 7),
     Instr(0x80, IMM, SKB, 2), Instr(0x81, IDX, STA, 6), Instr(0x82, IMM, SKB, 2), Instr(0x83, IDX, SAX, 6), Instr(0x84, ZP0, STY, 3), Instr(0x85, ZP0, STA, 3), Instr(0x86, ZP0, STX, 3), Instr(0x87, ZP0, SAX, 3), Instr(0x88, IMP, DEY, 2), Instr(0x89, IMM, SKB, 2), Instr(0x8A, IMP, TXA, 2), Instr(0x8B, IMM, XAA, 2), Instr(0x8C, ABS, STY, 4), Instr(0x8D, ABS, STA, 4), Instr(0x8E, ABS, STX, 4), Instr(0x8F, ABS, SAX, 4),
-    Instr(0x90, REL, BCC, 2), Instr(0x91, IDY, STA, 6), Instr(0x92, IMP, XXX, 2), Instr(0x93, IDY, AHX, 6), Instr(0x94, ZPX, STY, 4), Instr(0x95, ZPX, STA, 4), Instr(0x96, ZPY, STX, 4), Instr(0x97, ZPY, SAX, 4), Instr(0x98, IMP, TYA, 2), Instr(0x99, ABY, STA, 5), Instr(0x9A, IMP, TXS, 2), Instr(0x9B, ABY, TAS, 5), Instr(0x9C, ABX, SHY, 5), Instr(0x9D, ABX, STA, 5), Instr(0x9E, ABY, SHX, 5), Instr(0x9F, ABY, AHX, 5),
+    Instr(0x90, REL, BCC, 2), Instr(0x91, IDY, STA, 6), Instr(0x92, IMP, XXX, 2), Instr(0x93, IDY, AHX, 6), Instr(0x94, ZPX, STY, 4), Instr(0x95, ZPX, STA, 4), Instr(0x96, ZPY, STX, 4), Instr(0x97, ZPY, SAX, 4), Instr(0x98, IMP, TYA, 2), Instr(0x99, ABY, STA, 5), Instr(0x9A, IMP, TXS, 2), Instr(0x9B, ABY, TAS, 5), Instr(0x9C, ABX, SYA, 5), Instr(0x9D, ABX, STA, 5), Instr(0x9E, ABY, SXA, 5), Instr(0x9F, ABY, AHX, 5),
     Instr(0xA0, IMM, LDY, 2), Instr(0xA1, IDX, LDA, 6), Instr(0xA2, IMM, LDX, 2), Instr(0xA3, IDX, LAX, 6), Instr(0xA4, ZP0, LDY, 3), Instr(0xA5, ZP0, LDA, 3), Instr(0xA6, ZP0, LDX, 3), Instr(0xA7, ZP0, LAX, 3), Instr(0xA8, IMP, TAY, 2), Instr(0xA9, IMM, LDA, 2), Instr(0xAA, IMP, TAX, 2), Instr(0xAB, IMM, LAX, 2), Instr(0xAC, ABS, LDY, 4), Instr(0xAD, ABS, LDA, 4), Instr(0xAE, ABS, LDX, 4), Instr(0xAF, ABS, LAX, 4),
     Instr(0xB0, REL, BCS, 2), Instr(0xB1, IDY, LDA, 5), Instr(0xB2, IMP, XXX, 2), Instr(0xB3, IDY, LAX, 5), Instr(0xB4, ZPX, LDY, 4), Instr(0xB5, ZPX, LDA, 4), Instr(0xB6, ZPY, LDX, 4), Instr(0xB7, ZPY, LAX, 4), Instr(0xB8, IMP, CLV, 2), Instr(0xB9, ABY, LDA, 4), Instr(0xBA, IMP, TSX, 2), Instr(0xBB, ABY, LAS, 4), Instr(0xBC, ABX, LDY, 4), Instr(0xBD, ABX, LDA, 4), Instr(0xBE, ABY, LDX, 4), Instr(0xBF, ABY, LAX, 4),
     Instr(0xC0, IMM, CPY, 2), Instr(0xC1, IDX, CMP, 6), Instr(0xC2, IMM, SKB, 2), Instr(0xC3, IDX, DCP, 8), Instr(0xC4, ZP0, CPY, 3), Instr(0xC5, ZP0, CMP, 3), Instr(0xC6, ZP0, DEC, 5), Instr(0xC7, ZP0, DCP, 5), Instr(0xC8, IMP, INY, 2), Instr(0xC9, IMM, CMP, 2), Instr(0xCA, IMP, DEX, 2), Instr(0xCB, IMM, AXS, 2), Instr(0xCC, ABS, CPY, 4), Instr(0xCD, ABS, CMP, 4), Instr(0xCE, ABS, DEC, 6), Instr(0xCF, ABS, DCP, 6),
@@ -1401,11 +1394,13 @@ where
     /// CLI: Clear Interrupt Disable Bit
     fn cli(&mut self) -> u8 {
         self.set_flag(I, false);
+        self.irq_delay = 1;
         0
     }
     /// SEI: Set Interrupt Disable Status
     fn sei(&mut self) -> u8 {
         self.set_flag(I, true);
+        self.irq_delay = 1;
         0
     }
     /// CLV: Clear Overflow Flag
@@ -1453,6 +1448,7 @@ where
     /// PLP: Pull Processor Status from Stack
     fn plp(&mut self) -> u8 {
         self.status = (self.pop_stackb() | U as u8) & !(B as u8);
+        self.irq_delay = 1;
         0
     }
     /// PHA: Push A on Stack
@@ -1472,11 +1468,8 @@ where
     /// BRK: Force Break Interrupt
     fn brk(&mut self) -> u8 {
         self.push_stackw(self.pc.wrapping_add(1));
-        self.set_flag(B, true);
-        self.set_flag(U, true);
-        self.push_stackb(self.status);
+        self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(I, true);
-        self.set_flag(B, false);
         self.pc = self.readw(IRQ_ADDR);
         0
     }
@@ -1527,9 +1520,10 @@ where
     /// AXS: A & X into X
     fn axs(&mut self) -> u8 {
         self.fetch_data();
-        self.set_flag(C, self.x <= self.fetched_data);
-        self.x = (self.acc & self.x).wrapping_sub(self.fetched_data);
-        self.set_flags_zn(self.x);
+        let t = u32::from(self.acc & self.x).wrapping_sub(u32::from(self.fetched_data));
+        self.set_flags_zn((t & 0xFF) as u8);
+        self.set_flag(C, (((t >> 8) & 0x01) ^ 0x01) == 0x01);
+        self.x = (t & 0xFF) as u8;
         0
     }
     /// LAS: Shortcut for LDA then TSX
@@ -1544,9 +1538,17 @@ where
         self.tax();
         1
     }
-    /// AHX: TODO
+    /// AHX/SHA/AXA: AND X with A then AND with 7, then store in memory
     fn ahx(&mut self) -> u8 {
-        eprintln!("ahx not implemented");
+        self.fetch_data();
+        let val = self.acc
+            & self.x
+            & self
+                .fetched_data
+                .wrapping_sub(self.y)
+                .wrapping_shr(8)
+                .wrapping_add(1);
+        self.write_fetched(val);
         0
     }
     /// SAX: AND A with X
@@ -1555,14 +1557,37 @@ where
         self.write_fetched(val);
         0
     }
-    /// XAA: TODO
+    /// XAA: Unknown
     fn xaa(&mut self) -> u8 {
-        eprintln!("xaa not implemented");
+        self.acc |= 0xEE;
+        self.acc &= self.x;
+        self.and();
         0
     }
-    /// SHX: TODO
-    fn shx(&mut self) -> u8 {
-        eprintln!("shx not implemented");
+    /// SXA/SXA/XAS: AND X with the high byte of the target address + 1
+    /// TODO fails tests
+    fn sxa(&mut self) -> u8 {
+        self.fetch_data();
+        let val = self.x
+            & self
+                .fetched_data
+                .wrapping_sub(self.y)
+                .wrapping_shr(8)
+                .wrapping_add(1);
+        self.write_fetched(val);
+        0
+    }
+    /// SYA/SYA/SAY: AND Y with the high byte of the target address + 1
+    /// TODO fails tests
+    fn sya(&mut self) -> u8 {
+        self.fetch_data();
+        let val = self.y
+            & self
+                .fetched_data
+                .wrapping_sub(self.x)
+                .wrapping_shr(8)
+                .wrapping_add(1);
+        self.write_fetched(val);
         0
     }
     /// RRA: Shortcut for ROR then ADC
@@ -1577,17 +1602,16 @@ where
         self.txs();
         0
     }
-    /// SHY: TODO
-    fn shy(&mut self) -> u8 {
-        eprintln!("shy not implemented");
-        0
-    }
     /// ARR: Shortcut for AND #imm then ROR, but sets flags differently
     /// C is bit 6 and V is bit 6 xor bit 5
-    /// TODO doesn't pass tests
     fn arr(&mut self) -> u8 {
         self.and();
-        self.ror();
+        self.set_flag(V, (self.acc ^ (self.acc >> 1)) & 0x40 == 0x40);
+        let t = self.acc >> 7;
+        self.acc >>= 1;
+        self.acc |= self.get_flag(C) << 7;
+        self.set_flag(C, t & 0x01 == 0x01);
+        self.set_flags_zn(self.acc);
         0
     }
     /// SRA: Shortcut for LSR then EOR
@@ -1597,10 +1621,14 @@ where
         0
     }
     /// ALR/ASR: Shortcut for AND #imm then LSR
-    /// TODO doesn't pass tests
     fn alr(&mut self) -> u8 {
         self.and();
-        self.lsr();
+        self.set_flag(C, false);
+        self.set_flag(N, false);
+        self.set_flag(Z, false);
+        self.set_flag(C, self.acc & 0x01 == 0x01);
+        self.acc >>= 1;
+        self.set_flags_zn(self.acc);
         0
     }
     /// RLA: Shortcut for ROL then AND
@@ -1646,7 +1674,7 @@ impl fmt::Debug for Instr {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         let mut op = self.op();
         let unofficial = match self.op() {
-            XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SHX | RRA | TAS | SHY | ARR
+            XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SXA | RRA | TAS | SYA | ARR
             | SRE | ALR | RLA | ANC | SLO => "*",
             NOP if self.opcode() != 0xEA => "*", // 0xEA is the only official NOP
             SKB | IGN => {

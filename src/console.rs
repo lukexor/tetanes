@@ -335,7 +335,7 @@ mod tests {
         let mut c = Console::init(input, false);
         c.load_rom(rom).expect("loaded rom");
         c.power_on().expect("powered on");
-        c.cpu.log_enabled = true;
+        c.cpu.logging(true);
 
         c.cpu.pc = NESTEST_START_ADDR;
         while c.cpu.pc != NESTEST_END_ADDR {
