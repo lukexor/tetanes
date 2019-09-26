@@ -894,24 +894,22 @@ impl Savable for Ppu {
     fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.cycle.save(fh)?;
         self.scanline.save(fh)?;
+        self.nmi_delay_enabled.save(fh)?;
         self.nmi_pending.save(fh)?;
+        self.vram.save(fh)?;
         self.regs.save(fh)?;
         self.oamdata.save(fh)?;
-        self.vram.save(fh)?;
-        self.frame.save(fh)?;
-        self.logging.save(fh)?;
-        self.debug.save(fh)
+        self.frame.save(fh)
     }
     fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.cycle.load(fh)?;
         self.scanline.load(fh)?;
+        self.nmi_delay_enabled.load(fh)?;
         self.nmi_pending.load(fh)?;
+        self.vram.load(fh)?;
         self.regs.load(fh)?;
         self.oamdata.load(fh)?;
-        self.vram.load(fh)?;
-        self.frame.load(fh)?;
-        self.logging.load(fh)?;
-        self.debug.load(fh)
+        self.frame.load(fh)
     }
 }
 
@@ -1412,14 +1410,12 @@ impl Savable for Vram {
     fn save(&self, fh: &mut dyn Write) -> Result<()> {
         self.buffer.save(fh)?;
         self.nametable.save(fh)?;
-        self.palette.save(fh)?;
-        self.logging.save(fh)
+        self.palette.save(fh)
     }
     fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
         self.buffer.load(fh)?;
         self.nametable.load(fh)?;
-        self.palette.load(fh)?;
-        self.logging.load(fh)
+        self.palette.load(fh)
     }
 }
 
@@ -1486,6 +1482,7 @@ impl Savable for Frame {
         self.attribute.save(fh)?;
         self.tile_data.save(fh)?;
         self.sprite_count.save(fh)?;
+        self.sprite_zero_on_line.save(fh)?;
         self.sprites.save(fh)?;
         self.pixels.save(fh)
     }
@@ -1498,6 +1495,7 @@ impl Savable for Frame {
         self.attribute.load(fh)?;
         self.tile_data.load(fh)?;
         self.sprite_count.load(fh)?;
+        self.sprite_zero_on_line.load(fh)?;
         self.sprites.load(fh)?;
         self.pixels.load(fh)
     }

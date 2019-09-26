@@ -37,7 +37,6 @@ pub struct Exrom {
     ppu_reading: bool,
     ppu_idle: u8,
     exram: Ram,
-    nametables: [[u8; 0x0800]; 2],
     prg_ram: [Ram; 2],
     prg_rom: Rom,
     chr: Ram,
@@ -58,7 +57,7 @@ pub struct ExRegs {
     prg_ram_protect_a: bool,   // $5102
     prg_ram_protect_b: bool,   // $5103
     exram_mode: u8,            // $5104
-    nametable_mapping: u8,     // $5105
+    nametable_mirroring: u8,   // $5105
     fill_tile: u8,             // $5106
     fill_attr: u8,             // $5107
     vertical_split_mode: u8,   // $5200
@@ -88,7 +87,7 @@ impl Exrom {
                 prg_ram_protect_a: false,
                 prg_ram_protect_b: false,
                 exram_mode: 0xFF,
-                nametable_mapping: 0xFF,
+                nametable_mirroring: 0xFF,
                 fill_tile: 0xFF,
                 fill_attr: 0xFF,
                 vertical_split_mode: 0xFF,
@@ -117,7 +116,6 @@ impl Exrom {
             ppu_reading: false,
             ppu_idle: 0u8,
             exram,
-            nametables: [[0u8; 0x0800]; 2],
             prg_ram,
             prg_rom: cart.prg_rom,
             chr: cart.chr_rom.to_ram(),
@@ -127,17 +125,12 @@ impl Exrom {
         Rc::new(RefCell::new(exrom))
     }
 
-    // 7--- ---0
-    // RAAA AaAA
-    // |||| ||||
-    // |||| |||+- PRG ROM/RAM A13
-    // |||| ||+-- PRG ROM/RAM A14
-    // |||| |+--- PRG ROM/RAM A15, also selecting between PRG RAM /CE 0 and 1
-    // |||| +---- PRG ROM/RAM A16
-    // |||+------ PRG ROM A17
-    // ||+------- PRG ROM A18
-    // |+-------- PRG ROM A19
-    // +--------- RAM/ROM toggle (0: RAM; 1: ROM) (registers $5114-$5116 only)
+    // $5113: [.... .CPP]
+    //      8k PRG-RAM @ $6000
+    //      C = Chip select
+    // $5114-5117: [RPPP PPPP]
+    //      R = ROM select (0=select RAM, 1=select ROM)  **unused in $5117**
+    //      P = PRG page
     //
     //              $6000   $8000   $A000   $C000   $E000
     //            +-------+-------------------------------+
@@ -240,7 +233,7 @@ impl Exrom {
         let table_size = 0x0400;
         let addr = (addr - 0x2000) % 0x1000 as u16;
         let table = addr / table_size;
-        u16::from((self.regs.nametable_mapping >> (2 * table)) & 0x03)
+        u16::from((self.regs.nametable_mirroring >> (2 * table)) & 0x03)
     }
 
     fn clock_irq(&mut self) {
@@ -367,8 +360,6 @@ impl Memory for Exrom {
                 let mode = self.nametable_mode(addr);
                 let addr = addr as usize % 0x0400;
                 match mode {
-                    0 => self.nametables[0][addr],
-                    1 => self.nametables[1][addr],
                     2 => {
                         if self.regs.exram_mode & 0x02 == 0x02 {
                             0
@@ -434,7 +425,7 @@ impl Memory for Exrom {
             0x5101 => self.regs.chr_mode,
             0x5130 => self.regs.chr_hi_bit,
             0x5104 => self.regs.exram_mode,
-            0x5105 => self.regs.nametable_mapping,
+            0x5105 => self.regs.nametable_mirroring,
             0x5106 => self.regs.fill_tile,
             0x5107 => self.regs.fill_attr,
             0x5200 => self.regs.vertical_split_mode,
@@ -459,8 +450,6 @@ impl Memory for Exrom {
                 let mode = self.nametable_mode(addr);
                 let addr = addr as usize % 0x0400;
                 match mode {
-                    0 => self.nametables[0][addr] = val,
-                    1 => self.nametables[1][addr] = val,
                     2 => {
                         if self.regs.exram_mode & 0x02 != 0x02 {
                             self.exram[addr] = val;
@@ -496,9 +485,28 @@ impl Memory for Exrom {
                     self.prg_ram[chip][addr] = val;
                 }
             }
+            // [DDCC BBAA]
+            //
+            // Allows each Nametable slot to be configured:
+            //   [   A   ][   B   ]
+            //   [   C   ][   D   ]
+            //
+            // Values can be the following:
+            //   %00 = NES internal NTA
+            //   %01 = NES internal NTB
+            //   %10 = use ExRAM as NT
+            //   %11 = Fill Mode
+            //
+            // For example... some typical mirroring setups would be:
+            //                        (  D  C  B  A)
+            //   Horizontal:     $50  (%01 01 00 00)
+            //   Vertical:       $44  (%01 00 01 00)
+            //   SingleScreenA:  $00  (%00 00 00 00)
+            //   SingleScreenB:  $55  (%01 01 01 01)
+            //   Fill:           $ff  (%11 11 11 11)
             0x5105 => {
-                self.regs.nametable_mapping = val;
-                self.mirroring = match self.regs.nametable_mapping {
+                self.regs.nametable_mirroring = val;
+                self.mirroring = match self.regs.nametable_mirroring {
                     0x50 => Mirroring::Horizontal,
                     0x44 => Mirroring::Vertical,
                     0x00 => Mirroring::SingleScreenA,
@@ -506,18 +514,24 @@ impl Memory for Exrom {
                     _ => Mirroring::FourScreen,
                 };
             }
-            // 'A' Regs
+            // 'A' Chr Regs
             0x5120..=0x5127 => {
                 self.last_chr_write = ChrBank::Spr;
                 self.chr_banks_spr[(addr & 0x07) as usize] =
                     val as usize | (self.regs.chr_hi_bit as usize) << 8;
             }
-            // 'B' Regs
+            // 'B' Chr Regs
             0x5128..=0x512B => {
                 self.last_chr_write = ChrBank::Bg;
                 self.chr_banks_bg[(addr & 0x03) as usize] =
                     val as usize | (self.regs.chr_hi_bit as usize) << 8;
             }
+            // PRG Bank Switching
+            // $5113: [.... .PPP]
+            //      8k PRG-RAM @ $6000
+            // $5114-5117: [RPPP PPPP]
+            //      R = ROM select (0=select RAM, 1=select ROM)  **unused in $5117**
+            //      P = PRG page
             0x5113..=0x5117 => self.write_prg_bankswitching(addr, val),
             0x5C00..=0x5FFF => {
                 // Mode 2 is writable
@@ -529,8 +543,13 @@ impl Memory for Exrom {
             0x5004..=0x5007 => (), // TODO Sound Pulse 2
             0x5010..=0x5011 => (), // TODO Sound PCM
             0x5015 => (),          // TODO Sound General
+            // [.... ..PP]    PRG Mode
+            //      %00 = 32k
+            //      %01 = 16k
+            //      %10 = 16k+8k
+            //      %11 = 8k
             0x5100 => self.regs.prg_mode = val & 0x03,
-            // [.... ..CC]
+            // [.... ..CC]    CHR Mode
             //      %00 = 8k Mode
             //      %01 = 4k Mode
             //      %10 = 2k Mode
@@ -540,10 +559,10 @@ impl Memory for Exrom {
             0x5130 => self.regs.chr_hi_bit = val & 0x3,
             // [.... ..AA]    PRG-RAM Protect A
             // [.... ..BB]    PRG-RAM Protect B
-            //     To allow writing to PRG-RAM you must set these regs to the following values:
+            //      To allow writing to PRG-RAM you must set these regs to the following values:
             //         A=%10
             //         B=%01
-            //     Any other values will prevent PRG-RAM writing.
+            //      Any other values will prevent PRG-RAM writing.
             0x5102 => self.regs.prg_ram_protect_a = (val & 0x03) == 0x02,
             0x5103 => self.regs.prg_ram_protect_b = (val & 0x03) == 0x01,
             // [.... ..XX]    ExRAM mode
@@ -552,7 +571,9 @@ impl Memory for Exrom {
             //     %10 = CPU access mode         ("Ex2")
             //     %11 = CPU read-only mode      ("Ex3")
             0x5104 => self.regs.exram_mode = val & 0x03,
+            // [TTTT TTTT]     Fill Tile
             0x5106 => self.regs.fill_tile = val,
+            // [.... ..AA]     Fill Attribute bits
             0x5107 => self.regs.fill_attr = val & 0x03,
             0x5200 => self.regs.vertical_split_mode = val,
             0x5201 => self.regs.vertical_split_scroll = val,
@@ -585,7 +606,6 @@ impl Savable for Exrom {
         self.regs.save(fh)?;
         self.open_bus.save(fh)?;
         self.irq_pending.save(fh)?;
-        self.logging.save(fh)?;
         self.mirroring.save(fh)?;
         self.battery_backed.save(fh)?;
         self.prg_banks.save(fh)?;
@@ -606,7 +626,6 @@ impl Savable for Exrom {
         self.regs.load(fh)?;
         self.open_bus.load(fh)?;
         self.irq_pending.load(fh)?;
-        self.logging.load(fh)?;
         self.mirroring.load(fh)?;
         self.battery_backed.load(fh)?;
         self.prg_banks.load(fh)?;
@@ -634,7 +653,7 @@ impl Savable for ExRegs {
         self.prg_ram_protect_a.save(fh)?;
         self.prg_ram_protect_b.save(fh)?;
         self.exram_mode.save(fh)?;
-        self.nametable_mapping.save(fh)?;
+        self.nametable_mirroring.save(fh)?;
         self.fill_tile.save(fh)?;
         self.fill_attr.save(fh)?;
         self.vertical_split_mode.save(fh)?;
@@ -656,7 +675,7 @@ impl Savable for ExRegs {
         self.prg_ram_protect_a.load(fh)?;
         self.prg_ram_protect_b.load(fh)?;
         self.exram_mode.load(fh)?;
-        self.nametable_mapping.load(fh)?;
+        self.nametable_mirroring.load(fh)?;
         self.fill_tile.load(fh)?;
         self.fill_attr.load(fh)?;
         self.vertical_split_mode.load(fh)?;
