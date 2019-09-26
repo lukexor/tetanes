@@ -72,7 +72,7 @@ impl Mapper for Cnrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn set_logging(&mut self, _logging: bool) {}
+    fn logging(&mut self, _logging: bool) {}
     fn use_ciram(&self, _addr: u16) -> bool {
         true
     }

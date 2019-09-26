@@ -30,6 +30,7 @@ pub struct Txrom {
     regs: TxRegs,
     has_chr_ram: bool,
     mirroring: Mirroring,
+    logging: bool,
     irq_pending: bool,
     // http://forums.nesdev.com/viewtopic.php?p=62546#p62546
     // MMC3
@@ -116,6 +117,7 @@ impl Txrom {
             },
             has_chr_ram,
             mirroring,
+            logging: false,
             irq_pending: false,
             mmc3_alt: 1,
             battery_backed: cart.battery_backed(),
@@ -285,7 +287,9 @@ impl Mapper for Txrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn set_logging(&mut self, _logging: bool) {}
+    fn logging(&mut self, logging: bool) {
+        self.logging = logging;
+    }
     fn use_ciram(&self, _addr: u16) -> bool {
         true
     }

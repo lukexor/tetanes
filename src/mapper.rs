@@ -46,7 +46,7 @@ pub trait Mapper: Memory + Savable + fmt::Debug {
     fn chr(&self) -> Option<&Banks<Ram>>;
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
-    fn set_logging(&mut self, logging: bool);
+    fn logging(&mut self, logging: bool);
     fn use_ciram(&self, addr: u16) -> bool;
     fn nametable_addr(&self, addr: u16) -> u16;
 }
@@ -141,7 +141,7 @@ impl Mapper for NullMapper {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn set_logging(&mut self, _logging: bool) {}
+    fn logging(&mut self, _logging: bool) {}
     fn use_ciram(&self, _addr: u16) -> bool {
         true
     }

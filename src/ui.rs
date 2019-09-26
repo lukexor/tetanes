@@ -106,7 +106,6 @@ impl UiBuilder {
     pub fn build(&self) -> Result<Ui> {
         let input = Rc::new(RefCell::new(Input::new()));
         let mut console = Console::init(input.clone(), self.randomize_ram);
-        #[cfg(debug_assertions)]
         console.logging(self.logging);
         console.ppu_debug(self.ppu_debug);
         console.no_save(self.no_save);

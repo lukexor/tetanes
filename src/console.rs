@@ -91,11 +91,10 @@ impl Console {
     }
 
     /// Enable/Disable CPU logging
-    #[cfg(debug_assertions)]
     pub fn logging(&mut self, val: bool) {
         self.cpu.logging(val);
         self.cpu.mem.ppu.logging(val);
-        self.mapper.borrow_mut().set_logging(val);
+        self.mapper.borrow_mut().logging(val);
     }
 
     pub fn ppu_debug(&mut self, val: bool) {
@@ -317,36 +316,10 @@ impl fmt::Debug for Console {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::Input;
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use std::{fs, path::PathBuf};
-
-    const NESTEST_START_ADDR: u16 = 0xC000;
-    const NESTEST_END_ADDR: u16 = 0xC689 + 2;
 
     #[test]
-    fn test_nestest() {
-        let rom = PathBuf::from("tests/cpu/nestest.nes");
-        let cpu_log = "logs/nestest.log";
-        let nestest_log = "tests/cpu/nestest.txt";
-
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut c = Console::init(input, false);
-        c.load_rom(rom).expect("loaded rom");
-        c.power_on().expect("powered on");
-        c.cpu.logging(true);
-
-        c.cpu.pc = NESTEST_START_ADDR;
-        while c.cpu.pc != NESTEST_END_ADDR {
-            c.clock();
-        }
-        let log = c.cpu.nestestlog.join("");
-        fs::write(cpu_log, &log).expect("Failed to write nestest.log");
-
-        let nestest = fs::read_to_string(nestest_log);
-        assert!(nestest.is_ok(), "Read nestest");
-        let equal = if log == nestest.unwrap() { true } else { false };
-        assert!(equal, "CPU log matches nestest");
+    fn test_console() {
+        // TODO
+        pass();
     }
 }

@@ -322,7 +322,7 @@ impl Mapper for Exrom {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn set_logging(&mut self, logging: bool) {
+    fn logging(&mut self, logging: bool) {
         self.logging = logging;
     }
 

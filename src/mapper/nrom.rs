@@ -101,7 +101,7 @@ impl Mapper for Nrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn set_logging(&mut self, _logging: bool) {}
+    fn logging(&mut self, _logging: bool) {}
     fn use_ciram(&self, _addr: u16) -> bool {
         true
     }

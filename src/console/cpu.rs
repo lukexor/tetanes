@@ -18,8 +18,8 @@ const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
 const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
-const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set - nestest seems to keep Unused set
-const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles according to nestest - though some docs say 8
+const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
+const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
 // Status Registers
@@ -69,10 +69,7 @@ where
     pending_irq: bool,    // Pending interrupts
     pending_nmi: bool,
     irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
-    #[cfg(debug_assertions)]
     logging: bool,
-    #[cfg(test)]
-    pub nestestlog: Vec<String>,
 }
 
 impl<M> Cpu<M>
@@ -98,10 +95,7 @@ where
             pending_irq: false,
             pending_nmi: false,
             irq_delay: 0x00,
-            #[cfg(debug_assertions)]
             logging: false,
-            #[cfg(test)]
-            nestestlog: Vec::with_capacity(10000),
         };
         cpu.pc = cpu.readw(RESET_ADDR);
         cpu
@@ -111,7 +105,6 @@ where
         self.pc = self.readw(RESET_ADDR);
     }
 
-    #[cfg(debug_assertions)]
     pub fn logging(&mut self, val: bool) {
         self.logging = val;
     }
@@ -133,7 +126,6 @@ where
 
         let opcode = self.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
-        #[cfg(debug_assertions)]
         let log_pc = self.pc;
 
         self.instr = INSTRUCTIONS[opcode as usize];
@@ -155,11 +147,8 @@ where
             IMP => self.imp(),
         });
 
-        #[cfg(debug_assertions)]
-        {
-            if self.logging {
-                self.print_instruction(log_pc);
-            }
+        if self.logging {
+            self.print_instruction(log_pc);
         }
 
         // let op_cycle = (self.instr.execute())(self); // Execute operation
@@ -622,19 +611,19 @@ where
             ZP0 => {
                 bytes.push(self.peek(pc));
                 let val = self.peek(bytes[0].into());
-                format!("${:02X} = {:02X}", bytes[0], val)
+                format!("${:02X} = #${:02X}", bytes[0], val)
             }
             ZPX => {
                 bytes.push(self.peek(pc));
                 let x_offset = bytes[0].wrapping_add(self.x);
                 let val = self.peek(x_offset.into());
-                format!("${:02X},X @ {:02X} = {:02X}", bytes[0], x_offset, val)
+                format!("${:02X},X @ ${:02X} = #${:02X}", bytes[0], x_offset, val)
             }
             ZPY => {
                 bytes.push(self.peek(pc));
                 let y_offset = bytes[0].wrapping_add(self.y);
                 let val = self.peek(y_offset.into());
-                format!("${:02X},Y @ {:02X} = {:02X}", bytes[0], y_offset, val)
+                format!("${:02X},Y @ ${:02X} = #${:02X}", bytes[0], y_offset, val)
             }
             ABS => {
                 bytes.push(self.peek(pc));
@@ -644,7 +633,7 @@ where
                     format!("${:04X}", addr)
                 } else {
                     let val = self.peek(addr);
-                    format!("${:04X} = {:02X}", addr, val)
+                    format!("${:04X} = #${:02X}", addr, val)
                 }
             }
             ABX => {
@@ -653,7 +642,7 @@ where
                 let addr = self.peekw(pc);
                 let x_offset = addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
-                format!("${:04X},X @ {:04X} = {:02X}", addr, x_offset, val)
+                format!("${:04X},X @ ${:04X} = #${:02X}", addr, x_offset, val)
             }
             ABY => {
                 bytes.push(self.peek(pc));
@@ -661,7 +650,7 @@ where
                 let addr = self.peekw(pc);
                 let y_offset = addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                format!("${:04X},Y @ {:04X} = {:02X}", addr, y_offset, val)
+                format!("${:04X},Y @ ${:04X} = #${:02X}", addr, y_offset, val)
             }
             IND => {
                 bytes.push(self.peek(pc));
@@ -673,7 +662,7 @@ where
                     (u16::from(self.peek(addr + 1)) << 8) | u16::from(self.peek(addr))
                 };
                 if self.instr.op() == JMP {
-                    format!("(${:04X}) = {:04X}", addr, val)
+                    format!("(${:04X}) = ${:04X}", addr, val)
                 } else {
                     format!("(${:04X})", val)
                 }
@@ -683,20 +672,14 @@ where
                 let x_offset = bytes[0].wrapping_add(self.x);
                 let addr = self.peekw_zp(x_offset);
                 let val = self.peek(addr);
-                format!(
-                    "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
-                    bytes[0], x_offset, addr, val,
-                )
+                format!("(${:02X},X) @ ${:04X} = #${:02X}", bytes[0], addr, val,)
             }
             IDY => {
                 bytes.push(self.peek(pc));
                 let addr = self.peekw_zp(bytes[0]);
                 let y_offset = addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                format!(
-                    "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
-                    bytes[0], addr, y_offset, val,
-                )
+                format!("(${:02X}),Y @ ${:04X} = #${:02X}", bytes[0], y_offset, val)
             }
             REL => {
                 bytes.push(self.peek(pc));
@@ -713,8 +696,18 @@ where
                 bytes_str.push_str(&"   ".to_string());
             }
         }
+
+        let status_flags = vec!['n', 'v', 'u', 'b', 'd', 'i', 'z', 'c'];
+        let mut status_str = String::with_capacity(8);
+        for (i, s) in status_flags.iter().enumerate() {
+            if ((self.status >> (7 - i)) & 1) > 0 {
+                status_str.push(s.to_ascii_uppercase());
+            } else {
+                status_str.push(*s);
+            }
+        }
         let opstr = format!(
-            "{:04X}  {:02X} {}{:?} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}\n",
+            "${:04X}:{:02X} {}{:?} {:<22} A:{:02X} X:{:02X} Y:{:02X} P:{}\n",
             pc.wrapping_sub(1),
             self.instr.opcode(),
             bytes_str,
@@ -723,15 +716,9 @@ where
             self.acc,
             self.x,
             self.y,
-            self.status,
-            self.sp,
-            0, // self.mem.ppu.cycle,
-            0, // self.mem.ppu.scanline,
-            self.cycle_count,
+            status_str,
         );
         print!("{}", opstr);
-        #[cfg(test)]
-        self.nestestlog.push(opstr);
     }
 
     /// Utilities
@@ -773,8 +760,6 @@ where
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
         self.mem.reset();
-        #[cfg(test)]
-        self.nestestlog.clear();
     }
 
     /// Power cycle the CPU
@@ -792,8 +777,6 @@ where
         self.x = 0u8;
         self.y = 0u8;
         self.status = POWER_ON_STATUS;
-        #[cfg(test)]
-        self.nestestlog.clear();
     }
 }
 
@@ -1691,45 +1674,10 @@ impl fmt::Debug for Instr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::Input;
-    use crate::mapper;
-    use crate::memory::MemoryMap;
-    use std::cell::RefCell;
-    use std::path::PathBuf;
-    use std::rc::Rc;
-
-    const TEST_ROM: &str = "tests/cpu/nestest.nes";
-    const TEST_PC: u16 = 49156;
 
     #[test]
-    fn test_cpu_new() {
-        let rom = PathBuf::from(TEST_ROM);
-        let mapper = mapper::load_rom(rom).expect("loaded mapper");
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = MemoryMap::init(input);
-        cpu_memory.load_mapper(mapper);
-        let c = Cpu::init(cpu_memory);
-        assert_eq!(c.cycle_count, 7);
-        assert_eq!(c.pc, TEST_PC);
-        assert_eq!(c.sp, POWER_ON_SP);
-        assert_eq!(c.acc, 0);
-        assert_eq!(c.x, 0);
-        assert_eq!(c.y, 0);
-        assert_eq!(c.status, POWER_ON_STATUS);
-    }
-
-    #[test]
-    fn test_cpu_reset() {
-        let rom = PathBuf::from(TEST_ROM);
-        let mapper = mapper::load_rom(rom).expect("loaded mapper");
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = MemoryMap::init(input);
-        cpu_memory.load_mapper(mapper);
-        let mut c = Cpu::init(cpu_memory);
-        c.reset();
-        assert_eq!(c.pc, TEST_PC);
-        assert_eq!(c.sp, POWER_ON_SP - 3);
-        assert_eq!(c.status, POWER_ON_STATUS);
-        assert_eq!(c.cycle_count, 7);
+    fn test_cpu() {
+        // TODO
+        pass();
     }
 }
