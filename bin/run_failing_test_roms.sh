@@ -46,13 +46,9 @@ tests/ppu/palette.nes # Doesn't support emphasis or grayscale
 tests/ppu/tv.nes # Passes ratio, but not chroma/luma
 
 ## MAPPERS ========================================================================================
-# All of these seem to fail on regular EMUs that work fine - I think the way they check for IRQs
-# comes too late with most emulators
-tests/mapper/mmc3/1-clocking.nes # Counter/IRQ/A12 clocking isn't working at all #2
-tests/mapper/mmc3/2-details.nes # Counter isn't working with 255 #2
-tests/mapper/mmc3/3-A12_clocking.nes # Shouldnt be clocked when A12 doesn't change #2
-tests/mapper/mmc3/4-scanline_timing.nes # Scanline 0 IRQ should occur later #2
-tests/mapper/mmc3/6-MMC3_alt.nes # Shouldnt IRQ when reload is 0 #2
+tests/mapper/mmc3/4.Scanline_timing.nes # Failed #2 - scanline 0 is too soon
+tests/mapper/mmc3/5.MMC3_rev_A.nes # Can only pass rev_A or rev_B at the same time. Passes rev_B
+
 )
 
 trap ctrl_c INT
