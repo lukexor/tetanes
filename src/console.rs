@@ -197,9 +197,7 @@ impl Console {
                 mapper.clock(&self.cpu.mem.ppu);
                 mapper.irq_pending()
             };
-            if irq_pending {
-                self.cpu.trigger_irq();
-            }
+            self.cpu.trigger_irq2(irq_pending);
         }
 
         for _ in 0..cpu_cycles {

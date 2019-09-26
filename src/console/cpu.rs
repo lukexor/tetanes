@@ -67,6 +67,7 @@ where
     rel_addr: u16,        // Relative address for branch instructions
     fetched_data: u8,     // Represents data fetched for the ALU
     pending_irq: bool,    // Pending interrupts
+    pending_irq2: bool,   // Pending interrupts
     pending_nmi: bool,
     irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
     logging: bool,
@@ -93,6 +94,7 @@ where
             rel_addr: 0x0000,
             fetched_data: 0x00,
             pending_irq: false,
+            pending_irq2: false,
             pending_nmi: false,
             irq_delay: 0x00,
             logging: false,
@@ -122,7 +124,7 @@ where
             self.irq_delay -= 1;
         } else if self.pending_nmi {
             self.nmi();
-        } else if self.pending_irq {
+        } else if self.pending_irq || self.pending_irq2 {
             self.irq();
         }
 
@@ -247,6 +249,9 @@ where
     pub fn trigger_irq(&mut self) {
         self.pending_irq = true;
     }
+    pub fn trigger_irq2(&mut self, val: bool) {
+        self.pending_irq2 = val;
+    }
     pub fn irq(&mut self) {
         if self.get_flag(I) == 0 {
             self.push_stackw(self.pc);
@@ -258,6 +263,7 @@ where
             self.pc = self.readw(IRQ_ADDR);
             self.cycle_count = self.cycle_count.wrapping_add(7);
             self.pending_irq = false;
+            self.pending_irq2 = false;
         }
     }
 

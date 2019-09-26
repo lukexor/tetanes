@@ -251,13 +251,7 @@ impl Exrom {
 
 impl Mapper for Exrom {
     fn irq_pending(&mut self) -> bool {
-        if self.regs.irq_enabled {
-            let irq = self.irq_pending;
-            self.irq_pending = false;
-            irq
-        } else {
-            false
-        }
+        self.regs.irq_enabled && self.irq_pending
     }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
