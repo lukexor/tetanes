@@ -118,7 +118,9 @@ where
 
         let start_cycle = self.cycle_count;
 
-        if self.pending_nmi {
+        if self.irq_delay > 0 {
+            self.irq_delay -= 1;
+        } else if self.pending_nmi {
             self.nmi();
         } else if self.pending_irq {
             self.irq();
@@ -246,9 +248,7 @@ where
         self.pending_irq = true;
     }
     pub fn irq(&mut self) {
-        if self.irq_delay > 0 {
-            self.irq_delay -= 1;
-        } else if self.get_flag(I) == 0 {
+        if self.get_flag(I) == 0 {
             self.push_stackw(self.pc);
             // Handles status flags differently than php()
             self.set_flag(B, false);
