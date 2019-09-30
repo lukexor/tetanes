@@ -69,7 +69,7 @@ impl Window {
                 icon.width,
                 icon.height,
                 icon.pitch,
-                PixelFormatEnum::RGB24,
+                PixelFormatEnum::RGBA32,
             );
             if let Ok(surface) = surface {
                 window.set_icon(surface);

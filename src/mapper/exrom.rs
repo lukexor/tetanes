@@ -443,13 +443,8 @@ impl Memory for Exrom {
             0x2000..=0x3EFF => {
                 let mode = self.nametable_mode(addr);
                 let addr = addr as usize % 0x0400;
-                match mode {
-                    2 => {
-                        if self.regs.exram_mode & 0x02 != 0x02 {
-                            self.exram[addr] = val;
-                        }
-                    }
-                    _ => (),
+                if mode == 2 && self.regs.exram_mode & 0x02 != 0x02 {
+                    self.exram[addr] = val;
                 }
             }
             0x6000..=0x7FFF => {

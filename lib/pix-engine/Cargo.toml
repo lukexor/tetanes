@@ -1,0 +1,33 @@
+[package]
+name = "pix-engine"
+version = "0.1.0"
+license = "GNU"
+description = "A simple, cross-platform graphics/UI engine framework with a minimal interface."
+readme = "README.md"
+authors = ["Luke Petherbridge <me@lukeworks.tech>"]
+edition = "2018"
+
+[lib]
+name = "pix_engine"
+path = "src/lib.rs"
+
+[dependencies]
+png = "0.15.0"
+rand = "0.7.1"
+
+[dependencies.sdl2]
+version = "0.32.2"
+default-features = false
+features = ["unsafe_textures"]
+
+[features]
+wasm-driver = []
+
+[profile.dev]
+opt-level = 2
+
+[profile.release]
+debug = true
+lto = true
+codegen-units = 1
+panic = 'abort'

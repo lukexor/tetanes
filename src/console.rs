@@ -313,11 +313,5 @@ impl fmt::Debug for Console {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_console() {
-        // TODO
-        pass();
-    }
+    // TODO
 }

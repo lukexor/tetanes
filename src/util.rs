@@ -5,9 +5,9 @@ use crate::serialization::Savable;
 use crate::{nes_err, Result};
 use chrono::prelude::{DateTime, Local};
 use dirs;
-use image::{png, ColorType, Pixel};
+use png;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 const CONFIG_DIR: &str = ".rustynes";
@@ -99,10 +99,11 @@ pub fn home_dir() -> Option<PathBuf> {
 /// it'll simply log the error out to STDERR
 pub fn screenshot(pixels: &[u8]) {
     let datetime: DateTime<Local> = Local::now();
-    let mut png_path = PathBuf::from(format!(
-        "screenshot_{}",
-        datetime.format("%Y-%m-%dT%H-%M-%S").to_string()
-    ));
+    let mut png_path = PathBuf::from(
+        datetime
+            .format("Screen Shot %Y-%m-%d at %H.%M.%S")
+            .to_string(),
+    );
     png_path.set_extension("png");
     create_png(&png_path, pixels);
 }
@@ -130,14 +131,16 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) {
         );
         return;
     }
-    let png = png::PNGEncoder::new(png_file.unwrap()); // Safe to unwrap
-    let encode = png.encode(
-        pixels,
-        RENDER_WIDTH as u32,
-        RENDER_HEIGHT as u32,
-        ColorType::RGB(8),
-    );
-    if let Err(e) = encode {
+    let png_file = BufWriter::new(png_file.unwrap());
+    let mut png = png::Encoder::new(png_file, RENDER_WIDTH, RENDER_HEIGHT); // Safe to unwrap
+    png.set_color(png::ColorType::RGB);
+    let writer = png.write_header();
+    if let Err(e) = writer {
+        eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
+        return;
+    }
+    let result = writer.unwrap().write_image_data(&pixels);
+    if let Err(e) = result {
         eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
         return;
     }
@@ -179,16 +182,15 @@ pub struct WindowIcon {
 impl WindowIcon {
     /// Loads pixel values for an image icon
     pub fn load() -> Result<Self> {
-        let image = image::open(&ICON_PATH)?.to_rgb();
-        let (width, height) = image.dimensions();
-        let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-        for pixel in image.pixels() {
-            pixels.extend_from_slice(pixel.channels());
-        }
+        let icon_file = BufReader::new(fs::File::open(&ICON_PATH)?);
+        let image = png::Decoder::new(icon_file);
+        let (info, mut reader) = image.read_info()?;
+        let mut pixels = vec![0; info.buffer_size()];
+        reader.next_frame(&mut pixels)?;
         Ok(Self {
-            width,
-            height,
-            pitch: width * 3,
+            width: info.width,
+            height: info.height,
+            pitch: info.width * 4,
             pixels,
         })
     }

@@ -1679,11 +1679,5 @@ impl fmt::Debug for Instr {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cpu() {
-        // TODO
-        pass();
-    }
+    // TODO
 }
