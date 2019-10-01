@@ -5,10 +5,10 @@ use crate::{
     Result,
 };
 
-pub struct WasmDriver {}
+pub(super) struct WasmDriver {}
 
 impl WasmDriver {
-    pub fn new(opts: DriverOpts) -> Self {
+    pub(super) fn new(opts: DriverOpts) -> Self {
         Self {}
     }
 }

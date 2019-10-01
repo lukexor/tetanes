@@ -1,21 +1,19 @@
 use pix_engine::*;
 use std::time::Duration;
 
-struct App {
-    paused: bool,
-}
+struct App {}
 
 impl App {
     fn new() -> Self {
-        Self { paused: false }
+        Self {}
     }
 }
 
 impl State for App {
-    fn on_start(&mut self, data: &mut StateData) -> bool {
+    fn on_start(&mut self, _data: &mut StateData) -> bool {
         true
     }
-    fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> bool {
+    fn on_update(&mut self, _elapsed: Duration, _data: &mut StateData) -> bool {
         true
     }
     fn on_stop(&mut self, _data: &mut StateData) -> bool {
@@ -25,7 +23,6 @@ impl State for App {
 
 pub fn main() {
     let app = App::new();
-
-    let mut engine = PixEngine::new("Asteroids", app, 800, 600).fullscreen(false);
+    let mut engine = PixEngine::new("Asteroids", app, 800, 600);
     engine.run().unwrap();
 }

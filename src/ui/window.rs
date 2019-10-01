@@ -16,7 +16,7 @@ const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const DEBUG_PADDING: u32 = 5;
 
 pub struct TextureMap {
-    tex: Texture<'static>,
+    tex: Texture,
     pitch: usize,
     src: Rect,
     dst: Rect,

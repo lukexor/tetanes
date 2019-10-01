@@ -1,10 +1,11 @@
-// TODO Remove main.rs as its just for testing
-
-use pix_engine::input::*;
+use pix_engine::event::*;
 use pix_engine::*;
 use std::f64::consts;
 use std::time::Duration;
 
+const SHIP_SCALE: f32 = 4.0;
+const ASTEROID_SIZE: u32 = 64;
+const MIN_ASTEROID_SIZE: u32 = 16;
 const SHIP_THRUST: f32 = 150.0;
 const MAX_ASTEROID_SPEED: f32 = 50.0;
 const SHATTERED_ASTEROID_SPEED: f32 = 80.0;
@@ -69,7 +70,7 @@ impl SpaceObj {
         }
 
         Self {
-            size: 32,
+            size: ASTEROID_SIZE,
             x,
             y,
             dx: (rand::random::<f32>() - 0.5) * 2.0 * MAX_ASTEROID_SPEED,
@@ -104,9 +105,9 @@ impl App {
         self.ship.angle = 0.0;
 
         let asteroid_count = if self.asteroids.len() > 0 {
-            self.asteroids.len() as u32
+            std::cmp::min(self.level + 2, self.asteroids.len() as u32)
         } else {
-            self.level + 3
+            self.level + 2
         };
         self.asteroids.clear();
         self.bullets.clear();
@@ -134,7 +135,7 @@ impl App {
 
 impl State for App {
     fn on_start(&mut self, data: &mut StateData) -> bool {
-        data.set_wrap_coords(true);
+        data.enable_coord_wrapping(true);
         self.ship_model = vec![(0.0, -5.0), (-2.5, 2.5), (2.5, 2.5)];
         for i in 0..20 {
             let noise = rand::random::<f32>() * 0.4 + 0.8;
@@ -255,7 +256,7 @@ impl State for App {
                     // Asteroid hit
                     b.destroyed = true; // Removes bullet
 
-                    if a.size > 8 {
+                    if a.size > MIN_ASTEROID_SIZE {
                         // Break into two
                         let a1 = rand::random::<f32>() * 2.0 * PI;
                         let a2 = rand::random::<f32>() * 2.0 * PI;
@@ -304,7 +305,7 @@ impl State for App {
             self.ship.x,
             self.ship.y,
             self.ship.angle,
-            3.0,
+            SHIP_SCALE,
         );
 
         // Win level
@@ -327,7 +328,6 @@ impl State for App {
 
 pub fn main() {
     let app = App::new();
-
-    let mut engine = PixEngine::new("Asteroids", app, 800, 600).fullscreen(false);
+    let mut engine = PixEngine::new("Asteroids", app, 800, 600);
     engine.run().unwrap();
 }

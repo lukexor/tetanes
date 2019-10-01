@@ -2,16 +2,16 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 use std::{error, fmt};
 
-pub mod driver;
-pub mod engine;
 pub mod event;
-pub mod input;
 pub mod pixel;
-pub mod state;
+
+mod driver;
+mod engine;
+mod state;
 
 pub use engine::PixEngine;
 pub use pixel::{Pixel, Sprite};
-pub use state::{State, StateData};
+pub use state::{transform, State, StateData};
 
 type Result<T> = std::result::Result<T, PixEngineErr>;
 
@@ -35,5 +35,13 @@ impl fmt::Display for PixEngineErr {
 impl error::Error for PixEngineErr {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+impl From<std::io::Error> for PixEngineErr {
+    fn from(err: std::io::Error) -> PixEngineErr {
+        PixEngineErr {
+            description: err.to_string(),
+        }
     }
 }
