@@ -7,6 +7,7 @@ use pix_engine::{
 use rustynes::{
     console::{cpu::StatusRegs, Console, RENDER_HEIGHT, RENDER_WIDTH},
     input::{Input, InputRef},
+    memory::Memory,
     util,
 };
 use std::{cell::RefCell, env, path::PathBuf, rc::Rc, time::Duration};
@@ -148,6 +149,14 @@ impl Ui {
                 Key::C if self.debug => {
                     let _ = self.console.clock();
                 }
+                Key::S if self.debug => {
+                    let prev_scanline = self.console.cpu.mem.ppu.scanline;
+                    let mut scanline = prev_scanline;
+                    while scanline == prev_scanline {
+                        let _ = self.console.clock();
+                        scanline = self.console.cpu.mem.ppu.scanline;
+                    }
+                }
                 Key::F if self.debug => self.console.clock_frame(),
                 _ => (),
             }
@@ -197,12 +206,14 @@ impl Ui {
                             let debug_width = 500;
                             let debug_height = self.height;
                             self.debug = !self.debug;
+                            self.running = !self.debug;
                             if self.debug {
                                 self.width += debug_width;
                             } else {
                                 self.width -= debug_width;
                             }
                             data.set_screen_size(self.width, self.height);
+                            self.console.logging(self.debug);
                             data.create_texture(
                                 "cpu_debug",
                                 ColorType::RGBA,
@@ -312,15 +323,16 @@ impl Ui {
 
     fn draw_cpu_debug(&mut self, data: &mut StateData) {
         let x = 10;
-        let y = 10;
+        let mut y = 10;
         let wh = pixel::WHITE;
 
         data.set_draw_target(Sprite::new_rgba8(500, self.height));
         data.fill(pixel::VERY_DARK_GRAY);
 
-        // CPU Status
+        // Status Registers
         let cpu = &self.console.cpu;
-        data.draw_string(x, y, "STATUS:", wh);
+        data.draw_string(x, y, "Status:", wh);
+
         let scolor = |f| {
             if cpu.status & f as u8 > 0 {
                 pixel::RED
@@ -329,21 +341,83 @@ impl Ui {
             }
         };
 
-        let ox = 8 * 16;
-        data.draw_string(x + ox, y, "N", scolor(StatusRegs::N));
-        data.draw_string(x + ox + 16, y, "V", scolor(StatusRegs::V));
-        data.draw_string(x + ox + 32, y, "-", scolor(StatusRegs::U));
-        data.draw_string(x + ox + 48, y, "B", scolor(StatusRegs::B));
-        data.draw_string(x + ox + 64, y, "D", scolor(StatusRegs::D));
-        data.draw_string(x + ox + 80, y, "I", scolor(StatusRegs::I));
-        data.draw_string(x + ox + 96, y, "Z", scolor(StatusRegs::Z));
-        data.draw_string(x + ox + 112, y, "C", scolor(StatusRegs::C));
+        let ox = x + 8 * 16;
+        data.draw_string(ox, y, "N", scolor(StatusRegs::N));
+        data.draw_string(ox + 16, y, "V", scolor(StatusRegs::V));
+        data.draw_string(ox + 32, y, "-", scolor(StatusRegs::U));
+        data.draw_string(ox + 48, y, "B", scolor(StatusRegs::B));
+        data.draw_string(ox + 64, y, "D", scolor(StatusRegs::D));
+        data.draw_string(ox + 80, y, "I", scolor(StatusRegs::I));
+        data.draw_string(ox + 96, y, "Z", scolor(StatusRegs::Z));
+        data.draw_string(ox + 112, y, "C", scolor(StatusRegs::C));
 
-        data.draw_string(x, y + 20, &format!("PC: ${:04X}", cpu.pc), wh);
-        data.draw_string(x, y + 40, &format!("A: ${:02X}", cpu.acc), wh);
-        data.draw_string(x, y + 80, &format!("X: ${:02X}", cpu.x), wh);
-        data.draw_string(x, y + 100, &format!("Y: ${:02X}", cpu.y), wh);
-        data.draw_string(x, y + 120, &format!("SP: ${:04X}", cpu.sp), wh);
+        y += 20;
+        data.draw_string(x, y, &format!("Cycles: {}", cpu.cycle_count), wh);
+
+        // PC, Acc, X, Y
+        y += 40;
+        data.draw_string(x, y, &format!("PC: ${:04X}", cpu.pc), wh);
+        y += 20;
+        data.draw_string(x, y, &format!("A:  ${:02X}   [{}]", cpu.acc, cpu.acc), wh);
+        y += 20;
+        data.draw_string(x, y, &format!("X:  ${:02X}   [{}]", cpu.x, cpu.x), wh);
+        y += 20;
+        data.draw_string(x, y, &format!("Y:  ${:02X}   [{}]", cpu.y, cpu.y), wh);
+
+        // Stack
+        y += 40;
+        data.draw_string(x, y, &format!("Stack: $01{:02X}", cpu.sp), wh);
+        y += 20;
+        for offset in 0..32 {
+            let val = cpu.peek(0x0100 + offset);
+            data.draw_string(
+                x + (48 * offset as u32) % 384,
+                y + 20 * (offset as u32 / 8),
+                &format!("{:02X} ", val),
+                wh,
+            );
+        }
+
+        // PPU
+        let ppu = &self.console.cpu.mem.ppu;
+        y += 100;
+        data.draw_string(x, y, &format!("PPU: ${:04X}", ppu.read_ppuaddr()), wh);
+        data.draw_string(
+            x + 192,
+            y,
+            &format!("Sprite: ${:02X}", ppu.read_oamaddr()),
+            wh,
+        );
+        y += 20;
+        data.draw_string(
+            x,
+            y,
+            &format!(
+                "Dot: {:3}  Scanline: {:3}",
+                ppu.cycle,
+                ppu.scanline as i32 - 1
+            ),
+            wh,
+        );
+
+        // Disassembly
+        y += 40;
+        let pad = 10;
+        data.set_font_scale(1);
+        for (i, pc) in cpu.pc_log.iter().enumerate() {
+            let mut pc = pc.clone();
+            let disasm = cpu.disassemble(&mut pc);
+            data.draw_string(x, y + pad * i as u32, &disasm, wh);
+        }
+        y += pad * cpu.pc_log.len() as u32;
+        let mut pc = cpu.pc;
+        for i in 0..(17 - cpu.pc_log.len()) {
+            let color = if i == 0 { pixel::CYAN } else { wh };
+            let disasm = cpu.disassemble(&mut pc);
+            data.draw_string(x, y + pad * i as u32, &disasm, color);
+        }
+        data.set_font_scale(2);
+
         let pixels = &data.get_draw_target().raw_pixels();
         data.copy_texture("cpu_debug", pixels);
     }
@@ -372,6 +446,26 @@ impl State for Ui {
             Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 16), // Trims overscan
             Rect::new(0, 0, self.width, self.height),
         );
+
+        // TEMP
+        let debug_width = 500;
+        let debug_height = self.height;
+        self.debug = !self.debug;
+        self.running = !self.debug;
+        if self.debug {
+            self.width += debug_width;
+        } else {
+            self.width -= debug_width;
+        }
+        data.set_screen_size(self.width, self.height);
+        self.console.logging(self.debug);
+        data.create_texture(
+            "cpu_debug",
+            ColorType::RGBA,
+            Rect::new(0, 0, debug_width, debug_height),
+            Rect::new(self.width - debug_width, 0, debug_width, debug_height),
+        );
+        // END TEMP
 
         // Smooths out startup graphic glitches for some games
         if self.running {

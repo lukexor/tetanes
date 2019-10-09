@@ -74,10 +74,10 @@ impl Console {
     /// Steps the console the number of instructions required to generate an entire frame
     pub fn clock_frame(&mut self) {
         if self.running {
-            self.cycles_remaining = CPU_CLOCK_RATE / 60.0;
-            while self.cycles_remaining > 0.0 {
-                self.cycles_remaining -= self.clock() as f64;
+            while !self.cpu.mem.ppu.frame_complete {
+                let _ = self.clock();
             }
+            self.cpu.mem.ppu.frame_complete = false;
         }
     }
 

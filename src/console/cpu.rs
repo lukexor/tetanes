@@ -5,6 +5,7 @@
 use crate::memory::Memory;
 use crate::serialization::Savable;
 use crate::NesResult;
+use std::collections::VecDeque;
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -21,6 +22,8 @@ const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BR
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
+
+const PC_LOG_LEN: usize = 8;
 
 // Status Registers
 // http://wiki.nesdev.com/w/index.php/Status_flags
@@ -57,6 +60,7 @@ where
     stall: u64,           // Number of cycles to stall with nop (used by DMA)
     pub step: u64,        // total number of CPU instructions run
     pub pc: u16,          // program counter
+    pub prev_pc: u16,     // previous program counter
     pub sp: u8,           // stack pointer - stack is at $0100-$01FF
     pub acc: u8,          // accumulator
     pub x: u8,            // x register
@@ -71,6 +75,7 @@ where
     pending_nmi: bool,
     irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
     logging: bool,
+    pub pc_log: VecDeque<u16>,
 }
 
 impl<M> Cpu<M>
@@ -84,6 +89,7 @@ where
             stall: 0u64,
             step: 0u64,
             pc: 0x0000,
+            prev_pc: 0x0000,
             sp: POWER_ON_SP,
             acc: 0x00,
             x: 0x00,
@@ -98,6 +104,7 @@ where
             pending_nmi: false,
             irq_delay: 0x00,
             logging: false,
+            pc_log: VecDeque::with_capacity(PC_LOG_LEN),
         };
         cpu.pc = cpu.readw(RESET_ADDR);
         cpu
@@ -129,8 +136,8 @@ where
         }
 
         let opcode = self.read(self.pc);
+        self.prev_pc = self.pc;
         self.pc = self.pc.wrapping_add(1);
-        let log_pc = self.pc;
 
         self.instr = INSTRUCTIONS[opcode as usize];
 
@@ -151,8 +158,9 @@ where
             IMP => self.imp(),
         });
 
-        if self.logging {
-            self.print_instruction(log_pc);
+        self.pc_log.push_back(self.prev_pc);
+        if self.pc_log.len() > PC_LOG_LEN {
+            self.pc_log.pop_front();
         }
 
         // let op_cycle = (self.instr.execute())(self); // Execute operation
@@ -330,6 +338,10 @@ where
         self.sp = self.sp.wrapping_add(1);
         self.read(SP_BASE | u16::from(self.sp))
     }
+    // Peek a byte at the top the stack
+    fn peek_stackb(&self) -> u8 {
+        self.peek(SP_BASE | u16::from(self.sp.wrapping_add(1)))
+    }
 
     // Push a word (two bytes) to the stack
     fn push_stackw(&mut self, val: u16) {
@@ -343,6 +355,12 @@ where
     fn pop_stackw(&mut self) -> u16 {
         let lo = u16::from(self.pop_stackb());
         let hi = u16::from(self.pop_stackb());
+        hi << 8 | lo
+    }
+    // Peek a word at the top of the stack
+    fn peek_stackw(&self) -> u16 {
+        let lo = u16::from(self.peek_stackb());
+        let hi = u16::from(self.peek_stackb());
         hi << 8 | lo
     }
 
@@ -606,36 +624,47 @@ where
         }
     }
 
-    // Print the current instruction and status
-    pub fn print_instruction(&mut self, pc: u16) {
+    pub fn disassemble(&self, pc: &mut u16) -> String {
+        let opcode = self.peek(*pc);
+        let instr = INSTRUCTIONS[opcode as usize];
         let mut bytes = Vec::new();
-        let disasm = match self.instr.addr_mode() {
+        let mut disasm = String::with_capacity(50);
+        disasm.push_str(&format!("${:04X}:", pc));
+        bytes.push(self.peek(*pc));
+        *pc = pc.wrapping_add(1);
+        let mode = match instr.addr_mode() {
             IMM => {
-                bytes.push(self.peek(pc));
-                format!("#${:02X}", bytes[0])
+                bytes.push(self.peek(*pc));
+                *pc = pc.wrapping_add(1);
+                format!("#${:02X}", bytes[1])
             }
             ZP0 => {
-                bytes.push(self.peek(pc));
-                let val = self.peek(bytes[0].into());
-                format!("${:02X} = #${:02X}", bytes[0], val)
+                bytes.push(self.peek(*pc));
+                *pc = pc.wrapping_add(1);
+                let val = self.peek(bytes[1].into());
+                format!("${:02X} = #${:02X}", bytes[1], val)
             }
             ZPX => {
-                bytes.push(self.peek(pc));
-                let x_offset = bytes[0].wrapping_add(self.x);
+                bytes.push(self.peek(*pc));
+                *pc = pc.wrapping_add(1);
+                let x_offset = bytes[1].wrapping_add(self.x);
                 let val = self.peek(x_offset.into());
-                format!("${:02X},X @ ${:02X} = #${:02X}", bytes[0], x_offset, val)
+                format!("${:02X},X @ ${:02X} = #${:02X}", bytes[1], x_offset, val)
             }
             ZPY => {
-                bytes.push(self.peek(pc));
-                let y_offset = bytes[0].wrapping_add(self.y);
+                bytes.push(self.peek(*pc));
+                *pc = pc.wrapping_add(1);
+                let y_offset = bytes[1].wrapping_add(self.y);
                 let val = self.peek(y_offset.into());
-                format!("${:02X},Y @ ${:02X} = #${:02X}", bytes[0], y_offset, val)
+                format!("${:02X},Y @ ${:02X} = #${:02X}", bytes[1], y_offset, val)
             }
             ABS => {
-                bytes.push(self.peek(pc));
+                bytes.push(self.peek(*pc));
                 bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(pc);
-                if self.instr.op() == JMP || self.instr.op() == JSR {
+                let addr = self.peekw(*pc);
+                *pc = pc.wrapping_add(2);
+                if instr.op() == JMP || instr.op() == JSR {
+                    *pc = addr;
                     format!("${:04X}", addr)
                 } else {
                     let val = self.peek(addr);
@@ -643,65 +672,90 @@ where
                 }
             }
             ABX => {
-                bytes.push(self.peek(pc));
+                bytes.push(self.peek(*pc));
                 bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(pc);
+                let addr = self.peekw(*pc);
+                *pc = pc.wrapping_add(2);
                 let x_offset = addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
                 format!("${:04X},X @ ${:04X} = #${:02X}", addr, x_offset, val)
             }
             ABY => {
-                bytes.push(self.peek(pc));
+                bytes.push(self.peek(*pc));
                 bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(pc);
+                let addr = self.peekw(*pc);
+                *pc = pc.wrapping_add(2);
                 let y_offset = addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
                 format!("${:04X},Y @ ${:04X} = #${:02X}", addr, y_offset, val)
             }
             IND => {
-                bytes.push(self.peek(pc));
+                bytes.push(self.peek(*pc));
                 bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(pc);
+                let addr = self.peekw(*pc);
+                *pc = pc.wrapping_add(2);
                 let val = if addr & 0x00FF == 0x00FF {
                     (u16::from(self.peek(addr & 0xFF00)) << 8) | u16::from(self.peek(addr))
                 } else {
                     (u16::from(self.peek(addr + 1)) << 8) | u16::from(self.peek(addr))
                 };
-                if self.instr.op() == JMP {
+                if instr.op() == JMP {
                     format!("(${:04X}) = ${:04X}", addr, val)
                 } else {
                     format!("(${:04X})", val)
                 }
             }
             IDX => {
-                bytes.push(self.peek(pc));
-                let x_offset = bytes[0].wrapping_add(self.x);
+                bytes.push(self.peek(*pc));
+                *pc = pc.wrapping_add(1);
+                let x_offset = bytes[1].wrapping_add(self.x);
                 let addr = self.peekw_zp(x_offset);
                 let val = self.peek(addr);
-                format!("(${:02X},X) @ ${:04X} = #${:02X}", bytes[0], addr, val,)
+                format!("(${:02X},X) @ ${:04X} = #${:02X}", bytes[1], addr, val)
             }
             IDY => {
-                bytes.push(self.peek(pc));
-                let addr = self.peekw_zp(bytes[0]);
+                bytes.push(self.peek(*pc));
+                *pc = pc.wrapping_add(1);
+                let addr = self.peekw_zp(bytes[1]);
                 let y_offset = addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                format!("(${:02X}),Y @ ${:04X} = #${:02X}", bytes[0], y_offset, val)
+                format!("(${:02X}),Y @ ${:04X} = #${:02X}", bytes[1], y_offset, val)
             }
             REL => {
-                bytes.push(self.peek(pc));
-                format!("${:04X}", pc.wrapping_add(1).wrapping_add(self.rel_addr))
+                bytes.push(self.peek(*pc));
+                *pc = pc.wrapping_add(1);
+                let mut rel_addr = self.peek(*pc).into();
+                if rel_addr & 0x80 == 0x80 {
+                    // If address is negative, extend sign to 16-bits
+                    rel_addr |= 0xFF00;
+                }
+                format!("${:04X}", pc.wrapping_add(1).wrapping_add(rel_addr))
             }
             ACC => "A ".to_string(),
-            IMP => "".to_string(),
+            IMP => {
+                if instr.op() == RTS {
+                    let ret = self.peek_stackw().wrapping_add(1);
+                    if ret > SP_BASE {
+                        *pc = ret;
+                    }
+                }
+                "".to_string()
+            }
         };
-        let mut bytes_str = String::new();
-        for i in 0..2 {
+        for i in 0..3 {
             if i < bytes.len() {
-                bytes_str.push_str(&format!("{:02X} ", bytes[i]));
+                disasm.push_str(&format!("{:02X} ", bytes[i]));
             } else {
-                bytes_str.push_str(&"   ".to_string());
+                disasm.push_str(&"   ".to_string());
             }
         }
+        disasm.push_str(&format!("{:?} {}", instr, mode));
+        disasm
+    }
+
+    // Print the current instruction and status
+    pub fn print_instruction(&mut self, mut pc: u16) {
+        let disasm = self.disassemble(&mut pc);
 
         let status_flags = vec!['n', 'v', 'u', 'b', 'd', 'i', 'z', 'c'];
         let mut status_str = String::with_capacity(8);
@@ -713,16 +767,8 @@ where
             }
         }
         let opstr = format!(
-            "${:04X}:{:02X} {}{:?} {:<22} A:{:02X} X:{:02X} Y:{:02X} P:{}\n",
-            pc.wrapping_sub(1),
-            self.instr.opcode(),
-            bytes_str,
-            self.instr,
-            disasm,
-            self.acc,
-            self.x,
-            self.y,
-            status_str,
+            "{:<22} A:{:02X} X:{:02X} Y:{:02X} P:{}\n",
+            disasm, self.acc, self.x, self.y, status_str,
         );
         print!("{}", opstr);
     }

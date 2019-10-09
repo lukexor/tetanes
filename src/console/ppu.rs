@@ -71,6 +71,7 @@ pub struct Ppu {
     pub regs: PpuRegs,           // Registers
     oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
     pub frame: Frame, // Frame data keeps track of data and shift registers between frames
+    pub frame_complete: bool,
     logging: bool,
     debug: bool,
     nametables: Vec<Vec<u8>>,
@@ -89,6 +90,7 @@ impl Ppu {
             oamdata: Oam::new(),
             vram: Vram::new(),
             frame: Frame::new(),
+            frame_complete: false,
             logging: false,
             debug: false,
             nametables: vec![
@@ -308,10 +310,13 @@ impl Ppu {
                     self.regs.copy_x();
                 }
 
+                // TODO - This should be split up
                 if self.cycle == SPRITE_PREFETCH_CYCLE_START {
                     self.evaluate_sprites();
                 }
 
+                // This gets our IRQ timing properly for certain mappers (MMC3, MMC5)
+                // because evaluation is done all on one cycle
                 if self.cycle >= 257 && self.cycle <= 320 {
                     let sprite_idx = (self.cycle as usize - 257) / 8;
                     let sprite = self.frame.sprites[sprite_idx];
@@ -555,6 +560,7 @@ impl Ppu {
                 self.cycle = 0;
                 self.scanline = 0;
                 self.frame.increment();
+                self.frame_complete = true;
                 return;
             }
         }
@@ -566,6 +572,7 @@ impl Ppu {
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
                 self.frame.increment();
+                self.frame_complete = true;
             }
         }
     }
@@ -713,6 +720,10 @@ impl Ppu {
      * OAMADDR
      */
 
+    pub fn read_oamaddr(&self) -> u8 {
+        self.regs.oamaddr
+    }
+
     fn write_oamaddr(&mut self, val: u8) {
         self.regs.oamaddr = val;
     }
@@ -744,7 +755,7 @@ impl Ppu {
      * PPUADDR
      */
 
-    fn read_ppuaddr(&self) -> u16 {
+    pub fn read_ppuaddr(&self) -> u16 {
         self.regs.read_addr()
     }
     fn write_ppuaddr(&mut self, val: u8) {
@@ -818,8 +829,9 @@ impl Memory for Ppu {
             0x2001 => self.regs.open_bus, // PPUMASK is write-only
             0x2002 => {
                 let val = self.read_ppustatus(); // PPUSTATUS
-                self.regs.open_bus |= val & !0x1F;
-                (val & !0x1F) | (self.regs.open_bus & 0x1F)
+                                                 // self.regs.open_bus |= val & !0x1F;
+                                                 // (val & !0x1F) | (self.regs.open_bus & 0x1F)
+                val
             }
             0x2003 => self.regs.open_bus, // OAMADDR is write-only
             0x2004 => {
@@ -993,7 +1005,7 @@ impl PpuRegs {
             open_bus: 0u8,
             ctrl: PpuCtrl(0u8),
             mask: PpuMask(0u8),
-            status: PpuStatus(0x20),
+            status: PpuStatus(0x00),
             oamaddr: 0u8,
             nmi_delay: 0u8,
             nmi_previous: false,
