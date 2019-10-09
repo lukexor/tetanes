@@ -1,16 +1,13 @@
 cargo build
 TESTS=(
 ## CPU ============================================================================================
-tests/cpu/all_instrs.nes # 03-immediate 3/16 (ASR, ARR, AXS)
+tests/cpu/all_instrs.nes # 9C SYA, 9E SXA - 7 of 16
 tests/cpu/flag_concurrency.nes # Timing doesn't match 29823 (got 35000) table should match OpenEMU results
 tests/cpu/interrupts.nes # IRQ when $4017 == $00 1-cli_latency #3 1/5
 
 # Not critical to emulate
 tests/cpu/exec_space_apu.nes # Mysteriously landed at $4023 (should return open bus, but mmc5 uses that now)
-tests/cpu/instr_misc.nes # ROL abs 03-dummy_reads #9 3/4
-
-# Passes but maybe somethings wrong?
-tests/cpu/instr_timing.nes # passes but calls ahx(), xaa(), shy(), shx()
+tests/cpu/instr_misc.nes # 04-dummy_reads_apu #2 4 of 4
 
 ## APU ============================================================================================
 tests/apu/03.irq_flag.nes # $04
@@ -18,6 +15,7 @@ tests/apu/04.clock_jitter.nes # $03
 tests/apu/05.len_timing_mode0.nes # $03
 tests/apu/06.len_timing_mode1.nes # $03
 tests/apu/07.irq_flag_timing.nes # $03
+tests/apu/08.irq_timing.nes # $03
 tests/apu/09.reset_timing.nes # $04
 tests/apu/10.len_halt_timing.nes # $03
 tests/apu/11.len_reload_timing.nes # $03
@@ -48,14 +46,9 @@ tests/ppu/palette.nes # Doesn't support emphasis or grayscale
 tests/ppu/tv.nes # Passes ratio, but not chroma/luma
 
 ## MAPPERS ========================================================================================
-# All of these seem to fail on regular EMUs that work fine - I think the way they check for IRQs
-# comes too late with most emulators
-# tests/mapper/mmc3/1-clocking.nes # Should decrement when A12 is tolgged #3
-# tests/mapper/mmc3/2-details.nes # Counter isn't working with 255 #2
-# tests/mapper/mmc3/3-A12_clocking.nes # Should be clocked when A12 0->1 #4
-# tests/mapper/mmc3/4-scanline_timing.nes # Scanline 0 IRQ should occur sooner #3
-# tests/mapper/mmc3/5-MMC3.nes # Should reload and set IRQ every clock #2
-# tests/mapper/mmc3/6-MMC3_alt.nes # Shouldnt IRQ when reload is 0 #2
+tests/mapper/mmc3/4.Scanline_timing.nes # Failed #2 - scanline 0 is too soon
+tests/mapper/mmc3/5.MMC3_rev_A.nes # Can only pass rev_A or rev_B at the same time. Passes rev_B
+
 )
 
 trap ctrl_c INT

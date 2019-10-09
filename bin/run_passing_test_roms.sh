@@ -4,6 +4,7 @@ TESTS=(
 tests/cpu/branch_timing/1.Branch_Basics.nes
 tests/cpu/branch_timing/2.Backward_Branch.nes
 tests/cpu/branch_timing/3.Forward_Branch.nes
+tests/cpu/cpu_timing_test.nes
 tests/cpu/dummy_reads.nes
 tests/cpu/dummy_writes_oam.nes
 tests/cpu/dummy_writes_ppumem.nes
@@ -17,7 +18,6 @@ tests/cpu/registers_after_reset.nes
 ## APU ============================================================================================
 tests/apu/01.len_ctr.nes
 tests/apu/02.len_table.nes
-tests/apu/08.irq_timing.nes
 tests/apu/apu_env.nes
 tests/apu/dmc.nes
 tests/apu/dmc_pitch.nes
@@ -56,7 +56,12 @@ tests/ppu/vbl_nmi_timing/4.vbl_clear_timing.nes
 tests/ppu/vram_access.nes
 
 ## MAPPERS ========================================================================================
+tests/mapper/mmc3/1.Clocking.nes
+tests/mapper/mmc3/2.Details.nes
+tests/mapper/mmc3/3.A12_clocking.nes
+tests/mapper/mmc3/6.MMC3_rev_B.nes
 tests/mapper/mmc3/mmc3bigchrram.nes
+
 )
 
 trap ctrl_c INT

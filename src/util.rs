@@ -2,12 +2,12 @@
 
 use crate::console::{RENDER_HEIGHT, RENDER_WIDTH};
 use crate::serialization::Savable;
-use crate::{nes_err, Result};
+use crate::{map_nes_err, nes_err, NesResult};
 use chrono::prelude::{DateTime, Local};
 use dirs;
-use image::{png, ColorType, Pixel};
+use png;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 const CONFIG_DIR: &str = ".rustynes";
@@ -20,25 +20,26 @@ const VERSION: u8 = 0;
 ///
 /// If rom_path is a `.nes` file, uses that
 /// If no arg[1], searches current directory for `.nes` files
-pub fn find_roms<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
+pub fn find_roms<P: AsRef<Path>>(path: P) -> NesResult<Vec<PathBuf>> {
     use std::ffi::OsStr;
     let path = path.as_ref();
     let mut roms = Vec::new();
     if path.is_dir() {
         path.read_dir()
-            .map_err(|e| nes_err!("unable to read directory {:?}: {}", path, e))?
+            .map_err(|e| map_nes_err!("unable to read directory {:?}: {}", path, e))?
             .filter_map(|f| f.ok())
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .for_each(|f| roms.push(f.path()));
     } else if path.is_file() {
         roms.push(path.to_path_buf());
     } else {
-        Err(nes_err!("invalid path: {:?}", path))?;
+        nes_err!("invalid path: {:?}", path)?;
     }
     if roms.is_empty() {
-        Err(nes_err!("no rom files found or specified"))?;
+        nes_err!("no rom files found or specified")
+    } else {
+        Ok(roms)
     }
-    Ok(roms)
 }
 
 /// Returns the path where battery-backed Save RAM files are stored
@@ -51,7 +52,7 @@ pub fn find_roms<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
 /// # Errors
 ///
 /// Panics if path is not a valid path
-pub fn sram_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf> {
+pub fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
     let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
     let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
     path.push(CONFIG_DIR);
@@ -71,7 +72,7 @@ pub fn sram_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf> {
 /// # Errors
 ///
 /// Panics if path is not a valid path
-pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> Result<PathBuf> {
+pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
     let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
     let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
     path.push(CONFIG_DIR);
@@ -99,10 +100,11 @@ pub fn home_dir() -> Option<PathBuf> {
 /// it'll simply log the error out to STDERR
 pub fn screenshot(pixels: &[u8]) {
     let datetime: DateTime<Local> = Local::now();
-    let mut png_path = PathBuf::from(format!(
-        "screenshot_{}",
-        datetime.format("%Y-%m-%dT%H-%M-%S").to_string()
-    ));
+    let mut png_path = PathBuf::from(
+        datetime
+            .format("Screen Shot %Y-%m-%d at %H.%M.%S")
+            .to_string(),
+    );
     png_path.set_extension("png");
     create_png(&png_path, pixels);
 }
@@ -130,14 +132,16 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) {
         );
         return;
     }
-    let png = png::PNGEncoder::new(png_file.unwrap()); // Safe to unwrap
-    let encode = png.encode(
-        pixels,
-        RENDER_WIDTH as u32,
-        RENDER_HEIGHT as u32,
-        ColorType::RGB(8),
-    );
-    if let Err(e) = encode {
+    let png_file = BufWriter::new(png_file.unwrap());
+    let mut png = png::Encoder::new(png_file, RENDER_WIDTH, RENDER_HEIGHT); // Safe to unwrap
+    png.set_color(png::ColorType::RGB);
+    let writer = png.write_header();
+    if let Err(e) = writer {
+        eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
+        return;
+    }
+    let result = writer.unwrap().write_image_data(&pixels);
+    if let Err(e) = result {
         eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
         return;
     }
@@ -145,28 +149,30 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) {
 }
 
 /// Writes a header including a magic string and a version
-pub fn write_save_header(fh: &mut dyn Write) -> Result<()> {
+pub fn write_save_header(fh: &mut dyn Write) -> NesResult<()> {
     SAVE_FILE_MAGIC.save(fh)?;
     VERSION.save(fh)
 }
 
 /// Validates a file to ensure it matches the current version and magic
-pub fn validate_save_header(fh: &mut dyn Read) -> Result<()> {
+pub fn validate_save_header(fh: &mut dyn Read) -> NesResult<()> {
     let mut magic = [0u8; 9];
     magic.load(fh)?;
     if magic != SAVE_FILE_MAGIC {
-        Err(nes_err!("invalid save file format"))?;
+        nes_err!("invalid save file format")
+    } else {
+        let mut version = 0u8;
+        version.load(fh)?;
+        if version != VERSION {
+            nes_err!(
+                "invalid save file version. current: {}, save file: {}",
+                VERSION,
+                version,
+            )
+        } else {
+            Ok(())
+        }
     }
-    let mut version = 0u8;
-    version.load(fh)?;
-    if version != VERSION {
-        Err(nes_err!(
-            "invalid save file version. current: {}, save file: {}",
-            VERSION,
-            version,
-        ))?;
-    }
-    Ok(())
 }
 
 pub struct WindowIcon {
@@ -178,19 +184,72 @@ pub struct WindowIcon {
 
 impl WindowIcon {
     /// Loads pixel values for an image icon
-    pub fn load() -> Result<Self> {
-        let image = image::open(&ICON_PATH)?.to_rgb();
-        let (width, height) = image.dimensions();
-        let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-        for pixel in image.pixels() {
-            pixels.extend_from_slice(pixel.channels());
-        }
+    pub fn load() -> NesResult<Self> {
+        let icon_file = BufReader::new(fs::File::open(&ICON_PATH)?);
+        let image = png::Decoder::new(icon_file);
+        let (info, mut reader) = image
+            .read_info()
+            .map_err(|e| map_nes_err!("failed to read png info: {}", e))?;
+        let mut pixels = vec![0; info.buffer_size()];
+        reader
+            .next_frame(&mut pixels)
+            .map_err(|e| map_nes_err!("failed to read png: {}", e))?;
         Ok(Self {
-            width,
-            height,
-            pitch: width * 3,
+            width: info.width,
+            height: info.height,
+            pitch: info.width * 4,
             pixels,
         })
+    }
+}
+
+pub fn hexdump(data: &[u8], addr_offset: usize) {
+    use std::cmp;
+
+    let mut addr = 0;
+    let len = data.len();
+    let mut last_line_same = false;
+    let mut last_line = String::with_capacity(80);
+    while addr <= len {
+        let end = cmp::min(addr + 16, len);
+        let line_data = &data[addr..end];
+        let line_len = line_data.len();
+
+        let mut line = String::with_capacity(80);
+        for byte in line_data.iter() {
+            line.push_str(&format!(" {:02X}", byte));
+        }
+
+        if line_len % 16 > 0 {
+            let words_left = (16 - line_len) / 2;
+            for _ in 0..3 * words_left {
+                line.push_str(" ");
+            }
+        }
+
+        if line_len > 0 {
+            line.push_str("  |");
+            for c in line_data {
+                if (*c as char).is_ascii() && !(*c as char).is_control() {
+                    line.push_str(&format!("{}", (*c as char)));
+                } else {
+                    line.push_str(".");
+                }
+            }
+            line.push_str("|");
+        }
+        if last_line == line {
+            if !last_line_same {
+                last_line_same = true;
+                println!("*");
+            }
+        } else {
+            last_line_same = false;
+            println!("{:08x} {}", addr + addr_offset, line);
+        }
+        last_line = line;
+
+        addr += 16;
     }
 }
 

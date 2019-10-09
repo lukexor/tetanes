@@ -8,7 +8,7 @@ use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -206,14 +206,14 @@ impl Mapper for Sxrom {
     }
     fn mirroring(&self) -> Mirroring {
         match self.regs.control & MIRRORING_MASK {
-            0 => Mirroring::SingleScreen0,
-            1 => Mirroring::SingleScreen1,
+            0 => Mirroring::SingleScreenA,
+            1 => Mirroring::SingleScreenB,
             2 => Mirroring::Vertical,
             3 => Mirroring::Horizontal,
             _ => panic!("impossible mirroring mode"),
         }
     }
-    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
+    fn vram_change(&mut self, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
@@ -222,13 +222,13 @@ impl Mapper for Sxrom {
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -243,7 +243,13 @@ impl Mapper for Sxrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn set_logging(&mut self, _logging: bool) {}
+    fn logging(&mut self, _logging: bool) {}
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
+        0
+    }
 }
 
 impl Memory for Sxrom {
@@ -312,7 +318,7 @@ impl Memory for Sxrom {
 }
 
 impl Savable for Sxrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.regs.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
@@ -323,7 +329,7 @@ impl Savable for Sxrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.regs.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
@@ -337,7 +343,7 @@ impl Savable for Sxrom {
 }
 
 impl Savable for SxRegs {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.write_just_occurred.save(fh)?;
         self.shift_register.save(fh)?;
         self.control.save(fh)?;
@@ -346,7 +352,7 @@ impl Savable for SxRegs {
         self.prg_bank.save(fh)?;
         self.open_bus.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.write_just_occurred.load(fh)?;
         self.shift_register.load(fh)?;
         self.control.load(fh)?;

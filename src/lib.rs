@@ -12,6 +12,7 @@
 //! RustyNES is also meant to showcase how clean and readable low-level Rust programs can be in
 //! addition to them having the type and memory-safety guarantees that Rust is known for.
 
+use pix_engine::PixEngineErr;
 use std::fmt;
 
 pub mod cartridge;
@@ -21,39 +22,75 @@ pub mod input;
 pub mod mapper;
 pub mod memory;
 pub mod serialization;
-pub mod ui;
+// pub mod ui;
 pub mod util;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-pub struct NesError(pub String);
+pub type NesResult<T> = std::result::Result<T, NesErr>;
+
+pub struct NesErr {
+    description: String,
+}
+
+impl NesErr {
+    fn new(desc: &str) -> Self {
+        Self {
+            description: desc.to_string(),
+        }
+    }
+    fn err<T>(desc: &str) -> NesResult<T> {
+        Err(Self {
+            description: desc.to_string(),
+        })
+    }
+}
 
 #[macro_export]
 macro_rules! nes_err {
     ($($arg:tt)*) => {
-        crate::NesError(format!($($arg)*))
+        crate::NesErr::err(&format!($($arg)*))
+    };
+}
+#[macro_export]
+macro_rules! map_nes_err {
+    ($($arg:tt)*) => {
+        crate::NesErr::new(&format!($($arg)*))
     };
 }
 
-pub fn to_nes_err(err: String) -> NesError {
-    NesError(err)
-}
-
-impl fmt::Display for NesError {
+impl fmt::Display for NesErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.description)
     }
 }
 
-impl fmt::Debug for NesError {
+impl fmt::Debug for NesErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{{ err: {}, file: {}, line: {} }}",
-            self.0,
+            self.description,
             file!(),
             line!()
         )
     }
 }
 
-impl std::error::Error for NesError {}
+impl std::error::Error for NesErr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
+impl From<std::io::Error> for NesErr {
+    fn from(err: std::io::Error) -> Self {
+        Self {
+            description: err.to_string(),
+        }
+    }
+}
+
+impl From<NesErr> for PixEngineErr {
+    fn from(err: NesErr) -> Self {
+        PixEngineErr::new(&err.to_string())
+    }
+}

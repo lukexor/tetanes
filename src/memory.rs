@@ -5,7 +5,7 @@ use crate::console::ppu::Ppu;
 use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use rand::Rng;
 use std::fmt;
 use std::io::{Read, Write};
@@ -83,10 +83,10 @@ impl Memory for Ram {
 }
 
 impl Savable for Ram {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.0.load(fh)
     }
 }
@@ -166,10 +166,10 @@ impl Memory for Rom {
 }
 
 impl Savable for Rom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.0.load(fh)
     }
 }
@@ -380,14 +380,14 @@ impl Memory for MemoryMap {
 }
 
 impl Savable for MemoryMap {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.wram.save(fh)?;
         self.open_bus.save(fh)?;
         self.ppu.save(fh)?;
         self.apu.save(fh)?;
         self.mapper.borrow().save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.wram.load(fh)?;
         self.open_bus.load(fh)?;
         self.ppu.load(fh)?;

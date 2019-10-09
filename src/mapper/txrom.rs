@@ -9,7 +9,7 @@ use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -30,6 +30,7 @@ pub struct Txrom {
     regs: TxRegs,
     has_chr_ram: bool,
     mirroring: Mirroring,
+    logging: bool,
     irq_pending: bool,
     // http://forums.nesdev.com/viewtopic.php?p=62546#p62546
     // MMC3
@@ -116,6 +117,7 @@ impl Txrom {
             },
             has_chr_ram,
             mirroring,
+            logging: false,
             irq_pending: false,
             mmc3_alt: 1,
             battery_backed: cart.battery_backed(),
@@ -226,8 +228,8 @@ impl Txrom {
     }
 
     fn clock_irq(&mut self, addr: u16) {
-        let next = (addr >> 12) & 1;
-        if self.regs.last_clock == 0 && next == 1 {
+        let next_clock = (addr >> 12) & 1;
+        if self.regs.last_clock == 0 && next_clock == 1 {
             // Rising edge
             let counter = self.regs.irq_counter;
             if counter == 0 || self.regs.irq_reload {
@@ -237,40 +239,38 @@ impl Txrom {
                 self.regs.irq_counter -= 1;
             }
 
-            if self.regs.irq_counter == 0 && (counter | self.mmc3_alt) > 0 && self.regs.irq_enabled
+            if self.regs.irq_counter == 0
+                && ((counter & 0x01) | self.mmc3_alt) == 0x01
+                && self.regs.irq_enabled
             {
                 self.irq_pending = true;
             }
         }
-        self.regs.last_clock = next;
+        self.regs.last_clock = next_clock;
     }
 }
 
 impl Mapper for Txrom {
     fn irq_pending(&mut self) -> bool {
-        let irq = self.irq_pending;
-        self.irq_pending = false;
-        irq
+        self.irq_pending
     }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _ppu: &Ppu, addr: u16) {
+    fn vram_change(&mut self, addr: u16) {
         self.clock_irq(addr);
     }
-    fn clock(&mut self, _ppu: &Ppu) {
-        // IRQ clocking is handled in read and vram_change
-    }
+    fn clock(&mut self, _ppu: &Ppu) {}
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -285,15 +285,19 @@ impl Mapper for Txrom {
     fn prg_ram(&self) -> Option<&Ram> {
         Some(&self.prg_ram)
     }
-    fn set_logging(&mut self, _logging: bool) {}
+    fn logging(&mut self, logging: bool) {
+        self.logging = logging;
+    }
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
+        0
+    }
 }
 
 impl Memory for Txrom {
     fn read(&mut self, addr: u16) -> u8 {
-        if addr <= 0x1FFF {
-            self.clock_irq(addr);
-        }
-
         let val = self.peek(addr);
         self.regs.open_bus = val;
         val
@@ -376,7 +380,7 @@ impl Memory for Txrom {
 }
 
 impl Savable for Txrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.regs.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -388,7 +392,7 @@ impl Savable for Txrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.regs.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
@@ -403,7 +407,7 @@ impl Savable for Txrom {
 }
 
 impl Savable for TxRegs {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.bank_select.save(fh)?;
         self.bank_values.save(fh)?;
         self.irq_latch.save(fh)?;
@@ -412,7 +416,7 @@ impl Savable for TxRegs {
         self.last_clock.save(fh)?;
         self.open_bus.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.bank_select.load(fh)?;
         self.bank_values.load(fh)?;
         self.irq_latch.load(fh)?;

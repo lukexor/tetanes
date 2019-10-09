@@ -16,11 +16,10 @@ sdl2 = "0.32.2"
 structopt = "0.3.1"
 chrono = "0.4.9"
 rand = "0.7.1"
+png = "0.15.0"
 
-[dependencies.image]
-version = "0.22.2"
-default-features = false
-features = ["png_codec"]
+[dependencies.pix-engine]
+path = "lib/pix-engine"
 
 [profile.dev]
 opt-level = 2

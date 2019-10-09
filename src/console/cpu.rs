@@ -4,7 +4,7 @@
 
 use crate::memory::Memory;
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -18,8 +18,8 @@ const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
 const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
-const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set - nestest seems to keep Unused set
-const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles according to nestest - though some docs say 8
+const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
+const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
 // Status Registers
@@ -35,7 +35,7 @@ const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 // ||+------- Unused - always set to 1 when pushed to stack
 // |+-------- Overflow
 // +--------- Negative
-enum StatusRegs {
+pub enum StatusRegs {
     C = 1,        // Carry
     Z = (1 << 1), // Zero
     I = (1 << 2), // Disable Interrupt
@@ -53,24 +53,24 @@ where
     M: Memory,
 {
     pub mem: M,
-    pub cycle_count: u64,     // total number of cycles ran
-    stall: u64,               // Number of cycles to stall with nop (used by DMA)
-    pub step: u64,            // total number of CPU instructions run
-    pub pc: u16,              // program counter
-    sp: u8,                   // stack pointer - stack is at $0100-$01FF
-    acc: u8,                  // accumulator
-    x: u8,                    // x register
-    y: u8,                    // y register
-    status: u8,               // Status Registers
-    instr: Instr,             // The currently executing instruction
-    abs_addr: u16,            // Used memory addresses get set here
-    rel_addr: u16,            // Relative address for branch instructions
-    fetched_data: u8,         // Represents data fetched for the ALU
-    pub interrupt: Interrupt, // Pending interrupt
-    #[cfg(debug_assertions)]
-    pub log_enabled: bool,
-    #[cfg(test)]
-    pub nestestlog: Vec<String>,
+    pub cycle_count: u64, // total number of cycles ran
+    stall: u64,           // Number of cycles to stall with nop (used by DMA)
+    pub step: u64,        // total number of CPU instructions run
+    pub pc: u16,          // program counter
+    pub sp: u8,           // stack pointer - stack is at $0100-$01FF
+    pub acc: u8,          // accumulator
+    pub x: u8,            // x register
+    pub y: u8,            // y register
+    pub status: u8,       // Status Registers
+    instr: Instr,         // The currently executing instruction
+    abs_addr: u16,        // Used memory addresses get set here
+    rel_addr: u16,        // Relative address for branch instructions
+    fetched_data: u8,     // Represents data fetched for the ALU
+    pending_irq: bool,    // Pending interrupts
+    pending_irq2: bool,   // Pending interrupts
+    pending_nmi: bool,
+    irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
+    logging: bool,
 }
 
 impl<M> Cpu<M>
@@ -93,11 +93,11 @@ where
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            interrupt: Interrupt::None,
-            #[cfg(debug_assertions)]
-            log_enabled: false,
-            #[cfg(test)]
-            nestestlog: Vec::with_capacity(10000),
+            pending_irq: false,
+            pending_irq2: false,
+            pending_nmi: false,
+            irq_delay: 0x00,
+            logging: false,
         };
         cpu.pc = cpu.readw(RESET_ADDR);
         cpu
@@ -107,9 +107,8 @@ where
         self.pc = self.readw(RESET_ADDR);
     }
 
-    #[cfg(debug_assertions)]
-    pub fn log(&mut self, val: bool) {
-        self.log_enabled = val;
+    pub fn logging(&mut self, val: bool) {
+        self.logging = val;
     }
 
     /// Runs the CPU one cycle
@@ -121,23 +120,22 @@ where
 
         let start_cycle = self.cycle_count;
 
-        match self.interrupt {
-            Interrupt::IRQ => self.irq(),
-            Interrupt::NMI => self.nmi(),
-            _ => (),
+        if self.irq_delay > 0 {
+            self.irq_delay -= 1;
+        } else if self.pending_nmi {
+            self.nmi();
+        } else if self.pending_irq || self.pending_irq2 {
+            self.irq();
         }
-        self.interrupt = Interrupt::None;
 
         let opcode = self.read(self.pc);
-        self.set_flag(U, true);
         self.pc = self.pc.wrapping_add(1);
-        #[cfg(debug_assertions)]
         let log_pc = self.pc;
 
         self.instr = INSTRUCTIONS[opcode as usize];
 
         // let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
-        let mode_cycle = match self.instr.addr_mode() {
+        let mode_cycle = u64::from(match self.instr.addr_mode() {
             IMM => self.imm(),
             ZP0 => self.zp0(),
             ZPX => self.zpx(),
@@ -151,17 +149,14 @@ where
             REL => self.rel(),
             ACC => self.acc(),
             IMP => self.imp(),
-        } as u64;
+        });
 
-        #[cfg(debug_assertions)]
-        {
-            if self.log_enabled {
-                self.print_instruction(log_pc);
-            }
+        if self.logging {
+            self.print_instruction(log_pc);
         }
 
         // let op_cycle = (self.instr.execute())(self); // Execute operation
-        let op_cycle = match self.instr.op() {
+        let op_cycle = u64::from(match self.instr.op() {
             ADC => self.adc(), // ADd with Carry M with A
             AND => self.and(), // AND M with A
             ASL => self.asl(), // Arithmatic Shift Left M or A
@@ -228,10 +223,10 @@ where
             AHX => self.ahx(), // Store A & X & H in M
             SAX => self.sax(), // Sotre A & X in M
             XAA => self.xaa(), // TXA & AND
-            SHX => self.shx(), // Store X & H in M
+            SXA => self.sxa(), // Store X & H in M
             RRA => self.rra(), // ROR & ADC
             TAS => self.tas(), // STA & TXS
-            SHY => self.shy(), // Store Y & H in M
+            SYA => self.sya(), // Store Y & H in M
             ARR => self.arr(), // AND #imm & ROR
             SRE => self.sre(), // LSR & EOR
             ALR => self.alr(), // AND #imm & LSR
@@ -239,7 +234,7 @@ where
             ANC => self.anc(), // AND #imm
             SLO => self.slo(), // ASL & ORA
             XXX => self.xxx(), // Unimplemented opcode
-        } as u64;
+        });
         self.step += 1;
         self.cycle_count = self
             .cycle_count
@@ -252,33 +247,42 @@ where
     ///
     /// http://wiki.nesdev.com/w/index.php/IRQ
     pub fn trigger_irq(&mut self) {
-        if self.get_flag(I) > 0 {
-            return;
-        }
-        self.interrupt = Interrupt::IRQ;
+        self.pending_irq = true;
+    }
+    pub fn trigger_irq2(&mut self, val: bool) {
+        self.pending_irq2 = val;
     }
     pub fn irq(&mut self) {
-        self.push_stackw(self.pc);
-        // Handles status flags differently than php()
-        self.push_stackb((self.status | U as u8) & !(B as u8));
-        self.pc = self.readw(IRQ_ADDR);
-        self.set_flag(I, true);
-        self.cycle_count = self.cycle_count.wrapping_add(7);
+        if self.get_flag(I) == 0 {
+            self.push_stackw(self.pc);
+            // Handles status flags differently than php()
+            self.set_flag(B, false);
+            self.set_flag(U, true);
+            self.push_stackb(self.status);
+            self.set_flag(I, true);
+            self.pc = self.readw(IRQ_ADDR);
+            self.cycle_count = self.cycle_count.wrapping_add(7);
+            self.pending_irq = false;
+            self.pending_irq2 = false;
+        }
     }
 
     /// Sends a NMI Interrupt to the CPU
     ///
     /// http://wiki.nesdev.com/w/index.php/NMI
     pub fn trigger_nmi(&mut self) {
-        self.interrupt = Interrupt::NMI;
+        self.pending_nmi = true;
     }
     fn nmi(&mut self) {
         self.push_stackw(self.pc);
         // Handles status flags differently than php()
-        self.push_stackb((self.status | U as u8) & !(B as u8));
-        self.pc = self.readw(NMI_ADDR);
+        self.set_flag(B, false);
+        self.set_flag(U, true);
+        self.push_stackb(self.status);
         self.set_flag(I, true);
+        self.pc = self.readw(NMI_ADDR);
         self.cycle_count = self.cycle_count.wrapping_add(7);
+        self.pending_nmi = false;
     }
 
     // Getters/Setters
@@ -298,7 +302,11 @@ where
     }
 
     fn get_flag(&self, flag: StatusRegs) -> u8 {
-        return if (self.status & flag as u8) > 0 { 1 } else { 0 };
+        if (self.status & flag as u8) > 0 {
+            1
+        } else {
+            0
+        }
     }
 
     fn set_flag(&mut self, flag: StatusRegs, val: bool) {
@@ -353,7 +361,7 @@ where
     fn acc(&mut self) -> u8 {
         let _ = self.read(self.pc); // dummy read
         self.fetched_data = self.acc;
-        return 0;
+        0
     }
 
     /// Implied
@@ -361,7 +369,7 @@ where
     fn imp(&mut self) -> u8 {
         let _ = self.read(self.pc); // dummy read
         self.fetched_data = self.acc;
-        return 0;
+        0
     }
 
     /// Immediate
@@ -370,7 +378,7 @@ where
         let _ = self.read(self.pc); // dummy read
         self.abs_addr = self.pc;
         self.pc = self.pc.wrapping_add(1);
-        return 0;
+        0
     }
 
     /// Zero Page
@@ -379,7 +387,7 @@ where
     fn zp0(&mut self) -> u8 {
         self.abs_addr = u16::from(self.read(self.pc)) & 0x00FF;
         self.pc = self.pc.wrapping_add(1);
-        return 0;
+        0
     }
 
     /// Zero Page w/ X offset
@@ -387,7 +395,7 @@ where
     fn zpx(&mut self) -> u8 {
         self.abs_addr = u16::from(self.read(self.pc).wrapping_add(self.x)) & 0x00FF;
         self.pc = self.pc.wrapping_add(1);
-        return 0;
+        0
     }
 
     /// Zero Page w/ Y offset
@@ -395,7 +403,7 @@ where
     fn zpy(&mut self) -> u8 {
         self.abs_addr = u16::from(self.read(self.pc).wrapping_add(self.y)) & 0x00FF;
         self.pc = self.pc.wrapping_add(1);
-        return 0;
+        0
     }
 
     /// Relative
@@ -409,7 +417,7 @@ where
             // If address is negative, extend sign to 16-bits
             self.rel_addr |= 0xFF00;
         }
-        return 0;
+        0
     }
 
     /// Absolute
@@ -420,13 +428,13 @@ where
         // dummy read for read-modify-write instructions
         match self.instr.op() {
             ASL | LSR | ROL | ROR | INC | DEC | SLO | SRE | RLA | RRA | ISB | DCP => {
-                let _ = self.read(self.abs_addr);
+                let _ = self.read(self.pc);
             }
             _ => (), // Do nothing
         }
 
         self.pc = self.pc.wrapping_add(2);
-        return 0;
+        0
     }
 
     /// Absolute w/ X offset
@@ -437,15 +445,23 @@ where
         self.pc = self.pc.wrapping_add(2);
         self.abs_addr = addr.wrapping_add(self.x.into());
 
-        // dummy read
+        // Dummy read 1
+        match self.instr.op() {
+            ASL | LSR | ROL | ROR | INC | DEC | SLO | SRE | RLA | RRA | ISB | DCP => {
+                let _ = self.read(self.abs_addr);
+            }
+            _ => (), // Do nothing
+        }
+
+        // Dummy read 2
         if (addr & 0x00FF).wrapping_add(self.x.into()) > 0x00FF {
             self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
         }
 
         if self.pages_differ(addr, self.abs_addr) {
-            return 1;
+            1
         } else {
-            return 0;
+            0
         }
     }
 
@@ -466,9 +482,9 @@ where
         }
 
         if self.pages_differ(addr, self.abs_addr) {
-            return 1;
+            1
         } else {
-            return 0;
+            0
         }
     }
 
@@ -487,7 +503,7 @@ where
             // Normal behavior
             self.abs_addr = (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr));
         }
-        return 0;
+        0
     }
 
     /// Indirect X
@@ -498,7 +514,7 @@ where
         self.pc = self.pc.wrapping_add(1);
         let x_offset = addr.wrapping_add(self.x);
         self.abs_addr = self.readw_zp(x_offset);
-        return 0;
+        0
     }
 
     /// Indirect Y
@@ -516,9 +532,9 @@ where
         }
 
         if self.pages_differ(addr, self.abs_addr) {
-            return 1;
+            1
         } else {
-            return 0;
+            0
         }
     }
 
@@ -601,19 +617,19 @@ where
             ZP0 => {
                 bytes.push(self.peek(pc));
                 let val = self.peek(bytes[0].into());
-                format!("${:02X} = {:02X}", bytes[0], val)
+                format!("${:02X} = #${:02X}", bytes[0], val)
             }
             ZPX => {
                 bytes.push(self.peek(pc));
                 let x_offset = bytes[0].wrapping_add(self.x);
                 let val = self.peek(x_offset.into());
-                format!("${:02X},X @ {:02X} = {:02X}", bytes[0], x_offset, val)
+                format!("${:02X},X @ ${:02X} = #${:02X}", bytes[0], x_offset, val)
             }
             ZPY => {
                 bytes.push(self.peek(pc));
                 let y_offset = bytes[0].wrapping_add(self.y);
                 let val = self.peek(y_offset.into());
-                format!("${:02X},Y @ {:02X} = {:02X}", bytes[0], y_offset, val)
+                format!("${:02X},Y @ ${:02X} = #${:02X}", bytes[0], y_offset, val)
             }
             ABS => {
                 bytes.push(self.peek(pc));
@@ -622,8 +638,8 @@ where
                 if self.instr.op() == JMP || self.instr.op() == JSR {
                     format!("${:04X}", addr)
                 } else {
-                    let val = self.peek(addr.into());
-                    format!("${:04X} = {:02X}", addr, val)
+                    let val = self.peek(addr);
+                    format!("${:04X} = #${:02X}", addr, val)
                 }
             }
             ABX => {
@@ -631,16 +647,16 @@ where
                 bytes.push(self.peek(pc.wrapping_add(1)));
                 let addr = self.peekw(pc);
                 let x_offset = addr.wrapping_add(self.x.into());
-                let val = self.peek(x_offset.into());
-                format!("${:04X},X @ {:04X} = {:02X}", addr, x_offset, val)
+                let val = self.peek(x_offset);
+                format!("${:04X},X @ ${:04X} = #${:02X}", addr, x_offset, val)
             }
             ABY => {
                 bytes.push(self.peek(pc));
                 bytes.push(self.peek(pc.wrapping_add(1)));
                 let addr = self.peekw(pc);
                 let y_offset = addr.wrapping_add(self.y.into());
-                let val = self.peek(y_offset.into());
-                format!("${:04X},Y @ {:04X} = {:02X}", addr, y_offset, val)
+                let val = self.peek(y_offset);
+                format!("${:04X},Y @ ${:04X} = #${:02X}", addr, y_offset, val)
             }
             IND => {
                 bytes.push(self.peek(pc));
@@ -652,7 +668,7 @@ where
                     (u16::from(self.peek(addr + 1)) << 8) | u16::from(self.peek(addr))
                 };
                 if self.instr.op() == JMP {
-                    format!("(${:04X}) = {:04X}", addr, val)
+                    format!("(${:04X}) = ${:04X}", addr, val)
                 } else {
                     format!("(${:04X})", val)
                 }
@@ -662,20 +678,14 @@ where
                 let x_offset = bytes[0].wrapping_add(self.x);
                 let addr = self.peekw_zp(x_offset);
                 let val = self.peek(addr);
-                format!(
-                    "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
-                    bytes[0], x_offset, addr, val,
-                )
+                format!("(${:02X},X) @ ${:04X} = #${:02X}", bytes[0], addr, val,)
             }
             IDY => {
                 bytes.push(self.peek(pc));
                 let addr = self.peekw_zp(bytes[0]);
                 let y_offset = addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                format!(
-                    "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
-                    bytes[0], addr, y_offset, val,
-                )
+                format!("(${:02X}),Y @ ${:04X} = #${:02X}", bytes[0], y_offset, val)
             }
             REL => {
                 bytes.push(self.peek(pc));
@@ -692,8 +702,18 @@ where
                 bytes_str.push_str(&"   ".to_string());
             }
         }
+
+        let status_flags = vec!['n', 'v', 'u', 'b', 'd', 'i', 'z', 'c'];
+        let mut status_str = String::with_capacity(8);
+        for (i, s) in status_flags.iter().enumerate() {
+            if ((self.status >> (7 - i)) & 1) > 0 {
+                status_str.push(s.to_ascii_uppercase());
+            } else {
+                status_str.push(*s);
+            }
+        }
         let opstr = format!(
-            "{:04X}  {:02X} {}{:?} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}\n",
+            "${:04X}:{:02X} {}{:?} {:<22} A:{:02X} X:{:02X} Y:{:02X} P:{}\n",
             pc.wrapping_sub(1),
             self.instr.opcode(),
             bytes_str,
@@ -702,21 +722,15 @@ where
             self.acc,
             self.x,
             self.y,
-            self.status,
-            self.sp,
-            0, // self.mem.ppu.cycle,
-            0, // self.mem.ppu.scanline,
-            self.cycle_count,
+            status_str,
         );
         print!("{}", opstr);
-        #[cfg(test)]
-        self.nestestlog.push(opstr);
     }
 
     /// Utilities
 
     fn pages_differ(&self, addr1: u16, addr2: u16) -> bool {
-        return (addr1 & 0xFF00) != (addr2 & 0xFF00);
+        (addr1 & 0xFF00) != (addr2 & 0xFF00)
     }
 }
 
@@ -746,14 +760,12 @@ where
     ///
     /// These operations take the CPU 7 cycle.
     fn reset(&mut self) {
-        self.mem.reset();
         self.cycle_count = POWER_ON_CYCLES;
         self.stall = 0u64;
         self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
-        #[cfg(test)]
-        self.nestestlog.clear();
+        self.mem.reset();
     }
 
     /// Power cycle the CPU
@@ -771,8 +783,6 @@ where
         self.x = 0u8;
         self.y = 0u8;
         self.status = POWER_ON_STATUS;
-        #[cfg(test)]
-        self.nestestlog.clear();
     }
 }
 
@@ -780,7 +790,7 @@ impl<M> Savable for Cpu<M>
 where
     M: Memory + Savable,
 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.mem.save(fh)?;
         self.cycle_count.save(fh)?;
         self.stall.save(fh)?;
@@ -795,9 +805,11 @@ where
         self.abs_addr.save(fh)?;
         self.rel_addr.save(fh)?;
         self.fetched_data.save(fh)?;
-        self.interrupt.save(fh)
+        self.pending_irq.save(fh)?;
+        self.pending_nmi.save(fh)?;
+        self.irq_delay.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mem.load(fh)?;
         self.cycle_count.load(fh)?;
         self.stall.load(fh)?;
@@ -812,31 +824,9 @@ where
         self.abs_addr.load(fh)?;
         self.rel_addr.load(fh)?;
         self.fetched_data.load(fh)?;
-        self.interrupt.load(fh)
-    }
-}
-
-#[derive(PartialEq, Eq, Copy, Clone)]
-pub enum Interrupt {
-    None,
-    IRQ,
-    NMI,
-}
-
-impl Savable for Interrupt {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
-        (*self as u8).save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => Interrupt::None,
-            1 => Interrupt::IRQ,
-            2 => Interrupt::NMI,
-            _ => panic!("invalid Interrupt value"),
-        };
-        Ok(())
+        self.pending_irq.load(fh)?;
+        self.pending_nmi.load(fh)?;
+        self.irq_delay.load(fh)
     }
 }
 
@@ -850,15 +840,15 @@ pub enum Operation {
     CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP, JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA,
     PLP, ROL, ROR, RTI, RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
     // "Unofficial" opcodes
-    SKB, IGN, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SHX, RRA, TAS, SHY, ARR, SRE, ALR, RLA, ANC,
+    SKB, IGN, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SXA, RRA, TAS, SYA, ARR, SRE, ALR, RLA, ANC,
     SLO, XXX
 }
 
 impl Savable for Operation {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -928,10 +918,10 @@ impl Savable for Operation {
             63 => Operation::AHX,
             64 => Operation::SAX,
             65 => Operation::XAA,
-            66 => Operation::SHX,
+            66 => Operation::SXA,
             67 => Operation::RRA,
             68 => Operation::TAS,
-            69 => Operation::SHY,
+            69 => Operation::SYA,
             70 => Operation::ARR,
             71 => Operation::SRE,
             72 => Operation::ALR,
@@ -956,10 +946,10 @@ pub enum AddrMode {
 }
 
 impl Savable for AddrMode {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -1005,13 +995,13 @@ impl Instr {
 }
 
 impl Savable for Instr {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.0.save(fh)?;
         self.1.save(fh)?;
         self.2.save(fh)?;
         self.3.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.0.load(fh)?;
         self.1.load(fh)?;
         self.2.load(fh)?;
@@ -1031,7 +1021,7 @@ pub const INSTRUCTIONS: [Instr; 256] = [
     Instr(0x60, IMP, RTS, 6), Instr(0x61, IDX, ADC, 6), Instr(0x62, IMP, XXX, 2), Instr(0x63, IDX, RRA, 8), Instr(0x64, ZP0, NOP, 3), Instr(0x65, ZP0, ADC, 3), Instr(0x66, ZP0, ROR, 5), Instr(0x67, ZP0, RRA, 5), Instr(0x68, IMP, PLA, 4), Instr(0x69, IMM, ADC, 2), Instr(0x6A, ACC, ROR, 2), Instr(0x6B, IMM, ARR, 2), Instr(0x6C, IND, JMP, 5), Instr(0x6D, ABS, ADC, 4), Instr(0x6E, ABS, ROR, 6), Instr(0x6F, ABS, RRA, 6),
     Instr(0x70, REL, BVS, 2), Instr(0x71, IDY, ADC, 5), Instr(0x72, IMP, XXX, 2), Instr(0x73, IDY, RRA, 8), Instr(0x74, ZPX, NOP, 4), Instr(0x75, ZPX, ADC, 4), Instr(0x76, ZPX, ROR, 6), Instr(0x77, ZPX, RRA, 6), Instr(0x78, IMP, SEI, 2), Instr(0x79, ABY, ADC, 4), Instr(0x7A, IMP, NOP, 2), Instr(0x7B, ABY, RRA, 7), Instr(0x7C, ABX, IGN, 4), Instr(0x7D, ABX, ADC, 4), Instr(0x7E, ABX, ROR, 7), Instr(0x7F, ABX, RRA, 7),
     Instr(0x80, IMM, SKB, 2), Instr(0x81, IDX, STA, 6), Instr(0x82, IMM, SKB, 2), Instr(0x83, IDX, SAX, 6), Instr(0x84, ZP0, STY, 3), Instr(0x85, ZP0, STA, 3), Instr(0x86, ZP0, STX, 3), Instr(0x87, ZP0, SAX, 3), Instr(0x88, IMP, DEY, 2), Instr(0x89, IMM, SKB, 2), Instr(0x8A, IMP, TXA, 2), Instr(0x8B, IMM, XAA, 2), Instr(0x8C, ABS, STY, 4), Instr(0x8D, ABS, STA, 4), Instr(0x8E, ABS, STX, 4), Instr(0x8F, ABS, SAX, 4),
-    Instr(0x90, REL, BCC, 2), Instr(0x91, IDY, STA, 6), Instr(0x92, IMP, XXX, 2), Instr(0x93, IDY, AHX, 6), Instr(0x94, ZPX, STY, 4), Instr(0x95, ZPX, STA, 4), Instr(0x96, ZPY, STX, 4), Instr(0x97, ZPY, SAX, 4), Instr(0x98, IMP, TYA, 2), Instr(0x99, ABY, STA, 5), Instr(0x9A, IMP, TXS, 2), Instr(0x9B, ABY, TAS, 5), Instr(0x9C, ABX, SHY, 5), Instr(0x9D, ABX, STA, 5), Instr(0x9E, ABY, SHX, 5), Instr(0x9F, ABY, AHX, 5),
+    Instr(0x90, REL, BCC, 2), Instr(0x91, IDY, STA, 6), Instr(0x92, IMP, XXX, 2), Instr(0x93, IDY, AHX, 6), Instr(0x94, ZPX, STY, 4), Instr(0x95, ZPX, STA, 4), Instr(0x96, ZPY, STX, 4), Instr(0x97, ZPY, SAX, 4), Instr(0x98, IMP, TYA, 2), Instr(0x99, ABY, STA, 5), Instr(0x9A, IMP, TXS, 2), Instr(0x9B, ABY, TAS, 5), Instr(0x9C, ABX, SYA, 5), Instr(0x9D, ABX, STA, 5), Instr(0x9E, ABY, SXA, 5), Instr(0x9F, ABY, AHX, 5),
     Instr(0xA0, IMM, LDY, 2), Instr(0xA1, IDX, LDA, 6), Instr(0xA2, IMM, LDX, 2), Instr(0xA3, IDX, LAX, 6), Instr(0xA4, ZP0, LDY, 3), Instr(0xA5, ZP0, LDA, 3), Instr(0xA6, ZP0, LDX, 3), Instr(0xA7, ZP0, LAX, 3), Instr(0xA8, IMP, TAY, 2), Instr(0xA9, IMM, LDA, 2), Instr(0xAA, IMP, TAX, 2), Instr(0xAB, IMM, LAX, 2), Instr(0xAC, ABS, LDY, 4), Instr(0xAD, ABS, LDA, 4), Instr(0xAE, ABS, LDX, 4), Instr(0xAF, ABS, LAX, 4),
     Instr(0xB0, REL, BCS, 2), Instr(0xB1, IDY, LDA, 5), Instr(0xB2, IMP, XXX, 2), Instr(0xB3, IDY, LAX, 5), Instr(0xB4, ZPX, LDY, 4), Instr(0xB5, ZPX, LDA, 4), Instr(0xB6, ZPY, LDX, 4), Instr(0xB7, ZPY, LAX, 4), Instr(0xB8, IMP, CLV, 2), Instr(0xB9, ABY, LDA, 4), Instr(0xBA, IMP, TSX, 2), Instr(0xBB, ABY, LAS, 4), Instr(0xBC, ABX, LDY, 4), Instr(0xBD, ABX, LDA, 4), Instr(0xBE, ABY, LDX, 4), Instr(0xBF, ABY, LAX, 4),
     Instr(0xC0, IMM, CPY, 2), Instr(0xC1, IDX, CMP, 6), Instr(0xC2, IMM, SKB, 2), Instr(0xC3, IDX, DCP, 8), Instr(0xC4, ZP0, CPY, 3), Instr(0xC5, ZP0, CMP, 3), Instr(0xC6, ZP0, DEC, 5), Instr(0xC7, ZP0, DCP, 5), Instr(0xC8, IMP, INY, 2), Instr(0xC9, IMM, CMP, 2), Instr(0xCA, IMP, DEX, 2), Instr(0xCB, IMM, AXS, 2), Instr(0xCC, ABS, CPY, 4), Instr(0xCD, ABS, CMP, 4), Instr(0xCE, ABS, DEC, 6), Instr(0xCF, ABS, DCP, 6),
@@ -1052,71 +1042,71 @@ where
         self.fetch_data();
         self.acc = self.fetched_data;
         self.set_flags_zn(self.acc);
-        return 1;
+        1
     }
     /// LDX: Load X with M
     fn ldx(&mut self) -> u8 {
         self.fetch_data();
         self.x = self.fetched_data;
         self.set_flags_zn(self.x);
-        return 1;
+        1
     }
     /// LDY: Load Y with M
     fn ldy(&mut self) -> u8 {
         self.fetch_data();
         self.y = self.fetched_data;
         self.set_flags_zn(self.y);
-        return 1;
+        1
     }
     /// STA: Store A into M
     fn sta(&mut self) -> u8 {
         self.write(self.abs_addr, self.acc);
-        return 0;
+        0
     }
     /// STX: Store X into M
     fn stx(&mut self) -> u8 {
         self.write(self.abs_addr, self.x);
-        return 0;
+        0
     }
     /// STY: Store Y into M
     fn sty(&mut self) -> u8 {
         self.write(self.abs_addr, self.y);
-        return 0;
+        0
     }
     /// TAX: Transfer A to X
     fn tax(&mut self) -> u8 {
         self.x = self.acc;
         self.set_flags_zn(self.x);
-        return 0;
+        0
     }
     /// TAY: Transfer A to Y
     fn tay(&mut self) -> u8 {
         self.y = self.acc;
         self.set_flags_zn(self.y);
-        return 0;
+        0
     }
     /// TSX: Transfer Stack Pointer to X
     fn tsx(&mut self) -> u8 {
         self.x = self.sp;
         self.set_flags_zn(self.x);
-        return 0;
+        0
     }
     /// TXA: Transfer X to A
     fn txa(&mut self) -> u8 {
         self.acc = self.x;
         self.set_flags_zn(self.acc);
-        return 0;
+        0
     }
     /// TXS: Transfer X to Stack Pointer
     fn txs(&mut self) -> u8 {
         self.sp = self.x;
-        return 0;
+        0
     }
     /// TYA: Transfer Y to A
     fn tya(&mut self) -> u8 {
         self.acc = self.y;
         self.set_flags_zn(self.acc);
-        return 0;
+        0
     }
 
     /// Arithmetic opcodes
@@ -1134,7 +1124,7 @@ where
             (a ^ self.fetched_data) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0,
         );
         self.set_flags_zn(self.acc);
-        return 1;
+        1
     }
     /// SBC: Subtract M from A with Carry
     fn sbc(&mut self) -> u8 {
@@ -1149,7 +1139,7 @@ where
             (a ^ self.fetched_data) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0,
         );
         self.set_flags_zn(self.acc);
-        return 1;
+        1
     }
     /// DEC: Decrement M by One
     fn dec(&mut self) -> u8 {
@@ -1158,19 +1148,19 @@ where
         let val = self.fetched_data.wrapping_sub(1);
         self.write_fetched(val);
         self.set_flags_zn(val);
-        return 0;
+        0
     }
     /// DEX: Decrement X by One
     fn dex(&mut self) -> u8 {
         self.x = self.x.wrapping_sub(1);
         self.set_flags_zn(self.x);
-        return 0;
+        0
     }
     /// DEY: Decrement Y by One
     fn dey(&mut self) -> u8 {
         self.y = self.y.wrapping_sub(1);
         self.set_flags_zn(self.y);
-        return 0;
+        0
     }
     /// INC: Increment M by One
     fn inc(&mut self) -> u8 {
@@ -1179,19 +1169,19 @@ where
         let val = self.fetched_data.wrapping_add(1);
         self.set_flags_zn(val);
         self.write_fetched(val);
-        return 0;
+        0
     }
     /// INX: Increment X by One
     fn inx(&mut self) -> u8 {
         self.x = self.x.wrapping_add(1);
         self.set_flags_zn(self.x);
-        return 0;
+        0
     }
     /// INY: Increment Y by One
     fn iny(&mut self) -> u8 {
         self.y = self.y.wrapping_add(1);
         self.set_flags_zn(self.y);
-        return 0;
+        0
     }
 
     /// Bitwise opcodes
@@ -1201,7 +1191,7 @@ where
         self.fetch_data();
         self.acc &= self.fetched_data;
         self.set_flags_zn(self.acc);
-        return 1;
+        1
     }
     /// ASL: Shift Left One Bit (M or A)
     fn asl(&mut self) -> u8 {
@@ -1211,7 +1201,7 @@ where
         let val = self.fetched_data.wrapping_shl(1);
         self.set_flags_zn(val);
         self.write_fetched(val);
-        return 0;
+        0
     }
     /// BIT: Test Bits in M with A (Affects N, V, and Z)
     fn bit(&mut self) -> u8 {
@@ -1220,14 +1210,14 @@ where
         self.set_flag(Z, val == 0);
         self.set_flag(N, self.fetched_data & (1 << 7) > 0);
         self.set_flag(V, self.fetched_data & (1 << 6) > 0);
-        return 0;
+        0
     }
     /// EOR: "Exclusive-Or" M with A
     fn eor(&mut self) -> u8 {
         self.fetch_data();
         self.acc ^= self.fetched_data;
         self.set_flags_zn(self.acc);
-        return 1;
+        1
     }
     /// LSR: Shift Right One Bit (M or A)
     fn lsr(&mut self) -> u8 {
@@ -1237,14 +1227,14 @@ where
         let val = self.fetched_data.wrapping_shr(1);
         self.set_flags_zn(val);
         self.write_fetched(val);
-        return 0;
+        0
     }
     /// ORA: "OR" M with A
     fn ora(&mut self) -> u8 {
         self.fetch_data();
         self.acc |= self.fetched_data;
         self.set_flags_zn(self.acc);
-        return 1;
+        1
     }
     /// ROL: Rotate One Bit Left (M or A)
     fn rol(&mut self) -> u8 {
@@ -1255,7 +1245,7 @@ where
         let val = (self.fetched_data << 1) | old_c;
         self.set_flags_zn(val);
         self.write_fetched(val);
-        return 0;
+        0
     }
     /// ROR: Rotate One Bit Right (M or A)
     fn ror(&mut self) -> u8 {
@@ -1270,7 +1260,7 @@ where
         self.set_flag(C, self.fetched_data & 1 > 0);
         self.set_flags_zn(ret);
         self.write_fetched(ret);
-        return 0;
+        0
     }
 
     /// Branch opcodes
@@ -1289,56 +1279,56 @@ where
         if self.get_flag(C) == 0 {
             self.branch();
         }
-        return 0;
+        0
     }
     /// BCS: Branch on Carry Set
     fn bcs(&mut self) -> u8 {
         if self.get_flag(C) == 1 {
             self.branch();
         }
-        return 0;
+        0
     }
     /// BEQ: Branch on Result Zero
     fn beq(&mut self) -> u8 {
         if self.get_flag(Z) == 1 {
             self.branch();
         }
-        return 0;
+        0
     }
     /// BMI: Branch on Result Negative
     fn bmi(&mut self) -> u8 {
         if self.get_flag(N) == 1 {
             self.branch();
         }
-        return 0;
+        0
     }
     /// BNE: Branch on Result Not Zero
     fn bne(&mut self) -> u8 {
         if self.get_flag(Z) == 0 {
             self.branch();
         }
-        return 0;
+        0
     }
     /// BPL: Branch on Result Positive
     fn bpl(&mut self) -> u8 {
         if self.get_flag(N) == 0 {
             self.branch();
         }
-        return 0;
+        0
     }
     /// BVC: Branch on Overflow Clear
     fn bvc(&mut self) -> u8 {
         if self.get_flag(V) == 0 {
             self.branch();
         }
-        return 0;
+        0
     }
     /// BVS: Branch on Overflow Set
     fn bvs(&mut self) -> u8 {
         if self.get_flag(V) == 1 {
             self.branch();
         }
-        return 0;
+        0
     }
 
     /// Jump opcodes
@@ -1346,13 +1336,13 @@ where
     /// JMP: Jump to Location
     fn jmp(&mut self) -> u8 {
         self.pc = self.abs_addr;
-        return 0;
+        0
     }
     /// JSR: Jump to Location Save Return addr
     fn jsr(&mut self) -> u8 {
         self.push_stackw(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
-        return 0;
+        0
     }
     /// RTI: Return from Interrupt
     fn rti(&mut self) -> u8 {
@@ -1360,12 +1350,12 @@ where
         self.status &= !(U as u8);
         self.status &= !(B as u8);
         self.pc = self.pop_stackw();
-        return 0;
+        0
     }
     /// RTS: Return from Subroutine
     fn rts(&mut self) -> u8 {
         self.pc = self.pop_stackw().wrapping_add(1);
-        return 0;
+        0
     }
 
     ///  Register opcodes
@@ -1373,37 +1363,39 @@ where
     /// CLC: Clear Carry Flag
     fn clc(&mut self) -> u8 {
         self.set_flag(C, false);
-        return 0;
+        0
     }
     /// SEC: Set Carry Flag
     fn sec(&mut self) -> u8 {
         self.set_flag(C, true);
-        return 0;
+        0
     }
     /// CLD: Clear Decimal Mode
     fn cld(&mut self) -> u8 {
         self.set_flag(D, false);
-        return 0;
+        0
     }
     /// SED: Set Decimal Mode
     fn sed(&mut self) -> u8 {
         self.set_flag(D, true);
-        return 0;
+        0
     }
     /// CLI: Clear Interrupt Disable Bit
     fn cli(&mut self) -> u8 {
         self.set_flag(I, false);
-        return 0;
+        self.irq_delay = 1;
+        0
     }
     /// SEI: Set Interrupt Disable Status
     fn sei(&mut self) -> u8 {
         self.set_flag(I, true);
-        return 0;
+        self.irq_delay = 1;
+        0
     }
     /// CLV: Clear Overflow Flag
     fn clv(&mut self) -> u8 {
         self.set_flag(V, false);
-        return 0;
+        0
     }
 
     /// Compare opcodes
@@ -1418,19 +1410,19 @@ where
     fn cmp(&mut self) -> u8 {
         self.fetch_data();
         self.compare(self.acc, self.fetched_data);
-        return 1;
+        1
     }
     /// CPX: Compare M and X
     fn cpx(&mut self) -> u8 {
         self.fetch_data();
         self.compare(self.x, self.fetched_data);
-        return 0;
+        0
     }
     /// CPY: Compare M and Y
     fn cpy(&mut self) -> u8 {
         self.fetch_data();
         self.compare(self.y, self.fetched_data);
-        return 0;
+        0
     }
 
     /// Stack opcodes
@@ -1440,39 +1432,39 @@ where
         self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(B, false);
         self.set_flag(U, false);
-        return 0;
+        0
     }
     /// PLP: Pull Processor Status from Stack
     fn plp(&mut self) -> u8 {
         self.status = (self.pop_stackb() | U as u8) & !(B as u8);
-        return 0;
+        self.irq_delay = 1;
+        0
     }
     /// PHA: Push A on Stack
     fn pha(&mut self) -> u8 {
         self.push_stackb(self.acc);
-        return 0;
+        0
     }
     /// PLA: Pull A from Stack
     fn pla(&mut self) -> u8 {
         self.acc = self.pop_stackb();
         self.set_flags_zn(self.acc);
-        return 0;
+        0
     }
 
     /// System opcodes
 
     /// BRK: Force Break Interrupt
     fn brk(&mut self) -> u8 {
-        self.set_flag(I, true);
         self.push_stackw(self.pc.wrapping_add(1));
-        self.set_flag(B, true);
-        self.php();
+        self.push_stackb(self.status | U as u8 | B as u8);
+        self.set_flag(I, true);
         self.pc = self.readw(IRQ_ADDR);
-        return 0;
+        0
     }
     /// NOP: No Operation
     fn nop(&mut self) -> u8 {
-        return 0;
+        0
     }
 
     /// Unofficial opcodes
@@ -1480,17 +1472,17 @@ where
     /// SKB: Like NOP but issues a fetch
     fn skb(&mut self) -> u8 {
         self.fetch_data();
-        return 0;
+        0
     }
 
     /// IGN: Like NOP but issues a fetch
     fn ign(&mut self) -> u8 {
         self.fetch_data();
         // Certain NOP instructions can take an extra cycle
-        return match self.instr.opcode() {
+        match self.instr.opcode() {
             0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => 1,
             _ => 0,
-        };
+        }
     }
 
     /// XXX: Captures all unimplemented opcodes
@@ -1500,116 +1492,151 @@ where
             self.instr.opcode(),
             self.instr.addr_mode()
         );
-        return 0;
+        0
     }
     /// ISC/ISB: Shortcut for INC then SBC
     fn isb(&mut self) -> u8 {
         self.inc();
         self.sbc();
-        return 0;
+        0
     }
     /// DCP: Shortcut for DEC then CMP
     fn dcp(&mut self) -> u8 {
         self.dec();
         self.cmp();
-        return 0;
+        0
     }
     /// AXS: A & X into X
     fn axs(&mut self) -> u8 {
         self.fetch_data();
-        self.set_flag(C, self.x <= self.fetched_data);
-        self.x = (self.acc & self.x).wrapping_sub(self.fetched_data);
-        self.set_flags_zn(self.x);
-        return 0;
+        let t = u32::from(self.acc & self.x).wrapping_sub(u32::from(self.fetched_data));
+        self.set_flags_zn((t & 0xFF) as u8);
+        self.set_flag(C, (((t >> 8) & 0x01) ^ 0x01) == 0x01);
+        self.x = (t & 0xFF) as u8;
+        0
     }
     /// LAS: Shortcut for LDA then TSX
     fn las(&mut self) -> u8 {
         self.lda();
         self.tsx();
-        return 1;
+        1
     }
     /// LAX: Shortcut for LDA then TAX
     fn lax(&mut self) -> u8 {
         self.lda();
         self.tax();
-        return 1;
+        1
     }
-    /// AHX: TODO
+    /// AHX/SHA/AXA: AND X with A then AND with 7, then store in memory
     fn ahx(&mut self) -> u8 {
-        eprintln!("ahx not implemented");
-        return 0;
+        self.fetch_data();
+        let val = self.acc
+            & self.x
+            & self
+                .fetched_data
+                .wrapping_sub(self.y)
+                .wrapping_shr(8)
+                .wrapping_add(1);
+        self.write_fetched(val);
+        0
     }
     /// SAX: AND A with X
     fn sax(&mut self) -> u8 {
         let val = self.acc & self.x;
         self.write_fetched(val);
-        return 0;
+        0
     }
-    /// XAA: TODO
+    /// XAA: Unknown
     fn xaa(&mut self) -> u8 {
-        eprintln!("xaa not implemented");
-        return 0;
+        self.acc |= 0xEE;
+        self.acc &= self.x;
+        self.and();
+        0
     }
-    /// SHX: TODO
-    fn shx(&mut self) -> u8 {
-        eprintln!("shx not implemented");
-        return 0;
+    /// SXA/SXA/XAS: AND X with the high byte of the target address + 1
+    /// TODO fails tests
+    fn sxa(&mut self) -> u8 {
+        self.fetch_data();
+        let val = self.x
+            & self
+                .fetched_data
+                .wrapping_sub(self.y)
+                .wrapping_shr(8)
+                .wrapping_add(1);
+        self.write_fetched(val);
+        0
+    }
+    /// SYA/SYA/SAY: AND Y with the high byte of the target address + 1
+    /// TODO fails tests
+    fn sya(&mut self) -> u8 {
+        self.fetch_data();
+        let val = self.y
+            & self
+                .fetched_data
+                .wrapping_sub(self.x)
+                .wrapping_shr(8)
+                .wrapping_add(1);
+        self.write_fetched(val);
+        0
     }
     /// RRA: Shortcut for ROR then ADC
     fn rra(&mut self) -> u8 {
         self.ror();
         self.adc();
-        return 0;
+        0
     }
     /// TAS: Shortcut for STA then TXS
     fn tas(&mut self) -> u8 {
         self.sta();
         self.txs();
-        return 0;
-    }
-    /// SHY: TODO
-    fn shy(&mut self) -> u8 {
-        eprintln!("shy not implemented");
-        return 0;
+        0
     }
     /// ARR: Shortcut for AND #imm then ROR, but sets flags differently
     /// C is bit 6 and V is bit 6 xor bit 5
-    /// TODO doesn't pass tests
     fn arr(&mut self) -> u8 {
         self.and();
-        self.ror();
-        return 0;
+        self.set_flag(V, (self.acc ^ (self.acc >> 1)) & 0x40 == 0x40);
+        let t = self.acc >> 7;
+        self.acc >>= 1;
+        self.acc |= self.get_flag(C) << 7;
+        self.set_flag(C, t & 0x01 == 0x01);
+        self.set_flags_zn(self.acc);
+        0
     }
     /// SRA: Shortcut for LSR then EOR
     fn sre(&mut self) -> u8 {
         self.lsr();
         self.eor();
-        return 0;
+        0
     }
     /// ALR/ASR: Shortcut for AND #imm then LSR
-    /// TODO doesn't pass tests
     fn alr(&mut self) -> u8 {
         self.and();
-        self.lsr();
-        return 0;
+        self.set_flag(C, false);
+        self.set_flag(N, false);
+        self.set_flag(Z, false);
+        self.set_flag(C, self.acc & 0x01 == 0x01);
+        self.acc >>= 1;
+        self.set_flags_zn(self.acc);
+        0
     }
     /// RLA: Shortcut for ROL then AND
     fn rla(&mut self) -> u8 {
         self.rol();
         self.and();
-        return 0;
+        0
     }
     /// ANC/AAC: AND #imm but puts bit 7 into carry as if ASL was executed
     fn anc(&mut self) -> u8 {
         let ret = self.and();
         self.set_flag(C, (self.acc >> 7) & 1 > 0);
-        return ret;
+        ret
     }
     /// SLO: Shortcut for ASL then ORA
     fn slo(&mut self) -> u8 {
         self.asl();
         self.ora();
-        return 0;
+        0
     }
 }
 
@@ -1636,7 +1663,7 @@ impl fmt::Debug for Instr {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         let mut op = self.op();
         let unofficial = match self.op() {
-            XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SHX | RRA | TAS | SHY | ARR
+            XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SXA | RRA | TAS | SYA | ARR
             | SRE | ALR | RLA | ANC | SLO => "*",
             NOP if self.opcode() != 0xEA => "*", // 0xEA is the only official NOP
             SKB | IGN => {
@@ -1652,45 +1679,5 @@ impl fmt::Debug for Instr {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::input::Input;
-    use crate::mapper;
-    use std::cell::RefCell;
-    use std::path::PathBuf;
-    use std::rc::Rc;
-
-    const TEST_ROM: &str = "tests/cpu/nestest.nes";
-    const TEST_PC: u16 = 49156;
-
-    #[test]
-    fn test_cpu_new() {
-        let rom = PathBuf::from(TEST_ROM);
-        let mapper = mapper::load_rom(rom).expect("loaded mapper");
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = MemoryMap::init(input);
-        cpu_memory.load_mapper(mapper);
-        let c = Cpu::init(cpu_memory);
-        assert_eq!(c.cycle_count, 7);
-        assert_eq!(c.pc, TEST_PC);
-        assert_eq!(c.sp, POWER_ON_SP);
-        assert_eq!(c.acc, 0);
-        assert_eq!(c.x, 0);
-        assert_eq!(c.y, 0);
-        assert_eq!(c.status, POWER_ON_STATUS);
-    }
-
-    #[test]
-    fn test_cpu_reset() {
-        let rom = PathBuf::from(TEST_ROM);
-        let mapper = mapper::load_rom(rom).expect("loaded mapper");
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut cpu_memory = MemoryMap::init(input);
-        cpu_memory.load_mapper(mapper);
-        let mut c = Cpu::init(cpu_memory);
-        c.reset();
-        assert_eq!(c.pc, TEST_PC);
-        assert_eq!(c.sp, POWER_ON_SP - 3);
-        assert_eq!(c.status, POWER_ON_STATUS);
-        assert_eq!(c.cycle_count, 7);
-    }
+    // TODO
 }

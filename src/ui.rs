@@ -19,10 +19,10 @@ use std::time::{Duration, Instant};
 
 mod window;
 
-const DEFAULT_TITLE: &str = "RustyNES";
-const DEFAULT_SPEED: f64 = 100.0; // 100% - 60 Hz
-const MIN_SPEED: f64 = 25.0; // 25% - 240 Hz
-const MAX_SPEED: f64 = 200.0; // 200% - 30 Hz
+// const DEFAULT_TITLE: &str = "RustyNES";
+// const DEFAULT_SPEED: f64 = 100.0; // 100% - 60 Hz
+// const MIN_SPEED: f64 = 25.0; // 25% - 240 Hz
+// const MAX_SPEED: f64 = 200.0; // 200% - 30 Hz
 const GAMEPAD_AXIS_DEADZONE: i16 = 8000;
 
 /// User Interface builder for UiState
@@ -35,7 +35,7 @@ pub struct UiBuilder {
     sound_off: bool,
     concurrent_dpad: bool,
     randomize_ram: bool,
-    log_cpu: bool,
+    logging: bool,
     no_save: bool,
     save_slot: u8,
     scale: u32,
@@ -51,7 +51,7 @@ impl UiBuilder {
             sound_off: false,
             concurrent_dpad: false,
             randomize_ram: false,
-            log_cpu: false,
+            logging: false,
             no_save: false,
             save_slot: 1u8,
             scale: 1u32,
@@ -87,8 +87,8 @@ impl UiBuilder {
 
         self
     }
-    pub fn log_cpu(&mut self, val: bool) -> &mut Self {
-        self.log_cpu = val;
+    pub fn logging(&mut self, val: bool) -> &mut Self {
+        self.logging = val;
         self
     }
     pub fn no_save(&mut self, val: bool) -> &mut Self {
@@ -106,8 +106,8 @@ impl UiBuilder {
     pub fn build(&self) -> Result<Ui> {
         let input = Rc::new(RefCell::new(Input::new()));
         let mut console = Console::init(input.clone(), self.randomize_ram);
-        #[cfg(debug_assertions)]
-        console.log_cpu(self.log_cpu);
+        console.logging(self.logging);
+        console.ppu_debug(self.ppu_debug);
         console.no_save(self.no_save);
 
         let (window, event_pump) =
@@ -116,6 +116,7 @@ impl UiBuilder {
             path: self.path.clone(),
             roms: Vec::new(),
             running: false,
+            debug: self.debug,
             ppu_debug: self.ppu_debug,
             paused: false,
             fullscreen: self.fullscreen,
@@ -124,7 +125,7 @@ impl UiBuilder {
             concurrent_dpad: self.concurrent_dpad,
             fastforward: false,
             lctrl: false,
-            save_slot: 1u8,
+            save_slot: self.save_slot,
             turbo_clock: 0u8,
             avg_fps: 0usize,
             past_fps: VecDeque::with_capacity(128),
@@ -144,6 +145,7 @@ pub struct Ui {
     path: PathBuf,
     roms: Vec<PathBuf>,
     running: bool,
+    debug: bool,
     ppu_debug: bool,
     paused: bool,
     fullscreen: bool,
@@ -168,101 +170,107 @@ pub struct Ui {
 
 impl Ui {
     pub fn run(&mut self) -> Result<()> {
-        self.update_title()?;
+        // self.update_title()?;
 
-        let mut roms = util::find_roms(&self.path)?;
-        self.roms.append(&mut roms);
+        // let mut roms = util::find_roms(&self.path)?;
+        // self.roms.append(&mut roms);
 
-        if self.roms.len() == 1 {
-            self.console.load_rom(&self.roms[0])?;
-            self.console.power_on()?;
-            self.console.load_state(self.save_slot)?;
+        // if self.roms.len() == 1 {
+            // self.console.load_rom(&self.roms[0])?;
+            // self.console.power_on()?;
+            // self.console.load_state(self.save_slot)?;
+            if self.debug {
+                self.console.logging(true);
+            } else {
+                self.running = true;
+            }
             if self.ppu_debug {
                 self.window.set_debug_size()?;
             }
-            self.running = true;
-        }
+        // }
 
-        // Smooths out startup graphic glitches for some games
-        let startup_frames = 40;
-        for _ in 0..startup_frames {
-            self.poll_events()?;
-            self.console.clock_frame();
-            self.window.render_blank()?;
-            let samples = self.console.audio_samples();
-            if self.sound_enabled {
-                self.window.enqueue_audio(&samples);
-            }
-            samples.clear();
-        }
+        // // Smooths out startup graphic glitches for some games
+        // if self.running {
+        //     let startup_frames = 40;
+        //     for _ in 0..startup_frames {
+        //         self.poll_events()?;
+        //         self.console.clock_frame();
+        //         self.window.render_blank()?;
+        //         let samples = self.console.audio_samples();
+        //         if self.sound_enabled {
+        //             self.window.enqueue_audio(&samples);
+        //         }
+        //         samples.clear();
+        //     }
+        // }
 
-        let mut next_fps_update = Instant::now();
-        let fps_interval = Duration::from_millis(500);
-        let one_sec = Duration::from_secs(1);
-        while !self.should_close {
-            self.poll_events()?;
-            if !self.paused {
+        // let mut next_fps_update = Instant::now();
+        // let fps_interval = Duration::from_millis(500);
+        // let one_sec = Duration::from_secs(1);
+        // while !self.should_close {
+            // self.poll_events()?;
+            // if !self.paused {
                 // Frames that aren't multiples of the default render 1 more/less
                 // frames every other frame
-                let mut frames_to_run = 0;
-                self.speed_counter += self.speed as i32;
-                while self.speed_counter > 0 {
-                    self.speed_counter -= 100;
-                    frames_to_run += 1;
-                }
-                if self.running {
-                    for _ in 0..frames_to_run {
+                // let mut frames_to_run = 0;
+                // self.speed_counter += self.speed as i32;
+                // while self.speed_counter > 0 {
+                //     self.speed_counter -= 100;
+                //     frames_to_run += 1;
+                // }
+                // if self.running {
+                //     for _ in 0..frames_to_run {
                         // Calc FPS
-                        let now = Instant::now();
-                        let a_sec_ago = now - one_sec;
-                        while self.past_fps.front().map_or(false, |t| *t < a_sec_ago) {
-                            self.past_fps.pop_front();
-                        }
-                        self.past_fps.push_back(now);
-                        self.avg_fps = self.past_fps.len();
+                        // let now = Instant::now();
+                        // let a_sec_ago = now - one_sec;
+                        // while self.past_fps.front().map_or(false, |t| *t < a_sec_ago) {
+                        //     self.past_fps.pop_front();
+                        // }
+                        // self.past_fps.push_back(now);
+                        // self.avg_fps = self.past_fps.len();
 
-                        if now > next_fps_update {
-                            next_fps_update = now + fps_interval;
-                            self.update_title()?;
-                        }
+                        // if now > next_fps_update {
+                        //     next_fps_update = now + fps_interval;
+                        //     self.update_title()?;
+                        // }
 
-                        self.console.clock_frame();
-                        self.turbo_clock = (1 + self.turbo_clock) % 6;
-                    }
-                }
+                        // self.console.clock_frame();
+                        // self.turbo_clock = (1 + self.turbo_clock) % 6;
+                    // }
+                // }
 
-                let game_view = self.console.frame();
+                // let game_view = self.console.frame();
                 if self.ppu_debug {
                     let nametables = self.console.nametables();
                     let pattern_tables = self.console.pattern_tables();
                     let palettes = self.console.palettes();
                     self.window
                         .update_debug(game_view, nametables, pattern_tables, palettes)?;
-                } else {
-                    self.window.update_frame(game_view)?;
-                }
+                // } else {
+                //     self.window.update_frame(game_view)?;
+                // }
 
-                if self.sound_enabled {
-                    let samples = self.console.audio_samples();
-                    self.window.enqueue_audio(&samples);
-                    samples.clear();
-                } else {
-                    self.console.audio_samples().clear();
-                }
+                // if self.sound_enabled {
+                //     let samples = self.console.audio_samples();
+                //     self.window.enqueue_audio(&samples);
+                //     samples.clear();
+                // } else {
+                //     self.console.audio_samples().clear();
+                // }
             }
         }
 
-        self.console.power_off()
+        // self.console.power_off()
     }
 
     pub fn poll_events(&mut self) -> Result<()> {
-        let turbo = self.turbo_clock < 3;
+        // let turbo = self.turbo_clock < 3;
         // Toggle turbo every poll as long as turbo button is held down
-        self.clock_turbo(turbo);
-        let events: Vec<Event> = {
-            let mut event_pump = self.event_pump.borrow_mut();
-            event_pump.poll_iter().collect()
-        };
+        // self.clock_turbo(turbo);
+        // let events: Vec<Event> = {
+        //     let mut event_pump = self.event_pump.borrow_mut();
+        //     event_pump.poll_iter().collect()
+        // };
         for event in events {
             match event {
                 Event::ControllerDeviceAdded { which: id, .. } => {
@@ -273,44 +281,47 @@ impl Ui {
                         _ => (),
                     }
                 }
-                Event::Quit { .. } | Event::AppTerminating { .. } => self.should_close = true,
-                Event::Window { win_event, .. } => match win_event {
-                    WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) => {
-                        if self.ppu_debug {
-                            self.window.render_debug()?
-                        } else {
-                            self.window.render_frame()?
-                        }
-                    }
-                    _ => (),
-                },
-                Event::KeyDown {
-                    keycode: Some(key),
-                    repeat,
-                    ..
-                } => {
-                    if !repeat {
-                        self.handle_keydown(key, turbo)?;
-                    } else {
-                        match key {
-                            Keycode::F => self.console.clock_frame(),
-                            _ => (),
-                        }
-                    }
-                }
-                Event::KeyUp {
-                    keycode: Some(key),
-                    repeat,
-                    ..
-                } => {
-                    if !repeat {
-                        match key {
-                            Keycode::Space => self.set_fastforward(false)?,
-                            Keycode::LCtrl => self.lctrl = false,
-                            _ => self.handle_keyboard_event(key, false, turbo),
-                        }
-                    }
-                }
+                // Event::Quit { .. } | Event::AppTerminating { .. } => self.should_close = true,
+                // Event::Window { win_event, .. } => match win_event {
+                //     WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) => {
+                //         if self.ppu_debug {
+                //             self.window.render_debug()?
+                //         } else {
+                //             self.window.render_frame()?
+                //         }
+                //     }
+                //     _ => (),
+                // },
+                // Event::KeyDown {
+                //     keycode: Some(key),
+                //     repeat,
+                //     ..
+                // } => {
+                //     if !repeat {
+                //         self.handle_keydown(key, turbo)?;
+                //     } else {
+                //         match key {
+                //             Keycode::F => self.console.clock_frame(),
+                //             Keycode::C => {
+                //                 let _ = self.console.clock();
+                //             }
+                //             _ => (),
+                //         }
+                //     }
+                // }
+                // Event::KeyUp {
+                //     keycode: Some(key),
+                //     repeat,
+                //     ..
+                // } => {
+                //     if !repeat {
+                //         match key {
+                //             Keycode::Space => self.set_fastforward(false)?,
+                //             Keycode::LCtrl => self.lctrl = false,
+                //             _ => self.handle_keyboard_event(key, false, turbo),
+                //         }
+                //     }
+                // }
                 Event::ControllerButtonDown { which, button, .. } => match button {
                     Button::RightStick => self.toggle_menu()?,
                     Button::LeftShoulder => self.console.save_state(self.save_slot)?,
@@ -333,174 +344,156 @@ impl Ui {
         Ok(())
     }
 
-    fn clock_turbo(&mut self, turbo: bool) {
-        let mut input = self.input.borrow_mut();
-        if input.gamepad1.turbo_a {
-            input.gamepad1.a = turbo;
-        }
-        if input.gamepad1.turbo_b {
-            input.gamepad1.b = turbo;
-        }
-        if input.gamepad2.turbo_a {
-            input.gamepad2.a = turbo;
-        }
-        if input.gamepad2.turbo_b {
-            input.gamepad2.b = turbo;
-        }
-    }
+    // fn clock_turbo(&mut self, turbo: bool) {
+    //     let mut input = self.input.borrow_mut();
+    //     if input.gamepad1.turbo_a {
+    //         input.gamepad1.a = turbo;
+    //     }
+    //     if input.gamepad1.turbo_b {
+    //         input.gamepad1.b = turbo;
+    //     }
+    //     if input.gamepad2.turbo_a {
+    //         input.gamepad2.a = turbo;
+    //     }
+    //     if input.gamepad2.turbo_b {
+    //         input.gamepad2.b = turbo;
+    //     }
+    // }
 
-    fn handle_keydown(&mut self, key: Keycode, turbo: bool) -> Result<()> {
-        match key {
-            Keycode::Escape => self.toggle_menu()?,
-            Keycode::LCtrl => self.lctrl = true,
-            Keycode::O if self.lctrl => eprintln!("Open not implemented"), // TODO
-            Keycode::Q if self.lctrl => self.should_close = true,
-            Keycode::R if self.lctrl => {
-                self.running = true;
-                self.paused = false;
-                self.console.log_cpu(false);
-                self.console.reset();
-            }
-            Keycode::P if self.lctrl => {
-                self.running = true;
-                self.paused = false;
-                self.console.log_cpu(false);
-                self.console.power_cycle();
-            }
-            Keycode::Minus if self.lctrl => self.change_speed(-25.0)?,
-            Keycode::Equals if self.lctrl => self.change_speed(25.0)?,
-            Keycode::Space => self.set_fastforward(true)?,
-            Keycode::Num1 if self.lctrl => {
-                self.save_slot = 1;
-                self.update_title()?;
-            }
-            Keycode::Num2 if self.lctrl => {
-                self.save_slot = 2;
-                self.update_title()?;
-            }
-            Keycode::Num3 if self.lctrl => {
-                self.save_slot = 3;
-                self.update_title()?;
-            }
-            Keycode::Num4 if self.lctrl => {
-                self.save_slot = 4;
-                self.update_title()?;
-            }
-            Keycode::S if self.lctrl => self.console.save_state(self.save_slot)?,
-            Keycode::L if self.lctrl => self.console.load_state(self.save_slot)?,
-            Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,
-            Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
-            Keycode::D if self.lctrl => {
-                self.console.log_cpu(self.running);
-                self.running = !self.running;
-            }
-            Keycode::C => {
-                let _ = self.console.clock();
-            }
-            Keycode::F => self.console.clock_frame(),
-            Keycode::Return if self.lctrl => {
-                self.fullscreen = !self.fullscreen;
-                self.window.toggle_fullscreen()?;
-            }
-            Keycode::F10 => util::screenshot(&self.console.frame()),
-            Keycode::F9 => eprintln!("Logging not implemented"), // TODO
-            _ => self.handle_keyboard_event(key, true, turbo),
-        }
-        Ok(())
-    }
+    // fn handle_keydown(&mut self, key: Keycode, turbo: bool) -> Result<()> {
+    //     match key {
+    //         // Keycode::Escape => self.toggle_menu()?,
+    //         // Keycode::LCtrl => self.lctrl = true,
+    //         // Keycode::O if self.lctrl => eprintln!("Open not implemented"), // TODO
+    //         // Keycode::Q if self.lctrl => self.should_close = true,
+    //         // Keycode::R if self.lctrl => {
+    //         //     self.running = true;
+    //         //     self.paused = false;
+    //         //     self.console.logging(false);
+    //         //     self.console.reset();
+    //         // }
+    //         // Keycode::P if self.lctrl => {
+    //         //     self.running = true;
+    //         //     self.paused = false;
+    //         //     self.console.logging(false);
+    //         //     self.console.power_cycle();
+    //         // }
+    //         // Keycode::Minus if self.lctrl => self.change_speed(-25.0)?,
+    //         // Keycode::Equals if self.lctrl => self.change_speed(25.0)?,
+    //         // Keycode::Space => self.set_fastforward(true)?,
+    //         // Keycode::M if self.lctrl => self.sound_enabled = !self.sound_enabled,
+    //         // Keycode::V if self.lctrl => eprintln!("Recording not implemented"), // TODO
+    //         // Keycode::D if self.lctrl => {
+    //         //     self.console.logging(self.running);
+    //         //     self.running = !self.running;
+    //         // }
+    //         // Keycode::C => {
+    //         //     let _ = self.console.clock();
+    //         // }
+    //         // Keycode::F => self.console.clock_frame(),
+    //         // Keycode::Return if self.lctrl => {
+    //         //     self.fullscreen = !self.fullscreen;
+    //         //     self.window.toggle_fullscreen()?;
+    //         // }
+    //         // Keycode::F10 => util::screenshot(&self.console.frame()),
+    //         // Keycode::F9 => eprintln!("Logging not implemented"), // TODO
+    //         // _ => self.handle_keyboard_event(key, true, turbo),
+    //     }
+    //     Ok(())
+    // }
 
-    fn change_speed(&mut self, delta: f64) -> Result<()> {
-        if delta > 0.0 && self.speed < MAX_SPEED {
-            self.speed_counter = 0;
-            self.speed += 25.0;
-        } else if delta < 0.0 && self.speed > MIN_SPEED {
-            self.speed_counter = 0;
-            self.speed -= 25.0;
-        }
-        self.console.set_speed(self.speed / DEFAULT_SPEED);
-        self.update_title()
-    }
+    // fn change_speed(&mut self, delta: f64) -> Result<()> {
+    //     if delta > 0.0 && self.speed < MAX_SPEED {
+    //         self.speed_counter = 0;
+    //         self.speed += 25.0;
+    //     } else if delta < 0.0 && self.speed > MIN_SPEED {
+    //         self.speed_counter = 0;
+    //         self.speed -= 25.0;
+    //     }
+    //     self.console.set_speed(self.speed / DEFAULT_SPEED);
+    //     self.update_title()
+    // }
 
-    fn update_title(&mut self) -> Result<()> {
-        let mut title = DEFAULT_TITLE.to_string();
-        if self.paused {
-            title.push_str(" - Paused");
-        } else {
-            title.push_str(&format!(
-                " - FPS: {} - Save Slot: {}",
-                self.avg_fps, self.save_slot
-            ));
-            if self.speed != DEFAULT_SPEED {
-                title.push_str(&format!(" - Speed: {}%", self.speed));
-            }
-        }
-        self.window.set_title(&title)
-    }
+    // fn update_title(&mut self) -> Result<()> {
+    //     let mut title = DEFAULT_TITLE.to_string();
+    //     if self.paused {
+    //         title.push_str(" - Paused");
+    //     } else {
+    //         title.push_str(&format!(
+    //             " - FPS: {} - Save Slot: {}",
+    //             self.avg_fps, self.save_slot
+    //         ));
+    //         if self.speed != DEFAULT_SPEED {
+    //             title.push_str(&format!(" - Speed: {}%", self.speed));
+    //         }
+    //     }
+    //     self.window.set_title(&title)
+    // }
 
-    fn toggle_menu(&mut self) -> Result<()> {
-        self.paused = !self.paused;
-        self.update_title()
-        // TODO menu overlay
-    }
+    // fn toggle_menu(&mut self) -> Result<()> {
+    //     self.paused = !self.paused;
+    //     self.update_title()
+    //     // TODO menu overlay
+    // }
 
-    fn set_fastforward(&mut self, val: bool) -> Result<()> {
-        self.speed_counter = 0;
-        let old_fastforward = self.fastforward;
-        self.fastforward = val;
-        if old_fastforward != self.fastforward {
-            if self.fastforward {
-                self.speed = MAX_SPEED;
-            } else {
-                self.speed = DEFAULT_SPEED;
-            }
-            self.console.set_speed(self.speed / DEFAULT_SPEED);
-            self.update_title()?;
-        }
-        Ok(())
-    }
+    // fn set_fastforward(&mut self, val: bool) -> Result<()> {
+    //     self.speed_counter = 0;
+    //     let old_fastforward = self.fastforward;
+    //     self.fastforward = val;
+    //     if old_fastforward != self.fastforward {
+    //         if self.fastforward {
+    //             self.speed = MAX_SPEED;
+    //         } else {
+    //             self.speed = DEFAULT_SPEED;
+    //         }
+    //         self.console.set_speed(self.speed / DEFAULT_SPEED);
+    //         self.update_title()?;
+    //     }
+    //     Ok(())
+    // }
 
-    fn handle_keyboard_event(&mut self, key: Keycode, down: bool, turbo: bool) {
-        let mut input = self.input.borrow_mut();
-        match key {
-            Keycode::Z => input.gamepad1.a = down,
-            Keycode::X => input.gamepad1.b = down,
-            Keycode::A => {
-                input.gamepad1.turbo_a = down;
-                input.gamepad1.a = turbo && down;
-            }
-            Keycode::S => {
-                input.gamepad1.turbo_b = down;
-                input.gamepad1.b = turbo && down;
-            }
-            Keycode::RShift => input.gamepad1.select = down,
-            Keycode::Return => input.gamepad1.start = down,
-            Keycode::Up => {
-                if !self.concurrent_dpad && down {
-                    input.gamepad1.down = false;
-                }
-                input.gamepad1.up = down;
-            }
-            Keycode::Down => {
-                if !self.concurrent_dpad && down {
-                    input.gamepad1.up = false;
-                }
-                input.gamepad1.down = down;
-            }
-            Keycode::Left => {
-                if !self.concurrent_dpad && down {
-                    input.gamepad1.right = false;
-                }
-                input.gamepad1.left = down;
-            }
-            Keycode::Right => {
-                if !self.concurrent_dpad && down {
-                    input.gamepad1.left = false;
-                }
-                input.gamepad1.right = down;
-            }
-            _ => {}
-        }
-    }
+    // fn handle_keyboard_event(&mut self, key: Keycode, down: bool, turbo: bool) {
+    //     let mut input = self.input.borrow_mut();
+    //     match key {
+    //         Keycode::Z => input.gamepad1.a = down,
+    //         Keycode::X => input.gamepad1.b = down,
+    //         Keycode::A => {
+    //             input.gamepad1.turbo_a = down;
+    //             input.gamepad1.a = turbo && down;
+    //         }
+    //         Keycode::S => {
+    //             input.gamepad1.turbo_b = down;
+    //             input.gamepad1.b = turbo && down;
+    //         }
+    //         Keycode::RShift => input.gamepad1.select = down,
+    //         Keycode::Return => input.gamepad1.start = down,
+    //         Keycode::Up => {
+    //             if !self.concurrent_dpad && down {
+    //                 input.gamepad1.down = false;
+    //             }
+    //             input.gamepad1.up = down;
+    //         }
+    //         Keycode::Down => {
+    //             if !self.concurrent_dpad && down {
+    //                 input.gamepad1.up = false;
+    //             }
+    //             input.gamepad1.down = down;
+    //         }
+    //         Keycode::Left => {
+    //             if !self.concurrent_dpad && down {
+    //                 input.gamepad1.right = false;
+    //             }
+    //             input.gamepad1.left = down;
+    //         }
+    //         Keycode::Right => {
+    //             if !self.concurrent_dpad && down {
+    //                 input.gamepad1.left = false;
+    //             }
+    //             input.gamepad1.right = down;
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
     fn handle_gamepad_button(
         &mut self,

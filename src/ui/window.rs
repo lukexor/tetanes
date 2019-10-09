@@ -16,7 +16,7 @@ const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const DEBUG_PADDING: u32 = 5;
 
 pub struct TextureMap {
-    tex: Texture<'static>,
+    tex: Texture,
     pitch: usize,
     src: Rect,
     dst: Rect,
@@ -69,7 +69,7 @@ impl Window {
                 icon.width,
                 icon.height,
                 icon.pitch,
-                PixelFormatEnum::RGB24,
+                PixelFormatEnum::RGBA32,
             );
             if let Ok(surface) = surface {
                 window.set_icon(surface);
@@ -130,7 +130,6 @@ impl Window {
     }
 
     pub fn render_frame(&mut self) -> Result<()> {
-        self.canvas.clear();
         self.canvas
             .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
             .map_err(to_nes_err)?;
@@ -150,9 +149,9 @@ impl Window {
     pub fn update_debug(
         &mut self,
         game_view: Vec<u8>,
-        nametables: Vec<Vec<u8>>,
-        pattern_tables: Vec<Vec<u8>>,
-        palettes: Vec<Vec<u8>>,
+        nametables: &[Vec<u8>],
+        pattern_tables: &[Vec<u8>],
+        palettes: &[Vec<u8>],
     ) -> Result<()> {
         self.game_view
             .tex
@@ -170,7 +169,6 @@ impl Window {
     }
 
     pub fn render_debug(&mut self) -> Result<()> {
-        self.canvas.clear();
         self.canvas
             .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
             .map_err(to_nes_err)?;
@@ -194,7 +192,6 @@ impl Window {
     }
 
     pub fn render_blank(&mut self) -> Result<()> {
-        self.canvas.clear();
         self.canvas.set_draw_color(Color::RGB(0, 0, 0));
         self.canvas
             .draw_rect(Rect::new(0, 0, self.width, self.height))

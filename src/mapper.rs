@@ -6,7 +6,7 @@ use crate::cartridge::Cartridge;
 use crate::console::ppu::Ppu;
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::{nes_err, Result};
+use crate::{nes_err, NesResult};
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{Read, Write};
@@ -38,15 +38,17 @@ pub type MapperRef = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper: Memory + Savable + fmt::Debug {
     fn irq_pending(&mut self) -> bool;
     fn mirroring(&self) -> Mirroring;
-    fn vram_change(&mut self, ppu: &Ppu, addr: u16);
+    fn vram_change(&mut self, addr: u16);
     fn clock(&mut self, ppu: &Ppu);
     fn battery_backed(&self) -> bool;
-    fn save_sram(&self, fh: &mut dyn Write) -> Result<()>;
-    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()>;
+    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()>;
+    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()>;
     fn chr(&self) -> Option<&Banks<Ram>>;
     fn prg_rom(&self) -> Option<&Banks<Rom>>;
     fn prg_ram(&self) -> Option<&Ram>;
-    fn set_logging(&mut self, logging: bool);
+    fn logging(&mut self, logging: bool);
+    fn use_ciram(&self, addr: u16) -> bool;
+    fn nametable_addr(&self, addr: u16) -> u16;
 }
 
 pub fn null() -> MapperRef {
@@ -54,7 +56,7 @@ pub fn null() -> MapperRef {
 }
 
 /// Attempts to return a valid Mapper for the given rom.
-pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
+pub fn load_rom<P: AsRef<Path>>(rom: P) -> NesResult<MapperRef> {
     let cart = Cartridge::from_rom(rom)?;
     match cart.header.mapper_num {
         0 => Ok(Nrom::load(cart)),
@@ -65,10 +67,7 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
         5 => Ok(Exrom::load(cart)),
         7 => Ok(Axrom::load(cart)),
         9 => Ok(Pxrom::load(cart)),
-        _ => Err(nes_err!(
-            "unsupported mapper number: {}",
-            cart.header.mapper_num
-        ))?,
+        _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num),
     }
 }
 
@@ -79,28 +78,25 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> Result<MapperRef> {
 pub enum Mirroring {
     Horizontal,
     Vertical,
-    SingleScreen0,
-    SingleScreen1,
-    SingleScreenEx,
-    SingleScreenFill,
-    Diagonal,
-    FourScreen, // Only ~3 games use 4-screen - maybe implement some day
+    SingleScreenA,
+    SingleScreenB,
+    FourScreen,
 }
 
 impl Savable for Mirroring {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
             0 => Mirroring::Horizontal,
             1 => Mirroring::Vertical,
-            2 => Mirroring::SingleScreen0,
-            3 => Mirroring::SingleScreen1,
+            2 => Mirroring::SingleScreenA,
+            3 => Mirroring::SingleScreenB,
             4 => Mirroring::FourScreen,
-            _ => panic!("invalid Mirroring value"),
+            _ => panic!("invalid Mirroring value {}", val),
         };
         Ok(())
     }
@@ -122,15 +118,15 @@ impl Mapper for NullMapper {
     fn mirroring(&self) -> Mirroring {
         Mirroring::Horizontal
     }
-    fn vram_change(&mut self, _ppu: &Ppu, _addr: u16) {}
+    fn vram_change(&mut self, _addr: u16) {}
     fn clock(&mut self, _ppu: &Ppu) {}
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -142,7 +138,13 @@ impl Mapper for NullMapper {
     fn prg_ram(&self) -> Option<&Ram> {
         None
     }
-    fn set_logging(&mut self, _logging: bool) {}
+    fn logging(&mut self, _logging: bool) {}
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
+        0
+    }
 }
 
 impl Memory for NullMapper {
@@ -158,10 +160,10 @@ impl Memory for NullMapper {
 }
 
 impl Savable for NullMapper {
-    fn save(&self, _fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, _fh: &mut dyn Write) -> NesResult<()> {
         Ok(())
     }
-    fn load(&mut self, _fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
         Ok(())
     }
 }
