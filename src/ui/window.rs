@@ -130,7 +130,6 @@ impl Window {
     }
 
     pub fn render_frame(&mut self) -> Result<()> {
-        self.canvas.clear();
         self.canvas
             .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
             .map_err(to_nes_err)?;
@@ -170,7 +169,6 @@ impl Window {
     }
 
     pub fn render_debug(&mut self) -> Result<()> {
-        self.canvas.clear();
         self.canvas
             .copy(&self.game_view.tex, self.game_view.src, self.game_view.dst)
             .map_err(to_nes_err)?;
@@ -194,7 +192,6 @@ impl Window {
     }
 
     pub fn render_blank(&mut self) -> Result<()> {
-        self.canvas.clear();
         self.canvas.set_draw_color(Color::RGB(0, 0, 0));
         self.canvas
             .draw_rect(Rect::new(0, 0, self.width, self.height))

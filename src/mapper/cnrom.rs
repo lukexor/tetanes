@@ -8,7 +8,7 @@ use crate::console::ppu::Ppu;
 use crate::mapper::{Mapper, MapperRef, Mirroring};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -57,10 +57,10 @@ impl Mapper for Cnrom {
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -115,7 +115,7 @@ impl Memory for Cnrom {
 }
 
 impl Savable for Cnrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.mirroring.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
         self.prg_rom_bank_hi.save(fh)?;
@@ -123,7 +123,7 @@ impl Savable for Cnrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
         self.prg_rom_bank_hi.load(fh)?;

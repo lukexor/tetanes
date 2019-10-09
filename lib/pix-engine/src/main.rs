@@ -23,6 +23,6 @@ impl State for App {
 
 pub fn main() {
     let app = App::new();
-    let mut engine = PixEngine::new("Asteroids", app, 800, 600);
+    let mut engine = PixEngine::new("App", app, 800, 600);
     engine.run().unwrap();
 }

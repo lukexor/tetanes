@@ -9,7 +9,7 @@ use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{Read, Write};
@@ -294,10 +294,10 @@ impl Mapper for Exrom {
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -591,7 +591,7 @@ impl Memory for Exrom {
 }
 
 impl Savable for Exrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.regs.save(fh)?;
         self.open_bus.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -611,7 +611,7 @@ impl Savable for Exrom {
         self.prg_rom.save(fh)?;
         self.chr.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.regs.load(fh)?;
         self.open_bus.load(fh)?;
         self.irq_pending.load(fh)?;
@@ -634,7 +634,7 @@ impl Savable for Exrom {
 }
 
 impl Savable for ExRegs {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.sprite8x16.save(fh)?;
         self.prg_mode.save(fh)?;
         self.chr_mode.save(fh)?;
@@ -656,7 +656,7 @@ impl Savable for ExRegs {
         self.multiplier.save(fh)?;
         self.mult_result.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.sprite8x16.load(fh)?;
         self.prg_mode.load(fh)?;
         self.chr_mode.load(fh)?;
@@ -681,10 +681,10 @@ impl Savable for ExRegs {
 }
 
 impl Savable for ChrBank {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {

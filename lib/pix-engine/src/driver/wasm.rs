@@ -1,9 +1,9 @@
 use crate::{
     driver::{Driver, DriverOpts},
     event::PixEvent,
-    pixel::Sprite,
     Result,
 };
+use image::DynamicImage;
 
 pub(super) struct WasmDriver {}
 

@@ -4,7 +4,7 @@
 
 use crate::memory::Memory;
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -35,7 +35,7 @@ const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 // ||+------- Unused - always set to 1 when pushed to stack
 // |+-------- Overflow
 // +--------- Negative
-enum StatusRegs {
+pub enum StatusRegs {
     C = 1,        // Carry
     Z = (1 << 1), // Zero
     I = (1 << 2), // Disable Interrupt
@@ -57,11 +57,11 @@ where
     stall: u64,           // Number of cycles to stall with nop (used by DMA)
     pub step: u64,        // total number of CPU instructions run
     pub pc: u16,          // program counter
-    sp: u8,               // stack pointer - stack is at $0100-$01FF
-    acc: u8,              // accumulator
-    x: u8,                // x register
-    y: u8,                // y register
-    status: u8,           // Status Registers
+    pub sp: u8,           // stack pointer - stack is at $0100-$01FF
+    pub acc: u8,          // accumulator
+    pub x: u8,            // x register
+    pub y: u8,            // y register
+    pub status: u8,       // Status Registers
     instr: Instr,         // The currently executing instruction
     abs_addr: u16,        // Used memory addresses get set here
     rel_addr: u16,        // Relative address for branch instructions
@@ -790,7 +790,7 @@ impl<M> Savable for Cpu<M>
 where
     M: Memory + Savable,
 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.mem.save(fh)?;
         self.cycle_count.save(fh)?;
         self.stall.save(fh)?;
@@ -809,7 +809,7 @@ where
         self.pending_nmi.save(fh)?;
         self.irq_delay.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mem.load(fh)?;
         self.cycle_count.load(fh)?;
         self.stall.load(fh)?;
@@ -845,10 +845,10 @@ pub enum Operation {
 }
 
 impl Savable for Operation {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -946,10 +946,10 @@ pub enum AddrMode {
 }
 
 impl Savable for AddrMode {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -995,13 +995,13 @@ impl Instr {
 }
 
 impl Savable for Instr {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.0.save(fh)?;
         self.1.save(fh)?;
         self.2.save(fh)?;
         self.3.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.0.load(fh)?;
         self.1.load(fh)?;
         self.2.load(fh)?;

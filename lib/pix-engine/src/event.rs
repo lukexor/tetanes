@@ -1,13 +1,13 @@
 // Represents an input event
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(super) enum PixEvent {
+pub enum PixEvent {
     None,
     Quit,
     AppTerminating,
-    KeyPress(Key, bool),
-    MousePress(Mouse, i32, i32, bool),
-    MouseWheel(i32),
-    MouseMotion(i32, i32),
+    KeyPress(Key, bool, bool),         // Key, pressed, repeat
+    MousePress(Mouse, u32, u32, bool), // Mouse, x, y, pressed
+    MouseWheel(i32),                   // Wheel delta
+    MouseMotion(u32, u32),             // x, y
     Resized,
     Focus(bool),
     Background(bool),
@@ -60,7 +60,7 @@ pub enum Key {
     LeftBracket, RightBracket, Backslash,
     CapsLock, Semicolon, Colon, Quotedbl, Quote,
     Less, Comma, Greater, Question, Slash,
-    Shift, Space, Control, Alt, Meta,
+    LShift, RShift, Space, Ctrl, Alt, Meta,
     Unknown,
 }
 

@@ -124,7 +124,7 @@ impl App {
         self.spawn_new_ship(data);
     }
 
-    fn gameover(&mut self, data: &StateData) {
+    fn reset(&mut self, data: &StateData) {
         self.spawn_new_ship(data);
         self.level = 1;
         self.lives = 4;
@@ -148,18 +148,20 @@ impl State for App {
         true
     }
     fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> bool {
+        let elapsed = elapsed.as_secs_f32();
+
         if data.get_key(Key::Escape).pressed {
             self.paused = !self.paused;
+        }
+        if data.get_key(Key::R).pressed {
+            self.reset(data);
         }
         if self.paused {
             return true;
         }
 
-        data.clear(pixel::BLACK);
-
-        if data.get_key(Key::R).pressed {
-            self.gameover(data);
-        }
+        data.fill(pixel::BLACK);
+        // data.clear();
 
         if self.exploded {
             if self.lives > 0 {
@@ -179,13 +181,11 @@ impl State for App {
                 );
                 data.set_font_scale(2);
                 if data.get_key(Key::Space).pressed {
-                    self.gameover(data);
+                    self.reset(data);
                 }
             }
             return true;
         }
-
-        let elapsed = elapsed.as_secs_f32();
 
         // Draw Level, Lives, & Score
         data.draw_string(
@@ -295,8 +295,9 @@ impl State for App {
         // Remove destroyed asteroids
         self.asteroids.retain(|a| !a.destroyed);
 
+        // Draw bullets
         for b in self.bullets.iter() {
-            data.fill_circle(b.x as i32, b.y as i32, 1);
+            data.fill_circle(b.x as u32, b.y as u32, 1);
         }
 
         // Draw ship
@@ -328,6 +329,8 @@ impl State for App {
 
 pub fn main() {
     let app = App::new();
-    let mut engine = PixEngine::new("Asteroids", app, 800, 600);
-    engine.run().unwrap();
+    let mut engine = PixEngine::new("Asteroids", app, 800, 600, false, false);
+    if let Err(e) = engine.run() {
+        eprintln!("Encountered a PixEngineErr: {}", e.to_string());
+    }
 }

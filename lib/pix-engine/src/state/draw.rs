@@ -1,11 +1,26 @@
 use crate::{
-    pixel::{self, AlphaMode, Pixel, Sprite},
-    state::{StateData, DEFAULT_DRAW_COLOR},
+    driver::Driver,
+    pixel::ColorType,
+    state::{AlphaMode, StateData},
 };
+use image::{DynamicImage, GenericImage, GenericImageView, Pixel, Rgb, Rgba};
+
+pub struct Rect {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+impl Rect {
+    pub fn new(x: u32, y: u32, w: u32, h: u32) -> Self {
+        Self { x, y, w, h }
+    }
+}
 
 impl StateData {
     // Thanks to https://github.com/OneLoneCoder/olcPixelGameEngine for this!
-    pub fn construct_font() -> Sprite {
+    pub fn construct_font() -> DynamicImage {
         let mut data = String::new();
         data.push_str("?Q`0001oOch0o01o@F40o0<AGD4090LAGD<090@A7ch0?00O7Q`0600>00000000");
         data.push_str("O000000nOT0063Qo4d8>?7a14Gno94AA4gno94AaOT0>o3`oO400o7QN00000400");
@@ -24,7 +39,7 @@ impl StateData {
         data.push_str("O`000P08Od400g`<3V=P0G`673IP0`@3>1`00P@6O`P00g`<O`000GP800000000");
         data.push_str("?P9PL020O`<`N3R0@E4HC7b0@ET<ATB0@@l6C4B0O`H3N7b0?P01L3R000000020");
 
-        let mut font = Sprite::with_size(128, 48);
+        let mut font = DynamicImage::new_rgba8(128, 48);
         let (mut px, mut py) = (0, 0);
         let bytes = data.as_bytes();
         for b in (0..1024).step_by(4) {
@@ -35,7 +50,7 @@ impl StateData {
             let r = sym1 << 18 | sym2 << 12 | sym3 << 6 | sym4;
             for i in 0..24 {
                 let k = if r & (1 << i) > 0 { 255 } else { 0 };
-                font.set_pixel(px, py, Pixel::rgba(k, k, k, k));
+                font.put_pixel(px, py, Rgba([k, k, k, k]));
                 py += 1;
                 if py == 48 {
                     px += 1;
@@ -49,13 +64,13 @@ impl StateData {
     // Get/Set ==============================================================
 
     // Returns the active draw target
-    pub fn get_draw_target(&mut self) -> &Sprite {
+    pub fn get_draw_target(&mut self) -> &DynamicImage {
         match &self.draw_target {
             Some(target) => target,
             None => &self.default_draw_target,
         }
     }
-    pub fn get_draw_target_mut(&mut self) -> &mut Sprite {
+    pub fn get_draw_target_mut(&mut self) -> &mut DynamicImage {
         match &mut self.draw_target {
             Some(target) => target,
             None => &mut self.default_draw_target,
@@ -63,20 +78,14 @@ impl StateData {
     }
     // Retrieve the temporary draw target back, resetting to the default
     // screen target
-    pub fn take_draw_target(&mut self) -> Option<Sprite> {
+    pub fn take_draw_target(&mut self) -> Option<DynamicImage> {
         self.draw_target.take()
     }
     // Specify which sprite should be the target for draw functions
     // Pass None to use default draw target
-    pub fn set_draw_target(&mut self, target: Sprite) {
+    pub fn set_draw_target(&mut self, target: DynamicImage) {
         self.draw_target = Some(target);
     }
-    // pub fn set_raw_bytes(&mut self, bytes: Vec<u8>) {
-    //     self.raw_bytes = Some(bytes);
-    // }
-    // pub fn raw_bytes(&mut self) -> &Option<Vec<u8>> {
-    //     &self.raw_bytes
-    // }
     pub fn get_alpha_mode(&self) -> AlphaMode {
         self.alpha_mode
     }
@@ -97,23 +106,23 @@ impl StateData {
         self.coord_wrapping = val;
     }
     // Gets the Pixel color for draw target
-    pub fn get_draw_color(&mut self) -> Pixel {
+    pub fn get_draw_color(&mut self) -> Rgba<u8> {
         self.draw_color
     }
     // Sets the Pixel color for draw target
-    pub fn set_draw_color(&mut self, p: Pixel) {
+    pub fn set_draw_color(&mut self, p: Rgba<u8>) {
         self.draw_color = p;
     }
     // Resets color for draw target
     pub fn reset_draw_color(&mut self) {
-        self.draw_color = DEFAULT_DRAW_COLOR;
+        self.draw_color = self.default_draw_color;
     }
     // Sets the scale factor for draw target
-    pub fn set_draw_scale(&mut self, scale: i32) {
+    pub fn set_draw_scale(&mut self, scale: u32) {
         self.draw_scale = scale;
     }
     // Sets the scale factor for draw_string
-    pub fn set_font_scale(&mut self, scale: i32) {
+    pub fn set_font_scale(&mut self, scale: u32) {
         self.font_scale = scale;
     }
 
@@ -139,64 +148,78 @@ impl StateData {
 
     // Draw functions =========================================================
 
+    // Fills entire draw target to Pixel
+    pub fn fill(&mut self, p: Rgba<u8>) {
+        // TODO make more generic
+        let target = self
+            .get_draw_target_mut()
+            .as_mut_rgba8()
+            .expect("rgba image");
+        for pix in target.pixels_mut() {
+            *pix = Rgba([p[0], p[1], p[2], p[3]]);
+        }
+        self.target_dirty = true;
+    }
+
+    // Clears entire draw target to empty
+    pub fn clear(&mut self) {
+        let target = self.get_draw_target_mut();
+        *target = DynamicImage::new_rgba8(target.width(), target.height());
+        self.target_dirty = true;
+    }
+
     // Draws a single pixel to the draw target
-    pub fn draw(&mut self, x: i32, y: i32) -> bool {
-        self.draw_color(x, y, self.draw_color)
+    pub fn draw(&mut self, x: u32, y: u32) {
+        self.draw_color(x, y, self.draw_color);
+    }
+    fn draw_i32(&mut self, x: i32, y: i32) {
+        self.draw(x as u32, y as u32);
     }
 
     #[allow(clippy::many_single_char_names)]
-    pub fn draw_color(&mut self, mut x: i32, mut y: i32, p: Pixel) -> bool {
+    pub fn draw_color(&mut self, mut x: u32, mut y: u32, p: Rgba<u8>) {
         if self.coord_wrapping {
             let (mut ox, mut oy) = (0.0, 0.0);
             self.wrap_coords(x as f32, y as f32, &mut ox, &mut oy);
-            x = ox as i32;
-            y = oy as i32;
+            x = ox as u32;
+            y = oy as u32;
         }
         // These local assignments get around the borrow checker when target is assigned
         let alpha_mode = self.alpha_mode;
         let blend_factor = self.blend_factor;
 
         let target = self.get_draw_target_mut();
-        match alpha_mode {
-            AlphaMode::Normal => target.set_pixel(x, y, p),
-            AlphaMode::Mask if p.a == 255 => target.set_pixel(x, y, p),
-            AlphaMode::Blend => {
-                let current_p = target.get_pixel(x, y);
-                let a = (f32::from(p.a) / 255.0) * blend_factor;
-                let c = 1.0 - a;
-                let r = a * f32::from(p.r) + c * f32::from(current_p.r);
-                let g = a * f32::from(p.g) + c * f32::from(current_p.g);
-                let b = a * f32::from(p.b) + c * f32::from(current_p.b);
-                target.set_pixel(x, y, Pixel::rgb(r as u8, g as u8, b as u8))
-            }
-            _ => false,
+        if x >= target.width() || y >= target.height() {
+            return;
         }
-    }
 
-    // Fills all pixels
-    pub fn fill(&mut self, p: Pixel) {
-        let target = self.get_draw_target_mut();
-        for x in 0..target.width() {
-            for y in 0..target.height() {
-                target.set_pixel(x, y, p);
+        match alpha_mode {
+            AlphaMode::Normal => target.put_pixel(x, y, p),
+            AlphaMode::Mask if p[3] == 255 => target.put_pixel(x, y, p),
+            AlphaMode::Blend => {
+                let mut current_p = target.get_pixel(x, y);
+                current_p.blend(&p);
+                target.put_pixel(x, y, p);
             }
+            _ => (),
         }
+        self.target_dirty = true;
     }
 
     // Draws a line from (x1, y1) to (x2, y2)
-    pub fn draw_line(&mut self, x1: i32, y1: i32, x2: i32, y2: i32) {
+    pub fn draw_line(&mut self, x1: u32, y1: u32, x2: u32, y2: u32) {
         self.draw_line_pattern(x1, y1, x2, y2, 0xFFFF_FFFF);
+    }
+    pub fn draw_line_i32(&mut self, x1: i32, y1: i32, x2: i32, y2: i32) {
+        self.draw_line(x1 as u32, y1 as u32, x2 as u32, y2 as u32)
     }
 
     // Draws a line pattern from (x1, y1) to (x2, y2)
-    pub fn draw_line_pattern(
-        &mut self,
-        mut x1: i32,
-        mut y1: i32,
-        mut x2: i32,
-        mut y2: i32,
-        mut pattern: u32,
-    ) {
+    pub fn draw_line_pattern(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, mut pattern: u32) {
+        let mut x1 = x1 as i32;
+        let mut y1 = y1 as i32;
+        let mut x2 = x2 as i32;
+        let mut y2 = y2 as i32;
         let dx = x2 - x1;
         let dy = y2 - y1;
 
@@ -212,7 +235,7 @@ impl StateData {
             }
             for y in y1..=y2 {
                 if rol() {
-                    self.draw(x1, y);
+                    self.draw_i32(x1, y);
                 }
             }
         } else if dy == 0 {
@@ -222,7 +245,7 @@ impl StateData {
             }
             for x in x1..=x2 {
                 if rol() {
-                    self.draw(x, y1);
+                    self.draw_i32(x, y1);
                 }
             }
         } else {
@@ -243,7 +266,7 @@ impl StateData {
                     xe = x1;
                 }
                 if rol() {
-                    self.draw(x, y);
+                    self.draw_i32(x, y);
                 }
                 while x < xe {
                     x += 1;
@@ -258,7 +281,7 @@ impl StateData {
                         px += 2 * (dy1 - dx1);
                     }
                     if rol() {
-                        self.draw(x, y);
+                        self.draw_i32(x, y);
                     }
                 }
             } else {
@@ -272,7 +295,7 @@ impl StateData {
                     ye = y1;
                 }
                 if rol() {
-                    self.draw(x, y);
+                    self.draw_i32(x, y);
                 }
                 while y < ye {
                     y += 1;
@@ -287,7 +310,7 @@ impl StateData {
                         py += 2 * (dx1 - dy1);
                     }
                     if rol() {
-                        self.draw(x, y);
+                        self.draw_i32(x, y);
                     }
                 }
             }
@@ -295,43 +318,45 @@ impl StateData {
     }
 
     // Draws a circle centered at (x, y) with radius r
-    pub fn draw_circle(&mut self, x: i32, y: i32, r: i32) {
+    pub fn draw_circle(&mut self, x: u32, y: u32, r: u32) {
         self.draw_partial_circle(x, y, r, 0xFF);
     }
 
     // Draws a partial circle centered at (x, y) with radius r, partially masked
-    pub fn draw_partial_circle(&mut self, x: i32, y: i32, r: i32, mask: u8) {
+    pub fn draw_partial_circle(&mut self, x: u32, y: u32, r: u32, mask: u8) {
+        let x = x as i32;
+        let y = y as i32;
         let mut x0 = 0;
-        let mut y0 = r;
-        let mut d = 3 - 2 * r;
+        let mut y0 = r as i32;
+        let mut d = 3 - 2 * r as i32;
         if r == 0 {
             return;
         }
 
         while y0 >= x0 {
             if mask & 0x01 > 0 {
-                self.draw(x + x0, y - y0);
+                self.draw_i32(x + x0, y - y0);
             }
             if mask & 0x02 > 0 {
-                self.draw(x + y0, y - x0);
+                self.draw_i32(x + y0, y - x0);
             }
             if mask & 0x04 > 0 {
-                self.draw(x + y0, y + x0);
+                self.draw_i32(x + y0, y + x0);
             }
             if mask & 0x08 > 0 {
-                self.draw(x + x0, y + y0);
+                self.draw_i32(x + x0, y + y0);
             }
             if mask & 0x10 > 0 {
-                self.draw(x - x0, y + y0);
+                self.draw_i32(x - x0, y + y0);
             }
             if mask & 0x20 > 0 {
-                self.draw(x - y0, y + x0);
+                self.draw_i32(x - y0, y + x0);
             }
             if mask & 0x40 > 0 {
-                self.draw(x - y0, y - x0);
+                self.draw_i32(x - y0, y - x0);
             }
             if mask & 0x80 > 0 {
-                self.draw(x - x0, y - y0);
+                self.draw_i32(x - x0, y - y0);
             }
             x0 += 1;
             if d < 0 {
@@ -344,27 +369,27 @@ impl StateData {
     }
 
     // Draws a filled circle centered at (x, y) with radius r
-    pub fn fill_circle(&mut self, x: i32, y: i32, r: i32) {
+    pub fn fill_circle(&mut self, x: u32, y: u32, r: u32) {
+        let x = x as i32;
+        let y = y as i32;
         let mut x0 = 0;
-        let mut y0 = r;
-        let mut d = 3 - 2 * r;
+        let mut y0 = r as i32;
+        let mut d = 3 - 2 * r as i32;
         if r == 0 {
             return;
         }
 
-        let mut draw_line = |sx, ex, ny| {
+        let mut draw_hline = |sx, ex, ny| {
             for i in sx..ex {
-                self.draw(i, ny);
+                self.draw_i32(i, ny);
             }
         };
 
-        let x = x as i32;
-        let y = y as i32;
         while y0 >= x0 {
-            draw_line(x - x0, x + x0, y - y0);
-            draw_line(x - y0, x + y0, y - x0);
-            draw_line(x - x0, x + x0, y + y0);
-            draw_line(x - y0, x + y0, y + x0);
+            draw_hline(x - x0, x + x0, y - y0);
+            draw_hline(x - y0, x + y0, y - x0);
+            draw_hline(x - x0, x + x0, y + y0);
+            draw_hline(x - y0, x + y0, y + x0);
             x0 += 1;
             if d < 0 {
                 d += 4 * x0 + 6;
@@ -384,7 +409,7 @@ impl StateData {
     }
 
     // Draws a rectangle at (x, y) to (x + w, y + h)
-    pub fn draw_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
+    pub fn draw_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
         self.draw_line(x, y, x + w, y); // Top
         self.draw_line(x + w, y, x + w, y + h); // Right
         self.draw_line(x + w, y + h, x, y + h); // Bottom
@@ -392,7 +417,7 @@ impl StateData {
     }
 
     // Draws a filled rectangle at (x, y) to (x + w, y + h)
-    pub fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
+    pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
         for x1 in x..x + w {
             for y1 in y..y + h {
                 self.draw(x1, y1);
@@ -402,7 +427,7 @@ impl StateData {
 
     // Draws a triangle between points (x1, y1), (x2, y2), and (x3, y3)
     #[allow(clippy::too_many_arguments)]
-    pub fn draw_triangle(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, x3: i32, y3: i32) {
+    pub fn draw_triangle(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, x3: u32, y3: u32) {
         self.draw_line(x1, y1, x2, y2);
         self.draw_line(x2, y2, x3, y3);
         self.draw_line(x3, y3, x1, y1);
@@ -412,17 +437,13 @@ impl StateData {
     // https://www.avrfreaks.net/sites/default/files/triangles.c
     // Original Author: Adafruit Industries
     #[allow(clippy::too_many_arguments)]
-    pub fn fill_triangle(
-        &mut self,
-        mut x1: i32,
-        mut y1: i32,
-        mut x2: i32,
-        mut y2: i32,
-        mut x3: i32,
-        mut y3: i32,
-    ) {
-        let (mut a, mut b, mut y, last);
-
+    pub fn fill_triangle(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, x3: u32, y3: u32) {
+        let mut x1 = x1 as i32;
+        let mut y1 = y1 as i32;
+        let mut x2 = x2 as i32;
+        let mut y2 = y2 as i32;
+        let mut x3 = x3 as i32;
+        let mut y3 = y3 as i32;
         // Sort coords by y (y3 >= y1 >= y0)
         if y1 > y2 {
             std::mem::swap(&mut y1, &mut y2);
@@ -439,8 +460,8 @@ impl StateData {
 
         if y1 == y3 {
             // All on same line
-            a = x1;
-            b = x1;
+            let mut a = x1;
+            let mut b = x1;
             if x2 < a {
                 a = x2;
             } else if x2 > b {
@@ -451,7 +472,7 @@ impl StateData {
             } else if x3 > b {
                 b = x3;
             }
-            self.draw_line(a, y1, b, y1); // Horizontal line
+            self.draw_line_i32(a, y1, b, y1); // Horizontal line
         } else {
             let dx12 = x2 - x1;
             let dy12 = y2 - y1;
@@ -462,37 +483,30 @@ impl StateData {
             let mut sa = 0;
             let mut sb = 0;
 
-            if y2 == y3 {
-                last = y2;
-            } else {
-                last = y2 - 1;
-            }
+            let last = if y2 == y3 { y2 } else { y2 - 1 };
 
-            y = y1;
-            for i in y1..=last {
-                y = i;
-                a = x1 + sa / dy12;
-                b = x1 + sb / dy13;
+            for y in y1..=last {
+                let a = x1 + sa / dy12;
+                let b = x1 + sb / dy13;
                 sa += dx12;
                 sb += dx13;
-                self.draw_line(a, y, b, y);
+                self.draw_line_i32(a, y, b, y);
             }
 
-            sa = dx23 * (y - y2);
-            sb = dx13 * (y - y1);
-            for i in y..=y3 {
-                y = i;
-                a = x2 + sa / dy23;
-                b = x1 + sb / dy13;
+            sa = dx23 * (last - y2);
+            sb = dx13 * (last - y1);
+            for y in last..=y3 {
+                let a = x2 + sa / dy23;
+                let b = x1 + sb / dy13;
                 sa += dx23;
                 sb += dx13;
-                self.draw_line(a, y, b, y);
+                self.draw_line_i32(a, y, b, y);
             }
         }
     }
 
     // Draws an entire sprite at location (x, y)
-    pub fn draw_sprite(&mut self, x: i32, y: i32, sprite: &Sprite) {
+    pub fn draw_sprite(&mut self, x: u32, y: u32, sprite: &DynamicImage) {
         if self.draw_scale > 1 {
             for ox in 0..sprite.width() {
                 for oy in 0..sprite.height() {
@@ -521,13 +535,13 @@ impl StateData {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_partial_sprite(
         &mut self,
-        x: i32,
-        y: i32,
-        ox: i32,
-        oy: i32,
-        w: i32,
-        h: i32,
-        sprite: &Sprite,
+        x: u32,
+        y: u32,
+        ox: u32,
+        oy: u32,
+        w: u32,
+        h: u32,
+        sprite: &DynamicImage,
     ) {
         if self.draw_scale > 1 {
             for ox1 in 0..w {
@@ -553,13 +567,13 @@ impl StateData {
     }
 
     // Draws a single line of text at (x, y)
-    pub fn draw_string(&mut self, x: i32, y: i32, text: String) {
+    pub fn draw_string(&mut self, x: u32, y: u32, text: &str, p: Rgba<u8>) {
         let mut sx = 0;
         let mut sy = 0;
 
         // Temporarily change alpha mode so text will overlay
         let alpha_mode = self.get_alpha_mode();
-        if self.draw_color.a != 255 {
+        if self.draw_color[0] != 255 {
             self.set_alpha_mode(AlphaMode::Blend);
         } else {
             self.set_alpha_mode(AlphaMode::Mask);
@@ -569,17 +583,18 @@ impl StateData {
                 sx = 0;
                 sy += 8 * self.font_scale;
             } else {
-                let ox = (c as i32 - 32) % 16;
-                let oy = (c as i32 - 32) / 16;
+                let ox = (c as u32 - 32) % 16;
+                let oy = (c as u32 - 32) / 16;
                 if self.font_scale > 1 {
                     for ox1 in 0..8 {
                         for oy1 in 0..8 {
-                            if self.font.get_pixel(ox1 + ox * 8, oy1 + oy * 8).r > 0 {
+                            if self.font.get_pixel(ox1 + ox * 8, oy1 + oy * 8)[0] > 0 {
                                 for xs in 0..self.font_scale {
                                     for ys in 0..self.font_scale {
-                                        self.draw(
+                                        self.draw_color(
                                             x + sx + (ox1 * self.font_scale) + xs,
                                             y + sy + (oy1 * self.font_scale) + ys,
+                                            p,
                                         );
                                     }
                                 }
@@ -589,8 +604,8 @@ impl StateData {
                 } else {
                     for ox1 in 0..8 {
                         for oy1 in 0..8 {
-                            if self.font.get_pixel(ox1 + ox * 8, oy1 + oy * 8).r > 0 {
-                                self.draw(x + sx + ox1, y + sy + oy1);
+                            if self.font.get_pixel(ox1 + ox * 8, oy1 + oy * 8)[0] > 0 {
+                                self.draw_color(x + sx + ox1, y + sy + oy1, p);
                             }
                         }
                     }
@@ -644,21 +659,29 @@ impl StateData {
         for i in 0..=verts {
             let j = i + 1;
             self.draw_line(
-                transformed_coords[i % verts].0 as i32,
-                transformed_coords[i % verts].1 as i32,
-                transformed_coords[j % verts].0 as i32,
-                transformed_coords[j % verts].1 as i32,
+                transformed_coords[i % verts].0 as u32,
+                transformed_coords[i % verts].1 as u32,
+                transformed_coords[j % verts].0 as u32,
+                transformed_coords[j % verts].1 as u32,
             );
         }
     }
 
-    // Clears entire draw target to Pixel
-    pub fn clear(&mut self, p: Pixel) {
-        let target = self.get_draw_target_mut();
-        for x in 0..target.width() {
-            for y in 0..target.height() {
-                target.set_pixel(x, y, p);
-            }
-        }
+    pub fn create_texture(
+        &mut self,
+        name: &'static str,
+        color_type: ColorType,
+        src: Rect,
+        dst: Rect,
+    ) {
+        self.driver.create_texture(name, color_type, src, dst);
+    }
+
+    pub fn update_texture(&mut self, name: &'static str, src: Rect, dst: Rect) {
+        self.driver.update_texture(name, src, dst);
+    }
+
+    pub fn copy_texture(&mut self, name: &str, bytes: &[u8]) {
+        self.driver.copy_texture(name, bytes);
     }
 }

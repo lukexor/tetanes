@@ -1,45 +1,61 @@
 use crate::{
-    event::{Input, Key, Mouse},
-    pixel::{self, AlphaMode, Pixel, Sprite},
-    Result,
+    driver::{self, Driver, DriverOpts},
+    event::{Input, Key, Mouse, PixEvent},
+    pixel, PixEngineErr, PixEngineResult,
 };
+use image::{DynamicImage, GenericImage, GenericImageView, Rgba};
 use std::{path::Path, time::Duration};
 
-mod draw;
+pub mod draw;
 pub mod transform;
 
-static DEFAULT_DRAW_COLOR: Pixel = pixel::WHITE;
-
 pub trait State {
-    fn on_start(&mut self, _data: &mut StateData) -> bool {
-        false
+    fn on_start(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
+        Ok(())
     }
-    fn on_stop(&mut self, _data: &mut StateData) -> bool {
-        false
+    fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
+        Ok(())
     }
-    fn on_update(&mut self, _elapsed: Duration, _data: &mut StateData) -> bool {
-        true
+    fn on_update(&mut self, _elapsed: Duration, _data: &mut StateData) -> PixEngineResult<()> {
+        Err(PixEngineErr::new("on_update must be implemented"))
     }
+}
+
+/// Pixel blending mode
+///   Normal: Ignores alpha channel blending
+///   Mask: Only displays pixels if alpha == 255
+///   Blend: Blends together alpha channels
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum AlphaMode {
+    Normal, // Ignore alpha channel
+    Mask,   // Only blend alpha if less than 255
+    Blend,  // Always blend alpha
 }
 
 /// Manages all engine state including graphics and inputs
 // TODO add stroke for line drawing
 pub struct StateData {
+    pub(super) target_dirty: bool,
+    #[cfg(feature = "wasm-driver")]
+    pub(super) driver: driver::wasm::WasmDriver,
+    #[cfg(not(feature = "wasm-driver"))]
+    pub(super) driver: driver::sdl2::Sdl2Driver,
+    pub(super) events: Vec<PixEvent>,
     title: String,
-    screen_width: i32,
-    screen_height: i32,
-    default_draw_target: Sprite,
-    draw_target: Option<Sprite>,
-    // raw_bytes: Option<Vec<u8>>,
-    draw_color: Pixel,
-    draw_scale: i32,
-    font_scale: i32,
+    screen_width: u32,
+    screen_height: u32,
+    default_draw_target: DynamicImage,
+    draw_target: Option<DynamicImage>,
+    default_draw_color: Rgba<u8>,
+    draw_color: Rgba<u8>,
+    draw_scale: u32,
+    font_scale: u32,
     alpha_mode: AlphaMode,
     blend_factor: f32,
-    mouse_x: i32,
-    mouse_y: i32,
+    mouse_x: u32,
+    mouse_y: u32,
     mouse_wheel_delta: i32,
-    font: Sprite,
+    font: DynamicImage,
     has_input_focus: bool,
     has_mouse_focus: bool,
     old_key_state: [bool; 256],
@@ -62,22 +78,35 @@ impl StateData {
     pub fn set_title(&mut self, title: &str) {
         self.title = title.to_string();
     }
+    /// Toggle fullscreen
+    pub fn fullscreen(&mut self, val: bool) {
+        self.driver.fullscreen(val);
+    }
+    /// Toggle vsync
+    pub fn vsync(&mut self, val: bool) {
+        self.driver.vsync(val);
+    }
     /// Screen Width
-    pub fn screen_width(&self) -> i32 {
+    pub fn screen_width(&self) -> u32 {
         self.screen_width
     }
     /// Screen Height
-    pub fn screen_height(&self) -> i32 {
+    pub fn screen_height(&self) -> u32 {
         self.screen_height
     }
-    /// Change screen dimensions. Clears draw target and resets draw color.
-    pub fn set_screen_size(&mut self, w: i32, h: i32) {
-        self.screen_width = w;
-        self.screen_height = h;
-        self.default_draw_target = Sprite::with_size(w, h);
-        self.draw_target = None;
-        self.set_draw_color(pixel::BLACK);
-        self.fill(pixel::BLACK);
+    /// Change screen dimensions.
+    pub fn set_screen_size(&mut self, width: u32, height: u32) {
+        let mut new_draw_target = DynamicImage::new_rgba8(width, height);
+        for x in 0..std::cmp::min(width, self.screen_width) {
+            for y in 0..std::cmp::min(width, self.screen_height) {
+                let p = self.default_draw_target.get_pixel(x, y);
+                new_draw_target.put_pixel(x, y, p);
+            }
+        }
+        self.default_draw_target = new_draw_target;
+        self.screen_width = width;
+        self.screen_height = height;
+        self.driver.set_size(width, height);
     }
     /// Whether window has focus
     pub fn is_focused(&self) -> bool {
@@ -92,16 +121,19 @@ impl StateData {
         self.mouse_state[button as usize]
     }
     /// Get Mouse X-coord in screen space
-    pub fn get_mouse_x(&self) -> i32 {
+    pub fn get_mouse_x(&self) -> u32 {
         self.mouse_x
     }
     /// Get Mouse Y-coord in screen space
-    pub fn get_mouse_y(&self) -> i32 {
+    pub fn get_mouse_y(&self) -> u32 {
         self.mouse_y
     }
     /// Get Mouse wheel data
     pub fn get_mouse_wheel(&self) -> i32 {
         self.mouse_wheel_delta
+    }
+    pub fn poll(&mut self) -> Vec<PixEvent> {
+        self.events.drain(..).collect()
     }
 
     /// Utility functions ======================================================
@@ -114,23 +146,28 @@ impl StateData {
 }
 
 impl StateData {
-    pub(super) fn new(screen_width: i32, screen_height: i32) -> Self {
+    pub(super) fn new(screen_width: u32, screen_height: u32) -> Self {
         let font = StateData::construct_font();
+        // Initialize backend driver library
+        let opts = DriverOpts::new(screen_width, screen_height);
         let mut state_data = Self {
+            target_dirty: false,
+            driver: driver::load_driver(opts),
+            events: Vec::new(),
             title: String::new(),
             screen_width,
             screen_height,
-            default_draw_target: Sprite::with_size(screen_width, screen_height),
+            default_draw_target: DynamicImage::new_rgba8(screen_width, screen_height),
             draw_target: None,
-            // raw_bytes: None,
-            draw_color: DEFAULT_DRAW_COLOR,
-            draw_scale: 1i32,
-            font_scale: 2i32,
+            default_draw_color: pixel::WHITE,
+            draw_color: pixel::WHITE,
+            draw_scale: 1,
+            font_scale: 2,
             alpha_mode: AlphaMode::Normal,
             blend_factor: 1.0,
-            mouse_x: 0i32,
-            mouse_y: 0i32,
-            mouse_wheel_delta: 0i32,
+            mouse_x: 0,
+            mouse_y: 0,
+            mouse_wheel_delta: 0,
             has_input_focus: true,
             has_mouse_focus: true,
             font,
@@ -142,13 +179,13 @@ impl StateData {
             mouse_state: [Input::new(); 5],
             coord_wrapping: false,
         };
-        state_data.fill(pixel::BLACK);
+        state_data.clear();
         state_data
     }
     pub(super) fn set_focused(&mut self, val: bool) {
         self.has_input_focus = val;
     }
-    pub(super) fn update_mouse(&mut self, x: i32, y: i32) {
+    pub(super) fn update_mouse(&mut self, x: u32, y: u32) {
         self.mouse_x = x;
         self.mouse_y = y;
     }

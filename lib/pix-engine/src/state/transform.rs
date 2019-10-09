@@ -1,7 +1,5 @@
-use crate::{
-    pixel::Sprite,
-    state::{StateData, DEFAULT_DRAW_COLOR},
-};
+use crate::state::StateData;
+use image::{DynamicImage, GenericImage, GenericImageView};
 
 type Matrix = [[f32; 3]; 3];
 
@@ -129,34 +127,36 @@ impl Transform {
 
 impl StateData {
     /// Draws a sprite using the transform matrix
-    pub fn draw_transform(&mut self, transform: &mut Transform, sprite: &Sprite) {
+    pub fn draw_transform(&mut self, transform: &mut Transform, sprite: &DynamicImage) {
         // Top Left pixel bounds
         let (px, py) = transform.forward(0.0, 0.0);
-        let sx = px.ceil() as i32;
-        let sy = py.ceil() as i32;
-        let ex = px.ceil() as i32;
-        let ey = py.ceil() as i32;
+        let sx = px;
+        let sy = py;
+        let ex = px;
+        let ey = py;
 
         // Bottom Right pixel bounds
         let (px, py) = transform.forward(sprite.width() as f32, sprite.height() as f32);
-        let sx = std::cmp::min(sx, px.ceil() as i32);
-        let sy = std::cmp::min(sy, py.ceil() as i32);
-        let ex = std::cmp::max(ex, px.ceil() as i32);
-        let ey = std::cmp::max(ey, py.ceil() as i32);
+        let sx = sx.max(px);
+        let sy = sy.max(py);
+        let ex = ex.min(px);
+        let ey = ey.min(py);
 
         // Bottom Left pixel bounds
         let (px, py) = transform.forward(0.0, sprite.height() as f32);
-        let sx = std::cmp::min(sx, px.ceil() as i32);
-        let sy = std::cmp::min(sy, py.ceil() as i32);
-        let ex = std::cmp::max(ex, px.ceil() as i32);
-        let ey = std::cmp::max(ey, py.ceil() as i32);
+        let sx = sx.max(px);
+        let sy = sy.max(py);
+        let ex = ex.min(px);
+        let ey = ey.min(py);
 
         // Top Right pixel bounds
         let (px, py) = transform.forward(sprite.width() as f32, 0.0);
-        let mut sx = std::cmp::min(sx, px.ceil() as i32);
-        let mut sy = std::cmp::min(sy, py.ceil() as i32);
-        let mut ex = std::cmp::max(ex, px.ceil() as i32);
-        let mut ey = std::cmp::max(ey, py.ceil() as i32);
+
+        // Take final min/max and round up
+        let mut sx = sx.max(px).ceil() as u32;
+        let mut sy = sy.max(py).ceil() as u32;
+        let mut ex = ex.min(px).ceil() as u32;
+        let mut ey = ey.min(py).ceil() as u32;
 
         // Invert source if needed
         transform.invert();
@@ -171,7 +171,7 @@ impl StateData {
         for x in sx..ex {
             for y in sy..ey {
                 let (nx, ny) = transform.backward(x as f32, y as f32);
-                let p = sprite.get_pixel(nx.ceil() as i32, ny.ceil() as i32);
+                let p = sprite.get_pixel(nx.ceil() as u32, ny.ceil() as u32);
                 self.draw_color(x, y, p);
             }
         }

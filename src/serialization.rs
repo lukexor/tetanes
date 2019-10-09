@@ -3,22 +3,22 @@
 //! Converts primative types and arrays of primatives from/to Big-Endian byte arrays and writes
 //! them to a file handle that implements Read/Write.
 
-use crate::{nes_err, Result};
+use crate::{nes_err, NesResult};
 use std::io::Read;
 use std::io::Write;
 
 /// Savable trait
 pub trait Savable {
-    fn save(&self, fh: &mut dyn Write) -> Result<()>;
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()>;
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()>;
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()>;
 }
 
 impl Savable for bool {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&[*self as u8])?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0; 1];
         fh.read_exact(&mut bytes)?;
         *self = bytes[0] > 0;
@@ -27,11 +27,11 @@ impl Savable for bool {
 }
 
 impl Savable for u8 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&self.to_be_bytes())?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0; 1];
         fh.read_exact(&mut bytes)?;
         *self = bytes[0];
@@ -40,11 +40,11 @@ impl Savable for u8 {
 }
 
 impl Savable for u16 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&self.to_be_bytes())?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0; 2];
         fh.read_exact(&mut bytes)?;
         *self = u16::from_be_bytes(bytes);
@@ -53,11 +53,11 @@ impl Savable for u16 {
 }
 
 impl Savable for i32 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&self.to_be_bytes())?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0u8; 4];
         fh.read_exact(&mut bytes)?;
         *self = i32::from_be_bytes(bytes);
@@ -66,11 +66,11 @@ impl Savable for i32 {
 }
 
 impl Savable for u32 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&self.to_be_bytes())?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0u8; 4];
         fh.read_exact(&mut bytes)?;
         *self = u32::from_be_bytes(bytes);
@@ -79,11 +79,11 @@ impl Savable for u32 {
 }
 
 impl Savable for f32 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.to_bits().save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u32;
         val.load(fh)?;
         *self = f32::from_bits(val);
@@ -92,11 +92,11 @@ impl Savable for f32 {
 }
 
 impl Savable for u64 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&self.to_be_bytes())?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0u8; 8];
         fh.read_exact(&mut bytes)?;
         *self = u64::from_be_bytes(bytes);
@@ -105,10 +105,10 @@ impl Savable for u64 {
 }
 
 impl Savable for f64 {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.to_bits().save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut val = 0u64;
         val.load(fh)?;
         *self = f64::from_bits(val);
@@ -117,12 +117,12 @@ impl Savable for f64 {
 }
 
 impl Savable for usize {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         let val = *self as u32;
         fh.write_all(&val.to_be_bytes())?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0u8; 4];
         fh.read_exact(&mut bytes)?;
         let val = u32::from_be_bytes(bytes);
@@ -132,10 +132,10 @@ impl Savable for usize {
 }
 
 impl<T: Savable> Savable for [T] {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         let len: usize = self.len();
         if len > std::u32::MAX as usize {
-            panic!("Unable to save more than {} bytes", std::u32::MAX);
+            return nes_err!("Unable to save more than {} bytes", std::u32::MAX);
         }
         let len = len as u32;
         len.save(fh)?;
@@ -144,11 +144,11 @@ impl<T: Savable> Savable for [T] {
         }
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut len = 0u32;
         len.load(fh)?;
         if len > self.len() as u32 {
-            Err(nes_err!("read len does not match"))?;
+            return nes_err!("read len does not match");
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -158,10 +158,10 @@ impl<T: Savable> Savable for [T] {
 }
 
 impl<T: Savable> Savable for Vec<T> {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         let len: usize = self.len();
         if len > std::u32::MAX as usize {
-            panic!("Unable to save more than {} bytes", std::u32::MAX);
+            return nes_err!("Unable to save more than {} bytes", std::u32::MAX);
         }
         let len = len as u32;
         len.save(fh)?;
@@ -170,11 +170,11 @@ impl<T: Savable> Savable for Vec<T> {
         }
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut len = 0u32;
         len.load(fh)?;
         if len > self.len() as u32 {
-            Err(nes_err!("read len does not match"))?;
+            return nes_err!("read len does not match");
         }
         for i in 0..len {
             self[i as usize].load(fh)?;

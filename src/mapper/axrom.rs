@@ -8,7 +8,7 @@ use crate::mapper::Mirroring;
 use crate::mapper::{Mapper, MapperRef};
 use crate::memory::{Banks, Memory, Ram, Rom};
 use crate::serialization::Savable;
-use crate::Result;
+use crate::NesResult;
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -61,10 +61,10 @@ impl Mapper for Axrom {
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
+    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
         Ok(())
     }
     fn chr(&self) -> Option<&Banks<Ram>> {
@@ -136,14 +136,14 @@ impl Memory for Axrom {
 }
 
 impl Savable for Axrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
         self.prg_rom_bank.save(fh)?;
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.prg_rom_bank.load(fh)?;

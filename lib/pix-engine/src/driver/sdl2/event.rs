@@ -9,7 +9,7 @@ use sdl2::{
 };
 
 impl Sdl2Driver {
-    pub(super) fn map_key(&self, key: Keycode, pressed: bool) -> PixEvent {
+    pub(super) fn map_key(&self, key: Keycode, pressed: bool, repeat: bool) -> PixEvent {
         let key = match key {
             Keycode::A => Key::A,
             Keycode::B => Key::B,
@@ -120,17 +120,18 @@ impl Sdl2Driver {
             Keycode::Greater => Key::Greater,
             Keycode::Question => Key::Question,
             Keycode::Slash => Key::Slash,
-            Keycode::LShift | Keycode::RShift => Key::Shift,
+            Keycode::LShift => Key::LShift,
+            Keycode::RShift => Key::RShift,
             Keycode::Space => Key::Space,
-            Keycode::LCtrl | Keycode::RCtrl => Key::Control,
+            Keycode::LCtrl | Keycode::RCtrl => Key::Ctrl,
             Keycode::LAlt | Keycode::RAlt => Key::Alt,
             Keycode::LGui | Keycode::RGui => Key::Meta,
             _ => Key::Unknown,
         };
-        PixEvent::KeyPress(key, pressed)
+        PixEvent::KeyPress(key, pressed, repeat)
     }
 
-    pub(super) fn map_mouse(&self, btn: MouseButton, x: i32, y: i32, pressed: bool) -> PixEvent {
+    pub(super) fn map_mouse(&self, btn: MouseButton, x: u32, y: u32, pressed: bool) -> PixEvent {
         let btn = match btn {
             MouseButton::Left => Mouse::Left,
             MouseButton::Middle => Mouse::Middle,
