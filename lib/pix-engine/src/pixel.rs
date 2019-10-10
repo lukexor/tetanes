@@ -8,6 +8,7 @@ use std::{
 };
 
 pub type Sprite = DynamicImage;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ColorType {
     RGB,
     RGBA,

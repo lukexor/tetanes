@@ -172,7 +172,7 @@ impl StateData {
             for y in sy..ey {
                 let (nx, ny) = transform.backward(x as f32, y as f32);
                 let p = sprite.get_pixel(nx.ceil() as u32, ny.ceil() as u32);
-                self.draw_color(x, y, p);
+                self.draw(x, y, p);
             }
         }
     }

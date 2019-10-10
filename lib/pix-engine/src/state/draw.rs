@@ -122,6 +122,10 @@ impl StateData {
         self.draw_scale = scale;
     }
     // Sets the scale factor for draw_string
+    pub fn get_font_scale(&mut self) -> u32 {
+        self.font_scale
+    }
+    // Sets the scale factor for draw_string
     pub fn set_font_scale(&mut self, scale: u32) {
         self.font_scale = scale;
     }
@@ -158,26 +162,27 @@ impl StateData {
         for pix in target.pixels_mut() {
             *pix = Rgba([p[0], p[1], p[2], p[3]]);
         }
-        self.target_dirty = true;
+        if self.draw_target.is_none() {
+            self.default_target_dirty = true;
+        }
     }
 
     // Clears entire draw target to empty
     pub fn clear(&mut self) {
         let target = self.get_draw_target_mut();
         *target = DynamicImage::new_rgba8(target.width(), target.height());
-        self.target_dirty = true;
+        if self.draw_target.is_none() {
+            self.default_target_dirty = true;
+        }
     }
 
     // Draws a single pixel to the draw target
-    pub fn draw(&mut self, x: u32, y: u32) {
-        self.draw_color(x, y, self.draw_color);
-    }
-    fn draw_i32(&mut self, x: i32, y: i32) {
-        self.draw(x as u32, y as u32);
+    fn draw_i32(&mut self, x: i32, y: i32, p: Rgba<u8>) {
+        self.draw(x as u32, y as u32, p);
     }
 
     #[allow(clippy::many_single_char_names)]
-    pub fn draw_color(&mut self, mut x: u32, mut y: u32, p: Rgba<u8>) {
+    pub fn draw(&mut self, mut x: u32, mut y: u32, p: Rgba<u8>) {
         if self.coord_wrapping {
             let (mut ox, mut oy) = (0.0, 0.0);
             self.wrap_coords(x as f32, y as f32, &mut ox, &mut oy);
@@ -203,19 +208,29 @@ impl StateData {
             }
             _ => (),
         }
-        self.target_dirty = true;
+        if self.draw_target.is_none() {
+            self.default_target_dirty = true;
+        }
     }
 
     // Draws a line from (x1, y1) to (x2, y2)
-    pub fn draw_line(&mut self, x1: u32, y1: u32, x2: u32, y2: u32) {
-        self.draw_line_pattern(x1, y1, x2, y2, 0xFFFF_FFFF);
+    pub fn draw_line(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, p: Rgba<u8>) {
+        self.draw_line_pattern(x1, y1, x2, y2, 0xFFFF_FFFF, p);
     }
-    pub fn draw_line_i32(&mut self, x1: i32, y1: i32, x2: i32, y2: i32) {
-        self.draw_line(x1 as u32, y1 as u32, x2 as u32, y2 as u32)
+    pub fn draw_line_i32(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, p: Rgba<u8>) {
+        self.draw_line(x1 as u32, y1 as u32, x2 as u32, y2 as u32, p)
     }
 
     // Draws a line pattern from (x1, y1) to (x2, y2)
-    pub fn draw_line_pattern(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, mut pattern: u32) {
+    pub fn draw_line_pattern(
+        &mut self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        mut pattern: u32,
+        p: Rgba<u8>,
+    ) {
         let mut x1 = x1 as i32;
         let mut y1 = y1 as i32;
         let mut x2 = x2 as i32;
@@ -235,7 +250,7 @@ impl StateData {
             }
             for y in y1..=y2 {
                 if rol() {
-                    self.draw_i32(x1, y);
+                    self.draw_i32(x1, y, p);
                 }
             }
         } else if dy == 0 {
@@ -245,7 +260,7 @@ impl StateData {
             }
             for x in x1..=x2 {
                 if rol() {
-                    self.draw_i32(x, y1);
+                    self.draw_i32(x, y1, p);
                 }
             }
         } else {
@@ -266,7 +281,7 @@ impl StateData {
                     xe = x1;
                 }
                 if rol() {
-                    self.draw_i32(x, y);
+                    self.draw_i32(x, y, p);
                 }
                 while x < xe {
                     x += 1;
@@ -281,7 +296,7 @@ impl StateData {
                         px += 2 * (dy1 - dx1);
                     }
                     if rol() {
-                        self.draw_i32(x, y);
+                        self.draw_i32(x, y, p);
                     }
                 }
             } else {
@@ -295,7 +310,7 @@ impl StateData {
                     ye = y1;
                 }
                 if rol() {
-                    self.draw_i32(x, y);
+                    self.draw_i32(x, y, p);
                 }
                 while y < ye {
                     y += 1;
@@ -310,7 +325,7 @@ impl StateData {
                         py += 2 * (dx1 - dy1);
                     }
                     if rol() {
-                        self.draw_i32(x, y);
+                        self.draw_i32(x, y, p);
                     }
                 }
             }
@@ -318,12 +333,12 @@ impl StateData {
     }
 
     // Draws a circle centered at (x, y) with radius r
-    pub fn draw_circle(&mut self, x: u32, y: u32, r: u32) {
-        self.draw_partial_circle(x, y, r, 0xFF);
+    pub fn draw_circle(&mut self, x: u32, y: u32, r: u32, p: Rgba<u8>) {
+        self.draw_partial_circle(x, y, r, 0xFF, p);
     }
 
     // Draws a partial circle centered at (x, y) with radius r, partially masked
-    pub fn draw_partial_circle(&mut self, x: u32, y: u32, r: u32, mask: u8) {
+    pub fn draw_partial_circle(&mut self, x: u32, y: u32, r: u32, mask: u8, p: Rgba<u8>) {
         let x = x as i32;
         let y = y as i32;
         let mut x0 = 0;
@@ -335,28 +350,28 @@ impl StateData {
 
         while y0 >= x0 {
             if mask & 0x01 > 0 {
-                self.draw_i32(x + x0, y - y0);
+                self.draw_i32(x + x0, y - y0, p);
             }
             if mask & 0x02 > 0 {
-                self.draw_i32(x + y0, y - x0);
+                self.draw_i32(x + y0, y - x0, p);
             }
             if mask & 0x04 > 0 {
-                self.draw_i32(x + y0, y + x0);
+                self.draw_i32(x + y0, y + x0, p);
             }
             if mask & 0x08 > 0 {
-                self.draw_i32(x + x0, y + y0);
+                self.draw_i32(x + x0, y + y0, p);
             }
             if mask & 0x10 > 0 {
-                self.draw_i32(x - x0, y + y0);
+                self.draw_i32(x - x0, y + y0, p);
             }
             if mask & 0x20 > 0 {
-                self.draw_i32(x - y0, y + x0);
+                self.draw_i32(x - y0, y + x0, p);
             }
             if mask & 0x40 > 0 {
-                self.draw_i32(x - y0, y - x0);
+                self.draw_i32(x - y0, y - x0, p);
             }
             if mask & 0x80 > 0 {
-                self.draw_i32(x - x0, y - y0);
+                self.draw_i32(x - x0, y - y0, p);
             }
             x0 += 1;
             if d < 0 {
@@ -369,7 +384,7 @@ impl StateData {
     }
 
     // Draws a filled circle centered at (x, y) with radius r
-    pub fn fill_circle(&mut self, x: u32, y: u32, r: u32) {
+    pub fn fill_circle(&mut self, x: u32, y: u32, r: u32, p: Rgba<u8>) {
         let x = x as i32;
         let y = y as i32;
         let mut x0 = 0;
@@ -381,7 +396,7 @@ impl StateData {
 
         let mut draw_hline = |sx, ex, ny| {
             for i in sx..ex {
-                self.draw_i32(i, ny);
+                self.draw_i32(i, ny, p);
             }
         };
 
@@ -400,44 +415,62 @@ impl StateData {
         }
     }
 
-    pub fn draw_elipse(&mut self) {
+    pub fn draw_elipse(&mut self, p: Rgba<u8>) {
         // TODO
     }
 
-    pub fn fill_elipse(&mut self) {
+    pub fn fill_elipse(&mut self, p: Rgba<u8>) {
         // TODO
     }
 
     // Draws a rectangle at (x, y) to (x + w, y + h)
-    pub fn draw_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
-        self.draw_line(x, y, x + w, y); // Top
-        self.draw_line(x + w, y, x + w, y + h); // Right
-        self.draw_line(x + w, y + h, x, y + h); // Bottom
-        self.draw_line(x, y + h, x, y); // Left
+    pub fn draw_rect(&mut self, x: u32, y: u32, w: u32, h: u32, p: Rgba<u8>) {
+        self.draw_line(x, y, x + w, y, p); // Top
+        self.draw_line(x + w, y, x + w, y + h, p); // Right
+        self.draw_line(x + w, y + h, x, y + h, p); // Bottom
+        self.draw_line(x, y + h, x, y, p); // Left
     }
 
     // Draws a filled rectangle at (x, y) to (x + w, y + h)
-    pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
+    pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, p: Rgba<u8>) {
         for x1 in x..x + w {
             for y1 in y..y + h {
-                self.draw(x1, y1);
+                self.draw(x1, y1, p);
             }
         }
     }
 
     // Draws a triangle between points (x1, y1), (x2, y2), and (x3, y3)
     #[allow(clippy::too_many_arguments)]
-    pub fn draw_triangle(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, x3: u32, y3: u32) {
-        self.draw_line(x1, y1, x2, y2);
-        self.draw_line(x2, y2, x3, y3);
-        self.draw_line(x3, y3, x1, y1);
+    pub fn draw_triangle(
+        &mut self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        x3: u32,
+        y3: u32,
+        p: Rgba<u8>,
+    ) {
+        self.draw_line(x1, y1, x2, y2, p);
+        self.draw_line(x2, y2, x3, y3, p);
+        self.draw_line(x3, y3, x1, y1, p);
     }
 
     // Draws a filled triangle between points (x1, y1), (x2, y2), and (x3, y3)
     // https://www.avrfreaks.net/sites/default/files/triangles.c
     // Original Author: Adafruit Industries
     #[allow(clippy::too_many_arguments)]
-    pub fn fill_triangle(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, x3: u32, y3: u32) {
+    pub fn fill_triangle(
+        &mut self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        x3: u32,
+        y3: u32,
+        p: Rgba<u8>,
+    ) {
         let mut x1 = x1 as i32;
         let mut y1 = y1 as i32;
         let mut x2 = x2 as i32;
@@ -472,7 +505,7 @@ impl StateData {
             } else if x3 > b {
                 b = x3;
             }
-            self.draw_line_i32(a, y1, b, y1); // Horizontal line
+            self.draw_line_i32(a, y1, b, y1, p); // Horizontal line
         } else {
             let dx12 = x2 - x1;
             let dy12 = y2 - y1;
@@ -490,7 +523,7 @@ impl StateData {
                 let b = x1 + sb / dy13;
                 sa += dx12;
                 sb += dx13;
-                self.draw_line_i32(a, y, b, y);
+                self.draw_line_i32(a, y, b, y, p);
             }
 
             sa = dx23 * (last - y2);
@@ -500,7 +533,7 @@ impl StateData {
                 let b = x1 + sb / dy13;
                 sa += dx23;
                 sb += dx13;
-                self.draw_line_i32(a, y, b, y);
+                self.draw_line_i32(a, y, b, y, p);
             }
         }
     }
@@ -512,7 +545,7 @@ impl StateData {
                 for oy in 0..sprite.height() {
                     for xs in 0..self.draw_scale {
                         for ys in 0..self.draw_scale {
-                            self.draw_color(
+                            self.draw(
                                 x + (ox * self.draw_scale) + xs,
                                 y + (oy * self.draw_scale) + ys,
                                 sprite.get_pixel(ox, oy),
@@ -524,7 +557,7 @@ impl StateData {
         } else {
             for ox in 0..sprite.width() {
                 for oy in 0..sprite.height() {
-                    self.draw_color(x + ox, y + oy, sprite.get_pixel(ox, oy));
+                    self.draw(x + ox, y + oy, sprite.get_pixel(ox, oy));
                 }
             }
         }
@@ -548,7 +581,7 @@ impl StateData {
                 for oy1 in 0..h {
                     for xs in 0..self.draw_scale {
                         for ys in 0..self.draw_scale {
-                            self.draw_color(
+                            self.draw(
                                 x + (ox1 * self.draw_scale) + xs,
                                 y + (oy1 * self.draw_scale) + ys,
                                 sprite.get_pixel(ox1 + ox, oy1 + oy),
@@ -560,7 +593,7 @@ impl StateData {
         } else {
             for ox1 in 0..w {
                 for oy1 in 0..h {
-                    self.draw_color(x + ox1, y + oy1, sprite.get_pixel(ox1 + ox, oy1 + oy));
+                    self.draw(x + ox1, y + oy1, sprite.get_pixel(ox1 + ox, oy1 + oy));
                 }
             }
         }
@@ -591,7 +624,7 @@ impl StateData {
                             if self.font.get_pixel(ox1 + ox * 8, oy1 + oy * 8)[0] > 0 {
                                 for xs in 0..self.font_scale {
                                     for ys in 0..self.font_scale {
-                                        self.draw_color(
+                                        self.draw(
                                             x + sx + (ox1 * self.font_scale) + xs,
                                             y + sy + (oy1 * self.font_scale) + ys,
                                             p,
@@ -605,7 +638,7 @@ impl StateData {
                     for ox1 in 0..8 {
                         for oy1 in 0..8 {
                             if self.font.get_pixel(ox1 + ox * 8, oy1 + oy * 8)[0] > 0 {
-                                self.draw_color(x + sx + ox1, y + sy + oy1, p);
+                                self.draw(x + sx + ox1, y + sy + oy1, p);
                             }
                         }
                     }
@@ -624,6 +657,7 @@ impl StateData {
         y: f32,
         angle: f32,
         scale: f32,
+        p: Rgba<u8>,
     ) {
         let verts = model_coords.len();
         let mut transformed_coords = vec![(0.0, 0.0); verts];
@@ -663,6 +697,7 @@ impl StateData {
                 transformed_coords[i % verts].1 as u32,
                 transformed_coords[j % verts].0 as u32,
                 transformed_coords[j % verts].1 as u32,
+                p,
             );
         }
     }
@@ -683,5 +718,9 @@ impl StateData {
 
     pub fn copy_texture(&mut self, name: &str, bytes: &[u8]) {
         self.driver.copy_texture(name, bytes);
+    }
+
+    pub fn copy_texture_dst(&mut self, name: &str, dst: Rect, bytes: &[u8]) {
+        self.driver.copy_texture_dst(name, dst, bytes);
     }
 }

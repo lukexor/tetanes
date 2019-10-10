@@ -1,5 +1,5 @@
 use crate::{
-    driver::{self, Driver, DriverOpts},
+    driver::{self, Driver},
     event::PixEvent,
     pixel,
     state::{State, StateData},
@@ -34,7 +34,7 @@ where
             state,
             should_close: false,
             icon: DynamicImage::new_rgba8(32, 32),
-            data: StateData::new(screen_width, screen_height),
+            data: StateData::new(app_name, screen_width, screen_height),
         }
     }
     /// Set a custom window icon
@@ -92,9 +92,7 @@ where
                         PixEvent::MouseMotion(x, y) => self.data.update_mouse(x, y),
                         PixEvent::MouseWheel(delta) => self.data.update_mouse_wheel(delta),
                         PixEvent::Focus(focused) => self.data.set_focused(focused),
-                        PixEvent::Background(bg) => {} // TODO
-                        PixEvent::Resized => {}
-                        PixEvent::None => (), // Do nothing
+                        _ => (), // Skip anything else
                     }
                 }
 
@@ -108,11 +106,11 @@ where
                 }
 
                 // Display updated frame
-                // if self.data.target_dirty {
-                //     let pixels = &self.data.get_draw_target().raw_pixels();
-                //     self.data.copy_texture("screen", pixels);
-                //     self.data.target_dirty = false;
-                // }
+                if self.data.default_target_dirty {
+                    let pixels = &self.data.get_draw_target().raw_pixels();
+                    self.data.copy_texture("screen", pixels);
+                    self.data.default_target_dirty = false;
+                }
                 self.data.driver.present();
 
                 // Update window title and FPS counter

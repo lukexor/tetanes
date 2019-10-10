@@ -19,7 +19,6 @@ pub(super) fn load_driver(opts: DriverOpts) -> sdl2::Sdl2Driver {
 
 // TODO Add DriverErr and DriverResult types
 pub(super) trait Driver {
-    fn setup() -> PixEngineResult<()>;
     fn fullscreen(&mut self, val: bool);
     fn vsync(&mut self, val: bool);
     fn load_icon<P: AsRef<Path>>(&mut self, path: P) -> PixEngineResult<()>;
@@ -31,17 +30,23 @@ pub(super) trait Driver {
     fn create_texture(&mut self, name: &'static str, color_type: ColorType, src: Rect, dst: Rect);
     fn update_texture(&mut self, name: &'static str, src: Rect, dst: Rect);
     fn copy_texture(&mut self, name: &str, bytes: &[u8]);
+    fn copy_texture_dst(&mut self, name: &str, dst: Rect, bytes: &[u8]);
     fn draw_point(&mut self, x: u32, y: u32, p: Rgba<u8>);
     fn enqueue_audio(&mut self, samples: &[f32]);
 }
 
 pub(super) struct DriverOpts {
+    title: String,
     width: u32,
     height: u32,
 }
 
 impl DriverOpts {
-    pub(super) fn new(width: u32, height: u32) -> Self {
-        Self { width, height }
+    pub(super) fn new(title: &str, width: u32, height: u32) -> Self {
+        Self {
+            title: title.to_string(),
+            width,
+            height,
+        }
     }
 }

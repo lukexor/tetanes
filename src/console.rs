@@ -109,7 +109,7 @@ impl Console {
         self.mapper.borrow_mut().logging(val);
     }
 
-    pub fn ppu_debug(&mut self, val: bool) {
+    pub fn debug(&mut self, val: bool) {
         self.cpu.mem.ppu.debug(val);
     }
 

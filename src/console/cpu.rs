@@ -23,7 +23,7 @@ const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable se
 const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
-const PC_LOG_LEN: usize = 8;
+const PC_LOG_LEN: usize = 20;
 
 // Status Registers
 // http://wiki.nesdev.com/w/index.php/Status_flags

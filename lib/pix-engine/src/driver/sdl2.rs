@@ -13,7 +13,7 @@ use sdl2::{
     mouse,
     pixels::{Color, PixelFormatEnum},
     rect::{self, Point},
-    render::{Canvas, CanvasBuilder, Texture, TextureCreator},
+    render::{BlendMode, Canvas, CanvasBuilder, Texture, TextureCreator},
     surface::Surface,
     video::{self, FullscreenType, WindowContext, WindowPos},
     EventPump, GameControllerSubsystem, Sdl,
@@ -30,11 +30,11 @@ pub(crate) struct Sdl2Driver {
     height: u32,
     context: Sdl,
     canvas: Canvas<video::Window>,
-    // controller_sub: GameControllerSubsystem,
     audio_device: AudioQueue<f32>,
     event_pump: EventPump,
-    // gamepad1: Option<GameController>,
-    // gamepad2: Option<GameController>,
+    controller_sub: GameControllerSubsystem,
+    controller1: Option<GameController>,
+    controller2: Option<GameController>,
     texture_creator: TextureCreator<WindowContext>,
     texture_maps: HashMap<&'static str, TextureMap>,
     last_color: Color,
@@ -59,7 +59,7 @@ impl Sdl2Driver {
 
         // Set up the window
         let video_sub = context.video().expect("video sub");
-        let mut window_builder = video_sub.window("PixEngine", opts.width, opts.height);
+        let mut window_builder = video_sub.window(&opts.title, opts.width, opts.height);
         window_builder.position_centered().resizable();
         let window = window_builder.build().expect("window builder");
 
@@ -72,6 +72,7 @@ impl Sdl2Driver {
 
         // Event pump
         let event_pump = context.event_pump().expect("event pump");
+        let controller_sub = context.game_controller().expect("sdl controller_sub");
 
         // Primary screen texture
         let texture_creator = canvas.texture_creator();
@@ -103,13 +104,16 @@ impl Sdl2Driver {
             .expect("audio device");
         audio_device.resume();
         Self {
-            title: String::new(),
+            title: opts.title.to_string(),
             width: opts.width,
             height: opts.height,
             context,
             canvas,
             audio_device,
             event_pump,
+            controller_sub,
+            controller1: None,
+            controller2: None,
             texture_creator,
             texture_maps,
             last_color: Color::RGBA(0, 0, 0, 0),
@@ -118,10 +122,6 @@ impl Sdl2Driver {
 }
 
 impl Driver for Sdl2Driver {
-    fn setup() -> PixEngineResult<()> {
-        Ok(())
-    }
-
     fn fullscreen(&mut self, val: bool) {
         let state = self.canvas.window().fullscreen_state();
         let mouse = self.context.mouse();
@@ -141,7 +141,7 @@ impl Driver for Sdl2Driver {
 
     fn vsync(&mut self, val: bool) {
         let video_sub = self.context.video().expect("video sub");
-        let mut window_builder = video_sub.window("PixEngine", self.width, self.height);
+        let mut window_builder = video_sub.window(&self.title, self.width, self.height);
         window_builder.position_centered().resizable();
         let window = window_builder.build().expect("window builder");
 
@@ -172,7 +172,7 @@ impl Driver for Sdl2Driver {
             texture_maps.insert(
                 *name,
                 TextureMap {
-                    tex: tex,
+                    tex,
                     format: map.format,
                     channels: map.channels,
                     pitch: map.pitch,
@@ -238,6 +238,20 @@ impl Driver for Sdl2Driver {
                     WindowEvent::FocusLost => PixEvent::Focus(false),
                     _ => PixEvent::None, // Ignore others
                 },
+                Event::ControllerDeviceAdded { which: id, .. } => {
+                    match id {
+                        0 => {
+                            self.controller1 =
+                                Some(self.controller_sub.open(id).expect("controller"))
+                        }
+                        1 => {
+                            self.controller2 =
+                                Some(self.controller_sub.open(id).expect("controller"))
+                        }
+                        _ => (),
+                    }
+                    PixEvent::None
+                }
                 Event::KeyDown {
                     keycode: Some(key),
                     repeat,
@@ -252,6 +266,15 @@ impl Driver for Sdl2Driver {
                 Event::MouseButtonUp {
                     mouse_btn, x, y, ..
                 } => self.map_mouse(mouse_btn, x as u32, y as u32, false),
+                Event::ControllerButtonDown { which, button, .. } => {
+                    self.map_button(which, button, true)
+                }
+                Event::ControllerButtonUp { which, button, .. } => {
+                    self.map_button(which, button, false)
+                }
+                Event::ControllerAxisMotion {
+                    which, axis, value, ..
+                } => self.map_axis(which, axis, value),
                 // Only really care about vertical scroll
                 Event::MouseWheel { y, .. } => PixEvent::MouseWheel(y),
                 Event::MouseMotion { x, y, .. } => PixEvent::MouseMotion(x as u32, y as u32),
@@ -276,14 +299,20 @@ impl Driver for Sdl2Driver {
     }
 
     fn create_texture(&mut self, name: &'static str, color_type: ColorType, src: Rect, dst: Rect) {
+        if let Some(tex) = self.texture_maps.get(name) {
+            return;
+        }
         let (format, channels) = match color_type {
             ColorType::RGB => (PixelFormatEnum::RGB24, 3),
             ColorType::RGBA => (PixelFormatEnum::RGBA32, 4),
         };
-        let tex = self
+        let mut tex = self
             .texture_creator
             .create_texture_streaming(format, src.w, src.h)
             .expect("valid texture");
+        if color_type == ColorType::RGBA {
+            tex.set_blend_mode(BlendMode::Blend);
+        }
         let _ = self.texture_maps.insert(
             name,
             TextureMap {
@@ -311,6 +340,17 @@ impl Driver for Sdl2Driver {
             .expect("update texture");
         self.canvas
             .copy(&map.tex, map.src, map.dst)
+            .expect("copy texture");
+    }
+
+    fn copy_texture_dst(&mut self, name: &str, dst: Rect, bytes: &[u8]) {
+        let dst = rect_to_sdl(dst);
+        let map = self.texture_maps.get_mut(name).expect("valid texture");
+        map.tex
+            .update(None, bytes, map.pitch)
+            .expect("update texture");
+        self.canvas
+            .copy(&map.tex, map.src, dst)
             .expect("copy texture");
     }
 

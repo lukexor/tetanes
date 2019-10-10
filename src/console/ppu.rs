@@ -146,6 +146,17 @@ impl Ppu {
         }
     }
 
+    pub fn update_debug(&mut self) {
+        self.nametables = vec![
+            self.load_nametable(NT_START),
+            self.load_nametable(NT_START + 0x0400),
+            self.load_nametable(NT_START + 0x0800),
+            self.load_nametable(NT_START + 0x0C00),
+        ];
+        self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
+        self.palettes[1] = self.load_palette();
+    }
+
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
     pub fn frame(&self) -> Vec<u8> {
         self.frame.pixels.to_vec()
@@ -829,9 +840,8 @@ impl Memory for Ppu {
             0x2001 => self.regs.open_bus, // PPUMASK is write-only
             0x2002 => {
                 let val = self.read_ppustatus(); // PPUSTATUS
-                                                 // self.regs.open_bus |= val & !0x1F;
-                                                 // (val & !0x1F) | (self.regs.open_bus & 0x1F)
-                val
+                self.regs.open_bus |= val & !0x1F;
+                (val & !0x1F) | (self.regs.open_bus & 0x1F)
             }
             0x2003 => self.regs.open_bus, // OAMADDR is write-only
             0x2004 => {

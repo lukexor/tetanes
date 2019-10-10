@@ -353,7 +353,6 @@ impl Savable for Apu {
         self.irq_enabled.save(fh)?;
         self.open_bus.save(fh)?;
         self.cycle.save(fh)?;
-        self.samples.save(fh)?;
         self.frame.save(fh)?;
         self.pulse1.save(fh)?;
         self.pulse2.save(fh)?;
@@ -366,7 +365,6 @@ impl Savable for Apu {
         self.irq_enabled.load(fh)?;
         self.open_bus.load(fh)?;
         self.cycle.load(fh)?;
-        self.samples.load(fh)?;
         self.frame.load(fh)?;
         self.pulse1.load(fh)?;
         self.pulse2.load(fh)?;

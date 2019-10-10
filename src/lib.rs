@@ -22,7 +22,7 @@ pub mod input;
 pub mod mapper;
 pub mod memory;
 pub mod serialization;
-// pub mod ui;
+pub mod ui;
 pub mod util;
 
 pub type NesResult<T> = std::result::Result<T, NesErr>;

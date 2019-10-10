@@ -140,20 +140,22 @@ There are also some emulator actions:
 | Action                            | Keyboard         | Controller         |
 | --------------------------------- | ---------------- | ------------------ |
 | Open/Run ROM<sup>*</sup>          | Ctrl-O           |                    |
-| Pause / Open Menu                 | Escape           | Right Stick Button |
+| Pause / Open Menu                 | Escape           | Guide Button       |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
 | Power Cycle                       | Ctrl-P           |                    |
-| Increase Speed 25%                | Ctrl-=           | Right Trigger      |
-| Decrease Speed 25%                | Ctrl--           | Left Trigger       |
+| Increase Speed 25%                | Ctrl-=           | Right Shoulder     |
+| Decrease Speed 25%                | Ctrl--           | Left Shoulder      |
 | Toggle Fast-Forward               | Space            |                    |
 | Set State Slot                    | Ctrl-(1-4)       |                    |
-| Save State                        | Ctrl-S           | Left Shoulder      |
-| Load State                        | Ctrl-L           | Right Shoulder     |
+| Save State                        | Ctrl-S           |                    |
+| Load State                        | Ctrl-L           |                    |
+| Rewind                            | Comma            | Back               |
 | Toggle Music/Sound                | Ctrl-M           |                    |
 | Toggle Recording<sup>*</sup>      | Ctrl-V           |                    |
 | Toggle Debugger                   | Ctrl-D           |                    |
 | Toggle Fullscreen                 | Ctrl-Enter       |                    |
+| Toggle Vsync                      | Shift-V          |                    |
 | Take Screenshot                   | F10              |                    |
 | Cycle Log Level<sup>*</sup>       | F9               |                    |
 

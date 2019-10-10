@@ -1,8 +1,9 @@
 use crate::{
     driver::{sdl2::Sdl2Driver, Driver, DriverOpts},
-    event::{Key, Mouse, PixEvent},
+    event::{Axis, Button, Key, Mouse, PixEvent},
 };
 use sdl2::{
+    controller,
     event::{Event, WindowEvent},
     keyboard::Keycode,
     mouse::MouseButton,
@@ -129,6 +130,44 @@ impl Sdl2Driver {
             _ => Key::Unknown,
         };
         PixEvent::KeyPress(key, pressed, repeat)
+    }
+
+    pub(super) fn map_button(
+        &self,
+        which: i32,
+        btn: controller::Button,
+        pressed: bool,
+    ) -> PixEvent {
+        let btn = match btn {
+            controller::Button::A => Button::A, // TODO make these configurable
+            controller::Button::B => Button::B,
+            controller::Button::X => Button::X,
+            controller::Button::Y => Button::Y,
+            controller::Button::Back => Button::Back,
+            controller::Button::Start => Button::Start,
+            controller::Button::Guide => Button::Guide,
+            controller::Button::LeftStick => Button::LeftStick,
+            controller::Button::RightStick => Button::RightStick,
+            controller::Button::LeftShoulder => Button::LeftShoulder,
+            controller::Button::RightShoulder => Button::RightShoulder,
+            controller::Button::DPadUp => Button::DPadUp,
+            controller::Button::DPadDown => Button::DPadDown,
+            controller::Button::DPadLeft => Button::DPadLeft,
+            controller::Button::DPadRight => Button::DPadRight,
+        };
+        PixEvent::GamepadBtn(which, btn, pressed)
+    }
+
+    pub(super) fn map_axis(&self, which: i32, axis: controller::Axis, value: i16) -> PixEvent {
+        let axis = match axis {
+            controller::Axis::LeftX => Axis::LeftX,
+            controller::Axis::LeftY => Axis::LeftY,
+            controller::Axis::RightX => Axis::RightX,
+            controller::Axis::RightY => Axis::RightY,
+            controller::Axis::TriggerLeft => Axis::TriggerLeft,
+            controller::Axis::TriggerRight => Axis::TriggerRight,
+        };
+        PixEvent::GamepadAxis(which, axis, value)
     }
 
     pub(super) fn map_mouse(&self, btn: MouseButton, x: u32, y: u32, pressed: bool) -> PixEvent {

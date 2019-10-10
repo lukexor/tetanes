@@ -11,8 +11,7 @@ mod engine;
 mod state;
 
 pub use engine::PixEngine;
-pub use image::DynamicImage;
-pub use image::{Rgb, Rgba};
+pub use image::{DynamicImage, GenericImage, GenericImageView, Rgb, Rgba};
 pub use pixel::Sprite;
 pub use state::{draw, transform, AlphaMode, State, StateData};
 

@@ -134,7 +134,7 @@ impl App {
 }
 
 impl State for App {
-    fn on_start(&mut self, data: &mut StateData) -> bool {
+    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<()> {
         data.enable_coord_wrapping(true);
         self.ship_model = vec![(0.0, -5.0), (-2.5, 2.5), (2.5, 2.5)];
         for i in 0..20 {
@@ -145,9 +145,10 @@ impl State for App {
             self.asteroid_model.push((x, y));
         }
         self.spawn_new_ship(data);
-        true
+        Ok(())
     }
-    fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> bool {
+
+    fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> PixEngineResult<()> {
         let elapsed = elapsed.as_secs_f32();
 
         if data.get_key(Key::Escape).pressed {
@@ -157,7 +158,7 @@ impl State for App {
             self.reset(data);
         }
         if self.paused {
-            return true;
+            return Ok(());
         }
 
         data.fill(pixel::BLACK);
@@ -171,30 +172,40 @@ impl State for App {
                 data.draw_string(
                     data.screen_width() / 2 - 108,
                     data.screen_height() / 3 - 24,
-                    "GAME OVER".to_string(),
+                    "GAME OVER",
+                    pixel::WHITE,
                 );
                 data.set_font_scale(1);
                 data.draw_string(
                     data.screen_width() / 2 - 88,
                     data.screen_height() / 3 + 16,
-                    "PRESS SPACE TO RESTART".to_string(),
+                    "PRESS SPACE TO RESTART",
+                    pixel::WHITE,
                 );
                 data.set_font_scale(2);
                 if data.get_key(Key::Space).pressed {
                     self.reset(data);
                 }
             }
-            return true;
+            return Ok(());
         }
 
         // Draw Level, Lives, & Score
         data.draw_string(
             4,
             4,
-            format!("LEVEL: {}  SCORE: {}", self.level, self.score),
+            &format!("LEVEL: {}  SCORE: {}", self.level, self.score),
+            pixel::WHITE,
         );
         for i in 0..self.lives {
-            data.draw_wireframe(&self.ship_model, 12.0 + (i as f32 * 14.0), 36.0, 0.0, 2.0);
+            data.draw_wireframe(
+                &self.ship_model,
+                12.0 + (i as f32 * 14.0),
+                36.0,
+                0.0,
+                2.0,
+                pixel::WHITE,
+            );
         }
 
         // Steer
@@ -239,9 +250,14 @@ impl State for App {
             a.y += a.dy * elapsed;
             a.angle += 0.5 * elapsed; // Give some twirl
             data.wrap_coords(a.x, a.y, &mut a.x, &mut a.y);
-            data.set_draw_color(pixel::YELLOW);
-            data.draw_wireframe(&self.asteroid_model, a.x, a.y, a.angle, a.size as f32);
-            data.set_draw_color(pixel::WHITE);
+            data.draw_wireframe(
+                &self.asteroid_model,
+                a.x,
+                a.y,
+                a.angle,
+                a.size as f32,
+                pixel::YELLOW,
+            );
         }
 
         let mut new_asteroids = Vec::new();
@@ -297,7 +313,7 @@ impl State for App {
 
         // Draw bullets
         for b in self.bullets.iter() {
-            data.fill_circle(b.x as u32, b.y as u32, 1);
+            data.fill_circle(b.x as u32, b.y as u32, 1, pixel::WHITE);
         }
 
         // Draw ship
@@ -307,6 +323,7 @@ impl State for App {
             self.ship.y,
             self.ship.angle,
             SHIP_SCALE,
+            pixel::WHITE,
         );
 
         // Win level
@@ -320,16 +337,13 @@ impl State for App {
             }
         }
 
-        true
-    }
-    fn on_stop(&mut self, _data: &mut StateData) -> bool {
-        true
+        Ok(())
     }
 }
 
 pub fn main() {
     let app = App::new();
-    let mut engine = PixEngine::new("Asteroids", app, 800, 600, false, false);
+    let mut engine = PixEngine::new("Asteroids", app, 800, 600);
     if let Err(e) = engine.run() {
         eprintln!("Encountered a PixEngineErr: {}", e.to_string());
     }

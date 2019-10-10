@@ -4,6 +4,8 @@ pub enum PixEvent {
     None,
     Quit,
     AppTerminating,
+    GamepadBtn(i32, Button, bool),     // Id, Button, pressed
+    GamepadAxis(i32, Axis, i16),       // Id, Axis, value
     KeyPress(Key, bool, bool),         // Key, pressed, repeat
     MousePress(Mouse, u32, u32, bool), // Mouse, x, y, pressed
     MouseWheel(i32),                   // Wheel delta
@@ -62,6 +64,20 @@ pub enum Key {
     Less, Comma, Greater, Question, Slash,
     LShift, RShift, Space, Ctrl, Alt, Meta,
     Unknown,
+}
+
+/// Controller buttons
+#[rustfmt::skip]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Button {
+    A, B, X, Y, Back, Start, Guide, DPadUp, DPadDown, DPadLeft, DPadRight,
+    LeftStick, RightStick, LeftShoulder, RightShoulder,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Axis {
+    LeftX, RightX, LeftY, RightY, TriggerLeft, TriggerRight,
 }
 
 impl Default for Input {

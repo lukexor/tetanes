@@ -51,55 +51,47 @@ impl App {
     fn create_block(p: Rgba<u8>, data: &mut StateData) -> Sprite {
         let block = Sprite::new_rgba8(BLOCK_SIZE, BLOCK_SIZE);
         data.set_draw_target(block);
-        let c = data.get_draw_color();
-        data.set_draw_color(p);
-        data.fill_rect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+        App::draw_block(0, 0, p, data);
+        data.take_draw_target().expect("valid draw target")
+    }
+
+    fn draw_block(x: u32, y: u32, p: Rgba<u8>, data: &mut StateData) {
+        data.fill_rect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, p);
         let highlight = Rgba([
             p[0].saturating_mul(2),
             p[1].saturating_mul(2),
             p[2].saturating_mul(2),
             p[3],
         ]);
-
-        data.set_draw_color(highlight);
-        data.fill_rect(0, 0, BEVEL_SIZE, BLOCK_SIZE); // Left bevel
-        data.fill_rect(0, 0, BLOCK_SIZE, BEVEL_SIZE); // Top bevel
-
+        data.fill_rect(
+            x * BLOCK_SIZE,
+            y * BLOCK_SIZE,
+            BEVEL_SIZE,
+            BLOCK_SIZE,
+            highlight,
+        ); // Left bevel
+        data.fill_rect(
+            x * BLOCK_SIZE,
+            y * BLOCK_SIZE,
+            BLOCK_SIZE,
+            BEVEL_SIZE,
+            highlight,
+        ); // Top bevel
         let shadow = Rgba([p[0] / 4, p[1] / 4, p[2] / 4, p[3]]);
-        data.set_draw_color(shadow);
-        data.fill_rect(0 + BLOCK_SIZE - BEVEL_SIZE, 0, BEVEL_SIZE, BLOCK_SIZE); // Right bevel
-        data.fill_rect(0, 0 + BLOCK_SIZE - BEVEL_SIZE, BLOCK_SIZE, BEVEL_SIZE); // Bottom bevel
-        data.set_draw_color(c);
-        data.take_draw_target().expect("valid draw target")
-    }
-
-    fn draw_block(x: u32, y: u32, data: &mut StateData) {
-        data.fill_rect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-        let c = data.get_draw_color();
-        let highlight = Rgba([
-            c[0].saturating_mul(2),
-            c[1].saturating_mul(2),
-            c[2].saturating_mul(2),
-            c[3],
-        ]);
-        data.set_draw_color(highlight);
-        data.fill_rect(x * BLOCK_SIZE, y * BLOCK_SIZE, BEVEL_SIZE, BLOCK_SIZE); // Left bevel
-        data.fill_rect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BEVEL_SIZE); // Top bevel
-        let shadow = Rgba([c[0] / 4, c[1] / 4, c[2] / 4, c[3]]);
-        data.set_draw_color(shadow);
         data.fill_rect(
             x * BLOCK_SIZE + BLOCK_SIZE - BEVEL_SIZE,
             y * BLOCK_SIZE,
             BEVEL_SIZE,
             BLOCK_SIZE,
+            shadow,
         ); // Right bevel
         data.fill_rect(
             x * BLOCK_SIZE,
             y * BLOCK_SIZE + BLOCK_SIZE - BEVEL_SIZE,
             BLOCK_SIZE,
             BEVEL_SIZE,
+            shadow,
         ); // Bottom bevel
-        data.set_draw_color(c);
     }
 
     // TODO Move all tetros to be matrices with 1s and 0s
@@ -115,17 +107,15 @@ impl App {
         let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
-        data.set_draw_color(pixel::CYAN);
         if rotation % 2 == 0 {
             for y in 0..4 {
-                App::draw_block(0, y, data);
+                App::draw_block(0, y, pixel::CYAN, data);
             }
         } else {
             for x in 0..4 {
-                App::draw_block(x, 1, data);
+                App::draw_block(x, 1, pixel::CYAN, data);
             }
         }
-        data.reset_draw_color();
         data.take_draw_target().expect("valid draw target")
     }
     // ##
@@ -134,13 +124,11 @@ impl App {
         let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
-        data.set_draw_color(pixel::YELLOW);
         for x in 0..2 {
             for y in 0..2 {
-                App::draw_block(x, y, data);
+                App::draw_block(x, y, pixel::YELLOW, data);
             }
         }
-        data.reset_draw_color();
         data.take_draw_target().expect("valid draw target")
     }
     //  #   #         #
@@ -150,12 +138,10 @@ impl App {
         let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
-        data.set_draw_color(pixel::MAGENTA);
-        App::draw_block(1, 0, data);
+        App::draw_block(1, 0, pixel::MAGENTA, data);
         for x in 0..3 {
-            App::draw_block(x, 1, data);
+            App::draw_block(x, 1, pixel::MAGENTA, data);
         }
-        data.reset_draw_color();
         data.take_draw_target().expect("valid draw target")
     }
     //  #  #    ##
@@ -165,12 +151,10 @@ impl App {
         let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
-        data.set_draw_color(pixel::BLUE);
-        App::draw_block(0, 2, data);
+        App::draw_block(0, 2, pixel::BLUE, data);
         for y in 0..3 {
-            App::draw_block(1, y, data);
+            App::draw_block(1, y, pixel::BLUE, data);
         }
-        data.reset_draw_color();
         data.take_draw_target().expect("valid draw target")
     }
     // #        ##    #
@@ -180,12 +164,10 @@ impl App {
         let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
-        data.set_draw_color(pixel::ORANGE);
-        App::draw_block(1, 2, data);
+        App::draw_block(1, 2, pixel::ORANGE, data);
         for y in 0..3 {
-            App::draw_block(0, y, data);
+            App::draw_block(0, y, pixel::ORANGE, data);
         }
-        data.reset_draw_color();
         data.take_draw_target().expect("valid draw target")
     }
     //      #
@@ -195,12 +177,10 @@ impl App {
         let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
-        data.set_draw_color(pixel::GREEN);
-        App::draw_block(1, 0, data);
-        App::draw_block(2, 0, data);
-        App::draw_block(0, 1, data);
-        App::draw_block(1, 1, data);
-        data.reset_draw_color();
+        App::draw_block(1, 0, pixel::GREEN, data);
+        App::draw_block(2, 0, pixel::GREEN, data);
+        App::draw_block(0, 1, pixel::GREEN, data);
+        App::draw_block(1, 1, pixel::GREEN, data);
         data.take_draw_target().expect("valid draw target")
     }
     //       #
@@ -210,12 +190,10 @@ impl App {
         let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
-        data.set_draw_color(pixel::RED);
-        App::draw_block(0, 0, data);
-        App::draw_block(1, 0, data);
-        App::draw_block(1, 1, data);
-        App::draw_block(2, 1, data);
-        data.reset_draw_color();
+        App::draw_block(0, 0, pixel::RED, data);
+        App::draw_block(1, 0, pixel::RED, data);
+        App::draw_block(1, 1, pixel::RED, data);
+        App::draw_block(2, 1, pixel::RED, data);
         data.take_draw_target().expect("valid draw target")
     }
 
@@ -286,21 +264,19 @@ impl App {
         }
 
         // Draw scoreboard information
-        data.set_draw_color(pixel::BLACK);
-        data.fill_rect(504, 48, 168, 408);
-        data.set_draw_color(pixel::WHITE);
-        data.draw_string(534, 100, "SCORE".into());
-        data.draw_string(534, 132, format!("{}", self.score));
-        data.draw_string(534, 200, "LEVEL".into());
-        data.draw_string(534, 232, format!("{}", self.level));
-        data.draw_string(534, 300, "LINES".into());
-        data.draw_string(534, 332, format!("{}", self.lines));
+        data.fill_rect(504, 48, 168, 408, pixel::BLACK);
+        data.draw_string(534, 100, "SCORE", pixel::WHITE);
+        data.draw_string(534, 132, &format!("{}", self.score), pixel::WHITE);
+        data.draw_string(534, 200, "LEVEL", pixel::WHITE);
+        data.draw_string(534, 232, &format!("{}", self.level), pixel::WHITE);
+        data.draw_string(534, 300, "LINES", pixel::WHITE);
+        data.draw_string(534, 332, &format!("{}", self.lines), pixel::WHITE);
         data.take_draw_target().expect("valid draw target")
     }
 }
 
 impl State for App {
-    fn on_start(&mut self, data: &mut StateData) -> bool {
+    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<()> {
         self.tetrominos.push(App::tetro_i(0, data));
         self.tetrominos.push(App::tetro_o(data));
         self.tetrominos.push(App::tetro_t(data));
@@ -315,19 +291,18 @@ impl State for App {
         self.current_tetro = Some(self.tetrominos[rand::random::<usize>() % 7].clone());
         data.clear();
         data.draw_sprite(0, 0, &self.field);
-        true
+        Ok(())
     }
-    fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> bool {
+    fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> PixEngineResult<()> {
         let elapsed = elapsed.as_secs_f32();
 
-        data.set_draw_color(pixel::BLACK);
         data.fill_rect(
             FIELD_LEFT,
             0,
             BLOCK_SIZE * FIELD_WIDTH,
             BLOCK_SIZE * FIELD_HEIGHT,
+            pixel::BLACK,
         );
-        data.reset_draw_color();
 
         if data.get_key(Key::Escape).pressed {
             self.paused = !self.paused;
@@ -336,7 +311,7 @@ impl State for App {
             // TODO restart game
         }
         if self.paused {
-            return true;
+            return Ok(());
         }
 
         if data.get_key(Key::Z).held {
@@ -363,10 +338,7 @@ impl State for App {
             self.current_tetro.as_ref().unwrap(),
         );
         data.set_alpha_mode(AlphaMode::Normal);
-        true
-    }
-    fn on_stop(&mut self, _data: &mut StateData) -> bool {
-        true
+        Ok(())
     }
 }
 
@@ -374,7 +346,7 @@ pub fn main() {
     let app = App::new();
     let w = app.width;
     let h = app.height;
-    let mut engine = PixEngine::new("Tetris", app, w, h, false, false);
+    let mut engine = PixEngine::new("Tetris", app, w, h);
     if let Err(e) = engine.run() {
         eprintln!("Encountered a PixEngineErr: {}", e.to_string());
     }

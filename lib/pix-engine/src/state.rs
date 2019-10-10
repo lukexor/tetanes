@@ -35,7 +35,7 @@ pub enum AlphaMode {
 /// Manages all engine state including graphics and inputs
 // TODO add stroke for line drawing
 pub struct StateData {
-    pub(super) target_dirty: bool,
+    pub(super) default_target_dirty: bool,
     #[cfg(feature = "wasm-driver")]
     pub(super) driver: driver::wasm::WasmDriver,
     #[cfg(not(feature = "wasm-driver"))]
@@ -146,12 +146,12 @@ impl StateData {
 }
 
 impl StateData {
-    pub(super) fn new(screen_width: u32, screen_height: u32) -> Self {
+    pub(super) fn new(app_name: &str, screen_width: u32, screen_height: u32) -> Self {
         let font = StateData::construct_font();
         // Initialize backend driver library
-        let opts = DriverOpts::new(screen_width, screen_height);
+        let opts = DriverOpts::new(app_name, screen_width, screen_height);
         let mut state_data = Self {
-            target_dirty: false,
+            default_target_dirty: false,
             driver: driver::load_driver(opts),
             events: Vec::new(),
             title: String::new(),
