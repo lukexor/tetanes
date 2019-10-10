@@ -289,10 +289,14 @@ impl Mapper for Txrom {
         self.logging = logging;
     }
     fn use_ciram(&self, _addr: u16) -> bool {
-        true
+        Mirroring::FourScreen != self.mirroring
     }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
+    fn nametable_addr(&self, addr: u16) -> u16 {
+        if let Mirroring::FourScreen = self.mirroring {
+            addr
+        } else {
+            0
+        }
     }
 }
 
@@ -311,7 +315,7 @@ impl Memory for Txrom {
                 let idx = self.chr_bank_idx[bank];
                 self.chr_banks[idx].peek(addr)
             }
-            0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
+            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
                 self.four_screen_ram.peek(addr - 0x2000)
             }
             0x6000..=0x7FFF => self.prg_ram.peek(addr - 0x6000),
@@ -340,7 +344,7 @@ impl Memory for Txrom {
                     self.chr_banks[idx].write(addr, val);
                 }
             }
-            0x2000..=0x2FFF if self.mirroring == Mirroring::FourScreen => {
+            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
                 self.four_screen_ram.write(addr - 0x2000, val)
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
