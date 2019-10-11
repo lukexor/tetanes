@@ -18,6 +18,7 @@ pub struct UiSettings {
     pub save_slot: u8,
     pub scale: u32,
     pub speed: f64,
+    pub genie_codes: Vec<String>,
 }
 
 impl UiSettings {
@@ -34,6 +35,7 @@ impl UiSettings {
             save_slot: 1,
             scale: 3,
             speed: 1.0,
+            genie_codes: Vec::new(),
         }
     }
 }

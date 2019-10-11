@@ -5,8 +5,9 @@ use crate::console::ppu::Ppu;
 use crate::input::InputRef;
 use crate::mapper::{self, MapperRef};
 use crate::serialization::Savable;
-use crate::NesResult;
+use crate::{nes_err, NesResult};
 use rand::Rng;
+use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -290,6 +291,12 @@ where
     }
 }
 
+struct GenieCode {
+    code: String,
+    data: u8,
+    compare: Option<u8>,
+}
+
 /// CPU Memory Map
 ///
 /// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
@@ -300,10 +307,30 @@ pub struct MemoryMap {
     pub apu: Apu,
     pub mapper: MapperRef,
     input: InputRef,
+    genie_codes: HashMap<u16, GenieCode>,
+    genie_map: HashMap<char, u8>,
 }
 
 impl MemoryMap {
     pub fn init(input: InputRef) -> Self {
+        let mut genie_map = HashMap::new();
+        genie_map.insert('A', 0x0);
+        genie_map.insert('P', 0x1);
+        genie_map.insert('Z', 0x2);
+        genie_map.insert('L', 0x3);
+        genie_map.insert('G', 0x4);
+        genie_map.insert('I', 0x5);
+        genie_map.insert('T', 0x6);
+        genie_map.insert('Y', 0x7);
+        genie_map.insert('E', 0x8);
+        genie_map.insert('O', 0x9);
+        genie_map.insert('X', 0xA);
+        genie_map.insert('U', 0xB);
+        genie_map.insert('K', 0xC);
+        genie_map.insert('S', 0xD);
+        genie_map.insert('V', 0xE);
+        genie_map.insert('N', 0xF);
+
         Self {
             wram: Ram::init(WRAM_SIZE),
             open_bus: 0u8,
@@ -311,6 +338,8 @@ impl MemoryMap {
             apu: Apu::new(),
             input,
             mapper: mapper::null(),
+            genie_codes: HashMap::new(),
+            genie_map,
         }
     }
 
@@ -318,6 +347,59 @@ impl MemoryMap {
         self.mapper = mapper.clone();
         self.ppu.load_mapper(mapper.clone());
         self.apu.load_mapper(mapper);
+    }
+
+    pub fn add_genie_code(&mut self, code: &str) -> NesResult<()> {
+        if code.len() != 6 && code.len() != 8 {
+            return nes_err!("invalid game genie code length");
+        }
+        let mut hex: Vec<u8> = Vec::with_capacity(code.len());
+        for s in code.chars() {
+            if let Some(h) = self.genie_map.get(&s) {
+                hex.push(*h);
+            } else {
+                return nes_err!("invalid game genie code");
+            }
+        }
+        let addr = 0x8000
+            + (((u16::from(hex[3]) & 7) << 12)
+                | ((u16::from(hex[5]) & 7) << 8)
+                | ((u16::from(hex[4]) & 8) << 8)
+                | ((u16::from(hex[2]) & 7) << 4)
+                | ((u16::from(hex[1]) & 8) << 4)
+                | (u16::from(hex[4]) & 7)
+                | (u16::from(hex[3]) & 8));
+        let data = if hex.len() == 6 {
+            ((hex[1] & 7) << 4) | ((hex[0] & 8) << 4) | (hex[0] & 7) | (hex[5] & 8)
+        } else {
+            ((hex[1] & 7) << 4) | ((hex[0] & 8) << 4) | (hex[0] & 7) | (hex[7] & 8)
+        };
+        let compare = if hex.len() == 8 {
+            Some(((hex[7] & 7) << 4) | ((hex[6] & 8) << 4) | (hex[6] & 7) | (hex[5] & 8))
+        } else {
+            None
+        };
+        self.genie_codes.insert(
+            addr,
+            GenieCode {
+                code: code.to_string(),
+                data,
+                compare,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn remove_genie_code(&mut self, code: &str) {
+        self.genie_codes.retain(|_, gc| gc.code != code);
+    }
+
+    fn genie_code(&self, addr: u16) -> Option<&GenieCode> {
+        if self.genie_codes.is_empty() {
+            None
+        } else {
+            self.genie_codes.get(&addr)
+        }
     }
 }
 
@@ -327,7 +409,22 @@ impl Memory for MemoryMap {
         let val = match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => self.mapper.borrow_mut().read(addr),
+            0x4020..=0xFFFF => {
+                if let Some(gc) = self.genie_code(addr) {
+                    if let Some(compare) = gc.compare {
+                        let val = self.mapper.borrow_mut().read(addr);
+                        if val == compare {
+                            gc.data
+                        } else {
+                            val
+                        }
+                    } else {
+                        gc.data
+                    }
+                } else {
+                    self.mapper.borrow_mut().read(addr)
+                }
+            }
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
             0x4016..=0x4017 => self.input.borrow_mut().read(addr),
             0x2000..=0x3FFF => self.ppu.read(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
@@ -343,7 +440,22 @@ impl Memory for MemoryMap {
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => self.mapper.borrow().peek(addr),
+            0x4020..=0xFFFF => {
+                if let Some(gc) = self.genie_code(addr) {
+                    if let Some(compare) = gc.compare {
+                        let val = self.mapper.borrow_mut().read(addr);
+                        if val == compare {
+                            gc.data
+                        } else {
+                            val
+                        }
+                    } else {
+                        gc.data
+                    }
+                } else {
+                    self.mapper.borrow_mut().read(addr)
+                }
+            }
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
             0x4016..=0x4017 => self.input.borrow().peek(addr),
             0x2000..=0x3FFF => self.ppu.peek(addr & 0x2007), // 0x2008..=0x3FFF are mirrored

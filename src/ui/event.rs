@@ -146,25 +146,23 @@ impl Ui {
                         Key::S => {
                             if self.settings.save_enabled {
                                 self.console.save_state(self.settings.save_slot)?;
-                                self.messages.push(Message::new(format!(
+                                self.add_message(&format!(
                                     "Saved Slot {}",
                                     self.settings.save_slot
-                                )));
+                                ));
                             } else {
-                                self.messages
-                                    .push(Message::new("Saved States Disabled".into()));
+                                self.add_message("Saved States Disabled");
                             }
                         }
                         Key::L => {
                             if self.settings.save_enabled {
                                 self.console.load_state(self.settings.save_slot)?;
-                                self.messages.push(Message::new(format!(
+                                self.add_message(&format!(
                                     "Loaded Slot {}",
                                     self.settings.save_slot
-                                )));
+                                ));
                             } else {
-                                self.messages
-                                    .push(Message::new("Saved States Disabled".into()));
+                                self.add_message("Saved States Disabled");
                             }
                         }
                         Key::Num1 => self.settings.save_slot = 1,

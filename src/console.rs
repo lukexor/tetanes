@@ -102,6 +102,11 @@ impl Console {
         self.cpu.power_cycle();
     }
 
+    /// Add Game Genie Codes
+    pub fn add_genie_code(&mut self, val: &str) -> NesResult<()> {
+        self.cpu.mem.add_genie_code(val)
+    }
+
     /// Enable/Disable CPU logging
     pub fn logging(&mut self, val: bool) {
         self.cpu.logging(val);

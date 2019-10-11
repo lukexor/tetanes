@@ -29,6 +29,7 @@ fn main() {
         save_slot: opt.save_slot,
         scale: opt.scale,
         speed: opt.speed,
+        genie_codes: opt.genie_codes,
     };
     let ui = Ui::with_settings(settings);
     if let Err(e) = ui.run() {
@@ -90,4 +91,6 @@ struct Opt {
     scale: u32,
     #[structopt(long = "speed", default_value = "1.0", help = "Emulation speed")]
     speed: f64,
+    #[structopt(long = "genie_codes", help = "List of Game Genie Codes")]
+    genie_codes: Vec<String>,
 }

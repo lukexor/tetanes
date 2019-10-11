@@ -338,6 +338,7 @@ impl StateData {
     }
 
     // Draws a partial circle centered at (x, y) with radius r, partially masked
+    #[allow(clippy::many_single_char_names)]
     pub fn draw_partial_circle(&mut self, x: u32, y: u32, r: u32, mask: u8, p: Rgba<u8>) {
         let x = x as i32;
         let y = y as i32;
@@ -384,6 +385,7 @@ impl StateData {
     }
 
     // Draws a filled circle centered at (x, y) with radius r
+    #[allow(clippy::many_single_char_names)]
     pub fn fill_circle(&mut self, x: u32, y: u32, r: u32, p: Rgba<u8>) {
         let x = x as i32;
         let y = y as i32;
@@ -424,6 +426,7 @@ impl StateData {
     }
 
     // Draws a rectangle at (x, y) to (x + w, y + h)
+    #[allow(clippy::many_single_char_names)]
     pub fn draw_rect(&mut self, x: u32, y: u32, w: u32, h: u32, p: Rgba<u8>) {
         self.draw_line(x, y, x + w, y, p); // Top
         self.draw_line(x + w, y, x + w, y + h, p); // Right
@@ -432,6 +435,7 @@ impl StateData {
     }
 
     // Draws a filled rectangle at (x, y) to (x + w, y + h)
+    #[allow(clippy::many_single_char_names)]
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, p: Rgba<u8>) {
         for x1 in x..x + w {
             for y1 in y..y + h {

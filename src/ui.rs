@@ -112,9 +112,13 @@ impl Ui {
         }
     }
 
+    fn add_message(&mut self, text: &str) {
+        self.messages.push(Message::new(text.to_string()));
+    }
+
     fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) {
         self.messages.retain(|msg| msg.timer > 0.0);
-        if self.messages.len() == 0 {
+        if self.messages.is_empty() {
             return;
         }
         let width = WINDOW_WIDTH * self.settings.scale - 20;
@@ -150,6 +154,15 @@ impl State for Ui {
             self.console.power_on()?;
             if self.settings.save_enabled {
                 self.console.load_state(self.settings.save_slot)?;
+            }
+            let mut errors = Vec::new();
+            for code in self.settings.genie_codes.iter() {
+                if let Err(e) = self.console.add_genie_code(code) {
+                    errors.push(e);
+                }
+            }
+            for err in errors.iter() {
+                self.add_message(&err.to_string());
             }
             self.paused = false;
             self.update_title(data);
@@ -201,7 +214,7 @@ impl State for Ui {
         // Save rewind snapshot
         self.rewind_timer -= elapsed;
         if self.rewind_timer <= 0.0 {
-            self.rewind_save = self.rewind_save % REWIND_SIZE;
+            self.rewind_save %= REWIND_SIZE;
             if self.rewind_save < 5 {
                 self.rewind_save = 5;
             }
