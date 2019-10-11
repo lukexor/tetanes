@@ -134,8 +134,8 @@ impl Console {
     }
 
     /// Returns palette graphics
-    pub fn palettes(&self) -> &Vec<Vec<u8>> {
-        self.cpu.mem.ppu.palettes()
+    pub fn palette(&self) -> &Vec<u8> {
+        self.cpu.mem.ppu.palette()
     }
 
     /// Returns a frame worth of audio samples from the APU

@@ -32,12 +32,12 @@ pub struct NesErr {
 }
 
 impl NesErr {
-    fn new(desc: &str) -> Self {
+    fn new<D: ToString>(desc: D) -> Self {
         Self {
             description: desc.to_string(),
         }
     }
-    fn err<T>(desc: &str) -> NesResult<T> {
+    fn err<T, D: ToString>(desc: D) -> NesResult<T> {
         Err(Self {
             description: desc.to_string(),
         })
@@ -91,6 +91,12 @@ impl From<std::io::Error> for NesErr {
 
 impl From<NesErr> for PixEngineErr {
     fn from(err: NesErr) -> Self {
-        PixEngineErr::new(&err.to_string())
+        Self::new(&err.to_string())
+    }
+}
+
+impl From<PixEngineErr> for NesErr {
+    fn from(err: PixEngineErr) -> Self {
+        Self::new(&err.to_string())
     }
 }

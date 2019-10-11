@@ -162,7 +162,6 @@ impl State for App {
         }
 
         data.fill(pixel::BLACK);
-        // data.clear();
 
         if self.exploded {
             if self.lives > 0 {
@@ -343,7 +342,7 @@ impl State for App {
 
 pub fn main() {
     let app = App::new();
-    let mut engine = PixEngine::new("Asteroids", app, 800, 600);
+    let mut engine = PixEngine::new("Asteroids", app, 800, 600, false).unwrap();
     if let Err(e) = engine.run() {
         eprintln!("Encountered a PixEngineErr: {}", e.to_string());
     }

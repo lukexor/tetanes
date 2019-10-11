@@ -3,7 +3,7 @@ use crate::{
     util, NesResult,
 };
 use pix_engine::{
-    event::{Axis, Button, Key, Mouse, PixEvent},
+    event::{Axis, Button, Key, PixEvent},
     StateData,
 };
 
@@ -28,6 +28,11 @@ impl Ui {
         self.clock_turbo(turbo);
         for event in data.poll() {
             match event {
+                PixEvent::WinClose(window_id) => match Some(window_id) {
+                    i if i == self.ppu_viewer_window => self.toggle_ppu_viewer(data)?,
+                    i if i == self.nt_viewer_window => self.toggle_nt_viewer(data)?,
+                    _ => (),
+                },
                 PixEvent::Focus(focus) => {
                     if focus {
                         if !self.focused {
@@ -95,10 +100,10 @@ impl Ui {
                 Key::Comma => self.rewind()?,
                 // Key::Period => self.rewind_forward()?,
                 // Debug =======================================================================
-                Key::C if self.settings.debug => {
+                Key::C if self.debug => {
                     let _ = self.console.clock();
                 }
-                Key::S if self.settings.debug => {
+                Key::S if self.debug => {
                     let prev_scanline = self.console.cpu.mem.ppu.scanline;
                     let mut scanline = prev_scanline;
                     while scanline == prev_scanline {
@@ -106,10 +111,8 @@ impl Ui {
                         scanline = self.console.cpu.mem.ppu.scanline;
                     }
                 }
-                Key::F if self.settings.debug => self.console.clock_frame(),
-                Key::D if !self.ctrl && self.settings.debug => {
-                    self.active_debug = !self.active_debug
-                }
+                Key::F if self.debug => self.console.clock_frame(),
+                Key::D if !self.ctrl && self.debug => self.active_debug = !self.active_debug,
                 _ => (),
             }
             if !repeat {
@@ -119,11 +122,11 @@ impl Ui {
                         // UI ==========================================================================
                         Key::Return => {
                             self.settings.fullscreen = !self.settings.fullscreen;
-                            data.fullscreen(self.settings.fullscreen);
+                            data.fullscreen(self.settings.fullscreen)?;
                         }
                         Key::V if self.shift => {
                             self.settings.vsync = !self.settings.vsync;
-                            data.vsync(self.settings.vsync);
+                            data.vsync(self.settings.vsync)?;
                         }
                         Key::V if !self.shift => eprintln!("Recording not implemented"), // TODO
                         Key::M => self.settings.sound_enabled = !self.settings.sound_enabled,
@@ -135,7 +138,7 @@ impl Ui {
                             self.console.reset();
                         }
                         // Power Cycle
-                        Key::P => {
+                        Key::P if !self.shift => {
                             self.paused = false;
                             self.console.power_cycle();
                         }
@@ -170,7 +173,9 @@ impl Ui {
                         Key::Num3 => self.settings.save_slot = 3,
                         Key::Num4 => self.settings.save_slot = 4,
                         // Debug =======================================================================
-                        Key::D => self.toggle_debug(data),
+                        Key::D => self.toggle_debug(data)?,
+                        Key::P if self.shift => self.toggle_ppu_viewer(data)?,
+                        Key::N if self.shift => self.toggle_nt_viewer(data)?,
                         _ => (),
                     }
                 } else {

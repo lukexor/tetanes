@@ -3,17 +3,19 @@
 use crate::{
     console::{Console, RENDER_HEIGHT, RENDER_WIDTH},
     input::{Input, InputRef},
-    map_nes_err, util, NesResult,
+    util, NesResult,
 };
 use pix_engine::{
     draw::Rect,
-    pixel::{self, ColorType, Sprite},
+    pixel::{self, ColorType},
+    sprite::Sprite,
     PixEngine, PixEngineResult, State, StateData,
 };
 use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc, time::Duration};
 
 mod debug;
 mod event;
+mod menus;
 mod settings;
 
 pub use settings::UiSettings;
@@ -44,6 +46,11 @@ pub struct Ui {
     ctrl: bool,
     shift: bool,
     focused: bool,
+    debug: bool,
+    ppu_viewer: bool,
+    nt_viewer: bool,
+    ppu_viewer_window: Option<u32>,
+    nt_viewer_window: Option<u32>,
     debug_sprite: Option<Sprite>,
     active_debug: bool,
     width: u32,
@@ -77,6 +84,11 @@ impl Ui {
             ctrl: false,
             shift: false,
             focused: true,
+            debug: settings.debug,
+            ppu_viewer: false,
+            nt_viewer: false,
+            ppu_viewer_window: None,
+            nt_viewer_window: None,
             debug_sprite: None,
             active_debug: false,
             width: settings.scale * WINDOW_WIDTH,
@@ -96,11 +108,9 @@ impl Ui {
         let width = self.width;
         let height = self.height;
         let vsync = self.settings.vsync;
-        let mut engine = PixEngine::new(APP_NAME, self, width, height);
-        engine.vsync(vsync);
-        engine
-            .run()
-            .map_err(|e| map_nes_err!("Engine error: {}", e))
+        let mut engine = PixEngine::new(APP_NAME, self, width, height, vsync)?;
+        engine.run()?;
+        Ok(())
     }
 
     fn paused(&mut self, val: bool) {
@@ -116,30 +126,32 @@ impl Ui {
         self.messages.push(Message::new(text.to_string()));
     }
 
-    fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) {
+    fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) -> NesResult<()> {
         self.messages.retain(|msg| msg.timer > 0.0);
-        if self.messages.is_empty() {
-            return;
+        if !self.messages.is_empty() {
+            let width = WINDOW_WIDTH * self.settings.scale - 20;
+            let height = self.height;
+            let message_box = Sprite::new(width, height);
+            data.create_texture(
+                1,
+                "message",
+                ColorType::Rgba,
+                Rect::new(0, 0, width, height),
+                Rect::new(10, 10, width, height),
+            )?;
+            data.set_draw_target(message_box);
+            let mut y = self.height - 20 * data.get_font_scale();
+            for msg in self.messages.iter_mut() {
+                msg.timer -= elapsed;
+                data.draw_string(2, y + 2, &msg.text, pixel::BLACK);
+                data.draw_string(0, y, &msg.text, pixel::WHITE);
+                y -= 10 * data.get_font_scale();
+            }
+            let target = data.take_draw_target().unwrap();
+            let pixels = target.bytes();
+            data.copy_texture(1, "message", &pixels)?;
         }
-        let width = WINDOW_WIDTH * self.settings.scale - 20;
-        let height = self.height;
-        let message_box = Sprite::new_rgba8(width, height);
-        data.create_texture(
-            "message",
-            ColorType::RGBA,
-            Rect::new(0, 0, width, height),
-            Rect::new(10, 10, width, height),
-        );
-        data.set_draw_target(message_box);
-        let mut y = self.height - 20 * data.get_font_scale();
-        for msg in self.messages.iter_mut() {
-            msg.timer -= elapsed;
-            data.draw_string(2, y + 2, &msg.text, pixel::BLACK);
-            data.draw_string(0, y, &msg.text, pixel::WHITE);
-            y -= 10 * data.get_font_scale();
-        }
-        let pixels = data.take_draw_target().unwrap().raw_pixels();
-        data.copy_texture("message", &pixels);
+        Ok(())
     }
 }
 
@@ -169,25 +181,26 @@ impl State for Ui {
         }
 
         data.create_texture(
+            1,
             "nes",
-            ColorType::RGB,
-            Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 16), // Trims overscan
+            ColorType::Rgb,
+            Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
             Rect::new(0, 0, self.width, self.height),
-        );
-
+        )?;
         data.create_texture(
+            1,
             "menu",
-            ColorType::RGBA,
+            ColorType::Rgba,
             Rect::new(0, 0, self.width, self.height),
             Rect::new(0, 0, self.width, self.height),
-        );
+        )?;
 
-        if self.settings.debug {
-            self.settings.debug = false;
-            self.toggle_debug(data);
+        if self.debug {
+            self.debug = false;
+            self.toggle_debug(data)?;
         }
         if self.settings.fullscreen {
-            data.fullscreen(true);
+            data.fullscreen(true)?;
         }
 
         // Smooths out startup graphic glitches for some games
@@ -246,17 +259,23 @@ impl State for Ui {
         }
 
         // Update screen
-        data.copy_texture("nes", &self.console.frame());
-        if self.settings.debug {
-            if self.active_debug {
-                self.draw_cpu_debug(data);
+        data.copy_texture(1, "nes", &self.console.frame())?;
+        if self.debug {
+            if self.active_debug || self.paused {
+                self.draw_debug(data);
             }
-            self.copy_cpu_debug(data);
+            self.copy_debug(data)?;
+        }
+        if self.ppu_viewer {
+            self.copy_ppu_viewer(data)?;
+        }
+        if self.nt_viewer {
+            self.copy_nt_viewer(data)?;
         }
         if self.paused {
-            self.draw_menu(data);
+            self.draw_menu(data)?;
         }
-        self.draw_messages(elapsed, data);
+        self.draw_messages(elapsed, data)?;
 
         // Enqueue sound
         if self.settings.sound_enabled {

@@ -1,11 +1,9 @@
 use crate::{
-    driver::{self, Driver},
+    driver::Driver,
     event::PixEvent,
-    pixel,
     state::{State, StateData},
     PixEngineErr, PixEngineResult,
 };
-use image::DynamicImage;
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -19,7 +17,6 @@ where
     app_name: &'static str,
     state: S,
     should_close: bool,
-    icon: DynamicImage,
     data: StateData,
 }
 
@@ -28,26 +25,31 @@ where
     S: State,
 {
     /// Create a new PixEngine instance
-    pub fn new(app_name: &'static str, state: S, screen_width: u32, screen_height: u32) -> Self {
-        Self {
+    pub fn new(
+        app_name: &'static str,
+        state: S,
+        screen_width: u32,
+        screen_height: u32,
+        vsync: bool,
+    ) -> PixEngineResult<Self> {
+        Ok(Self {
             app_name,
             state,
             should_close: false,
-            icon: DynamicImage::new_rgba8(32, 32),
-            data: StateData::new(app_name, screen_width, screen_height),
-        }
+            data: StateData::new(app_name, screen_width, screen_height, vsync)?,
+        })
     }
     /// Set a custom window icon
     pub fn set_icon<P: AsRef<Path>>(&mut self, path: P) -> PixEngineResult<()> {
         self.data.driver.load_icon(path)
     }
     /// Toggle fullscreen
-    pub fn fullscreen(&mut self, val: bool) {
-        self.data.fullscreen(val);
+    pub fn fullscreen(&mut self, val: bool) -> PixEngineResult<()> {
+        self.data.fullscreen(val)
     }
     /// Toggle vsync
-    pub fn vsync(&mut self, val: bool) {
-        self.data.vsync(val);
+    pub fn vsync(&mut self, val: bool) -> PixEngineResult<()> {
+        self.data.vsync(val)
     }
 
     /// Starts the engine loop. Will execute until one of on_create, on_update, or on_destroy
@@ -77,15 +79,22 @@ where
                 let elapsed = timer.elapsed();
                 timer = Instant::now();
 
-                let events: Vec<PixEvent> = self.data.driver.poll();
+                let events: Vec<PixEvent> = self.data.driver.poll()?;
                 for event in events {
                     self.data.events.push(event);
                     match event {
                         PixEvent::Quit | PixEvent::AppTerminating => self.should_close = true,
+                        PixEvent::WinClose(window_id) => {
+                            if window_id == 1 {
+                                self.should_close = true;
+                            } else {
+                                self.data.driver.close_window(window_id);
+                            }
+                        }
                         PixEvent::KeyPress(key, pressed, ..) => {
                             self.data.set_new_key_state(key, pressed);
                         }
-                        PixEvent::MousePress(button, x, y, pressed) => {
+                        PixEvent::MousePress(button, .., pressed) => {
                             // TODO add functionality for mouse click coords
                             self.data.set_new_mouse_state(button, pressed);
                         }
@@ -107,9 +116,7 @@ where
 
                 // Display updated frame
                 if self.data.default_target_dirty {
-                    let pixels = &self.data.get_draw_target().raw_pixels();
-                    self.data.copy_texture("screen", pixels);
-                    self.data.default_target_dirty = false;
+                    self.data.copy_draw_target(1, "screen1")?;
                 }
                 self.data.driver.present();
 
@@ -122,7 +129,7 @@ where
                     if !self.data.title().is_empty() {
                         title.push_str(&format!(" - {}", self.data.title()));
                     }
-                    self.data.driver.set_title(&title)?;
+                    self.data.driver.set_title(1, &title)?;
                     frame_counter = 0;
                 }
             }

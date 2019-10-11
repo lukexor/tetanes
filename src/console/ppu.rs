@@ -59,7 +59,6 @@ const NT_START: u16 = 0x2000;
 const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NAMETABLEs
 const PALETTE_START: u16 = 0x3F00;
 const PALETTE_END: u16 = 0x3F20;
-const SPRITE_PALETTE_START: u16 = 0x3F10;
 
 #[derive(Debug)]
 pub struct Ppu {
@@ -76,7 +75,7 @@ pub struct Ppu {
     debug: bool,
     nametables: Vec<Vec<u8>>,
     pattern_tables: Vec<Vec<u8>>,
-    palettes: Vec<Vec<u8>>,
+    palette: Vec<u8>,
 }
 
 impl Ppu {
@@ -100,7 +99,7 @@ impl Ppu {
                 vec![0; RENDER_SIZE],
             ],
             pattern_tables: vec![vec![0; RENDER_SIZE], vec![0; RENDER_SIZE]],
-            palettes: vec![SYSTEM_PALETTE.to_vec(), vec![0; (PALETTE_SIZE + 4) * 3]],
+            palette: vec![0; (PALETTE_SIZE + 4) * 3],
         }
     }
 
@@ -142,7 +141,7 @@ impl Ppu {
                 self.load_nametable(NT_START + 0x0C00),
             ];
             self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
-            self.palettes[1] = self.load_palette();
+            self.palette = self.load_palette();
         }
     }
 
@@ -154,7 +153,7 @@ impl Ppu {
             self.load_nametable(NT_START + 0x0C00),
         ];
         self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
-        self.palettes[1] = self.load_palette();
+        self.palette = self.load_palette();
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
@@ -237,8 +236,8 @@ impl Ppu {
         }
     }
 
-    pub fn palettes(&self) -> &Vec<Vec<u8>> {
-        &self.palettes
+    pub fn palette(&self) -> &Vec<u8> {
+        &self.palette
     }
 
     fn load_palette(&self) -> Vec<u8> {
@@ -250,14 +249,11 @@ impl Ppu {
         // 0x3F08: 0,2  0x3F09: 1,2  0x3F0A: 2,2  0x3F0B: 3,2  0x3F18: 5,2  0x3F19: 6,2  0x3F1A: 7,2  0x3F1B: 8,2
         // Unused  // BG 3 ----------------------------------  // Unused    // SPR 3 -------------------------------
         // 0x3F0C: 0,3  0x3F0D: 1,3  0x3F0E: 2,3  0x3F0F: 3,3  0x3F1C: 5,3  0x3F1D: 6,3  0x3F1E: 7,3  0x3F1F: 8,3
-        let mut palette = vec![0u8; (PALETTE_SIZE + 4) * 3];
-        let width = 9;
+        let mut palette = vec![0u8; 3 * PALETTE_SIZE];
+        let width = 16;
         for addr in PALETTE_START..PALETTE_END {
-            let (x, y) = if addr >= SPRITE_PALETTE_START {
-                ((addr % 4) + 5, (addr - SPRITE_PALETTE_START) / 4)
-            } else {
-                (addr % 4, (addr - PALETTE_START) / 4)
-            };
+            let x = (addr - PALETTE_START) % 16;
+            let y = (addr - PALETTE_START) / 16;
             let palette_idx = self.vram.peek(addr) as usize;
             Self::put_pixel(palette_idx, x.into(), y.into(), width, &mut palette);
         }
@@ -1771,28 +1767,16 @@ impl fmt::Debug for Palette {
 }
 
 // 64 total possible colors, though only 32 can be loaded at a time
-#[rustfmt::skip]
 const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
-    // 0x00
-    84, 84, 84,    0, 30, 116,    8, 16, 144,    48, 0, 136,    // $00-$03
-    68, 0, 100,    92, 0, 48,     84, 4, 0,      60, 24, 0,     // $04-$07
-    32, 42, 0,     8, 58, 0,      0, 64, 0,      0, 60, 0,      // $08-$0B
-    0, 50, 60,     0, 0, 0,       0, 0, 0,       0, 0, 0,       // $0C-$0F
-    // 0x10                                                               
-    152, 150, 152, 8, 76, 196,    48, 50, 236,   92, 30, 228,   // $10-$13
-    136, 20, 176,  160, 20, 100,  152, 34, 32,   120, 60, 0,    // $14-$17
-    84, 90, 0,     40, 114, 0,    8, 124, 0,     0, 118, 40,    // $18-$1B
-    0, 102, 120,   0, 0, 0,       0, 0, 0,       0, 0, 0,       // $1C-$1F
-    // 0x20                                                               
-    236, 238, 236, 76, 154, 236,  120, 124, 236, 176, 98, 236,  // $20-$23
-    228, 84, 236,  236, 88, 180,  236, 106, 100, 212, 136, 32,  // $24-$27
-    160, 170, 0,   116, 196, 0,   76, 208, 32,   56, 204, 108,  // $28-$2B
-    56, 180, 204,  60, 60, 60,    0, 0, 0,       0, 0, 0,       // $2C-$2F
-    // 0x30                                                               
-    236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, // $30-$33
-    236, 174, 236, 236, 174, 212, 236, 180, 176, 228, 196, 144, // $34-$37
-    204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, // $38-$3B
-    160, 214, 228, 160, 162, 160, 0, 0, 0,       0, 0, 0,       // $3C-$3F
+    124, 124, 124, 0, 0, 252, 0, 0, 188, 68, 40, 188, 148, 0, 132, 168, 0, 32, 168, 16, 0, 136, 20,
+    0, 80, 48, 0, 0, 120, 0, 0, 104, 0, 0, 88, 0, 0, 64, 88, 0, 0, 0, 0, 0, 0, 0, 0, 0, 188, 188,
+    188, 0, 120, 248, 0, 88, 248, 104, 68, 252, 216, 0, 204, 228, 0, 88, 248, 56, 0, 228, 92, 16,
+    172, 124, 0, 0, 184, 0, 0, 168, 0, 0, 168, 68, 0, 136, 136, 0, 0, 0, 0, 0, 0, 0, 0, 0, 248,
+    248, 248, 60, 188, 252, 104, 136, 252, 152, 120, 248, 248, 120, 248, 248, 88, 152, 248, 120,
+    88, 252, 160, 68, 248, 184, 0, 184, 248, 24, 88, 216, 84, 88, 248, 152, 0, 232, 216, 120, 120,
+    120, 0, 0, 0, 0, 0, 0, 252, 252, 252, 164, 228, 252, 184, 184, 248, 216, 184, 248, 248, 184,
+    248, 248, 164, 192, 240, 208, 176, 252, 224, 168, 248, 216, 120, 216, 248, 120, 184, 248, 184,
+    184, 248, 216, 0, 252, 252, 248, 216, 248, 0, 0, 0, 0, 0, 0,
 ];
 
 #[cfg(test)]

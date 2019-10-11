@@ -1,13 +1,8 @@
 use crate::{
-    driver::{sdl2::Sdl2Driver, Driver, DriverOpts},
+    driver::sdl2::Sdl2Driver,
     event::{Axis, Button, Key, Mouse, PixEvent},
 };
-use sdl2::{
-    controller,
-    event::{Event, WindowEvent},
-    keyboard::Keycode,
-    mouse::MouseButton,
-};
+use sdl2::{controller, keyboard::Keycode, mouse::MouseButton};
 
 impl Sdl2Driver {
     pub(super) fn map_key(&self, key: Keycode, pressed: bool, repeat: bool) -> PixEvent {

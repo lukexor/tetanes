@@ -15,10 +15,6 @@ path = "src/lib.rs"
 png = "0.15.0"
 rand = "0.7.1"
 
-[dependencies.image]
-version = "0.22.2"
-default-features = false
-
 [dependencies.sdl2]
 version = "0.32.2"
 default-features = false

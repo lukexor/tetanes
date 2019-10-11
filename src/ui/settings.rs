@@ -1,5 +1,5 @@
 use crate::ui::Ui;
-use pix_engine::{pixel, Rgba, Sprite, StateData};
+use pix_engine::StateData;
 use std::{env, path::PathBuf};
 
 pub(super) const DEFAULT_SPEED: f64 = 1.0; // 100% - 60 Hz
@@ -62,30 +62,5 @@ impl Ui {
             }
         }
         data.set_title(&title);
-    }
-
-    pub(super) fn draw_menu(&mut self, data: &mut StateData) {
-        // Darken background
-        data.set_draw_target(Sprite::new_rgba8(self.width, self.height));
-        data.fill(Rgba([0, 0, 0, 128]));
-        data.fill_rect(
-            50,
-            50,
-            self.width - 100,
-            self.height - 100,
-            pixel::VERY_DARK_GRAY,
-        );
-        data.fill_rect(
-            53,
-            53,
-            self.width - 106,
-            self.height - 106,
-            pixel::DARK_GRAY,
-        );
-
-        // TODO
-
-        let pixels = &data.get_draw_target().raw_pixels();
-        data.copy_texture("menu", pixels);
     }
 }

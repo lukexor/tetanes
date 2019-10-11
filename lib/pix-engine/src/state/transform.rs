@@ -1,5 +1,4 @@
-use crate::state::StateData;
-use image::{DynamicImage, GenericImage, GenericImageView};
+use crate::{sprite::Sprite, state::StateData};
 
 type Matrix = [[f32; 3]; 3];
 
@@ -127,7 +126,7 @@ impl Transform {
 
 impl StateData {
     /// Draws a sprite using the transform matrix
-    pub fn draw_transform(&mut self, transform: &mut Transform, sprite: &DynamicImage) {
+    pub fn draw_transform(&mut self, transform: &mut Transform, sprite: &Sprite) {
         // Top Left pixel bounds
         let (px, py) = transform.forward(0.0, 0.0);
         let sx = px;

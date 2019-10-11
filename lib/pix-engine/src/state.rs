@@ -1,10 +1,11 @@
 use crate::{
     driver::{self, Driver, DriverOpts},
     event::{Input, Key, Mouse, PixEvent},
-    pixel, PixEngineErr, PixEngineResult,
+    pixel::{self, Pixel},
+    sprite::Sprite,
+    PixEngineErr, PixEngineResult,
 };
-use image::{DynamicImage, GenericImage, GenericImageView, Rgba};
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 pub mod draw;
 pub mod transform;
@@ -44,10 +45,10 @@ pub struct StateData {
     title: String,
     screen_width: u32,
     screen_height: u32,
-    default_draw_target: DynamicImage,
-    draw_target: Option<DynamicImage>,
-    default_draw_color: Rgba<u8>,
-    draw_color: Rgba<u8>,
+    default_draw_target: Sprite,
+    draw_target: Option<Sprite>,
+    default_draw_color: Pixel,
+    draw_color: Pixel,
     draw_scale: u32,
     font_scale: u32,
     alpha_mode: AlphaMode,
@@ -55,7 +56,7 @@ pub struct StateData {
     mouse_x: u32,
     mouse_y: u32,
     mouse_wheel_delta: i32,
-    font: DynamicImage,
+    font: Sprite,
     has_input_focus: bool,
     has_mouse_focus: bool,
     old_key_state: [bool; 256],
@@ -79,12 +80,12 @@ impl StateData {
         self.title = title.to_string();
     }
     /// Toggle fullscreen
-    pub fn fullscreen(&mut self, val: bool) {
-        self.driver.fullscreen(val);
+    pub fn fullscreen(&mut self, val: bool) -> PixEngineResult<()> {
+        self.driver.fullscreen(1, val)
     }
     /// Toggle vsync
-    pub fn vsync(&mut self, val: bool) {
-        self.driver.vsync(val);
+    pub fn vsync(&mut self, val: bool) -> PixEngineResult<()> {
+        self.driver.vsync(1, val)
     }
     /// Screen Width
     pub fn screen_width(&self) -> u32 {
@@ -95,8 +96,8 @@ impl StateData {
         self.screen_height
     }
     /// Change screen dimensions.
-    pub fn set_screen_size(&mut self, width: u32, height: u32) {
-        let mut new_draw_target = DynamicImage::new_rgba8(width, height);
+    pub fn set_screen_size(&mut self, width: u32, height: u32) -> PixEngineResult<()> {
+        let mut new_draw_target = Sprite::new(width, height);
         for x in 0..std::cmp::min(width, self.screen_width) {
             for y in 0..std::cmp::min(width, self.screen_height) {
                 let p = self.default_draw_target.get_pixel(x, y);
@@ -106,7 +107,7 @@ impl StateData {
         self.default_draw_target = new_draw_target;
         self.screen_width = width;
         self.screen_height = height;
-        self.driver.set_size(width, height);
+        self.driver.set_size(1, width, height)
     }
     /// Whether window has focus
     pub fn is_focused(&self) -> bool {
@@ -146,18 +147,23 @@ impl StateData {
 }
 
 impl StateData {
-    pub(super) fn new(app_name: &str, screen_width: u32, screen_height: u32) -> Self {
+    pub(super) fn new(
+        app_name: &str,
+        screen_width: u32,
+        screen_height: u32,
+        vsync: bool,
+    ) -> PixEngineResult<Self> {
         let font = StateData::construct_font();
         // Initialize backend driver library
-        let opts = DriverOpts::new(app_name, screen_width, screen_height);
+        let opts = DriverOpts::new(app_name, screen_width, screen_height, vsync);
         let mut state_data = Self {
             default_target_dirty: false,
-            driver: driver::load_driver(opts),
+            driver: driver::load_driver(opts)?,
             events: Vec::new(),
             title: String::new(),
             screen_width,
             screen_height,
-            default_draw_target: DynamicImage::new_rgba8(screen_width, screen_height),
+            default_draw_target: Sprite::new(screen_width, screen_height),
             draw_target: None,
             default_draw_color: pixel::WHITE,
             draw_color: pixel::WHITE,
@@ -180,7 +186,7 @@ impl StateData {
             coord_wrapping: false,
         };
         state_data.clear();
-        state_data
+        Ok(state_data)
     }
     pub(super) fn set_focused(&mut self, val: bool) {
         self.has_input_focus = val;

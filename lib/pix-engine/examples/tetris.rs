@@ -1,5 +1,4 @@
-use image::GenericImageView;
-use pix_engine::{event::*, *};
+use pix_engine::{event::*, pixel::Pixel, *};
 use std::time::Duration;
 
 const BEVEL_SIZE: u32 = 2;
@@ -40,7 +39,7 @@ impl App {
             lines: 0,
             paused: false,
             tetrominos: Vec::new(),
-            field: Sprite::new_rgba8(width, height),
+            field: Sprite::new(width, height),
             current_tetro: None,
             current_rotation: 0.0,
             current_x: 0,
@@ -48,16 +47,16 @@ impl App {
         }
     }
 
-    fn create_block(p: Rgba<u8>, data: &mut StateData) -> Sprite {
-        let block = Sprite::new_rgba8(BLOCK_SIZE, BLOCK_SIZE);
+    fn create_block(p: Pixel, data: &mut StateData) -> Sprite {
+        let block = Sprite::new(BLOCK_SIZE, BLOCK_SIZE);
         data.set_draw_target(block);
         App::draw_block(0, 0, p, data);
         data.take_draw_target().expect("valid draw target")
     }
 
-    fn draw_block(x: u32, y: u32, p: Rgba<u8>, data: &mut StateData) {
+    fn draw_block(x: u32, y: u32, p: Pixel, data: &mut StateData) {
         data.fill_rect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, p);
-        let highlight = Rgba([
+        let highlight = Pixel([
             p[0].saturating_mul(2),
             p[1].saturating_mul(2),
             p[2].saturating_mul(2),
@@ -77,7 +76,7 @@ impl App {
             BEVEL_SIZE,
             highlight,
         ); // Top bevel
-        let shadow = Rgba([p[0] / 4, p[1] / 4, p[2] / 4, p[3]]);
+        let shadow = Pixel([p[0] / 4, p[1] / 4, p[2] / 4, p[3]]);
         data.fill_rect(
             x * BLOCK_SIZE + BLOCK_SIZE - BEVEL_SIZE,
             y * BLOCK_SIZE,
@@ -104,7 +103,7 @@ impl App {
     // #
     // #
     fn tetro_i(rotation: u32, data: &mut StateData) -> Sprite {
-        let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
+        let sprite = Sprite::new(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
         if rotation % 2 == 0 {
@@ -121,7 +120,7 @@ impl App {
     // ##
     // ##
     fn tetro_o(data: &mut StateData) -> Sprite {
-        let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
+        let sprite = Sprite::new(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
         for x in 0..2 {
@@ -135,7 +134,7 @@ impl App {
     // ###  ##  ###  ##
     //      #    #    #
     fn tetro_t(data: &mut StateData) -> Sprite {
-        let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
+        let sprite = Sprite::new(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
         App::draw_block(1, 0, pixel::MAGENTA, data);
@@ -148,7 +147,7 @@ impl App {
     //  #  ###  #   ###
     // ##       #     #
     fn tetro_j(data: &mut StateData) -> Sprite {
-        let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
+        let sprite = Sprite::new(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
         App::draw_block(0, 2, pixel::BLUE, data);
@@ -161,7 +160,7 @@ impl App {
     // #   ###   #  ###
     // ##  #     #
     fn tetro_l(data: &mut StateData) -> Sprite {
-        let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
+        let sprite = Sprite::new(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
         App::draw_block(1, 2, pixel::ORANGE, data);
@@ -174,7 +173,7 @@ impl App {
     //  ##  ##
     // ##    #
     fn tetro_s(data: &mut StateData) -> Sprite {
-        let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
+        let sprite = Sprite::new(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
         App::draw_block(1, 0, pixel::GREEN, data);
@@ -187,7 +186,7 @@ impl App {
     // ##   ##
     //  ##  #
     fn tetro_z(data: &mut StateData) -> Sprite {
-        let sprite = Sprite::new_rgba8(TETRO_SIZE, TETRO_SIZE);
+        let sprite = Sprite::new(TETRO_SIZE, TETRO_SIZE);
         data.set_draw_target(sprite);
         data.fill(pixel::TRANSPARENT);
         App::draw_block(0, 0, pixel::RED, data);
@@ -239,7 +238,7 @@ impl App {
     fn create_field(&mut self, data: &mut StateData) -> Sprite {
         // Draw background field
         let block = App::create_block(pixel::GRAY, data);
-        let field = Sprite::new_rgba8(self.width, self.height);
+        let field = Sprite::new(self.width, self.height);
 
         data.set_draw_target(field);
         data.fill(pixel::TRANSPARENT);
@@ -346,7 +345,7 @@ pub fn main() {
     let app = App::new();
     let w = app.width;
     let h = app.height;
-    let mut engine = PixEngine::new("Tetris", app, w, h);
+    let mut engine = PixEngine::new("Tetris", app, w, h, false).unwrap();
     if let Err(e) = engine.run() {
         eprintln!("Encountered a PixEngineErr: {}", e.to_string());
     }

@@ -3,7 +3,6 @@ use crate::{
     event::PixEvent,
     Result,
 };
-use image::DynamicImage;
 
 pub(super) struct WasmDriver {}
 

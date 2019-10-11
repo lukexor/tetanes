@@ -1,9 +1,8 @@
-// TODO remove this when finished
-#![allow(dead_code, unused_imports, unused_variables)]
 use std::{error, fmt};
 
 pub mod event;
 pub mod pixel;
+pub mod sprite;
 
 mod audio;
 mod driver;
@@ -11,8 +10,7 @@ mod engine;
 mod state;
 
 pub use engine::PixEngine;
-pub use image::{DynamicImage, GenericImage, GenericImageView, Rgb, Rgba};
-pub use pixel::Sprite;
+pub use sprite::Sprite;
 pub use state::{draw, transform, AlphaMode, State, StateData};
 
 pub type PixEngineResult<T> = std::result::Result<T, PixEngineErr>;
@@ -22,7 +20,7 @@ pub struct PixEngineErr {
 }
 
 impl PixEngineErr {
-    pub fn new(desc: &str) -> Self {
+    pub fn new<D: ToString>(desc: D) -> Self {
         Self {
             description: desc.to_string(),
         }
@@ -52,11 +50,13 @@ impl error::Error for PixEngineErr {
         None
     }
 }
-
 impl From<std::io::Error> for PixEngineErr {
     fn from(err: std::io::Error) -> Self {
-        Self {
-            description: err.to_string(),
-        }
+        Self::new(err)
+    }
+}
+impl From<String> for PixEngineErr {
+    fn from(err: String) -> Self {
+        Self::new(err)
     }
 }
