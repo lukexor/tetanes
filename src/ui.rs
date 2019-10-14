@@ -28,12 +28,24 @@ const REWIND_TIMER: f64 = 5.0;
 
 struct Message {
     timer: f64,
+    timed: bool,
     text: String,
 }
 
 impl Message {
-    pub fn new(text: String) -> Self {
-        Self { timer: 5.0, text }
+    pub fn new(text: &str) -> Self {
+        Self {
+            timer: 5.0,
+            timed: true,
+            text: text.to_string(),
+        }
+    }
+    pub fn new_static(text: &str) -> Self {
+        Self {
+            timer: 0.0,
+            timed: false,
+            text: text.to_string(),
+        }
     }
 }
 
@@ -46,6 +58,7 @@ pub struct Ui {
     ctrl: bool,
     shift: bool,
     focused: bool,
+    menu: bool,
     debug: bool,
     ppu_viewer: bool,
     nt_viewer: bool,
@@ -84,6 +97,7 @@ impl Ui {
             ctrl: false,
             shift: false,
             focused: true,
+            menu: false,
             debug: settings.debug,
             ppu_viewer: false,
             nt_viewer: false,
@@ -120,14 +134,27 @@ impl Ui {
             self.console.debug(!val);
             self.console.cpu.mem.ppu.update_debug();
         }
+        if self.paused {
+            self.add_static_message("Paused");
+        } else {
+            self.remove_static_message("Paused");
+        }
     }
 
     fn add_message(&mut self, text: &str) {
-        self.messages.push(Message::new(text.to_string()));
+        self.messages.push(Message::new(text));
+    }
+
+    fn add_static_message(&mut self, text: &str) {
+        self.messages.push(Message::new_static(text));
+    }
+
+    fn remove_static_message(&mut self, text: &str) {
+        self.messages.retain(|msg| msg.text != text);
     }
 
     fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) -> NesResult<()> {
-        self.messages.retain(|msg| msg.timer > 0.0);
+        self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         if !self.messages.is_empty() {
             let width = WINDOW_WIDTH * self.settings.scale - 20;
             let height = self.height;
@@ -260,6 +287,9 @@ impl State for Ui {
 
         // Update screen
         data.copy_texture(1, "nes", self.console.frame())?;
+        if self.menu {
+            self.draw_menu(data)?;
+        }
         if self.debug {
             if self.active_debug || self.paused {
                 self.draw_debug(data);

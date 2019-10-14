@@ -15,7 +15,7 @@ impl Ui {
             Some(slot) => {
                 self.rewind_timer = REWIND_TIMER;
                 self.messages
-                    .push(Message::new(format!("Rewind Slot {}", slot)));
+                    .push(Message::new(&format!("Rewind Slot {}", slot)));
                 self.rewind_save = slot + 1;
                 self.console.load_state(slot)
             }
@@ -35,11 +35,13 @@ impl Ui {
                 },
                 PixEvent::Focus(focus) => {
                     if focus {
+                        // Only unpause if we paused as a result of losing focus
                         if !self.focused {
-                            self.focused = true;
                             self.paused(false);
                         }
+                        self.focused = true;
                     } else if !self.paused {
+                        // Only unset focused if we aren't paused, then pause
                         self.focused = false;
                         self.paused(true);
                     }
@@ -103,6 +105,8 @@ impl Ui {
                 Key::C if self.debug => {
                     let _ = self.console.clock();
                 }
+                Key::D if !self.ctrl && self.debug => self.active_debug = !self.active_debug,
+                Key::F if self.debug => self.console.clock_frame(),
                 Key::S if self.debug => {
                     let prev_scanline = self.console.cpu.mem.ppu.scanline;
                     let mut scanline = prev_scanline;
@@ -111,8 +115,6 @@ impl Ui {
                         scanline = self.console.cpu.mem.ppu.scanline;
                     }
                 }
-                Key::F if self.debug => self.console.clock_frame(),
-                Key::D if !self.ctrl && self.debug => self.active_debug = !self.active_debug,
                 _ => (),
             }
             if !repeat {
@@ -120,6 +122,10 @@ impl Ui {
                 if self.ctrl {
                     match key {
                         // UI ==========================================================================
+                        // Change speed
+                        Key::Minus => self.change_speed(-0.25),
+                        Key::Equals => self.change_speed(0.25),
+                        // Window
                         Key::Return => {
                             self.settings.fullscreen = !self.settings.fullscreen;
                             data.fullscreen(self.settings.fullscreen)?;
@@ -132,20 +138,20 @@ impl Ui {
                         Key::M => self.settings.sound_enabled = !self.settings.sound_enabled,
                         // Open
                         Key::O => eprintln!("Open Dialog not implemented"), // TODO
-                        // Reset
+                        // Power/Reset
                         Key::R => {
                             self.paused = false;
                             self.console.reset();
                         }
-                        // Power Cycle
                         Key::P if !self.shift => {
                             self.paused = false;
                             self.console.power_cycle();
                         }
-                        // Change speed
-                        Key::Minus => self.change_speed(-0.25),
-                        Key::Equals => self.change_speed(0.25),
                         // Save/Load
+                        Key::Num1 => self.settings.save_slot = 1,
+                        Key::Num2 => self.settings.save_slot = 2,
+                        Key::Num3 => self.settings.save_slot = 3,
+                        Key::Num4 => self.settings.save_slot = 4,
                         Key::S => {
                             if self.settings.save_enabled {
                                 self.console.save_state(self.settings.save_slot)?;
@@ -168,10 +174,10 @@ impl Ui {
                                 self.add_message("Saved States Disabled");
                             }
                         }
-                        Key::Num1 => self.settings.save_slot = 1,
-                        Key::Num2 => self.settings.save_slot = 2,
-                        Key::Num3 => self.settings.save_slot = 3,
-                        Key::Num4 => self.settings.save_slot = 4,
+                        Key::C => {
+                            self.menu = !self.menu;
+                            self.paused = self.menu;
+                        }
                         // Debug =======================================================================
                         Key::D => self.toggle_debug(data)?,
                         Key::P if self.shift => self.toggle_ppu_viewer(data)?,
