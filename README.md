@@ -156,6 +156,7 @@ There are also some emulator actions:
 | Toggle Debugger                   | Ctrl-D           |                    |
 | Toggle Fullscreen                 | Ctrl-Enter       |                    |
 | Toggle Vsync                      | Shift-V          |                    |
+| Toggle NTSC Filter                | Ctrl-N           |                    |
 | Take Screenshot                   | F10              |                    |
 | Cycle Log Level<sup>*</sup>       | F9               |                    |
 

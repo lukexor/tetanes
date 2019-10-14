@@ -176,6 +176,10 @@ impl Ui {
                         Key::D => self.toggle_debug(data)?,
                         Key::P if self.shift => self.toggle_ppu_viewer(data)?,
                         Key::N if self.shift => self.toggle_nt_viewer(data)?,
+                        Key::N if !self.shift => {
+                            self.console.cpu.mem.ppu.ntsc_video =
+                                !self.console.cpu.mem.ppu.ntsc_video
+                        }
                         _ => (),
                     }
                 } else {

@@ -6,13 +6,16 @@ use crate::mapper::{self, MapperRef, Mirroring};
 use crate::memory::Memory;
 use crate::serialization::Savable;
 use crate::NesResult;
+use std::collections::HashMap;
+use std::f64::consts::PI;
 use std::fmt;
 use std::io::{Read, Write};
 
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
-const RENDER_SIZE: usize = (RENDER_WIDTH * RENDER_HEIGHT * 3) as usize;
+const RENDER_SIZE: usize = (3 * RENDER_WIDTH * RENDER_HEIGHT) as usize;
+const SIGNAL_SIZE: usize = (8 * RENDER_WIDTH * RENDER_HEIGHT) as usize;
 
 // Sizes
 const NT_SIZE: usize = 2 * 1024; // Two 1K nametables exist in hardware
@@ -60,9 +63,9 @@ const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NAMETABLEs
 const PALETTE_START: u16 = 0x3F00;
 const PALETTE_END: u16 = 0x3F20;
 
-#[derive(Debug)]
 pub struct Ppu {
-    pub cycle: u16,              // (0, 340) 341 cycles happen per scanline
+    pub cycle: u16, // (0, 340) 341 cycles happen per scanline
+    total_cycles: u64,
     pub scanline: u16,           // (0, 261) 262 total scanlines per frame
     pub nmi_delay_enabled: bool, // Fixes some games by delaying nmi
     pub nmi_pending: bool,       // Whether the CPU should trigger an NMI next cycle
@@ -76,12 +79,14 @@ pub struct Ppu {
     nametables: Vec<Vec<u8>>,
     pattern_tables: Vec<Vec<u8>>,
     palette: Vec<u8>,
+    pub ntsc_video: bool,
 }
 
 impl Ppu {
     pub fn new() -> Self {
         Self {
             cycle: 0u16,
+            total_cycles: 0u64,
             scanline: 0u16,
             nmi_delay_enabled: true,
             nmi_pending: false,
@@ -100,6 +105,7 @@ impl Ppu {
             ],
             pattern_tables: vec![vec![0; RENDER_SIZE], vec![0; RENDER_SIZE]],
             palette: vec![0; (PALETTE_SIZE + 4) * 3],
+            ntsc_video: false,
         }
     }
 
@@ -157,8 +163,13 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
-    pub fn frame(&self) -> Vec<u8> {
-        self.frame.pixels.to_vec()
+    pub fn frame(&mut self) -> &Vec<u8> {
+        if self.ntsc_video {
+            for y in 0..RENDER_HEIGHT as u16 {
+                self.frame.decode_ntsc_signal(y);
+            }
+        }
+        &self.frame.pixels
     }
 
     pub fn nametables(&self) -> &Vec<Vec<u8>> {
@@ -491,8 +502,24 @@ impl Ppu {
                 bg_color
             }
         };
-        let palette_idx = self.vram.read(u16::from(color) + PALETTE_START) as usize;
-        self.frame.put_pixel(palette_idx, x.into(), y.into());
+        let mut palette = self.vram.read(u16::from(color) + PALETTE_START);
+        if self.regs.mask.grayscale() {
+            palette = palette & !0x0F; // Remove chroma
+        }
+        if self.ntsc_video {
+            self.frame.render_ntsc_pixel(
+                y * RENDER_WIDTH as u16 + x,
+                palette & 0x3F,
+                self.regs.mask.emphasis(),
+                self.total_cycles - 1,
+            );
+        } else {
+            let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
+            let r = SYSTEM_PALETTE[color_idx];
+            let g = SYSTEM_PALETTE[color_idx + 1];
+            let b = SYSTEM_PALETTE[color_idx + 2];
+            self.frame.put_pixel(x.into(), y.into(), r, g, b);
+        }
     }
 
     fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut Vec<u8>) {
@@ -500,9 +527,10 @@ impl Ppu {
         let red = SYSTEM_PALETTE[idx];
         let green = SYSTEM_PALETTE[idx + 1];
         let blue = SYSTEM_PALETTE[idx + 2];
-        pixels[(3 * (x + y * width)) as usize] = red;
-        pixels[(3 * (x + y * width) + 1) as usize] = green;
-        pixels[(3 * (x + y * width) + 2) as usize] = blue;
+        let idx = 3 * (x + y * width) as usize;
+        pixels[idx] = red;
+        pixels[idx + 1] = green;
+        pixels[idx + 2] = blue;
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {
@@ -566,6 +594,7 @@ impl Ppu {
             {
                 self.cycle = 0;
                 self.scanline = 0;
+                self.total_cycles = 0;
                 self.frame.increment();
                 self.frame_complete = true;
                 return;
@@ -573,11 +602,13 @@ impl Ppu {
         }
 
         self.cycle += 1;
+        self.total_cycles += 1;
         if self.cycle > VISIBLE_SCANLINE_CYCLE_END {
             self.cycle = 0;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
+                self.total_cycles = 0;
                 self.frame.increment();
                 self.frame_complete = true;
             }
@@ -1443,19 +1474,42 @@ pub struct Frame {
     // Shift registers
     tile_lo: u8,
     tile_hi: u8,
-    // tile data - stored in cycles 0 mod 8
+    // Tile data - stored in cycles 0 mod 8
     nametable: u16,
     attribute: u8,
     tile_data: u64,
-    // sprite data
+    // Sprite data
     sprite_count: u8,
     sprite_zero_on_line: bool,
     sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
+    signal_levels: Vec<f32>,
+    phase_lookup: HashMap<u16, Vec<f32>>,
     pixels: Vec<u8>,
 }
 
 impl Frame {
+    // Voltage levels, relative to sync voltage
+    const BLACK: f32 = 0.518;
+    const WHITE: f32 = 1.962;
+    const ATTENUATION: f32 = 0.746;
+    const LEVELS: [f32; 8] = [
+        0.350, 0.518, 0.962, 1.550, // Signal low
+        1.094, 1.506, 1.962, 1.962, // Signal high
+    ];
+
     fn new() -> Self {
+        let phase_size = (RENDER_WIDTH * 8) as usize;
+        let mut phase_lookup = HashMap::new();
+        for scanline in 0..RENDER_HEIGHT as u16 {
+            let mut phases = vec![0.0; 2 * phase_size];
+            let phase = (scanline as f32 * 341.0 * 8.0 + 3.9) % 12.0;
+            for p in 0..phase_size {
+                let phase = (PI as f32 * (phase + p as f32)) / 6.0;
+                phases[p as usize] = phase.cos();
+                phases[p as usize + phase_size] = phase.sin();
+            }
+            phase_lookup.insert(scanline, phases);
+        }
         Self {
             num: 0u32,
             parity: false,
@@ -1467,6 +1521,8 @@ impl Frame {
             sprite_count: 0u8,
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
+            signal_levels: vec![0.0; SIGNAL_SIZE],
+            phase_lookup,
             pixels: vec![0u8; RENDER_SIZE],
         }
     }
@@ -1481,12 +1537,123 @@ impl Frame {
         self.parity = !self.parity;
     }
 
-    fn put_pixel(&mut self, palette_idx: usize, x: u32, y: u32) {
+    fn put_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
         if x > RENDER_WIDTH || y > RENDER_HEIGHT {
             return;
         }
-        let width = RENDER_WIDTH;
-        Ppu::put_pixel(palette_idx, x, y, width, &mut self.pixels);
+        let idx = (3 * (x + y * RENDER_WIDTH)) as usize;
+        self.pixels[idx] = r;
+        self.pixels[idx + 1] = g;
+        self.pixels[idx + 2] = b;
+    }
+
+    // TODO - Make this more accurate
+    fn ntsc_signal(palette: u8, emphasis: u8, phase: u64) -> f32 {
+        // Decode the NES color
+        let color = u16::from(palette & 0x0F); // 0..15 "cccc"
+        let mut level = palette >> 4 & 3; // 0..3  "ll"
+        if color > 13 {
+            level = 1; // For colors 14..15, level 1 is forced.
+        }
+
+        // The square wave for this color alternates between these two voltages:
+        let mut low = Self::LEVELS[level as usize] as f32;
+        let mut high = Self::LEVELS[4 + level as usize] as f32;
+        if color == 0 {
+            low = high;
+        } // For color 0, only high level is emitted
+        if color > 12 {
+            high = low;
+        } // For colors 13..15, only low level is emitted
+
+        // Generate the square wave
+        let in_color_phase = |color| (color as u64 + phase) % 12 < 6; // Inline function
+        let mut signal = if in_color_phase(color) { high } else { low };
+
+        // When de-emphasis bits are set, some parts of the signal are attenuated:
+        if ((emphasis & 1 > 0) && in_color_phase(0))
+            || ((emphasis & 2 > 0) && in_color_phase(4))
+            || ((emphasis & 4 > 0) && in_color_phase(8))
+        {
+            signal *= Self::ATTENUATION;
+        }
+
+        signal
+    }
+
+    fn render_ntsc_pixel(&mut self, x: u16, palette: u8, emphasis: u8, ppu_cycle: u64) {
+        let phase = ppu_cycle * 8;
+        // Each pixel produces distinct 8 samples of NTSC signal
+        for p in 0..8 {
+            let mut signal = Self::ntsc_signal(palette, emphasis, (phase + p) % 12);
+            // Optionally apply some lowpass-filtering to the signal here
+            // Optionally normalize the signal to 0..1 range:
+            signal = (signal - Self::BLACK) / (Self::WHITE - Self::BLACK);
+            // Save the signal for this pixel.
+            self.signal_levels[x as usize * 8 + p as usize] = signal;
+        }
+    }
+
+    // phase: This should the value that was cycle * 8 + 3.9
+    // at the BEGINNING of this scanline. It should be modulo 12.
+    // It can additionally include a floating-point hue offset.
+    fn decode_ntsc_signal(&mut self, scanline: u16) {
+        let phase_lookup = self.phase_lookup.get(&scanline).unwrap();
+        let mut pixels = Vec::with_capacity(RENDER_WIDTH as usize);
+        let samples = 6;
+        for x in 0..RENDER_WIDTH {
+            // Determine the region of scanline signal to sample. Take 12 samples.
+            let center = x * 8;
+            let begin = if center > samples {
+                center - samples
+            } else {
+                0
+            };
+            let end = if center < RENDER_WIDTH * 8 - samples {
+                center + samples
+            } else {
+                RENDER_WIDTH * 8
+            };
+            // Calculate the color in YIQ
+            let mut y = 0.0;
+            let mut i = 0.0;
+            let mut q = 0.0;
+            let signal_idx = (scanline as u32 * RENDER_WIDTH * 8) as usize;
+            for p in begin..end {
+                // Collect and accumulate samples
+                let level = self.signal_levels[signal_idx + p as usize] / 12.0;
+                y += level;
+                i += level * phase_lookup[p as usize];
+                q += level * phase_lookup[p as usize + RENDER_WIDTH as usize * 8];
+            }
+            let (r, g, b) = Self::yiq_to_rgb(y, i, q);
+            pixels.push((r, g, b));
+        }
+        for (x, (r, g, b)) in pixels.iter().enumerate() {
+            self.put_pixel(x as u32, u32::from(scanline), *r, *g, *b);
+        }
+    }
+
+    fn yiq_to_rgb(y: f32, i: f32, q: f32) -> (u8, u8, u8) {
+        let gamma_fix = |f: f32| {
+            if f <= 0.0 {
+                0.0
+            } else {
+                f.powf(1.1)
+            }
+        };
+        let clamp = |v: f32| {
+            if v > 255.0 {
+                255
+            } else {
+                v.floor() as u32
+            }
+        };
+        (
+            clamp(255.95 * gamma_fix(y + 0.946_882 * i + 0.623_557 * q)) as u8,
+            clamp(255.95 * gamma_fix(y - 0.274_788 * i - 0.635_691 * q)) as u8,
+            clamp(255.95 * gamma_fix(y - 1.108_545 * i + 1.709_007 * q)) as u8,
+        )
     }
 }
 
@@ -1642,7 +1809,7 @@ impl Savable for PpuCtrl {
 
 // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUMASK
 // BGRs bMmG
-// |||| |||+- Greyscale (0: normal color, 1: produce a greyscale display)
+// |||| |||+- Grayscale (0: normal color, 1: produce a grayscale display)
 // |||| ||+-- 1: Show background in leftmost 8 pixels of screen, 0: Hide
 // |||| |+--- 1: Show sprites in leftmost 8 pixels of screen, 0: Hide
 // |||| +---- 1: Show background
@@ -1668,6 +1835,12 @@ impl PpuMask {
     }
     fn show_sprites(&self) -> bool {
         self.0 & 0x10 > 0
+    }
+    fn grayscale(&self) -> bool {
+        self.0 & 0x01 > 0
+    }
+    fn emphasis(&self) -> u8 {
+        (self.0 & 0xE0) >> 5
     }
 }
 
@@ -1736,6 +1909,12 @@ impl Default for Ppu {
     }
 }
 
+impl fmt::Debug for Ppu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Ppu {{ }}")
+    }
+}
+
 impl fmt::Debug for Oam {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Oam {{ entries: {} bytes }}", OAM_SIZE)
@@ -1767,16 +1946,28 @@ impl fmt::Debug for Palette {
 }
 
 // 64 total possible colors, though only 32 can be loaded at a time
+#[rustfmt::skip]
 const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
-    124, 124, 124, 0, 0, 252, 0, 0, 188, 68, 40, 188, 148, 0, 132, 168, 0, 32, 168, 16, 0, 136, 20,
-    0, 80, 48, 0, 0, 120, 0, 0, 104, 0, 0, 88, 0, 0, 64, 88, 0, 0, 0, 0, 0, 0, 0, 0, 0, 188, 188,
-    188, 0, 120, 248, 0, 88, 248, 104, 68, 252, 216, 0, 204, 228, 0, 88, 248, 56, 0, 228, 92, 16,
-    172, 124, 0, 0, 184, 0, 0, 168, 0, 0, 168, 68, 0, 136, 136, 0, 0, 0, 0, 0, 0, 0, 0, 0, 248,
-    248, 248, 60, 188, 252, 104, 136, 252, 152, 120, 248, 248, 120, 248, 248, 88, 152, 248, 120,
-    88, 252, 160, 68, 248, 184, 0, 184, 248, 24, 88, 216, 84, 88, 248, 152, 0, 232, 216, 120, 120,
-    120, 0, 0, 0, 0, 0, 0, 252, 252, 252, 164, 228, 252, 184, 184, 248, 216, 184, 248, 248, 184,
-    248, 248, 164, 192, 240, 208, 176, 252, 224, 168, 248, 216, 120, 216, 248, 120, 184, 248, 184,
-    184, 248, 216, 0, 252, 252, 248, 216, 248, 0, 0, 0, 0, 0, 0,
+    // 0x00
+    84, 84, 84,    0, 30, 116,    8, 16, 144,    48, 0, 136,    // $00-$03
+    68, 0, 100,    92, 0, 48,     84, 4, 0,      60, 24, 0,     // $04-$07
+    32, 42, 0,     8, 58, 0,      0, 64, 0,      0, 60, 0,      // $08-$0B
+    0, 50, 60,     0, 0, 0,       0, 0, 0,       0, 0, 0,       // $0C-$0F
+    // 0x10
+    152, 150, 152, 8, 76, 196,    48, 50, 236,   92, 30, 228,   // $10-$13
+    136, 20, 176,  160, 20, 100,  152, 34, 32,   120, 60, 0,    // $14-$17
+    84, 90, 0,     40, 114, 0,    8, 124, 0,     0, 118, 40,    // $18-$1B
+    0, 102, 120,   0, 0, 0,       0, 0, 0,       0, 0, 0,       // $1C-$1F
+    // 0x20
+    236, 238, 236, 76, 154, 236,  120, 124, 236, 176, 98, 236,  // $20-$23
+    228, 84, 236,  236, 88, 180,  236, 106, 100, 212, 136, 32,  // $24-$27
+    160, 170, 0,   116, 196, 0,   76, 208, 32,   56, 204, 108,  // $28-$2B
+    56, 180, 204,  60, 60, 60,    0, 0, 0,       0, 0, 0,       // $2C-$2F
+    // 0x30
+    236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, // $30-$33
+    236, 174, 236, 236, 174, 212, 236, 180, 176, 228, 196, 144, // $34-$37
+    204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, // $38-$3B
+    160, 214, 228, 160, 162, 160, 0, 0, 0,       0, 0, 0,       // $3C-$3F
 ];
 
 #[cfg(test)]

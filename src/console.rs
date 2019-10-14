@@ -119,8 +119,8 @@ impl Console {
     }
 
     /// Returns a rendered frame worth of data from the PPU
-    pub fn frame(&self) -> Vec<u8> {
-        self.cpu.mem.ppu.frame()
+    pub fn frame(&mut self) -> &Vec<u8> {
+        &self.cpu.mem.ppu.frame()
     }
 
     /// Returns nametable graphics

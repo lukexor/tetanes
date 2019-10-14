@@ -259,7 +259,7 @@ impl State for Ui {
         }
 
         // Update screen
-        data.copy_texture(1, "nes", &self.console.frame())?;
+        data.copy_texture(1, "nes", self.console.frame())?;
         if self.debug {
             if self.active_debug || self.paused {
                 self.draw_debug(data);
@@ -271,9 +271,6 @@ impl State for Ui {
         }
         if self.nt_viewer {
             self.copy_nt_viewer(data)?;
-        }
-        if self.paused {
-            self.draw_menu(data)?;
         }
         self.draw_messages(elapsed, data)?;
 
