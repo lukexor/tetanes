@@ -80,6 +80,7 @@ where
                 timer = Instant::now();
 
                 let events: Vec<PixEvent> = self.data.driver.poll()?;
+                self.data.events.clear();
                 for event in events {
                     self.data.events.push(event);
                     match event {

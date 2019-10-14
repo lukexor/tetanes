@@ -461,6 +461,7 @@ impl Ppu {
         }
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn render_pixel(&mut self) {
         let x = self.cycle - 1; // Because we called tick() before this
         let y = self.scanline;
@@ -504,7 +505,7 @@ impl Ppu {
         };
         let mut palette = self.vram.read(u16::from(color) + PALETTE_START);
         if self.regs.mask.grayscale() {
-            palette = palette & !0x0F; // Remove chroma
+            palette &= !0x0F; // Remove chroma
         }
         if self.ntsc_video {
             self.frame.render_ntsc_pixel(
@@ -1502,7 +1503,7 @@ impl Frame {
         let mut phase_lookup = HashMap::new();
         for scanline in 0..RENDER_HEIGHT as u16 {
             let mut phases = vec![0.0; 2 * phase_size];
-            let phase = (scanline as f32 * 341.0 * 8.0 + 3.9) % 12.0;
+            let phase = (f32::from(scanline) * 341.0 * 8.0 + 3.9) % 12.0;
             for p in 0..phase_size {
                 let phase = (PI as f32 * (phase + p as f32)) / 6.0;
                 phases[p as usize] = phase.cos();
@@ -1537,6 +1538,7 @@ impl Frame {
         self.parity = !self.parity;
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn put_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
         if x > RENDER_WIDTH || y > RENDER_HEIGHT {
             return;
@@ -1551,10 +1553,11 @@ impl Frame {
     fn ntsc_signal(palette: u8, emphasis: u8, phase: u64) -> f32 {
         // Decode the NES color
         let color = u16::from(palette & 0x0F); // 0..15 "cccc"
-        let mut level = palette >> 4 & 3; // 0..3  "ll"
-        if color > 13 {
-            level = 1; // For colors 14..15, level 1 is forced.
-        }
+        let level = if color > 13 {
+            1 // For colors 14..15, level 1 is forced.
+        } else {
+            palette >> 4 & 3 // 0..3  "ll"
+        };
 
         // The square wave for this color alternates between these two voltages:
         let mut low = Self::LEVELS[level as usize] as f32;
@@ -1567,7 +1570,7 @@ impl Frame {
         } // For colors 13..15, only low level is emitted
 
         // Generate the square wave
-        let in_color_phase = |color| (color as u64 + phase) % 12 < 6; // Inline function
+        let in_color_phase = |color| (u64::from(color) + phase) % 12 < 6; // Inline function
         let mut signal = if in_color_phase(color) { high } else { low };
 
         // When de-emphasis bits are set, some parts of the signal are attenuated:
@@ -1597,6 +1600,7 @@ impl Frame {
     // phase: This should the value that was cycle * 8 + 3.9
     // at the BEGINNING of this scanline. It should be modulo 12.
     // It can additionally include a floating-point hue offset.
+    #[allow(clippy::many_single_char_names)]
     fn decode_ntsc_signal(&mut self, scanline: u16) {
         let phase_lookup = self.phase_lookup.get(&scanline).unwrap();
         let mut pixels = Vec::with_capacity(RENDER_WIDTH as usize);
@@ -1618,7 +1622,7 @@ impl Frame {
             let mut y = 0.0;
             let mut i = 0.0;
             let mut q = 0.0;
-            let signal_idx = (scanline as u32 * RENDER_WIDTH * 8) as usize;
+            let signal_idx = (u32::from(scanline) * RENDER_WIDTH * 8) as usize;
             for p in begin..end {
                 // Collect and accumulate samples
                 let level = self.signal_levels[signal_idx + p as usize] / 12.0;

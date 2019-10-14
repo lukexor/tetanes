@@ -125,6 +125,7 @@ impl App {
     }
 
     fn reset(&mut self, data: &StateData) {
+        self.paused = false;
         self.spawn_new_ship(data);
         self.level = 1;
         self.lives = 4;
@@ -157,8 +158,33 @@ impl State for App {
         if data.get_key(Key::R).pressed {
             self.reset(data);
         }
+
         if self.paused {
             return Ok(());
+        }
+
+        // Steer
+        if data.get_key(Key::Left).held {
+            self.ship.angle -= 5.0 * elapsed;
+        } else if data.get_key(Key::Right).held {
+            self.ship.angle += 5.0 * elapsed;
+        }
+
+        // Thrust
+        if data.get_key(Key::Up).held {
+            self.ship.dx += self.ship.angle.sin() * SHIP_THRUST * elapsed;
+            self.ship.dy += -self.ship.angle.cos() * SHIP_THRUST * elapsed;
+        }
+        // Shoot a bullet
+        if data.get_key(Key::Space).released {
+            self.bullets.push(SpaceObj::new(
+                0,
+                self.ship.x,
+                self.ship.y,
+                BULLET_SPEED * self.ship.angle.sin(),
+                BULLET_SPEED * -self.ship.angle.cos(),
+                100.0,
+            ));
         }
 
         data.fill(pixel::BLACK);
@@ -207,36 +233,11 @@ impl State for App {
             );
         }
 
-        // Steer
-        if data.get_key(Key::Left).held {
-            self.ship.angle -= 5.0 * elapsed;
-        } else if data.get_key(Key::Right).held {
-            self.ship.angle += 5.0 * elapsed;
-        }
-
-        // Thrust
-        if data.get_key(Key::Up).held {
-            self.ship.dx += self.ship.angle.sin() * SHIP_THRUST * elapsed;
-            self.ship.dy += -self.ship.angle.cos() * SHIP_THRUST * elapsed;
-        }
-
         self.ship.x += self.ship.dx * elapsed;
         self.ship.y += self.ship.dy * elapsed;
 
         // Keep ship in game space
         data.wrap_coords(self.ship.x, self.ship.y, &mut self.ship.x, &mut self.ship.y);
-
-        // Shoot a bullet
-        if data.get_key(Key::Space).released {
-            self.bullets.push(SpaceObj::new(
-                0,
-                self.ship.x,
-                self.ship.y,
-                BULLET_SPEED * self.ship.angle.sin(),
-                BULLET_SPEED * -self.ship.angle.cos(),
-                100.0,
-            ));
-        }
 
         // Draw asteroids
         for a in self.asteroids.iter_mut() {
