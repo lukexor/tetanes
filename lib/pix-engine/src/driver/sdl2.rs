@@ -24,9 +24,6 @@ pub const SAMPLE_RATE: i32 = 96_000; // in Hz
 mod event;
 
 pub(crate) struct Sdl2Driver {
-    title: String,
-    width: u32,
-    height: u32,
     context: Sdl,
     canvases: HashMap<u32, (Canvas<video::Window>, TextureCreator<WindowContext>)>,
     texture_maps: HashMap<String, TextureMap>,
@@ -88,8 +85,8 @@ impl Sdl2Driver {
                 format: PixelFormatEnum::RGBA32,
                 channels: 4,
                 pitch: (4 * opts.width) as usize,
-                src: None,
-                dst: None,
+                src: Some(rect::Rect::new(0, 0, opts.width, opts.height)),
+                dst: Some(rect::Rect::new(0, 0, opts.width, opts.height)),
             },
         );
 
@@ -107,9 +104,6 @@ impl Sdl2Driver {
         canvases.insert(window_id, (canvas, texture_creator));
 
         Ok(Self {
-            title: opts.title.to_string(),
-            width: opts.width,
-            height: opts.height,
             context,
             canvases,
             audio_device,
@@ -146,49 +140,47 @@ impl Driver for Sdl2Driver {
     }
 
     fn vsync(&mut self, window_id: u32, val: bool) -> PixEngineResult<()> {
-        // TODO
-        // let video_sub = self.context.video()?;
-        // let mut window_builder = video_sub.window(&self.title, self.width, self.height);
-        // window_builder.position_centered().resizable();
-        // let window = window_builder.build()?;
+        if let Some((canvas, texture_creator)) = self.canvases.get_mut(&window_id) {
+            let title = canvas.window().title();
+            let (width, height) = canvas.window().size();
+            let (x, y) = canvas.window().position();
+            let video_sub = canvas.window().subsystem();
 
-        // // Set up canvas
-        // let mut canvas_builder = window.into_canvas().target_texture();
-        // if val {
-        //     canvas_builder = canvas_builder.present_vsync();
-        // }
-        // let mut canvas = canvas_builder.build()?;
-        // canvas.set_logical_size(self.width, self.height)?;
+            let mut window_builder = video_sub.window(&title, width, height);
+            window_builder.position(x, y).resizable();
+            let window = window_builder.build()?;
 
-        // let texture_creator = canvas.texture_creator();
-        // let screen_tex = texture_creator.create_texture_streaming(
-        //     PixelFormatEnum::RGBA32,
-        //     self.width,
-        //     self.height,
-        // )?;
-        // let mut texture_maps = HashMap::new();
-        // for (name, map) in &self.texture_maps {
-        //     let (width, height) = if let Some(src) = map.src {
-        //         (src.w as u32, src.h as u32)
-        //     } else {
-        //         (self.width, self.height)
-        //     };
-        //     let tex = texture_creator.create_texture_streaming(map.format, width, height)?;
-        //     texture_maps.insert(
-        //         *name,
-        //         TextureMap {
-        //             tex,
-        //             format: map.format,
-        //             channels: map.channels,
-        //             pitch: map.pitch,
-        //             src: map.src,
-        //             dst: map.dst,
-        //         },
-        //     );
-        // }
-        // self.canvas = canvas;
-        // self.texture_creator = texture_creator;
-        // self.texture_maps = texture_maps;
+            // Set up canvas
+            let mut canvas_builder = window.into_canvas().target_texture();
+            if val {
+                canvas_builder = canvas_builder.present_vsync();
+            }
+            let mut new_canvas = canvas_builder.build()?;
+            new_canvas.set_logical_size(width, height)?;
+            let new_texture_creator = new_canvas.texture_creator();
+            let mut texture_maps = HashMap::new();
+            for (name, map) in self.texture_maps.iter() {
+                let tex = new_texture_creator.create_texture_streaming(
+                    map.format,
+                    map.src.expect("src").width(),
+                    map.src.expect("src").height(),
+                )?;
+                texture_maps.insert(
+                    name.to_string(),
+                    TextureMap {
+                        tex,
+                        format: map.format,
+                        channels: map.channels,
+                        pitch: map.pitch,
+                        src: map.src,
+                        dst: map.dst,
+                    },
+                );
+            }
+            *canvas = new_canvas;
+            *texture_creator = new_texture_creator;
+            self.texture_maps = texture_maps;
+        }
         Ok(())
     }
 

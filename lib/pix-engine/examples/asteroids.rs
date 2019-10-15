@@ -193,21 +193,20 @@ impl State for App {
             if self.lives > 0 {
                 self.exploded(data);
             } else {
-                data.set_font_scale(3);
+                data.set_draw_scale(3);
                 data.draw_string(
                     data.screen_width() / 2 - 108,
                     data.screen_height() / 3 - 24,
                     "GAME OVER",
                     pixel::WHITE,
                 );
-                data.set_font_scale(1);
+                data.set_draw_scale(1);
                 data.draw_string(
                     data.screen_width() / 2 - 88,
                     data.screen_height() / 3 + 16,
                     "PRESS SPACE TO RESTART",
                     pixel::WHITE,
                 );
-                data.set_font_scale(2);
                 if data.get_key(Key::Space).pressed {
                     self.reset(data);
                 }

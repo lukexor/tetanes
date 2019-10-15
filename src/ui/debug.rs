@@ -1,7 +1,7 @@
 use crate::{
     console::{cpu::StatusRegs, RENDER_HEIGHT, RENDER_WIDTH},
     memory::Memory,
-    ui::{Ui, WINDOW_HEIGHT, WINDOW_WIDTH},
+    ui::Ui,
     NesErr, NesResult,
 };
 use pix_engine::{
@@ -11,8 +11,7 @@ use pix_engine::{
     StateData,
 };
 
-const DEBUG_WIDTH: u32 = WINDOW_WIDTH / 2;
-const DEBUG_HEIGHT: u32 = WINDOW_HEIGHT;
+const DEBUG_WIDTH: u32 = 350;
 
 impl Ui {
     pub(super) fn toggle_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
@@ -114,11 +113,11 @@ impl Ui {
 
     pub(super) fn toggle_debug(&mut self, data: &mut StateData) -> NesResult<()> {
         self.debug = !self.debug;
-        self.paused = self.debug;
+        self.paused(self.debug);
 
         // Adjust window width and create textures if necessary
-        let debug_width = DEBUG_WIDTH * self.settings.scale;
-        let debug_height = DEBUG_HEIGHT * self.settings.scale;
+        let debug_width = DEBUG_WIDTH;
+        let debug_height = self.height;
 
         if self.debug {
             self.width += debug_width;
@@ -148,21 +147,12 @@ impl Ui {
     }
 
     pub(super) fn draw_debug(&mut self, data: &mut StateData) {
-        let font_scaler = |s| match s {
-            s if s > 1 => s - 1,
-            _ => 1,
-        };
-
-        let font_scale = font_scaler(self.settings.scale);
-        let small_scale = font_scaler(font_scale);
-
-        let x = 5 * font_scale;
-        let mut y = 5 * font_scale;
+        let x = 5;
+        let mut y = 5;
         let wh = pixel::WHITE;
-        let debug_width = DEBUG_WIDTH * self.settings.scale;
-        let debug_height = DEBUG_HEIGHT * self.settings.scale;
+        let debug_width = DEBUG_WIDTH;
+        let debug_height = self.height;
 
-        data.set_font_scale(font_scale);
         if self.debug_sprite.is_none() {
             let sprite = Sprite::new(debug_width, debug_height);
             data.set_draw_target(sprite);
@@ -183,8 +173,8 @@ impl Ui {
             }
         };
 
-        let fxpad = 8 * font_scale; // Font x-padding
-        let fypad = 10 * font_scale; // Font y-padding
+        let fxpad = 8; // Font x-padding
+        let fypad = 10; // Font y-padding
         let ox = x + 8 * fxpad; // 8 chars from "Status: " * font padding
         data.draw_string(ox, y, "N", scolor(StatusRegs::N));
         data.draw_string(ox + fxpad, y, "V", scolor(StatusRegs::V));
@@ -221,10 +211,9 @@ impl Ui {
         data.draw_string(x, y, &format!("Stack: $01{:02X}", cpu.sp), wh);
         y += fypad;
 
-        data.set_font_scale(small_scale);
         let bytes_per_row = 8;
-        let xpad = 24 * small_scale; // Font x-padding
-        let ypad = 10 * small_scale; // Font y-padding
+        let xpad = 24; // Font x-padding
+        let ypad = 10; // Font y-padding
         for offset in 0..32u32 {
             let val = cpu.peek(0x0100 + offset as u16);
             data.draw_string(
@@ -234,7 +223,6 @@ impl Ui {
                 wh,
             );
         }
-        data.set_font_scale(font_scale);
 
         // PPU
         let ppu = &self.console.cpu.mem.ppu;
@@ -259,12 +247,10 @@ impl Ui {
         );
 
         // Disassembly
-        data.set_font_scale(small_scale);
-
         // Number of instructions to show
-        let instr_count = 15 * small_scale as usize;
         y += 2 * fypad;
-        let pad = 10 * small_scale;
+        let instr_count = std::cmp::min(30, (self.height - y) as usize / 10);
+        let pad = 10;
         let mut prev_count = 0;
         for pc in cpu.pc_log.iter().take(instr_count / 2) {
             let mut pc = *pc;
@@ -280,7 +266,6 @@ impl Ui {
             data.draw_string(x, y, &disasm, color);
             y += pad;
         }
-        data.set_font_scale(font_scale);
         self.debug_sprite = Some(data.take_draw_target().unwrap());
     }
 }

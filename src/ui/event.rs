@@ -46,8 +46,8 @@ impl Ui {
                         self.paused(true);
                     }
                 }
-                PixEvent::KeyPress(key, pressed, repeat) => {
-                    self.handle_key_event(key, pressed, repeat, turbo, data)?;
+                PixEvent::KeyPress(..) => {
+                    self.handle_key_event(event, turbo, data)?;
                 }
                 PixEvent::GamepadBtn(which, btn, pressed) => match btn {
                     Button::Guide => self.paused(!self.paused),
@@ -83,135 +83,134 @@ impl Ui {
 
     fn handle_key_event(
         &mut self,
-        key: Key,
-        pressed: bool,
-        repeat: bool,
+        event: PixEvent,
         turbo: bool,
         data: &mut StateData,
     ) -> NesResult<()> {
-        // Keydown or Keyup
-        match key {
-            Key::Ctrl => self.ctrl = pressed,
-            Key::LShift => self.shift = pressed,
-            _ if !self.ctrl && !self.shift => self.handle_input_event(key, pressed, turbo),
+        match event {
+            PixEvent::KeyPress(key, true, true) => self.handle_keyrepeat(key),
+            PixEvent::KeyPress(key, true, false) => self.handle_keydown(key, turbo, data)?,
+            PixEvent::KeyPress(key, false, ..) => self.handle_keyup(key, turbo),
             _ => (),
         }
+        Ok(())
+    }
 
-        if pressed {
-            match key {
-                Key::Comma => self.rewind()?,
-                // Key::Period => self.rewind_forward()?,
-                // Debug =======================================================================
-                Key::C if self.debug => {
+    fn handle_keyrepeat(&mut self, key: Key) {
+        let d = self.debug;
+        match key {
+            // No modifiers
+            Key::C if d => {
+                let _ = self.console.clock();
+            }
+            Key::F if d => self.console.clock_frame(),
+            Key::S if d => {
+                let prev_scanline = self.console.cpu.mem.ppu.scanline;
+                let mut scanline = prev_scanline;
+                while scanline == prev_scanline {
                     let _ = self.console.clock();
+                    scanline = self.console.cpu.mem.ppu.scanline;
                 }
-                Key::D if !self.ctrl && self.debug => self.active_debug = !self.active_debug,
-                Key::F if self.debug => self.console.clock_frame(),
-                Key::S if self.debug => {
-                    let prev_scanline = self.console.cpu.mem.ppu.scanline;
-                    let mut scanline = prev_scanline;
-                    while scanline == prev_scanline {
-                        let _ = self.console.clock();
-                        scanline = self.console.cpu.mem.ppu.scanline;
-                    }
-                }
-                _ => (),
             }
-            if !repeat {
-                // Keydown
-                if self.ctrl {
-                    match key {
-                        // UI ==========================================================================
-                        // Change speed
-                        Key::Minus => self.change_speed(-0.25),
-                        Key::Equals => self.change_speed(0.25),
-                        // Window
-                        Key::Return => {
-                            self.settings.fullscreen = !self.settings.fullscreen;
-                            data.fullscreen(self.settings.fullscreen)?;
-                        }
-                        Key::V if self.shift => {
-                            self.settings.vsync = !self.settings.vsync;
-                            data.vsync(self.settings.vsync)?;
-                        }
-                        Key::V if !self.shift => eprintln!("Recording not implemented"), // TODO
-                        Key::M => self.settings.sound_enabled = !self.settings.sound_enabled,
-                        // Open
-                        Key::O => eprintln!("Open Dialog not implemented"), // TODO
-                        // Power/Reset
-                        Key::R => {
-                            self.paused = false;
-                            self.console.reset();
-                        }
-                        Key::P if !self.shift => {
-                            self.paused = false;
-                            self.console.power_cycle();
-                        }
-                        // Save/Load
-                        Key::Num1 => self.settings.save_slot = 1,
-                        Key::Num2 => self.settings.save_slot = 2,
-                        Key::Num3 => self.settings.save_slot = 3,
-                        Key::Num4 => self.settings.save_slot = 4,
-                        Key::S => {
-                            if self.settings.save_enabled {
-                                self.console.save_state(self.settings.save_slot)?;
-                                self.add_message(&format!(
-                                    "Saved Slot {}",
-                                    self.settings.save_slot
-                                ));
-                            } else {
-                                self.add_message("Saved States Disabled");
-                            }
-                        }
-                        Key::L => {
-                            if self.settings.save_enabled {
-                                self.console.load_state(self.settings.save_slot)?;
-                                self.add_message(&format!(
-                                    "Loaded Slot {}",
-                                    self.settings.save_slot
-                                ));
-                            } else {
-                                self.add_message("Saved States Disabled");
-                            }
-                        }
-                        Key::C => {
-                            self.menu = !self.menu;
-                            self.paused = self.menu;
-                        }
-                        // Debug =======================================================================
-                        Key::D => self.toggle_debug(data)?,
-                        Key::P if self.shift => self.toggle_ppu_viewer(data)?,
-                        Key::N if self.shift => self.toggle_nt_viewer(data)?,
-                        Key::N if !self.shift => {
-                            self.console.cpu.mem.ppu.ntsc_video =
-                                !self.console.cpu.mem.ppu.ntsc_video
-                        }
-                        _ => (),
-                    }
+            _ => (),
+        }
+    }
+
+    fn handle_keydown(&mut self, key: Key, turbo: bool, data: &mut StateData) -> NesResult<()> {
+        let c = self.ctrl;
+        let s = self.shift;
+        let d = self.debug;
+        match key {
+            // No modifiers
+            Key::Ctrl => self.ctrl = true,
+            Key::LShift => self.shift = true,
+            Key::Escape => self.paused(!self.paused),
+            Key::Space => {
+                self.settings.speed = 2.0;
+                self.console.set_speed(self.settings.speed);
+            }
+            Key::Comma => self.rewind()?,
+            Key::D if d && !c => self.active_debug = !self.active_debug,
+            // Ctrl
+            Key::Num1 if c => self.settings.save_slot = 1,
+            Key::Num2 if c => self.settings.save_slot = 2,
+            Key::Num3 if c => self.settings.save_slot = 3,
+            Key::Num4 if c => self.settings.save_slot = 4,
+            Key::Minus if c => self.change_speed(-0.25),
+            Key::Equals if c => self.change_speed(0.25),
+            Key::Return if c => {
+                self.settings.fullscreen = !self.settings.fullscreen;
+                data.fullscreen(self.settings.fullscreen)?;
+            }
+            Key::C if c => {
+                self.menu = !self.menu;
+                self.paused(self.menu);
+            }
+            Key::D if c => self.toggle_debug(data)?,
+            Key::L if c => {
+                if self.settings.save_enabled {
+                    self.console.load_state(self.settings.save_slot)?;
+                    self.add_message(&format!("Loaded Slot {}", self.settings.save_slot));
                 } else {
-                    match key {
-                        // UI ==========================================================================
-                        Key::Escape => self.paused(!self.paused), // TODO menu
-                        // Fast-forward
-                        Key::Space => {
-                            self.settings.speed = 2.0;
-                            self.console.set_speed(self.settings.speed);
-                        }
-                        // Utilities ===================================================================
-                        Key::F9 => eprintln!("Toggle Logging Setting not implemented"), // TODO
-                        Key::F10 => util::screenshot(&self.console.frame()),
-                        _ => (),
-                    }
+                    self.add_message("Saved States Disabled");
                 }
             }
-        } else {
-            // Keyup
-            if let Key::Space = key {
+            Key::M if c => self.settings.sound_enabled = !self.settings.sound_enabled,
+            Key::N if c => {
+                self.console.cpu.mem.ppu.ntsc_video = !self.console.cpu.mem.ppu.ntsc_video
+            }
+            Key::O if c => self.add_message("Open Dialog not implemented"), // TODO
+            Key::R if c => {
+                self.paused(false);
+                self.console.reset();
+                self.add_message("Reset");
+            }
+            Key::P if c && !s => {
+                self.paused(false);
+                self.console.power_cycle();
+                self.add_message("Power Cycled");
+            }
+            Key::S if c => {
+                if self.settings.save_enabled {
+                    self.console.save_state(self.settings.save_slot)?;
+                    self.add_message(&format!("Saved Slot {}", self.settings.save_slot));
+                } else {
+                    self.add_message("Saved States Disabled");
+                }
+            }
+            Key::V if c => {
+                self.settings.vsync = !self.settings.vsync;
+                data.vsync(self.settings.vsync)?;
+                if self.settings.vsync {
+                    self.add_message("Vsync Enabled");
+                } else {
+                    self.add_message("Vsync Disabled");
+                }
+            }
+            // Shift
+            Key::N if s => self.toggle_nt_viewer(data)?,
+            Key::P if s => self.toggle_ppu_viewer(data)?,
+            Key::V if s => self.add_message("Recording not yet implemented"), // TODO
+            // F# Keys
+            Key::F10 => match util::screenshot(&self.console.frame()) {
+                Ok(s) => self.add_message(&s),
+                Err(e) => self.add_message(&e.to_string()),
+            },
+            _ => self.handle_input_event(key, true, turbo),
+        }
+        Ok(())
+    }
+
+    fn handle_keyup(&mut self, key: Key, turbo: bool) {
+        match key {
+            Key::Ctrl => self.ctrl = false,
+            Key::LShift => self.shift = false,
+            Key::Space => {
                 self.settings.speed = DEFAULT_SPEED;
                 self.console.set_speed(self.settings.speed);
             }
+            _ => self.handle_input_event(key, false, turbo),
         }
-        Ok(())
     }
 
     fn handle_input_event(&mut self, key: Key, pressed: bool, turbo: bool) {

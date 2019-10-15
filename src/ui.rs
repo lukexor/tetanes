@@ -88,6 +88,9 @@ impl Ui {
         let input = Rc::new(RefCell::new(Input::new()));
         let mut console = Console::init(input.clone(), settings.randomize_ram);
         console.debug(settings.debug);
+        let scale = settings.scale;
+        let width = scale * WINDOW_WIDTH;
+        let height = scale * WINDOW_HEIGHT;
         Self {
             roms: Vec::new(),
             loaded_rom: PathBuf::new(),
@@ -105,8 +108,8 @@ impl Ui {
             nt_viewer_window: None,
             debug_sprite: None,
             active_debug: false,
-            width: settings.scale * WINDOW_WIDTH,
-            height: settings.scale * WINDOW_HEIGHT,
+            width,
+            height,
             speed_counter: 0,
             rewind_timer: 3.0 * REWIND_TIMER,
             rewind_slot: 0,
@@ -156,7 +159,7 @@ impl Ui {
     fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) -> NesResult<()> {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         if !self.messages.is_empty() {
-            let width = WINDOW_WIDTH * self.settings.scale - 20;
+            let width = self.width - 20;
             let height = self.height;
             let message_box = Sprite::new(width, height);
             data.create_texture(
@@ -167,13 +170,15 @@ impl Ui {
                 Rect::new(10, 10, width, height),
             )?;
             data.set_draw_target(message_box);
-            let mut y = self.height - 20 * data.get_font_scale();
+            let mut y = self.height - 30;
+            data.set_draw_scale(2);
             for msg in self.messages.iter_mut() {
                 msg.timer -= elapsed;
                 data.draw_string(2, y + 2, &msg.text, pixel::BLACK);
                 data.draw_string(0, y, &msg.text, pixel::WHITE);
-                y -= 10 * data.get_font_scale();
+                y -= 20;
             }
+            data.set_draw_scale(1);
             let target = data.take_draw_target().unwrap();
             let pixels = target.bytes();
             data.copy_texture(1, "message", &pixels)?;

@@ -284,12 +284,13 @@ impl State for App {
         self.tetrominos.push(App::tetro_s(data));
         self.tetrominos.push(App::tetro_z(data));
         self.field = self.create_field(data);
-        data.set_font_scale(3);
         self.current_y = FIELD_TOP;
         self.current_x = FIELD_LEFT + (FIELD_RIGHT - FIELD_LEFT) / 2;
         self.current_tetro = Some(self.tetrominos[rand::random::<usize>() % 7].clone());
         data.clear();
+        data.set_draw_scale(3);
         data.draw_sprite(0, 0, &self.field);
+        data.set_draw_scale(1);
         Ok(())
     }
     fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> PixEngineResult<()> {

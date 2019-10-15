@@ -153,13 +153,14 @@ There are also some emulator actions:
 | Load State                        | Ctrl-L           |                    |
 | Rewind                            | Comma            | Back               |
 | Toggle Music/Sound                | Ctrl-M           |                    |
-| Toggle Recording<sup>*</sup>      | Ctrl-V           |                    |
 | Toggle Debugger                   | Ctrl-D           |                    |
 | Toggle Fullscreen                 | Ctrl-Enter       |                    |
-| Toggle Vsync                      | Shift-V          |                    |
+| Toggle Vsync                      | Ctrl-V           |                    |
 | Toggle NTSC Filter                | Ctrl-N           |                    |
+| Toggle Recording<sup>*</sup>      | Shift-V          |                    |
+| Toggle PPU Viewer                 | Shift-P          |                    |
+| Toggle Nametable Viewer           | Shift-N          |                    |
 | Take Screenshot                   | F10              |                    |
-| Cycle Log Level<sup>*</sup>       | F9               |                    |
 
 &ast; Not yet implemented
 

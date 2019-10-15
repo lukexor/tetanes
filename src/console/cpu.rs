@@ -338,10 +338,6 @@ where
         self.sp = self.sp.wrapping_add(1);
         self.read(SP_BASE | u16::from(self.sp))
     }
-    // Peek a byte at the top the stack
-    fn peek_stackb(&self) -> u8 {
-        self.peek(SP_BASE | u16::from(self.sp.wrapping_add(1)))
-    }
 
     // Push a word (two bytes) to the stack
     fn push_stackw(&mut self, val: u16) {
@@ -355,12 +351,6 @@ where
     fn pop_stackw(&mut self) -> u16 {
         let lo = u16::from(self.pop_stackb());
         let hi = u16::from(self.pop_stackb());
-        hi << 8 | lo
-    }
-    // Peek a word at the top of the stack
-    fn peek_stackw(&self) -> u16 {
-        let lo = u16::from(self.peek_stackb());
-        let hi = u16::from(self.peek_stackb());
         hi << 8 | lo
     }
 
@@ -664,7 +654,6 @@ where
                 let addr = self.peekw(*pc);
                 *pc = pc.wrapping_add(2);
                 if instr.op() == JMP || instr.op() == JSR {
-                    *pc = addr;
                     format!("${:04X}", addr)
                 } else {
                     let val = self.peek(addr);
@@ -732,15 +721,7 @@ where
                 format!("${:04X}", pc.wrapping_add(1).wrapping_add(rel_addr))
             }
             ACC => "A ".to_string(),
-            IMP => {
-                if instr.op() == RTS {
-                    let ret = self.peek_stackw().wrapping_add(1);
-                    if ret > SP_BASE {
-                        *pc = ret;
-                    }
-                }
-                "".to_string()
-            }
+            IMP => "".to_string(),
         };
         for i in 0..3 {
             if i < bytes.len() {

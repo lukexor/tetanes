@@ -98,7 +98,7 @@ pub fn home_dir() -> Option<PathBuf> {
 ///
 /// It's possible for this method to fail, but instead of erroring the program,
 /// it'll simply log the error out to STDERR
-pub fn screenshot(pixels: &[u8]) {
+pub fn screenshot(pixels: &[u8]) -> NesResult<String> {
     let datetime: DateTime<Local> = Local::now();
     let mut png_path = PathBuf::from(
         datetime
@@ -106,7 +106,7 @@ pub fn screenshot(pixels: &[u8]) {
             .to_string(),
     );
     png_path.set_extension("png");
-    create_png(&png_path, pixels);
+    create_png(&png_path, pixels)
 }
 
 /// Creates a '.png' file
@@ -121,31 +121,36 @@ pub fn screenshot(pixels: &[u8]) {
 ///
 /// It's possible for this method to fail, but instead of erroring the program,
 /// it'll simply log the error out to STDERR
-pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) {
+pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<String> {
     let png_path = png_path.as_ref();
     let png_file = fs::File::create(&png_path);
     if png_file.is_err() {
-        eprintln!(
+        return Err(map_nes_err!(
             "failed to create png file {:?}: {}",
             png_path.display(),
             png_file.err().unwrap(),
-        );
-        return;
+        ));
     }
     let png_file = BufWriter::new(png_file.unwrap());
     let mut png = png::Encoder::new(png_file, RENDER_WIDTH, RENDER_HEIGHT); // Safe to unwrap
     png.set_color(png::ColorType::RGB);
     let writer = png.write_header();
     if let Err(e) = writer {
-        eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
-        return;
+        return Err(map_nes_err!(
+            "failed to save screenshot {:?}: {}",
+            png_path.display(),
+            e
+        ));
     }
     let result = writer.unwrap().write_image_data(&pixels);
     if let Err(e) = result {
-        eprintln!("failed to save screenshot {:?}: {}", png_path.display(), e);
-        return;
+        return Err(map_nes_err!(
+            "failed to save screenshot {:?}: {}",
+            png_path.display(),
+            e
+        ));
     }
-    println!("{}", png_path.display());
+    return Ok(format!("{}", png_path.display()));
 }
 
 /// Writes a header including a magic string and a version

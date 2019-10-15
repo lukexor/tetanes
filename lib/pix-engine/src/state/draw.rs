@@ -122,15 +122,6 @@ impl StateData {
     pub fn set_draw_scale(&mut self, scale: u32) {
         self.draw_scale = scale;
     }
-    // Sets the scale factor for draw_string
-    pub fn get_font_scale(&mut self) -> u32 {
-        self.font_scale
-    }
-    // Sets the scale factor for draw_string
-    pub fn set_font_scale(&mut self, scale: u32) {
-        self.font_scale = scale;
-    }
-
     // Utility functions =========================================================
 
     // Wraps (x, y) coordinates around screen width/height into (ox, oy)
@@ -621,19 +612,19 @@ impl StateData {
         for c in text.chars() {
             if c == '\n' {
                 sx = 0;
-                sy += 8 * self.font_scale;
+                sy += 8 * self.draw_scale;
             } else {
                 let ox = (c as u32 - 32) % 16;
                 let oy = (c as u32 - 32) / 16;
-                if self.font_scale > 1 {
+                if self.draw_scale > 1 {
                     for ox1 in 0..8 {
                         for oy1 in 0..8 {
                             if self.font.get_pixel(ox1 + ox * 8, oy1 + oy * 8)[0] > 0 {
-                                for xs in 0..self.font_scale {
-                                    for ys in 0..self.font_scale {
+                                for xs in 0..self.draw_scale {
+                                    for ys in 0..self.draw_scale {
                                         self.draw(
-                                            x + sx + (ox1 * self.font_scale) + xs,
-                                            y + sy + (oy1 * self.font_scale) + ys,
+                                            x + sx + (ox1 * self.draw_scale) + xs,
+                                            y + sy + (oy1 * self.draw_scale) + ys,
                                             p,
                                         );
                                     }
@@ -650,7 +641,7 @@ impl StateData {
                         }
                     }
                 }
-                sx += 8 * self.font_scale;
+                sx += 8 * self.draw_scale;
             }
         }
         self.set_alpha_mode(alpha_mode); // Restore alpha mode
