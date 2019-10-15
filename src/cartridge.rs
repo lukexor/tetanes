@@ -122,16 +122,15 @@ impl Cartridge {
 
     pub fn mapper_board(&self) -> &'static str {
         match self.header.mapper_num {
-            0 => "Nrom",
+            0 => "NROM",
             1 => "Sxrom/MMC1",
-            2 => "Uxrom",
-            3 => "Cnrom",
-            4 => "Txrom/MMC3",
-            5 => "Exrom/MMC5",
-            7 => "Axrom",
-            9 => "Pxrom",
-            10 => "Fxrom/MMC4",
-            _ => "Unknown",
+            2 => "UxROM",
+            3 => "CNROM",
+            4 => "TxROM/MMC3/MMC6",
+            5 => "ExROM/MMC5",
+            7 => "AxROM",
+            9 => "PxROM",
+            _ => "Unsupported Board",
         }
     }
 
