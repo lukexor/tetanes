@@ -2,14 +2,19 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/PPU]()
 
-use crate::mapper::{self, MapperRef, Mirroring};
-use crate::memory::Memory;
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::collections::HashMap;
-use std::f64::consts::PI;
-use std::fmt;
-use std::io::{Read, Write};
+use crate::{
+    common::{Clocked, Powered},
+    mapper::{MapperRef, Mirroring},
+    memory::Memory,
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    collections::HashMap,
+    f64::consts::PI,
+    fmt,
+    io::{Read, Write},
+};
 
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
@@ -74,7 +79,6 @@ pub struct Ppu {
     oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
     pub frame: Frame, // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
-    logging: bool,
     debug: bool,
     nametables: Vec<Vec<u8>>,
     pattern_tables: Vec<Vec<u8>>,
@@ -95,7 +99,6 @@ impl Ppu {
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
-            logging: false,
             debug: false,
             nametables: vec![
                 vec![0; RENDER_SIZE],
@@ -110,45 +113,11 @@ impl Ppu {
     }
 
     pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.vram.mapper = mapper;
-    }
-
-    pub fn logging(&mut self, val: bool) {
-        self.logging = val;
-        self.vram.logging = val;
+        self.vram.mapper = Some(mapper);
     }
 
     pub fn debug(&mut self, val: bool) {
         self.debug = val;
-    }
-
-    // Step ticks as many cycles as needed to reach
-    // target cycle to syncronize with the CPU
-    // http://wiki.nesdev.com/w/index.php/PPU_rendering
-    pub fn clock(&mut self) {
-        self.tick();
-        self.render_dot();
-        if self.cycle == 1 {
-            if self.scanline == PRERENDER_SCANLINE {
-                // Dummy scanline - set up tiles for next scanline
-                self.stop_vblank();
-                self.set_sprite_zero_hit(false);
-                self.set_sprite_overflow(false);
-            } else if self.scanline == VBLANK_SCANLINE {
-                self.start_vblank();
-            }
-        }
-
-        if self.debug && self.scanline == 0 && self.cycle == 0 {
-            self.nametables = vec![
-                self.load_nametable(NT_START),
-                self.load_nametable(NT_START + 0x0400),
-                self.load_nametable(NT_START + 0x0800),
-                self.load_nametable(NT_START + 0x0C00),
-            ];
-            self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
-            self.palette = self.load_palette();
-        }
     }
 
     pub fn update_debug(&mut self) {
@@ -294,13 +263,12 @@ impl Ppu {
             }
 
             // Two dummy byte fetches
-            if self.cycle >= PREFETCH_CYCLE_END
+            if render_scanline
+                && self.cycle > PREFETCH_CYCLE_END
                 && self.cycle <= VISIBLE_SCANLINE_CYCLE_END
-                && self.cycle % 2 == 0
+                && self.cycle % 2 == 1
             {
-                let addr = NT_START | (self.regs.v & 0x0FFF);
-                self.frame.nametable = self.vram.read(addr).into();
-                self.vram.mapper.borrow_mut().vram_change(addr);
+                self.fetch_bg_nt_byte();
             }
 
             // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
@@ -338,20 +306,67 @@ impl Ppu {
                 if self.cycle >= 257 && self.cycle <= 320 {
                     let sprite_idx = (self.cycle as usize - 257) / 8;
                     let sprite = self.frame.sprites[sprite_idx];
-                    if self.cycle % 8 == 5 {
-                        let _ = self.vram.read(sprite.tile_addr);
-                        self.vram.mapper.borrow_mut().vram_change(sprite.tile_addr);
-                    } else if self.cycle % 8 == 7 {
-                        let _ = self.vram.read(sprite.tile_addr + 8);
-                        self.vram
-                            .mapper
-                            .borrow_mut()
-                            .vram_change(sprite.tile_addr + 8);
-                    };
+
+                    match self.cycle % 8 {
+                        1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
+                        3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
+                        5 => {
+                            let _ = self.vram.read(sprite.tile_addr);
+                            if let Some(mapper) = &self.vram.mapper {
+                                mapper.borrow_mut().vram_change(sprite.tile_addr);
+                            }
+                        }
+                        7 => {
+                            let _ = self.vram.read(sprite.tile_addr + 8);
+                            if let Some(mapper) = &self.vram.mapper {
+                                mapper.borrow_mut().vram_change(sprite.tile_addr + 8);
+                            }
+                        }
+                        _ => (),
+                    }
                 }
             }
         }
     }
+
+    fn fetch_bg_nt_byte(&mut self) {
+        // Fetch BG nametable
+        // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
+        let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
+        let addr = NT_START | (self.regs.v & nametable_addr_mask);
+        self.frame.nametable = u16::from(self.vram.read(addr));
+        if let Some(mapper) = &self.vram.mapper {
+            mapper.borrow_mut().vram_change(addr);
+        }
+    }
+
+    fn fetch_bg_attr_byte(&mut self) {
+        // Fetch BG attribute table
+        // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
+        // NN 1111 YYY XXX
+        // || |||| ||| +++-- high 3 bits of coarse X (x/4)
+        // || |||| +++------ high 3 bits of coarse Y (y/4)
+        // || ++++---------- attribute offset (960 bytes)
+        // ++--------------- nametable select
+        let v = self.regs.v;
+        let nametable_select = v & (NT_X_MASK | NT_Y_MASK);
+        let y_bits = (v >> 4) & 0x38;
+        let x_bits = (v >> 2) & 0x07;
+        let addr = ATTRIBUTE_START | nametable_select | y_bits | x_bits;
+        self.frame.attribute = self.vram.read(addr);
+        if let Some(mapper) = &self.vram.mapper {
+            mapper.borrow_mut().vram_change(addr);
+        }
+        // If the top bit of the low 3 bits is set, shift to next quadrant
+        if self.regs.coarse_y() & 2 > 0 {
+            self.frame.attribute >>= 4;
+        }
+        if self.regs.coarse_x() & 2 > 0 {
+            self.frame.attribute >>= 2;
+        }
+        self.frame.attribute = (self.frame.attribute & 3) << 2;
+    }
+
     fn evaluate_background(&mut self) {
         self.frame.tile_data <<= 4;
         // Fetch 4 tiles and write out shift registers every 8th cycle
@@ -371,45 +386,17 @@ impl Ppu {
                 }
                 self.frame.tile_data |= u64::from(data);
             }
-            1 => {
-                // Fetch BG nametable
-                // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
-                let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
-                let addr = NT_START | (self.regs.v & nametable_addr_mask);
-                self.frame.nametable = u16::from(self.vram.read(addr));
-                self.vram.mapper.borrow_mut().vram_change(addr);
-            }
-            3 => {
-                // Fetch BG attribute table
-                // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
-                // NN 1111 YYY XXX
-                // || |||| ||| +++-- high 3 bits of coarse X (x/4)
-                // || |||| +++------ high 3 bits of coarse Y (y/4)
-                // || ++++---------- attribute offset (960 bytes)
-                // ++--------------- nametable select
-                let v = self.regs.v;
-                let nametable_select = v & (NT_X_MASK | NT_Y_MASK);
-                let y_bits = (v >> 4) & 0x38;
-                let x_bits = (v >> 2) & 0x07;
-                let addr = ATTRIBUTE_START | nametable_select | y_bits | x_bits;
-                self.frame.attribute = self.vram.read(addr);
-                self.vram.mapper.borrow_mut().vram_change(addr);
-                // If the top bit of the low 3 bits is set, shift to next quadrant
-                if self.regs.coarse_y() & 2 > 0 {
-                    self.frame.attribute >>= 4;
-                }
-                if self.regs.coarse_x() & 2 > 0 {
-                    self.frame.attribute >>= 2;
-                }
-                self.frame.attribute = (self.frame.attribute & 3) << 2;
-            }
+            1 => self.fetch_bg_nt_byte(),
+            3 => self.fetch_bg_attr_byte(),
             5 => {
                 // Fetch BG tile lo bitmap
                 let tile_addr = self.regs.ctrl.background_select()
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_lo = self.vram.read(tile_addr);
-                self.vram.mapper.borrow_mut().vram_change(tile_addr);
+                if let Some(mapper) = &self.vram.mapper {
+                    mapper.borrow_mut().vram_change(tile_addr);
+                }
             }
             7 => {
                 // Fetch BG tile hi bitmap
@@ -417,7 +404,9 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_hi = self.vram.read(tile_addr + 8);
-                self.vram.mapper.borrow_mut().vram_change(tile_addr + 8);
+                if let Some(mapper) = &self.vram.mapper {
+                    mapper.borrow_mut().vram_change(tile_addr + 8);
+                }
             }
             _ => (),
         }
@@ -586,33 +575,39 @@ impl Ppu {
             self.regs.open_bus = 0x0;
         }
 
-        if self.rendering_enabled() {
-            // Reached the end of a frame cycle
-            // Jump to (0, 0) (Cycles, Scanline) and start on the next frame
-            if self.frame.parity
-                && self.scanline == PRERENDER_SCANLINE
-                && self.cycle == PRERENDER_CYCLE_END
-            {
+        // Reached the end of a frame cycle
+        // Jump to (0, 0) (Cycles, Scanline) and start on the next frame
+        if self.rendering_enabled()
+            && self.frame.parity
+            && self.scanline == PRERENDER_SCANLINE
+            && self.cycle == PRERENDER_CYCLE_END
+        {
+            self.cycle = 0;
+            self.scanline = 0;
+            self.total_cycles = 0;
+            self.frame.increment();
+            self.frame_complete = true;
+        } else {
+            self.cycle += 1;
+            self.total_cycles += 1;
+            if self.cycle > VISIBLE_SCANLINE_CYCLE_END {
                 self.cycle = 0;
-                self.scanline = 0;
-                self.total_cycles = 0;
-                self.frame.increment();
-                self.frame_complete = true;
-                return;
+                self.scanline += 1;
+                if self.scanline > PRERENDER_SCANLINE {
+                    self.scanline = 0;
+                    self.total_cycles = 0;
+                    self.frame.increment();
+                    self.frame_complete = true;
+                }
             }
         }
-
-        self.cycle += 1;
-        self.total_cycles += 1;
-        if self.cycle > VISIBLE_SCANLINE_CYCLE_END {
-            self.cycle = 0;
-            self.scanline += 1;
-            if self.scanline > PRERENDER_SCANLINE {
-                self.scanline = 0;
-                self.total_cycles = 0;
-                self.frame.increment();
-                self.frame_complete = true;
-            }
+        if let Some(mapper) = &self.vram.mapper {
+            mapper
+                .borrow_mut()
+                .bus_write(0x2008, (self.scanline & 0xFF) as u8);
+            mapper
+                .borrow_mut()
+                .bus_write(0x2009, (self.scanline >> 8) as u8);
         }
     }
 
@@ -729,7 +724,14 @@ impl Ppu {
      */
 
     fn read_ppustatus(&mut self) -> u8 {
-        self.regs.read_status()
+        let status = self.regs.read_status();
+        // read_status() modifies register, so make sure mapper is aware
+        if let Some(mapper) = &self.vram.mapper {
+            mapper
+                .borrow_mut()
+                .bus_write(0x2002, self.regs.status.peek());
+        }
+        status
     }
     fn peek_ppustatus(&self) -> u8 {
         self.regs.peek_status()
@@ -801,7 +803,9 @@ impl Ppu {
         let w = self.regs.w;
         self.regs.write_addr(val);
         if w {
-            self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+            if let Some(mapper) = &self.vram.mapper {
+                mapper.borrow_mut().vram_change(self.regs.v);
+            }
         }
     }
 
@@ -835,7 +839,9 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        if let Some(mapper) = &self.vram.mapper {
+            mapper.borrow_mut().vram_change(self.regs.v);
+        }
         val
     }
     fn peek_ppudata(&self) -> u8 {
@@ -857,7 +863,51 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        if let Some(mapper) = &self.vram.mapper {
+            mapper.borrow_mut().vram_change(self.regs.v);
+        }
+    }
+}
+
+impl Clocked for Ppu {
+    // Step ticks as many cycles as needed to reach
+    // target cycle to syncronize with the CPU
+    // http://wiki.nesdev.com/w/index.php/PPU_rendering
+    fn clock(&mut self) -> u64 {
+        self.tick();
+        self.render_dot();
+        if self.cycle == 1 {
+            if self.scanline == PRERENDER_SCANLINE {
+                // Dummy scanline - set up tiles for next scanline
+                self.stop_vblank();
+                if let Some(mapper) = &self.vram.mapper {
+                    mapper
+                        .borrow_mut()
+                        .bus_write(0x2002, self.regs.status.peek());
+                }
+                self.set_sprite_zero_hit(false);
+                self.set_sprite_overflow(false);
+            } else if self.scanline == VBLANK_SCANLINE {
+                self.start_vblank();
+                if let Some(mapper) = &self.vram.mapper {
+                    mapper
+                        .borrow_mut()
+                        .bus_write(0x2002, self.regs.status.peek());
+                }
+            }
+        }
+
+        if self.debug && self.scanline == 0 && self.cycle == 0 {
+            self.nametables = vec![
+                self.load_nametable(NT_START),
+                self.load_nametable(NT_START + 0x0400),
+                self.load_nametable(NT_START + 0x0800),
+                self.load_nametable(NT_START + 0x0C00),
+            ];
+            self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
+            self.palette = self.load_palette();
+        }
+        1
     }
 }
 
@@ -922,7 +972,9 @@ impl Memory for Ppu {
             _ => eprintln!("unhandled Ppu read at 0x{:04X}", addr),
         }
     }
+}
 
+impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
         self.scanline = 0;
@@ -933,10 +985,6 @@ impl Memory for Ppu {
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_oamaddr(0);
-    }
-
-    fn power_cycle(&mut self) {
-        self.reset();
     }
 }
 
@@ -977,8 +1025,6 @@ impl Memory for Nametable {
     fn write(&mut self, addr: u16, val: u8) {
         self.0[addr as usize] = val;
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Nametable {
@@ -1009,8 +1055,6 @@ impl Memory for Palette {
         }
         self.0[addr as usize] = val;
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Palette {
@@ -1325,8 +1369,6 @@ impl Memory for Oam {
     fn write(&mut self, addr: u16, val: u8) {
         self.entries[addr as usize] = val;
     }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
 
 impl Savable for Oam {
@@ -1339,38 +1381,40 @@ impl Savable for Oam {
 }
 
 pub struct Vram {
-    mapper: MapperRef,
+    mapper: Option<MapperRef>,
     buffer: u8,               // PPUDATA buffer
     pub nametable: Nametable, // Used to layout backgrounds on the screen
     pub palette: Palette,     // Background/Sprite color palettes
-    logging: bool,
 }
 
 impl Vram {
     fn new() -> Self {
         Self {
-            mapper: mapper::null(),
+            mapper: None,
             buffer: 0u8,
             nametable: Nametable([0u8; NT_SIZE]),
             palette: Palette([0u8; PALETTE_SIZE]),
-            logging: false,
         }
     }
 
     fn nametable_addr(&self, addr: u16) -> u16 {
-        let mirroring = self.mapper.borrow().mirroring();
-        // Maps addresses to nametable pages based on mirroring mode
-        let mirroring_shift = match mirroring {
-            Mirroring::Horizontal => 11,
-            Mirroring::Vertical => 10,
-            Mirroring::SingleScreenA => 14,
-            Mirroring::SingleScreenB => 13,
-            _ => panic!("Invalid mirroring mode"),
-        };
-        let page = (addr >> mirroring_shift) & 1;
-        let table_size = 0x0400;
-        let offset = addr % table_size;
-        NT_START + page * table_size + offset
+        if let Some(mapper) = &self.mapper {
+            let mirroring = mapper.borrow().mirroring();
+            // Maps addresses to nametable pages based on mirroring mode
+            let mirroring_shift = match mirroring {
+                Mirroring::Horizontal => 11,
+                Mirroring::Vertical => 10,
+                Mirroring::SingleScreenA => 14,
+                Mirroring::SingleScreenB => 13,
+                _ => panic!("Invalid mirroring mode"),
+            };
+            let page = (addr >> mirroring_shift) & 1;
+            let table_size = 0x0400;
+            let offset = addr % table_size;
+            NT_START + page * table_size + offset
+        } else {
+            0
+        }
     }
 }
 
@@ -1380,16 +1424,27 @@ impl Memory for Vram {
             addr %= 0x3FFF;
         }
         match addr {
-            0x0000..=0x1FFF => self.mapper.borrow_mut().read(addr),
-            0x2000..=0x3EFF => {
-                if self.mapper.borrow().use_ciram(addr) {
-                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
-                    if mirror_addr == 0 {
-                        mirror_addr = self.nametable_addr(addr);
-                    }
-                    self.nametable.read(mirror_addr % NT_SIZE as u16)
+            0x0000..=0x1FFF => {
+                if let Some(mapper) = &self.mapper {
+                    mapper.borrow_mut().read(addr)
                 } else {
-                    self.mapper.borrow_mut().read(addr)
+                    0
+                }
+            }
+            0x2000..=0x3EFF => {
+                if let Some(mapper) = &self.mapper {
+                    // Use PPU Nametables or Cartridge RAM
+                    if mapper.borrow().use_ciram(addr) {
+                        let mut mirror_addr = mapper.borrow().nametable_addr(addr);
+                        if mirror_addr == 0 {
+                            mirror_addr = self.nametable_addr(addr);
+                        }
+                        self.nametable.read(mirror_addr % NT_SIZE as u16)
+                    } else {
+                        mapper.borrow_mut().read(addr)
+                    }
+                } else {
+                    0
                 }
             }
             0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
@@ -1405,16 +1460,27 @@ impl Memory for Vram {
             addr %= 0x3FFF;
         }
         match addr {
-            0x0000..=0x1FFF => self.mapper.borrow().peek(addr),
-            0x2000..=0x3EFF => {
-                if self.mapper.borrow().use_ciram(addr) {
-                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
-                    if mirror_addr == 0 {
-                        mirror_addr = self.nametable_addr(addr);
-                    }
-                    self.nametable.peek(mirror_addr % NT_SIZE as u16)
+            0x0000..=0x1FFF => {
+                if let Some(mapper) = &self.mapper {
+                    mapper.borrow().peek(addr)
                 } else {
-                    self.mapper.borrow().peek(addr)
+                    0
+                }
+            }
+            0x2000..=0x3EFF => {
+                if let Some(mapper) = &self.mapper {
+                    // Use PPU Nametables or Cartridge RAM
+                    if mapper.borrow().use_ciram(addr) {
+                        let mut mirror_addr = mapper.borrow().nametable_addr(addr);
+                        if mirror_addr == 0 {
+                            mirror_addr = self.nametable_addr(addr);
+                        }
+                        self.nametable.peek(mirror_addr % NT_SIZE as u16)
+                    } else {
+                        mapper.borrow().peek(addr)
+                    }
+                } else {
+                    0
                 }
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
@@ -1430,23 +1496,31 @@ impl Memory for Vram {
             addr %= 0x3FFF;
         }
         match addr {
-            0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
+            0x0000..=0x1FFF => {
+                if let Some(mapper) = &self.mapper {
+                    mapper.borrow_mut().write(addr, val);
+                }
+            }
             0x2000..=0x3EFF => {
-                if self.mapper.borrow().use_ciram(addr) {
-                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
-                    if mirror_addr == 0 {
-                        mirror_addr = self.nametable_addr(addr);
+                if let Some(mapper) = &self.mapper {
+                    if mapper.borrow().use_ciram(addr) {
+                        let mut mirror_addr = mapper.borrow().nametable_addr(addr);
+                        if mirror_addr == 0 {
+                            mirror_addr = self.nametable_addr(addr);
+                        }
+                        self.nametable.write(mirror_addr % NT_SIZE as u16, val);
+                    } else {
+                        mapper.borrow_mut().write(addr, val);
                     }
-                    self.nametable.write(mirror_addr % NT_SIZE as u16, val);
-                } else {
-                    self.mapper.borrow_mut().write(addr, val);
                 }
             }
             0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
             _ => eprintln!("invalid Vram write at 0x{:04X}", addr),
         }
     }
+}
 
+impl Powered for Vram {
     fn reset(&mut self) {
         self.nametable = Nametable([0u8; NT_SIZE]);
         self.palette = Palette([0u8; PALETTE_SIZE]);
@@ -1526,11 +1600,6 @@ impl Frame {
             phase_lookup,
             pixels: vec![0u8; RENDER_SIZE],
         }
-    }
-
-    fn reset(&mut self) {
-        self.num = 0;
-        self.parity = false;
     }
 
     fn increment(&mut self) {
@@ -1658,6 +1727,13 @@ impl Frame {
             clamp(255.95 * gamma_fix(y - 0.274_788 * i - 0.635_691 * q)) as u8,
             clamp(255.95 * gamma_fix(y - 1.108_545 * i + 1.709_007 * q)) as u8,
         )
+    }
+}
+
+impl Powered for Frame {
+    fn reset(&mut self) {
+        self.num = 0;
+        self.parity = false;
     }
 }
 

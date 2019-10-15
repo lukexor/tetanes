@@ -1,9 +1,7 @@
 //! NES Controller Inputs
 
-use crate::memory::Memory;
-use std::cell::RefCell;
-use std::fmt;
-use std::rc::Rc;
+use crate::{common::Powered, memory::Memory};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 /// Alias for Input wrapped in a Rc/RefCell
 pub type InputRef = Rc<RefCell<Input>>;
@@ -64,6 +62,9 @@ impl Gamepad {
         };
         state as u8
     }
+}
+
+impl Powered for Gamepad {
     fn reset(&mut self) {
         self.strobe_state = STROBE_A;
     }
@@ -114,9 +115,13 @@ impl Memory for Input {
             self.gamepad2.reset();
         }
     }
+}
 
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
+impl Powered for Input {
+    fn reset(&mut self) {
+        self.gamepad1.reset();
+        self.gamepad2.reset();
+    }
 }
 
 impl fmt::Debug for Input {

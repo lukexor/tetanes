@@ -4,6 +4,7 @@ TESTS=(
 tests/cpu/all_instrs.nes # 9C SYA, 9E SXA - 7 of 16
 tests/cpu/flag_concurrency.nes # Timing doesn't match 29823 (got 35000) table should match OpenEMU results
 tests/cpu/interrupts.nes # IRQ when $4017 == $00 1-cli_latency #3 1/5
+tests/cpu/registers_after_reset.nes
 
 # Not critical to emulate
 tests/cpu/exec_space_apu.nes # Mysteriously landed at $4023 (should return open bus, but mmc5 uses that now)
@@ -41,9 +42,6 @@ tests/ppu/vbl_nmi_timing/7.nmi_timing.nes # #7
 
 # Nice to have
 tests/ppu/nmi_sync_ntsc.nes # Not sure what it tests
-tests/ppu/ntsc_torture.nes # No NTSC raster effects
-tests/ppu/palette.nes # Doesn't support emphasis or grayscale
-tests/ppu/tv.nes # Passes ratio, but not chroma/luma
 
 ## MAPPERS ========================================================================================
 tests/mapper/mmc3/4.Scanline_timing.nes # Failed #2 - scanline 0 is too soon

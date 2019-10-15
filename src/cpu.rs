@@ -2,16 +2,21 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/CPU]()
 
-use crate::memory::Memory;
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::collections::VecDeque;
-use std::fmt;
-use std::io::{Read, Write};
+use crate::{
+    common::{Clocked, Powered},
+    memory::Memory,
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    collections::VecDeque,
+    fmt,
+    io::{Read, Write},
+};
 
 pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
 
-// 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
+// TODO 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
 // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
 pub const CPU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
 
@@ -55,9 +60,7 @@ pub struct Cpu<M>
 where
     M: Memory,
 {
-    pub mem: M,
     pub cycle_count: u64, // total number of cycles ran
-    stall: u64,           // Number of cycles to stall with nop (used by DMA)
     pub step: u64,        // total number of CPU instructions run
     pub pc: u16,          // program counter
     pub prev_pc: u16,     // previous program counter
@@ -66,27 +69,26 @@ where
     pub x: u8,            // x register
     pub y: u8,            // y register
     pub status: u8,       // Status Registers
-    instr: Instr,         // The currently executing instruction
-    abs_addr: u16,        // Used memory addresses get set here
-    rel_addr: u16,        // Relative address for branch instructions
-    fetched_data: u8,     // Represents data fetched for the ALU
-    pending_irq: bool,    // Pending interrupts
-    pending_irq2: bool,   // Pending interrupts
+    pub bus: M,
+    pub pc_log: VecDeque<u16>,
+    stall: u64,         // Number of cycles to stall with nop (used by DMA)
+    instr: Instr,       // The currently executing instruction
+    abs_addr: u16,      // Used memory addresses get set here
+    rel_addr: u16,      // Relative address for branch instructions
+    fetched_data: u8,   // Represents data fetched for the ALU
+    pending_irq: bool,  // Pending interrupts
+    pending_irq2: bool, // Pending interrupts
     pending_nmi: bool,
     irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
-    logging: bool,
-    pub pc_log: VecDeque<u16>,
 }
 
 impl<M> Cpu<M>
 where
     M: Memory,
 {
-    pub fn init(mem: M) -> Self {
+    pub fn init(bus: M) -> Self {
         let mut cpu = Self {
-            mem,
             cycle_count: POWER_ON_CYCLES,
-            stall: 0u64,
             step: 0u64,
             pc: 0x0000,
             prev_pc: 0x0000,
@@ -95,6 +97,9 @@ where
             x: 0x00,
             y: 0x00,
             status: POWER_ON_STATUS,
+            bus,
+            pc_log: VecDeque::with_capacity(PC_LOG_LEN),
+            stall: 0u64,
             instr: INSTRUCTIONS[0x00],
             abs_addr: 0x0000,
             rel_addr: 0x0000,
@@ -103,8 +108,6 @@ where
             pending_irq2: false,
             pending_nmi: false,
             irq_delay: 0x00,
-            logging: false,
-            pc_log: VecDeque::with_capacity(PC_LOG_LEN),
         };
         cpu.pc = cpu.readw(RESET_ADDR);
         cpu
@@ -112,143 +115,6 @@ where
 
     pub fn power_on(&mut self) {
         self.pc = self.readw(RESET_ADDR);
-    }
-
-    pub fn logging(&mut self, val: bool) {
-        self.logging = val;
-    }
-
-    /// Runs the CPU one cycle
-    pub fn clock(&mut self) -> u64 {
-        if self.stall > 0 {
-            self.stall -= 1;
-            return 1;
-        }
-
-        let start_cycle = self.cycle_count;
-
-        if self.irq_delay > 0 {
-            self.irq_delay -= 1;
-        } else if self.pending_nmi {
-            self.nmi();
-        } else if self.pending_irq || self.pending_irq2 {
-            self.irq();
-        }
-
-        let opcode = self.read(self.pc);
-        self.prev_pc = self.pc;
-        self.pc = self.pc.wrapping_add(1);
-
-        self.instr = INSTRUCTIONS[opcode as usize];
-
-        // let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
-        let mode_cycle = u64::from(match self.instr.addr_mode() {
-            IMM => self.imm(),
-            ZP0 => self.zp0(),
-            ZPX => self.zpx(),
-            ZPY => self.zpy(),
-            ABS => self.abs(),
-            ABX => self.abx(),
-            ABY => self.aby(),
-            IND => self.ind(),
-            IDX => self.idx(),
-            IDY => self.idy(),
-            REL => self.rel(),
-            ACC => self.acc(),
-            IMP => self.imp(),
-        });
-
-        self.pc_log.push_back(self.prev_pc);
-        if self.pc_log.len() > PC_LOG_LEN {
-            self.pc_log.pop_front();
-        }
-
-        // let op_cycle = (self.instr.execute())(self); // Execute operation
-        let op_cycle = u64::from(match self.instr.op() {
-            ADC => self.adc(), // ADd with Carry M with A
-            AND => self.and(), // AND M with A
-            ASL => self.asl(), // Arithmatic Shift Left M or A
-            BCC => self.bcc(), // Branch on Carry Clear
-            BCS => self.bcs(), // Branch if Carry Set
-            BEQ => self.beq(), // Branch if EQual to zero
-            BIT => self.bit(), // Test BITs of M with A (Affects N, V and Z)
-            BMI => self.bmi(), // Branch on MInus (negative)
-            BNE => self.bne(), // Branch if Not Equal to zero
-            BPL => self.bpl(), // Branch on PLus (positive)
-            BRK => self.brk(), // BReaK (forced interrupt)
-            BVC => self.bvc(), // Branch if no oVerflow Set
-            BVS => self.bvs(), // Branch on oVerflow Set
-            CLC => self.clc(), // CLear Carry flag
-            CLD => self.cld(), // CLear Decimal mode
-            CLI => self.cli(), // CLear Interrupt disable
-            CLV => self.clv(), // CLear oVerflow flag
-            CMP => self.cmp(), // CoMPare
-            CPX => self.cpx(), // ComPare with X
-            CPY => self.cpy(), // ComPare with Y
-            DEC => self.dec(), // DECrement M or A
-            DEX => self.dex(), // DEcrement X
-            DEY => self.dey(), // DEcrement Y
-            EOR => self.eor(), // Exclusive-OR M with A
-            INC => self.inc(), // INCrement M or A
-            INX => self.inx(), // INcrement X
-            INY => self.iny(), // INcrement Y
-            JMP => self.jmp(), // JuMP - safe to unwrap because JMP is Absolute
-            JSR => self.jsr(), // Jump and Save Return addr - safe to unwrap because JSR is Absolute
-            LDA => self.lda(), // LoaD A with M
-            LDX => self.ldx(), // LoaD X with M
-            LDY => self.ldy(), // LoaD Y with M
-            LSR => self.lsr(), // Logical Shift Right M or A
-            NOP => self.nop(), // NO oPeration
-            SKB => self.skb(), // Like NOP, but issues a dummy read
-            IGN => self.ign(), // Like NOP, but issues a dummy read
-            ORA => self.ora(), // OR with A
-            PHA => self.pha(), // PusH A to the stack
-            PHP => self.php(), // PusH Processor status to the stack
-            PLA => self.pla(), // PulL A from the stack
-            PLP => self.plp(), // PulL Processor status from the stack
-            ROL => self.rol(), // ROtate Left M or A
-            ROR => self.ror(), // ROtate Right M or A
-            RTI => self.rti(), // ReTurn from Interrupt
-            RTS => self.rts(), // ReTurn from Subroutine
-            SBC => self.sbc(), // Subtract M from A with carry
-            SEC => self.sec(), // SEt Carry flag
-            SED => self.sed(), // SEt Decimal mode
-            SEI => self.sei(), // SEt Interrupt disable
-            STA => self.sta(), // STore A into M
-            STX => self.stx(), // STore X into M
-            STY => self.sty(), // STore Y into M
-            TAX => self.tax(), // Transfer A to X
-            TAY => self.tay(), // Transfer A to Y
-            TSX => self.tsx(), // Transfer SP to X
-            TXA => self.txa(), // TRansfer X to A
-            TXS => self.txs(), // Transfer X to SP
-            TYA => self.tya(), // Transfer Y to A
-            ISB => self.isb(), // INC & SBC
-            DCP => self.dcp(), // DEC & CMP
-            AXS => self.axs(), // (A & X) - val into X
-            LAS => self.las(), // LDA & TSX
-            LAX => self.lax(), // LDA & TAX
-            AHX => self.ahx(), // Store A & X & H in M
-            SAX => self.sax(), // Sotre A & X in M
-            XAA => self.xaa(), // TXA & AND
-            SXA => self.sxa(), // Store X & H in M
-            RRA => self.rra(), // ROR & ADC
-            TAS => self.tas(), // STA & TXS
-            SYA => self.sya(), // Store Y & H in M
-            ARR => self.arr(), // AND #imm & ROR
-            SRE => self.sre(), // LSR & EOR
-            ALR => self.alr(), // AND #imm & LSR
-            RLA => self.rla(), // ROL & AND
-            ANC => self.anc(), // AND #imm
-            SLO => self.slo(), // ASL & ORA
-            XXX => self.xxx(), // Unimplemented opcode
-        });
-        self.step += 1;
-        self.cycle_count = self
-            .cycle_count
-            .wrapping_add(self.instr.cycles())
-            .wrapping_add(mode_cycle & op_cycle);
-        self.cycle_count - start_cycle
     }
 
     /// Sends an IRQ Interrupt to the CPU
@@ -761,38 +627,181 @@ where
     }
 }
 
+impl<M> Clocked for Cpu<M>
+where
+    M: Memory,
+{
+    /// Runs the CPU one cycle
+    fn clock(&mut self) -> u64 {
+        if self.stall > 0 {
+            self.stall -= 1;
+            return 1;
+        }
+
+        let start_cycle = self.cycle_count;
+
+        if self.irq_delay > 0 {
+            self.irq_delay -= 1;
+        } else if self.pending_nmi {
+            self.nmi();
+        } else if self.pending_irq || self.pending_irq2 {
+            self.irq();
+        }
+
+        let opcode = self.read(self.pc);
+        self.prev_pc = self.pc;
+        self.pc = self.pc.wrapping_add(1);
+
+        self.instr = INSTRUCTIONS[opcode as usize];
+
+        // let extra_cycle_req1 = (self.instr.decode_addr_mode())(self); // Set address based on addr_mode
+        let mode_cycle = u64::from(match self.instr.addr_mode() {
+            IMM => self.imm(),
+            ZP0 => self.zp0(),
+            ZPX => self.zpx(),
+            ZPY => self.zpy(),
+            ABS => self.abs(),
+            ABX => self.abx(),
+            ABY => self.aby(),
+            IND => self.ind(),
+            IDX => self.idx(),
+            IDY => self.idy(),
+            REL => self.rel(),
+            ACC => self.acc(),
+            IMP => self.imp(),
+        });
+
+        self.pc_log.push_back(self.prev_pc);
+        if self.pc_log.len() > PC_LOG_LEN {
+            self.pc_log.pop_front();
+        }
+
+        // let op_cycle = (self.instr.execute())(self); // Execute operation
+        let op_cycle = u64::from(match self.instr.op() {
+            ADC => self.adc(), // ADd with Carry M with A
+            AND => self.and(), // AND M with A
+            ASL => self.asl(), // Arithmatic Shift Left M or A
+            BCC => self.bcc(), // Branch on Carry Clear
+            BCS => self.bcs(), // Branch if Carry Set
+            BEQ => self.beq(), // Branch if EQual to zero
+            BIT => self.bit(), // Test BITs of M with A (Affects N, V and Z)
+            BMI => self.bmi(), // Branch on MInus (negative)
+            BNE => self.bne(), // Branch if Not Equal to zero
+            BPL => self.bpl(), // Branch on PLus (positive)
+            BRK => self.brk(), // BReaK (forced interrupt)
+            BVC => self.bvc(), // Branch if no oVerflow Set
+            BVS => self.bvs(), // Branch on oVerflow Set
+            CLC => self.clc(), // CLear Carry flag
+            CLD => self.cld(), // CLear Decimal mode
+            CLI => self.cli(), // CLear Interrupt disable
+            CLV => self.clv(), // CLear oVerflow flag
+            CMP => self.cmp(), // CoMPare
+            CPX => self.cpx(), // ComPare with X
+            CPY => self.cpy(), // ComPare with Y
+            DEC => self.dec(), // DECrement M or A
+            DEX => self.dex(), // DEcrement X
+            DEY => self.dey(), // DEcrement Y
+            EOR => self.eor(), // Exclusive-OR M with A
+            INC => self.inc(), // INCrement M or A
+            INX => self.inx(), // INcrement X
+            INY => self.iny(), // INcrement Y
+            JMP => self.jmp(), // JuMP - safe to unwrap because JMP is Absolute
+            JSR => self.jsr(), // Jump and Save Return addr - safe to unwrap because JSR is Absolute
+            LDA => self.lda(), // LoaD A with M
+            LDX => self.ldx(), // LoaD X with M
+            LDY => self.ldy(), // LoaD Y with M
+            LSR => self.lsr(), // Logical Shift Right M or A
+            NOP => self.nop(), // NO oPeration
+            SKB => self.skb(), // Like NOP, but issues a dummy read
+            IGN => self.ign(), // Like NOP, but issues a dummy read
+            ORA => self.ora(), // OR with A
+            PHA => self.pha(), // PusH A to the stack
+            PHP => self.php(), // PusH Processor status to the stack
+            PLA => self.pla(), // PulL A from the stack
+            PLP => self.plp(), // PulL Processor status from the stack
+            ROL => self.rol(), // ROtate Left M or A
+            ROR => self.ror(), // ROtate Right M or A
+            RTI => self.rti(), // ReTurn from Interrupt
+            RTS => self.rts(), // ReTurn from Subroutine
+            SBC => self.sbc(), // Subtract M from A with carry
+            SEC => self.sec(), // SEt Carry flag
+            SED => self.sed(), // SEt Decimal mode
+            SEI => self.sei(), // SEt Interrupt disable
+            STA => self.sta(), // STore A into M
+            STX => self.stx(), // STore X into M
+            STY => self.sty(), // STore Y into M
+            TAX => self.tax(), // Transfer A to X
+            TAY => self.tay(), // Transfer A to Y
+            TSX => self.tsx(), // Transfer SP to X
+            TXA => self.txa(), // TRansfer X to A
+            TXS => self.txs(), // Transfer X to SP
+            TYA => self.tya(), // Transfer Y to A
+            ISB => self.isb(), // INC & SBC
+            DCP => self.dcp(), // DEC & CMP
+            AXS => self.axs(), // (A & X) - val into X
+            LAS => self.las(), // LDA & TSX
+            LAX => self.lax(), // LDA & TAX
+            AHX => self.ahx(), // Store A & X & H in M
+            SAX => self.sax(), // Sotre A & X in M
+            XAA => self.xaa(), // TXA & AND
+            SXA => self.sxa(), // Store X & H in M
+            RRA => self.rra(), // ROR & ADC
+            TAS => self.tas(), // STA & TXS
+            SYA => self.sya(), // Store Y & H in M
+            ARR => self.arr(), // AND #imm & ROR
+            SRE => self.sre(), // LSR & EOR
+            ALR => self.alr(), // AND #imm & LSR
+            RLA => self.rla(), // ROL & AND
+            ANC => self.anc(), // AND #imm
+            SLO => self.slo(), // ASL & ORA
+            XXX => self.xxx(), // Unimplemented opcode
+        });
+        self.step += 1;
+        self.cycle_count = self
+            .cycle_count
+            .wrapping_add(self.instr.cycles())
+            .wrapping_add(mode_cycle & op_cycle);
+        self.cycle_count - start_cycle
+    }
+}
+
 impl<M> Memory for Cpu<M>
 where
     M: Memory,
 {
     fn read(&mut self, addr: u16) -> u8 {
-        self.mem.read(addr)
+        self.bus.read(addr)
     }
 
     fn peek(&self, addr: u16) -> u8 {
-        self.mem.peek(addr)
+        self.bus.peek(addr)
     }
 
     fn write(&mut self, addr: u16, val: u8) {
         if addr == 0x4014 {
             self.write_oamdma(val);
         } else {
-            self.mem.write(addr, val);
+            self.bus.write(addr, val);
         }
     }
+}
 
+impl<M> Powered for Cpu<M>
+where
+    M: Memory + Powered,
+{
     /// Resets the CPU
     ///
     /// Updates the PC, SP, and Status values to defined constants.
     ///
     /// These operations take the CPU 7 cycle.
     fn reset(&mut self) {
+        self.bus.reset();
         self.cycle_count = POWER_ON_CYCLES;
         self.stall = 0u64;
         self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
-        self.mem.reset();
     }
 
     /// Power cycle the CPU
@@ -801,7 +810,7 @@ where
     ///
     /// These operations take the CPU 7 cycle.
     fn power_cycle(&mut self) {
-        self.mem.power_cycle();
+        self.bus.power_cycle();
         self.cycle_count = POWER_ON_CYCLES;
         self.stall = 0u64;
         self.pc = self.readw(RESET_ADDR);
@@ -818,7 +827,7 @@ where
     M: Memory + Savable,
 {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.mem.save(fh)?;
+        self.bus.save(fh)?;
         self.cycle_count.save(fh)?;
         self.stall.save(fh)?;
         self.step.save(fh)?;
@@ -837,7 +846,7 @@ where
         self.irq_delay.save(fh)
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.mem.load(fh)?;
+        self.bus.load(fh)?;
         self.cycle_count.load(fh)?;
         self.stall.load(fh)?;
         self.step.load(fh)?;

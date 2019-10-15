@@ -2,14 +2,19 @@
 //!
 //! [https://wiki.nesdev.com/w/index.php/APU]()
 
-use crate::console::CPU_CLOCK_RATE;
-use crate::filter::{Filter, HiPassFilter, LoPassFilter};
-use crate::mapper::{self, MapperRef};
-use crate::memory::Memory;
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::fmt;
-use std::io::{Read, Write};
+use crate::{
+    common::{Clocked, Powered},
+    cpu::CPU_CLOCK_RATE,
+    filter::{Filter, HiPassFilter, LoPassFilter},
+    mapper::MapperRef,
+    memory::Memory,
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    fmt,
+    io::{Read, Write},
+};
 
 pub const SAMPLE_RATE: f64 = 96_000.0; // in Hz
 pub const SAMPLE_BUFFER_SIZE: usize = 4096;
@@ -74,28 +79,7 @@ impl Apu {
     }
 
     pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.dmc.mapper = mapper;
-    }
-
-    pub fn clock(&mut self) {
-        if self.cycle % 2 == 0 {
-            self.pulse1.clock();
-            self.pulse2.clock();
-            self.noise.clock();
-            self.dmc.clock();
-        }
-        self.triangle.clock();
-        self.clock_frame_counter();
-
-        if self.cycle % (self.clock_rate / SAMPLE_RATE) as u64 == 0 {
-            let mut sample = self.output();
-            for i in 0..self.filters.len() {
-                let filter = &mut self.filters[i];
-                sample = filter.process(sample);
-            }
-            self.samples.push(sample);
-        }
-        self.cycle += 1;
+        self.dmc.mapper = Some(mapper);
     }
 
     pub fn samples(&mut self) -> &[f32] {
@@ -279,6 +263,30 @@ impl Apu {
     }
 }
 
+impl Clocked for Apu {
+    fn clock(&mut self) -> u64 {
+        if self.cycle % 2 == 0 {
+            self.pulse1.clock();
+            self.pulse2.clock();
+            self.noise.clock();
+            self.dmc.clock();
+        }
+        self.triangle.clock();
+        self.clock_frame_counter();
+
+        if self.cycle % (self.clock_rate / SAMPLE_RATE) as u64 == 0 {
+            let mut sample = self.output();
+            for i in 0..self.filters.len() {
+                let filter = &mut self.filters[i];
+                sample = filter.process(sample);
+            }
+            self.samples.push(sample);
+        }
+        self.cycle += 1;
+        1
+    }
+}
+
 impl Memory for Apu {
     fn read(&mut self, addr: u16) -> u8 {
         if addr == 0x4015 {
@@ -324,7 +332,9 @@ impl Memory for Apu {
             _ => (),
         }
     }
+}
 
+impl Powered for Apu {
     fn reset(&mut self) {
         self.cycle = 0;
         self.samples.clear();
@@ -340,10 +350,6 @@ impl Memory for Apu {
         self.triangle.reset();
         self.noise.reset();
         self.dmc.reset();
-    }
-
-    fn power_cycle(&mut self) {
-        self.reset();
     }
 }
 
@@ -856,7 +862,7 @@ impl Savable for ShiftMode {
 }
 
 pub struct DMC {
-    mapper: MapperRef,
+    mapper: Option<MapperRef>,
     irq_enabled: bool,
     irq_pending: bool,
     loops: bool,
@@ -883,7 +889,7 @@ impl DMC {
     // TODO PAL
     fn new() -> Self {
         Self {
-            mapper: mapper::null(),
+            mapper: None,
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -930,18 +936,20 @@ impl DMC {
             }
         }
 
-        if self.length > 0 && self.sample_buffer_empty {
-            self.sample_buffer = self.mapper.borrow_mut().read(self.addr);
-            self.sample_buffer_empty = false;
-            self.addr = self.addr.wrapping_add(1) | 0x8000;
-            self.length -= 1;
+        if let Some(mapper) = &self.mapper {
+            if self.length > 0 && self.sample_buffer_empty {
+                self.sample_buffer = mapper.borrow_mut().read(self.addr);
+                self.sample_buffer_empty = false;
+                self.addr = self.addr.wrapping_add(1) | 0x8000;
+                self.length -= 1;
 
-            if self.length == 0 {
-                if self.loops {
-                    self.length = self.length_load;
-                    self.addr = self.addr_load;
-                } else if self.irq_enabled {
-                    self.irq_pending = true;
+                if self.length == 0 {
+                    if self.loops {
+                        self.length = self.length_load;
+                        self.addr = self.addr_load;
+                    } else if self.irq_enabled {
+                        self.irq_pending = true;
+                    }
                 }
             }
         }

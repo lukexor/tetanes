@@ -2,16 +2,19 @@
 //!
 //! [https://wiki.nesdev.com/w/index.php/AxROM]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::Mirroring;
-use crate::mapper::{Mapper, MapperRef};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Banks, Memory, Ram, Rom},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 32 * 1024;
 const CHR_BANK_SIZE: usize = 8 * 1024;
@@ -50,38 +53,8 @@ impl Axrom {
 }
 
 impl Mapper for Axrom {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {}
-    fn battery_backed(&self) -> bool {
-        false
-    }
-    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
-        Ok(())
-    }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
-        Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        Some(&self.chr_banks)
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        Some(&self.prg_rom_banks)
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        None
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
     }
 }
 
@@ -130,10 +103,10 @@ impl Memory for Axrom {
             _ => eprintln!("unhandled Axrom write at address: 0x{:04X}", addr),
         }
     }
-
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
+
+impl Clocked for Axrom {}
+impl Powered for Axrom {}
 
 impl Savable for Axrom {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {

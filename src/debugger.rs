@@ -1,7 +1,7 @@
 //! Debugger
 
-use crate::console::cpu::{Cpu, Interrupt};
-use crate::console::memory::MemoryMap;
+use crate::cpu::{Cpu, Interrupt};
+use crate::memory::MemoryMap;
 use crate::util;
 
 pub struct Debugger {

@@ -48,7 +48,7 @@ impl Ui {
         } else if self.settings.speed > MAX_SPEED {
             self.settings.speed = MAX_SPEED;
         }
-        self.console.set_speed(self.settings.speed);
+        self.set_speed(self.settings.speed);
     }
 
     pub(super) fn update_title(&mut self, data: &mut StateData) {

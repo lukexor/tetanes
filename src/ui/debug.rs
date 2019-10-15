@@ -1,6 +1,7 @@
 use crate::{
-    console::{cpu::StatusRegs, RENDER_HEIGHT, RENDER_WIDTH},
+    cpu::StatusRegs,
     memory::Memory,
+    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     ui::Ui,
     NesErr, NesResult,
 };
@@ -40,20 +41,20 @@ impl Ui {
                 Rect::new(0, 0, 16, 2),
                 Rect::new(0, RENDER_HEIGHT, 2 * RENDER_WIDTH, 64),
             )?;
-            self.console.cpu.mem.ppu.update_debug();
+            self.cpu.bus.ppu.update_debug();
         } else if let Some(ppu_viewer_window) = self.ppu_viewer_window {
             data.close_window(ppu_viewer_window);
         }
-        self.console.debug(self.nt_viewer || self.ppu_viewer);
+        self.debug(self.nt_viewer || self.ppu_viewer);
         Ok(())
     }
 
     pub(super) fn copy_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
         if let Some(ppu_viewer_window) = self.ppu_viewer_window {
-            let pat_tables = self.console.pattern_tables();
+            let pat_tables = self.pattern_tables();
             data.copy_texture(ppu_viewer_window, "left_pattern", &pat_tables[0])?;
             data.copy_texture(ppu_viewer_window, "right_pattern", &pat_tables[1])?;
-            let palette = self.console.palette();
+            let palette = self.palette();
             data.copy_texture(ppu_viewer_window, "palette", &palette)?;
         }
         Ok(())
@@ -92,17 +93,17 @@ impl Ui {
                 Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT),
                 Rect::new(RENDER_WIDTH, RENDER_HEIGHT, RENDER_WIDTH, RENDER_HEIGHT),
             )?;
-            self.console.cpu.mem.ppu.update_debug();
+            self.cpu.bus.ppu.update_debug();
         } else if let Some(nt_viewer_window) = self.nt_viewer_window {
             data.close_window(nt_viewer_window);
         }
-        self.console.debug(self.nt_viewer || self.ppu_viewer);
+        self.debug(self.nt_viewer || self.ppu_viewer);
         Ok(())
     }
 
     pub(super) fn copy_nt_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
         if let Some(nt_viewer_window) = self.nt_viewer_window {
-            let nametables = self.console.nametables();
+            let nametables = self.nametables();
             data.copy_texture(nt_viewer_window, "nametable1", &nametables[0])?;
             data.copy_texture(nt_viewer_window, "nametable2", &nametables[1])?;
             data.copy_texture(nt_viewer_window, "nametable3", &nametables[2])?;
@@ -162,7 +163,7 @@ impl Ui {
         data.fill(pixel::VERY_DARK_GRAY);
 
         // Status Registers
-        let cpu = &self.console.cpu;
+        let cpu = &self.cpu;
         data.draw_string(x, y, "Status:", wh);
 
         let scolor = |f| {
@@ -225,7 +226,7 @@ impl Ui {
         }
 
         // PPU
-        let ppu = &self.console.cpu.mem.ppu;
+        let ppu = &self.cpu.bus.ppu;
         y += ypad * 4 + fypad;
         data.draw_string(x, y, &format!("PPU: ${:04X}", ppu.read_ppuaddr()), wh);
         data.draw_string(

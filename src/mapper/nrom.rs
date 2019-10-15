@@ -2,15 +2,19 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/NROM]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Banks, Memory, Ram, Rom},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
@@ -69,14 +73,9 @@ impl Nrom {
 }
 
 impl Mapper for Nrom {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {} // No clocking
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
@@ -91,22 +90,6 @@ impl Mapper for Nrom {
             self.prg_ram.load(fh)?;
         }
         Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        Some(&self.chr_banks)
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        Some(&self.prg_rom_banks)
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        Some(&self.prg_ram)
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
     }
 }
 
@@ -153,15 +136,10 @@ impl Memory for Nrom {
             ),
         }
     }
-
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {
-        if self.battery_backed {
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
-        self.reset();
-    }
 }
+
+impl Clocked for Nrom {}
+impl Powered for Nrom {}
 
 impl Savable for Nrom {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {

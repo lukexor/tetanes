@@ -2,16 +2,20 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/Mapper]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::{nes_err, NesResult};
-use std::cell::RefCell;
-use std::fmt;
-use std::io::{Read, Write};
-use std::path::Path;
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    memory::Memory,
+    serialization::Savable,
+    {nes_err, NesResult},
+};
+use std::{
+    cell::RefCell,
+    fmt,
+    io::{Read, Write},
+    path::Path,
+    rc::Rc,
+};
 
 use axrom::Axrom; // Mapper 7
 use cnrom::Cnrom; // Mapper 3
@@ -35,24 +39,30 @@ pub mod uxrom;
 pub type MapperRef = Rc<RefCell<dyn Mapper>>;
 
 /// Mapper trait requiring Memory + Send + Savable
-pub trait Mapper: Memory + Savable + fmt::Debug {
-    fn irq_pending(&mut self) -> bool;
-    fn mirroring(&self) -> Mirroring;
-    fn vram_change(&mut self, addr: u16);
-    fn clock(&mut self, ppu: &Ppu);
-    fn battery_backed(&self) -> bool;
-    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()>;
-    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()>;
-    fn chr(&self) -> Option<&Banks<Ram>>;
-    fn prg_rom(&self) -> Option<&Banks<Rom>>;
-    fn prg_ram(&self) -> Option<&Ram>;
-    fn logging(&mut self, logging: bool);
-    fn use_ciram(&self, addr: u16) -> bool;
-    fn nametable_addr(&self, addr: u16) -> u16;
-}
-
-pub fn null() -> MapperRef {
-    NullMapper::load()
+pub trait Mapper: Memory + Savable + Clocked + Powered + fmt::Debug {
+    fn irq_pending(&mut self) -> bool {
+        false
+    }
+    fn mirroring(&self) -> Mirroring {
+        Mirroring::Horizontal
+    }
+    fn vram_change(&mut self, _addr: u16) {}
+    fn battery_backed(&self) -> bool {
+        false
+    }
+    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
+        Ok(())
+    }
+    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
+        Ok(())
+    }
+    fn use_ciram(&self, _addr: u16) -> bool {
+        true
+    }
+    fn nametable_addr(&self, _addr: u16) -> u16 {
+        0
+    }
+    fn bus_write(&mut self, _addr: u16, _val: u8) {}
 }
 
 /// Attempts to return a valid Mapper for the given rom.
@@ -98,72 +108,6 @@ impl Savable for Mirroring {
             4 => Mirroring::FourScreen,
             _ => panic!("invalid Mirroring value {}", val),
         };
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct NullMapper {}
-
-impl NullMapper {
-    pub fn load() -> MapperRef {
-        Rc::new(RefCell::new(Self {}))
-    }
-}
-
-impl Mapper for NullMapper {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
-    fn mirroring(&self) -> Mirroring {
-        Mirroring::Horizontal
-    }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {}
-    fn battery_backed(&self) -> bool {
-        false
-    }
-    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
-        Ok(())
-    }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
-        Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        None
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        None
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        None
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
-    }
-}
-
-impl Memory for NullMapper {
-    fn read(&mut self, _addr: u16) -> u8 {
-        0
-    }
-    fn peek(&self, _addr: u16) -> u8 {
-        0
-    }
-    fn write(&mut self, _addr: u16, _val: u8) {}
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
-}
-
-impl Savable for NullMapper {
-    fn save(&self, _fh: &mut dyn Write) -> NesResult<()> {
-        Ok(())
-    }
-    fn load(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
         Ok(())
     }
 }

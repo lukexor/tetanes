@@ -3,15 +3,19 @@
 //! [http://wiki.nesdev.com/w/index.php/SxROM]()
 //! [http://wiki.nesdev.com/w/index.php/MMC1]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Banks, Memory, Ram, Rom},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_BANK_SIZE: usize = 4 * 1024;
@@ -201,9 +205,6 @@ impl Sxrom {
 }
 
 impl Mapper for Sxrom {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         match self.regs.control & MIRRORING_MASK {
             0 => Mirroring::SingleScreenA,
@@ -211,12 +212,6 @@ impl Mapper for Sxrom {
             2 => Mirroring::Vertical,
             3 => Mirroring::Horizontal,
             _ => panic!("impossible mirroring mode"),
-        }
-    }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {
-        if self.regs.write_just_occurred > 0 {
-            self.regs.write_just_occurred -= 1;
         }
     }
     fn battery_backed(&self) -> bool {
@@ -233,22 +228,6 @@ impl Mapper for Sxrom {
             self.prg_ram.load(fh)?;
         }
         Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        Some(&self.chr_banks)
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        Some(&self.prg_rom_banks)
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        Some(&self.prg_ram)
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
     }
 }
 
@@ -298,7 +277,18 @@ impl Memory for Sxrom {
             ),
         }
     }
+}
 
+impl Clocked for Sxrom {
+    fn clock(&mut self) -> u64 {
+        if self.regs.write_just_occurred > 0 {
+            self.regs.write_just_occurred -= 1;
+        }
+        1
+    }
+}
+
+impl Powered for Sxrom {
     fn reset(&mut self) {
         self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
         self.regs.prg_bank = PRG_MODE_FIX_LAST;
@@ -307,12 +297,6 @@ impl Memory for Sxrom {
     }
     fn power_cycle(&mut self) {
         self.regs.write_just_occurred = 0;
-        if self.battery_backed {
-            for bank in &mut *self.chr_banks {
-                *bank = Ram::init(bank.len());
-            }
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
         self.reset();
     }
 }

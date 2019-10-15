@@ -15,12 +15,16 @@
 use pix_engine::PixEngineErr;
 use std::fmt;
 
+pub mod apu;
+pub mod bus;
 pub mod cartridge;
-pub mod console;
+pub mod common;
+pub mod cpu;
 pub mod filter;
 pub mod input;
 pub mod mapper;
 pub mod memory;
+pub mod ppu;
 pub mod serialization;
 pub mod ui;
 pub mod util;

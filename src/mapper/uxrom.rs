@@ -2,15 +2,19 @@
 //!
 //! [https://wiki.nesdev.com/w/index.php/UxROM]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Banks, Memory, Ram, Rom},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024; // 16L ROM
 const CHR_BANK_SIZE: usize = 8 * 1024; // 8K ROM/RAM
@@ -50,38 +54,8 @@ impl Uxrom {
 }
 
 impl Mapper for Uxrom {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {} // no clocking
-    fn battery_backed(&self) -> bool {
-        false
-    }
-    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
-        Ok(())
-    }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
-        Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        Some(&self.chr_banks)
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        Some(&self.prg_rom_banks)
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        None
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
     }
 }
 
@@ -118,10 +92,10 @@ impl Memory for Uxrom {
             }
         }
     }
-
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
+
+impl Clocked for Uxrom {}
+impl Powered for Uxrom {}
 
 impl Savable for Uxrom {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {

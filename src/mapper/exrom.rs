@@ -3,17 +3,20 @@
 //! [https://wiki.nesdev.com/w/index.php/ExROM]()
 //! [https://wiki.nesdev.com/w/index.php/MMC5]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::Mirroring;
-use crate::mapper::{Mapper, MapperRef};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::NesResult;
-use std::cell::RefCell;
-use std::fmt;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Memory, Ram, Rom},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    fmt,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 32 * 1024;
@@ -24,7 +27,6 @@ pub struct Exrom {
     regs: ExRegs,
     open_bus: u8,
     irq_pending: bool,
-    logging: bool,
     mirroring: Mirroring,
     battery_backed: bool,
     prg_banks: [usize; 5],
@@ -36,6 +38,10 @@ pub struct Exrom {
     ppu_prev_match: u8,
     ppu_reading: bool,
     ppu_idle: u8,
+    ppu_in_vblank: bool,
+    ppu_cycle: u16,
+    ppu_scanline: u16,
+    ppu_rendering: bool,
     exram: Ram,
     prg_ram: [Ram; 2],
     prg_rom: Rom,
@@ -103,7 +109,6 @@ impl Exrom {
             },
             open_bus: 0u8,
             irq_pending: false,
-            logging: false,
             mirroring: cart.mirroring(),
             battery_backed: cart.battery_backed(),
             prg_banks: [0; 5],
@@ -115,6 +120,10 @@ impl Exrom {
             ppu_prev_match: 0u8,
             ppu_reading: false,
             ppu_idle: 0u8,
+            ppu_in_vblank: false,
+            ppu_cycle: 0,
+            ppu_scanline: 0,
+            ppu_rendering: false,
             exram,
             prg_ram,
             prg_rom: cart.prg_rom,
@@ -215,7 +224,7 @@ impl Exrom {
         };
         let bank = if self.regs.sprite8x16 {
             // Means we've gotten our 32 BG tiles fetched (32 * 4)
-            if self.spr_fetch_count == 127 {
+            if self.spr_fetch_count >= 127 && self.spr_fetch_count <= 158 {
                 self.chr_banks_spr[bank_idx_a as usize]
             } else {
                 self.chr_banks_bg[bank_idx_b as usize]
@@ -235,34 +244,32 @@ impl Exrom {
         let table = addr / table_size;
         u16::from((self.regs.nametable_mirroring >> (2 * table)) & 0x03)
     }
-
-    fn clock_irq(&mut self) {
-        if !self.regs.in_frame {
-            self.regs.in_frame = true;
-            self.regs.irq_counter = 0;
-        } else {
-            self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
-            if self.regs.irq_counter == self.regs.scanline_num_irq {
-                self.irq_pending = true;
-            }
-        }
-    }
 }
 
 impl Mapper for Exrom {
     fn irq_pending(&mut self) -> bool {
         self.regs.irq_enabled && self.irq_pending
     }
+
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+
     fn vram_change(&mut self, addr: u16) {
         self.spr_fetch_count += 1;
 
         if (addr >> 12) == 0x02 && addr == self.ppu_prev_addr {
             self.ppu_prev_match += 1;
             if self.ppu_prev_match == 2 {
-                self.clock_irq();
+                if !self.regs.in_frame {
+                    self.regs.in_frame = true;
+                    self.regs.irq_counter = 0;
+                } else {
+                    self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
+                    if self.regs.irq_counter == self.regs.scanline_num_irq {
+                        self.irq_pending = true;
+                    }
+                }
                 self.spr_fetch_count = 0;
             }
         } else {
@@ -270,47 +277,6 @@ impl Mapper for Exrom {
         }
         self.ppu_prev_addr = addr;
         self.ppu_reading = true;
-    }
-    fn clock(&mut self, ppu: &Ppu) {
-        if self.ppu_reading {
-            self.ppu_idle = 0;
-        } else {
-            self.ppu_idle += 1;
-            if self.ppu_idle == 9 {
-                // 3 CPU clocks == 9 Mapper clocks
-                self.ppu_idle = 0;
-                self.regs.in_frame = false;
-                self.ppu_prev_addr = 0xFFFF;
-            }
-        }
-        self.ppu_reading = false;
-
-        if ppu.vblank_started() || ppu.scanline == 261 || !ppu.rendering_enabled() {
-            self.ppu_prev_addr = 0xFFFF;
-        }
-
-        self.regs.sprite8x16 = ppu.regs.ctrl.sprite_height() == 16;
-    }
-    fn battery_backed(&self) -> bool {
-        false
-    }
-    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
-        Ok(())
-    }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
-        Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        None
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        None
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        None
-    }
-    fn logging(&mut self, logging: bool) {
-        self.logging = logging;
     }
 
     fn use_ciram(&self, addr: u16) -> bool {
@@ -332,14 +298,41 @@ impl Mapper for Exrom {
             _ => 0,
         }
     }
+
+    fn bus_write(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x2000 => {
+                self.regs.sprite8x16 = val & 0x20 == 0x20;
+            }
+            0x2001 => {
+                self.ppu_rendering = val & 0x18 > 0; // 1, 2, or 3
+                if !self.ppu_rendering {
+                    self.regs.in_frame = false;
+                    // self.ppu_prev_addr = 0xFFFF;
+                }
+            }
+            0x2002 => self.ppu_in_vblank = val & 0x80 == 0x80,
+            // Custom Mapper registers for communicating the current PPU scanline
+            0x2008 => self.ppu_scanline = u16::from(val),
+            0x2009 => self.ppu_scanline |= u16::from(val) << 8,
+            _ => (),
+        }
+    }
 }
 
 impl Memory for Exrom {
     fn read(&mut self, addr: u16) -> u8 {
         let val = self.peek(addr);
-        if addr == 0x5204 {
-            // Reading from IRQ status clears it
-            self.irq_pending = false;
+        match addr {
+            0x5204 => {
+                // Reading from IRQ status clears it
+                self.irq_pending = false;
+            }
+            0xFFFA | 0xFFFB => {
+                self.regs.in_frame = false;
+                // self.ppu_prev_addr = 0xFFFF;
+            }
+            _ => (),
         }
         val
     }
@@ -580,13 +573,34 @@ impl Memory for Exrom {
             _ => (),
         }
     }
+}
 
+impl Clocked for Exrom {
+    fn clock(&mut self) -> u64 {
+        if self.ppu_reading {
+            self.ppu_idle = 0;
+        } else {
+            self.ppu_idle += 1;
+            if self.ppu_idle == 9 {
+                // 3 CPU clocks == 9 Mapper clocks
+                self.ppu_idle = 0;
+                self.regs.in_frame = false;
+                // self.ppu_prev_addr = 0xFFFF;
+            }
+        }
+        self.ppu_reading = false;
+
+        // if self.ppu_in_vblank || self.ppu_scanline == 261 {
+        //     self.ppu_prev_addr = 0xFFFF;
+        // }
+        1
+    }
+}
+
+impl Powered for Exrom {
     fn reset(&mut self) {
         self.regs.prg_mode = 0x03;
         self.regs.chr_mode = 0x03;
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
     }
 }
 
@@ -606,6 +620,10 @@ impl Savable for Exrom {
         self.ppu_prev_match.save(fh)?;
         self.ppu_reading.save(fh)?;
         self.ppu_idle.save(fh)?;
+        self.ppu_in_vblank.save(fh)?;
+        self.ppu_cycle.save(fh)?;
+        self.ppu_scanline.save(fh)?;
+        self.ppu_rendering.save(fh)?;
         self.exram.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom.save(fh)?;
@@ -626,6 +644,10 @@ impl Savable for Exrom {
         self.ppu_prev_match.load(fh)?;
         self.ppu_reading.load(fh)?;
         self.ppu_idle.load(fh)?;
+        self.ppu_in_vblank.load(fh)?;
+        self.ppu_cycle.load(fh)?;
+        self.ppu_scanline.load(fh)?;
+        self.ppu_rendering.load(fh)?;
         self.exram.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom.load(fh)?;

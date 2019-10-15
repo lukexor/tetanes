@@ -1,17 +1,16 @@
-//! Various utility functions for the UI and Console
+//! Various utility functions
 
-use crate::console::{RENDER_HEIGHT, RENDER_WIDTH};
+use crate::ppu::{RENDER_HEIGHT, RENDER_WIDTH};
 use crate::serialization::Savable;
 use crate::{map_nes_err, nes_err, NesResult};
 use chrono::prelude::{DateTime, Local};
 use dirs;
 use png;
 use std::fs;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 const CONFIG_DIR: &str = ".rustynes";
-const ICON_PATH: &str = "static/rustynes_icon.png";
 const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
 // MAJOR version of SemVer. Increases when save file format isn't backwards compatible
 const VERSION: u8 = 0;
@@ -98,6 +97,7 @@ pub fn home_dir() -> Option<PathBuf> {
 ///
 /// It's possible for this method to fail, but instead of erroring the program,
 /// it'll simply log the error out to STDERR
+/// TODO Move this into UI and have it use width/height
 pub fn screenshot(pixels: &[u8]) -> NesResult<String> {
     let datetime: DateTime<Local> = Local::now();
     let mut png_path = PathBuf::from(
@@ -125,32 +125,24 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<Stri
     let png_path = png_path.as_ref();
     let png_file = fs::File::create(&png_path);
     if png_file.is_err() {
-        return Err(map_nes_err!(
+        return nes_err!(
             "failed to create png file {:?}: {}",
             png_path.display(),
             png_file.err().unwrap(),
-        ));
+        );
     }
     let png_file = BufWriter::new(png_file.unwrap());
     let mut png = png::Encoder::new(png_file, RENDER_WIDTH, RENDER_HEIGHT); // Safe to unwrap
     png.set_color(png::ColorType::RGB);
     let writer = png.write_header();
     if let Err(e) = writer {
-        return Err(map_nes_err!(
-            "failed to save screenshot {:?}: {}",
-            png_path.display(),
-            e
-        ));
+        return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
     }
     let result = writer.unwrap().write_image_data(&pixels);
     if let Err(e) = result {
-        return Err(map_nes_err!(
-            "failed to save screenshot {:?}: {}",
-            png_path.display(),
-            e
-        ));
+        return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
     }
-    return Ok(format!("{}", png_path.display()));
+    Ok(format!("{}", png_path.display()))
 }
 
 /// Writes a header including a magic string and a version
@@ -177,34 +169,6 @@ pub fn validate_save_header(fh: &mut dyn Read) -> NesResult<()> {
         } else {
             Ok(())
         }
-    }
-}
-
-pub struct WindowIcon {
-    pub width: u32,
-    pub height: u32,
-    pub pitch: u32, // Number of pixels per row
-    pub pixels: Vec<u8>,
-}
-
-impl WindowIcon {
-    /// Loads pixel values for an image icon
-    pub fn load() -> NesResult<Self> {
-        let icon_file = BufReader::new(fs::File::open(&ICON_PATH)?);
-        let image = png::Decoder::new(icon_file);
-        let (info, mut reader) = image
-            .read_info()
-            .map_err(|e| map_nes_err!("failed to read png info: {}", e))?;
-        let mut pixels = vec![0; info.buffer_size()];
-        reader
-            .next_frame(&mut pixels)
-            .map_err(|e| map_nes_err!("failed to read png: {}", e))?;
-        Ok(Self {
-            width: info.width,
-            height: info.height,
-            pitch: info.width * 4,
-            pixels,
-        })
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::{
+    common::{Clocked, Powered},
     ui::{settings::DEFAULT_SPEED, Message, Ui, REWIND_TIMER},
     util, NesResult,
 };
@@ -17,7 +18,7 @@ impl Ui {
                 self.messages
                     .push(Message::new(&format!("Rewind Slot {}", slot)));
                 self.rewind_save = slot + 1;
-                self.console.load_state(slot)
+                self.load_state(slot)
             }
             None => Ok(()),
         }
@@ -66,7 +67,7 @@ impl Ui {
     }
 
     fn clock_turbo(&mut self, turbo: bool) {
-        let mut input = self.input.borrow_mut();
+        let mut input = &mut self.cpu.bus.input;
         if input.gamepad1.turbo_a {
             input.gamepad1.a = turbo;
         }
@@ -101,21 +102,22 @@ impl Ui {
         match key {
             // No modifiers
             Key::C if d => {
-                let _ = self.console.clock();
+                let _ = self.clock();
             }
-            Key::F if d => self.console.clock_frame(),
+            Key::F if d => self.clock_frame(),
             Key::S if d => {
-                let prev_scanline = self.console.cpu.mem.ppu.scanline;
+                let prev_scanline = self.cpu.bus.ppu.scanline;
                 let mut scanline = prev_scanline;
                 while scanline == prev_scanline {
-                    let _ = self.console.clock();
-                    scanline = self.console.cpu.mem.ppu.scanline;
+                    let _ = self.clock();
+                    scanline = self.cpu.bus.ppu.scanline;
                 }
             }
             _ => (),
         }
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn handle_keydown(&mut self, key: Key, turbo: bool, data: &mut StateData) -> NesResult<()> {
         let c = self.ctrl;
         let s = self.shift;
@@ -127,10 +129,22 @@ impl Ui {
             Key::Escape => self.paused(!self.paused),
             Key::Space => {
                 self.settings.speed = 2.0;
-                self.console.set_speed(self.settings.speed);
+                self.set_speed(self.settings.speed);
             }
             Key::Comma => self.rewind()?,
+            Key::C if d => {
+                let _ = self.clock();
+            }
             Key::D if d && !c => self.active_debug = !self.active_debug,
+            Key::F if d => self.clock_frame(),
+            Key::S if d => {
+                let prev_scanline = self.cpu.bus.ppu.scanline;
+                let mut scanline = prev_scanline;
+                while scanline == prev_scanline {
+                    let _ = self.clock();
+                    scanline = self.cpu.bus.ppu.scanline;
+                }
+            }
             // Ctrl
             Key::Num1 if c => self.settings.save_slot = 1,
             Key::Num2 if c => self.settings.save_slot = 2,
@@ -149,31 +163,37 @@ impl Ui {
             Key::D if c => self.toggle_debug(data)?,
             Key::L if c => {
                 if self.settings.save_enabled {
-                    self.console.load_state(self.settings.save_slot)?;
-                    self.add_message(&format!("Loaded Slot {}", self.settings.save_slot));
+                    match self.load_state(self.settings.save_slot) {
+                        Ok(_) => {
+                            self.add_message(&format!("Loaded Slot {}", self.settings.save_slot))
+                        }
+                        Err(e) => self.add_message(&e.to_string()),
+                    }
                 } else {
                     self.add_message("Saved States Disabled");
                 }
             }
             Key::M if c => self.settings.sound_enabled = !self.settings.sound_enabled,
-            Key::N if c => {
-                self.console.cpu.mem.ppu.ntsc_video = !self.console.cpu.mem.ppu.ntsc_video
-            }
+            Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
             Key::O if c => self.add_message("Open Dialog not implemented"), // TODO
             Key::R if c => {
                 self.paused(false);
-                self.console.reset();
+                self.reset();
                 self.add_message("Reset");
             }
             Key::P if c && !s => {
                 self.paused(false);
-                self.console.power_cycle();
+                self.power_cycle();
                 self.add_message("Power Cycled");
             }
             Key::S if c => {
                 if self.settings.save_enabled {
-                    self.console.save_state(self.settings.save_slot)?;
-                    self.add_message(&format!("Saved Slot {}", self.settings.save_slot));
+                    match self.save_state(self.settings.save_slot) {
+                        Ok(_) => {
+                            self.add_message(&format!("Saved Slot {}", self.settings.save_slot))
+                        }
+                        Err(e) => self.add_message(&e.to_string()),
+                    }
                 } else {
                     self.add_message("Saved States Disabled");
                 }
@@ -192,7 +212,7 @@ impl Ui {
             Key::P if s => self.toggle_ppu_viewer(data)?,
             Key::V if s => self.add_message("Recording not yet implemented"), // TODO
             // F# Keys
-            Key::F10 => match util::screenshot(&self.console.frame()) {
+            Key::F10 => match util::screenshot(&self.frame()) {
                 Ok(s) => self.add_message(&s),
                 Err(e) => self.add_message(&e.to_string()),
             },
@@ -207,14 +227,14 @@ impl Ui {
             Key::LShift => self.shift = false,
             Key::Space => {
                 self.settings.speed = DEFAULT_SPEED;
-                self.console.set_speed(self.settings.speed);
+                self.set_speed(self.settings.speed);
             }
             _ => self.handle_input_event(key, false, turbo),
         }
     }
 
     fn handle_input_event(&mut self, key: Key, pressed: bool, turbo: bool) {
-        let mut input = self.input.borrow_mut();
+        let mut input = &mut self.cpu.bus.input;
         match key {
             // Gamepad
             Key::Z => input.gamepad1.a = pressed,
@@ -264,7 +284,7 @@ impl Ui {
         pressed: bool,
         turbo: bool,
     ) -> NesResult<()> {
-        let mut input = self.input.borrow_mut();
+        let input = &mut self.cpu.bus.input;
         let mut gamepad = match gamepad_id {
             0 => &mut input.gamepad1,
             1 => &mut input.gamepad2,
@@ -294,7 +314,7 @@ impl Ui {
         Ok(())
     }
     fn handle_gamepad_axis(&mut self, gamepad_id: i32, axis: Axis, value: i16) -> NesResult<()> {
-        let mut input = self.input.borrow_mut();
+        let input = &mut self.cpu.bus.input;
         let mut gamepad = match gamepad_id {
             0 => &mut input.gamepad1,
             1 => &mut input.gamepad2,

@@ -1,8 +1,12 @@
-//! User Interface around the NES Console
+//! User Interface representing the the NES Game Deck
 
 use crate::{
-    console::{Console, RENDER_HEIGHT, RENDER_WIDTH},
-    input::{Input, InputRef},
+    bus::Bus,
+    common::{Clocked, Powered},
+    cpu::{Cpu, CPU_CLOCK_RATE},
+    map_nes_err, mapper, memory, nes_err,
+    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
+    serialization::Savable,
     util, NesResult,
 };
 use pix_engine::{
@@ -11,7 +15,13 @@ use pix_engine::{
     sprite::Sprite,
     PixEngine, PixEngineResult, State, StateData,
 };
-use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc, time::Duration};
+use std::{
+    collections::VecDeque,
+    fmt, fs,
+    io::{BufReader, BufWriter, Read, Write},
+    path::PathBuf,
+    time::Duration,
+};
 
 mod debug;
 mod event;
@@ -20,6 +30,7 @@ mod settings;
 
 pub use settings::UiSettings;
 
+const ICON_PATH: &str = "static/rustynes_icon.png";
 const APP_NAME: &str = "RustyNES";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
@@ -54,7 +65,8 @@ pub struct Ui {
     loaded_rom: PathBuf,
     paused: bool,
     turbo_clock: u8,
-    input: InputRef,
+    cpu: Cpu<Bus>,
+    cycles_remaining: f64,
     ctrl: bool,
     shift: bool,
     focused: bool,
@@ -73,7 +85,6 @@ pub struct Ui {
     rewind_slot: u8,
     rewind_save: u8,
     rewind_queue: VecDeque<u8>,
-    console: Console,
     messages: Vec<Message>,
     settings: UiSettings,
 }
@@ -85,18 +96,20 @@ impl Ui {
     }
 
     pub fn with_settings(settings: UiSettings) -> Self {
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut console = Console::init(input.clone(), settings.randomize_ram);
-        console.debug(settings.debug);
         let scale = settings.scale;
         let width = scale * WINDOW_WIDTH;
         let height = scale * WINDOW_HEIGHT;
+
+        unsafe { memory::RANDOMIZE_RAM = settings.randomize_ram }
+        let cpu = Cpu::init(Bus::new());
+
         Self {
             roms: Vec::new(),
             loaded_rom: PathBuf::new(),
             paused: true,
             turbo_clock: 0,
-            input,
+            cpu,
+            cycles_remaining: 0.0,
             ctrl: false,
             shift: false,
             focused: true,
@@ -115,7 +128,6 @@ impl Ui {
             rewind_slot: 0,
             rewind_save: 0,
             rewind_queue: VecDeque::with_capacity(REWIND_SIZE as usize),
-            console,
             messages: Vec::new(),
             settings,
         }
@@ -126,6 +138,7 @@ impl Ui {
         let height = self.height;
         let vsync = self.settings.vsync;
         let mut engine = PixEngine::new(APP_NAME, self, width, height, vsync)?;
+        engine.set_icon(ICON_PATH)?;
         engine.run()?;
         Ok(())
     }
@@ -134,8 +147,8 @@ impl Ui {
         self.paused = val;
         // Disable PPU debug updating if we're not in active mode
         if !self.active_debug {
-            self.console.debug(!val);
-            self.console.cpu.mem.ppu.update_debug();
+            self.debug(!val);
+            self.cpu.bus.ppu.update_debug();
         }
         if self.paused {
             self.add_static_message("Paused");
@@ -185,30 +198,241 @@ impl Ui {
         }
         Ok(())
     }
+
+    /// Loads a ROM cartridge into memory
+    pub fn load_rom(&mut self, rom_id: usize) -> NesResult<()> {
+        self.loaded_rom = self.roms[rom_id].to_path_buf();
+        let mapper = mapper::load_rom(&self.loaded_rom)?;
+        self.cpu.bus.load_mapper(mapper);
+        Ok(())
+    }
+
+    /// Powers on the console
+    pub fn power_on(&mut self) -> NesResult<()> {
+        self.cpu.power_on();
+        if let Err(e) = self.load_sram() {
+            self.add_message(&e.to_string());
+        }
+        self.paused = false;
+        self.cycles_remaining = 0.0;
+        Ok(())
+    }
+
+    /// Powers off the console
+    pub fn power_off(&mut self) -> NesResult<()> {
+        if let Err(e) = self.save_sram() {
+            self.add_message(&e.to_string());
+        }
+        self.power_cycle();
+        self.paused = true;
+        Ok(())
+    }
+
+    /// Steps the console the number of instructions required to generate an entire frame
+    pub fn clock_frame(&mut self) {
+        while !self.cpu.bus.ppu.frame_complete {
+            let _ = self.clock();
+        }
+        self.cpu.bus.ppu.frame_complete = false;
+    }
+
+    pub fn clock_seconds(&mut self, seconds: f64) {
+        self.cycles_remaining += CPU_CLOCK_RATE * seconds;
+        while self.cycles_remaining > 0.0 {
+            self.cycles_remaining -= self.clock() as f64;
+        }
+    }
+
+    /// Add Game Genie Codes
+    pub fn add_genie_code(&mut self, val: &str) -> NesResult<()> {
+        self.cpu.bus.add_genie_code(val)
+    }
+
+    /// Enable/Disable CPU logging
+    pub fn logging(&mut self, _val: bool) {}
+
+    pub fn debug(&mut self, val: bool) {
+        self.cpu.bus.ppu.debug(val);
+    }
+
+    /// Returns a rendered frame worth of data from the PPU
+    pub fn frame(&mut self) -> &Vec<u8> {
+        &self.cpu.bus.ppu.frame()
+    }
+
+    /// Returns nametable graphics
+    pub fn nametables(&self) -> &Vec<Vec<u8>> {
+        self.cpu.bus.ppu.nametables()
+    }
+
+    /// Returns pattern table graphics
+    pub fn pattern_tables(&self) -> &Vec<Vec<u8>> {
+        self.cpu.bus.ppu.pattern_tables()
+    }
+
+    /// Returns palette graphics
+    pub fn palette(&self) -> &Vec<u8> {
+        self.cpu.bus.ppu.palette()
+    }
+
+    /// Returns a frame worth of audio samples from the APU
+    pub fn audio_samples(&mut self) -> &[f32] {
+        self.cpu.bus.apu.samples()
+    }
+
+    pub fn clear_audio(&mut self) {
+        self.cpu.bus.apu.clear_samples()
+    }
+
+    /// Changes the running speed of the console
+    pub fn set_speed(&mut self, speed: f64) {
+        self.cpu.bus.apu.set_speed(speed);
+    }
+
+    /// Save the current state of the console into a save file
+    pub fn save_state(&mut self, slot: u8) -> NesResult<()> {
+        let save_path = util::save_path(&self.loaded_rom, slot)?;
+        let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
+        if !save_dir.exists() {
+            fs::create_dir_all(save_dir).map_err(|e| {
+                map_nes_err!("failed to create directory {:?}: {}", save_dir.display(), e)
+            })?;
+        }
+        let save_file = fs::File::create(&save_path)
+            .map_err(|e| map_nes_err!("failed to create file {:?}: {}", save_path.display(), e))?;
+        let mut writer = BufWriter::new(save_file);
+        util::write_save_header(&mut writer)
+            .map_err(|e| map_nes_err!("failed to write header {:?}: {}", save_path.display(), e))?;
+        self.save(&mut writer)?;
+        Ok(())
+    }
+
+    /// Load the console with data saved from a save state
+    pub fn load_state(&mut self, slot: u8) -> NesResult<()> {
+        let save_path = util::save_path(&self.loaded_rom, slot)?;
+        if save_path.exists() {
+            let save_file = fs::File::open(&save_path).map_err(|e| {
+                map_nes_err!("Failed to open file {:?}: {}", save_path.display(), e)
+            })?;
+            let mut reader = BufReader::new(save_file);
+            match util::validate_save_header(&mut reader) {
+                Ok(_) => {
+                    if let Err(e) = self.load(&mut reader) {
+                        self.reset();
+                        return nes_err!("Failed to load save slot #{}: {}", slot, e);
+                    }
+                }
+                Err(e) => return nes_err!("Failed to load save slot #{}: {}", slot, e),
+            }
+        }
+        Ok(())
+    }
+
+    /// Save battery-backed Save RAM to a file (if cartridge supports it)
+    fn save_sram(&mut self) -> NesResult<()> {
+        if let Some(mapper) = &self.cpu.bus.mapper {
+            let mapper = mapper.borrow();
+            if mapper.battery_backed() {
+                let sram_path = util::sram_path(&self.loaded_rom)?;
+                let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
+                if !sram_dir.exists() {
+                    fs::create_dir_all(sram_dir).map_err(|e| {
+                        map_nes_err!("failed to create directory {:?}: {}", sram_dir.display(), e)
+                    })?;
+                }
+
+                let mut sram_opts = fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(&sram_path)
+                    .map_err(|e| {
+                        map_nes_err!("failed to open file {:?}: {}", sram_path.display(), e)
+                    })?;
+
+                // Empty file means we just created it
+                if sram_opts.metadata()?.len() == 0 {
+                    let mut sram_file = BufWriter::new(sram_opts);
+                    util::write_save_header(&mut sram_file).map_err(|e| {
+                        map_nes_err!("failed to write header {:?}: {}", sram_path.display(), e)
+                    })?;
+                    mapper.save_sram(&mut sram_file)?;
+                } else {
+                    // Check if exists and header is different, so we avoid overwriting
+                    match util::validate_save_header(&mut sram_opts) {
+                        Ok(_) => {
+                            let mut sram_file = BufWriter::new(sram_opts);
+                            mapper.save_sram(&mut sram_file)?;
+                        }
+                        Err(e) => {
+                            return nes_err!(
+                                "failed to write sram due to invalid header. error: {}",
+                                e
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Load battery-backed Save RAM from a file (if cartridge supports it)
+    fn load_sram(&mut self) -> NesResult<()> {
+        let load_failure = {
+            if let Some(mapper) = &self.cpu.bus.mapper {
+                let mut mapper = mapper.borrow_mut();
+                if mapper.battery_backed() {
+                    let sram_path = util::sram_path(&self.loaded_rom)?;
+                    if sram_path.exists() {
+                        let sram_file = fs::File::open(&sram_path).map_err(|e| {
+                            map_nes_err!("failed to open file {:?}: {}", sram_path.display(), e)
+                        })?;
+                        let mut sram_file = BufReader::new(sram_file);
+                        match util::validate_save_header(&mut sram_file) {
+                            Ok(_) => {
+                                if let Err(e) = mapper.load_sram(&mut sram_file) {
+                                    return nes_err!("failed to load save sram: {}", e);
+                                }
+                            }
+                            Err(e) => return nes_err!(
+                                "failed to load sram: {}.\n  move or delete `{}` before exiting, otherwise sram data will be lost.",
+                                e,
+                                sram_path.display()
+                            ),
+                        }
+                    }
+                }
+            }
+            Ok(())
+        };
+        if load_failure.is_err() {
+            self.reset();
+        }
+        load_failure
+    }
 }
 
 impl State for Ui {
     fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<()> {
+        self.debug(self.settings.debug);
         if let Ok(mut roms) = util::find_roms(&self.settings.path) {
             self.roms.append(&mut roms);
         }
         if self.roms.len() == 1 {
-            self.loaded_rom = self.roms[0].clone();
-            self.console.load_rom(&self.loaded_rom)?;
-            self.console.power_on()?;
+            self.load_rom(0)?;
+            self.power_on()?;
             if self.settings.save_enabled {
-                self.console.load_state(self.settings.save_slot)?;
-            }
-            let mut errors = Vec::new();
-            for code in self.settings.genie_codes.iter() {
-                if let Err(e) = self.console.add_genie_code(code) {
-                    errors.push(e);
+                if let Err(e) = self.load_state(self.settings.save_slot) {
+                    self.add_message(&e.to_string());
                 }
             }
-            for err in errors.iter() {
-                self.add_message(&err.to_string());
+            let codes = self.settings.genie_codes.to_vec();
+            for code in codes {
+                if let Err(e) = self.add_genie_code(&code) {
+                    self.add_message(&e.to_string());
+                }
             }
-            self.paused = false;
             self.update_title(data);
         }
 
@@ -239,12 +463,12 @@ impl State for Ui {
         if !self.paused {
             let startup_frames = 40;
             for _ in 0..startup_frames {
-                self.console.clock_frame();
+                self.clock_frame();
                 if self.settings.sound_enabled {
-                    let samples = self.console.audio_samples();
+                    let samples = self.audio_samples();
                     data.enqueue_audio(&samples);
                 }
-                self.console.clear_audio();
+                self.clear_audio();
             }
         }
         Ok(())
@@ -264,7 +488,9 @@ impl State for Ui {
                 self.rewind_save = 5;
             }
             self.rewind_timer = REWIND_TIMER;
-            self.console.save_state(self.rewind_save)?;
+            if let Err(e) = self.save_state(self.rewind_save) {
+                self.add_message(&e.to_string());
+            }
             self.rewind_queue.push_back(self.rewind_save);
             self.rewind_save += 1;
             if self.rewind_queue.len() > REWIND_SIZE as usize {
@@ -285,13 +511,13 @@ impl State for Ui {
 
             // Clock NES
             for _ in 0..frames_to_run as usize {
-                self.console.clock_frame();
+                self.clock_frame();
                 self.turbo_clock = (1 + self.turbo_clock) % 6;
             }
         }
 
         // Update screen
-        data.copy_texture(1, "nes", self.console.frame())?;
+        data.copy_texture(1, "nes", self.frame())?;
         if self.menu {
             self.draw_menu(data)?;
         }
@@ -311,16 +537,79 @@ impl State for Ui {
 
         // Enqueue sound
         if self.settings.sound_enabled {
-            let samples = self.console.audio_samples();
+            let samples = self.audio_samples();
             data.enqueue_audio(&samples);
         }
-        self.console.clear_audio();
+        self.clear_audio();
         Ok(())
     }
 
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
-        self.console.power_off()?;
+        self.power_off()?;
         Ok(())
+    }
+}
+
+impl Clocked for Ui {
+    /// Steps the console a single CPU instruction at a time
+    fn clock(&mut self) -> u64 {
+        let cpu_cycles = self.cpu.clock();
+        let ppu_cycles = 3 * cpu_cycles;
+
+        for _ in 0..ppu_cycles {
+            self.cpu.bus.ppu.clock();
+            if self.cpu.bus.ppu.nmi_pending {
+                self.cpu.trigger_nmi();
+                self.cpu.bus.ppu.nmi_pending = false;
+            }
+
+            let irq_pending = if let Some(mapper) = &self.cpu.bus.mapper {
+                mapper.borrow_mut().clock();
+                mapper.borrow_mut().irq_pending()
+            } else {
+                false
+            };
+            self.cpu.trigger_irq2(irq_pending);
+        }
+
+        for _ in 0..cpu_cycles {
+            self.cpu.bus.apu.clock();
+            if self.cpu.bus.apu.irq_pending {
+                self.cpu.trigger_irq();
+                self.cpu.bus.apu.irq_pending = false;
+            }
+        }
+
+        cpu_cycles
+    }
+}
+
+impl Powered for Ui {
+    /// Soft-resets the console
+    fn reset(&mut self) {
+        self.logging(false);
+        self.cpu.reset();
+    }
+
+    /// Hard-resets the console
+    fn power_cycle(&mut self) {
+        self.logging(false);
+        self.cpu.power_cycle();
+    }
+}
+
+impl Savable for Ui {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        self.cpu.save(fh)
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        self.cpu.load(fh)
+    }
+}
+
+impl fmt::Debug for Ui {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        write!(f, "Ui {{\n  cpu: {:?}\n}} ", self.cpu)
     }
 }
 

@@ -96,9 +96,10 @@ impl Cartridge {
             chr_rom,
         };
         println!(
-            "Loaded `{}` - Mapper: {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}",
+            "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}",
             rom_file.as_ref().display(),
             cart.header.mapper_num,
+            cart.mapper_board(),
             cart.header.prg_rom_size,
             cart.header.chr_rom_size,
             cart.mirroring(),
@@ -116,6 +117,21 @@ impl Cartridge {
                 1 => Mirroring::Vertical,
                 _ => panic!("impossible mirroring"),
             }
+        }
+    }
+
+    pub fn mapper_board(&self) -> &'static str {
+        match self.header.mapper_num {
+            0 => "Nrom",
+            1 => "Sxrom/MMC1",
+            2 => "Uxrom",
+            3 => "Cnrom",
+            4 => "Txrom/MMC3",
+            5 => "Exrom/MMC5",
+            7 => "Axrom",
+            9 => "Pxrom",
+            10 => "Fxrom/MMC4",
+            _ => "Unknown",
         }
     }
 
