@@ -1,14 +1,14 @@
 use crate::{
     driver::{Driver, DriverOpts},
-    event::PixEvent,
-    Result,
+    PixEngineResult,
 };
+use wasm_bindgen::prelude::*;
 
-pub(super) struct WasmDriver {}
+pub(crate) struct WasmDriver {}
 
 impl WasmDriver {
-    pub(super) fn new(opts: DriverOpts) -> Self {
-        Self {}
+    pub(crate) fn new(_opts: DriverOpts) -> PixEngineResult<Self> {
+        Ok(Self {})
     }
 }
 

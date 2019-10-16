@@ -37,10 +37,10 @@ pub enum AlphaMode {
 // TODO add stroke for line drawing
 pub struct StateData {
     pub(super) default_target_dirty: bool,
-    #[cfg(feature = "wasm-driver")]
-    pub(super) driver: driver::wasm::WasmDriver,
-    #[cfg(not(feature = "wasm-driver"))]
+    #[cfg(all(feature = "sdl2-driver", not(feature = "wasm-driver")))]
     pub(super) driver: driver::sdl2::Sdl2Driver,
+    #[cfg(all(feature = "wasm-driver", not(feature = "sdl2-driver")))]
+    pub(super) driver: driver::wasm::WasmDriver,
     pub(super) events: Vec<PixEvent>,
     title: String,
     screen_width: u32,
