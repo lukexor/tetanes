@@ -78,14 +78,14 @@ impl Bus {
 
     pub fn add_genie_code(&mut self, code: &str) -> NesResult<()> {
         if code.len() != 6 && code.len() != 8 {
-            return nes_err!("invalid game genie code length");
+            return nes_err!("Invalid Game Genie code: {}", code);
         }
         let mut hex: Vec<u8> = Vec::with_capacity(code.len());
         for s in code.chars() {
             if let Some(h) = self.genie_map.get(&s) {
                 hex.push(*h);
             } else {
-                return nes_err!("invalid game genie code");
+                return nes_err!("Invalid Game Genie code: {}", code);
             }
         }
         let addr = 0x8000
@@ -284,17 +284,13 @@ mod tests {
     use super::*;
     #[test]
     fn test_bus() {
-        use crate::input::Input;
         use crate::mapper;
-        use std::cell::RefCell;
         use std::path::PathBuf;
-        use std::rc::Rc;
 
         let test_rom = "tests/cpu/nestest.nes";
         let rom = PathBuf::from(test_rom);
         let mapper = mapper::load_rom(rom).expect("loaded mapper");
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut mem = Bus::init(input);
+        let mut mem = Bus::new();
         mem.load_mapper(mapper);
         mem.write(0x0005, 0x0015);
         mem.write(0x0015, 0x0050);

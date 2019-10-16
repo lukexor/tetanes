@@ -27,7 +27,6 @@ pub mod memory;
 pub mod ppu;
 pub mod serialization;
 pub mod ui;
-pub mod util;
 
 pub type NesResult<T> = std::result::Result<T, NesErr>;
 

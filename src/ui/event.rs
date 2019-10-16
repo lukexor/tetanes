@@ -1,33 +1,62 @@
 use crate::{
-    common::{Clocked, Powered},
+    common::{create_png, Clocked, Powered},
+    nes_err,
+    serialization::Savable,
     ui::{settings::DEFAULT_SPEED, Message, Ui, REWIND_TIMER},
-    util, NesResult,
+    NesResult,
 };
+use chrono::prelude::{DateTime, Local};
 use pix_engine::{
-    event::{Axis, Button, Key, PixEvent},
+    event::{Axis, Button, Key, Mouse, PixEvent},
     StateData,
+};
+use std::{
+    fs,
+    io::{BufWriter, Read, Write},
+    path::PathBuf,
 };
 
 const GAMEPAD_AXIS_DEADZONE: i16 = 8000;
 
 impl Ui {
     fn rewind(&mut self) -> NesResult<()> {
-        match self.rewind_queue.pop_back() {
-            Some(slot) => {
-                self.rewind_timer = REWIND_TIMER;
-                self.messages
-                    .push(Message::new(&format!("Rewind Slot {}", slot)));
-                self.rewind_save = slot + 1;
-                self.load_state(slot)
+        if self.settings.rewind_enabled {
+            // If we saved too recently, ignore it and go back further
+            if self.rewind_timer > 3.0 {
+                let _ = self.rewind_queue.pop_back();
             }
-            None => Ok(()),
+            match self.rewind_queue.pop_back() {
+                Some(slot) => {
+                    self.rewind_timer = REWIND_TIMER;
+                    self.messages
+                        .push(Message::new(&format!("Rewind Slot {}", slot)));
+                    self.rewind_save = slot + 1;
+                    self.load_state(slot)
+                }
+                None => Ok(()),
+            }
+        } else {
+            Ok(())
         }
     }
 
     pub(super) fn poll_events(&mut self, data: &mut StateData) -> NesResult<()> {
         let turbo = self.turbo_clock < 3;
         self.clock_turbo(turbo);
-        for event in data.poll() {
+        let events = if self.playback && self.record_frame < self.record_buffer.len() {
+            if let Some(events) = self.record_buffer.get(self.record_frame) {
+                events.to_vec()
+            } else {
+                self.playback = false;
+                data.poll()
+            }
+        } else {
+            data.poll()
+        };
+        if self.recording && !self.playback {
+            self.record_buffer.push(Vec::new());
+        }
+        for event in events {
             match event {
                 PixEvent::WinClose(window_id) => match Some(window_id) {
                     i if i == self.ppu_viewer_window => self.toggle_ppu_viewer(data)?,
@@ -47,15 +76,18 @@ impl Ui {
                         self.paused(true);
                     }
                 }
-                PixEvent::KeyPress(..) => {
-                    self.handle_key_event(event, turbo, data)?;
-                }
+                PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
                 PixEvent::GamepadBtn(which, btn, pressed) => match btn {
                     Button::Guide => self.paused(!self.paused),
                     Button::Back if pressed => self.rewind()?,
                     Button::LeftShoulder if pressed => self.change_speed(-0.25),
                     Button::RightShoulder if pressed => self.change_speed(0.25),
-                    _ => self.handle_gamepad_button(which, btn, pressed, turbo)?,
+                    _ => {
+                        if self.recording && !self.playback {
+                            self.record_buffer[self.record_frame].push(event);
+                        }
+                        self.handle_gamepad_button(which, btn, pressed, turbo)?;
+                    }
                 },
                 PixEvent::GamepadAxis(which, axis, value) => {
                     self.handle_gamepad_axis(which, axis, value)?
@@ -63,6 +95,7 @@ impl Ui {
                 _ => (),
             }
         }
+        self.record_frame += 1;
         Ok(())
     }
 
@@ -88,6 +121,25 @@ impl Ui {
         turbo: bool,
         data: &mut StateData,
     ) -> NesResult<()> {
+        if self.recording && !self.playback {
+            if let PixEvent::KeyPress(key, ..) = event {
+                match key {
+                    Key::A
+                    | Key::S
+                    | Key::Z
+                    | Key::X
+                    | Key::Return
+                    | Key::RShift
+                    | Key::Left
+                    | Key::Right
+                    | Key::Up
+                    | Key::Down => {
+                        self.record_buffer[self.record_frame].push(event);
+                    }
+                    _ => (),
+                }
+            }
+        }
         match event {
             PixEvent::KeyPress(key, true, true) => self.handle_keyrepeat(key),
             PixEvent::KeyPress(key, true, false) => self.handle_keydown(key, turbo, data)?,
@@ -128,8 +180,12 @@ impl Ui {
             Key::LShift => self.shift = true,
             Key::Escape => self.paused(!self.paused),
             Key::Space => {
-                self.settings.speed = 2.0;
-                self.set_speed(self.settings.speed);
+                if self.recording {
+                    self.add_message("Fast forward disabled while recording");
+                } else {
+                    self.settings.speed = 2.0;
+                    self.set_speed(self.settings.speed);
+                }
             }
             Key::Comma => self.rewind()?,
             Key::C if d => {
@@ -150,8 +206,20 @@ impl Ui {
             Key::Num2 if c => self.settings.save_slot = 2,
             Key::Num3 if c => self.settings.save_slot = 3,
             Key::Num4 if c => self.settings.save_slot = 4,
-            Key::Minus if c => self.change_speed(-0.25),
-            Key::Equals if c => self.change_speed(0.25),
+            Key::Minus if c => {
+                if self.recording {
+                    self.add_message("Speed changes disabled while recording");
+                } else {
+                    self.change_speed(-0.25);
+                }
+            }
+            Key::Equals if c => {
+                if self.recording {
+                    self.add_message("Speed changes disabled while recording");
+                } else {
+                    self.change_speed(0.25);
+                }
+            }
             Key::Return if c => {
                 self.settings.fullscreen = !self.settings.fullscreen;
                 data.fullscreen(self.settings.fullscreen)?;
@@ -210,9 +278,17 @@ impl Ui {
             // Shift
             Key::N if s => self.toggle_nt_viewer(data)?,
             Key::P if s => self.toggle_ppu_viewer(data)?,
-            Key::V if s => self.add_message("Recording not yet implemented"), // TODO
+            Key::V if s => {
+                self.recording = !self.recording;
+                if self.recording {
+                    self.add_message("Recording Started");
+                } else {
+                    self.add_message("Recording Stopped");
+                    self.save_recording()?;
+                }
+            }
             // F# Keys
-            Key::F10 => match util::screenshot(&self.frame()) {
+            Key::F10 => match screenshot(&self.frame()) {
                 Ok(s) => self.add_message(&s),
                 Err(e) => self.add_message(&e.to_string()),
             },
@@ -347,4 +423,208 @@ impl Ui {
         }
         Ok(())
     }
+
+    pub fn save_recording(&mut self) -> NesResult<()> {
+        let datetime: DateTime<Local> = Local::now();
+        let mut path = PathBuf::from(
+            datetime
+                .format("Recording_%Y-%m-%d_at_%H.%M.%S")
+                .to_string(),
+        );
+        path.set_extension("dat");
+        let file = fs::File::create(&path)?;
+        let mut file = BufWriter::new(file);
+        self.record_buffer.save(&mut file)?;
+        Ok(())
+    }
+}
+
+impl Savable for PixEvent {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        match *self {
+            PixEvent::GamepadBtn(id, button, pressed) => {
+                0u8.save(fh)?;
+                id.save(fh)?;
+                button.save(fh)?;
+                pressed.save(fh)?;
+            }
+            PixEvent::GamepadAxis(id, axis, value) => {
+                1u8.save(fh)?;
+                id.save(fh)?;
+                axis.save(fh)?;
+                value.save(fh)?;
+            }
+            PixEvent::KeyPress(key, pressed, repeat) => {
+                2u8.save(fh)?;
+                key.save(fh)?;
+                pressed.save(fh)?;
+                repeat.save(fh)?;
+            }
+            _ => (),
+        }
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => {
+                let mut id: i32 = 0;
+                let mut btn = Button::default();
+                let mut pressed = false;
+                id.load(fh)?;
+                btn.load(fh)?;
+                pressed.load(fh)?;
+                PixEvent::GamepadBtn(id, btn, pressed)
+            }
+            1 => {
+                let mut id: i32 = 0;
+                let mut axis = Axis::default();
+                let mut value = 0;
+                id.load(fh)?;
+                axis.load(fh)?;
+                value.load(fh)?;
+                PixEvent::GamepadAxis(id, axis, value)
+            }
+            2 => {
+                let mut key = Key::default();
+                let mut pressed = false;
+                let mut repeat = false;
+                key.load(fh)?;
+                pressed.load(fh)?;
+                repeat.load(fh)?;
+                PixEvent::KeyPress(key, pressed, repeat)
+            }
+            _ => return nes_err!("invalid PixEvent value"),
+        };
+        Ok(())
+    }
+}
+
+impl Savable for Button {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Button::A,
+            1 => Button::B,
+            2 => Button::X,
+            3 => Button::Y,
+            4 => Button::Back,
+            5 => Button::Start,
+            6 => Button::Guide,
+            7 => Button::DPadUp,
+            8 => Button::DPadDown,
+            9 => Button::DPadLeft,
+            10 => Button::DPadRight,
+            11 => Button::LeftStick,
+            12 => Button::RightStick,
+            13 => Button::LeftShoulder,
+            14 => Button::RightShoulder,
+            _ => nes_err!("invalid Button value")?,
+        };
+        Ok(())
+    }
+}
+
+impl Savable for Axis {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Axis::LeftX,
+            1 => Axis::RightX,
+            2 => Axis::LeftY,
+            3 => Axis::RightY,
+            4 => Axis::TriggerLeft,
+            5 => Axis::TriggerRight,
+            _ => nes_err!("invalid Axis value")?,
+        };
+        Ok(())
+    }
+}
+
+impl Savable for Key {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        let val: u8 = match *self {
+            Key::A => 0, // Turbo A
+            Key::S => 1, // Turbo B
+            Key::X => 2, // A
+            Key::Z => 3, // B
+            Key::Left => 4,
+            Key::Up => 5,
+            Key::Down => 6,
+            Key::Right => 7,
+            Key::Return => 8, // Start
+            Key::RShift => 9, // Select
+            _ => return Ok(()),
+        };
+        val.save(fh)
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Key::A, // Turbo A
+            1 => Key::S, // Turbo B
+            2 => Key::X, // A
+            3 => Key::Z, // B
+            4 => Key::Left,
+            5 => Key::Up,
+            6 => Key::Down,
+            7 => Key::Right,
+            8 => Key::Return, // Start
+            9 => Key::RShift, // Select
+            _ => nes_err!("invalid Key value")?,
+        };
+        Ok(())
+    }
+}
+
+impl Savable for Mouse {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Mouse::Left,
+            1 => Mouse::Middle,
+            2 => Mouse::Right,
+            3 => Mouse::X1,
+            4 => Mouse::X2,
+            5 => Mouse::Unknown,
+            _ => nes_err!("invalid Mouse value")?,
+        };
+        Ok(())
+    }
+}
+
+/// Takes a screenshot and saves it to the current directory as a `.png` file
+///
+/// # Arguments
+///
+/// * `pixels` - An array of pixel data to save in `.png` format
+///
+/// # Errors
+///
+/// It's possible for this method to fail, but instead of erroring the program,
+/// it'll simply log the error out to STDERR
+/// TODO Move this into UI and have it use width/height
+pub fn screenshot(pixels: &[u8]) -> NesResult<String> {
+    let datetime: DateTime<Local> = Local::now();
+    let mut png_path = PathBuf::from(
+        datetime
+            .format("Screen_Shot_%Y-%m-%d_at_%H.%M.%S")
+            .to_string(),
+    );
+    png_path.set_extension("png");
+    create_png(&png_path, pixels)
 }

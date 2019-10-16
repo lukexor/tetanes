@@ -81,6 +81,30 @@ pub enum Axis {
     LeftX, RightX, LeftY, RightY, TriggerLeft, TriggerRight,
 }
 
+impl Default for PixEvent {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl Default for Key {
+    fn default() -> Self {
+        Self::A
+    }
+}
+
+impl Default for Button {
+    fn default() -> Self {
+        Self::A
+    }
+}
+
+impl Default for Axis {
+    fn default() -> Self {
+        Self::LeftX
+    }
+}
+
 impl Default for Input {
     fn default() -> Self {
         Self::new()

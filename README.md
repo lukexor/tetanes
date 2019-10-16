@@ -100,27 +100,33 @@ environment variable.
 ### Additional Options
 
 ```
-rustynes [FLAGS] [OPTIONS] [path]
+USAGE:
+    rustynes [FLAGS] [OPTIONS] [--] [path]
 
 FLAGS:
-        --concurrent_dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad
-    -d, --debug              Debug
-    -f, --fullscreen         Fullscreen
+        --concurrent_dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad.
+    -d, --debug              Start with the CPU debugger enabled and emulation paused at first CPU instruction.
+    -f, --fullscreen         Start fullscreen.
     -h, --help               Prints help information
-    -l, --log_cpu            Print CPU instructions to STDOUT
-        --no_save            Don't load or save game state.
-        --ppu_debug          Start with PPU debugger enabled. Displays nametables, patterns, and palettes.
-        --randomize_ram      By default RAM initializes to 0x00 on power up. This affects some games RNG seed
-                             generators.
-        --sound_off          Disable Sound
+        --no_rewind          Disable rewinding
+        --no_save            Disable savestates
+        --randomize_ram      Randomize ram on startup. By default RAM initializes to 0x00. This affects RNG seed
+                             generators for some games.
+        --record             Record gameplay input to a file for later replay.
+        --sound_off          Disable sound.
     -V, --version            Prints version information
+    -v, --vsync_off          Disable vsync.
 
 OPTIONS:
-        --save_slot <save-slot>    Use Save Slot # (Options: 1-4) [default: 1]
-    -s, --scale <scale>            Window scale [default: 3]
+        --genie_codes <genie-codes>...    List of Game Genie Codes (space separated).
+        --replay <replay>                 Replay a saved recording.
+        --save_slot <save-slot>           Set savestate slot. [default: 1]  [possible values: 1, 2, 3, 4]
+    -s, --scale <scale>                   Window scale [default: 3]
+        --speed <speed>                   Increase/Decrease emulation speed. [default: 1.0]
 
 ARGS:
     <path>    The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
+
 ```
 
 ## Controls
@@ -147,22 +153,31 @@ There are also some emulator actions:
 | Power Cycle                       | Ctrl-P           |                    |
 | Increase Speed 25%                | Ctrl-=           | Right Shoulder     |
 | Decrease Speed 25%                | Ctrl--           | Left Shoulder      |
-| Toggle Fast-Forward               | Space            |                    |
-| Set State Slot                    | Ctrl-(1-4)       |                    |
+| Fast-Forward 2x (while held)      | Space            |                    |
+| Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
 | Rewind                            | Comma            | Back               |
 | Toggle Music/Sound                | Ctrl-M           |                    |
-| Toggle Debugger                   | Ctrl-D           |                    |
-| Toggle Fullscreen                 | Ctrl-Enter       |                    |
+| Toggle CPU Debugger               | Ctrl-D           |                    |
+| Toggle Fullscreen                 | Ctrl-Return      |                    |
 | Toggle Vsync                      | Ctrl-V           |                    |
 | Toggle NTSC Filter                | Ctrl-N           |                    |
-| Toggle Recording<sup>*</sup>      | Shift-V          |                    |
+| Toggle Action Recording           | Shift-V          |                    |
 | Toggle PPU Viewer                 | Shift-P          |                    |
 | Toggle Nametable Viewer           | Shift-N          |                    |
 | Take Screenshot                   | F10              |                    |
 
-&ast; Not yet implemented
+While the CPU Debugger is open (these can also be held down):
+
+| Action                            | Keyboard         |
+| --------------------------------- | ---------------- |
+| Step a single CPU instruction     | C                |
+| Step a single scanline            | S                |
+| Step an entire frame              | F                |
+| Toggle Live CPU Information       | D                |
+
+&ast; Not yet Implemented
 
 ### Note on Controls
 
@@ -197,20 +212,21 @@ The following is a checklist of features and their progress:
   - [ ] Headless mode
 - [x] Central Processing Unit (CPU)
   - [x] Official Instructions
-  - [x] Unofficial Instructions (Not fully tested)
+  - [x] Unofficial Instructions (Some still incorrect)
   - [x] Interrupts
 - [x] Picture Processing Unit (PPU)
   - [x] VRAM
   - [x] Background
   - [x] Sprites
-  - [ ] TV Raster Effects
-  - [ ] Emphasize RGB/Grayscale
+  - [x] TV Raster Effects (Not perfect, but neat anyways)
+  - [x] Emphasize RGB/Grayscale
 - [x] Audio Processing Unit (APU)
   - [x] Delta Mulation Channel (DMC)
 - [x] Inputs
   - [x] Keyboard
   - [x] Standard Controller
-  - [x] Turbo support
+  - [x] Turbo
+  - [ ] Light Gun (Initial implementation will be mouse based)
 - [x] Memory
 - [x] Cartridge
   - [x] Battery-backed Save RAM
@@ -222,14 +238,16 @@ The following is a checklist of features and their progress:
     - [x] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
     - [x] TxROM/MMC3 (Mapper 4)
-    - [ ] ExROM/MMC5 (Mapper 5)
+    - [x] ExROM/MMC5 (Mapper 5) (Mostly done, but some games don't work)
     - [x] AxROM (Mapper 7)
     - [x] PxROM/MMC2 (Mapper 9)
 - [x] User Interface (UI)
+  - [x] PixEngine (Custom graphics library for handling video and audio)
+  - [x] UI Notification messages
   - [x] SDL2
-  - [ ] WebAssembly
+  - [ ] WebAssembly (in progress!)
   - [x] Window
-  - [ ] Menu
+  - [x] Menu (Right now it's just an empty menu)
     - [ ] Open/Run ROM with file browser
     - [ ] Configuration options
   - [x] Pause
@@ -237,26 +255,32 @@ The following is a checklist of features and their progress:
   - [x] Reset
   - [x] Power Cycle
   - [x] Increase/Decrease Speed/Fast-forward
+  - [x] Rewind (Saves every 5 seconds)
   - [x] Save/Load State
   - [x] Take Screenshots
-  - [ ] Toggle Action Recording
+  - [x] Toggle Action Recording
+  - [ ] Sound Recording (Save those memorable tunes!)
   - [x] Toggle Sound
   - [x] Toggle Debugger
   - [ ] Custom Keybinds
-  - [ ] Game Genie
-  - [ ] WideNES
+  - [x] Game Genie
+  - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
 - [ ] Misc
   - [ ] Network Multi-player
 - [x] Testing/Debugging/Documentation
-  - [ ] Debugger for CPU and Memory
-  - [x] PPU Debug mode (displays palettes, nametables, and sprite patterns)
+  - [x] CPU Debugger (Displays CPU status, registers, and disassembly)
+    - [ ] Step Into/Out/Over
+    - [ ] Breakpoints
+  - [ ] Memory Hex Debugger
+  - [x] PPU Viewer (Displays PPU sprite patterns and color palettes)
+  - [x] Nametable Viewer (Displays all four PPU backgrounds)
+    - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
   - [x] Unit/Integration tests (run with cargo test)
     - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
     - [ ] Other tests (Missing a lot here)
   - [x] Test ROMs (most pass, many still do not)
-      - [ ] Automated rom tests
-  - [ ] Rust Docs (work in progress)
-  - [ ] Debug/Trace logging
+      - [ ] Automated rom tests (in progress now that action recording is finished)
+  - [ ] Rust Docs
 
 ## Documentation
 

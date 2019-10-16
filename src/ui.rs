@@ -2,16 +2,17 @@
 
 use crate::{
     bus::Bus,
-    common::{Clocked, Powered},
+    common::{home_dir, Clocked, Powered, CONFIG_DIR},
     cpu::{Cpu, CPU_CLOCK_RATE},
     map_nes_err, mapper, memory, nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    serialization::Savable,
-    util, NesResult,
+    serialization::{validate_save_header, write_save_header, Savable},
+    NesResult,
 };
 use pix_engine::{
     draw::Rect,
-    pixel::{self, ColorType},
+    event::PixEvent,
+    pixel::{self, ColorType, Pixel},
     sprite::Sprite,
     PixEngine, PixEngineResult, State, StateData,
 };
@@ -19,7 +20,7 @@ use std::{
     collections::VecDeque,
     fmt, fs,
     io::{BufReader, BufWriter, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -85,6 +86,10 @@ pub struct Ui {
     rewind_slot: u8,
     rewind_save: u8,
     rewind_queue: VecDeque<u8>,
+    record_frame: usize,
+    recording: bool,
+    playback: bool,
+    record_buffer: Vec<Vec<PixEvent>>,
     messages: Vec<Message>,
     settings: UiSettings,
 }
@@ -92,10 +97,10 @@ pub struct Ui {
 impl Ui {
     pub fn new() -> Self {
         let settings = UiSettings::default();
-        Self::with_settings(settings)
+        Self::with_settings(settings).unwrap()
     }
 
-    pub fn with_settings(settings: UiSettings) -> Self {
+    pub fn with_settings(settings: UiSettings) -> PixEngineResult<Self> {
         let scale = settings.scale;
         let width = scale * WINDOW_WIDTH;
         let height = scale * WINDOW_HEIGHT;
@@ -103,7 +108,18 @@ impl Ui {
         unsafe { memory::RANDOMIZE_RAM = settings.randomize_ram }
         let cpu = Cpu::init(Bus::new());
 
-        Self {
+        let record_buffer = if let Some(replay) = &settings.replay {
+            let file = fs::File::open(replay)
+                .map_err(|e| map_nes_err!("failed to open file {:?}: {}", replay.display(), e))?;
+            let mut file = BufReader::new(file);
+            let mut buffer: Vec<Vec<PixEvent>> = Vec::new();
+            buffer.load(&mut file)?;
+            buffer
+        } else {
+            Vec::new()
+        };
+
+        Ok(Self {
             roms: Vec::new(),
             loaded_rom: PathBuf::new(),
             paused: true,
@@ -128,9 +144,13 @@ impl Ui {
             rewind_slot: 0,
             rewind_save: 0,
             rewind_queue: VecDeque::with_capacity(REWIND_SIZE as usize),
+            record_frame: 0,
+            recording: settings.record,
+            playback: !record_buffer.is_empty(),
+            record_buffer,
             messages: Vec::new(),
             settings,
-        }
+        })
     }
 
     pub fn run(self) -> NesResult<()> {
@@ -172,7 +192,7 @@ impl Ui {
     fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) -> NesResult<()> {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         if !self.messages.is_empty() {
-            let width = self.width - 20;
+            let width = self.width;
             let height = self.height;
             let message_box = Sprite::new(width, height);
             data.create_texture(
@@ -180,15 +200,15 @@ impl Ui {
                 "message",
                 ColorType::Rgba,
                 Rect::new(0, 0, width, height),
-                Rect::new(10, 10, width, height),
+                Rect::new(0, 0, width, height),
             )?;
             data.set_draw_target(message_box);
-            let mut y = self.height - 30;
+            let mut y = self.height - 20;
             data.set_draw_scale(2);
             for msg in self.messages.iter_mut() {
                 msg.timer -= elapsed;
-                data.draw_string(2, y + 2, &msg.text, pixel::BLACK);
-                data.draw_string(0, y, &msg.text, pixel::WHITE);
+                data.fill_rect(0, y - 5, self.width, 25, Pixel([0, 0, 0, 200]));
+                data.draw_string(10, y, &msg.text, pixel::RED);
                 y -= 20;
             }
             data.set_draw_scale(1);
@@ -291,7 +311,7 @@ impl Ui {
 
     /// Save the current state of the console into a save file
     pub fn save_state(&mut self, slot: u8) -> NesResult<()> {
-        let save_path = util::save_path(&self.loaded_rom, slot)?;
+        let save_path = save_path(&self.loaded_rom, slot)?;
         let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
         if !save_dir.exists() {
             fs::create_dir_all(save_dir).map_err(|e| {
@@ -301,7 +321,7 @@ impl Ui {
         let save_file = fs::File::create(&save_path)
             .map_err(|e| map_nes_err!("failed to create file {:?}: {}", save_path.display(), e))?;
         let mut writer = BufWriter::new(save_file);
-        util::write_save_header(&mut writer)
+        write_save_header(&mut writer)
             .map_err(|e| map_nes_err!("failed to write header {:?}: {}", save_path.display(), e))?;
         self.save(&mut writer)?;
         Ok(())
@@ -309,13 +329,13 @@ impl Ui {
 
     /// Load the console with data saved from a save state
     pub fn load_state(&mut self, slot: u8) -> NesResult<()> {
-        let save_path = util::save_path(&self.loaded_rom, slot)?;
+        let save_path = save_path(&self.loaded_rom, slot)?;
         if save_path.exists() {
             let save_file = fs::File::open(&save_path).map_err(|e| {
                 map_nes_err!("Failed to open file {:?}: {}", save_path.display(), e)
             })?;
             let mut reader = BufReader::new(save_file);
-            match util::validate_save_header(&mut reader) {
+            match validate_save_header(&mut reader) {
                 Ok(_) => {
                     if let Err(e) = self.load(&mut reader) {
                         self.reset();
@@ -333,7 +353,7 @@ impl Ui {
         if let Some(mapper) = &self.cpu.bus.mapper {
             let mapper = mapper.borrow();
             if mapper.battery_backed() {
-                let sram_path = util::sram_path(&self.loaded_rom)?;
+                let sram_path = sram_path(&self.loaded_rom)?;
                 let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
                 if !sram_dir.exists() {
                     fs::create_dir_all(sram_dir).map_err(|e| {
@@ -353,13 +373,13 @@ impl Ui {
                 // Empty file means we just created it
                 if sram_opts.metadata()?.len() == 0 {
                     let mut sram_file = BufWriter::new(sram_opts);
-                    util::write_save_header(&mut sram_file).map_err(|e| {
+                    write_save_header(&mut sram_file).map_err(|e| {
                         map_nes_err!("failed to write header {:?}: {}", sram_path.display(), e)
                     })?;
                     mapper.save_sram(&mut sram_file)?;
                 } else {
                     // Check if exists and header is different, so we avoid overwriting
-                    match util::validate_save_header(&mut sram_opts) {
+                    match validate_save_header(&mut sram_opts) {
                         Ok(_) => {
                             let mut sram_file = BufWriter::new(sram_opts);
                             mapper.save_sram(&mut sram_file)?;
@@ -383,13 +403,13 @@ impl Ui {
             if let Some(mapper) = &self.cpu.bus.mapper {
                 let mut mapper = mapper.borrow_mut();
                 if mapper.battery_backed() {
-                    let sram_path = util::sram_path(&self.loaded_rom)?;
+                    let sram_path = sram_path(&self.loaded_rom)?;
                     if sram_path.exists() {
                         let sram_file = fs::File::open(&sram_path).map_err(|e| {
                             map_nes_err!("failed to open file {:?}: {}", sram_path.display(), e)
                         })?;
                         let mut sram_file = BufReader::new(sram_file);
-                        match util::validate_save_header(&mut sram_file) {
+                        match validate_save_header(&mut sram_file) {
                             Ok(_) => {
                                 if let Err(e) = mapper.load_sram(&mut sram_file) {
                                     return nes_err!("failed to load save sram: {}", e);
@@ -416,7 +436,7 @@ impl Ui {
 impl State for Ui {
     fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<()> {
         self.debug(self.settings.debug);
-        if let Ok(mut roms) = util::find_roms(&self.settings.path) {
+        if let Ok(mut roms) = find_roms(&self.settings.path) {
             self.roms.append(&mut roms);
         }
         if self.roms.len() == 1 {
@@ -481,22 +501,24 @@ impl State for Ui {
         self.update_title(data);
 
         // Save rewind snapshot
-        self.rewind_timer -= elapsed;
-        if self.rewind_timer <= 0.0 {
-            self.rewind_save %= REWIND_SIZE;
-            if self.rewind_save < 5 {
-                self.rewind_save = 5;
+        if self.settings.rewind_enabled {
+            self.rewind_timer -= elapsed;
+            if self.rewind_timer <= 0.0 {
+                self.rewind_save %= REWIND_SIZE;
+                if self.rewind_save < 5 {
+                    self.rewind_save = 5;
+                }
+                self.rewind_timer = REWIND_TIMER;
+                if let Err(e) = self.save_state(self.rewind_save) {
+                    self.add_message(&e.to_string());
+                }
+                self.rewind_queue.push_back(self.rewind_save);
+                self.rewind_save += 1;
+                if self.rewind_queue.len() > REWIND_SIZE as usize {
+                    let _ = self.rewind_queue.pop_front();
+                }
+                self.rewind_slot = self.rewind_queue.len() as u8;
             }
-            self.rewind_timer = REWIND_TIMER;
-            if let Err(e) = self.save_state(self.rewind_save) {
-                self.add_message(&e.to_string());
-            }
-            self.rewind_queue.push_back(self.rewind_save);
-            self.rewind_save += 1;
-            if self.rewind_queue.len() > REWIND_SIZE as usize {
-                let _ = self.rewind_queue.pop_front();
-            }
-            self.rewind_slot = self.rewind_queue.len() as u8;
         }
 
         if !self.paused {
@@ -545,6 +567,9 @@ impl State for Ui {
     }
 
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
+        if self.recording {
+            self.save_recording()?;
+        }
         self.power_off()?;
         Ok(())
     }
@@ -607,6 +632,73 @@ impl Savable for Ui {
     }
 }
 
+/// Searches for valid NES rom files ending in `.nes`
+///
+/// If rom_path is a `.nes` file, uses that
+/// If no arg[1], searches current directory for `.nes` files
+pub fn find_roms<P: AsRef<Path>>(path: P) -> NesResult<Vec<PathBuf>> {
+    use std::ffi::OsStr;
+    let path = path.as_ref();
+    let mut roms = Vec::new();
+    if path.is_dir() {
+        path.read_dir()
+            .map_err(|e| map_nes_err!("unable to read directory {:?}: {}", path, e))?
+            .filter_map(|f| f.ok())
+            .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
+            .for_each(|f| roms.push(f.path()));
+    } else if path.is_file() {
+        roms.push(path.to_path_buf());
+    } else {
+        nes_err!("invalid path: {:?}", path)?;
+    }
+    if roms.is_empty() {
+        nes_err!("no rom files found or specified")
+    } else {
+        Ok(roms)
+    }
+}
+
+/// Returns the path where battery-backed Save RAM files are stored
+///
+/// # Arguments
+///
+/// * `path` - An object that implements AsRef<Path> that holds the path to the currently
+/// running ROM
+///
+/// # Errors
+///
+/// Panics if path is not a valid path
+pub fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
+    let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
+    let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
+    path.push(CONFIG_DIR);
+    path.push("sram");
+    path.push(save_name);
+    path.set_extension("dat");
+    Ok(path)
+}
+
+/// Returns the path where Save states are stored
+///
+/// # Arguments
+///
+/// * `path` - An object that implements AsRef<Path> that holds the path to the currently
+/// running ROM
+///
+/// # Errors
+///
+/// Panics if path is not a valid path
+pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
+    let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
+    let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
+    path.push(CONFIG_DIR);
+    path.push("save");
+    path.push(save_name);
+    path.push(format!("{}", slot));
+    path.set_extension("dat");
+    Ok(path)
+}
+
 impl fmt::Debug for Ui {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(f, "Ui {{\n  cpu: {:?}\n}} ", self.cpu)
@@ -622,5 +714,51 @@ impl Default for UiSettings {
 impl Default for Ui {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_save_header() {
+        let mut file = fs::File::create("header.dat").unwrap();
+        write_save_header(&mut file).unwrap();
+        fs::remove_file("header.dat").unwrap();
+    }
+
+    #[test]
+    fn test_find_roms() {
+        let rom_tests = &[
+            // (Test name, Path, Error)
+            // CWD with no `.nes` files
+            (
+                "CWD with no nes files",
+                "./",
+                "no rom files found or specified",
+            ),
+            // Directory with no `.nes` files
+            (
+                "Dir with no nes files",
+                "src/",
+                "no rom files found or specified",
+            ),
+            (
+                "invalid directory",
+                "invalid/",
+                "invalid path: \"invalid/\"",
+            ),
+        ];
+        for test in rom_tests {
+            let roms = find_roms(test.1);
+            assert!(roms.is_err(), "invalid path {}", test.0);
+            assert_eq!(
+                roms.err().unwrap().to_string(),
+                test.2,
+                "error matches {}",
+                test.0
+            );
+        }
     }
 }

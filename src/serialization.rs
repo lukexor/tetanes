@@ -4,8 +4,38 @@
 //! them to a file handle that implements Read/Write.
 
 use crate::{nes_err, NesResult};
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
+
+const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
+// MAJOR version of SemVer. Increases when save file format isn't backwards compatible
+const VERSION: u8 = 0;
+
+/// Writes a header including a magic string and a version
+pub fn write_save_header(fh: &mut dyn Write) -> NesResult<()> {
+    SAVE_FILE_MAGIC.save(fh)?;
+    VERSION.save(fh)
+}
+
+/// Validates a file to ensure it matches the current version and magic
+pub fn validate_save_header(fh: &mut dyn Read) -> NesResult<()> {
+    let mut magic = [0u8; 9];
+    magic.load(fh)?;
+    if magic != SAVE_FILE_MAGIC {
+        nes_err!("invalid save file format")
+    } else {
+        let mut version = 0u8;
+        version.load(fh)?;
+        if version != VERSION {
+            nes_err!(
+                "invalid save file version. current: {}, save file: {}",
+                VERSION,
+                version,
+            )
+        } else {
+            Ok(())
+        }
+    }
+}
 
 /// Savable trait
 pub trait Savable {
@@ -26,6 +56,19 @@ impl Savable for bool {
     }
 }
 
+impl Savable for i8 {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        fh.write_all(&self.to_be_bytes())?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut bytes = [0; 1];
+        fh.read_exact(&mut bytes)?;
+        *self = i8::from_be_bytes(bytes);
+        Ok(())
+    }
+}
+
 impl Savable for u8 {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&self.to_be_bytes())?;
@@ -34,7 +77,20 @@ impl Savable for u8 {
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut bytes = [0; 1];
         fh.read_exact(&mut bytes)?;
-        *self = bytes[0];
+        *self = u8::from_be_bytes(bytes);
+        Ok(())
+    }
+}
+
+impl Savable for i16 {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        fh.write_all(&self.to_be_bytes())?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut bytes = [0; 2];
+        fh.read_exact(&mut bytes)?;
+        *self = i16::from_be_bytes(bytes);
         Ok(())
     }
 }
@@ -148,7 +204,7 @@ impl<T: Savable> Savable for [T] {
         let mut len = 0u32;
         len.load(fh)?;
         if len > self.len() as u32 {
-            return nes_err!("read len does not match");
+            return nes_err!("Array read len does not match");
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -157,7 +213,7 @@ impl<T: Savable> Savable for [T] {
     }
 }
 
-impl<T: Savable> Savable for Vec<T> {
+impl<T: Savable + Default> Savable for Vec<T> {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         let len: usize = self.len();
         if len > std::u32::MAX as usize {
@@ -173,8 +229,13 @@ impl<T: Savable> Savable for Vec<T> {
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut len = 0u32;
         len.load(fh)?;
-        if len > self.len() as u32 {
-            return nes_err!("read len does not match");
+        if self.is_empty() {
+            *self = Vec::with_capacity(len as usize);
+            for _ in 0..len {
+                self.push(T::default());
+            }
+        } else if len != self.len() as u32 {
+            return nes_err!("Vec read len does not match");
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
