@@ -6,6 +6,7 @@ use crate::{
     PixEngineResult,
 };
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Rect {
     pub x: u32,
     pub y: u32,
@@ -67,25 +68,23 @@ impl StateData {
     // Returns the active draw target
     pub fn get_draw_target(&mut self) -> &Sprite {
         match &self.draw_target {
-            Some(target) => target,
+            Some(target) => unsafe { &**target },
             None => &self.default_draw_target,
         }
     }
     pub fn get_draw_target_mut(&mut self) -> &mut Sprite {
         match &mut self.draw_target {
-            Some(target) => target,
+            Some(target) => unsafe { &mut **target },
             None => &mut self.default_draw_target,
         }
     }
-    // Retrieve the temporary draw target back, resetting to the default
-    // screen target
-    pub fn take_draw_target(&mut self) -> Option<Sprite> {
-        self.draw_target.take()
-    }
     // Specify which sprite should be the target for draw functions
     // Pass None to use default draw target
-    pub fn set_draw_target(&mut self, target: Sprite) {
-        self.draw_target = Some(target);
+    pub fn set_draw_target(&mut self, target: &mut Sprite) {
+        self.draw_target = Some(target as *mut Sprite);
+    }
+    pub fn clear_draw_target(&mut self) {
+        self.draw_target = None;
     }
     pub fn get_alpha_mode(&self) -> AlphaMode {
         self.alpha_mode
@@ -146,24 +145,17 @@ impl StateData {
 
     // Fills entire draw target to Pixel
     pub fn fill(&mut self, p: Pixel) {
-        let target = self.get_draw_target_mut();
-        for x in 0..target.width() {
-            for y in 0..target.height() {
-                target.put_pixel(x, y, p);
-            }
-        }
-        if self.draw_target.is_none() {
-            self.default_target_dirty = true;
-        }
+        let width = self.get_draw_target().width();
+        let height = self.get_draw_target().height();
+        self.fill_rect(0, 0, width, height, p);
     }
 
     // Clears entire draw target to empty
     pub fn clear(&mut self) {
+        let width = self.screen_width;
+        let height = self.screen_height;
         let target = self.get_draw_target_mut();
-        *target = Sprite::new(target.width(), target.height());
-        if self.draw_target.is_none() {
-            self.default_target_dirty = true;
-        }
+        *target = Sprite::new(width, height);
     }
 
     // Draws a single pixel to the draw target
@@ -188,19 +180,23 @@ impl StateData {
             return;
         }
 
-        match alpha_mode {
-            AlphaMode::Normal => target.put_pixel(x, y, p),
-            AlphaMode::Mask if p[3] == 255 => target.put_pixel(x, y, p),
-            AlphaMode::Blend => {
-                let current_p = target.get_pixel(x, y);
-                let a = (f32::from(p[3]) / 255.0) * blend_factor;
-                let c = 1.0 - a;
-                let r = a * f32::from(p[0]) + c * f32::from(current_p[0]);
-                let g = a * f32::from(p[1]) + c * f32::from(current_p[1]);
-                let b = a * f32::from(p[2]) + c * f32::from(current_p[2]);
-                target.put_pixel(x, y, Pixel([r as u8, g as u8, b as u8, 255]));
+        if target.color_type() == ColorType::Rgba {
+            match alpha_mode {
+                AlphaMode::Normal => target.put_pixel(x, y, p),
+                AlphaMode::Mask if p[3] == 255 => target.put_pixel(x, y, p),
+                AlphaMode::Blend => {
+                    let current_p = target.get_pixel(x, y);
+                    let a = (f32::from(p[3]) / 255.0) * blend_factor;
+                    let c = 1.0 - a;
+                    let r = a * f32::from(p[0]) + c * f32::from(current_p[0]);
+                    let g = a * f32::from(p[1]) + c * f32::from(current_p[1]);
+                    let b = a * f32::from(p[2]) + c * f32::from(current_p[2]);
+                    target.put_pixel(x, y, Pixel([r as u8, g as u8, b as u8, 255]));
+                }
+                _ => (),
             }
-            _ => (),
+        } else {
+            target.put_pixel(x, y, p);
         }
         if self.draw_target.is_none() {
             self.default_target_dirty = true;
@@ -714,8 +710,14 @@ impl StateData {
 
     pub fn copy_draw_target(&mut self, window_id: u32, name: &str) -> PixEngineResult<()> {
         self.default_target_dirty = false;
-        let pixels = self.get_draw_target().bytes().clone();
-        self.driver.copy_texture(window_id, name, &pixels)
+        let target = match &self.draw_target {
+            Some(target) => unsafe { &**target },
+            None => &self.default_draw_target,
+        };
+        let driver = &mut self.driver;
+        let pixels = target.bytes();
+        driver.copy_texture(window_id, name, &pixels)?;
+        Ok(())
     }
 
     pub fn copy_texture(

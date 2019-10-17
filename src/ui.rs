@@ -7,12 +7,12 @@ use crate::{
     map_nes_err, mapper, memory, nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     serialization::{validate_save_header, write_save_header, Savable},
+    ui::debug::DEBUG_WIDTH,
     NesResult,
 };
 use pix_engine::{
-    draw::Rect,
     event::PixEvent,
-    pixel::{self, ColorType, Pixel},
+    pixel::{self, Pixel},
     sprite::Sprite,
     PixEngine, PixEngineResult, State, StateData,
 };
@@ -65,19 +65,24 @@ pub struct Ui {
     roms: Vec<PathBuf>,
     loaded_rom: PathBuf,
     paused: bool,
+    clock: f64,
     turbo_clock: u8,
     cpu: Cpu<Bus>,
     cycles_remaining: f64,
     ctrl: bool,
     shift: bool,
-    focused: bool,
+    focused_window: u32,
+    lost_focus: bool,
     menu: bool,
     debug: bool,
     ppu_viewer: bool,
     nt_viewer: bool,
+    nt_scanline: u32,
     ppu_viewer_window: Option<u32>,
+    pat_scanline: u32,
     nt_viewer_window: Option<u32>,
-    debug_sprite: Option<Sprite>,
+    msg_box: Sprite,
+    debug_sprite: Sprite,
     active_debug: bool,
     width: u32,
     height: u32,
@@ -123,19 +128,24 @@ impl Ui {
             roms: Vec::new(),
             loaded_rom: PathBuf::new(),
             paused: true,
+            clock: 0.0,
             turbo_clock: 0,
             cpu,
             cycles_remaining: 0.0,
             ctrl: false,
             shift: false,
-            focused: true,
+            focused_window: 0,
+            lost_focus: false,
             menu: false,
             debug: settings.debug,
             ppu_viewer: false,
             nt_viewer: false,
+            nt_scanline: 0,
             ppu_viewer_window: None,
+            pat_scanline: 0,
             nt_viewer_window: None,
-            debug_sprite: None,
+            msg_box: Sprite::new(width, height),
+            debug_sprite: Sprite::new(DEBUG_WIDTH, height),
             active_debug: false,
             width,
             height,
@@ -165,11 +175,6 @@ impl Ui {
 
     fn paused(&mut self, val: bool) {
         self.paused = val;
-        // Disable PPU debug updating if we're not in active mode
-        if !self.active_debug {
-            self.debug(!val);
-            self.cpu.bus.ppu.update_debug();
-        }
         if self.paused {
             self.add_static_message("Paused");
         } else {
@@ -192,17 +197,7 @@ impl Ui {
     fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) -> NesResult<()> {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         if !self.messages.is_empty() {
-            let width = self.width;
-            let height = self.height;
-            let message_box = Sprite::new(width, height);
-            data.create_texture(
-                1,
-                "message",
-                ColorType::Rgba,
-                Rect::new(0, 0, width, height),
-                Rect::new(0, 0, width, height),
-            )?;
-            data.set_draw_target(message_box);
+            data.set_draw_target(&mut self.msg_box);
             let mut y = self.height - 20;
             data.set_draw_scale(2);
             for msg in self.messages.iter_mut() {
@@ -212,9 +207,9 @@ impl Ui {
                 y -= 20;
             }
             data.set_draw_scale(1);
-            let target = data.take_draw_target().unwrap();
-            let pixels = target.bytes();
+            let pixels = self.msg_box.bytes();
             data.copy_texture(1, "message", &pixels)?;
+            data.clear_draw_target();
         }
         Ok(())
     }
@@ -240,6 +235,9 @@ impl Ui {
 
     /// Powers off the console
     pub fn power_off(&mut self) -> NesResult<()> {
+        if self.recording {
+            self.save_recording()?;
+        }
         if let Err(e) = self.save_sram() {
             self.add_message(&e.to_string());
         }
@@ -250,8 +248,13 @@ impl Ui {
 
     /// Steps the console the number of instructions required to generate an entire frame
     pub fn clock_frame(&mut self) {
+        let breakpoint = 0xE356;
         while !self.cpu.bus.ppu.frame_complete {
             let _ = self.clock();
+            if self.cpu.pc == breakpoint {
+                self.paused = true;
+                break;
+            }
         }
         self.cpu.bus.ppu.frame_complete = false;
     }
@@ -270,10 +273,6 @@ impl Ui {
 
     /// Enable/Disable CPU logging
     pub fn logging(&mut self, _val: bool) {}
-
-    pub fn debug(&mut self, val: bool) {
-        self.cpu.bus.ppu.debug(val);
-    }
 
     /// Returns a rendered frame worth of data from the PPU
     pub fn frame(&mut self) -> &Vec<u8> {
@@ -304,48 +303,66 @@ impl Ui {
         self.cpu.bus.apu.clear_samples()
     }
 
-    /// Changes the running speed of the console
-    pub fn set_speed(&mut self, speed: f64) {
-        self.cpu.bus.apu.set_speed(speed);
-    }
-
     /// Save the current state of the console into a save file
-    pub fn save_state(&mut self, slot: u8) -> NesResult<()> {
-        let save_path = save_path(&self.loaded_rom, slot)?;
-        let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
-        if !save_dir.exists() {
-            fs::create_dir_all(save_dir).map_err(|e| {
-                map_nes_err!("failed to create directory {:?}: {}", save_dir.display(), e)
-            })?;
+    pub fn save_state(&mut self, slot: u8) {
+        if self.settings.save_enabled {
+            let save = || -> NesResult<()> {
+                let save_path = save_path(&self.loaded_rom, slot)?;
+                let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
+                if !save_dir.exists() {
+                    fs::create_dir_all(save_dir).map_err(|e| {
+                        map_nes_err!("failed to create directory {:?}: {}", save_dir.display(), e)
+                    })?;
+                }
+                let save_file = fs::File::create(&save_path).map_err(|e| {
+                    map_nes_err!("failed to create file {:?}: {}", save_path.display(), e)
+                })?;
+                let mut writer = BufWriter::new(save_file);
+                write_save_header(&mut writer).map_err(|e| {
+                    map_nes_err!("failed to write header {:?}: {}", save_path.display(), e)
+                })?;
+                self.save(&mut writer)?;
+                Ok(())
+            };
+            match save() {
+                Ok(_) => self.add_message(&format!("Saved Slot {}", slot)),
+                Err(e) => self.add_message(&e.to_string()),
+            }
+        } else {
+            self.add_message("Saved States Disabled");
         }
-        let save_file = fs::File::create(&save_path)
-            .map_err(|e| map_nes_err!("failed to create file {:?}: {}", save_path.display(), e))?;
-        let mut writer = BufWriter::new(save_file);
-        write_save_header(&mut writer)
-            .map_err(|e| map_nes_err!("failed to write header {:?}: {}", save_path.display(), e))?;
-        self.save(&mut writer)?;
-        Ok(())
     }
 
     /// Load the console with data saved from a save state
-    pub fn load_state(&mut self, slot: u8) -> NesResult<()> {
-        let save_path = save_path(&self.loaded_rom, slot)?;
-        if save_path.exists() {
-            let save_file = fs::File::open(&save_path).map_err(|e| {
-                map_nes_err!("Failed to open file {:?}: {}", save_path.display(), e)
-            })?;
-            let mut reader = BufReader::new(save_file);
-            match validate_save_header(&mut reader) {
-                Ok(_) => {
-                    if let Err(e) = self.load(&mut reader) {
-                        self.reset();
-                        return nes_err!("Failed to load save slot #{}: {}", slot, e);
+    pub fn load_state(&mut self, slot: u8) {
+        if self.settings.save_enabled {
+            if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
+                if save_path.exists() {
+                    let mut load = || -> NesResult<()> {
+                        let save_file = fs::File::open(&save_path).map_err(|e| {
+                            map_nes_err!("Failed to open file {:?}: {}", save_path.display(), e)
+                        })?;
+                        let mut reader = BufReader::new(save_file);
+                        match validate_save_header(&mut reader) {
+                            Ok(_) => {
+                                if let Err(e) = self.load(&mut reader) {
+                                    self.reset();
+                                    return nes_err!("Failed to load savestate #{}: {}", slot, e);
+                                }
+                            }
+                            Err(e) => return nes_err!("Failed to load savestate #{}: {}", slot, e),
+                        }
+                        Ok(())
+                    };
+                    match load() {
+                        Ok(()) => self.add_message(&format!("Loaded Slot {}", slot)),
+                        Err(e) => self.add_message(&e.to_string()),
                     }
                 }
-                Err(e) => return nes_err!("Failed to load save slot #{}: {}", slot, e),
             }
+        } else {
+            self.add_message("Saved States Disabled");
         }
-        Ok(())
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
@@ -435,18 +452,16 @@ impl Ui {
 
 impl State for Ui {
     fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<()> {
-        self.debug(self.settings.debug);
+        // Before rendering anything, set up our textures
+        self.create_textures(data)?;
+
         if let Ok(mut roms) = find_roms(&self.settings.path) {
             self.roms.append(&mut roms);
         }
         if self.roms.len() == 1 {
             self.load_rom(0)?;
             self.power_on()?;
-            if self.settings.save_enabled {
-                if let Err(e) = self.load_state(self.settings.save_slot) {
-                    self.add_message(&e.to_string());
-                }
-            }
+            self.load_state(self.settings.save_slot);
             let codes = self.settings.genie_codes.to_vec();
             for code in codes {
                 if let Err(e) = self.add_genie_code(&code) {
@@ -456,23 +471,7 @@ impl State for Ui {
             self.update_title(data);
         }
 
-        data.create_texture(
-            1,
-            "nes",
-            ColorType::Rgb,
-            Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
-            Rect::new(0, 0, self.width, self.height),
-        )?;
-        data.create_texture(
-            1,
-            "menu",
-            ColorType::Rgba,
-            Rect::new(0, 0, self.width, self.height),
-            Rect::new(0, 0, self.width, self.height),
-        )?;
-
-        if self.debug {
-            self.debug = false;
+        if self.settings.debug {
             self.toggle_debug(data)?;
         }
         if self.settings.fullscreen {
@@ -509,9 +508,8 @@ impl State for Ui {
                     self.rewind_save = 5;
                 }
                 self.rewind_timer = REWIND_TIMER;
-                if let Err(e) = self.save_state(self.rewind_save) {
-                    self.add_message(&e.to_string());
-                }
+                self.save_state(self.rewind_save);
+                self.messages.pop(); // Remove saved message
                 self.rewind_queue.push_back(self.rewind_save);
                 self.rewind_save += 1;
                 if self.rewind_queue.len() > REWIND_SIZE as usize {
@@ -522,6 +520,7 @@ impl State for Ui {
         }
 
         if !self.paused {
+            self.clock += elapsed;
             // Frames that aren't multiples of the default render 1 more/less frames
             // every other frame
             let mut frames_to_run = 0;
@@ -537,12 +536,14 @@ impl State for Ui {
                 self.turbo_clock = (1 + self.turbo_clock) % 6;
             }
         }
-
         // Update screen
         data.copy_texture(1, "nes", self.frame())?;
         if self.menu {
             self.draw_menu(data)?;
         }
+
+        self.draw_messages(elapsed, data)?;
+
         if self.debug {
             if self.active_debug || self.paused {
                 self.draw_debug(data);
@@ -555,7 +556,6 @@ impl State for Ui {
         if self.nt_viewer {
             self.copy_nt_viewer(data)?;
         }
-        self.draw_messages(elapsed, data)?;
 
         // Enqueue sound
         if self.settings.sound_enabled {
@@ -567,9 +567,6 @@ impl State for Ui {
     }
 
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
-        if self.recording {
-            self.save_recording()?;
-        }
         self.power_off()?;
         Ok(())
     }
@@ -600,7 +597,7 @@ impl Clocked for Ui {
         for _ in 0..cpu_cycles {
             self.cpu.bus.apu.clock();
             if self.cpu.bus.apu.irq_pending {
-                self.cpu.trigger_irq();
+                self.cpu.trigger_irq(true);
                 self.cpu.bus.apu.irq_pending = false;
             }
         }
@@ -614,6 +611,7 @@ impl Powered for Ui {
     fn reset(&mut self) {
         self.logging(false);
         self.cpu.reset();
+        self.clock = 0.0;
     }
 
     /// Hard-resets the console
@@ -720,16 +718,25 @@ impl Default for Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::Memory;
+
+    fn load(rom: &str) -> Ui {
+        let mut ui = Ui::new();
+        ui.roms.push(PathBuf::from(rom));
+        ui.load_rom(0).unwrap();
+        ui.power_on().unwrap();
+        ui
+    }
 
     #[test]
-    fn test_save_header() {
+    fn save_header() {
         let mut file = fs::File::create("header.dat").unwrap();
         write_save_header(&mut file).unwrap();
         fs::remove_file("header.dat").unwrap();
     }
 
     #[test]
-    fn test_find_roms() {
+    fn find_rom_cases() {
         let rom_tests = &[
             // (Test name, Path, Error)
             // CWD with no `.nes` files
@@ -744,6 +751,7 @@ mod tests {
                 "src/",
                 "no rom files found or specified",
             ),
+            // Invalid
             (
                 "invalid directory",
                 "invalid/",
@@ -760,5 +768,59 @@ mod tests {
                 test.0
             );
         }
+    }
+
+    #[test]
+    fn nestest() {
+        let rom = "tests/cpu/nestest.nes";
+        let mut ui = load(&rom);
+        ui.cpu.pc = 0xC000; // Start automated tests
+        let _ = ui.clock_seconds(0.5);
+        assert_eq!(ui.cpu.peek(0x0000), 0x00, "{}", rom);
+    }
+
+    #[test]
+    fn dummy_writes_oam() {
+        let rom = "tests/cpu/dummy_writes_oam.nes";
+        let mut ui = load(&rom);
+        let _ = ui.clock_seconds(6.0);
+        assert_eq!(ui.cpu.peek(0x6000), 0x00, "{}", rom);
+    }
+
+    #[test]
+    fn dummy_writes_ppumem() {
+        let rom = "tests/cpu/dummy_writes_ppumem.nes";
+        let mut ui = load(&rom);
+        let _ = ui.clock_seconds(4.0);
+        assert_eq!(ui.cpu.peek(0x6000), 0x00, "{}", rom);
+    }
+
+    #[test]
+    fn exec_space_ppuio() {
+        let rom = "tests/cpu/exec_space_ppuio.nes";
+        let mut ui = load(&rom);
+        let _ = ui.clock_seconds(2.0);
+        assert_eq!(ui.cpu.peek(0x6000), 0x00, "{}", rom);
+    }
+
+    #[test]
+    fn instr_timing() {
+        let rom = "tests/cpu/instr_timing.nes";
+        let mut ui = load(&rom);
+        let _ = ui.clock_seconds(22.0);
+        assert_eq!(ui.cpu.peek(0x6000), 0x00, "{}", rom);
+    }
+
+    #[test]
+    fn interrupts() {
+        use crate::common::{LogLevel, Loggable};
+        let rom = "tests/cpu/interrupts.nes";
+        let mut ui = load(&rom);
+        ui.cpu.set_log_level(LogLevel::Debug);
+        // let _ = ui.clock_seconds(0.5);
+        while ui.cpu.peek(0x6000) != 0x01 {
+            ui.clock();
+        }
+        assert_eq!(ui.cpu.peek(0x6000), 0x00, "{}", rom);
     }
 }

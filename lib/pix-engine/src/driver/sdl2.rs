@@ -246,8 +246,8 @@ impl Driver for Sdl2Driver {
                     ..
                 } => match win_event {
                     WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) => PixEvent::Resized,
-                    WindowEvent::FocusGained => PixEvent::Focus(true),
-                    WindowEvent::FocusLost => PixEvent::Focus(false),
+                    WindowEvent::FocusGained => PixEvent::Focus(window_id, true),
+                    WindowEvent::FocusLost => PixEvent::Focus(window_id, false),
                     WindowEvent::Close => PixEvent::WinClose(window_id),
                     _ => PixEvent::None, // Ignore others
                 },

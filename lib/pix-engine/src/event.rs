@@ -10,9 +10,9 @@ pub enum PixEvent {
     MousePress(Mouse, u32, u32, bool), // Mouse, x, y, pressed
     MouseWheel(i32),                   // Wheel delta
     MouseMotion(u32, u32),             // x, y
-    WinClose(u32),
+    WinClose(u32),                     // Window Id
     Resized,
-    Focus(bool),
+    Focus(u32, bool), // Window ID, focused
     Background(bool),
 }
 

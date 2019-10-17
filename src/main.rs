@@ -25,7 +25,7 @@ fn main() {
         sound_enabled: !opt.sound_off,
         record: opt.record && opt.replay.is_none(),
         replay: opt.replay,
-        rewind_enabled: !opt.no_rewind,
+        rewind_enabled: opt.rewind,
         save_enabled: !opt.no_save,
         concurrent_dpad: opt.concurrent_dpad,
         randomize_ram: opt.randomize_ram,
@@ -91,8 +91,8 @@ struct Opt {
         help = "Randomize ram on startup. By default RAM initializes to 0x00. This affects RNG seed generators for some games."
     )]
     randomize_ram: bool,
-    #[structopt(long = "no_rewind", help = "Disable rewinding")]
-    no_rewind: bool,
+    #[structopt(long = "rewind", help = "Enable savestate rewinding")]
+    rewind: bool,
     #[structopt(long = "no_save", help = "Disable savestates")]
     no_save: bool,
     #[structopt(

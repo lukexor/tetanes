@@ -48,13 +48,17 @@ impl UiSettings {
 
 impl Ui {
     pub(super) fn change_speed(&mut self, delta: f64) {
-        self.settings.speed += DEFAULT_SPEED * delta;
-        if self.settings.speed < MIN_SPEED {
-            self.settings.speed = MIN_SPEED;
-        } else if self.settings.speed > MAX_SPEED {
-            self.settings.speed = MAX_SPEED;
+        if self.recording {
+            self.add_message("Speed changes disabled while recording");
+        } else {
+            self.settings.speed += DEFAULT_SPEED * delta;
+            if self.settings.speed < MIN_SPEED {
+                self.settings.speed = MIN_SPEED;
+            } else if self.settings.speed > MAX_SPEED {
+                self.settings.speed = MAX_SPEED;
+            }
+            self.cpu.bus.apu.set_speed(self.settings.speed);
         }
-        self.set_speed(self.settings.speed);
     }
 
     pub(super) fn update_title(&mut self, data: &mut StateData) {

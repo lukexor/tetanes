@@ -153,7 +153,7 @@ impl Memory for Bus {
                         mapper.borrow_mut().read(addr)
                     }
                 } else {
-                    self.open_bus
+                    0
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
@@ -188,7 +188,7 @@ impl Memory for Bus {
                         mapper.borrow_mut().read(addr)
                     }
                 } else {
-                    self.open_bus
+                    0
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),

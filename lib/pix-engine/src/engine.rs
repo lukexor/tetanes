@@ -101,7 +101,7 @@ where
                         }
                         PixEvent::MouseMotion(x, y) => self.data.update_mouse(x, y),
                         PixEvent::MouseWheel(delta) => self.data.update_mouse_wheel(delta),
-                        PixEvent::Focus(focused) => self.data.set_focused(focused),
+                        PixEvent::Focus(_, focused) => self.data.set_focused(focused),
                         _ => (), // Skip anything else
                     }
                 }

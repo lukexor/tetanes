@@ -187,7 +187,7 @@ impl State for App {
             ));
         }
 
-        data.fill(pixel::BLACK);
+        data.clear();
 
         if self.exploded {
             if self.lives > 0 {

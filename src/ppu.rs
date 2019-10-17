@@ -79,11 +79,13 @@ pub struct Ppu {
     oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
     pub frame: Frame, // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
+    pub ntsc_video: bool,
     debug: bool,
+    nt_scanline: u16,
+    pat_scanline: u16,
     nametables: Vec<Vec<u8>>,
     pattern_tables: Vec<Vec<u8>>,
     palette: Vec<u8>,
-    pub ntsc_video: bool,
 }
 
 impl Ppu {
@@ -99,7 +101,10 @@ impl Ppu {
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
+            ntsc_video: false,
             debug: false,
+            nt_scanline: 0,
+            pat_scanline: 0,
             nametables: vec![
                 vec![0; RENDER_SIZE],
                 vec![0; RENDER_SIZE],
@@ -108,7 +113,6 @@ impl Ppu {
             ],
             pattern_tables: vec![vec![0; RENDER_SIZE], vec![0; RENDER_SIZE]],
             palette: vec![0; (PALETTE_SIZE + 4) * 3],
-            ntsc_video: false,
         }
     }
 
@@ -118,6 +122,14 @@ impl Ppu {
 
     pub fn debug(&mut self, val: bool) {
         self.debug = val;
+    }
+
+    pub fn set_nt_scanline(&mut self, scanline: u16) {
+        self.nt_scanline = scanline;
+    }
+
+    pub fn set_pat_scanline(&mut self, scanline: u16) {
+        self.pat_scanline = scanline;
     }
 
     pub fn update_debug(&mut self) {
@@ -897,15 +909,18 @@ impl Clocked for Ppu {
             }
         }
 
-        if self.debug && self.scanline == 0 && self.cycle == 0 {
-            self.nametables = vec![
-                self.load_nametable(NT_START),
-                self.load_nametable(NT_START + 0x0400),
-                self.load_nametable(NT_START + 0x0800),
-                self.load_nametable(NT_START + 0x0C00),
-            ];
-            self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
-            self.palette = self.load_palette();
+        if self.debug && self.cycle == 0 {
+            if self.scanline == self.nt_scanline {
+                self.nametables = vec![
+                    self.load_nametable(NT_START),
+                    self.load_nametable(NT_START + 0x0400),
+                    self.load_nametable(NT_START + 0x0800),
+                    self.load_nametable(NT_START + 0x0C00),
+                ];
+            } else if self.scanline == self.pat_scanline {
+                self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
+                self.palette = self.load_palette();
+            }
         }
         1
     }
@@ -2057,7 +2072,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_ppu_scrolling_registers() {
+    fn ppu_scrolling_registers() {
         // Dummy rom just to get cartridge vram loaded
         let rom = PathBuf::from("roms/super_mario_bros.nes");
         let mapper = mapper::load_rom(rom).expect("loaded mapper");

@@ -46,7 +46,7 @@ pub struct StateData {
     screen_width: u32,
     screen_height: u32,
     default_draw_target: Sprite,
-    draw_target: Option<Sprite>,
+    draw_target: Option<*mut Sprite>,
     default_draw_color: Pixel,
     draw_color: Pixel,
     draw_scale: u32,
@@ -154,7 +154,7 @@ impl StateData {
         let font = StateData::construct_font();
         // Initialize backend driver library
         let opts = DriverOpts::new(app_name, screen_width, screen_height, vsync);
-        let mut state_data = Self {
+        let state_data = Self {
             default_target_dirty: false,
             driver: driver::load_driver(opts)?,
             events: Vec::new(),
@@ -181,7 +181,6 @@ impl StateData {
             mouse_state: [Input::new(); 5],
             coord_wrapping: false,
         };
-        state_data.clear();
         Ok(state_data)
     }
     pub(super) fn set_focused(&mut self, val: bool) {

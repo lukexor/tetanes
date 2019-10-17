@@ -300,7 +300,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_valid_cartridges() {
+    fn valid_cartridges() {
         let rom_data = &[
             // (File, PRG, CHR, Mapper, Mirroring, Battery)
             (

@@ -15,12 +15,9 @@ path = "src/lib.rs"
 png = "0.15.0"
 rand = "0.7.1"
 sdl2 = { version = "0.32.2", default-features = false, features = ["unsafe_textures"], optional = true }
+wasm-bindgen = { version = "0.2.51", optional = true }
 
 [features]
 default = ["sdl2-driver"]
 sdl2-driver = ["sdl2"]
 wasm-driver = ["wasm-bindgen"]
-
-[dependencies.wasm-bindgen]
-version = "0.2.51"
-optional = true

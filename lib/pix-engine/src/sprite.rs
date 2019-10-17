@@ -31,6 +31,16 @@ impl Sprite {
         }
     }
 
+    pub fn rgb(width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            channels: 3,
+            color_type: ColorType::Rgb,
+            data: vec![0; 3 * (width * height) as usize],
+        }
+    }
+
     /// Creates a new sprite from an array of bytes
     pub fn from_bytes(width: u32, height: u32, bytes: &[u8]) -> PixEngineResult<Self> {
         if bytes.len() != (4 * width * height) as usize {
@@ -56,7 +66,11 @@ impl Sprite {
                 self.data[idx],
                 self.data[idx + 1],
                 self.data[idx + 2],
-                self.data[idx + 3],
+                if self.channels == 3 {
+                    255
+                } else {
+                    self.data[idx + 3]
+                },
             ])
         } else {
             pixel::TRANSPARENT
@@ -67,10 +81,9 @@ impl Sprite {
     pub fn put_pixel(&mut self, x: u32, y: u32, p: Pixel) {
         if x < self.width && y < self.height {
             let idx = self.channels as usize * (y * self.width + x) as usize;
-            self.data[idx] = p[0];
-            self.data[idx + 1] = p[1];
-            self.data[idx + 2] = p[2];
-            self.data[idx + 3] = p[3];
+            for i in 0..self.channels as usize {
+                self.data[idx + i] = p[i];
+            }
         }
     }
 

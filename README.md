@@ -35,13 +35,12 @@ Support for the following mappers is currently implemented or in development:
 | 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~269                   |                 11.04% |
 | 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
 | 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.59% |
-| 005 | ExROM/MMC5<sup>2</sup> | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
+| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
 | 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
 |     |                        |                                           | ~2050                   |                 84.11% |
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
-2. ExROM is still in development
 
 ## Dependencies
 
@@ -138,7 +137,7 @@ ARGS:
 | A (Turbo)             | A           | X                |
 | B (Turbo)             | S           | Y                |
 | Start                 | Enter       | Start            |
-| Select                | Right Shift | Select           |
+| Select                | Right Shift | Back             |
 | Up, Down, Left, Right | Arrow Keys  | Left Stick/D-Pad |
 
 There are also some emulator actions:
@@ -157,7 +156,7 @@ There are also some emulator actions:
 | Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
-| Rewind                            | Comma            | Back               |
+| Rewind                            | Comma            |                    |
 | Toggle Music/Sound                | Ctrl-M           |                    |
 | Toggle CPU Debugger               | Ctrl-D           |                    |
 | Toggle Fullscreen                 | Ctrl-Return      |                    |
@@ -177,7 +176,7 @@ While the CPU Debugger is open (these can also be held down):
 | Step an entire frame              | F                |
 | Toggle Live CPU Information       | D                |
 
-&ast; Not yet Implemented
+<sup>&ast;</sup>: Not yet Implemented
 
 ### Note on Controls
 
@@ -310,12 +309,17 @@ submit a pull request if you want to help out!
 Implementation was inspiried by several amazing NES projects, without which I would not have been
 able to understand or digest all the information on the NES wiki.
 
-- https://github.com/fogleman/nes
-- https://github.com/pcwalton/sprocketnes
-- https://github.com/MichaelBurge/nes-emulator
-- https://github.com/AndreaOrru/LaiNES
-- https://github.com/daniel5151/ANESE
-- http://www.fceux.com/web/home.html
+- [fogleman NES](https://github.com/fogleman/nes)
+- [sprocketnes](https://github.com/pcwalton/sprocketnes)
+- [nes-emulator](https://github.com/MichaelBurge/nes-emulator)
+- [LaiNES](https://github.com/AndreaOrru/LaiNES)
+- [ANESE](https://github.com/daniel5151/ANESE)
+- [FCEUX](http://www.fceux.com/web/home.html)
+
+Also, a huge shout out to [OneLoneCoder](https://github.com/OneLoneCoder/) for his
+[NES](https://github.com/OneLoneCoder/olcNES) and
+[PixelGameEngine](https://github.com/OneLoneCoder/olcPixelGameEngine) series as those helped a ton
+in some recent refactorings.
 
 [rust]: https://www.rust-lang.org/tools/install
 [sdl2]: https://www.libsdl.org/

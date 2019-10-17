@@ -16,27 +16,23 @@ use std::{
     path::PathBuf,
 };
 
-const GAMEPAD_AXIS_DEADZONE: i16 = 8000;
+const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
+const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 
 impl Ui {
-    fn rewind(&mut self) -> NesResult<()> {
+    fn rewind(&mut self) {
         if self.settings.rewind_enabled {
             // If we saved too recently, ignore it and go back further
             if self.rewind_timer > 3.0 {
                 let _ = self.rewind_queue.pop_back();
             }
-            match self.rewind_queue.pop_back() {
-                Some(slot) => {
-                    self.rewind_timer = REWIND_TIMER;
-                    self.messages
-                        .push(Message::new(&format!("Rewind Slot {}", slot)));
-                    self.rewind_save = slot + 1;
-                    self.load_state(slot)
-                }
-                None => Ok(()),
+            if let Some(slot) = self.rewind_queue.pop_back() {
+                self.rewind_timer = REWIND_TIMER;
+                self.messages
+                    .push(Message::new(&format!("Rewind Slot {}", slot)));
+                self.rewind_save = slot + 1;
+                self.load_state(slot);
             }
-        } else {
-            Ok(())
         }
     }
 
@@ -63,23 +59,24 @@ impl Ui {
                     i if i == self.nt_viewer_window => self.toggle_nt_viewer(data)?,
                     _ => (),
                 },
-                PixEvent::Focus(focus) => {
-                    if focus {
-                        // Only unpause if we paused as a result of losing focus
-                        if !self.focused {
+                PixEvent::Focus(window_id, focus) => {
+                    self.focused_window = if focus { window_id } else { 0 };
+
+                    // Pausing only applies to the main window
+                    if self.focused_window == 1 {
+                        // Only unpause if we weren't paused as a result of losing focus
+                        if focus && self.lost_focus {
                             self.paused(false);
+                        } else if !focus && !self.paused {
+                            // Only pause and set lost_focus if we weren't already paused
+                            self.lost_focus = true;
+                            self.paused(true);
                         }
-                        self.focused = true;
-                    } else if !self.paused {
-                        // Only unset focused if we aren't paused, then pause
-                        self.focused = false;
-                        self.paused(true);
                     }
                 }
                 PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
                 PixEvent::GamepadBtn(which, btn, pressed) => match btn {
-                    Button::Guide => self.paused(!self.paused),
-                    Button::Back if pressed => self.rewind()?,
+                    Button::Guide if pressed => self.paused(!self.paused),
                     Button::LeftShoulder if pressed => self.change_speed(-0.25),
                     Button::RightShoulder if pressed => self.change_speed(0.25),
                     _ => {
@@ -165,6 +162,21 @@ impl Ui {
                     scanline = self.cpu.bus.ppu.scanline;
                 }
             }
+            // Nametable/PPU Viewer Shortcuts
+            Key::Up => {
+                if Some(self.focused_window) == self.nt_viewer_window {
+                    self.set_nt_scanline(self.nt_scanline.saturating_sub(1));
+                } else {
+                    self.set_pat_scanline(self.pat_scanline.saturating_sub(1));
+                }
+            }
+            Key::Down => {
+                if Some(self.focused_window) == self.nt_viewer_window {
+                    self.set_nt_scanline(self.nt_scanline + 1);
+                } else {
+                    self.set_pat_scanline(self.pat_scanline + 1);
+                }
+            }
             _ => (),
         }
     }
@@ -179,15 +191,8 @@ impl Ui {
             Key::Ctrl => self.ctrl = true,
             Key::LShift => self.shift = true,
             Key::Escape => self.paused(!self.paused),
-            Key::Space => {
-                if self.recording {
-                    self.add_message("Fast forward disabled while recording");
-                } else {
-                    self.settings.speed = 2.0;
-                    self.set_speed(self.settings.speed);
-                }
-            }
-            Key::Comma => self.rewind()?,
+            Key::Space => self.change_speed(1.0),
+            Key::Comma => self.rewind(),
             Key::C if d => {
                 let _ = self.clock();
             }
@@ -206,20 +211,8 @@ impl Ui {
             Key::Num2 if c => self.settings.save_slot = 2,
             Key::Num3 if c => self.settings.save_slot = 3,
             Key::Num4 if c => self.settings.save_slot = 4,
-            Key::Minus if c => {
-                if self.recording {
-                    self.add_message("Speed changes disabled while recording");
-                } else {
-                    self.change_speed(-0.25);
-                }
-            }
-            Key::Equals if c => {
-                if self.recording {
-                    self.add_message("Speed changes disabled while recording");
-                } else {
-                    self.change_speed(0.25);
-                }
-            }
+            Key::Minus if c => self.change_speed(-0.25),
+            Key::Equals if c => self.change_speed(0.25),
             Key::Return if c => {
                 self.settings.fullscreen = !self.settings.fullscreen;
                 data.fullscreen(self.settings.fullscreen)?;
@@ -229,18 +222,8 @@ impl Ui {
                 self.paused(self.menu);
             }
             Key::D if c => self.toggle_debug(data)?,
-            Key::L if c => {
-                if self.settings.save_enabled {
-                    match self.load_state(self.settings.save_slot) {
-                        Ok(_) => {
-                            self.add_message(&format!("Loaded Slot {}", self.settings.save_slot))
-                        }
-                        Err(e) => self.add_message(&e.to_string()),
-                    }
-                } else {
-                    self.add_message("Saved States Disabled");
-                }
-            }
+            Key::S if c => self.save_state(self.settings.save_slot),
+            Key::L if c => self.load_state(self.settings.save_slot),
             Key::M if c => self.settings.sound_enabled = !self.settings.sound_enabled,
             Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
             Key::O if c => self.add_message("Open Dialog not implemented"), // TODO
@@ -253,18 +236,6 @@ impl Ui {
                 self.paused(false);
                 self.power_cycle();
                 self.add_message("Power Cycled");
-            }
-            Key::S if c => {
-                if self.settings.save_enabled {
-                    match self.save_state(self.settings.save_slot) {
-                        Ok(_) => {
-                            self.add_message(&format!("Saved Slot {}", self.settings.save_slot))
-                        }
-                        Err(e) => self.add_message(&e.to_string()),
-                    }
-                } else {
-                    self.add_message("Saved States Disabled");
-                }
             }
             Key::V if c => {
                 self.settings.vsync = !self.settings.vsync;
@@ -292,7 +263,23 @@ impl Ui {
                 Ok(s) => self.add_message(&s),
                 Err(e) => self.add_message(&e.to_string()),
             },
-            _ => self.handle_input_event(key, true, turbo),
+            _ => {
+                if Some(self.focused_window) == self.nt_viewer_window {
+                    match key {
+                        Key::Up => self.set_nt_scanline(self.nt_scanline.saturating_sub(1)),
+                        Key::Down => self.set_nt_scanline(self.nt_scanline + 1),
+                        _ => (),
+                    }
+                } else if Some(self.focused_window) == self.ppu_viewer_window {
+                    match key {
+                        Key::Up => self.set_pat_scanline(self.pat_scanline.saturating_sub(1)),
+                        Key::Down => self.set_pat_scanline(self.pat_scanline + 1),
+                        _ => (),
+                    }
+                } else {
+                    self.handle_input_event(key, true, turbo);
+                }
+            }
         }
         Ok(())
     }
@@ -303,13 +290,17 @@ impl Ui {
             Key::LShift => self.shift = false,
             Key::Space => {
                 self.settings.speed = DEFAULT_SPEED;
-                self.set_speed(self.settings.speed);
+                self.cpu.bus.apu.set_speed(self.settings.speed);
             }
             _ => self.handle_input_event(key, false, turbo),
         }
     }
 
     fn handle_input_event(&mut self, key: Key, pressed: bool, turbo: bool) {
+        if self.focused_window != 1 {
+            return;
+        }
+
         let mut input = &mut self.cpu.bus.input;
         match key {
             // Gamepad
@@ -360,6 +351,10 @@ impl Ui {
         pressed: bool,
         turbo: bool,
     ) -> NesResult<()> {
+        if self.focused_window != 1 {
+            return Ok(());
+        }
+
         let input = &mut self.cpu.bus.input;
         let mut gamepad = match gamepad_id {
             0 => &mut input.gamepad1,
@@ -390,6 +385,10 @@ impl Ui {
         Ok(())
     }
     fn handle_gamepad_axis(&mut self, gamepad_id: i32, axis: Axis, value: i16) -> NesResult<()> {
+        if self.focused_window != 1 {
+            return Ok(());
+        }
+
         let input = &mut self.cpu.bus.input;
         let mut gamepad = match gamepad_id {
             0 => &mut input.gamepad1,
@@ -418,6 +417,12 @@ impl Ui {
                     gamepad.up = false;
                     gamepad.down = false;
                 }
+            }
+            Axis::TriggerLeft if value > GAMEPAD_TRIGGER_PRESS => {
+                self.save_state(self.settings.save_slot)
+            }
+            Axis::TriggerRight if value > GAMEPAD_TRIGGER_PRESS => {
+                self.load_state(self.settings.save_slot)
             }
             _ => (),
         }
