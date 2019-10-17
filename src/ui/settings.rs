@@ -1,6 +1,10 @@
-use crate::ui::Ui;
+use crate::{serialization::Savable, ui::Ui, NesResult};
 use pix_engine::StateData;
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    io::{Read, Write},
+    path::PathBuf,
+};
 
 pub(super) const DEFAULT_SPEED: f64 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f64 = 0.25; // 25% - 240 Hz
@@ -43,6 +47,37 @@ impl UiSettings {
             speed: 1.0,
             genie_codes: Vec::new(),
         }
+    }
+}
+
+impl Savable for UiSettings {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        self.debug.save(fh)?;
+        self.fullscreen.save(fh)?;
+        self.vsync.save(fh)?;
+        self.sound_enabled.save(fh)?;
+        self.rewind_enabled.save(fh)?;
+        self.save_enabled.save(fh)?;
+        self.concurrent_dpad.save(fh)?;
+        self.randomize_ram.save(fh)?;
+        self.save_slot.save(fh)?;
+        self.scale.save(fh)?;
+        self.speed.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        self.debug.load(fh)?;
+        self.fullscreen.load(fh)?;
+        self.vsync.load(fh)?;
+        self.sound_enabled.load(fh)?;
+        self.rewind_enabled.load(fh)?;
+        self.save_enabled.load(fh)?;
+        self.concurrent_dpad.load(fh)?;
+        self.randomize_ram.load(fh)?;
+        self.save_slot.load(fh)?;
+        self.scale.load(fh)?;
+        self.speed.load(fh)?;
+        Ok(())
     }
 }
 

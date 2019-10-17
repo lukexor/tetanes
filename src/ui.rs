@@ -198,13 +198,26 @@ impl Ui {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         if !self.messages.is_empty() {
             data.set_draw_target(&mut self.msg_box);
-            let mut y = self.height - 20;
+            let mut y = 5;
             data.set_draw_scale(2);
             for msg in self.messages.iter_mut() {
                 msg.timer -= elapsed;
                 data.fill_rect(0, y - 5, self.width, 25, Pixel([0, 0, 0, 200]));
-                data.draw_string(10, y, &msg.text, pixel::RED);
-                y -= 20;
+                let mut x = 10;
+                for s in msg.text.split_whitespace() {
+                    let curr_width = s.len() as u32 * 16;
+                    if x + curr_width >= self.width {
+                        x = 10;
+                        y += 20;
+                        data.draw_string(x, y, s, pixel::RED);
+                    } else {
+                        data.draw_string(x, y, s, pixel::RED);
+                    }
+                    x += curr_width;
+                    data.draw_string(x, y, " ", pixel::RED);
+                    x += 16;
+                }
+                y += 20;
             }
             data.set_draw_scale(1);
             let pixels = self.msg_box.bytes();
@@ -270,9 +283,6 @@ impl Ui {
     pub fn add_genie_code(&mut self, val: &str) -> NesResult<()> {
         self.cpu.bus.add_genie_code(val)
     }
-
-    /// Enable/Disable CPU logging
-    pub fn logging(&mut self, _val: bool) {}
 
     /// Returns a rendered frame worth of data from the PPU
     pub fn frame(&mut self) -> &Vec<u8> {
@@ -609,24 +619,34 @@ impl Clocked for Ui {
 impl Powered for Ui {
     /// Soft-resets the console
     fn reset(&mut self) {
-        self.logging(false);
         self.cpu.reset();
         self.clock = 0.0;
     }
 
     /// Hard-resets the console
     fn power_cycle(&mut self) {
-        self.logging(false);
         self.cpu.power_cycle();
     }
 }
 
 impl Savable for Ui {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.cpu.save(fh)
+        self.cpu.save(fh)?;
+        self.clock.save(fh)?;
+        self.turbo_clock.save(fh)?;
+        self.cycles_remaining.save(fh)?;
+        self.speed_counter.save(fh)?;
+        self.settings.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.cpu.load(fh)
+        self.cpu.load(fh)?;
+        self.clock.load(fh)?;
+        self.turbo_clock.load(fh)?;
+        self.cycles_remaining.load(fh)?;
+        self.speed_counter.load(fh)?;
+        self.settings.load(fh)?;
+        Ok(())
     }
 }
 

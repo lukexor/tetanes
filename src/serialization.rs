@@ -56,6 +56,18 @@ impl Savable for bool {
     }
 }
 
+impl Savable for char {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        self.to_string().save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut s = " ".to_string();
+        s.load(fh)?;
+        Ok(())
+    }
+}
+
 impl Savable for i8 {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         fh.write_all(&self.to_be_bytes())?;
@@ -239,6 +251,52 @@ impl<T: Savable + Default> Savable for Vec<T> {
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: Savable + Default> Savable for Option<T> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        match self {
+            Some(t) => {
+                1u8.save(fh)?;
+                t.save(fh)?;
+            }
+            None => 0u8.save(fh)?,
+        }
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut some = 0u8;
+        some.load(fh)?;
+        *self = match some {
+            0 => None,
+            1 => {
+                let mut val = T::default();
+                val.load(fh)?;
+                Some(val)
+            }
+            _ => return nes_err!("invalid Option<T> read"),
+        };
+        Ok(())
+    }
+}
+
+impl Savable for String {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        self.as_bytes().save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut len = 0u32;
+        len.load(fh)?;
+        if self.is_empty() {
+            let mut bytes = Vec::with_capacity(len as usize);
+            bytes.load(fh)?;
+            *self = String::from_utf8(bytes)?;
+        } else if len != self.len() as u32 {
+            return nes_err!("String read len does not match");
         }
         Ok(())
     }
