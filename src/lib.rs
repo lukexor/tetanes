@@ -92,6 +92,14 @@ impl From<std::io::Error> for NesErr {
     }
 }
 
+impl From<std::string::FromUtf8Error> for NesErr {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        Self {
+            description: err.to_string(),
+        }
+    }
+}
+
 impl From<NesErr> for PixEngineErr {
     fn from(err: NesErr) -> Self {
         Self::new(&err.to_string())

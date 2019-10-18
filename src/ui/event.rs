@@ -224,7 +224,18 @@ impl Ui {
             Key::D if c => self.toggle_debug(data)?,
             Key::S if c => self.save_state(self.settings.save_slot),
             Key::L if c => self.load_state(self.settings.save_slot),
-            Key::M if c => self.settings.sound_enabled = !self.settings.sound_enabled,
+            Key::M if c => {
+                if self.settings.unlock_fps {
+                    self.add_message("Sound disabled while FPS unlocked");
+                } else {
+                    self.settings.sound_enabled = !self.settings.sound_enabled;
+                    if self.settings.sound_enabled {
+                        self.add_message("Sound Enabled");
+                    } else {
+                        self.add_message("Sound Disabled");
+                    }
+                }
+            }
             Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
             Key::O if c => self.add_message("Open Dialog not implemented"), // TODO
             Key::R if c => {

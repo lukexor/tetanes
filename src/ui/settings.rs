@@ -13,6 +13,7 @@ const MAX_SPEED: f64 = 2.0; // 200% - 30 Hz
 pub struct UiSettings {
     pub path: PathBuf,
     pub debug: bool,
+    pub log_level: u8,
     pub fullscreen: bool,
     pub vsync: bool,
     pub sound_enabled: bool,
@@ -25,6 +26,7 @@ pub struct UiSettings {
     pub save_slot: u8,
     pub scale: u32,
     pub speed: f64,
+    pub unlock_fps: bool,
     pub genie_codes: Vec<String>,
 }
 
@@ -33,6 +35,7 @@ impl UiSettings {
         Self {
             path: env::current_dir().unwrap_or_default(),
             debug: false,
+            log_level: 0,
             fullscreen: false,
             vsync: false,
             sound_enabled: true,
@@ -45,6 +48,7 @@ impl UiSettings {
             save_slot: 1,
             scale: 3,
             speed: 1.0,
+            unlock_fps: false,
             genie_codes: Vec::new(),
         }
     }
@@ -63,6 +67,7 @@ impl Savable for UiSettings {
         self.save_slot.save(fh)?;
         self.scale.save(fh)?;
         self.speed.save(fh)?;
+        self.unlock_fps.save(fh)?;
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
@@ -77,6 +82,7 @@ impl Savable for UiSettings {
         self.save_slot.load(fh)?;
         self.scale.load(fh)?;
         self.speed.load(fh)?;
+        self.unlock_fps.load(fh)?;
         Ok(())
     }
 }

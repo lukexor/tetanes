@@ -71,15 +71,15 @@ where
     pub status: u8,       // Status Registers
     pub bus: M,
     pub pc_log: VecDeque<u16>,
-    stall: u64,         // Number of cycles to stall with nop (used by DMA)
-    instr: Instr,       // The currently executing instruction
-    abs_addr: u16,      // Used memory addresses get set here
-    rel_addr: u16,      // Relative address for branch instructions
-    fetched_data: u8,   // Represents data fetched for the ALU
-    pending_irq: bool,  // Pending interrupts
-    pending_irq2: bool, // Pending interrupts
-    pending_nmi: bool,
-    irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
+    pub stall: u64,         // Number of cycles to stall with nop (used by DMA)
+    pub instr: Instr,       // The currently executing instruction
+    pub abs_addr: u16,      // Used memory addresses get set here
+    pub rel_addr: u16,      // Relative address for branch instructions
+    pub fetched_data: u8,   // Represents data fetched for the ALU
+    pub pending_irq: bool,  // Pending interrupts
+    pub pending_irq2: bool, // Pending interrupts
+    pub pending_nmi: bool,
+    pub irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
 }
 
 impl<M> Cpu<M>

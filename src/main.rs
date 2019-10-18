@@ -20,9 +20,10 @@ fn main() {
             .path
             .unwrap_or_else(|| env::current_dir().unwrap_or_default()),
         debug: opt.debug,
+        log_level: opt.log_level,
         fullscreen: opt.fullscreen,
-        vsync: !opt.vsync_off,
-        sound_enabled: !opt.sound_off,
+        vsync: !opt.vsync_off && !opt.unlock_fps,
+        sound_enabled: !opt.sound_off && !opt.unlock_fps,
         record: opt.record && opt.replay.is_none(),
         replay: opt.replay,
         rewind_enabled: opt.rewind,
@@ -32,6 +33,7 @@ fn main() {
         save_slot: opt.save_slot,
         scale: opt.scale,
         speed: opt.speed,
+        unlock_fps: opt.unlock_fps,
         genie_codes: opt.genie_codes,
     };
     let ui = Ui::with_settings(settings).unwrap_or_else(|e| {
@@ -64,6 +66,14 @@ struct Opt {
         help = "Start with the CPU debugger enabled and emulation paused at first CPU instruction."
     )]
     debug: bool,
+    #[structopt(
+        short = "l",
+        long = "log_level",
+        default_value = "0",
+        possible_values = &["0", "1", "2", "3", "4", "5"],
+        help = "Set logging level. 0: Off, 1: Error, 2: Warn, 3: Info, 4: Debug, 5: Trace"
+    )]
+    log_level: u8,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
     #[structopt(short = "v", long = "vsync_off", help = "Disable vsync.")]
@@ -119,5 +129,10 @@ struct Opt {
         long = "genie_codes",
         help = "List of Game Genie Codes (space separated)."
     )]
+    #[structopt(
+        long = "unlock_fps",
+        help = "Disables locking FPS to 60. Also disables sound."
+    )]
+    unlock_fps: bool,
     genie_codes: Vec<String>,
 }

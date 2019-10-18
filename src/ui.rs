@@ -607,7 +607,7 @@ impl Clocked for Ui {
         for _ in 0..cpu_cycles {
             self.cpu.bus.apu.clock();
             if self.cpu.bus.apu.irq_pending {
-                self.cpu.trigger_irq(true);
+                self.cpu.trigger_irq();
                 self.cpu.bus.apu.irq_pending = false;
             }
         }

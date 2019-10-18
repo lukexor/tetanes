@@ -28,6 +28,55 @@ pub trait Clocked {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl LogLevel {
+    pub fn from_u8(val: u8) -> NesResult<Self> {
+        match val {
+            0 => Ok(LogLevel::Off),
+            1 => Ok(LogLevel::Error),
+            2 => Ok(LogLevel::Warn),
+            3 => Ok(LogLevel::Info),
+            4 => Ok(LogLevel::Debug),
+            5 => Ok(LogLevel::Trace),
+            _ => nes_err!("Invalid LogLevel {}", val),
+        }
+    }
+}
+
+pub trait Loggable {
+    fn set_log_level(&mut self, level: LogLevel);
+    fn log_level(&mut self) -> LogLevel;
+    fn error(&mut self, msg: &str) {
+        self.log(LogLevel::Error, msg);
+    }
+    fn warn(&mut self, msg: &str) {
+        self.log(LogLevel::Warn, msg);
+    }
+    fn info(&mut self, msg: &str) {
+        self.log(LogLevel::Info, msg);
+    }
+    fn debug(&mut self, msg: &str) {
+        self.log(LogLevel::Debug, msg);
+    }
+    fn trace(&mut self, msg: &str) {
+        self.log(LogLevel::Trace, msg);
+    }
+    fn log(&mut self, level: LogLevel, msg: &str) {
+        if self.log_level() as u8 >= level as u8 {
+            println!("{}", msg);
+        }
+    }
+}
+
 /// Returns the users current HOME directory (if one exists)
 pub fn home_dir() -> Option<PathBuf> {
     dirs::home_dir().and_then(|d| Some(d.to_path_buf()))
@@ -118,94 +167,3 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
         addr += 16;
     }
 }
-
-// use std::convert::TryInto;
-// use std::ops::{Add, AddAssign, Sub, SubAssign};
-// use wasm_bindgen::prelude::*;
-
-// pub use std::time::*;
-
-// #[cfg(not(target_arch = "wasm32"))]
-// #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pub struct Instant(std::time::Instant);
-// #[cfg(not(target_arch = "wasm32"))]
-// impl Instant {
-//     pub fn now() -> Self {
-//         Self(std::time::Instant::now())
-//     }
-//     pub fn duration_since(&self, earlier: Instant) -> Duration {
-//         self.0.duration_since(earlier.0)
-//     }
-//     pub fn elapsed(&self) -> Duration {
-//         self.0.elapsed()
-//     }
-//     pub fn checked_add(&self, duration: Duration) -> Option<Self> {
-//         self.0.checked_add(duration).map(|i| Self(i))
-//     }
-//     pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
-//         self.0.checked_sub(duration).map(|i| Self(i))
-//     }
-// }
-
-// #[cfg(target_arch = "wasm32")]
-// #[wasm_bindgen]
-// extern "C" {
-//     #[wasm_bindgen(js_namespace = Date, js_name = now)]
-//     fn date_now() -> f64;
-// }
-// #[cfg(target_arch = "wasm32")]
-// #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// pub struct Instant(u64);
-// #[cfg(target_arch = "wasm32")]
-// impl Instant {
-//     pub fn now() -> Self {
-//         Self(date_now() as u64)
-//     }
-//     pub fn duration_since(&self, earlier: Instant) -> Duration {
-//         Duration::from_millis(self.0 - earlier.0)
-//     }
-//     pub fn elapsed(&self) -> Duration {
-//         Self::now().duration_since(*self)
-//     }
-//     pub fn checked_add(&self, duration: Duration) -> Option<Self> {
-//         match duration.as_millis().try_into() {
-//             Ok(duration) => self.0.checked_add(duration).map(|i| Self(i)),
-//             Err(_) => None,
-//         }
-//     }
-//     pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
-//         match duration.as_millis().try_into() {
-//             Ok(duration) => self.0.checked_sub(duration).map(|i| Self(i)),
-//             Err(_) => None,
-//         }
-//     }
-// }
-
-// impl Add<Duration> for Instant {
-//     type Output = Instant;
-//     fn add(self, other: Duration) -> Instant {
-//         self.checked_add(other).unwrap()
-//     }
-// }
-// impl Sub<Duration> for Instant {
-//     type Output = Instant;
-//     fn sub(self, other: Duration) -> Instant {
-//         self.checked_sub(other).unwrap()
-//     }
-// }
-// impl Sub<Instant> for Instant {
-//     type Output = Duration;
-//     fn sub(self, other: Instant) -> Duration {
-//         self.duration_since(other)
-//     }
-// }
-// impl AddAssign<Duration> for Instant {
-//     fn add_assign(&mut self, other: Duration) {
-//         *self = *self + other;
-//     }
-// }
-// impl SubAssign<Duration> for Instant {
-//     fn sub_assign(&mut self, other: Duration) {
-//         *self = *self - other;
-//     }
-// }
