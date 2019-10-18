@@ -93,8 +93,12 @@ impl Txrom {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let mut has_chr_ram = false;
         let chr_banks = if cart.chr_rom.len() == 0 {
-            let chr_ram_size = if cart.chr_ram_size() > 0 {
-                cart.chr_ram_size()
+            let chr_ram_size = if let Ok(chr_ram_size) = cart.chr_ram_size() {
+                if chr_ram_size > 0 {
+                    chr_ram_size
+                } else {
+                    CHR_RAM_SIZE
+                }
             } else {
                 CHR_RAM_SIZE
             };
@@ -284,13 +288,14 @@ impl Mapper for Txrom {
             0
         }
     }
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.regs.open_bus = val;
+    }
 }
 
 impl Memory for Txrom {
     fn read(&mut self, addr: u16) -> u8 {
-        let val = self.peek(addr);
-        self.regs.open_bus = val;
-        val
+        self.peek(addr)
     }
 
     fn peek(&self, addr: u16) -> u8 {
@@ -320,7 +325,6 @@ impl Memory for Txrom {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        self.regs.open_bus = val;
         match addr {
             0x0000..=0x1FFF => {
                 if self.has_chr_ram {

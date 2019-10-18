@@ -4,19 +4,15 @@ TESTS=(
 tests/cpu/all_instrs.nes # 9C SYA, 9E SXA - 7 of 16
 tests/cpu/flag_concurrency.nes # Timing doesn't match 29823 (got 35000) table should match OpenEMU results
 tests/cpu/interrupts.nes # IRQ when $4017 == $00 1-cli_latency #3 1/5
-tests/cpu/registers_after_reset.nes
 
 # Not critical to emulate
-tests/cpu/exec_space_apu.nes # Mysteriously landed at $4023 (should return open bus, but mmc5 uses that now)
 tests/cpu/instr_misc.nes # 04-dummy_reads_apu #2 4 of 4
 
 ## APU ============================================================================================
-tests/apu/03.irq_flag.nes # $04
 tests/apu/04.clock_jitter.nes # $03
 tests/apu/05.len_timing_mode0.nes # $03
 tests/apu/06.len_timing_mode1.nes # $03
 tests/apu/07.irq_flag_timing.nes # $03
-tests/apu/08.irq_timing.nes # $03
 tests/apu/09.reset_timing.nes # $04
 tests/apu/10.len_halt_timing.nes # $03
 tests/apu/11.len_reload_timing.nes # $03

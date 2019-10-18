@@ -164,12 +164,18 @@ impl Exrom {
                     _ => (), // Do nothing
                 }
             }
-            0x5116 if self.regs.prg_mode & 0x02 == 0x02 => {
-                self.prg_banks[self.regs.prg_mode as usize & 3] = bank | rom_mask
+            0x5116 if self.regs.prg_mode > 0x01 => {
+                // 0x02 selects bank 2
+                // 0x03 selects bank 3
+                self.prg_banks[self.regs.prg_mode as usize] = bank | rom_mask;
             }
             0x5117 => {
+                // 0x00 shifts 2, and uses bank 1
+                // 0x01 shifts 1 and uses bank 2
+                // 0x02 shifts 0 and uses bank 3
+                // 0x03 shifts 0 and uses bank 4
                 let shift = 2usize.saturating_sub(self.regs.prg_mode as usize);
-                self.prg_banks[1 + (self.regs.prg_mode as usize & 3)] = (bank >> shift) | rom_mask;
+                self.prg_banks[1 + self.regs.prg_mode as usize] = (bank >> shift) | rom_mask;
             }
             _ => (), // Do nothing
         }
@@ -257,7 +263,6 @@ impl Mapper for Exrom {
 
     fn vram_change(&mut self, addr: u16) {
         self.spr_fetch_count += 1;
-
         if (addr >> 12) == 0x02 && addr == self.ppu_prev_addr {
             self.ppu_prev_match += 1;
             if self.ppu_prev_match == 2 {
@@ -299,24 +304,26 @@ impl Mapper for Exrom {
         }
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8) {
+    fn ppu_write(&mut self, addr: u16, val: u8) {
         match addr {
             0x2000 => {
-                self.regs.sprite8x16 = val & 0x20 == 0x20;
+                self.regs.sprite8x16 = val & 0x20 > 0;
             }
             0x2001 => {
                 self.ppu_rendering = val & 0x18 > 0; // 1, 2, or 3
                 if !self.ppu_rendering {
                     self.regs.in_frame = false;
-                    // self.ppu_prev_addr = 0xFFFF;
                 }
             }
-            0x2002 => self.ppu_in_vblank = val & 0x80 == 0x80,
+            0x2002 => self.ppu_in_vblank = val & 0x80 > 0,
             // Custom Mapper registers for communicating the current PPU scanline
             0x2008 => self.ppu_scanline = u16::from(val),
             0x2009 => self.ppu_scanline |= u16::from(val) << 8,
             _ => (),
         }
+    }
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.open_bus = val;
     }
 }
 
@@ -330,7 +337,6 @@ impl Memory for Exrom {
             }
             0xFFFA | 0xFFFB => {
                 self.regs.in_frame = false;
-                // self.ppu_prev_addr = 0xFFFF;
             }
             _ => (),
         }
@@ -348,7 +354,7 @@ impl Memory for Exrom {
                 let addr = addr as usize % 0x0400;
                 match mode {
                     2 => {
-                        if self.regs.exram_mode & 0x02 == 0x02 {
+                        if self.regs.exram_mode == 0x02 {
                             0
                         } else {
                             self.exram[addr]
@@ -365,10 +371,10 @@ impl Memory for Exrom {
                 }
             }
             0x6000..=0x7FFF => {
-                let chip = (addr as usize >> 2) & 0x01;
                 let bank = self.prg_banks[(addr - 0x6000) as usize / PRG_RAM_BANK_SIZE];
-                let offset = addr as usize % PRG_RAM_BANK_SIZE;
+                let offset = (addr - 0x6000) as usize % PRG_RAM_BANK_SIZE;
                 let addr = (bank * PRG_RAM_BANK_SIZE + offset) % self.prg_ram.len();
+                let chip = (addr as usize >> 2) & 0x01;
                 self.prg_ram[chip][addr]
             }
             0x8000..=0xFFFF => {
@@ -383,23 +389,23 @@ impl Memory for Exrom {
                     _ => panic!("invalid prg_mode"),
                 };
                 let bank = self.prg_banks[1 + (addr - 0x8000) as usize / bank_size];
-                let offset = addr as usize % bank_size;
+                let offset = (addr - 0x8000) as usize % bank_size;
                 // If bank is ROM
-                if bank & 0x80 == 0x80 {
-                    let addr = ((bank & 0x7F) * bank_size + offset) % self.prg_rom.len();
+                let addr = ((bank & 0x7F) * bank_size + offset) % self.prg_rom.len();
+                if bank & 0x80 > 0 {
                     self.prg_rom[addr]
                 } else {
                     let chip = (addr as usize >> 2) & 0x01;
-                    let addr = ((bank & 0x7F) * bank_size + offset) % self.prg_ram.len();
                     self.prg_ram[chip][addr]
                 }
             }
             0x5C00..=0x5FFF => {
                 // Modes 0-1 are nametable/attr modes and not used for RAM, thus are not readable
                 if self.regs.exram_mode < 2 {
-                    return self.open_bus;
+                    self.open_bus
+                } else {
+                    self.exram[addr as usize % 0x0400]
                 }
-                self.exram[addr as usize % 0x0400]
             }
             0x5113..=0x5117 => 0, // TODO read prg_bank?
             0x5120..=0x5127 => self.chr_banks_spr[(addr & 0x07) as usize] as u8,
@@ -431,19 +437,18 @@ impl Memory for Exrom {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        self.open_bus = val;
         match addr {
             0x2000..=0x3EFF => {
                 let mode = self.nametable_mode(addr);
                 let addr = addr as usize % 0x0400;
-                if mode == 2 && self.regs.exram_mode & 0x02 != 0x02 {
+                if mode == 2 && self.regs.exram_mode == 0x02 {
                     self.exram[addr] = val;
                 }
             }
             0x6000..=0x7FFF => {
                 let chip = (addr as usize >> 2) & 0x01;
                 let bank = self.prg_banks[(addr - 0x6000) as usize / PRG_RAM_BANK_SIZE];
-                let offset = addr as usize % PRG_RAM_BANK_SIZE;
+                let offset = (addr - 0x6000) as usize % PRG_RAM_BANK_SIZE;
                 let addr = (bank * PRG_RAM_BANK_SIZE + offset) % self.prg_ram.len();
                 self.prg_ram[chip][addr] = val;
             }
@@ -459,7 +464,7 @@ impl Memory for Exrom {
                     _ => panic!("invalid prg_mode"),
                 };
                 let bank = self.prg_banks[1 + (addr - 0x8000) as usize / bank_size];
-                let offset = addr as usize % bank_size;
+                let offset = (addr - 0x8000) as usize % bank_size;
                 if bank & 0x80 != 0x80 && self.regs.prg_ram_protect_a && self.regs.prg_ram_protect_b
                 {
                     let chip = (addr as usize >> 2) & 0x01;
@@ -517,7 +522,7 @@ impl Memory for Exrom {
             0x5113..=0x5117 => self.write_prg_bankswitching(addr, val),
             0x5C00..=0x5FFF => {
                 // Mode 2 is writable
-                if self.regs.exram_mode & 0x03 == 0x02 {
+                if self.regs.exram_mode == 0x02 {
                     self.exram[addr as usize % 0x0400] = val;
                 }
             }
@@ -538,7 +543,7 @@ impl Memory for Exrom {
             //      %11 = 1k Mode
             0x5101 => self.regs.chr_mode = val & 0x03,
             // [.... ..HH]
-            0x5130 => self.regs.chr_hi_bit = val & 0x3,
+            0x5130 => self.regs.chr_hi_bit = val & 0x03,
             // [.... ..AA]    PRG-RAM Protect A
             // [.... ..BB]    PRG-RAM Protect B
             //      To allow writing to PRG-RAM you must set these regs to the following values:
@@ -561,7 +566,7 @@ impl Memory for Exrom {
             0x5201 => self.regs.vertical_split_scroll = val,
             0x5202 => self.regs.vertical_split_bank = val,
             0x5203 => self.regs.scanline_num_irq = u16::from(val),
-            0x5204 => self.regs.irq_enabled = val & 0x80 == 0x80,
+            0x5204 => self.regs.irq_enabled = val & 0x80 > 0,
             0x5205 => self.regs.multiplicand = val,
             0x5206 => self.regs.mult_result = u16::from(self.regs.multiplicand) * u16::from(val),
             0x5207 => (), // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
@@ -585,14 +590,9 @@ impl Clocked for Exrom {
                 // 3 CPU clocks == 9 Mapper clocks
                 self.ppu_idle = 0;
                 self.regs.in_frame = false;
-                // self.ppu_prev_addr = 0xFFFF;
             }
         }
         self.ppu_reading = false;
-
-        // if self.ppu_in_vblank || self.ppu_scanline == 261 {
-        //     self.ppu_prev_addr = 0xFFFF;
-        // }
         1
     }
 }

@@ -19,8 +19,9 @@ use std::{
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
-const RENDER_SIZE: usize = (3 * RENDER_WIDTH * RENDER_HEIGHT) as usize;
-const SIGNAL_SIZE: usize = (8 * RENDER_WIDTH * RENDER_HEIGHT) as usize;
+const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
+const RENDER_SIZE: usize = 3 * RENDER_PIXELS;
+const SIGNAL_SIZE: usize = 8 * RENDER_PIXELS;
 
 // Sizes
 const NT_SIZE: usize = 2 * 1024; // Two 1K nametables exist in hardware
@@ -616,10 +617,10 @@ impl Ppu {
         if let Some(mapper) = &self.vram.mapper {
             mapper
                 .borrow_mut()
-                .bus_write(0x2008, (self.scanline & 0xFF) as u8);
+                .ppu_write(0x2008, (self.scanline & 0xFF) as u8);
             mapper
                 .borrow_mut()
-                .bus_write(0x2009, (self.scanline >> 8) as u8);
+                .ppu_write(0x2009, (self.scanline >> 8) as u8);
         }
     }
 
@@ -741,7 +742,7 @@ impl Ppu {
         if let Some(mapper) = &self.vram.mapper {
             mapper
                 .borrow_mut()
-                .bus_write(0x2002, self.regs.status.peek());
+                .ppu_write(0x2002, self.regs.status.peek());
         }
         status
     }
@@ -895,7 +896,7 @@ impl Clocked for Ppu {
                 if let Some(mapper) = &self.vram.mapper {
                     mapper
                         .borrow_mut()
-                        .bus_write(0x2002, self.regs.status.peek());
+                        .ppu_write(0x2002, self.regs.status.peek());
                 }
                 self.set_sprite_zero_hit(false);
                 self.set_sprite_overflow(false);
@@ -904,7 +905,7 @@ impl Clocked for Ppu {
                 if let Some(mapper) = &self.vram.mapper {
                     mapper
                         .borrow_mut()
-                        .bus_write(0x2002, self.regs.status.peek());
+                        .ppu_write(0x2002, self.regs.status.peek());
                 }
             }
         }

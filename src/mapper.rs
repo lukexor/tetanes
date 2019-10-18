@@ -62,7 +62,8 @@ pub trait Mapper: Memory + Savable + Clocked + Powered + fmt::Debug {
     fn nametable_addr(&self, _addr: u16) -> u16 {
         0
     }
-    fn bus_write(&mut self, _addr: u16, _val: u8) {}
+    fn ppu_write(&mut self, _addr: u16, _val: u8) {}
+    fn open_bus(&mut self, _addr: u16, _val: u8) {}
 }
 
 /// Attempts to return a valid Mapper for the given rom.

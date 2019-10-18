@@ -8,6 +8,7 @@ tests/cpu/cpu_timing_test.nes
 tests/cpu/dummy_reads.nes
 tests/cpu/dummy_writes_oam.nes
 tests/cpu/dummy_writes_ppumem.nes
+tests/cpu/exec_space_apu.nes
 tests/cpu/exec_space_ppuio.nes
 tests/cpu/instr_timing.nes
 tests/cpu/nestest.nes
@@ -18,6 +19,8 @@ tests/cpu/registers_after_reset.nes
 ## APU ============================================================================================
 tests/apu/01.len_ctr.nes
 tests/apu/02.len_table.nes
+tests/apu/03.irq_flag.nes
+tests/apu/08.irq_timing.nes
 tests/apu/apu_env.nes
 tests/apu/dmc.nes
 tests/apu/dmc_pitch.nes

@@ -2,8 +2,8 @@
 
 use crate::{
     bus::Bus,
-    common::{home_dir, Clocked, Powered, CONFIG_DIR},
-    cpu::{Cpu, CPU_CLOCK_RATE},
+    common::{home_dir, Clocked, LogLevel, Loggable, Powered, CONFIG_DIR},
+    cpu::{Cpu, Irq, CPU_CLOCK_RATE},
     map_nes_err, mapper, memory, nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     serialization::{validate_save_header, write_save_header, Savable},
@@ -137,7 +137,7 @@ impl Ui {
             focused_window: 0,
             lost_focus: false,
             menu: false,
-            debug: settings.debug,
+            debug: false,
             ppu_viewer: false,
             nt_viewer: false,
             nt_scanline: 0,
@@ -261,13 +261,8 @@ impl Ui {
 
     /// Steps the console the number of instructions required to generate an entire frame
     pub fn clock_frame(&mut self) {
-        let breakpoint = 0xE356;
         while !self.cpu.bus.ppu.frame_complete {
             let _ = self.clock();
-            if self.cpu.pc == breakpoint {
-                self.paused = true;
-                break;
-            }
         }
         self.cpu.bus.ppu.frame_complete = false;
     }
@@ -339,7 +334,7 @@ impl Ui {
                 Err(e) => self.add_message(&e.to_string()),
             }
         } else {
-            self.add_message("Saved States Disabled");
+            self.add_message("Savestates Disabled");
         }
     }
 
@@ -484,6 +479,10 @@ impl State for Ui {
         if self.settings.debug {
             self.toggle_debug(data)?;
         }
+
+        self.cpu
+            .set_log_level(LogLevel::from_u8(self.settings.log_level)?);
+
         if self.settings.fullscreen {
             data.fullscreen(true)?;
         }
@@ -542,7 +541,11 @@ impl State for Ui {
 
             // Clock NES
             for _ in 0..frames_to_run as usize {
-                self.clock_frame();
+                if self.settings.unlock_fps {
+                    self.clock_seconds(elapsed);
+                } else {
+                    self.clock_frame();
+                }
                 self.turbo_clock = (1 + self.turbo_clock) % 6;
             }
         }
@@ -601,15 +604,14 @@ impl Clocked for Ui {
             } else {
                 false
             };
-            self.cpu.trigger_irq2(irq_pending);
+            self.cpu.set_irq(Irq::Mapper, irq_pending);
         }
 
         for _ in 0..cpu_cycles {
             self.cpu.bus.apu.clock();
-            if self.cpu.bus.apu.irq_pending {
-                self.cpu.trigger_irq();
-                self.cpu.bus.apu.irq_pending = false;
-            }
+            self.cpu
+                .set_irq(Irq::FrameCounter, self.cpu.bus.apu.irq_pending);
+            self.cpu.set_irq(Irq::Dmc, self.cpu.bus.apu.dmc.irq_pending);
         }
 
         cpu_cycles
@@ -833,10 +835,11 @@ mod tests {
 
     #[test]
     fn interrupts() {
-        use crate::common::{LogLevel, Loggable};
         let rom = "tests/cpu/interrupts.nes";
         let mut ui = load(&rom);
         ui.cpu.set_log_level(LogLevel::Debug);
+        ui.cpu.bus.apu.set_log_level(LogLevel::Debug);
+        ui.cpu.bus.apu.dmc.set_log_level(LogLevel::Debug);
         // let _ = ui.clock_seconds(0.5);
         while ui.cpu.peek(0x6000) != 0x01 {
             ui.clock();

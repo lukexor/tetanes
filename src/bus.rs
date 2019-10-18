@@ -25,8 +25,8 @@ pub struct Bus {
     pub apu: Apu,
     pub mapper: Option<MapperRef>,
     pub input: Input,
+    pub wram: Ram,
     open_bus: u8,
-    wram: Ram,
     genie_codes: HashMap<u16, GenieCode>,
     genie_map: HashMap<char, u8>,
 }
@@ -162,6 +162,10 @@ impl Memory for Bus {
             0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
             0x4014 => self.open_bus,
         };
+        // Helps to sync open bus behavior
+        if let Some(mapper) = &self.mapper {
+            mapper.borrow_mut().open_bus(addr, val);
+        }
         self.open_bus = val;
         val
     }
@@ -200,6 +204,10 @@ impl Memory for Bus {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
+        // Some mappers monitor the bus
+        if let Some(mapper) = &self.mapper {
+            mapper.borrow_mut().open_bus(addr, val);
+        }
         self.open_bus = val;
         // Order of frequently accessed
         match addr {
@@ -214,11 +222,8 @@ impl Memory for Bus {
             0x4016 => self.input.write(addr, val),
             0x2000..=0x3FFF => {
                 self.ppu.write(addr & 0x2007, val); // 0x2008..=0x3FFF are mirrored
-                                                    // Some mappers monitor internal PPU state from the Bus
-                if addr <= 0x2006 {
-                    if let Some(mapper) = &self.mapper {
-                        mapper.borrow_mut().bus_write(addr, val);
-                    }
+                if let Some(mapper) = &self.mapper {
+                    mapper.borrow_mut().ppu_write(addr, val);
                 }
             }
             0x4018..=0x401F => (), // APU/IO Test Mode

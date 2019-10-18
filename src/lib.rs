@@ -111,3 +111,13 @@ impl From<PixEngineErr> for NesErr {
         Self::new(&err.to_string())
     }
 }
+
+#[cfg(feature = "wasm-driver")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "wasm-driver")]
+impl From<NesErr> for JsValue {
+    fn from(err: NesErr) -> Self {
+        JsValue::from_str(&err.to_string())
+    }
+}

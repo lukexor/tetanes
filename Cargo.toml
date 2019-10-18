@@ -17,16 +17,21 @@ chrono = "0.4.9"
 rand = "0.7.1"
 png = "0.15.0"
 pix-engine = { path = "lib/pix-engine", default_features = false }
+wasm-bindgen = { version = "0.2.51", optional = true }
 
 [features]
 default = ["sdl2-driver"]
 sdl2-driver = ["pix-engine/sdl2-driver"]
-wasm-driver = ["pix-engine/wasm-driver"]
+wasm-driver = ["pix-engine/wasm-driver", "wasm-bindgen"]
 
 [profile.dev]
 opt-level = 2
 
 [profile.release]
+debug = true
 lto = true
 codegen-units = 1
 panic = 'abort'
+
+[profile.test]
+opt-level = 2

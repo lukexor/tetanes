@@ -3,7 +3,7 @@
 //! [http://wiki.nesdev.com/w/index.php/CPU]()
 
 use crate::{
-    common::{Clocked, Powered},
+    common::{Clocked, LogLevel, Loggable, Powered},
     memory::Memory,
     serialization::Savable,
     NesResult,
@@ -14,11 +14,12 @@ use std::{
     io::{Read, Write},
 };
 
-pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz
-
 // TODO 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
+// Add Emulator setting like Mesen??
 // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
-pub const CPU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 12.0; // 1.7897725 MHz
+// pub const MASTER_CLOCK_RATE: f64 = 21_441_960.0; // 21.441960 MHz Emulated clock rate
+pub const MASTER_CLOCK_RATE: f64 = 21_477_270.0; // 21.47727 MHz Hardware clock rate
+pub const CPU_CLOCK_RATE: f64 = MASTER_CLOCK_RATE / 12.0;
 
 const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
@@ -27,8 +28,13 @@ const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BR
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
-
 const PC_LOG_LEN: usize = 20;
+
+pub enum Irq {
+    Mapper = 1,
+    FrameCounter = (1 << 1),
+    Dmc = (1 << 2),
+}
 
 // Status Registers
 // http://wiki.nesdev.com/w/index.php/Status_flags
@@ -71,15 +77,15 @@ where
     pub status: u8,       // Status Registers
     pub bus: M,
     pub pc_log: VecDeque<u16>,
-    pub stall: u64,         // Number of cycles to stall with nop (used by DMA)
-    pub instr: Instr,       // The currently executing instruction
-    pub abs_addr: u16,      // Used memory addresses get set here
-    pub rel_addr: u16,      // Relative address for branch instructions
-    pub fetched_data: u8,   // Represents data fetched for the ALU
-    pub pending_irq: bool,  // Pending interrupts
-    pub pending_irq2: bool, // Pending interrupts
+    pub stall: u64,       // Number of cycles to stall with nop (used by DMA)
+    pub instr: Instr,     // The currently executing instruction
+    pub abs_addr: u16,    // Used memory addresses get set here
+    pub rel_addr: u16,    // Relative address for branch instructions
+    pub fetched_data: u8, // Represents data fetched for the ALU
+    pub pending_irq: u8,  // Pending interrupts
     pub pending_nmi: bool,
     pub irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
+    pub log_level: LogLevel,
 }
 
 impl<M> Cpu<M>
@@ -87,9 +93,9 @@ where
     M: Memory,
 {
     pub fn init(bus: M) -> Self {
-        let mut cpu = Self {
-            cycle_count: POWER_ON_CYCLES,
-            step: 0u64,
+        Self {
+            cycle_count: 0,
+            step: 0,
             pc: 0x0000,
             prev_pc: 0x0000,
             sp: POWER_ON_SP,
@@ -99,18 +105,16 @@ where
             status: POWER_ON_STATUS,
             bus,
             pc_log: VecDeque::with_capacity(PC_LOG_LEN),
-            stall: 0u64,
+            stall: POWER_ON_CYCLES,
             instr: INSTRUCTIONS[0x00],
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            pending_irq: false,
-            pending_irq2: false,
+            pending_irq: 0,
             pending_nmi: false,
             irq_delay: 0x00,
-        };
-        cpu.pc = cpu.readw(RESET_ADDR);
-        cpu
+            log_level: LogLevel::Off,
+        }
     }
 
     pub fn power_on(&mut self) {
@@ -120,14 +124,22 @@ where
     /// Sends an IRQ Interrupt to the CPU
     ///
     /// http://wiki.nesdev.com/w/index.php/IRQ
-    pub fn trigger_irq(&mut self) {
-        self.pending_irq = true;
+    pub fn set_irq(&mut self, irq: Irq, val: bool) {
+        if val {
+            self.pending_irq |= irq as u8;
+        } else {
+            self.pending_irq &= !(irq as u8);
+        }
+        if self.pending_irq > 0 {
+            self.debug("set irq1");
+        } else {
+            self.debug("unset irq1");
+        }
     }
-    pub fn trigger_irq2(&mut self, val: bool) {
-        self.pending_irq2 = val;
-    }
+
     pub fn irq(&mut self) {
         if self.get_flag(I) == 0 {
+            self.debug("irq ack");
             self.push_stackw(self.pc);
             // Handles status flags differently than php()
             self.set_flag(B, false);
@@ -136,8 +148,18 @@ where
             self.set_flag(I, true);
             self.pc = self.readw(IRQ_ADDR);
             self.cycle_count = self.cycle_count.wrapping_add(7);
-            self.pending_irq = false;
-            self.pending_irq2 = false;
+            self.pending_irq = 0;
+
+            // Acknowledge IRQs
+            // TODO - Find a better way to do this that doesn't know about addresses
+            let val = self.read(0x4015); // APU FC - read status/clear IRQ
+            self.write(0x4015, val); // APU DMC clear IRQ
+            self.write(0xE000, 0x00); // MMC3 disable/clear IRQ
+            self.write(0xE001, 0x00); // MMC3 enable IRQ
+            self.write(0x5204, 0x00); // MMC5 disable/clear IRQ
+            self.write(0x5204, 0x80); // MMC5 enable IRQ
+        } else {
+            self.debug("irq flag not set");
         }
     }
 
@@ -157,14 +179,6 @@ where
         self.pc = self.readw(NMI_ADDR);
         self.cycle_count = self.cycle_count.wrapping_add(7);
         self.pending_nmi = false;
-    }
-
-    // Getters/Setters
-
-    // Used for testing to manually set the PC to a known value
-    #[cfg(test)]
-    pub fn set_pc(&mut self, addr: u16) {
-        self.pc = addr;
     }
 
     // Status Register functions
@@ -435,14 +449,14 @@ where
     // Memory accesses
 
     // Utility to read a full 16-bit word
-    fn readw(&mut self, addr: u16) -> u16 {
+    pub fn readw(&mut self, addr: u16) -> u16 {
         let lo = u16::from(self.read(addr));
         let hi = u16::from(self.read(addr.wrapping_add(1)));
         (hi << 8) | lo
     }
 
     // readw but don't accidentally modify state
-    fn peekw(&self, addr: u16) -> u16 {
+    pub fn peekw(&self, addr: u16) -> u16 {
         let lo = u16::from(self.peek(addr));
         let hi = u16::from(self.peek(addr.wrapping_add(1)));
         (hi << 8) | lo
@@ -614,10 +628,10 @@ where
             }
         }
         let opstr = format!(
-            "{:<22} A:{:02X} X:{:02X} Y:{:02X} P:{}\n",
-            disasm, self.acc, self.x, self.y, status_str,
+            "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{} Cyc:{}",
+            disasm, self.acc, self.x, self.y, status_str, self.cycle_count,
         );
-        print!("{}", opstr);
+        self.debug(&opstr);
     }
 
     /// Utilities
@@ -631,7 +645,7 @@ impl<M> Clocked for Cpu<M>
 where
     M: Memory,
 {
-    /// Runs the CPU one cycle
+    /// Runs the CPU one instruction
     fn clock(&mut self) -> u64 {
         if self.stall > 0 {
             self.stall -= 1;
@@ -642,9 +656,10 @@ where
 
         if self.irq_delay > 0 {
             self.irq_delay -= 1;
+            self.debug(&format!("irq delay {}", self.irq_delay));
         } else if self.pending_nmi {
             self.nmi();
-        } else if self.pending_irq || self.pending_irq2 {
+        } else if self.pending_irq > 0 {
             self.irq();
         }
 
@@ -672,11 +687,12 @@ where
         });
 
         self.pc_log.push_back(self.prev_pc);
+        if self.log_level == LogLevel::Trace {
+            self.print_instruction(self.prev_pc);
+        }
         if self.pc_log.len() > PC_LOG_LEN {
             self.pc_log.pop_front();
         }
-
-        // let op_cycle = (self.instr.execute())(self); // Execute operation
         let op_cycle = u64::from(match self.instr.op() {
             ADC => self.adc(), // ADd with Carry M with A
             AND => self.and(), // AND M with A
@@ -756,6 +772,7 @@ where
             SLO => self.slo(), // ASL & ORA
             XXX => self.xxx(), // Unimplemented opcode
         });
+
         self.step += 1;
         self.cycle_count = self
             .cycle_count
@@ -797,8 +814,8 @@ where
     /// These operations take the CPU 7 cycle.
     fn reset(&mut self) {
         self.bus.reset();
-        self.cycle_count = POWER_ON_CYCLES;
-        self.stall = 0u64;
+        self.cycle_count = 0;
+        self.stall = POWER_ON_CYCLES;
         self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
@@ -811,14 +828,26 @@ where
     /// These operations take the CPU 7 cycle.
     fn power_cycle(&mut self) {
         self.bus.power_cycle();
-        self.cycle_count = POWER_ON_CYCLES;
-        self.stall = 0u64;
+        self.cycle_count = 0;
+        self.stall = POWER_ON_CYCLES;
         self.pc = self.readw(RESET_ADDR);
         self.sp = POWER_ON_SP;
-        self.acc = 0u8;
-        self.x = 0u8;
-        self.y = 0u8;
+        self.acc = 0x00;
+        self.x = 0x00;
+        self.y = 0x00;
         self.status = POWER_ON_STATUS;
+    }
+}
+
+impl<M> Loggable for Cpu<M>
+where
+    M: Memory,
+{
+    fn set_log_level(&mut self, level: LogLevel) {
+        self.log_level = level;
+    }
+    fn log_level(&mut self) -> LogLevel {
+        self.log_level
     }
 }
 
@@ -1386,6 +1415,7 @@ where
         self.status &= !(U as u8);
         self.status &= !(B as u8);
         self.pc = self.pop_stackw();
+        self.irq_delay = 0;
         0
     }
     /// RTS: Return from Subroutine
@@ -1420,12 +1450,14 @@ where
     fn cli(&mut self) -> u8 {
         self.set_flag(I, false);
         self.irq_delay = 1;
+        self.debug("Cleared interrupt, delay 1");
         0
     }
     /// SEI: Set Interrupt Disable Status
     fn sei(&mut self) -> u8 {
         self.set_flag(I, true);
         self.irq_delay = 1;
+        self.debug("Disabled interrupts, delay 1");
         0
     }
     /// CLV: Clear Overflow Flag
@@ -1474,6 +1506,7 @@ where
     fn plp(&mut self) -> u8 {
         self.status = (self.pop_stackb() | U as u8) & !(B as u8);
         self.irq_delay = 1;
+        self.debug("Pulled processor from stack");
         0
     }
     /// PHA: Push A on Stack
@@ -1523,11 +1556,11 @@ where
 
     /// XXX: Captures all unimplemented opcodes
     fn xxx(&mut self) -> u8 {
-        eprintln!(
+        self.warn(&format!(
             "Invalid opcode ${:02X} {{{:?}}} encountered!",
             self.instr.opcode(),
-            self.instr.addr_mode()
-        );
+            self.instr.addr_mode(),
+        ));
         0
     }
     /// ISC/ISB: Shortcut for INC then SBC
@@ -1711,9 +1744,4 @@ impl fmt::Debug for Instr {
         };
         write!(f, "{:1}{:?}", unofficial, op)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // TODO
 }

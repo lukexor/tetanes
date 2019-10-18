@@ -61,8 +61,12 @@ struct SxRegs {
 
 impl Sxrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_ram_size = if cart.prg_ram_size() > 0 {
-            cart.prg_ram_size()
+        let prg_ram_size = if let Ok(prg_ram_size) = cart.prg_ram_size() {
+            if prg_ram_size > 0 {
+                prg_ram_size
+            } else {
+                PRG_RAM_SIZE
+            }
         } else {
             PRG_RAM_SIZE
         };
@@ -229,13 +233,14 @@ impl Mapper for Sxrom {
         }
         Ok(())
     }
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.regs.open_bus = val;
+    }
 }
 
 impl Memory for Sxrom {
     fn read(&mut self, addr: u16) -> u8 {
-        let val = self.peek(addr);
-        self.regs.open_bus = val;
-        val
+        self.peek(addr)
     }
 
     fn peek(&self, addr: u16) -> u8 {
@@ -260,7 +265,6 @@ impl Memory for Sxrom {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        self.regs.open_bus = val;
         match addr {
             0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].write(addr, val),
             0x1000..=0x1FFF => self.chr_banks[self.chr_bank_hi].write(addr - 0x1000, val),

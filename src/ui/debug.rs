@@ -278,10 +278,7 @@ impl Ui {
         data.draw_string(
             x,
             y,
-            &format!(
-                "Pending IRQs: {}",
-                (cpu.pending_irq2 as u8) << 1 | cpu.pending_irq as u8
-            ),
+            &format!("Pending IRQs: 0b{:03b}", cpu.pending_irq as u8),
             wh,
         );
         y += fypad;

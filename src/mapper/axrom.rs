@@ -56,13 +56,14 @@ impl Mapper for Axrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.open_bus = val;
+    }
 }
 
 impl Memory for Axrom {
     fn read(&mut self, addr: u16) -> u8 {
-        let val = self.peek(addr);
-        self.open_bus = val;
-        val
+        self.peek(addr)
     }
 
     fn peek(&self, addr: u16) -> u8 {
@@ -79,7 +80,6 @@ impl Memory for Axrom {
     }
 
     fn write(&mut self, addr: u16, val: u8) {
-        self.open_bus = val;
         match addr {
             0x0000..=0x1FFF => {
                 if self.has_chr_ram {
