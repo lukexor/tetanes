@@ -1,12 +1,13 @@
 //! Handles reading NES Cartridge headers and ROMs
 
-use crate::mapper::Mirroring;
-use crate::memory::Rom;
-use crate::serialization::Savable;
-use crate::{map_nes_err, nes_err, NesResult};
-use std::fmt;
-use std::io::{BufReader, Read, Write};
-use std::path::{Path, PathBuf};
+use crate::{
+    map_nes_err, mapper::Mirroring, memory::Rom, nes_err, serialization::Savable, NesResult,
+};
+use std::{
+    fmt,
+    io::{BufReader, Read, Write},
+    path::{Path, PathBuf},
+};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
@@ -139,19 +140,27 @@ impl Cartridge {
         self.header.flags & 0x02 == 0x02
     }
 
-    pub fn prg_ram_size(&self) -> usize {
+    pub fn prg_ram_size(&self) -> NesResult<usize> {
         if self.header.prg_ram_size > 0 {
-            (64 << self.header.prg_ram_size) as usize
+            if let Some(size) = 64usize.checked_shl(self.header.prg_ram_size.into()) {
+                Ok(size)
+            } else {
+                nes_err!("invalid header PRG-RAM size")
+            }
         } else {
-            0
+            Ok(0)
         }
     }
 
-    pub fn chr_ram_size(&self) -> usize {
+    pub fn chr_ram_size(&self) -> NesResult<usize> {
         if self.header.chr_ram_size > 0 {
-            (64 << self.header.chr_ram_size) as usize
+            if let Some(size) = 64usize.checked_shl(self.header.chr_ram_size.into()) {
+                Ok(size)
+            } else {
+                nes_err!("invalid header CHR-RAM size")
+            }
         } else {
-            0
+            Ok(0)
         }
     }
 }
