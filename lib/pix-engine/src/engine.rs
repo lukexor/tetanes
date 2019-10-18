@@ -5,9 +5,12 @@ use crate::{
     PixEngineErr, PixEngineResult,
 };
 use std::{
+    collections::VecDeque,
     path::Path,
     time::{Duration, Instant},
 };
+
+const FPS_SAMPLE_SIZE: usize = 30;
 
 /// Primary PixEngine object that controls Window and StateData
 pub struct PixEngine<S>
@@ -17,6 +20,7 @@ where
     app_name: &'static str,
     state: S,
     should_close: bool,
+    debug: bool,
     data: StateData,
 }
 
@@ -36,6 +40,7 @@ where
             app_name,
             state,
             should_close: false,
+            debug: false,
             data: StateData::new(app_name, screen_width, screen_height, vsync)?,
         })
     }
@@ -64,6 +69,9 @@ where
         if start.is_err() {
             return start;
         }
+
+        // Average FPS if debug enabled
+        let mut fps_samples = VecDeque::new();
 
         // Start main loop
         let mut timer = Instant::now();
@@ -126,6 +134,12 @@ where
                 frame_counter += 1;
                 if frame_timer >= one_second {
                     frame_timer = frame_timer.checked_sub(one_second).unwrap_or(zero_seconds);
+                    if self.debug {
+                        fps_samples.push_back(frame_counter);
+                        if fps_samples.len() > FPS_SAMPLE_SIZE {
+                            let _ = fps_samples.pop_front();
+                        }
+                    }
                     let mut title = format!("{} - FPS: {}", self.app_name, frame_counter);
                     if !self.data.title().is_empty() {
                         title.push_str(&format!(" - {}", self.data.title()));
@@ -139,6 +153,15 @@ where
             if on_stop.is_err() {
                 return on_stop;
             }
+        }
+
+        if self.debug {
+            let fps_avg = if !fps_samples.is_empty() {
+                fps_samples.iter().sum::<u32>() as f32 / fps_samples.len() as f32
+            } else {
+                0.0
+            };
+            println!("Average FPS: {}", fps_avg);
         }
 
         Ok(())
