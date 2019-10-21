@@ -30,6 +30,7 @@ const POWER_ON_CYCLES: u64 = 7; // Power up takes 7 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 const PC_LOG_LEN: usize = 20;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Irq {
     Mapper = 1,
     FrameCounter = (1 << 1),
@@ -126,14 +127,23 @@ where
     /// http://wiki.nesdev.com/w/index.php/IRQ
     pub fn set_irq(&mut self, irq: Irq, val: bool) {
         if val {
+            if self.pending_irq == 0 {
+                self.debug(&format!("set irq: {:?}", irq));
+            }
             self.pending_irq |= irq as u8;
         } else {
+            if self.pending_irq & irq as u8 != 0 {
+                self.debug(&format!("cleared irq {:?}: was: {}", irq, self.pending_irq));
+            }
             self.pending_irq &= !(irq as u8);
         }
     }
 
     pub fn irq(&mut self) {
-        if self.get_flag(I) == 0 {
+        if self.irq_delay == 2 {
+            self.irq_delay -= 1;
+        } else if self.irq_delay == 1 || self.get_flag(I) == 0 {
+            self.debug("irq");
             self.push_stackw(self.pc);
             // Handles status flags differently than php()
             self.set_flag(B, false);
@@ -142,16 +152,7 @@ where
             self.set_flag(I, true);
             self.pc = self.readw(IRQ_ADDR);
             self.cycle_count = self.cycle_count.wrapping_add(7);
-            self.pending_irq = 0;
-
-            // Acknowledge IRQs
-            // TODO - Find a better way to do this that doesn't know about addresses
-            let val = self.read(0x4015); // APU FC - read status/clear IRQ
-            self.write(0x4015, val); // APU DMC clear IRQ
-            self.write(0xE000, 0x00); // MMC3 disable/clear IRQ
-            self.write(0xE001, 0x00); // MMC3 enable IRQ
-            self.write(0x5204, 0x00); // MMC5 disable/clear IRQ
-            self.write(0x5204, 0x80); // MMC5 enable IRQ
+            self.irq_delay = 0;
         }
     }
 
@@ -645,11 +646,9 @@ where
 
         let start_cycle = self.cycle_count;
 
-        if self.irq_delay > 0 {
-            self.irq_delay -= 1;
-        } else if self.pending_nmi {
+        if self.pending_nmi {
             self.nmi();
-        } else if self.pending_irq > 0 {
+        } else if self.pending_irq != 0 {
             self.irq();
         }
 
@@ -1439,13 +1438,12 @@ where
     /// CLI: Clear Interrupt Disable Bit
     fn cli(&mut self) -> u8 {
         self.set_flag(I, false);
-        self.irq_delay = 1;
+        self.irq_delay = 2;
         0
     }
     /// SEI: Set Interrupt Disable Status
     fn sei(&mut self) -> u8 {
         self.set_flag(I, true);
-        self.irq_delay = 1;
         0
     }
     /// CLV: Clear Overflow Flag
@@ -1493,7 +1491,9 @@ where
     /// PLP: Pull Processor Status from Stack
     fn plp(&mut self) -> u8 {
         self.status = (self.pop_stackb() | U as u8) & !(B as u8);
-        self.irq_delay = 1;
+        if self.get_flag(I) == 0 {
+            self.irq_delay = 2;
+        }
         0
     }
     /// PHA: Push A on Stack
