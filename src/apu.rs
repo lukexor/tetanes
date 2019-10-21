@@ -986,10 +986,11 @@ impl Dmc {
         } else {
             self.freq_counter = self.freq_timer;
             if !self.output_silent {
-                if (self.output_shift & 1 == 1) && self.output < 0x7E {
-                    self.output += 2;
-                }
-                if (self.output_shift & 1 == 0) && self.output > 0x01 {
+                if self.output_shift & 1 == 1 {
+                    if self.output <= 0x7D {
+                        self.output += 2;
+                    }
+                } else if self.output >= 0x02 {
                     self.output -= 2;
                 }
             }
@@ -998,9 +999,13 @@ impl Dmc {
             self.output_bits = self.output_bits.saturating_sub(1);
             if self.output_bits == 0 {
                 self.output_bits = 8;
-                self.output_shift = self.sample_buffer;
-                self.output_silent = self.sample_buffer_empty;
-                self.sample_buffer_empty = true;
+                if !self.sample_buffer_empty {
+                    self.output_shift = self.sample_buffer;
+                    self.sample_buffer_empty = true;
+                    self.output_silent = false;
+                } else {
+                    self.output_silent = true;
+                }
             }
         }
 
