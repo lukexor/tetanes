@@ -3,7 +3,7 @@
 //! [https://wiki.nesdev.com/w/index.php/APU]()
 
 use crate::{
-    common::{Clocked, Powered},
+    common::{Clocked, LogLevel, Loggable, Powered},
     cpu::CPU_CLOCK_RATE,
     filter::{Filter, HiPassFilter, LoPassFilter},
     mapper::MapperRef,
@@ -16,6 +16,104 @@ use std::{
     io::{Read, Write},
 };
 
+pub struct Divider {
+    pub counter: f64,
+    pub period: f64,
+}
+
+impl Divider {
+    fn new(period: f64) -> Self {
+        Self {
+            counter: period,
+            period,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.counter = self.period;
+    }
+}
+
+impl Clocked for Divider {
+    fn clock(&mut self) -> u64 {
+        if self.counter > 0.0 {
+            self.counter -= 1.0;
+        }
+        if self.counter <= 0.0 {
+            // Reset and output a clock
+            self.counter += self.period;
+            1
+        } else {
+            0
+        }
+    }
+}
+
+pub struct Sequencer {
+    pub step: usize,
+    pub length: usize,
+}
+
+impl Sequencer {
+    fn new(length: usize) -> Self {
+        Self { step: 1, length }
+    }
+}
+
+impl Clocked for Sequencer {
+    fn clock(&mut self) -> u64 {
+        let clock = self.step;
+        self.step += 1;
+        if self.step > self.length {
+            self.step = 1;
+        }
+        clock as u64
+    }
+}
+
+pub struct FrameSequencer {
+    pub divider: Divider,
+    pub sequencer: Sequencer,
+    pub mode: FcMode,
+}
+
+impl FrameSequencer {
+    fn new() -> Self {
+        Self {
+            divider: Divider::new(7457.5),
+            sequencer: Sequencer::new(4),
+            mode: FcMode::Step4,
+        }
+    }
+
+    // On write to $4017
+    fn reset(&mut self, val: u8) {
+        // Reset & Configure divider/sequencer
+        self.divider.reset();
+        self.sequencer = if val & 0x80 == 0x00 {
+            self.mode = FcMode::Step4;
+            Sequencer::new(4)
+        } else {
+            self.mode = FcMode::Step5;
+            let mut sequencer = Sequencer::new(5);
+            let _ = sequencer.clock(); // Clock immediately
+            sequencer
+        };
+    }
+}
+
+impl Clocked for FrameSequencer {
+    fn clock(&mut self) -> u64 {
+        // Clocks at 240Hz
+        // or 21_477_270 Hz / 89_490
+        if self.divider.clock() == 1 {
+            self.sequencer.clock()
+        } else {
+            0
+        }
+    }
+}
+
 pub const SAMPLE_RATE: f64 = 96_000.0; // in Hz
 pub const SAMPLE_BUFFER_SIZE: usize = 4096;
 
@@ -25,14 +123,15 @@ pub struct Apu {
     irq_enabled: bool,     // Set by $4017 D6
     pub open_bus: u8,      // This open bus gets set during any write to PPU registers
     clock_rate: f64,       // Same as CPU but is affected by speed changes
-    cycle: u64,            // Current APU cycle = CPU cycle / 2
+    cycle: u64,            // Current APU cycle
     samples: Vec<f32>,     // Buffer of samples
-    frame: FrameCounter,   // Clocks length, linear, sweep, and envelope units
+    pub frame_sequencer: FrameSequencer,
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
-    pub dmc: DMC,
+    pub dmc: Dmc,
+    log_level: LogLevel,
     filters: [Box<dyn Filter>; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
@@ -50,16 +149,13 @@ impl Apu {
             clock_rate: CPU_CLOCK_RATE,
             cycle: 0u64,
             samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
-            frame: FrameCounter {
-                step: 1u8,
-                counter: 0u16,
-                mode: FCMode::Step4,
-            },
+            frame_sequencer: FrameSequencer::new(),
             pulse1: Pulse::new(PulseChannel::One),
             pulse2: Pulse::new(PulseChannel::Two),
             triangle: Triangle::new(),
             noise: Noise::new(),
-            dmc: DMC::new(),
+            dmc: Dmc::new(),
+            log_level: LogLevel::Off,
             filters: [
                 Box::new(HiPassFilter::new(90.0, SAMPLE_RATE)),
                 Box::new(HiPassFilter::new(440.0, SAMPLE_RATE)),
@@ -68,7 +164,6 @@ impl Apu {
             pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
             tnd_table: [0f32; Self::TND_TABLE_SIZE],
         };
-        apu.frame.counter = apu.next_frame_counter();
         for i in 1..Self::PULSE_TABLE_SIZE {
             apu.pulse_table[i] = 95.52 / (8_128.0 / (i as f32) + 100.0);
         }
@@ -96,28 +191,48 @@ impl Apu {
 
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
-    fn clock_frame_counter(&mut self) {
-        if self.frame.counter > 0 {
-            self.frame.counter -= 1;
-        } else {
-            match self.frame.step {
-                1 | 3 => self.clock_quarter_frame(),
-                2 | 5 => {
-                    self.clock_quarter_frame();
-                    self.clock_half_frame();
+    fn clock_frame_sequencer(&mut self) {
+        let clock = self.frame_sequencer.clock();
+        match self.frame_sequencer.mode {
+            FcMode::Step4 => {
+                // mode 0: 4-step  effective rate (approx)
+                // ---------------------------------------
+                //     - - - f      60 Hz
+                //     - l - l     120 Hz
+                //     e e e e     240 Hz
+                match clock {
+                    1 | 3 => self.clock_quarter_frame(),
+                    2 => {
+                        self.clock_quarter_frame();
+                        self.clock_half_frame();
+                    }
+                    4 => {
+                        self.clock_quarter_frame();
+                        self.clock_half_frame();
+                        if self.irq_enabled {
+                            self.irq_pending = true;
+                        }
+                    }
+                    _ => (),
                 }
-                _ => (), // Noop
             }
-            if self.irq_enabled && self.frame.mode == FCMode::Step4 && self.frame.step >= 4 {
-                self.irq_pending = true;
+            FcMode::Step5 => {
+                // mode 1: 5-step  effective rate (approx)
+                // ---------------------------------------
+                // - - - - -   (interrupt flag never set)
+                // l - l - -    96 Hz
+                // e e e e -   192 Hz
+                match clock {
+                    1 | 3 => {
+                        self.clock_quarter_frame();
+                        self.clock_half_frame();
+                    }
+                    2 | 4 => {
+                        self.clock_quarter_frame();
+                    }
+                    _ => (),
+                }
             }
-
-            self.frame.step += 1;
-            let max_step = 6;
-            if self.frame.step > max_step {
-                self.frame.step = 1;
-            }
-            self.frame.counter = self.next_frame_counter();
         }
     }
 
@@ -133,29 +248,6 @@ impl Apu {
         self.pulse2.clock_half_frame();
         self.triangle.clock_half_frame();
         self.noise.clock_half_frame();
-    }
-
-    fn next_frame_counter(&self) -> u16 {
-        match self.frame.mode {
-            FCMode::Step4 => match self.frame.step {
-                1 => 7457,
-                2 => 7456,
-                3 => 7458,
-                4 => 7457,
-                5 => 1,
-                6 => 1,
-                _ => panic!("shouldn't happen"),
-            },
-            FCMode::Step5 => match self.frame.step {
-                1 => 7457,
-                2 => 7456,
-                3 => 7458,
-                4 => 7457,
-                5 => 7452,
-                6 => 1,
-                _ => panic!("shouldn't happen"),
-            },
-        }
     }
 
     fn output(&mut self) -> f32 {
@@ -236,27 +328,18 @@ impl Apu {
 
     // $4017 APU frame counter
     fn write_frame_counter(&mut self, val: u8) {
-        // D7
-        self.frame.mode = if (val >> 7) & 1 == 0 {
-            FCMode::Step4
-        } else {
-            FCMode::Step5
-        };
-        self.frame.step = 1u8;
-        self.frame.counter = self.next_frame_counter();
+        self.frame_sequencer.reset(val);
         if self.cycle % 2 == 0 {
-            // During an APU cycle
-            self.frame.counter += 3;
+            self.frame_sequencer.divider.counter += 1.0;
         } else {
-            // Between APU cycles
-            self.frame.counter += 4;
+            self.frame_sequencer.divider.counter += 2.0;
         }
-        // If step 5 clock immediately
-        if self.frame.mode == FCMode::Step5 {
+        // Clock Step5 immediately
+        if self.frame_sequencer.mode == FcMode::Step5 {
             self.clock_quarter_frame();
             self.clock_half_frame();
         }
-        self.irq_enabled = (val >> 6) & 1 == 0; // D6
+        self.irq_enabled = val & 0x40 == 0x00; // D6
         if !self.irq_enabled {
             self.irq_pending = false;
         }
@@ -272,7 +355,9 @@ impl Clocked for Apu {
             self.dmc.clock();
         }
         self.triangle.clock();
-        self.clock_frame_counter();
+        // Technically only clocks every 2 CPU cycles, but due
+        // to half-cycle timings, we clock every cycle
+        self.clock_frame_sequencer();
 
         if self.cycle % (self.clock_rate / SAMPLE_RATE) as u64 == 0 {
             let mut sample = self.output();
@@ -284,6 +369,15 @@ impl Clocked for Apu {
         }
         self.cycle += 1;
         1
+    }
+}
+
+impl Loggable for Apu {
+    fn set_log_level(&mut self, level: LogLevel) {
+        self.log_level = level;
+    }
+    fn log_level(&mut self) -> LogLevel {
+        self.log_level
     }
 }
 
@@ -340,11 +434,7 @@ impl Powered for Apu {
         self.samples.clear();
         self.irq_pending = false;
         self.irq_enabled = false;
-        self.frame = FrameCounter {
-            step: 1u8,
-            counter: 0u16,
-            mode: FCMode::Step4,
-        };
+        self.frame_sequencer = FrameSequencer::new();
         self.pulse1.reset();
         self.pulse2.reset();
         self.triangle.reset();
@@ -359,7 +449,6 @@ impl Savable for Apu {
         self.irq_enabled.save(fh)?;
         self.open_bus.save(fh)?;
         self.cycle.save(fh)?;
-        self.frame.save(fh)?;
         self.pulse1.save(fh)?;
         self.pulse2.save(fh)?;
         self.triangle.save(fh)?;
@@ -371,7 +460,6 @@ impl Savable for Apu {
         self.irq_enabled.load(fh)?;
         self.open_bus.load(fh)?;
         self.cycle.load(fh)?;
-        self.frame.load(fh)?;
         self.pulse1.load(fh)?;
         self.pulse2.load(fh)?;
         self.triangle.load(fh)?;
@@ -392,35 +480,13 @@ impl fmt::Debug for Apu {
     }
 }
 
-/// Frame Counter for the APU
-///
-/// [https://wiki.nesdev.com/w/index.php/APU_Frame_Counter]()
-struct FrameCounter {
-    step: u8,     // The current step # of the 4-Step or 5-Step sequence
-    counter: u16, // Counts CPU clocks until next step in the sequence
-    mode: FCMode, // Either 4-Step sequence or 5-Step sequence
-}
-
-impl Savable for FrameCounter {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.step.save(fh)?;
-        self.counter.save(fh)?;
-        self.mode.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.step.load(fh)?;
-        self.counter.load(fh)?;
-        self.mode.load(fh)
-    }
-}
-
-#[derive(PartialEq, Eq, Copy, Clone)]
-enum FCMode {
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum FcMode {
     Step4,
     Step5,
 }
 
-impl Savable for FCMode {
+impl Savable for FcMode {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)
     }
@@ -428,9 +494,9 @@ impl Savable for FCMode {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
-            0 => FCMode::Step4,
-            1 => FCMode::Step5,
-            _ => panic!("invalid FCMode value"),
+            0 => FcMode::Step4,
+            1 => FcMode::Step5,
+            _ => panic!("invalid FcMode value"),
         };
         Ok(())
     }
@@ -861,10 +927,10 @@ impl Savable for ShiftMode {
     }
 }
 
-pub struct DMC {
+pub struct Dmc {
     mapper: Option<MapperRef>,
     irq_enabled: bool,
-    irq_pending: bool,
+    pub irq_pending: bool,
     loops: bool,
     freq_timer: u16,
     freq_counter: u16,
@@ -878,9 +944,10 @@ pub struct DMC {
     output_bits: u8,
     output_shift: u8,
     output_silent: bool,
+    log_level: LogLevel,
 }
 
-impl DMC {
+impl Dmc {
     // NTSC
     const NTSC_FREQ_TABLE: [u16; 16] = [
         0x1AC, 0x17C, 0x154, 0x140, 0x11E, 0x0FE, 0x0E2, 0x0D6, 0x0BE, 0x0A0, 0x08E, 0x080, 0x06A,
@@ -905,6 +972,7 @@ impl DMC {
             output_bits: 0u8,
             output_shift: 0u8,
             output_silent: false,
+            log_level: LogLevel::Off,
         }
     }
 
@@ -985,7 +1053,16 @@ impl DMC {
     }
 }
 
-impl Savable for DMC {
+impl Loggable for Dmc {
+    fn set_log_level(&mut self, level: LogLevel) {
+        self.log_level = level;
+    }
+    fn log_level(&mut self) -> LogLevel {
+        self.log_level
+    }
+}
+
+impl Savable for Dmc {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.irq_enabled.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -1193,5 +1270,83 @@ impl Savable for Sweep {
         self.timer.load(fh)?;
         self.counter.load(fh)?;
         self.shift.load(fh)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn divider() {
+        let period = MASTER_CLOCK_RATE / 89_490.0;
+        let mut divider = Divider::new(period);
+        assert_eq!(divider.counter, period);
+        assert_eq!(divider.period, period);
+        // Clock until ~1.0
+        let mut clocks = 0u32;
+        while divider.counter > 1.0 {
+            let clock = divider.clock();
+            clocks += 1;
+            assert_eq!(divider.counter, period - clocks as f64);
+            assert_eq!(clock, 0);
+        }
+        assert_eq!(clocks, 239);
+        // Should output a clock
+        let clock = divider.clock();
+        clocks += 1;
+        assert_eq!(divider.counter, period + (period - clocks as f64));
+        assert_eq!(clock, 1);
+    }
+
+    #[test]
+    fn sequencer() {
+        let length = 4;
+        let mut sequencer = Sequencer::new(length);
+        assert_eq!(sequencer.step, 1);
+        assert_eq!(sequencer.length, 4);
+        // Clock until length - 1
+        let mut steps = 1usize;
+        while sequencer.step < sequencer.length {
+            let clock = sequencer.clock();
+            steps += 1;
+            assert_eq!(sequencer.step, steps);
+        }
+        // Should output a clock
+        let clock = sequencer.clock();
+        steps += 1;
+        assert_eq!(sequencer.step, 1);
+    }
+
+    #[test]
+    fn frame_sequencer() {
+        let mut frame_sequencer = FrameSequencer::new();
+        assert_eq!(frame_sequencer.divider.period, MASTER_CLOCK_RATE / 89_490.0);
+        assert_eq!(frame_sequencer.sequencer.length, 4);
+        assert_eq!(frame_sequencer.mode, FcMode::Step4);
+
+        for step in 1..=4 {
+            let mut clocks = 0;
+            let mut clock = 0;
+            while clock == 0 {
+                clock = frame_sequencer.clock();
+                clocks += 1;
+            }
+            assert_eq!(clocks, 240);
+            assert_eq!(clock, step);
+        }
+
+        frame_sequencer.reset(0x80);
+
+        for step in 1..=4 {
+            let mut clocks = 0;
+            let mut clock = 0;
+            while clock == 0 {
+                clock = frame_sequencer.clock();
+                clocks += 1;
+            }
+            assert_eq!(clocks, 240);
+            assert_eq!(clock, step + 1);
+        }
     }
 }

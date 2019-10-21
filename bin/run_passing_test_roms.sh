@@ -5,6 +5,7 @@ tests/cpu/branch_timing/1.Branch_Basics.nes
 tests/cpu/branch_timing/2.Backward_Branch.nes
 tests/cpu/branch_timing/3.Forward_Branch.nes
 tests/cpu/cpu_timing_test.nes
+tests/cpu/flag_concurrency.nes
 tests/cpu/dummy_reads.nes
 tests/cpu/dummy_writes_oam.nes
 tests/cpu/dummy_writes_ppumem.nes
@@ -20,25 +21,29 @@ tests/cpu/registers_after_reset.nes
 tests/apu/01.len_ctr.nes
 tests/apu/02.len_table.nes
 tests/apu/03.irq_flag.nes
-tests/apu/08.irq_timing.nes
-tests/apu/apu_env.nes
-tests/apu/dmc.nes
-tests/apu/dmc_pitch.nes
-tests/apu/lin_ctr.nes
-tests/apu/noise.nes
-tests/apu/noise_pitch.nes
-tests/apu/phase_reset.nes
-tests/apu/square.nes
-tests/apu/square_pitch.nes
-tests/apu/sweep_cutoff.nes
-tests/apu/sweep_sub.nes
+tests/apu/04.clock_jitter.nes
+
 tests/apu/test_1.nes
 tests/apu/test_2.nes
 tests/apu/test_5.nes
 tests/apu/test_6.nes
-tests/apu/triangle.nes
-tests/apu/triangle_pitch.nes
-tests/apu/volumes.nes
+
+## APU Sound tests ================================================================================
+# Skip for now
+# tests/apu/apu_env.nes
+# tests/apu/dmc.nes
+# tests/apu/dmc_pitch.nes
+# tests/apu/lin_ctr.nes
+# tests/apu/noise.nes
+# tests/apu/noise_pitch.nes
+# tests/apu/phase_reset.nes
+# tests/apu/square.nes
+# tests/apu/square_pitch.nes
+# tests/apu/sweep_cutoff.nes
+# tests/apu/sweep_sub.nes
+# tests/apu/triangle.nes
+# tests/apu/triangle_pitch.nes
+# tests/apu/volumes.nes
 
 ## PPU ============================================================================================
 tests/ppu/240pee.nes

@@ -94,7 +94,7 @@ where
 {
     pub fn init(bus: M) -> Self {
         Self {
-            cycle_count: 0,
+            cycle_count: POWER_ON_CYCLES,
             step: 0,
             pc: 0x0000,
             prev_pc: 0x0000,
@@ -130,16 +130,10 @@ where
         } else {
             self.pending_irq &= !(irq as u8);
         }
-        if self.pending_irq > 0 {
-            self.debug("set irq1");
-        } else {
-            self.debug("unset irq1");
-        }
     }
 
     pub fn irq(&mut self) {
         if self.get_flag(I) == 0 {
-            self.debug("irq ack");
             self.push_stackw(self.pc);
             // Handles status flags differently than php()
             self.set_flag(B, false);
@@ -158,8 +152,6 @@ where
             self.write(0xE001, 0x00); // MMC3 enable IRQ
             self.write(0x5204, 0x00); // MMC5 disable/clear IRQ
             self.write(0x5204, 0x80); // MMC5 enable IRQ
-        } else {
-            self.debug("irq flag not set");
         }
     }
 
@@ -627,11 +619,10 @@ where
                 status_str.push(*s);
             }
         }
-        let opstr = format!(
+        println!(
             "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{} Cyc:{}",
             disasm, self.acc, self.x, self.y, status_str, self.cycle_count,
         );
-        self.debug(&opstr);
     }
 
     /// Utilities
@@ -656,7 +647,6 @@ where
 
         if self.irq_delay > 0 {
             self.irq_delay -= 1;
-            self.debug(&format!("irq delay {}", self.irq_delay));
         } else if self.pending_nmi {
             self.nmi();
         } else if self.pending_irq > 0 {
@@ -814,7 +804,7 @@ where
     /// These operations take the CPU 7 cycle.
     fn reset(&mut self) {
         self.bus.reset();
-        self.cycle_count = 0;
+        self.cycle_count = POWER_ON_CYCLES;
         self.stall = POWER_ON_CYCLES;
         self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
@@ -828,7 +818,7 @@ where
     /// These operations take the CPU 7 cycle.
     fn power_cycle(&mut self) {
         self.bus.power_cycle();
-        self.cycle_count = 0;
+        self.cycle_count = POWER_ON_CYCLES;
         self.stall = POWER_ON_CYCLES;
         self.pc = self.readw(RESET_ADDR);
         self.sp = POWER_ON_SP;
@@ -1450,14 +1440,12 @@ where
     fn cli(&mut self) -> u8 {
         self.set_flag(I, false);
         self.irq_delay = 1;
-        self.debug("Cleared interrupt, delay 1");
         0
     }
     /// SEI: Set Interrupt Disable Status
     fn sei(&mut self) -> u8 {
         self.set_flag(I, true);
         self.irq_delay = 1;
-        self.debug("Disabled interrupts, delay 1");
         0
     }
     /// CLV: Clear Overflow Flag
@@ -1506,7 +1494,6 @@ where
     fn plp(&mut self) -> u8 {
         self.status = (self.pop_stackb() | U as u8) & !(B as u8);
         self.irq_delay = 1;
-        self.debug("Pulled processor from stack");
         0
     }
     /// PHA: Push A on Stack

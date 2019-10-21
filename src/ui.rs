@@ -69,8 +69,6 @@ pub struct Ui {
     turbo_clock: u8,
     cpu: Cpu<Bus>,
     cycles_remaining: f64,
-    ctrl: bool,
-    shift: bool,
     focused_window: u32,
     lost_focus: bool,
     menu: bool,
@@ -132,8 +130,6 @@ impl Ui {
             turbo_clock: 0,
             cpu,
             cycles_remaining: 0.0,
-            ctrl: false,
-            shift: false,
             focused_window: 0,
             lost_focus: false,
             menu: false,
@@ -845,5 +841,22 @@ mod tests {
             ui.clock();
         }
         assert_eq!(ui.cpu.peek(0x6000), 0x00, "{}", rom);
+    }
+
+    #[test]
+    fn apu_timing() {
+        let mut ui = Ui::new();
+        ui.power_on().unwrap();
+        for i in 0..=29840 {
+            let apu = &ui.cpu.bus.apu;
+            println!(
+                "{}: counter: {}, step: {}, irq: {}",
+                ui.cpu.cycle_count,
+                apu.frame_sequencer.divider.counter,
+                apu.frame_sequencer.sequencer.step,
+                apu.irq_pending
+            );
+            ui.clock();
+        }
     }
 }

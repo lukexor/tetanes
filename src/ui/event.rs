@@ -183,13 +183,11 @@ impl Ui {
 
     #[allow(clippy::cognitive_complexity)]
     fn handle_keydown(&mut self, key: Key, turbo: bool, data: &mut StateData) -> NesResult<()> {
-        let c = self.ctrl;
-        let s = self.shift;
+        let c = data.get_key(Key::Ctrl).held;
+        let s = data.get_key(Key::LShift).held;
         let d = self.debug;
         match key {
             // No modifiers
-            Key::Ctrl => self.ctrl = true,
-            Key::LShift => self.shift = true,
             Key::Escape => self.paused(!self.paused),
             Key::Space => self.change_speed(1.0),
             Key::Comma => self.rewind(),
@@ -297,8 +295,6 @@ impl Ui {
 
     fn handle_keyup(&mut self, key: Key, turbo: bool) {
         match key {
-            Key::Ctrl => self.ctrl = false,
-            Key::LShift => self.shift = false,
             Key::Space => {
                 self.settings.speed = DEFAULT_SPEED;
                 self.cpu.bus.apu.set_speed(self.settings.speed);
