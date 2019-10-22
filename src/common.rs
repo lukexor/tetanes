@@ -23,7 +23,7 @@ pub trait Powered {
 }
 
 pub trait Clocked {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) -> usize {
         0
     }
 }

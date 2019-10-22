@@ -124,7 +124,7 @@ struct Opt {
         default_value = "1.0",
         help = "Increase/Decrease emulation speed."
     )]
-    speed: f64,
+    speed: f32,
     #[structopt(
         long = "genie_codes",
         help = "List of Game Genie Codes (space separated)."

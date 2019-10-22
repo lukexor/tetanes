@@ -284,7 +284,7 @@ impl Memory for Sxrom {
 }
 
 impl Clocked for Sxrom {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) -> usize {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
         }

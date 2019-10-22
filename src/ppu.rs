@@ -71,14 +71,13 @@ const PALETTE_END: u16 = 0x3F20;
 
 pub struct Ppu {
     pub cycle: u16, // (0, 340) 341 cycles happen per scanline
-    total_cycles: u64,
-    pub scanline: u16,           // (0, 261) 262 total scanlines per frame
-    pub nmi_delay_enabled: bool, // Fixes some games by delaying nmi
-    pub nmi_pending: bool,       // Whether the CPU should trigger an NMI next cycle
-    pub vram: Vram,              // $2007 PPUDATA
-    pub regs: PpuRegs,           // Registers
-    oamdata: Oam,                // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    pub frame: Frame, // Frame data keeps track of data and shift registers between frames
+    pub cycle_count: usize,
+    pub scanline: u16,     // (0, 261) 262 total scanlines per frame
+    pub nmi_pending: bool, // Whether the CPU should trigger an NMI next cycle
+    pub vram: Vram,        // $2007 PPUDATA
+    pub regs: PpuRegs,     // Registers
+    oamdata: Oam,          // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    pub frame: Frame,      // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub ntsc_video: bool,
     debug: bool,
@@ -93,9 +92,8 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             cycle: 0u16,
-            total_cycles: 0u64,
+            cycle_count: 0usize,
             scanline: 0u16,
-            nmi_delay_enabled: true,
             nmi_pending: false,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
@@ -397,7 +395,7 @@ impl Ppu {
                     data <<= 4;
                     data |= u32::from(a | p1 | p2);
                 }
-                self.frame.tile_data |= u64::from(data);
+                self.frame.tile_data |= data as usize;
             }
             1 => self.fetch_bg_nt_byte(),
             3 => self.fetch_bg_attr_byte(),
@@ -514,7 +512,7 @@ impl Ppu {
                 y * RENDER_WIDTH as u16 + x,
                 palette & 0x3F,
                 self.regs.mask.emphasis(),
-                self.total_cycles - 1,
+                self.cycle_count - 1,
             );
         } else {
             let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
@@ -576,13 +574,6 @@ impl Ppu {
     }
 
     fn tick(&mut self) {
-        if self.nmi_delay_enabled && self.regs.nmi_delay > 0 {
-            self.regs.nmi_delay -= 1;
-            if self.regs.nmi_delay == 0 && self.nmi_enabled() && self.vblank_started() {
-                self.nmi_pending = true;
-            }
-        }
-
         // Clear open bus roughly once every frame
         if self.scanline == 0 {
             self.regs.open_bus = 0x0;
@@ -597,18 +588,18 @@ impl Ppu {
         {
             self.cycle = 0;
             self.scanline = 0;
-            self.total_cycles = 0;
+            self.cycle_count = 0;
             self.frame.increment();
             self.frame_complete = true;
         } else {
             self.cycle += 1;
-            self.total_cycles += 1;
+            self.cycle_count += 1;
             if self.cycle > VISIBLE_SCANLINE_CYCLE_END {
                 self.cycle = 0;
                 self.scanline += 1;
                 if self.scanline > PRERENDER_SCANLINE {
                     self.scanline = 0;
-                    self.total_cycles = 0;
+                    self.cycle_count = 0;
                     self.frame.increment();
                     self.frame_complete = true;
                 }
@@ -717,10 +708,17 @@ impl Ppu {
      * PPUCTRL
      */
 
-    fn nmi_enabled(&self) -> bool {
+    pub fn nmi_enabled(&self) -> bool {
         self.regs.ctrl.nmi_enabled()
     }
     fn write_ppuctrl(&mut self, val: u8) {
+        if val & 0x80 > 0 && !self.nmi_enabled() && self.vblank_started() {
+            self.nmi_pending = true;
+        }
+        // Race condition
+        if self.scanline == VBLANK_SCANLINE && val & 0x80 == 0 && self.cycle < 3 {
+            self.nmi_pending = false;
+        }
         self.regs.write_ctrl(val);
     }
 
@@ -737,8 +735,18 @@ impl Ppu {
      */
 
     fn read_ppustatus(&mut self) -> u8 {
-        let status = self.regs.read_status();
+        let mut status = self.regs.read_status();
+        // Race conditions
+        if self.scanline == VBLANK_SCANLINE {
+            if self.cycle == 0 {
+                status &= !0x80;
+            }
+            if self.cycle < 3 {
+                self.nmi_pending = false;
+            }
+        }
         // read_status() modifies register, so make sure mapper is aware
+        // of new status
         if let Some(mapper) = &self.vram.mapper {
             mapper
                 .borrow_mut()
@@ -760,11 +768,11 @@ impl Ppu {
     }
     fn start_vblank(&mut self) {
         self.regs.status.start_vblank();
-        self.regs.nmi_change();
+        self.nmi_pending = true;
     }
     fn stop_vblank(&mut self) {
         self.regs.status.stop_vblank();
-        self.regs.nmi_change();
+        self.nmi_pending = false;
     }
     pub fn vblank_started(&self) -> bool {
         self.regs.status.vblank_started()
@@ -886,7 +894,7 @@ impl Clocked for Ppu {
     // Step ticks as many cycles as needed to reach
     // target cycle to syncronize with the CPU
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) -> usize {
         self.tick();
         self.render_dot();
         if self.cycle == 1 {
@@ -1008,7 +1016,6 @@ impl Savable for Ppu {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.cycle.save(fh)?;
         self.scanline.save(fh)?;
-        self.nmi_delay_enabled.save(fh)?;
         self.nmi_pending.save(fh)?;
         self.vram.save(fh)?;
         self.regs.save(fh)?;
@@ -1018,7 +1025,6 @@ impl Savable for Ppu {
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.cycle.load(fh)?;
         self.scanline.load(fh)?;
-        self.nmi_delay_enabled.load(fh)?;
         self.nmi_pending.load(fh)?;
         self.vram.load(fh)?;
         self.regs.load(fh)?;
@@ -1084,17 +1090,15 @@ impl Savable for Palette {
 
 #[derive(Debug)]
 pub struct PpuRegs {
-    open_bus: u8,       // This open bus gets set during any write to PPU registers
-    pub ctrl: PpuCtrl,  // $2000 PPUCTRL write-only
-    pub mask: PpuMask,  // $2001 PPUMASK write-only
-    status: PpuStatus,  // $2002 PPUSTATUS read-only
-    oamaddr: u8,        // $2003 OAMADDR write-only
-    nmi_delay: u8,      // Some games need a delay after vblank before nmi is triggered
-    nmi_previous: bool, // Keeps track of repeated nmi to handle delay timing
-    pub v: u16,         // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
-    t: u16,             // Temporary v - Also the addr of top-left onscreen tile
-    x: u16,             // Fine X
-    w: bool,            // 1st or 2nd write toggle
+    open_bus: u8,      // This open bus gets set during any write to PPU registers
+    pub ctrl: PpuCtrl, // $2000 PPUCTRL write-only
+    pub mask: PpuMask, // $2001 PPUMASK write-only
+    status: PpuStatus, // $2002 PPUSTATUS read-only
+    oamaddr: u8,       // $2003 OAMADDR write-only
+    pub v: u16,        // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
+    t: u16,            // Temporary v - Also the addr of top-left onscreen tile
+    x: u16,            // Fine X
+    w: bool,           // 1st or 2nd write toggle
 }
 
 impl PpuRegs {
@@ -1105,8 +1109,6 @@ impl PpuRegs {
             mask: PpuMask(0u8),
             status: PpuStatus(0x00),
             oamaddr: 0u8,
-            nmi_delay: 0u8,
-            nmi_previous: false,
             v: 0u16,
             t: 0u16,
             x: 0u16,
@@ -1129,15 +1131,6 @@ impl PpuRegs {
         // t: ....BA.. ........
         self.t = (self.t & !nn_mask) | (u16::from(val) & 0x03) << 10; // take lo 2 bits and set NN
         self.ctrl.write(val);
-        self.nmi_change();
-    }
-
-    fn nmi_change(&mut self) {
-        let nmi = self.ctrl.nmi_enabled() && self.status.vblank_started();
-        if nmi && !self.nmi_previous {
-            self.nmi_delay = 15;
-        }
-        self.nmi_previous = nmi;
     }
 
     /*
@@ -1146,9 +1139,7 @@ impl PpuRegs {
 
     fn read_status(&mut self) -> u8 {
         self.reset_rw();
-        let status = self.status.read();
-        self.nmi_change();
-        status
+        self.status.read()
     }
     fn peek_status(&self) -> u8 {
         self.status.peek()
@@ -1324,8 +1315,6 @@ impl Savable for PpuRegs {
         self.mask.save(fh)?;
         self.status.save(fh)?;
         self.oamaddr.save(fh)?;
-        self.nmi_delay.save(fh)?;
-        self.nmi_previous.save(fh)?;
         self.v.save(fh)?;
         self.t.save(fh)?;
         self.x.save(fh)?;
@@ -1337,8 +1326,6 @@ impl Savable for PpuRegs {
         self.mask.load(fh)?;
         self.status.load(fh)?;
         self.oamaddr.load(fh)?;
-        self.nmi_delay.load(fh)?;
-        self.nmi_previous.load(fh)?;
         self.v.load(fh)?;
         self.t.load(fh)?;
         self.x.load(fh)?;
@@ -1568,7 +1555,7 @@ pub struct Frame {
     // Tile data - stored in cycles 0 mod 8
     nametable: u16,
     attribute: u8,
-    tile_data: u64,
+    tile_data: usize,
     // Sprite data
     sprite_count: u8,
     sprite_zero_on_line: bool,
@@ -1608,7 +1595,7 @@ impl Frame {
             attribute: 0u8,
             tile_lo: 0u8,
             tile_hi: 0u8,
-            tile_data: 0u64,
+            tile_data: 0usize,
             sprite_count: 0u8,
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
@@ -1635,7 +1622,7 @@ impl Frame {
     }
 
     // TODO - Make this more accurate
-    fn ntsc_signal(palette: u8, emphasis: u8, phase: u64) -> f32 {
+    fn ntsc_signal(palette: u8, emphasis: u8, phase: usize) -> f32 {
         // Decode the NES color
         let color = u16::from(palette & 0x0F); // 0..15 "cccc"
         let level = if color > 13 {
@@ -1655,7 +1642,7 @@ impl Frame {
         } // For colors 13..15, only low level is emitted
 
         // Generate the square wave
-        let in_color_phase = |color| (u64::from(color) + phase) % 12 < 6; // Inline function
+        let in_color_phase = |color| (usize::from(color) + phase) % 12 < 6; // Inline function
         let mut signal = if in_color_phase(color) { high } else { low };
 
         // When de-emphasis bits are set, some parts of the signal are attenuated:
@@ -1669,7 +1656,7 @@ impl Frame {
         signal
     }
 
-    fn render_ntsc_pixel(&mut self, x: u16, palette: u8, emphasis: u8, ppu_cycle: u64) {
+    fn render_ntsc_pixel(&mut self, x: u16, palette: u8, emphasis: u8, ppu_cycle: usize) {
         let phase = ppu_cycle * 8;
         // Each pixel produces distinct 8 samples of NTSC signal
         for p in 0..8 {

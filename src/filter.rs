@@ -1,6 +1,6 @@
 //! Contains the Filter Trait for both High Pass and Low Pass filters
 
-use std::f64::consts;
+use std::f32::consts;
 
 /// Filter trait
 pub trait Filter {
@@ -17,7 +17,7 @@ pub struct HiPassFilter {
 }
 
 impl HiPassFilter {
-    pub fn new(freq: f64, sample_rate: f64) -> Self {
+    pub fn new(freq: f32, sample_rate: f32) -> Self {
         let c = (sample_rate / consts::PI / freq) as f32;
         let a0i = 1.0 / (1.0 + c);
         Self {
@@ -49,7 +49,7 @@ pub struct LoPassFilter {
 }
 
 impl LoPassFilter {
-    pub fn new(freq: f64, sample_rate: f64) -> Self {
+    pub fn new(freq: f32, sample_rate: f32) -> Self {
         let c = (sample_rate / consts::PI / freq) as f32;
         let a0i = 1.0 / (1.0 + c);
         Self {

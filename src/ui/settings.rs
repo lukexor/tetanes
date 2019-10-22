@@ -6,9 +6,9 @@ use std::{
     path::PathBuf,
 };
 
-pub(super) const DEFAULT_SPEED: f64 = 1.0; // 100% - 60 Hz
-const MIN_SPEED: f64 = 0.25; // 25% - 240 Hz
-const MAX_SPEED: f64 = 2.0; // 200% - 30 Hz
+pub(super) const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
+const MIN_SPEED: f32 = 0.25; // 25% - 240 Hz
+const MAX_SPEED: f32 = 2.0; // 200% - 30 Hz
 
 pub struct UiSettings {
     pub path: PathBuf,
@@ -25,7 +25,7 @@ pub struct UiSettings {
     pub randomize_ram: bool,
     pub save_slot: u8,
     pub scale: u32,
-    pub speed: f64,
+    pub speed: f32,
     pub unlock_fps: bool,
     pub genie_codes: Vec<String>,
 }
@@ -88,7 +88,7 @@ impl Savable for UiSettings {
 }
 
 impl Ui {
-    pub(super) fn change_speed(&mut self, delta: f64) {
+    pub(super) fn change_speed(&mut self, delta: f32) {
         if self.recording {
             self.add_message("Speed changes disabled while recording");
         } else {

@@ -11,6 +11,20 @@ tests/cpu/dummy_writes_oam.nes
 tests/cpu/dummy_writes_ppumem.nes
 tests/cpu/exec_space_apu.nes
 tests/cpu/exec_space_ppuio.nes
+tests/cpu/instr/01-implied.nes
+tests/cpu/instr/02-immediate.nes
+tests/cpu/instr/03-zero_page.nes
+tests/cpu/instr/04-zp_xy.nes
+tests/cpu/instr/05-absolute.nes
+tests/cpu/instr/07-ind_x.nes
+tests/cpu/instr/08-ind_y.nes
+tests/cpu/instr/09-branches.nes
+tests/cpu/instr/10-stack.nes
+tests/cpu/instr/11-jmp_jsr.nes
+tests/cpu/instr/12-rts.nes
+tests/cpu/instr/13-rti.nes
+tests/cpu/instr/14-brk.nes
+tests/cpu/instr/15-special.nes
 tests/cpu/instr_timing.nes
 tests/cpu/nestest.nes
 tests/cpu/overclock.nes
@@ -22,6 +36,7 @@ tests/apu/01.len_ctr.nes
 tests/apu/02.len_table.nes
 tests/apu/03.irq_flag.nes
 tests/apu/04.clock_jitter.nes
+tests/apu/08.irq_timing.nes #02
 
 tests/apu/test_1.nes
 tests/apu/test_2.nes

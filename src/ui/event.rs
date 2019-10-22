@@ -63,7 +63,7 @@ impl Ui {
                     self.focused_window = if focus { window_id } else { 0 };
 
                     // Pausing only applies to the main window
-                    if self.focused_window == 1 {
+                    if window_id == 1 {
                         // Only unpause if we weren't paused as a result of losing focus
                         if focus && self.lost_focus {
                             self.paused(false);

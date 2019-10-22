@@ -3,11 +3,11 @@
 use crate::{
     bus::Bus,
     common::{home_dir, Clocked, LogLevel, Loggable, Powered, CONFIG_DIR},
-    cpu::{Cpu, Irq, CPU_CLOCK_RATE},
+    cpu::{Cpu, CPU_CLOCK_RATE},
     map_nes_err, mapper, memory, nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     serialization::{validate_save_header, write_save_header, Savable},
-    ui::debug::DEBUG_WIDTH,
+    ui::{debug::DEBUG_WIDTH, settings::DEFAULT_SPEED},
     NesResult,
 };
 use pix_engine::{
@@ -36,10 +36,10 @@ const APP_NAME: &str = "RustyNES";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const REWIND_SIZE: u8 = 20;
-const REWIND_TIMER: f64 = 5.0;
+const REWIND_TIMER: f32 = 5.0;
 
 struct Message {
-    timer: f64,
+    timer: f32,
     timed: bool,
     text: String,
 }
@@ -65,10 +65,10 @@ pub struct Ui {
     roms: Vec<PathBuf>,
     loaded_rom: PathBuf,
     paused: bool,
-    clock: f64,
+    clock: f32,
     turbo_clock: u8,
-    cpu: Cpu<Bus>,
-    cycles_remaining: f64,
+    cpu: Cpu,
+    cycles_remaining: f32,
     focused_window: u32,
     lost_focus: bool,
     menu: bool,
@@ -85,7 +85,7 @@ pub struct Ui {
     width: u32,
     height: u32,
     speed_counter: i32,
-    rewind_timer: f64,
+    rewind_timer: f32,
     rewind_slot: u8,
     rewind_save: u8,
     rewind_queue: VecDeque<u8>,
@@ -190,7 +190,7 @@ impl Ui {
         self.messages.retain(|msg| msg.text != text);
     }
 
-    fn draw_messages(&mut self, elapsed: f64, data: &mut StateData) -> NesResult<()> {
+    fn draw_messages(&mut self, elapsed: f32, data: &mut StateData) -> NesResult<()> {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         if !self.messages.is_empty() {
             data.set_draw_target(&mut self.msg_box);
@@ -263,10 +263,10 @@ impl Ui {
         self.cpu.bus.ppu.frame_complete = false;
     }
 
-    pub fn clock_seconds(&mut self, seconds: f64) {
+    pub fn clock_seconds(&mut self, seconds: f32) {
         self.cycles_remaining += CPU_CLOCK_RATE * seconds;
         while self.cycles_remaining > 0.0 {
-            self.cycles_remaining -= self.clock() as f64;
+            self.cycles_remaining -= self.clock() as f32;
         }
     }
 
@@ -475,6 +475,9 @@ impl State for Ui {
         if self.settings.debug {
             self.toggle_debug(data)?;
         }
+        if self.settings.speed != DEFAULT_SPEED {
+            self.cpu.bus.apu.set_speed(self.settings.speed);
+        }
 
         self.cpu
             .set_log_level(LogLevel::from_u8(self.settings.log_level)?);
@@ -499,7 +502,7 @@ impl State for Ui {
     }
 
     fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> PixEngineResult<()> {
-        let elapsed = elapsed.as_secs_f64();
+        let elapsed = elapsed.as_secs_f32();
 
         self.poll_events(data)?;
         self.update_title(data);
@@ -583,34 +586,8 @@ impl State for Ui {
 
 impl Clocked for Ui {
     /// Steps the console a single CPU instruction at a time
-    fn clock(&mut self) -> u64 {
-        let cpu_cycles = self.cpu.clock();
-        let ppu_cycles = 3 * cpu_cycles;
-
-        for _ in 0..ppu_cycles {
-            self.cpu.bus.ppu.clock();
-            if self.cpu.bus.ppu.nmi_pending {
-                self.cpu.trigger_nmi();
-                self.cpu.bus.ppu.nmi_pending = false;
-            }
-
-            let irq_pending = if let Some(mapper) = &self.cpu.bus.mapper {
-                mapper.borrow_mut().clock();
-                mapper.borrow_mut().irq_pending()
-            } else {
-                false
-            };
-            self.cpu.set_irq(Irq::Mapper, irq_pending);
-        }
-
-        for _ in 0..cpu_cycles {
-            self.cpu.bus.apu.clock();
-            self.cpu
-                .set_irq(Irq::FrameCounter, self.cpu.bus.apu.irq_pending);
-            self.cpu.set_irq(Irq::Dmc, self.cpu.bus.apu.dmc.irq_pending);
-        }
-
-        cpu_cycles
+    fn clock(&mut self) -> usize {
+        self.cpu.clock()
     }
 }
 
@@ -793,6 +770,7 @@ mod tests {
         let rom = "tests/cpu/nestest.nes";
         let mut ui = load(&rom);
         ui.cpu.pc = 0xC000; // Start automated tests
+        ui.cpu.set_log_level(LogLevel::Trace);
         let _ = ui.clock_seconds(0.5);
         assert_eq!(ui.cpu.peek(0x0000), 0x00, "{}", rom);
     }
@@ -847,7 +825,7 @@ mod tests {
     fn apu_timing() {
         let mut ui = Ui::new();
         ui.power_on().unwrap();
-        for i in 0..=29840 {
+        for _ in 0..=29840 {
             let apu = &ui.cpu.bus.apu;
             println!(
                 "{}: counter: {}, step: {}, irq: {}",

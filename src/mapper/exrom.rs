@@ -581,7 +581,7 @@ impl Memory for Exrom {
 }
 
 impl Clocked for Exrom {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) -> usize {
         if self.ppu_reading {
             self.ppu_idle = 0;
         } else {
