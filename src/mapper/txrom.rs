@@ -244,6 +244,7 @@ impl Mapper for Txrom {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
             if self.regs.last_clock == 0 && next_clock == 1 {
+                // println!("clocked");
                 // Rising edge
                 let counter = self.regs.irq_counter;
                 if counter == 0 || self.regs.irq_reload {

@@ -19,6 +19,7 @@ use std::{
 // Add Emulator setting like Mesen??
 // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
 // pub const MASTER_CLOCK_RATE: f32 = 21_441_960.0; // 21.441960 MHz Emulated clock rate
+
 pub const MASTER_CLOCK_RATE: f32 = 21_477_270.0; // 21.47727 MHz Hardware clock rate
 pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
 
@@ -119,29 +120,14 @@ impl Cpu {
         let pcl = u16::from(self.bus.read(RESET_ADDR));
         let pch = u16::from(self.bus.read(RESET_ADDR + 1));
         self.pc = (pch << 8) | pcl;
+        for _ in 0..7 {
+            self.clock();
+        }
     }
 
-    fn run_cycle(&mut self) {
-        self.cycle_count += 1;
-        self.last_nmi = self.pending_nmi;
-        self.last_irq = self.pending_irq > 0 && self.get_flag(I) == 0;
-        for _ in 0..3 {
-            self.bus.ppu.clock();
-            if self.bus.ppu.nmi_enabled() && self.bus.ppu.nmi_pending {
-                self.trigger_nmi();
-                self.bus.ppu.nmi_pending = false;
-            }
-            let irq_pending = if let Some(mapper) = &self.bus.mapper {
-                mapper.borrow_mut().clock();
-                mapper.borrow_mut().irq_pending()
-            } else {
-                false
-            };
-            self.set_irq(Irq::Mapper, irq_pending);
-        }
-        self.bus.apu.clock();
-        self.set_irq(Irq::FrameCounter, self.bus.apu.irq_pending);
-        self.set_irq(Irq::Dmc, self.bus.apu.dmc.irq_pending);
+    pub fn next_instr(&self) -> Instr {
+        let opcode = self.peek(self.pc);
+        INSTRUCTIONS[opcode as usize]
     }
 
     /// Sends an IRQ Interrupt to the CPU
@@ -149,14 +135,21 @@ impl Cpu {
     /// http://wiki.nesdev.com/w/index.php/IRQ
     pub fn set_irq(&mut self, irq: Irq, val: bool) {
         if val {
+            if self.pending_irq == 0 {
+                self.trace(&format!("set irq {}", self.cycle_count));
+            }
             self.pending_irq |= irq as u8;
         } else {
+            if self.pending_irq & irq as u8 > 0 {
+                self.trace(&format!("cleared irq {}", self.cycle_count));
+            }
             self.pending_irq &= !(irq as u8);
         }
     }
 
     pub fn irq(&mut self) {
         if self.get_flag(I) == 0 {
+            self.trace("irq");
             self.push_stackw(self.pc);
             // Handles status flags differently than php()
             self.set_flag(B, false);
@@ -164,6 +157,7 @@ impl Cpu {
             self.push_stackb(self.status);
             self.set_flag(I, true);
             if self.last_nmi {
+                self.trace("actual nmi");
                 self.pending_nmi = false;
                 self.pc = self.readw(NMI_ADDR);
             } else {
@@ -187,7 +181,6 @@ impl Cpu {
     }
     fn nmi(&mut self) {
         self.push_stackw(self.pc);
-        // Handles status flags differently than php()
         self.set_flag(B, false);
         self.set_flag(U, true);
         self.push_stackb(self.status);
@@ -196,6 +189,29 @@ impl Cpu {
         for _ in 0..7 {
             self.run_cycle();
         }
+    }
+
+    fn run_cycle(&mut self) {
+        self.cycle_count += 1;
+        self.last_nmi = self.pending_nmi;
+        self.last_irq = self.pending_irq > 0 && self.get_flag(I) == 0;
+        for _ in 0..3 {
+            self.bus.ppu.clock();
+            if self.bus.ppu.nmi_enabled() && self.bus.ppu.nmi_pending {
+                self.trigger_nmi();
+                self.bus.ppu.nmi_pending = false;
+            }
+            let irq_pending = if let Some(mapper) = &self.bus.mapper {
+                mapper.borrow_mut().clock();
+                mapper.borrow_mut().irq_pending()
+            } else {
+                false
+            };
+            self.set_irq(Irq::Mapper, irq_pending);
+        }
+        self.bus.apu.clock();
+        self.set_irq(Irq::FrameCounter, self.bus.apu.irq_pending);
+        self.set_irq(Irq::Dmc, self.bus.apu.dmc.irq_pending);
     }
 
     // Status Register functions
@@ -236,6 +252,12 @@ impl Cpu {
         self.read(SP_BASE | u16::from(self.sp))
     }
 
+    // Peek byte at the top of the stack
+    pub fn peek_stackb(&self) -> u8 {
+        let sp = self.sp.wrapping_add(1);
+        self.peek(SP_BASE | u16::from(sp))
+    }
+
     // Push a word (two bytes) to the stack
     fn push_stackw(&mut self, val: u16) {
         let lo = (val & 0xFF) as u8;
@@ -251,15 +273,19 @@ impl Cpu {
         hi << 8 | lo
     }
 
+    // Peek at the top of the stack
+    pub fn peek_stackw(&self) -> u16 {
+        let sp = self.sp.wrapping_add(1);
+        let lo = u16::from(self.peek(SP_BASE | u16::from(sp)));
+        let sp = sp.wrapping_add(1);
+        let hi = u16::from(self.peek(SP_BASE | u16::from(sp)));
+        hi << 8 | lo
+    }
+
     /// Addressing Modes
     ///
     /// The 6502 can address 64KB from 0x0000 - 0xFFFF. The high byte is usually the page and the
     /// low byte the offset into the page. There are 256 total pages of 256 bytes.
-    ///
-    /// Several addressing modes require an additional clock if they cross a page boundary.  Each
-    /// function returns either 0 or 1 if it requires an extra clock. This combined with the return
-    /// from the operation will determine if a page boundary was crossed and if an extra clock was
-    /// required.
 
     // FIXME
     // 9E SXA #aby 6 > 5 (cross)
@@ -286,9 +312,8 @@ impl Cpu {
     // --- ------- --- -----------------------------------------------
     //  1    PC     R  fetch opcode, increment PC
     //  2    PC     R  read next instruction byte (and throw it away)
-    fn acc(&mut self) -> u8 {
+    fn acc(&mut self) {
         let _ = self.read(self.pc); // Cycle 2, Read and throw away
-        0
     }
 
     /// Implied
@@ -297,9 +322,8 @@ impl Cpu {
     //   --- ------- --- -----------------------------------------------
     //    1    PC     R  fetch opcode, increment PC
     //    2    PC     R  read next instruction byte (and throw it away)
-    fn imp(&mut self) -> u8 {
+    fn imp(&mut self) {
         let _ = self.read(self.pc); // Cycle 2, Read and throw away
-        0
     }
 
     /// Immediate
@@ -308,10 +332,9 @@ impl Cpu {
     //   --- ------- --- ------------------------------------------
     //    1    PC     R  fetch opcode, increment PC
     //    2    PC     R  fetch value, increment PC
-    fn imm(&mut self) -> u8 {
+    fn imm(&mut self) {
         self.abs_addr = self.pc;
         self.pc = self.pc.wrapping_add(1);
-        0
     }
 
     /// Zero Page
@@ -345,10 +368,9 @@ impl Cpu {
     //     1    PC     R  fetch opcode, increment PC
     //     2    PC     R  fetch address, increment PC
     //     3  address  W  write register to effective address
-    fn zp0(&mut self) -> u8 {
+    fn zp0(&mut self) {
         self.abs_addr = u16::from(self.read(self.pc)) & 0x00FF; // Cycle 2
         self.pc = self.pc.wrapping_add(1);
-        0
     }
 
     /// Zero Page w/ X offset
@@ -393,12 +415,11 @@ impl Cpu {
 
     //           * The high byte of the effective address is always zero,
     //             i.e. page boundary crossings are not handled.
-    fn zpx(&mut self) -> u8 {
+    fn zpx(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
         self.abs_addr = u16::from(addr.wrapping_add(self.x)) & 0x00FF;
         let _ = self.read(u16::from(addr)); // Cycle 3
         self.pc = self.pc.wrapping_add(1);
-        0
     }
 
     /// Zero Page w/ Y offset
@@ -426,12 +447,11 @@ impl Cpu {
 
     //           * The high byte of the effective address is always zero,
     //             i.e. page boundary crossings are not handled.
-    fn zpy(&mut self) -> u8 {
+    fn zpy(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
         self.abs_addr = u16::from(addr.wrapping_add(self.y)) & 0x00FF;
         let _ = self.read(u16::from(addr)); // Cycle 3
         self.pc = self.pc.wrapping_add(1);
-        0
     }
 
     /// Relative
@@ -462,10 +482,9 @@ impl Cpu {
 
     //          ! If branch occurs to different page, this cycle will be
     //            executed.
-    fn rel(&mut self) -> u8 {
+    fn rel(&mut self) {
         self.rel_addr = self.read(self.pc).into(); // Cycle 2
         self.pc = self.pc.wrapping_add(1);
-        0
     }
 
     /// Absolute
@@ -501,10 +520,9 @@ impl Cpu {
     //     2    PC     R  fetch low byte of address, increment PC
     //     3    PC     R  fetch high byte of address, increment PC
     //     4  address  W  write register to effective address
-    fn abs(&mut self) -> u8 {
+    fn abs(&mut self) {
         self.abs_addr = self.readw(self.pc); // Cycle 2 & 3
         self.pc = self.pc.wrapping_add(2);
-        0
     }
 
     /// Absolute w/ X offset
@@ -567,16 +585,12 @@ impl Cpu {
     //            at this time, i.e. it may be smaller by $100. Because
     //            the processor cannot undo a write to an invalid
     //            address, it always reads from the address first.
-    fn abx(&mut self) -> u8 {
+    fn abx(&mut self) {
         let addr = self.readw(self.pc); // Cycle 2 & 3
         self.pc = self.pc.wrapping_add(2);
         self.abs_addr = addr.wrapping_add(self.x.into());
-
-        if self.pages_differ(addr, self.abs_addr) {
-            1
-        } else {
-            0
-        }
+        // Cycle 4 Read with fixed high byte
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
     /// Absolute w/ Y offset
@@ -639,16 +653,12 @@ impl Cpu {
     //            at this time, i.e. it may be smaller by $100. Because
     //            the processor cannot undo a write to an invalid
     //            address, it always reads from the address first.
-    fn aby(&mut self) -> u8 {
+    fn aby(&mut self) {
         let addr = self.readw(self.pc); // Cycles 2 & 3
         self.pc = self.pc.wrapping_add(2);
         self.abs_addr = addr.wrapping_add(self.y.into());
-
-        if self.pages_differ(addr, self.abs_addr) {
-            1
-        } else {
-            0
-        }
+        // Cycle 4 Read with fixed high byte
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
     /// Indirect (JMP)
@@ -668,7 +678,7 @@ impl Cpu {
     //           than PCL, i.e. page boundary crossing is not handled.
 
     //            How Real Programmers Acknowledge Interrupts
-    fn ind(&mut self) -> u8 {
+    fn ind(&mut self) {
         let addr = self.readw(self.pc);
         self.pc = self.pc.wrapping_add(2);
         if addr & 0x00FF == 0x00FF {
@@ -678,7 +688,6 @@ impl Cpu {
             // Normal behavior
             self.abs_addr = (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr));
         }
-        0
     }
 
     /// Indirect X
@@ -728,13 +737,12 @@ impl Cpu {
 
     //   Note: The effective address is always fetched from zero page,
     //         i.e. the zero page boundary crossing is not handled.
-    fn idx(&mut self) -> u8 {
+    fn idx(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
         self.pc = self.pc.wrapping_add(1);
         let x_offset = addr.wrapping_add(self.x);
         let _ = self.read(u16::from(addr)); // Cycle 3
         self.abs_addr = self.readw_zp(x_offset); // Cycles 4 & 5
-        0
     }
 
     /// Indirect Y
@@ -802,17 +810,13 @@ impl Cpu {
 
     //          * The high byte of the effective address may be invalid
     //            at this time, i.e. it may be smaller by $100.
-    fn idy(&mut self) -> u8 {
+    fn idy(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
         self.pc = self.pc.wrapping_add(1);
         let addr = self.readw_zp(addr); // Cycles 3 & 4
         self.abs_addr = addr.wrapping_add(self.y.into());
-
-        if self.pages_differ(addr, self.abs_addr) {
-            1
-        } else {
-            0
-        }
+        // Cycle 4 Read with fixed high byte
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
     // Source the data used by an instruction. Some instructions don't fetch data as the source
@@ -821,37 +825,28 @@ impl Cpu {
         let mode = self.instr.addr_mode();
         self.fetched_data = match mode {
             IMP | ACC => self.acc,
-            _ => self.read(self.abs_addr), // Cycle 2/4/5 read
-        };
-        match mode {
-            ABX | ABY => {
-                let reg = if mode == ABX { self.x } else { self.y };
+            ABX | ABY | IDY => {
+                // Read instructions may have crossed a page boundary and need to be re-read
                 match self.instr.op() {
-                    LDA | LDX | LDY | EOR | AND | ORA | ADC | SBC | CMP | BIT | LAX | NOP => {
-                        // Means we crossed a page boundary
+                    LDA | LDX | LDY | EOR | AND | ORA | ADC | SBC | CMP | BIT | LAX | NOP | IGN
+                    | LAS => {
+                        let reg = match mode {
+                            ABX => self.x,
+                            ABY | IDY => self.y,
+                            _ => panic!("not possible"),
+                        };
+                        // Read if we crossed, otherwise use what was already read
                         if (self.abs_addr & 0x00FF) < u16::from(reg) {
-                            self.fetched_data = self.read(self.abs_addr); // Cycle 5 re-read
+                            self.read(self.abs_addr)
+                        } else {
+                            self.fetched_data
                         }
                     }
-                    ASL | LSR | ROL | ROR | INC | DEC | SLO | SRE | RLA | RRA | ISB | DCP => {
-                        self.fetched_data = self.read(self.abs_addr); // Cycle 5 re-read
-                    }
-                    _ => (),
+                    _ => self.read(self.abs_addr), // Cycle 2/4/5 read
                 }
             }
-            IDY => match self.instr.op() {
-                SLO | SRE | RLA | RRA | ISB | DCP => {
-                    self.fetched_data = self.read(self.abs_addr); // Cycle 5 re-read
-                }
-                LDA | EOR | AND | ORA | ADC | SBC | CMP => {
-                    if (self.abs_addr & 0x00FF) < u16::from(self.y) {
-                        self.fetched_data = self.read(self.abs_addr); // Cycle 6 re-read
-                    }
-                }
-                _ => (),
-            },
-            _ => (),
-        }
+            _ => self.read(self.abs_addr), // Cycle 2/4/5 read
+        };
     }
 
     // Writes data back to where fetched_data was sourced from. Either accumulator or memory
@@ -986,11 +981,7 @@ impl Cpu {
                 } else {
                     (u16::from(self.peek(addr + 1)) << 8) | u16::from(self.peek(addr))
                 };
-                if instr.op() == JMP {
-                    format!("(${:04X}) = ${:04X}", addr, val)
-                } else {
-                    format!("(${:04X})", val)
-                }
+                format!("(${:04X}) = ${:04X}", addr, val)
             }
             IDX => {
                 bytes.push(self.peek(*pc));
@@ -1075,6 +1066,8 @@ impl Clocked for Cpu {
             return 1;
         }
 
+        let start_cycles = self.cycle_count;
+
         if self.last_nmi {
             self.pending_nmi = false;
             self.nmi();
@@ -1085,16 +1078,16 @@ impl Clocked for Cpu {
         if self.log_level == LogLevel::Trace {
             self.print_instruction(self.pc);
         }
-        self.pc_log.push_back(self.pc);
+        self.pc_log.push_front(self.pc);
         if self.pc_log.len() > PC_LOG_LEN {
-            self.pc_log.pop_front();
+            self.pc_log.pop_back();
         }
 
         let opcode = self.read(self.pc); // Cycle 1 of instruction
         self.pc = self.pc.wrapping_add(1);
         self.instr = INSTRUCTIONS[opcode as usize];
 
-        let mode_cycle = usize::from(match self.instr.addr_mode() {
+        match self.instr.addr_mode() {
             IMM => self.imm(),
             ZP0 => self.zp0(),
             ZPX => self.zpx(),
@@ -1108,9 +1101,9 @@ impl Clocked for Cpu {
             REL => self.rel(),
             ACC => self.acc(),
             IMP => self.imp(),
-        });
+        };
 
-        let op_cycle = usize::from(match self.instr.op() {
+        match self.instr.op() {
             ADC => self.adc(), // ADd with Carry M with A
             AND => self.and(), // AND M with A
             ASL => self.asl(), // Arithmatic Shift Left M or A
@@ -1188,13 +1181,10 @@ impl Clocked for Cpu {
             ANC => self.anc(), // AND #imm
             SLO => self.slo(), // ASL & ORA
             XXX => self.xxx(), // Unimplemented opcode
-        });
+        };
 
         self.step += 1;
-        if (mode_cycle & op_cycle) > 0 {
-            self.run_cycle();
-        }
-        1
+        self.cycle_count - start_cycles
     }
 }
 
@@ -1228,9 +1218,10 @@ impl Powered for Cpu {
         self.bus.reset();
         self.cycle_count = 0;
         self.stall = POWER_ON_CYCLES;
-        self.pc = self.readw(RESET_ADDR);
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
+        self.pc_log.clear();
+        self.power_on();
     }
 
     /// Power cycle the CPU
@@ -1242,12 +1233,13 @@ impl Powered for Cpu {
         self.bus.power_cycle();
         self.cycle_count = 0;
         self.stall = POWER_ON_CYCLES;
-        self.pc = self.readw(RESET_ADDR);
         self.sp = POWER_ON_SP;
         self.acc = 0x00;
         self.x = 0x00;
         self.y = 0x00;
         self.status = POWER_ON_STATUS;
+        self.pc_log.clear();
+        self.power_on();
     }
 }
 
@@ -1447,7 +1439,7 @@ use AddrMode::*;
 use Operation::*;
 
 // (opcode, Addressing Mode, Operation, cycles taken)
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Instr(u8, AddrMode, Operation, usize);
 
 impl Instr {
@@ -1506,98 +1498,69 @@ impl Cpu {
     /// Storage opcodes
 
     /// LDA: Load A with M
-    fn lda(&mut self) -> u8 {
+    fn lda(&mut self) {
         self.fetch_data();
         self.acc = self.fetched_data;
         self.set_flags_zn(self.acc);
-        1
     }
     /// LDX: Load X with M
-    fn ldx(&mut self) -> u8 {
+    fn ldx(&mut self) {
         self.fetch_data();
         self.x = self.fetched_data;
         self.set_flags_zn(self.x);
-        1
     }
     /// LDY: Load Y with M
-    fn ldy(&mut self) -> u8 {
+    fn ldy(&mut self) {
         self.fetch_data();
         self.y = self.fetched_data;
         self.set_flags_zn(self.y);
-        1
     }
     /// STA: Store A into M
-    fn sta(&mut self) -> u8 {
-        let mode = self.instr.addr_mode();
-        match mode {
-            IDY | ABX | ABY => {
-                let reg = if mode == ABX { self.x } else { self.y };
-                // Only fetch if we haven't crossed a page boundary
-                if (self.abs_addr & 0x00FF) >= u16::from(reg) {
-                    self.fetch_data();
-                }
-            }
-            _ => (),
-        }
+    fn sta(&mut self) {
         self.write(self.abs_addr, self.acc);
-        0
     }
     /// STX: Store X into M
-    fn stx(&mut self) -> u8 {
-        if self.instr.addr_mode() == IDY {
-            self.fetch_data();
-        }
+    fn stx(&mut self) {
         self.write(self.abs_addr, self.x);
-        0
     }
     /// STY: Store Y into M
-    fn sty(&mut self) -> u8 {
-        if self.instr.addr_mode() == IDY {
-            self.fetch_data();
-        }
+    fn sty(&mut self) {
         self.write(self.abs_addr, self.y);
-        0
     }
     /// TAX: Transfer A to X
-    fn tax(&mut self) -> u8 {
+    fn tax(&mut self) {
         self.x = self.acc;
         self.set_flags_zn(self.x);
-        0
     }
     /// TAY: Transfer A to Y
-    fn tay(&mut self) -> u8 {
+    fn tay(&mut self) {
         self.y = self.acc;
         self.set_flags_zn(self.y);
-        0
     }
     /// TSX: Transfer Stack Pointer to X
-    fn tsx(&mut self) -> u8 {
+    fn tsx(&mut self) {
         self.x = self.sp;
         self.set_flags_zn(self.x);
-        0
     }
     /// TXA: Transfer X to A
-    fn txa(&mut self) -> u8 {
+    fn txa(&mut self) {
         self.acc = self.x;
         self.set_flags_zn(self.acc);
-        0
     }
     /// TXS: Transfer X to Stack Pointer
-    fn txs(&mut self) -> u8 {
+    fn txs(&mut self) {
         self.sp = self.x;
-        0
     }
     /// TYA: Transfer Y to A
-    fn tya(&mut self) -> u8 {
+    fn tya(&mut self) {
         self.acc = self.y;
         self.set_flags_zn(self.acc);
-        0
     }
 
     /// Arithmetic opcodes
 
     /// ADC: Add M to A with Carry
-    fn adc(&mut self) -> u8 {
+    fn adc(&mut self) {
         self.fetch_data();
         let a = self.acc;
         let (x1, o1) = self.fetched_data.overflowing_add(a);
@@ -1609,10 +1572,9 @@ impl Cpu {
             (a ^ self.fetched_data) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0,
         );
         self.set_flags_zn(self.acc);
-        1
     }
     /// SBC: Subtract M from A with Carry
-    fn sbc(&mut self) -> u8 {
+    fn sbc(&mut self) {
         self.fetch_data();
         let a = self.acc;
         let (x1, o1) = a.overflowing_sub(self.fetched_data);
@@ -1624,105 +1586,92 @@ impl Cpu {
             (a ^ self.fetched_data) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0,
         );
         self.set_flags_zn(self.acc);
-        1
     }
     /// DEC: Decrement M by One
-    fn dec(&mut self) -> u8 {
+    fn dec(&mut self) {
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
         let val = self.fetched_data.wrapping_sub(1);
         self.write_fetched(val);
         self.set_flags_zn(val);
-        0
     }
     /// DEX: Decrement X by One
-    fn dex(&mut self) -> u8 {
+    fn dex(&mut self) {
         self.x = self.x.wrapping_sub(1);
         self.set_flags_zn(self.x);
-        0
     }
     /// DEY: Decrement Y by One
-    fn dey(&mut self) -> u8 {
+    fn dey(&mut self) {
         self.y = self.y.wrapping_sub(1);
         self.set_flags_zn(self.y);
-        0
     }
     /// INC: Increment M by One
-    fn inc(&mut self) -> u8 {
+    fn inc(&mut self) {
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
         let val = self.fetched_data.wrapping_add(1);
         self.set_flags_zn(val);
         self.write_fetched(val);
-        0
     }
     /// INX: Increment X by One
-    fn inx(&mut self) -> u8 {
+    fn inx(&mut self) {
         self.x = self.x.wrapping_add(1);
         self.set_flags_zn(self.x);
-        0
     }
     /// INY: Increment Y by One
-    fn iny(&mut self) -> u8 {
+    fn iny(&mut self) {
         self.y = self.y.wrapping_add(1);
         self.set_flags_zn(self.y);
-        0
     }
 
     /// Bitwise opcodes
 
     /// AND: "And" M with A
-    fn and(&mut self) -> u8 {
+    fn and(&mut self) {
         self.fetch_data();
         self.acc &= self.fetched_data;
         self.set_flags_zn(self.acc);
-        1
     }
     /// ASL: Shift Left One Bit (M or A)
-    fn asl(&mut self) -> u8 {
+    fn asl(&mut self) {
         self.fetch_data(); // Cycle 4 & 5
         self.write_fetched(self.fetched_data); // Cycle 6
         self.set_flag(C, (self.fetched_data >> 7) & 1 > 0);
         let val = self.fetched_data.wrapping_shl(1);
         self.set_flags_zn(val);
         self.write_fetched(val); // Cycle 7
-        0
     }
     /// BIT: Test Bits in M with A (Affects N, V, and Z)
-    fn bit(&mut self) -> u8 {
+    fn bit(&mut self) {
         self.fetch_data();
         let val = self.acc & self.fetched_data;
         self.set_flag(Z, val == 0);
         self.set_flag(N, self.fetched_data & (1 << 7) > 0);
         self.set_flag(V, self.fetched_data & (1 << 6) > 0);
-        0
     }
     /// EOR: "Exclusive-Or" M with A
-    fn eor(&mut self) -> u8 {
+    fn eor(&mut self) {
         self.fetch_data();
         self.acc ^= self.fetched_data;
         self.set_flags_zn(self.acc);
-        1
     }
     /// LSR: Shift Right One Bit (M or A)
-    fn lsr(&mut self) -> u8 {
+    fn lsr(&mut self) {
         self.fetch_data(); // Cycle 4 & 5
         self.write_fetched(self.fetched_data); // Cycle 6
         self.set_flag(C, self.fetched_data & 1 > 0);
         let val = self.fetched_data.wrapping_shr(1);
         self.set_flags_zn(val);
         self.write_fetched(val); // Cycle 7
-        0
     }
     /// ORA: "OR" M with A
-    fn ora(&mut self) -> u8 {
+    fn ora(&mut self) {
         self.fetch_data();
         self.acc |= self.fetched_data;
         self.set_flags_zn(self.acc);
-        1
     }
     /// ROL: Rotate One Bit Left (M or A)
-    fn rol(&mut self) -> u8 {
+    fn rol(&mut self) {
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
         let old_c = self.get_flag(C);
@@ -1730,10 +1679,9 @@ impl Cpu {
         let val = (self.fetched_data << 1) | old_c;
         self.set_flags_zn(val);
         self.write_fetched(val);
-        0
     }
     /// ROR: Rotate One Bit Right (M or A)
-    fn ror(&mut self) -> u8 {
+    fn ror(&mut self) {
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
         let mut ret = self.fetched_data.rotate_right(1);
@@ -1745,7 +1693,6 @@ impl Cpu {
         self.set_flag(C, self.fetched_data & 1 > 0);
         self.set_flags_zn(ret);
         self.write_fetched(ret);
-        0
     }
 
     /// Branch opcodes
@@ -1756,13 +1703,9 @@ impl Cpu {
         // then it will be ignored until the next instruction completes
         let skip_nmi = self.pending_nmi && !self.last_nmi;
         let skip_irq = self.pending_irq > 0 && !self.last_irq;
+
         self.run_cycle();
-        if skip_nmi {
-            self.last_nmi = false;
-        }
-        if skip_irq {
-            self.last_irq = false;
-        }
+
         self.abs_addr = if self.rel_addr >= 128 {
             self.pc.wrapping_add(self.rel_addr | 0xFF00)
         } else {
@@ -1770,64 +1713,63 @@ impl Cpu {
         };
         if self.pages_differ(self.abs_addr, self.pc) {
             self.run_cycle();
+        } else {
+            if skip_nmi {
+                self.last_nmi = false;
+            }
+            if skip_irq {
+                self.last_irq = false;
+            }
         }
         self.pc = self.abs_addr;
     }
     /// BCC: Branch on Carry Clear
-    fn bcc(&mut self) -> u8 {
+    fn bcc(&mut self) {
         if self.get_flag(C) == 0 {
             self.branch();
         }
-        0
     }
     /// BCS: Branch on Carry Set
-    fn bcs(&mut self) -> u8 {
+    fn bcs(&mut self) {
         if self.get_flag(C) == 1 {
             self.branch();
         }
-        0
     }
     /// BEQ: Branch on Result Zero
-    fn beq(&mut self) -> u8 {
+    fn beq(&mut self) {
         if self.get_flag(Z) == 1 {
             self.branch();
         }
-        0
     }
     /// BMI: Branch on Result Negative
-    fn bmi(&mut self) -> u8 {
+    fn bmi(&mut self) {
         if self.get_flag(N) == 1 {
             self.branch();
         }
-        0
     }
     /// BNE: Branch on Result Not Zero
-    fn bne(&mut self) -> u8 {
+    fn bne(&mut self) {
         if self.get_flag(Z) == 0 {
             self.branch();
         }
-        0
     }
     /// BPL: Branch on Result Positive
-    fn bpl(&mut self) -> u8 {
+    fn bpl(&mut self) {
         if self.get_flag(N) == 0 {
             self.branch();
         }
-        0
     }
     /// BVC: Branch on Overflow Clear
-    fn bvc(&mut self) -> u8 {
+    fn bvc(&mut self) {
         if self.get_flag(V) == 0 {
             self.branch();
         }
-        0
     }
     /// BVS: Branch on Overflow Set
-    fn bvs(&mut self) -> u8 {
+    fn bvs(&mut self) {
         if self.get_flag(V) == 1 {
             self.branch();
         }
-        0
     }
 
     /// Jump opcodes
@@ -1839,9 +1781,8 @@ impl Cpu {
     //    2    PC     R  fetch low address byte, increment PC
     //    3    PC     R  copy low address byte to PCL, fetch high address
     //                   byte to PCH
-    fn jmp(&mut self) -> u8 {
+    fn jmp(&mut self) {
         self.pc = self.abs_addr;
-        0
     }
     /// JSR: Jump to Location Save Return addr
     //  #  address R/W description
@@ -1853,11 +1794,10 @@ impl Cpu {
     //  5  $0100,S  W  push PCL on stack, decrement S
     //  6    PC     R  copy low address byte to PCL, fetch high address
     //                 byte to PCH
-    fn jsr(&mut self) -> u8 {
+    fn jsr(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.push_stackw(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
-        0
     }
     /// RTI: Return from Interrupt
     //  #  address R/W description
@@ -1868,13 +1808,12 @@ impl Cpu {
     //  4  $0100,S  R  pull P from stack, increment S
     //  5  $0100,S  R  pull PCL from stack, increment S
     //  6  $0100,S  R  pull PCH from stack
-    fn rti(&mut self) -> u8 {
+    fn rti(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = self.pop_stackb(); // Cycle 4
         self.status &= !(U as u8);
         self.status &= !(B as u8);
         self.pc = self.pop_stackw(); // Cycles 5 & 6
-        0
     }
     /// RTS: Return from Subroutine
     //  #  address R/W description
@@ -1885,49 +1824,41 @@ impl Cpu {
     //  4  $0100,S  R  pull PCL from stack, increment S
     //  5  $0100,S  R  pull PCH from stack
     //  6    PC     R  increment PC
-    fn rts(&mut self) -> u8 {
+    fn rts(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.pc = self.pop_stackw().wrapping_add(1); // Cycles 4 & 5
         let _ = self.read(self.pc); // Cycle 6
-        0
     }
 
     ///  Register opcodes
 
     /// CLC: Clear Carry Flag
-    fn clc(&mut self) -> u8 {
+    fn clc(&mut self) {
         self.set_flag(C, false);
-        0
     }
     /// SEC: Set Carry Flag
-    fn sec(&mut self) -> u8 {
+    fn sec(&mut self) {
         self.set_flag(C, true);
-        0
     }
     /// CLD: Clear Decimal Mode
-    fn cld(&mut self) -> u8 {
+    fn cld(&mut self) {
         self.set_flag(D, false);
-        0
     }
     /// SED: Set Decimal Mode
-    fn sed(&mut self) -> u8 {
+    fn sed(&mut self) {
         self.set_flag(D, true);
-        0
     }
     /// CLI: Clear Interrupt Disable Bit
-    fn cli(&mut self) -> u8 {
+    fn cli(&mut self) {
         self.set_flag(I, false);
-        0
     }
     /// SEI: Set Interrupt Disable Status
-    fn sei(&mut self) -> u8 {
+    fn sei(&mut self) {
         self.set_flag(I, true);
-        0
     }
     /// CLV: Clear Overflow Flag
-    fn clv(&mut self) -> u8 {
+    fn clv(&mut self) {
         self.set_flag(V, false);
-        0
     }
 
     /// Compare opcodes
@@ -1939,22 +1870,19 @@ impl Cpu {
         self.set_flag(C, a >= b);
     }
     /// CMP: Compare M and A
-    fn cmp(&mut self) -> u8 {
+    fn cmp(&mut self) {
         self.fetch_data();
         self.compare(self.acc, self.fetched_data);
-        1
     }
     /// CPX: Compare M and X
-    fn cpx(&mut self) -> u8 {
+    fn cpx(&mut self) {
         self.fetch_data();
         self.compare(self.x, self.fetched_data);
-        0
     }
     /// CPY: Compare M and Y
-    fn cpy(&mut self) -> u8 {
+    fn cpy(&mut self) {
         self.fetch_data();
         self.compare(self.y, self.fetched_data);
-        0
     }
 
     /// Stack opcodes
@@ -1965,11 +1893,10 @@ impl Cpu {
     //  1    PC     R  fetch opcode, increment PC
     //  2    PC     R  read next instruction byte (and throw it away)
     //  3  $0100,S  W  push register on stack, decrement S
-    fn php(&mut self) -> u8 {
+    fn php(&mut self) {
         self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(B, false);
         self.set_flag(U, false);
-        0
     }
     /// PLP: Pull Processor Status from Stack
     //  #  address R/W description
@@ -1978,13 +1905,12 @@ impl Cpu {
     //  2    PC     R  read next instruction byte (and throw it away)
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
-    fn plp(&mut self) -> u8 {
+    fn plp(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = (self.pop_stackb() | U as u8) & !(B as u8);
         if self.get_flag(I) == 0 {
             self.irq_delay = 2;
         }
-        0
     }
     /// PHA: Push A on Stack
     //  #  address R/W description
@@ -1992,9 +1918,8 @@ impl Cpu {
     //  1    PC     R  fetch opcode, increment PC
     //  2    PC     R  read next instruction byte (and throw it away)
     //  3  $0100,S  W  push register on stack, decrement S
-    fn pha(&mut self) -> u8 {
+    fn pha(&mut self) {
         self.push_stackb(self.acc);
-        0
     }
     /// PLA: Pull A from Stack
     //  #  address R/W description
@@ -2003,11 +1928,10 @@ impl Cpu {
     //  2    PC     R  read next instruction byte (and throw it away)
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
-    fn pla(&mut self) -> u8 {
+    fn pla(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.acc = self.pop_stackb();
         self.set_flags_zn(self.acc);
-        0
     }
 
     /// System opcodes
@@ -2023,49 +1947,40 @@ impl Cpu {
     //  5  $0100,S  W  push P on stack, decrement S
     //  6   $FFFE   R  fetch PCL
     //  7   $FFFF   R  fetch PCH
-    fn brk(&mut self) -> u8 {
+    fn brk(&mut self) {
         self.fetch_data(); // throw away
         self.push_stackw(self.pc);
         self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(I, true);
         self.pc = self.readw(IRQ_ADDR);
-        0
     }
     /// NOP: No Operation
-    fn nop(&mut self) -> u8 {
+    fn nop(&mut self) {
         self.fetch_data(); // throw away
-        0
     }
 
     /// Unofficial opcodes
 
     /// SKB: Like NOP
-    fn skb(&mut self) -> u8 {
+    fn skb(&mut self) {
         self.fetch_data();
-        0
     }
 
-    /// IGN: Like NOP, but variable number of cycles
-    fn ign(&mut self) -> u8 {
+    /// IGN: Like NOP, but can cross page boundary
+    fn ign(&mut self) {
         self.fetch_data();
-        // Certain NOP instructions can take an extra cycle
-        match self.instr.opcode() {
-            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => 1,
-            _ => 0,
-        }
     }
 
     /// XXX: Captures all unimplemented opcodes
-    fn xxx(&mut self) -> u8 {
+    fn xxx(&mut self) {
         self.warn(&format!(
             "Invalid opcode ${:02X} {{{:?}}} encountered!",
             self.instr.opcode(),
             self.instr.addr_mode(),
         ));
-        0
     }
     /// ISC/ISB: Shortcut for INC then SBC
-    fn isb(&mut self) -> u8 {
+    fn isb(&mut self) {
         // INC
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
@@ -2079,10 +1994,9 @@ impl Cpu {
         self.set_flag(V, (a ^ val) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0);
         self.set_flags_zn(self.acc);
         self.write_fetched(val);
-        0
     }
     /// DCP: Shortcut for DEC then CMP
-    fn dcp(&mut self) -> u8 {
+    fn dcp(&mut self) {
         // DEC
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
@@ -2090,32 +2004,27 @@ impl Cpu {
         // CMP
         self.compare(self.acc, val);
         self.write_fetched(val);
-        0
     }
     /// AXS: A & X into X
-    fn axs(&mut self) -> u8 {
+    fn axs(&mut self) {
         self.fetch_data();
         let t = u32::from(self.acc & self.x).wrapping_sub(u32::from(self.fetched_data));
         self.set_flags_zn((t & 0xFF) as u8);
         self.set_flag(C, (((t >> 8) & 0x01) ^ 0x01) == 0x01);
         self.x = (t & 0xFF) as u8;
-        0
     }
     /// LAS: Shortcut for LDA then TSX
-    fn las(&mut self) -> u8 {
+    fn las(&mut self) {
         self.lda();
         self.tsx();
-        1
     }
     /// LAX: Shortcut for LDA then TAX
-    fn lax(&mut self) -> u8 {
+    fn lax(&mut self) {
         self.lda();
         self.tax();
-        1
     }
     /// AHX/SHA/AXA: AND X with A then AND with 7, then store in memory
-    fn ahx(&mut self) -> u8 {
-        self.fetch_data();
+    fn ahx(&mut self) {
         let val = self.acc
             & self.x
             & self
@@ -2124,51 +2033,44 @@ impl Cpu {
                 .wrapping_shr(8)
                 .wrapping_add(1);
         self.write_fetched(val);
-        0
     }
     /// SAX: AND A with X
-    fn sax(&mut self) -> u8 {
+    fn sax(&mut self) {
         if self.instr.addr_mode() == IDY {
             self.fetch_data();
         }
         let val = self.acc & self.x;
         self.write_fetched(val);
-        0
     }
     /// XAA: Unknown
-    fn xaa(&mut self) -> u8 {
+    fn xaa(&mut self) {
         self.fetch_data();
         self.acc |= 0xEE;
         self.acc &= self.x;
         // AND
         self.acc &= self.fetched_data;
         self.set_flags_zn(self.acc);
-        0
     }
     /// SXA/SHX/XAS: AND X with the high byte of the target address + 1
-    /// TODO fails tests
-    fn sxa(&mut self) -> u8 {
-        self.fetch_data();
+    /// TODO fails test tests/cpu/instr/06-abs_xy.nes
+    fn sxa(&mut self) {
         let val = self.x & (self.abs_addr >> 8).wrapping_add(1) as u8;
         if (self.abs_addr >> 8) == 0xFF {
             self.abs_addr = (u16::from(val) << 8) | (self.abs_addr & 0x00FF);
         }
         self.write_fetched(val);
-        0
     }
     /// SYA/SHY/SAY: AND Y with the high byte of the target address + 1
-    /// TODO fails tests
-    fn sya(&mut self) -> u8 {
-        self.fetch_data();
+    /// TODO fails test tests/cpu/instr/06-abs_xy.nes
+    fn sya(&mut self) {
         let val = self.y & (self.abs_addr >> 8).wrapping_add(1) as u8;
         if (self.abs_addr >> 8) == 0xFF {
             self.abs_addr = (u16::from(val) << 8) | (self.abs_addr & 0x00FF);
         }
         self.write_fetched(val);
-        0
     }
     /// RRA: Shortcut for ROR then ADC
-    fn rra(&mut self) -> u8 {
+    fn rra(&mut self) {
         self.fetch_data();
         // ROR
         self.write_fetched(self.fetched_data); // dummy write
@@ -2188,22 +2090,17 @@ impl Cpu {
         self.set_flag(V, (a ^ ret) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0);
         self.set_flags_zn(self.acc);
         self.write_fetched(ret);
-        0
     }
     /// TAS: Shortcut for STA then TXS
-    fn tas(&mut self) -> u8 {
-        if self.instr.addr_mode() == ABY {
-            self.fetch_data();
-        }
+    fn tas(&mut self) {
         // STA
         self.write(self.abs_addr, self.acc);
         // TXS
         self.sp = self.x;
-        0
     }
     /// ARR: Shortcut for AND #imm then ROR, but sets flags differently
     /// C is bit 6 and V is bit 6 xor bit 5
-    fn arr(&mut self) -> u8 {
+    fn arr(&mut self) {
         // AND
         self.fetch_data();
         self.acc &= self.fetched_data;
@@ -2214,10 +2111,9 @@ impl Cpu {
         self.acc |= self.get_flag(C) << 7;
         self.set_flag(C, t & 0x01 == 0x01);
         self.set_flags_zn(self.acc);
-        0
     }
     /// SRA: Shortcut for LSR then EOR
-    fn sre(&mut self) -> u8 {
+    fn sre(&mut self) {
         self.fetch_data();
         // LSR
         self.write_fetched(self.fetched_data); // dummy write
@@ -2227,10 +2123,9 @@ impl Cpu {
         self.acc ^= val;
         self.set_flags_zn(self.acc);
         self.write_fetched(val);
-        0
     }
     /// ALR/ASR: Shortcut for AND #imm then LSR
-    fn alr(&mut self) -> u8 {
+    fn alr(&mut self) {
         // AND
         self.fetch_data();
         self.acc &= self.fetched_data;
@@ -2238,10 +2133,9 @@ impl Cpu {
         self.set_flag(C, self.acc & 0x01 == 0x01);
         self.acc >>= 1;
         self.set_flags_zn(self.acc);
-        0
     }
     /// RLA: Shortcut for ROL then AND
-    fn rla(&mut self) -> u8 {
+    fn rla(&mut self) {
         self.fetch_data();
         // ROL
         self.write_fetched(self.fetched_data); // dummy write
@@ -2252,20 +2146,18 @@ impl Cpu {
         self.acc &= val;
         self.set_flags_zn(self.acc);
         self.write_fetched(val);
-        0
     }
     /// ANC/AAC: AND #imm but puts bit 7 into carry as if ASL was executed
-    fn anc(&mut self) -> u8 {
+    fn anc(&mut self) {
         // AND
         self.fetch_data();
         self.acc &= self.fetched_data;
         self.set_flags_zn(self.acc);
         // Put bit 7 into carry
         self.set_flag(C, (self.acc >> 7) & 1 > 0);
-        1
     }
     /// SLO: Shortcut for ASL then ORA
-    fn slo(&mut self) -> u8 {
+    fn slo(&mut self) {
         self.fetch_data();
         // ASL
         self.write_fetched(self.fetched_data); // dummy write
@@ -2275,7 +2167,6 @@ impl Cpu {
         // ORA
         self.acc |= val;
         self.set_flags_zn(self.acc);
-        0
     }
 }
 
@@ -2322,12 +2213,8 @@ mod tests {
     #[test]
     fn cpu_cycle_timing() {
         let mut cpu = Cpu::init(Bus::new());
-        cpu.set_log_level(LogLevel::Trace);
+        cpu.power_on();
 
-        // Power up
-        for _ in 0..7 {
-            cpu.clock();
-        }
         assert_eq!(cpu.cycle_count, 7, "cpu after power");
         assert_eq!(cpu.bus.ppu.cycle_count, 0, "ppu after power");
 

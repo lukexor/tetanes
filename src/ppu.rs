@@ -33,6 +33,7 @@ const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 const VISIBLE_CYCLE_START: u16 = 1;
 const VISIBLE_CYCLE_END: u16 = 256;
 const SPRITE_PREFETCH_CYCLE_START: u16 = 257;
+const SPRITE_PREFETCH_CYCLE_END: u16 = 320;
 const COPY_Y_CYCLE_START: u16 = 280;
 const COPY_Y_CYCLE_END: u16 = 304;
 const PREFETCH_CYCLE_START: u16 = 321;
@@ -57,7 +58,6 @@ const COARSE_Y_MASK: u16 = 0x03E0;
 const NT_X_MASK: u16 = 0x0400;
 const NT_Y_MASK: u16 = 0x0800;
 const FINE_Y_MASK: u16 = 0x7000;
-const VRAM_ADDR_SIZE_MASK: u16 = 0x7FFF; // 15 bits
 const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width / 8 pixel wide tiles
 const Y_MAX_COL: u16 = 29; // last row of tiles - (240 pixel height / 8 pixel tall tiles) - 1
 const Y_OVER_COL: u16 = 31; // overscan row
@@ -307,16 +307,20 @@ impl Ppu {
                     self.regs.copy_x();
                 }
 
-                // TODO - This should be split up
+                // TODO - This should be split up instead of being done all at once
+                // The code block below this simulates the reads required, but
+                // its not ideal
                 if self.cycle == SPRITE_PREFETCH_CYCLE_START {
                     self.evaluate_sprites();
                 }
 
                 // This gets our IRQ timing properly for certain mappers (MMC3, MMC5)
                 // because evaluation is done all on one cycle
-                if self.cycle >= 257 && self.cycle <= 320 {
-                    let sprite_idx = (self.cycle as usize - 257) / 8;
-                    let sprite = self.frame.sprites[sprite_idx];
+                if self.cycle >= SPRITE_PREFETCH_CYCLE_START
+                    && self.cycle <= SPRITE_PREFETCH_CYCLE_END
+                {
+                    let sprite_idx = (self.cycle - SPRITE_PREFETCH_CYCLE_START) / 8;
+                    let sprite = self.frame.sprites[sprite_idx as usize];
 
                     match self.cycle % 8 {
                         1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
@@ -383,20 +387,6 @@ impl Ppu {
         // Fetch 4 tiles and write out shift registers every 8th cycle
         // Each tile fetch takes 2 cycles
         match self.cycle % 8 {
-            0 => {
-                // Store tiles
-                let mut data = 0u32;
-                let a = self.frame.attribute;
-                for _ in 0..8 {
-                    let p1 = (self.frame.tile_lo & 0x80) >> 7;
-                    let p2 = (self.frame.tile_hi & 0x80) >> 6;
-                    self.frame.tile_lo <<= 1;
-                    self.frame.tile_hi <<= 1;
-                    data <<= 4;
-                    data |= u32::from(a | p1 | p2);
-                }
-                self.frame.tile_data |= data as usize;
-            }
             1 => self.fetch_bg_nt_byte(),
             3 => self.fetch_bg_attr_byte(),
             5 => {
@@ -418,6 +408,21 @@ impl Ppu {
                 if let Some(mapper) = &self.vram.mapper {
                     mapper.borrow_mut().vram_change(tile_addr + 8);
                 }
+            }
+            0 => {
+                // Cycles 9, 17, 25, ..., 257
+                // Store tiles
+                let mut data = 0u32;
+                let a = self.frame.attribute;
+                for _ in 0..8 {
+                    let p1 = (self.frame.tile_lo & 0x80) >> 7;
+                    let p2 = (self.frame.tile_hi & 0x80) >> 6;
+                    self.frame.tile_lo <<= 1;
+                    self.frame.tile_hi <<= 1;
+                    data <<= 4;
+                    data |= u32::from(a | p1 | p2);
+                }
+                self.frame.tile_data |= data as usize;
             }
             _ => (),
         }
@@ -548,7 +553,6 @@ impl Ppu {
         // |++--- Palette number from attribute table or OAM
         // +----- Background/Sprite select
 
-        // TODO Explain the bit shifting here more clearly
         let tile_data = (self.frame.tile_data >> 32) as u32;
         let data = tile_data >> ((7 - self.regs.fine_x()) * 4);
         (data & 0x0F) as u8
@@ -604,14 +608,6 @@ impl Ppu {
                     self.frame_complete = true;
                 }
             }
-        }
-        if let Some(mapper) = &self.vram.mapper {
-            mapper
-                .borrow_mut()
-                .ppu_write(0x2008, (self.scanline & 0xFF) as u8);
-            mapper
-                .borrow_mut()
-                .ppu_write(0x2009, (self.scanline >> 8) as u8);
         }
     }
 
@@ -821,12 +817,9 @@ impl Ppu {
         self.regs.read_addr()
     }
     fn write_ppuaddr(&mut self, val: u8) {
-        let w = self.regs.w;
         self.regs.write_addr(val);
-        if w {
-            if let Some(mapper) = &self.vram.mapper {
-                mapper.borrow_mut().vram_change(self.regs.v);
-            }
+        if let Some(mapper) = &self.vram.mapper {
+            mapper.borrow_mut().vram_change(self.regs.v);
         }
     }
 
@@ -958,10 +951,7 @@ impl Memory for Ppu {
                 self.regs.open_bus = val;
                 val
             }
-            _ => {
-                eprintln!("unhandled Ppu read at 0x{:04X}", addr);
-                0
-            }
+            _ => 0,
         }
     }
 
@@ -975,10 +965,7 @@ impl Memory for Ppu {
             0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
             0x2006 => self.regs.open_bus,    // PPUADDR is write-only
             0x2007 => self.peek_ppudata(),   // PPUDATA
-            _ => {
-                eprintln!("unhandled Ppu peek at 0x{:04X}", addr);
-                0
-            }
+            _ => 0,
         }
     }
 
@@ -993,7 +980,7 @@ impl Memory for Ppu {
             0x2005 => self.write_ppuscroll(val), // PPUSCROLL
             0x2006 => self.write_ppuaddr(val),   // PPUADDR
             0x2007 => self.write_ppudata(val),   // PPUDATA
-            _ => eprintln!("unhandled Ppu read at 0x{:04X}", addr),
+            _ => (),
         }
     }
 }
@@ -1234,7 +1221,6 @@ impl PpuRegs {
             self.v = (self.v & !COARSE_X_MASK) ^ NT_X_MASK; // toggles X nametable
         } else {
             self.v += 1;
-            assert!(self.v <= VRAM_ADDR_SIZE_MASK); // TODO should be able to remove this
         }
     }
 
@@ -1451,10 +1437,7 @@ impl Memory for Vram {
                 }
             }
             0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
-            _ => {
-                eprintln!("invalid Vram read at 0x{:04X}", addr);
-                0
-            }
+            _ => 0,
         }
     }
 
@@ -1487,10 +1470,7 @@ impl Memory for Vram {
                 }
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
-            _ => {
-                eprintln!("invalid Vram read at 0x{:04X}", addr);
-                0
-            }
+            _ => 0,
         }
     }
 
@@ -1518,7 +1498,7 @@ impl Memory for Vram {
                 }
             }
             0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
-            _ => eprintln!("invalid Vram write at 0x{:04X}", addr),
+            _ => (),
         }
     }
 }
@@ -1621,7 +1601,6 @@ impl Frame {
         self.pixels[idx + 2] = b;
     }
 
-    // TODO - Make this more accurate
     fn ntsc_signal(palette: u8, emphasis: u8, phase: usize) -> f32 {
         // Decode the NES color
         let color = u16::from(palette & 0x0F); // 0..15 "cccc"

@@ -25,6 +25,7 @@ tests/cpu/instr/12-rts.nes
 tests/cpu/instr/13-rti.nes
 tests/cpu/instr/14-brk.nes
 tests/cpu/instr/15-special.nes
+tests/cpu/instr_misc.nes
 tests/cpu/instr_timing.nes
 tests/cpu/nestest.nes
 tests/cpu/overclock.nes
@@ -61,9 +62,10 @@ tests/apu/test_6.nes
 # tests/apu/volumes.nes
 
 ## PPU ============================================================================================
-tests/ppu/240pee.nes
-tests/ppu/color.nes
-tests/ppu/ntsc_torture.nes
+# Skip for now
+# tests/ppu/240pee.nes
+# tests/ppu/color.nes
+# tests/ppu/ntsc_torture.nes
 tests/ppu/oam_read.nes
 tests/ppu/oam_stress.nes
 tests/ppu/open_bus.nes
@@ -72,7 +74,7 @@ tests/ppu/palette_ram.nes
 tests/ppu/read_buffer.nes
 tests/ppu/scanline.nes
 tests/ppu/sprite_ram.nes
-tests/ppu/tv.nes
+# tests/ppu/tv.nes
 tests/ppu/vbl_clear_time.nes
 tests/ppu/vbl_nmi_timing/1.frame_basics.nes
 tests/ppu/vbl_nmi_timing/4.vbl_clear_timing.nes

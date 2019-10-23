@@ -1,5 +1,6 @@
 use crate::{
     common::{create_png, Clocked, Powered},
+    cpu::Operation::*,
     nes_err,
     serialization::Savable,
     ui::{settings::DEFAULT_SPEED, Message, Ui, REWIND_TIMER},
@@ -61,18 +62,6 @@ impl Ui {
                 },
                 PixEvent::Focus(window_id, focus) => {
                     self.focused_window = if focus { window_id } else { 0 };
-
-                    // Pausing only applies to the main window
-                    if window_id == 1 {
-                        // Only unpause if we weren't paused as a result of losing focus
-                        if focus && self.lost_focus {
-                            self.paused(false);
-                        } else if !focus && !self.paused {
-                            // Only pause and set lost_focus if we weren't already paused
-                            self.lost_focus = true;
-                            self.paused(true);
-                        }
-                    }
                 }
                 PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
                 PixEvent::GamepadBtn(which, btn, pressed) => match btn {
@@ -147,13 +136,16 @@ impl Ui {
     }
 
     fn handle_keyrepeat(&mut self, key: Key) {
-        let d = self.debug;
+        let d = self.settings.debug;
         match key {
             // No modifiers
+            // Step/Step Into
             Key::C if d => {
                 let _ = self.clock();
             }
+            // Step Frame
             Key::F if d => self.clock_frame(),
+            // Step Scanline
             Key::S if d => {
                 let prev_scanline = self.cpu.bus.ppu.scanline;
                 let mut scanline = prev_scanline;
@@ -185,17 +177,46 @@ impl Ui {
     fn handle_keydown(&mut self, key: Key, turbo: bool, data: &mut StateData) -> NesResult<()> {
         let c = data.get_key(Key::Ctrl).held;
         let s = data.get_key(Key::LShift).held;
-        let d = self.debug;
+        let d = self.settings.debug;
         match key {
             // No modifiers
             Key::Escape => self.paused(!self.paused),
             Key::Space => self.change_speed(1.0),
             Key::Comma => self.rewind(),
+            // Step/Step Into
             Key::C if d => {
-                let _ = self.clock();
+                if self.clock() == 0 {
+                    self.clock();
+                }
             }
+            // Step Over
+            Key::O if !c && d => {
+                let instr = self.cpu.next_instr();
+                if self.clock() == 0 {
+                    self.clock();
+                }
+                if instr.op() == JSR {
+                    let mut op = self.cpu.instr.op();
+                    // TODO disable breakpoints here so 'step over' doesn't break?
+                    while op != RTS {
+                        let _ = self.clock();
+                        op = self.cpu.instr.op();
+                    }
+                }
+            }
+            // Step Out
+            Key::O if c && d => {
+                let mut op = self.cpu.instr.op();
+                while op != RTS {
+                    let _ = self.clock();
+                    op = self.cpu.instr.op();
+                }
+            }
+            // Toggle Active Debug
             Key::D if d && !c => self.active_debug = !self.active_debug,
+            // Step Frame
             Key::F if d => self.clock_frame(),
+            // Step Scanline
             Key::S if d => {
                 let prev_scanline = self.cpu.bus.ppu.scanline;
                 let mut scanline = prev_scanline;

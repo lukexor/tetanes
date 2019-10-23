@@ -4,9 +4,6 @@ TESTS=(
 tests/cpu/instr/06-abs_xy.nes
 tests/cpu/interrupts.nes # IRQ when $4017 == $00 1-cli_latency #3 1/5
 
-# Not critical to emulate
-tests/cpu/instr_misc.nes # 04-dummy_reads_apu #2 4 of 4
-
 ## APU ============================================================================================
 tests/apu/05.len_timing_mode0.nes # $04
 tests/apu/06.len_timing_mode1.nes # $05
@@ -30,7 +27,7 @@ tests/ppu/sprite_overflow.nes # PPU VBL timing is wrong 03-timing #3 3/5
 tests/ppu/vbl_nmi.nes # 02-vbl_set_time 2/10
 tests/ppu/vbl_nmi_timing/2.vbl_timing.nes # #8
 tests/ppu/vbl_nmi_timing/3.even_odd_frames.nes # #3
-tests/ppu/vbl_nmi_timing/5.nmi_suppression.nes #3
+tests/ppu/vbl_nmi_timing/5.nmi_suppression.nes # #3
 tests/ppu/vbl_nmi_timing/6.nmi_disable.nes # #2
 tests/ppu/vbl_nmi_timing/7.nmi_timing.nes # #7
 

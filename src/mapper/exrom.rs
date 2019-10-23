@@ -40,7 +40,6 @@ pub struct Exrom {
     ppu_idle: u8,
     ppu_in_vblank: bool,
     ppu_cycle: u16,
-    ppu_scanline: u16,
     ppu_rendering: bool,
     exram: Ram,
     prg_ram: [Ram; 2],
@@ -122,7 +121,6 @@ impl Exrom {
             ppu_idle: 0u8,
             ppu_in_vblank: false,
             ppu_cycle: 0,
-            ppu_scanline: 0,
             ppu_rendering: false,
             exram,
             prg_ram,
@@ -316,9 +314,6 @@ impl Mapper for Exrom {
                 }
             }
             0x2002 => self.ppu_in_vblank = val & 0x80 > 0,
-            // Custom Mapper registers for communicating the current PPU scanline
-            0x2008 => self.ppu_scanline = u16::from(val),
-            0x2009 => self.ppu_scanline |= u16::from(val) << 8,
             _ => (),
         }
     }
@@ -622,7 +617,6 @@ impl Savable for Exrom {
         self.ppu_idle.save(fh)?;
         self.ppu_in_vblank.save(fh)?;
         self.ppu_cycle.save(fh)?;
-        self.ppu_scanline.save(fh)?;
         self.ppu_rendering.save(fh)?;
         self.exram.save(fh)?;
         self.prg_ram.save(fh)?;
@@ -646,7 +640,6 @@ impl Savable for Exrom {
         self.ppu_idle.load(fh)?;
         self.ppu_in_vblank.load(fh)?;
         self.ppu_cycle.load(fh)?;
-        self.ppu_scanline.load(fh)?;
         self.ppu_rendering.load(fh)?;
         self.exram.load(fh)?;
         self.prg_ram.load(fh)?;

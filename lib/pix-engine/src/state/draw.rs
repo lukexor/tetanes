@@ -710,6 +710,7 @@ impl StateData {
 
     pub fn copy_draw_target(&mut self, window_id: u32, name: &str) -> PixEngineResult<()> {
         self.default_target_dirty = false;
+        // TODO add size check for draw_target to texture dimensions
         let target = match &self.draw_target {
             Some(target) => unsafe { &**target },
             None => &self.default_draw_target,

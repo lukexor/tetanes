@@ -10,6 +10,8 @@ use pix_engine::{
     StateData,
 };
 
+pub(super) const MSG_HEIGHT: u32 = 25 * 4 + 5; // 5 lines worth of messages
+
 impl Ui {
     pub(super) fn draw_menu(&mut self, data: &mut StateData) -> NesResult<()> {
         // Darken background
@@ -35,7 +37,7 @@ impl Ui {
         data.set_draw_scale(2);
         data.draw_string(x, y, "Not yet implemented", pixel::WHITE);
 
-        // TODO
+        // TODO draw menu settings, add interactivity
 
         data.copy_draw_target(1, "menu")?;
         data.clear_draw_target();
@@ -54,8 +56,8 @@ impl Ui {
             1,
             "message",
             ColorType::Rgba,
-            Rect::new(0, 0, self.width, self.height),
-            Rect::new(0, 0, self.width, self.height),
+            Rect::new(0, 0, self.width, MSG_HEIGHT),
+            Rect::new(0, 0, self.width, MSG_HEIGHT),
         )?;
         data.create_texture(
             1,
@@ -72,5 +74,17 @@ impl Ui {
             Rect::new(self.width, 0, DEBUG_WIDTH, self.height),
         )?;
         Ok(())
+    }
+
+    pub(super) fn check_focus(&mut self) {
+        let id = self.focused_window;
+        if id != 1 && Some(id) != self.ppu_viewer_window && Some(id) != self.nt_viewer_window {
+            // Only pause and set lost_focus if we weren't already paused
+            self.lost_focus = true;
+            self.paused(true);
+        } else if self.lost_focus {
+            // Only unpause if we weren't paused as a result of losing focus
+            self.paused(false);
+        }
     }
 }

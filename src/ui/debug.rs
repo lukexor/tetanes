@@ -1,5 +1,5 @@
 use crate::{
-    cpu::StatusRegs,
+    cpu::{AddrMode::*, Operation::*, StatusRegs, INSTRUCTIONS},
     memory::Memory,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     ui::Ui,
@@ -202,9 +202,9 @@ impl Ui {
     }
 
     pub(super) fn toggle_debug(&mut self, data: &mut StateData) -> NesResult<()> {
-        self.debug = !self.debug;
-        self.paused(self.debug);
-        if self.debug {
+        self.settings.debug = !self.settings.debug;
+        self.paused(self.settings.debug);
+        if self.settings.debug {
             self.width += DEBUG_WIDTH;
         } else {
             self.width -= DEBUG_WIDTH;
@@ -252,78 +252,62 @@ impl Ui {
         data.draw_string(ox + 6 * fxpad, y, "Z", scolor(StatusRegs::Z));
         data.draw_string(ox + 7 * fxpad, y, "C", scolor(StatusRegs::C));
 
+        let ppu = &self.cpu.bus.ppu;
+        let cycles = format!("Cycles: {:8}", cpu.cycle_count);
+        let seconds = format!("Seconds: {:7}", self.clock.floor());
+        let areg = format!("A: ${:02X} [{:03}]", cpu.acc, cpu.acc);
+        let pc = format!("PC: ${:04X}", cpu.pc);
+        let xreg = format!("X: ${:02X} [{:03}]", cpu.x, cpu.x);
+        let yreg = format!("Y: ${:02X} [{:03}]", cpu.y, cpu.y);
+        let irqs = format!("Pending IRQs: 0b{:03b}", cpu.pending_irq);
+        let nmis = format!("Pending NMI: {}", cpu.pending_nmi);
+        let stack = format!("Stack: $01{:02X}", cpu.sp);
+        let vram = format!("Vram Addr: ${:04X}", ppu.read_ppuaddr());
+        let spr = format!("Spr Addr: ${:02X}", ppu.read_oamaddr());
+        let sl = i32::from(ppu.scanline) - 1;
+        let cycsl = format!("Cycle: {:3}  Scanline: {:3}", ppu.cycle, sl);
+
         y += fypad;
-        data.draw_string(x, y, &format!("Cycles: {:8}", cpu.cycle_count), wh);
+        data.draw_string(x, y, &cycles, wh);
         y += fypad;
-        data.draw_string(x, y, &format!("Seconds: {:7}", self.clock.floor()), wh);
+        data.draw_string(x, y, &seconds, wh);
 
         // PC, Acc, X, Y
         y += 2 * fypad;
-        data.draw_string(x, y, &format!("PC: ${:04X}", cpu.pc), wh);
-        data.draw_string(
-            x + 13 * fxpad,
-            y,
-            &format!("A: ${:02X} [{:03}]", cpu.acc, cpu.acc),
-            wh,
-        );
+        data.draw_string(x, y, &pc, wh);
+        data.draw_string(x + 13 * fxpad, y, &areg, wh);
         y += fypad;
-        data.draw_string(x, y, &format!("X: ${:02X} [{:03}]", cpu.x, cpu.x), wh);
-        data.draw_string(
-            x + 13 * fxpad,
-            y,
-            &format!("Y: ${:02X} [{:03}]", cpu.y, cpu.y),
-            wh,
-        );
+        data.draw_string(x, y, &xreg, wh);
+        data.draw_string(x + 13 * fxpad, y, &yreg, wh);
+
+        // IRQs
+        y += 2 * fypad;
+        data.draw_string(x, y, &irqs, wh);
         y += fypad;
-        data.draw_string(
-            x,
-            y,
-            &format!("Pending IRQs: 0b{:03b}", cpu.pending_irq as u8),
-            wh,
-        );
-        y += fypad;
-        data.draw_string(
-            x,
-            y,
-            &format!("Pending NMI: {}", cpu.pending_nmi as u8,),
-            wh,
-        );
+        data.draw_string(x, y, &nmis, wh);
 
         // Stack
         y += 2 * fypad;
-        data.draw_string(x, y, &format!("Stack: $01{:02X}", cpu.sp), wh);
+        data.draw_string(x, y, &stack, wh);
         y += fypad;
 
         let bytes_per_row = 8;
         let xpad = 24; // Font x-padding
         let ypad = 10; // Font y-padding
-        for offset in 0..32u32 {
-            let val = cpu.peek(0x0100 + offset as u16);
-            data.draw_string(
-                x + (xpad * offset) % (bytes_per_row * xpad),
-                y + ypad * (offset / bytes_per_row),
-                &format!("{:02X} ", val),
-                wh,
-            );
+        for (i, offset) in (0xE0..=0xFF).rev().enumerate() {
+            let val = cpu.peek(0x0100 | offset);
+            let x = x + (xpad * i as u32) % (bytes_per_row * xpad);
+            let y = y + ypad * (i as u32 / bytes_per_row);
+            data.draw_string(x, y, &format!("{:02X} ", val), wh);
         }
 
         // PPU
-        let ppu = &self.cpu.bus.ppu;
         y += ypad * 4 + fypad;
-        data.draw_string(x, y, &format!("Vram Addr: ${:04X}", ppu.read_ppuaddr()), wh);
+        data.draw_string(x, y, &vram, wh);
         y += fypad;
-        data.draw_string(x, y, &format!("Spr Addr: ${:02X}", ppu.read_oamaddr()), wh);
+        data.draw_string(x, y, &spr, wh);
         y += fypad;
-        data.draw_string(
-            x,
-            y,
-            &format!(
-                "Dot: {:3}  Scanline: {:3}",
-                ppu.cycle,
-                i32::from(ppu.scanline) - 1
-            ),
-            wh,
-        );
+        data.draw_string(x, y, &cycsl, wh);
 
         // Disassembly
         y += 2 * fypad;
@@ -331,7 +315,8 @@ impl Ui {
         let instr_count = std::cmp::min(30, (self.height - y) as usize / 10);
         let pad = 10;
         let mut prev_count = 0;
-        for pc in cpu.pc_log.iter().take(instr_count / 2) {
+        let instrs = cpu.pc_log.iter().take(instr_count / 2).rev();
+        for pc in instrs {
             let mut pc = *pc;
             let disasm = cpu.disassemble(&mut pc);
             data.draw_string(x, y, &disasm, wh);
@@ -341,25 +326,50 @@ impl Ui {
         let mut pc = cpu.pc;
         for i in 0..(instr_count - prev_count) {
             let color = if i == 0 { pixel::CYAN } else { wh };
+            let opcode = cpu.peek(pc);
+            let instr = INSTRUCTIONS[opcode as usize];
+            let byte = cpu.peekw(pc.wrapping_add(1));
             let disasm = cpu.disassemble(&mut pc);
             data.draw_string(x, y, &disasm, color);
             y += pad;
+            match instr.op() {
+                JMP => {
+                    pc = byte;
+                    if cpu.instr.addr_mode() == IND {
+                        if pc & 0x00FF == 0x00FF {
+                            // Simulate bug
+                            pc = (u16::from(cpu.peek(pc & 0xFF00)) << 8) | u16::from(cpu.peek(pc));
+                        } else {
+                            // Normal behavior
+                            pc = (u16::from(cpu.peek(pc + 1)) << 8) | u16::from(cpu.peek(pc));
+                        }
+                    }
+                }
+                RTS | RTI => pc = cpu.peek_stackw().wrapping_add(1),
+                _ => (),
+            }
         }
-        y += 2 * fypad;
 
-        // CPU Memory
-        let addr_start: u32 = 0x6000;
-        let addr_len: u32 = 0x00A0;
-        for addr in addr_start..addr_start + addr_len {
-            let val = cpu.peek(addr as u16);
-            data.draw_string(
-                x + (xpad * (addr - addr_start)) % (bytes_per_row * xpad),
-                y + ypad * ((addr - addr_start) / bytes_per_row),
-                &format!("{:02X} ", val),
-                wh,
-            );
-        }
+        // CPU Memory TODO move this to Hex window
+        // y += 2 * fypad;
+        // let addr_start: u32 = 0x6000;
+        // let addr_len: u32 = 0x00A0;
+        // for addr in addr_start..addr_start + addr_len {
+        //     let val = cpu.peek(addr as u16);
+        //     data.draw_string(
+        //         x + (xpad * (addr - addr_start)) % (bytes_per_row * xpad),
+        //         y + ypad * ((addr - addr_start) / bytes_per_row),
+        //         &format!("{:02X} ", val),
+        //         wh,
+        //     );
+        // }
 
         data.clear_draw_target();
+    }
+
+    pub(super) fn should_break(&self) -> bool {
+        // let instr = self.cpu.next_instr();
+        // TODO
+        false
     }
 }
