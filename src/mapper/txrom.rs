@@ -43,12 +43,13 @@ pub struct Txrom {
     // Super Mario Bros. 3 (MMC3B S 9027 5 A)
     // Startropics (MMC6B P 03'5)
 
-    // MMC3_alt:
+    // MMC3_revb:
     // Batman (MMC3B 9006KP006)
     // Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
     // Crystalis (MMC3B 9024KPO53)
     // Legacy of the Wizard (MMC3A 8940EP)
-    mmc3_alt: u8,
+    mmc3_revb: bool,
+    mmc_acc: bool, // Acclaims MMC3 clone - clocks on falling edge
     battery_backed: bool,
     prg_rom_bank_idx: [usize; 4],
     chr_bank_idx: [usize; 8],
@@ -78,6 +79,21 @@ struct TxRegs {
     irq_reload: bool,
     last_clock: u16,
     open_bus: u8,
+}
+
+impl TxRegs {
+    fn new() -> Self {
+        Self {
+            bank_select: 0u8,
+            bank_values: [0u8; 8],
+            irq_latch: 0u8,
+            irq_counter: 0u8,
+            irq_enabled: false,
+            irq_reload: false,
+            last_clock: 0u16,
+            open_bus: 0u8,
+        }
+    }
 }
 
 impl Txrom {
@@ -111,20 +127,12 @@ impl Txrom {
 
         let prg_len = prg_rom_banks.len();
         let txrom = Self {
-            regs: TxRegs {
-                bank_select: 0u8,
-                bank_values: [0u8; 8],
-                irq_latch: 0u8,
-                irq_counter: 0u8,
-                irq_enabled: false,
-                irq_reload: false,
-                last_clock: 0u16,
-                open_bus: 0u8,
-            },
+            regs: TxRegs::new(),
             has_chr_ram,
             mirroring,
             irq_pending: false,
-            mmc3_alt: 1,
+            mmc3_revb: true, // TODO compare to known games
+            mmc_acc: false,  // TODO - compare to known games
             battery_backed: cart.battery_backed(),
             prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
             chr_bank_idx: [0, 1, 2, 3, 4, 5, 6, 7],
@@ -243,23 +251,23 @@ impl Mapper for Txrom {
     fn vram_change(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
-            if self.regs.last_clock == 0 && next_clock == 1 {
-                // println!("clocked");
-                // Rising edge
+            // MMC_ACC = Falling edge, otherwise Rising edge
+            let (last, next) = if self.mmc_acc { (1, 0) } else { (0, 1) };
+            if self.regs.last_clock == last && next_clock == next {
                 let counter = self.regs.irq_counter;
                 if counter == 0 || self.regs.irq_reload {
                     self.regs.irq_counter = self.regs.irq_latch;
-                    self.regs.irq_reload = false;
                 } else {
                     self.regs.irq_counter -= 1;
                 }
-
-                if self.regs.irq_counter == 0
-                    && ((counter & 0x01) | self.mmc3_alt) == 0x01
+                // if (counter > 0 || self.regs.irq_reload)
+                if (((counter & 0x01) | self.mmc3_revb as u8) == 0x01 || self.regs.irq_reload)
+                    && self.regs.irq_counter == 0
                     && self.regs.irq_enabled
                 {
                     self.irq_pending = true;
                 }
+                self.regs.irq_reload = false;
             }
             self.regs.last_clock = next_clock;
         }
@@ -356,16 +364,7 @@ impl Clocked for Txrom {}
 impl Powered for Txrom {
     fn reset(&mut self) {
         self.irq_pending = false;
-        self.regs = TxRegs {
-            bank_select: 0u8,
-            bank_values: [0u8; 8],
-            irq_latch: 0u8,
-            irq_counter: 0u8,
-            irq_enabled: false,
-            irq_reload: false,
-            last_clock: 0u16,
-            open_bus: 0u8,
-        };
+        self.regs = TxRegs::new();
     }
     fn power_cycle(&mut self) {
         self.reset();

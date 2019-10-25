@@ -24,9 +24,9 @@ pub mod filter;
 pub mod input;
 pub mod mapper;
 pub mod memory;
+pub mod nes;
 pub mod ppu;
 pub mod serialization;
-pub mod ui;
 
 pub type NesResult<T> = std::result::Result<T, NesErr>;
 

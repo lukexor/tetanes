@@ -6,7 +6,6 @@ use crate::{
 use std::{
     fmt,
     io::{BufReader, Read, Write},
-    path::{Path, PathBuf},
 };
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
@@ -15,7 +14,7 @@ const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 /// Represents an NES Cartridge
 #[derive(Default)]
 pub struct Cartridge {
-    pub rom_file: PathBuf, // '.nes' rom file
+    pub rom_file: String, // '.nes' rom file
     pub header: INesHeader,
     pub prg_rom: Rom, // Program ROM
     pub chr_rom: Rom, // Character ROM
@@ -25,7 +24,7 @@ impl Cartridge {
     /// Creates an empty cartridge not loaded with any ROM
     pub fn new() -> Self {
         Self {
-            rom_file: PathBuf::new(),
+            rom_file: String::new(),
             header: INesHeader::new(),
             prg_rom: Rom::init(PRG_ROM_BANK_SIZE),
             chr_rom: Rom::init(CHR_ROM_BANK_SIZE),
@@ -36,20 +35,17 @@ impl Cartridge {
     ///
     /// # Arguments
     ///
-    /// * `rom` - An object that implements AsRef<Path> that holds the path to a valid '.nes' file
+    /// * `rom` - A String that that holds the path to a valid '.nes' file
     ///
     /// # Errors
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom<P: AsRef<Path>>(rom_file: P) -> NesResult<Self> {
-        let rom_data = std::fs::File::open(&rom_file).map_err(|e| {
-            map_nes_err!(
-                "unable to open file \"{}\": {}",
-                rom_file.as_ref().display(),
-                e,
-            )
-        })?;
+    pub fn from_rom(rom_file: &str) -> NesResult<Self> {
+        use std::path::PathBuf;
+
+        let rom_data = std::fs::File::open(&PathBuf::from(rom_file))
+            .map_err(|e| map_nes_err!("unable to open file \"{}\": {}", rom_file, e,))?;
         let mut rom_data = BufReader::new(rom_data);
 
         let mut header = [0u8; 16];
@@ -91,14 +87,14 @@ impl Cartridge {
         let chr_rom = Rom::from_vec(chr_rom);
 
         let cart = Self {
-            rom_file: rom_file.as_ref().to_path_buf(),
+            rom_file: rom_file.to_owned(),
             header,
             prg_rom,
             chr_rom,
         };
         println!(
             "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}",
-            rom_file.as_ref().display(),
+            rom_file,
             cart.header.mapper_num,
             cart.mapper_board(),
             cart.header.prg_rom_size,
@@ -324,7 +320,7 @@ mod tests {
             ("roms/metroid.nes", "Metroid (USA)", 8, 0, 1, 0, false),
         ];
         for rom in rom_data {
-            let c = Cartridge::from_rom(PathBuf::from(rom.0));
+            let c = Cartridge::from_rom(&rom.0.to_string());
             assert!(c.is_ok(), "new cartridge {}", rom.0);
             let c = c.unwrap();
             assert_eq!(

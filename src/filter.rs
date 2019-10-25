@@ -8,6 +8,7 @@ pub trait Filter {
 }
 
 /// High Pass Filter
+#[derive(Clone)]
 pub struct HiPassFilter {
     b0: f32,
     b1: f32,
@@ -40,6 +41,7 @@ impl Filter for HiPassFilter {
 }
 
 /// Low Pass Filter
+#[derive(Clone)]
 pub struct LoPassFilter {
     b0: f32,
     b1: f32,

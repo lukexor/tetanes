@@ -28,7 +28,7 @@ const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
 const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
-const POWER_ON_CYCLES: usize = 7; // Power up takes 7 cycles
+const POWER_ON_CYCLES: usize = 7; // Power up takes 6 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 const PC_LOG_LEN: usize = 20;
 
@@ -65,6 +65,7 @@ pub enum StatusRegs {
 use StatusRegs::*;
 
 /// The Central Processing Unit status and registers
+#[derive(Clone)]
 pub struct Cpu {
     pub cycle_count: usize, // total number of cycles ran
     pub step: usize,        // total number of CPU instructions run
@@ -85,7 +86,6 @@ pub struct Cpu {
     pub pending_nmi: bool,
     last_irq: bool,
     last_nmi: bool,
-    pub irq_delay: u8, // CLR, SEI, and PLP all delay IRQs by one instruction
     pub log_level: LogLevel,
 }
 
@@ -111,7 +111,6 @@ impl Cpu {
             pending_nmi: false,
             last_irq: false,
             last_nmi: false,
-            irq_delay: 0x00,
             log_level: LogLevel::Off,
         }
     }
@@ -120,7 +119,7 @@ impl Cpu {
         let pcl = u16::from(self.bus.read(RESET_ADDR));
         let pch = u16::from(self.bus.read(RESET_ADDR + 1));
         self.pc = (pch << 8) | pcl;
-        for _ in 0..7 {
+        for _ in 0..POWER_ON_CYCLES {
             self.clock();
         }
     }
@@ -135,41 +134,38 @@ impl Cpu {
     /// http://wiki.nesdev.com/w/index.php/IRQ
     pub fn set_irq(&mut self, irq: Irq, val: bool) {
         if val {
-            if self.pending_irq == 0 {
-                self.trace(&format!("set irq {}", self.cycle_count));
-            }
             self.pending_irq |= irq as u8;
         } else {
-            if self.pending_irq & irq as u8 > 0 {
-                self.trace(&format!("cleared irq {}", self.cycle_count));
-            }
             self.pending_irq &= !(irq as u8);
         }
     }
 
+    //  #  address R/W description
+    // --- ------- --- -----------------------------------------------
+    //  1    PC     R  fetch PCH
+    //  2    PC     R  fetch PCL
+    //  3  $0100,S  W  push PCH to stack, decrement S
+    //  4  $0100,S  W  push PCL to stack, decrement S
+    //  5  $0100,S  W  push P to stack, decrement S
+    //  6    PC     R  fetch low byte of interrupt vector
+    //  7    PC     R  fetch high byte of interrupt vector
     pub fn irq(&mut self) {
-        if self.get_flag(I) == 0 {
-            self.trace("irq");
-            self.push_stackw(self.pc);
-            // Handles status flags differently than php()
-            self.set_flag(B, false);
-            self.set_flag(U, true);
-            self.push_stackb(self.status);
-            self.set_flag(I, true);
-            if self.last_nmi {
-                self.trace("actual nmi");
-                self.pending_nmi = false;
-                self.pc = self.readw(NMI_ADDR);
-            } else {
-                self.pc = self.readw(IRQ_ADDR);
-            }
-            // Prevent NMI from triggering immediately after IRQ
-            if self.last_nmi {
-                self.last_nmi = false;
-            }
-            for _ in 0..7 {
-                self.run_cycle();
-            }
+        self.read(self.pc);
+        self.read(self.pc);
+        self.push_stackw(self.pc);
+        self.set_flag(B, false);
+        self.set_flag(U, true);
+        self.push_stackb(self.status);
+        self.set_flag(I, true);
+        if self.last_nmi {
+            self.pending_nmi = false;
+            self.pc = self.readw(NMI_ADDR);
+        } else {
+            self.pc = self.readw(IRQ_ADDR);
+        }
+        // Prevent NMI from triggering immediately after IRQ
+        if self.last_nmi {
+            self.last_nmi = false;
         }
     }
 
@@ -179,16 +175,25 @@ impl Cpu {
     pub fn trigger_nmi(&mut self) {
         self.pending_nmi = true;
     }
+
+    //  #  address R/W description
+    // --- ------- --- -----------------------------------------------
+    //  1    PC     R  fetch PCH
+    //  2    PC     R  fetch PCL
+    //  3  $0100,S  W  push PCH to stack, decrement S
+    //  4  $0100,S  W  push PCL to stack, decrement S
+    //  5  $0100,S  W  push P to stack, decrement S
+    //  6    PC     R  fetch low byte of interrupt vector
+    //  7    PC     R  fetch high byte of interrupt vector
     fn nmi(&mut self) {
+        self.read(self.pc);
+        self.read(self.pc);
         self.push_stackw(self.pc);
         self.set_flag(B, false);
         self.set_flag(U, true);
         self.push_stackb(self.status);
         self.set_flag(I, true);
         self.pc = self.readw(NMI_ADDR);
-        for _ in 0..7 {
-            self.run_cycle();
-        }
     }
 
     fn run_cycle(&mut self) {
@@ -201,11 +206,10 @@ impl Cpu {
                 self.trigger_nmi();
                 self.bus.ppu.nmi_pending = false;
             }
-            let irq_pending = if let Some(mapper) = &self.bus.mapper {
-                mapper.borrow_mut().clock();
-                mapper.borrow_mut().irq_pending()
-            } else {
-                false
+            let irq_pending = {
+                let mut mapper = self.bus.mapper.borrow_mut();
+                mapper.clock();
+                mapper.irq_pending()
             };
             self.set_irq(Irq::Mapper, irq_pending);
         }
@@ -1270,7 +1274,7 @@ impl Savable for Cpu {
         self.fetched_data.save(fh)?;
         self.pending_irq.save(fh)?;
         self.pending_nmi.save(fh)?;
-        self.irq_delay.save(fh)
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.bus.load(fh)?;
@@ -1289,7 +1293,7 @@ impl Savable for Cpu {
         self.fetched_data.load(fh)?;
         self.pending_irq.load(fh)?;
         self.pending_nmi.load(fh)?;
-        self.irq_delay.load(fh)
+        Ok(())
     }
 }
 
@@ -1908,9 +1912,6 @@ impl Cpu {
     fn plp(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = (self.pop_stackb() | U as u8) & !(B as u8);
-        if self.get_flag(I) == 0 {
-            self.irq_delay = 2;
-        }
     }
     /// PHA: Push A on Stack
     //  #  address R/W description

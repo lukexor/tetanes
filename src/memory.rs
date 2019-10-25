@@ -12,9 +12,13 @@ pub static mut RANDOMIZE_RAM: bool = false;
 
 /// Memory Trait
 pub trait Memory {
-    fn read(&mut self, addr: u16) -> u8;
-    fn peek(&self, addr: u16) -> u8;
-    fn write(&mut self, addr: u16, val: u8);
+    fn read(&mut self, _addr: u16) -> u8 {
+        0
+    }
+    fn peek(&self, _addr: u16) -> u8 {
+        0
+    }
+    fn write(&mut self, _addr: u16, _val: u8) {}
 }
 
 impl fmt::Debug for dyn Memory {
@@ -23,6 +27,7 @@ impl fmt::Debug for dyn Memory {
     }
 }
 
+#[derive(Clone)]
 pub struct Ram(Vec<u8>);
 
 impl Ram {
@@ -124,6 +129,7 @@ impl DerefMut for Ram {
     }
 }
 
+#[derive(Clone)]
 pub struct Rom(Vec<u8>);
 
 impl Rom {
@@ -208,6 +214,7 @@ where
     fn is_empty(&self) -> bool;
 }
 
+#[derive(Clone)]
 pub struct Banks<T>
 where
     T: Memory + Bankable,

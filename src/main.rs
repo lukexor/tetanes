@@ -9,16 +9,20 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
-use rustynes::ui::{Ui, UiSettings};
-use std::{env, path::PathBuf};
+use rustynes::nes::{Nes, NesConfig};
+use std::env;
 use structopt::StructOpt;
 
 fn main() {
     let opt = Opt::from_args();
-    let settings = UiSettings {
-        path: opt
-            .path
-            .unwrap_or_else(|| env::current_dir().unwrap_or_default()),
+    let config = NesConfig {
+        path: opt.path.unwrap_or_else(|| {
+            if let Some(p) = env::current_dir().unwrap_or_default().to_str() {
+                p.to_string()
+            } else {
+                String::new()
+            }
+        }),
         debug: opt.debug,
         log_level: opt.log_level,
         fullscreen: opt.fullscreen,
@@ -36,11 +40,11 @@ fn main() {
         unlock_fps: opt.unlock_fps,
         genie_codes: opt.genie_codes,
     };
-    let ui = Ui::with_settings(settings).unwrap_or_else(|e| {
+    let nes = Nes::with_config(config).unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     });
-    if let Err(e) = ui.run() {
+    if let Err(e) = nes.run() {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
@@ -56,10 +60,9 @@ fn main() {
 )]
 struct Opt {
     #[structopt(
-        parse(from_os_str),
         help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
     )]
-    path: Option<PathBuf>,
+    path: Option<String>,
     #[structopt(
         short = "d",
         long = "debug",
@@ -85,12 +88,8 @@ struct Opt {
         help = "Record gameplay input to a file for later replay."
     )]
     record: bool,
-    #[structopt(
-        parse(from_os_str),
-        long = "replay",
-        help = "Replay a saved recording."
-    )]
-    replay: Option<PathBuf>,
+    #[structopt(long = "replay", help = "Replay a saved recording.")]
+    replay: Option<String>,
     #[structopt(
         long = "concurrent_dpad",
         help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad."
@@ -126,13 +125,13 @@ struct Opt {
     )]
     speed: f32,
     #[structopt(
-        long = "genie_codes",
-        help = "List of Game Genie Codes (space separated)."
-    )]
-    #[structopt(
         long = "unlock_fps",
         help = "Disables locking FPS to 60. Also disables sound."
     )]
     unlock_fps: bool,
+    #[structopt(
+        long = "genie_codes",
+        help = "List of Game Genie Codes (space separated)."
+    )]
     genie_codes: Vec<String>,
 }

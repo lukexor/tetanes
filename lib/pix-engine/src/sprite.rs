@@ -5,9 +5,7 @@ use crate::{
 use png;
 use std::{
     ffi::OsStr,
-    fs,
     io::{BufReader, BufWriter},
-    path::Path,
 };
 
 #[derive(Clone)]
@@ -114,13 +112,14 @@ impl Sprite {
 
     /// Create a new sprite from a PNG file
     /// Only 8-bit RGBA formats are supported currently
-    pub fn from_file<P: AsRef<Path>>(file: P) -> PixEngineResult<Self> {
-        let path = file.as_ref();
+    pub fn from_file(file: &str) -> PixEngineResult<Self> {
+        use std::path::PathBuf;
+        let path = PathBuf::from(file);
         if path.extension() != Some(OsStr::new("png")) {
             return Err(PixEngineErr::new("invalid png file"));
         }
 
-        let png_file = BufReader::new(fs::File::open(&path)?);
+        let png_file = BufReader::new(std::fs::File::open(&path)?);
         let png = png::Decoder::new(png_file);
         let (info, mut reader) = png.read_info()?;
 
@@ -142,9 +141,10 @@ impl Sprite {
     }
 
     /// Saves a sprite out to a png file
-    pub fn save_to_file<P: AsRef<Path>>(&mut self, file: P) -> PixEngineResult<()> {
-        let path = file.as_ref();
-        let png_file = BufWriter::new(fs::File::create(&path)?);
+    pub fn save_to_file(&mut self, file: &str) -> PixEngineResult<()> {
+        use std::path::PathBuf;
+        let path = PathBuf::from(file);
+        let png_file = BufWriter::new(std::fs::File::create(&path)?);
         let mut png = png::Encoder::new(png_file, self.width, self.height);
         png.set_color(png::ColorType::RGBA);
         let mut writer = png.write_header()?;

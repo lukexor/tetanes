@@ -1,7 +1,6 @@
 use pix_engine::event::*;
 use pix_engine::*;
 use std::f64::consts;
-use std::time::Duration;
 
 const SHIP_SCALE: f32 = 4.0;
 const ASTEROID_SIZE: u32 = 64;
@@ -149,9 +148,7 @@ impl State for App {
         Ok(())
     }
 
-    fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> PixEngineResult<()> {
-        let elapsed = elapsed.as_secs_f32();
-
+    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<()> {
         if data.get_key(Key::Escape).pressed {
             self.paused = !self.paused;
         }

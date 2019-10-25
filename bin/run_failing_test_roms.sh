@@ -1,8 +1,10 @@
 cargo build
 TESTS=(
 ## CPU ============================================================================================
-tests/cpu/instr/06-abs_xy.nes
-tests/cpu/interrupts.nes # IRQ when $4017 == $00 1-cli_latency #3 1/5
+tests/cpu/instr/06-abs_xy.nes # 9C, 9E
+tests/cpu/interrupts/2-nmi_and_brk.nes # ??
+tests/cpu/interrupts/3-nmi_and_irq.nes # ??
+tests/cpu/interrupts/4-irq_and_dma.nes # ??
 
 ## APU ============================================================================================
 tests/apu/05.len_timing_mode0.nes # $04
@@ -20,11 +22,16 @@ tests/apu/test_9.nes # failed
 tests/apu/test_10.nes # failed
 
 ## PPU ============================================================================================
+tests/ppu/scanline.nes # flickers
 tests/ppu/sprdma_and_dmc_dma.nes # Supposed to print a table
 tests/ppu/sprdma_and_dmc_dma_512.nes # Supposed to print a table
 tests/ppu/sprite_hit.nes # flag cleared too late at end of VBL 09-timing #10 9/10
 tests/ppu/sprite_overflow.nes # PPU VBL timing is wrong 03-timing #3 3/5
-tests/ppu/vbl_nmi.nes # 02-vbl_set_time 2/10
+tests/ppu/vbl_nmi/02-vbl_set_time.nes
+tests/ppu/vbl_nmi/05-nmi_timing.nes
+tests/ppu/vbl_nmi/06-suppression.nes
+tests/ppu/vbl_nmi/08-nmi_off_timing.nes
+tests/ppu/vbl_nmi/10-even_odd_timing.nes # clock is skipped too late #3
 tests/ppu/vbl_nmi_timing/2.vbl_timing.nes # #8
 tests/ppu/vbl_nmi_timing/3.even_odd_frames.nes # #3
 tests/ppu/vbl_nmi_timing/5.nmi_suppression.nes # #3

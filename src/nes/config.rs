@@ -1,24 +1,24 @@
-use crate::{serialization::Savable, ui::Ui, NesResult};
+use crate::{nes::Nes, serialization::Savable, NesResult};
 use pix_engine::StateData;
 use std::{
     env,
     io::{Read, Write},
-    path::PathBuf,
 };
 
 pub(super) const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f32 = 0.25; // 25% - 240 Hz
 const MAX_SPEED: f32 = 2.0; // 200% - 30 Hz
 
-pub struct UiSettings {
-    pub path: PathBuf,
+#[derive(Clone)]
+pub struct NesConfig {
+    pub path: String,
     pub debug: bool,
     pub log_level: u8,
     pub fullscreen: bool,
     pub vsync: bool,
     pub sound_enabled: bool,
     pub record: bool,
-    pub replay: Option<PathBuf>,
+    pub replay: Option<String>,
     pub rewind_enabled: bool,
     pub save_enabled: bool,
     pub concurrent_dpad: bool,
@@ -30,10 +30,10 @@ pub struct UiSettings {
     pub genie_codes: Vec<String>,
 }
 
-impl UiSettings {
+impl NesConfig {
     pub fn new() -> Self {
-        Self {
-            path: env::current_dir().unwrap_or_default(),
+        let mut config = Self {
+            path: String::new(),
             debug: false,
             log_level: 0,
             fullscreen: false,
@@ -50,16 +50,24 @@ impl UiSettings {
             speed: 1.0,
             unlock_fps: false,
             genie_codes: Vec::new(),
+        };
+        if let Some(p) = env::current_dir().unwrap_or_default().to_str() {
+            config.path = p.to_string();
         }
+        config
     }
 }
 
-impl Savable for UiSettings {
+impl Savable for NesConfig {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.debug.save(fh)?;
+        // TODO add path
+        // Ignore
+        // debug
+        // log_level
         self.fullscreen.save(fh)?;
         self.vsync.save(fh)?;
         self.sound_enabled.save(fh)?;
+        // Ignore record/replay
         self.rewind_enabled.save(fh)?;
         self.save_enabled.save(fh)?;
         self.concurrent_dpad.save(fh)?;
@@ -68,13 +76,18 @@ impl Savable for UiSettings {
         self.scale.save(fh)?;
         self.speed.save(fh)?;
         self.unlock_fps.save(fh)?;
+        // Ignore genie_codes
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.debug.load(fh)?;
+        // TODO add path
+        // Ignore
+        // debug
+        // log_level
         self.fullscreen.load(fh)?;
         self.vsync.load(fh)?;
         self.sound_enabled.load(fh)?;
+        // Ignore record/replay
         self.rewind_enabled.load(fh)?;
         self.save_enabled.load(fh)?;
         self.concurrent_dpad.load(fh)?;
@@ -87,18 +100,18 @@ impl Savable for UiSettings {
     }
 }
 
-impl Ui {
+impl Nes {
     pub(super) fn change_speed(&mut self, delta: f32) {
         if self.recording {
             self.add_message("Speed changes disabled while recording");
         } else {
-            self.settings.speed += DEFAULT_SPEED * delta;
-            if self.settings.speed < MIN_SPEED {
-                self.settings.speed = MIN_SPEED;
-            } else if self.settings.speed > MAX_SPEED {
-                self.settings.speed = MAX_SPEED;
+            self.config.speed += DEFAULT_SPEED * delta;
+            if self.config.speed < MIN_SPEED {
+                self.config.speed = MIN_SPEED;
+            } else if self.config.speed > MAX_SPEED {
+                self.config.speed = MAX_SPEED;
             }
-            self.cpu.bus.apu.set_speed(self.settings.speed);
+            self.cpu.bus.apu.set_speed(self.config.speed);
         }
     }
 
@@ -107,9 +120,9 @@ impl Ui {
         if self.paused {
             title.push_str("Paused");
         } else {
-            title.push_str(&format!("Save Slot: {}", self.settings.save_slot));
-            if self.settings.speed != DEFAULT_SPEED {
-                title.push_str(&format!(" - Speed: {}%", self.settings.speed * 100.0));
+            title.push_str(&format!("Save Slot: {}", self.config.save_slot));
+            if self.config.speed != DEFAULT_SPEED {
+                title.push_str(&format!(" - Speed: {}%", self.config.speed * 100.0));
             }
         }
         data.set_title(&title);

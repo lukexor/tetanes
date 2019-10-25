@@ -2,7 +2,7 @@ use crate::{
     apu::Apu,
     common::Powered,
     input::Input,
-    mapper::MapperRef,
+    mapper::{self, MapperRef},
     memory::{Memory, Ram},
     nes_err,
     ppu::Ppu,
@@ -20,10 +20,11 @@ const WRAM_SIZE: usize = 2 * 1024; // 2K NES Work Ram
 /// NES Bus
 ///
 /// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
+#[derive(Clone)]
 pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,
-    pub mapper: Option<MapperRef>,
+    pub mapper: MapperRef,
     pub input: Input,
     pub wram: Ram,
     open_bus: u8,
@@ -32,6 +33,7 @@ pub struct Bus {
 }
 
 /// Game Genie Code
+#[derive(Clone)]
 struct GenieCode {
     code: String,
     data: u8,
@@ -62,7 +64,7 @@ impl Bus {
             ppu: Ppu::new(),
             apu: Apu::new(),
             input: Input::new(),
-            mapper: None,
+            mapper: mapper::null(),
             open_bus: 0u8,
             wram: Ram::init(WRAM_SIZE),
             genie_codes: HashMap::new(),
@@ -73,7 +75,7 @@ impl Bus {
     pub fn load_mapper(&mut self, mapper: MapperRef) {
         self.ppu.load_mapper(mapper.clone());
         self.apu.load_mapper(mapper.clone());
-        self.mapper = Some(mapper);
+        self.mapper = mapper;
     }
 
     pub fn add_genie_code(&mut self, code: &str) -> NesResult<()> {
@@ -137,23 +139,20 @@ impl Memory for Bus {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
             0x4020..=0xFFFF => {
-                if let Some(mapper) = &self.mapper {
-                    if let Some(gc) = self.genie_code(addr) {
-                        if let Some(compare) = gc.compare {
-                            let val = mapper.borrow_mut().read(addr);
-                            if val == compare {
-                                gc.data
-                            } else {
-                                val
-                            }
-                        } else {
+                let mut mapper = self.mapper.borrow_mut();
+                if let Some(gc) = self.genie_code(addr) {
+                    if let Some(compare) = gc.compare {
+                        let val = mapper.read(addr);
+                        if val == compare {
                             gc.data
+                        } else {
+                            val
                         }
                     } else {
-                        mapper.borrow_mut().read(addr)
+                        gc.data
                     }
                 } else {
-                    0
+                    mapper.read(addr)
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
@@ -163,9 +162,7 @@ impl Memory for Bus {
             0x4014 => self.open_bus,
         };
         // Helps to sync open bus behavior
-        if let Some(mapper) = &self.mapper {
-            mapper.borrow_mut().open_bus(addr, val);
-        }
+        self.mapper.borrow_mut().open_bus(addr, val);
         self.open_bus = val;
         val
     }
@@ -176,23 +173,20 @@ impl Memory for Bus {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
             0x4020..=0xFFFF => {
-                if let Some(mapper) = &self.mapper {
-                    if let Some(gc) = self.genie_code(addr) {
-                        if let Some(compare) = gc.compare {
-                            let val = mapper.borrow_mut().read(addr);
-                            if val == compare {
-                                gc.data
-                            } else {
-                                val
-                            }
-                        } else {
+                let mut mapper = self.mapper.borrow_mut();
+                if let Some(gc) = self.genie_code(addr) {
+                    if let Some(compare) = gc.compare {
+                        let val = mapper.read(addr);
+                        if val == compare {
                             gc.data
+                        } else {
+                            val
                         }
                     } else {
-                        mapper.borrow_mut().read(addr)
+                        gc.data
                     }
                 } else {
-                    0
+                    mapper.read(addr)
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
@@ -205,26 +199,18 @@ impl Memory for Bus {
 
     fn write(&mut self, addr: u16, val: u8) {
         // Some mappers monitor the bus
-        if let Some(mapper) = &self.mapper {
-            mapper.borrow_mut().open_bus(addr, val);
-        }
+        self.mapper.borrow_mut().open_bus(addr, val);
         self.open_bus = val;
         // Order of frequently accessed
         match addr {
             // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => {
-                if let Some(mapper) = &self.mapper {
-                    mapper.borrow_mut().write(addr, val);
-                }
-            }
+            0x4020..=0xFFFF => self.mapper.borrow_mut().write(addr, val),
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
             0x4016 => self.input.write(addr, val),
             0x2000..=0x3FFF => {
                 self.ppu.write(addr & 0x2007, val); // 0x2008..=0x3FFF are mirrored
-                if let Some(mapper) = &self.mapper {
-                    mapper.borrow_mut().ppu_write(addr, val);
-                }
+                self.mapper.borrow_mut().ppu_write(addr, val);
             }
             0x4018..=0x401F => (), // APU/IO Test Mode
             0x4014 => (),          // Handled inside the CPU
@@ -236,16 +222,12 @@ impl Powered for Bus {
     fn reset(&mut self) {
         self.apu.reset();
         self.ppu.reset();
-        if let Some(mapper) = &self.mapper {
-            mapper.borrow_mut().reset();
-        }
+        self.mapper.borrow_mut().reset();
     }
     fn power_cycle(&mut self) {
         self.apu.power_cycle();
         self.ppu.power_cycle();
-        if let Some(mapper) = &self.mapper {
-            mapper.borrow_mut().power_cycle();
-        }
+        self.mapper.borrow_mut().power_cycle();
     }
 }
 
@@ -255,9 +237,7 @@ impl Savable for Bus {
         self.open_bus.save(fh)?;
         self.ppu.save(fh)?;
         self.apu.save(fh)?;
-        if let Some(mapper) = &self.mapper {
-            mapper.borrow().save(fh)?;
-        }
+        self.mapper.borrow().save(fh)?;
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
@@ -265,9 +245,7 @@ impl Savable for Bus {
         self.open_bus.load(fh)?;
         self.ppu.load(fh)?;
         self.apu.load(fh)?;
-        if let Some(mapper) = &self.mapper {
-            mapper.borrow_mut().load(fh)?;
-        }
+        self.mapper.borrow_mut().load(fh)?;
         Ok(())
     }
 }
@@ -290,11 +268,9 @@ mod tests {
     #[test]
     fn test_bus() {
         use crate::mapper;
-        use std::path::PathBuf;
 
-        let test_rom = "tests/cpu/nestest.nes";
-        let rom = PathBuf::from(test_rom);
-        let mapper = mapper::load_rom(rom).expect("loaded mapper");
+        let rom = "tests/cpu/nestest.nes";
+        let mapper = mapper::load_rom(&rom).expect("loaded mapper");
         let mut mem = Bus::new();
         mem.load_mapper(mapper);
         mem.write(0x0005, 0x0015);

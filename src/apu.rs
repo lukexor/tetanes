@@ -6,7 +6,7 @@ use crate::{
     common::{Clocked, LogLevel, Loggable, Powered},
     cpu::CPU_CLOCK_RATE,
     filter::{Filter, HiPassFilter, LoPassFilter},
-    mapper::MapperRef,
+    mapper::{self, MapperRef},
     memory::Memory,
     serialization::Savable,
     NesResult,
@@ -16,6 +16,7 @@ use std::{
     io::{Read, Write},
 };
 
+#[derive(Clone)]
 pub struct Divider {
     pub counter: f32,
     pub period: f32,
@@ -49,6 +50,7 @@ impl Clocked for Divider {
     }
 }
 
+#[derive(Clone)]
 pub struct Sequencer {
     pub step: usize,
     pub length: usize,
@@ -71,6 +73,7 @@ impl Clocked for Sequencer {
     }
 }
 
+#[derive(Clone)]
 pub struct FrameSequencer {
     pub divider: Divider,
     pub sequencer: Sequencer,
@@ -118,6 +121,7 @@ pub const SAMPLE_RATE: f32 = 96_000.0; // in Hz
 pub const SAMPLE_BUFFER_SIZE: usize = 4096;
 
 /// Audio Processing Unit
+#[derive(Clone)]
 pub struct Apu {
     pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_enabled: bool,     // Set by $4017 D6
@@ -132,7 +136,8 @@ pub struct Apu {
     noise: Noise,
     pub dmc: Dmc,
     log_level: LogLevel,
-    filters: [Box<dyn Filter>; 3],
+    hifilters: [HiPassFilter; 2],
+    lofilters: [LoPassFilter; 1],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
 }
@@ -156,11 +161,11 @@ impl Apu {
             noise: Noise::new(),
             dmc: Dmc::new(),
             log_level: LogLevel::Off,
-            filters: [
-                Box::new(HiPassFilter::new(90.0, SAMPLE_RATE)),
-                Box::new(HiPassFilter::new(440.0, SAMPLE_RATE)),
-                Box::new(LoPassFilter::new(14_000.0, SAMPLE_RATE)),
+            hifilters: [
+                HiPassFilter::new(90.0, SAMPLE_RATE),
+                HiPassFilter::new(440.0, SAMPLE_RATE),
             ],
+            lofilters: [LoPassFilter::new(14_000.0, SAMPLE_RATE)],
             pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
             tnd_table: [0f32; Self::TND_TABLE_SIZE],
         };
@@ -174,7 +179,7 @@ impl Apu {
     }
 
     pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.dmc.mapper = Some(mapper);
+        self.dmc.mapper = mapper;
     }
 
     pub fn samples(&mut self) -> &[f32] {
@@ -361,8 +366,10 @@ impl Clocked for Apu {
 
         if self.cycle % (self.clock_rate / SAMPLE_RATE) as usize == 0 {
             let mut sample = self.output();
-            for i in 0..self.filters.len() {
-                let filter = &mut self.filters[i];
+            for filter in &mut self.hifilters {
+                sample = filter.process(sample);
+            }
+            for filter in &mut self.lofilters {
                 sample = filter.process(sample);
             }
             self.samples.push(sample);
@@ -502,6 +509,7 @@ impl Savable for FcMode {
     }
 }
 
+#[derive(Clone)]
 struct Pulse {
     enabled: bool,
     duty_cycle: u8,        // Select row in DUTY_TABLE
@@ -681,6 +689,7 @@ impl Savable for PulseChannel {
     }
 }
 
+#[derive(Clone)]
 struct Triangle {
     enabled: bool,
     ultrasonic: bool,
@@ -792,6 +801,7 @@ impl Savable for Triangle {
     }
 }
 
+#[derive(Clone)]
 struct Noise {
     enabled: bool,
     freq_timer: u16,       // timer freq_counter reload value
@@ -927,8 +937,9 @@ impl Savable for ShiftMode {
     }
 }
 
+#[derive(Clone)]
 pub struct Dmc {
-    mapper: Option<MapperRef>,
+    mapper: MapperRef,
     irq_enabled: bool,
     pub irq_pending: bool,
     loops: bool,
@@ -955,7 +966,7 @@ impl Dmc {
     ];
     fn new() -> Self {
         Self {
-            mapper: None,
+            mapper: mapper::null(),
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -1008,20 +1019,18 @@ impl Dmc {
             }
         }
 
-        if let Some(mapper) = &self.mapper {
-            if self.length > 0 && self.sample_buffer_empty {
-                self.sample_buffer = mapper.borrow_mut().read(self.addr);
-                self.sample_buffer_empty = false;
-                self.addr = self.addr.wrapping_add(1) | 0x8000;
-                self.length -= 1;
+        if self.length > 0 && self.sample_buffer_empty {
+            self.sample_buffer = self.mapper.borrow_mut().read(self.addr);
+            self.sample_buffer_empty = false;
+            self.addr = self.addr.wrapping_add(1) | 0x8000;
+            self.length -= 1;
 
-                if self.length == 0 {
-                    if self.loops {
-                        self.length = self.length_load;
-                        self.addr = self.addr_load;
-                    } else if self.irq_enabled {
-                        self.irq_pending = true;
-                    }
+            if self.length == 0 {
+                if self.loops {
+                    self.length = self.length_load;
+                    self.addr = self.addr_load;
+                } else if self.irq_enabled {
+                    self.irq_pending = true;
                 }
             }
         }
@@ -1103,6 +1112,7 @@ impl Savable for Dmc {
     }
 }
 
+#[derive(Clone)]
 struct LengthCounter {
     enabled: bool,
     counter: u8, // Entry into LENGTH_TABLE
@@ -1147,6 +1157,7 @@ impl Savable for LengthCounter {
     }
 }
 
+#[derive(Clone)]
 struct LinearCounter {
     reload: bool,
     control: bool,
@@ -1184,6 +1195,7 @@ impl Savable for LinearCounter {
     }
 }
 
+#[derive(Clone)]
 struct Envelope {
     enabled: bool,
     loops: bool,
@@ -1249,6 +1261,7 @@ impl Savable for Envelope {
     }
 }
 
+#[derive(Clone)]
 struct Sweep {
     enabled: bool,
     reload: bool,

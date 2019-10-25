@@ -4,7 +4,7 @@
 
 use crate::{
     common::{Clocked, Powered},
-    mapper::{MapperRef, Mirroring},
+    mapper::{self, MapperRef, Mirroring},
     memory::Memory,
     serialization::Savable,
     NesResult,
@@ -69,6 +69,7 @@ const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NAMETABLEs
 const PALETTE_START: u16 = 0x3F00;
 const PALETTE_END: u16 = 0x3F20;
 
+#[derive(Clone)]
 pub struct Ppu {
     pub cycle: u16, // (0, 340) 341 cycles happen per scanline
     pub cycle_count: usize,
@@ -116,7 +117,7 @@ impl Ppu {
     }
 
     pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.vram.mapper = Some(mapper);
+        self.vram.mapper = mapper;
     }
 
     pub fn debug(&mut self, val: bool) {
@@ -327,15 +328,9 @@ impl Ppu {
                         3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
                         5 => {
                             let _ = self.vram.read(sprite.tile_addr);
-                            if let Some(mapper) = &self.vram.mapper {
-                                mapper.borrow_mut().vram_change(sprite.tile_addr);
-                            }
                         }
                         7 => {
                             let _ = self.vram.read(sprite.tile_addr + 8);
-                            if let Some(mapper) = &self.vram.mapper {
-                                mapper.borrow_mut().vram_change(sprite.tile_addr + 8);
-                            }
                         }
                         _ => (),
                     }
@@ -350,9 +345,6 @@ impl Ppu {
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = NT_START | (self.regs.v & nametable_addr_mask);
         self.frame.nametable = u16::from(self.vram.read(addr));
-        if let Some(mapper) = &self.vram.mapper {
-            mapper.borrow_mut().vram_change(addr);
-        }
     }
 
     fn fetch_bg_attr_byte(&mut self) {
@@ -369,9 +361,6 @@ impl Ppu {
         let x_bits = (v >> 2) & 0x07;
         let addr = ATTRIBUTE_START | nametable_select | y_bits | x_bits;
         self.frame.attribute = self.vram.read(addr);
-        if let Some(mapper) = &self.vram.mapper {
-            mapper.borrow_mut().vram_change(addr);
-        }
         // If the top bit of the low 3 bits is set, shift to next quadrant
         if self.regs.coarse_y() & 2 > 0 {
             self.frame.attribute >>= 4;
@@ -395,9 +384,6 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_lo = self.vram.read(tile_addr);
-                if let Some(mapper) = &self.vram.mapper {
-                    mapper.borrow_mut().vram_change(tile_addr);
-                }
             }
             7 => {
                 // Fetch BG tile hi bitmap
@@ -405,9 +391,6 @@ impl Ppu {
                     + self.frame.nametable * 16
                     + self.regs.fine_y();
                 self.frame.tile_hi = self.vram.read(tile_addr + 8);
-                if let Some(mapper) = &self.vram.mapper {
-                    mapper.borrow_mut().vram_change(tile_addr + 8);
-                }
             }
             0 => {
                 // Cycles 9, 17, 25, ..., 257
@@ -730,7 +713,7 @@ impl Ppu {
      * PPUSTATUS
      */
 
-    fn read_ppustatus(&mut self) -> u8 {
+    pub fn read_ppustatus(&mut self) -> u8 {
         let mut status = self.regs.read_status();
         // Race conditions
         if self.scanline == VBLANK_SCANLINE {
@@ -743,11 +726,10 @@ impl Ppu {
         }
         // read_status() modifies register, so make sure mapper is aware
         // of new status
-        if let Some(mapper) = &self.vram.mapper {
-            mapper
-                .borrow_mut()
-                .ppu_write(0x2002, self.regs.status.peek());
-        }
+        self.vram
+            .mapper
+            .borrow_mut()
+            .ppu_write(0x2002, self.regs.status.peek());
         status
     }
     fn peek_ppustatus(&self) -> u8 {
@@ -764,7 +746,9 @@ impl Ppu {
     }
     fn start_vblank(&mut self) {
         self.regs.status.start_vblank();
-        self.nmi_pending = true;
+        if self.nmi_enabled() {
+            self.nmi_pending = true;
+        }
     }
     fn stop_vblank(&mut self) {
         self.regs.status.stop_vblank();
@@ -816,11 +800,9 @@ impl Ppu {
     pub fn read_ppuaddr(&self) -> u16 {
         self.regs.read_addr()
     }
-    fn write_ppuaddr(&mut self, val: u8) {
+    fn write_ppuaddr(&mut self, val: u16) {
         self.regs.write_addr(val);
-        if let Some(mapper) = &self.vram.mapper {
-            mapper.borrow_mut().vram_change(self.regs.v);
-        }
+        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
     }
 
     /*
@@ -853,9 +835,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        if let Some(mapper) = &self.vram.mapper {
-            mapper.borrow_mut().vram_change(self.regs.v);
-        }
+        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
         val
     }
     fn peek_ppudata(&self) -> u8 {
@@ -877,9 +857,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        if let Some(mapper) = &self.vram.mapper {
-            mapper.borrow_mut().vram_change(self.regs.v);
-        }
+        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
     }
 }
 
@@ -894,20 +872,18 @@ impl Clocked for Ppu {
             if self.scanline == PRERENDER_SCANLINE {
                 // Dummy scanline - set up tiles for next scanline
                 self.stop_vblank();
-                if let Some(mapper) = &self.vram.mapper {
-                    mapper
-                        .borrow_mut()
-                        .ppu_write(0x2002, self.regs.status.peek());
-                }
+                self.vram
+                    .mapper
+                    .borrow_mut()
+                    .ppu_write(0x2002, self.regs.status.peek());
                 self.set_sprite_zero_hit(false);
                 self.set_sprite_overflow(false);
             } else if self.scanline == VBLANK_SCANLINE {
                 self.start_vblank();
-                if let Some(mapper) = &self.vram.mapper {
-                    mapper
-                        .borrow_mut()
-                        .ppu_write(0x2002, self.regs.status.peek());
-                }
+                self.vram
+                    .mapper
+                    .borrow_mut()
+                    .ppu_write(0x2002, self.regs.status.peek());
             }
         }
 
@@ -972,14 +948,14 @@ impl Memory for Ppu {
     fn write(&mut self, addr: u16, val: u8) {
         self.regs.open_bus = val;
         match addr {
-            0x2000 => self.write_ppuctrl(val),   // PPUCTRL
-            0x2001 => self.write_ppumask(val),   // PPUMASK
-            0x2002 => (),                        // PPUSTATUS is read-only
-            0x2003 => self.write_oamaddr(val),   // OAMADDR
-            0x2004 => self.write_oamdata(val),   // OAMDATA
-            0x2005 => self.write_ppuscroll(val), // PPUSCROLL
-            0x2006 => self.write_ppuaddr(val),   // PPUADDR
-            0x2007 => self.write_ppudata(val),   // PPUDATA
+            0x2000 => self.write_ppuctrl(val),            // PPUCTRL
+            0x2001 => self.write_ppumask(val),            // PPUMASK
+            0x2002 => (),                                 // PPUSTATUS is read-only
+            0x2003 => self.write_oamaddr(val),            // OAMADDR
+            0x2004 => self.write_oamdata(val),            // OAMDATA
+            0x2005 => self.write_ppuscroll(val),          // PPUSCROLL
+            0x2006 => self.write_ppuaddr(u16::from(val)), // PPUADDR
+            0x2007 => self.write_ppudata(val),            // PPUDATA
             _ => (),
         }
     }
@@ -1022,6 +998,7 @@ impl Savable for Ppu {
 
 // http://wiki.nesdev.com/w/index.php/PPU_nametables
 // http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
+#[derive(Clone)]
 pub struct Nametable(pub [u8; NT_SIZE]);
 
 impl Memory for Nametable {
@@ -1046,6 +1023,7 @@ impl Savable for Nametable {
 }
 
 // http://wiki.nesdev.com/w/index.php/PPU_palettes
+#[derive(Clone)]
 pub struct Palette(pub [u8; PALETTE_SIZE]);
 
 impl Memory for Palette {
@@ -1075,7 +1053,7 @@ impl Savable for Palette {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PpuRegs {
     open_bus: u8,      // This open bus gets set during any write to PPU registers
     pub ctrl: PpuCtrl, // $2000 PPUCTRL write-only
@@ -1263,11 +1241,10 @@ impl PpuRegs {
     // 1st write writes hi 6 bits
     // 2nd write writes lo 8 bits
     // Total size is a 14 bit addr
-    fn write_addr(&mut self, val: u8) {
-        let val = u16::from(val);
+    fn write_addr(&mut self, val: u16) {
         if !self.w {
             // Write hi address on first write
-            let hi_bits_mask = 0x80FF;
+            let hi_bits_mask = 0x00FF;
             let hi_lshift = 8;
             let six_bits_mask = 0x003F;
             // val: ..FEDCBA
@@ -1276,7 +1253,7 @@ impl PpuRegs {
             self.t = (self.t & hi_bits_mask) | ((val & six_bits_mask) << hi_lshift);
         } else {
             // Write lo address on second write
-            let lo_bits_mask = 0xFF00;
+            let lo_bits_mask = 0x7F00;
             // val: HGFEDCBA
             // t: ........ HGFEDCBA
             // v: t
@@ -1330,6 +1307,7 @@ impl Default for PpuRegs {
 // $01, $05, $09, $0D   Sprite tile #
 // $02, $06, $0A, $0E   Sprite attribute
 // $03, $07, $0B, $0F   Sprite X coord
+#[derive(Clone)]
 struct Oam {
     entries: [u8; OAM_SIZE],
 }
@@ -1369,71 +1347,61 @@ impl Savable for Oam {
     }
 }
 
+#[derive(Clone)]
 pub struct Vram {
-    mapper: Option<MapperRef>,
-    buffer: u8,               // PPUDATA buffer
     pub nametable: Nametable, // Used to layout backgrounds on the screen
     pub palette: Palette,     // Background/Sprite color palettes
+    mapper: MapperRef,
+    buffer: u8, // PPUDATA buffer
+    a12: bool,  // Whether address line 12 is low or high
 }
 
 impl Vram {
     fn new() -> Self {
         Self {
-            mapper: None,
-            buffer: 0u8,
             nametable: Nametable([0u8; NT_SIZE]),
             palette: Palette([0u8; PALETTE_SIZE]),
+            mapper: mapper::null(),
+            buffer: 0u8,
+            a12: false,
         }
     }
 
     fn nametable_addr(&self, addr: u16) -> u16 {
-        if let Some(mapper) = &self.mapper {
-            let mirroring = mapper.borrow().mirroring();
-            // Maps addresses to nametable pages based on mirroring mode
-            let mirroring_shift = match mirroring {
-                Mirroring::Horizontal => 11,
-                Mirroring::Vertical => 10,
-                Mirroring::SingleScreenA => 14,
-                Mirroring::SingleScreenB => 13,
-                _ => panic!("Invalid mirroring mode"),
-            };
-            let page = (addr >> mirroring_shift) & 1;
-            let table_size = 0x0400;
-            let offset = addr % table_size;
-            NT_START + page * table_size + offset
-        } else {
-            0
-        }
+        let mirroring = self.mapper.borrow().mirroring();
+        // Maps addresses to nametable pages based on mirroring mode
+        let mirroring_shift = match mirroring {
+            Mirroring::Horizontal => 11,
+            Mirroring::Vertical => 10,
+            Mirroring::SingleScreenA => 14,
+            Mirroring::SingleScreenB => 13,
+            _ => panic!("Invalid mirroring mode"),
+        };
+        let page = (addr >> mirroring_shift) & 1;
+        let table_size = 0x0400;
+        let offset = addr % table_size;
+        NT_START + page * table_size + offset
     }
 }
 
 impl Memory for Vram {
-    fn read(&mut self, mut addr: u16) -> u8 {
-        if addr > 0x3FFF {
-            addr %= 0x3FFF;
+    fn read(&mut self, addr: u16) -> u8 {
+        if addr < 0x2000 {
+            self.a12 = (addr >> 12) & 1 > 0;
         }
+        self.mapper.borrow_mut().vram_change(addr);
         match addr {
-            0x0000..=0x1FFF => {
-                if let Some(mapper) = &self.mapper {
-                    mapper.borrow_mut().read(addr)
-                } else {
-                    0
-                }
-            }
+            0x0000..=0x1FFF => self.mapper.borrow_mut().read(addr),
             0x2000..=0x3EFF => {
-                if let Some(mapper) = &self.mapper {
-                    // Use PPU Nametables or Cartridge RAM
-                    if mapper.borrow().use_ciram(addr) {
-                        let mut mirror_addr = mapper.borrow().nametable_addr(addr);
-                        if mirror_addr == 0 {
-                            mirror_addr = self.nametable_addr(addr);
-                        }
-                        self.nametable.read(mirror_addr % NT_SIZE as u16)
-                    } else {
-                        mapper.borrow_mut().read(addr)
+                // Use PPU Nametables or Cartridge RAM
+                if self.mapper.borrow().use_ciram(addr) {
+                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
+                    if mirror_addr == 0 {
+                        mirror_addr = self.nametable_addr(addr);
                     }
+                    self.nametable.read(mirror_addr % NT_SIZE as u16)
                 } else {
-                    0
+                    self.mapper.borrow_mut().read(addr)
                 }
             }
             0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
@@ -1441,32 +1409,19 @@ impl Memory for Vram {
         }
     }
 
-    fn peek(&self, mut addr: u16) -> u8 {
-        if addr > 0x3FFF {
-            addr %= 0x3FFF;
-        }
+    fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => {
-                if let Some(mapper) = &self.mapper {
-                    mapper.borrow().peek(addr)
-                } else {
-                    0
-                }
-            }
+            0x0000..=0x1FFF => self.mapper.borrow().peek(addr),
             0x2000..=0x3EFF => {
-                if let Some(mapper) = &self.mapper {
-                    // Use PPU Nametables or Cartridge RAM
-                    if mapper.borrow().use_ciram(addr) {
-                        let mut mirror_addr = mapper.borrow().nametable_addr(addr);
-                        if mirror_addr == 0 {
-                            mirror_addr = self.nametable_addr(addr);
-                        }
-                        self.nametable.peek(mirror_addr % NT_SIZE as u16)
-                    } else {
-                        mapper.borrow().peek(addr)
+                // Use PPU Nametables or Cartridge RAM
+                if self.mapper.borrow().use_ciram(addr) {
+                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
+                    if mirror_addr == 0 {
+                        mirror_addr = self.nametable_addr(addr);
                     }
+                    self.nametable.peek(mirror_addr % NT_SIZE as u16)
                 } else {
-                    0
+                    self.mapper.borrow().peek(addr)
                 }
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
@@ -1474,27 +1429,22 @@ impl Memory for Vram {
         }
     }
 
-    fn write(&mut self, mut addr: u16, val: u8) {
-        if addr > 0x3FFF {
-            addr %= 0x3FFF;
+    fn write(&mut self, addr: u16, val: u8) {
+        if addr < 0x2000 {
+            self.a12 = (addr >> 12) & 1 > 0;
         }
+        self.mapper.borrow_mut().vram_change(addr);
         match addr {
-            0x0000..=0x1FFF => {
-                if let Some(mapper) = &self.mapper {
-                    mapper.borrow_mut().write(addr, val);
-                }
-            }
+            0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
             0x2000..=0x3EFF => {
-                if let Some(mapper) = &self.mapper {
-                    if mapper.borrow().use_ciram(addr) {
-                        let mut mirror_addr = mapper.borrow().nametable_addr(addr);
-                        if mirror_addr == 0 {
-                            mirror_addr = self.nametable_addr(addr);
-                        }
-                        self.nametable.write(mirror_addr % NT_SIZE as u16, val);
-                    } else {
-                        mapper.borrow_mut().write(addr, val);
+                if self.mapper.borrow().use_ciram(addr) {
+                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
+                    if mirror_addr == 0 {
+                        mirror_addr = self.nametable_addr(addr);
                     }
+                    self.nametable.write(mirror_addr % NT_SIZE as u16, val);
+                } else {
+                    self.mapper.borrow_mut().write(addr, val);
                 }
             }
             0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
@@ -1526,6 +1476,7 @@ impl Savable for Vram {
     }
 }
 
+#[derive(Clone)]
 pub struct Frame {
     num: u32,
     parity: bool,
@@ -1806,6 +1757,7 @@ impl Savable for Sprite {
     }
 }
 
+// $2000
 // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL
 // VPHB SINN
 // |||| ||++- Nametable Select: 0 = $2000 (upper-left); 1 = $2400 (upper-right);
@@ -1818,7 +1770,7 @@ impl Savable for Sprite {
 // ||+------- Sprite Height: 0 = 8x8, 1 = 8x16
 // |+-------- PPU Master/Slave: 0 = read from EXT, 1 = write to EXT
 // +--------- NMI Enable: NMI at next vblank: 0 = off, 1: on
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PpuCtrl(pub u8);
 
 impl PpuCtrl {
@@ -1879,7 +1831,7 @@ impl Savable for PpuCtrl {
 // ||+------- Emphasize red
 // |+-------- Emphasize green
 // +--------- Emphasize blue
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PpuMask(pub u8);
 
 impl PpuMask {
@@ -1915,13 +1867,14 @@ impl Savable for PpuMask {
     }
 }
 
+// $2002
 // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS
 // VSO. ....
 // |||+-++++- Least significant bits previously written into a PPU register
 // ||+------- Sprite overflow.
 // |+-------- Sprite 0 Hit.
 // +--------- Vertical blank has started (0: not in vblank; 1: in vblank)
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct PpuStatus(u8);
 
 impl PpuStatus {
@@ -2036,15 +1989,11 @@ const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
 mod tests {
     use super::*;
     use crate::mapper;
-    use std::path::PathBuf;
 
     #[test]
     fn ppu_scrolling_registers() {
-        // Dummy rom just to get cartridge vram loaded
-        let rom = PathBuf::from("roms/super_mario_bros.nes");
-        let mapper = mapper::load_rom(rom).expect("loaded mapper");
         let mut ppu = Ppu::new();
-        ppu.load_mapper(mapper);
+        ppu.load_mapper(mapper::null());
 
         let ppuctrl = 0x2000;
         let ppustatus = 0x2002;
@@ -2104,5 +2053,54 @@ mod tests {
         ppu.write(ppuaddr, 0b1001_0110); // $100 lo bits coarse Y scroll, $10110 coarse X scroll
         let t_result: u16 = 0b101_10_01100_10110;
         assert_eq!(ppu.regs.v, t_result);
+    }
+
+    #[test]
+    fn a12_timing() {
+        let mut ppu = Ppu::new();
+        ppu.load_mapper(mapper::null());
+
+        // Show BG and Spr
+        ppu.write_ppumask(3 << 3);
+        // BG use 0x0000, Spr use 0x1000
+        ppu.write_ppuctrl(1 << 3);
+
+        // Rising edge test
+        let mut last_clock = false;
+        let mut clocks = 0u16;
+        for i in 0..340 * 241 {
+            let _ = ppu.clock();
+            if !last_clock && ppu.vram.a12 {
+                clocks += 1;
+            }
+            last_clock = ppu.vram.a12;
+            if i == 260 {
+                assert_eq!(clocks, 1, "a12 rising first clock @ 324");
+            }
+        }
+        assert_eq!(clocks, 240, "a12 rising clocked 241 times");
+
+        ppu = Ppu::new();
+        ppu.load_mapper(mapper::null());
+
+        // Show BG and Spr
+        ppu.write_ppumask(3 << 3);
+        // BG use 0x0000, Spr use 0x1000
+        ppu.write_ppuctrl(1 << 3);
+
+        // Failling edge
+        last_clock = false;
+        clocks = 0u16;
+        for i in 0..340 * 241 {
+            let _ = ppu.clock();
+            if last_clock && !ppu.vram.a12 {
+                clocks += 1;
+            }
+            last_clock = ppu.vram.a12;
+            if i == 324 {
+                assert_eq!(clocks, 1, "a12 falling first clock @ 324");
+            }
+        }
+        assert_eq!(clocks, 240, "a12 rising clocked 241 times");
     }
 }

@@ -13,7 +13,6 @@ use std::{
     cell::RefCell,
     fmt,
     io::{Read, Write},
-    path::Path,
     rc::Rc,
 };
 
@@ -37,6 +36,18 @@ pub mod uxrom;
 
 /// Alias for Mapper wrapped in a Rc/RefCell
 pub type MapperRef = Rc<RefCell<dyn Mapper>>;
+
+/// Nametable Mirroring Mode
+///
+/// [http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring]()
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Mirroring {
+    Horizontal,
+    Vertical,
+    SingleScreenA,
+    SingleScreenB,
+    FourScreen,
+}
 
 /// Mapper trait requiring Memory + Send + Savable
 pub trait Mapper: Memory + Savable + Clocked + Powered + fmt::Debug {
@@ -67,7 +78,7 @@ pub trait Mapper: Memory + Savable + Clocked + Powered + fmt::Debug {
 }
 
 /// Attempts to return a valid Mapper for the given rom.
-pub fn load_rom<P: AsRef<Path>>(rom: P) -> NesResult<MapperRef> {
+pub fn load_rom(rom: &str) -> NesResult<MapperRef> {
     let cart = Cartridge::from_rom(rom)?;
     match cart.header.mapper_num {
         0 => Ok(Nrom::load(cart)),
@@ -82,16 +93,17 @@ pub fn load_rom<P: AsRef<Path>>(rom: P) -> NesResult<MapperRef> {
     }
 }
 
-/// Nametable Mirroring Mode
-///
-/// [http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring]()
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Mirroring {
-    Horizontal,
-    Vertical,
-    SingleScreenA,
-    SingleScreenB,
-    FourScreen,
+#[derive(Debug)]
+pub struct NullMapper {}
+
+impl Mapper for NullMapper {}
+impl Memory for NullMapper {}
+impl Savable for NullMapper {}
+impl Clocked for NullMapper {}
+impl Powered for NullMapper {}
+
+pub fn null() -> MapperRef {
+    Rc::new(RefCell::new(NullMapper {}))
 }
 
 impl Savable for Mirroring {

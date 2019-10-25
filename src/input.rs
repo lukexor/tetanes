@@ -17,7 +17,7 @@ const STROBE_LEFT: u8 = 6;
 const STROBE_RIGHT: u8 = 7;
 
 /// Represents an NES Joypad
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Gamepad {
     pub left: bool,
     pub right: bool,
@@ -71,7 +71,7 @@ impl Powered for Gamepad {
 }
 
 /// Input containing gamepad input state
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Input {
     pub gamepad1: Gamepad,
     pub gamepad2: Gamepad,

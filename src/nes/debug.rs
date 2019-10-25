@@ -1,8 +1,8 @@
 use crate::{
     cpu::{AddrMode::*, Operation::*, StatusRegs, INSTRUCTIONS},
     memory::Memory,
+    nes::Nes,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    ui::Ui,
     NesResult,
 };
 use pix_engine::{
@@ -15,7 +15,7 @@ use pix_engine::{
 const PALETTE_HEIGHT: u32 = 64;
 pub(super) const DEBUG_WIDTH: u32 = 350;
 
-impl Ui {
+impl Nes {
     pub(super) fn toggle_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
         self.ppu_viewer = !self.ppu_viewer;
         if self.ppu_viewer {
@@ -61,12 +61,12 @@ impl Ui {
     pub(super) fn copy_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
         if let Some(ppu_viewer_window) = self.ppu_viewer_window {
             // Set up patterns
-            let pat_tables = self.pattern_tables();
+            let pat_tables = self.cpu.bus.ppu.pattern_tables();
             data.copy_texture(ppu_viewer_window, "left_pattern", &pat_tables[0])?;
             data.copy_texture(ppu_viewer_window, "right_pattern", &pat_tables[1])?;
 
             // Set up palette
-            let palette = self.palette();
+            let palette = self.cpu.bus.ppu.palette();
             data.copy_texture(ppu_viewer_window, "palette", &palette)?;
 
             // Set up info
@@ -135,7 +135,7 @@ impl Ui {
         if let Some(nt_viewer_window) = self.nt_viewer_window {
             let wh = pixel::WHITE;
 
-            let nametables = self.nametables();
+            let nametables = self.cpu.bus.ppu.nametables();
             data.copy_texture(nt_viewer_window, "nametable1", &nametables[0])?;
             data.copy_texture(nt_viewer_window, "nametable2", &nametables[1])?;
             data.copy_texture(nt_viewer_window, "nametable3", &nametables[2])?;
@@ -157,12 +157,8 @@ impl Ui {
             let ypad = 10;
             data.draw_string(x, y, &format!("Scanline: {}", self.nt_scanline), wh);
             y += ypad;
-            if let Some(mapper) = &self.cpu.bus.mapper {
-                let mirroring = mapper.borrow().mirroring();
-                data.draw_string(x, y, &format!("Mirroring: {:?}", mirroring), wh);
-            } else {
-                data.draw_string(x, y, "Mirroring: N/A", wh);
-            };
+            let mirroring = self.cpu.bus.mapper.borrow().mirroring();
+            data.draw_string(x, y, &format!("Mirroring: {:?}", mirroring), wh);
             x = RENDER_WIDTH;
             y = 5;
             // TODO translate mouse coords into IDs, X, Y and calc PPU addr
@@ -202,14 +198,14 @@ impl Ui {
     }
 
     pub(super) fn toggle_debug(&mut self, data: &mut StateData) -> NesResult<()> {
-        self.settings.debug = !self.settings.debug;
-        self.paused(self.settings.debug);
-        if self.settings.debug {
-            self.width += DEBUG_WIDTH;
+        self.config.debug = !self.config.debug;
+        let new_width = if self.config.debug {
+            self.width + DEBUG_WIDTH
         } else {
-            self.width -= DEBUG_WIDTH;
-        }
-        data.set_screen_size(self.width, self.height)?;
+            self.width
+        };
+        data.set_screen_size(new_width, self.height)?;
+        self.active_debug = true;
         self.draw_debug(data);
         Ok(())
     }
@@ -259,13 +255,14 @@ impl Ui {
         let pc = format!("PC: ${:04X}", cpu.pc);
         let xreg = format!("X: ${:02X} [{:03}]", cpu.x, cpu.x);
         let yreg = format!("Y: ${:02X} [{:03}]", cpu.y, cpu.y);
-        let irqs = format!("Pending IRQs: 0b{:03b}", cpu.pending_irq);
-        let nmis = format!("Pending NMI: {}", cpu.pending_nmi);
         let stack = format!("Stack: $01{:02X}", cpu.sp);
         let vram = format!("Vram Addr: ${:04X}", ppu.read_ppuaddr());
         let spr = format!("Spr Addr: ${:02X}", ppu.read_oamaddr());
         let sl = i32::from(ppu.scanline) - 1;
         let cycsl = format!("Cycle: {:3}  Scanline: {:3}", ppu.cycle, sl);
+        let mx = ((data.get_mouse_x() / self.config.scale) as f32 * 7.0 / 8.0) as u32;
+        let my = data.get_mouse_y() / self.config.scale;
+        let mouse = format!("Mouse: {:3}, {:3}", mx, my);
 
         y += fypad;
         data.draw_string(x, y, &cycles, wh);
@@ -279,12 +276,6 @@ impl Ui {
         y += fypad;
         data.draw_string(x, y, &xreg, wh);
         data.draw_string(x + 13 * fxpad, y, &yreg, wh);
-
-        // IRQs
-        y += 2 * fypad;
-        data.draw_string(x, y, &irqs, wh);
-        y += fypad;
-        data.draw_string(x, y, &nmis, wh);
 
         // Stack
         y += 2 * fypad;
@@ -308,6 +299,8 @@ impl Ui {
         data.draw_string(x, y, &spr, wh);
         y += fypad;
         data.draw_string(x, y, &cycsl, wh);
+        y += fypad;
+        data.draw_string(x, y, &mouse, wh);
 
         // Disassembly
         y += 2 * fypad;
@@ -369,7 +362,7 @@ impl Ui {
 
     pub(super) fn should_break(&self) -> bool {
         // let instr = self.cpu.next_instr();
-        // TODO
+        // TODO add breakpoint logic
         false
     }
 }

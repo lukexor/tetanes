@@ -1,9 +1,9 @@
 use crate::{
     common::{create_png, Clocked, Powered},
     cpu::Operation::*,
+    nes::{config::DEFAULT_SPEED, Message, Nes, REWIND_TIMER},
     nes_err,
     serialization::Savable,
-    ui::{settings::DEFAULT_SPEED, Message, Ui, REWIND_TIMER},
     NesResult,
 };
 use chrono::prelude::{DateTime, Local};
@@ -11,18 +11,14 @@ use pix_engine::{
     event::{Axis, Button, Key, Mouse, PixEvent},
     StateData,
 };
-use std::{
-    fs,
-    io::{BufWriter, Read, Write},
-    path::PathBuf,
-};
+use std::io::{BufWriter, Read, Write};
 
 const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
 const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 
-impl Ui {
+impl Nes {
     fn rewind(&mut self) {
-        if self.settings.rewind_enabled {
+        if self.config.rewind_enabled {
             // If we saved too recently, ignore it and go back further
             if self.rewind_timer > 3.0 {
                 let _ = self.rewind_queue.pop_back();
@@ -40,8 +36,8 @@ impl Ui {
     pub(super) fn poll_events(&mut self, data: &mut StateData) -> NesResult<()> {
         let turbo = self.turbo_clock < 3;
         self.clock_turbo(turbo);
-        let events = if self.playback && self.record_frame < self.record_buffer.len() {
-            if let Some(events) = self.record_buffer.get(self.record_frame) {
+        let events = if self.playback && self.replay_frame < self.replay_buffer.len() {
+            if let Some(events) = self.replay_buffer.get(self.replay_frame) {
                 events.to_vec()
             } else {
                 self.playback = false;
@@ -51,7 +47,7 @@ impl Ui {
             data.poll()
         };
         if self.recording && !self.playback {
-            self.record_buffer.push(Vec::new());
+            self.replay_buffer.push(Vec::new());
         }
         for event in events {
             match event {
@@ -70,7 +66,7 @@ impl Ui {
                     Button::RightShoulder if pressed => self.change_speed(0.25),
                     _ => {
                         if self.recording && !self.playback {
-                            self.record_buffer[self.record_frame].push(event);
+                            self.replay_buffer[self.replay_frame].push(event);
                         }
                         self.handle_gamepad_button(which, btn, pressed, turbo)?;
                     }
@@ -81,7 +77,7 @@ impl Ui {
                 _ => (),
             }
         }
-        self.record_frame += 1;
+        self.replay_frame += 1;
         Ok(())
     }
 
@@ -120,14 +116,14 @@ impl Ui {
                     | Key::Right
                     | Key::Up
                     | Key::Down => {
-                        self.record_buffer[self.record_frame].push(event);
+                        self.replay_buffer[self.replay_frame].push(event);
                     }
                     _ => (),
                 }
             }
         }
         match event {
-            PixEvent::KeyPress(key, true, true) => self.handle_keyrepeat(key),
+            PixEvent::KeyPress(key, true, true) => self.handle_keyrepeat(key, data),
             PixEvent::KeyPress(key, true, false) => self.handle_keydown(key, turbo, data)?,
             PixEvent::KeyPress(key, false, ..) => self.handle_keyup(key, turbo),
             _ => (),
@@ -135,8 +131,9 @@ impl Ui {
         Ok(())
     }
 
-    fn handle_keyrepeat(&mut self, key: Key) {
-        let d = self.settings.debug;
+    fn handle_keyrepeat(&mut self, key: Key, data: &mut StateData) {
+        let c = data.get_key(Key::Ctrl).held;
+        let d = self.config.debug;
         match key {
             // No modifiers
             // Step/Step Into
@@ -146,7 +143,7 @@ impl Ui {
             // Step Frame
             Key::F if d => self.clock_frame(),
             // Step Scanline
-            Key::S if d => {
+            Key::S if d && !c => {
                 let prev_scanline = self.cpu.bus.ppu.scanline;
                 let mut scanline = prev_scanline;
                 while scanline == prev_scanline {
@@ -177,7 +174,7 @@ impl Ui {
     fn handle_keydown(&mut self, key: Key, turbo: bool, data: &mut StateData) -> NesResult<()> {
         let c = data.get_key(Key::Ctrl).held;
         let s = data.get_key(Key::LShift).held;
-        let d = self.settings.debug;
+        let d = self.config.debug;
         match key {
             // No modifiers
             Key::Escape => self.paused(!self.paused),
@@ -217,7 +214,7 @@ impl Ui {
             // Step Frame
             Key::F if d => self.clock_frame(),
             // Step Scanline
-            Key::S if d => {
+            Key::S if d && !c => {
                 let prev_scanline = self.cpu.bus.ppu.scanline;
                 let mut scanline = prev_scanline;
                 while scanline == prev_scanline {
@@ -226,29 +223,29 @@ impl Ui {
                 }
             }
             // Ctrl
-            Key::Num1 if c => self.settings.save_slot = 1,
-            Key::Num2 if c => self.settings.save_slot = 2,
-            Key::Num3 if c => self.settings.save_slot = 3,
-            Key::Num4 if c => self.settings.save_slot = 4,
+            Key::Num1 if c => self.config.save_slot = 1,
+            Key::Num2 if c => self.config.save_slot = 2,
+            Key::Num3 if c => self.config.save_slot = 3,
+            Key::Num4 if c => self.config.save_slot = 4,
             Key::Minus if c => self.change_speed(-0.25),
             Key::Equals if c => self.change_speed(0.25),
             Key::Return if c => {
-                self.settings.fullscreen = !self.settings.fullscreen;
-                data.fullscreen(self.settings.fullscreen)?;
+                self.config.fullscreen = !self.config.fullscreen;
+                data.fullscreen(self.config.fullscreen)?;
             }
             Key::C if c => {
                 self.menu = !self.menu;
                 self.paused(self.menu);
             }
             Key::D if c => self.toggle_debug(data)?,
-            Key::S if c => self.save_state(self.settings.save_slot),
-            Key::L if c => self.load_state(self.settings.save_slot),
+            Key::S if c => self.save_state(self.config.save_slot),
+            Key::L if c => self.load_state(self.config.save_slot),
             Key::M if c => {
-                if self.settings.unlock_fps {
+                if self.config.unlock_fps {
                     self.add_message("Sound disabled while FPS unlocked");
                 } else {
-                    self.settings.sound_enabled = !self.settings.sound_enabled;
-                    if self.settings.sound_enabled {
+                    self.config.sound_enabled = !self.config.sound_enabled;
+                    if self.config.sound_enabled {
                         self.add_message("Sound Enabled");
                     } else {
                         self.add_message("Sound Disabled");
@@ -268,9 +265,9 @@ impl Ui {
                 self.add_message("Power Cycled");
             }
             Key::V if c => {
-                self.settings.vsync = !self.settings.vsync;
-                data.vsync(self.settings.vsync)?;
-                if self.settings.vsync {
+                self.config.vsync = !self.config.vsync;
+                data.vsync(self.config.vsync)?;
+                if self.config.vsync {
                     self.add_message("Vsync Enabled");
                 } else {
                     self.add_message("Vsync Disabled");
@@ -285,11 +282,11 @@ impl Ui {
                     self.add_message("Recording Started");
                 } else {
                     self.add_message("Recording Stopped");
-                    self.save_recording()?;
+                    self.save_replay()?;
                 }
             }
             // F# Keys
-            Key::F10 => match screenshot(&self.frame()) {
+            Key::F10 => match self.screenshot() {
                 Ok(s) => self.add_message(&s),
                 Err(e) => self.add_message(&e.to_string()),
             },
@@ -317,8 +314,8 @@ impl Ui {
     fn handle_keyup(&mut self, key: Key, turbo: bool) {
         match key {
             Key::Space => {
-                self.settings.speed = DEFAULT_SPEED;
-                self.cpu.bus.apu.set_speed(self.settings.speed);
+                self.config.speed = DEFAULT_SPEED;
+                self.cpu.bus.apu.set_speed(self.config.speed);
             }
             _ => self.handle_input_event(key, false, turbo),
         }
@@ -345,25 +342,25 @@ impl Ui {
             Key::RShift => input.gamepad1.select = pressed,
             Key::Return => input.gamepad1.start = pressed,
             Key::Up => {
-                if !self.settings.concurrent_dpad && pressed {
+                if !self.config.concurrent_dpad && pressed {
                     input.gamepad1.down = false;
                 }
                 input.gamepad1.up = pressed;
             }
             Key::Down => {
-                if !self.settings.concurrent_dpad && pressed {
+                if !self.config.concurrent_dpad && pressed {
                     input.gamepad1.up = false;
                 }
                 input.gamepad1.down = pressed;
             }
             Key::Left => {
-                if !self.settings.concurrent_dpad && pressed {
+                if !self.config.concurrent_dpad && pressed {
                     input.gamepad1.right = false;
                 }
                 input.gamepad1.left = pressed;
             }
             Key::Right => {
-                if !self.settings.concurrent_dpad && pressed {
+                if !self.config.concurrent_dpad && pressed {
                     input.gamepad1.left = false;
                 }
                 input.gamepad1.right = pressed;
@@ -447,17 +444,19 @@ impl Ui {
                 }
             }
             Axis::TriggerLeft if value > GAMEPAD_TRIGGER_PRESS => {
-                self.save_state(self.settings.save_slot)
+                self.save_state(self.config.save_slot)
             }
             Axis::TriggerRight if value > GAMEPAD_TRIGGER_PRESS => {
-                self.load_state(self.settings.save_slot)
+                self.load_state(self.config.save_slot)
             }
             _ => (),
         }
         Ok(())
     }
 
-    pub fn save_recording(&mut self) -> NesResult<()> {
+    pub fn save_replay(&mut self) -> NesResult<()> {
+        use std::path::PathBuf;
+
         let datetime: DateTime<Local> = Local::now();
         let mut path = PathBuf::from(
             datetime
@@ -465,10 +464,36 @@ impl Ui {
                 .to_string(),
         );
         path.set_extension("dat");
-        let file = fs::File::create(&path)?;
+        let file = std::fs::File::create(&path)?;
         let mut file = BufWriter::new(file);
-        self.record_buffer.save(&mut file)?;
+        self.replay_buffer.save(&mut file)?;
         Ok(())
+    }
+
+    /// Takes a screenshot and saves it to the current directory as a `.png` file
+    ///
+    /// # Arguments
+    ///
+    /// * `pixels` - An array of pixel data to save in `.png` format
+    ///
+    /// # Errors
+    ///
+    /// It's possible for this method to fail, but instead of erroring the program,
+    /// it'll simply log the error out to STDERR
+    // TODO Scale screenshot to current width/height
+    // TODO Screenshot the currently focused window
+    pub fn screenshot(&mut self) -> NesResult<String> {
+        use std::path::PathBuf;
+
+        let datetime: DateTime<Local> = Local::now();
+        let mut png_path = PathBuf::from(
+            datetime
+                .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S")
+                .to_string(),
+        );
+        let pixels = self.cpu.bus.ppu.frame();
+        png_path.set_extension("png");
+        create_png(&png_path, pixels)
     }
 }
 
@@ -638,26 +663,4 @@ impl Savable for Mouse {
         };
         Ok(())
     }
-}
-
-/// Takes a screenshot and saves it to the current directory as a `.png` file
-///
-/// # Arguments
-///
-/// * `pixels` - An array of pixel data to save in `.png` format
-///
-/// # Errors
-///
-/// It's possible for this method to fail, but instead of erroring the program,
-/// it'll simply log the error out to STDERR
-/// TODO Move this into UI and have it use width/height
-pub fn screenshot(pixels: &[u8]) -> NesResult<String> {
-    let datetime: DateTime<Local> = Local::now();
-    let mut png_path = PathBuf::from(
-        datetime
-            .format("Screen_Shot_%Y-%m-%d_at_%H.%M.%S")
-            .to_string(),
-    );
-    png_path.set_extension("png");
-    create_png(&png_path, pixels)
 }

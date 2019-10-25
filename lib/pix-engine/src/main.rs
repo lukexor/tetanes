@@ -1,5 +1,4 @@
 use pix_engine::*;
-use std::time::Duration;
 
 struct App {}
 
@@ -13,7 +12,7 @@ impl State for App {
     fn on_start(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
         Ok(())
     }
-    fn on_update(&mut self, _elapsed: Duration, _data: &mut StateData) -> PixEngineResult<()> {
+    fn on_update(&mut self, _elapsed: f32, _data: &mut StateData) -> PixEngineResult<()> {
         Ok(())
     }
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {

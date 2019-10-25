@@ -260,26 +260,28 @@ impl Mapper for Exrom {
     }
 
     fn vram_change(&mut self, addr: u16) {
-        self.spr_fetch_count += 1;
-        if (addr >> 12) == 0x02 && addr == self.ppu_prev_addr {
-            self.ppu_prev_match += 1;
-            if self.ppu_prev_match == 2 {
-                if !self.regs.in_frame {
-                    self.regs.in_frame = true;
-                    self.regs.irq_counter = 0;
-                } else {
-                    self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
-                    if self.regs.irq_counter == self.regs.scanline_num_irq {
-                        self.irq_pending = true;
+        if addr < 0x3F00 {
+            self.spr_fetch_count += 1;
+            if (addr >> 12) == 0x02 && addr == self.ppu_prev_addr {
+                self.ppu_prev_match += 1;
+                if self.ppu_prev_match == 2 {
+                    if !self.regs.in_frame {
+                        self.regs.in_frame = true;
+                        self.regs.irq_counter = 0;
+                    } else {
+                        self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
+                        if self.regs.irq_counter == self.regs.scanline_num_irq {
+                            self.irq_pending = true;
+                        }
                     }
+                    self.spr_fetch_count = 0;
                 }
-                self.spr_fetch_count = 0;
+            } else {
+                self.ppu_prev_match = 0;
             }
-        } else {
-            self.ppu_prev_match = 0;
+            self.ppu_prev_addr = addr;
+            self.ppu_reading = true;
         }
-        self.ppu_prev_addr = addr;
-        self.ppu_reading = true;
     }
 
     fn use_ciram(&self, addr: u16) -> bool {

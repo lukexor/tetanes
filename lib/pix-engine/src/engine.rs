@@ -4,11 +4,7 @@ use crate::{
     state::{State, StateData},
     PixEngineErr, PixEngineResult,
 };
-use std::{
-    collections::VecDeque,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::collections::VecDeque;
 
 const FPS_SAMPLE_SIZE: usize = 30;
 
@@ -45,7 +41,7 @@ where
         })
     }
     /// Set a custom window icon
-    pub fn set_icon<P: AsRef<Path>>(&mut self, path: P) -> PixEngineResult<()> {
+    pub fn set_icon(&mut self, path: &str) -> PixEngineResult<()> {
         self.data.driver.load_icon(path)
     }
     /// Toggle fullscreen
@@ -60,6 +56,8 @@ where
     /// Starts the engine loop. Will execute until one of on_create, on_update, or on_destroy
     /// returns false or the Window receives a termination event
     pub fn run(&mut self) -> PixEngineResult<()> {
+        use std::time::{Duration, Instant};
+
         if self.data.screen_width() == 0 || self.data.screen_height() == 0 {
             return Err(PixEngineErr::new("invalid screen dimensions"));
         }
@@ -118,7 +116,7 @@ where
                 self.data.update_mouse_states();
 
                 // Handle user frame updates
-                let update = self.state.on_update(elapsed, &mut self.data);
+                let update = self.state.on_update(elapsed.as_secs_f32(), &mut self.data);
                 if update.is_err() {
                     return update;
                 }

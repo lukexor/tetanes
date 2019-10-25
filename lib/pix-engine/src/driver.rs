@@ -1,5 +1,4 @@
 use crate::{draw::Rect, event::PixEvent, pixel::ColorType, PixEngineResult};
-use std::path::Path;
 
 #[cfg(all(feature = "sdl2-driver", not(feature = "wasm-driver")))]
 pub(super) mod sdl2;
@@ -23,7 +22,7 @@ pub(super) trait Driver {
     fn vsync(&mut self, _window_id: u32, _val: bool) -> PixEngineResult<()> {
         Ok(())
     }
-    fn load_icon<P: AsRef<Path>>(&mut self, _path: P) -> PixEngineResult<()> {
+    fn load_icon(&mut self, _path: &str) -> PixEngineResult<()> {
         Ok(())
     }
     fn set_title(&mut self, _window_id: u32, _title: &str) -> PixEngineResult<()> {

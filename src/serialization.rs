@@ -39,8 +39,12 @@ pub fn validate_save_header(fh: &mut dyn Read) -> NesResult<()> {
 
 /// Savable trait
 pub trait Savable {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()>;
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()>;
+    fn save(&self, _fh: &mut dyn Write) -> NesResult<()> {
+        Ok(())
+    }
+    fn load(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
+        Ok(())
+    }
 }
 
 impl Savable for bool {
@@ -299,5 +303,20 @@ impl Savable for String {
             return nes_err!("String read len does not match");
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_header() {
+        let mut file = Vec::new();
+        assert!(write_save_header(&mut file).is_ok(), "write save header");
+        assert!(
+            validate_save_header(&mut file.as_slice()).is_ok(),
+            "validate save header"
+        );
     }
 }

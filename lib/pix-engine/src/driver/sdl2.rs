@@ -17,7 +17,7 @@ use sdl2::{
     video::{self, FullscreenType, WindowContext, WindowPos},
     EventPump, GameControllerSubsystem, Sdl,
 };
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 pub const SAMPLE_RATE: i32 = 96_000; // in Hz
 
@@ -129,7 +129,6 @@ impl Driver for Sdl2Driver {
                 video::FullscreenType::Off
             };
             canvas.window_mut().set_fullscreen(mode)?;
-            std::thread::sleep(std::time::Duration::from_millis(500));
             Ok(())
         } else {
             Err(PixEngineErr::new(format!(
@@ -184,7 +183,7 @@ impl Driver for Sdl2Driver {
         Ok(())
     }
 
-    fn load_icon<P: AsRef<Path>>(&mut self, path: P) -> PixEngineResult<()> {
+    fn load_icon(&mut self, path: &str) -> PixEngineResult<()> {
         let mut icon = Sprite::from_file(path)?;
         let width = icon.width();
         let height = icon.height();
@@ -406,9 +405,7 @@ impl Driver for Sdl2Driver {
     }
 
     fn enqueue_audio(&mut self, samples: &[f32]) {
-        while self.audio_device.size() > SAMPLE_RATE as u32 {
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
+        while self.audio_device.size() > SAMPLE_RATE as u32 {}
         self.audio_device.queue(samples);
     }
 }

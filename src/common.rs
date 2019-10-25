@@ -8,7 +8,6 @@ use crate::{
 use dirs;
 use png;
 use std::{
-    fs,
     io::BufWriter,
     path::{Path, PathBuf},
 };
@@ -96,7 +95,7 @@ pub fn home_dir() -> Option<PathBuf> {
 /// it'll simply log the error out to STDERR
 pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<String> {
     let png_path = png_path.as_ref();
-    let png_file = fs::File::create(&png_path);
+    let png_file = std::fs::File::create(&png_path);
     if png_file.is_err() {
         return nes_err!(
             "failed to create png file {:?}: {}",

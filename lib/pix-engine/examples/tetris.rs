@@ -1,5 +1,4 @@
 use pix_engine::{event::*, pixel::Pixel, *};
-use std::time::Duration;
 
 const BEVEL_SIZE: u32 = 2;
 const BLOCK_SIZE: u32 = 24;
@@ -293,9 +292,7 @@ impl State for App {
         data.set_draw_scale(1);
         Ok(())
     }
-    fn on_update(&mut self, elapsed: Duration, data: &mut StateData) -> PixEngineResult<()> {
-        let elapsed = elapsed.as_secs_f32();
-
+    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<()> {
         data.fill_rect(
             FIELD_LEFT,
             0,

@@ -27,6 +27,8 @@ tests/cpu/instr/14-brk.nes
 tests/cpu/instr/15-special.nes
 tests/cpu/instr_misc.nes
 tests/cpu/instr_timing.nes
+tests/cpu/interrupts/1-cli_latency.nes
+tests/cpu/interrupts/5-branch_delays_irq.nes
 tests/cpu/nestest.nes
 tests/cpu/overclock.nes
 tests/cpu/ram_after_reset.nes
@@ -72,10 +74,14 @@ tests/ppu/open_bus.nes
 tests/ppu/palette.nes
 tests/ppu/palette_ram.nes
 tests/ppu/read_buffer.nes
-tests/ppu/scanline.nes
 tests/ppu/sprite_ram.nes
 # tests/ppu/tv.nes
 tests/ppu/vbl_clear_time.nes
+tests/ppu/vbl_nmi/01-vbl_basics.nes
+tests/ppu/vbl_nmi/03-vbl_clear_time.nes
+tests/ppu/vbl_nmi/04-nmi_control.nes
+tests/ppu/vbl_nmi/07-nmi_on_timing.nes
+tests/ppu/vbl_nmi/09-even_odd_frames.nes
 tests/ppu/vbl_nmi_timing/1.frame_basics.nes
 tests/ppu/vbl_nmi_timing/4.vbl_clear_timing.nes
 tests/ppu/vram_access.nes
