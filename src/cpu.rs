@@ -111,7 +111,7 @@ impl Cpu {
             pending_nmi: false,
             last_irq: false,
             last_nmi: false,
-            log_level: LogLevel::Off,
+            log_level: LogLevel::Error,
         }
     }
 
@@ -1974,9 +1974,10 @@ impl Cpu {
 
     /// XXX: Captures all unimplemented opcodes
     fn xxx(&mut self) {
-        self.warn(&format!(
-            "Invalid opcode ${:02X} {{{:?}}} encountered!",
+        self.error(&format!(
+            "Invalid opcode ${:02X} {:?} #{:?} encountered!",
             self.instr.opcode(),
+            self.instr.op(),
             self.instr.addr_mode(),
         ));
     }

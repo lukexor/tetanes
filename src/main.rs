@@ -72,7 +72,7 @@ struct Opt {
     #[structopt(
         short = "l",
         long = "log_level",
-        default_value = "0",
+        default_value = "1",
         possible_values = &["0", "1", "2", "3", "4", "5"],
         help = "Set logging level. 0: Off, 1: Error, 2: Warn, 3: Info, 4: Debug, 5: Trace"
     )]
