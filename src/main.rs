@@ -9,7 +9,10 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
-use rustynes::nes::{Nes, NesConfig};
+use rustynes::{
+    common::LogLevel,
+    nes::{Nes, NesConfig},
+};
 use std::env;
 use structopt::StructOpt;
 
@@ -24,7 +27,14 @@ fn main() {
             }
         }),
         debug: opt.debug,
-        log_level: opt.log_level,
+        log_level: match opt.log_level.as_ref() {
+            "error" => LogLevel::Error,
+            "warn" => LogLevel::Warn,
+            "info" => LogLevel::Info,
+            "debug" => LogLevel::Debug,
+            "trace" => LogLevel::Trace,
+            _ => LogLevel::Off,
+        },
         fullscreen: opt.fullscreen,
         vsync: !opt.vsync_off && !opt.unlock_fps,
         sound_enabled: !opt.sound_off && !opt.unlock_fps,
@@ -72,11 +82,11 @@ struct Opt {
     #[structopt(
         short = "l",
         long = "log_level",
-        default_value = "1",
-        possible_values = &["0", "1", "2", "3", "4", "5"],
-        help = "Set logging level. 0: Off, 1: Error, 2: Warn, 3: Info, 4: Debug, 5: Trace"
+        default_value = "error",
+        possible_values = &["off", "error", "warn", "info", "debug", "trace"],
+        help = "Set logging level."
     )]
-    log_level: u8,
+    log_level: String,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
     #[structopt(short = "v", long = "vsync_off", help = "Disable vsync.")]

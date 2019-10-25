@@ -27,7 +27,7 @@ pub trait Clocked {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
     Off,
     Error,
@@ -35,20 +35,6 @@ pub enum LogLevel {
     Info,
     Debug,
     Trace,
-}
-
-impl LogLevel {
-    pub fn from_u8(val: u8) -> NesResult<Self> {
-        match val {
-            0 => Ok(LogLevel::Off),
-            1 => Ok(LogLevel::Error),
-            2 => Ok(LogLevel::Warn),
-            3 => Ok(LogLevel::Info),
-            4 => Ok(LogLevel::Debug),
-            5 => Ok(LogLevel::Trace),
-            _ => nes_err!("Invalid LogLevel {}", val),
-        }
-    }
 }
 
 pub trait Loggable {
@@ -70,7 +56,7 @@ pub trait Loggable {
         self.log(LogLevel::Trace, msg);
     }
     fn log(&mut self, level: LogLevel, msg: &str) {
-        if self.log_level() as u8 >= level as u8 {
+        if self.log_level() >= level {
             println!("{}", msg);
         }
     }

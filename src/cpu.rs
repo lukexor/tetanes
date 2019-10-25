@@ -82,11 +82,11 @@ pub struct Cpu {
     pub abs_addr: u16,    // Used memory addresses get set here
     pub rel_addr: u16,    // Relative address for branch instructions
     pub fetched_data: u8, // Represents data fetched for the ALU
-    pub pending_irq: u8,  // Pending interrupts
-    pub pending_nmi: bool,
+    pub irq_pending: u8,  // Pending interrupts
+    pub nmi_pending: bool,
     last_irq: bool,
     last_nmi: bool,
-    pub log_level: LogLevel,
+    log_level: LogLevel,
 }
 
 impl Cpu {
@@ -107,8 +107,8 @@ impl Cpu {
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            pending_irq: 0,
-            pending_nmi: false,
+            irq_pending: 0,
+            nmi_pending: false,
             last_irq: false,
             last_nmi: false,
             log_level: LogLevel::Error,
@@ -134,9 +134,9 @@ impl Cpu {
     /// http://wiki.nesdev.com/w/index.php/IRQ
     pub fn set_irq(&mut self, irq: Irq, val: bool) {
         if val {
-            self.pending_irq |= irq as u8;
+            self.irq_pending |= irq as u8;
         } else {
-            self.pending_irq &= !(irq as u8);
+            self.irq_pending &= !(irq as u8);
         }
     }
 
@@ -158,13 +158,16 @@ impl Cpu {
         self.push_stackb(self.status);
         self.set_flag(I, true);
         if self.last_nmi {
-            self.pending_nmi = false;
+            self.debug("calling irq and executing nmi");
+            self.nmi_pending = false;
+            self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_ADDR);
         } else {
             self.pc = self.readw(IRQ_ADDR);
         }
         // Prevent NMI from triggering immediately after IRQ
         if self.last_nmi {
+            self.debug("skipping nmi after irq");
             self.last_nmi = false;
         }
     }
@@ -172,8 +175,15 @@ impl Cpu {
     /// Sends a NMI Interrupt to the CPU
     ///
     /// http://wiki.nesdev.com/w/index.php/NMI
-    pub fn trigger_nmi(&mut self) {
-        self.pending_nmi = true;
+    pub fn set_nmi(&mut self, val: bool) {
+        if self.nmi_pending != val {
+            self.debug(&format!(
+                "Changed nmi from {} to {}. Last {}",
+                self.nmi_pending, val, self.last_nmi
+            ));
+        }
+        self.nmi_pending = val;
+        self.bus.ppu.nmi_pending = val;
     }
 
     //  #  address R/W description
@@ -186,6 +196,7 @@ impl Cpu {
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
     fn nmi(&mut self) {
+        self.debug("nmi");
         self.read(self.pc);
         self.read(self.pc);
         self.push_stackw(self.pc);
@@ -198,14 +209,11 @@ impl Cpu {
 
     fn run_cycle(&mut self) {
         self.cycle_count += 1;
-        self.last_nmi = self.pending_nmi;
-        self.last_irq = self.pending_irq > 0 && self.get_flag(I) == 0;
+        self.last_nmi = self.nmi_pending;
+        self.last_irq = self.irq_pending > 0 && self.get_flag(I) == 0;
         for _ in 0..3 {
             self.bus.ppu.clock();
-            if self.bus.ppu.nmi_enabled() && self.bus.ppu.nmi_pending {
-                self.trigger_nmi();
-                self.bus.ppu.nmi_pending = false;
-            }
+            self.set_nmi(self.bus.ppu.nmi_pending);
             let irq_pending = {
                 let mut mapper = self.bus.mapper.borrow_mut();
                 mapper.clock();
@@ -1073,7 +1081,9 @@ impl Clocked for Cpu {
         let start_cycles = self.cycle_count;
 
         if self.last_nmi {
-            self.pending_nmi = false;
+            self.debug("calling nmi, clearing nmi pending");
+            self.nmi_pending = false;
+            self.bus.ppu.nmi_pending = false;
             self.nmi();
         } else if self.last_irq {
             self.irq();
@@ -1272,8 +1282,8 @@ impl Savable for Cpu {
         self.abs_addr.save(fh)?;
         self.rel_addr.save(fh)?;
         self.fetched_data.save(fh)?;
-        self.pending_irq.save(fh)?;
-        self.pending_nmi.save(fh)?;
+        self.irq_pending.save(fh)?;
+        self.nmi_pending.save(fh)?;
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
@@ -1291,8 +1301,8 @@ impl Savable for Cpu {
         self.abs_addr.load(fh)?;
         self.rel_addr.load(fh)?;
         self.fetched_data.load(fh)?;
-        self.pending_irq.load(fh)?;
-        self.pending_nmi.load(fh)?;
+        self.irq_pending.load(fh)?;
+        self.nmi_pending.load(fh)?;
         Ok(())
     }
 }
@@ -1705,8 +1715,8 @@ impl Cpu {
     fn branch(&mut self) {
         // If an interrupt occurs during the final cycle of a non-pagecrossing branch
         // then it will be ignored until the next instruction completes
-        let skip_nmi = self.pending_nmi && !self.last_nmi;
-        let skip_irq = self.pending_irq > 0 && !self.last_irq;
+        let skip_nmi = self.nmi_pending && !self.last_nmi;
+        let skip_irq = self.irq_pending > 0 && !self.last_irq;
 
         self.run_cycle();
 
@@ -1719,6 +1729,7 @@ impl Cpu {
             self.run_cycle();
         } else {
             if skip_nmi {
+                self.debug("skipping nmi, branch page crossed");
                 self.last_nmi = false;
             }
             if skip_irq {
@@ -1953,7 +1964,19 @@ impl Cpu {
         self.push_stackw(self.pc);
         self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(I, true);
-        self.pc = self.readw(IRQ_ADDR);
+        if self.last_nmi {
+            self.debug("calling brk and executing nmi");
+            self.nmi_pending = false;
+            self.bus.ppu.nmi_pending = false;
+            self.pc = self.readw(NMI_ADDR);
+        } else {
+            self.pc = self.readw(IRQ_ADDR);
+        }
+        // Prevent NMI from triggering immediately after BRK
+        if self.last_nmi {
+            self.debug("skipping nmi after brk");
+            self.last_nmi = false;
+        }
     }
     /// NOP: No Operation
     fn nop(&mut self) {

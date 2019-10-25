@@ -2,7 +2,7 @@
 
 use crate::{
     bus::Bus,
-    common::{Clocked, LogLevel, Loggable},
+    common::Clocked,
     cpu::{Cpu, CPU_CLOCK_RATE},
     memory,
     nes::{config::DEFAULT_SPEED, debug::DEBUG_WIDTH, menus::Message},
@@ -178,8 +178,7 @@ impl State for Nes {
             self.cpu.bus.apu.set_speed(self.config.speed);
         }
 
-        self.cpu
-            .set_log_level(LogLevel::from_u8(self.config.log_level)?);
+        self.set_log_level();
 
         if self.config.fullscreen {
             data.fullscreen(true)?;
@@ -189,6 +188,7 @@ impl State for Nes {
         if !self.paused {
             let startup_frames = 60;
             for _ in 0..startup_frames {
+                self.poll_events(data)?;
                 self.clock_frame();
                 if self.config.sound_enabled {
                     let samples = self.cpu.bus.apu.samples();

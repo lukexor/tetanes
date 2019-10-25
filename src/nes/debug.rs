@@ -54,7 +54,10 @@ impl Nes {
         } else if let Some(ppu_viewer_window) = self.ppu_viewer_window {
             data.close_window(ppu_viewer_window);
         }
-        self.cpu.bus.ppu.debug(self.nt_viewer || self.ppu_viewer);
+        self.cpu
+            .bus
+            .ppu
+            .set_debug(self.nt_viewer || self.ppu_viewer);
         Ok(())
     }
 
@@ -127,7 +130,10 @@ impl Nes {
         } else if let Some(nt_viewer_window) = self.nt_viewer_window {
             data.close_window(nt_viewer_window);
         }
-        self.cpu.bus.ppu.debug(self.nt_viewer || self.ppu_viewer);
+        self.cpu
+            .bus
+            .ppu
+            .set_debug(self.nt_viewer || self.ppu_viewer);
         Ok(())
     }
 

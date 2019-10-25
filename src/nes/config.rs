@@ -1,4 +1,9 @@
-use crate::{nes::Nes, serialization::Savable, NesResult};
+use crate::{
+    common::{LogLevel, Loggable},
+    nes::Nes,
+    serialization::Savable,
+    NesResult,
+};
 use pix_engine::StateData;
 use std::{
     env,
@@ -13,7 +18,7 @@ const MAX_SPEED: f32 = 2.0; // 200% - 30 Hz
 pub struct NesConfig {
     pub path: String,
     pub debug: bool,
-    pub log_level: u8,
+    pub log_level: LogLevel,
     pub fullscreen: bool,
     pub vsync: bool,
     pub sound_enabled: bool,
@@ -35,7 +40,7 @@ impl NesConfig {
         let mut config = Self {
             path: String::new(),
             debug: false,
-            log_level: 0,
+            log_level: LogLevel::Error,
             fullscreen: false,
             vsync: false,
             sound_enabled: true,
@@ -126,5 +131,14 @@ impl Nes {
             }
         }
         data.set_title(&title);
+    }
+
+    pub(super) fn set_log_level(&mut self) {
+        let level = self.config.log_level;
+        self.cpu.set_log_level(level);
+        self.cpu.bus.ppu.set_log_level(level);
+        if level > LogLevel::Debug {
+            self.config.sound_enabled = false;
+        }
     }
 }
