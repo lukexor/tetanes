@@ -42,6 +42,7 @@ fn main() {
         replay: opt.replay,
         rewind_enabled: opt.rewind,
         save_enabled: !opt.no_save,
+        clear_save: opt.clear_save,
         concurrent_dpad: opt.concurrent_dpad,
         randomize_ram: opt.randomize_ram,
         save_slot: opt.save_slot,
@@ -65,7 +66,7 @@ fn main() {
 #[structopt(
     name = "rustynes",
     about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
-    version = "0.4.0",
+    version = "0.5.0",
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
 struct Opt {
@@ -114,6 +115,8 @@ struct Opt {
     rewind: bool,
     #[structopt(long = "no_save", help = "Disable savestates")]
     no_save: bool,
+    #[structopt(long = "clear_save", help = "Overwrites existing savestate on load.")]
+    clear_save: bool,
     #[structopt(
         long = "save_slot",
         default_value = "1",

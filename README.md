@@ -103,21 +103,24 @@ USAGE:
     rustynes [FLAGS] [OPTIONS] [--] [path]
 
 FLAGS:
+        --clear_save         Overwrites existing savestate on load.
         --concurrent_dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad.
     -d, --debug              Start with the CPU debugger enabled and emulation paused at first CPU instruction.
     -f, --fullscreen         Start fullscreen.
     -h, --help               Prints help information
-        --no_rewind          Disable rewinding
         --no_save            Disable savestates
         --randomize_ram      Randomize ram on startup. By default RAM initializes to 0x00. This affects RNG seed
                              generators for some games.
         --record             Record gameplay input to a file for later replay.
+        --rewind             Enable savestate rewinding
         --sound_off          Disable sound.
     -V, --version            Prints version information
     -v, --vsync_off          Disable vsync.
 
 OPTIONS:
         --genie_codes <genie-codes>...    List of Game Genie Codes (space separated).
+    -l, --log_level <log-level>           Set logging level. [default: error]  [possible values: off, error, warn, info,
+                                          debug, trace]
         --replay <replay>                 Replay a saved recording.
         --save_slot <save-slot>           Set savestate slot. [default: 1]  [possible values: 1, 2, 3, 4]
     -s, --scale <scale>                   Window scale [default: 3]
@@ -146,7 +149,7 @@ There are also some emulator actions:
 | --------------------------------- | ---------------- | ------------------ |
 | Pause                             | Escape           | Guide Button       |
 | Configuration Menu                | Ctrl-C           |                    |
-| Open/Run ROM<sup>*</sup>          | Ctrl-O           |                    |
+| Open ROM<sup>*</sup>              | Ctrl-O           |                    |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
 | Power Cycle                       | Ctrl-P           |                    |
@@ -156,7 +159,7 @@ There are also some emulator actions:
 | Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
-| Rewind                            | Comma            |                    |
+| Rewind (when enabled)             | Comma            |                    |
 | Toggle Music/Sound                | Ctrl-M           |                    |
 | Toggle CPU Debugger               | Ctrl-D           |                    |
 | Toggle Fullscreen                 | Ctrl-Return      |                    |
@@ -166,15 +169,18 @@ There are also some emulator actions:
 | Toggle PPU Viewer                 | Shift-P          |                    |
 | Toggle Nametable Viewer           | Shift-N          |                    |
 | Take Screenshot                   | F10              |                    |
+| Increase Logging Level            | F9               |                    |
 
 While the CPU Debugger is open (these can also be held down):
 
 | Action                            | Keyboard         |
 | --------------------------------- | ---------------- |
 | Step a single CPU instruction     | C                |
+| Step over a CPU instruction       | O                |
+| Step out of a CPU instruction     | Ctrl-O           |
 | Step a single scanline            | S                |
 | Step an entire frame              | F                |
-| Toggle Live CPU Information       | D                |
+| Toggle Live CPU Debug Updating    | D                |
 
 <sup>&ast;</sup>: Not yet Implemented
 
@@ -196,6 +202,25 @@ Run them the same way you would run a game. e.g.
 ```
 cargo run --release tests/cpu/nestest.nes
 ```
+
+## Troubleshooting
+
+If you get some sort of nasty error when trying to start a game, try passing the --no_save option to
+ensure it's not an incompatible save file causing the issue. When 1.0 releases, I'll be much more
+careful about backwards breaking changes with regards to save files, but for now it's highly
+volatile and due to the nature of how I serialize data, I can only catch certain sorts of data
+inconsistencies.
+
+If the issue is not save related, please submit an issue in the github issue tracker. A good
+guideline for what to include is:
+
+- The game experiencing the issue (e.g. Super Mario Bros 3)
+- Operating system and version (e.g. Windows 7)
+- What you were doing when the error happened
+- The entire error message
+
+When the browser version is available, also include:
+- Web browser and version (e.g. Chrome 77.0.3865)
 
 ## Known Issues
 
@@ -268,18 +293,22 @@ The following is a checklist of features and their progress:
   - [ ] Network Multi-player
 - [x] Testing/Debugging/Documentation
   - [x] CPU Debugger (Displays CPU status, registers, and disassembly)
-    - [ ] Step Into/Out/Over
+    - [X] Step Into/Out/Over
     - [ ] Breakpoints
   - [ ] Memory Hex Debugger
   - [x] PPU Viewer (Displays PPU sprite patterns and color palettes)
   - [x] Nametable Viewer (Displays all four PPU backgrounds)
-    - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
+    - [X] Scanline Hit Configuration (For debugging IRQ Nametable changes)
+    - [ ] Scroll lines (Automatically adjusts the scanline, showing live nametable changes)
   - [x] Unit/Integration tests (run with cargo test)
     - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
     - [ ] Other tests (Missing a lot here)
   - [x] Test ROMs (most pass, many still do not)
       - [ ] Automated rom tests (in progress now that action recording is finished)
   - [ ] Rust Docs
+  - [ ] Logging
+      - [x] Console
+      - [ ] File
 
 ## Documentation
 

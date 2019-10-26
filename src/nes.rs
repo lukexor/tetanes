@@ -25,6 +25,7 @@ const ICON_PATH: &str = "static/rustynes_icon.png";
 const APP_NAME: &str = "RustyNES";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
+const REWIND_START: u8 = 5;
 const REWIND_SIZE: u8 = 20;
 const REWIND_TIMER: f32 = 5.0;
 
@@ -101,7 +102,7 @@ impl Nes {
             width,
             height,
             speed_counter: 0,
-            rewind_timer: 3.0 * REWIND_TIMER,
+            rewind_timer: REWIND_TIMER,
             rewind_slot: 0,
             rewind_save: 0,
             rewind_queue: VecDeque::with_capacity(REWIND_SIZE as usize),
@@ -162,7 +163,27 @@ impl State for Nes {
         if self.roms.len() == 1 {
             self.load_rom(0)?;
             self.power_on()?;
-            self.load_state(self.config.save_slot);
+
+            if self.config.clear_save {
+                if let Ok(save_path) = state::save_path(&self.loaded_rom, self.config.save_slot) {
+                    if save_path.exists() {
+                        let _ = std::fs::remove_file(&save_path);
+                        self.add_message(&format!("Cleared slot {}", self.config.save_slot));
+                    }
+                }
+            } else {
+                self.load_state(self.config.save_slot);
+            }
+
+            // Clean up previous rewind states
+            for slot in REWIND_START..REWIND_SIZE {
+                if let Ok(save_path) = state::save_path(&self.loaded_rom, slot) {
+                    if save_path.exists() {
+                        let _ = std::fs::remove_file(&save_path);
+                    }
+                }
+            }
+
             let codes = self.config.genie_codes.to_vec();
             for code in codes {
                 if let Err(e) = self.cpu.bus.add_genie_code(&code) {
@@ -180,7 +201,7 @@ impl State for Nes {
             self.cpu.bus.apu.set_speed(self.config.speed);
         }
 
-        self.set_log_level();
+        self.set_log_level(self.config.log_level, true);
 
         if self.config.fullscreen {
             data.fullscreen(true)?;
@@ -195,15 +216,15 @@ impl State for Nes {
         self.update_title(data);
 
         // Save rewind snapshot
-        if self.config.rewind_enabled {
+        if self.config.rewind_enabled && self.config.save_enabled {
             self.rewind_timer -= elapsed;
             if self.rewind_timer <= 0.0 {
                 self.rewind_save %= REWIND_SIZE;
-                if self.rewind_save < 5 {
-                    self.rewind_save = 5;
+                if self.rewind_save < REWIND_START {
+                    self.rewind_save = REWIND_START;
                 }
                 self.rewind_timer = REWIND_TIMER;
-                self.save_state(self.rewind_save);
+                self.save_state(self.rewind_save, true);
                 self.messages.pop(); // Remove saved message
                 self.rewind_queue.push_back(self.rewind_save);
                 self.rewind_save += 1;

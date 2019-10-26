@@ -47,7 +47,7 @@ impl Nes {
     }
 
     /// Save the current state of the console into a save file
-    pub(super) fn save_state(&mut self, slot: u8) {
+    pub(super) fn save_state(&mut self, slot: u8, rewind: bool) {
         if self.config.save_enabled {
             let save = || -> NesResult<()> {
                 let save_path = save_path(&self.loaded_rom, slot)?;
@@ -67,9 +67,11 @@ impl Nes {
                 self.save(&mut writer)?;
                 Ok(())
             };
-            match save() {
-                Ok(_) => self.add_message(&format!("Saved Slot {}", slot)),
-                Err(e) => self.add_message(&e.to_string()),
+            if !rewind {
+                match save() {
+                    Ok(_) => self.add_message(&format!("Saved Slot {}", slot)),
+                    Err(e) => self.add_message(&e.to_string()),
+                }
             }
         } else {
             self.add_message("Savestates Disabled");
@@ -381,7 +383,7 @@ fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
 /// # Errors
 ///
 /// Panics if path is not a valid path
-fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
+pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
     let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
     let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
     path.push(CONFIG_DIR);

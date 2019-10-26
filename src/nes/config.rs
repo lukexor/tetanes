@@ -26,6 +26,7 @@ pub struct NesConfig {
     pub replay: Option<String>,
     pub rewind_enabled: bool,
     pub save_enabled: bool,
+    pub clear_save: bool,
     pub concurrent_dpad: bool,
     pub randomize_ram: bool,
     pub save_slot: u8,
@@ -48,6 +49,7 @@ impl NesConfig {
             replay: None,
             rewind_enabled: true,
             save_enabled: true,
+            clear_save: true,
             concurrent_dpad: false,
             randomize_ram: false,
             save_slot: 1,
@@ -133,12 +135,16 @@ impl Nes {
         data.set_title(&title);
     }
 
-    pub(super) fn set_log_level(&mut self) {
-        let level = self.config.log_level;
+    pub(super) fn set_log_level(&mut self, level: LogLevel, startup: bool) {
         self.cpu.set_log_level(level);
         self.cpu.bus.ppu.set_log_level(level);
+        self.cpu.bus.apu.set_log_level(level);
+        // self.cpu.bus.mapper.set_log_level(level);
         if level > LogLevel::Debug {
             self.config.sound_enabled = false;
+        }
+        if !startup {
+            self.add_message(&format!("Set LogLevel to {:?}", level));
         }
     }
 }

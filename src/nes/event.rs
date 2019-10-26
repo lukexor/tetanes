@@ -1,7 +1,8 @@
 use crate::{
     common::{create_png, Clocked, Powered},
     cpu::Operation::*,
-    nes::{config::DEFAULT_SPEED, Message, Nes, REWIND_TIMER},
+    logging::LogLevel,
+    nes::{config::DEFAULT_SPEED, Nes, REWIND_TIMER},
     nes_err,
     serialization::Savable,
     NesResult,
@@ -18,18 +19,23 @@ const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 
 impl Nes {
     fn rewind(&mut self) {
-        if self.config.rewind_enabled {
-            // If we saved too recently, ignore it and go back further
-            if self.rewind_timer > 3.0 {
-                let _ = self.rewind_queue.pop_back();
+        if self.config.save_enabled {
+            if self.config.rewind_enabled {
+                // If we saved too recently, ignore it and go back further
+                if self.rewind_timer > 3.0 {
+                    let _ = self.rewind_queue.pop_back();
+                }
+                if let Some(slot) = self.rewind_queue.pop_back() {
+                    self.rewind_timer = REWIND_TIMER;
+                    self.add_message(&format!("Rewind Slot {}", slot));
+                    self.rewind_save = slot + 1;
+                    self.load_state(slot);
+                }
+            } else {
+                self.add_message("Rewind disabled");
             }
-            if let Some(slot) = self.rewind_queue.pop_back() {
-                self.rewind_timer = REWIND_TIMER;
-                self.messages
-                    .push(Message::new(&format!("Rewind Slot {}", slot)));
-                self.rewind_save = slot + 1;
-                self.load_state(slot);
-            }
+        } else {
+            self.add_message("Savestates Disabled");
         }
     }
 
@@ -238,7 +244,7 @@ impl Nes {
                 self.paused(self.menu);
             }
             Key::D if c => self.toggle_debug(data)?,
-            Key::S if c => self.save_state(self.config.save_slot),
+            Key::S if c => self.save_state(self.config.save_slot, false),
             Key::L if c => self.load_state(self.config.save_slot),
             Key::M if c => {
                 if self.config.unlock_fps {
@@ -286,6 +292,10 @@ impl Nes {
                 }
             }
             // F# Keys
+            Key::F9 => {
+                self.config.log_level = LogLevel::increase(self.config.log_level);
+                self.set_log_level(self.config.log_level, false);
+            }
             Key::F10 => match self.screenshot() {
                 Ok(s) => self.add_message(&s),
                 Err(e) => self.add_message(&e.to_string()),
@@ -444,7 +454,7 @@ impl Nes {
                 }
             }
             Axis::TriggerLeft if value > GAMEPAD_TRIGGER_PRESS => {
-                self.save_state(self.config.save_slot)
+                self.save_state(self.config.save_slot, false)
             }
             Axis::TriggerRight if value > GAMEPAD_TRIGGER_PRESS => {
                 self.load_state(self.config.save_slot)

@@ -12,6 +12,20 @@ pub enum LogLevel {
     Debug,
     Trace,
 }
+use LogLevel::*;
+
+impl LogLevel {
+    pub fn increase(level: LogLevel) -> Self {
+        match level {
+            Error => Warn,
+            Warn => Info,
+            Info => Debug,
+            Debug => Trace,
+            Trace => Off,
+            Off => Error,
+        }
+    }
+}
 
 impl Default for LogLevel {
     fn default() -> Self {
