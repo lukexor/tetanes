@@ -81,9 +81,16 @@ impl Nes {
             let ypad = 10;
             data.draw_string(x, y, &format!("Scanline: {}", self.pat_scanline), wh);
             y += ypad;
-            // TODO translate mouse coords into tile and palette IDs
-            data.draw_string(x, y, &format!("Tile ID: ${:02X}", 0), wh);
+            let mx = data.get_mouse_x();
+            let my = data.get_mouse_y();
+            let tile_id = if my < RENDER_HEIGHT {
+                (my / 16) << 4 | ((mx / 16) % 16)
+            } else {
+                0
+            };
+            data.draw_string(x, y, &format!("Tile ID: ${:02X}", tile_id), wh);
             y += ypad;
+            // TODO lookup palette ID
             data.draw_string(x, y, &format!("Palette: ${:02X}", 0), wh);
             data.copy_draw_target(ppu_viewer_window, "ppu_info")?;
             data.clear_draw_target();
@@ -168,11 +175,25 @@ impl Nes {
             x = RENDER_WIDTH;
             y = 5;
             // TODO translate mouse coords into IDs, X, Y and calc PPU addr
+            let mx = data.get_mouse_x();
+            let my = data.get_mouse_y();
             data.draw_string(x, y, &format!("Tile ID: ${:02X}", 0), wh);
             y += ypad;
-            data.draw_string(x, y, &format!("(X, Y): ({}, {})", 0, 0), wh);
+            data.draw_string(x, y, &format!("X, Y: {}, {}", mx, my), wh);
             y += ypad;
-            data.draw_string(x, y, &format!("PPU Addr: ${:04X}", 0), wh);
+            let mut offset = 0x2000;
+            if mx >= RENDER_WIDTH {
+                offset += 0x0400;
+            }
+            if my >= RENDER_HEIGHT {
+                offset += 0x0800;
+            }
+            let ppu_addr = if my < 2 * RENDER_HEIGHT {
+                offset + ((((my / 8) % 30) << 5) | ((mx / 8) % 32))
+            } else {
+                0
+            };
+            data.draw_string(x, y, &format!("PPU Addr: ${:04X}", ppu_addr), wh);
             data.copy_draw_target(nt_viewer_window, "nt_info")?;
             data.clear_draw_target();
         }

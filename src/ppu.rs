@@ -406,7 +406,7 @@ impl Ppu {
                     data <<= 4;
                     data |= u32::from(a | p1 | p2);
                 }
-                self.frame.tile_data |= data as usize;
+                self.frame.tile_data |= data;
             }
             _ => (),
         }
@@ -537,7 +537,7 @@ impl Ppu {
         // |++--- Palette number from attribute table or OAM
         // +----- Background/Sprite select
 
-        let tile_data = (self.frame.tile_data >> 32) as u32;
+        let tile_data = self.frame.tile_data;
         let data = tile_data >> ((7 - self.regs.fine_x()) * 4);
         (data & 0x0F) as u8
     }
@@ -1639,7 +1639,7 @@ pub struct Frame {
     // Tile data - stored in cycles 0 mod 8
     nametable: u16,
     attribute: u8,
-    tile_data: usize,
+    tile_data: u32,
     // Sprite data
     sprite_count: u8,
     sprite_zero_on_line: bool,
@@ -1679,7 +1679,7 @@ impl Frame {
             attribute: 0u8,
             tile_lo: 0u8,
             tile_hi: 0u8,
-            tile_data: 0usize,
+            tile_data: 0u32,
             sprite_count: 0u8,
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
