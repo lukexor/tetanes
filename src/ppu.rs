@@ -700,7 +700,6 @@ impl Ppu {
         // to fail so this condition is added to correct it
         && (self.scanline != PRERENDER_SCANLINE || self.cycle == 0)
         {
-            warn!(self, "{}, {}", self.cycle, self.scanline);
             debug!(self, "setting nmi_pending, cycle: {}", self.cycle);
             self.nmi_pending = true;
         }

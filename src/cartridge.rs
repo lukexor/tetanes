@@ -103,6 +103,9 @@ impl Cartridge {
             header,
             prg_rom,
             chr_rom,
+            #[cfg(debug_assertions)]
+            log_level: LogLevel::Debug,
+            #[cfg(not(debug_assertions))]
             log_level: LogLevel::default(),
         };
         info!(
