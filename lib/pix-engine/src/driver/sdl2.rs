@@ -25,6 +25,7 @@ mod event;
 
 pub(crate) struct Sdl2Driver {
     context: Sdl,
+    window_id: u32,
     canvases: HashMap<u32, (Canvas<video::Window>, TextureCreator<WindowContext>)>,
     texture_maps: HashMap<String, TextureMap>,
     audio_device: AudioQueue<f32>,
@@ -105,6 +106,7 @@ impl Sdl2Driver {
 
         Ok(Self {
             context,
+            window_id,
             canvases,
             audio_device,
             event_pump,
@@ -198,6 +200,10 @@ impl Driver for Sdl2Driver {
             }
         }
         Ok(())
+    }
+
+    fn window_id(&self) -> u32 {
+        self.window_id
     }
 
     fn set_title(&mut self, window_id: u32, title: &str) -> PixEngineResult<()> {

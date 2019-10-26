@@ -41,6 +41,7 @@ pub struct StateData {
     #[cfg(all(feature = "wasm-driver", not(feature = "sdl2-driver")))]
     pub(super) driver: driver::wasm::WasmDriver,
     pub(super) events: Vec<PixEvent>,
+    main_window: u32,
     title: String,
     screen_width: u32,
     screen_height: u32,
@@ -68,21 +69,26 @@ pub struct StateData {
 impl StateData {
     /// Engine attributes ======================================================
 
+    pub fn main_window(&self) -> u32 {
+        self.main_window
+    }
     /// Custom title to append in the window
     pub fn title(&self) -> &str {
         &self.title
     }
     /// Set a custom title to append
-    pub fn set_title(&mut self, title: &str) {
+    pub fn set_title(&mut self, title: &str) -> PixEngineResult<()> {
         self.title = title.to_string();
+        self.driver.set_title(self.main_window, title)?;
+        Ok(())
     }
     /// Toggle fullscreen
     pub fn fullscreen(&mut self, val: bool) -> PixEngineResult<()> {
-        self.driver.fullscreen(1, val)
+        self.driver.fullscreen(self.main_window, val)
     }
     /// Toggle vsync
     pub fn vsync(&mut self, val: bool) -> PixEngineResult<()> {
-        self.driver.vsync(1, val)
+        self.driver.vsync(self.main_window, val)
     }
     /// Screen Width
     pub fn screen_width(&self) -> u32 {
@@ -104,7 +110,7 @@ impl StateData {
         self.default_draw_target = new_draw_target;
         self.screen_width = width;
         self.screen_height = height;
-        self.driver.set_size(1, width, height)
+        self.driver.set_size(self.main_window, width, height)
     }
     /// Whether window has focus
     pub fn is_focused(&self) -> bool {
@@ -153,10 +159,13 @@ impl StateData {
         let font = StateData::construct_font();
         // Initialize backend driver library
         let opts = DriverOpts::new(app_name, screen_width, screen_height, vsync);
+        let driver = driver::load_driver(opts)?;
+        let main_window = driver.window_id();
         let state_data = Self {
             default_target_dirty: false,
-            driver: driver::load_driver(opts)?,
+            driver,
             events: Vec::new(),
+            main_window,
             title: String::new(),
             screen_width,
             screen_height,

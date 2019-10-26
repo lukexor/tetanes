@@ -25,6 +25,9 @@ pub(super) trait Driver {
     fn load_icon(&mut self, _path: &str) -> PixEngineResult<()> {
         Ok(())
     }
+    fn window_id(&self) -> u32 {
+        0
+    }
     fn set_title(&mut self, _window_id: u32, _title: &str) -> PixEngineResult<()> {
         Ok(())
     }

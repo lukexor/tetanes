@@ -122,7 +122,7 @@ impl Nes {
         }
     }
 
-    pub(super) fn update_title(&mut self, data: &mut StateData) {
+    pub(super) fn update_title(&mut self, data: &mut StateData) -> NesResult<()> {
         let mut title = String::new();
         if self.paused {
             title.push_str("Paused");
@@ -132,7 +132,8 @@ impl Nes {
                 title.push_str(&format!(" - Speed: {}%", self.config.speed * 100.0));
             }
         }
-        data.set_title(&title);
+        data.set_title(&title)?;
+        Ok(())
     }
 
     pub(super) fn set_log_level(&mut self, level: LogLevel, startup: bool) {

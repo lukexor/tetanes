@@ -239,7 +239,7 @@ impl Nes {
 
     pub(super) fn copy_debug(&mut self, data: &mut StateData) -> NesResult<()> {
         let pixels = self.debug_sprite.bytes();
-        data.copy_texture(1, "debug", &pixels)?;
+        data.copy_texture(self.nes_window, "debug", &pixels)?;
         Ok(())
     }
 

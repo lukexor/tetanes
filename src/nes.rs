@@ -43,12 +43,13 @@ pub struct Nes {
     menu: bool,
     cpu_break: bool,
     break_instr: Option<u16>,
+    nes_window: u32,
+    ppu_viewer_window: Option<u32>,
+    nt_viewer_window: Option<u32>,
     ppu_viewer: bool,
     nt_viewer: bool,
     nt_scanline: u32,
-    ppu_viewer_window: Option<u32>,
     pat_scanline: u32,
-    nt_viewer_window: Option<u32>,
     debug_sprite: Sprite,
     active_debug: bool,
     width: u32,
@@ -91,12 +92,13 @@ impl Nes {
             menu: false,
             cpu_break: false,
             break_instr: None,
+            nes_window: 0,
+            ppu_viewer_window: None,
+            nt_viewer_window: None,
             ppu_viewer: false,
             nt_viewer: false,
             nt_scanline: 0,
-            ppu_viewer_window: None,
             pat_scanline: 0,
-            nt_viewer_window: None,
             debug_sprite: Sprite::new(DEBUG_WIDTH, height),
             active_debug: false,
             width,
@@ -153,6 +155,8 @@ impl Nes {
 
 impl State for Nes {
     fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<()> {
+        self.nes_window = data.main_window();
+
         // Before rendering anything, set up our textures
         self.create_textures(data)?;
 
@@ -190,7 +194,7 @@ impl State for Nes {
                     self.add_message(&e.to_string());
                 }
             }
-            self.update_title(data);
+            self.update_title(data)?;
         }
 
         if self.config.debug {
@@ -213,7 +217,7 @@ impl State for Nes {
     fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<()> {
         self.poll_events(data)?;
         self.check_focus();
-        self.update_title(data);
+        self.update_title(data)?;
 
         // Save rewind snapshot
         if self.config.rewind_enabled && self.config.save_enabled {
@@ -258,7 +262,7 @@ impl State for Nes {
         }
         if !self.lost_focus {
             // Update screen
-            data.copy_texture(1, "nes", &self.cpu.bus.ppu.frame())?;
+            data.copy_texture(self.nes_window, "nes", &self.cpu.bus.ppu.frame())?;
             if self.menu {
                 self.draw_menu(data)?;
             }

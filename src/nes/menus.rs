@@ -86,7 +86,7 @@ impl Nes {
                 y += 20;
             }
             data.set_draw_scale(1);
-            data.copy_draw_target(1, "message")?;
+            data.copy_draw_target(self.nes_window, "message")?;
             data.clear_draw_target();
         }
         Ok(())
@@ -118,35 +118,35 @@ impl Nes {
 
         // TODO draw menu config, add interactivity
 
-        data.copy_draw_target(1, "menu")?;
+        data.copy_draw_target(self.nes_window, "menu")?;
         data.clear_draw_target();
         Ok(())
     }
 
     pub(super) fn create_textures(&mut self, data: &mut StateData) -> NesResult<()> {
         data.create_texture(
-            1,
+            self.nes_window,
             "nes",
             ColorType::Rgb,
             Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
             Rect::new(0, 0, self.width, self.height),
         )?;
         data.create_texture(
-            1,
+            self.nes_window,
             "message",
             ColorType::Rgba,
             Rect::new(0, 0, self.width, MSG_HEIGHT),
             Rect::new(0, 0, self.width, MSG_HEIGHT),
         )?;
         data.create_texture(
-            1,
+            self.nes_window,
             "menu",
             ColorType::Rgba,
             Rect::new(0, 0, self.width, self.height),
             Rect::new(0, 0, self.width, self.height),
         )?;
         data.create_texture(
-            1,
+            self.nes_window,
             "debug",
             ColorType::Rgba,
             Rect::new(0, 0, DEBUG_WIDTH, self.height),
@@ -157,7 +157,10 @@ impl Nes {
 
     pub(super) fn check_focus(&mut self) {
         let id = self.focused_window;
-        if id != 1 && Some(id) != self.ppu_viewer_window && Some(id) != self.nt_viewer_window {
+        if id != self.nes_window
+            && Some(id) != self.ppu_viewer_window
+            && Some(id) != self.nt_viewer_window
+        {
             // Only pause and set lost_focus if we weren't already paused
             if !self.paused {
                 self.lost_focus = true;
