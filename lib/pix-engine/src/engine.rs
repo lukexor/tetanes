@@ -142,7 +142,9 @@ where
                     if !self.data.title().is_empty() {
                         title.push_str(&format!(" - {}", self.data.title()));
                     }
-                    self.data.set_title(&title)?;
+                    self.data
+                        .driver
+                        .set_title(self.data.main_window(), &title)?;
                     frame_counter = 0;
                 }
             }

@@ -77,10 +77,8 @@ impl StateData {
         &self.title
     }
     /// Set a custom title to append
-    pub fn set_title(&mut self, title: &str) -> PixEngineResult<()> {
+    pub fn set_title(&mut self, title: &str) {
         self.title = title.to_string();
-        self.driver.set_title(self.main_window, title)?;
-        Ok(())
     }
     /// Toggle fullscreen
     pub fn fullscreen(&mut self, val: bool) -> PixEngineResult<()> {

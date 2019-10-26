@@ -194,7 +194,7 @@ impl State for Nes {
                     self.add_message(&e.to_string());
                 }
             }
-            self.update_title(data)?;
+            self.update_title(data);
         }
 
         if self.config.debug {
@@ -217,7 +217,7 @@ impl State for Nes {
     fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<()> {
         self.poll_events(data)?;
         self.check_focus();
-        self.update_title(data)?;
+        self.update_title(data);
 
         // Save rewind snapshot
         if self.config.rewind_enabled && self.config.save_enabled {
