@@ -10,13 +10,13 @@ pub mod draw;
 pub mod transform;
 
 pub trait State {
-    fn on_start(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
-        Ok(())
+    fn on_start(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
+        Ok(true)
     }
-    fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
-        Ok(())
+    fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
+        Ok(true)
     }
-    fn on_update(&mut self, _elapsed: f32, _data: &mut StateData) -> PixEngineResult<()> {
+    fn on_update(&mut self, _elapsed: f32, _data: &mut StateData) -> PixEngineResult<bool> {
         Err(PixEngineErr::new("on_update must be implemented"))
     }
 }

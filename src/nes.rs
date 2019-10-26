@@ -43,6 +43,7 @@ pub struct Nes {
     menu: bool,
     cpu_break: bool,
     break_instr: Option<u16>,
+    should_close: bool,
     nes_window: u32,
     ppu_viewer_window: Option<u32>,
     nt_viewer_window: Option<u32>,
@@ -92,6 +93,7 @@ impl Nes {
             menu: false,
             cpu_break: false,
             break_instr: None,
+            should_close: false,
             nes_window: 0,
             ppu_viewer_window: None,
             nt_viewer_window: None,
@@ -154,7 +156,7 @@ impl Nes {
 }
 
 impl State for Nes {
-    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<()> {
+    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
         self.nes_window = data.main_window();
 
         // Before rendering anything, set up our textures
@@ -211,11 +213,14 @@ impl State for Nes {
             data.fullscreen(true)?;
         }
 
-        Ok(())
+        Ok(true)
     }
 
-    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<()> {
+    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
         self.poll_events(data)?;
+        if self.should_close {
+            return Ok(false);
+        }
         self.check_focus();
         self.update_title(data);
 
@@ -289,12 +294,12 @@ impl State for Nes {
             data.enqueue_audio(&samples);
         }
         self.cpu.bus.apu.clear_samples();
-        Ok(())
+        Ok(true)
     }
 
-    fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
+    fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
         self.power_off()?;
-        Ok(())
+        Ok(true)
     }
 }
 

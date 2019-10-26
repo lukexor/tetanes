@@ -260,6 +260,7 @@ impl Nes {
             }
             Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
             Key::O if c => self.add_message("Open Dialog not implemented"), // TODO
+            Key::Q if c => self.should_close = true,
             Key::R if c => {
                 self.paused(false);
                 self.reset();
@@ -332,7 +333,7 @@ impl Nes {
     }
 
     fn handle_input_event(&mut self, key: Key, pressed: bool, turbo: bool) {
-        if self.focused_window != 1 {
+        if self.focused_window != self.nes_window {
             return;
         }
 
@@ -386,7 +387,7 @@ impl Nes {
         pressed: bool,
         turbo: bool,
     ) -> NesResult<()> {
-        if self.focused_window != 1 {
+        if self.focused_window != self.nes_window {
             return Ok(());
         }
 
@@ -420,7 +421,7 @@ impl Nes {
         Ok(())
     }
     fn handle_gamepad_axis(&mut self, gamepad_id: i32, axis: Axis, value: i16) -> NesResult<()> {
-        if self.focused_window != 1 {
+        if self.focused_window != self.nes_window {
             return Ok(());
         }
 

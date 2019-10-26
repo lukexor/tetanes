@@ -63,9 +63,10 @@ where
         }
 
         // Create user resources on start up
-        let start = self.state.on_start(&mut self.data);
-        if start.is_err() {
-            return start;
+        match self.state.on_start(&mut self.data) {
+            Ok(false) => return Ok(()),
+            Err(e) => return Err(e),
+            _ => (), // continue on
         }
 
         // Average FPS if debug enabled
@@ -91,7 +92,7 @@ where
                     match event {
                         PixEvent::Quit | PixEvent::AppTerminating => self.should_close = true,
                         PixEvent::WinClose(window_id) => {
-                            if window_id == 1 {
+                            if window_id == self.data.main_window() {
                                 self.should_close = true;
                             } else {
                                 self.data.driver.close_window(window_id);
@@ -115,9 +116,10 @@ where
                 self.data.update_mouse_states();
 
                 // Handle user frame updates
-                let update = self.state.on_update(elapsed.as_secs_f32(), &mut self.data);
-                if update.is_err() {
-                    return update;
+                match self.state.on_update(elapsed.as_secs_f32(), &mut self.data) {
+                    Ok(false) => self.should_close = true,
+                    Err(e) => return Err(e),
+                    _ => (), // continue on
                 }
 
                 // Display updated frame
@@ -149,9 +151,10 @@ where
                 }
             }
 
-            let on_stop = self.state.on_stop(&mut self.data);
-            if on_stop.is_err() {
-                return on_stop;
+            match self.state.on_stop(&mut self.data) {
+                Ok(false) => self.should_close = false,
+                Err(e) => return Err(e),
+                _ => (), // continue on
             }
         }
 
