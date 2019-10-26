@@ -3,9 +3,10 @@
 //! [https://wiki.nesdev.com/w/index.php/APU]()
 
 use crate::{
-    common::{Clocked, LogLevel, Loggable, Powered},
+    common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
     filter::{Filter, HiPassFilter, LoPassFilter},
+    logging::{LogLevel, Loggable},
     mapper::{self, MapperRef},
     memory::Memory,
     serialization::Savable,
@@ -383,7 +384,7 @@ impl Loggable for Apu {
     fn set_log_level(&mut self, level: LogLevel) {
         self.log_level = level;
     }
-    fn log_level(&mut self) -> LogLevel {
+    fn log_level(&self) -> LogLevel {
         self.log_level
     }
 }
@@ -1070,7 +1071,7 @@ impl Loggable for Dmc {
     fn set_log_level(&mut self, level: LogLevel) {
         self.log_level = level;
     }
-    fn log_level(&mut self) -> LogLevel {
+    fn log_level(&self) -> LogLevel {
         self.log_level
     }
 }

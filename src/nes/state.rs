@@ -1,5 +1,6 @@
 use crate::{
-    common::{home_dir, Powered, CONFIG_DIR},
+    common::{home_dir, Clocked, Powered, CONFIG_DIR},
+    logging::{LogLevel, Loggable},
     map_nes_err, mapper,
     nes::Nes,
     nes_err,
@@ -219,7 +220,7 @@ impl Nes {
             nes_err!("invalid path: {:?}", path)?;
         }
         if roms.is_empty() {
-            nes_err!("no rom files found or specified")
+            nes_err!("no rom files found or specified in {:?}", path)
         } else {
             Ok(roms)
         }
@@ -245,6 +246,32 @@ impl Powered for Nes {
         if self.config.debug {
             self.paused(true);
         }
+    }
+}
+
+impl Clocked for Nes {
+    /// Steps the console a single CPU instruction at a time
+    fn clock(&mut self) -> usize {
+        if self.config.debug && self.should_break() {
+            if self.break_instr == Some(self.cpu.pc) {
+                self.break_instr = None;
+            } else {
+                self.paused(true);
+                self.cpu_break = true;
+                self.break_instr = Some(self.cpu.pc);
+                return 0;
+            }
+        }
+        self.cpu.clock()
+    }
+}
+
+impl Loggable for Nes {
+    fn set_log_level(&mut self, level: LogLevel) {
+        self.config.log_level = level;
+    }
+    fn log_level(&self) -> LogLevel {
+        self.config.log_level
     }
 }
 

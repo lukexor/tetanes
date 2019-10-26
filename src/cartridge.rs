@@ -1,7 +1,14 @@
 //! Handles reading NES Cartridge headers and ROMs
 
 use crate::{
-    map_nes_err, mapper::Mirroring, memory::Rom, nes_err, serialization::Savable, NesResult,
+    info,
+    logging::{LogLevel, Loggable},
+    map_nes_err,
+    mapper::Mirroring,
+    memory::Rom,
+    nes_err,
+    serialization::Savable,
+    NesResult,
 };
 use std::{
     fmt,
@@ -18,6 +25,7 @@ pub struct Cartridge {
     pub header: INesHeader,
     pub prg_rom: Rom, // Program ROM
     pub chr_rom: Rom, // Character ROM
+    log_level: LogLevel,
 }
 
 impl Cartridge {
@@ -28,6 +36,7 @@ impl Cartridge {
             header: INesHeader::new(),
             prg_rom: Rom::init(PRG_ROM_BANK_SIZE),
             chr_rom: Rom::init(CHR_ROM_BANK_SIZE),
+            log_level: LogLevel::default(),
         }
     }
 
@@ -45,12 +54,13 @@ impl Cartridge {
         use std::path::PathBuf;
 
         let rom_data = std::fs::File::open(&PathBuf::from(rom_file))
-            .map_err(|e| map_nes_err!("unable to open file \"{}\": {}", rom_file, e,))?;
+            .map_err(|e| map_nes_err!("unable to open file \"{}\": {}", rom_file, e))?;
         let mut rom_data = BufReader::new(rom_data);
 
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;
-        let header = INesHeader::from_bytes(&header)?;
+        let header = INesHeader::from_bytes(&header)
+            .map_err(|e| map_nes_err!("invalid rom \"{}\": {}", rom_file, e))?;
 
         let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
         rom_data.read_exact(&mut prg_rom).map_err(|e| {
@@ -61,7 +71,8 @@ impl Cartridge {
             };
 
             map_nes_err!(
-                "PRG-ROM banks: {}. Bytes remaining: {}. Err: {}",
+                "invalid rom \"{}\". PRG-ROM banks: {}. Bytes remaining: {}. Err: {}",
+                rom_file,
                 header.prg_rom_size,
                 bytes_rem,
                 e,
@@ -78,7 +89,8 @@ impl Cartridge {
             };
 
             map_nes_err!(
-                "CHR-ROM banks: {}. Bytes remaining: {}. Err: {}",
+                "invalid rom \"{}\". CHR-ROM banks: {}. Bytes remaining: {}. Err: {}",
+                rom_file,
                 header.chr_rom_size,
                 bytes_rem,
                 e,
@@ -91,8 +103,10 @@ impl Cartridge {
             header,
             prg_rom,
             chr_rom,
+            log_level: LogLevel::default(),
         };
-        println!(
+        info!(
+            cart,
             "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}",
             rom_file,
             cart.header.mapper_num,
@@ -158,6 +172,15 @@ impl Cartridge {
         } else {
             Ok(0)
         }
+    }
+}
+
+impl Loggable for Cartridge {
+    fn set_log_level(&mut self, level: LogLevel) {
+        self.log_level = level;
+    }
+    fn log_level(&self) -> LogLevel {
+        self.log_level
     }
 }
 

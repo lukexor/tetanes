@@ -4,7 +4,9 @@
 
 use crate::{
     bus::Bus,
-    common::{Clocked, LogLevel, Loggable, Powered},
+    common::{Clocked, Powered},
+    debug, error,
+    logging::{LogLevel, Loggable},
     memory::Memory,
     serialization::Savable,
     NesResult,
@@ -111,7 +113,7 @@ impl Cpu {
             nmi_pending: false,
             last_irq: false,
             last_nmi: false,
-            log_level: LogLevel::Error,
+            log_level: LogLevel::default(),
         }
     }
 
@@ -158,7 +160,7 @@ impl Cpu {
         self.push_stackb(self.status);
         self.set_flag(I, true);
         if self.last_nmi {
-            self.debug("calling irq and executing nmi");
+            debug!(self, "calling irq and executing nmi");
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_ADDR);
@@ -167,7 +169,7 @@ impl Cpu {
         }
         // Prevent NMI from triggering immediately after IRQ
         if self.last_nmi {
-            self.debug("skipping nmi after irq");
+            debug!(self, "skipping nmi after irq");
             self.last_nmi = false;
         }
     }
@@ -177,10 +179,10 @@ impl Cpu {
     /// http://wiki.nesdev.com/w/index.php/NMI
     pub fn set_nmi(&mut self, val: bool) {
         if self.nmi_pending != val {
-            self.debug(&format!(
-                "Changed nmi from {} to {}. Last {}",
-                self.nmi_pending, val, self.last_nmi
-            ));
+            debug!(
+                self,
+                "Changed nmi from {} to {}. Last {}", self.nmi_pending, val, self.last_nmi
+            );
         }
         self.nmi_pending = val;
         self.bus.ppu.nmi_pending = val;
@@ -196,7 +198,7 @@ impl Cpu {
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
     fn nmi(&mut self) {
-        self.debug("nmi");
+        debug!(self, "nmi");
         self.read(self.pc);
         self.read(self.pc);
         self.push_stackw(self.pc);
@@ -906,16 +908,16 @@ impl Cpu {
     fn write_oamdma(&mut self, addr: u8) {
         let mut addr = u16::from(addr) << 8; // Start at $XX00
         let oam_addr = 0x2004;
+        self.run_cycle(); // Dummy cyle to wait for writes to complete
+        if self.cycle_count & 0x01 == 1 {
+            // +1 cycle if on an odd cycle
+            self.run_cycle();
+        }
         for _ in 0..256 {
             // Copy 256 bytes from $XX00-$XXFF
             let val = self.read(addr);
             self.write(oam_addr, val);
             addr = addr.saturating_add(1);
-        }
-        self.stall += 513; // +2 for every read/write and +1 dummy cycle
-        if self.cycle_count & 0x01 == 1 {
-            // +1 cycle if on an odd cycle
-            self.stall += 1;
         }
     }
 
@@ -1081,7 +1083,7 @@ impl Clocked for Cpu {
         let start_cycles = self.cycle_count;
 
         if self.last_nmi {
-            self.debug("calling nmi, clearing nmi pending");
+            debug!(self, "calling nmi, clearing nmi pending");
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.nmi();
@@ -1261,7 +1263,7 @@ impl Loggable for Cpu {
     fn set_log_level(&mut self, level: LogLevel) {
         self.log_level = level;
     }
-    fn log_level(&mut self) -> LogLevel {
+    fn log_level(&self) -> LogLevel {
         self.log_level
     }
 }
@@ -1729,7 +1731,7 @@ impl Cpu {
             self.run_cycle();
         } else {
             if skip_nmi {
-                self.debug("skipping nmi, branch page crossed");
+                debug!(self, "skipping nmi, branch page crossed");
                 self.last_nmi = false;
             }
             if skip_irq {
@@ -1965,7 +1967,7 @@ impl Cpu {
         self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(I, true);
         if self.last_nmi {
-            self.debug("calling brk and executing nmi");
+            debug!(self, "calling brk and executing nmi");
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_ADDR);
@@ -1974,7 +1976,7 @@ impl Cpu {
         }
         // Prevent NMI from triggering immediately after BRK
         if self.last_nmi {
-            self.debug("skipping nmi after brk");
+            debug!(self, "skipping nmi after brk");
             self.last_nmi = false;
         }
     }
@@ -1997,12 +1999,13 @@ impl Cpu {
 
     /// XXX: Captures all unimplemented opcodes
     fn xxx(&mut self) {
-        self.error(&format!(
+        error!(
+            self,
             "Invalid opcode ${:02X} {:?} #{:?} encountered!",
             self.instr.opcode(),
             self.instr.op(),
             self.instr.addr_mode(),
-        ));
+        );
     }
     /// ISC/ISB: Shortcut for INC then SBC
     fn isb(&mut self) {

@@ -1,5 +1,5 @@
 use crate::{
-    common::{LogLevel, Loggable},
+    logging::{LogLevel, Loggable},
     nes::Nes,
     serialization::Savable,
     NesResult,
@@ -40,7 +40,7 @@ impl NesConfig {
         let mut config = Self {
             path: String::new(),
             debug: false,
-            log_level: LogLevel::Error,
+            log_level: LogLevel::default(),
             fullscreen: false,
             vsync: false,
             sound_enabled: true,

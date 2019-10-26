@@ -10,7 +10,7 @@
 //! permissions, the program will print an error and exit.
 
 use rustynes::{
-    common::LogLevel,
+    logging::LogLevel,
     nes::{Nes, NesConfig},
 };
 use std::env;

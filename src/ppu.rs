@@ -3,7 +3,9 @@
 //! [http://wiki.nesdev.com/w/index.php/PPU]()
 
 use crate::{
-    common::{Clocked, LogLevel, Loggable, Powered},
+    common::{Clocked, Powered},
+    debug,
+    logging::{LogLevel, Loggable},
     mapper::{self, MapperRef, Mirroring},
     memory::Memory,
     serialization::Savable,
@@ -114,7 +116,7 @@ impl Ppu {
             ],
             pattern_tables: vec![vec![0; RENDER_SIZE], vec![0; RENDER_SIZE]],
             palette: vec![0; (PALETTE_SIZE + 4) * 3],
-            log_level: LogLevel::Error,
+            log_level: LogLevel::default(),
         }
     }
 
@@ -584,10 +586,10 @@ impl Ppu {
                 self.cycle_count = 0;
                 self.frame.increment();
                 self.frame_complete = true;
-                self.debug(&format!(
-                    "{} frame, jumping from {} to 0",
-                    self.frame.parity, cycle_end
-                ));
+                debug!(
+                    self,
+                    "{} frame, jumping from {} to 0", self.frame.parity, cycle_end
+                );
             }
         }
     }
@@ -698,13 +700,13 @@ impl Ppu {
         // to fail so this condition is added to correct it
         && (self.scanline != PRERENDER_SCANLINE || self.cycle == 0)
         {
-            self.warn(&format!("{}, {}", self.cycle, self.scanline));
-            self.debug(&format!("setting nmi_pending, cycle: {}", self.cycle));
+            warn!(self, "{}, {}", self.cycle, self.scanline);
+            debug!(self, "setting nmi_pending, cycle: {}", self.cycle);
             self.nmi_pending = true;
         }
         // Race condition
         if self.scanline == VBLANK_SCANLINE && !nmi_flag && self.cycle < 4 {
-            self.debug(&format!("nmi pending false, cycle: {}", self.cycle));
+            debug!(self, "nmi pending false, cycle: {}", self.cycle);
             self.nmi_pending = false;
         }
         self.regs.write_ctrl(val);
@@ -716,11 +718,12 @@ impl Ppu {
 
     fn write_ppumask(&mut self, val: u8) {
         if val & 0x08 != self.regs.mask & 0x08 {
-            self.debug(&format!(
+            debug!(
+                self,
                 "setting bg: {}, cycle: {}",
                 val & 0x08 > 0,
                 self.cycle
-            ));
+            );
         }
         self.regs.write_mask(val);
     }
@@ -733,16 +736,16 @@ impl Ppu {
         let mut status = self.regs.read_status();
         // Race conditions
         if self.scanline == VBLANK_SCANLINE {
-            self.debug(&format!(
-                "reading status as ${:04X} cyc: {}",
-                status, self.cycle
-            ));
+            debug!(
+                self,
+                "reading status as ${:04X} cyc: {}", status, self.cycle
+            );
             if self.cycle == 1 {
-                self.debug("cycle matched, returning clear");
+                debug!(self, "cycle matched, returning clear");
                 status &= !0x80;
             }
             if self.cycle < 4 {
-                self.debug(&format!("supressing nmi, cycle: {}", self.cycle));
+                debug!(self, "supressing nmi, cycle: {}", self.cycle);
                 self.nmi_pending = false;
             }
         }
@@ -767,10 +770,10 @@ impl Ppu {
         self.regs.set_sprite_overflow(val);
     }
     fn start_vblank(&mut self) {
-        self.debug(&format!("started vbl {}", self.cycle));
+        debug!(self, "started vbl {}", self.cycle);
         self.regs.start_vblank();
         if self.nmi_enabled() {
-            self.debug("nmi enabled, nmi pending true");
+            debug!(self, "nmi enabled, nmi pending true");
             self.nmi_pending = true;
         }
         // Ensure our mapper knows vbl changed
@@ -781,10 +784,7 @@ impl Ppu {
     }
     fn stop_vblank(&mut self) {
         self.regs.stop_vblank();
-        self.debug(&format!(
-            "Stopping vblank, clearing nmi, cycle: {}",
-            self.cycle
-        ));
+        debug!(self, "Stopping vblank, clearing nmi, cycle: {}", self.cycle);
         // Ensure our mapper knows vbl changed
         self.vram
             .mapper
@@ -1010,7 +1010,7 @@ impl Loggable for Ppu {
     fn set_log_level(&mut self, level: LogLevel) {
         self.log_level = level;
     }
-    fn log_level(&mut self) -> LogLevel {
+    fn log_level(&self) -> LogLevel {
         self.log_level
     }
 }

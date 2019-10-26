@@ -4,6 +4,7 @@ use crate::{
     bus::Bus,
     common::Clocked,
     cpu::{Cpu, CPU_CLOCK_RATE},
+    logging::{LogLevel, Loggable},
     memory,
     nes::{config::DEFAULT_SPEED, debug::DEBUG_WIDTH, menus::Message},
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
@@ -154,8 +155,9 @@ impl State for Nes {
         // Before rendering anything, set up our textures
         self.create_textures(data)?;
 
-        if let Ok(mut roms) = self.find_roms() {
-            self.roms.append(&mut roms);
+        match self.find_roms() {
+            Ok(mut roms) => self.roms.append(&mut roms),
+            Err(e) => error!(self, "{}", e),
         }
         if self.roms.len() == 1 {
             self.load_rom(0)?;
@@ -184,19 +186,6 @@ impl State for Nes {
             data.fullscreen(true)?;
         }
 
-        // Smooths out startup graphic glitches for some games
-        if !self.paused {
-            let startup_frames = 60;
-            for _ in 0..startup_frames {
-                self.poll_events(data)?;
-                self.clock_frame();
-                if self.config.sound_enabled {
-                    let samples = self.cpu.bus.apu.samples();
-                    data.enqueue_audio(&samples);
-                }
-                self.cpu.bus.apu.clear_samples();
-            }
-        }
         Ok(())
     }
 
@@ -281,23 +270,6 @@ impl State for Nes {
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<()> {
         self.power_off()?;
         Ok(())
-    }
-}
-
-impl Clocked for Nes {
-    /// Steps the console a single CPU instruction at a time
-    fn clock(&mut self) -> usize {
-        if self.config.debug && self.should_break() {
-            if self.break_instr == Some(self.cpu.pc) {
-                self.break_instr = None;
-            } else {
-                self.paused(true);
-                self.cpu_break = true;
-                self.break_instr = Some(self.cpu.pc);
-                return 0;
-            }
-        }
-        self.cpu.clock()
     }
 }
 

@@ -27,41 +27,6 @@ pub trait Clocked {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LogLevel {
-    Off,
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
-}
-
-pub trait Loggable {
-    fn set_log_level(&mut self, level: LogLevel);
-    fn log_level(&mut self) -> LogLevel;
-    fn error(&mut self, msg: &str) {
-        self.log(LogLevel::Error, msg);
-    }
-    fn warn(&mut self, msg: &str) {
-        self.log(LogLevel::Warn, msg);
-    }
-    fn info(&mut self, msg: &str) {
-        self.log(LogLevel::Info, msg);
-    }
-    fn debug(&mut self, msg: &str) {
-        self.log(LogLevel::Debug, msg);
-    }
-    fn trace(&mut self, msg: &str) {
-        self.log(LogLevel::Trace, msg);
-    }
-    fn log(&mut self, level: LogLevel, msg: &str) {
-        if self.log_level() >= level {
-            println!("{}", msg);
-        }
-    }
-}
-
 /// Returns the users current HOME directory (if one exists)
 pub fn home_dir() -> Option<PathBuf> {
     dirs::home_dir().and_then(|d| Some(d.to_path_buf()))

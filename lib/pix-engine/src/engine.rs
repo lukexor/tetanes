@@ -80,8 +80,6 @@ where
         while !self.should_close {
             // Extra loop allows on_destroy to prevent closing
             while !self.should_close {
-                self.data.events.clear();
-
                 let elapsed = timer.elapsed();
                 timer = Instant::now();
 
