@@ -86,9 +86,11 @@ pub struct Ppu {
     debug: bool,
     nt_scanline: u16,
     pat_scanline: u16,
-    nametables: Vec<Vec<u8>>,
-    pattern_tables: Vec<Vec<u8>>,
-    palette: Vec<u8>,
+    pub nametables: Vec<Vec<u8>>,
+    pub nametable_ids: Vec<u8>,
+    pub pattern_tables: Vec<Vec<u8>>,
+    pub palette: Vec<u8>,
+    pub palette_ids: Vec<u8>,
     log_level: LogLevel,
 }
 
@@ -114,8 +116,10 @@ impl Ppu {
                 vec![0; RENDER_SIZE],
                 vec![0; RENDER_SIZE],
             ],
-            pattern_tables: vec![vec![0; RENDER_SIZE], vec![0; RENDER_SIZE]],
+            nametable_ids: vec![0; 4 * 0x0400],
+            pattern_tables: vec![vec![0; RENDER_SIZE / 2], vec![0; RENDER_SIZE / 2]],
             palette: vec![0; (PALETTE_SIZE + 4) * 3],
+            palette_ids: vec![0; (PALETTE_SIZE + 4) * 3],
             log_level: LogLevel::default(),
         }
     }
@@ -137,14 +141,9 @@ impl Ppu {
     }
 
     pub fn update_debug(&mut self) {
-        self.nametables = vec![
-            self.load_nametable(NT_START),
-            self.load_nametable(NT_START + 0x0400),
-            self.load_nametable(NT_START + 0x0800),
-            self.load_nametable(NT_START + 0x0C00),
-        ];
-        self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
-        self.palette = self.load_palette();
+        self.load_nametables();
+        self.load_pattern_tables();
+        self.load_palettes();
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
@@ -157,85 +156,79 @@ impl Ppu {
         &self.frame.pixels
     }
 
-    pub fn nametables(&self) -> &Vec<Vec<u8>> {
-        &self.nametables
-    }
+    fn load_nametables(&mut self) {
+        for i in 0..4 {
+            let base_addr = NT_START + i * 0x0400;
+            for addr in base_addr..(base_addr + 0x0400 - 64) {
+                let x_scroll = addr & COARSE_X_MASK;
+                let y_scroll = (addr & COARSE_Y_MASK) >> 5;
 
-    fn load_nametable(&self, base_addr: u16) -> Vec<u8> {
-        let mut nametable = vec![0u8; RENDER_SIZE];
-        for addr in base_addr..(base_addr + 0x0400 - 64) {
-            let x_scroll = addr & COARSE_X_MASK;
-            let y_scroll = (addr & COARSE_Y_MASK) >> 5;
+                let nt_base_addr = NT_START + (addr & (NT_X_MASK | NT_Y_MASK));
+                let tile = self.vram.peek(addr);
+                let tile_addr = self.regs.background_select() + u16::from(tile) * 16;
+                let supertile_num = (x_scroll / 4) + (y_scroll / 4) * 8;
+                let attr = u16::from(self.vram.peek(nt_base_addr + 0x3C0 + supertile_num));
+                let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
+                let mask = 0x03 << corner;
+                let palette = (attr & mask) >> corner;
 
-            let nt_base_addr = NT_START + (addr & (NT_X_MASK | NT_Y_MASK));
-            let tile_addr = self.regs.background_select() + u16::from(self.vram.peek(addr)) * 16;
-            let supertile_num = (x_scroll / 4) + (y_scroll / 4) * 8;
-            let attr = u16::from(self.vram.peek(nt_base_addr + 0x3C0 + supertile_num));
-            let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
-            let mask = 0x03 << corner;
-            let palette = (attr & mask) >> corner;
+                let tile_num = x_scroll + y_scroll * 32;
+                let tile_x = (tile_num % 32) * 8;
+                let tile_y = (tile_num / 32) * 8;
 
-            let tile_num = x_scroll + y_scroll * 32;
-            let tile_x = (tile_num % 32) * 8;
-            let tile_y = (tile_num / 32) * 8;
-
-            self.fetch_and_put_tile(
-                tile_addr,
-                palette,
-                tile_x,
-                tile_y,
-                RENDER_WIDTH,
-                &mut nametable,
-            );
-        }
-        nametable
-    }
-
-    pub fn pattern_tables(&self) -> &Vec<Vec<u8>> {
-        &self.pattern_tables
-    }
-
-    fn load_pattern_table(&self, table: usize) -> Vec<u8> {
-        let width = RENDER_WIDTH / 2;
-        let height = width;
-        let mut pat = vec![0u8; (width * height * 3) as usize];
-        let start = table as u16 * 0x1000;
-        let end = start + 0x1000;
-        for tile_addr in (start..end).step_by(16) {
-            let tile_x = ((tile_addr % 0x1000) % 256) / 2;
-            let tile_y = ((tile_addr % 0x1000) / 256) * 8;
-            self.fetch_and_put_tile(tile_addr, 0, tile_x, tile_y, width, &mut pat);
-        }
-        pat
-    }
-
-    fn fetch_and_put_tile(
-        &self,
-        addr: u16,
-        palette: u16,
-        tile_x: u16,
-        tile_y: u16,
-        width: u32,
-        mut pixels: &mut Vec<u8>,
-    ) {
-        for y in 0..8 {
-            let lo = u16::from(self.vram.peek(addr + y));
-            let hi = u16::from(self.vram.peek(addr + y + 8));
-            for x in 0..8 {
-                let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
-                let palette_idx = self.vram.peek(PALETTE_START + palette * 4 + pix_type) as usize;
-                let x = tile_x + (7 - x);
-                let y = tile_y + y;
-                Self::put_pixel(palette_idx, x.into(), y.into(), width, &mut pixels);
+                self.nametable_ids[(addr - NT_START) as usize] = tile;
+                for y in 0..8 {
+                    let lo = u16::from(self.vram.peek(tile_addr + y));
+                    let hi = u16::from(self.vram.peek(tile_addr + y + 8));
+                    for x in 0..8 {
+                        let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
+                        let palette_idx =
+                            self.vram.peek(PALETTE_START + palette * 4 + pix_type) as usize;
+                        let x = tile_x + (7 - x);
+                        let y = tile_y + y;
+                        Self::put_pixel(
+                            palette_idx,
+                            x.into(),
+                            y.into(),
+                            RENDER_WIDTH,
+                            &mut self.nametables[i as usize],
+                        );
+                    }
+                }
             }
         }
     }
 
-    pub fn palette(&self) -> &Vec<u8> {
-        &self.palette
+    fn load_pattern_tables(&mut self) {
+        let width = RENDER_WIDTH / 2;
+        for table in 0..2 {
+            let start = table as u16 * 0x1000;
+            let end = start + 0x1000;
+            for tile_addr in (start..end).step_by(16) {
+                let tile_x = ((tile_addr % 0x1000) % 256) / 2;
+                let tile_y = ((tile_addr % 0x1000) / 256) * 8;
+                for y in 0..8 {
+                    let lo = u16::from(self.vram.peek(tile_addr + y));
+                    let hi = u16::from(self.vram.peek(tile_addr + y + 8));
+                    for x in 0..8 {
+                        let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
+                        let palette_idx = self.vram.peek(PALETTE_START + pix_type) as usize;
+                        let x = tile_x + (7 - x);
+                        let y = tile_y + y;
+                        Self::put_pixel(
+                            palette_idx,
+                            x.into(),
+                            y.into(),
+                            width,
+                            &mut self.pattern_tables[table as usize],
+                        );
+                    }
+                }
+            }
+        }
     }
 
-    fn load_palette(&self) -> Vec<u8> {
+    fn load_palettes(&mut self) {
         // Global  // BG 0 ----------------------------------  // Unused    // SPR 0 -------------------------------
         // 0x3F00: 0,0  0x3F01: 1,0  0x3F02: 2,0  0x3F03: 3,0  0x3F10: 5,0  0x3F11: 6,0  0x3F12: 7,0  0x3F13: 8,0
         // Unused  // BG 1 ----------------------------------  // Unused    // SPR 1 -------------------------------
@@ -244,15 +237,20 @@ impl Ppu {
         // 0x3F08: 0,2  0x3F09: 1,2  0x3F0A: 2,2  0x3F0B: 3,2  0x3F18: 5,2  0x3F19: 6,2  0x3F1A: 7,2  0x3F1B: 8,2
         // Unused  // BG 3 ----------------------------------  // Unused    // SPR 3 -------------------------------
         // 0x3F0C: 0,3  0x3F0D: 1,3  0x3F0E: 2,3  0x3F0F: 3,3  0x3F1C: 5,3  0x3F1D: 6,3  0x3F1E: 7,3  0x3F1F: 8,3
-        let mut palette = vec![0u8; 3 * PALETTE_SIZE];
         let width = 16;
         for addr in PALETTE_START..PALETTE_END {
             let x = (addr - PALETTE_START) % 16;
             let y = (addr - PALETTE_START) / 16;
-            let palette_idx = self.vram.peek(addr) as usize;
-            Self::put_pixel(palette_idx, x.into(), y.into(), width, &mut palette);
+            let palette_idx = self.vram.peek(addr);
+            self.palette_ids[y as usize * width + x as usize] = palette_idx;
+            Self::put_pixel(
+                palette_idx as usize,
+                x.into(),
+                y.into(),
+                width as u32,
+                &mut self.palette,
+            );
         }
-        palette
     }
 
     fn render_dot(&mut self) {
@@ -919,15 +917,11 @@ impl Clocked for Ppu {
 
         if self.debug && self.cycle == 0 {
             if self.scanline == self.nt_scanline {
-                self.nametables = vec![
-                    self.load_nametable(NT_START),
-                    self.load_nametable(NT_START + 0x0400),
-                    self.load_nametable(NT_START + 0x0800),
-                    self.load_nametable(NT_START + 0x0C00),
-                ];
-            } else if self.scanline == self.pat_scanline {
-                self.pattern_tables = vec![self.load_pattern_table(0), self.load_pattern_table(1)];
-                self.palette = self.load_palette();
+                self.load_nametables();
+            }
+            if self.scanline == self.pat_scanline {
+                self.load_pattern_tables();
+                self.load_palettes();
             }
         }
         1

@@ -165,7 +165,7 @@ impl Sdl2Driver {
         PixEvent::GamepadAxis(which, axis, value)
     }
 
-    pub(super) fn map_mouse(&self, btn: MouseButton, x: u32, y: u32, pressed: bool) -> PixEvent {
+    pub(super) fn map_mouse(&self, btn: MouseButton, x: i32, y: i32, pressed: bool) -> PixEvent {
         let btn = match btn {
             MouseButton::Left => Mouse::Left,
             MouseButton::Middle => Mouse::Middle,

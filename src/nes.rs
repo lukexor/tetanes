@@ -6,7 +6,11 @@ use crate::{
     cpu::{Cpu, CPU_CLOCK_RATE},
     logging::{LogLevel, Loggable},
     memory,
-    nes::{config::DEFAULT_SPEED, debug::DEBUG_WIDTH, menus::Message},
+    nes::{
+        config::DEFAULT_SPEED,
+        debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
+        menus::Message,
+    },
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     NesResult,
 };
@@ -23,7 +27,7 @@ pub use config::NesConfig;
 
 const ICON_PATH: &str = "static/rustynes_icon.png";
 const APP_NAME: &str = "RustyNES";
-const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0) as u32; // for 8:7 Aspect Ratio
+const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const REWIND_START: u8 = 5;
 const REWIND_SIZE: u8 = 20;
@@ -52,6 +56,8 @@ pub struct Nes {
     nt_scanline: u32,
     pat_scanline: u32,
     debug_sprite: Sprite,
+    ppu_info_sprite: Sprite,
+    nt_info_sprite: Sprite,
     active_debug: bool,
     width: u32,
     height: u32,
@@ -102,6 +108,8 @@ impl Nes {
             nt_scanline: 0,
             pat_scanline: 0,
             debug_sprite: Sprite::new(DEBUG_WIDTH, height),
+            ppu_info_sprite: Sprite::rgb(INFO_WIDTH, INFO_HEIGHT),
+            nt_info_sprite: Sprite::rgb(INFO_WIDTH, INFO_HEIGHT),
             active_debug: false,
             width,
             height,

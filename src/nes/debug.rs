@@ -1,7 +1,7 @@
 use crate::{
     cpu::{AddrMode::*, Operation::*, StatusRegs, INSTRUCTIONS},
     memory::Memory,
-    nes::Nes,
+    nes::{Nes, WINDOW_WIDTH},
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     NesResult,
 };
@@ -14,6 +14,8 @@ use pix_engine::{
 
 const PALETTE_HEIGHT: u32 = 64;
 pub(super) const DEBUG_WIDTH: u32 = 350;
+pub(super) const INFO_WIDTH: u32 = 2 * RENDER_WIDTH;
+pub(super) const INFO_HEIGHT: u32 = 4 * 10;
 
 impl Nes {
     pub(super) fn toggle_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
@@ -64,34 +66,57 @@ impl Nes {
     pub(super) fn copy_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
         if let Some(ppu_viewer_window) = self.ppu_viewer_window {
             // Set up patterns
-            let pat_tables = self.cpu.bus.ppu.pattern_tables();
+            let pat_tables = &self.cpu.bus.ppu.pattern_tables;
             data.copy_texture(ppu_viewer_window, "left_pattern", &pat_tables[0])?;
             data.copy_texture(ppu_viewer_window, "right_pattern", &pat_tables[1])?;
 
             // Set up palette
-            let palette = self.cpu.bus.ppu.palette();
-            data.copy_texture(ppu_viewer_window, "palette", &palette)?;
+            data.copy_texture(ppu_viewer_window, "palette", &self.cpu.bus.ppu.palette)?;
 
             // Set up info
             let wh = pixel::WHITE;
-            let mut info = Sprite::rgb(2 * RENDER_WIDTH, 4 * 10);
-            data.set_draw_target(&mut info);
+            data.set_draw_target(&mut self.ppu_info_sprite);
             let x = 5;
             let mut y = 5;
             let ypad = 10;
+
+            // Clear
+            let w = self.nt_info_sprite.width();
+            let h = self.nt_info_sprite.height();
+            data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
+
             data.draw_string(x, y, &format!("Scanline: {}", self.pat_scanline), wh);
             y += ypad;
+
             let mx = data.get_mouse_x();
             let my = data.get_mouse_y();
-            let tile_id = if my < RENDER_HEIGHT {
-                (my / 16) << 4 | ((mx / 16) % 16)
+            let (tile, palette) = if self.focused_window == ppu_viewer_window
+                && mx >= 0
+                && my >= 0
+                && mx < (2 * RENDER_WIDTH - 1) as i32
+            {
+                let tile = if my < RENDER_HEIGHT as i32 {
+                    format!("${:02X}", (my / 16) << 4 | ((mx / 16) % 16))
+                } else {
+                    String::new()
+                };
+                let palette = if my >= RENDER_HEIGHT as i32
+                    && my <= (RENDER_HEIGHT + PALETTE_HEIGHT) as i32
+                {
+                    let py = my.saturating_sub(RENDER_HEIGHT as i32 + 2) / 32;
+                    let px = mx / 32;
+                    let palette_id = self.cpu.bus.ppu.palette_ids[(py * 16 + px) as usize];
+                    format!("${:02X}", palette_id)
+                } else {
+                    String::new()
+                };
+                (tile, palette)
             } else {
-                0
+                (String::new(), String::new())
             };
-            data.draw_string(x, y, &format!("Tile ID: ${:02X}", tile_id), wh);
+            data.draw_string(x, y, &format!("Tile: {}", tile), wh);
             y += ypad;
-            // TODO lookup palette ID
-            data.draw_string(x, y, &format!("Palette: ${:02X}", 0), wh);
+            data.draw_string(x, y, &format!("Palette: {}", palette), wh);
             data.copy_draw_target(ppu_viewer_window, "ppu_info")?;
             data.clear_draw_target();
         }
@@ -148,7 +173,7 @@ impl Nes {
         if let Some(nt_viewer_window) = self.nt_viewer_window {
             let wh = pixel::WHITE;
 
-            let nametables = self.cpu.bus.ppu.nametables();
+            let nametables = &self.cpu.bus.ppu.nametables;
             data.copy_texture(nt_viewer_window, "nametable1", &nametables[0])?;
             data.copy_texture(nt_viewer_window, "nametable2", &nametables[1])?;
             data.copy_texture(nt_viewer_window, "nametable3", &nametables[2])?;
@@ -163,8 +188,7 @@ impl Nes {
             data.clear_draw_target();
 
             // Draw info
-            let mut info = Sprite::rgb(2 * RENDER_WIDTH, 4 * 10);
-            data.set_draw_target(&mut info);
+            data.set_draw_target(&mut self.nt_info_sprite);
             let mut x = 5;
             let mut y = 5;
             let ypad = 10;
@@ -174,26 +198,38 @@ impl Nes {
             data.draw_string(x, y, &format!("Mirroring: {:?}", mirroring), wh);
             x = RENDER_WIDTH;
             y = 5;
-            // TODO translate mouse coords into IDs, X, Y and calc PPU addr
+
+            let w = self.nt_info_sprite.width();
+            let h = self.nt_info_sprite.height();
+            data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
+
             let mx = data.get_mouse_x();
             let my = data.get_mouse_y();
-            data.draw_string(x, y, &format!("Tile ID: ${:02X}", 0), wh);
-            y += ypad;
-            data.draw_string(x, y, &format!("X, Y: {}, {}", mx, my), wh);
-            y += ypad;
-            let mut offset = 0x2000;
-            if mx >= RENDER_WIDTH {
-                offset += 0x0400;
-            }
-            if my >= RENDER_HEIGHT {
-                offset += 0x0800;
-            }
-            let ppu_addr = if my < 2 * RENDER_HEIGHT {
-                offset + ((((my / 8) % 30) << 5) | ((mx / 8) % 32))
+
+            if self.focused_window == nt_viewer_window
+                && mx >= 0
+                && my >= 0
+                && mx < 2 * (RENDER_WIDTH - 1) as i32
+                && my < 2 * RENDER_HEIGHT as i32
+            {
+                let nt_addr = 0x2000
+                    + (mx / RENDER_WIDTH as i32) * 0x0400
+                    + (my / RENDER_HEIGHT as i32) * 0x0800;
+                let ppu_addr = nt_addr + ((((my / 8) % 30) << 5) | ((mx / 8) % 32));
+                let tile_id = self.cpu.bus.ppu.nametable_ids[(ppu_addr - 0x2000) as usize];
+
+                data.draw_string(x, y, &format!("Tile ID: ${:02X}", tile_id), wh);
+                y += ypad;
+                data.draw_string(x, y, &format!("X, Y: {}, {}", mx, my), wh);
+                y += ypad;
+                data.draw_string(x, y, &format!("PPU Addr: ${:04X}", ppu_addr), wh);
             } else {
-                0
-            };
-            data.draw_string(x, y, &format!("PPU Addr: ${:04X}", ppu_addr), wh);
+                data.draw_string(x, y, "Tile ID:", wh);
+                y += ypad;
+                data.draw_string(x, y, "X, Y:", wh);
+                y += ypad;
+                data.draw_string(x, y, "PPU Addr:", wh);
+            }
             data.copy_draw_target(nt_viewer_window, "nt_info")?;
             data.clear_draw_target();
         }
@@ -287,9 +323,14 @@ impl Nes {
         let spr = format!("Spr Addr: ${:02X}", ppu.read_oamaddr());
         let sl = i32::from(ppu.scanline) - 1;
         let cycsl = format!("Cycle: {:3}  Scanline: {:3}", ppu.cycle, sl);
-        let mx = ((data.get_mouse_x() / self.config.scale) as f32 * 7.0 / 8.0) as u32;
-        let my = data.get_mouse_y() / self.config.scale;
-        let mouse = format!("Mouse: {:3}, {:3}", mx, my);
+        let mx = data.get_mouse_x() / self.config.scale as i32;
+        let my = data.get_mouse_y() / self.config.scale as i32;
+        let mouse = if mx >= 0 && my >= 0 && mx < WINDOW_WIDTH as i32 && my < RENDER_HEIGHT as i32 {
+            let mx = (mx as f32 * 7.0 / 8.0) as u32;
+            format!("Mouse: {:3}, {:3}", mx, my)
+        } else {
+            "Mouse:".to_string()
+        };
 
         y += fypad;
         data.draw_string(x, y, &cycles, wh);

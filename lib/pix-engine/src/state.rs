@@ -52,8 +52,8 @@ pub struct StateData {
     draw_scale: u32,
     alpha_mode: AlphaMode,
     blend_factor: f32,
-    mouse_x: u32,
-    mouse_y: u32,
+    mouse_x: i32,
+    mouse_y: i32,
     mouse_wheel_delta: i32,
     font: Sprite,
     has_input_focus: bool,
@@ -123,11 +123,11 @@ impl StateData {
         self.mouse_state[button as usize]
     }
     /// Get Mouse X-coord in screen space
-    pub fn get_mouse_x(&self) -> u32 {
+    pub fn get_mouse_x(&self) -> i32 {
         self.mouse_x
     }
     /// Get Mouse Y-coord in screen space
-    pub fn get_mouse_y(&self) -> u32 {
+    pub fn get_mouse_y(&self) -> i32 {
         self.mouse_y
     }
     /// Get Mouse wheel data
@@ -192,7 +192,7 @@ impl StateData {
     pub(super) fn set_focused(&mut self, val: bool) {
         self.has_input_focus = val;
     }
-    pub(super) fn update_mouse(&mut self, x: u32, y: u32) {
+    pub(super) fn update_mouse(&mut self, x: i32, y: i32) {
         self.mouse_x = x;
         self.mouse_y = y;
     }

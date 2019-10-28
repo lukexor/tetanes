@@ -274,10 +274,10 @@ impl Driver for Sdl2Driver {
                 } => self.map_key(key, false, false),
                 Event::MouseButtonDown {
                     mouse_btn, x, y, ..
-                } => self.map_mouse(mouse_btn, x as u32, y as u32, true),
+                } => self.map_mouse(mouse_btn, x, y, true),
                 Event::MouseButtonUp {
                     mouse_btn, x, y, ..
-                } => self.map_mouse(mouse_btn, x as u32, y as u32, false),
+                } => self.map_mouse(mouse_btn, x, y, false),
                 Event::ControllerButtonDown { which, button, .. } => {
                     self.map_button(which, button, true)
                 }
@@ -289,7 +289,7 @@ impl Driver for Sdl2Driver {
                 } => self.map_axis(which, axis, value),
                 // Only really care about vertical scroll
                 Event::MouseWheel { y, .. } => PixEvent::MouseWheel(y),
-                Event::MouseMotion { x, y, .. } => PixEvent::MouseMotion(x as u32, y as u32),
+                Event::MouseMotion { x, y, .. } => PixEvent::MouseMotion(x, y),
                 Event::AppDidEnterBackground { .. } => PixEvent::Background(true),
                 Event::AppDidEnterForeground { .. } => PixEvent::Background(false),
                 _ => PixEvent::None, // Ignore others

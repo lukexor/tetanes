@@ -7,9 +7,9 @@ pub enum PixEvent {
     GamepadBtn(i32, Button, bool),     // Id, Button, pressed
     GamepadAxis(i32, Axis, i16),       // Id, Axis, value
     KeyPress(Key, bool, bool),         // Key, pressed, repeat
-    MousePress(Mouse, u32, u32, bool), // Mouse, x, y, pressed
+    MousePress(Mouse, i32, i32, bool), // Mouse, x, y, pressed
     MouseWheel(i32),                   // Wheel delta
-    MouseMotion(u32, u32),             // x, y
+    MouseMotion(i32, i32),             // x, y
     WinClose(u32),                     // Window Id
     Resized,
     Focus(u32, bool), // Window ID, focused

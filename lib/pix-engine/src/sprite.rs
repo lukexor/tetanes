@@ -20,13 +20,7 @@ pub struct Sprite {
 impl Sprite {
     /// Creates a new sprite with given size
     pub fn new(width: u32, height: u32) -> Self {
-        Self {
-            width,
-            height,
-            channels: 4,
-            color_type: ColorType::Rgba,
-            data: vec![0; 4 * (width * height) as usize],
-        }
+        Self::rgba(width, height)
     }
 
     pub fn rgb(width: u32, height: u32) -> Self {
@@ -36,6 +30,16 @@ impl Sprite {
             channels: 3,
             color_type: ColorType::Rgb,
             data: vec![0; 3 * (width * height) as usize],
+        }
+    }
+
+    pub fn rgba(width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            channels: 4,
+            color_type: ColorType::Rgba,
+            data: vec![0; 4 * (width * height) as usize],
         }
     }
 

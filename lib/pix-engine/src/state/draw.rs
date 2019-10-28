@@ -152,10 +152,13 @@ impl StateData {
 
     // Clears entire draw target to empty
     pub fn clear(&mut self) {
-        let width = self.screen_width;
-        let height = self.screen_height;
         let target = self.get_draw_target_mut();
-        *target = Sprite::new(width, height);
+        let width = target.width();
+        let height = target.height();
+        *target = match target.color_type() {
+            ColorType::Rgb => Sprite::rgb(width, height),
+            ColorType::Rgba => Sprite::rgba(width, height),
+        }
     }
 
     // Draws a single pixel to the draw target
