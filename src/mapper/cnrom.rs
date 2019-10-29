@@ -6,6 +6,7 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
+    logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
     memory::{Banks, Memory, Ram, Rom},
     serialization::Savable,
@@ -87,6 +88,7 @@ impl Memory for Cnrom {
 
 impl Clocked for Cnrom {}
 impl Powered for Cnrom {}
+impl Loggable for Cnrom {}
 
 impl Savable for Cnrom {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {

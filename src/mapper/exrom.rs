@@ -6,6 +6,8 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
+    debug,
+    logging::{LogLevel, Loggable},
     mapper::{Mapper, MapperRef, Mirroring},
     memory::{Memory, Ram, Rom},
     serialization::Savable,
@@ -45,6 +47,7 @@ pub struct Exrom {
     prg_ram: [Ram; 2],
     prg_rom: Rom,
     chr: Ram,
+    log_level: LogLevel,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -126,6 +129,7 @@ impl Exrom {
             prg_ram,
             prg_rom: cart.prg_rom,
             chr: cart.chr_rom.to_ram(),
+            log_level: LogLevel::default(),
         };
         exrom.prg_banks[3] = 0x80 | (num_rom_banks - 2);
         exrom.prg_banks[4] = 0x80 | (num_rom_banks - 1);
@@ -168,7 +172,7 @@ impl Exrom {
                 self.prg_banks[self.regs.prg_mode as usize] = bank | rom_mask;
             }
             0x5117 => {
-                // 0x00 shifts 2, and uses bank 1
+                // 0x00 shifts 2 and uses bank 1
                 // 0x01 shifts 1 and uses bank 2
                 // 0x02 shifts 0 and uses bank 3
                 // 0x03 shifts 0 and uses bank 4
@@ -598,6 +602,15 @@ impl Powered for Exrom {
     fn reset(&mut self) {
         self.regs.prg_mode = 0x03;
         self.regs.chr_mode = 0x03;
+    }
+}
+
+impl Loggable for Exrom {
+    fn set_log_level(&mut self, level: LogLevel) {
+        self.log_level = level;
+    }
+    fn log_level(&self) -> LogLevel {
+        self.log_level
     }
 }
 

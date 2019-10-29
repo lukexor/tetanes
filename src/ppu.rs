@@ -4,7 +4,6 @@
 
 use crate::{
     common::{Clocked, Powered},
-    debug,
     logging::{LogLevel, Loggable},
     mapper::{self, MapperRef, Mirroring},
     memory::Memory,
@@ -584,10 +583,6 @@ impl Ppu {
                 self.cycle_count = 0;
                 self.frame.increment();
                 self.frame_complete = true;
-                debug!(
-                    self,
-                    "{} frame, jumping from {} to 0", self.frame.parity, cycle_end
-                );
             }
         }
     }
@@ -698,12 +693,10 @@ impl Ppu {
         // to fail so this condition is added to correct it
         && (self.scanline != PRERENDER_SCANLINE || self.cycle == 0)
         {
-            debug!(self, "setting nmi_pending, cycle: {}", self.cycle);
             self.nmi_pending = true;
         }
         // Race condition
         if self.scanline == VBLANK_SCANLINE && !nmi_flag && self.cycle < 4 {
-            debug!(self, "nmi pending false, cycle: {}", self.cycle);
             self.nmi_pending = false;
         }
         self.regs.write_ctrl(val);
@@ -714,14 +707,6 @@ impl Ppu {
      */
 
     fn write_ppumask(&mut self, val: u8) {
-        if val & 0x08 != self.regs.mask & 0x08 {
-            debug!(
-                self,
-                "setting bg: {}, cycle: {}",
-                val & 0x08 > 0,
-                self.cycle
-            );
-        }
         self.regs.write_mask(val);
     }
 
@@ -733,16 +718,10 @@ impl Ppu {
         let mut status = self.regs.read_status();
         // Race conditions
         if self.scanline == VBLANK_SCANLINE {
-            debug!(
-                self,
-                "reading status as ${:04X} cyc: {}", status, self.cycle
-            );
             if self.cycle == 1 {
-                debug!(self, "cycle matched, returning clear");
                 status &= !0x80;
             }
             if self.cycle < 4 {
-                debug!(self, "supressing nmi, cycle: {}", self.cycle);
                 self.nmi_pending = false;
             }
         }
@@ -767,10 +746,8 @@ impl Ppu {
         self.regs.set_sprite_overflow(val);
     }
     fn start_vblank(&mut self) {
-        debug!(self, "started vbl {}", self.cycle);
         self.regs.start_vblank();
         if self.nmi_enabled() {
-            debug!(self, "nmi enabled, nmi pending true");
             self.nmi_pending = true;
         }
         // Ensure our mapper knows vbl changed
@@ -781,7 +758,6 @@ impl Ppu {
     }
     fn stop_vblank(&mut self) {
         self.regs.stop_vblank();
-        debug!(self, "Stopping vblank, clearing nmi, cycle: {}", self.cycle);
         // Ensure our mapper knows vbl changed
         self.vram
             .mapper

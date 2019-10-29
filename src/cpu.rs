@@ -5,7 +5,7 @@
 use crate::{
     bus::Bus,
     common::{Clocked, Powered},
-    debug, error,
+    error,
     logging::{LogLevel, Loggable},
     memory::Memory,
     serialization::Savable,
@@ -160,7 +160,6 @@ impl Cpu {
         self.push_stackb(self.status);
         self.set_flag(I, true);
         if self.last_nmi {
-            debug!(self, "calling irq and executing nmi");
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_ADDR);
@@ -169,7 +168,6 @@ impl Cpu {
         }
         // Prevent NMI from triggering immediately after IRQ
         if self.last_nmi {
-            debug!(self, "skipping nmi after irq");
             self.last_nmi = false;
         }
     }
@@ -178,12 +176,6 @@ impl Cpu {
     ///
     /// http://wiki.nesdev.com/w/index.php/NMI
     pub fn set_nmi(&mut self, val: bool) {
-        if self.nmi_pending != val {
-            debug!(
-                self,
-                "Changed nmi from {} to {}. Last {}", self.nmi_pending, val, self.last_nmi
-            );
-        }
         self.nmi_pending = val;
         self.bus.ppu.nmi_pending = val;
     }
@@ -198,7 +190,6 @@ impl Cpu {
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
     fn nmi(&mut self) {
-        debug!(self, "nmi");
         self.read(self.pc);
         self.read(self.pc);
         self.push_stackw(self.pc);
@@ -1083,7 +1074,6 @@ impl Clocked for Cpu {
         let start_cycles = self.cycle_count;
 
         if self.last_nmi {
-            debug!(self, "calling nmi, clearing nmi pending");
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.nmi();
@@ -1731,7 +1721,6 @@ impl Cpu {
             self.run_cycle();
         } else {
             if skip_nmi {
-                debug!(self, "skipping nmi, branch page crossed");
                 self.last_nmi = false;
             }
             if skip_irq {
@@ -1967,7 +1956,6 @@ impl Cpu {
         self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(I, true);
         if self.last_nmi {
-            debug!(self, "calling brk and executing nmi");
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_ADDR);
@@ -1976,7 +1964,6 @@ impl Cpu {
         }
         // Prevent NMI from triggering immediately after BRK
         if self.last_nmi {
-            debug!(self, "skipping nmi after brk");
             self.last_nmi = false;
         }
     }

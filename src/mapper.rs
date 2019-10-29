@@ -5,6 +5,7 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
+    logging::Loggable,
     memory::Memory,
     serialization::Savable,
     {nes_err, NesResult},
@@ -50,7 +51,7 @@ pub enum Mirroring {
 }
 
 /// Mapper trait requiring Memory + Send + Savable
-pub trait Mapper: Memory + Savable + Clocked + Powered + fmt::Debug {
+pub trait Mapper: Memory + Savable + Clocked + Powered + Loggable + fmt::Debug {
     fn irq_pending(&mut self) -> bool {
         false
     }
@@ -101,6 +102,7 @@ impl Memory for NullMapper {}
 impl Savable for NullMapper {}
 impl Clocked for NullMapper {}
 impl Powered for NullMapper {}
+impl Loggable for NullMapper {}
 
 pub fn null() -> MapperRef {
     Rc::new(RefCell::new(NullMapper {}))

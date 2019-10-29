@@ -1,6 +1,8 @@
 pub trait Loggable {
-    fn set_log_level(&mut self, level: LogLevel);
-    fn log_level(&self) -> LogLevel;
+    fn set_log_level(&mut self, _level: LogLevel) {}
+    fn log_level(&self) -> LogLevel {
+        LogLevel::Off
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

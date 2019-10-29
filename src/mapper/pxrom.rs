@@ -5,6 +5,7 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
+    logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
     memory::{Banks, Memory, Ram, Rom},
     serialization::Savable,
@@ -146,6 +147,8 @@ impl Powered for Pxrom {
         self.chr_rom_latch = [true; 2];
     }
 }
+
+impl Loggable for Pxrom {}
 
 impl Savable for Pxrom {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {

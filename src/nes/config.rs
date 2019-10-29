@@ -139,7 +139,7 @@ impl Nes {
         self.cpu.set_log_level(level);
         self.cpu.bus.ppu.set_log_level(level);
         self.cpu.bus.apu.set_log_level(level);
-        // self.cpu.bus.mapper.set_log_level(level);
+        self.cpu.bus.mapper.borrow_mut().set_log_level(level);
         if level > LogLevel::Debug {
             self.config.sound_enabled = false;
         }
