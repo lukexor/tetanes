@@ -192,16 +192,17 @@ impl Nes {
             let mut x = 5;
             let mut y = 5;
             let ypad = 10;
+
+            let w = self.nt_info_sprite.width();
+            let h = self.nt_info_sprite.height();
+            data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
+
             data.draw_string(x, y, &format!("Scanline: {}", self.nt_scanline), wh);
             y += ypad;
             let mirroring = self.cpu.bus.mapper.borrow().mirroring();
             data.draw_string(x, y, &format!("Mirroring: {:?}", mirroring), wh);
             x = RENDER_WIDTH;
             y = 5;
-
-            let w = self.nt_info_sprite.width();
-            let h = self.nt_info_sprite.height();
-            data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
 
             let mx = data.get_mouse_x();
             let my = data.get_mouse_y();
