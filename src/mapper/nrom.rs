@@ -7,7 +7,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
-    memory::{Banks, Memory, Ram, Rom},
+    memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
@@ -30,11 +30,11 @@ pub struct Nrom {
     mirroring: Mirroring,
     open_bus: u8,
     nrom_size: NromSize,
-    prg_ram: Ram, // CPU $6000-$7FFF 2K or 4K PRG RAM Family Basic only. 8K is provided
+    prg_ram: Memory, // CPU $6000-$7FFF 2K or 4K PRG RAM Family Basic only. 8K is provided
     // CPU $8000-$BFFF 16 KB PRG ROM Bank 1 for NROM128 or NROM256
     // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
-    prg_rom_banks: Banks<Rom>,
-    chr_banks: Banks<Ram>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Bank
+    prg_rom_banks: Banks<Memory>,
+    chr_banks: Banks<Memory>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Bank
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -46,13 +46,13 @@ use NromSize::*;
 
 impl Nrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_ram = Ram::init(PRG_RAM_SIZE);
+        let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = if cart.chr_rom.len() == 0 {
-            let chr_ram = Ram::init(CHR_RAM_SIZE);
+        let chr_banks = if cart.chr_rom.is_empty() {
+            let chr_ram = Memory::ram(CHR_RAM_SIZE);
             Banks::init(&chr_ram, CHR_ROM_BANK_SIZE)
         } else {
-            Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE)
+            Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE)
         };
         let nrom_size = if cart.prg_rom.len() > 0x4000 {
             Nrom256
@@ -60,7 +60,7 @@ impl Nrom {
             Nrom128
         };
         let nrom = Self {
-            has_chr_ram: cart.chr_rom.len() == 0,
+            has_chr_ram: cart.chr_rom.is_empty(),
             battery_backed: cart.battery_backed(),
             mirroring: cart.mirroring(),
             open_bus: 0u8,
@@ -97,7 +97,7 @@ impl Mapper for Nrom {
     }
 }
 
-impl Memory for Nrom {
+impl MemRead for Nrom {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -119,7 +119,9 @@ impl Memory for Nrom {
             }
         }
     }
+}
 
+impl MemWrite for Nrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             // Only CHR-RAM can be written to

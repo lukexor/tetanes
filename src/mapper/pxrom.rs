@@ -7,7 +7,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
-    memory::{Banks, Memory, Ram, Rom},
+    memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
@@ -38,20 +38,20 @@ pub struct Pxrom {
     chr_rom_latch: [bool; 2], // Latch 0 and Latch 1
     prg_rom_bank_idx: [usize; 4],
     chr_rom_bank_idx: [usize; 4], // Banks for when Latches 0 and 1 are $FD or FE
-    prg_ram: Ram,                 // CPU $6000-$7FFF 8 KB PRG RAM bank (PlayChoice version only)
+    prg_ram: Memory,              // CPU $6000-$7FFF 8 KB PRG RAM bank (PlayChoice version only)
     // CPU $8000-$9FFF 8 KB switchable PRG ROM bank
     // CPU $A000-$FFFF Three 8 KB PRG ROM banks, fixed to the last three banks
-    prg_rom_banks: Banks<Rom>,
+    prg_rom_banks: Banks<Memory>,
     // PPU $0000..=$0FFFF Two 4 KB switchable CHR ROM banks
     // PPU $1000..=$1FFFF Two 4 KB switchable CHR ROM banks
-    chr_banks: Banks<Ram>,
+    chr_banks: Banks<Memory>,
 }
 
 impl Pxrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_ram = Ram::init(PRG_RAM_SIZE);
+        let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE);
+        let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
         let prg_len = prg_rom_banks.len();
         let pxrom = Self {
             mirroring: cart.mirroring(),
@@ -72,7 +72,7 @@ impl Mapper for Pxrom {
     }
 }
 
-impl Memory for Pxrom {
+impl MemRead for Pxrom {
     fn read(&mut self, addr: u16) -> u8 {
         let val = self.peek(addr);
         match addr {
@@ -113,7 +113,9 @@ impl Memory for Pxrom {
             }
         }
     }
+}
 
+impl MemWrite for Pxrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),

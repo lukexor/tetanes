@@ -6,7 +6,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
     mapper::{self, MapperRef, Mirroring},
-    memory::Memory,
+    memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
@@ -85,6 +85,7 @@ pub struct Ppu {
     debug: bool,
     nt_scanline: u16,
     pat_scanline: u16,
+    // TODO change Vec to Memory
     pub nametables: Vec<Vec<u8>>,
     pub nametable_ids: Vec<u8>,
     pub pattern_tables: Vec<Vec<u8>>,
@@ -904,7 +905,7 @@ impl Clocked for Ppu {
     }
 }
 
-impl Memory for Ppu {
+impl MemRead for Ppu {
     fn read(&mut self, addr: u16) -> u8 {
         match addr {
             0x2000 => self.regs.open_bus, // PPUCTRL is write-only
@@ -944,7 +945,9 @@ impl Memory for Ppu {
             _ => 0,
         }
     }
+}
 
+impl MemWrite for Ppu {
     fn write(&mut self, addr: u16, val: u8) {
         self.regs.open_bus = val;
         match addr {
@@ -1010,13 +1013,15 @@ impl Savable for Ppu {
 #[derive(Clone)]
 pub struct Nametable(pub [u8; NT_SIZE]);
 
-impl Memory for Nametable {
+impl MemRead for Nametable {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
     fn peek(&self, addr: u16) -> u8 {
         self.0[addr as usize]
     }
+}
+impl MemWrite for Nametable {
     fn write(&mut self, addr: u16, val: u8) {
         self.0[addr as usize] = val;
     }
@@ -1035,7 +1040,7 @@ impl Savable for Nametable {
 #[derive(Clone)]
 pub struct Palette(pub [u8; PALETTE_SIZE]);
 
-impl Memory for Palette {
+impl MemRead for Palette {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -1045,6 +1050,8 @@ impl Memory for Palette {
         }
         self.0[addr as usize]
     }
+}
+impl MemWrite for Palette {
     fn write(&mut self, mut addr: u16, val: u8) {
         if addr >= 16 && addr.trailing_zeros() >= 2 {
             addr -= 16;
@@ -1443,7 +1450,7 @@ impl Oam {
     }
 }
 
-impl Memory for Oam {
+impl MemRead for Oam {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -1456,6 +1463,8 @@ impl Memory for Oam {
             val
         }
     }
+}
+impl MemWrite for Oam {
     fn write(&mut self, addr: u16, val: u8) {
         self.entries[addr as usize] = val;
     }
@@ -1507,7 +1516,7 @@ impl Vram {
     }
 }
 
-impl Memory for Vram {
+impl MemRead for Vram {
     fn read(&mut self, addr: u16) -> u8 {
         if addr < 0x2000 {
             self.a12 = (addr >> 12) & 1 > 0;
@@ -1551,7 +1560,8 @@ impl Memory for Vram {
             _ => 0,
         }
     }
-
+}
+impl MemWrite for Vram {
     fn write(&mut self, addr: u16, val: u8) {
         if addr < 0x2000 {
             self.a12 = (addr >> 12) & 1 > 0;

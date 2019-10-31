@@ -332,7 +332,7 @@ impl Default for Nes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::Memory;
+    use crate::memory::MemRead;
 
     fn load(rom: &str) -> Nes {
         let mut nes = Nes::new();

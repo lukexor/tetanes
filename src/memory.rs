@@ -8,200 +8,147 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+// TODO move this out of a static
 pub static mut RANDOMIZE_RAM: bool = false;
 
-/// Memory Trait
-pub trait Memory {
+pub trait MemRead {
     fn read(&mut self, _addr: u16) -> u8 {
+        0
+    }
+    fn readw(&mut self, _addr: usize) -> u8 {
         0
     }
     fn peek(&self, _addr: u16) -> u8 {
         0
     }
+    fn peekw(&self, _addr: usize) -> u8 {
+        0
+    }
+}
+pub trait MemWrite {
     fn write(&mut self, _addr: u16, _val: u8) {}
+    fn writew(&mut self, _addr: usize, _val: u8) {}
 }
 
-impl fmt::Debug for dyn Memory {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "")
+#[derive(Default, Clone)]
+pub struct Memory {
+    data: Vec<u8>,
+    writable: bool,
+}
+
+impl Memory {
+    pub fn new() -> Self {
+        Self::with_capacity(0)
     }
-}
 
-#[derive(Clone)]
-pub struct Ram(Vec<u8>);
-
-impl Ram {
-    pub fn init(size: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
         let randomize = unsafe { RANDOMIZE_RAM };
-        let ram = if randomize {
+        let data = if randomize {
             let mut rng = rand::thread_rng();
-            let mut ram = Vec::with_capacity(size);
-            for _ in 0..size {
-                ram.push(rng.gen_range(0x00, 0xFF));
+            let mut data = Vec::with_capacity(capacity);
+            for _ in 0..capacity {
+                data.push(rng.gen_range(0x00, 0xFF));
             }
-            ram
+            data
         } else {
-            vec![0u8; size]
+            vec![0u8; capacity]
         };
-        Self(ram)
+        Self {
+            data,
+            writable: true,
+        }
     }
-    pub fn null() -> Self {
-        Self(Vec::new())
-    }
+
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self(bytes.to_vec())
+        let mut memory = Self::with_capacity(bytes.len());
+        memory.data = bytes.to_vec();
+        memory
     }
-    pub fn from_vec(v: Vec<u8>) -> Self {
-        Self(v)
+
+    pub fn rom(capacity: usize) -> Self {
+        let mut rom = Self::with_capacity(capacity);
+        rom.writable = false;
+        rom
     }
-    pub fn clear(&mut self) {
-        self.0.clear()
+    pub fn rom_from_bytes(bytes: &[u8]) -> Self {
+        let mut rom = Self::rom(bytes.len());
+        rom.data = bytes.to_vec();
+        rom
+    }
+
+    pub fn ram(capacity: usize) -> Self {
+        Self::with_capacity(capacity)
+    }
+    pub fn ram_from_bytes(bytes: &[u8]) -> Self {
+        let mut ram = Self::ram(bytes.len());
+        ram.data = bytes.to_vec();
+        ram
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 }
 
-impl Memory for Ram {
+impl MemRead for Memory {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
-    fn peek(&self, addr: u16) -> u8 {
-        if self.0.is_empty() {
-            return 0;
-        }
-        let addr = addr as usize % self.0.len();
-        self.0[addr]
+    fn readw(&mut self, addr: usize) -> u8 {
+        self.peekw(addr)
     }
+    fn peek(&self, addr: u16) -> u8 {
+        self.peekw(addr as usize)
+    }
+    fn peekw(&self, addr: usize) -> u8 {
+        let addr = addr % self.data.len();
+        self.data[addr]
+    }
+}
+
+impl MemWrite for Memory {
     fn write(&mut self, addr: u16, val: u8) {
-        if self.0.is_empty() {
-            return;
+        self.writew(addr as usize, val);
+    }
+    fn writew(&mut self, addr: usize, val: u8) {
+        if self.writable {
+            let addr = addr % self.data.len();
+            self.data[addr] = val;
         }
-        let addr = addr as usize % self.0.len();
-        self.0[addr] = val;
     }
 }
 
-impl Savable for Ram {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.0.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.0.load(fh)
-    }
-}
-
-impl Bankable for Ram {
-    fn chunks(&self, size: usize) -> Vec<Ram> {
-        let mut chunks: Vec<Ram> = Vec::new();
-        for slice in self.0.chunks(size) {
-            chunks.push(Ram::from_bytes(slice));
+impl Bankable for Memory {
+    fn chunks(&self, size: usize) -> Vec<Memory> {
+        let mut chunks: Vec<Memory> = Vec::new();
+        for slice in self.data.chunks(size) {
+            let mut chunk = Memory::from_bytes(slice);
+            chunk.writable = self.writable;
+            chunks.push(chunk);
         }
         chunks
     }
     fn len(&self) -> usize {
-        self.0.len()
+        self.len()
     }
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.is_empty()
     }
 }
 
-impl Default for Ram {
-    fn default() -> Self {
-        Self::init(0)
-    }
-}
-
-impl fmt::Debug for Ram {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(f, "Ram {{ len: {} KB }}", self.0.len() / 1024)
-    }
-}
-
-impl Deref for Ram {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Vec<u8> {
-        &self.0
-    }
-}
-
-impl DerefMut for Ram {
-    fn deref_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.0
-    }
-}
-
-#[derive(Clone)]
-pub struct Rom(Vec<u8>);
-
-impl Rom {
-    pub fn init(size: usize) -> Self {
-        Self(vec![0u8; size as usize])
-    }
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self(bytes.to_vec())
-    }
-    pub fn from_vec(v: Vec<u8>) -> Self {
-        Self(v)
-    }
-    pub fn to_ram(&self) -> Ram {
-        Ram::from_vec(self.0.clone())
-    }
-}
-
-impl Memory for Rom {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-    fn peek(&self, addr: u16) -> u8 {
-        if self.0.is_empty() {
-            return 0;
-        }
-        let addr = addr as usize % self.0.len();
-        self.0[addr]
-    }
-    fn write(&mut self, _addr: u16, _val: u8) {} // ROM is read-only
-}
-
-impl Savable for Rom {
+impl Savable for Memory {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.0.save(fh)
+        self.data.save(fh)?;
+        self.writable.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.0.load(fh)
-    }
-}
-
-impl Bankable for Rom {
-    fn chunks(&self, size: usize) -> Vec<Rom> {
-        let mut chunks: Vec<Rom> = Vec::new();
-        for slice in self.0.chunks(size) {
-            chunks.push(Rom::from_bytes(slice));
-        }
-        chunks
-    }
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl Default for Rom {
-    fn default() -> Self {
-        Self::init(0)
-    }
-}
-
-impl fmt::Debug for Rom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(f, "Rom {{ len: {} KB }}", self.0.len() / 1024)
-    }
-}
-
-impl Deref for Rom {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Vec<u8> {
-        &self.0
+        self.data.load(fh)?;
+        self.writable.load(fh)?;
+        Ok(())
     }
 }
 
@@ -214,10 +161,10 @@ where
     fn is_empty(&self) -> bool;
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     banks: Vec<T>,
     pub size: usize,
@@ -225,7 +172,7 @@ where
 
 impl<T> Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     pub fn new() -> Self {
         Self {
@@ -245,23 +192,9 @@ where
     }
 }
 
-impl<T> fmt::Debug for Banks<T>
-where
-    T: Memory + Bankable,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(
-            f,
-            "Rom {{ len: {}, size: {} KB  }}",
-            self.banks.len(),
-            self.size / 1024,
-        )
-    }
-}
-
 impl<T> Deref for Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     type Target = Vec<T>;
     fn deref(&self) -> &Vec<T> {
@@ -271,18 +204,34 @@ where
 
 impl<T> DerefMut for Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     fn deref_mut(&mut self) -> &mut Vec<T> {
         &mut self.banks
     }
 }
 
-impl<T> Default for Banks<T>
+impl fmt::Debug for Memory {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        write!(
+            f,
+            "Memory {{ data: {} KB, writable: {} }}",
+            self.data.len() / 1024,
+            self.writable
+        )
+    }
+}
+
+impl<T> fmt::Debug for Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
-    fn default() -> Self {
-        Self::new()
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        write!(
+            f,
+            "Bank {{ len: {}, size: {} KB  }}",
+            self.banks.len(),
+            self.size / 1024,
+        )
     }
 }

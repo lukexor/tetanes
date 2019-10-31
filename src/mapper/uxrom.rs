@@ -7,7 +7,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
-    memory::{Banks, Memory, Ram, Rom},
+    memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
@@ -29,19 +29,19 @@ pub struct Uxrom {
     prg_rom_bank_hi: usize, // prg_bank_hi is fixed to last bank
     // CPU $8000-$BFFF 16 KB PRG ROM Bank Switchable
     // CPU $C000-$FFFF 16 KB PRG ROM Fixed to Last Bank
-    prg_rom_banks: Banks<Rom>,
-    chr_banks: Banks<Ram>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Banks
+    prg_rom_banks: Banks<Memory>,
+    chr_banks: Banks<Memory>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Banks
 }
 
 impl Uxrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         // Just 1 bank
-        let chr_banks = if cart.chr_rom.len() == 0 {
-            let chr_ram = Ram::init(CHR_RAM_SIZE);
+        let chr_banks = if cart.chr_rom.is_empty() {
+            let chr_ram = Memory::ram(CHR_RAM_SIZE);
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
-            Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)
+            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
         };
         let uxrom = Self {
             mirroring: cart.mirroring(),
@@ -60,7 +60,7 @@ impl Mapper for Uxrom {
     }
 }
 
-impl Memory for Uxrom {
+impl MemRead for Uxrom {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -78,7 +78,9 @@ impl Memory for Uxrom {
             }
         }
     }
+}
 
+impl MemWrite for Uxrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x1FFF => self.chr_banks[0].write(addr, val),

@@ -3,7 +3,7 @@ use crate::{
     common::Powered,
     input::Input,
     mapper::{self, MapperRef},
-    memory::{Memory, Ram},
+    memory::{MemRead, MemWrite, Memory},
     nes_err,
     ppu::Ppu,
     serialization::Savable,
@@ -26,7 +26,7 @@ pub struct Bus {
     pub apu: Apu,
     pub mapper: MapperRef,
     pub input: Input,
-    pub wram: Ram,
+    pub wram: Memory,
     open_bus: u8,
     genie_codes: HashMap<u16, GenieCode>,
     genie_map: HashMap<char, u8>,
@@ -66,7 +66,7 @@ impl Bus {
             input: Input::new(),
             mapper: mapper::null(),
             open_bus: 0u8,
-            wram: Ram::init(WRAM_SIZE),
+            wram: Memory::ram(WRAM_SIZE),
             genie_codes: HashMap::new(),
             genie_map,
         }
@@ -132,7 +132,7 @@ impl Bus {
     }
 }
 
-impl Memory for Bus {
+impl MemRead for Bus {
     fn read(&mut self, addr: u16) -> u8 {
         // Order of frequently accessed
         let val = match addr {
@@ -196,7 +196,9 @@ impl Memory for Bus {
             0x4014 => self.open_bus,
         }
     }
+}
 
+impl MemWrite for Bus {
     fn write(&mut self, addr: u16, val: u8) {
         // Some mappers monitor the bus
         self.mapper.borrow_mut().open_bus(addr, val);

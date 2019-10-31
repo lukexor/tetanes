@@ -8,7 +8,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
-    memory::{Banks, Memory, Ram, Rom},
+    memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
@@ -42,11 +42,11 @@ pub struct Sxrom {
     prg_rom_bank_hi: usize,
     chr_bank_lo: usize,
     chr_bank_hi: usize,
-    prg_ram: Ram, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
+    prg_ram: Memory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
     // CPU $8000..=$BFFF 16KB PRG ROM Bank Switchable or Fixed to First Bank
     // CPU $C000..=$FFFF 16KB PRG ROM Bank Fixed to Last Bank or Switchable
-    prg_rom_banks: Banks<Rom>,
-    chr_banks: Banks<Ram>, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
+    prg_rom_banks: Banks<Memory>,
+    chr_banks: Banks<Memory>, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
 }
 
 #[derive(Debug)]
@@ -71,13 +71,13 @@ impl Sxrom {
         } else {
             PRG_RAM_SIZE
         };
-        let prg_ram = Ram::init(prg_ram_size);
+        let prg_ram = Memory::ram(prg_ram_size);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = if cart.chr_rom.len() == 0 {
-            let chr_ram = Ram::init(CHR_RAM_SIZE);
+        let chr_banks = if cart.chr_rom.is_empty() {
+            let chr_ram = Memory::ram(CHR_RAM_SIZE);
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
-            Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)
+            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
         };
         let sxrom = Self {
             regs: SxRegs {
@@ -239,7 +239,7 @@ impl Mapper for Sxrom {
     }
 }
 
-impl Memory for Sxrom {
+impl MemRead for Sxrom {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -264,7 +264,9 @@ impl Memory for Sxrom {
             }
         }
     }
+}
 
+impl MemWrite for Sxrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].write(addr, val),

@@ -7,7 +7,7 @@ use crate::{
     common::{Clocked, Powered},
     error,
     logging::{LogLevel, Loggable},
-    memory::Memory,
+    memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
@@ -937,7 +937,7 @@ impl Cpu {
                 *pc = pc.wrapping_add(1);
                 let x_offset = bytes[1].wrapping_add(self.x);
                 let val = self.peek(x_offset.into());
-                format!("${:02X},X @ ${:02X} = #${:02X}", bytes[1], x_offset, val)
+                format!("${:02X},X @ ${:04X} = #${:02X}", bytes[1], x_offset, val)
             }
             ZPY => {
                 bytes.push(self.peek(*pc));
@@ -1014,7 +1014,7 @@ impl Cpu {
                 }
                 format!("${:04X}", pc.wrapping_add(rel_addr))
             }
-            ACC => "A ".to_string(),
+            ACC => "".to_string(),
             IMP => "".to_string(),
         };
         for i in 0..3 {
@@ -1032,7 +1032,7 @@ impl Cpu {
     pub fn print_instruction(&mut self, mut pc: u16) {
         let disasm = self.disassemble(&mut pc);
 
-        let status_flags = vec!['n', 'v', 'u', 'b', 'd', 'i', 'z', 'c'];
+        let status_flags = vec!['n', 'v', '-', 'b', 'd', 'i', 'z', 'c'];
         let mut status_str = String::with_capacity(8);
         for (i, s) in status_flags.iter().enumerate() {
             if ((self.status >> (7 - i)) & 1) > 0 {
@@ -1194,7 +1194,7 @@ impl Clocked for Cpu {
     }
 }
 
-impl Memory for Cpu {
+impl MemRead for Cpu {
     fn read(&mut self, addr: u16) -> u8 {
         self.run_cycle();
         self.bus.read(addr)
@@ -1203,7 +1203,8 @@ impl Memory for Cpu {
     fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)
     }
-
+}
+impl MemWrite for Cpu {
     fn write(&mut self, addr: u16, val: u8) {
         if addr == 0x4014 {
             self.write_oamdma(val);
@@ -2223,7 +2224,7 @@ impl fmt::Debug for Instr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::Ram;
+    use crate::memory::Memory;
 
     #[test]
     fn cpu_cycle_timing() {
@@ -2252,7 +2253,7 @@ mod tests {
             cpu.acc = 0;
             cpu.x = 0;
             cpu.y = 0;
-            cpu.bus.wram = Ram::from_bytes(&[instr.opcode(), 0, 0, 0]);
+            cpu.bus.wram = Memory::ram_from_bytes(&[instr.opcode(), 0, 0, 0]);
             cpu.clock();
             let cpu_cyc = instr.cycles() + extra_cycle;
             let ppu_cyc = 3 * (instr.cycles() + extra_cycle);

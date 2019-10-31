@@ -5,7 +5,7 @@ use crate::{
     logging::{LogLevel, Loggable},
     map_nes_err,
     mapper::Mirroring,
-    memory::Rom,
+    memory::Memory,
     nes_err,
     serialization::Savable,
     NesResult,
@@ -23,8 +23,8 @@ const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 pub struct Cartridge {
     pub rom_file: String, // '.nes' rom file
     pub header: INesHeader,
-    pub prg_rom: Rom, // Program ROM
-    pub chr_rom: Rom, // Character ROM
+    pub prg_rom: Memory, // Program ROM
+    pub chr_rom: Memory, // Character ROM
     log_level: LogLevel,
 }
 
@@ -34,8 +34,8 @@ impl Cartridge {
         Self {
             rom_file: String::new(),
             header: INesHeader::new(),
-            prg_rom: Rom::init(PRG_ROM_BANK_SIZE),
-            chr_rom: Rom::init(CHR_ROM_BANK_SIZE),
+            prg_rom: Memory::new(),
+            chr_rom: Memory::new(),
             log_level: LogLevel::default(),
         }
     }
@@ -78,7 +78,7 @@ impl Cartridge {
                 e,
             )
         })?;
-        let prg_rom = Rom::from_vec(prg_rom);
+        let prg_rom = Memory::rom_from_bytes(&prg_rom);
 
         let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_BANK_SIZE];
         rom_data.read_exact(&mut chr_rom).map_err(|e| {
@@ -96,7 +96,7 @@ impl Cartridge {
                 e,
             )
         })?;
-        let chr_rom = Rom::from_vec(chr_rom);
+        let chr_rom = Memory::rom_from_bytes(&chr_rom);
 
         let cart = Self {
             rom_file: rom_file.to_owned(),

@@ -7,7 +7,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
-    memory::{Banks, Memory, Ram, Rom},
+    memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
@@ -28,21 +28,21 @@ pub struct Axrom {
     mirroring: Mirroring,
     open_bus: u8,
     prg_rom_bank: usize,
-    prg_rom_banks: Banks<Rom>,
-    chr_banks: Banks<Ram>,
+    prg_rom_banks: Banks<Memory>,
+    chr_banks: Banks<Memory>,
 }
 
 impl Axrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = if cart.chr_rom.len() == 0 {
-            let chr_ram = Ram::init(CHR_RAM_SIZE);
+        let chr_banks = if cart.chr_rom.is_empty() {
+            let chr_ram = Memory::ram(CHR_RAM_SIZE);
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
-            Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)
+            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
         };
         let axrom = Self {
-            has_chr_ram: cart.chr_rom.len() == 0,
+            has_chr_ram: cart.chr_rom.is_empty(),
             mirroring: cart.mirroring(),
             open_bus: 0u8,
             prg_rom_bank: prg_rom_banks.len() - 1,
@@ -62,7 +62,7 @@ impl Mapper for Axrom {
     }
 }
 
-impl Memory for Axrom {
+impl MemRead for Axrom {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -79,7 +79,9 @@ impl Memory for Axrom {
             }
         }
     }
+}
 
+impl MemWrite for Axrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x1FFF => {

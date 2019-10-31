@@ -1,6 +1,6 @@
 use crate::{
     cpu::{AddrMode::*, Operation::*, StatusRegs, INSTRUCTIONS},
-    memory::Memory,
+    memory::MemRead,
     nes::{Nes, WINDOW_WIDTH},
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     NesResult,
@@ -263,6 +263,7 @@ impl Nes {
 
     pub(super) fn toggle_debug(&mut self, data: &mut StateData) -> NesResult<()> {
         self.config.debug = !self.config.debug;
+        self.paused(self.config.debug);
         let new_width = if self.config.debug {
             self.width + DEBUG_WIDTH
         } else {
@@ -305,7 +306,7 @@ impl Nes {
         let ox = x + 8 * fxpad; // 8 chars from "Status: " * font padding
         data.draw_string(ox, y, "N", scolor(StatusRegs::N));
         data.draw_string(ox + fxpad, y, "V", scolor(StatusRegs::V));
-        data.draw_string(ox + 2 * fxpad, y, "-", scolor(StatusRegs::U));
+        data.draw_string(ox + 2 * fxpad, y, "-", wh);
         data.draw_string(ox + 3 * fxpad, y, "B", scolor(StatusRegs::B));
         data.draw_string(ox + 4 * fxpad, y, "D", scolor(StatusRegs::D));
         data.draw_string(ox + 5 * fxpad, y, "I", scolor(StatusRegs::I));

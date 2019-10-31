@@ -8,7 +8,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
-    memory::{Banks, Memory, Ram, Rom},
+    memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
@@ -30,14 +30,14 @@ pub struct Cnrom {
     chr_bank: usize,
     // CPU $8000-$FFFF 16 KB PRG ROM Bank 1 Fixed
     // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 Fixed or Bank 1 Mirror if only 16 KB PRG ROM
-    prg_rom_banks: Banks<Rom>,
-    chr_banks: Banks<Ram>, // PPU $0000..=$1FFFF 8K CHR ROM Banks Switchable
+    prg_rom_banks: Banks<Memory>,
+    chr_banks: Banks<Memory>, // PPU $0000..=$1FFFF 8K CHR ROM Banks Switchable
 }
 
 impl Cnrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE);
+        let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
         let cnrom = Self {
             mirroring: cart.mirroring(),
             prg_rom_bank_lo: 0usize,
@@ -56,7 +56,7 @@ impl Mapper for Cnrom {
     }
 }
 
-impl Memory for Cnrom {
+impl MemRead for Cnrom {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -74,7 +74,9 @@ impl Memory for Cnrom {
             }
         }
     }
+}
 
+impl MemWrite for Cnrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x8000..=0xFFFF => self.chr_bank = val as usize & 3,

@@ -1,6 +1,9 @@
 //! NES Controller Inputs
 
-use crate::{common::Powered, memory::Memory};
+use crate::{
+    common::Powered,
+    memory::{MemRead, MemWrite},
+};
 use std::{cell::RefCell, fmt, rc::Rc};
 
 /// Alias for Input wrapped in a Rc/RefCell
@@ -89,7 +92,7 @@ impl Input {
     }
 }
 
-impl Memory for Input {
+impl MemRead for Input {
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
             0x4016 => self.gamepad1.next_state() | 0x40,
@@ -107,7 +110,9 @@ impl Memory for Input {
             _ => self.open_bus,
         }
     }
+}
 
+impl MemWrite for Input {
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         if addr == 0x4016 {

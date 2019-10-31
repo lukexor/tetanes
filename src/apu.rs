@@ -8,7 +8,7 @@ use crate::{
     filter::{Filter, HiPassFilter, LoPassFilter},
     logging::{LogLevel, Loggable},
     mapper::{self, MapperRef},
-    memory::Memory,
+    memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
@@ -389,7 +389,7 @@ impl Loggable for Apu {
     }
 }
 
-impl Memory for Apu {
+impl MemRead for Apu {
     fn read(&mut self, addr: u16) -> u8 {
         if addr == 0x4015 {
             let val = self.read_status();
@@ -407,7 +407,9 @@ impl Memory for Apu {
             self.open_bus
         }
     }
+}
 
+impl MemWrite for Apu {
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         match addr {

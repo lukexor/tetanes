@@ -6,7 +6,7 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    memory::Memory,
+    memory::{MemRead, MemWrite},
     serialization::Savable,
     {nes_err, NesResult},
 };
@@ -50,8 +50,14 @@ pub enum Mirroring {
     FourScreen,
 }
 
+impl Default for Mirroring {
+    fn default() -> Self {
+        Mirroring::Horizontal
+    }
+}
+
 /// Mapper trait requiring Memory + Send + Savable
-pub trait Mapper: Memory + Savable + Clocked + Powered + Loggable + fmt::Debug {
+pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + fmt::Debug {
     fn irq_pending(&mut self) -> bool {
         false
     }
@@ -98,7 +104,8 @@ pub fn load_rom(rom: &str) -> NesResult<MapperRef> {
 pub struct NullMapper {}
 
 impl Mapper for NullMapper {}
-impl Memory for NullMapper {}
+impl MemRead for NullMapper {}
+impl MemWrite for NullMapper {}
 impl Savable for NullMapper {}
 impl Clocked for NullMapper {}
 impl Powered for NullMapper {}

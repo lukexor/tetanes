@@ -8,7 +8,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::Loggable,
     mapper::{Mapper, MapperRef, Mirroring},
-    memory::{Banks, Memory, Ram, Rom},
+    memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
@@ -54,20 +54,20 @@ pub struct Txrom {
     battery_backed: bool,
     prg_rom_bank_idx: [usize; 4],
     chr_bank_idx: [usize; 8],
-    four_screen_ram: Ram,
-    prg_ram: Ram, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
+    four_screen_ram: Memory,
+    prg_ram: Memory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
     // CPU $8000..=$9FFF (or $C000..=$DFFF) 8 KB PRG ROM Bank 1 Switchable
     // CPU $A000..=$BFFF 8 KB PRG ROM Bank 2 Switchable
     // CPU $C000..=$DFFF (or $8000..=$9FFF) 8 KB PRG ROM Bank 3 Fixed to second-to-last Bank
     // CPU $E000..=$FFFF 8 KB PRG ROM Bank 4 Fixed to Last
-    prg_rom_banks: Banks<Rom>,
+    prg_rom_banks: Banks<Memory>,
     // PPU $0000..=$07FF (or $1000..=$17FF) 2 KB CHR ROM/RAM Bank 1 Switchable --+
     // PPU $0800..=$0FFF (or $1800..=$1FFF) 2 KB CHR ROM/RAM Bank 2 Switchable --|-+
     // PPU $1000..=$13FF (or $0000..=$03FF) 1 KB CHR ROM/RAM Bank 3 Switchable --+ |
     // PPU $1400..=$17FF (or $0400..=$07FF) 1 KB CHR ROM/RAM Bank 4 Switchable --+ |
     // PPU $1800..=$1BFF (or $0800..=$0BFF) 1 KB CHR ROM/RAM Bank 5 Switchable ----+
     // PPU $1C00..=$1FFF (or $0C00..=$0FFF) 1 KB CHR ROM/RAM Bank 6 Switchable ----+
-    chr_banks: Banks<Ram>,
+    chr_banks: Banks<Memory>,
 }
 
 #[derive(Debug)]
@@ -101,15 +101,15 @@ impl Txrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let mirroring = cart.mirroring();
         let four_screen_ram = if mirroring == Mirroring::FourScreen {
-            Ram::init(FOUR_SCREEN_RAM_SIZE)
+            Memory::ram(FOUR_SCREEN_RAM_SIZE)
         } else {
-            Ram::null()
+            Memory::new()
         };
 
-        let prg_ram = Ram::init(PRG_RAM_SIZE);
+        let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let mut has_chr_ram = false;
-        let chr_banks = if cart.chr_rom.len() == 0 {
+        let chr_banks = if cart.chr_rom.is_empty() {
             let chr_ram_size = if let Ok(chr_ram_size) = cart.chr_ram_size() {
                 if chr_ram_size > 0 {
                     chr_ram_size
@@ -119,11 +119,11 @@ impl Txrom {
             } else {
                 CHR_RAM_SIZE
             };
-            let chr_ram = Ram::init(chr_ram_size);
+            let chr_ram = Memory::ram(chr_ram_size);
             has_chr_ram = true;
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
-            Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)
+            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
         };
 
         let prg_len = prg_rom_banks.len();
@@ -303,7 +303,7 @@ impl Mapper for Txrom {
     }
 }
 
-impl Memory for Txrom {
+impl MemRead for Txrom {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -333,7 +333,9 @@ impl Memory for Txrom {
             }
         }
     }
+}
 
+impl MemWrite for Txrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x1FFF => {
