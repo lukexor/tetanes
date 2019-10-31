@@ -80,11 +80,11 @@ Misc Modes and Setup:
 CHR Setup:
 ---------------------------
 The MMC5 has two sets of CHR regs.  One set is used for sprites, the other is used for BG.  The MMC5
-carefully watches what tiles are being fetched and when (or has some other way of syncing with the NES
-somehow), which allows it to tell when the NES is fetching BG tiles, and when it's fetching sprite tiles.
-As such, it can use different regs accordingly, allowing games to basically have 12k of CHR "active" at once
-instead of the usual 8k!  This means you can have a full 512 tiles exclusively for sprites, and have an
-additional 256 tiles for the BG!
+carefully watches what tiles are being fetched and when (or has some other way of syncing with the
+NES somehow), which allows it to tell when the NES is fetching BG tiles, and when it's fetching
+sprite tiles.  As such, it can use different regs accordingly, allowing games to basically have 12k
+of CHR "active" at once instead of the usual 8k!  This means you can have a full 512 tiles
+exclusively for sprites, and have an additional 256 tiles for the BG!
 
 CHR Mode Select Reg:
  $5101:  [.... ..CC]
@@ -101,10 +101,10 @@ CHR Mode Select Reg:
 'B' Regs:
   $5128 - $512B
 
-When in 8x16 sprite mode, both sets of registers are used.  The 'A' set is used for sprite tiles, and the
-'B' set is used for BG.  This makes it so that sprites can have a full 8k of CHR available, without having
-to share any of the tiles with the BG (since the BG uses its own 4k of CHR, designated by the 'B' set).  It
-is unsure what you will get when reading CHR via $2007.
+When in 8x16 sprite mode, both sets of registers are used.  The 'A' set is used for sprite tiles,
+and the 'B' set is used for BG.  This makes it so that sprites can have a full 8k of CHR available,
+without having to share any of the tiles with the BG (since the BG uses its own 4k of CHR,
+designated by the 'B' set).  It is unsure what you will get when reading CHR via $2007.
 
 When in 8x8 sprite mode, only one set is used for both BG and sprites.  Either 'A' or 'B', depending
 on which set is written to last.  If 'B' is used, $1000-1FFF always mirrors $0000-0FFF (making the
@@ -125,8 +125,6 @@ on which set is written to last.  If 'B' is used, $1000-1FFF always mirrors $000
 
 'B' Set (BG):
               $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
- 'B' Set (BG):
-               $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00 
              +-------------------------------+-------------------------------+
    C=%00:    |                             $512B                             |
              +-------------------------------+-------------------------------+
@@ -137,8 +135,8 @@ on which set is written to last.  If 'B' is used, $1000-1FFF always mirrors $000
    C=%11:    | $5128 | $5129 | $512A | $512B | $5128 | $5129 | $512A | $512B |
              +-------+-------+-------+-------+-------+-------+-------+-------+
 
-Note that unlike most other mappers, these CHR pages are in *actual* sizes.  IE:  when in 4k mode, registers
-contain 4k page numbers.  But when in 2k mode, register contain 2k page numbers.
+Note that unlike most other mappers, these CHR pages are in *actual* sizes.  IE:  when in 4k mode,
+registers contain 4k page numbers.  But when in 2k mode, register contain 2k page numbers.
 
 CHR Regs are actually 10 bits wide, not just 8.  When you write to the regs, the value written is
 the low 8 bits, and the high 2 bits are copied from $5130.  Example:
