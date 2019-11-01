@@ -23,6 +23,7 @@ use std::{
 const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 64 * 1024;
 const EXRAM_SIZE: usize = 1024;
+const ATTRIBUTES: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
 
 /// ExROM
 pub struct Exrom {
@@ -200,32 +201,50 @@ impl Exrom {
     //             +---------------+---------------+---------------+---------------+
     //   C=%11:    | $5128 | $5129 | $512A | $512B | $5128 | $5129 | $512A | $512B |
     //             +-------+-------+-------+-------+-------+-------+-------+-------+
+    // Gets the bank mapped CHR ROM address
     fn get_chr_addr(&self, addr: u16) -> usize {
-        // 8K, 4K, 2K, or 1K
-        let bank_size = (8 * 1024) / (1 << self.regs.chr_mode as usize);
-        let offset = addr as usize % bank_size;
-        let bank_idx = match self.regs.chr_mode {
-            0 => 7,
-            1 => 3 + ((addr >> 12) << 2),
-            2 => 1 + ((addr >> 11) << 1),
-            3 => addr >> 10,
-            _ => panic!("invalid chr_mode"),
-        } as usize;
-        let bank = if self.regs.sprite8x16 {
-            // Means we've gotten our 32 BG tiles fetched (32 * 4)
-            if self.spr_fetch_count >= 127 && self.spr_fetch_count <= 158 {
+        // EXRAM Mode 1 = Extended Atribute mode
+        // Only return 20 bit CHR ROM address during BG fetches
+        // 32 BG tiles = 32 * 4 = 128 (start of SPR fetch)
+        // 8 SPR tiles = 8 * 4 = 32 + 128 = 160 (end of SPR fetch)
+        if self.regs.exram_mode == 1 && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159) {
+            let hibits = (self.regs.chr_hi_bit as usize) << 18;
+            let exbits = (self.exram.peek(addr % 0x0400) as usize & 0x3F) << 12;
+            hibits | exbits | (addr as usize) & 0x0FFF
+        } else {
+            // 8K, 4K, 2K, or 1K bank sizes
+            let bank_size = (8 * 1024) / (1 << self.regs.chr_mode as usize);
+            let offset = addr as usize % bank_size;
+            // Corresponds to regs $5121 - $5127
+            // BG only has half the banks as SPR, so we can AND this with 0x03
+            let bank_idx = match self.regs.chr_mode {
+                0 => 7,
+                1 => 3 + ((addr >> 12) << 2),
+                2 => 1 + ((addr >> 11) << 1),
+                3 => addr >> 10,
+                _ => panic!("invalid chr_mode"),
+            } as usize;
+            let bank = if self.regs.sprite8x16 {
+                // Means we've gotten our 32 BG tiles fetched (32 * 4)
+                if self.spr_fetch_count >= 127 && self.spr_fetch_count <= 159 {
+                    self.chr_banks_spr[bank_idx]
+                } else {
+                    self.chr_banks_bg[bank_idx & 0x03]
+                }
+            } else if self.last_chr_write == ChrBank::Spr {
                 self.chr_banks_spr[bank_idx]
             } else {
                 self.chr_banks_bg[bank_idx & 0x03]
-            }
-        } else if self.last_chr_write == ChrBank::Spr {
-            self.chr_banks_spr[bank_idx]
-        } else {
-            self.chr_banks_bg[bank_idx & 0x03]
-        };
-        bank * bank_size + offset
+            };
+            bank * bank_size + offset
+        }
     }
 
+    // Determine the nametable we're trying to access
+    // 0 -> NTA
+    // 1 -> NTB
+    // 2 -> ExRAM
+    // 3 -> Fill-Mode
     fn nametable_mode(&self, addr: u16) -> u16 {
         let table_size = 0x0400;
         let addr = (addr - 0x2000) % 0x1000 as u16;
@@ -268,14 +287,31 @@ impl Mapper for Exrom {
         }
     }
 
+    // Used by the PPU to determine whether it should use it's own internal CIRAM for nametable
+    // reads or to read CIRAM instead from the mapper
     fn use_ciram(&self, addr: u16) -> bool {
-        let mode = self.nametable_mode(addr);
-        match mode {
-            0 | 1 => true,
-            _ => false,
+        // If we're in Extended Attribute mode and reading BG attributes,
+        // yield to mapper for Attribute data instead of PPU
+        if self.regs.exram_mode == 1
+            && (addr % 0x0400) >= 0x3C0
+            && (self.spr_fetch_count < 127 || self.spr_fetch_count > 158)
+        {
+            false
+        } else {
+            // 0 and 1 mean NametableA and NametableB
+            // 2 means internal EXRAM
+            // 3 means Fill-mode
+            let mode = self.nametable_mode(addr);
+            match mode {
+                0 | 1 => true,
+                _ => false,
+            }
         }
     }
 
+    // Returns a valid nametable address for NTA and NTB
+    // Other modes return 0, which force the PPU
+    // to instead rely on it's own
     fn nametable_addr(&self, addr: u16) -> u16 {
         let mode = self.nametable_mode(addr);
         match mode {
@@ -331,32 +367,75 @@ impl MemRead for Exrom {
                 self.cart.chr_rom.peekw(addr)
             }
             0x2000..=0x3EFF => {
-                let mode = self.nametable_mode(addr);
                 let offset = addr % 0x0400;
-                match mode {
-                    2 => self.exram.peek(offset),
-                    3 => {
-                        if offset < 0x03C0 {
-                            self.regs.fill_tile
-                        } else {
-                            self.regs.fill_attr
+                if self.regs.exram_mode == 1 && offset >= 0x03C0 {
+                    // Extended Attribute mode should return attributes from exram
+                    ATTRIBUTES[(self.exram.peek(offset) as usize) >> 6]
+                } else if self.regs.exram_mode < 2 {
+                    // Otherwise we're using exram as a nametable
+                    let mode = self.nametable_mode(addr);
+                    // mode 2 means use exram as nametable
+                    // mode 3 means use fill-mode nametable
+                    match mode {
+                        2 => self.exram.peek(offset),
+                        3 => {
+                            // Ensure we return the tile/attr correctly
+                            if offset < 0x03C0 {
+                                self.regs.fill_tile
+                            } else {
+                                self.regs.fill_attr
+                            }
+                        }
+                        _ => {
+                            debug!(self, "attempted read nt ${:04X}, mode: {}", addr, mode);
+                            0
                         }
                     }
-                    _ => 0,
-                }
-            }
-            0x6000..=0xFFFF => {
-                let (prg_addr, rom_select) = self.get_prg_addr(addr);
-                debug!(
-                    self,
-                    "read addr ${:04X} -> ${:04X}, rom: {}", addr, prg_addr, rom_select
-                );
-                if rom_select {
-                    self.cart.prg_rom.peekw(prg_addr)
                 } else {
-                    self.prg_ram.peekw(prg_addr)
+                    debug!(
+                        self,
+                        "attempted read ${:04X}, mode: {}", addr, self.regs.exram_mode
+                    );
+                    0
                 }
             }
+            0x5000..=0x5003 => 0, // TODO Sound Pulse 1
+            0x5004..=0x5007 => 0, // TODO Sound Pulse 2
+            0x5010..=0x5011 => 0, // TODO Sound PCM
+            0x5100 => self.regs.prg_mode,
+            0x5101 => self.regs.chr_mode,
+            0x5130 => self.regs.chr_hi_bit,
+            0x5104 => self.regs.exram_mode,
+            0x5105 => self.regs.nametable_mirroring,
+            0x5106 => self.regs.fill_tile,
+            0x5107 => self.regs.fill_attr,
+            0x5113..=0x5117 => self.prg_banks[addr as usize - 0x5113] as u8,
+            0x5015 => {
+                // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
+                // TODO Sound General
+                0
+            }
+            0x5120..=0x5127 => self.chr_banks_spr[addr as usize - 0x5120] as u8,
+            0x5128..=0x512B => self.chr_banks_bg[addr as usize - 0x5128] as u8,
+            0x5200 => self.regs.vertical_split_mode,
+            0x5201 => self.regs.vertical_split_scroll,
+            0x5202 => self.regs.vertical_split_bank,
+            0x5203 => self.regs.scanline_num_irq as u8,
+            0x5204 => {
+                // $5204:  [PI.. ....]
+                //   P = IRQ currently pending
+                //   I = "In Frame" signal
+
+                // Reading $5204 will clear the pending flag (acknowledging the IRQ).
+                // Clearing is done in the read() function
+                (self.irq_pending as u8) << 7 | (self.regs.in_frame as u8) << 6
+            }
+            0x5205 => (self.regs.mult_result & 0xFF) as u8,
+            0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
+            // 0x5207 => self.open_bus, // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
+            // 0x5208 => self.open_bus, // TODO MMC5A only CL3 / SL3 Status
+            // 0x5209 => self.open_bus, // TODO MMC5A only 6-bit Hardware Timer with IRQ
+            // 0x5800..=0x5BFF => self.open_bus, // MMC5A unknown - reads open_bus
             0x5C00..=0x5FFF => {
                 // Modes 0-1 are nametable/attr modes and not used for RAM, thus are not readable
                 if self.regs.exram_mode < 2 {
@@ -365,32 +444,18 @@ impl MemRead for Exrom {
                     self.exram.peek(addr - 0x5C00)
                 }
             }
-            0x5113..=0x5117 => 0, // TODO read prg_bank?
-            0x5120..=0x5127 => self.chr_banks_spr[addr as usize - 0x5120] as u8,
-            0x5128..=0x512B => self.chr_banks_bg[addr as usize - 0x5128] as u8,
-            0x5000..=0x5003 => 0, // TODO Sound Pulse 1
-            0x5004..=0x5007 => 0, // TODO Sound Pulse 2
-            0x5010..=0x5011 => 0, // TODO Sound PCM
-            0x5015 => 0,          // TODO Sound General
-            0x5100 => self.regs.prg_mode,
-            0x5101 => self.regs.chr_mode,
-            0x5130 => self.regs.chr_hi_bit,
-            0x5104 => self.regs.exram_mode,
-            0x5105 => self.regs.nametable_mirroring,
-            0x5106 => self.regs.fill_tile,
-            0x5107 => self.regs.fill_attr,
-            0x5200 => self.regs.vertical_split_mode,
-            0x5201 => self.regs.vertical_split_scroll,
-            0x5202 => self.regs.vertical_split_bank,
-            0x5203 => self.regs.scanline_num_irq as u8,
-            0x5204 => (self.irq_pending as u8) << 7 | (self.regs.in_frame as u8) << 6,
-            0x5205 => (self.regs.mult_result & 0xFF) as u8,
-            0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
-            0x5207 => self.open_bus, // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
-            0x5208 => self.open_bus, // TODO MMC5A only CL3 / SL3 Status
-            0x5209 => self.open_bus, // TODO MMC5A only 6-bit Hardware Timer with IRQ
-            0x5800..=0x5BFF => self.open_bus, // MMC5A unknown - reads open_bus
-            _ => self.open_bus,
+            0x6000..=0xFFFF => {
+                let (prg_addr, rom_select) = self.get_prg_addr(addr);
+                if rom_select {
+                    self.cart.prg_rom.peekw(prg_addr)
+                } else {
+                    self.prg_ram.peekw(prg_addr)
+                }
+            }
+            _ => {
+                debug!(self, "unhandled read ${:04X}", addr);
+                self.open_bus
+            }
         }
     }
 }
@@ -398,131 +463,186 @@ impl MemRead for Exrom {
 impl MemWrite for Exrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
+            0x0000..=0x1FFF => {
+                debug!(self, "chr rom write ${:04X} - ${:02X}", addr, val); // ROM is write-only
+                let addr = self.get_chr_addr(addr);
+                self.cart.chr_rom.writew(addr, val);
+            }
             0x2000..=0x3EFF => {
                 let mode = self.nametable_mode(addr);
-                if mode == 2 && self.regs.exram_mode == 0x02 {
+                // mode 2 is ExRAM as nametable
+                // Ensure exram mode is also set to nametable mode
+                if mode == 2 && self.regs.exram_mode < 2 {
                     self.exram.write(addr - 0x2000, val);
+                } else {
+                    debug!(
+                        self,
+                        "attempted to write ciram: ${:04X}, mode: {}", addr, mode
+                    );
                 }
             }
-            0x6000..=0xDFFF => {
-                let (prg_addr, rom_select) = self.get_prg_addr(addr);
-                debug!(
-                    self,
-                    "write addr ${:04X} -> ${:04X}, rom: {}", addr, prg_addr, rom_select
-                );
-                if !rom_select && self.regs.prg_ram_protect_a && self.regs.prg_ram_protect_b {
-                    self.prg_ram.writew(prg_addr, val);
-                }
+            0x5000..=0x5003 => (), // TODO Sound Pulse 1
+            0x5004..=0x5007 => (), // TODO Sound Pulse 2
+            0x5010..=0x5011 => (), // TODO Sound PCM
+            0x5015 => {
+                //  [.... ..BA]   Enable flags for Pulse 1 (A), 2 (B)  (0=disable, 1=enable)
+                // TODO Sound General
             }
-            // [DDCC BBAA]
-            //
-            // Allows each Nametable slot to be configured:
-            //   [   A   ][   B   ]
-            //   [   C   ][   D   ]
-            //
-            // Values can be the following:
-            //   %00 = NES internal NTA
-            //   %01 = NES internal NTB
-            //   %10 = use ExRAM as NT
-            //   %11 = Fill Mode
-            //
-            // For example... some typical mirroring setups would be:
-            //                        (  D  C  B  A)
-            //   Horizontal:     $50  (%01 01 00 00)
-            //   Vertical:       $44  (%01 00 01 00)
-            //   SingleScreenA:  $00  (%00 00 00 00)
-            //   SingleScreenB:  $55  (%01 01 01 01)
-            //   Fill:           $ff  (%11 11 11 11)
+            0x5100 => {
+                // [.... ..PP]    PRG Mode
+                //      %00 = 32k
+                //      %01 = 16k
+                //      %10 = 16k+8k
+                //      %11 = 8k
+                self.regs.prg_mode = val & 0x03;
+            }
+            0x5101 => {
+                // [.... ..CC]    CHR Mode
+                //      %00 = 8k Mode
+                //      %01 = 4k Mode
+                //      %10 = 2k Mode
+                //      %11 = 1k Mode
+                self.regs.chr_mode = val & 0x03;
+            }
+            0x5102 => {
+                // [.... ..AA]    PRG-RAM Protect A
+                //      To allow writing to PRG-RAM you must set this to:
+                //         A=%10
+                //      Any other value will prevent PRG-RAM writing.
+                self.regs.prg_ram_protect_a = (val & 0x03) == 0b10;
+            }
+            0x5103 => {
+                // [.... ..BB]    PRG-RAM Protect B
+                //      To allow writing to PRG-RAM you must set this to:
+                //         B=%01
+                //      Any other value will prevent PRG-RAM writing.
+                self.regs.prg_ram_protect_b = (val & 0x03) == 0b01;
+            }
+            0x5104 => {
+                // [.... ..XX]    ExRAM mode
+                //     %00 = Extra Nametable mode    ("Ex0")
+                //     %01 = Extended Attribute mode ("Ex1")
+                //     %10 = CPU access mode         ("Ex2")
+                //     %11 = CPU read-only mode      ("Ex3")
+                self.regs.exram_mode = val & 0x03;
+            }
             0x5105 => {
+                // [.... ..HH]
+                // [DDCC BBAA]
+                //
+                // Allows each Nametable slot to be configured:
+                //   [   A   ][   B   ]
+                //   [   C   ][   D   ]
+                //
+                // Values can be the following:
+                //   %00 = NES internal NTA
+                //   %01 = NES internal NTB
+                //   %10 = use ExRAM as NT
+                //   %11 = Fill Mode
+                //
+                // For example... some typical mirroring setups would be:
+                //                        (  D  C  B  A)
+                //   Horizontal:     $50  (%01 01 00 00)
+                //   Vertical:       $44  (%01 00 01 00)
+                //   SingleScreenA:  $00  (%00 00 00 00)
+                //   SingleScreenB:  $55  (%01 01 01 01)
+                //   Fill:           $ff  (%11 11 11 11)
                 self.regs.nametable_mirroring = val;
                 self.mirroring = match self.regs.nametable_mirroring {
                     0x50 => Mirroring::Horizontal,
                     0x44 => Mirroring::Vertical,
                     0x00 => Mirroring::SingleScreenA,
                     0x55 => Mirroring::SingleScreenB,
+                    // While the below technically isn't true - it forces my implementation to
+                    // rely on the Mapper for reading Nametables in any other mode for the missing
+                    // two nametables
                     _ => Mirroring::FourScreen,
                 };
             }
-            // 'A' Chr Regs
+            0x5106 => self.regs.fill_tile = val, // [TTTT TTTT]  Fill Tile
+            0x5107 => self.regs.fill_attr = val & 0x03, // [.... ..AA]  Fill Attribute bits
+            0x5113..=0x5117 => {
+                // PRG Bank Switching
+                // $5113: [.... .PPP]
+                //      8k PRG-RAM @ $6000
+                // $5114-5117: [RPPP PPPP]
+                //      R = ROM select (0=select RAM, 1=select ROM)  **unused in $5117**
+                //      P = PRG page
+                self.prg_banks[addr as usize - 0x5113] = val as usize;
+                // debug!(self, "set prg bank {} - ${:02X}", addr - 0x5113, val);
+            }
             0x5120..=0x5127 => {
+                // 'A' Chr Regs
                 self.last_chr_write = ChrBank::Spr;
                 self.chr_banks_spr[addr as usize - 0x5120] =
                     val as usize | (self.regs.chr_hi_bit as usize) << 8;
             }
-            // 'B' Chr Regs
             0x5128..=0x512B => {
+                // 'B' Chr Regs
                 self.last_chr_write = ChrBank::Bg;
                 self.chr_banks_bg[addr as usize - 0x5128] =
                     val as usize | (self.regs.chr_hi_bit as usize) << 8;
             }
-            // PRG Bank Switching
-            // $5113: [.... .PPP]
-            //      8k PRG-RAM @ $6000
-            // $5114-5117: [RPPP PPPP]
-            //      R = ROM select (0=select RAM, 1=select ROM)  **unused in $5117**
-            //      P = PRG page
-            0x5113..=0x5117 => {
-                self.prg_banks[addr as usize - 0x5113] = val as usize;
-                debug!(self, "set prg bank {} - ${:02X}", addr - 0x5113, val);
-            }
-            0x5C00..=0x5FFF => {
-                // Mode 2 is writable
-                if self.regs.exram_mode == 0x02 {
-                    self.exram.write(addr - 0x5C00, val);
-                }
-            }
-            0x5000..=0x5003 => (), // TODO Sound Pulse 1
-            0x5004..=0x5007 => (), // TODO Sound Pulse 2
-            0x5010..=0x5011 => (), // TODO Sound PCM
-            0x5015 => (),          // TODO Sound General
-            // [.... ..PP]    PRG Mode
-            //      %00 = 32k
-            //      %01 = 16k
-            //      %10 = 16k+8k
-            //      %11 = 8k
-            0x5100 => self.regs.prg_mode = val & 0x03,
-            // [.... ..CC]    CHR Mode
-            //      %00 = 8k Mode
-            //      %01 = 4k Mode
-            //      %10 = 2k Mode
-            //      %11 = 1k Mode
-            0x5101 => self.regs.chr_mode = val & 0x03,
-            // [.... ..HH]
-            0x5130 => self.regs.chr_hi_bit = val & 0x03,
-            // [.... ..AA]    PRG-RAM Protect A
-            // [.... ..BB]    PRG-RAM Protect B
-            //      To allow writing to PRG-RAM you must set these regs to the following values:
-            //         A=%10
-            //         B=%01
-            //      Any other values will prevent PRG-RAM writing.
-            0x5102 => self.regs.prg_ram_protect_a = (val & 0x03) == 0b10,
-            0x5103 => self.regs.prg_ram_protect_b = (val & 0x03) == 0b01,
-            // [.... ..XX]    ExRAM mode
-            //     %00 = Extra Nametable mode    ("Ex0")
-            //     %01 = Extended Attribute mode ("Ex1")
-            //     %10 = CPU access mode         ("Ex2")
-            //     %11 = CPU read-only mode      ("Ex3")
-            0x5104 => self.regs.exram_mode = val & 0x03,
-            // [TTTT TTTT]     Fill Tile
-            0x5106 => self.regs.fill_tile = val,
-            // [.... ..AA]     Fill Attribute bits
-            0x5107 => self.regs.fill_attr = val & 0x03,
+            0x5130 => self.regs.chr_hi_bit = val & 0x03, // [.... ..HH]  CHR Bank Hi bits
             0x5200 => {
+                // [ER.T TTTT]    Split control
+                //   E = Enable  (0=split mode disabled, 1=split mode enabled)
+                //   R = Right side  (0=split will be on left side, 1=split will be on right)
+                //   T = tile number to split at
                 self.regs.vertical_split_mode = val;
             }
-            0x5201 => self.regs.vertical_split_scroll = val,
-            0x5202 => self.regs.vertical_split_bank = val,
-            0x5203 => self.regs.scanline_num_irq = u16::from(val),
-            0x5204 => self.regs.irq_enabled = val & 0x80 > 0,
+            0x5201 => self.regs.vertical_split_scroll = val, // [YYYY YYYY]  Split Y scroll
+            0x5202 => self.regs.vertical_split_bank = val,   // [CCCC CCCC]  4k CHR Page for split
+            0x5203 => self.regs.scanline_num_irq = u16::from(val), // [IIII IIII]  IRQ Target
+            0x5204 => {
+                // [E... ....]    IRQ Enable (0=disabled, 1=enabled)
+                self.regs.irq_enabled = val & 0x80 > 0;
+            }
             0x5205 => self.regs.multiplicand = val,
             0x5206 => self.regs.mult_result = u16::from(self.regs.multiplicand) * u16::from(val),
             0x5207 => (), // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
             0x5208 => (), // TODO MMC5A only CL3 / SL3 Status
             0x5209 => (), // TODO MMC5A only 6-bit Hardware Timer with IRQ
             0x5800..=0x5BFF => (), // MMC5A unknown
-            0x0000..=0x1FFF => (), // ROM is write-only
-            0xE000..=0xFFFF => (), // ROM is write-only
-            _ => (),
+            0x5C00..=0x5FFF => {
+                match self.regs.exram_mode {
+                    // Modes 0 and 1 are nametable/extended attribute modes
+                    0x00 | 0x01 => {
+                        if self.ppu_rendering {
+                            self.exram.write(addr - 0x5C00, val);
+                        } else {
+                            self.exram.write(addr - 0x5C00, 0x00);
+                            debug!(
+                                self,
+                                "exram write while not rendering: ${:04X}, ${:02X}", addr, val
+                            )
+                        }
+                    }
+                    // Mode 2 is use exram as writable RAM
+                    0x02 => self.exram.write(addr - 0x5C00, val),
+                    _ => {
+                        // Not writable
+                        debug!(
+                            self,
+                            "exram write while protected: ${:04X}, ${:02X}", addr, val
+                        );
+                    }
+                }
+            }
+            0x6000..=0xDFFF => {
+                // PRG-RAM/PRG-ROM
+                let (prg_addr, rom_select) = self.get_prg_addr(addr);
+                if !rom_select && self.regs.prg_ram_protect_a && self.regs.prg_ram_protect_b {
+                    self.prg_ram.writew(prg_addr, val);
+                } else {
+                    debug!(
+                        self,
+                        "attempted to write during protected: ${:04X}, ${:02X}", addr, val
+                    );
+                }
+            }
+            0xE000..=0xFFFF => debug!(self, "prg rom write ${:04X} - ${:02X}", addr, val), // ROM is write-only
+            _ => debug!(self, "unhandled write ${:04X} - ${:02X}", addr, val),
         }
     }
 }

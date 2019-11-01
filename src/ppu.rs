@@ -1507,7 +1507,7 @@ impl Vram {
             Mirroring::Vertical => 10,
             Mirroring::SingleScreenA => 14,
             Mirroring::SingleScreenB => 13,
-            _ => panic!("Invalid mirroring mode"),
+            _ => 10,
         };
         let page = (addr >> mirroring_shift) & 1;
         let table_size = 0x0400;
@@ -1527,10 +1527,7 @@ impl MemRead for Vram {
             0x2000..=0x3EFF => {
                 // Use PPU Nametables or Cartridge RAM
                 if self.mapper.borrow().use_ciram(addr) {
-                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
-                    if mirror_addr == 0 {
-                        mirror_addr = self.nametable_addr(addr);
-                    }
+                    let mirror_addr = self.nametable_addr(addr);
                     self.nametable.read(mirror_addr % NT_SIZE as u16)
                 } else {
                     self.mapper.borrow_mut().read(addr)
