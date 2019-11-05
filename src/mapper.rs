@@ -77,7 +77,7 @@ pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + 
     fn use_ciram(&self, _addr: u16) -> bool {
         true
     }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
+    fn nametable_page(&self, _addr: u16) -> u16 {
         0
     }
     fn ppu_write(&mut self, _addr: u16, _val: u8) {}

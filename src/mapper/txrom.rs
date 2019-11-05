@@ -291,13 +291,6 @@ impl Mapper for Txrom {
     fn use_ciram(&self, _addr: u16) -> bool {
         Mirroring::FourScreen != self.mirroring
     }
-    fn nametable_addr(&self, addr: u16) -> u16 {
-        if let Mirroring::FourScreen = self.mirroring {
-            addr
-        } else {
-            0
-        }
-    }
     fn open_bus(&mut self, _addr: u16, val: u8) {
         self.regs.open_bus = val;
     }

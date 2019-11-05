@@ -74,6 +74,7 @@ tests/ppu/open_bus.nes
 tests/ppu/palette.nes
 tests/ppu/palette_ram.nes
 tests/ppu/read_buffer.nes
+tests/ppu/scanline.nes
 tests/ppu/sprite_ram.nes
 tests/ppu/vbl_clear_time.nes
 tests/ppu/vbl_nmi/01-vbl_basics.nes

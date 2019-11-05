@@ -21,7 +21,6 @@ tests/apu/test_9.nes # failed
 tests/apu/test_10.nes # failed
 
 ## PPU ============================================================================================
-tests/ppu/scanline.nes # flickers
 tests/ppu/sprdma_and_dmc_dma.nes # Supposed to print a table
 tests/ppu/sprdma_and_dmc_dma_512.nes # Supposed to print a table
 tests/ppu/sprite_hit.nes # flag set too late soon for upper-left corner 09-timing #3 9/10

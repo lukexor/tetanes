@@ -41,6 +41,7 @@ const PREFETCH_CYCLE_START: u16 = 321;
 const PREFETCH_CYCLE_END: u16 = 336;
 const PRERENDER_CYCLE_END: u16 = 339;
 const VISIBLE_SCANLINE_CYCLE_END: u16 = 340;
+const POWER_ON_CYCLES: usize = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
 
 // Scanlines
 const VISIBLE_SCANLINE_END: u16 = 239;
@@ -72,20 +73,19 @@ const PALETTE_END: u16 = 0x3F20;
 
 #[derive(Clone)]
 pub struct Ppu {
-    pub cycle: u16, // (0, 340) 341 cycles happen per scanline
-    pub cycle_count: usize,
-    pub scanline: u16,     // (0, 261) 262 total scanlines per frame
-    pub nmi_pending: bool, // Whether the CPU should trigger an NMI next cycle
-    pub vram: Vram,        // $2007 PPUDATA
-    pub regs: PpuRegs,     // Registers
-    oamdata: Oam,          // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    pub frame: Frame,      // Frame data keeps track of data and shift registers between frames
+    pub cycle: u16,         // (0, 340) 341 cycles happen per scanline
+    pub cycle_count: usize, // Total number of PPU cycles run
+    pub scanline: u16,      // (0, 261) 262 total scanlines per frame
+    pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
+    pub vram: Vram,         // $2007 PPUDATA
+    pub regs: PpuRegs,      // Registers
+    oamdata: Oam,           // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    pub frame: Frame,       // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub ntsc_video: bool,
     debug: bool,
     nt_scanline: u16,
     pat_scanline: u16,
-    // TODO change Vec to Memory
     pub nametables: Vec<Vec<u8>>,
     pub nametable_ids: Vec<u8>,
     pub pattern_tables: Vec<Vec<u8>>,
@@ -581,7 +581,6 @@ impl Ppu {
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
-                self.cycle_count = 0;
                 self.frame.increment();
                 self.frame_complete = true;
             }
@@ -685,6 +684,9 @@ impl Ppu {
         self.regs.nmi_enabled()
     }
     fn write_ppuctrl(&mut self, val: u8) {
+        if self.cycle_count < POWER_ON_CYCLES {
+            return;
+        }
         let nmi_flag = val & 0x80 > 0;
         if nmi_flag && !self.nmi_enabled() && self.vblank_started()
         // FIXME This is a bit of a hack - VBL should clear on cycle 1,
@@ -708,6 +710,9 @@ impl Ppu {
      */
 
     fn write_ppumask(&mut self, val: u8) {
+        if self.cycle_count < POWER_ON_CYCLES {
+            return;
+        }
         self.regs.write_mask(val);
     }
 
@@ -801,6 +806,9 @@ impl Ppu {
      */
 
     fn write_ppuscroll(&mut self, val: u8) {
+        if self.cycle_count < POWER_ON_CYCLES {
+            return;
+        }
         self.regs.write_scroll(val);
     }
 
@@ -812,6 +820,9 @@ impl Ppu {
         self.regs.read_addr()
     }
     fn write_ppuaddr(&mut self, val: u16) {
+        if self.cycle_count < POWER_ON_CYCLES {
+            return;
+        }
         self.regs.write_addr(val);
         self.vram.mapper.borrow_mut().vram_change(self.regs.v);
     }
@@ -968,13 +979,23 @@ impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
         self.scanline = 0;
+        self.regs.w = false;
         self.frame.reset();
         self.vram.reset();
         self.set_sprite_zero_hit(false);
         self.set_sprite_overflow(false);
         self.write_ppuctrl(0);
         self.write_ppumask(0);
+        self.write_ppuscroll(0);
+    }
+    fn power_cycle(&mut self) {
+        self.regs.w = false;
+        self.write_ppuctrl(0);
+        self.write_ppumask(0);
+        self.set_sprite_zero_hit(false);
         self.write_oamaddr(0);
+        self.write_ppuscroll(0);
+        self.write_ppuaddr(0);
     }
 }
 
@@ -1502,14 +1523,13 @@ impl Vram {
     fn nametable_addr(&self, addr: u16) -> u16 {
         let mirroring = self.mapper.borrow().mirroring();
         // Maps addresses to nametable pages based on mirroring mode
-        let mirroring_shift = match mirroring {
-            Mirroring::Horizontal => 11,
-            Mirroring::Vertical => 10,
-            Mirroring::SingleScreenA => 14,
-            Mirroring::SingleScreenB => 13,
-            _ => 10,
+        let page = match mirroring {
+            Mirroring::Horizontal => (addr >> 11) & 1,
+            Mirroring::Vertical => (addr >> 10) & 1,
+            Mirroring::SingleScreenA => (addr >> 14) & 1,
+            Mirroring::SingleScreenB => (addr >> 13) & 1,
+            Mirroring::FourScreen => self.mapper.borrow().nametable_page(addr),
         };
-        let page = (addr >> mirroring_shift) & 1;
         let table_size = 0x0400;
         let offset = addr % table_size;
         NT_START + page * table_size + offset
@@ -1544,10 +1564,7 @@ impl MemRead for Vram {
             0x2000..=0x3EFF => {
                 // Use PPU Nametables or Cartridge RAM
                 if self.mapper.borrow().use_ciram(addr) {
-                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
-                    if mirror_addr == 0 {
-                        mirror_addr = self.nametable_addr(addr);
-                    }
+                    let mirror_addr = self.nametable_addr(addr);
                     self.nametable.peek(mirror_addr % NT_SIZE as u16)
                 } else {
                     self.mapper.borrow().peek(addr)
@@ -1568,10 +1585,7 @@ impl MemWrite for Vram {
             0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
             0x2000..=0x3EFF => {
                 if self.mapper.borrow().use_ciram(addr) {
-                    let mut mirror_addr = self.mapper.borrow().nametable_addr(addr);
-                    if mirror_addr == 0 {
-                        mirror_addr = self.nametable_addr(addr);
-                    }
+                    let mirror_addr = self.nametable_addr(addr);
                     self.nametable.write(mirror_addr % NT_SIZE as u16, val);
                 } else {
                     self.mapper.borrow_mut().write(addr, val);
@@ -1585,8 +1599,7 @@ impl MemWrite for Vram {
 
 impl Powered for Vram {
     fn reset(&mut self) {
-        self.nametable = Nametable([0u8; NT_SIZE]);
-        self.palette = Palette([0u8; PALETTE_SIZE]);
+        self.buffer = 0;
     }
     fn power_cycle(&mut self) {
         self.reset();

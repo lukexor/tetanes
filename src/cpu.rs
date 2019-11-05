@@ -155,9 +155,8 @@ impl Cpu {
         self.read(self.pc);
         self.read(self.pc);
         self.push_stackw(self.pc);
-        self.set_flag(B, false);
-        self.set_flag(U, true);
-        self.push_stackb(self.status);
+        // Set U and !B during push
+        self.push_stackb((self.status | U as u8) & !(B as u8));
         self.set_flag(I, true);
         if self.last_nmi {
             self.nmi_pending = false;
@@ -193,9 +192,8 @@ impl Cpu {
         self.read(self.pc);
         self.read(self.pc);
         self.push_stackw(self.pc);
-        self.set_flag(B, false);
-        self.set_flag(U, true);
-        self.push_stackb(self.status);
+        // Set U and !B during push
+        self.push_stackb((self.status | U as u8) & !(B as u8));
         self.set_flag(I, true);
         self.pc = self.readw(NMI_ADDR);
     }
@@ -1901,9 +1899,8 @@ impl Cpu {
     //  2    PC     R  read next instruction byte (and throw it away)
     //  3  $0100,S  W  push register on stack, decrement S
     fn php(&mut self) {
+        // Set U and B when pushing during PHP and BRK
         self.push_stackb(self.status | U as u8 | B as u8);
-        self.set_flag(B, false);
-        self.set_flag(U, false);
     }
     /// PLP: Pull Processor Status from Stack
     //  #  address R/W description
@@ -1914,7 +1911,7 @@ impl Cpu {
     //  4  $0100,S  R  pull register from stack
     fn plp(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
-        self.status = (self.pop_stackb() | U as u8) & !(B as u8);
+        self.status = self.pop_stackb();
     }
     /// PHA: Push A on Stack
     //  #  address R/W description
@@ -1954,6 +1951,7 @@ impl Cpu {
     fn brk(&mut self) {
         self.fetch_data(); // throw away
         self.push_stackw(self.pc);
+        // Set U and B when pushing during PHP and BRK
         self.push_stackb(self.status | U as u8 | B as u8);
         self.set_flag(I, true);
         if self.last_nmi {
