@@ -96,6 +96,7 @@ pub fn load_rom(rom: &str) -> NesResult<MapperRef> {
         5 => Ok(Exrom::load(cart)),
         7 => Ok(Axrom::load(cart)),
         9 => Ok(Pxrom::load(cart)),
+        71 => Ok(Uxrom::load(cart)), // TODO - Variant of Uxrom with submappers
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num),
     }
 }

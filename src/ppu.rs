@@ -791,7 +791,16 @@ impl Ppu {
      */
 
     fn read_oamdata(&mut self) -> u8 {
-        self.oamdata.read(u16::from(self.regs.oamaddr))
+        if self.rendering_enabled() {
+            match self.cycle {
+                0..=63 => 0xFF,
+                64..=255 => 0x00,
+                256..=319 => 0xFF,
+                _ => 0x00,
+            }
+        } else {
+            self.oamdata.read(u16::from(self.regs.oamaddr))
+        }
     }
     fn peek_oamdata(&self) -> u8 {
         self.oamdata.peek(u16::from(self.regs.oamaddr))
@@ -989,7 +998,11 @@ impl Powered for Ppu {
         self.write_ppuscroll(0);
     }
     fn power_cycle(&mut self) {
+        self.cycle = 0;
+        self.scanline = 0;
         self.regs.w = false;
+        self.frame.reset();
+        self.vram.reset();
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.set_sprite_zero_hit(false);
@@ -1600,9 +1613,6 @@ impl MemWrite for Vram {
 impl Powered for Vram {
     fn reset(&mut self) {
         self.buffer = 0;
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
     }
 }
 

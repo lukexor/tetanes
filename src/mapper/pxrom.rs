@@ -45,6 +45,7 @@ pub struct Pxrom {
     // PPU $0000..=$0FFFF Two 4 KB switchable CHR ROM banks
     // PPU $1000..=$1FFFF Two 4 KB switchable CHR ROM banks
     chr_banks: Banks<Memory>,
+    open_bus: u8,
 }
 
 impl Pxrom {
@@ -61,6 +62,7 @@ impl Pxrom {
             prg_ram,
             prg_rom_banks,
             chr_banks,
+            open_bus: 0,
         };
         Rc::new(RefCell::new(pxrom))
     }
@@ -69,6 +71,9 @@ impl Pxrom {
 impl Mapper for Pxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.open_bus = val;
     }
 }
 
@@ -106,11 +111,8 @@ impl MemRead for Pxrom {
                 let addr = addr % PRG_ROM_BANK_SIZE as u16;
                 self.prg_rom_banks[self.prg_rom_bank_idx[bank]].peek(addr)
             }
-            0x4020..=0x5FFF => 0, // Nothing at this range
-            _ => {
-                eprintln!("invalid Pxrom read at address: 0x{:04X}", addr);
-                0
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => self.open_bus,
         }
     }
 }
@@ -131,13 +133,10 @@ impl MemWrite for Pxrom {
                     _ => panic!("impossible mirroring mode"),
                 }
             }
-            0x0000..=0x1FFF => (), // ROM is write-only
-            0x4020..=0x5FFF => (), // Nothing at this range
-            0x8000..=0x9FFF => (), // ROM is write-only
-            _ => eprintln!(
-                "invalid Pxrom write at address: 0x{:04X} - val: 0x{:02X}",
-                addr, val
-            ),
+            // 0x0000..=0x1FFF ROM is write-only
+            // 0x4020..=0x5FFF Nothing at this range
+            // 0x8000..=0x9FFF ROM is write-only
+            _ => (),
         }
     }
 }

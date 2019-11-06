@@ -112,11 +112,8 @@ impl MemRead for Nrom {
                 Nrom128 => self.prg_rom_banks[0].peek(addr & 0x3FFF),
                 Nrom256 => self.prg_rom_banks[1].peek(addr & 0x7FFF),
             },
-            0x4020..=0x5FFF => self.open_bus, // Nothing at this range
-            _ => {
-                eprintln!("invalid Nrom read at address: 0x{:04X}", addr);
-                self.open_bus
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => self.open_bus,
         }
     }
 }
@@ -125,18 +122,11 @@ impl MemWrite for Nrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             // Only CHR-RAM can be written to
-            0x0000..=0x1FFF => {
-                if self.has_chr_ram {
-                    self.chr_banks[0].write(addr, val);
-                }
-            }
+            0x0000..=0x1FFF if self.has_chr_ram => self.chr_banks[0].write(addr, val),
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
-            0x4020..=0x5FFF => (), // Nothing at this range
-            0x8000..=0xFFFF => (), // ROM is write-only
-            _ => eprintln!(
-                "invalid Nrom write at address: 0x{:04X} - val: 0x{:02X}",
-                addr, val
-            ),
+            // 0x4020..=0x5FFF Nothing at this range
+            // 0x8000..=0xFFFF ROM is write-only
+            _ => (),
         }
     }
 }

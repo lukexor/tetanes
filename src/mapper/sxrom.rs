@@ -248,20 +248,11 @@ impl MemRead for Sxrom {
         match addr {
             0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].peek(addr),
             0x1000..=0x1FFF => self.chr_banks[self.chr_bank_hi].peek(addr - 0x1000),
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enabled() {
-                    self.prg_ram.peek(addr - 0x6000)
-                } else {
-                    self.regs.open_bus
-                }
-            }
+            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.peek(addr - 0x6000),
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
-            0x4020..=0x5FFF => 0, // Nothing at this range
-            _ => {
-                eprintln!("unhandled Sxrom read at address: 0x{:04X}", addr);
-                0
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => self.regs.open_bus,
         }
     }
 }
@@ -271,17 +262,10 @@ impl MemWrite for Sxrom {
         match addr {
             0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].write(addr, val),
             0x1000..=0x1FFF => self.chr_banks[self.chr_bank_hi].write(addr - 0x1000, val),
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enabled() {
-                    self.prg_ram.write(addr - 0x6000, val)
-                }
-            }
+            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.write(addr - 0x6000, val),
             0x8000..=0xFFFF => self.write_registers(addr, val),
-            0x4020..=0x5FFF => (), // Nothing at this range
-            _ => eprintln!(
-                "invalid Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
-                addr, val
-            ),
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => (),
         }
     }
 }

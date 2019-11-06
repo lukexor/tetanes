@@ -31,6 +31,7 @@ pub struct Uxrom {
     // CPU $C000-$FFFF 16 KB PRG ROM Fixed to Last Bank
     prg_rom_banks: Banks<Memory>,
     chr_banks: Banks<Memory>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Banks
+    open_bus: u8,
 }
 
 impl Uxrom {
@@ -49,6 +50,7 @@ impl Uxrom {
             prg_rom_bank_hi: prg_rom_banks.len() - 1,
             prg_rom_banks,
             chr_banks,
+            open_bus: 0,
         };
         Rc::new(RefCell::new(uxrom))
     }
@@ -57,6 +59,9 @@ impl Uxrom {
 impl Mapper for Uxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.open_bus = val;
     }
 }
 
@@ -70,12 +75,9 @@ impl MemRead for Uxrom {
             0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
-            0x4020..=0x5FFF => 0, // Nothing at this range
-            0x6000..=0x7FFF => 0, // No Save RAM
-            _ => {
-                eprintln!("unhandled Uxrom read at address: 0x{:04X}", addr);
-                0
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            // 0x6000..=0x7FFF No Save RAM
+            _ => self.open_bus,
         }
     }
 }
@@ -85,14 +87,9 @@ impl MemWrite for Uxrom {
         match addr {
             0x0000..=0x1FFF => self.chr_banks[0].write(addr, val),
             0x8000..=0xFFFF => self.prg_rom_bank_lo = (val as usize) % self.prg_rom_banks.len(),
-            0x4020..=0x5FFF => (), // Nothing at this range
-            0x6000..=0x7FFF => (), // No Save RAM
-            _ => {
-                eprintln!(
-                    "unhandled Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
-                    addr, val
-                );
-            }
+            // 0x4020..=0x5FFF // Nothing at this range
+            // 0x6000..=0x7FFF // No Save RAM
+            _ => (),
         }
     }
 }

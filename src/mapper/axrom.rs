@@ -26,10 +26,10 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 pub struct Axrom {
     has_chr_ram: bool,
     mirroring: Mirroring,
-    open_bus: u8,
     prg_rom_bank: usize,
     prg_rom_banks: Banks<Memory>,
     chr_banks: Banks<Memory>,
+    open_bus: u8,
 }
 
 impl Axrom {
@@ -44,10 +44,10 @@ impl Axrom {
         let axrom = Self {
             has_chr_ram: cart.chr_rom.is_empty(),
             mirroring: cart.mirroring(),
-            open_bus: 0u8,
             prg_rom_bank: prg_rom_banks.len() - 1,
             prg_rom_banks,
             chr_banks,
+            open_bus: 0,
         };
         Rc::new(RefCell::new(axrom))
     }
@@ -70,13 +70,10 @@ impl MemRead for Axrom {
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
-            0x6000..=0x7FFF => self.open_bus,
             0x8000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank].peek(addr - 0x8000),
-            0x4020..=0x5FFF => self.open_bus, // Nothing at this range
-            _ => {
-                eprintln!("unhandled Axrom read at address: 0x{:04X}", addr);
-                self.open_bus
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            // 0x6000..=0x7FFF Nothing at this range
+            _ => self.open_bus,
         }
     }
 }
@@ -84,11 +81,7 @@ impl MemRead for Axrom {
 impl MemWrite for Axrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => {
-                if self.has_chr_ram {
-                    self.chr_banks[0].write(addr, val)
-                }
-            }
+            0x0000..=0x1FFF if self.has_chr_ram => self.chr_banks[0].write(addr, val),
             0x8000..=0xFFFF => {
                 let bank = (val & 0x07) as usize;
                 self.prg_rom_bank = if bank >= self.prg_rom_banks.len() {
@@ -102,8 +95,8 @@ impl MemWrite for Axrom {
                     Mirroring::SingleScreenA
                 };
             }
-            0x4020..=0x7FFF => (), // Nothing at this range
-            _ => eprintln!("unhandled Axrom write at address: 0x{:04X}", addr),
+            // 0x4020..=0x7FFF Nothing at this range
+            _ => (),
         }
     }
 }

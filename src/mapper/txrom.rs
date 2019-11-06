@@ -319,11 +319,8 @@ impl MemRead for Txrom {
                 let idx = self.prg_rom_bank_idx[bank];
                 self.prg_rom_banks[idx].peek(addr)
             }
-            0x4020..=0x5FFF => 0, // Nothing at this range
-            _ => {
-                eprintln!("unhandled Uxrom read at address: 0x{:04X}", addr);
-                0
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => self.regs.open_bus,
         }
     }
 }
@@ -344,13 +341,8 @@ impl MemWrite for Txrom {
             }
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
             0x8000..=0xFFFF => self.write_register(addr, val),
-            0x4020..=0x5FFF => (), // Nothing at this range
-            _ => {
-                eprintln!(
-                    "unhandled Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
-                    addr, val
-                );
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => (),
         }
     }
 }

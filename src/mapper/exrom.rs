@@ -6,7 +6,6 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
-    debug,
     logging::{LogLevel, Loggable},
     mapper::{Mapper, MapperRef, Mirroring},
     memory::{MemRead, MemWrite, Memory},
@@ -446,10 +445,10 @@ impl MemRead for Exrom {
             }
             0x5205 => (self.regs.mult_result & 0xFF) as u8,
             0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
-            // 0x5207 => self.open_bus, // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
-            // 0x5208 => self.open_bus, // TODO MMC5A only CL3 / SL3 Status
-            // 0x5209 => self.open_bus, // TODO MMC5A only 6-bit Hardware Timer with IRQ
-            // 0x5800..=0x5BFF => self.open_bus, // MMC5A unknown - reads open_bus
+            0x5207 => self.open_bus, // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
+            0x5208 => self.open_bus, // TODO MMC5A only CL3 / SL3 Status
+            0x5209 => self.open_bus, // TODO MMC5A only 6-bit Hardware Timer with IRQ
+            0x5800..=0x5BFF => self.open_bus, // MMC5A unknown - reads open_bus
             0x5C00..=0x5FFF => {
                 match self.regs.exram_mode {
                     // nametable/attr modes are not used for RAM, thus are not readable
@@ -473,7 +472,6 @@ impl MemRead for Exrom {
 impl MemWrite for Exrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => (), // CHR-ROM is read-only
             0x2000..=0x3EFF => {
                 let nametable = self.nametable_mapping(addr);
                 match self.regs.exram_mode {
@@ -645,7 +643,8 @@ impl MemWrite for Exrom {
                     self.prg_ram.writew(prg_addr, val);
                 }
             }
-            0xE000..=0xFFFF => (), // ROM is write-only
+            // 0x0000..=0x1FFF CHR-ROM is read-only
+            // 0xE000..=0xFFFF ROM is write-only
             _ => (),
         }
     }
