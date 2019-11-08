@@ -14,6 +14,12 @@ use std::{
 
 pub const CONFIG_DIR: &str = ".rustynes";
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum NesFormat {
+    NTSC,
+    PAL,
+}
+
 pub trait Powered {
     fn reset(&mut self) {}
     fn power_cycle(&mut self) {

@@ -3,7 +3,7 @@
 //! [http://wiki.nesdev.com/w/index.php/PPU]()
 
 use crate::{
-    common::{Clocked, Powered},
+    common::{Clocked, NesFormat, Powered},
     logging::{LogLevel, Loggable},
     mapper::{self, MapperRef, Mirroring},
     memory::{MemRead, MemWrite},
@@ -83,6 +83,8 @@ pub struct Ppu {
     pub frame: Frame,       // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub ntsc_video: bool,
+    nes_format: NesFormat,
+    clock_remainder: u8,
     debug: bool,
     nt_scanline: u16,
     pat_scanline: u16,
@@ -107,6 +109,8 @@ impl Ppu {
             frame: Frame::new(),
             frame_complete: false,
             ntsc_video: false,
+            nes_format: NesFormat::NTSC,
+            clock_remainder: 0,
             debug: false,
             nt_scanline: 0,
             pat_scanline: 0,
@@ -895,33 +899,45 @@ impl Ppu {
 impl Clocked for Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
     fn clock(&mut self) -> usize {
-        self.tick();
-        self.render_dot();
-        if self.cycle == 1 && self.scanline == VBLANK_SCANLINE {
-            self.start_vblank();
-        }
-        // FIXME This is a bit of a hack - VBL should clear on cycle 1,
-        // but something is off with timing and cycle 1 causes
-        // 03-vbl_clear_time.nes/4.vbl_clear_timing.nes to fail.
-        // Changing it to 2 makes them pass, but then causes 07-nmi_on_timing.nes
-        // to fail so write_ppuctrl is changed as a result
-        if self.cycle == 2 && self.scanline == PRERENDER_SCANLINE {
-            // Dummy scanline - set up tiles for next scanline
-            self.stop_vblank();
-            self.set_sprite_zero_hit(false);
-            self.set_sprite_overflow(false);
+        let mut clocks = 3;
+        if self.nes_format == NesFormat::PAL {
+            if self.clock_remainder == 5 {
+                clocks += 1;
+                self.clock_remainder = 0;
+            } else {
+                self.clock_remainder += 1;
+            }
         }
 
-        if self.debug && self.cycle == 0 {
-            if self.scanline == self.nt_scanline {
-                self.load_nametables();
+        for _ in 0..clocks {
+            self.tick();
+            self.render_dot();
+            if self.cycle == 1 && self.scanline == VBLANK_SCANLINE {
+                self.start_vblank();
             }
-            if self.scanline == self.pat_scanline {
-                self.load_pattern_tables();
-                self.load_palettes();
+            // FIXME This is a bit of a hack - VBL should clear on cycle 1,
+            // but something is off with timing and cycle 1 causes
+            // 03-vbl_clear_time.nes/4.vbl_clear_timing.nes to fail.
+            // Changing it to 2 makes them pass, but then causes 07-nmi_on_timing.nes
+            // to fail so write_ppuctrl is changed as a result
+            if self.cycle == 2 && self.scanline == PRERENDER_SCANLINE {
+                // Dummy scanline - set up tiles for next scanline
+                self.stop_vblank();
+                self.set_sprite_zero_hit(false);
+                self.set_sprite_overflow(false);
+            }
+
+            if self.debug && self.cycle == 0 {
+                if self.scanline == self.nt_scanline {
+                    self.load_nametables();
+                }
+                if self.scanline == self.pat_scanline {
+                    self.load_pattern_tables();
+                    self.load_palettes();
+                }
             }
         }
-        1
+        clocks
     }
 }
 
