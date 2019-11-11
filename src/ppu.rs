@@ -480,9 +480,9 @@ impl Ppu {
                 && self.frame.sprite_zero_on_line
                 && self.rendering_enabled()
                 && !self.sprite_zero_hit()
-                && self.frame.sprites[i].x < 255
-                && x < 255
-                && self.frame.sprites[i].y < 255
+                && self.frame.sprites[i].x != 255
+                && x > 0
+                && x != 255
                 && bg_opaque
                 && sprite_opaque
             {
@@ -515,6 +515,9 @@ impl Ppu {
     }
 
     fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut Vec<u8>) {
+        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
+            return;
+        }
         let idx = (palette_idx % SYSTEM_PALETTE_SIZE) * 3;
         let red = SYSTEM_PALETTE[idx];
         let green = SYSTEM_PALETTE[idx + 1];
@@ -921,10 +924,9 @@ impl Clocked for Ppu {
             // Changing it to 2 makes them pass, but then causes 07-nmi_on_timing.nes
             // to fail so write_ppuctrl is changed as a result
             if self.cycle == 2 && self.scanline == PRERENDER_SCANLINE {
-                // Dummy scanline - set up tiles for next scanline
-                self.stop_vblank();
                 self.set_sprite_zero_hit(false);
                 self.set_sprite_overflow(false);
+                self.stop_vblank();
             }
 
             if self.debug && self.cycle == 0 {
@@ -1535,7 +1537,6 @@ pub struct Vram {
     pub palette: Palette,     // Background/Sprite color palettes
     mapper: MapperRef,
     buffer: u8, // PPUDATA buffer
-    a12: bool,  // Whether address line 12 is low or high
 }
 
 impl Vram {
@@ -1545,7 +1546,6 @@ impl Vram {
             palette: Palette([0u8; PALETTE_SIZE]),
             mapper: mapper::null(),
             buffer: 0u8,
-            a12: false,
         }
     }
 
@@ -1567,9 +1567,6 @@ impl Vram {
 
 impl MemRead for Vram {
     fn read(&mut self, addr: u16) -> u8 {
-        if addr < 0x2000 {
-            self.a12 = (addr >> 12) & 1 > 0;
-        }
         self.mapper.borrow_mut().vram_change(addr);
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow_mut().read(addr),
@@ -1606,9 +1603,6 @@ impl MemRead for Vram {
 }
 impl MemWrite for Vram {
     fn write(&mut self, addr: u16, val: u8) {
-        if addr < 0x2000 {
-            self.a12 = (addr >> 12) & 1 > 0;
-        }
         self.mapper.borrow_mut().vram_change(addr);
         match addr {
             0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
@@ -1712,10 +1706,10 @@ impl Frame {
 
     #[allow(clippy::many_single_char_names)]
     fn put_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
-        if x > RENDER_WIDTH || y > RENDER_HEIGHT {
+        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
-        let idx = (3 * (x + y * RENDER_WIDTH)) as usize;
+        let idx = 3 * (x + y * RENDER_WIDTH) as usize;
         self.pixels[idx] = r;
         self.pixels[idx + 1] = g;
         self.pixels[idx + 2] = b;
@@ -2002,6 +1996,9 @@ mod tests {
     fn ppu_scrolling_registers() {
         let mut ppu = Ppu::new();
         ppu.load_mapper(mapper::null());
+        while ppu.cycle_count < POWER_ON_CYCLES {
+            ppu.clock();
+        }
 
         let ppuctrl = 0x2000;
         let ppustatus = 0x2002;
@@ -2061,54 +2058,5 @@ mod tests {
         ppu.write(ppuaddr, 0b1001_0110); // $100 lo bits coarse Y scroll, $10110 coarse X scroll
         let t_result: u16 = 0b101_10_01100_10110;
         assert_eq!(ppu.regs.v, t_result);
-    }
-
-    #[test]
-    fn a12_timing() {
-        let mut ppu = Ppu::new();
-        ppu.load_mapper(mapper::null());
-
-        // Show BG and Spr
-        ppu.write_ppumask(3 << 3);
-        // BG use 0x0000, Spr use 0x1000
-        ppu.write_ppuctrl(1 << 3);
-
-        // Rising edge test
-        let mut last_clock = false;
-        let mut clocks = 0u16;
-        for i in 0..340 * 241 {
-            let _ = ppu.clock();
-            if !last_clock && ppu.vram.a12 {
-                clocks += 1;
-            }
-            last_clock = ppu.vram.a12;
-            if i == 260 {
-                assert_eq!(clocks, 1, "a12 rising first clock @ 324");
-            }
-        }
-        assert_eq!(clocks, 240, "a12 rising clocked 241 times");
-
-        ppu = Ppu::new();
-        ppu.load_mapper(mapper::null());
-
-        // Show BG and Spr
-        ppu.write_ppumask(3 << 3);
-        // BG use 0x0000, Spr use 0x1000
-        ppu.write_ppuctrl(1 << 3);
-
-        // Failling edge
-        last_clock = false;
-        clocks = 0u16;
-        for i in 0..340 * 241 {
-            let _ = ppu.clock();
-            if last_clock && !ppu.vram.a12 {
-                clocks += 1;
-            }
-            last_clock = ppu.vram.a12;
-            if i == 324 {
-                assert_eq!(clocks, 1, "a12 falling first clock @ 324");
-            }
-        }
-        assert_eq!(clocks, 240, "a12 rising clocked 241 times");
     }
 }

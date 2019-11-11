@@ -22,8 +22,9 @@ tests/apu/test_10.nes # failed
 ## PPU ============================================================================================
 tests/ppu/sprdma_and_dmc_dma.nes # Supposed to print a table
 tests/ppu/sprdma_and_dmc_dma_512.nes # Supposed to print a table
-tests/ppu/sprite_hit.nes # flag set too late soon for upper-left corner 09-timing #3 9/10
-tests/ppu/sprite_overflow.nes # PPU VBL timing is wrong 03-timing #3 3/5
+tests/ppu/sprite_hit/09-timing.nes # Flag set too soon for upper-right corner #05
+tests/ppu/sprite_overflow/3.Timing.nes # Failed #05
+tests/ppu/sprite_overflow/4.Obscure.nes # Failed #02
 
 ## MAPPERS ========================================================================================
 tests/mapper/mmc3/5.MMC3_rev_A.nes # Can only pass rev_A or rev_B at the same time. Passes rev_B

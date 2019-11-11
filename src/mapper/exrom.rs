@@ -417,19 +417,19 @@ impl MemRead for Exrom {
             0x5010..=0x5011 => 0, // TODO Sound PCM
             0x5100 => self.regs.prg_mode,
             0x5101 => self.regs.chr_mode,
-            0x5130 => self.regs.chr_hi_bit,
             0x5104 => self.regs.exram_mode as u8,
             0x5105 => self.regs.nametable_mirroring,
             0x5106 => self.regs.fill_tile,
             0x5107 => self.regs.fill_attr,
-            0x5113..=0x5117 => self.prg_banks[addr as usize - 0x5113] as u8,
             0x5015 => {
                 // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
                 // TODO Sound General
                 0
             }
+            0x5113..=0x5117 => self.prg_banks[addr as usize - 0x5113] as u8,
             0x5120..=0x5127 => self.chr_banks_spr[addr as usize - 0x5120] as u8,
             0x5128..=0x512B => self.chr_banks_bg[addr as usize - 0x5128] as u8,
+            0x5130 => self.regs.chr_hi_bit,
             0x5200 => self.regs.vertical_split_mode,
             0x5201 => self.regs.vertical_split_scroll,
             0x5202 => self.regs.vertical_split_bank,
@@ -832,6 +832,7 @@ mod tests {
 
                 exrom.write(0x5102, a);
                 exrom.write(0x5103, b);
+                exrom.write(0x5114, 0);
                 exrom.write(0x8000, 0xFF);
                 let val = exrom.read(0x8000);
                 if a == 0b10 && b == 0b01 {
