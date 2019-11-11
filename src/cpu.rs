@@ -2064,21 +2064,19 @@ impl Cpu {
         self.set_flags_zn(self.acc);
     }
     /// SXA/SHX/XAS: AND X with the high byte of the target address + 1
-    /// TODO fails test tests/cpu/instr/06-abs_xy.nes
     fn sxa(&mut self) {
-        let val = self.x & (self.abs_addr >> 8).wrapping_add(1) as u8;
-        if (self.abs_addr >> 8) == 0xFF {
-            self.abs_addr = (u16::from(val) << 8) | (self.abs_addr & 0x00FF);
-        }
+        let hi = (self.abs_addr >> 8) as u8;
+        let lo = (self.abs_addr & 0xFF) as u8;
+        let val = self.x & hi.wrapping_add(1);
+        self.abs_addr = ((u16::from(self.x) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
         self.write_fetched(val);
     }
     /// SYA/SHY/SAY: AND Y with the high byte of the target address + 1
-    /// TODO fails test tests/cpu/instr/06-abs_xy.nes
     fn sya(&mut self) {
-        let val = self.y & (self.abs_addr >> 8).wrapping_add(1) as u8;
-        if (self.abs_addr >> 8) == 0xFF {
-            self.abs_addr = (u16::from(val) << 8) | (self.abs_addr & 0x00FF);
-        }
+        let hi = (self.abs_addr >> 8) as u8;
+        let lo = (self.abs_addr & 0xFF) as u8;
+        let val = self.y & hi.wrapping_add(1);
+        self.abs_addr = ((u16::from(self.y) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
         self.write_fetched(val);
     }
     /// RRA: Shortcut for ROR then ADC

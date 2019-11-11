@@ -16,6 +16,7 @@ tests/cpu/instr/02-immediate.nes
 tests/cpu/instr/03-zero_page.nes
 tests/cpu/instr/04-zp_xy.nes
 tests/cpu/instr/05-absolute.nes
+tests/cpu/instr/06-abs_xy.nes
 tests/cpu/instr/07-ind_x.nes
 tests/cpu/instr/08-ind_y.nes
 tests/cpu/instr/09-branches.nes
