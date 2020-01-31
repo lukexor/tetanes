@@ -203,6 +203,24 @@ Run them the same way you would run a game. e.g.
 cargo run --release tests/cpu/nestest.nes
 ```
 
+## Debugging
+
+There are built-in debugging tools that allow you to monitor game state and step through CPU
+instructions manually. See the `Controls` section for more on keybindings.
+
+The Default debugger screen provides CPU information such as the statis of the CPU register flags,
+Program Counter, Stack, PPU information, and the previous/upcoming CPU instructions.
+
+The Nametable Viewer displays the current Nametables in PPU memory and allows you to scroll up/down
+to change the scanline at which the nametable is read. Some games swap out nametables mid-frame.
+
+The PPU Viewer shows the current sprite and palettes loaded. You can also scroll up/down in a
+similar manner to the Nametable Viewer. Super Mario Bros 3 for example swaps out sprites mid-frame
+to render animations.
+
+<img src="static/nametable_viewer.png" width="400">&nbsp;&nbsp;<img src="static/ppu_viewer.png" width="400">
+<img src="static/debugger.png" width="808">
+
 ## Troubleshooting
 
 If you get some sort of nasty error when trying to start a game, try passing the --no_save option to
