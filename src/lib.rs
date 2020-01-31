@@ -12,48 +12,114 @@
 //! RustyNES is also meant to showcase how clean and readable low-level Rust programs can be in
 //! addition to them having the type and memory-safety guarantees that Rust is known for.
 
+use pix_engine::PixEngineErr;
 use std::fmt;
 
+pub mod apu;
+pub mod bus;
 pub mod cartridge;
-pub mod console;
+pub mod common;
+#[macro_use]
+pub mod logging;
+pub mod cpu;
 pub mod filter;
 pub mod input;
 pub mod mapper;
 pub mod memory;
+pub mod nes;
+pub mod ppu;
 pub mod serialization;
-pub mod ui;
-pub mod util;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-pub struct NesError(pub String);
+pub type NesResult<T> = std::result::Result<T, NesErr>;
+
+pub struct NesErr {
+    description: String,
+}
+
+impl NesErr {
+    fn new<D: ToString>(desc: D) -> Self {
+        Self {
+            description: desc.to_string(),
+        }
+    }
+    fn err<T, D: ToString>(desc: D) -> NesResult<T> {
+        Err(Self {
+            description: desc.to_string(),
+        })
+    }
+}
 
 #[macro_export]
 macro_rules! nes_err {
     ($($arg:tt)*) => {
-        crate::NesError(format!($($arg)*))
+        crate::NesErr::err(&format!($($arg)*))
+    };
+}
+#[macro_export]
+macro_rules! map_nes_err {
+    ($($arg:tt)*) => {
+        crate::NesErr::new(&format!($($arg)*))
     };
 }
 
-pub fn to_nes_err(err: String) -> NesError {
-    NesError(err)
-}
-
-impl fmt::Display for NesError {
+impl fmt::Display for NesErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.description)
     }
 }
 
-impl fmt::Debug for NesError {
+impl fmt::Debug for NesErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{{ err: {}, file: {}, line: {} }}",
-            self.0,
+            self.description,
             file!(),
             line!()
         )
     }
 }
 
-impl std::error::Error for NesError {}
+impl std::error::Error for NesErr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
+impl From<std::io::Error> for NesErr {
+    fn from(err: std::io::Error) -> Self {
+        Self {
+            description: err.to_string(),
+        }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for NesErr {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        Self {
+            description: err.to_string(),
+        }
+    }
+}
+
+impl From<NesErr> for PixEngineErr {
+    fn from(err: NesErr) -> Self {
+        Self::new(&err.to_string())
+    }
+}
+
+impl From<PixEngineErr> for NesErr {
+    fn from(err: PixEngineErr) -> Self {
+        Self::new(&err.to_string())
+    }
+}
+
+#[cfg(feature = "wasm-driver")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "wasm-driver")]
+impl From<NesErr> for JsValue {
+    fn from(err: NesErr) -> Self {
+        JsValue::from_str(&err.to_string())
+    }
+}

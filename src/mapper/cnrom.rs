@@ -3,15 +3,20 @@
 //! [https://wiki.nesdev.com/w/index.php/CNROM]()
 //! [https://wiki.nesdev.com/w/index.php/INES_Mapper_003]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::Result;
-use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    logging::Loggable,
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Banks, MemRead, MemWrite, Memory},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
@@ -25,14 +30,15 @@ pub struct Cnrom {
     chr_bank: usize,
     // CPU $8000-$FFFF 16 KB PRG ROM Bank 1 Fixed
     // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 Fixed or Bank 1 Mirror if only 16 KB PRG ROM
-    prg_rom_banks: Banks<Rom>,
-    chr_banks: Banks<Ram>, // PPU $0000..=$1FFFF 8K CHR ROM Banks Switchable
+    prg_rom_banks: Banks<Memory>,
+    chr_banks: Banks<Memory>, // PPU $0000..=$1FFFF 8K CHR ROM Banks Switchable
+    open_bus: u8,
 }
 
 impl Cnrom {
     pub fn load(cart: Cartridge) -> MapperRef {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE);
+        let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
         let cnrom = Self {
             mirroring: cart.mirroring(),
             prg_rom_bank_lo: 0usize,
@@ -40,48 +46,22 @@ impl Cnrom {
             chr_bank: 0usize,
             prg_rom_banks,
             chr_banks,
+            open_bus: 0,
         };
         Rc::new(RefCell::new(cnrom))
     }
 }
 
 impl Mapper for Cnrom {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {} // no clocking
-    fn battery_backed(&self) -> bool {
-        false
-    }
-    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
-        Ok(())
-    }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
-        Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        Some(&self.chr_banks)
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        Some(&self.prg_rom_banks)
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        None
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.open_bus = val;
     }
 }
 
-impl Memory for Cnrom {
+impl MemRead for Cnrom {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -91,31 +71,30 @@ impl Memory for Cnrom {
             0x0000..=0x1FFF => self.chr_banks[self.chr_bank].peek(addr),
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
-            0x4020..=0x5FFF => 0, // Nothing at this range
-            0x6000..=0x7FFF => 0, // No Save RAM
-            _ => {
-                eprintln!("unhandled Cnrom read at address: 0x{:04X}", addr);
-                0
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            // 0x6000..=0x7FFF No Save RAM
+            _ => self.open_bus,
         }
     }
-
-    fn write(&mut self, addr: u16, val: u8) {
-        match addr {
-            0x8000..=0xFFFF => self.chr_bank = val as usize & 3,
-            0x0000..=0x1FFF => (), // ROM is write-only
-            0x4020..=0x5FFF => (), // Nothing at this range
-            0x6000..=0x7FFF => (), // No Save RAM
-            _ => eprintln!("unhandled Cnrom write at address: 0x{:04X}", addr),
-        }
-    }
-
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
 }
 
+impl MemWrite for Cnrom {
+    fn write(&mut self, addr: u16, val: u8) {
+        if let 0x8000..=0xFFFF = addr {
+            self.chr_bank = val as usize & 3;
+        }
+        // 0x0000..=0x1FFF ROM is write-only
+        // 0x4020..=0x5FFF Nothing at this range
+        // 0x6000..=0x7FFF No Save RAM
+    }
+}
+
+impl Clocked for Cnrom {}
+impl Powered for Cnrom {}
+impl Loggable for Cnrom {}
+
 impl Savable for Cnrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.mirroring.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
         self.prg_rom_bank_hi.save(fh)?;
@@ -123,7 +102,7 @@ impl Savable for Cnrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
         self.prg_rom_bank_hi.load(fh)?;

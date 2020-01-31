@@ -9,81 +9,119 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
-use rustynes::ui::UiBuilder;
-use std::path::PathBuf;
+use rustynes::{
+    logging::LogLevel,
+    nes::{Nes, NesConfig},
+};
+use std::env;
 use structopt::StructOpt;
 
 fn main() {
     let opt = Opt::from_args();
-    let mut ui = UiBuilder::new()
-        .path(opt.path)
-        .debug(opt.debug)
-        .ppu_debug(opt.ppu_debug)
-        .fullscreen(opt.fullscreen)
-        .sound_off(opt.sound_off)
-        .concurrent_dpad(opt.concurrent_dpad)
-        .randomize_ram(opt.randomize_ram)
-        .logging(opt.logging)
-        .no_save(opt.no_save)
-        .save_slot(opt.save_slot)
-        .scale(opt.scale)
-        .build()
-        .unwrap_or_else(|e| err_exit(e));
-    ui.run().unwrap_or_else(|e| err_exit(e));
-}
-
-fn err_exit(err: Box<dyn std::error::Error>) -> ! {
-    eprintln!("Error: {}", err.to_string());
-    std::process::exit(1);
+    let config = NesConfig {
+        path: opt.path.unwrap_or_else(|| {
+            if let Some(p) = env::current_dir().unwrap_or_default().to_str() {
+                p.to_string()
+            } else {
+                String::new()
+            }
+        }),
+        debug: opt.debug,
+        log_level: match opt.log_level.as_ref() {
+            "error" => LogLevel::Error,
+            "warn" => LogLevel::Warn,
+            "info" => LogLevel::Info,
+            "debug" => LogLevel::Debug,
+            "trace" => LogLevel::Trace,
+            _ => LogLevel::Off,
+        },
+        fullscreen: opt.fullscreen,
+        vsync: !opt.vsync_off && !opt.unlock_fps,
+        sound_enabled: !opt.sound_off && !opt.unlock_fps,
+        record: opt.record && opt.replay.is_none(),
+        replay: opt.replay,
+        rewind_enabled: opt.rewind,
+        save_enabled: !opt.no_save,
+        clear_save: opt.clear_save,
+        concurrent_dpad: opt.concurrent_dpad,
+        randomize_ram: opt.randomize_ram,
+        save_slot: opt.save_slot,
+        scale: opt.scale,
+        speed: opt.speed,
+        unlock_fps: opt.unlock_fps,
+        genie_codes: opt.genie_codes,
+    };
+    let nes = Nes::with_config(config).unwrap_or_else(|e| {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    });
+    if let Err(e) = nes.run() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
 }
 
 /// Command-Line Options
 #[derive(StructOpt, Debug)]
 #[structopt(
     name = "rustynes",
-    about = "An NES emulator written in Rust.",
-    version = "0.1.0",
+    about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
+    version = "0.5.0",
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
 struct Opt {
     #[structopt(
-        parse(from_os_str),
         help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
     )]
-    path: Option<PathBuf>,
+    path: Option<String>,
     #[structopt(
         short = "d",
         long = "debug",
-        help = "Start with CPU debugger enabled. Stops at first CPU instruction."
+        help = "Start with the CPU debugger enabled and emulation paused at first CPU instruction."
     )]
     debug: bool,
     #[structopt(
-        long = "ppu_debug",
-        help = "Start with PPU debugger enabled. Displays nametables, patterns, and palettes."
+        short = "l",
+        long = "log_level",
+        default_value = "error",
+        possible_values = &["off", "error", "warn", "info", "debug", "trace"],
+        help = "Set logging level."
     )]
-    ppu_debug: bool,
-    #[structopt(short = "f", long = "fullscreen", help = "Fullscreen")]
+    log_level: String,
+    #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
-    #[structopt(long = "sound_off", help = "Disable Sound")]
+    #[structopt(short = "v", long = "vsync_off", help = "Disable vsync.")]
+    vsync_off: bool,
+    #[structopt(long = "sound_off", help = "Disable sound.")]
     sound_off: bool,
     #[structopt(
+        long = "record",
+        help = "Record gameplay input to a file for later replay."
+    )]
+    record: bool,
+    #[structopt(long = "replay", help = "Replay a saved recording.")]
+    replay: Option<String>,
+    #[structopt(
         long = "concurrent_dpad",
-        help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad"
+        help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad."
     )]
     concurrent_dpad: bool,
     #[structopt(
         long = "randomize_ram",
-        help = "By default RAM initializes to 0x00 on power up. This affects some games RNG seed generators."
+        help = "Randomize ram on startup. By default RAM initializes to 0x00. This affects RNG seed generators for some games."
     )]
     randomize_ram: bool,
-    #[structopt(short = "l", long = "logging", help = "Enable logging")]
-    logging: bool,
-    #[structopt(long = "no_save", help = "Don't load or save quick-save slots.")]
+    #[structopt(long = "rewind", help = "Enable savestate rewinding")]
+    rewind: bool,
+    #[structopt(long = "no_save", help = "Disable savestates")]
     no_save: bool,
+    #[structopt(long = "clear_save", help = "Overwrites existing savestate on load.")]
+    clear_save: bool,
     #[structopt(
         long = "save_slot",
         default_value = "1",
-        help = "Use Save Slot # (Options: 1-4)"
+        possible_values = &["1", "2", "3", "4"],
+        help = "Set savestate slot."
     )]
     save_slot: u8,
     #[structopt(
@@ -93,4 +131,20 @@ struct Opt {
         help = "Window scale"
     )]
     scale: u32,
+    #[structopt(
+        long = "speed",
+        default_value = "1.0",
+        help = "Increase/Decrease emulation speed."
+    )]
+    speed: f32,
+    #[structopt(
+        long = "unlock_fps",
+        help = "Disables locking FPS to 60. Also disables sound."
+    )]
+    unlock_fps: bool,
+    #[structopt(
+        long = "genie_codes",
+        help = "List of Game Genie Codes (space separated)."
+    )]
+    genie_codes: Vec<String>,
 }

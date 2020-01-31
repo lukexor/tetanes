@@ -1,9 +1,10 @@
 //! NES Controller Inputs
 
-use crate::memory::Memory;
-use std::cell::RefCell;
-use std::fmt;
-use std::rc::Rc;
+use crate::{
+    common::Powered,
+    memory::{MemRead, MemWrite},
+};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 /// Alias for Input wrapped in a Rc/RefCell
 pub type InputRef = Rc<RefCell<Input>>;
@@ -19,7 +20,7 @@ const STROBE_LEFT: u8 = 6;
 const STROBE_RIGHT: u8 = 7;
 
 /// Represents an NES Joypad
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Gamepad {
     pub left: bool,
     pub right: bool,
@@ -64,13 +65,16 @@ impl Gamepad {
         };
         state as u8
     }
+}
+
+impl Powered for Gamepad {
     fn reset(&mut self) {
         self.strobe_state = STROBE_A;
     }
 }
 
 /// Input containing gamepad input state
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Input {
     pub gamepad1: Gamepad,
     pub gamepad2: Gamepad,
@@ -88,7 +92,7 @@ impl Input {
     }
 }
 
-impl Memory for Input {
+impl MemRead for Input {
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
             0x4016 => self.gamepad1.next_state() | 0x40,
@@ -106,7 +110,9 @@ impl Memory for Input {
             _ => self.open_bus,
         }
     }
+}
 
+impl MemWrite for Input {
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         if addr == 0x4016 {
@@ -114,9 +120,13 @@ impl Memory for Input {
             self.gamepad2.reset();
         }
     }
+}
 
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
+impl Powered for Input {
+    fn reset(&mut self) {
+        self.gamepad1.reset();
+        self.gamepad2.reset();
+    }
 }
 
 impl fmt::Debug for Input {

@@ -1,211 +1,158 @@
-//! Memory Map
+//! Memory types for dealing with bytes of u8
 
-use crate::console::apu::Apu;
-use crate::console::ppu::Ppu;
-use crate::input::InputRef;
-use crate::mapper::{self, MapperRef};
-use crate::serialization::Savable;
-use crate::Result;
+use crate::{serialization::Savable, NesResult};
 use rand::Rng;
-use std::fmt;
-use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt,
+    io::{Read, Write},
+    ops::{Deref, DerefMut},
+};
 
+// TODO move this out of a static
 pub static mut RANDOMIZE_RAM: bool = false;
-const WRAM_SIZE: usize = 2 * 1024;
 
-/// Memory Trait
-pub trait Memory {
-    fn read(&mut self, addr: u16) -> u8;
-    fn peek(&self, addr: u16) -> u8;
-    fn write(&mut self, addr: u16, val: u8);
-    fn reset(&mut self);
-    fn power_cycle(&mut self);
-}
-
-impl fmt::Debug for dyn Memory {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "")
+pub trait MemRead {
+    fn read(&mut self, _addr: u16) -> u8 {
+        0
+    }
+    fn readw(&mut self, _addr: usize) -> u8 {
+        0
+    }
+    fn peek(&self, _addr: u16) -> u8 {
+        0
+    }
+    fn peekw(&self, _addr: usize) -> u8 {
+        0
     }
 }
+pub trait MemWrite {
+    fn write(&mut self, _addr: u16, _val: u8) {}
+    fn writew(&mut self, _addr: usize, _val: u8) {}
+}
 
-pub struct Ram(Vec<u8>);
+#[derive(Default, Clone)]
+pub struct Memory {
+    data: Vec<u8>,
+    writable: bool,
+}
 
-impl Ram {
-    pub fn init(size: usize) -> Self {
+impl Memory {
+    pub fn new() -> Self {
+        Self::with_capacity(0)
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
         let randomize = unsafe { RANDOMIZE_RAM };
-        let ram = if randomize {
+        let data = if randomize {
             let mut rng = rand::thread_rng();
-            let mut ram = Vec::with_capacity(size);
-            for _ in 0..size {
-                ram.push(rng.gen_range(0x00, 0xFF));
+            let mut data = Vec::with_capacity(capacity);
+            for _ in 0..capacity {
+                data.push(rng.gen_range(0x00, 0xFF));
             }
-            ram
+            data
         } else {
-            vec![0u8; size]
+            vec![0u8; capacity]
         };
-        Self(ram)
+        Self {
+            data,
+            writable: true,
+        }
     }
-    pub fn null() -> Self {
-        Self(Vec::new())
-    }
+
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self(bytes.to_vec())
+        let mut memory = Self::with_capacity(bytes.len());
+        memory.data = bytes.to_vec();
+        memory
     }
-    pub fn from_vec(v: Vec<u8>) -> Self {
-        Self(v)
+
+    pub fn rom(capacity: usize) -> Self {
+        let mut rom = Self::with_capacity(capacity);
+        rom.writable = false;
+        rom
     }
-    pub fn clear(&mut self) {
-        self.0.clear()
+    pub fn rom_from_bytes(bytes: &[u8]) -> Self {
+        let mut rom = Self::rom(bytes.len());
+        rom.data = bytes.to_vec();
+        rom
+    }
+
+    pub fn ram(capacity: usize) -> Self {
+        Self::with_capacity(capacity)
+    }
+    pub fn ram_from_bytes(bytes: &[u8]) -> Self {
+        let mut ram = Self::ram(bytes.len());
+        ram.data = bytes.to_vec();
+        ram
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 }
 
-impl Memory for Ram {
+impl MemRead for Memory {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
-    fn peek(&self, addr: u16) -> u8 {
-        if self.0.is_empty() {
-            return 0;
-        }
-        let addr = addr as usize % self.0.len();
-        self.0[addr]
+    fn readw(&mut self, addr: usize) -> u8 {
+        self.peekw(addr)
     }
+    fn peek(&self, addr: u16) -> u8 {
+        self.peekw(addr as usize)
+    }
+    fn peekw(&self, addr: usize) -> u8 {
+        if self.data.len() > 0 {
+            let addr = addr % self.data.len();
+            self.data[addr]
+        } else {
+            0
+        }
+    }
+}
+
+impl MemWrite for Memory {
     fn write(&mut self, addr: u16, val: u8) {
-        if self.0.is_empty() {
-            return;
+        self.writew(addr as usize, val);
+    }
+    fn writew(&mut self, addr: usize, val: u8) {
+        if self.writable && self.data.len() > 0 {
+            let addr = addr % self.data.len();
+            self.data[addr] = val;
         }
-        let addr = addr as usize % self.0.len();
-        self.0[addr] = val;
-    }
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
-}
-
-impl Savable for Ram {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
-        self.0.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
-        self.0.load(fh)
     }
 }
 
-impl Bankable for Ram {
-    fn chunks(&self, size: usize) -> Vec<Ram> {
-        let mut chunks: Vec<Ram> = Vec::new();
-        for slice in self.0.chunks(size) {
-            chunks.push(Ram::from_bytes(slice));
+impl Bankable for Memory {
+    fn chunks(&self, size: usize) -> Vec<Memory> {
+        let mut chunks: Vec<Memory> = Vec::new();
+        for slice in self.data.chunks(size) {
+            let mut chunk = Memory::from_bytes(slice);
+            chunk.writable = self.writable;
+            chunks.push(chunk);
         }
         chunks
     }
     fn len(&self) -> usize {
-        self.0.len()
+        self.len()
     }
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.is_empty()
     }
 }
 
-impl Default for Ram {
-    fn default() -> Self {
-        Self::init(0)
+impl Savable for Memory {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        self.data.save(fh)?;
+        self.writable.save(fh)?;
+        Ok(())
     }
-}
-
-impl fmt::Debug for Ram {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(f, "Ram {{ len: {} KB }}", self.0.len() / 1024)
-    }
-}
-
-impl Deref for Ram {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Vec<u8> {
-        &self.0
-    }
-}
-
-impl DerefMut for Ram {
-    fn deref_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.0
-    }
-}
-
-pub struct Rom(Vec<u8>);
-
-impl Rom {
-    pub fn init(size: usize) -> Self {
-        Self(vec![0u8; size as usize])
-    }
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        Self(bytes.to_vec())
-    }
-    pub fn from_vec(v: Vec<u8>) -> Self {
-        Self(v)
-    }
-    pub fn to_ram(&self) -> Ram {
-        Ram::from_vec(self.0.clone())
-    }
-}
-
-impl Memory for Rom {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-    fn peek(&self, addr: u16) -> u8 {
-        if self.0.is_empty() {
-            return 0;
-        }
-        let addr = addr as usize % self.0.len();
-        self.0[addr]
-    }
-    fn write(&mut self, _addr: u16, _val: u8) {} // ROM is read-only
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {}
-}
-
-impl Savable for Rom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
-        self.0.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
-        self.0.load(fh)
-    }
-}
-
-impl Bankable for Rom {
-    fn chunks(&self, size: usize) -> Vec<Rom> {
-        let mut chunks: Vec<Rom> = Vec::new();
-        for slice in self.0.chunks(size) {
-            chunks.push(Rom::from_bytes(slice));
-        }
-        chunks
-    }
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl Default for Rom {
-    fn default() -> Self {
-        Self::init(0)
-    }
-}
-
-impl fmt::Debug for Rom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(f, "Rom {{ len: {} KB }}", self.0.len() / 1024)
-    }
-}
-
-impl Deref for Rom {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Vec<u8> {
-        &self.0
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        self.data.load(fh)?;
+        self.writable.load(fh)?;
+        Ok(())
     }
 }
 
@@ -218,9 +165,10 @@ where
     fn is_empty(&self) -> bool;
 }
 
+#[derive(Default, Clone)]
 pub struct Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     banks: Vec<T>,
     pub size: usize,
@@ -228,7 +176,7 @@ where
 
 impl<T> Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     pub fn new() -> Self {
         Self {
@@ -248,23 +196,9 @@ where
     }
 }
 
-impl<T> fmt::Debug for Banks<T>
-where
-    T: Memory + Bankable,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(
-            f,
-            "Rom {{ len: {}, size: {} KB  }}",
-            self.banks.len(),
-            self.size / 1024,
-        )
-    }
-}
-
 impl<T> Deref for Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     type Target = Vec<T>;
     fn deref(&self) -> &Vec<T> {
@@ -274,214 +208,34 @@ where
 
 impl<T> DerefMut for Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
     fn deref_mut(&mut self) -> &mut Vec<T> {
         &mut self.banks
     }
 }
 
-impl<T> Default for Banks<T>
+impl fmt::Debug for Memory {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        write!(
+            f,
+            "Memory {{ data: {} KB, writable: {} }}",
+            self.data.len() / 1024,
+            self.writable
+        )
+    }
+}
+
+impl<T> fmt::Debug for Banks<T>
 where
-    T: Memory + Bankable,
+    T: MemRead + MemWrite + Bankable,
 {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// CPU Memory Map
-///
-/// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
-pub struct MemoryMap {
-    pub wram: Ram,
-    open_bus: u8,
-    pub ppu: Ppu,
-    pub apu: Apu,
-    pub mapper: MapperRef,
-    input: InputRef,
-}
-
-impl MemoryMap {
-    pub fn init(input: InputRef) -> Self {
-        Self {
-            wram: Ram::init(WRAM_SIZE),
-            open_bus: 0u8,
-            ppu: Ppu::new(),
-            apu: Apu::new(),
-            input,
-            mapper: mapper::null(),
-        }
-    }
-
-    pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.mapper = mapper.clone();
-        self.ppu.load_mapper(mapper.clone());
-        self.apu.load_mapper(mapper);
-    }
-}
-
-impl Memory for MemoryMap {
-    fn read(&mut self, addr: u16) -> u8 {
-        // Order of frequently accessed
-        let val = match addr {
-            // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => self.mapper.borrow_mut().read(addr),
-            0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
-            0x4016..=0x4017 => self.input.borrow_mut().read(addr),
-            0x2000..=0x3FFF => self.ppu.read(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
-            0x4014 => self.open_bus,
-        };
-        self.open_bus = val;
-        val
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
-        // Order of frequently accessed
-        match addr {
-            // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => self.mapper.borrow().peek(addr),
-            0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
-            0x4016..=0x4017 => self.input.borrow().peek(addr),
-            0x2000..=0x3FFF => self.ppu.peek(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
-            0x4014 => self.open_bus,
-        }
-    }
-
-    fn write(&mut self, addr: u16, val: u8) {
-        self.open_bus = val;
-        // Order of frequently accessed
-        match addr {
-            // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => self.mapper.borrow_mut().write(addr, val),
-            0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
-            0x4016 => self.input.borrow_mut().write(addr, val),
-            0x2000..=0x3FFF => self.ppu.write(addr & 0x2007, val), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => (),                                 // APU/IO Test Mode
-            0x4014 => (),                                          // Handled inside the CPU
-        }
-    }
-
-    fn reset(&mut self) {
-        self.apu.reset();
-        self.ppu.reset();
-        self.mapper.borrow_mut().reset();
-    }
-    fn power_cycle(&mut self) {
-        self.apu.power_cycle();
-        self.ppu.power_cycle();
-        self.mapper.borrow_mut().power_cycle();
-    }
-}
-
-impl Savable for MemoryMap {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
-        self.wram.save(fh)?;
-        self.open_bus.save(fh)?;
-        self.ppu.save(fh)?;
-        self.apu.save(fh)?;
-        self.mapper.borrow().save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
-        self.wram.load(fh)?;
-        self.open_bus.load(fh)?;
-        self.ppu.load(fh)?;
-        self.apu.load(fh)?;
-        self.mapper.borrow_mut().load(fh)
-    }
-}
-
-impl fmt::Debug for MemoryMap {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "MemoryMap {{ }}")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mirror_offset() {
-        // RAM
-        let start = 0x0000;
-        let end = 0x07FF;
-
-        let mirror_start = 0x0800;
-        let mirror_end = 0x1FFF;
-
-        for addr in mirror_start..=mirror_end {
-            let addr = addr & end;
-            assert!(addr >= start && addr <= end, "Addr within range");
-        }
-
-        // PPU
-        let start = 0x2000;
-        let end = 0x2007;
-
-        let mirror_start = 0x2008;
-        let mirror_end = 0x3FFF;
-
-        for addr in mirror_start..=mirror_end {
-            let addr = addr & end;
-            assert!(addr >= start && addr <= end, "Addr within range");
-        }
-    }
-
-    #[test]
-    fn test_cpu_memory() {
-        use crate::input::Input;
-        use crate::mapper;
-        use std::cell::RefCell;
-        use std::path::PathBuf;
-        use std::rc::Rc;
-
-        let test_rom = "tests/cpu/nestest.nes";
-        let rom = PathBuf::from(test_rom);
-        let mapper = mapper::load_rom(rom).expect("loaded mapper");
-        let input = Rc::new(RefCell::new(Input::new()));
-        let mut mem = MemoryMap::init(input);
-        mem.load_mapper(mapper);
-        mem.write(0x0005, 0x0015);
-        mem.write(0x0015, 0x0050);
-        mem.write(0x0016, 0x0025);
-
-        assert_eq!(mem.read(0x0008), 0x00, "read uninitialized byte: 0x00");
-        assert_eq!(
-            mem.read(0x0005),
-            0x15,
-            "read initialized byte: 0x{:02X}",
-            0x15
-        );
-        assert_eq!(
-            mem.read(0x0808),
-            0x00,
-            "read uninitialized mirror1 byte: 0x00"
-        );
-        assert_eq!(
-            mem.read(0x0805),
-            0x15,
-            "read initialized mirror1 byte: 0x{:02X}",
-            0x15,
-        );
-        assert_eq!(
-            mem.read(0x1008),
-            0x00,
-            "read uninitialized mirror2 byte: 0x00"
-        );
-        assert_eq!(
-            mem.read(0x1005),
-            0x15,
-            "read initialized mirror2 byte: 0x{:02X}",
-            0x15,
-        );
-        // The following are test mode addresses, Not mapped
-        assert_eq!(mem.read(0x0418), 0x00, "read unmapped byte: 0x00");
-        assert_eq!(mem.read(0x0418), 0x00, "write unmapped byte: 0x00");
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        write!(
+            f,
+            "Bank {{ len: {}, size: {} KB  }}",
+            self.banks.len(),
+            self.size / 1024,
+        )
     }
 }

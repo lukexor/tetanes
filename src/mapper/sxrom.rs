@@ -3,15 +3,20 @@
 //! [http://wiki.nesdev.com/w/index.php/SxROM]()
 //! [http://wiki.nesdev.com/w/index.php/MMC1]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::Result;
-use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    logging::Loggable,
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Banks, MemRead, MemWrite, Memory},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_BANK_SIZE: usize = 4 * 1024;
@@ -37,11 +42,11 @@ pub struct Sxrom {
     prg_rom_bank_hi: usize,
     chr_bank_lo: usize,
     chr_bank_hi: usize,
-    prg_ram: Ram, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
+    prg_ram: Memory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
     // CPU $8000..=$BFFF 16KB PRG ROM Bank Switchable or Fixed to First Bank
     // CPU $C000..=$FFFF 16KB PRG ROM Bank Fixed to Last Bank or Switchable
-    prg_rom_banks: Banks<Rom>,
-    chr_banks: Banks<Ram>, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
+    prg_rom_banks: Banks<Memory>,
+    chr_banks: Banks<Memory>, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
 }
 
 #[derive(Debug)]
@@ -57,18 +62,22 @@ struct SxRegs {
 
 impl Sxrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_ram_size = if cart.prg_ram_size() > 0 {
-            cart.prg_ram_size()
+        let prg_ram_size = if let Ok(prg_ram_size) = cart.prg_ram_size() {
+            if prg_ram_size > 0 {
+                prg_ram_size
+            } else {
+                PRG_RAM_SIZE
+            }
         } else {
             PRG_RAM_SIZE
         };
-        let prg_ram = Ram::init(prg_ram_size);
+        let prg_ram = Memory::ram(prg_ram_size);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = if cart.chr_rom.len() == 0 {
-            let chr_ram = Ram::init(CHR_RAM_SIZE);
+        let chr_banks = if cart.chr_rom.is_empty() {
+            let chr_ram = Memory::ram(CHR_RAM_SIZE);
             Banks::init(&chr_ram, CHR_BANK_SIZE)
         } else {
-            Banks::init(&cart.chr_rom.to_ram(), CHR_BANK_SIZE)
+            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
         };
         let sxrom = Self {
             regs: SxRegs {
@@ -201,9 +210,6 @@ impl Sxrom {
 }
 
 impl Mapper for Sxrom {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         match self.regs.control & MIRRORING_MASK {
             0 => Mirroring::SingleScreenA,
@@ -213,92 +219,67 @@ impl Mapper for Sxrom {
             _ => panic!("impossible mirroring mode"),
         }
     }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {
-        if self.regs.write_just_occurred > 0 {
-            self.regs.write_just_occurred -= 1;
-        }
-    }
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
         Ok(())
     }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        Some(&self.chr_banks)
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        Some(&self.prg_rom_banks)
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        Some(&self.prg_ram)
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.regs.open_bus = val;
     }
 }
 
-impl Memory for Sxrom {
+impl MemRead for Sxrom {
     fn read(&mut self, addr: u16) -> u8 {
-        let val = self.peek(addr);
-        self.regs.open_bus = val;
-        val
+        self.peek(addr)
     }
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].peek(addr),
             0x1000..=0x1FFF => self.chr_banks[self.chr_bank_hi].peek(addr - 0x1000),
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enabled() {
-                    self.prg_ram.peek(addr - 0x6000)
-                } else {
-                    self.regs.open_bus
-                }
-            }
+            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.peek(addr - 0x6000),
             0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
             0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
-            0x4020..=0x5FFF => 0, // Nothing at this range
-            _ => {
-                eprintln!("unhandled Sxrom read at address: 0x{:04X}", addr);
-                0
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => self.regs.open_bus,
         }
     }
+}
 
+impl MemWrite for Sxrom {
     fn write(&mut self, addr: u16, val: u8) {
-        self.regs.open_bus = val;
         match addr {
             0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].write(addr, val),
             0x1000..=0x1FFF => self.chr_banks[self.chr_bank_hi].write(addr - 0x1000, val),
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enabled() {
-                    self.prg_ram.write(addr - 0x6000, val)
-                }
-            }
+            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.write(addr - 0x6000, val),
             0x8000..=0xFFFF => self.write_registers(addr, val),
-            0x4020..=0x5FFF => (), // Nothing at this range
-            _ => eprintln!(
-                "invalid Sxrom write at address: 0x{:04X} - val: 0x{:02X}",
-                addr, val
-            ),
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => (),
         }
     }
+}
 
+impl Clocked for Sxrom {
+    fn clock(&mut self) -> usize {
+        if self.regs.write_just_occurred > 0 {
+            self.regs.write_just_occurred -= 1;
+        }
+        1
+    }
+}
+
+impl Powered for Sxrom {
     fn reset(&mut self) {
         self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
         self.regs.prg_bank = PRG_MODE_FIX_LAST;
@@ -307,18 +288,14 @@ impl Memory for Sxrom {
     }
     fn power_cycle(&mut self) {
         self.regs.write_just_occurred = 0;
-        if self.battery_backed {
-            for bank in &mut *self.chr_banks {
-                *bank = Ram::init(bank.len());
-            }
-            self.prg_ram = Ram::init(self.prg_ram.len());
-        }
         self.reset();
     }
 }
 
+impl Loggable for Sxrom {}
+
 impl Savable for Sxrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.regs.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
@@ -329,7 +306,7 @@ impl Savable for Sxrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.regs.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
@@ -343,7 +320,7 @@ impl Savable for Sxrom {
 }
 
 impl Savable for SxRegs {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.write_just_occurred.save(fh)?;
         self.shift_register.save(fh)?;
         self.control.save(fh)?;
@@ -352,7 +329,7 @@ impl Savable for SxRegs {
         self.prg_bank.save(fh)?;
         self.open_bus.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.write_just_occurred.load(fh)?;
         self.shift_register.load(fh)?;
         self.control.load(fh)?;

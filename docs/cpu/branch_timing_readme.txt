@@ -36,7 +36,7 @@ Tests branch timing basics and PPU NMI timing, which is needed for the
 tests
 
 2) NMI period is too short
-3) NMI period is too too long
+3) NMI period is too long
 4) Branch not taken is too long
 5) Branch not taken is too short
 6) Branch taken is too long

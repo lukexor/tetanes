@@ -2,15 +2,20 @@
 //!
 //! [http://wiki.nesdev.com/w/index.php/MMC2]()
 
-use crate::cartridge::Cartridge;
-use crate::console::ppu::Ppu;
-use crate::mapper::{Mapper, MapperRef, Mirroring};
-use crate::memory::{Banks, Memory, Ram, Rom};
-use crate::serialization::Savable;
-use crate::Result;
-use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::{
+    cartridge::Cartridge,
+    common::{Clocked, Powered},
+    logging::Loggable,
+    mapper::{Mapper, MapperRef, Mirroring},
+    memory::{Banks, MemRead, MemWrite, Memory},
+    serialization::Savable,
+    NesResult,
+};
+use std::{
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 8 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 4 * 1024;
@@ -33,20 +38,21 @@ pub struct Pxrom {
     chr_rom_latch: [bool; 2], // Latch 0 and Latch 1
     prg_rom_bank_idx: [usize; 4],
     chr_rom_bank_idx: [usize; 4], // Banks for when Latches 0 and 1 are $FD or FE
-    prg_ram: Ram,                 // CPU $6000-$7FFF 8 KB PRG RAM bank (PlayChoice version only)
+    prg_ram: Memory,              // CPU $6000-$7FFF 8 KB PRG RAM bank (PlayChoice version only)
     // CPU $8000-$9FFF 8 KB switchable PRG ROM bank
     // CPU $A000-$FFFF Three 8 KB PRG ROM banks, fixed to the last three banks
-    prg_rom_banks: Banks<Rom>,
+    prg_rom_banks: Banks<Memory>,
     // PPU $0000..=$0FFFF Two 4 KB switchable CHR ROM banks
     // PPU $1000..=$1FFFF Two 4 KB switchable CHR ROM banks
-    chr_banks: Banks<Ram>,
+    chr_banks: Banks<Memory>,
+    open_bus: u8,
 }
 
 impl Pxrom {
     pub fn load(cart: Cartridge) -> MapperRef {
-        let prg_ram = Ram::init(PRG_RAM_SIZE);
+        let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = Banks::init(&cart.chr_rom.to_ram(), CHR_ROM_BANK_SIZE);
+        let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
         let prg_len = prg_rom_banks.len();
         let pxrom = Self {
             mirroring: cart.mirroring(),
@@ -56,48 +62,22 @@ impl Pxrom {
             prg_ram,
             prg_rom_banks,
             chr_banks,
+            open_bus: 0,
         };
         Rc::new(RefCell::new(pxrom))
     }
 }
 
 impl Mapper for Pxrom {
-    fn irq_pending(&mut self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-    fn vram_change(&mut self, _addr: u16) {}
-    fn clock(&mut self, _ppu: &Ppu) {} // No clocking
-    fn battery_backed(&self) -> bool {
-        false
-    }
-    fn save_sram(&self, _fh: &mut dyn Write) -> Result<()> {
-        Ok(())
-    }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> Result<()> {
-        Ok(())
-    }
-    fn chr(&self) -> Option<&Banks<Ram>> {
-        Some(&self.chr_banks)
-    }
-    fn prg_rom(&self) -> Option<&Banks<Rom>> {
-        Some(&self.prg_rom_banks)
-    }
-    fn prg_ram(&self) -> Option<&Ram> {
-        Some(&self.prg_ram)
-    }
-    fn logging(&mut self, _logging: bool) {}
-    fn use_ciram(&self, _addr: u16) -> bool {
-        true
-    }
-    fn nametable_addr(&self, _addr: u16) -> u16 {
-        0
+    fn open_bus(&mut self, _addr: u16, val: u8) {
+        self.open_bus = val;
     }
 }
 
-impl Memory for Pxrom {
+impl MemRead for Pxrom {
     fn read(&mut self, addr: u16) -> u8 {
         let val = self.peek(addr);
         match addr {
@@ -131,14 +111,13 @@ impl Memory for Pxrom {
                 let addr = addr % PRG_ROM_BANK_SIZE as u16;
                 self.prg_rom_banks[self.prg_rom_bank_idx[bank]].peek(addr)
             }
-            0x4020..=0x5FFF => 0, // Nothing at this range
-            _ => {
-                eprintln!("invalid Pxrom read at address: 0x{:04X}", addr);
-                0
-            }
+            // 0x4020..=0x5FFF Nothing at this range
+            _ => self.open_bus,
         }
     }
+}
 
+impl MemWrite for Pxrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
@@ -154,26 +133,26 @@ impl Memory for Pxrom {
                     _ => panic!("impossible mirroring mode"),
                 }
             }
-            0x0000..=0x1FFF => (), // ROM is write-only
-            0x4020..=0x5FFF => (), // Nothing at this range
-            0x8000..=0x9FFF => (), // ROM is write-only
-            _ => eprintln!(
-                "invalid Pxrom write at address: 0x{:04X} - val: 0x{:02X}",
-                addr, val
-            ),
+            // 0x0000..=0x1FFF ROM is write-only
+            // 0x4020..=0x5FFF Nothing at this range
+            // 0x8000..=0x9FFF ROM is write-only
+            _ => (),
         }
-    }
-
-    fn reset(&mut self) {
-        self.chr_rom_latch = [true; 2];
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
     }
 }
 
+impl Clocked for Pxrom {}
+
+impl Powered for Pxrom {
+    fn reset(&mut self) {
+        self.chr_rom_latch = [true; 2];
+    }
+}
+
+impl Loggable for Pxrom {}
+
 impl Savable for Pxrom {
-    fn save(&self, fh: &mut dyn Write) -> Result<()> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.mirroring.save(fh)?;
         self.chr_rom_latch.save(fh)?;
         self.prg_rom_bank_idx.save(fh)?;
@@ -182,7 +161,7 @@ impl Savable for Pxrom {
         self.prg_rom_banks.save(fh)?;
         self.chr_banks.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> Result<()> {
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.chr_rom_latch.load(fh)?;
         self.prg_rom_bank_idx.load(fh)?;
