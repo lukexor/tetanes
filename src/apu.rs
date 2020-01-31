@@ -513,16 +513,16 @@ impl Savable for FcMode {
 }
 
 #[derive(Clone)]
-struct Pulse {
-    enabled: bool,
-    duty_cycle: u8,        // Select row in DUTY_TABLE
-    duty_counter: u8,      // Select column in DUTY_TABLE
-    freq_timer: u16,       // timer freq_counter reload value
-    freq_counter: u16,     // Current frequency timer value
-    channel: PulseChannel, // One or Two
-    length: LengthCounter,
-    envelope: Envelope,
-    sweep: Sweep,
+pub struct Pulse {
+    pub enabled: bool,
+    pub duty_cycle: u8,        // Select row in DUTY_TABLE
+    pub duty_counter: u8,      // Select column in DUTY_TABLE
+    pub freq_timer: u16,       // timer freq_counter reload value
+    pub freq_counter: u16,     // Current frequency timer value
+    pub channel: PulseChannel, // One or Two
+    pub length: LengthCounter,
+    pub envelope: Envelope,
+    pub sweep: Sweep,
 }
 
 impl Pulse {
@@ -533,7 +533,7 @@ impl Pulse {
         [1, 0, 0, 1, 1, 1, 1, 1],
     ];
 
-    fn new(channel: PulseChannel) -> Self {
+    pub fn new(channel: PulseChannel) -> Self {
         Self {
             enabled: false,
             duty_cycle: 0u8,
@@ -554,11 +554,11 @@ impl Pulse {
         }
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         *self = Self::new(self.channel);
     }
 
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;
         } else {
@@ -566,10 +566,10 @@ impl Pulse {
             self.duty_counter = (self.duty_counter + 1) % 8;
         }
     }
-    fn clock_quarter_frame(&mut self) {
+    pub fn clock_quarter_frame(&mut self) {
         self.envelope.clock();
     }
-    fn clock_half_frame(&mut self) {
+    pub fn clock_half_frame(&mut self) {
         let sweep_forcing_silence = self.sweep_forcing_silence();
         let mut swp = &mut self.sweep;
         if swp.reload {
@@ -595,12 +595,12 @@ impl Pulse {
         self.length.clock();
     }
 
-    fn sweep_forcing_silence(&self) -> bool {
+    pub fn sweep_forcing_silence(&self) -> bool {
         let next_freq = self.freq_timer + (self.freq_timer >> self.sweep.shift);
         self.freq_timer < 8 || (!self.sweep.negate && next_freq >= 0x800)
     }
 
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         if Self::DUTY_TABLE[self.duty_cycle as usize][self.duty_counter as usize] != 0
             && self.length.counter != 0
             && !self.sweep_forcing_silence()
@@ -616,13 +616,13 @@ impl Pulse {
     }
 
     // $4000 Pulse control
-    fn write_control(&mut self, val: u8) {
+    pub fn write_control(&mut self, val: u8) {
         self.duty_cycle = (val >> 6) & 0x03; // D7..D6
         self.length.write_control(val);
         self.envelope.write_control(val);
     }
     // $4001 Pulse sweep
-    fn write_sweep(&mut self, val: u8) {
+    pub fn write_sweep(&mut self, val: u8) {
         self.sweep.timer = (val >> 4) & 0x07; // D6..D4
         self.sweep.negate = (val >> 3) & 1 == 1; // D3
         self.sweep.shift = val & 0x07; // D2..D0
@@ -630,11 +630,11 @@ impl Pulse {
         self.sweep.reload = true;
     }
     // $4002 Pulse timer lo
-    fn write_timer_lo(&mut self, val: u8) {
+    pub fn write_timer_lo(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
     }
     // $4003 Pulse timer hi
-    fn write_timer_hi(&mut self, val: u8) {
+    pub fn write_timer_hi(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
         self.freq_counter = self.freq_timer;
         self.duty_counter = 0;
@@ -671,7 +671,7 @@ impl Savable for Pulse {
 }
 
 #[derive(PartialEq, Eq, Copy, Clone)]
-enum PulseChannel {
+pub enum PulseChannel {
     One,
     Two,
 }
@@ -942,23 +942,23 @@ impl Savable for ShiftMode {
 
 #[derive(Clone)]
 pub struct Dmc {
-    mapper: MapperRef,
-    irq_enabled: bool,
+    pub mapper: MapperRef,
+    pub irq_enabled: bool,
     pub irq_pending: bool,
-    loops: bool,
-    freq_timer: u16,
-    freq_counter: u16,
-    addr: u16,
-    addr_load: u16,
-    length: u8,
-    length_load: u8,
-    sample_buffer: u8,
-    sample_buffer_empty: bool,
-    output: u8,
-    output_bits: u8,
-    output_shift: u8,
-    output_silent: bool,
-    log_level: LogLevel,
+    pub loops: bool,
+    pub freq_timer: u16,
+    pub freq_counter: u16,
+    pub addr: u16,
+    pub addr_load: u16,
+    pub length: u8,
+    pub length_load: u8,
+    pub sample_buffer: u8,
+    pub sample_buffer_empty: bool,
+    pub output: u8,
+    pub output_bits: u8,
+    pub output_shift: u8,
+    pub output_silent: bool,
+    pub log_level: LogLevel,
 }
 
 impl Dmc {
@@ -967,7 +967,7 @@ impl Dmc {
         0x1AC, 0x17C, 0x154, 0x140, 0x11E, 0x0FE, 0x0E2, 0x0D6, 0x0BE, 0x0A0, 0x08E, 0x080, 0x06A,
         0x054, 0x048, 0x036,
     ];
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             mapper: mapper::null(),
             irq_enabled: false,
@@ -989,11 +989,11 @@ impl Dmc {
         }
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         *self = Self::new();
     }
 
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;
         } else {
@@ -1039,12 +1039,12 @@ impl Dmc {
         }
     }
 
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         f32::from(self.output)
     }
 
     // $4010 DMC timer
-    fn write_timer(&mut self, val: u8) {
+    pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = (val >> 7) & 1 == 1;
         self.loops = (val >> 6) & 1 == 1;
         self.freq_timer = Self::NTSC_FREQ_TABLE[(val & 0x0F) as usize];
@@ -1054,17 +1054,17 @@ impl Dmc {
     }
 
     // $4011 DMC output
-    fn write_output(&mut self, val: u8) {
+    pub fn write_output(&mut self, val: u8) {
         self.output = val >> 1;
     }
 
     // $4012 DMC addr load
-    fn write_addr_load(&mut self, val: u8) {
+    pub fn write_addr_load(&mut self, val: u8) {
         self.addr_load = 0xC000 | (u16::from(val) << 6);
     }
 
     // $4013 DMC length
-    fn write_length(&mut self, val: u8) {
+    pub fn write_length(&mut self, val: u8) {
         self.length_load = (val << 4) + 1;
     }
 }
@@ -1115,10 +1115,16 @@ impl Savable for Dmc {
     }
 }
 
+impl Default for Dmc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone)]
-struct LengthCounter {
-    enabled: bool,
-    counter: u8, // Entry into LENGTH_TABLE
+pub struct LengthCounter {
+    pub enabled: bool,
+    pub counter: u8, // Entry into LENGTH_TABLE
 }
 
 impl LengthCounter {
@@ -1199,13 +1205,13 @@ impl Savable for LinearCounter {
 }
 
 #[derive(Clone)]
-struct Envelope {
-    enabled: bool,
-    loops: bool,
-    reset: bool,
-    volume: u8,
-    constant_volume: u8,
-    counter: u8,
+pub struct Envelope {
+    pub enabled: bool,
+    pub loops: bool,
+    pub reset: bool,
+    pub volume: u8,
+    pub constant_volume: u8,
+    pub counter: u8,
 }
 
 impl Envelope {
@@ -1265,13 +1271,13 @@ impl Savable for Envelope {
 }
 
 #[derive(Clone)]
-struct Sweep {
-    enabled: bool,
-    reload: bool,
-    negate: bool, // Treats PulseChannel 1 differently than PulseChannel 2
-    timer: u8,    // counter reload value
-    counter: u8,  // current timer value
-    shift: u8,
+pub struct Sweep {
+    pub enabled: bool,
+    pub reload: bool,
+    pub negate: bool, // Treats PulseChannel 1 differently than PulseChannel 2
+    pub timer: u8,    // counter reload value
+    pub counter: u8,  // current timer value
+    pub shift: u8,
 }
 
 impl Savable for Sweep {

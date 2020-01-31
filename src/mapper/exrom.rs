@@ -4,6 +4,7 @@
 //! [https://wiki.nesdev.com/w/index.php/MMC5]()
 
 use crate::{
+    apu::{Dmc, Pulse, PulseChannel},
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
@@ -22,7 +23,31 @@ use std::{
 const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 64 * 1024;
 const EXRAM_SIZE: usize = 1024;
-const ATTRIBUTES: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
+const ATTR_BITS: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
+const ATTR_LOC: [u8; 256] = [
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+    0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+    0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+];
+const ATTR_SHIFT: [u8; 128] = [
+    0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
+    0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
+    4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
+    4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
+];
 
 /// ExROM
 pub struct Exrom {
@@ -36,7 +61,6 @@ pub struct Exrom {
     ppu_reading: bool,
     ppu_idle: u8,
     ppu_in_vblank: bool,
-    ppu_cycle: u16,
     ppu_rendering: bool,
     prg_banks: [usize; 5],
     chr_banks_spr: [usize; 8],
@@ -44,9 +68,15 @@ pub struct Exrom {
     cart: Cartridge,
     prg_ram: Memory,
     exram: Memory,
+    tile_cache: u16,
+    in_split: bool,
+    split_tile: u16,
+    pulse1: Pulse,
+    pulse2: Pulse,
+    dmc: Dmc,
+    dmc_mode: u8,
     log_level: LogLevel,
     open_bus: u8,
-    ex_latch: u16,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -73,26 +103,34 @@ enum ExRamMode {
 
 #[derive(Debug)]
 pub struct ExRegs {
-    sprite8x16: bool,          // $2000 PPUCTRL: false = 8x8, true = 8x16
-    prg_mode: u8,              // $5100
-    chr_mode: u8,              // $5101
-    chr_hi_bit: u8,            // $5130
-    prg_ram_protect_a: bool,   // $5102
-    prg_ram_protect_b: bool,   // $5103
-    exram_mode: ExRamMode,     // $5104
-    nametable_mirroring: u8,   // $5105
-    fill_tile: u8,             // $5106
-    fill_attr: u8,             // $5107
-    vertical_split_mode: u8,   // $5200
-    vertical_split_scroll: u8, // $5201
-    vertical_split_bank: u8,   // $5202
-    scanline_num_irq: u16,     // $5203: Write $00 to disable IRQs
-    irq_enabled: bool,         // $5204
+    sprite8x16: bool,        // $2000 PPUCTRL: false = 8x8, true = 8x16
+    prg_mode: u8,            // $5100
+    chr_mode: u8,            // $5101
+    chr_hi_bit: u8,          // $5130
+    prg_ram_protect_a: bool, // $5102
+    prg_ram_protect_b: bool, // $5103
+    exram_mode: ExRamMode,   // $5104
+    nametable_mirroring: u8, // $5105
+    fill_tile: u8,           // $5106
+    fill_attr: u8,           // $5107
+    vsplit_enabled: bool,    // $5200 [E... ....]
+    vsplit_side: Split,      // $5200 [.S.. ....]
+    vsplit_tile: u8,         // $5200 [...T TTTT]
+    vsplit_scroll: u8,       // $5201
+    vsplit_bank: u8,         // $5202
+    scanline_num_irq: u16,   // $5203: Write $00 to disable IRQs
+    irq_enabled: bool,       // $5204
     irq_counter: u16,
     in_frame: bool,
     multiplicand: u8, // $5205: write
     multiplier: u8,   // $5206: write
     mult_result: u16, // $5205: read lo, $5206: read hi
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Split {
+    Left,
+    Right,
 }
 
 impl ExRegs {
@@ -114,10 +152,12 @@ impl ExRegs {
             },
             fill_tile: 0xFF,
             fill_attr: 0xFF,
-            vertical_split_mode: 0xFF,
-            vertical_split_scroll: 0xFF,
-            vertical_split_bank: 0xFF,
-            scanline_num_irq: 0xFF,
+            vsplit_enabled: false,
+            vsplit_side: Split::Left,
+            vsplit_tile: 0x0,
+            vsplit_scroll: 0x0,
+            vsplit_bank: 0x0,
+            scanline_num_irq: 0x0,
             irq_enabled: false,
             irq_counter: 0u16,
             in_frame: false,
@@ -144,7 +184,6 @@ impl Exrom {
             ppu_reading: false,
             ppu_idle: 0,
             ppu_in_vblank: false,
-            ppu_cycle: 0,
             ppu_rendering: false,
             prg_banks: [0xFF; 5],
             chr_banks_spr: [0xFF; 8],
@@ -152,9 +191,15 @@ impl Exrom {
             cart,
             prg_ram,
             exram,
+            tile_cache: 0x0000,
+            in_split: false,
+            split_tile: 0x0000,
+            pulse1: Pulse::new(PulseChannel::One),
+            pulse2: Pulse::new(PulseChannel::Two),
+            dmc: Dmc::new(),
+            dmc_mode: 0x01, // Default to read mode
             log_level: LogLevel::default(),
             open_bus: 0x00,
-            ex_latch: 0x0000,
         };
         Rc::new(RefCell::new(exrom))
     }
@@ -227,7 +272,7 @@ impl Exrom {
             && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159)
         {
             let hibits = (self.regs.chr_hi_bit as usize) << 18;
-            let exaddr = self.ex_latch;
+            let exaddr = self.tile_cache;
             let exbits = (self.exram.peek(exaddr) as usize & 0x3F) << 12;
             hibits | exbits | (addr as usize) & 0x0FFF
         } else {
@@ -313,19 +358,22 @@ impl Mapper for Exrom {
             && (addr % 0x0400) < 0x3C0
             && (self.spr_fetch_count < 127 || self.spr_fetch_count > 158)
         {
-            self.ex_latch = addr % 0x0400;
+            self.tile_cache = addr % 0x0400;
         }
     }
 
     // Used by the PPU to determine whether it should use it's own internal CIRAM for nametable
     // reads or to read CIRAM instead from the mapper
     fn use_ciram(&self, addr: u16) -> bool {
-        // If we're in Extended Attribute mode and reading BG attributes,
-        // yield to mapper for Attribute data instead of PPU
-        if self.regs.exram_mode == ExRamMode::Attr
+        if self.in_split {
+            println!("addr ${:04X}", addr);
+            false
+        } else if self.regs.exram_mode == ExRamMode::Attr
             && (addr % 0x0400) >= 0x3C0
             && (self.spr_fetch_count < 127 || self.spr_fetch_count > 158)
         {
+            // If we're in Extended Attribute mode and reading BG attributes,
+            // yield to mapper for Attribute data instead of PPU
             false
         } else {
             // 0 and 1 mean NametableA and NametableB
@@ -373,9 +421,19 @@ impl MemRead for Exrom {
     fn read(&mut self, addr: u16) -> u8 {
         let val = self.peek(addr);
         match addr {
+            0x2000..=0x3EFF => {
+                let offset = addr % 0x0400;
+                if self.in_split && offset < 0x03C0 {
+                    self.split_tile = (u16::from(self.regs.vsplit_scroll & 0xF8) << 2)
+                        | ((self.spr_fetch_count / 4) & 0x1F) as u16;
+                }
+            }
             0x5204 => {
                 // Reading from IRQ status clears it
                 self.irq_pending = false;
+            }
+            0x5010 => {
+                self.dmc.irq_pending = false;
             }
             0xFFFA | 0xFFFB => {
                 self.regs.in_frame = false;
@@ -393,28 +451,43 @@ impl MemRead for Exrom {
             }
             0x2000..=0x3EFF => {
                 let offset = addr % 0x0400;
-                let nametable = self.nametable_mapping(addr);
-                match self.regs.exram_mode {
-                    ExRamMode::Attr if offset >= 0x03C0 => {
-                        let exaddr = self.ex_latch;
-                        ATTRIBUTES[self.exram.peek(exaddr) as usize >> 6]
+                if self.in_split {
+                    if offset < 0x03C0 {
+                        self.exram.peek(self.split_tile)
+                    } else {
+                        let addr = 0x03C0 | u16::from(ATTR_LOC[(self.split_tile as usize) >> 2]);
+                        let attr = self.exram.peek(addr) as usize;
+                        let shift = ATTR_SHIFT[(self.split_tile as usize) & 0x7F] as usize;
+                        ATTR_BITS[(attr >> shift) & 0x03]
                     }
-                    ExRamMode::Nametable | ExRamMode::Attr if nametable == Nametable::ExRAM => {
-                        self.exram.peek(addr - 0x2000)
-                    }
-                    ExRamMode::Nametable | ExRamMode::Attr if nametable == Nametable::Fill => {
-                        if offset < 0x03C0 {
-                            self.regs.fill_tile
-                        } else {
-                            ATTRIBUTES[self.regs.fill_attr as usize]
+                } else {
+                    let nametable = self.nametable_mapping(addr);
+                    match self.regs.exram_mode {
+                        ExRamMode::Attr if offset >= 0x03C0 => {
+                            let exaddr = self.tile_cache;
+                            ATTR_BITS[(self.exram.peek(exaddr) as usize >> 6) & 0x03]
                         }
+                        ExRamMode::Nametable | ExRamMode::Attr if nametable == Nametable::ExRAM => {
+                            self.exram.peek(addr - 0x2000)
+                        }
+                        ExRamMode::Nametable | ExRamMode::Attr if nametable == Nametable::Fill => {
+                            if offset < 0x03C0 {
+                                self.regs.fill_tile
+                            } else {
+                                ATTR_BITS[(self.regs.fill_attr as usize) & 0x03]
+                            }
+                        }
+                        _ => 0,
                     }
-                    _ => 0,
                 }
             }
-            0x5000..=0x5003 => 0, // TODO Sound Pulse 1
-            0x5004..=0x5007 => 0, // TODO Sound Pulse 2
-            0x5010..=0x5011 => 0, // TODO Sound PCM
+            0x5010 => {
+                // [I... ...M] DMC
+                //   I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
+                //   M = Mode select (0 = write mode. 1 = read mode.)
+                let irq = self.dmc.irq_pending && self.dmc.irq_enabled;
+                (irq as u8) << 7 | self.dmc_mode
+            }
             0x5100 => self.regs.prg_mode,
             0x5101 => self.regs.chr_mode,
             0x5104 => self.regs.exram_mode as u8,
@@ -423,16 +496,26 @@ impl MemRead for Exrom {
             0x5107 => self.regs.fill_attr,
             0x5015 => {
                 // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
-                // TODO Sound General
-                0
+                let mut status = 0b00;
+                if self.pulse1.length.counter > 0 {
+                    status |= 0x01;
+                }
+                if self.pulse2.length.counter > 0 {
+                    status |= 0x02;
+                }
+                status
             }
             0x5113..=0x5117 => self.prg_banks[addr as usize - 0x5113] as u8,
             0x5120..=0x5127 => self.chr_banks_spr[addr as usize - 0x5120] as u8,
             0x5128..=0x512B => self.chr_banks_bg[addr as usize - 0x5128] as u8,
             0x5130 => self.regs.chr_hi_bit,
-            0x5200 => self.regs.vertical_split_mode,
-            0x5201 => self.regs.vertical_split_scroll,
-            0x5202 => self.regs.vertical_split_bank,
+            0x5200 => {
+                (self.regs.vsplit_enabled as u8) << 7
+                    | (self.regs.vsplit_side as u8) << 6
+                    | self.regs.vsplit_tile
+            }
+            0x5201 => self.regs.vsplit_scroll,
+            0x5202 => self.regs.vsplit_bank,
             0x5203 => self.regs.scanline_num_irq as u8,
             0x5204 => {
                 // $5204:  [PI.. ....]
@@ -481,12 +564,38 @@ impl MemWrite for Exrom {
                     _ => (),
                 }
             }
-            0x5000..=0x5003 => (), // TODO Sound Pulse 1
-            0x5004..=0x5007 => (), // TODO Sound Pulse 2
-            0x5010..=0x5011 => (), // TODO Sound PCM
+            0x5000 => self.pulse1.write_control(val),
+            // 0x5001 Has no effect since there is no Sweep unit
+            0x5002 => self.pulse1.write_timer_lo(val),
+            0x5003 => self.pulse1.write_timer_hi(val),
+            0x5004 => self.pulse2.write_control(val),
+            // 0x5005 Has no effect since there is no Sweep unit
+            0x5006 => self.pulse2.write_timer_lo(val),
+            0x5007 => self.pulse2.write_timer_hi(val),
+            0x5010 => {
+                // [I... ...M] DMC
+                //   I = PCM IRQ enable (1 = enabled.)
+                //   M = Mode select (0 = write mode. 1 = read mode.)
+                self.dmc_mode = val & 0x01;
+                self.dmc.irq_enabled = val & 0x80 > 0;
+            }
+            0x5011 => {
+                // [DDDD DDDD] PCM Data
+                if self.dmc_mode == 0 {
+                    // Write mode
+                    self.dmc.output = val;
+                }
+            }
             0x5015 => {
                 //  [.... ..BA]   Enable flags for Pulse 1 (A), 2 (B)  (0=disable, 1=enable)
-                // TODO Sound General
+                self.pulse1.enabled = val & 1 == 1;
+                if !self.pulse1.enabled {
+                    self.pulse1.length.counter = 0;
+                }
+                self.pulse2.enabled = (val >> 1) & 1 == 1;
+                if !self.pulse2.enabled {
+                    self.pulse2.length.counter = 0;
+                }
             }
             0x5100 => {
                 // [.... ..PP]    PRG Mode
@@ -596,14 +705,20 @@ impl MemWrite for Exrom {
             }
             0x5130 => self.regs.chr_hi_bit = val & 0x03, // [.... ..HH]  CHR Bank Hi bits
             0x5200 => {
-                // [ER.T TTTT]    Split control
+                // [ES.T TTTT]    Split control
                 //   E = Enable  (0=split mode disabled, 1=split mode enabled)
-                //   R = Right side  (0=split will be on left side, 1=split will be on right)
+                //   S = Vsplit side  (0=split will be on left side, 1=split will be on right)
                 //   T = tile number to split at
-                self.regs.vertical_split_mode = val;
+                self.regs.vsplit_enabled = val & 0x80 == 0x80;
+                self.regs.vsplit_side = if val & 0x40 == 0x40 {
+                    Split::Right
+                } else {
+                    Split::Left
+                };
+                self.regs.vsplit_tile = val & 0x1F;
             }
-            0x5201 => self.regs.vertical_split_scroll = val, // [YYYY YYYY]  Split Y scroll
-            0x5202 => self.regs.vertical_split_bank = val,   // [CCCC CCCC]  4k CHR Page for split
+            0x5201 => self.regs.vsplit_scroll = val, // [YYYY YYYY]  Split Y scroll
+            0x5202 => self.regs.vsplit_bank = val,   // [CCCC CCCC]  4k CHR Page for split
             0x5203 => self.regs.scanline_num_irq = u16::from(val), // [IIII IIII]  IRQ Target
             0x5204 => {
                 // [E... ....]    IRQ Enable (0=disabled, 1=enabled)
@@ -695,7 +810,6 @@ impl Savable for Exrom {
         self.ppu_reading.save(fh)?;
         self.ppu_idle.save(fh)?;
         self.ppu_in_vblank.save(fh)?;
-        self.ppu_cycle.save(fh)?;
         self.ppu_rendering.save(fh)?;
         self.prg_banks.save(fh)?;
         self.chr_banks_spr.save(fh)?;
@@ -717,7 +831,6 @@ impl Savable for Exrom {
         self.ppu_reading.load(fh)?;
         self.ppu_idle.load(fh)?;
         self.ppu_in_vblank.load(fh)?;
-        self.ppu_cycle.load(fh)?;
         self.ppu_rendering.load(fh)?;
         self.prg_banks.load(fh)?;
         self.chr_banks_spr.load(fh)?;
@@ -742,16 +855,19 @@ impl Savable for ExRegs {
         self.nametable_mirroring.save(fh)?;
         self.fill_tile.save(fh)?;
         self.fill_attr.save(fh)?;
-        self.vertical_split_mode.save(fh)?;
-        self.vertical_split_scroll.save(fh)?;
-        self.vertical_split_bank.save(fh)?;
+        self.vsplit_enabled.save(fh)?;
+        self.vsplit_side.save(fh)?;
+        self.vsplit_tile.save(fh)?;
+        self.vsplit_scroll.save(fh)?;
+        self.vsplit_bank.save(fh)?;
         self.scanline_num_irq.save(fh)?;
         self.irq_enabled.save(fh)?;
         self.irq_counter.save(fh)?;
         self.in_frame.save(fh)?;
         self.multiplicand.save(fh)?;
         self.multiplier.save(fh)?;
-        self.mult_result.save(fh)
+        self.mult_result.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.sprite8x16.load(fh)?;
@@ -764,16 +880,19 @@ impl Savable for ExRegs {
         self.nametable_mirroring.load(fh)?;
         self.fill_tile.load(fh)?;
         self.fill_attr.load(fh)?;
-        self.vertical_split_mode.load(fh)?;
-        self.vertical_split_scroll.load(fh)?;
-        self.vertical_split_bank.load(fh)?;
+        self.vsplit_enabled.load(fh)?;
+        self.vsplit_side.load(fh)?;
+        self.vsplit_tile.load(fh)?;
+        self.vsplit_scroll.load(fh)?;
+        self.vsplit_bank.load(fh)?;
         self.scanline_num_irq.load(fh)?;
         self.irq_enabled.load(fh)?;
         self.irq_counter.load(fh)?;
         self.in_frame.load(fh)?;
         self.multiplicand.load(fh)?;
         self.multiplier.load(fh)?;
-        self.mult_result.load(fh)
+        self.mult_result.load(fh)?;
+        Ok(())
     }
 }
 
@@ -806,6 +925,22 @@ impl Savable for ExRamMode {
             2 => ExRamMode::Ram,
             3 => ExRamMode::RamProtected,
             _ => panic!("invalid ExRamMode value"),
+        };
+        Ok(())
+    }
+}
+
+impl Savable for Split {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Split::Left,
+            1 => Split::Right,
+            _ => panic!("invalid Split value"),
         };
         Ok(())
     }

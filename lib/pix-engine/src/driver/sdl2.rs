@@ -262,7 +262,7 @@ impl Driver for Sdl2Driver {
                         1 => self.controller2 = Some(self.controller_sub.open(id)?),
                         _ => (),
                     }
-                    PixEvent::None
+                    PixEvent::None // TODO add event for this
                 }
                 Event::KeyDown {
                     keycode: Some(key),

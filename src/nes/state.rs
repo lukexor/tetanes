@@ -264,6 +264,16 @@ impl Clocked for Nes {
                 return 0;
             }
         }
+        if self.zapper_decay > 0 {
+            self.zapper_decay -= 1;
+            println!(
+                "decay: {}, sense: {}, sl: {}",
+                self.zapper_decay, self.cpu.bus.input.zapper.light_sense, self.cpu.bus.ppu.scanline
+            );
+        }
+        if self.zapper_decay == 0 {
+            self.cpu.bus.input.zapper.light_sense = true;
+        }
         self.cpu.clock()
     }
 }

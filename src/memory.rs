@@ -104,7 +104,7 @@ impl MemRead for Memory {
         self.peekw(addr as usize)
     }
     fn peekw(&self, addr: usize) -> u8 {
-        if self.data.len() > 0 {
+        if !self.data.is_empty() {
             let addr = addr % self.data.len();
             self.data[addr]
         } else {
@@ -118,7 +118,7 @@ impl MemWrite for Memory {
         self.writew(addr as usize, val);
     }
     fn writew(&mut self, addr: usize, val: u8) {
-        if self.writable && self.data.len() > 0 {
+        if self.writable && !self.data.is_empty() {
             let addr = addr % self.data.len();
             self.data[addr] = val;
         }

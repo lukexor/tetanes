@@ -4,6 +4,7 @@ use crate::{
     logging::LogLevel,
     nes::{config::DEFAULT_SPEED, Nes, REWIND_TIMER},
     nes_err,
+    ppu::RENDER_WIDTH,
     serialization::Savable,
     NesResult,
 };
@@ -66,6 +67,7 @@ impl Nes {
                     self.focused_window = if focus { window_id } else { 0 };
                 }
                 PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
+                PixEvent::MousePress(..) => self.handle_mouse_event(event)?,
                 PixEvent::GamepadBtn(which, btn, pressed) => match btn {
                     Button::Guide if pressed => self.paused(!self.paused),
                     Button::LeftShoulder if pressed => self.change_speed(-0.25),
@@ -133,6 +135,47 @@ impl Nes {
             PixEvent::KeyPress(key, true, false) => self.handle_keydown(key, turbo, data)?,
             PixEvent::KeyPress(key, false, ..) => self.handle_keyup(key, turbo),
             _ => (),
+        }
+        Ok(())
+    }
+
+    fn handle_mouse_event(&mut self, event: PixEvent) -> NesResult<()> {
+        if self.focused_window != self.nes_window {
+            return Ok(());
+        }
+
+        if let PixEvent::MousePress(Mouse::Left, x, y, pressed) = event {
+            self.cpu.bus.input.zapper.triggered = pressed;
+            if pressed {
+                if x > 0 && x < self.width as i32 && y > 0 && y < self.height as i32 {
+                    let x = x as u32 / self.config.scale;
+                    let y = y as u32 / self.config.scale;
+                    let frame = &self.cpu.bus.ppu.frame();
+                    // Compute average brightness
+                    let mut r = 0u16;
+                    let mut g = 0u16;
+                    let mut b = 0u16;
+                    for x in x.saturating_sub(8)..x.saturating_add(8) {
+                        for y in y.saturating_sub(8)..y.saturating_add(8) {
+                            let idx = 3 * (y * RENDER_WIDTH + x) as usize;
+                            r += u16::from(frame[idx]);
+                            g += u16::from(frame[idx + 1]);
+                            b += u16::from(frame[idx + 2]);
+                        }
+                    }
+                    r /= 256;
+                    g /= 256;
+                    b /= 256;
+                    let luminance =
+                        (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) as u32;
+                    self.cpu.bus.input.zapper.light_sense = luminance < 84;
+                    self.zapper_decay = (luminance / 10) * 113;
+                    println!(
+                        "lum: {}, sense: {}, decay: {}",
+                        luminance, self.cpu.bus.input.zapper.light_sense, self.zapper_decay
+                    );
+                }
+            }
         }
         Ok(())
     }
