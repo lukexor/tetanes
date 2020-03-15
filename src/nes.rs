@@ -139,7 +139,8 @@ impl Nes {
         let height = self.height;
         let vsync = self.config.vsync;
         let mut engine = PixEngine::new(APP_NAME, self, width, height, vsync)?;
-        engine.set_icon(ICON_PATH)?;
+        // Don't let this failing error the program
+        let _ = engine.set_icon(ICON_PATH);
         engine.run()?;
         Ok(())
     }
