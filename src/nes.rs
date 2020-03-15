@@ -5,7 +5,6 @@ use crate::{
     common::Clocked,
     cpu::{Cpu, CPU_CLOCK_RATE},
     logging::{LogLevel, Loggable},
-    memory,
     nes::{
         config::DEFAULT_SPEED,
         debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
@@ -85,7 +84,6 @@ impl Nes {
         let scale = config.scale;
         let width = scale * WINDOW_WIDTH;
         let height = scale * WINDOW_HEIGHT;
-        unsafe { memory::RANDOMIZE_RAM = config.randomize_ram }
         let cpu = Cpu::init(Bus::new());
         let mut nes = Self {
             roms: Vec::new(),

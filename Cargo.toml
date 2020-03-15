@@ -23,6 +23,7 @@ wasm-bindgen = { version = "0.2.51", optional = true }
 default = ["sdl2-driver"]
 sdl2-driver = ["pix-engine/sdl2-driver"]
 wasm-driver = ["pix-engine/wasm-driver", "wasm-bindgen"]
+no-randomize-ram = []
 
 [profile.dev]
 opt-level = 2

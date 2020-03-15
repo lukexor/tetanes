@@ -28,7 +28,6 @@ pub struct NesConfig {
     pub save_enabled: bool,
     pub clear_save: bool,
     pub concurrent_dpad: bool,
-    pub randomize_ram: bool,
     pub save_slot: u8,
     pub scale: u32,
     pub speed: f32,
@@ -51,7 +50,6 @@ impl NesConfig {
             save_enabled: true,
             clear_save: true,
             concurrent_dpad: false,
-            randomize_ram: false,
             save_slot: 1,
             scale: 3,
             speed: 1.0,
@@ -78,7 +76,6 @@ impl Savable for NesConfig {
         self.rewind_enabled.save(fh)?;
         self.save_enabled.save(fh)?;
         self.concurrent_dpad.save(fh)?;
-        self.randomize_ram.save(fh)?;
         self.save_slot.save(fh)?;
         self.scale.save(fh)?;
         self.speed.save(fh)?;
@@ -98,7 +95,6 @@ impl Savable for NesConfig {
         self.rewind_enabled.load(fh)?;
         self.save_enabled.load(fh)?;
         self.concurrent_dpad.load(fh)?;
-        self.randomize_ram.load(fh)?;
         self.save_slot.load(fh)?;
         self.scale.load(fh)?;
         self.speed.load(fh)?;

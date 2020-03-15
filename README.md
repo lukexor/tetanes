@@ -56,6 +56,10 @@ tested on macOS High Sierra at this time. So far, I've tested on macOS High Sier
 below instructions to build for your platform.
 
 * Install [Rust][rust] (follow the link)
+  * If Rust is already installed. Ensure it's up-to-date by running:
+
+        $ rustup update
+
 * Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) development libraries (follow the link)
   * Linux and macOS should be straightforward
   * Windows makes this a bit more complicated. Be sure to follow the above link instructions
@@ -109,8 +113,6 @@ FLAGS:
     -f, --fullscreen         Start fullscreen.
     -h, --help               Prints help information
         --no_save            Disable savestates
-        --randomize_ram      Randomize ram on startup. By default RAM initializes to 0x00. This affects RNG seed
-                             generators for some games.
         --record             Record gameplay input to a file for later replay.
         --rewind             Enable savestate rewinding
         --sound_off          Disable sound.
@@ -149,7 +151,7 @@ There are also some emulator actions:
 | --------------------------------- | ---------------- | ------------------ |
 | Pause                             | Escape           | Guide Button       |
 | Configuration Menu                | Ctrl-C           |                    |
-| Open ROM<sup>*</sup>              | Ctrl-O           |                    |
+| Open ROM<sup>\*</sup>              | Ctrl-O           |                    |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
 | Power Cycle                       | Ctrl-P           |                    |
@@ -190,9 +192,28 @@ Ctrl-(1-4) may have conflicts in macOS with switching Desktops 1-4. You can disa
 keyboard settings. I may consider changing them to something else or making macOS use the Option key
 in place of Ctrl, but I'm not bothering with OS-specific bindings just yet.
 
+## Directories & Screenshots
+
+Battery-backed game data and save states are stored in `$HOME/.rustynes`. Screenshots are saved
+to the directory where `RustyNES` was launched from. This may change in a future release.
+
+## Powerup State
+
+The original NES hardware had semi-random contents located in RAM upon powerup and several games
+made use of this to seed their Random Number Generators (RNGs). By default, the binaries and build
+steps for `RustyNES` emulate randomized powerup RAM state. This shows up in several games such as
+Final Fantasy, River City Ransom, and Impossible Mission II, amongst others. Not emulating this
+would make these games seem deterministic when they weren't intended to be.
+
+If you would like `RustyNES` to provide fully deterministic emulated powerup state, you'll need to
+build the binary from source using the following command:
+
+        $ cargo build --release --features no-randomize-ram
+
 ## Building/Testing
 
-To build the project run `cargo build` or `cargo build --release` (if you want better framerates).
+To build the project, ensure the dependencies are installed as outlined in the `Installation`
+section and then run `cargo build` or `cargo build --release` (if you want better framerates).
 
 Unit and integration tests can be run with `cargo test`. There are also several test roms that can
 be run to test various capabilities of the emulator. They are all located in the `tests/` directory.

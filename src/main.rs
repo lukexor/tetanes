@@ -44,7 +44,6 @@ fn main() {
         save_enabled: !opt.no_save,
         clear_save: opt.clear_save,
         concurrent_dpad: opt.concurrent_dpad,
-        randomize_ram: opt.randomize_ram,
         save_slot: opt.save_slot,
         scale: opt.scale,
         speed: opt.speed,
@@ -106,11 +105,6 @@ struct Opt {
         help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad."
     )]
     concurrent_dpad: bool,
-    #[structopt(
-        long = "randomize_ram",
-        help = "Randomize ram on startup. By default RAM initializes to 0x00. This affects RNG seed generators for some games."
-    )]
-    randomize_ram: bool,
     #[structopt(long = "rewind", help = "Enable savestate rewinding")]
     rewind: bool,
     #[structopt(long = "no_save", help = "Disable savestates")]

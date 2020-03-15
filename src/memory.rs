@@ -8,9 +8,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-// TODO move this out of a static
-pub static mut RANDOMIZE_RAM: bool = false;
-
 pub trait MemRead {
     fn read(&mut self, _addr: u16) -> u8 {
         0
@@ -42,7 +39,7 @@ impl Memory {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        let randomize = unsafe { RANDOMIZE_RAM };
+        let randomize = cfg!(not(feature = "no-randomize-ram"));
         let data = if randomize {
             let mut rng = rand::thread_rng();
             let mut data = Vec::with_capacity(capacity);
