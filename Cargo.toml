@@ -1,7 +1,7 @@
 [package]
 name = "rustynes"
 version = "0.5.0"
-license = "GNU"
+license = "GPL-3.0-or-later"
 description = "A NES Emulator written in Rust with SDL2 and WebAssembly support"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
 readme = "README.md"
@@ -16,7 +16,7 @@ structopt = "0.3.1"
 chrono = "0.4.9"
 rand = "0.7.1"
 png = "0.15.0"
-pix-engine = { path = "lib/pix-engine", default_features = false }
+pix-engine = { version = "0.1.0", default_features = false }
 wasm-bindgen = { version = "0.2.51", optional = true }
 
 [features]
