@@ -11,8 +11,8 @@ use std::{
 };
 
 pub(super) const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
-const MIN_SPEED: f32 = 0.25; // 25% - 240 Hz
-const MAX_SPEED: f32 = 2.0; // 200% - 30 Hz
+pub(super) const MIN_SPEED: f32 = 0.10; // 10%
+pub(super) const MAX_SPEED: f32 = 4.0; // 400%
 
 #[derive(Clone)]
 pub struct NesConfig {
@@ -108,6 +108,10 @@ impl Nes {
         if self.recording {
             self.add_message("Speed changes disabled while recording");
         } else {
+            if self.config.speed % 0.25 != 0.0 {
+                // Round to nearest quarter
+                self.config.speed = (self.config.speed * 4.0).floor() / 4.0;
+            }
             self.config.speed += DEFAULT_SPEED * delta;
             if self.config.speed < MIN_SPEED {
                 self.config.speed = MIN_SPEED;
@@ -125,7 +129,7 @@ impl Nes {
         } else {
             title.push_str(&format!("Save Slot: {}", self.config.save_slot));
             if self.config.speed != DEFAULT_SPEED {
-                title.push_str(&format!(" - Speed: {}%", self.config.speed * 100.0));
+                title.push_str(&format!(" - Speed: {:2.0}%", self.config.speed * 100.0));
             }
         }
         data.set_title(&title);

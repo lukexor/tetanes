@@ -6,7 +6,7 @@ use crate::{
     cpu::{Cpu, CPU_CLOCK_RATE},
     logging::{LogLevel, Loggable},
     nes::{
-        config::DEFAULT_SPEED,
+        config::{MAX_SPEED, MIN_SPEED},
         debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
         menus::Message,
     },
@@ -200,9 +200,15 @@ impl State for Nes {
             self.config.debug = !self.config.debug;
             self.toggle_debug(data)?;
         }
-        if self.config.speed != DEFAULT_SPEED {
-            self.cpu.bus.apu.set_speed(self.config.speed);
+        if self.config.speed < MIN_SPEED {
+            self.config.speed = MIN_SPEED;
+        } else if self.config.speed > MAX_SPEED {
+            self.config.speed = MAX_SPEED;
+        } else {
+            // Round to two decimal places
+            self.config.speed = (self.config.speed * 100.0).round() / 100.0;
         }
+        self.cpu.bus.apu.set_speed(self.config.speed);
 
         self.set_log_level(self.config.log_level, true);
 
