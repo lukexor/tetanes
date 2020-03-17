@@ -250,27 +250,26 @@ impl State for Nes {
                 }
             }
         }
-        if !self.lost_focus {
-            // Update screen
-            data.copy_texture(self.nes_window, "nes", &self.cpu.bus.ppu.frame())?;
-            if self.menu {
-                self.draw_menu(data)?;
-            }
 
-            self.draw_messages(elapsed, data)?;
+        // Update screen
+        data.copy_texture(self.nes_window, "nes", &self.cpu.bus.ppu.frame())?;
+        if self.menu {
+            self.draw_menu(data)?;
+        }
 
-            if self.config.debug {
-                if self.active_debug || self.paused {
-                    self.draw_debug(data);
-                }
-                self.copy_debug(data)?;
+        self.draw_messages(elapsed, data)?;
+
+        if self.config.debug {
+            if self.active_debug || self.paused {
+                self.draw_debug(data);
             }
-            if self.ppu_viewer {
-                self.copy_ppu_viewer(data)?;
-            }
-            if self.nt_viewer {
-                self.copy_nt_viewer(data)?;
-            }
+            self.copy_debug(data)?;
+        }
+        if self.ppu_viewer {
+            self.copy_ppu_viewer(data)?;
+        }
+        if self.nt_viewer {
+            self.copy_nt_viewer(data)?;
         }
 
         // Enqueue sound
