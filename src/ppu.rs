@@ -1009,7 +1009,6 @@ impl MemWrite for Ppu {
 impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
-        self.total_cycles = 0;
         self.scanline = 0;
         self.frame_cycles = 0;
         self.regs.w = false;
@@ -1023,7 +1022,6 @@ impl Powered for Ppu {
     }
     fn power_cycle(&mut self) {
         self.cycle = 0;
-        self.total_cycles = 0;
         self.scanline = 0;
         self.frame_cycles = 0;
         self.regs.w = false;
@@ -1036,6 +1034,7 @@ impl Powered for Ppu {
         self.write_oamaddr(0);
         self.write_ppuscroll(0);
         self.write_ppuaddr(0);
+        self.total_cycles = 0; // This has to reset after register writes
     }
 }
 
@@ -1841,7 +1840,6 @@ impl Powered for Frame {
     fn reset(&mut self) {
         self.num = 0;
         self.parity = false;
-        self.signal_levels = vec![0.0; SIGNAL_SIZE];
     }
     fn power_cycle(&mut self) {
         self.reset();
