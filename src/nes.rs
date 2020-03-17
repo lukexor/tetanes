@@ -127,7 +127,7 @@ impl Nes {
         };
         if nes.config.replay.is_some() {
             nes.playback = true;
-            nes.load_replay()?;
+            nes.replay_buffer = nes.load_replay()?;
         }
         Ok(nes)
     }

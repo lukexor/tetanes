@@ -45,7 +45,10 @@ impl Nes {
         self.clock_turbo(turbo);
         let events = if self.playback && self.replay_frame < self.replay_buffer.len() {
             if let Some(events) = self.replay_buffer.get(self.replay_frame) {
-                events.to_vec()
+                let mut user_events = data.poll();
+                user_events.retain(|e| !Nes::is_controller_press(e));
+                user_events.extend(events.to_vec());
+                user_events
             } else {
                 self.playback = false;
                 data.poll()
@@ -111,24 +114,8 @@ impl Nes {
         turbo: bool,
         data: &mut StateData,
     ) -> NesResult<()> {
-        if self.recording && !self.playback {
-            if let PixEvent::KeyPress(key, ..) = event {
-                match key {
-                    Key::A
-                    | Key::S
-                    | Key::Z
-                    | Key::X
-                    | Key::Return
-                    | Key::RShift
-                    | Key::Left
-                    | Key::Right
-                    | Key::Up
-                    | Key::Down => {
-                        self.replay_buffer[self.replay_frame].push(event);
-                    }
-                    _ => (),
-                }
-            }
+        if self.recording && !self.playback && Nes::is_controller_press(&event) {
+            self.replay_buffer[self.replay_frame].push(event);
         }
         match event {
             PixEvent::KeyPress(key, true, true) => self.handle_keyrepeat(key, data),
@@ -546,6 +533,25 @@ impl Nes {
         let pixels = self.cpu.bus.ppu.frame();
         png_path.set_extension("png");
         create_png(&png_path, pixels)
+    }
+
+    fn is_controller_press(event: &PixEvent) -> bool {
+        if let PixEvent::KeyPress(key, ..) = event {
+            return match key {
+                Key::A
+                | Key::S
+                | Key::Z
+                | Key::X
+                | Key::Return
+                | Key::RShift
+                | Key::Left
+                | Key::Right
+                | Key::Up
+                | Key::Down => true,
+                _ => false,
+            };
+        }
+        false
     }
 }
 
