@@ -107,24 +107,25 @@ USAGE:
     rustynes [FLAGS] [OPTIONS] [--] [path]
 
 FLAGS:
-        --clear_save         Overwrites existing savestate on load.
-        --concurrent_dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad.
+        --clear-savestate    Removes existing savestates for current save-slot
+        --concurrent-dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad.
     -d, --debug              Start with the CPU debugger enabled and emulation paused at first CPU instruction.
     -f, --fullscreen         Start fullscreen.
     -h, --help               Prints help information
-        --no_save            Disable savestates
-        --record             Record gameplay input to a file for later replay.
+        --record-replay      Record gameplay to a file for later action replay.
         --rewind             Enable savestate rewinding
-        --sound_off          Disable sound.
+        --savestates-off     Disable savestates
+        --sound-off          Disable sound.
+        --unlock-fps         Disables locking FPS to 60. Also disables sound.
     -V, --version            Prints version information
-    -v, --vsync_off          Disable vsync.
+    -v, --vsync-off          Disable vsync.
 
 OPTIONS:
-        --genie_codes <genie-codes>...    List of Game Genie Codes (space separated).
-    -l, --log_level <log-level>           Set logging level. [default: error]  [possible values: off, error, warn, info,
+        --genie-codes <genie-codes>...    List of Game Genie Codes (space separated).
+    -l, --log-level <log-level>           Set logging level. [default: error]  [possible values: off, error, warn, info,
                                           debug, trace]
-        --replay <replay>                 Replay a saved recording.
-        --save_slot <save-slot>           Set savestate slot. [default: 1]  [possible values: 1, 2, 3, 4]
+        --replay <replay>                 Replay a saved action replay file.
+        --savestate-slot <save-slot>      Set savestate slot #. [default: 1]  [possible values: 1, 2, 3, 4]
     -s, --scale <scale>                   Window scale [default: 3]
         --speed <speed>                   Increase/Decrease emulation speed. [default: 1.0]
 
@@ -161,13 +162,13 @@ There are also some emulator actions:
 | Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
-| Rewind (when enabled)             | Comma            |                    |
+| Rewind 5 Seconds (when enabled)   | Comma            |                    |
+| Stop Action Replay Recording      | Shift-V          |                    |
 | Toggle Music/Sound                | Ctrl-M           |                    |
 | Toggle CPU Debugger               | Ctrl-D           |                    |
 | Toggle Fullscreen                 | Ctrl-Return      |                    |
 | Toggle Vsync                      | Ctrl-V           |                    |
 | Toggle NTSC Filter                | Ctrl-N           |                    |
-| Toggle Action Recording           | Shift-V          |                    |
 | Toggle PPU Viewer                 | Shift-P          |                    |
 | Toggle Nametable Viewer           | Shift-N          |                    |
 | Take Screenshot                   | F10              |                    |
@@ -318,7 +319,7 @@ The following is a checklist of features and their progress:
   - [x] Reset
   - [x] Power Cycle
   - [x] Increase/Decrease Speed/Fast-forward
-  - [x] Rewind (Saves every 5 seconds)
+  - [x] Rewind 5 seconds (5 total rewinds)
   - [x] Save/Load State
   - [x] Take Screenshots
   - [x] Toggle Action Recording

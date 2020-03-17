@@ -2,7 +2,7 @@ use crate::{
     common::{create_png, Clocked, Powered},
     cpu::Operation::*,
     logging::LogLevel,
-    nes::{config::DEFAULT_SPEED, Nes, REWIND_TIMER},
+    nes::{config::DEFAULT_SPEED, Nes},
     nes_err,
     ppu::RENDER_WIDTH,
     serialization::Savable,
@@ -19,27 +19,6 @@ const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
 const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 
 impl Nes {
-    fn rewind(&mut self) {
-        if self.config.save_enabled {
-            if self.config.rewind_enabled {
-                // If we saved too recently, ignore it and go back further
-                if self.rewind_timer > 3.0 {
-                    let _ = self.rewind_queue.pop_back();
-                }
-                if let Some(slot) = self.rewind_queue.pop_back() {
-                    self.rewind_timer = REWIND_TIMER;
-                    self.add_message(&format!("Rewind Slot {}", slot));
-                    self.rewind_save = slot + 1;
-                    self.load_state(slot);
-                }
-            } else {
-                self.add_message("Rewind disabled");
-            }
-        } else {
-            self.add_message("Savestates Disabled");
-        }
-    }
-
     pub(super) fn poll_events(&mut self, data: &mut StateData) -> NesResult<()> {
         let turbo = self.turbo_clock < 3;
         self.clock_turbo(turbo);
@@ -272,8 +251,14 @@ impl Nes {
                 self.paused(self.menu);
             }
             Key::D if c => self.toggle_debug(data)?,
-            Key::S if c => self.save_state(self.config.save_slot, false),
-            Key::L if c => self.load_state(self.config.save_slot),
+            Key::S if c => {
+                let rewind = false;
+                self.save_state(self.config.save_slot, rewind);
+            }
+            Key::L if c => {
+                let rewind = false;
+                self.load_state(self.config.save_slot, rewind);
+            }
             Key::M if c => {
                 if self.config.unlock_fps {
                     self.add_message("Sound disabled while FPS unlocked");
@@ -483,10 +468,12 @@ impl Nes {
                 }
             }
             Axis::TriggerLeft if value > GAMEPAD_TRIGGER_PRESS => {
-                self.save_state(self.config.save_slot, false)
+                let rewind = false;
+                self.save_state(self.config.save_slot, rewind);
             }
             Axis::TriggerRight if value > GAMEPAD_TRIGGER_PRESS => {
-                self.load_state(self.config.save_slot)
+                let rewind = false;
+                self.load_state(self.config.save_slot, rewind);
             }
             _ => (),
         }
@@ -497,12 +484,8 @@ impl Nes {
         use std::path::PathBuf;
 
         let datetime: DateTime<Local> = Local::now();
-        let mut path = PathBuf::from(
-            datetime
-                .format("Recording_%Y-%m-%d_at_%H.%M.%S")
-                .to_string(),
-        );
-        path.set_extension("dat");
+        let mut path = PathBuf::from(datetime.format("rustynes_%Y-%m-%d_at_%H.%M.%S").to_string());
+        path.set_extension("replay");
         let file = std::fs::File::create(&path)?;
         let mut file = BufWriter::new(file);
         self.replay_buffer.save(&mut file)?;

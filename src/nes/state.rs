@@ -2,13 +2,14 @@ use crate::{
     common::{home_dir, Clocked, Powered, CONFIG_DIR},
     logging::{LogLevel, Loggable},
     map_nes_err, mapper,
-    nes::Nes,
+    nes::{Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
     nes_err,
     serialization::{validate_save_header, write_save_header, Savable},
     NesResult,
 };
 use pix_engine::event::PixEvent;
 use std::{
+    collections::VecDeque,
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
@@ -48,7 +49,7 @@ impl Nes {
 
     /// Save the current state of the console into a save file
     pub(super) fn save_state(&mut self, slot: u8, rewind: bool) {
-        if self.config.save_enabled {
+        if self.config.save_enabled || self.config.rewind_enabled {
             let save = || -> NesResult<()> {
                 let save_path = save_path(&self.loaded_rom, slot)?;
                 let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
@@ -67,11 +68,14 @@ impl Nes {
                 self.save(&mut writer)?;
                 Ok(())
             };
+            let save = save();
             if !rewind {
-                match save() {
+                match save {
                     Ok(_) => self.add_message(&format!("Saved Slot {}", slot)),
                     Err(e) => self.add_message(&e.to_string()),
                 }
+            } else if let Err(e) = save {
+                eprintln!("{}", &e.to_string());
             }
         } else {
             self.add_message("Savestates Disabled");
@@ -79,8 +83,8 @@ impl Nes {
     }
 
     /// Load the console with data saved from a save state
-    pub(super) fn load_state(&mut self, slot: u8) {
-        if self.config.save_enabled {
+    pub(super) fn load_state(&mut self, slot: u8, rewind: bool) {
+        if self.config.save_enabled || self.config.rewind_enabled {
             if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
                 if save_path.exists() {
                     let mut load = || -> NesResult<()> {
@@ -99,14 +103,48 @@ impl Nes {
                         }
                         Ok(())
                     };
-                    match load() {
-                        Ok(()) => self.add_message(&format!("Loaded Slot {}", slot)),
-                        Err(e) => self.add_message(&e.to_string()),
+                    let load = load();
+                    if !rewind {
+                        match load {
+                            Ok(()) => self.add_message(&format!("Loaded Slot {}", slot)),
+                            Err(e) => self.add_message(&e.to_string()),
+                        }
+                    } else if let Err(e) = load {
+                        eprintln!("{}", &e.to_string());
                     }
                 }
             }
         } else {
             self.add_message("Saved States Disabled");
+        }
+    }
+
+    pub(super) fn save_rewind(&mut self, elapsed: f32) {
+        if self.config.rewind_enabled {
+            self.rewind_timer -= elapsed;
+            if self.rewind_timer <= 0.0 {
+                self.rewind_timer = REWIND_TIMER;
+                let rewind_slot = if self.rewind_queue.len() >= REWIND_SIZE as usize {
+                    self.rewind_queue.pop_front().unwrap() // Safe to unwrap
+                } else {
+                    REWIND_SLOT + self.rewind_queue.len() as u8
+                };
+                let rewind = true;
+                self.rewind_queue.push_back(rewind_slot);
+                self.save_state(rewind_slot, rewind);
+            }
+        }
+    }
+
+    pub(super) fn rewind(&mut self) {
+        if self.config.rewind_enabled {
+            if let Some(rewind_slot) = self.rewind_queue.pop_back() {
+                self.add_message(&format!("Rewind {} seconds", REWIND_TIMER));
+                let rewind = true;
+                self.load_state(rewind_slot, rewind);
+            }
+        } else {
+            self.add_message("Rewind disabled");
         }
     }
 
@@ -294,31 +332,35 @@ impl Savable for Nes {
         self.turbo_clock.save(fh)?;
         self.cpu.save(fh)?;
         self.cycles_remaining.save(fh)?;
+        self.zapper_decay.save(fh)?;
         // Ignore
         // focused_window
         // lost_focus
         // menu
         // cpu_break
         // break_instr
+        // should_close
+        self.nes_window.save(fh)?;
+        // ppu_viewer_window
+        // nt_viewer_window
         // ppu_viewer
         // nt_viewer
         // nt_scanline
-        // ppu_viewer_window
         // pat_scanline
-        // nt_viewer_window
+        // debug_sprite
+        // ppu_info_sprite
+        // nt_info_sprite
         // active_debug
         self.width.save(fh)?;
         self.height.save(fh)?;
         self.speed_counter.save(fh)?;
+        self.rewind_timer.save(fh)?;
+        self.rewind_queue.save(fh)?;
         // Ignore
-        // rewind_timer
-        // rewind_slot
-        // rewind_save
-        // rewind_queue
-        // record_frame
         // recording
         // playback
-        // record_buffer
+        // replay_frame
+        // replay_buffer
         // messages
         self.config.save(fh)?;
         Ok(())
@@ -326,36 +368,42 @@ impl Savable for Nes {
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         // Clone here prevents data corruption if loading fails
         let mut nes = self.clone();
+        // HACK: Really should figure a way to have a fresh state
+        nes.rewind_queue = VecDeque::with_capacity(REWIND_SIZE as usize);
         // Ignore roms/loaded_rom/paused
         nes.clock.load(fh)?;
         nes.turbo_clock.load(fh)?;
         nes.cpu.load(fh)?;
         nes.cycles_remaining.load(fh)?;
+        nes.zapper_decay.load(fh)?;
         // Ignore
         // focused_window
         // lost_focus
         // menu
         // cpu_break
         // break_instr
+        // should_close
+        nes.nes_window.load(fh)?;
+        // ppu_viewer_window
+        // nt_viewer_window
         // ppu_viewer
         // nt_viewer
         // nt_scanline
-        // ppu_viewer_window
         // pat_scanline
-        // nt_viewer_window
+        // debug_sprite
+        // ppu_info_sprite
+        // nt_info_sprite
         // active_debug
         nes.width.load(fh)?;
         nes.height.load(fh)?;
         nes.speed_counter.load(fh)?;
+        nes.rewind_timer.load(fh)?;
+        nes.rewind_queue.load(fh)?;
         // Ignore
-        // rewind_timer
-        // rewind_slot
-        // rewind_save
-        // rewind_queue
-        // record_frame
         // recording
         // playback
-        // record_buffer
+        // replay_frame
+        // replay_buffer
         // messages
         nes.config.load(fh)?;
         *self = nes;

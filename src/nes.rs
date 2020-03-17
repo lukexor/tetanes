@@ -28,8 +28,8 @@ const ICON_PATH: &str = "static/rustynes_icon.png";
 const APP_NAME: &str = "RustyNES";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
-const REWIND_START: u8 = 5;
-const REWIND_SIZE: u8 = 20;
+const REWIND_SLOT: u8 = 5;
+const REWIND_SIZE: u8 = 5;
 const REWIND_TIMER: f32 = 5.0;
 
 #[derive(Clone)]
@@ -63,12 +63,10 @@ pub struct Nes {
     height: u32,
     speed_counter: i32,
     rewind_timer: f32,
-    rewind_slot: u8,
-    rewind_save: u8,
     rewind_queue: VecDeque<u8>,
-    replay_frame: usize,
     recording: bool,
     playback: bool,
+    replay_frame: usize,
     replay_buffer: Vec<Vec<PixEvent>>,
     messages: Vec<Message>,
     config: NesConfig,
@@ -115,12 +113,10 @@ impl Nes {
             height,
             speed_counter: 0,
             rewind_timer: REWIND_TIMER,
-            rewind_slot: 0,
-            rewind_save: 0,
             rewind_queue: VecDeque::with_capacity(REWIND_SIZE as usize),
-            replay_frame: 0,
             recording: config.record,
             playback: false,
+            replay_frame: 0,
             replay_buffer: Vec::new(),
             messages: Vec::new(),
             config,
@@ -187,16 +183,8 @@ impl State for Nes {
                     }
                 }
             } else {
-                self.load_state(self.config.save_slot);
-            }
-
-            // Clean up previous rewind states
-            for slot in REWIND_START..REWIND_SIZE {
-                if let Ok(save_path) = state::save_path(&self.loaded_rom, slot) {
-                    if save_path.exists() {
-                        let _ = std::fs::remove_file(&save_path);
-                    }
-                }
+                let rewind = false;
+                self.load_state(self.config.save_slot, rewind);
             }
 
             let codes = self.config.genie_codes.to_vec();
@@ -233,25 +221,7 @@ impl State for Nes {
         self.check_focus();
         self.update_title(data);
 
-        // Save rewind snapshot
-        if self.config.rewind_enabled && self.config.save_enabled {
-            self.rewind_timer -= elapsed;
-            if self.rewind_timer <= 0.0 {
-                self.rewind_save %= REWIND_SIZE;
-                if self.rewind_save < REWIND_START {
-                    self.rewind_save = REWIND_START;
-                }
-                self.rewind_timer = REWIND_TIMER;
-                self.save_state(self.rewind_save, true);
-                self.messages.pop(); // Remove saved message
-                self.rewind_queue.push_back(self.rewind_save);
-                self.rewind_save += 1;
-                if self.rewind_queue.len() > REWIND_SIZE as usize {
-                    let _ = self.rewind_queue.pop_front();
-                }
-                self.rewind_slot = self.rewind_queue.len() as u8;
-            }
-        }
+        self.save_rewind(elapsed);
 
         if !self.paused {
             self.clock += elapsed;
@@ -308,6 +278,13 @@ impl State for Nes {
 
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
         self.power_off()?;
+        for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
+            if let Ok(save_path) = state::save_path(&self.loaded_rom, slot) {
+                if save_path.exists() {
+                    let _ = std::fs::remove_file(&save_path);
+                }
+            }
+        }
         Ok(true)
     }
 }

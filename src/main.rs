@@ -41,8 +41,8 @@ fn main() {
         record: opt.record && opt.replay.is_none(),
         replay: opt.replay,
         rewind_enabled: opt.rewind,
-        save_enabled: !opt.no_save,
-        clear_save: opt.clear_save,
+        save_enabled: !opt.savestates_off,
+        clear_save: opt.clear_savestate,
         concurrent_dpad: opt.concurrent_dpad,
         save_slot: opt.save_slot,
         scale: opt.scale,
@@ -81,7 +81,7 @@ struct Opt {
     debug: bool,
     #[structopt(
         short = "l",
-        long = "log_level",
+        long = "log-level",
         default_value = "error",
         possible_values = &["off", "error", "warn", "info", "debug", "trace"],
         help = "Set logging level."
@@ -89,33 +89,36 @@ struct Opt {
     log_level: String,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
-    #[structopt(short = "v", long = "vsync_off", help = "Disable vsync.")]
+    #[structopt(short = "v", long = "vsync-off", help = "Disable vsync.")]
     vsync_off: bool,
-    #[structopt(long = "sound_off", help = "Disable sound.")]
+    #[structopt(long = "sound-off", help = "Disable sound.")]
     sound_off: bool,
     #[structopt(
-        long = "record",
-        help = "Record gameplay input to a file for later replay."
+        long = "record-replay",
+        help = "Record gameplay to a file for later action replay."
     )]
     record: bool,
-    #[structopt(long = "replay", help = "Replay a saved recording.")]
+    #[structopt(long = "replay", help = "Replay a saved action replay file.")]
     replay: Option<String>,
     #[structopt(
-        long = "concurrent_dpad",
+        long = "concurrent-dpad",
         help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad."
     )]
     concurrent_dpad: bool,
     #[structopt(long = "rewind", help = "Enable savestate rewinding")]
     rewind: bool,
-    #[structopt(long = "no_save", help = "Disable savestates")]
-    no_save: bool,
-    #[structopt(long = "clear_save", help = "Overwrites existing savestate on load.")]
-    clear_save: bool,
+    #[structopt(long = "savestates-off", help = "Disable savestates")]
+    savestates_off: bool,
     #[structopt(
-        long = "save_slot",
+        long = "clear-savestate",
+        help = "Removes existing savestates for current save-slot"
+    )]
+    clear_savestate: bool,
+    #[structopt(
+        long = "savestate-slot",
         default_value = "1",
         possible_values = &["1", "2", "3", "4"],
-        help = "Set savestate slot."
+        help = "Set savestate slot #."
     )]
     save_slot: u8,
     #[structopt(
@@ -132,12 +135,12 @@ struct Opt {
     )]
     speed: f32,
     #[structopt(
-        long = "unlock_fps",
+        long = "unlock-fps",
         help = "Disables locking FPS to 60. Also disables sound."
     )]
     unlock_fps: bool,
     #[structopt(
-        long = "genie_codes",
+        long = "genie-codes",
         help = "List of Game Genie Codes (space separated)."
     )]
     genie_codes: Vec<String>,
