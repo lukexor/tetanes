@@ -362,7 +362,6 @@ impl Savable for Nes {
         // replay_frame
         // replay_buffer
         // messages
-        self.config.save(fh)?;
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
@@ -405,7 +404,6 @@ impl Savable for Nes {
         // replay_frame
         // replay_buffer
         // messages
-        nes.config.load(fh)?;
         *self = nes;
         Ok(())
     }
