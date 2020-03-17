@@ -1050,21 +1050,35 @@ impl Loggable for Ppu {
 impl Savable for Ppu {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.cycle.save(fh)?;
+        self.total_cycles.save(fh)?;
         self.scanline.save(fh)?;
-        self.nmi_pending.save(fh)?;
-        self.vram.save(fh)?;
+        self.frame_cycles.save(fh)?;
         self.regs.save(fh)?;
         self.oamdata.save(fh)?;
-        self.frame.save(fh)
+        self.vram.save(fh)?;
+        self.frame.save(fh)?;
+        self.frame_complete.save(fh)?;
+        self.ntsc_video.save(fh)?;
+        self.nes_format.save(fh)?;
+        self.clock_remainder.save(fh)?;
+        self.nmi_pending.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.cycle.load(fh)?;
+        self.total_cycles.load(fh)?;
         self.scanline.load(fh)?;
-        self.nmi_pending.load(fh)?;
-        self.vram.load(fh)?;
+        self.frame_cycles.load(fh)?;
         self.regs.load(fh)?;
         self.oamdata.load(fh)?;
-        self.frame.load(fh)
+        self.vram.load(fh)?;
+        self.frame.load(fh)?;
+        self.frame_complete.load(fh)?;
+        self.ntsc_video.load(fh)?;
+        self.nes_format.load(fh)?;
+        self.clock_remainder.load(fh)?;
+        self.nmi_pending.load(fh)?;
+        Ok(())
     }
 }
 
