@@ -1,4 +1,5 @@
-cargo build
+# Some tests rely on deterministic RAM state
+cargo build --features no-randomize-ram
 TESTS=(
 ## CPU ============================================================================================
 tests/cpu/interrupts/4-irq_and_dma.nes # ??
