@@ -94,7 +94,7 @@ struct Opt {
     #[structopt(long = "sound-off", help = "Disable sound.")]
     sound_off: bool,
     #[structopt(
-        long = "record-replay",
+        long = "record",
         help = "Record gameplay to a file for later action replay."
     )]
     record: bool,

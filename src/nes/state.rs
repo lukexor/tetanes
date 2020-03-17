@@ -49,7 +49,7 @@ impl Nes {
 
     /// Save the current state of the console into a save file
     pub(super) fn save_state(&mut self, slot: u8, rewind: bool) {
-        if self.config.save_enabled || self.config.rewind_enabled {
+        if self.config.save_enabled || (rewind && self.config.rewind_enabled) {
             let save = || -> NesResult<()> {
                 let save_path = save_path(&self.loaded_rom, slot)?;
                 let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
@@ -84,7 +84,7 @@ impl Nes {
 
     /// Load the console with data saved from a save state
     pub(super) fn load_state(&mut self, slot: u8, rewind: bool) {
-        if self.config.save_enabled || self.config.rewind_enabled {
+        if self.config.save_enabled || (rewind && self.config.rewind_enabled) {
             if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
                 if save_path.exists() {
                     let mut load = || -> NesResult<()> {
@@ -130,8 +130,8 @@ impl Nes {
                     REWIND_SLOT + self.rewind_queue.len() as u8
                 };
                 let rewind = true;
-                self.rewind_queue.push_back(rewind_slot);
                 self.save_state(rewind_slot, rewind);
+                self.rewind_queue.push_back(rewind_slot);
             }
         }
     }
@@ -139,7 +139,7 @@ impl Nes {
     pub(super) fn rewind(&mut self) {
         if self.config.rewind_enabled {
             if let Some(rewind_slot) = self.rewind_queue.pop_back() {
-                self.add_message(&format!("Rewind {} seconds", REWIND_TIMER));
+                self.add_message(&format!("Rewind"));
                 let rewind = true;
                 self.load_state(rewind_slot, rewind);
             }

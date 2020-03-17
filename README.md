@@ -112,7 +112,7 @@ FLAGS:
     -d, --debug              Start with the CPU debugger enabled and emulation paused at first CPU instruction.
     -f, --fullscreen         Start fullscreen.
     -h, --help               Prints help information
-        --record-replay      Record gameplay to a file for later action replay.
+        --record             Record gameplay to a file for later action replay.
         --rewind             Enable savestate rewinding
         --savestates-off     Disable savestates
         --sound-off          Disable sound.
