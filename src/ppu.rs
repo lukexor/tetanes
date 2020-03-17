@@ -73,14 +73,15 @@ const PALETTE_END: u16 = 0x3F20;
 
 #[derive(Clone)]
 pub struct Ppu {
-    pub cycle: u16,         // (0, 340) 341 cycles happen per scanline
-    pub cycle_count: usize, // Total number of PPU cycles run
-    pub scanline: u16,      // (0, 261) 262 total scanlines per frame
-    pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
-    pub vram: Vram,         // $2007 PPUDATA
-    pub regs: PpuRegs,      // Registers
-    oamdata: Oam,           // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    pub frame: Frame,       // Frame data keeps track of data and shift registers between frames
+    pub cycle: u16,          // (0, 340) 341 cycles happen per scanline
+    pub total_cycles: usize, // Total number of PPU cycles run
+    pub scanline: u16,       // (0, 261) 262 total scanlines per frame
+    pub frame_cycles: usize, // Total number of PPU cycles run per frame
+    pub nmi_pending: bool,   // Whether the CPU should trigger an NMI next cycle
+    pub vram: Vram,          // $2007 PPUDATA
+    pub regs: PpuRegs,       // Registers
+    oamdata: Oam,            // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    pub frame: Frame,        // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub ntsc_video: bool,
     nes_format: NesFormat,
@@ -100,8 +101,9 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             cycle: 0u16,
-            cycle_count: 0usize,
+            total_cycles: 0usize,
             scanline: 0u16,
+            frame_cycles: 0usize,
             nmi_pending: false,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
@@ -503,7 +505,7 @@ impl Ppu {
                 y * RENDER_WIDTH as u16 + x,
                 palette & 0x3F,
                 self.regs.emphasis(),
-                self.cycle_count - 1,
+                self.frame_cycles - 1,
             );
         } else {
             let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
@@ -582,12 +584,14 @@ impl Ppu {
             VISIBLE_SCANLINE_CYCLE_END
         };
         self.cycle += 1;
-        self.cycle_count += 1;
+        self.total_cycles += 1;
+        self.frame_cycles += 1;
         if self.cycle > cycle_end {
             self.cycle = 0;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
+                self.frame_cycles = 0;
                 self.frame.increment();
                 self.frame_complete = true;
             }
@@ -691,7 +695,7 @@ impl Ppu {
         self.regs.nmi_enabled()
     }
     fn write_ppuctrl(&mut self, val: u8) {
-        if self.cycle_count < POWER_ON_CYCLES {
+        if self.total_cycles < POWER_ON_CYCLES {
             return;
         }
         let nmi_flag = val & 0x80 > 0;
@@ -717,7 +721,7 @@ impl Ppu {
      */
 
     fn write_ppumask(&mut self, val: u8) {
-        if self.cycle_count < POWER_ON_CYCLES {
+        if self.total_cycles < POWER_ON_CYCLES {
             return;
         }
         self.regs.write_mask(val);
@@ -822,7 +826,7 @@ impl Ppu {
      */
 
     fn write_ppuscroll(&mut self, val: u8) {
-        if self.cycle_count < POWER_ON_CYCLES {
+        if self.total_cycles < POWER_ON_CYCLES {
             return;
         }
         self.regs.write_scroll(val);
@@ -836,7 +840,7 @@ impl Ppu {
         self.regs.read_addr()
     }
     fn write_ppuaddr(&mut self, val: u16) {
-        if self.cycle_count < POWER_ON_CYCLES {
+        if self.total_cycles < POWER_ON_CYCLES {
             return;
         }
         self.regs.write_addr(val);
@@ -1005,7 +1009,9 @@ impl MemWrite for Ppu {
 impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
+        self.total_cycles = 0;
         self.scanline = 0;
+        self.frame_cycles = 0;
         self.regs.w = false;
         self.frame.reset();
         self.vram.reset();
@@ -1017,13 +1023,16 @@ impl Powered for Ppu {
     }
     fn power_cycle(&mut self) {
         self.cycle = 0;
+        self.total_cycles = 0;
         self.scanline = 0;
+        self.frame_cycles = 0;
         self.regs.w = false;
-        self.frame.reset();
-        self.vram.reset();
+        self.frame.power_cycle();
+        self.vram.power_cycle();
+        self.set_sprite_zero_hit(false);
+        self.set_sprite_overflow(false);
         self.write_ppuctrl(0);
         self.write_ppumask(0);
-        self.set_sprite_zero_hit(false);
         self.write_oamaddr(0);
         self.write_ppuscroll(0);
         self.write_ppuaddr(0);
@@ -1624,6 +1633,9 @@ impl Powered for Vram {
     fn reset(&mut self) {
         self.buffer = 0;
     }
+    fn power_cycle(&mut self) {
+        self.reset();
+    }
 }
 
 impl Savable for Vram {
@@ -1721,21 +1733,22 @@ impl Frame {
         let level = if color > 13 {
             1 // For colors 14..15, level 1 is forced.
         } else {
-            palette >> 4 & 3 // 0..3  "ll"
+            (palette >> 4) & 3 // 0..3  "ll"
         };
 
         // The square wave for this color alternates between these two voltages:
         let mut low = Self::LEVELS[level as usize] as f32;
         let mut high = Self::LEVELS[4 + level as usize] as f32;
         if color == 0 {
+            // For color 0, only high level is emitted
             low = high;
-        } // For color 0, only high level is emitted
-        if color > 12 {
+        } else if color > 12 {
+            // For colors 13..15, only low level is emitted
             high = low;
-        } // For colors 13..15, only low level is emitted
+        }
 
         // Generate the square wave
-        let in_color_phase = |color| (usize::from(color) + phase) % 12 < 6; // Inline function
+        let in_color_phase = |color| ((usize::from(color) + phase) % 12) < 6; // Inline function
         let mut signal = if in_color_phase(color) { high } else { low };
 
         // When de-emphasis bits are set, some parts of the signal are attenuated:
@@ -1753,12 +1766,12 @@ impl Frame {
         let phase = ppu_cycle * 8;
         // Each pixel produces distinct 8 samples of NTSC signal
         for p in 0..8 {
-            let mut signal = Self::ntsc_signal(palette, emphasis, (phase + p) % 12);
+            let mut signal = Self::ntsc_signal(palette, emphasis, phase + p);
             // Optionally apply some lowpass-filtering to the signal here
             // Optionally normalize the signal to 0..1 range:
             signal = (signal - Self::BLACK) / (Self::WHITE - Self::BLACK);
             // Save the signal for this pixel.
-            self.signal_levels[x as usize * 8 + p as usize] = signal;
+            self.signal_levels[x as usize * 8 + p] = signal;
         }
     }
 
@@ -1767,12 +1780,10 @@ impl Frame {
     // It can additionally include a floating-point hue offset.
     #[allow(clippy::many_single_char_names)]
     fn decode_ntsc_signal(&mut self, scanline: u16) {
-        let phase_lookup = self.phase_lookup.get(&scanline).unwrap();
-        let mut pixels = Vec::with_capacity(RENDER_WIDTH as usize);
         let samples = 6;
         for x in 0..RENDER_WIDTH {
             // Determine the region of scanline signal to sample. Take 12 samples.
-            let center = x * 8;
+            let center = x * 8 + 4;
             let begin = if center > samples {
                 center - samples
             } else {
@@ -1788,18 +1799,18 @@ impl Frame {
             let mut i = 0.0;
             let mut q = 0.0;
             let signal_idx = (u32::from(scanline) * RENDER_WIDTH * 8) as usize;
-            for p in begin..end {
-                // Collect and accumulate samples
-                let level = self.signal_levels[signal_idx + p as usize] / 12.0;
-                y += level;
-                i += level * phase_lookup[p as usize];
-                q += level * phase_lookup[p as usize + RENDER_WIDTH as usize * 8];
+            {
+                let phase_lookup = self.phase_lookup.get(&scanline).unwrap();
+                for p in begin..end {
+                    // Collect and accumulate samples
+                    let level = self.signal_levels[signal_idx + p as usize] / 12.0;
+                    y += level;
+                    i += level * phase_lookup[p as usize];
+                    q += level * phase_lookup[p as usize + RENDER_WIDTH as usize * 8];
+                }
             }
             let (r, g, b) = Self::yiq_to_rgb(y, i, q);
-            pixels.push((r, g, b));
-        }
-        for (x, (r, g, b)) in pixels.iter().enumerate() {
-            self.put_pixel(x as u32, u32::from(scanline), *r, *g, *b);
+            self.put_pixel(x as u32, u32::from(scanline), r, g, b);
         }
     }
 
@@ -1830,6 +1841,10 @@ impl Powered for Frame {
     fn reset(&mut self) {
         self.num = 0;
         self.parity = false;
+        self.signal_levels = vec![0.0; SIGNAL_SIZE];
+    }
+    fn power_cycle(&mut self) {
+        self.reset();
     }
 }
 
@@ -1996,7 +2011,7 @@ mod tests {
     fn ppu_scrolling_registers() {
         let mut ppu = Ppu::new();
         ppu.load_mapper(mapper::null());
-        while ppu.cycle_count < POWER_ON_CYCLES {
+        while ppu.total_cycles < POWER_ON_CYCLES {
             ppu.clock();
         }
 

@@ -35,7 +35,7 @@ pub trait Clocked {
 
 /// Returns the users current HOME directory (if one exists)
 pub fn home_dir() -> Option<PathBuf> {
-    dirs::home_dir().and_then(|d| Some(d.to_path_buf()))
+    dirs::home_dir()
 }
 
 /// Creates a '.png' file
