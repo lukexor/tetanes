@@ -122,6 +122,15 @@ impl Nes {
         }
     }
 
+    pub(super) fn set_speed(&mut self, speed: f32) {
+        if self.recording {
+            self.add_message("Speed changes disabled while recording");
+        } else {
+            self.config.speed = speed;
+            self.cpu.bus.apu.set_speed(self.config.speed);
+        }
+    }
+
     pub(super) fn update_title(&mut self, data: &mut StateData) {
         let mut title = String::new();
         if self.paused {

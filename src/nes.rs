@@ -4,12 +4,12 @@ use crate::{
     bus::Bus,
     common::Clocked,
     cpu::{Cpu, CPU_CLOCK_RATE},
-    logging::{LogLevel, Loggable},
     nes::{
         config::{MAX_SPEED, MIN_SPEED},
         debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
         menus::Message,
     },
+    nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     NesResult,
 };
@@ -26,7 +26,7 @@ mod state;
 pub use config::NesConfig;
 
 const APP_NAME: &str = "RustyNES";
-const STATIC_DIR: Dir = include_dir!("./static");
+const _STATIC_DIR: Dir = include_dir!("./static");
 const ICON_PATH: &str = "static/rustynes_icon.png";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
@@ -181,7 +181,7 @@ impl State for Nes {
 
         match self.find_roms() {
             Ok(mut roms) => self.roms.append(&mut roms),
-            Err(e) => error!(self, "{}", e),
+            Err(e) => nes_err!("{}", e)?,
         }
         if self.roms.len() == 1 {
             self.load_rom(0)?;
@@ -295,13 +295,6 @@ impl State for Nes {
 
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
         self.power_off()?;
-        for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
-            if let Ok(save_path) = state::save_path(&self.loaded_rom, slot) {
-                if save_path.exists() {
-                    let _ = std::fs::remove_file(&save_path);
-                }
-            }
-        }
         Ok(true)
     }
 }

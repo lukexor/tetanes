@@ -34,6 +34,16 @@ impl Nes {
         if let Err(e) = self.save_sram() {
             self.add_message(&e.to_string());
         }
+        // Clean up rewind states
+        if self.config.rewind_enabled {
+            for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
+                if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
+                    if save_path.exists() {
+                        let _ = std::fs::remove_file(&save_path);
+                    }
+                }
+            }
+        }
         self.power_cycle();
         self.paused = true;
         Ok(())
@@ -440,12 +450,15 @@ fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
 ///
 /// Panics if path is not a valid path
 pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
-    let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
-    let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
-    path.push(CONFIG_DIR);
-    path.push("save");
-    path.push(save_name);
-    path.push(format!("{}", slot));
-    path.set_extension("dat");
-    Ok(path)
+    if let Some(save_name) = path.as_ref().file_stem().and_then(|s| s.to_str()) {
+        let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
+        path.push(CONFIG_DIR);
+        path.push("save");
+        path.push(save_name);
+        path.push(format!("{}", slot));
+        path.set_extension("dat");
+        Ok(path)
+    } else {
+        nes_err!("failed to create save path for {:?}", path.as_ref())
+    }
 }

@@ -191,7 +191,7 @@ impl Nes {
         match key {
             // No modifiers
             Key::Escape => self.paused(!self.paused),
-            Key::Space => self.change_speed(1.0),
+            Key::Space => self.set_speed(2.0),
             Key::Comma => self.rewind(),
             // Step/Step Into
             Key::C if d => {

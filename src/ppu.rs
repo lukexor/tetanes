@@ -1753,7 +1753,7 @@ impl Frame {
         }
 
         // Generate the square wave
-        let in_color_phase = |color| ((u32::from(color) + phase) % 12) < 6; // Inline function
+        let in_color_phase = |color| (u32::from(color).wrapping_add(phase) % 12) < 6; // Inline function
         let mut signal = if in_color_phase(color) { high } else { low };
 
         // When de-emphasis bits are set, some parts of the signal are attenuated:
