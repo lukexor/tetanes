@@ -139,7 +139,7 @@ impl Nes {
     pub(super) fn rewind(&mut self) {
         if self.config.rewind_enabled {
             if let Some(rewind_slot) = self.rewind_queue.pop_back() {
-                self.add_message(&format!("Rewind"));
+                self.add_message("Rewind");
                 let rewind = true;
                 self.load_state(rewind_slot, rewind);
             }

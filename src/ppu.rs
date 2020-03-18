@@ -11,18 +11,21 @@ use crate::{
     NesResult,
 };
 use std::{
-    collections::HashMap,
-    f64::consts::PI,
+    f64::consts::PI as PI64,
     fmt,
     io::{Read, Write},
 };
 
+const PI: f32 = PI64 as f32;
+
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
+const _TOTAL_CYCLES: u32 = 341;
+const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
 const RENDER_SIZE: usize = 3 * RENDER_PIXELS;
-const SIGNAL_SIZE: usize = 8 * RENDER_PIXELS;
+const SIGNAL_SIZE: usize = 8 * RENDER_WIDTH as usize;
 
 // Sizes
 const NT_SIZE: usize = 2 * 1024; // Two 1K nametables exist in hardware
@@ -31,21 +34,27 @@ const SYSTEM_PALETTE_SIZE: usize = 64;
 const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 
 // Cycles
-const VISIBLE_CYCLE_START: u16 = 1;
-const VISIBLE_CYCLE_END: u16 = 256;
-const SPRITE_PREFETCH_CYCLE_START: u16 = 257;
-const SPRITE_PREFETCH_CYCLE_END: u16 = 320;
-const COPY_Y_CYCLE_START: u16 = 280;
-const COPY_Y_CYCLE_END: u16 = 304;
-const PREFETCH_CYCLE_START: u16 = 321;
-const PREFETCH_CYCLE_END: u16 = 336;
-const PRERENDER_CYCLE_END: u16 = 339;
-const VISIBLE_SCANLINE_CYCLE_END: u16 = 340;
-const POWER_ON_CYCLES: usize = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
+const IDLE_CYCLE: u16 = 0; // PPU is idle this cycle
+const VISIBLE_CYCLE_START: u16 = 1; // Tile data fetching starts
+const VISIBLE_CYCLE_END: u16 = 256; // 2 cycles each for 4 fetches = 32 tiles
+const SPRITE_PREFETCH_CYCLE_START: u16 = 257; // Sprites for next scanline fetch starts
+const SPRITE_PREFETCH_CYCLE_END: u16 = 320; // 2 cycles each for 4 fetches = 8 sprites
+const COPY_Y_CYCLE_START: u16 = 280; // Copy Y scroll start
+const COPY_Y_CYCLE_END: u16 = 304; // Copy Y scroll stop
+const INC_Y_CYCLE: u16 = 256; // Increase Y scroll when it reaches end of the screen
+const COPY_X_CYCLE: u16 = 257; // Copy X scroll when starting a new scanline
+const PREFETCH_CYCLE_START: u16 = 321; // Tile data for next scanline fetched
+const PREFETCH_CYCLE_END: u16 = 336; // 2 cycles each for 4 fetches = 2 tiles
+const DUMMY_CYCLE_START: u16 = 337; // Dummy fetches - use is unknown
+const SKIP_CYCLE: u16 = 339; // Odd frames skip the last cycle
+const CYCLE_END: u16 = 340; // 2 cycles each for 2 fetches
+const POWER_ON_CYCLES: u32 = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
 
 // Scanlines
-const VISIBLE_SCANLINE_END: u16 = 239;
-const VBLANK_SCANLINE: u16 = 241;
+const _VISIBLE_SCANLINE_START: u16 = 0; // Rendering graphics for the screen
+const VISIBLE_SCANLINE_END: u16 = 239; // Rendering graphics for the screen
+const POSTRENDER_SCANLINE: u16 = 240; // Idle scanline
+const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
 const PRERENDER_SCANLINE: u16 = 261;
 
 // PPUSCROLL masks
@@ -74,9 +83,9 @@ const PALETTE_END: u16 = 0x3F20;
 #[derive(Clone)]
 pub struct Ppu {
     pub cycle: u16,          // (0, 340) 341 cycles happen per scanline
-    pub total_cycles: usize, // Total number of PPU cycles run
+    pub cycle_count: u32,    // Total number of PPU cycles run
     pub scanline: u16,       // (0, 261) 262 total scanlines per frame
-    pub frame_cycles: usize, // Total number of PPU cycles run per frame
+    pub scanline_phase: u32, // Phase at the start of this scanline
     pub nmi_pending: bool,   // Whether the CPU should trigger an NMI next cycle
     pub vram: Vram,          // $2007 PPUDATA
     pub regs: PpuRegs,       // Registers
@@ -101,9 +110,9 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             cycle: 0u16,
-            total_cycles: 0usize,
+            cycle_count: 0u32,
             scanline: 0u16,
-            frame_cycles: 0usize,
+            scanline_phase: 0u32,
             nmi_pending: false,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
@@ -154,11 +163,6 @@ impl Ppu {
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
     pub fn frame(&mut self) -> &Vec<u8> {
-        if self.ntsc_video {
-            for y in 0..RENDER_HEIGHT as u16 {
-                self.frame.decode_ntsc_signal(y);
-            }
-        }
         &self.frame.pixels
     }
 
@@ -259,88 +263,84 @@ impl Ppu {
         }
     }
 
-    fn render_dot(&mut self) {
-        let visible_scanline = self.scanline <= VISIBLE_SCANLINE_END;
+    fn run_cycle(&mut self) {
+        self.tick();
+
         let visible_cycle = self.cycle >= VISIBLE_CYCLE_START && self.cycle <= VISIBLE_CYCLE_END;
+        let prefetch_cycle = self.cycle >= PREFETCH_CYCLE_START && self.cycle <= PREFETCH_CYCLE_END;
+        let dummy_cycle = self.cycle >= DUMMY_CYCLE_START && self.cycle <= CYCLE_END;
+        let fetch_cycle = prefetch_cycle || visible_cycle;
+        let visible_scanline = self.scanline <= VISIBLE_SCANLINE_END;
         let prerender_scanline = self.scanline == PRERENDER_SCANLINE;
         let render_scanline = prerender_scanline || visible_scanline;
-        let prefetch_cycle = self.cycle >= PREFETCH_CYCLE_START && self.cycle <= PREFETCH_CYCLE_END;
-        let fetch_cycle = prefetch_cycle || visible_cycle;
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
         // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
-        let should_render = visible_scanline && visible_cycle;
-        if should_render {
-            self.render_pixel();
+        self.render_pixel();
+
+        // Idle cycles/scanline
+        if self.cycle == IDLE_CYCLE || self.scanline == POSTRENDER_SCANLINE {
+            return;
         }
 
-        if self.rendering_enabled() {
-            // evaluate background
-            let should_fetch = render_scanline && fetch_cycle;
-            if should_fetch {
+        if self.rendering_enabled() && render_scanline {
+            // (1, 0) - (256, 239) - visible cycles/scanlines
+            // (1, 261) - (256, 261) - prefetch scanline
+            // (321, 0) - (336, 239) - next scanline fetch cycles
+            if fetch_cycle {
                 self.evaluate_background();
-            }
-
-            // Two dummy byte fetches
-            if render_scanline
-                && self.cycle > PREFETCH_CYCLE_END
-                && self.cycle <= VISIBLE_SCANLINE_CYCLE_END
-                && self.cycle % 2 == 1
-            {
+            } else if dummy_cycle {
+                // Dummy byte fetches
+                // (337, 0) - (337, 239)
                 self.fetch_bg_nt_byte();
             }
 
             // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
             // if rendering is enabled
             // http://wiki.nesdev.com/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
-            if prerender_scanline
-                && self.cycle >= COPY_Y_CYCLE_START
-                && self.cycle <= COPY_Y_CYCLE_END
-            {
+            let copy_y = self.cycle >= COPY_Y_CYCLE_START && self.cycle <= COPY_Y_CYCLE_END;
+            if prerender_scanline && copy_y {
                 self.regs.copy_y();
             }
 
-            if render_scanline {
-                // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-                if fetch_cycle && self.cycle % 8 == 0 {
-                    self.regs.increment_x();
-                }
-                // Increment Fine Y when we reach the end of the screen
-                if self.cycle == RENDER_WIDTH as u16 {
-                    self.regs.increment_y();
-                }
-                // Copy X bits at the start of a new line since we're going to start writing
-                // new x values to t
-                if self.cycle == (RENDER_WIDTH + 1) as u16 {
-                    self.regs.copy_x();
-                }
+            // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
+            if fetch_cycle && self.cycle % 8 == 0 {
+                self.regs.increment_x();
+            }
+            // Increment Fine Y when we reach the end of the screen
+            if self.cycle == INC_Y_CYCLE {
+                self.regs.increment_y();
+            }
+            // Copy X bits at the start of a new line since we're going to start writing
+            // new x values to t
+            if self.cycle == COPY_X_CYCLE {
+                self.regs.copy_x();
+            }
 
-                // TODO - This should be split up instead of being done all at once
-                // The code block below this simulates the reads required, but
-                // its not ideal
-                if self.cycle == SPRITE_PREFETCH_CYCLE_START {
-                    self.evaluate_sprites();
-                }
+            // TODO - This should be split up instead of being done all at once
+            // The code block below this simulates the reads required, but
+            // its not ideal
+            if self.cycle == SPRITE_PREFETCH_CYCLE_START {
+                self.evaluate_sprites();
+            }
 
-                // This gets our IRQ timing properly for certain mappers (MMC3, MMC5)
-                // because evaluation is done all on one cycle
-                if self.cycle >= SPRITE_PREFETCH_CYCLE_START
-                    && self.cycle <= SPRITE_PREFETCH_CYCLE_END
-                {
-                    let sprite_idx = (self.cycle - SPRITE_PREFETCH_CYCLE_START) / 8;
-                    let sprite = self.frame.sprites[sprite_idx as usize];
-
-                    match self.cycle % 8 {
-                        1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
-                        3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
-                        5 => {
-                            let _ = self.vram.read(sprite.tile_addr);
-                        }
-                        7 => {
-                            let _ = self.vram.read(sprite.tile_addr + 8);
-                        }
-                        _ => (),
+            // HACK: This gets our IRQ timing properly for certain mappers (MMC3, MMC5)
+            // because evaluation is done all on one cycle
+            let sprite_prefetch = self.cycle >= SPRITE_PREFETCH_CYCLE_START
+                && self.cycle <= SPRITE_PREFETCH_CYCLE_END;
+            if sprite_prefetch {
+                let sprite_idx = (self.cycle - SPRITE_PREFETCH_CYCLE_START) / 8;
+                let sprite = self.frame.sprites[sprite_idx as usize];
+                match self.cycle % 8 {
+                    1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
+                    3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
+                    5 => {
+                        let _ = self.vram.read(sprite.tile_addr);
                     }
+                    7 => {
+                        let _ = self.vram.read(sprite.tile_addr + 8);
+                    }
+                    _ => (),
                 }
             }
         }
@@ -456,7 +456,7 @@ impl Ppu {
 
     #[allow(clippy::many_single_char_names)]
     fn render_pixel(&mut self) {
-        let x = self.cycle - 1; // Because we called tick() before this
+        let x = self.cycle;
         let y = self.scanline;
 
         let mut bg_color = self.background_color();
@@ -501,12 +501,19 @@ impl Ppu {
             palette &= !0x0F; // Remove chroma
         }
         if self.ntsc_video {
-            self.frame.render_ntsc_pixel(
-                y * RENDER_WIDTH as u16 + x,
-                palette & 0x3F,
-                self.regs.emphasis(),
-                self.frame_cycles - 1,
-            );
+            let x = x as u32;
+            if x < RENDER_WIDTH {
+                self.frame.render_ntsc_pixel(
+                    x,
+                    palette & 0x3F,
+                    self.regs.emphasis(),
+                    self.cycle_count,
+                );
+            }
+            if self.cycle >= SKIP_CYCLE {
+                self.frame
+                    .decode_ntsc_signal(self.scanline, self.scanline_phase);
+            }
         } else {
             let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
             let r = SYSTEM_PALETTE[color_idx];
@@ -578,20 +585,15 @@ impl Ppu {
         // Jump to (0, 0) (Cycles, Scanline) and start on the next frame
         let should_skip =
             self.scanline == PRERENDER_SCANLINE && self.rendering_enabled() && self.frame.parity;
-        let cycle_end = if should_skip {
-            PRERENDER_CYCLE_END
-        } else {
-            VISIBLE_SCANLINE_CYCLE_END
-        };
+        let cycle_end = if should_skip { SKIP_CYCLE } else { CYCLE_END };
         self.cycle += 1;
-        self.total_cycles += 1;
-        self.frame_cycles += 1;
+        self.cycle_count += 1;
         if self.cycle > cycle_end {
             self.cycle = 0;
+            self.scanline_phase = (self.cycle_count as f64 * 8.0 + 4.9) as u32 % 12;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
-                self.frame_cycles = 0;
                 self.frame.increment();
                 self.frame_complete = true;
             }
@@ -695,7 +697,7 @@ impl Ppu {
         self.regs.nmi_enabled()
     }
     fn write_ppuctrl(&mut self, val: u8) {
-        if self.total_cycles < POWER_ON_CYCLES {
+        if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
         let nmi_flag = val & 0x80 > 0;
@@ -721,7 +723,7 @@ impl Ppu {
      */
 
     fn write_ppumask(&mut self, val: u8) {
-        if self.total_cycles < POWER_ON_CYCLES {
+        if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
         self.regs.write_mask(val);
@@ -826,7 +828,7 @@ impl Ppu {
      */
 
     fn write_ppuscroll(&mut self, val: u8) {
-        if self.total_cycles < POWER_ON_CYCLES {
+        if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
         self.regs.write_scroll(val);
@@ -840,7 +842,7 @@ impl Ppu {
         self.regs.read_addr()
     }
     fn write_ppuaddr(&mut self, val: u16) {
-        if self.total_cycles < POWER_ON_CYCLES {
+        if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
         self.regs.write_addr(val);
@@ -917,23 +919,9 @@ impl Clocked for Ppu {
         }
 
         for _ in 0..clocks {
-            self.tick();
-            self.render_dot();
-            if self.cycle == 1 && self.scanline == VBLANK_SCANLINE {
-                self.start_vblank();
-            }
-            // FIXME This is a bit of a hack - VBL should clear on cycle 1,
-            // but something is off with timing and cycle 1 causes
-            // 03-vbl_clear_time.nes/4.vbl_clear_timing.nes to fail.
-            // Changing it to 2 makes them pass, but then causes 07-nmi_on_timing.nes
-            // to fail so write_ppuctrl is changed as a result
-            if self.cycle == 2 && self.scanline == PRERENDER_SCANLINE {
-                self.set_sprite_zero_hit(false);
-                self.set_sprite_overflow(false);
-                self.stop_vblank();
-            }
+            self.run_cycle();
 
-            if self.debug && self.cycle == 0 {
+            if self.debug && self.cycle == IDLE_CYCLE {
                 if self.scanline == self.nt_scanline {
                     self.load_nametables();
                 }
@@ -941,6 +929,20 @@ impl Clocked for Ppu {
                     self.load_pattern_tables();
                     self.load_palettes();
                 }
+            }
+
+            if self.cycle == VISIBLE_CYCLE_START && self.scanline == VBLANK_SCANLINE {
+                self.start_vblank();
+            }
+            // FIXME This is a bit of a hack - VBL should clear on cycle 1,
+            // but something is off with timing and cycle 1 causes
+            // 03-vbl_clear_time.nes/4.vbl_clear_timing.nes to fail.
+            // Changing it to 2 makes them pass, but then causes 07-nmi_on_timing.nes
+            // to fail so write_ppuctrl is changed as a result
+            if self.cycle == VISIBLE_CYCLE_START + 1 && self.scanline == PRERENDER_SCANLINE {
+                self.set_sprite_zero_hit(false);
+                self.set_sprite_overflow(false);
+                self.stop_vblank();
             }
         }
         clocks
@@ -1010,7 +1012,7 @@ impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
         self.scanline = 0;
-        self.frame_cycles = 0;
+        self.scanline_phase = 0;
         self.regs.w = false;
         self.frame.reset();
         self.vram.reset();
@@ -1023,7 +1025,7 @@ impl Powered for Ppu {
     fn power_cycle(&mut self) {
         self.cycle = 0;
         self.scanline = 0;
-        self.frame_cycles = 0;
+        self.scanline_phase = 0;
         self.regs.w = false;
         self.frame.power_cycle();
         self.vram.power_cycle();
@@ -1034,7 +1036,7 @@ impl Powered for Ppu {
         self.write_oamaddr(0);
         self.write_ppuscroll(0);
         self.write_ppuaddr(0);
-        self.total_cycles = 0; // This has to reset after register writes
+        self.cycle_count = 0; // This has to reset after register writes
     }
 }
 
@@ -1050,9 +1052,9 @@ impl Loggable for Ppu {
 impl Savable for Ppu {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.cycle.save(fh)?;
-        self.total_cycles.save(fh)?;
+        self.cycle_count.save(fh)?;
         self.scanline.save(fh)?;
-        self.frame_cycles.save(fh)?;
+        self.scanline_phase.save(fh)?;
         self.regs.save(fh)?;
         self.oamdata.save(fh)?;
         self.vram.save(fh)?;
@@ -1066,9 +1068,9 @@ impl Savable for Ppu {
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.cycle.load(fh)?;
-        self.total_cycles.load(fh)?;
+        self.cycle_count.load(fh)?;
         self.scanline.load(fh)?;
-        self.frame_cycles.load(fh)?;
+        self.scanline_phase.load(fh)?;
         self.regs.load(fh)?;
         self.oamdata.load(fh)?;
         self.vram.load(fh)?;
@@ -1680,7 +1682,8 @@ pub struct Frame {
     sprite_zero_on_line: bool,
     sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
     signal_levels: Vec<f32>,
-    phase_lookup: HashMap<u16, Vec<f32>>,
+    yiq_cache_cos: Vec<f32>,
+    yiq_cache_sin: Vec<f32>,
     pixels: Vec<u8>,
 }
 
@@ -1695,18 +1698,6 @@ impl Frame {
     ];
 
     fn new() -> Self {
-        let phase_size = (RENDER_WIDTH * 8) as usize;
-        let mut phase_lookup = HashMap::new();
-        for scanline in 0..RENDER_HEIGHT as u16 {
-            let mut phases = vec![0.0; 2 * phase_size];
-            let phase = (f32::from(scanline) * 341.0 * 8.0 + 3.9) % 12.0;
-            for p in 0..phase_size {
-                let phase = (PI as f32 * (phase + p as f32)) / 6.0;
-                phases[p as usize] = phase.cos();
-                phases[p as usize + phase_size] = phase.sin();
-            }
-            phase_lookup.insert(scanline, phases);
-        }
         Self {
             num: 0u32,
             parity: false,
@@ -1718,8 +1709,9 @@ impl Frame {
             sprite_count: 0u8,
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
-            signal_levels: vec![0.0; SIGNAL_SIZE],
-            phase_lookup,
+            signal_levels: vec![0f32; SIGNAL_SIZE],
+            yiq_cache_cos: vec![0f32; SIGNAL_SIZE + 6],
+            yiq_cache_sin: vec![0f32; SIGNAL_SIZE + 6],
             pixels: vec![0u8; RENDER_SIZE],
         }
     }
@@ -1740,7 +1732,7 @@ impl Frame {
         self.pixels[idx + 2] = b;
     }
 
-    fn ntsc_signal(palette: u8, emphasis: u8, phase: usize) -> f32 {
+    fn ntsc_signal(palette: u8, emphasis: u8, phase: u32) -> f32 {
         // Decode the NES color
         let color = u16::from(palette & 0x0F); // 0..15 "cccc"
         let level = if color > 13 {
@@ -1761,7 +1753,7 @@ impl Frame {
         }
 
         // Generate the square wave
-        let in_color_phase = |color| ((usize::from(color) + phase) % 12) < 6; // Inline function
+        let in_color_phase = |color| ((u32::from(color) + phase) % 12) < 6; // Inline function
         let mut signal = if in_color_phase(color) { high } else { low };
 
         // When de-emphasis bits are set, some parts of the signal are attenuated:
@@ -1775,7 +1767,7 @@ impl Frame {
         signal
     }
 
-    fn render_ntsc_pixel(&mut self, x: u16, palette: u8, emphasis: u8, ppu_cycle: usize) {
+    fn render_ntsc_pixel(&mut self, x: u32, palette: u8, emphasis: u8, ppu_cycle: u32) {
         let phase = ppu_cycle * 8;
         // Each pixel produces distinct 8 samples of NTSC signal
         for p in 0..8 {
@@ -1784,7 +1776,7 @@ impl Frame {
             // Optionally normalize the signal to 0..1 range:
             signal = (signal - Self::BLACK) / (Self::WHITE - Self::BLACK);
             // Save the signal for this pixel.
-            self.signal_levels[x as usize * 8 + p] = signal;
+            self.signal_levels[(x * 8 + p) as usize] = signal;
         }
     }
 
@@ -1792,38 +1784,61 @@ impl Frame {
     // at the BEGINNING of this scanline. It should be modulo 12.
     // It can additionally include a floating-point hue offset.
     #[allow(clippy::many_single_char_names)]
-    fn decode_ntsc_signal(&mut self, scanline: u16) {
+    fn decode_ntsc_signal(&mut self, scanline: u16, phase: u32) {
         let samples = 6;
         for x in 0..RENDER_WIDTH {
             // Determine the region of scanline signal to sample. Take 12 samples.
             let center = x * 8 + 4;
-            let begin = if center > samples {
-                center - samples
-            } else {
-                0
-            };
-            let end = if center < RENDER_WIDTH * 8 - samples {
-                center + samples
-            } else {
-                RENDER_WIDTH * 8
-            };
+            let begin = center.saturating_sub(samples);
+            let end = std::cmp::min(center + samples, (SIGNAL_SIZE as u32) - samples);
             // Calculate the color in YIQ
-            let mut y = 0.0;
-            let mut i = 0.0;
-            let mut q = 0.0;
-            let signal_idx = (u32::from(scanline) * RENDER_WIDTH * 8) as usize;
-            {
-                let phase_lookup = self.phase_lookup.get(&scanline).unwrap();
-                for p in begin..end {
-                    // Collect and accumulate samples
-                    let level = self.signal_levels[signal_idx + p as usize] / 12.0;
-                    y += level;
-                    i += level * phase_lookup[p as usize];
-                    q += level * phase_lookup[p as usize + RENDER_WIDTH as usize * 8];
-                }
+            let mut y = 0f32;
+            let mut i = 0f32;
+            let mut q = 0f32;
+            // phase ranges from 0 - 12
+            // p ranges from 0 - SIGNAL_SIZE
+            for p in begin..end {
+                // Collect and accumulate samples
+                let level = self.signal_levels[p as usize] / 12.0;
+                let phase = phase + p;
+                y += level;
+                i += level * self.yiq_cache_cos(phase);
+                q += level * self.yiq_cache_sin(phase);
             }
             let (r, g, b) = Self::yiq_to_rgb(y, i, q);
             self.put_pixel(x as u32, u32::from(scanline), r, g, b);
+        }
+    }
+
+    fn yiq_cache_cos(&mut self, phase: u32) -> f32 {
+        if phase == 0 {
+            1.0
+        } else {
+            let phase = phase as usize;
+            let cos = self.yiq_cache_cos[phase];
+            if cos != 0.0 {
+                cos
+            } else {
+                let cos = (PI * phase as f32 / 6.0).cos();
+                self.yiq_cache_cos[phase] = cos;
+                cos
+            }
+        }
+    }
+
+    fn yiq_cache_sin(&mut self, phase: u32) -> f32 {
+        if phase == 0 {
+            0.0
+        } else {
+            let phase = phase as usize;
+            let sin = self.yiq_cache_sin[phase];
+            if sin != 0.0 {
+                sin
+            } else {
+                let sin = (PI * phase as f32 / 6.0).sin();
+                self.yiq_cache_sin[phase] = sin;
+                sin
+            }
         }
     }
 
@@ -1832,7 +1847,7 @@ impl Frame {
             if f <= 0.0 {
                 0.0
             } else {
-                f.powf(1.1)
+                f.powf(1.2)
             }
         };
         let clamp = |v: f32| {
@@ -2023,7 +2038,7 @@ mod tests {
     fn ppu_scrolling_registers() {
         let mut ppu = Ppu::new();
         ppu.load_mapper(mapper::null());
-        while ppu.total_cycles < POWER_ON_CYCLES {
+        while ppu.cycle_count < POWER_ON_CYCLES {
             ppu.clock();
         }
 
