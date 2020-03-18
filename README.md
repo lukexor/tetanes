@@ -151,8 +151,9 @@ There are also some emulator actions:
 | Action                            | Keyboard         | Controller         |
 | --------------------------------- | ---------------- | ------------------ |
 | Pause                             | Escape           | Guide Button       |
+| Help Menu                         | F1               |                    |
 | Configuration Menu                | Ctrl-C           |                    |
-| Open ROM<sup>\*</sup>              | Ctrl-O           |                    |
+| Open ROM<sup>\*</sup>             | Ctrl-O           |                    |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
 | Power Cycle                       | Ctrl-P           |                    |

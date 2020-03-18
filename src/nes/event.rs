@@ -2,7 +2,7 @@ use crate::{
     common::{create_png, Clocked, Powered},
     cpu::Operation::*,
     logging::LogLevel,
-    nes::{config::DEFAULT_SPEED, Nes},
+    nes::{config::DEFAULT_SPEED, menu::Menu, Nes},
     nes_err,
     ppu::RENDER_WIDTH,
     serialization::Savable,
@@ -190,9 +190,18 @@ impl Nes {
         let d = self.config.debug;
         match key {
             // No modifiers
-            Key::Escape => self.paused(!self.paused),
+            Key::Escape => {
+                self.menu = Menu::None;
+                self.paused(!self.paused);
+            }
             Key::Space => self.set_speed(2.0),
             Key::Comma => self.rewind(),
+            Key::F1 => {
+                // TODO
+                self.menu = Menu::Help;
+                self.paused(true);
+                self.add_message("Help Menu not implemented");
+            }
             // Step/Step Into
             Key::C if d => {
                 if self.clock() == 0 {
@@ -247,8 +256,8 @@ impl Nes {
                 data.fullscreen(self.config.fullscreen)?;
             }
             Key::C if c => {
-                self.menu = !self.menu;
-                self.paused(self.menu);
+                self.menu = Menu::Config;
+                self.paused(true);
             }
             Key::D if c => self.toggle_debug(data)?,
             Key::S if c => {
@@ -272,7 +281,10 @@ impl Nes {
                 }
             }
             Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
-            Key::O if c => self.add_message("Open Dialog not implemented"), // TODO
+            Key::O if c => {
+                self.menu = Menu::OpenRom;
+                self.paused(true);
+            }
             Key::Q if c => self.should_close = true,
             Key::R if c => {
                 self.paused(false);

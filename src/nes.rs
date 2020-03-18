@@ -7,7 +7,7 @@ use crate::{
     nes::{
         config::{MAX_SPEED, MIN_SPEED},
         debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
-        menus::Message,
+        menu::{Menu, Message},
     },
     nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
@@ -20,7 +20,7 @@ use std::{collections::VecDeque, fmt, path::PathBuf};
 mod config;
 mod debug;
 mod event;
-mod menus;
+mod menu;
 mod state;
 
 pub use config::NesConfig;
@@ -46,7 +46,7 @@ pub struct Nes {
     zapper_decay: u32,
     focused_window: u32,
     lost_focus: bool,
-    menu: bool,
+    menu: Menu,
     cpu_break: bool,
     break_instr: Option<u16>,
     should_close: bool,
@@ -96,7 +96,7 @@ impl Nes {
             zapper_decay: 0,
             focused_window: 0,
             lost_focus: false,
-            menu: false,
+            menu: Menu::None,
             cpu_break: false,
             break_instr: None,
             should_close: false,
@@ -265,8 +265,8 @@ impl State for Nes {
 
         // Update screen
         data.copy_texture(self.nes_window, "nes", &self.cpu.bus.ppu.frame())?;
-        if self.menu {
-            self.draw_menu(data)?;
+        if self.menu == Menu::Config {
+            self.draw_config_menu(data)?;
         }
 
         self.draw_messages(elapsed, data)?;
