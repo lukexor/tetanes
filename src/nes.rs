@@ -13,8 +13,9 @@ use crate::{
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     NesResult,
 };
+use include_dir::{include_dir, Dir};
 use pix_engine::{event::PixEvent, sprite::Sprite, PixEngine, PixEngineResult, State, StateData};
-use std::{collections::VecDeque, fmt};
+use std::{collections::VecDeque, fmt, path::PathBuf};
 
 mod config;
 mod debug;
@@ -24,8 +25,9 @@ mod state;
 
 pub use config::NesConfig;
 
-const ICON_PATH: &str = "static/rustynes_icon.png";
 const APP_NAME: &str = "RustyNES";
+const STATIC_DIR: Dir = include_dir!("./static");
+const ICON_PATH: &str = "static/rustynes_icon.png";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const REWIND_SLOT: u8 = 5;
@@ -132,8 +134,18 @@ impl Nes {
         let width = self.width;
         let height = self.height;
         let vsync = self.config.vsync;
-        let mut engine = PixEngine::new(APP_NAME, self, width, height, vsync)?;
-        // Don't let this failing error the program
+
+        // Extract title from filename
+        let mut path = PathBuf::from(self.config.path.to_owned());
+        path.set_extension("");
+        let filename = path.file_name().and_then(|f| f.to_str());
+        let title = if let Some(filename) = filename {
+            format!("{} - {}", APP_NAME, filename)
+        } else {
+            APP_NAME.to_owned()
+        };
+
+        let mut engine = PixEngine::new(title, self, width, height, vsync)?;
         let _ = engine.set_icon(ICON_PATH);
         engine.run()?;
         Ok(())

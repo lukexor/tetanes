@@ -12,11 +12,12 @@ edition = "2018"
 
 [dependencies]
 dirs = "2.0.2"
+include_dir = "0.5.0"
 structopt = "0.3.1"
 chrono = "0.4.9"
 rand = "0.7.1"
 png = "0.15.0"
-pix-engine = { version = "0.1.0", default_features = false }
+pix-engine = { version = "0.2.0", default_features = false }
 wasm-bindgen = { version = "0.2.51", optional = true }
 
 [features]
