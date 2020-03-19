@@ -199,7 +199,7 @@ impl Cpu {
     }
 
     fn run_cycle(&mut self) {
-        self.cycle_count += 1;
+        self.cycle_count = self.cycle_count.wrapping_add(1);
         self.last_nmi = self.nmi_pending;
         self.last_irq = self.irq_pending > 0 && self.get_flag(I) == 0;
         let ppu_cycles = self.bus.ppu.clock();
@@ -1064,7 +1064,7 @@ impl Clocked for Cpu {
     /// Runs the CPU one instruction
     fn clock(&mut self) -> usize {
         if self.stall > 0 {
-            self.cycle_count += 1;
+            self.cycle_count = self.cycle_count.wrapping_add(1);
             self.stall -= 1;
             return 1;
         }

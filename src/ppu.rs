@@ -11,12 +11,10 @@ use crate::{
     NesResult,
 };
 use std::{
-    f64::consts::PI as PI64,
+    f32::consts::PI,
     fmt,
     io::{Read, Write},
 };
-
-const PI: f32 = PI64 as f32;
 
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
@@ -48,7 +46,7 @@ const PREFETCH_CYCLE_END: u16 = 336; // 2 cycles each for 4 fetches = 2 tiles
 const DUMMY_CYCLE_START: u16 = 337; // Dummy fetches - use is unknown
 const SKIP_CYCLE: u16 = 339; // Odd frames skip the last cycle
 const CYCLE_END: u16 = 340; // 2 cycles each for 2 fetches
-const POWER_ON_CYCLES: u32 = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
+const POWER_ON_CYCLES: usize = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
 
 // Scanlines
 const _VISIBLE_SCANLINE_START: u16 = 0; // Rendering graphics for the screen
@@ -83,7 +81,8 @@ const PALETTE_END: u16 = 0x3F20;
 #[derive(Clone)]
 pub struct Ppu {
     pub cycle: u16,          // (0, 340) 341 cycles happen per scanline
-    pub cycle_count: u32,    // Total number of PPU cycles run
+    pub cycle_count: usize,  // Total number of PPU cycles run
+    pub frame_cycles: u32,   // Total number of PPU cycles run per frame
     pub scanline: u16,       // (0, 261) 262 total scanlines per frame
     pub scanline_phase: u32, // Phase at the start of this scanline
     pub nmi_pending: bool,   // Whether the CPU should trigger an NMI next cycle
@@ -109,10 +108,11 @@ pub struct Ppu {
 impl Ppu {
     pub fn new() -> Self {
         Self {
-            cycle: 0u16,
-            cycle_count: 0u32,
-            scanline: 0u16,
-            scanline_phase: 0u32,
+            cycle: 0,
+            cycle_count: 0,
+            frame_cycles: 0,
+            scanline: 0,
+            scanline_phase: 0,
             nmi_pending: false,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
@@ -507,7 +507,7 @@ impl Ppu {
                     x,
                     palette & 0x3F,
                     self.regs.emphasis(),
-                    self.cycle_count,
+                    self.frame_cycles,
                 );
             }
             if self.cycle >= SKIP_CYCLE {
@@ -587,13 +587,15 @@ impl Ppu {
             self.scanline == PRERENDER_SCANLINE && self.rendering_enabled() && self.frame.parity;
         let cycle_end = if should_skip { SKIP_CYCLE } else { CYCLE_END };
         self.cycle += 1;
-        self.cycle_count += 1;
+        self.cycle_count = self.cycle_count.wrapping_add(1);
+        self.frame_cycles += 1;
         if self.cycle > cycle_end {
             self.cycle = 0;
-            self.scanline_phase = (self.cycle_count as f64 * 8.0 + 4.9) as u32 % 12;
+            self.scanline_phase = (self.frame_cycles as f32 * 8.0 + 4.9) as u32 % 12;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
+                self.frame_cycles = 0;
                 self.frame.increment();
                 self.frame_complete = true;
             }
@@ -1011,6 +1013,7 @@ impl MemWrite for Ppu {
 impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
+        self.frame_cycles = 0;
         self.scanline = 0;
         self.scanline_phase = 0;
         self.regs.w = false;
@@ -1024,6 +1027,7 @@ impl Powered for Ppu {
     }
     fn power_cycle(&mut self) {
         self.cycle = 0;
+        self.frame_cycles = 0;
         self.scanline = 0;
         self.scanline_phase = 0;
         self.regs.w = false;
@@ -1053,6 +1057,7 @@ impl Savable for Ppu {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.cycle.save(fh)?;
         self.cycle_count.save(fh)?;
+        self.frame_cycles.save(fh)?;
         self.scanline.save(fh)?;
         self.scanline_phase.save(fh)?;
         self.regs.save(fh)?;
@@ -1069,6 +1074,7 @@ impl Savable for Ppu {
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.cycle.load(fh)?;
         self.cycle_count.load(fh)?;
+        self.frame_cycles.load(fh)?;
         self.scanline.load(fh)?;
         self.scanline_phase.load(fh)?;
         self.regs.load(fh)?;
