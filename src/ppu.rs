@@ -23,7 +23,6 @@ const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
 const RENDER_SIZE: usize = 3 * RENDER_PIXELS;
-const SIGNAL_SIZE: usize = 8 * RENDER_WIDTH as usize;
 
 // Sizes
 const NT_SIZE: usize = 2 * 1024; // Two 1K nametables exist in hardware
@@ -119,7 +118,7 @@ impl Ppu {
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
-            ntsc_video: false,
+            ntsc_video: true,
             nes_format: NesFormat::NTSC,
             clock_remainder: 0,
             debug: false,
@@ -501,19 +500,19 @@ impl Ppu {
             palette &= !0x0F; // Remove chroma
         }
         if self.ntsc_video {
-            let x = x as u32;
-            if x < RENDER_WIDTH {
-                self.frame.render_ntsc_pixel(
-                    x,
-                    palette & 0x3F,
-                    self.regs.emphasis(),
-                    self.frame_cycles,
-                );
-            }
-            if self.cycle >= SKIP_CYCLE {
-                self.frame
-                    .decode_ntsc_signal(self.scanline, self.scanline_phase);
-            }
+            let pixel = ((self.regs.emphasis() as u32) << 6) | palette as u32;
+            self.frame
+                .put_ntsc_pixel(x.into(), self.scanline.into(), pixel, self.frame_cycles);
+        // self.frame.render_ntsc_pixel(
+        //     x,
+        //     palette & 0x3F,
+        //     self.regs.emphasis(),
+        //     self.frame_cycles,
+        // );
+        // if self.cycle >= SKIP_CYCLE {
+        //     self.frame
+        //         .decode_ntsc_signal(self.scanline, self.scanline_phase);
+        // }
         } else {
             let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
             let r = SYSTEM_PALETTE[color_idx];
@@ -588,14 +587,13 @@ impl Ppu {
         let cycle_end = if should_skip { SKIP_CYCLE } else { CYCLE_END };
         self.cycle += 1;
         self.cycle_count = self.cycle_count.wrapping_add(1);
-        self.frame_cycles += 1;
+        self.frame_cycles = (self.frame_cycles + 1) % 3;
         if self.cycle > cycle_end {
             self.cycle = 0;
-            self.scanline_phase = (self.frame_cycles as f32 * 8.0 + 4.9) as u32 % 12;
+            // self.scanline_phase = (self.frame_cycles as f32 * 8.0 + 4.9) as u32 % 12;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
-                self.frame_cycles = 0;
                 self.frame.increment();
                 self.frame_complete = true;
             }
@@ -1687,39 +1685,30 @@ pub struct Frame {
     sprite_count: u8,
     sprite_zero_on_line: bool,
     sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
-    signal_levels: Vec<f32>,
-    yiq_cache_cos: Vec<f32>,
-    yiq_cache_sin: Vec<f32>,
+    prev_pixel: u32,
+    palette: [[[u32; 512]; 64]; 3],
     pixels: Vec<u8>,
 }
 
 impl Frame {
-    // Voltage levels, relative to sync voltage
-    const BLACK: f32 = 0.518;
-    const WHITE: f32 = 1.962;
-    const ATTENUATION: f32 = 0.746;
-    const LEVELS: [f32; 8] = [
-        0.350, 0.518, 0.962, 1.550, // Signal low
-        1.094, 1.506, 1.962, 1.962, // Signal high
-    ];
-
     fn new() -> Self {
-        Self {
-            num: 0u32,
+        let mut frame = Self {
+            num: 0,
             parity: false,
-            nametable: 0u16,
-            attribute: 0u8,
-            tile_lo: 0u8,
-            tile_hi: 0u8,
-            tile_data: 0u64,
-            sprite_count: 0u8,
+            nametable: 0,
+            attribute: 0,
+            tile_lo: 0,
+            tile_hi: 0,
+            tile_data: 0,
+            sprite_count: 0,
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
-            signal_levels: vec![0f32; SIGNAL_SIZE],
-            yiq_cache_cos: vec![0f32; SIGNAL_SIZE + 6],
-            yiq_cache_sin: vec![0f32; SIGNAL_SIZE + 6],
-            pixels: vec![0u8; RENDER_SIZE],
-        }
+            prev_pixel: 0xFFFF,
+            palette: [[[0; 512]; 64]; 3],
+            pixels: vec![0; RENDER_SIZE],
+        };
+        frame.generate_ntsc_palette();
+        frame
     }
 
     fn increment(&mut self) {
@@ -1727,147 +1716,116 @@ impl Frame {
         self.parity = !self.parity;
     }
 
-    #[allow(clippy::many_single_char_names)]
-    fn put_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
+    fn put_pixel(&mut self, x: u32, y: u32, red: u8, green: u8, blue: u8) {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
         let idx = 3 * (x + y * RENDER_WIDTH) as usize;
-        self.pixels[idx] = r;
-        self.pixels[idx + 1] = g;
-        self.pixels[idx + 2] = b;
+        self.pixels[idx] = red;
+        self.pixels[idx + 1] = green;
+        self.pixels[idx + 2] = blue;
     }
 
-    fn ntsc_signal(palette: u8, emphasis: u8, phase: u32) -> f32 {
-        // Decode the NES color
-        let color = u16::from(palette & 0x0F); // 0..15 "cccc"
-        let level = if color > 13 {
-            1 // For colors 14..15, level 1 is forced.
-        } else {
-            (palette >> 4) & 3 // 0..3  "ll"
-        };
-
-        // The square wave for this color alternates between these two voltages:
-        let mut low = Self::LEVELS[level as usize] as f32;
-        let mut high = Self::LEVELS[4 + level as usize] as f32;
-        if color == 0 {
-            // For color 0, only high level is emitted
-            low = high;
-        } else if color > 12 {
-            // For colors 13..15, only low level is emitted
-            high = low;
-        }
-
-        // Generate the square wave
-        let in_color_phase = |color| (u32::from(color).wrapping_add(phase) % 12) < 6; // Inline function
-        let mut signal = if in_color_phase(color) { high } else { low };
-
-        // When de-emphasis bits are set, some parts of the signal are attenuated:
-        if ((emphasis & 1 > 0) && in_color_phase(0))
-            || ((emphasis & 2 > 0) && in_color_phase(4))
-            || ((emphasis & 4 > 0) && in_color_phase(8))
-        {
-            signal *= Self::ATTENUATION;
-        }
-
-        signal
+    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
+    // to translate it to Rust
+    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
+    // http://wiki.nesdev.com/w/index.php/NTSC_video
+    fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
+        // Store the RGB color into the frame buffer.
+        let color =
+            self.palette[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
+        let red = (color >> 16 & 0xFF) as u8;
+        let green = (color >> 8 & 0xFF) as u8;
+        let blue = (color & 0xFF) as u8;
+        self.put_pixel(x, y, red, green, blue);
+        self.prev_pixel = pixel;
     }
 
-    fn render_ntsc_pixel(&mut self, x: u32, palette: u8, emphasis: u8, ppu_cycle: u32) {
-        let phase = ppu_cycle * 8;
-        // Each pixel produces distinct 8 samples of NTSC signal
-        for p in 0..8 {
-            let mut signal = Self::ntsc_signal(palette, emphasis, phase + p);
-            // Optionally apply some lowpass-filtering to the signal here
-            // Optionally normalize the signal to 0..1 range:
-            signal = (signal - Self::BLACK) / (Self::WHITE - Self::BLACK);
-            // Save the signal for this pixel.
-            self.signal_levels[(x * 8 + p) as usize] = signal;
-        }
-    }
-
-    // phase: This should the value that was cycle * 8 + 3.9
-    // at the BEGINNING of this scanline. It should be modulo 12.
-    // It can additionally include a floating-point hue offset.
-    #[allow(clippy::many_single_char_names)]
-    fn decode_ntsc_signal(&mut self, scanline: u16, phase: u32) {
-        let samples = 6;
-        for x in 0..RENDER_WIDTH {
-            // Determine the region of scanline signal to sample. Take 12 samples.
-            let center = x * 8 + 4;
-            let begin = center.saturating_sub(samples);
-            let end = std::cmp::min(center + samples, (SIGNAL_SIZE as u32) - samples);
-            // Calculate the color in YIQ
-            let mut y = 0f32;
-            let mut i = 0f32;
-            let mut q = 0f32;
-            // phase ranges from 0 - 12
-            // p ranges from 0 - SIGNAL_SIZE
-            for p in begin..end {
-                // Collect and accumulate samples
-                let level = self.signal_levels[p as usize] / 12.0;
-                let phase = phase + p;
-                y += level;
-                i += level * self.yiq_cache_cos(phase);
-                q += level * self.yiq_cache_sin(phase);
-            }
-            let (r, g, b) = Self::yiq_to_rgb(y, i, q);
-            self.put_pixel(x as u32, u32::from(scanline), r, g, b);
-        }
-    }
-
-    fn yiq_cache_cos(&mut self, phase: u32) -> f32 {
-        if phase == 0 {
-            1.0
-        } else {
-            let phase = phase as usize;
-            let cos = self.yiq_cache_cos[phase];
-            if cos != 0.0 {
-                cos
-            } else {
-                let cos = (PI * phase as f32 / 6.0).cos();
-                self.yiq_cache_cos[phase] = cos;
-                cos
-            }
-        }
-    }
-
-    fn yiq_cache_sin(&mut self, phase: u32) -> f32 {
-        if phase == 0 {
-            0.0
-        } else {
-            let phase = phase as usize;
-            let sin = self.yiq_cache_sin[phase];
-            if sin != 0.0 {
-                sin
-            } else {
-                let sin = (PI * phase as f32 / 6.0).sin();
-                self.yiq_cache_sin[phase] = sin;
-                sin
-            }
-        }
-    }
-
-    fn yiq_to_rgb(y: f32, i: f32, q: f32) -> (u8, u8, u8) {
-        let gamma_fix = |f: f32| {
-            if f <= 0.0 {
+    // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
+    // I'm afraid to touch it now that it works
+    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
+    // http://wiki.nesdev.com/w/index.php/NTSC_video
+    fn generate_ntsc_palette(&mut self) {
+        // Calculate the luma and chroma by emulating the relevant circuits:
+        const VOLTAGES: [i32; 16] = [
+            -6, -69, 26, -59, 29, -55, 73, -40, 68, -17, 125, 11, 68, 33, 125, 78,
+        ];
+        // Helper functions for converting YIQ to RGB
+        let gammafix = |color: f32| {
+            if color < 0.0 {
                 0.0
             } else {
-                f.powf(1.2)
+                color.powf(2.2 / 1.8)
             }
         };
-        let clamp = |v: f32| {
-            if v > 255.0 {
+        let clamp = |color| {
+            if color > 255.0 {
                 255
             } else {
-                v.floor() as u32
+                color as u32
             }
         };
-        (
-            clamp(255.95 * gamma_fix(y + 0.946_882 * i + 0.623_557 * q)) as u8,
-            clamp(255.95 * gamma_fix(y - 0.274_788 * i - 0.635_691 * q)) as u8,
-            clamp(255.95 * gamma_fix(y - 1.108_545 * i + 1.709_007 * q)) as u8,
-        )
+        let yiq_divider = (9 * 10u32.pow(6)) as f32;
+        for palette_offset in 0..3 {
+            for channel in 0..3 {
+                for emp in 0..512 {
+                    for color in 0..64 {
+                        let mut y = 0;
+                        let mut i = 0;
+                        let mut q = 0;
+                        // 12 samples of NTSC signal constitute a color.
+                        for sample in 0..12 {
+                            // Sample either the previous or the current pixel.
+                            let noise = (sample + palette_offset * 4) % 12;
+                            let pixel = if noise < 8 - channel * 2 { emp } else { color }; // Use pixel=emp to disable artifacts.
+                                                                                           // Decode the color index.
+                            let chroma = pixel % 16;
+                            let luma = if chroma < 0xE { (pixel / 4) & 12 } else { 4 }; // Forces luma to 0, 4, 8, or 12 for easy lookup
+                            let emphasis = emp / 64;
+                            // NES NTSC modulator (square wave between up to four voltage levels):
+                            let limit = if (chroma + 8 + sample) % 12 < 6 {
+                                12
+                            } else {
+                                0
+                            };
+                            let high = if chroma > limit { 1 } else { 0 };
+                            let emp_effect = if 152_278 >> (sample / 6) & emphasis > 0 {
+                                0
+                            } else {
+                                2
+                            };
+                            let level = 40 + VOLTAGES[(high + emp_effect + luma) as usize];
+                            // Ideal TV NTSC demodulator:
+                            y += level;
+                            i += level * ((PI * sample as f32 / 6.0).cos() * 5909.0) as i32;
+                            q += level * ((PI * sample as f32 / 6.0).sin() * 5909.0) as i32;
+                        }
+                        // Store color at subpixel precision
+                        let y = y as f32 / 1980.0;
+                        let i = i as f32;
+                        let q = q as f32;
+                        match channel {
+                            2 => {
+                                let rgb = y + i * 0.947 / yiq_divider + q * 0.624 / yiq_divider;
+                                self.palette[palette_offset][color][emp] +=
+                                    0x10000 * clamp(255.0 * gammafix(rgb));
+                            }
+                            1 => {
+                                let rgb = y + i * -0.275 / yiq_divider + q * -0.636 / yiq_divider;
+                                self.palette[palette_offset][color][emp] +=
+                                    0x00100 * clamp(255.0 * gammafix(rgb));
+                            }
+                            0 => {
+                                let rgb = y + i * -1.109 / yiq_divider + q * 1.709 / yiq_divider;
+                                self.palette[palette_offset][color][emp] +=
+                                    clamp(255.0 * gammafix(rgb));
+                            }
+                            _ => (), // invalid channel
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
