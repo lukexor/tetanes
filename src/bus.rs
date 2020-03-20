@@ -1,6 +1,7 @@
 use crate::{
     apu::Apu,
     common::Powered,
+    hashmap,
     input::Input,
     mapper::{self, MapperRef},
     memory::{MemRead, MemWrite, Memory},
@@ -42,23 +43,25 @@ struct GenieCode {
 
 impl Bus {
     pub fn new() -> Self {
-        let mut genie_map = HashMap::new();
-        genie_map.insert('A', 0x0);
-        genie_map.insert('P', 0x1);
-        genie_map.insert('Z', 0x2);
-        genie_map.insert('L', 0x3);
-        genie_map.insert('G', 0x4);
-        genie_map.insert('I', 0x5);
-        genie_map.insert('T', 0x6);
-        genie_map.insert('Y', 0x7);
-        genie_map.insert('E', 0x8);
-        genie_map.insert('O', 0x9);
-        genie_map.insert('X', 0xA);
-        genie_map.insert('U', 0xB);
-        genie_map.insert('K', 0xC);
-        genie_map.insert('S', 0xD);
-        genie_map.insert('V', 0xE);
-        genie_map.insert('N', 0xF);
+        // Game genie maps these letters to binnary representations as a form of code obfuscation
+        let genie_map = hashmap! {
+            'A' => 0x0,
+            'P' => 0x1,
+            'Z' => 0x2,
+            'L' => 0x3,
+            'G' => 0x4,
+            'I' => 0x5,
+            'T' => 0x6,
+            'Y' => 0x7,
+            'E' => 0x8,
+            'O' => 0x9,
+            'X' => 0xA,
+            'U' => 0xB,
+            'K' => 0xC,
+            'S' => 0xD,
+            'V' => 0xE,
+            'N' => 0xF
+        };
 
         Self {
             ppu: Ppu::new(),

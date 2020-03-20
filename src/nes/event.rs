@@ -2,7 +2,7 @@ use crate::{
     common::{create_png, Clocked, Powered},
     cpu::Operation::*,
     logging::LogLevel,
-    nes::{config::DEFAULT_SPEED, menu::Menu, Nes},
+    nes::{config::DEFAULT_SPEED, Nes},
     nes_err,
     ppu::RENDER_WIDTH,
     serialization::Savable,
@@ -191,14 +191,13 @@ impl Nes {
         match key {
             // No modifiers
             Key::Escape => {
-                self.menu = Menu::None;
+                // TODO close top menu
                 self.paused(!self.paused);
             }
             Key::Space => self.set_speed(2.0),
             Key::Comma => self.rewind(),
             Key::F1 => {
-                // TODO
-                self.menu = Menu::Help;
+                // TODO open help menu
                 self.paused(true);
                 self.add_message("Help Menu not implemented");
             }
@@ -256,7 +255,7 @@ impl Nes {
                 data.fullscreen(self.config.fullscreen)?;
             }
             Key::C if c => {
-                self.menu = Menu::Config;
+                // TODO open config menu
                 self.paused(true);
             }
             Key::D if c => self.toggle_debug(data)?,
@@ -282,7 +281,7 @@ impl Nes {
             }
             Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
             Key::O if c => {
-                self.menu = Menu::OpenRom;
+                // TODO open rom menu
                 self.paused(true);
             }
             Key::Q if c => self.should_close = true,

@@ -35,6 +35,26 @@ pub trait Clocked {
     }
 }
 
+#[macro_export]
+macro_rules! hashmap {
+    { $($key:expr => $value:expr),+ } => {
+        {
+            let mut m = HashMap::new();
+            $(
+                m.insert($key, $value);
+            )+
+            m
+        }
+    };
+    ($hm:ident, { $($key:expr => $value:expr),+ } ) => (
+        {
+            $(
+                $hm.insert($key, $value);
+            )+
+        }
+    );
+}
+
 impl Savable for NesFormat {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         (*self as u8).save(fh)

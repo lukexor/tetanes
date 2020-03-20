@@ -7,7 +7,7 @@ use crate::{
     nes::{
         config::{MAX_SPEED, MIN_SPEED},
         debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
-        menu::{Menu, Message},
+        menu::{Menu, MenuType, Message},
     },
     nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
@@ -46,7 +46,7 @@ pub struct Nes {
     zapper_decay: u32,
     focused_window: u32,
     lost_focus: bool,
-    menu: Menu,
+    menus: [Menu; 4],
     cpu_break: bool,
     break_instr: Option<u16>,
     should_close: bool,
@@ -80,7 +80,7 @@ impl Nes {
         Self::with_config(config).unwrap()
     }
 
-    pub fn with_config(config: NesConfig) -> PixEngineResult<Self> {
+    pub fn with_config(config: NesConfig) -> NesResult<Self> {
         let scale = config.scale;
         let width = scale * WINDOW_WIDTH;
         let height = scale * WINDOW_HEIGHT;
@@ -96,7 +96,12 @@ impl Nes {
             zapper_decay: 0,
             focused_window: 0,
             lost_focus: false,
-            menu: Menu::None,
+            menus: [
+                Menu::new(MenuType::Config, width, height),
+                Menu::new(MenuType::Help, width, height),
+                Menu::new(MenuType::Keybind, width, height),
+                Menu::new(MenuType::OpenRom, width, height),
+            ],
             cpu_break: false,
             break_instr: None,
             should_close: false,
@@ -265,8 +270,10 @@ impl State for Nes {
 
         // Update screen
         data.copy_texture(self.nes_window, "nes", &self.cpu.bus.ppu.frame())?;
-        if self.menu == Menu::Config {
-            self.draw_config_menu(data)?;
+
+        // Draw any open menus
+        for menu in self.menus.iter_mut() {
+            menu.draw(data)?;
         }
 
         self.draw_messages(elapsed, data)?;

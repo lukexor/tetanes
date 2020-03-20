@@ -10,20 +10,58 @@ use pix_engine::{
     StateData,
 };
 
-pub mod config;
-pub mod help;
-pub mod keybinds;
-pub mod open_rom;
+mod config;
+mod help;
+mod keybinds;
+mod open_rom;
 
-#[derive(Debug, Clone, PartialEq)]
-pub(super) enum Menu {
-    None,
-    Help,
-    Config,
-    OpenRom,
-    Keybinds,
-}
 pub(super) const MSG_HEIGHT: u32 = 25 * 4 + 5; // 5 lines worth of messages
+
+#[derive(Clone)]
+pub(super) struct Menu {
+    menu_type: MenuType,
+    width: u32,
+    height: u32,
+    sprite: Sprite,
+    open: bool,
+    // keybinds: Vec<PixEvent>, // TODO
+}
+
+#[derive(Clone, PartialEq)]
+pub(super) enum MenuType {
+    Config,
+    Help,
+    Keybind,
+    OpenRom,
+}
+
+impl Menu {
+    pub(super) fn new(menu_type: MenuType, width: u32, height: u32) -> Self {
+        Self {
+            menu_type,
+            width,
+            height,
+            sprite: Sprite::new(width, height),
+            open: false,
+        }
+    }
+
+    pub(super) fn _title(&self) -> &'static str {
+        match &self.menu_type {
+            MenuType::Config => "Configuration",
+            MenuType::Help => "Help",
+            MenuType::Keybind => "Keybindings",
+            MenuType::OpenRom => "Open Rom",
+        }
+    }
+
+    pub(super) fn draw(&mut self, data: &mut StateData) -> NesResult<()> {
+        match &self.menu_type {
+            MenuType::OpenRom => open_rom::draw_open_menu(data),
+            _ => Ok(()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Message {
