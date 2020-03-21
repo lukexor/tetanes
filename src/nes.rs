@@ -15,11 +15,16 @@ use crate::{
 };
 use include_dir::{include_dir, Dir};
 use pix_engine::{event::PixEvent, sprite::Sprite, PixEngine, PixEngineResult, State, StateData};
-use std::{collections::VecDeque, fmt, path::PathBuf};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt,
+    path::PathBuf,
+};
 
 mod config;
 mod debug;
 mod event;
+mod event_serialization;
 mod menu;
 mod state;
 
@@ -47,6 +52,7 @@ pub struct Nes {
     focused_window: u32,
     lost_focus: bool,
     menus: [Menu; 4],
+    held_keys: HashMap<u8, bool>,
     cpu_break: bool,
     break_instr: Option<u16>,
     should_close: bool,
@@ -102,6 +108,7 @@ impl Nes {
                 Menu::new(MenuType::Keybind, width, height),
                 Menu::new(MenuType::OpenRom, width, height),
             ],
+            held_keys: HashMap::new(),
             cpu_break: false,
             break_instr: None,
             should_close: false,
@@ -163,6 +170,7 @@ impl Nes {
         }
         self.cpu_break = false;
         self.cpu.bus.ppu.frame_complete = false;
+        self.turbo_clock = (self.turbo_clock + 1) % 6;
     }
 
     pub fn clock_seconds(&mut self, seconds: f32) {
@@ -180,6 +188,7 @@ impl Nes {
 impl State for Nes {
     fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
         self.nes_window = data.main_window();
+        self.focused_window = self.nes_window;
 
         // Before rendering anything, set up our textures
         self.create_textures(data)?;
@@ -263,7 +272,6 @@ impl State for Nes {
             } else {
                 for _ in 0..frames_to_run as usize {
                     self.clock_frame();
-                    self.turbo_clock = (1 + self.turbo_clock) % 6;
                 }
             }
         }

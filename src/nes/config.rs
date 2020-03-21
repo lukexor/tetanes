@@ -105,8 +105,8 @@ impl Savable for NesConfig {
 
 impl Nes {
     pub(super) fn change_speed(&mut self, delta: f32) {
-        if self.recording {
-            self.add_message("Speed changes disabled while recording");
+        if self.recording || self.playback {
+            self.add_message("Speed changes disabled while recording or replaying");
         } else {
             if self.config.speed % 0.25 != 0.0 {
                 // Round to nearest quarter
@@ -123,8 +123,8 @@ impl Nes {
     }
 
     pub(super) fn set_speed(&mut self, speed: f32) {
-        if self.recording {
-            self.add_message("Speed changes disabled while recording");
+        if self.recording || self.playback {
+            self.add_message("Speed changes disabled while recording or replaying");
         } else {
             self.config.speed = speed;
             self.cpu.bus.apu.set_speed(self.config.speed);
