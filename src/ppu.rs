@@ -1777,8 +1777,9 @@ impl Frame {
                         for sample in 0..12 {
                             // Sample either the previous or the current pixel.
                             let noise = (sample + palette_offset * 4) % 12;
-                            let pixel = if noise < 8 - channel * 2 { emp } else { color }; // Use pixel=emp to disable artifacts.
-                                                                                           // Decode the color index.
+                            let pixel = if noise < 5 - channel * 2 { emp } else { color }; // Use pixel=emp to disable artifacts.
+
+                            // Decode the color index.
                             let chroma = pixel % 16;
                             let luma = if chroma < 0xE { (pixel / 4) & 12 } else { 4 }; // Forces luma to 0, 4, 8, or 12 for easy lookup
                             let emphasis = emp / 64;
@@ -1789,7 +1790,9 @@ impl Frame {
                                 0
                             };
                             let high = if chroma > limit { 1 } else { 0 };
-                            let emp_effect = if 152_278 >> (sample / 6) & emphasis > 0 {
+                            // TODO: This doesn't quite work yet - green is swapped with blue
+                            // and blue emphasis is more of a darker gray
+                            let emp_effect = if (152_278 >> (sample / 6)) & emphasis > 0 {
                                 0
                             } else {
                                 2
