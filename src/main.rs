@@ -27,6 +27,7 @@ fn main() {
             }
         }),
         debug: opt.debug,
+        pause_in_bg: !opt.no_pause_in_bg,
         log_level: match opt.log_level.as_ref() {
             "error" => LogLevel::Error,
             "warn" => LogLevel::Warn,
@@ -79,6 +80,11 @@ struct Opt {
         help = "Start with the CPU debugger enabled and emulation paused at first CPU instruction."
     )]
     debug: bool,
+    #[structopt(
+        long = "no-pause-in-bg",
+        help = "Pause emulation while the window is not in focus."
+    )]
+    no_pause_in_bg: bool,
     #[structopt(
         short = "l",
         long = "log-level",

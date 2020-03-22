@@ -176,16 +176,18 @@ impl Nes {
     }
 
     pub(super) fn check_focus(&mut self) {
-        if self.focused_window.is_none() {
-            // Only pause and set lost_focus if we weren't already paused
-            if !self.paused {
-                self.lost_focus = true;
+        if self.config.pause_in_bg {
+            if self.focused_window.is_none() {
+                // Only pause and set background_pause if we weren't already paused
+                if !self.paused && self.config.pause_in_bg {
+                    self.background_pause = true;
+                }
+                self.paused(true);
+            } else if self.background_pause {
+                self.background_pause = false;
+                // Only unpause if we weren't paused as a result of losing focus
+                self.paused(false);
             }
-            self.paused(true);
-        } else if self.lost_focus {
-            self.lost_focus = false;
-            // Only unpause if we weren't paused as a result of losing focus
-            self.paused(false);
         }
     }
 }

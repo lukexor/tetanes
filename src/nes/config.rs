@@ -18,6 +18,7 @@ pub(super) const MAX_SPEED: f32 = 4.0; // 400%
 pub struct NesConfig {
     pub path: String,
     pub debug: bool,
+    pub pause_in_bg: bool,
     pub log_level: LogLevel,
     pub fullscreen: bool,
     pub vsync: bool,
@@ -40,6 +41,7 @@ impl NesConfig {
         let mut config = Self {
             path: String::new(),
             debug: false,
+            pause_in_bg: true,
             log_level: LogLevel::default(),
             fullscreen: false,
             vsync: false,

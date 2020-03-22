@@ -359,7 +359,7 @@ impl Savable for Nes {
         self.zapper_decay.save(fh)?;
         // Ignore
         // focused_window
-        // lost_focus
+        // background_pause
         // menu
         // cpu_break
         // break_instr
@@ -403,7 +403,7 @@ impl Savable for Nes {
         nes.zapper_decay.load(fh)?;
         // Ignore
         // focused_window
-        // lost_focus
+        // background_pause
         // menu
         // cpu_break
         // break_instr
