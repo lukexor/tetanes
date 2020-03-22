@@ -4,7 +4,6 @@ use crate::{
     logging::LogLevel,
     nes::{config::DEFAULT_SPEED, Nes},
     ppu::RENDER_WIDTH,
-    serialization::Savable,
     NesResult,
 };
 use chrono::prelude::{DateTime, Local};
@@ -12,51 +11,68 @@ use pix_engine::{
     event::{Axis, Button, Key, Mouse, PixEvent},
     StateData,
 };
-use std::io::BufWriter;
 use std::path::PathBuf;
 
 const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
 const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
+
+#[derive(Clone, Debug)]
+pub(super) struct FrameEvent {
+    pub(super) frame: usize,
+    pub(super) events: Vec<PixEvent>,
+}
+
+impl FrameEvent {
+    pub(super) fn new(frame: usize, events: Vec<PixEvent>) -> Self {
+        Self {
+            frame,
+            events: events,
+        }
+    }
+}
+
+impl Default for FrameEvent {
+    fn default() -> Self {
+        Self {
+            frame: 0,
+            events: Vec::new(),
+        }
+    }
+}
 
 impl Nes {
     /// This is called on every update loop to check for user events like quitting
     /// the application, pressing a button, resizing the window or clicking the mouse.
     pub(super) fn poll_events(&mut self, data: &mut StateData) -> NesResult<()> {
         let turbo = self.clock_turbo();
-        // Get the list events, either from the user or from a replay_buffer
-        let events = if self.playback && self.replay_frame < self.replay_buffer.len() {
-            if let Some(events) = self.replay_buffer.get(self.replay_frame) {
-                events.to_vec()
-            } else {
-                self.playback = false;
-                data.poll()
-            }
-        } else {
-            data.poll()
-        };
-        // TODO: Should handle frame-syncronization better than just pushing an
-        // empty array if there are no inputs this frame
-        if self.recording && !self.playback {
-            self.replay_buffer.push(Vec::new());
+        let events = self.get_events(data);
+        if self.recording {
+            self.replay_buffer
+                .push(FrameEvent::new(self.frame, events.clone()));
         }
+        let mut gamepad_events = Vec::new();
         for event in events {
-            if let PixEvent::Focus(window_id, focus) = event {
-                self.focused_window = if focus { window_id } else { 0 };
-            }
-            if !self.playback {
-                if self.focused_window == 0 {
-                    continue;
-                }
-                if self.recording {
-                    self.replay_buffer[self.replay_frame].push(event);
-                }
-            }
+            // Process system events
             match event {
+                PixEvent::Focus(window_id, focus) => {
+                    self.focused_window = if focus { Some(window_id) } else { None };
+                }
                 PixEvent::WinClose(window_id) => match Some(window_id) {
                     i if i == self.ppu_viewer_window => self.toggle_ppu_viewer(data)?,
                     i if i == self.nt_viewer_window => self.toggle_nt_viewer(data)?,
                     _ => (),
                 },
+                _ => (),
+            }
+
+            // Only process remaining events if we're focused
+            if !self.playback && self.focused_window.is_none() {
+                continue;
+            }
+            if Self::is_gamepad_event(&event) {
+                gamepad_events.push(event.clone());
+            }
+            match event {
                 PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
                 PixEvent::MousePress(..) => self.handle_mouse_event(event)?,
                 PixEvent::GamepadBtn(..) => self.handle_gamepad_button(event, turbo)?,
@@ -64,8 +80,23 @@ impl Nes {
                 _ => (),
             }
         }
-        self.replay_frame += 1;
+        self.frame += 1;
         Ok(())
+    }
+
+    fn get_events(&mut self, data: &mut StateData) -> Vec<PixEvent> {
+        // Get the list events, either from the user or from a replay_buffer
+        let mut events: Vec<PixEvent> = Vec::new();
+        if self.playback && !self.replay_buffer.is_empty() {
+            let frame_event = self.replay_buffer.pop().unwrap();
+            if frame_event.frame == self.frame {
+                events.extend(frame_event.events);
+            }
+        } else {
+            self.playback = false;
+            events.extend(data.poll());
+        };
+        events
     }
 
     /// Turbo clock counts up every frame from 0-5
@@ -164,22 +195,42 @@ impl Nes {
                     scanline = self.cpu.bus.ppu.scanline;
                 }
             }
+            _ => {
+                let _ = self.handle_scanline_key(key);
+            }
+        }
+    }
+
+    /// Checks for focus in debug windows and scrolls the scanline checking indicator up or down
+    /// Returns true if key was handled, or false if it was not
+    fn handle_scanline_key(&mut self, key: Key) -> bool {
+        match key {
             // Nametable/PPU Viewer Shortcuts
             Key::Up => {
-                if Some(self.focused_window) == self.nt_viewer_window {
-                    self.set_nt_scanline(self.nt_scanline.saturating_sub(1));
-                } else {
-                    self.set_pat_scanline(self.pat_scanline.saturating_sub(1));
+                if self.focused_window.is_some() {
+                    if self.focused_window == self.nt_viewer_window {
+                        self.set_nt_scanline(self.nt_scanline.saturating_sub(1));
+                        return true;
+                    } else if self.focused_window == self.ppu_viewer_window {
+                        self.set_pat_scanline(self.pat_scanline.saturating_sub(1));
+                        return true;
+                    }
                 }
+                false
             }
             Key::Down => {
-                if Some(self.focused_window) == self.nt_viewer_window {
-                    self.set_nt_scanline(self.nt_scanline + 1);
-                } else {
-                    self.set_pat_scanline(self.pat_scanline + 1);
+                if self.focused_window.is_some() {
+                    if self.focused_window == self.nt_viewer_window {
+                        self.set_nt_scanline(self.nt_scanline + 1);
+                        return true;
+                    } else if self.focused_window == self.ppu_viewer_window {
+                        self.set_pat_scanline(self.pat_scanline + 1);
+                        return true;
+                    }
                 }
+                false
             }
-            _ => (),
+            _ => false,
         }
     }
 
@@ -331,19 +382,8 @@ impl Nes {
                 Err(e) => self.add_message(&e.to_string()),
             },
             _ => {
-                if Some(self.focused_window) == self.nt_viewer_window {
-                    match key {
-                        Key::Up => self.set_nt_scanline(self.nt_scanline.saturating_sub(1)),
-                        Key::Down => self.set_nt_scanline(self.nt_scanline + 1),
-                        _ => (),
-                    }
-                } else if Some(self.focused_window) == self.ppu_viewer_window {
-                    match key {
-                        Key::Up => self.set_pat_scanline(self.pat_scanline.saturating_sub(1)),
-                        Key::Down => self.set_pat_scanline(self.pat_scanline + 1),
-                        _ => (),
-                    }
-                } else {
+                let handled = self.handle_scanline_key(key);
+                if !handled {
                     self.handle_input_event(key, true, turbo);
                 }
             }
@@ -364,9 +404,10 @@ impl Nes {
     }
 
     /// Handles gamepad events from the keyboard.
+    // TODO: Update this to allow up to 4 players
     fn handle_input_event(&mut self, key: Key, pressed: bool, turbo: bool) {
         // Gamepad events only apply to the main window
-        if self.focused_window != self.nes_window {
+        if self.focused_window != Some(self.nes_window) {
             return;
         }
         let mut input = &mut self.cpu.bus.input;
@@ -415,7 +456,7 @@ impl Nes {
     /// Handles controller gamepad button events
     fn handle_gamepad_button(&mut self, event: PixEvent, turbo: bool) -> NesResult<()> {
         // Gamepad events only apply to the main window
-        if self.focused_window != self.nes_window {
+        if self.focused_window != Some(self.nes_window) {
             return Ok(());
         }
         if let PixEvent::GamepadBtn(gamepad_id, button, pressed) = event {
@@ -456,7 +497,7 @@ impl Nes {
     /// Handle controller gamepad joystick events
     fn handle_gamepad_axis(&mut self, event: PixEvent) -> NesResult<()> {
         // Gamepad events only apply to the main window
-        if self.focused_window != self.nes_window {
+        if self.focused_window != Some(self.nes_window) {
             return Ok(());
         }
         if let PixEvent::GamepadAxis(gamepad_id, axis, value) = event {
@@ -503,18 +544,6 @@ impl Nes {
         Ok(())
     }
 
-    /// Saves the replay buffer out to a file
-    pub fn save_replay(&mut self) -> NesResult<()> {
-        let datetime: DateTime<Local> = Local::now();
-        let mut path = PathBuf::from(datetime.format("rustynes_%Y-%m-%d_at_%H.%M.%S").to_string());
-        path.set_extension("replay");
-        let file = std::fs::File::create(&path)?;
-        let mut file = BufWriter::new(file);
-        self.replay_buffer.save(&mut file)?;
-        println!("Saved replay: {:?}", path);
-        Ok(())
-    }
-
     /// Takes a screenshot and saves it to the current directory as a `.png` file
     ///
     /// # Arguments
@@ -546,6 +575,45 @@ impl Nes {
             *held
         } else {
             false
+        }
+    }
+
+    /// Helper function to determine if a keyboard event is a gamepad event
+    // TODO: When custom keybind abstraction is complete, update this to only
+    // match bindings that are tied to gamepad inputs
+    fn is_gamepad_event(event: &PixEvent) -> bool {
+        match event {
+            PixEvent::KeyPress(key, ..) => match key {
+                Key::A
+                | Key::S
+                | Key::Z
+                | Key::X
+                | Key::Return
+                | Key::RShift
+                | Key::Left
+                | Key::Right
+                | Key::Up
+                | Key::Down => true,
+                _ => false,
+            },
+            PixEvent::GamepadBtn(_, btn, ..) => match btn {
+                Button::A
+                | Button::B
+                | Button::X
+                | Button::Y
+                | Button::Start
+                | Button::Back
+                | Button::DPadLeft
+                | Button::DPadRight
+                | Button::DPadUp
+                | Button::DPadDown => true,
+                _ => false,
+            },
+            PixEvent::GamepadAxis(_, axis, ..) => match axis {
+                Axis::LeftX | Axis::LeftY => true,
+                _ => false,
+            },
+            _ => false,
         }
     }
 }

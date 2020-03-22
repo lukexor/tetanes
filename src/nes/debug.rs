@@ -90,7 +90,7 @@ impl Nes {
 
             let mx = data.get_mouse_x();
             let my = data.get_mouse_y();
-            let (tile, palette) = if self.focused_window == ppu_viewer_window
+            let (tile, palette) = if self.focused_window == Some(ppu_viewer_window)
                 && mx >= 0
                 && my >= 0
                 && mx < (2 * RENDER_WIDTH - 1) as i32
@@ -207,7 +207,7 @@ impl Nes {
             let mx = data.get_mouse_x();
             let my = data.get_mouse_y();
 
-            if self.focused_window == nt_viewer_window
+            if self.focused_window == Some(nt_viewer_window)
                 && mx >= 0
                 && my >= 0
                 && mx < 2 * (RENDER_WIDTH - 1) as i32
@@ -238,27 +238,23 @@ impl Nes {
     }
 
     pub(super) fn set_nt_scanline(&mut self, scanline: u32) {
-        if Some(self.focused_window) == self.nt_viewer_window {
-            let scanline = if scanline > RENDER_HEIGHT - 1 {
-                RENDER_HEIGHT - 1
-            } else {
-                scanline
-            };
-            self.nt_scanline = scanline;
-            self.cpu.bus.ppu.set_nt_scanline(self.nt_scanline as u16);
-        }
+        let scanline = if scanline > RENDER_HEIGHT - 1 {
+            RENDER_HEIGHT - 1
+        } else {
+            scanline
+        };
+        self.nt_scanline = scanline;
+        self.cpu.bus.ppu.set_nt_scanline(self.nt_scanline as u16);
     }
 
     pub(super) fn set_pat_scanline(&mut self, scanline: u32) {
-        if Some(self.focused_window) == self.ppu_viewer_window {
-            let scanline = if scanline > RENDER_HEIGHT - 1 {
-                RENDER_HEIGHT - 1
-            } else {
-                scanline
-            };
-            self.pat_scanline = scanline;
-            self.cpu.bus.ppu.set_pat_scanline(self.pat_scanline as u16);
-        }
+        let scanline = if scanline > RENDER_HEIGHT - 1 {
+            RENDER_HEIGHT - 1
+        } else {
+            scanline
+        };
+        self.pat_scanline = scanline;
+        self.cpu.bus.ppu.set_pat_scanline(self.pat_scanline as u16);
     }
 
     pub(super) fn toggle_debug(&mut self, data: &mut StateData) -> NesResult<()> {

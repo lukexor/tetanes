@@ -222,8 +222,12 @@ impl<T: Savable> Savable for [T] {
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut len = 0u32;
         len.load(fh)?;
-        if len > self.len() as u32 {
-            return nes_err!("Array read len does not match");
+        if len != self.len() as u32 {
+            panic!(
+                "Array read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -254,7 +258,11 @@ impl<T: Savable + Default> Savable for Vec<T> {
                 self.push(T::default());
             }
         } else if len != self.len() as u32 {
-            return nes_err!("Vec read len does not match");
+            return nes_err!(
+                "Vec read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -285,7 +293,11 @@ impl<T: Savable + Default> Savable for VecDeque<T> {
                 self.push_back(T::default());
             }
         } else if len != self.len() as u32 {
-            return nes_err!("VecDeque read len does not match");
+            return nes_err!(
+                "VecDeque read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -334,7 +346,11 @@ impl Savable for String {
             bytes.load(fh)?;
             *self = String::from_utf8(bytes)?;
         } else if len != self.len() as u32 {
-            return nes_err!("String read len does not match");
+            return nes_err!(
+                "String read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
         }
         Ok(())
     }

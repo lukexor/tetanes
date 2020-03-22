@@ -1,12 +1,14 @@
 //! User Interface representing the the NES Game Deck
 
 use crate::{
+    apu::SAMPLE_RATE,
     bus::Bus,
     common::Clocked,
     cpu::{Cpu, CPU_CLOCK_RATE},
     nes::{
         config::{MAX_SPEED, MIN_SPEED},
         debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
+        event::FrameEvent,
         menu::{Menu, MenuType, Message},
     },
     nes_err,
@@ -14,7 +16,7 @@ use crate::{
     NesResult,
 };
 use include_dir::{include_dir, Dir};
-use pix_engine::{event::PixEvent, sprite::Sprite, PixEngine, PixEngineResult, State, StateData};
+use pix_engine::{sprite::Sprite, PixEngine, PixEngineResult, State, StateData};
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
@@ -49,7 +51,7 @@ pub struct Nes {
     cpu: Cpu,
     cycles_remaining: f32,
     zapper_decay: u32,
-    focused_window: u32,
+    focused_window: Option<u32>,
     lost_focus: bool,
     menus: [Menu; 4],
     held_keys: HashMap<u8, bool>,
@@ -74,8 +76,8 @@ pub struct Nes {
     rewind_queue: VecDeque<u8>,
     recording: bool,
     playback: bool,
-    replay_frame: usize,
-    replay_buffer: Vec<Vec<PixEvent>>,
+    frame: usize,
+    replay_buffer: Vec<FrameEvent>,
     messages: Vec<Message>,
     config: NesConfig,
 }
@@ -100,7 +102,7 @@ impl Nes {
             cpu,
             cycles_remaining: 0.0,
             zapper_decay: 0,
-            focused_window: 0,
+            focused_window: None,
             lost_focus: false,
             menus: [
                 Menu::new(MenuType::Config, width, height),
@@ -130,7 +132,7 @@ impl Nes {
             rewind_queue: VecDeque::with_capacity(REWIND_SIZE as usize),
             recording: config.record,
             playback: false,
-            replay_frame: 0,
+            frame: 0,
             replay_buffer: Vec::new(),
             messages: Vec::new(),
             config,
@@ -158,6 +160,7 @@ impl Nes {
         };
 
         let mut engine = PixEngine::new(title, self, width, height, vsync)?;
+        engine.set_audio_sample_rate(SAMPLE_RATE as i32)?;
         let _ = engine.set_icon(ICON_PATH);
         engine.run()?;
         Ok(())
@@ -188,7 +191,7 @@ impl Nes {
 impl State for Nes {
     fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
         self.nes_window = data.main_window();
-        self.focused_window = self.nes_window;
+        self.focused_window = Some(self.nes_window);
 
         // Before rendering anything, set up our textures
         self.create_textures(data)?;
@@ -305,6 +308,7 @@ impl State for Nes {
             data.enqueue_audio(&samples);
         }
         self.cpu.bus.apu.clear_samples();
+
         Ok(true)
     }
 

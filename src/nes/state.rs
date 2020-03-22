@@ -2,12 +2,12 @@ use crate::{
     common::{home_dir, Clocked, Powered, CONFIG_DIR},
     logging::{LogLevel, Loggable},
     map_nes_err, mapper,
-    nes::{Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
+    nes::{event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
     nes_err,
     serialization::{validate_save_header, write_save_header, Savable},
     NesResult,
 };
-use pix_engine::event::PixEvent;
+use chrono::prelude::{DateTime, Local};
 use std::{
     collections::VecDeque,
     io::{BufReader, BufWriter, Read, Write},
@@ -229,13 +229,27 @@ impl Nes {
         Ok(())
     }
 
-    pub(super) fn load_replay(&self) -> NesResult<Vec<Vec<PixEvent>>> {
+    /// Saves the replay buffer out to a file
+    pub fn save_replay(&mut self) -> NesResult<()> {
+        let datetime: DateTime<Local> = Local::now();
+        let mut path = PathBuf::from(datetime.format("rustynes_%Y-%m-%d_at_%H.%M.%S").to_string());
+        path.set_extension("replay");
+        let file = std::fs::File::create(&path)?;
+        let mut file = BufWriter::new(file);
+        self.replay_buffer.save(&mut file)?;
+        println!("Saved replay: {:?}", path);
+        Ok(())
+    }
+
+    /// Loads a replay file into a Vec
+    pub(super) fn load_replay(&self) -> NesResult<Vec<FrameEvent>> {
         if let Some(replay) = &self.config.replay {
             let file = std::fs::File::open(&PathBuf::from(replay))
                 .map_err(|e| map_nes_err!("failed to open file {:?}: {}", replay, e))?;
             let mut file = BufReader::new(file);
-            let mut buffer: Vec<Vec<PixEvent>> = Vec::new();
+            let mut buffer: Vec<FrameEvent> = Vec::new();
             buffer.load(&mut file)?;
+            buffer.reverse();
             Ok(buffer)
         } else {
             Ok(Vec::new())
@@ -351,6 +365,7 @@ impl Savable for Nes {
         // break_instr
         // should_close
         self.nes_window.save(fh)?;
+        // Ignore
         // ppu_viewer_window
         // nt_viewer_window
         // ppu_viewer
@@ -369,7 +384,8 @@ impl Savable for Nes {
         // Ignore
         // recording
         // playback
-        // replay_frame
+        self.frame.save(fh)?;
+        // Ignore
         // replay_buffer
         // messages
         Ok(())
@@ -393,6 +409,7 @@ impl Savable for Nes {
         // break_instr
         // should_close
         nes.nes_window.load(fh)?;
+        // Ignore
         // ppu_viewer_window
         // nt_viewer_window
         // ppu_viewer
@@ -411,10 +428,25 @@ impl Savable for Nes {
         // Ignore
         // recording
         // playback
-        // replay_frame
+        nes.frame.load(fh)?;
+        // Ignore
         // replay_buffer
         // messages
         *self = nes;
+        Ok(())
+    }
+}
+
+impl Savable for FrameEvent {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        println!("{}, {}", self.frame, self.events.len());
+        self.frame.save(fh)?;
+        self.events.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        self.frame.load(fh)?;
+        self.events.load(fh)?;
         Ok(())
     }
 }

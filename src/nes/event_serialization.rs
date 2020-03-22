@@ -67,7 +67,7 @@ impl Savable for PixEvent {
             1 => PixEvent::Quit,
             2 => PixEvent::AppTerminating,
             3 => {
-                let mut id: i32 = 0;
+                let mut id: u32 = 0;
                 let mut btn = Button::default();
                 let mut pressed = false;
                 id.load(fh)?;
@@ -76,7 +76,7 @@ impl Savable for PixEvent {
                 PixEvent::GamepadBtn(id, btn, pressed)
             }
             4 => {
-                let mut id: i32 = 0;
+                let mut id: u32 = 0;
                 let mut axis = Axis::default();
                 let mut value = 0;
                 id.load(fh)?;

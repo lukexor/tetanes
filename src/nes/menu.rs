@@ -176,11 +176,7 @@ impl Nes {
     }
 
     pub(super) fn check_focus(&mut self) {
-        let id = self.focused_window;
-        if id != self.nes_window
-            && Some(id) != self.ppu_viewer_window
-            && Some(id) != self.nt_viewer_window
-        {
+        if self.focused_window.is_none() {
             // Only pause and set lost_focus if we weren't already paused
             if !self.paused {
                 self.lost_focus = true;
