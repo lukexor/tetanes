@@ -257,16 +257,19 @@ impl Apu {
     }
 
     fn output(&mut self) -> f32 {
-        self.triangle.enabled = false;
         let pulse1 = self.pulse1.output();
         let pulse2 = self.pulse2.output();
+        // let pulse1 = 0.0;
+        // let pulse2 = 0.0;
         let triangle = self.triangle.output();
         let noise = self.noise.output();
         let dmc = self.dmc.output();
+        // let noise = 0.0;
+        // let dmc = 0.0;
 
         let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize];
-        let tnd_out = self.tnd_table[(3.0 * triangle + 2.0 * noise + dmc) as usize];
-        pulse_out + tnd_out
+        let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize];
+        2.0 * (pulse_out + tnd_out)
     }
 
     // $4015 READ
