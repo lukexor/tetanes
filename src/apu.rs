@@ -17,7 +17,7 @@ use std::{
     io::{Read, Write},
 };
 
-pub const SAMPLE_RATE: f32 = 96_000.0; // in Hz
+pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
 const SAMPLE_BUFFER_SIZE: usize = 4096;
 
 #[derive(Clone)]
