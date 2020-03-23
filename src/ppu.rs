@@ -5,16 +5,30 @@
 use crate::{
     common::{Clocked, NesFormat, Powered},
     logging::{LogLevel, Loggable},
-    mapper::{self, MapperRef, Mirroring},
+    mapper::MapperRef,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
+use frame::Frame;
+use nametable::{ATTRIBUTE_START, NT_START};
+use oam::{Oam, OAM_SIZE};
+use palette::{PALETTE_END, PALETTE_SIZE, PALETTE_START, SYSTEM_PALETTE, SYSTEM_PALETTE_SIZE};
+use ppu_regs::{PpuRegs, COARSE_X_MASK, COARSE_Y_MASK, NT_X_MASK, NT_Y_MASK};
+use sprite::Sprite;
 use std::{
-    f32::consts::PI,
     fmt,
     io::{Read, Write},
 };
+use vram::Vram;
+
+mod frame;
+mod nametable;
+mod oam;
+mod palette;
+mod ppu_regs;
+mod sprite;
+mod vram;
 
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
@@ -23,12 +37,6 @@ const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
 const RENDER_SIZE: usize = 3 * RENDER_PIXELS;
-
-// Sizes
-const NT_SIZE: usize = 2 * 1024; // Two 1K nametables exist in hardware
-const PALETTE_SIZE: usize = 32;
-const SYSTEM_PALETTE_SIZE: usize = 64;
-const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 
 // Cycles
 const IDLE_CYCLE: u16 = 0; // PPU is idle this cycle
@@ -54,41 +62,18 @@ const POSTRENDER_SCANLINE: u16 = 240; // Idle scanline
 const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
 const PRERENDER_SCANLINE: u16 = 261;
 
-// PPUSCROLL masks
-// yyy NN YYYYY XXXXX
-// ||| || ||||| +++++- 5 bit coarse X
-// ||| || +++++------- 5 bit coarse Y
-// ||| |+------------- Nametable X offset
-// ||| +-------------- Nametable Y offset
-// +++---------------- 3 bit fine Y
-const COARSE_X_MASK: u16 = 0x001F;
-const COARSE_Y_MASK: u16 = 0x03E0;
-const NT_X_MASK: u16 = 0x0400;
-const NT_Y_MASK: u16 = 0x0800;
-const FINE_Y_MASK: u16 = 0x7000;
-const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width / 8 pixel wide tiles
-const Y_MAX_COL: u16 = 29; // last row of tiles - (240 pixel height / 8 pixel tall tiles) - 1
-const Y_OVER_COL: u16 = 31; // overscan row
-
-// Nametable ranges
-// $2000 upper-left corner, $2400 upper-right, $2800 lower-left, $2C00 lower-right
-const NT_START: u16 = 0x2000;
-const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NAMETABLEs
-const PALETTE_START: u16 = 0x3F00;
-const PALETTE_END: u16 = 0x3F20;
-
 #[derive(Clone)]
 pub struct Ppu {
-    pub cycle: u16,          // (0, 340) 341 cycles happen per scanline
-    pub cycle_count: usize,  // Total number of PPU cycles run
-    pub frame_cycles: u32,   // Total number of PPU cycles run per frame
-    pub scanline: u16,       // (0, 261) 262 total scanlines per frame
-    pub scanline_phase: u32, // Phase at the start of this scanline
-    pub nmi_pending: bool,   // Whether the CPU should trigger an NMI next cycle
-    pub vram: Vram,          // $2007 PPUDATA
-    pub regs: PpuRegs,       // Registers
-    oamdata: Oam,            // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    pub frame: Frame,        // Frame data keeps track of data and shift registers between frames
+    pub cycle: u16,         // (0, 340) 341 cycles happen per scanline
+    pub cycle_count: usize, // Total number of PPU cycles run
+    frame_cycles: u32,      // Total number of PPU cycles run per frame
+    pub scanline: u16,      // (0, 261) 262 total scanlines per frame
+    scanline_phase: u32,    // Phase at the start of this scanline
+    pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
+    vram: Vram,             // $2007 PPUDATA
+    pub regs: PpuRegs,      // Registers
+    oamdata: Oam,           // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    frame: Frame,           // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub ntsc_video: bool,
     nes_format: NesFormat,
@@ -503,16 +488,6 @@ impl Ppu {
             let pixel = ((self.regs.emphasis() as u32) << 6) | palette as u32;
             self.frame
                 .put_ntsc_pixel(x.into(), self.scanline.into(), pixel, self.frame_cycles);
-        // self.frame.render_ntsc_pixel(
-        //     x,
-        //     palette & 0x3F,
-        //     self.regs.emphasis(),
-        //     self.frame_cycles,
-        // );
-        // if self.cycle >= SKIP_CYCLE {
-        //     self.frame
-        //         .decode_ntsc_signal(self.scanline, self.scanline_phase);
-        // }
         } else {
             let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
             let r = SYSTEM_PALETTE[color_idx];
@@ -1058,15 +1033,25 @@ impl Savable for Ppu {
         self.frame_cycles.save(fh)?;
         self.scanline.save(fh)?;
         self.scanline_phase.save(fh)?;
+        self.nmi_pending.save(fh)?;
+        self.vram.save(fh)?;
         self.regs.save(fh)?;
         self.oamdata.save(fh)?;
-        self.vram.save(fh)?;
         self.frame.save(fh)?;
         self.frame_complete.save(fh)?;
         self.ntsc_video.save(fh)?;
         self.nes_format.save(fh)?;
         self.clock_remainder.save(fh)?;
-        self.nmi_pending.save(fh)?;
+        // Ignore
+        // debug
+        // nt_scanline
+        // pat_scanline
+        // nametables
+        // nametable_ids
+        // pattern_tables
+        // palette
+        // palette_ids
+        // log_level
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
@@ -1075,857 +1060,16 @@ impl Savable for Ppu {
         self.frame_cycles.load(fh)?;
         self.scanline.load(fh)?;
         self.scanline_phase.load(fh)?;
+        self.nmi_pending.load(fh)?;
+        self.vram.load(fh)?;
         self.regs.load(fh)?;
         self.oamdata.load(fh)?;
-        self.vram.load(fh)?;
         self.frame.load(fh)?;
         self.frame_complete.load(fh)?;
         self.ntsc_video.load(fh)?;
         self.nes_format.load(fh)?;
         self.clock_remainder.load(fh)?;
-        self.nmi_pending.load(fh)?;
         Ok(())
-    }
-}
-
-// http://wiki.nesdev.com/w/index.php/PPU_nametables
-// http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
-#[derive(Clone)]
-pub struct Nametable(pub [u8; NT_SIZE]);
-
-impl MemRead for Nametable {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-    fn peek(&self, addr: u16) -> u8 {
-        self.0[addr as usize]
-    }
-}
-impl MemWrite for Nametable {
-    fn write(&mut self, addr: u16, val: u8) {
-        self.0[addr as usize] = val;
-    }
-}
-
-impl Savable for Nametable {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.0.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.0.load(fh)
-    }
-}
-
-// http://wiki.nesdev.com/w/index.php/PPU_palettes
-#[derive(Clone)]
-pub struct Palette(pub [u8; PALETTE_SIZE]);
-
-impl MemRead for Palette {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-    fn peek(&self, mut addr: u16) -> u8 {
-        if addr >= 16 && addr.trailing_zeros() >= 2 {
-            addr -= 16;
-        }
-        self.0[addr as usize]
-    }
-}
-impl MemWrite for Palette {
-    fn write(&mut self, mut addr: u16, val: u8) {
-        if addr >= 16 && addr.trailing_zeros() >= 2 {
-            addr -= 16;
-        }
-        self.0[addr as usize] = val;
-    }
-}
-
-impl Savable for Palette {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.0.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.0.load(fh)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PpuRegs {
-    ctrl: u8,     // $2000 PPUCTRL write-only
-    mask: u8,     // $2001 PPUMASK write-only
-    status: u8,   // $2002 PPUSTATUS read-only
-    oamaddr: u8,  // $2003 OAMADDR write-only
-    pub v: u16,   // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
-    t: u16,       // Temporary v - Also the addr of top-left onscreen tile
-    x: u16,       // Fine X
-    w: bool,      // 1st or 2nd write toggle
-    open_bus: u8, // This open bus gets set during any write to PPU registers
-}
-
-impl PpuRegs {
-    fn new() -> Self {
-        Self {
-            ctrl: 0x00,
-            mask: 0x00,
-            status: 0x00,
-            oamaddr: 0x00,
-            v: 0x0000,
-            t: 0x0000,
-            x: 0x0000,
-            w: false,
-            open_bus: 0x00,
-        }
-    }
-
-    // Resets 1st/2nd Write latch for PPUSCROLL and PPUADDR
-    fn reset_rw(&mut self) {
-        self.w = false;
-    }
-
-    /*
-     * $2000 PPUCTRL
-     *
-     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL
-     * VPHB SINN
-     * |||| ||++- Nametable Select: 0 = $2000 (upper-left); 1 = $2400 (upper-right);
-     * |||| ||                      2 = $2800 (lower-left); 3 = $2C00 (lower-right)
-     * |||| |||+-   Also For PPUSCROLL: 1 = Add 256 to X scroll
-     * |||| ||+--   Also For PPUSCROLL: 1 = Add 240 to Y scroll
-     * |||| |+--- VRAM Increment Mode: 0 = add 1, going across; 1 = add 32, going down
-     * |||| +---- Sprite Pattern Select for 8x8: 0 = $0000, 1 = $1000, ignored in 8x16 mode
-     * |||+------ Background Pattern Select: 0 = $0000, 1 = $1000
-     * ||+------- Sprite Height: 0 = 8x8, 1 = 8x16
-     * |+-------- PPU Master/Slave: 0 = read from EXT, 1 = write to EXT
-     * +--------- NMI Enable: NMI at next vblank: 0 = off, 1: on
-     */
-    fn write_ctrl(&mut self, val: u8) {
-        let nn_mask = NT_Y_MASK | NT_X_MASK;
-        // val: ......BA
-        // t: ....BA.. ........
-        self.t = (self.t & !nn_mask) | (u16::from(val) & 0x03) << 10; // take lo 2 bits and set NN
-        self.ctrl = val;
-    }
-    fn vram_increment(&self) -> u16 {
-        if self.ctrl & 0x04 > 0 {
-            32
-        } else {
-            1
-        }
-    }
-    fn sprite_select(&self) -> u16 {
-        if self.ctrl & 0x08 > 0 {
-            0x1000
-        } else {
-            0x0000
-        }
-    }
-    fn background_select(&self) -> u16 {
-        if self.ctrl & 0x10 > 0 {
-            0x1000
-        } else {
-            0x0000
-        }
-    }
-    pub fn sprite_height(&self) -> u16 {
-        if self.ctrl & 0x20 > 0 {
-            16
-        } else {
-            8
-        }
-    }
-    fn nmi_enabled(&self) -> bool {
-        self.ctrl & 0x80 > 0
-    }
-
-    /*
-     * $2001 PPUMASK
-     *
-     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUMASK
-     * BGRs bMmG
-     * |||| |||+- Grayscale (0: normal color, 1: produce a grayscale display)
-     * |||| ||+-- 1: Show background in leftmost 8 pixels of screen, 0: Hide
-     * |||| |+--- 1: Show sprites in leftmost 8 pixels of screen, 0: Hide
-     * |||| +---- 1: Show background
-     * |||+------ 1: Show sprites
-     * ||+------- Emphasize red
-     * |+-------- Emphasize green
-     * +--------- Emphasize blue
-     */
-    fn write_mask(&mut self, val: u8) {
-        self.mask = val;
-    }
-    fn show_left_background(&self) -> bool {
-        self.mask & 0x02 > 0
-    }
-    fn show_left_sprites(&self) -> bool {
-        self.mask & 0x04 > 0
-    }
-    fn show_background(&self) -> bool {
-        self.mask & 0x08 > 0
-    }
-    fn show_sprites(&self) -> bool {
-        self.mask & 0x10 > 0
-    }
-    fn grayscale(&self) -> bool {
-        self.mask & 0x01 > 0
-    }
-    fn emphasis(&self) -> u8 {
-        (self.mask & 0xE0) >> 5
-    }
-
-    /*
-     * $2002 PPUSTATUS
-     *
-     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS
-     * VSO. ....
-     * |||+-++++- Least significant bits previously written into a PPU register
-     * ||+------- Sprite overflow.
-     * |+-------- Sprite 0 Hit.
-     * +--------- Vertical blank has started (0: not in vblank; 1: in vblank)
-     */
-    fn read_status(&mut self) -> u8 {
-        self.reset_rw();
-        let vblank_started = self.status & 0x80;
-        self.status &= !0x80; // Set vblank to 0
-        self.status | vblank_started // return status with original vblank
-    }
-    fn peek_status(&self) -> u8 {
-        self.status
-    }
-
-    fn set_sprite_overflow(&mut self, val: bool) {
-        self.status = if val {
-            self.status | 0x20
-        } else {
-            self.status & !0x20
-        };
-    }
-    fn sprite_zero_hit(&self) -> bool {
-        self.status & 0x40 == 0x40
-    }
-    fn set_sprite_zero_hit(&mut self, val: bool) {
-        self.status = if val {
-            self.status | 0x40
-        } else {
-            self.status & !0x40
-        };
-    }
-    fn vblank_started(&self) -> bool {
-        self.status & 0x80 > 0
-    }
-    fn start_vblank(&mut self) {
-        self.status |= 0x80;
-    }
-    fn stop_vblank(&mut self) {
-        self.status &= !0x80;
-    }
-
-    /*
-     * $2005 PPUSCROLL
-     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSCROLL
-     * http://wiki.nesdev.com/w/index.php/PPU_scrolling
-     */
-
-    // Returns Coarse X: XXXXX from PPUADDR v
-    // yyy NN YYYYY XXXXX
-    fn coarse_x(&self) -> u16 {
-        self.v & COARSE_X_MASK
-    }
-
-    // Returns Fine X: xxx from x register
-    fn fine_x(&self) -> u16 {
-        self.x
-    }
-
-    // Returns Coarse Y: YYYYY from PPUADDR v
-    // yyy NN YYYYY XXXXX
-    fn coarse_y(&self) -> u16 {
-        (self.v & COARSE_Y_MASK) >> 5
-    }
-
-    // Returns Fine Y: yyy from PPUADDR v
-    // yyy NN YYYYY XXXXX
-    fn fine_y(&self) -> u16 {
-        (self.v & FINE_Y_MASK) >> 12
-    }
-
-    // Writes val to PPUSCROLL
-    // 1st write writes X
-    // 2nd write writes Y
-    fn write_scroll(&mut self, val: u8) {
-        let val = u16::from(val);
-        let lo_5_bit_mask: u16 = 0x1F;
-        let fine_mask: u16 = 0x07;
-        let fine_rshift = 3;
-        if !self.w {
-            // Write X on first write
-            // lo 3 bits goes into fine x, remaining 5 bits go into t for coarse x
-            // val: HGFEDCBA
-            // t: ........ ...HGFED
-            // x:               CBA
-            self.t &= !COARSE_X_MASK; // Empty coarse X
-            self.t |= (val >> fine_rshift) & lo_5_bit_mask; // Set coarse X
-            self.x = val & fine_mask; // Set fine X
-        } else {
-            // Write Y on second write
-            // lo 3 bits goes into fine y, remaining 5 bits go into t for coarse y
-            // val: HGFEDCBA
-            // t: .CBA..HG FED.....
-            let coarse_y_lshift = 5;
-            let fine_y_lshift = 12;
-            self.t &= !(FINE_Y_MASK | COARSE_Y_MASK); // Empty Y
-            self.t |= ((val >> fine_rshift) & lo_5_bit_mask) << coarse_y_lshift; // Set coarse Y
-            self.t |= (val & fine_mask) << fine_y_lshift; // Set fine Y
-        }
-        self.w = !self.w;
-    }
-
-    // Copy Coarse X from register t and add it to PPUADDR v
-    fn copy_x(&mut self) {
-        //    .....N.. ...XXXXX
-        // t: .....F.. ...EDCBA
-        // v: .....F.. ...EDCBA
-        let x_mask = NT_X_MASK | COARSE_X_MASK;
-        self.v = (self.v & !x_mask) | (self.t & x_mask);
-    }
-
-    // Copy Fine y and Coarse Y from register t and add it to PPUADDR v
-    fn copy_y(&mut self) {
-        //    .yyyN.YY YYY.....
-        // t: .IHGF.ED CBA.....
-        // v: .IHGF.ED CBA.....
-        let y_mask = FINE_Y_MASK | NT_Y_MASK | COARSE_Y_MASK;
-        self.v = (self.v & !y_mask) | (self.t & y_mask);
-    }
-
-    // Increment Coarse X
-    // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
-    // nametable
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    fn increment_x(&mut self) {
-        // let v = self.v;
-        // If we've reached the last column, toggle horizontal nametable
-        if (self.v & COARSE_X_MASK) == X_MAX_COL {
-            self.v = (self.v & !COARSE_X_MASK) ^ NT_X_MASK; // toggles X nametable
-        } else {
-            self.v += 1;
-        }
-    }
-
-    // Increment Fine Y
-    // Bits 12-14 are incremented for Fine Y, with overflow incrementing coarse Y in bits 5-9 with
-    // overflow toggling bit 11 which switches the vertical nametable
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    fn increment_y(&mut self) {
-        if (self.v & FINE_Y_MASK) != FINE_Y_MASK {
-            // If fine y < 7 (0b111), increment
-            self.v += 0x1000;
-        } else {
-            self.v &= !FINE_Y_MASK; // set fine y = 0 and overflow into coarse y
-            let mut y = (self.v & COARSE_Y_MASK) >> 5; // Get 5 bits of coarse y
-            if y == Y_MAX_COL {
-                y = 0;
-                // switches vertical nametable
-                self.v ^= NT_Y_MASK;
-            } else if y == Y_OVER_COL {
-                // Out of bounds. Does not switch nametable
-                // Some games use this
-                y = 0;
-            } else {
-                y += 1; // increment coarse y
-            }
-            self.v = (self.v & !COARSE_Y_MASK) | (y << 5); // put coarse y back into v
-        }
-    }
-
-    /*
-     * $2006 PPUADDR
-     * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUADDR
-     */
-
-    fn read_addr(&self) -> u16 {
-        self.v & 0x3FFF // Bits 0-14
-    }
-
-    // Write val to PPUADDR v
-    // 1st write writes hi 6 bits
-    // 2nd write writes lo 8 bits
-    // Total size is a 14 bit addr
-    fn write_addr(&mut self, val: u16) {
-        if !self.w {
-            // Write hi address on first write
-            let hi_bits_mask = 0x00FF;
-            let hi_lshift = 8;
-            let six_bits_mask = 0x003F;
-            // val: ..FEDCBA
-            //    FEDCBA98 76543210
-            // t: 00FEDCBA ........
-            self.t = (self.t & hi_bits_mask) | ((val & six_bits_mask) << hi_lshift);
-        } else {
-            // Write lo address on second write
-            let lo_bits_mask = 0x7F00;
-            // val: HGFEDCBA
-            // t: ........ HGFEDCBA
-            // v: t
-            self.t = (self.t & lo_bits_mask) | val;
-            self.v = self.t;
-        }
-        self.w = !self.w;
-    }
-
-    // Increment PPUADDR v
-    // Address wraps and uses vram_increment which is either 1 (going across) or 32 (going down)
-    // based on bit 7 in PPUCTRL
-    fn increment_v(&mut self) {
-        self.v = self.v.wrapping_add(self.vram_increment());
-    }
-}
-
-impl Savable for PpuRegs {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.open_bus.save(fh)?;
-        self.ctrl.save(fh)?;
-        self.mask.save(fh)?;
-        self.status.save(fh)?;
-        self.oamaddr.save(fh)?;
-        self.v.save(fh)?;
-        self.t.save(fh)?;
-        self.x.save(fh)?;
-        self.w.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.open_bus.load(fh)?;
-        self.ctrl.load(fh)?;
-        self.mask.load(fh)?;
-        self.status.load(fh)?;
-        self.oamaddr.load(fh)?;
-        self.v.load(fh)?;
-        self.t.load(fh)?;
-        self.x.load(fh)?;
-        self.w.load(fh)
-    }
-}
-
-impl Default for PpuRegs {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// Addr Low Nibble
-// $00, $04, $08, $0C   Sprite Y coord
-// $01, $05, $09, $0D   Sprite tile #
-// $02, $06, $0A, $0E   Sprite attribute
-// $03, $07, $0B, $0F   Sprite X coord
-#[derive(Clone)]
-struct Oam {
-    entries: [u8; OAM_SIZE],
-}
-
-impl Oam {
-    fn new() -> Self {
-        Self {
-            entries: [0; OAM_SIZE],
-        }
-    }
-}
-
-impl MemRead for Oam {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-    fn peek(&self, addr: u16) -> u8 {
-        let val = self.entries[addr as usize];
-        // Bits 2-4 of Sprite attribute should always be 0
-        if let 0x02 | 0x06 | 0x0A | 0x0E = addr & 0x0F {
-            val & 0xE3
-        } else {
-            val
-        }
-    }
-}
-impl MemWrite for Oam {
-    fn write(&mut self, addr: u16, val: u8) {
-        self.entries[addr as usize] = val;
-    }
-}
-
-impl Savable for Oam {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.entries.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.entries.load(fh)
-    }
-}
-
-#[derive(Clone)]
-pub struct Vram {
-    pub nametable: Nametable, // Used to layout backgrounds on the screen
-    pub palette: Palette,     // Background/Sprite color palettes
-    mapper: MapperRef,
-    buffer: u8, // PPUDATA buffer
-}
-
-impl Vram {
-    fn new() -> Self {
-        Self {
-            nametable: Nametable([0u8; NT_SIZE]),
-            palette: Palette([0u8; PALETTE_SIZE]),
-            mapper: mapper::null(),
-            buffer: 0u8,
-        }
-    }
-
-    fn nametable_addr(&self, addr: u16) -> u16 {
-        let mirroring = self.mapper.borrow().mirroring();
-        // Maps addresses to nametable pages based on mirroring mode
-        let page = match mirroring {
-            Mirroring::Horizontal => (addr >> 11) & 1,
-            Mirroring::Vertical => (addr >> 10) & 1,
-            Mirroring::SingleScreenA => (addr >> 14) & 1,
-            Mirroring::SingleScreenB => (addr >> 13) & 1,
-            Mirroring::FourScreen => self.mapper.borrow().nametable_page(addr),
-        };
-        let table_size = 0x0400;
-        let offset = addr % table_size;
-        NT_START + page * table_size + offset
-    }
-}
-
-impl MemRead for Vram {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.mapper.borrow_mut().vram_change(addr);
-        match addr {
-            0x0000..=0x1FFF => self.mapper.borrow_mut().read(addr),
-            0x2000..=0x3EFF => {
-                // Use PPU Nametables or Cartridge RAM
-                if self.mapper.borrow().use_ciram(addr) {
-                    let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.read(mirror_addr % NT_SIZE as u16)
-                } else {
-                    self.mapper.borrow_mut().read(addr)
-                }
-            }
-            0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
-            _ => 0,
-        }
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => self.mapper.borrow().peek(addr),
-            0x2000..=0x3EFF => {
-                // Use PPU Nametables or Cartridge RAM
-                if self.mapper.borrow().use_ciram(addr) {
-                    let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.peek(mirror_addr % NT_SIZE as u16)
-                } else {
-                    self.mapper.borrow().peek(addr)
-                }
-            }
-            0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
-            _ => 0,
-        }
-    }
-}
-impl MemWrite for Vram {
-    fn write(&mut self, addr: u16, val: u8) {
-        self.mapper.borrow_mut().vram_change(addr);
-        match addr {
-            0x0000..=0x1FFF => self.mapper.borrow_mut().write(addr, val),
-            0x2000..=0x3EFF => {
-                if self.mapper.borrow().use_ciram(addr) {
-                    let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.write(mirror_addr % NT_SIZE as u16, val);
-                } else {
-                    self.mapper.borrow_mut().write(addr, val);
-                }
-            }
-            0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
-            _ => (),
-        }
-    }
-}
-
-impl Powered for Vram {
-    fn reset(&mut self) {
-        self.buffer = 0;
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
-}
-
-impl Savable for Vram {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.buffer.save(fh)?;
-        self.nametable.save(fh)?;
-        self.palette.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.buffer.load(fh)?;
-        self.nametable.load(fh)?;
-        self.palette.load(fh)
-    }
-}
-
-#[derive(Clone)]
-pub struct Frame {
-    num: u32,
-    parity: bool,
-    // Shift registers
-    tile_lo: u8,
-    tile_hi: u8,
-    // Tile data - stored in cycles 0 mod 8
-    nametable: u16,
-    attribute: u8,
-    tile_data: u64,
-    // Sprite data
-    sprite_count: u8,
-    sprite_zero_on_line: bool,
-    sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
-    prev_pixel: u32,
-    palette: [[[u32; 512]; 64]; 3],
-    pixels: Vec<u8>,
-}
-
-impl Frame {
-    fn new() -> Self {
-        let mut frame = Self {
-            num: 0,
-            parity: false,
-            nametable: 0,
-            attribute: 0,
-            tile_lo: 0,
-            tile_hi: 0,
-            tile_data: 0,
-            sprite_count: 0,
-            sprite_zero_on_line: false,
-            sprites: [Sprite::new(); 8],
-            prev_pixel: 0xFFFF,
-            palette: [[[0; 512]; 64]; 3],
-            pixels: vec![0; RENDER_SIZE],
-        };
-        frame.generate_ntsc_palette();
-        frame
-    }
-
-    fn increment(&mut self) {
-        self.num += 1;
-        self.parity = !self.parity;
-    }
-
-    fn put_pixel(&mut self, x: u32, y: u32, red: u8, green: u8, blue: u8) {
-        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
-            return;
-        }
-        let idx = 3 * (x + y * RENDER_WIDTH) as usize;
-        self.pixels[idx] = red;
-        self.pixels[idx + 1] = green;
-        self.pixels[idx + 2] = blue;
-    }
-
-    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
-    // to translate it to Rust
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // http://wiki.nesdev.com/w/index.php/NTSC_video
-    fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
-        // Store the RGB color into the frame buffer.
-        let color =
-            self.palette[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
-        let red = (color >> 16 & 0xFF) as u8;
-        let green = (color >> 8 & 0xFF) as u8;
-        let blue = (color & 0xFF) as u8;
-        self.put_pixel(x, y, red, green, blue);
-        self.prev_pixel = pixel;
-    }
-
-    // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
-    // I'm afraid to touch it now that it works
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // http://wiki.nesdev.com/w/index.php/NTSC_video
-    fn generate_ntsc_palette(&mut self) {
-        // Calculate the luma and chroma by emulating the relevant circuits:
-        const VOLTAGES: [i32; 16] = [
-            -6, -69, 26, -59, 29, -55, 73, -40, 68, -17, 125, 11, 68, 33, 125, 78,
-        ];
-        // Helper functions for converting YIQ to RGB
-        let gammafix = |color: f32| {
-            if color < 0.0 {
-                0.0
-            } else {
-                color.powf(2.2 / 1.8)
-            }
-        };
-        let clamp = |color| {
-            if color > 255.0 {
-                255
-            } else {
-                color as u32
-            }
-        };
-        let yiq_divider = (9 * 10u32.pow(6)) as f32;
-        for palette_offset in 0..3 {
-            for channel in 0..3 {
-                for emp in 0..512 {
-                    for color in 0..64 {
-                        let mut y = 0;
-                        let mut i = 0;
-                        let mut q = 0;
-                        // 12 samples of NTSC signal constitute a color.
-                        for sample in 0..12 {
-                            // Sample either the previous or the current pixel.
-                            let noise = (sample + palette_offset * 4) % 12;
-                            let pixel = if noise < 5 - channel * 2 { emp } else { color }; // Use pixel=emp to disable artifacts.
-
-                            // Decode the color index.
-                            let chroma = pixel % 16;
-                            let luma = if chroma < 0xE { (pixel / 4) & 12 } else { 4 }; // Forces luma to 0, 4, 8, or 12 for easy lookup
-                            let emphasis = emp / 64;
-                            // NES NTSC modulator (square wave between up to four voltage levels):
-                            let limit = if (chroma + 8 + sample) % 12 < 6 {
-                                12
-                            } else {
-                                0
-                            };
-                            let high = if chroma > limit { 1 } else { 0 };
-                            // TODO: This doesn't quite work yet - green is swapped with blue
-                            // and blue emphasis is more of a darker gray
-                            let emp_effect = if (152_278 >> (sample / 6)) & emphasis > 0 {
-                                0
-                            } else {
-                                2
-                            };
-                            let level = 40 + VOLTAGES[(high + emp_effect + luma) as usize];
-                            // Ideal TV NTSC demodulator:
-                            y += level;
-                            i += level * ((PI * sample as f32 / 6.0).cos() * 5909.0) as i32;
-                            q += level * ((PI * sample as f32 / 6.0).sin() * 5909.0) as i32;
-                        }
-                        // Store color at subpixel precision
-                        let y = y as f32 / 1980.0;
-                        let i = i as f32;
-                        let q = q as f32;
-                        match channel {
-                            2 => {
-                                let rgb = y + i * 0.947 / yiq_divider + q * 0.624 / yiq_divider;
-                                self.palette[palette_offset][color][emp] +=
-                                    0x10000 * clamp(255.0 * gammafix(rgb));
-                            }
-                            1 => {
-                                let rgb = y + i * -0.275 / yiq_divider + q * -0.636 / yiq_divider;
-                                self.palette[palette_offset][color][emp] +=
-                                    0x00100 * clamp(255.0 * gammafix(rgb));
-                            }
-                            0 => {
-                                let rgb = y + i * -1.109 / yiq_divider + q * 1.709 / yiq_divider;
-                                self.palette[palette_offset][color][emp] +=
-                                    clamp(255.0 * gammafix(rgb));
-                            }
-                            _ => (), // invalid channel
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl Powered for Frame {
-    fn reset(&mut self) {
-        self.num = 0;
-        self.parity = false;
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
-}
-
-impl Savable for Frame {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.num.save(fh)?;
-        self.parity.save(fh)?;
-        self.tile_lo.save(fh)?;
-        self.tile_hi.save(fh)?;
-        self.nametable.save(fh)?;
-        self.attribute.save(fh)?;
-        self.tile_data.save(fh)?;
-        self.sprite_count.save(fh)?;
-        self.sprite_zero_on_line.save(fh)?;
-        self.sprites.save(fh)?;
-        self.pixels.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.num.load(fh)?;
-        self.parity.load(fh)?;
-        self.tile_lo.load(fh)?;
-        self.tile_hi.load(fh)?;
-        self.nametable.load(fh)?;
-        self.attribute.load(fh)?;
-        self.tile_data.load(fh)?;
-        self.sprite_count.load(fh)?;
-        self.sprite_zero_on_line.load(fh)?;
-        self.sprites.load(fh)?;
-        self.pixels.load(fh)
-    }
-}
-
-#[derive(Default, Debug, Copy, Clone)]
-struct Sprite {
-    index: u8,
-    x: u16,
-    y: u16,
-    tile_index: u16,
-    tile_addr: u16,
-    palette: u8,
-    pattern: u32,
-    has_priority: bool,
-    flip_horizontal: bool,
-    flip_vertical: bool,
-}
-
-impl Sprite {
-    fn new() -> Self {
-        Self {
-            index: 0u8,
-            x: 0xFF,
-            y: 0xFF,
-            tile_index: 0xFF,
-            tile_addr: 0xFF,
-            palette: 0x07,
-            pattern: 0u32,
-            has_priority: true,
-            flip_horizontal: true,
-            flip_vertical: true,
-        }
-    }
-}
-
-impl Savable for Sprite {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.index.save(fh)?;
-        self.x.save(fh)?;
-        self.y.save(fh)?;
-        self.tile_index.save(fh)?;
-        self.tile_addr.save(fh)?;
-        self.palette.save(fh)?;
-        self.pattern.save(fh)?;
-        self.has_priority.save(fh)?;
-        self.flip_horizontal.save(fh)?;
-        self.flip_vertical.save(fh)
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.index.load(fh)?;
-        self.x.load(fh)?;
-        self.y.load(fh)?;
-        self.tile_index.load(fh)?;
-        self.tile_addr.load(fh)?;
-        self.palette.load(fh)?;
-        self.pattern.load(fh)?;
-        self.has_priority.load(fh)?;
-        self.flip_horizontal.load(fh)?;
-        self.flip_vertical.load(fh)
     }
 }
 
@@ -1940,61 +1084,6 @@ impl fmt::Debug for Ppu {
         write!(f, "Ppu {{ }}")
     }
 }
-
-impl fmt::Debug for Oam {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Oam {{ entries: {} bytes }}", OAM_SIZE)
-    }
-}
-
-impl fmt::Debug for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Frame {{ }}")
-    }
-}
-
-impl fmt::Debug for Vram {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Vram {{ }}")
-    }
-}
-
-impl fmt::Debug for Nametable {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Nametable {{ size: {}KB }}", NT_SIZE / 1024)
-    }
-}
-
-impl fmt::Debug for Palette {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Palette {{ size: {} }}", PALETTE_SIZE)
-    }
-}
-
-// 64 total possible colors, though only 32 can be loaded at a time
-#[rustfmt::skip]
-const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
-    // 0x00
-    84, 84, 84,    0, 30, 116,    8, 16, 144,    48, 0, 136,    // $00-$03
-    68, 0, 100,    92, 0, 48,     84, 4, 0,      60, 24, 0,     // $04-$07
-    32, 42, 0,     8, 58, 0,      0, 64, 0,      0, 60, 0,      // $08-$0B
-    0, 50, 60,     0, 0, 0,       0, 0, 0,       0, 0, 0,       // $0C-$0F
-    // 0x10
-    152, 150, 152, 8, 76, 196,    48, 50, 236,   92, 30, 228,   // $10-$13
-    136, 20, 176,  160, 20, 100,  152, 34, 32,   120, 60, 0,    // $14-$17
-    84, 90, 0,     40, 114, 0,    8, 124, 0,     0, 118, 40,    // $18-$1B
-    0, 102, 120,   0, 0, 0,       0, 0, 0,       0, 0, 0,       // $1C-$1F
-    // 0x20
-    236, 238, 236, 76, 154, 236,  120, 124, 236, 176, 98, 236,  // $20-$23
-    228, 84, 236,  236, 88, 180,  236, 106, 100, 212, 136, 32,  // $24-$27
-    160, 170, 0,   116, 196, 0,   76, 208, 32,   56, 204, 108,  // $28-$2B
-    56, 180, 204,  60, 60, 60,    0, 0, 0,       0, 0, 0,       // $2C-$2F
-    // 0x30
-    236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, // $30-$33
-    236, 174, 236, 236, 174, 212, 236, 180, 176, 228, 196, 144, // $34-$37
-    204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, // $38-$3B
-    160, 214, 228, 160, 162, 160, 0, 0, 0,       0, 0, 0,       // $3C-$3F
-];
 
 #[cfg(test)]
 mod tests {

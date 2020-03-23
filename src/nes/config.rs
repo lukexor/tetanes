@@ -67,16 +67,18 @@ impl NesConfig {
 
 impl Savable for NesConfig {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        // TODO add path
+        self.path.save(fh)?;
         // Ignore
         // debug
-        // log_level
+        self.pause_in_bg.save(fh)?;
+        // Ignore log_level
         self.fullscreen.save(fh)?;
         self.vsync.save(fh)?;
         self.sound_enabled.save(fh)?;
         // Ignore record/replay
         self.rewind_enabled.save(fh)?;
         self.save_enabled.save(fh)?;
+        // Ignore clear_save
         self.concurrent_dpad.save(fh)?;
         self.save_slot.save(fh)?;
         self.scale.save(fh)?;
@@ -86,14 +88,11 @@ impl Savable for NesConfig {
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        // TODO add path
-        // Ignore
-        // debug
-        // log_level
+        self.path.load(fh)?;
+        self.pause_in_bg.load(fh)?;
         self.fullscreen.load(fh)?;
         self.vsync.load(fh)?;
         self.sound_enabled.load(fh)?;
-        // Ignore record/replay
         self.rewind_enabled.load(fh)?;
         self.save_enabled.load(fh)?;
         self.concurrent_dpad.load(fh)?;

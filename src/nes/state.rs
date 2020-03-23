@@ -367,7 +367,11 @@ impl Loggable for Nes {
 
 impl Savable for Nes {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        // Ignore roms/loaded_rom/paused
+        // Ignore
+        // roms
+        // loaded_rom
+        // paused
+        // background_pause
         self.clock.save(fh)?;
         self.turbo_clock.save(fh)?;
         self.cpu.save(fh)?;
@@ -375,13 +379,12 @@ impl Savable for Nes {
         self.zapper_decay.save(fh)?;
         // Ignore
         // focused_window
-        // background_pause
-        // menu
+        // menus
+        // held_keys
         // cpu_break
         // break_instr
         // should_close
-        self.nes_window.save(fh)?;
-        // Ignore
+        // nes_window
         // ppu_viewer_window
         // nt_viewer_window
         // ppu_viewer
@@ -404,65 +407,26 @@ impl Savable for Nes {
         // Ignore
         // replay_buffer
         // messages
+        // Config
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         // Clone here prevents data corruption if loading fails
-        let mut nes = self.clone();
         // HACK: Really should figure a way to have a fresh state
-        nes.rewind_queue = VecDeque::with_capacity(REWIND_SIZE as usize);
-        // Ignore roms/loaded_rom/paused
+        let mut nes = self.clone();
         nes.clock.load(fh)?;
         nes.turbo_clock.load(fh)?;
         nes.cpu.load(fh)?;
         nes.cycles_remaining.load(fh)?;
         nes.zapper_decay.load(fh)?;
-        // Ignore
-        // focused_window
-        // background_pause
-        // menu
-        // cpu_break
-        // break_instr
-        // should_close
-        nes.nes_window.load(fh)?;
-        // Ignore
-        // ppu_viewer_window
-        // nt_viewer_window
-        // ppu_viewer
-        // nt_viewer
-        // nt_scanline
-        // pat_scanline
-        // debug_sprite
-        // ppu_info_sprite
-        // nt_info_sprite
-        // active_debug
         nes.width.load(fh)?;
         nes.height.load(fh)?;
         nes.speed_counter.load(fh)?;
         nes.rewind_timer.load(fh)?;
+        nes.rewind_queue = VecDeque::with_capacity(REWIND_SIZE as usize);
         nes.rewind_queue.load(fh)?;
-        // Ignore
-        // recording
-        // playback
         nes.frame.load(fh)?;
-        // Ignore
-        // replay_buffer
-        // messages
         *self = nes;
-        Ok(())
-    }
-}
-
-impl Savable for FrameEvent {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        println!("{}, {}", self.frame, self.events.len());
-        self.frame.save(fh)?;
-        self.events.save(fh)?;
-        Ok(())
-    }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.frame.load(fh)?;
-        self.events.load(fh)?;
         Ok(())
     }
 }

@@ -4,7 +4,10 @@
 //! [https://wiki.nesdev.com/w/index.php/MMC5]()
 
 use crate::{
-    apu::{Dmc, Pulse, PulseChannel},
+    apu::{
+        dmc::Dmc,
+        pulse::{Pulse, PulseChannel},
+    },
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
@@ -814,9 +817,16 @@ impl Savable for Exrom {
         self.prg_banks.save(fh)?;
         self.chr_banks_spr.save(fh)?;
         self.chr_banks_bg.save(fh)?;
-        self.cart.save(fh)?;
+        // Ignore cart
         self.prg_ram.save(fh)?;
         self.exram.save(fh)?;
+        self.tile_cache.save(fh)?;
+        self.in_split.save(fh)?;
+        self.split_tile.save(fh)?;
+        self.pulse1.save(fh)?;
+        self.pulse2.save(fh)?;
+        self.dmc.save(fh)?;
+        self.dmc_mode.save(fh)?;
         self.open_bus.save(fh)?;
         Ok(())
     }
@@ -835,9 +845,15 @@ impl Savable for Exrom {
         self.prg_banks.load(fh)?;
         self.chr_banks_spr.load(fh)?;
         self.chr_banks_bg.load(fh)?;
-        self.cart.load(fh)?;
         self.prg_ram.load(fh)?;
         self.exram.load(fh)?;
+        self.tile_cache.load(fh)?;
+        self.in_split.load(fh)?;
+        self.split_tile.load(fh)?;
+        self.pulse1.load(fh)?;
+        self.pulse2.load(fh)?;
+        self.dmc.load(fh)?;
+        self.dmc_mode.load(fh)?;
         self.open_bus.load(fh)?;
         Ok(())
     }

@@ -4,6 +4,7 @@ use crate::{
     logging::LogLevel,
     nes::{config::DEFAULT_SPEED, Nes},
     ppu::RENDER_WIDTH,
+    serialization::Savable,
     NesResult,
 };
 use chrono::prelude::{DateTime, Local};
@@ -11,7 +12,10 @@ use pix_engine::{
     event::{Axis, Button, Key, Mouse, PixEvent},
     StateData,
 };
-use std::path::PathBuf;
+use std::{
+    io::{Read, Write},
+    path::PathBuf,
+};
 
 const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
 const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
@@ -20,24 +24,6 @@ const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 pub(super) struct FrameEvent {
     pub(super) frame: usize,
     pub(super) events: Vec<PixEvent>,
-}
-
-impl FrameEvent {
-    pub(super) fn new(frame: usize, events: Vec<PixEvent>) -> Self {
-        Self {
-            frame,
-            events: events,
-        }
-    }
-}
-
-impl Default for FrameEvent {
-    fn default() -> Self {
-        Self {
-            frame: 0,
-            events: Vec::new(),
-        }
-    }
 }
 
 impl Nes {
@@ -614,6 +600,35 @@ impl Nes {
                 _ => false,
             },
             _ => false,
+        }
+    }
+}
+
+impl FrameEvent {
+    pub(super) fn new(frame: usize, events: Vec<PixEvent>) -> Self {
+        Self { frame, events }
+    }
+}
+
+impl Savable for FrameEvent {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        println!("{}, {}", self.frame, self.events.len());
+        self.frame.save(fh)?;
+        self.events.save(fh)?;
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        self.frame.load(fh)?;
+        self.events.load(fh)?;
+        Ok(())
+    }
+}
+
+impl Default for FrameEvent {
+    fn default() -> Self {
+        Self {
+            frame: 0,
+            events: Vec::new(),
         }
     }
 }

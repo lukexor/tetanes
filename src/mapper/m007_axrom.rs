@@ -111,13 +111,17 @@ impl Savable for Axrom {
         self.mirroring.save(fh)?;
         self.prg_rom_bank.save(fh)?;
         self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)
+        self.chr_banks.save(fh)?;
+        self.open_bus.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.prg_rom_bank.load(fh)?;
         self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)
+        self.chr_banks.load(fh)?;
+        self.open_bus.load(fh)?;
+        Ok(())
     }
 }

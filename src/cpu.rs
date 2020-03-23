@@ -30,15 +30,15 @@ const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
 const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
-const POWER_ON_CYCLES: usize = 7; // Power up takes 6 cycles
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 const PC_LOG_LEN: usize = 20;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Irq {
-    Mapper = 1,
-    FrameCounter = (1 << 1),
-    Dmc = (1 << 2),
+    Reset = 1,
+    Mapper = (1 << 1),
+    FrameCounter = (1 << 2),
+    Dmc = (1 << 3),
 }
 
 // Status Registers
@@ -104,12 +104,12 @@ impl Cpu {
             status: POWER_ON_STATUS,
             bus,
             pc_log: VecDeque::with_capacity(PC_LOG_LEN),
-            stall: POWER_ON_CYCLES,
+            stall: 0,
             instr: INSTRUCTIONS[0x00],
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            irq_pending: 0,
+            irq_pending: Irq::Reset as u8,
             nmi_pending: false,
             last_irq: false,
             last_nmi: false,
@@ -121,9 +121,7 @@ impl Cpu {
         let pcl = u16::from(self.bus.read(RESET_ADDR));
         let pch = u16::from(self.bus.read(RESET_ADDR + 1));
         self.pc = (pch << 8) | pcl;
-        for _ in 0..POWER_ON_CYCLES {
-            self.clock();
-        }
+        self.set_irq(Irq::Reset, true);
     }
 
     pub fn next_instr(&self) -> Instr {
@@ -142,6 +140,11 @@ impl Cpu {
         }
     }
 
+    /// Checks if a a given IRQ is active
+    pub fn has_irq(&mut self, irq: Irq) -> bool {
+        (self.irq_pending & irq as u8) > 0
+    }
+
     //  #  address R/W description
     // --- ------- --- -----------------------------------------------
     //  1    PC     R  fetch PCH
@@ -158,7 +161,10 @@ impl Cpu {
         // Set U and !B during push
         self.push_stackb((self.status | U as u8) & !(B as u8));
         self.set_flag(I, true);
-        if self.last_nmi {
+        if self.has_irq(Irq::Reset) {
+            self.pc = self.readw(RESET_ADDR);
+            self.set_irq(Irq::Reset, false);
+        } else if self.last_nmi {
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_ADDR);
@@ -1071,7 +1077,9 @@ impl Clocked for Cpu {
 
         let start_cycles = self.cycle_count;
 
-        if self.last_nmi {
+        if self.has_irq(Irq::Reset) {
+            self.irq();
+        } else if self.last_nmi {
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.nmi();
@@ -1222,7 +1230,7 @@ impl Powered for Cpu {
     fn reset(&mut self) {
         self.bus.reset();
         self.cycle_count = 0;
-        self.stall = POWER_ON_CYCLES;
+        self.stall = 0;
         self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
         self.pc_log.clear();
@@ -1237,7 +1245,7 @@ impl Powered for Cpu {
     fn power_cycle(&mut self) {
         self.bus.power_cycle();
         self.cycle_count = 0;
-        self.stall = POWER_ON_CYCLES;
+        self.stall = 0;
         self.sp = POWER_ON_SP;
         self.acc = 0x00;
         self.x = 0x00;
@@ -1259,9 +1267,7 @@ impl Loggable for Cpu {
 
 impl Savable for Cpu {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.bus.save(fh)?;
         self.cycle_count.save(fh)?;
-        self.stall.save(fh)?;
         self.step.save(fh)?;
         self.pc.save(fh)?;
         self.sp.save(fh)?;
@@ -1269,18 +1275,22 @@ impl Savable for Cpu {
         self.x.save(fh)?;
         self.y.save(fh)?;
         self.status.save(fh)?;
+        self.bus.save(fh)?;
+        // Ignore pc_log
+        self.stall.save(fh)?;
         self.instr.save(fh)?;
         self.abs_addr.save(fh)?;
         self.rel_addr.save(fh)?;
         self.fetched_data.save(fh)?;
         self.irq_pending.save(fh)?;
         self.nmi_pending.save(fh)?;
+        self.last_irq.save(fh)?;
+        self.last_nmi.save(fh)?;
+        // Ignore log_level
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.bus.load(fh)?;
         self.cycle_count.load(fh)?;
-        self.stall.load(fh)?;
         self.step.load(fh)?;
         self.pc.load(fh)?;
         self.sp.load(fh)?;
@@ -1288,12 +1298,16 @@ impl Savable for Cpu {
         self.x.load(fh)?;
         self.y.load(fh)?;
         self.status.load(fh)?;
+        self.bus.load(fh)?;
+        self.stall.load(fh)?;
         self.instr.load(fh)?;
         self.abs_addr.load(fh)?;
         self.rel_addr.load(fh)?;
         self.fetched_data.load(fh)?;
         self.irq_pending.load(fh)?;
         self.nmi_pending.load(fh)?;
+        self.last_irq.load(fh)?;
+        self.last_nmi.load(fh)?;
         Ok(())
     }
 }
@@ -2263,7 +2277,7 @@ mod tests {
             );
             assert_eq!(
                 cpu.bus.ppu.cycle_count,
-                ppu_cyc as u32,
+                ppu_cyc as usize,
                 "ppu ${:02X} {:?} #{:?}",
                 instr.opcode(),
                 instr.op(),

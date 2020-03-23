@@ -100,7 +100,9 @@ impl Savable for Cnrom {
         self.prg_rom_bank_hi.save(fh)?;
         self.chr_bank.save(fh)?;
         self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)
+        self.chr_banks.save(fh)?;
+        self.open_bus.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mirroring.load(fh)?;
@@ -108,6 +110,8 @@ impl Savable for Cnrom {
         self.prg_rom_bank_hi.load(fh)?;
         self.chr_bank.load(fh)?;
         self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)
+        self.chr_banks.load(fh)?;
+        self.open_bus.load(fh)?;
+        Ok(())
     }
 }

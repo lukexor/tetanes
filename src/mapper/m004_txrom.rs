@@ -364,27 +364,35 @@ impl Loggable for Txrom {}
 impl Savable for Txrom {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.regs.save(fh)?;
+        self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
+        self.mmc3_revb.save(fh)?;
+        self.mmc_acc.save(fh)?;
         self.battery_backed.save(fh)?;
         self.prg_rom_bank_idx.save(fh)?;
         self.chr_bank_idx.save(fh)?;
         self.four_screen_ram.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)
+        self.chr_banks.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.regs.load(fh)?;
+        self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
+        self.mmc3_revb.load(fh)?;
+        self.mmc_acc.load(fh)?;
         self.battery_backed.load(fh)?;
         self.prg_rom_bank_idx.load(fh)?;
         self.chr_bank_idx.load(fh)?;
         self.four_screen_ram.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)
+        self.chr_banks.load(fh)?;
+        Ok(())
     }
 }
 
@@ -396,7 +404,8 @@ impl Savable for TxRegs {
         self.irq_counter.save(fh)?;
         self.irq_enabled.save(fh)?;
         self.last_clock.save(fh)?;
-        self.open_bus.save(fh)
+        self.open_bus.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.bank_select.load(fh)?;
@@ -405,6 +414,7 @@ impl Savable for TxRegs {
         self.irq_counter.load(fh)?;
         self.irq_enabled.load(fh)?;
         self.last_clock.load(fh)?;
-        self.open_bus.load(fh)
+        self.open_bus.load(fh)?;
+        Ok(())
     }
 }

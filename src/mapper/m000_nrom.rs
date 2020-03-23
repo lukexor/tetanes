@@ -140,19 +140,23 @@ impl Savable for Nrom {
         self.has_chr_ram.save(fh)?;
         self.battery_backed.save(fh)?;
         self.mirroring.save(fh)?;
+        self.open_bus.save(fh)?;
         self.nrom_size.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)
+        self.chr_banks.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.has_chr_ram.load(fh)?;
         self.battery_backed.load(fh)?;
         self.mirroring.load(fh)?;
+        self.open_bus.load(fh)?;
         self.nrom_size.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)
+        self.chr_banks.load(fh)?;
+        Ok(())
     }
 }
 

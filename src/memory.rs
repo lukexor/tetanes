@@ -26,11 +26,28 @@ pub trait MemWrite {
     fn write(&mut self, _addr: u16, _val: u8) {}
     fn writew(&mut self, _addr: usize, _val: u8) {}
 }
+pub trait Bankable
+where
+    Self: std::marker::Sized,
+{
+    fn chunks(&self, size: usize) -> Vec<Self>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+}
 
 #[derive(Default, Clone)]
 pub struct Memory {
     data: Vec<u8>,
     writable: bool,
+}
+
+#[derive(Default, Clone)]
+pub struct Banks<T>
+where
+    T: MemRead + MemWrite + Bankable,
+{
+    banks: Vec<T>,
+    pub size: usize,
 }
 
 impl Memory {
@@ -151,24 +168,6 @@ impl Savable for Memory {
         self.writable.load(fh)?;
         Ok(())
     }
-}
-
-pub trait Bankable
-where
-    Self: std::marker::Sized,
-{
-    fn chunks(&self, size: usize) -> Vec<Self>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool;
-}
-
-#[derive(Default, Clone)]
-pub struct Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    banks: Vec<T>,
-    pub size: usize,
 }
 
 impl<T> Banks<T>

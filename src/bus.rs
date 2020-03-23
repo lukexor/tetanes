@@ -238,19 +238,21 @@ impl Powered for Bus {
 
 impl Savable for Bus {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.wram.save(fh)?;
-        self.open_bus.save(fh)?;
         self.ppu.save(fh)?;
         self.apu.save(fh)?;
         self.mapper.borrow().save(fh)?;
+        // Ignore input
+        self.wram.save(fh)?;
+        self.open_bus.save(fh)?;
+        // Ignore genie_codes, genie_map
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.wram.load(fh)?;
-        self.open_bus.load(fh)?;
         self.ppu.load(fh)?;
         self.apu.load(fh)?;
         self.mapper.borrow_mut().load(fh)?;
+        self.wram.load(fh)?;
+        self.open_bus.load(fh)?;
         Ok(())
     }
 }

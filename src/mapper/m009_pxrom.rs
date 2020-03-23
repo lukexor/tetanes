@@ -159,7 +159,9 @@ impl Savable for Pxrom {
         self.chr_rom_bank_idx.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)
+        self.chr_banks.save(fh)?;
+        self.open_bus.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mirroring.load(fh)?;
@@ -168,6 +170,8 @@ impl Savable for Pxrom {
         self.chr_rom_bank_idx.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)
+        self.chr_banks.load(fh)?;
+        self.open_bus.load(fh)?;
+        Ok(())
     }
 }

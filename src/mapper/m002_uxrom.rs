@@ -104,13 +104,17 @@ impl Savable for Uxrom {
         self.prg_rom_bank_lo.save(fh)?;
         self.prg_rom_bank_hi.save(fh)?;
         self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)
+        self.chr_banks.save(fh)?;
+        self.open_bus.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
         self.prg_rom_bank_hi.load(fh)?;
         self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)
+        self.chr_banks.load(fh)?;
+        self.open_bus.load(fh)?;
+        Ok(())
     }
 }

@@ -297,25 +297,27 @@ impl Loggable for Sxrom {}
 impl Savable for Sxrom {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
         self.regs.save(fh)?;
-        self.prg_ram.save(fh)?;
+        self.battery_backed.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
         self.prg_rom_bank_hi.save(fh)?;
         self.chr_bank_lo.save(fh)?;
         self.chr_bank_hi.save(fh)?;
         self.prg_ram.save(fh)?;
         self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)
+        self.chr_banks.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.regs.load(fh)?;
-        self.prg_ram.load(fh)?;
+        self.battery_backed.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
         self.prg_rom_bank_hi.load(fh)?;
         self.chr_bank_lo.load(fh)?;
         self.chr_bank_hi.load(fh)?;
         self.prg_ram.load(fh)?;
         self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)
+        self.chr_banks.load(fh)?;
+        Ok(())
     }
 }
 
@@ -327,7 +329,8 @@ impl Savable for SxRegs {
         self.chr_bank_0.save(fh)?;
         self.chr_bank_1.save(fh)?;
         self.prg_bank.save(fh)?;
-        self.open_bus.save(fh)
+        self.open_bus.save(fh)?;
+        Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         self.write_just_occurred.load(fh)?;
@@ -336,6 +339,7 @@ impl Savable for SxRegs {
         self.chr_bank_0.load(fh)?;
         self.chr_bank_1.load(fh)?;
         self.prg_bank.load(fh)?;
-        self.open_bus.load(fh)
+        self.open_bus.load(fh)?;
+        Ok(())
     }
 }
