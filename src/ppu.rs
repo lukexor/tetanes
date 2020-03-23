@@ -446,7 +446,7 @@ impl Ppu {
         let mut bg_color = self.background_color();
         let (i, mut sprite_color) = self.sprite_color();
 
-        let border_pixel = x < 8;
+        let border_pixel = x <= 8;
         if border_pixel && !self.regs.show_left_background() {
             bg_color = 0;
         }
@@ -466,9 +466,10 @@ impl Ppu {
                 && self.frame.sprite_zero_on_line
                 && self.rendering_enabled()
                 && !self.sprite_zero_hit()
-                && self.frame.sprites[i].x != 255
+                && self.frame.sprites[i].x != 256
                 && x > 0
-                && x != 255
+                && x != 256
+                && y <= 239
                 && bg_opaque
                 && sprite_opaque
             {
@@ -896,16 +897,6 @@ impl Clocked for Ppu {
         for _ in 0..clocks {
             self.run_cycle();
 
-            if self.debug && self.cycle == IDLE_CYCLE {
-                if self.scanline == self.nt_scanline {
-                    self.load_nametables();
-                }
-                if self.scanline == self.pat_scanline {
-                    self.load_pattern_tables();
-                    self.load_palettes();
-                }
-            }
-
             if self.cycle == VISIBLE_CYCLE_START && self.scanline == VBLANK_SCANLINE {
                 self.start_vblank();
             }
@@ -918,6 +909,15 @@ impl Clocked for Ppu {
                 self.set_sprite_zero_hit(false);
                 self.set_sprite_overflow(false);
                 self.stop_vblank();
+            }
+            if self.debug && self.cycle == IDLE_CYCLE {
+                if self.scanline == self.nt_scanline {
+                    self.load_nametables();
+                }
+                if self.scanline == self.pat_scanline {
+                    self.load_pattern_tables();
+                    self.load_palettes();
+                }
             }
         }
         clocks
