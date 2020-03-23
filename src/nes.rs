@@ -1,4 +1,4 @@
-//! User Interface representing the the NES Game Deck
+//! User Interface representing the the NES Control Deck
 
 use crate::{
     apu::SAMPLE_RATE,
@@ -16,7 +16,7 @@ use crate::{
     NesResult,
 };
 use include_dir::{include_dir, Dir};
-use pix_engine::{sprite::Sprite, PixEngine, PixEngineResult, State, StateData};
+use pix_engine::{sprite::Sprite, PixEngine, PixEngineResult, State, StateData, WindowId};
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
@@ -33,6 +33,7 @@ mod state;
 pub use config::NesConfig;
 
 const APP_NAME: &str = "RustyNES";
+// This includes static assets as a binary during installation
 const _STATIC_DIR: Dir = include_dir!("./static");
 const ICON_PATH: &str = "static/rustynes_icon.png";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
@@ -52,15 +53,15 @@ pub struct Nes {
     cpu: Cpu,
     cycles_remaining: f32,
     zapper_decay: u32,
-    focused_window: Option<u32>,
+    focused_window: Option<WindowId>,
     menus: [Menu; 4],
     held_keys: HashMap<u8, bool>,
     cpu_break: bool,
     break_instr: Option<u16>,
     should_close: bool,
-    nes_window: u32,
-    ppu_viewer_window: Option<u32>,
-    nt_viewer_window: Option<u32>,
+    nes_window: WindowId,
+    ppu_viewer_window: Option<WindowId>,
+    nt_viewer_window: Option<WindowId>,
     ppu_viewer: bool,
     nt_viewer: bool,
     nt_scanline: u32,
@@ -83,11 +84,13 @@ pub struct Nes {
 }
 
 impl Nes {
+    // Create a new NES emulation with default config settings
     pub fn new() -> Self {
         let config = NesConfig::default();
         Self::with_config(config).unwrap()
     }
 
+    /// Create a new NES emulation with passed in config settings
     pub fn with_config(config: NesConfig) -> NesResult<Self> {
         let scale = config.scale;
         let width = scale * WINDOW_WIDTH;
@@ -144,6 +147,7 @@ impl Nes {
         Ok(nes)
     }
 
+    /// Begins emulation by starting the game engine loop
     pub fn run(self) -> NesResult<()> {
         let width = self.width;
         let height = self.height;
@@ -176,6 +180,7 @@ impl Nes {
         self.turbo_clock = (self.turbo_clock + 1) % 6;
     }
 
+    /// Steps the console the number of seconds
     pub fn clock_seconds(&mut self, seconds: f32) {
         self.cycles_remaining += CPU_CLOCK_RATE * seconds;
         while !self.cpu_break && self.cycles_remaining > 0.0 {
@@ -186,16 +191,9 @@ impl Nes {
         }
         self.cpu_break = false;
     }
-}
 
-impl State for Nes {
-    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
-        self.nes_window = data.main_window();
-        self.focused_window = Some(self.nes_window);
-
-        // Before rendering anything, set up our textures
-        self.create_textures(data)?;
-
+    /// Finds roms in the current path. If there is only one, it is started
+    fn find_or_load_roms(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
         match self.find_roms() {
             Ok(mut roms) => self.roms.append(&mut roms),
             Err(e) => nes_err!("{}", e)?,
@@ -224,7 +222,11 @@ impl State for Nes {
             }
             self.update_title(data);
         }
+        Ok(true)
+    }
 
+    /// Sets up the emulation based on startup configuration settings
+    fn config_setup(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
         if self.config.debug {
             self.config.debug = !self.config.debug;
             self.toggle_debug(data)?;
@@ -244,20 +246,11 @@ impl State for Nes {
         if self.config.fullscreen {
             data.fullscreen(true)?;
         }
-
         Ok(true)
     }
 
-    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
-        self.poll_events(data)?;
-        if self.should_close {
-            return Ok(false);
-        }
-        self.check_focus();
-        self.update_title(data);
-
-        self.save_rewind(elapsed);
-
+    /// Runs the emulation a certain amount if not paused based on settings
+    fn run_emulation(&mut self, elapsed: f32) {
         if !self.paused {
             self.clock += elapsed;
             // Frames that aren't multiples of the default render 1 more/less frames
@@ -268,7 +261,6 @@ impl State for Nes {
                 self.speed_counter -= 100;
                 frames_to_run += 1;
             }
-
             // Clock NES
             if self.config.unlock_fps {
                 self.clock_seconds(self.config.speed * elapsed);
@@ -278,18 +270,20 @@ impl State for Nes {
                 }
             }
         }
+    }
 
-        // Update screen
+    /// Update rendering textures with emulation state
+    fn update_textures(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
+        // Update main screen
         data.copy_texture(self.nes_window, "nes", &self.cpu.bus.ppu.frame())?;
-
         // Draw any open menus
         for menu in self.menus.iter_mut() {
             menu.draw(data)?;
         }
-
         self.draw_messages(elapsed, data)?;
-
         if self.config.debug {
+            // Draw updated debug info if active_debug is set, or if the game
+            // gets paused
             if self.active_debug || self.paused {
                 self.draw_debug(data);
             }
@@ -301,14 +295,36 @@ impl State for Nes {
         if self.nt_viewer {
             self.copy_nt_viewer(data)?;
         }
+        Ok(true)
+    }
+}
 
+impl State for Nes {
+    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
+        self.nes_window = data.main_window_id();
+        self.focused_window = Some(self.nes_window);
+        self.create_textures(data)?;
+        self.find_or_load_roms(data)?;
+        self.config_setup(data)?;
+        Ok(true)
+    }
+
+    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
+        self.poll_events(data)?;
+        if self.should_close {
+            return Ok(false);
+        }
+        self.update_title(data);
+        self.check_window_focus();
+        self.save_rewind(elapsed);
+        self.run_emulation(elapsed);
+        self.update_textures(elapsed, data)?;
         // Enqueue sound
         if self.config.sound_enabled {
             let samples = self.cpu.bus.apu.samples();
             data.enqueue_audio(&samples);
         }
         self.cpu.bus.apu.clear_samples();
-
         Ok(true)
     }
 
@@ -321,12 +337,6 @@ impl State for Nes {
 impl fmt::Debug for Nes {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(f, "Nes {{\n  cpu: {:?}\n}} ", self.cpu)
-    }
-}
-
-impl Default for NesConfig {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

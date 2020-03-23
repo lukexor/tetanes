@@ -159,3 +159,9 @@ impl Nes {
         }
     }
 }
+
+impl Default for NesConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
