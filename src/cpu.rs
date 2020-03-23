@@ -30,7 +30,6 @@ pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
 const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
-const POWER_ON_SP: u16 = 0x100; // Top of the stack
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 const PC_LOG_LEN: usize = 20;
@@ -74,7 +73,7 @@ pub struct Cpu {
     pub cycle_count: usize, // total number of cycles ran
     pub step: usize,        // total number of CPU instructions run
     pub pc: u16,            // program counter
-    pub sp: u16,            // stack pointer - stack is at $0100-$01FF
+    pub sp: u8,             // stack pointer - stack is at $0100-$01FF
     pub acc: u8,            // accumulator
     pub x: u8,              // x register
     pub y: u8,              // y register
@@ -99,7 +98,7 @@ impl Cpu {
             cycle_count: 0,
             step: 0,
             pc: 0x0000,
-            sp: POWER_ON_SP,
+            sp: 0x00,
             acc: 0x00,
             x: 0x00,
             y: 0x00,
@@ -262,7 +261,7 @@ impl Cpu {
 
     // Push a byte to the stack
     fn push_stackb(&mut self, val: u8) {
-        self.write(SP_BASE | self.sp, val);
+        self.write(SP_BASE | u16::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
     }
 
@@ -270,20 +269,20 @@ impl Cpu {
     // except decrement the stack pointer
     // Used by Irq::Reset
     fn push_read_stackb(&mut self, _val: u8) {
-        let _ = self.read(SP_BASE | self.sp);
+        let _ = self.read(SP_BASE | u16::from(self.sp));
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Pull a byte from the stack
     fn pop_stackb(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read(SP_BASE | self.sp)
+        self.read(SP_BASE | u16::from(self.sp))
     }
 
     // Peek byte at the top of the stack
     pub fn peek_stackb(&self) -> u8 {
         let sp = self.sp.wrapping_add(1);
-        self.peek(SP_BASE | sp)
+        self.peek(SP_BASE | u16::from(sp))
     }
 
     // Push a word (two bytes) to the stack
@@ -314,9 +313,9 @@ impl Cpu {
     // Peek at the top of the stack
     pub fn peek_stackw(&self) -> u16 {
         let sp = self.sp.wrapping_add(1);
-        let lo = u16::from(self.peek(SP_BASE | sp));
+        let lo = u16::from(self.peek(SP_BASE | u16::from(sp)));
         let sp = sp.wrapping_add(1);
-        let hi = u16::from(self.peek(SP_BASE | sp));
+        let hi = u16::from(self.peek(SP_BASE | u16::from(sp)));
         hi << 8 | lo
     }
 
@@ -1272,8 +1271,8 @@ impl Powered for Cpu {
         self.acc = 0x00;
         self.x = 0x00;
         self.y = 0x00;
-        self.sp = POWER_ON_SP;
         self.status = POWER_ON_STATUS;
+        self.sp = 0;
         self.power_on();
     }
 }
