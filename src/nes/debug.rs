@@ -1,5 +1,8 @@
 use crate::{
-    cpu::{AddrMode::*, Operation::*, StatusRegs, INSTRUCTIONS},
+    cpu::{
+        instr::{AddrMode::*, Operation::*, INSTRUCTIONS},
+        StatusRegs,
+    },
     memory::MemRead,
     nes::{Nes, WINDOW_WIDTH},
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},

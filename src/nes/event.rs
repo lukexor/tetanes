@@ -1,6 +1,6 @@
 use crate::{
     common::{create_png, Clocked, Powered},
-    cpu::Operation::*,
+    cpu::instr::Operation::*,
     logging::LogLevel,
     nes::{config::DEFAULT_SPEED, Nes},
     ppu::RENDER_WIDTH,
