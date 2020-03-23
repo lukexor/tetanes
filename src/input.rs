@@ -104,8 +104,8 @@ impl MemRead for Input {
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
             0x4016 => self.gamepad1.next_state() | 0x40,
-            // 0x4017 => self.gamepad2.next_state() | 0x40,
-            0x4017 => (self.zapper.light_sense as u8) << 3 | (self.zapper.triggered as u8) << 4,
+            0x4017 => self.gamepad2.next_state() | 0x40,
+            // 0x4017 => (self.zapper.light_sense as u8) << 3 | (self.zapper.triggered as u8) << 4,
             _ => self.open_bus,
         };
         self.open_bus = val;
