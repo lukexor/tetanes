@@ -30,7 +30,7 @@ pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
 const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
-const POWER_ON_SP: u8 = 0xFD; // Because reasons. Possibly because of NMI/IRQ/BRK messing with SP on reset
+const POWER_ON_SP: u16 = 0x100; // Top of the stack
 const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 const PC_LOG_LEN: usize = 20;
@@ -74,7 +74,7 @@ pub struct Cpu {
     pub cycle_count: usize, // total number of cycles ran
     pub step: usize,        // total number of CPU instructions run
     pub pc: u16,            // program counter
-    pub sp: u8,             // stack pointer - stack is at $0100-$01FF
+    pub sp: u16,            // stack pointer - stack is at $0100-$01FF
     pub acc: u8,            // accumulator
     pub x: u8,              // x register
     pub y: u8,              // y register
@@ -120,9 +120,9 @@ impl Cpu {
     }
 
     pub fn power_on(&mut self) {
-        let pcl = u16::from(self.bus.read(RESET_ADDR));
-        let pch = u16::from(self.bus.read(RESET_ADDR + 1));
-        self.pc = (pch << 8) | pcl;
+        self.cycle_count = 0;
+        self.stall = 0;
+        self.pc_log.clear();
         self.set_irq(Irq::Reset, true);
     }
 
@@ -159,23 +159,32 @@ impl Cpu {
     pub fn irq(&mut self) {
         self.read(self.pc);
         self.read(self.pc);
-        self.push_stackw(self.pc);
-        // Set U and !B during push
-        self.push_stackb((self.status | U as u8) & !(B as u8));
-        self.set_flag(I, true);
         if self.has_irq(Irq::Reset) {
+            // EXPL: Reset follows the same push behavior as IRQ/NMI except the
+            // read flag is set, so results are discarded
+            self.push_read_stackw(self.pc);
+            self.push_read_stackb((self.status | U as u8) & !(B as u8));
             self.pc = self.readw(RESET_ADDR);
             self.set_irq(Irq::Reset, false);
-        } else if self.last_nmi {
-            self.nmi_pending = false;
-            self.bus.ppu.nmi_pending = false;
-            self.pc = self.readw(NMI_ADDR);
         } else {
-            self.pc = self.readw(IRQ_ADDR);
-        }
-        // Prevent NMI from triggering immediately after IRQ
-        if self.last_nmi {
-            self.last_nmi = false;
+            self.push_stackw(self.pc);
+            // Set U and !B during push
+            self.push_stackb((self.status | U as u8) & !(B as u8));
+            self.set_flag(I, true);
+            if self.has_irq(Irq::Reset) {
+                self.pc = self.readw(RESET_ADDR);
+                self.set_irq(Irq::Reset, false);
+            } else if self.last_nmi {
+                self.nmi_pending = false;
+                self.bus.ppu.nmi_pending = false;
+                self.pc = self.readw(NMI_ADDR);
+            } else {
+                self.pc = self.readw(IRQ_ADDR);
+            }
+            // Prevent NMI from triggering immediately after IRQ
+            if self.last_nmi {
+                self.last_nmi = false;
+            }
         }
     }
 
@@ -253,20 +262,28 @@ impl Cpu {
 
     // Push a byte to the stack
     fn push_stackb(&mut self, val: u8) {
-        self.write(SP_BASE | u16::from(self.sp), val);
+        self.write(SP_BASE | self.sp, val);
+        self.sp = self.sp.wrapping_sub(1);
+    }
+
+    // Push a byte to the stack with read value set, so no actual operation is done
+    // except decrement the stack pointer
+    // Used by Irq::Reset
+    fn push_read_stackb(&mut self, _val: u8) {
+        let _ = self.read(SP_BASE | self.sp);
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Pull a byte from the stack
     fn pop_stackb(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read(SP_BASE | u16::from(self.sp))
+        self.read(SP_BASE | self.sp)
     }
 
     // Peek byte at the top of the stack
     pub fn peek_stackb(&self) -> u8 {
         let sp = self.sp.wrapping_add(1);
-        self.peek(SP_BASE | u16::from(sp))
+        self.peek(SP_BASE | sp)
     }
 
     // Push a word (two bytes) to the stack
@@ -275,6 +292,16 @@ impl Cpu {
         let hi = (val >> 8) as u8;
         self.push_stackb(hi);
         self.push_stackb(lo);
+    }
+
+    // Push a word (two bytes) to the stack with read value set, so no actual operation is done
+    // except decrementing the stack pointer
+    // Used by Irq::Reset
+    fn push_read_stackw(&mut self, val: u16) {
+        let lo = (val & 0xFF) as u8;
+        let hi = (val >> 8) as u8;
+        self.push_read_stackb(hi);
+        self.push_read_stackb(lo);
     }
 
     // Pull a word (two bytes) from the stack
@@ -287,9 +314,9 @@ impl Cpu {
     // Peek at the top of the stack
     pub fn peek_stackw(&self) -> u16 {
         let sp = self.sp.wrapping_add(1);
-        let lo = u16::from(self.peek(SP_BASE | u16::from(sp)));
+        let lo = u16::from(self.peek(SP_BASE | sp));
         let sp = sp.wrapping_add(1);
-        let hi = u16::from(self.peek(SP_BASE | u16::from(sp)));
+        let hi = u16::from(self.peek(SP_BASE | sp));
         hi << 8 | lo
     }
 
@@ -1231,11 +1258,7 @@ impl Powered for Cpu {
     /// These operations take the CPU 7 cycle.
     fn reset(&mut self) {
         self.bus.reset();
-        self.cycle_count = 0;
-        self.stall = 0;
-        self.sp = self.sp.saturating_sub(3);
         self.set_flag(I, true);
-        self.pc_log.clear();
         self.power_on();
     }
 
@@ -1246,14 +1269,11 @@ impl Powered for Cpu {
     /// These operations take the CPU 7 cycle.
     fn power_cycle(&mut self) {
         self.bus.power_cycle();
-        self.cycle_count = 0;
-        self.stall = 0;
-        self.sp = POWER_ON_SP;
         self.acc = 0x00;
         self.x = 0x00;
         self.y = 0x00;
+        self.sp = POWER_ON_SP;
         self.status = POWER_ON_STATUS;
-        self.pc_log.clear();
         self.power_on();
     }
 }

@@ -124,7 +124,7 @@ impl Cpu {
     }
     /// TSX: Transfer Stack Pointer to X
     pub(super) fn tsx(&mut self) {
-        self.x = self.sp;
+        self.x = self.sp as u8;
         self.set_flags_zn(self.x);
     }
     /// TXA: Transfer X to A
@@ -134,7 +134,7 @@ impl Cpu {
     }
     /// TXS: Transfer X to Stack Pointer
     pub(super) fn txs(&mut self) {
-        self.sp = self.x;
+        self.sp = u16::from(self.x);
     }
     /// TYA: Transfer Y to A
     pub(super) fn tya(&mut self) {
@@ -380,7 +380,7 @@ impl Cpu {
     //  6    PC     R  copy low address byte to PCL, fetch high address
     //                 byte to PCH
     pub(super) fn jsr(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | self.sp); // Cycle 3
         self.push_stackw(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
     }
@@ -394,7 +394,7 @@ impl Cpu {
     //  5  $0100,S  R  pull PCL from stack, increment S
     //  6  $0100,S  R  pull PCH from stack
     pub(super) fn rti(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | self.sp); // Cycle 3
         self.status = self.pop_stackb(); // Cycle 4
         self.status &= !(U as u8);
         self.status &= !(B as u8);
@@ -410,7 +410,7 @@ impl Cpu {
     //  5  $0100,S  R  pull PCH from stack
     //  6    PC     R  increment PC
     pub(super) fn rts(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | self.sp); // Cycle 3
         self.pc = self.pop_stackw().wrapping_add(1); // Cycles 4 & 5
         let _ = self.read(self.pc); // Cycle 6
     }
@@ -490,7 +490,7 @@ impl Cpu {
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
     pub(super) fn plp(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | self.sp); // Cycle 3
         self.status = self.pop_stackb();
     }
     /// PHA: Push A on Stack
@@ -510,7 +510,7 @@ impl Cpu {
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
     pub(super) fn pla(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | self.sp); // Cycle 3
         self.acc = self.pop_stackb();
         self.set_flags_zn(self.acc);
     }
@@ -688,7 +688,7 @@ impl Cpu {
         // STA
         self.write(self.abs_addr, self.acc);
         // TXS
-        self.sp = self.x;
+        self.sp = u16::from(self.x);
     }
     /// ARR: Shortcut for AND #imm then ROR, but sets flags differently
     /// C is bit 6 and V is bit 6 xor bit 5
