@@ -1,7 +1,7 @@
 [package]
 name = "rustynes"
 version = "0.5.0"
-license = "GNU"
+license = "GPL-3.0-or-later"
 description = "A NES Emulator written in Rust with SDL2 and WebAssembly support"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
 readme = "README.md"
@@ -11,24 +11,26 @@ homepage = "https://github.com/lukexor/rustynes"
 edition = "2018"
 
 [dependencies]
+chrono = "0.4.11"
 dirs = "2.0.2"
-structopt = "0.3.1"
-chrono = "0.4.9"
-rand = "0.7.1"
-png = "0.15.0"
-pix-engine = { path = "lib/pix-engine", default_features = false }
-wasm-bindgen = { version = "0.2.51", optional = true }
+include_dir = "0.5.0"
+pix-engine = { version = "0.3.0", default_features = false }
+png = "0.16.1"
+rand = "0.7.3"
+structopt = "0.3.12"
+wasm-bindgen = { version = "0.2.59", optional = true }
 
 [features]
 default = ["sdl2-driver"]
 sdl2-driver = ["pix-engine/sdl2-driver"]
 wasm-driver = ["pix-engine/wasm-driver", "wasm-bindgen"]
+no-randomize-ram = []
 
 [profile.dev]
 opt-level = 2
 
 [profile.release]
-debug = true
+# debug = true
 lto = true
 codegen-units = 1
 panic = 'abort'

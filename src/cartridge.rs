@@ -18,6 +18,25 @@ use std::{
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
+/// Represents an iNES header
+///
+/// [http://wiki.nesdev.com/w/index.php/INES]()
+/// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
+/// [http://nesdev.com/NESDoc.pdf (page 28)]()
+#[derive(Default, Debug)]
+pub struct INesHeader {
+    pub version: u8,       // 1 for iNES or 2 for NES 2.0
+    pub mapper_num: u16,   // The primary mapper number
+    pub submapper_num: u8, // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
+    pub flags: u8,         // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
+    pub prg_rom_size: u16, // Number of 16 KB PRG-ROM banks (Program ROM)
+    pub chr_rom_size: u16, // Number of 8 KB CHR-ROM banks (Character ROM)
+    pub prg_ram_size: u8,  // NES 2.0 PRG-RAM
+    pub chr_ram_size: u8,  // NES 2.0 CHR-RAM
+    pub tv_mode: u8,       // NES 2.0 NTSC/PAL indicator
+    pub vs_data: u8,       // NES 2.0 VS System data
+}
+
 /// Represents an NES Cartridge
 #[derive(Default)]
 pub struct Cartridge {
@@ -188,33 +207,13 @@ impl Loggable for Cartridge {
 }
 
 impl Savable for Cartridge {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        self.prg_rom.save(fh)?;
-        self.chr_rom.save(fh)
+    fn save(&self, _fh: &mut dyn Write) -> NesResult<()> {
+        // Ignore all fields since these will load upon start
+        Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        self.prg_rom.load(fh)?;
-        self.chr_rom.load(fh)
+    fn load(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
+        Ok(())
     }
-}
-
-/// Represents an iNES header
-///
-/// [http://wiki.nesdev.com/w/index.php/INES]()
-/// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
-/// [http://nesdev.com/NESDoc.pdf (page 28)]()
-#[derive(Default, Debug)]
-pub struct INesHeader {
-    pub version: u8,       // 1 for iNES or 2 for NES 2.0
-    pub mapper_num: u16,   // The primary mapper number
-    pub submapper_num: u8, // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
-    pub flags: u8,         // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
-    pub prg_rom_size: u16, // Number of 16 KB PRG-ROM banks (Program ROM)
-    pub chr_rom_size: u16, // Number of 8 KB CHR-ROM banks (Character ROM)
-    pub prg_ram_size: u8,  // NES 2.0 PRG-RAM
-    pub chr_ram_size: u8,  // NES 2.0 CHR-RAM
-    pub tv_mode: u8,       // NES 2.0 NTSC/PAL indicator
-    pub vs_data: u8,       // NES 2.0 VS System data
 }
 
 impl INesHeader {

@@ -8,9 +8,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-// TODO move this out of a static
-pub static mut RANDOMIZE_RAM: bool = false;
-
 pub trait MemRead {
     fn read(&mut self, _addr: u16) -> u8 {
         0
@@ -29,11 +26,28 @@ pub trait MemWrite {
     fn write(&mut self, _addr: u16, _val: u8) {}
     fn writew(&mut self, _addr: usize, _val: u8) {}
 }
+pub trait Bankable
+where
+    Self: std::marker::Sized,
+{
+    fn chunks(&self, size: usize) -> Vec<Self>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+}
 
 #[derive(Default, Clone)]
 pub struct Memory {
     data: Vec<u8>,
     writable: bool,
+}
+
+#[derive(Default, Clone)]
+pub struct Banks<T>
+where
+    T: MemRead + MemWrite + Bankable,
+{
+    banks: Vec<T>,
+    pub size: usize,
 }
 
 impl Memory {
@@ -42,7 +56,7 @@ impl Memory {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        let randomize = unsafe { RANDOMIZE_RAM };
+        let randomize = cfg!(not(feature = "no-randomize-ram"));
         let data = if randomize {
             let mut rng = rand::thread_rng();
             let mut data = Vec::with_capacity(capacity);
@@ -104,7 +118,7 @@ impl MemRead for Memory {
         self.peekw(addr as usize)
     }
     fn peekw(&self, addr: usize) -> u8 {
-        if self.data.len() > 0 {
+        if !self.data.is_empty() {
             let addr = addr % self.data.len();
             self.data[addr]
         } else {
@@ -118,7 +132,7 @@ impl MemWrite for Memory {
         self.writew(addr as usize, val);
     }
     fn writew(&mut self, addr: usize, val: u8) {
-        if self.writable && self.data.len() > 0 {
+        if self.writable && !self.data.is_empty() {
             let addr = addr % self.data.len();
             self.data[addr] = val;
         }
@@ -154,24 +168,6 @@ impl Savable for Memory {
         self.writable.load(fh)?;
         Ok(())
     }
-}
-
-pub trait Bankable
-where
-    Self: std::marker::Sized,
-{
-    fn chunks(&self, size: usize) -> Vec<Self>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool;
-}
-
-#[derive(Default, Clone)]
-pub struct Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    banks: Vec<T>,
-    pub size: usize,
 }
 
 impl<T> Banks<T>

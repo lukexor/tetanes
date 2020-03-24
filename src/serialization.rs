@@ -4,7 +4,10 @@
 //! them to a file handle that implements Read/Write.
 
 use crate::{nes_err, NesResult};
-use std::io::{Read, Write};
+use std::{
+    collections::VecDeque,
+    io::{Read, Write},
+};
 
 const SAVE_FILE_MAGIC: [u8; 9] = *b"RUSTYNES\x1a";
 // MAJOR version of SemVer. Increases when save file format isn't backwards compatible
@@ -219,8 +222,12 @@ impl<T: Savable> Savable for [T] {
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
         let mut len = 0u32;
         len.load(fh)?;
-        if len > self.len() as u32 {
-            return nes_err!("Array read len does not match");
+        if len != self.len() as u32 {
+            panic!(
+                "Array read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -251,7 +258,46 @@ impl<T: Savable + Default> Savable for Vec<T> {
                 self.push(T::default());
             }
         } else if len != self.len() as u32 {
-            return nes_err!("Vec read len does not match");
+            return nes_err!(
+                "Vec read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
+        }
+        for i in 0..len {
+            self[i as usize].load(fh)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: Savable + Default> Savable for VecDeque<T> {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        let len: usize = self.len();
+        if len > std::u32::MAX as usize {
+            return nes_err!("Unable to save more than {} bytes", std::u32::MAX);
+        }
+        let len = len as u32;
+        len.save(fh)?;
+        for i in self.iter() {
+            i.save(fh)?;
+        }
+        Ok(())
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut len = 0u32;
+        len.load(fh)?;
+        if self.is_empty() {
+            *self = VecDeque::with_capacity(len as usize);
+            for _ in 0..len {
+                self.push_back(T::default());
+            }
+        } else if len != self.len() as u32 {
+            return nes_err!(
+                "VecDeque read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -300,7 +346,11 @@ impl Savable for String {
             bytes.load(fh)?;
             *self = String::from_utf8(bytes)?;
         } else if len != self.len() as u32 {
-            return nes_err!("String read len does not match");
+            return nes_err!(
+                "String read len does not match. Got {}, expected {}",
+                len,
+                self.len() as u32
+            );
         }
         Ok(())
     }

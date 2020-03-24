@@ -17,23 +17,23 @@ use std::{
     rc::Rc,
 };
 
-use axrom::Axrom; // Mapper 7
-use cnrom::Cnrom; // Mapper 3
-use exrom::Exrom; // Mapper 5
-use nrom::Nrom; // Mapper 0
-use pxrom::Pxrom; // Mapper 9
-use sxrom::Sxrom; // Mapper 1
-use txrom::Txrom; // Mapper 4
-use uxrom::Uxrom; // Mapper 2
+use m000_nrom::Nrom; // Mapper 0
+use m001_sxrom::Sxrom; // Mapper 1
+use m002_uxrom::Uxrom;
+use m003_cnrom::Cnrom; // Mapper 3
+use m004_txrom::Txrom; // Mapper 4
+use m005_exrom::Exrom; // Mapper 5
+use m007_axrom::Axrom; // Mapper 7
+use m009_pxrom::Pxrom; // Mapper 9 // Mapper 2
 
-pub mod axrom;
-pub mod cnrom;
-pub mod exrom;
-pub mod nrom;
-pub mod pxrom;
-pub mod sxrom;
-pub mod txrom;
-pub mod uxrom;
+pub mod m000_nrom;
+pub mod m001_sxrom;
+pub mod m002_uxrom;
+pub mod m003_cnrom;
+pub mod m004_txrom;
+pub mod m005_exrom;
+pub mod m007_axrom;
+pub mod m009_pxrom;
 
 /// Alias for Mapper wrapped in a Rc/RefCell
 pub type MapperRef = Rc<RefCell<dyn Mapper>>;
@@ -50,11 +50,8 @@ pub enum Mirroring {
     FourScreen,
 }
 
-impl Default for Mirroring {
-    fn default() -> Self {
-        Mirroring::Horizontal
-    }
-}
+#[derive(Debug)]
+pub struct NullMapper {}
 
 /// Mapper trait requiring Memory + Send + Savable
 pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + fmt::Debug {
@@ -101,9 +98,6 @@ pub fn load_rom(rom: &str) -> NesResult<MapperRef> {
     }
 }
 
-#[derive(Debug)]
-pub struct NullMapper {}
-
 impl Mapper for NullMapper {}
 impl MemRead for NullMapper {}
 impl MemWrite for NullMapper {}
@@ -132,5 +126,11 @@ impl Savable for Mirroring {
             _ => panic!("invalid Mirroring value {}", val),
         };
         Ok(())
+    }
+}
+
+impl Default for Mirroring {
+    fn default() -> Self {
+        Mirroring::Horizontal
     }
 }

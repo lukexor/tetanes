@@ -3,12 +3,13 @@
 use crate::{
     nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
+    serialization::Savable,
     NesResult,
 };
 use dirs;
 use png;
 use std::{
-    io::BufWriter,
+    io::{BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -18,6 +19,7 @@ pub const CONFIG_DIR: &str = ".rustynes";
 pub enum NesFormat {
     NTSC,
     PAL,
+    DENDY,
 }
 
 pub trait Powered {
@@ -33,9 +35,46 @@ pub trait Clocked {
     }
 }
 
+#[macro_export]
+macro_rules! hashmap {
+    { $($key:expr => $value:expr),+ } => {
+        {
+            let mut m = HashMap::new();
+            $(
+                m.insert($key, $value);
+            )+
+            m
+        }
+    };
+    ($hm:ident, { $($key:expr => $value:expr),+ } ) => (
+        {
+            $(
+                $hm.insert($key, $value);
+            )+
+        }
+    );
+}
+
+impl Savable for NesFormat {
+    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+        (*self as u8).save(fh)
+    }
+    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => NesFormat::NTSC,
+            1 => NesFormat::PAL,
+            2 => NesFormat::DENDY,
+            _ => panic!("invalid NesFormat value"),
+        };
+        Ok(())
+    }
+}
+
 /// Returns the users current HOME directory (if one exists)
 pub fn home_dir() -> Option<PathBuf> {
-    dirs::home_dir().and_then(|d| Some(d.to_path_buf()))
+    dirs::home_dir()
 }
 
 /// Creates a '.png' file

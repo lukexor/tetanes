@@ -1,4 +1,5 @@
-cargo build
+# Some tests rely on deterministic RAM state
+cargo build --features no-randomize-ram
 TESTS=(
 ## CPU ============================================================================================
 tests/cpu/branch_timing/1.Branch_Basics.nes
@@ -38,11 +39,13 @@ tests/cpu/ram_after_reset.nes
 tests/cpu/registers_after_reset.nes
 
 ## APU ============================================================================================
+# These tests have a white garbled background with randomized RAM
 tests/apu/01.len_ctr.nes
 tests/apu/02.len_table.nes
 tests/apu/03.irq_flag.nes
 tests/apu/04.clock_jitter.nes
-tests/apu/08.irq_timing.nes #02
+tests/apu/08.irq_timing.nes
+
 tests/apu/dmc/buffer_retained.nes
 tests/apu/dmc/latency.nes
 tests/apu/dmc/status.nes
@@ -132,6 +135,6 @@ function ctrl_c() {
 
 for test in ${TESTS[*]}; do
     echo $test
-    target/debug/rustynes $test
+    target/debug/rustynes --speed 4 $test
 done
 

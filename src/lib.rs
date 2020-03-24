@@ -18,6 +18,7 @@ use std::fmt;
 pub mod apu;
 pub mod bus;
 pub mod cartridge;
+#[macro_use]
 pub mod common;
 #[macro_use]
 pub mod logging;
