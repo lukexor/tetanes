@@ -389,7 +389,7 @@ extensively during development:
 ## Contact
 
 For issue reporting, please use the github issue tracker. You can contact me directly
-[here](mailto:me@lukeworks.tech).
+[here](https://lukeworks.tech/contact/).
 
 ## Contributing
 
