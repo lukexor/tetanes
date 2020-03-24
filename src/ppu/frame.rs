@@ -21,7 +21,7 @@ pub(super) struct Frame {
     pub(super) sprite_zero_on_line: bool,
     pub(super) sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
     prev_pixel: u32,
-    palette: [[[u32; 512]; 64]; 3],
+    palette: Vec<Vec<Vec<u32>>>,
     pub(super) pixels: Vec<u8>,
 }
 
@@ -39,7 +39,7 @@ impl Frame {
             sprite_zero_on_line: false,
             sprites: [Sprite::new(); 8],
             prev_pixel: 0xFFFF,
-            palette: [[[0; 512]; 64]; 3],
+            palette: vec![vec![vec![0; 512]; 64]; 3],
             pixels: vec![0; RENDER_SIZE],
         };
         frame.generate_ntsc_palette();

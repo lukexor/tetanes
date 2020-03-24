@@ -1358,10 +1358,12 @@ mod tests {
     #[test]
     fn cpu_cycle_timing() {
         let mut cpu = Cpu::init(Bus::new());
+        cpu.log_level = LogLevel::Trace;
         cpu.power_on();
+        cpu.clock();
 
-        assert_eq!(cpu.cycle_count, 7, "cpu after power");
-        assert_eq!(cpu.bus.ppu.cycle_count, 0, "ppu after power");
+        assert_eq!(cpu.cycle_count, 14, "cpu after power + one clock");
+        assert_eq!(cpu.bus.ppu.cycle_count, 42, "ppu after power + one clock");
 
         // TODO test extra dummy read cases for ABX, ABY, REL, IDY
         // TODO add tests for branch page crossing
