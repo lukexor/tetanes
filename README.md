@@ -387,9 +387,19 @@ able to understand or digest all the information on the NES wiki.
 - [ANESE](https://github.com/daniel5151/ANESE)
 - [FCEUX](http://www.fceux.com/web/home.html)
 
+I also couldn't have gottent is far without the amazing people over on the
+[NES Dev Forums](http://forums.nesdev.com/), especially
+[blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for all his amazing
+[test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests),
+[Disch](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=33),
+[Quietust](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=7),
+[rainwarrior](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=5165),
+[bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video implementation, and many
+others who helped me understand the stickier bits of emulation.
+
 Also, a huge shout out to [OneLoneCoder](https://github.com/OneLoneCoder/) for his
 [NES](https://github.com/OneLoneCoder/olcNES) and
-[PixelGameEngine](https://github.com/OneLoneCoder/olcPixelGameEngine) series as those helped a ton
+[olcPixelGameEngine](https://github.com/OneLoneCoder/olcPixelGameEngine) series as those helped a ton
 in some recent refactorings.
 
 [rust]: https://www.rust-lang.org/tools/install
