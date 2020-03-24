@@ -8,16 +8,18 @@
 
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
-`RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1985, written
+`RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
 using [Rust][rust] and [SDL2][sdl2].
 
-It started as a personal curiosity that turned into a project for two classes to demonstrate
-a proficiency in Rust and in digital sound production. It is still a work-in-progress, but I hope to
-transform it into a fully-featured NES emulator that can play most games. It is my hope to see
-a Rust emulator rise in popularity and compete with the more popular C and C++ versions.
+It started as a personal curiosity that turned into a passion project. It is still
+a work-in-progress, but I hope to transform it into a fully-featured NES emulator that can play most
+games as accurately as possible. It is my hope to see a Rust emulator rise in popularity and compete
+with the more popular C and C++ versions.
 
-`RustyNES` is also meant to showcase how clean and readable low-level Rust programs can be in addition
-to them having the type and memory-safety guarantees that Rust is known for.
+`RustyNES` is also meant to showcase how clean and readable low-level Rust programs can be in
+addition to them having the type and memory-safety guarantees that Rust is known for. Many useful
+features of Rust are leveraged in this project including traits, trait objects, generics, matching,
+and iterators.
 
 ## Screenshots
 
@@ -50,10 +52,10 @@ Support for the following mappers is currently implemented or in development:
 ## Installation
 
 This should run on most platforms that supports Rust and SDL2, howeer, it's only being developed and
-tested on macOS High Sierra at this time. So far, I've tested on macOS High Sierra, Mojave, Windows
-7, Windows 10, Fedora Linux, and Raspberry Pi 4 (though performance is less than desired). When
-1.0.0 is released, I'll make binaries available for all major platforms. Until then, follow the
-below instructions to build for your platform.
+tested on macOS at this time. So far, I've tested on macOS High Sierra, Mojave, Windows 7, Windows
+10, Linux (Fedora and Ubuntu), and Raspberry Pi 4 (though performance lacking). When 1.0.0 is
+released, I'll make binaries available for all major platforms. Until then, follow the below
+instructions to build for your platform.
 
 * Install [Rust][rust] (follow the link)
   * If Rust is already installed. Ensure it's up-to-date by running:
@@ -74,10 +76,10 @@ the page. To build directly from a release tag, follow these steps:
 
         $ git clone https://github.com/lukexor/rustynes.git
         $ cd rustynes/
-        $ git checkout v0.5.0
+        $ git checkout v0.6.0
         $ cargo install --path ./
 
-This will install the `v0.5.0` tagged release of the `RustyNES` binary to your `cargo` bin directory
+This will install the `v0.6.0` tagged release of the `RustyNES` binary to your `cargo` bin directory
 located at either `$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on
 Windows. Replace the release tag with the one you want to install. The latest is recommended. You
 can see which release tags are available by clicking the `Releases` tab at the top of this page or
@@ -87,18 +89,20 @@ by running the following command from the checked out git repository:
 
 ## Usage
 
-For each platform, the first command may not be needed depending on the contents of your `$PATH`
-environment variable.
+For each platform, the first `cd` command may not be needed depending on the contents of your `$PATH`
+environment variable. `filename` should be replaced by the path to your game ROM ending in `nes`.
+At present, only the [iNES](https://wiki.nesdev.com/w/index.php/INES) format is fully supported,
+but [NES 2.0](https://wiki.nesdev.com/w/index.php/NES_2.0) support is coming. 
 
 ### Windows
 
         $ cd %USERPROFILE%\.cargo\bin
-        $ rustynes.exe {Path to your game}
+        $ rustynes.exe {filename}
 
 ### macOS/Linux
 
         $ cd $HOME/.cargo/bin/
-        $ rustynes {Path to your game}
+        $ rustynes {filename}
 
 ### Additional Options
 
@@ -107,24 +111,23 @@ USAGE:
     rustynes [FLAGS] [OPTIONS] [--] [path]
 
 FLAGS:
-        --clear-savestate    Removes existing savestates for current save-slot
+    -c, --clear-savestate    Removes existing savestates for current save-slot
         --concurrent-dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad.
     -d, --debug              Start with the CPU debugger enabled and emulation paused at first CPU instruction.
     -f, --fullscreen         Start fullscreen.
     -h, --help               Prints help information
-        --record             Record gameplay to a file for later action replay.
+    -r, --record             Record gameplay to a file for later action replay.
         --rewind             Enable savestate rewinding
         --savestates-off     Disable savestates
         --sound-off          Disable sound.
-        --unlock-fps         Disables locking FPS to 60. Also disables sound.
     -V, --version            Prints version information
-    -v, --vsync-off          Disable vsync.
+        --vsync-off          Disable vsync.
 
 OPTIONS:
-        --genie-codes <genie-codes>...    List of Game Genie Codes (space separated).
+    -g, --genie-codes <genie-codes>...    List of Game Genie Codes (space separated).
     -l, --log-level <log-level>           Set logging level. [default: error]  [possible values: off, error, warn, info,
                                           debug, trace]
-        --replay <replay>                 Replay a saved action replay file.
+    -p, --replay <replay>                 Replay a saved action replay file.
         --savestate-slot <save-slot>      Set savestate slot #. [default: 1]  [possible values: 1, 2, 3, 4]
     -s, --scale <scale>                   Window scale [default: 3]
         --speed <speed>                   Increase/Decrease emulation speed. [default: 1.0]
@@ -163,7 +166,7 @@ There are also some emulator actions:
 | Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
-| Rewind 5 Seconds (when enabled)   | Comma            |                    |
+| Rewind 5 Seconds (when enabled)   | R                |                    |
 | Stop Action Replay Recording      | Shift-V          |                    |
 | Toggle Music/Sound                | Ctrl-M           |                    |
 | Toggle CPU Debugger               | Ctrl-D           |                    |
@@ -247,21 +250,32 @@ to render animations.
 
 ## Troubleshooting
 
-If you get some sort of nasty error when trying to start a game, try passing the --no_save option to
-ensure it's not an incompatible save file causing the issue. When 1.0 releases, I'll be much more
-careful about backwards breaking changes with regards to save files, but for now it's highly
-volatile and due to the nature of how I serialize data, I can only catch certain sorts of data
-inconsistencies.
+If you get an error running a ROM that's using the supported Mapper list above, it could be
+a corrupted or incompatible ROM format. If you're unsure which games use which mappers, see
+[here](http://bootgod.dyndns.org:7777/). Trying other versions of the same game from different
+sources sometimes resolves the issue.
 
-If the issue is not save related, please submit an issue in the github issue tracker. A good
+If you get some sort of nasty error when trying to start a game you've played before, try passing
+the `--clear-savestate` option to ensure it's not an incompatible savestate file causing the issue.
+When 1.0 releases, I'll be much more careful about backwards breaking changes with regards to
+savestate files, but for now it's highly volatile and due to the nature of how I serialize data,
+I can only catch certain sorts of data inconsistencies.
+
+If you encounter any shortcuts not working, ensure your operating system does not have a binding
+for it that is overriding it. macOs specifically has many things bound to `Ctrl-*`. There are plans
+to allow keybind customization, but it's not finished yet.
+
+If an an issue is not already created, please use the github issue tracker to create it. A good
 guideline for what to include is:
 
 - The game experiencing the issue (e.g. Super Mario Bros 3)
-- Operating system and version (e.g. Windows 7)
+- Operating system and version (e.g. Windows 7, macOS Mojave 10.14.6, etc)
 - What you were doing when the error happened
-- The entire error message
+- A description of the error and what happeneed
+- Any console output
+- Any related error or debug logs (not yet available)
 
-When the browser version is available, also include:
+When using the browser version (not yet available), also include:
 - Web browser and version (e.g. Chrome 77.0.3865)
 
 ## Known Issues
@@ -284,15 +298,18 @@ The following is a checklist of features and their progress:
   - [x] VRAM
   - [x] Background
   - [x] Sprites
-  - [x] TV Raster Effects (Not perfect, but neat anyways)
+  - [x] NTSC TV Artifact Effects
   - [x] Emphasize RGB/Grayscale
 - [x] Audio Processing Unit (APU)
+  - [x] Pulse Channels
+  - [x] Triangle Channels
+  - [x] Noise Channels
   - [x] Delta Mulation Channel (DMC)
 - [x] Inputs
   - [x] Keyboard
   - [x] Standard Controller
   - [x] Turbo
-  - [ ] Light Gun (Initial implementation will be mouse based)
+  - [ ] Light Gun (Mouse implementation in progress)
 - [x] Memory
 - [x] Cartridge
   - [x] Battery-backed Save RAM
@@ -304,35 +321,39 @@ The following is a checklist of features and their progress:
     - [x] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
     - [x] TxROM/MMC3 (Mapper 4)
-    - [x] ExROM/MMC5 (Mapper 5) (Mostly done, but some games don't work)
+    - [x] ExROM/MMC5 (Mapper 5) (Split screen and sound is unfinished)
     - [x] AxROM (Mapper 7)
     - [x] PxROM/MMC2 (Mapper 9)
 - [x] User Interface (UI)
   - [x] PixEngine (Custom graphics library for handling video and audio)
   - [x] UI Notification messages
   - [x] SDL2
-  - [ ] WebAssembly (in progress!)
+  - [ ] WebAssembly (WASM) - Run RustyNES in the browser! (in progress!)
   - [x] Window
-  - [x] Menu (Right now it's just an empty menu)
+  - [ ] Menus
+    - [ ] Help Menu
     - [ ] Open/Run ROM with file browser
     - [ ] Configuration options
+    - [ ] Custom Keybinds
+    - [ ] Recent Game Selection
   - [x] Pause
   - [x] Toggle Fullscreen
   - [x] Reset
   - [x] Power Cycle
   - [x] Increase/Decrease Speed/Fast-forward
-  - [x] Rewind 5 seconds (5 total rewinds)
+  - [x] Instant Rewind (5 seconds)
+  - [ ] Visual Rewind (Holding R will time-travel backward)
   - [x] Save/Load State
   - [x] Take Screenshots
   - [x] Toggle Action Recording
   - [ ] Sound Recording (Save those memorable tunes!)
   - [x] Toggle Sound
   - [x] Toggle Debugger
-  - [ ] Custom Keybinds
   - [x] Game Genie
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
-- [ ] Misc
   - [ ] Network Multi-player
+  - [ ] Toggle individual sound channels
+  - [ ] Self Updater
 - [x] Testing/Debugging/Documentation
   - [x] CPU Debugger (Displays CPU status, registers, and disassembly)
     - [X] Step Into/Out/Over
@@ -387,15 +408,15 @@ able to understand or digest all the information on the NES wiki.
 - [ANESE](https://github.com/daniel5151/ANESE)
 - [FCEUX](http://www.fceux.com/web/home.html)
 
-I also couldn't have gottent is far without the amazing people over on the
-[NES Dev Forums](http://forums.nesdev.com/), especially
-[blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for all his amazing
-[test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests),
-[Disch](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=33),
-[Quietust](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=7),
-[rainwarrior](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=5165),
-[bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video implementation, and many
-others who helped me understand the stickier bits of emulation.
+I also couldn't have gotten this far without the amazing people over on the
+[NES Dev Forums](http://forums.nesdev.com/):
+- [blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for all his amazing
+- [bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video implementation
+[test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests)
+- [Disch](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=33)
+- [Quietust](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=7)
+- [rainwarrior](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=5165)
+- And many others who helped me understand the stickier bits of emulation
 
 Also, a huge shout out to [OneLoneCoder](https://github.com/OneLoneCoder/) for his
 [NES](https://github.com/OneLoneCoder/olcNES) and

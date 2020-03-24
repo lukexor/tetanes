@@ -206,7 +206,7 @@ impl Nes {
                 if let Ok(save_path) = state::save_path(&self.loaded_rom, self.config.save_slot) {
                     if save_path.exists() {
                         let _ = std::fs::remove_file(&save_path);
-                        self.add_message(&format!("Cleared slot {}", self.config.save_slot));
+                        self.add_message(&format!("Cleared Save Slot {}", self.config.save_slot));
                     }
                 }
             } else {
@@ -262,12 +262,8 @@ impl Nes {
                 frames_to_run += 1;
             }
             // Clock NES
-            if self.config.unlock_fps {
-                self.clock_seconds(self.config.speed * elapsed);
-            } else {
-                for _ in 0..frames_to_run as usize {
-                    self.clock_frame();
-                }
+            for _ in 0..frames_to_run as usize {
+                self.clock_frame();
             }
         }
     }

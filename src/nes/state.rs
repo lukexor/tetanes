@@ -57,6 +57,18 @@ impl Nes {
         Ok(())
     }
 
+    /// Changes the savestate slot
+    pub(super) fn set_save_slot(&mut self, slot: u8) {
+        if self.config.save_enabled {
+            if self.config.save_slot != slot {
+                self.config.save_slot = slot;
+                self.add_message(&format!("Set Save Slot to {}", slot));
+            }
+        } else {
+            self.add_message("Savestates Disabled");
+        }
+    }
+
     /// Save the current state of the console into a save file
     pub(super) fn save_state(&mut self, slot: u8, rewind: bool) {
         if self.config.save_enabled || (rewind && self.config.rewind_enabled) {
@@ -125,7 +137,7 @@ impl Nes {
                 }
             }
         } else {
-            self.add_message("Saved States Disabled");
+            self.add_message("Savestates Disabled");
         }
     }
 

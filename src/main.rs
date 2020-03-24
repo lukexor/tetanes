@@ -37,8 +37,8 @@ fn main() {
             _ => LogLevel::Off,
         },
         fullscreen: opt.fullscreen,
-        vsync: !opt.vsync_off && !opt.unlock_fps,
-        sound_enabled: !opt.sound_off && !opt.unlock_fps,
+        vsync: !opt.vsync_off,
+        sound_enabled: !opt.sound_off,
         record: opt.record && opt.replay.is_none(),
         replay: opt.replay,
         rewind_enabled: opt.rewind,
@@ -48,7 +48,6 @@ fn main() {
         save_slot: opt.save_slot,
         scale: opt.scale,
         speed: opt.speed,
-        unlock_fps: opt.unlock_fps,
         genie_codes: opt.genie_codes,
     };
     let nes = Nes::with_config(config).unwrap_or_else(|e| {
@@ -95,16 +94,21 @@ struct Opt {
     log_level: String,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
-    #[structopt(short = "v", long = "vsync-off", help = "Disable vsync.")]
+    #[structopt(long = "vsync-off", help = "Disable vsync.")]
     vsync_off: bool,
     #[structopt(long = "sound-off", help = "Disable sound.")]
     sound_off: bool,
     #[structopt(
+        short = "r",
         long = "record",
         help = "Record gameplay to a file for later action replay."
     )]
     record: bool,
-    #[structopt(long = "replay", help = "Replay a saved action replay file.")]
+    #[structopt(
+        short = "p",
+        long = "replay",
+        help = "Replay a saved action replay file."
+    )]
     replay: Option<String>,
     #[structopt(
         long = "concurrent-dpad",
@@ -116,6 +120,7 @@ struct Opt {
     #[structopt(long = "savestates-off", help = "Disable savestates")]
     savestates_off: bool,
     #[structopt(
+        short = "c",
         long = "clear-savestate",
         help = "Removes existing savestates for current save-slot"
     )]
@@ -141,11 +146,7 @@ struct Opt {
     )]
     speed: f32,
     #[structopt(
-        long = "unlock-fps",
-        help = "Disables locking FPS to 60. Also disables sound."
-    )]
-    unlock_fps: bool,
-    #[structopt(
+        short = "g",
         long = "genie-codes",
         help = "List of Game Genie Codes (space separated)."
     )]

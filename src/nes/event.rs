@@ -237,7 +237,7 @@ impl Nes {
                 self.paused(!self.paused);
             }
             Key::Space => self.set_speed(2.0),
-            Key::Comma => self.rewind(),
+            Key::R => self.rewind(),
             Key::F1 => {
                 // TODO open help menu
                 self.paused(true);
@@ -286,10 +286,10 @@ impl Nes {
                 }
             }
             // Ctrl
-            Key::Num1 if c => self.config.save_slot = 1,
-            Key::Num2 if c => self.config.save_slot = 2,
-            Key::Num3 if c => self.config.save_slot = 3,
-            Key::Num4 if c => self.config.save_slot = 4,
+            Key::Num1 if c => self.set_save_slot(1),
+            Key::Num2 if c => self.set_save_slot(2),
+            Key::Num3 if c => self.set_save_slot(3),
+            Key::Num4 if c => self.set_save_slot(4),
             Key::Minus if c => self.change_speed(-0.25),
             Key::Equals if c => self.change_speed(0.25),
             Key::Return if c => {
@@ -310,15 +310,11 @@ impl Nes {
                 self.load_state(self.config.save_slot, rewind);
             }
             Key::M if c => {
-                if self.config.unlock_fps {
-                    self.add_message("Sound disabled while FPS unlocked");
+                self.config.sound_enabled = !self.config.sound_enabled;
+                if self.config.sound_enabled {
+                    self.add_message("Sound Enabled");
                 } else {
-                    self.config.sound_enabled = !self.config.sound_enabled;
-                    if self.config.sound_enabled {
-                        self.add_message("Sound Enabled");
-                    } else {
-                        self.add_message("Sound Disabled");
-                    }
+                    self.add_message("Sound Disabled");
                 }
             }
             Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
@@ -612,7 +608,6 @@ impl FrameEvent {
 
 impl Savable for FrameEvent {
     fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
-        println!("{}, {}", self.frame, self.events.len());
         self.frame.save(fh)?;
         self.events.save(fh)?;
         Ok(())

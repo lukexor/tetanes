@@ -32,7 +32,6 @@ pub struct NesConfig {
     pub save_slot: u8,
     pub scale: u32,
     pub speed: f32,
-    pub unlock_fps: bool,
     pub genie_codes: Vec<String>,
 }
 
@@ -55,7 +54,6 @@ impl NesConfig {
             save_slot: 1,
             scale: 3,
             speed: 1.0,
-            unlock_fps: false,
             genie_codes: Vec::new(),
         };
         if let Some(p) = env::current_dir().unwrap_or_default().to_str() {
@@ -83,7 +81,6 @@ impl Savable for NesConfig {
         self.save_slot.save(fh)?;
         self.scale.save(fh)?;
         self.speed.save(fh)?;
-        self.unlock_fps.save(fh)?;
         // Ignore genie_codes
         Ok(())
     }
@@ -99,7 +96,6 @@ impl Savable for NesConfig {
         self.save_slot.load(fh)?;
         self.scale.load(fh)?;
         self.speed.load(fh)?;
-        self.unlock_fps.load(fh)?;
         Ok(())
     }
 }
@@ -140,6 +136,9 @@ impl Nes {
             title.push_str(&format!("Save Slot: {}", self.config.save_slot));
             if self.config.speed != DEFAULT_SPEED {
                 title.push_str(&format!(" - Speed: {:2.0}%", self.config.speed * 100.0));
+            }
+            if !self.config.sound_enabled {
+                title.push_str(" - Muted");
             }
         }
         data.set_title(&title);
