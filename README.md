@@ -411,8 +411,8 @@ able to understand or digest all the information on the NES wiki.
 I also couldn't have gotten this far without the amazing people over on the
 [NES Dev Forums](http://forums.nesdev.com/):
 - [blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for all his amazing
+  [test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests)
 - [bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video implementation
-[test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests)
 - [Disch](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=33)
 - [Quietust](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=7)
 - [rainwarrior](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=5165)
