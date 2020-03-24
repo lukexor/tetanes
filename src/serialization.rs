@@ -19,7 +19,6 @@ pub fn write_save_header(fh: &mut dyn Write) -> NesResult<()> {
     VERSION.save(fh)
 }
 
-/// Validates a file to ensure it matches the current version and magic
 pub fn validate_save_header(fh: &mut dyn Read) -> NesResult<()> {
     let mut magic = [0u8; 9];
     magic.load(fh)?;

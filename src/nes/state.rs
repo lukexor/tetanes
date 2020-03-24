@@ -459,7 +459,7 @@ fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
     path.push(CONFIG_DIR);
     path.push("sram");
     path.push(save_name);
-    path.set_extension("dat");
+    path.set_extension("sram");
     Ok(path)
 }
 
@@ -480,7 +480,7 @@ pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
         path.push("save");
         path.push(save_name);
         path.push(format!("{}", slot));
-        path.set_extension("dat");
+        path.set_extension("save");
         Ok(path)
     } else {
         nes_err!("failed to create save path for {:?}", path.as_ref())

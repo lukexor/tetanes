@@ -129,13 +129,14 @@ impl Cartridge {
         };
         info!(
             cart,
-            "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}",
+            "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}, Battery: {}",
             rom_file,
             cart.header.mapper_num,
             cart.mapper_board(),
             cart.header.prg_rom_size,
             cart.header.chr_rom_size,
             cart.mirroring(),
+            cart.battery_backed(),
         );
         Ok(cart)
     }
