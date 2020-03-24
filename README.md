@@ -66,11 +66,20 @@ instructions to build for your platform.
   * Linux and macOS should be straightforward
   * Windows makes this a bit more complicated. Be sure to follow the above link instructions
     carefully. For the simple case of using `rustup`, all of the files in `lib\` from the Visual C++
-    32/64-bit development zip should go in your `C:\Users\{Your Username}\.rustup\toolchains\
-    {current toolchain}\lib\rustlib\{current toolchain}\lib` directory (where the
-    `{current toolchain}` will likely have `x86_64-pc-windows` in its name) and then a copy of
-    `lib\SDl2.dll` needs to go in your `%USERPROFILE%\.cargo\bin` directory next to the
-    `rustynes.exe` binary.
+    32/64-bit development zip should go in:
+
+    ```
+    C:\Users\{Your Username}\.rustup\toolchains\{current toolchain}\lib\rustlib\{current toolchain}\lib
+    ```
+
+    Where `{current toolchain}` will likely have `x86_64-pc-windows` in its name. then a copy of
+    `lib\SDl2.dll` needs to go in:
+
+    ```
+    %USERPROFILE%\.cargo\bin
+    ```
+
+    Next to the `rustynes.exe` binary.
 * Download & install `RustyNES`. Stable releases can be found on the `Releases` tab at the top of
 the page. To build directly from a release tag, follow these steps:
 
