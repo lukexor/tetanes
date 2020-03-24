@@ -237,7 +237,7 @@ impl Nes {
                 self.paused(!self.paused);
             }
             Key::Space => self.set_speed(2.0),
-            Key::R => self.rewind(),
+            Key::R if !c => self.rewind(),
             Key::F1 => {
                 // TODO open help menu
                 self.paused(true);

@@ -360,6 +360,7 @@ The following is a checklist of features and their progress:
   - [x] Toggle Debugger
   - [x] Game Genie
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
+  - [ ] 4-Player support
   - [ ] Network Multi-player
   - [ ] Toggle individual sound channels
   - [ ] Self Updater
