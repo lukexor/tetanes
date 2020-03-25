@@ -16,7 +16,7 @@ use crate::{
     NesResult,
 };
 use include_dir::{include_dir, Dir};
-use pix_engine::{sprite::Sprite, PixEngine, PixEngineResult, State, StateData, WindowId};
+use pix_engine::{image::Image, PixEngine, PixEngineResult, State, StateData, WindowId};
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
@@ -48,7 +48,7 @@ pub struct Nes {
     loaded_rom: String,
     paused: bool,
     background_pause: bool,
-    clock: f32,
+    running_time: f32,
     turbo_clock: u8,
     cpu: Cpu,
     cycles_remaining: f32,
@@ -66,9 +66,9 @@ pub struct Nes {
     nt_viewer: bool,
     nt_scanline: u32,
     pat_scanline: u32,
-    debug_sprite: Sprite,
-    ppu_info_sprite: Sprite,
-    nt_info_sprite: Sprite,
+    debug_image: Image,
+    ppu_info_image: Image,
+    nt_info_image: Image,
     active_debug: bool,
     width: u32,
     height: u32,
@@ -101,7 +101,7 @@ impl Nes {
             loaded_rom: String::new(),
             paused: true,
             background_pause: false,
-            clock: 0.0,
+            running_time: 0.0,
             turbo_clock: 0,
             cpu,
             cycles_remaining: 0.0,
@@ -124,9 +124,9 @@ impl Nes {
             nt_viewer: false,
             nt_scanline: 0,
             pat_scanline: 0,
-            debug_sprite: Sprite::new(DEBUG_WIDTH, height),
-            ppu_info_sprite: Sprite::rgb(INFO_WIDTH, INFO_HEIGHT),
-            nt_info_sprite: Sprite::rgb(INFO_WIDTH, INFO_HEIGHT),
+            debug_image: Image::new(DEBUG_WIDTH, height),
+            ppu_info_image: Image::rgb(INFO_WIDTH, INFO_HEIGHT),
+            nt_info_image: Image::rgb(INFO_WIDTH, INFO_HEIGHT),
             active_debug: false,
             width,
             height,
@@ -252,7 +252,7 @@ impl Nes {
     /// Runs the emulation a certain amount if not paused based on settings
     fn run_emulation(&mut self, elapsed: f32) {
         if !self.paused {
-            self.clock += elapsed;
+            self.running_time += elapsed;
             // Frames that aren't multiples of the default render 1 more/less frames
             // every other frame
             let mut frames_to_run = 0;

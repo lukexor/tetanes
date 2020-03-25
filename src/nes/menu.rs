@@ -5,8 +5,8 @@ use crate::{
 };
 use pix_engine::{
     draw::Rect,
+    image::Image,
     pixel::{self, ColorType, Pixel},
-    sprite::Sprite,
     StateData,
 };
 
@@ -22,7 +22,7 @@ pub(super) struct Menu {
     menu_type: MenuType,
     width: u32,
     height: u32,
-    sprite: Sprite,
+    image: Image,
     open: bool,
     // keybinds: Vec<PixEvent>, // TODO
 }
@@ -41,7 +41,7 @@ impl Menu {
             menu_type,
             width,
             height,
-            sprite: Sprite::new(width, height),
+            image: Image::new(width, height),
             open: false,
         }
     }
@@ -88,15 +88,6 @@ impl Message {
 }
 
 impl Nes {
-    pub(super) fn paused(&mut self, paused: bool) {
-        if !self.paused && paused {
-            self.set_static_message("Paused");
-        } else if !paused {
-            self.unset_static_message("Paused");
-        }
-        self.paused = paused;
-    }
-
     pub(super) fn add_message(&mut self, text: &str) {
         self.messages.push(Message::new(text));
     }
@@ -113,7 +104,7 @@ impl Nes {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         self.messages.dedup();
         if !self.messages.is_empty() {
-            let mut msg_box = Sprite::new(self.width, MSG_HEIGHT);
+            let mut msg_box = Image::new(self.width, MSG_HEIGHT);
             data.set_draw_target(&mut msg_box);
             let mut y = 5;
             data.set_draw_scale(2);

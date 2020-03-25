@@ -1,5 +1,6 @@
 use crate::{
     common::{home_dir, Clocked, Powered, CONFIG_DIR},
+    error,
     logging::{LogLevel, Loggable},
     map_nes_err, mapper,
     nes::{event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
@@ -15,6 +16,15 @@ use std::{
 };
 
 impl Nes {
+    pub(super) fn paused(&mut self, paused: bool) {
+        if !self.paused && paused {
+            self.set_static_message("Paused");
+        } else if !paused {
+            self.unset_static_message("Paused");
+        }
+        self.paused = paused;
+    }
+
     /// Powers on the console
     pub(super) fn power_on(&mut self) -> NesResult<()> {
         self.cpu.power_on();
@@ -33,6 +43,7 @@ impl Nes {
         }
         if let Err(e) = self.save_sram() {
             self.add_message(&e.to_string());
+            error!(self, "{}", e.to_string());
         }
         // Clean up rewind states
         if self.config.rewind_enabled {
@@ -323,7 +334,7 @@ impl Powered for Nes {
     /// Soft-resets the console
     fn reset(&mut self) {
         self.cpu.reset();
-        self.clock = 0.0;
+        self.running_time = 0.0;
         self.cycles_remaining = 0.0;
         if self.config.debug {
             self.paused(true);
@@ -333,7 +344,7 @@ impl Powered for Nes {
     /// Hard-resets the console
     fn power_cycle(&mut self) {
         self.cpu.power_cycle();
-        self.clock = 0.0;
+        self.running_time = 0.0;
         self.cycles_remaining = 0.0;
         if self.config.debug {
             self.paused(true);
@@ -384,7 +395,7 @@ impl Savable for Nes {
         // loaded_rom
         // paused
         // background_pause
-        self.clock.save(fh)?;
+        self.running_time.save(fh)?;
         self.turbo_clock.save(fh)?;
         self.cpu.save(fh)?;
         self.cycles_remaining.save(fh)?;
@@ -403,9 +414,9 @@ impl Savable for Nes {
         // nt_viewer
         // nt_scanline
         // pat_scanline
-        // debug_sprite
-        // ppu_info_sprite
-        // nt_info_sprite
+        // debug_image
+        // ppu_info_image
+        // nt_info_image
         // active_debug
         self.width.save(fh)?;
         self.height.save(fh)?;
@@ -423,10 +434,9 @@ impl Savable for Nes {
         Ok(())
     }
     fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        // Clone here prevents data corruption if loading fails
-        // HACK: Really should figure a way to have a fresh state
+        // EXPL: Clone here prevents corrupt savestate data from crashing execution.
         let mut nes = self.clone();
-        nes.clock.load(fh)?;
+        nes.running_time.load(fh)?;
         nes.turbo_clock.load(fh)?;
         nes.cpu.load(fh)?;
         nes.cycles_remaining.load(fh)?;

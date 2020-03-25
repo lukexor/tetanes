@@ -1,14 +1,14 @@
 use crate::{nes::Nes, NesResult};
 use pix_engine::{
+    image::Image,
     pixel::{self, Pixel},
-    sprite::Sprite,
     StateData,
 };
 
 impl Nes {
     pub fn draw_config_menu(&mut self, data: &mut StateData) -> NesResult<()> {
         // Darken background
-        let mut menu = Sprite::new(self.width, self.height);
+        let mut menu = Image::new(self.width, self.height);
         data.set_draw_target(&mut menu);
         data.fill(Pixel([0, 0, 0, 128]));
         let (mut x, mut y) = (50, 50);

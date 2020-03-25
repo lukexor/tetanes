@@ -10,8 +10,8 @@ use crate::{
 };
 use pix_engine::{
     draw::Rect,
+    image::Image,
     pixel::{self, ColorType},
-    sprite::Sprite,
     StateData,
 };
 
@@ -78,14 +78,14 @@ impl Nes {
 
             // Set up info
             let wh = pixel::WHITE;
-            data.set_draw_target(&mut self.ppu_info_sprite);
+            data.set_draw_target(&mut self.ppu_info_image);
             let x = 5;
             let mut y = 5;
             let ypad = 10;
 
             // Clear
-            let w = self.nt_info_sprite.width();
-            let h = self.nt_info_sprite.height();
+            let w = self.nt_info_image.width();
+            let h = self.nt_info_image.height();
             data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
 
             data.draw_string(x, y, &format!("Scanline: {}", self.pat_scanline), wh);
@@ -183,7 +183,7 @@ impl Nes {
             data.copy_texture(nt_viewer_window, "nametable4", &nametables[3])?;
 
             // Draw scanlines
-            let mut line = Sprite::new(2 * RENDER_WIDTH, RENDER_HEIGHT);
+            let mut line = Image::new(2 * RENDER_WIDTH, RENDER_HEIGHT);
             data.set_draw_target(&mut line);
             data.draw_line(0, self.nt_scanline, 2 * RENDER_WIDTH, self.nt_scanline, wh);
             data.copy_draw_target(nt_viewer_window, "scanline_top")?;
@@ -191,13 +191,13 @@ impl Nes {
             data.clear_draw_target();
 
             // Draw info
-            data.set_draw_target(&mut self.nt_info_sprite);
+            data.set_draw_target(&mut self.nt_info_image);
             let mut x = 5;
             let mut y = 5;
             let ypad = 10;
 
-            let w = self.nt_info_sprite.width();
-            let h = self.nt_info_sprite.height();
+            let w = self.nt_info_image.width();
+            let h = self.nt_info_image.height();
             data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
 
             data.draw_string(x, y, &format!("Scanline: {}", self.nt_scanline), wh);
@@ -275,7 +275,7 @@ impl Nes {
     }
 
     pub(super) fn copy_debug(&mut self, data: &mut StateData) -> NesResult<()> {
-        let pixels = self.debug_sprite.bytes();
+        let pixels = self.debug_image.bytes();
         data.copy_texture(self.nes_window, "debug", &pixels)?;
         Ok(())
     }
@@ -285,7 +285,7 @@ impl Nes {
         let mut y = 5;
         let wh = pixel::WHITE;
 
-        data.set_draw_target(&mut self.debug_sprite);
+        data.set_draw_target(&mut self.debug_image);
         data.fill(pixel::VERY_DARK_GRAY);
 
         // Status Registers
@@ -314,7 +314,7 @@ impl Nes {
 
         let ppu = &self.cpu.bus.ppu;
         let cycles = format!("Cycles: {:8}", cpu.cycle_count);
-        let seconds = format!("Seconds: {:7}", self.clock.floor());
+        let seconds = format!("Seconds: {:7}", self.running_time.floor());
         let areg = format!("A: ${:02X} [{:03}]", cpu.acc, cpu.acc);
         let pc = format!("PC: ${:04X}", cpu.pc);
         let xreg = format!("X: ${:02X} [{:03}]", cpu.x, cpu.x);
