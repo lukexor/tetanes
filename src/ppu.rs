@@ -58,7 +58,7 @@ const POWER_ON_CYCLES: usize = 29658 * 3; // https://wiki.nesdev.com/w/index.php
 // Scanlines
 const _VISIBLE_SCANLINE_START: u16 = 0; // Rendering graphics for the screen
 const VISIBLE_SCANLINE_END: u16 = 239; // Rendering graphics for the screen
-const POSTRENDER_SCANLINE: u16 = 240; // Idle scanline
+const _POSTRENDER_SCANLINE: u16 = 240; // Idle scanline
 const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
 const PRERENDER_SCANLINE: u16 = 261;
 
