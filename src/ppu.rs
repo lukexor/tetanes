@@ -250,6 +250,11 @@ impl Ppu {
     fn run_cycle(&mut self) {
         self.tick();
 
+        // Idle cycles/scanline
+        if self.cycle == IDLE_CYCLE {
+            return;
+        }
+
         let visible_cycle = self.cycle >= VISIBLE_CYCLE_START && self.cycle <= VISIBLE_CYCLE_END;
         let prefetch_cycle = self.cycle >= PREFETCH_CYCLE_START && self.cycle <= PREFETCH_CYCLE_END;
         let dummy_cycle = self.cycle >= DUMMY_CYCLE_START && self.cycle <= CYCLE_END;
@@ -261,11 +266,6 @@ impl Ppu {
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
         // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
         self.render_pixel();
-
-        // Idle cycles/scanline
-        if self.cycle == IDLE_CYCLE || self.scanline == POSTRENDER_SCANLINE {
-            return;
-        }
 
         if self.rendering_enabled() && render_scanline {
             // (1, 0) - (256, 239) - visible cycles/scanlines
@@ -440,14 +440,15 @@ impl Ppu {
 
     #[allow(clippy::many_single_char_names)]
     fn render_pixel(&mut self) {
-        let x = self.cycle;
+        let x = self.cycle - 1;
         let y = self.scanline;
 
         let mut bg_color = self.background_color();
         let (i, mut sprite_color) = self.sprite_color();
 
-        let border_pixel = x <= 8;
-        if border_pixel && !self.regs.show_left_background() {
+        let border_pixel = x < 8;
+        let left_clip = !self.regs.show_left_background() && border_pixel;
+        if left_clip {
             bg_color = 0;
         }
         if border_pixel && !self.regs.show_left_sprites() {
