@@ -467,10 +467,9 @@ impl Ppu {
                 && self.frame.sprite_zero_on_line
                 && self.rendering_enabled()
                 && !self.sprite_zero_hit()
-                && self.frame.sprites[i].x != 256
                 && x > 0
-                && x != 256
-                && y <= 239
+                && x != 255
+                && y <= VISIBLE_SCANLINE_END
                 && bg_opaque
                 && sprite_opaque
             {
