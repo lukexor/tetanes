@@ -8,8 +8,8 @@ use pix_engine::{
 impl Nes {
     pub fn draw_config_menu(&mut self, data: &mut StateData) -> NesResult<()> {
         // Darken background
-        let mut menu = Image::new(self.width, self.height);
-        data.set_draw_target(&mut menu);
+        let menu = Image::new_ref(self.width, self.height);
+        data.set_draw_target(menu);
         data.fill(Pixel([0, 0, 0, 128]));
         let (mut x, mut y) = (50, 50);
         data.fill_rect(
@@ -32,7 +32,7 @@ impl Nes {
 
         // TODO draw menu config, add interactivity
 
-        data.copy_draw_target(self.nes_window, "menu")?;
+        data.copy_draw_target("menu")?;
         data.clear_draw_target();
         Ok(())
     }

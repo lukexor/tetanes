@@ -36,13 +36,13 @@ impl Nes {
             let src = Rect::new(0, 0, RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
             let left_dst = Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
             let right_dst = Rect::new(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_texture(window, "left_pattern", ColorType::Rgb, src, left_dst)?;
-            data.create_texture(window, "right_pattern", ColorType::Rgb, src, right_dst)?;
+            data.create_window_texture(window, "left_pattern", ColorType::Rgb, src, left_dst)?;
+            data.create_window_texture(window, "right_pattern", ColorType::Rgb, src, right_dst)?;
 
             // Set up palette texture
             let src = Rect::new(0, 0, 16, 2);
             let dst = Rect::new(0, RENDER_HEIGHT, 2 * RENDER_WIDTH, PALETTE_HEIGHT);
-            data.create_texture(window, "palette", ColorType::Rgb, src, dst)?;
+            data.create_window_texture(window, "palette", ColorType::Rgb, src, dst)?;
 
             // Set up info panel at the bottom
             let src = Rect::new(0, 0, 2 * RENDER_WIDTH, info_height);
@@ -52,7 +52,7 @@ impl Nes {
                 2 * RENDER_WIDTH,
                 info_height,
             );
-            data.create_texture(window, "ppu_info", ColorType::Rgb, src, dst)?;
+            data.create_window_texture(window, "ppu_info", ColorType::Rgb, src, dst)?;
 
             // Since debug may not have been enabled before, have PPU generate nametable data
             self.cpu.bus.ppu.update_debug();
@@ -70,22 +70,22 @@ impl Nes {
         if let Some(ppu_viewer_window) = self.ppu_viewer_window {
             // Set up patterns
             let pat_tables = &self.cpu.bus.ppu.pattern_tables;
-            data.copy_texture(ppu_viewer_window, "left_pattern", &pat_tables[0])?;
-            data.copy_texture(ppu_viewer_window, "right_pattern", &pat_tables[1])?;
+            data.copy_window_texture(ppu_viewer_window, "left_pattern", &pat_tables[0])?;
+            data.copy_window_texture(ppu_viewer_window, "right_pattern", &pat_tables[1])?;
 
             // Set up palette
-            data.copy_texture(ppu_viewer_window, "palette", &self.cpu.bus.ppu.palette)?;
+            data.copy_window_texture(ppu_viewer_window, "palette", &self.cpu.bus.ppu.palette)?;
 
             // Set up info
             let wh = pixel::WHITE;
-            data.set_draw_target(&mut self.ppu_info_image);
+            data.set_draw_target(self.ppu_info_image.clone());
             let x = 5;
             let mut y = 5;
             let ypad = 10;
 
             // Clear
-            let w = self.nt_info_image.width();
-            let h = self.nt_info_image.height();
+            let w = self.nt_info_image.borrow().width();
+            let h = self.nt_info_image.borrow().height();
             data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
 
             data.draw_string(x, y, &format!("Scanline: {}", self.pat_scanline), wh);
@@ -120,7 +120,7 @@ impl Nes {
             data.draw_string(x, y, &format!("Tile: {}", tile), wh);
             y += ypad;
             data.draw_string(x, y, &format!("Palette: {}", palette), wh);
-            data.copy_draw_target(ppu_viewer_window, "ppu_info")?;
+            data.copy_window_draw_target(ppu_viewer_window, "ppu_info")?;
             data.clear_draw_target();
         }
         Ok(())
@@ -143,22 +143,22 @@ impl Nes {
             let nt2_dst = Rect::new(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT);
             let nt3_dst = Rect::new(0, RENDER_HEIGHT, RENDER_WIDTH, RENDER_HEIGHT);
             let nt4_dst = Rect::new(RENDER_WIDTH, RENDER_HEIGHT, RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_texture(window, "nametable1", ColorType::Rgb, src, nt1_dst)?;
-            data.create_texture(window, "nametable2", ColorType::Rgb, src, nt2_dst)?;
-            data.create_texture(window, "nametable3", ColorType::Rgb, src, nt3_dst)?;
-            data.create_texture(window, "nametable4", ColorType::Rgb, src, nt4_dst)?;
+            data.create_window_texture(window, "nametable1", ColorType::Rgb, src, nt1_dst)?;
+            data.create_window_texture(window, "nametable2", ColorType::Rgb, src, nt2_dst)?;
+            data.create_window_texture(window, "nametable3", ColorType::Rgb, src, nt3_dst)?;
+            data.create_window_texture(window, "nametable4", ColorType::Rgb, src, nt4_dst)?;
 
             // Set up 2 horizontal lines for scanline detection
             let src = Rect::new(0, 0, 2 * RENDER_WIDTH, RENDER_HEIGHT);
             let top_dst = src;
             let bot_dst = Rect::new(0, RENDER_HEIGHT, 2 * RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_texture(window, "scanline_top", ColorType::Rgba, src, top_dst)?;
-            data.create_texture(window, "scanline_bot", ColorType::Rgba, src, bot_dst)?;
+            data.create_window_texture(window, "scanline_top", ColorType::Rgba, src, top_dst)?;
+            data.create_window_texture(window, "scanline_bot", ColorType::Rgba, src, bot_dst)?;
 
             // Set up info panel at the bottom
             let src = Rect::new(0, 0, 2 * RENDER_WIDTH, info_height);
             let dst = Rect::new(0, 2 * RENDER_HEIGHT, 2 * RENDER_WIDTH, info_height);
-            data.create_texture(window, "nt_info", ColorType::Rgb, src, dst)?;
+            data.create_window_texture(window, "nt_info", ColorType::Rgb, src, dst)?;
 
             // Since debug may not have been enabled before, have PPU generate nametable data
             self.cpu.bus.ppu.update_debug();
@@ -177,27 +177,27 @@ impl Nes {
             let wh = pixel::WHITE;
 
             let nametables = &self.cpu.bus.ppu.nametables;
-            data.copy_texture(nt_viewer_window, "nametable1", &nametables[0])?;
-            data.copy_texture(nt_viewer_window, "nametable2", &nametables[1])?;
-            data.copy_texture(nt_viewer_window, "nametable3", &nametables[2])?;
-            data.copy_texture(nt_viewer_window, "nametable4", &nametables[3])?;
+            data.copy_window_texture(nt_viewer_window, "nametable1", &nametables[0])?;
+            data.copy_window_texture(nt_viewer_window, "nametable2", &nametables[1])?;
+            data.copy_window_texture(nt_viewer_window, "nametable3", &nametables[2])?;
+            data.copy_window_texture(nt_viewer_window, "nametable4", &nametables[3])?;
 
             // Draw scanlines
-            let mut line = Image::new(2 * RENDER_WIDTH, RENDER_HEIGHT);
-            data.set_draw_target(&mut line);
+            let line = Image::new_ref(2 * RENDER_WIDTH, RENDER_HEIGHT);
+            data.set_draw_target(line);
             data.draw_line(0, self.nt_scanline, 2 * RENDER_WIDTH, self.nt_scanline, wh);
-            data.copy_draw_target(nt_viewer_window, "scanline_top")?;
-            data.copy_draw_target(nt_viewer_window, "scanline_bot")?;
+            data.copy_window_draw_target(nt_viewer_window, "scanline_top")?;
+            data.copy_window_draw_target(nt_viewer_window, "scanline_bot")?;
             data.clear_draw_target();
 
             // Draw info
-            data.set_draw_target(&mut self.nt_info_image);
+            data.set_draw_target(self.nt_info_image.clone());
             let mut x = 5;
             let mut y = 5;
             let ypad = 10;
 
-            let w = self.nt_info_image.width();
-            let h = self.nt_info_image.height();
+            let w = self.nt_info_image.borrow().width();
+            let h = self.nt_info_image.borrow().height();
             data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
 
             data.draw_string(x, y, &format!("Scanline: {}", self.nt_scanline), wh);
@@ -234,8 +234,7 @@ impl Nes {
                 y += ypad;
                 data.draw_string(x, y, "PPU Addr:", wh);
             }
-            data.copy_draw_target(nt_viewer_window, "nt_info")?;
-            data.clear_draw_target();
+            data.copy_window_draw_target(nt_viewer_window, "nt_info")?;
         }
         Ok(())
     }
@@ -275,8 +274,9 @@ impl Nes {
     }
 
     pub(super) fn copy_debug(&mut self, data: &mut StateData) -> NesResult<()> {
-        let pixels = self.debug_image.bytes();
-        data.copy_texture(self.nes_window, "debug", &pixels)?;
+        let debug = self.debug_image.borrow();
+        let pixels = debug.bytes();
+        data.copy_texture("debug", &pixels)?;
         Ok(())
     }
 
@@ -285,7 +285,7 @@ impl Nes {
         let mut y = 5;
         let wh = pixel::WHITE;
 
-        data.set_draw_target(&mut self.debug_image);
+        data.set_draw_target(self.debug_image.clone());
         data.fill(pixel::VERY_DARK_GRAY);
 
         // Status Registers
