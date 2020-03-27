@@ -6,16 +6,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 8 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 4 * 1024;
@@ -49,7 +45,7 @@ pub struct Pxrom {
 }
 
 impl Pxrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
@@ -64,7 +60,7 @@ impl Pxrom {
             chr_banks,
             open_bus: 0,
         };
-        Rc::new(RefCell::new(pxrom))
+        pxrom.into()
     }
 }
 

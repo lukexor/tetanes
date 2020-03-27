@@ -6,16 +6,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024; // 16L ROM
 const CHR_BANK_SIZE: usize = 8 * 1024; // 8K ROM/RAM
@@ -35,7 +31,7 @@ pub struct Uxrom {
 }
 
 impl Uxrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         // Just 1 bank
         let chr_banks = if cart.chr_rom.is_empty() {
@@ -52,7 +48,7 @@ impl Uxrom {
             chr_banks,
             open_bus: 0,
         };
-        Rc::new(RefCell::new(uxrom))
+        uxrom.into()
     }
 }
 

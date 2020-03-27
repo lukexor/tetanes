@@ -3,6 +3,7 @@ use crate::{
         instr::{AddrMode::*, Operation::*, INSTRUCTIONS},
         StatusRegs,
     },
+    mapper::Mapper,
     memory::MemRead,
     nes::{Nes, WINDOW_WIDTH},
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},

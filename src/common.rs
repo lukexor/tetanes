@@ -7,6 +7,7 @@ use crate::{
     NesResult,
 };
 use dirs;
+use enum_dispatch::enum_dispatch;
 use png;
 use std::{
     io::{BufWriter, Read, Write},
@@ -22,6 +23,7 @@ pub enum NesFormat {
     DENDY,
 }
 
+#[enum_dispatch(MapperType)]
 pub trait Powered {
     fn reset(&mut self) {}
     fn power_cycle(&mut self) {
@@ -29,6 +31,7 @@ pub trait Powered {
     }
 }
 
+#[enum_dispatch(MapperType)]
 pub trait Clocked {
     fn clock(&mut self) -> usize {
         0

@@ -5,7 +5,7 @@
 use crate::{
     common::{Clocked, NesFormat, Powered},
     logging::{LogLevel, Loggable},
-    mapper::MapperRef,
+    mapper::{Mapper, MapperRef},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,

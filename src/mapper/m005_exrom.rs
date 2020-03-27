@@ -11,16 +11,14 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
 use std::{
-    cell::RefCell,
     fmt,
     io::{Read, Write},
-    rc::Rc,
 };
 
 const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
@@ -172,7 +170,7 @@ impl ExRegs {
 }
 
 impl Exrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let exram = Memory::ram(EXRAM_SIZE);
         let mirroring = cart.mirroring();
@@ -204,7 +202,7 @@ impl Exrom {
             log_level: LogLevel::default(),
             open_bus: 0x00,
         };
-        Rc::new(RefCell::new(exrom))
+        exrom.into()
     }
 
     // $5113: [.... .CPP]

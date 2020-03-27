@@ -6,6 +6,7 @@ use crate::{
     bus::Bus,
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
+    mapper::Mapper,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,

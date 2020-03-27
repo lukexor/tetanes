@@ -3,6 +3,7 @@ use crate::{
     error,
     logging::{LogLevel, Loggable},
     map_nes_err, mapper,
+    mapper::Mapper,
     nes::{event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
     nes_err,
     serialization::{validate_save_header, write_save_header, Savable},

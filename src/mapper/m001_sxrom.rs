@@ -7,16 +7,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_BANK_SIZE: usize = 4 * 1024;
@@ -61,7 +57,7 @@ struct SxRegs {
 }
 
 impl Sxrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_ram_size = if let Ok(prg_ram_size) = cart.prg_ram_size() {
             if prg_ram_size > 0 {
                 prg_ram_size
@@ -98,7 +94,7 @@ impl Sxrom {
             prg_rom_banks,
             chr_banks,
         };
-        Rc::new(RefCell::new(sxrom))
+        sxrom.into()
     }
 
     /// Writes data into a shift register. At every 5th

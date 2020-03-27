@@ -5,11 +5,12 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
-    logging::Loggable,
+    logging::{LogLevel, Loggable},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     {nes_err, NesResult},
 };
+use enum_dispatch::enum_dispatch;
 use std::{
     cell::RefCell,
     fmt,
@@ -19,24 +20,24 @@ use std::{
 
 use m000_nrom::Nrom; // Mapper 0
 use m001_sxrom::Sxrom; // Mapper 1
-use m002_uxrom::Uxrom;
+use m002_uxrom::Uxrom; // Mapper 2
 use m003_cnrom::Cnrom; // Mapper 3
 use m004_txrom::Txrom; // Mapper 4
 use m005_exrom::Exrom; // Mapper 5
 use m007_axrom::Axrom; // Mapper 7
-use m009_pxrom::Pxrom; // Mapper 9 // Mapper 2
+use m009_pxrom::Pxrom; // Mapper 9
 
-pub mod m000_nrom;
-pub mod m001_sxrom;
-pub mod m002_uxrom;
-pub mod m003_cnrom;
-pub mod m004_txrom;
-pub mod m005_exrom;
-pub mod m007_axrom;
-pub mod m009_pxrom;
+mod m000_nrom;
+mod m001_sxrom;
+mod m002_uxrom;
+mod m003_cnrom;
+mod m004_txrom;
+mod m005_exrom;
+mod m007_axrom;
+mod m009_pxrom;
 
 /// Alias for Mapper wrapped in a Rc/RefCell
-pub type MapperRef = Rc<RefCell<dyn Mapper>>;
+pub type MapperRef = Rc<RefCell<MapperType>>;
 
 /// Nametable Mirroring Mode
 ///
@@ -53,7 +54,23 @@ pub enum Mirroring {
 #[derive(Debug)]
 pub struct NullMapper {}
 
+#[allow(clippy::large_enum_variant)]
+#[enum_dispatch]
+#[derive(Debug)]
+pub enum MapperType {
+    NullMapper,
+    Nrom,
+    Sxrom,
+    Uxrom,
+    Cnrom,
+    Txrom,
+    Exrom,
+    Axrom,
+    Pxrom,
+}
+
 /// Mapper trait requiring Memory + Send + Savable
+#[enum_dispatch(MapperType)]
 pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + fmt::Debug {
     fn irq_pending(&mut self) -> bool {
         false
@@ -84,18 +101,19 @@ pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + 
 /// Attempts to return a valid Mapper for the given rom.
 pub fn load_rom(rom: &str) -> NesResult<MapperRef> {
     let cart = Cartridge::from_rom(rom)?;
-    match cart.header.mapper_num {
-        0 => Ok(Nrom::load(cart)),
-        1 => Ok(Sxrom::load(cart)),
-        2 => Ok(Uxrom::load(cart)),
-        3 => Ok(Cnrom::load(cart)),
-        4 => Ok(Txrom::load(cart)),
-        5 => Ok(Exrom::load(cart)),
-        7 => Ok(Axrom::load(cart)),
-        9 => Ok(Pxrom::load(cart)),
-        71 => Ok(Uxrom::load(cart)), // TODO - Variant of Uxrom with submappers
-        _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num),
-    }
+    let mapper = match cart.header.mapper_num {
+        0 => Nrom::load(cart),
+        1 => Sxrom::load(cart),
+        2 => Uxrom::load(cart),
+        3 => Cnrom::load(cart),
+        4 => Txrom::load(cart),
+        5 => Exrom::load(cart),
+        7 => Axrom::load(cart),
+        9 => Pxrom::load(cart),
+        // 71 => Uxrom::load(cart), // TODO - Variant of Uxrom with submappers
+        _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
+    };
+    Ok(Rc::new(RefCell::new(mapper)))
 }
 
 impl Mapper for NullMapper {}
@@ -107,7 +125,8 @@ impl Powered for NullMapper {}
 impl Loggable for NullMapper {}
 
 pub fn null() -> MapperRef {
-    Rc::new(RefCell::new(NullMapper {}))
+    let null = NullMapper {};
+    Rc::new(RefCell::new(null.into()))
 }
 
 impl Savable for Mirroring {

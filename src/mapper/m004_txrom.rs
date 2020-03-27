@@ -7,16 +7,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 8 * 1024; // 8 KB ROM
 const CHR_BANK_SIZE: usize = 1024; // 1 KB ROM/RAM
@@ -98,7 +94,7 @@ impl TxRegs {
 }
 
 impl Txrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let mirroring = cart.mirroring();
         let four_screen_ram = if mirroring == Mirroring::FourScreen {
             Memory::ram(FOUR_SCREEN_RAM_SIZE)
@@ -142,7 +138,7 @@ impl Txrom {
             prg_rom_banks,
             chr_banks,
         };
-        Rc::new(RefCell::new(txrom))
+        txrom.into()
     }
 
     /// 7654 3210

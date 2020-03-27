@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     common::Powered,
-    mapper::{self, MapperRef, Mirroring},
+    mapper::{self, Mapper, MapperRef, Mirroring},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,

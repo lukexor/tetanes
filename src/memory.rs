@@ -1,6 +1,7 @@
 //! Memory types for dealing with bytes of u8
 
-use crate::{serialization::Savable, NesResult};
+use crate::{mapper::*, serialization::Savable, NesResult};
+use enum_dispatch::enum_dispatch;
 use rand::Rng;
 use std::{
     fmt,
@@ -8,6 +9,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+#[enum_dispatch(MapperType)]
 pub trait MemRead {
     fn read(&mut self, _addr: u16) -> u8 {
         0
@@ -22,6 +24,7 @@ pub trait MemRead {
         0
     }
 }
+#[enum_dispatch(MapperType)]
 pub trait MemWrite {
     fn write(&mut self, _addr: u16, _val: u8) {}
     fn writew(&mut self, _addr: usize, _val: u8) {}

@@ -2,6 +2,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
     mapper::{self, MapperRef},
+    memory::MemRead,
     serialization::Savable,
     NesResult,
 };

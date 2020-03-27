@@ -3,7 +3,7 @@ use crate::{
     common::Powered,
     hashmap,
     input::Input,
-    mapper::{self, MapperRef},
+    mapper::{self, Mapper, MapperRef},
     memory::{MemRead, MemWrite, Memory},
     nes_err,
     ppu::Ppu,

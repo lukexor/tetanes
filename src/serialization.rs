@@ -3,7 +3,8 @@
 //! Converts primative types and arrays of primatives from/to Big-Endian byte arrays and writes
 //! them to a file handle that implements Read/Write.
 
-use crate::{nes_err, NesResult};
+use crate::{mapper::*, nes_err, NesResult};
+use enum_dispatch::enum_dispatch;
 use std::{
     collections::VecDeque,
     io::{Read, Write},
@@ -40,6 +41,7 @@ pub fn validate_save_header(fh: &mut dyn Read) -> NesResult<()> {
 }
 
 /// Savable trait
+#[enum_dispatch(MapperType)]
 pub trait Savable {
     fn save(&self, _fh: &mut dyn Write) -> NesResult<()> {
         Ok(())
