@@ -976,8 +976,7 @@ mod tests {
         for a in 0..4 {
             for b in 0..4 {
                 let cart = Cartridge::new();
-                let exrom = Exrom::load(cart);
-                let mut exrom = exrom.borrow_mut();
+                let mut exrom = Exrom::load(cart);
 
                 exrom.write(0x5102, a);
                 exrom.write(0x5103, b);

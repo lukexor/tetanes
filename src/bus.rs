@@ -275,12 +275,16 @@ impl fmt::Debug for Bus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_bus() {
         use crate::mapper;
+        use std::{fs::File, io::BufReader};
 
-        let rom = "tests/cpu/nestest.nes";
-        let mapper = mapper::load_rom(&rom).expect("loaded mapper");
+        let rom_file = "tests/cpu/nestest.nes";
+        let rom = File::open(rom_file).expect("valid file");
+        let mut rom = BufReader::new(rom);
+        let mapper = mapper::load_rom(&rom_file, &mut rom).expect("loaded mapper");
         let mut mem = Bus::new();
         mem.load_mapper(mapper);
         mem.write(0x0005, 0x0015);

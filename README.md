@@ -229,9 +229,11 @@ build the binary from source using the following command:
 To build the project, ensure the dependencies are installed as outlined in the `Installation`
 section and then run `cargo build` or `cargo build --release` (if you want better framerates).
 
-Unit and integration tests can be run with `cargo test --features no-randomize-ram`. There are also
-several test roms that can be run to test various capabilities of the emulator. They are all located
-in the `tests/` directory.
+Unit and integration tests can be run with `cargo test --features no-randomize-ram`. RAM
+randomization is enabled by default since this more accurately reflects the original NES, but many
+tests fail under this condition so it needs to be disabled. There are also several test roms that
+can be run to test various capabilities of the emulator. They are all located in the `tests/`
+directory.
 
 Run them in a similar way you would run a game. e.g.
 

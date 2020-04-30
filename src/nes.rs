@@ -349,10 +349,11 @@ impl Default for Nes {
 mod tests {
     use super::*;
     use crate::memory::MemRead;
+    use std::path::PathBuf;
 
-    fn load(rom: &str) -> Nes {
+    fn load(file: &str) -> Nes {
         let mut nes = Nes::new();
-        nes.roms.push(rom.to_owned());
+        nes.roms.push(PathBuf::from(file));
         nes.load_rom(0).unwrap();
         nes.power_on().unwrap();
         nes

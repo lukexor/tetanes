@@ -316,6 +316,8 @@ mod tests {
 
     #[test]
     fn valid_cartridges() {
+        use std::{fs::File, io::BufReader};
+
         let rom_data = &[
             // (File, PRG, CHR, Mapper, Mirroring, Battery)
             (
@@ -329,36 +331,38 @@ mod tests {
             ),
             ("roms/metroid.nes", "Metroid (USA)", 8, 0, 1, 0, false),
         ];
-        for rom in rom_data {
-            let c = Cartridge::from_rom(&rom.0.to_string());
-            assert!(c.is_ok(), "new cartridge {}", rom.0);
+        for data in rom_data {
+            let rom = File::open(&data.0).expect("valid file");
+            let mut rom = BufReader::new(rom);
+            let c = Cartridge::from_rom(&data.0, &mut rom);
+            assert!(c.is_ok(), "new cartridge {}", data.0);
             let c = c.unwrap();
             assert_eq!(
-                c.header.prg_rom_size, rom.2,
+                c.header.prg_rom_size, data.2,
                 "PRG-ROM size matches for {}",
-                rom.0
+                data.0
             );
             assert_eq!(
-                c.header.chr_rom_size, rom.3,
+                c.header.chr_rom_size, data.3,
                 "CHR-ROM size matches for {}",
-                rom.0
+                data.0
             );
             assert_eq!(
-                c.header.mapper_num, rom.4,
+                c.header.mapper_num, data.4,
                 "mapper num matches for {}",
-                rom.0
+                data.0
             );
             assert_eq!(
                 c.header.flags & 0x01,
-                rom.5,
+                data.5,
                 "mirroring matches for {}",
-                rom.0
+                data.0
             );
             assert_eq!(
                 c.header.flags & 0x02 == 0x02,
-                rom.6,
+                data.6,
                 "battery matches for {}",
-                rom.0
+                data.0
             );
         }
     }
