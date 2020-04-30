@@ -4,8 +4,9 @@
 
 use crate::{
     bus::Bus,
-    common::{Clocked, Powered},
+    common::{Addr, Byte, Clocked, Powered},
     logging::{LogLevel, Loggable},
+    mapper::Mapper,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
@@ -27,11 +28,11 @@ pub mod instr;
 pub const MASTER_CLOCK_RATE: f32 = 21_477_270.0; // 21.47727 MHz Hardware clock rate
 pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
 
-const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
-const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
-const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
-const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
-const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
+const NMI_ADDR: Addr = 0xFFFA; // NMI Vector address
+const IRQ_ADDR: Addr = 0xFFFE; // IRQ Vector address
+const RESET_ADDR: Addr = 0xFFFC; // Vector address at reset
+const POWER_ON_STATUS: Byte = 0x24; // 0010 0100 - Unused and Interrupt Disable set
+const SP_BASE: Addr = 0x0100; // Stack-pointer starting address
 const PC_LOG_LEN: usize = 20;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -72,20 +73,20 @@ use StatusRegs::*;
 pub struct Cpu {
     pub cycle_count: usize, // total number of cycles ran
     pub step: usize,        // total number of CPU instructions run
-    pub pc: u16,            // program counter
-    pub sp: u8,             // stack pointer - stack is at $0100-$01FF
-    pub acc: u8,            // accumulator
-    pub x: u8,              // x register
-    pub y: u8,              // y register
-    pub status: u8,         // Status Registers
+    pub pc: Addr,           // program counter
+    pub sp: Byte,           // stack pointer - stack is at $0100-$01FF
+    pub acc: Byte,          // accumulator
+    pub x: Byte,            // x register
+    pub y: Byte,            // y register
+    pub status: Byte,       // Status Registers
     pub bus: Bus,
-    pub pc_log: VecDeque<u16>,
-    pub stall: usize,     // Number of cycles to stall with nop (used by DMA)
-    pub instr: Instr,     // The currently executing instruction
-    pub abs_addr: u16,    // Used memory addresses get set here
-    pub rel_addr: u16,    // Relative address for branch instructions
-    pub fetched_data: u8, // Represents data fetched for the ALU
-    pub irq_pending: u8,  // Pending interrupts
+    pub pc_log: VecDeque<Addr>,
+    pub stall: usize,       // Number of cycles to stall with nop (used by DMA)
+    pub instr: Instr,       // The currently executing instruction
+    pub abs_addr: Addr,     // Used memory addresses get set here
+    pub rel_addr: Addr,     // Relative address for branch instructions
+    pub fetched_data: Byte, // Represents data fetched for the ALU
+    pub irq_pending: u8,    // Pending interrupts
     pub nmi_pending: bool,
     last_irq: bool,
     last_nmi: bool,
@@ -236,7 +237,7 @@ impl Cpu {
     // Status Register functions
 
     // Convenience method to set both Z and N
-    fn set_flags_zn(&mut self, val: u8) {
+    fn set_flags_zn(&mut self, val: Byte) {
         self.set_flag(Z, val == 0x00);
         self.set_flag(N, val & 0x80 == 0x80);
     }
@@ -260,35 +261,35 @@ impl Cpu {
     // Stack Functions
 
     // Push a byte to the stack
-    fn push_stackb(&mut self, val: u8) {
-        self.write(SP_BASE | u16::from(self.sp), val);
+    fn push_stackb(&mut self, val: Byte) {
+        self.write(SP_BASE | Addr::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Push a byte to the stack with read value set, so no actual operation is done
     // except decrement the stack pointer
     // Used by Irq::Reset
-    fn push_read_stackb(&mut self, _val: u8) {
-        let _ = self.read(SP_BASE | u16::from(self.sp));
+    fn push_read_stackb(&mut self, _val: Byte) {
+        let _ = self.read(SP_BASE | Addr::from(self.sp));
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Pull a byte from the stack
-    fn pop_stackb(&mut self) -> u8 {
+    fn pop_stackb(&mut self) -> Byte {
         self.sp = self.sp.wrapping_add(1);
-        self.read(SP_BASE | u16::from(self.sp))
+        self.read(SP_BASE | Addr::from(self.sp))
     }
 
     // Peek byte at the top of the stack
-    pub fn peek_stackb(&self) -> u8 {
+    pub fn peek_stackb(&self) -> Byte {
         let sp = self.sp.wrapping_add(1);
-        self.peek(SP_BASE | u16::from(sp))
+        self.peek(SP_BASE | Addr::from(sp))
     }
 
     // Push a word (two bytes) to the stack
-    fn push_stackw(&mut self, val: u16) {
-        let lo = (val & 0xFF) as u8;
-        let hi = (val >> 8) as u8;
+    fn push_stackw(&mut self, val: Addr) {
+        let lo = (val & 0xFF) as Byte;
+        let hi = (val >> 8) as Byte;
         self.push_stackb(hi);
         self.push_stackb(lo);
     }
@@ -296,564 +297,27 @@ impl Cpu {
     // Push a word (two bytes) to the stack with read value set, so no actual operation is done
     // except decrementing the stack pointer
     // Used by Irq::Reset
-    fn push_read_stackw(&mut self, val: u16) {
-        let lo = (val & 0xFF) as u8;
-        let hi = (val >> 8) as u8;
+    fn push_read_stackw(&mut self, val: Addr) {
+        let lo = (val & 0xFF) as Byte;
+        let hi = (val >> 8) as Byte;
         self.push_read_stackb(hi);
         self.push_read_stackb(lo);
     }
 
     // Pull a word (two bytes) from the stack
-    fn pop_stackw(&mut self) -> u16 {
-        let lo = u16::from(self.pop_stackb());
-        let hi = u16::from(self.pop_stackb());
+    fn pop_stackw(&mut self) -> Addr {
+        let lo = Addr::from(self.pop_stackb());
+        let hi = Addr::from(self.pop_stackb());
         hi << 8 | lo
     }
 
     // Peek at the top of the stack
-    pub fn peek_stackw(&self) -> u16 {
+    pub fn peek_stackw(&self) -> Addr {
         let sp = self.sp.wrapping_add(1);
-        let lo = u16::from(self.peek(SP_BASE | u16::from(sp)));
+        let lo = Addr::from(self.peek(SP_BASE | Addr::from(sp)));
         let sp = sp.wrapping_add(1);
-        let hi = u16::from(self.peek(SP_BASE | u16::from(sp)));
+        let hi = Addr::from(self.peek(SP_BASE | Addr::from(sp)));
         hi << 8 | lo
-    }
-
-    /// Addressing Modes
-    ///
-    /// The 6502 can address 64KB from 0x0000 - 0xFFFF. The high byte is usually the page and the
-    /// low byte the offset into the page. There are 256 total pages of 256 bytes.
-
-    // FIXME
-    // 9E SXA #aby 6 > 5 (cross)
-    // 9F AHX #aby 6 > 5 (cross)
-    // A3 LAX #idx 5 > 6
-    // B7 LAX #zpy 3 > 4
-    // BB LAS #aby 5 > 4
-    // BF LAX #aby 4 > 5 (cross)
-    // C3 DCP #idx 7 > 8
-    // D3 DCP #idy 7 > 8
-    // D7 DCP #zpx 5 > 6
-    // DB CLD #imp 6 > 7
-    // DF DCP #abx 6 > 7
-    // E3 ISB #idx 7 > 8
-    // F3 ISB #idy 7 > 8
-    // F7 ISB #zpx 5 > 6
-    // FB ISB #aby 6 > 7
-    // FF ISB #abx 6 > 7
-
-    /// Accumulator
-    /// No additional data is required, but the default target will be the accumulator.
-    //  ASL, ROL, LSR, ROR
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
-    fn acc(&mut self) {
-        let _ = self.read(self.pc); // Cycle 2, Read and throw away
-    }
-
-    /// Implied
-    /// No additional data is required, but the default target will be the accumulator.
-    // #  address R/W description
-    //   --- ------- --- -----------------------------------------------
-    //    1    PC     R  fetch opcode, increment PC
-    //    2    PC     R  read next instruction byte (and throw it away)
-    fn imp(&mut self) {
-        let _ = self.read(self.pc); // Cycle 2, Read and throw away
-    }
-
-    /// Immediate
-    /// Uses the next byte as the value, so we'll update the abs_addr to the next byte.
-    // #  address R/W description
-    //   --- ------- --- ------------------------------------------
-    //    1    PC     R  fetch opcode, increment PC
-    //    2    PC     R  fetch value, increment PC
-    fn imm(&mut self) {
-        self.abs_addr = self.pc;
-        self.pc = self.pc.wrapping_add(1);
-    }
-
-    /// Zero Page
-    /// Accesses the first 0xFF bytes of the address range, so this only requires one extra byte
-    /// instead of the usual two.
-    //  Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                    LAX, NOP)
-
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch address, increment PC
-    //     3  address  R  read from effective address
-
-    //  Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                  SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch address, increment PC
-    //     3  address  R  read from effective address
-    //     4  address  W  write the value back to effective address,
-    //                    and do the operation on it
-    //     5  address  W  write the new value to effective address
-
-    //  Write instructions (STA, STX, STY, SAX)
-
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch address, increment PC
-    //     3  address  W  write register to effective address
-    fn zp0(&mut self) {
-        self.abs_addr = u16::from(self.read(self.pc)) & 0x00FF; // Cycle 2
-        self.pc = self.pc.wrapping_add(1);
-    }
-
-    /// Zero Page w/ X offset
-    /// Same as Zero Page, but is offset by adding the x register.
-    //  Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                     LAX, NOP)
-
-    //     #   address  R/W description
-    //    --- --------- --- ------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+X* R  read from effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
-
-    //  Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                  SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //     #   address  R/W description
-    //    --- --------- --- ---------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register X to it
-    //     4  address+X* R  read from effective address
-    //     5  address+X* W  write the value back to effective address,
-    //                      and do the operation on it
-    //     6  address+X* W  write the new value to effective address
-
-    //    Note: * The high byte of the effective address is always zero,
-    //            i.e. page boundary crossings are not handled.
-
-    //  Write instructions (STA, STX, STY, SAX)
-
-    //     #   address  R/W description
-    //    --- --------- --- -------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+X* W  write to effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
-    fn zpx(&mut self) {
-        let addr = self.read(self.pc); // Cycle 2
-        self.abs_addr = u16::from(addr.wrapping_add(self.x)) & 0x00FF;
-        let _ = self.read(u16::from(addr)); // Cycle 3
-        self.pc = self.pc.wrapping_add(1);
-    }
-
-    /// Zero Page w/ Y offset
-    /// Same as Zero Page, but is offset by adding the y register.
-    //  Read instructions (LDX, LAX)
-
-    //     #   address  R/W description
-    //    --- --------- --- ------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+Y* R  read from effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
-
-    //  Write instructions (STX, SAX)
-
-    //     #   address  R/W description
-    //    --- --------- --- -------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+Y* W  write to effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
-    fn zpy(&mut self) {
-        let addr = self.read(self.pc); // Cycle 2
-        self.abs_addr = u16::from(addr.wrapping_add(self.y)) & 0x00FF;
-        let _ = self.read(u16::from(addr)); // Cycle 3
-        self.pc = self.pc.wrapping_add(1);
-    }
-
-    /// Relative
-    /// This mode is only used by branching instructions. The address must be between -128 and +127,
-    /// allowing the branching instruction to move backward or forward relative to the current
-    /// program counter.
-    //    #   address  R/W description
-    //   --- --------- --- ---------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch operand, increment PC
-    //    3     PC      R  Fetch opcode of next instruction,
-    //                     If branch is taken, add operand to PCL.
-    //                     Otherwise increment PC.
-    //    4+    PC*     R  Fetch opcode of next instruction.
-    //                     Fix PCH. If it did not change, increment PC.
-    //    5!    PC      R  Fetch opcode of next instruction,
-    //                     increment PC.
-
-    //   Notes: The opcode fetch of the next instruction is included to
-    //          this diagram for illustration purposes. When determining
-    //          real execution times, remember to subtract the last
-    //          cycle.
-
-    //          * The high byte of Program Counter (PCH) may be invalid
-    //            at this time, i.e. it may be smaller or bigger by $100.
-
-    //          + If branch is taken, this cycle will be executed.
-
-    //          ! If branch occurs to different page, this cycle will be
-    //            executed.
-    fn rel(&mut self) {
-        self.rel_addr = self.read(self.pc).into(); // Cycle 2
-        self.pc = self.pc.wrapping_add(1);
-    }
-
-    /// Absolute
-    /// Uses a full 16-bit address as the next value.
-    //  Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                     LAX, NOP)
-    //
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch low byte of address, increment PC
-    //     3    PC     R  fetch high byte of address, increment PC
-    //     4  address  R  read from effective address
-
-    //  Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                  SLO, SRE, RLA, RRA, ISB, DCP)
-    //
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch low byte of address, increment PC
-    //     3    PC     R  fetch high byte of address, increment PC
-    //     4  address  R  read from effective address
-    //     5  address  W  write the value back to effective address,
-    //                    and do the operation on it
-    //     6  address  W  write the new value to effective address
-
-    //  Write instructions (STA, STX, STY, SAX)
-    //
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch low byte of address, increment PC
-    //     3    PC     R  fetch high byte of address, increment PC
-    //     4  address  W  write register to effective address
-    fn abs(&mut self) {
-        self.abs_addr = self.readw(self.pc); // Cycle 2 & 3
-        self.pc = self.pc.wrapping_add(2);
-    }
-
-    /// Absolute w/ X offset
-    /// Same as Absolute, but is offset by adding the x register. If a page boundary is crossed, an
-    /// additional clock is required.
-    // Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                    LAX, LAE, SHS, NOP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+X* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5+ address+X  R  re-read from effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    //          + This cycle will be executed only if the effective address
-    //            was invalid during cycle #4, i.e. page boundary was crossed.
-
-    // Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                 SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1    PC       R  fetch opcode, increment PC
-    //    2    PC       R  fetch low byte of address, increment PC
-    //    3    PC       R  fetch high byte of address,
-    //                     add index register X to low address byte,
-    //                     increment PC
-    //    4  address+X* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+X  R  re-read from effective address
-    //    6  address+X  W  write the value back to effective address,
-    //                     and do the operation on it
-    //    7  address+X  W  write the new value to effective address
-
-    //   Notes: * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    // Write instructions (STA, STX, STY, SHA, SHX, SHY)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+X* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+X  W  write to effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100. Because
-    //            the processor cannot undo a write to an invalid
-    //            address, it always reads from the address first.
-    fn abx(&mut self) {
-        let addr = self.readw(self.pc); // Cycle 2 & 3
-        self.pc = self.pc.wrapping_add(2);
-        self.abs_addr = addr.wrapping_add(self.x.into());
-        // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
-    }
-
-    /// Absolute w/ Y offset
-    /// Same as Absolute, but is offset by adding the y register. If a page boundary is crossed, an
-    /// additional clock is required.
-    // Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                    LAX, LAE, SHS, NOP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+Y* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5+ address+Y  R  re-read from effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    //          + This cycle will be executed only if the effective address
-    //            was invalid during cycle #4, i.e. page boundary was crossed.
-
-    // Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                 SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1    PC       R  fetch opcode, increment PC
-    //    2    PC       R  fetch low byte of address, increment PC
-    //    3    PC       R  fetch high byte of address,
-    //                     add index register Y to low address byte,
-    //                     increment PC
-    //    4  address+Y* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+Y  R  re-read from effective address
-    //    6  address+Y  W  write the value back to effective address,
-    //                     and do the operation on it
-    //    7  address+Y  W  write the new value to effective address
-
-    //   Notes: * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    // Write instructions (STA, STX, STY, SHA, SHX, SHY)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+Y* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+Y  W  write to effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100. Because
-    //            the processor cannot undo a write to an invalid
-    //            address, it always reads from the address first.
-    fn aby(&mut self) {
-        let addr = self.readw(self.pc); // Cycles 2 & 3
-        self.pc = self.pc.wrapping_add(2);
-        self.abs_addr = addr.wrapping_add(self.y.into());
-        // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
-    }
-
-    /// Indirect (JMP)
-    /// The next 16-bit address is used to get the actual 16-bit address. This instruction has
-    /// a bug in the original hardware. If the lo byte is 0xFF, the hi byte would cross a page
-    /// boundary. However, this doesn't work correctly on the original hardware and instead
-    /// wraps back around to 0.
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch pointer address low, increment PC
-    //    3     PC      R  fetch pointer address high, increment PC
-    //    4   pointer   R  fetch low address to latch
-    //    5  pointer+1* R  fetch PCH, copy latch to PCL
-
-    //   Note: * The PCH will always be fetched from the same page
-    //           than PCL, i.e. page boundary crossing is not handled.
-
-    //            How Real Programmers Acknowledge Interrupts
-    fn ind(&mut self) {
-        let addr = self.readw(self.pc);
-        self.pc = self.pc.wrapping_add(2);
-        if addr & 0x00FF == 0x00FF {
-            // Simulate bug
-            self.abs_addr = (u16::from(self.read(addr & 0xFF00)) << 8) | u16::from(self.read(addr));
-        } else {
-            // Normal behavior
-            self.abs_addr = (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr));
-        }
-    }
-
-    /// Indirect X
-    /// The next 8-bit address is offset by the X register to get the actual 16-bit address from
-    /// page 0x00.
-    // Read instructions (LDA, ORA, EOR, AND, ADC, CMP, SBC, LAX)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  read from the address, add X to it
-    //    4   pointer+X   R  fetch effective address low
-    //    5  pointer+X+1  R  fetch effective address high
-    //    6    address    R  read from effective address
-
-    //   Note: The effective address is always fetched from zero page,
-    //         i.e. the zero page boundary crossing is not handled.
-
-    // Read-Modify-Write instructions (SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  read from the address, add X to it
-    //    4   pointer+X   R  fetch effective address low
-    //    5  pointer+X+1  R  fetch effective address high
-    //    6    address    R  read from effective address
-    //    7    address    W  write the value back to effective address,
-    //                       and do the operation on it
-    //    8    address    W  write the new value to effective address
-
-    //   Note: The effective address is always fetched from zero page,
-    //         i.e. the zero page boundary crossing is not handled.
-
-    // Write instructions (STA, SAX)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  read from the address, add X to it
-    //    4   pointer+X   R  fetch effective address low
-    //    5  pointer+X+1  R  fetch effective address high
-    //    6    address    W  write to effective address
-
-    //   Note: The effective address is always fetched from zero page,
-    //         i.e. the zero page boundary crossing is not handled.
-    fn idx(&mut self) {
-        let addr = self.read(self.pc); // Cycle 2
-        self.pc = self.pc.wrapping_add(1);
-        let x_offset = addr.wrapping_add(self.x);
-        let _ = self.read(u16::from(addr)); // Cycle 3
-        self.abs_addr = self.readw_zp(x_offset); // Cycles 4 & 5
-    }
-
-    /// Indirect Y
-    /// The next 8-bit address is read to get a 16-bit address from page 0x00, which is then offset
-    /// by the Y register. If a page boundary is crossed, add a clock cycle.
-    // Read instructions (LDA, EOR, AND, ORA, ADC, SBC, CMP)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  fetch effective address low
-    //    4   pointer+1   R  fetch effective address high,
-    //                       add Y to low byte of effective address
-    //    5   address+Y*  R  read from effective address,
-    //                       fix high byte of effective address
-    //    6+  address+Y   R  read from effective address
-
-    //   Notes: The effective address is always fetched from zero page,
-    //          i.e. the zero page boundary crossing is not handled.
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    //          + This cycle will be executed only if the effective address
-    //            was invalid during cycle #5, i.e. page boundary was crossed.
-
-    // Read-Modify-Write instructions (SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  fetch effective address low
-    //    4   pointer+1   R  fetch effective address high,
-    //                       add Y to low byte of effective address
-    //    5   address+Y*  R  read from effective address,
-    //                       fix high byte of effective address
-    //    6   address+Y   R  re-read from effective address
-    //    7   address+Y   W  write the value back to effective address,
-    //                       and do the operation on it
-    //    8   address+Y   W  write the new value to effective address
-
-    //   Notes: The effective address is always fetched from zero page,
-    //          i.e. the zero page boundary crossing is not handled.
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    // Write instructions (STA, SHA)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  fetch effective address low
-    //    4   pointer+1   R  fetch effective address high,
-    //                       add Y to low byte of effective address
-    //    5   address+Y*  R  read from effective address,
-    //                       fix high byte of effective address
-    //    6   address+Y   W  write to effective address
-
-    //   Notes: The effective address is always fetched from zero page,
-    //          i.e. the zero page boundary crossing is not handled.
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-    fn idy(&mut self) {
-        let addr = self.read(self.pc); // Cycle 2
-        self.pc = self.pc.wrapping_add(1);
-        let addr = self.readw_zp(addr); // Cycles 3 & 4
-        self.abs_addr = addr.wrapping_add(self.y.into());
-        // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
     // Source the data used by an instruction. Some instructions don't fetch data as the source
@@ -873,7 +337,7 @@ impl Cpu {
                             _ => panic!("not possible"),
                         };
                         // Read if we crossed, otherwise use what was already read
-                        if (self.abs_addr & 0x00FF) < u16::from(reg) {
+                        if (self.abs_addr & 0x00FF) < Addr::from(reg) {
                             self.read(self.abs_addr)
                         } else {
                             self.fetched_data
@@ -888,7 +352,7 @@ impl Cpu {
 
     // Writes data back to where fetched_data was sourced from. Either accumulator or memory
     // specified in abs_addr.
-    fn write_fetched(&mut self, val: u8) {
+    fn write_fetched(&mut self, val: Byte) {
         match self.instr.addr_mode() {
             IMP | ACC => self.acc = val,
             IMM => (), // noop
@@ -899,37 +363,37 @@ impl Cpu {
     // Memory accesses
 
     // Utility to read a full 16-bit word
-    pub fn readw(&mut self, addr: u16) -> u16 {
-        let lo = u16::from(self.read(addr));
-        let hi = u16::from(self.read(addr.wrapping_add(1)));
+    pub fn readw(&mut self, addr: Addr) -> Addr {
+        let lo = Addr::from(self.read(addr));
+        let hi = Addr::from(self.read(addr.wrapping_add(1)));
         (hi << 8) | lo
     }
 
     // readw but don't accidentally modify state
-    pub fn peekw(&self, addr: u16) -> u16 {
-        let lo = u16::from(self.peek(addr));
-        let hi = u16::from(self.peek(addr.wrapping_add(1)));
+    pub fn peekw(&self, addr: Addr) -> Addr {
+        let lo = Addr::from(self.peek(addr));
+        let hi = Addr::from(self.peek(addr.wrapping_add(1)));
         (hi << 8) | lo
     }
 
     // Like readw, but for Zero Page which means it'll wrap around at 0xFF
-    fn readw_zp(&mut self, addr: u8) -> u16 {
-        let lo = u16::from(self.read(addr.into()));
-        let hi = u16::from(self.read(addr.wrapping_add(1).into()));
+    fn readw_zp(&mut self, addr: Byte) -> Addr {
+        let lo = Addr::from(self.read(addr.into()));
+        let hi = Addr::from(self.read(addr.wrapping_add(1).into()));
         (hi << 8) | lo
     }
 
     // Like peekw, but for Zero Page which means it'll wrap around at 0xFF
-    fn peekw_zp(&self, addr: u8) -> u16 {
-        let lo = u16::from(self.peek(addr.into()));
-        let hi = u16::from(self.peek(addr.wrapping_add(1).into()));
+    fn peekw_zp(&self, addr: Byte) -> Addr {
+        let lo = Addr::from(self.peek(addr.into()));
+        let hi = Addr::from(self.peek(addr.wrapping_add(1).into()));
         (hi << 8) | lo
     }
 
     // Copies data to the PPU OAMDATA ($2004) using DMA (Direct Memory Access)
     // http://wiki.nesdev.com/w/index.php/PPU_registers#OAMDMA
-    fn write_oamdma(&mut self, addr: u8) {
-        let mut addr = u16::from(addr) << 8; // Start at $XX00
+    fn write_oamdma(&mut self, addr: Byte) {
+        let mut addr = Addr::from(addr) << 8; // Start at $XX00
         let oam_addr = 0x2004;
         self.run_cycle(); // Dummy cyle to wait for writes to complete
         if self.cycle_count & 0x01 == 1 {
@@ -944,7 +408,7 @@ impl Cpu {
         }
     }
 
-    pub fn disassemble(&self, pc: &mut u16) -> String {
+    pub fn disassemble(&self, pc: &mut Addr) -> String {
         let opcode = self.peek(*pc);
         let instr = INSTRUCTIONS[opcode as usize];
         let mut bytes = Vec::new();
@@ -1014,9 +478,9 @@ impl Cpu {
                 let addr = self.peekw(*pc);
                 *pc = pc.wrapping_add(2);
                 let val = if addr & 0x00FF == 0x00FF {
-                    (u16::from(self.peek(addr & 0xFF00)) << 8) | u16::from(self.peek(addr))
+                    (Addr::from(self.peek(addr & 0xFF00)) << 8) | Addr::from(self.peek(addr))
                 } else {
-                    (u16::from(self.peek(addr + 1)) << 8) | u16::from(self.peek(addr))
+                    (Addr::from(self.peek(addr + 1)) << 8) | Addr::from(self.peek(addr))
                 };
                 format!("(${:04X}) = ${:04X}", addr, val)
             }
@@ -1061,7 +525,7 @@ impl Cpu {
     }
 
     // Print the current instruction and status
-    pub fn print_instruction(&mut self, mut pc: u16) {
+    pub fn print_instruction(&mut self, mut pc: Addr) {
         let disasm = self.disassemble(&mut pc);
 
         let status_flags = vec!['n', 'v', '-', 'b', 'd', 'i', 'z', 'c'];
@@ -1089,7 +553,7 @@ impl Cpu {
 
     /// Utilities
 
-    fn pages_differ(&self, addr1: u16, addr2: u16) -> bool {
+    fn pages_differ(&self, addr1: Addr, addr2: Addr) -> bool {
         (addr1 & 0xFF00) != (addr2 & 0xFF00)
     }
 }
@@ -1229,17 +693,17 @@ impl Clocked for Cpu {
 }
 
 impl MemRead for Cpu {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: Addr) -> Byte {
         self.run_cycle();
         self.bus.read(addr)
     }
 
-    fn peek(&self, addr: u16) -> u8 {
+    fn peek(&self, addr: Addr) -> Byte {
         self.bus.peek(addr)
     }
 }
 impl MemWrite for Cpu {
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: Addr, val: Byte) {
         if addr == 0x4014 {
             self.write_oamdma(val);
         } else {
@@ -1287,7 +751,7 @@ impl Loggable for Cpu {
 }
 
 impl Savable for Cpu {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.cycle_count.save(fh)?;
         self.step.save(fh)?;
         self.pc.save(fh)?;
@@ -1310,7 +774,7 @@ impl Savable for Cpu {
         // Ignore log_level
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.cycle_count.load(fh)?;
         self.step.load(fh)?;
         self.pc.load(fh)?;

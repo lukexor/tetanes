@@ -1,2 +1,2 @@
 cargo build
-find roms -name '*nes' -depth 1 -exec target/debug/rustynes {} \;
+find roms -name '*nes' -depth 1 -exec target/debug/tetanes {} \;

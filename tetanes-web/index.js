@@ -1,4 +1,4 @@
-import init, {} from './pkg/rustynes_web.js';
+import init, {} from './pkg/tetanes_web.js';
 
 async function run() {
     // First up we need to actually load the wasm file, so we use the

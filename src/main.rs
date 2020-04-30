@@ -1,4 +1,4 @@
-//! Usage: rustynes [rom_file | rom_directory]
+//! Usage: tetanes [rom_file | rom_directory]
 //!
 //! 1. If a rom file is provided, that rom is loaded
 //! 2. If a directory is provided, `.nes` files are searched for in that directory
@@ -9,12 +9,12 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
-use rustynes::{
+use std::env;
+use structopt::StructOpt;
+use tetanes::{
     logging::LogLevel,
     nes::{Nes, NesConfig},
 };
-use std::env;
-use structopt::StructOpt;
 
 fn main() {
     let opt = Opt::from_args();
@@ -63,7 +63,7 @@ fn main() {
 /// Command-Line Options
 #[derive(StructOpt, Debug)]
 #[structopt(
-    name = "rustynes",
+    name = "tetanes",
     about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
     version = "0.5.0",
     author = "Luke Petherbridge <me@lukeworks.tech>"

@@ -5,8 +5,8 @@ use crate::{
 };
 use pix_engine::{
     draw::Rect,
+    image::Image,
     pixel::{self, ColorType, Pixel},
-    sprite::Sprite,
     StateData,
 };
 
@@ -22,7 +22,7 @@ pub(super) struct Menu {
     menu_type: MenuType,
     width: u32,
     height: u32,
-    sprite: Sprite,
+    image: Image,
     open: bool,
     // keybinds: Vec<PixEvent>, // TODO
 }
@@ -41,7 +41,7 @@ impl Menu {
             menu_type,
             width,
             height,
-            sprite: Sprite::new(width, height),
+            image: Image::new(width, height),
             open: false,
         }
     }
@@ -88,15 +88,6 @@ impl Message {
 }
 
 impl Nes {
-    pub(super) fn paused(&mut self, paused: bool) {
-        if !self.paused && paused {
-            self.set_static_message("Paused");
-        } else if !paused {
-            self.unset_static_message("Paused");
-        }
-        self.paused = paused;
-    }
-
     pub(super) fn add_message(&mut self, text: &str) {
         self.messages.push(Message::new(text));
     }
@@ -113,8 +104,8 @@ impl Nes {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         self.messages.dedup();
         if !self.messages.is_empty() {
-            let mut msg_box = Sprite::new(self.width, MSG_HEIGHT);
-            data.set_draw_target(&mut msg_box);
+            let msg_box = Image::new_ref(self.width, MSG_HEIGHT);
+            data.set_draw_target(msg_box);
             let mut y = 5;
             data.set_draw_scale(2);
             for msg in self.messages.iter_mut() {
@@ -137,36 +128,31 @@ impl Nes {
                 y += 20;
             }
             data.set_draw_scale(1);
-            data.copy_draw_target(self.nes_window, "message")?;
-            data.clear_draw_target();
+            data.copy_draw_target("message")?;
         }
         Ok(())
     }
 
     pub(super) fn create_textures(&mut self, data: &mut StateData) -> NesResult<()> {
         data.create_texture(
-            self.nes_window,
             "nes",
             ColorType::Rgb,
             Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
             Rect::new(0, 0, self.width, self.height),
         )?;
         data.create_texture(
-            self.nes_window,
             "message",
             ColorType::Rgba,
             Rect::new(0, 0, self.width, MSG_HEIGHT),
             Rect::new(0, 0, self.width, MSG_HEIGHT),
         )?;
         data.create_texture(
-            self.nes_window,
             "menu",
             ColorType::Rgba,
             Rect::new(0, 0, self.width, self.height),
             Rect::new(0, 0, self.width, self.height),
         )?;
         data.create_texture(
-            self.nes_window,
             "debug",
             ColorType::Rgba,
             Rect::new(0, 0, DEBUG_WIDTH, self.height),

@@ -349,7 +349,7 @@ impl PpuRegs {
 }
 
 impl Savable for PpuRegs {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.ctrl.save(fh)?;
         self.mask.save(fh)?;
         self.status.save(fh)?;
@@ -361,7 +361,7 @@ impl Savable for PpuRegs {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.ctrl.load(fh)?;
         self.mask.load(fh)?;
         self.status.load(fh)?;

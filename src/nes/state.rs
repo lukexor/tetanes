@@ -1,7 +1,9 @@
 use crate::{
     common::{home_dir, Clocked, Powered, CONFIG_DIR},
+    error,
     logging::{LogLevel, Loggable},
     map_nes_err, mapper,
+    mapper::Mapper,
     nes::{event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
     nes_err,
     serialization::{validate_save_header, write_save_header, Savable},
@@ -10,11 +12,21 @@ use crate::{
 use chrono::prelude::{DateTime, Local};
 use std::{
     collections::VecDeque,
+    fs::File,
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
 impl Nes {
+    pub(super) fn paused(&mut self, paused: bool) {
+        if !self.paused && paused {
+            self.set_static_message("Paused");
+        } else if !paused {
+            self.unset_static_message("Paused");
+        }
+        self.paused = paused;
+    }
+
     /// Powers on the console
     pub(super) fn power_on(&mut self) -> NesResult<()> {
         self.cpu.power_on();
@@ -33,6 +45,7 @@ impl Nes {
         }
         if let Err(e) = self.save_sram() {
             self.add_message(&e.to_string());
+            error!(self, "{}", e.to_string());
         }
         // Clean up rewind states
         if self.config.rewind_enabled {
@@ -52,7 +65,10 @@ impl Nes {
     /// Loads a ROM cartridge into memory
     pub(super) fn load_rom(&mut self, rom_id: usize) -> NesResult<()> {
         self.loaded_rom = self.roms[rom_id].to_owned();
-        let mapper = mapper::load_rom(&self.loaded_rom)?;
+        let rom = File::open(&self.loaded_rom)
+            .map_err(|e| map_nes_err!("unable to open file {:?}: {}", self.loaded_rom, e))?;
+        let mut rom = BufReader::new(rom);
+        let mapper = mapper::load_rom(&self.loaded_rom.to_string_lossy(), &mut rom)?;
         self.cpu.bus.load_mapper(mapper);
         Ok(())
     }
@@ -244,7 +260,7 @@ impl Nes {
     /// Saves the replay buffer out to a file
     pub fn save_replay(&mut self) -> NesResult<()> {
         let datetime: DateTime<Local> = Local::now();
-        let mut path = PathBuf::from(datetime.format("rustynes_%Y-%m-%d_at_%H.%M.%S").to_string());
+        let mut path = PathBuf::from(datetime.format("tetanes_%Y-%m-%d_at_%H.%M.%S").to_string());
         path.set_extension("replay");
         let file = std::fs::File::create(&path)?;
         let mut file = BufWriter::new(file);
@@ -272,26 +288,18 @@ impl Nes {
     ///
     /// If rom_path is a `.nes` file, uses that
     /// If no arg[1], searches current directory for `.nes` files
-    pub(super) fn find_roms(&self) -> NesResult<Vec<String>> {
+    pub(super) fn find_roms(&self) -> NesResult<Vec<PathBuf>> {
         use std::ffi::OsStr;
         let path = PathBuf::from(self.config.path.to_owned());
-        let mut roms: Vec<String> = Vec::new();
+        let mut roms: Vec<PathBuf> = Vec::new();
         if path.is_dir() {
             path.read_dir()
                 .map_err(|e| map_nes_err!("unable to read directory {:?}: {}", path, e))?
                 .filter_map(|f| f.ok())
                 .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
-                .for_each(|f| {
-                    if let Some(p) = f.path().to_str() {
-                        roms.push(p.to_string())
-                    }
-                });
+                .for_each(|f| roms.push(f.path()));
         } else if path.is_file() {
-            if let Some(p) = path.to_str() {
-                roms.push(p.to_string());
-            } else {
-                nes_err!("invalid path: {:?}", path)?;
-            }
+            roms.push(path.clone());
         } else {
             nes_err!("invalid path: {:?}", path)?;
         }
@@ -323,7 +331,7 @@ impl Powered for Nes {
     /// Soft-resets the console
     fn reset(&mut self) {
         self.cpu.reset();
-        self.clock = 0.0;
+        self.running_time = 0.0;
         self.cycles_remaining = 0.0;
         if self.config.debug {
             self.paused(true);
@@ -333,7 +341,7 @@ impl Powered for Nes {
     /// Hard-resets the console
     fn power_cycle(&mut self) {
         self.cpu.power_cycle();
-        self.clock = 0.0;
+        self.running_time = 0.0;
         self.cycles_remaining = 0.0;
         if self.config.debug {
             self.paused(true);
@@ -378,13 +386,13 @@ impl Loggable for Nes {
 }
 
 impl Savable for Nes {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         // Ignore
         // roms
         // loaded_rom
         // paused
         // background_pause
-        self.clock.save(fh)?;
+        self.running_time.save(fh)?;
         self.turbo_clock.save(fh)?;
         self.cpu.save(fh)?;
         self.cycles_remaining.save(fh)?;
@@ -403,9 +411,9 @@ impl Savable for Nes {
         // nt_viewer
         // nt_scanline
         // pat_scanline
-        // debug_sprite
-        // ppu_info_sprite
-        // nt_info_sprite
+        // debug_image
+        // ppu_info_image
+        // nt_info_image
         // active_debug
         self.width.save(fh)?;
         self.height.save(fh)?;
@@ -422,11 +430,10 @@ impl Savable for Nes {
         // Config
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
-        // Clone here prevents data corruption if loading fails
-        // HACK: Really should figure a way to have a fresh state
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
+        // EXPL: Clone here prevents corrupt savestate data from crashing execution.
         let mut nes = self.clone();
-        nes.clock.load(fh)?;
+        nes.running_time.load(fh)?;
         nes.turbo_clock.load(fh)?;
         nes.cpu.load(fh)?;
         nes.cycles_remaining.load(fh)?;
@@ -459,7 +466,7 @@ fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
     path.push(CONFIG_DIR);
     path.push("sram");
     path.push(save_name);
-    path.set_extension("dat");
+    path.set_extension("sram");
     Ok(path)
 }
 
@@ -480,7 +487,7 @@ pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
         path.push("save");
         path.push(save_name);
         path.push(format!("{}", slot));
-        path.set_extension("dat");
+        path.set_extension("save");
         Ok(path)
     } else {
         nes_err!("failed to create save path for {:?}", path.as_ref())

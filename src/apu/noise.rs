@@ -111,7 +111,7 @@ impl Powered for Noise {
 }
 
 impl Savable for Noise {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.enabled.save(fh)?;
         self.freq_timer.save(fh)?;
         self.freq_counter.save(fh)?;
@@ -121,7 +121,7 @@ impl Savable for Noise {
         self.envelope.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.enabled.load(fh)?;
         self.freq_timer.load(fh)?;
         self.freq_counter.load(fh)?;
@@ -134,10 +134,10 @@ impl Savable for Noise {
 }
 
 impl Savable for ShiftMode {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {

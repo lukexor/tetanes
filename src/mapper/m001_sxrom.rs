@@ -7,16 +7,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_BANK_SIZE: usize = 4 * 1024;
@@ -61,7 +57,7 @@ struct SxRegs {
 }
 
 impl Sxrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_ram_size = if let Ok(prg_ram_size) = cart.prg_ram_size() {
             if prg_ram_size > 0 {
                 prg_ram_size
@@ -98,7 +94,7 @@ impl Sxrom {
             prg_rom_banks,
             chr_banks,
         };
-        Rc::new(RefCell::new(sxrom))
+        sxrom.into()
     }
 
     /// Writes data into a shift register. At every 5th
@@ -222,13 +218,13 @@ impl Mapper for Sxrom {
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save_sram<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load_sram<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -295,7 +291,7 @@ impl Powered for Sxrom {
 impl Loggable for Sxrom {}
 
 impl Savable for Sxrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
         self.battery_backed.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
@@ -307,7 +303,7 @@ impl Savable for Sxrom {
         self.chr_banks.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
         self.battery_backed.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
@@ -322,7 +318,7 @@ impl Savable for Sxrom {
 }
 
 impl Savable for SxRegs {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.write_just_occurred.save(fh)?;
         self.shift_register.save(fh)?;
         self.control.save(fh)?;
@@ -332,7 +328,7 @@ impl Savable for SxRegs {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.write_just_occurred.load(fh)?;
         self.shift_register.load(fh)?;
         self.control.load(fh)?;

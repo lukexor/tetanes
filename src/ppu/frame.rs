@@ -72,7 +72,9 @@ impl Frame {
         let red = (color >> 16 & 0xFF) as u8;
         let green = (color >> 8 & 0xFF) as u8;
         let blue = (color & 0xFF) as u8;
-        self.put_pixel(x, y, red, green, blue);
+        // HACK: Not sure why x needs to be shifted left here, but without it pixles are
+        // incorrectly shifted right one
+        self.put_pixel(x.saturating_sub(1), y, red, green, blue);
         self.prev_pixel = pixel;
     }
 
@@ -178,7 +180,7 @@ impl Powered for Frame {
 }
 
 impl Savable for Frame {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.num.save(fh)?;
         self.parity.save(fh)?;
         self.tile_lo.save(fh)?;
@@ -194,7 +196,7 @@ impl Savable for Frame {
         // Ignore palette
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.num.load(fh)?;
         self.parity.load(fh)?;
         self.tile_lo.load(fh)?;

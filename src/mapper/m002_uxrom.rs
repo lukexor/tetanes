@@ -6,16 +6,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024; // 16L ROM
 const CHR_BANK_SIZE: usize = 8 * 1024; // 8K ROM/RAM
@@ -35,7 +31,7 @@ pub struct Uxrom {
 }
 
 impl Uxrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         // Just 1 bank
         let chr_banks = if cart.chr_rom.is_empty() {
@@ -52,7 +48,7 @@ impl Uxrom {
             chr_banks,
             open_bus: 0,
         };
-        Rc::new(RefCell::new(uxrom))
+        uxrom.into()
     }
 }
 
@@ -99,7 +95,7 @@ impl Powered for Uxrom {}
 impl Loggable for Uxrom {}
 
 impl Savable for Uxrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.mirroring.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
         self.prg_rom_bank_hi.save(fh)?;
@@ -108,7 +104,7 @@ impl Savable for Uxrom {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
         self.prg_rom_bank_hi.load(fh)?;

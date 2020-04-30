@@ -6,16 +6,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 32 * 1024;
 const CHR_BANK_SIZE: usize = 8 * 1024;
@@ -33,7 +29,7 @@ pub struct Axrom {
 }
 
 impl Axrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let chr_banks = if cart.chr_rom.is_empty() {
             let chr_ram = Memory::ram(CHR_RAM_SIZE);
@@ -49,7 +45,7 @@ impl Axrom {
             chr_banks,
             open_bus: 0,
         };
-        Rc::new(RefCell::new(axrom))
+        axrom.into()
     }
 }
 
@@ -106,7 +102,7 @@ impl Powered for Axrom {}
 impl Loggable for Axrom {}
 
 impl Savable for Axrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
         self.prg_rom_bank.save(fh)?;
@@ -115,7 +111,7 @@ impl Savable for Axrom {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.prg_rom_bank.load(fh)?;

@@ -1,6 +1,12 @@
-//! Memory types for dealing with bytes of u8
+//! Memory types for dealing with bytes
 
-use crate::{serialization::Savable, NesResult};
+use crate::{
+    common::{Addr, Byte, Word},
+    mapper::*,
+    serialization::Savable,
+    NesResult,
+};
+use enum_dispatch::enum_dispatch;
 use rand::Rng;
 use std::{
     fmt,
@@ -8,46 +14,37 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+#[enum_dispatch(MapperType)]
 pub trait MemRead {
-    fn read(&mut self, _addr: u16) -> u8 {
+    fn read(&mut self, _addr: Addr) -> Byte {
         0
     }
-    fn readw(&mut self, _addr: usize) -> u8 {
+    fn readw(&mut self, _addr: Word) -> Byte {
         0
     }
-    fn peek(&self, _addr: u16) -> u8 {
+    fn peek(&self, _addr: Addr) -> Byte {
         0
     }
-    fn peekw(&self, _addr: usize) -> u8 {
+    fn peekw(&self, _addr: Word) -> Byte {
         0
     }
 }
+#[enum_dispatch(MapperType)]
 pub trait MemWrite {
-    fn write(&mut self, _addr: u16, _val: u8) {}
-    fn writew(&mut self, _addr: usize, _val: u8) {}
+    fn write(&mut self, _addr: Addr, _val: Byte) {}
+    fn writew(&mut self, _addr: Word, _val: Byte) {}
 }
-pub trait Bankable
-where
-    Self: std::marker::Sized,
-{
-    fn chunks(&self, size: usize) -> Vec<Self>;
+pub trait Bankable {
+    type Item;
+    fn chunks(&self, size: usize) -> Vec<Self::Item>;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
 }
 
 #[derive(Default, Clone)]
 pub struct Memory {
-    data: Vec<u8>,
+    data: Vec<Byte>,
     writable: bool,
-}
-
-#[derive(Default, Clone)]
-pub struct Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    banks: Vec<T>,
-    pub size: usize,
 }
 
 impl Memory {
@@ -65,7 +62,7 @@ impl Memory {
             }
             data
         } else {
-            vec![0u8; capacity]
+            vec![0; capacity]
         };
         Self {
             data,
@@ -73,7 +70,7 @@ impl Memory {
         }
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    pub fn from_bytes(bytes: &[Byte]) -> Self {
         let mut memory = Self::with_capacity(bytes.len());
         memory.data = bytes.to_vec();
         memory
@@ -84,7 +81,7 @@ impl Memory {
         rom.writable = false;
         rom
     }
-    pub fn rom_from_bytes(bytes: &[u8]) -> Self {
+    pub fn rom_from_bytes(bytes: &[Byte]) -> Self {
         let mut rom = Self::rom(bytes.len());
         rom.data = bytes.to_vec();
         rom
@@ -93,7 +90,7 @@ impl Memory {
     pub fn ram(capacity: usize) -> Self {
         Self::with_capacity(capacity)
     }
-    pub fn ram_from_bytes(bytes: &[u8]) -> Self {
+    pub fn ram_from_bytes(bytes: &[Byte]) -> Self {
         let mut ram = Self::ram(bytes.len());
         ram.data = bytes.to_vec();
         ram
@@ -108,16 +105,16 @@ impl Memory {
 }
 
 impl MemRead for Memory {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: Addr) -> Byte {
         self.peek(addr)
     }
-    fn readw(&mut self, addr: usize) -> u8 {
+    fn readw(&mut self, addr: Word) -> Byte {
         self.peekw(addr)
     }
-    fn peek(&self, addr: u16) -> u8 {
-        self.peekw(addr as usize)
+    fn peek(&self, addr: Addr) -> Byte {
+        self.peekw(addr as Word)
     }
-    fn peekw(&self, addr: usize) -> u8 {
+    fn peekw(&self, addr: Word) -> Byte {
         if !self.data.is_empty() {
             let addr = addr % self.data.len();
             self.data[addr]
@@ -128,10 +125,10 @@ impl MemRead for Memory {
 }
 
 impl MemWrite for Memory {
-    fn write(&mut self, addr: u16, val: u8) {
-        self.writew(addr as usize, val);
+    fn write(&mut self, addr: Addr, val: Byte) {
+        self.writew(addr as Word, val);
     }
-    fn writew(&mut self, addr: usize, val: u8) {
+    fn writew(&mut self, addr: Word, val: Byte) {
         if self.writable && !self.data.is_empty() {
             let addr = addr % self.data.len();
             self.data[addr] = val;
@@ -140,6 +137,8 @@ impl MemWrite for Memory {
 }
 
 impl Bankable for Memory {
+    type Item = Self;
+
     fn chunks(&self, size: usize) -> Vec<Memory> {
         let mut chunks: Vec<Memory> = Vec::new();
         for slice in self.data.chunks(size) {
@@ -158,16 +157,25 @@ impl Bankable for Memory {
 }
 
 impl Savable for Memory {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.data.save(fh)?;
         self.writable.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.data.load(fh)?;
         self.writable.load(fh)?;
         Ok(())
     }
+}
+
+#[derive(Default, Clone)]
+pub struct Banks<T>
+where
+    T: MemRead + MemWrite + Bankable,
+{
+    banks: Vec<T::Item>,
+    size: usize,
 }
 
 impl<T> Banks<T>
@@ -182,7 +190,7 @@ where
     }
 
     pub fn init(data: &T, size: usize) -> Self {
-        let mut banks: Vec<T> = Vec::with_capacity(data.len());
+        let mut banks: Vec<T::Item> = Vec::with_capacity(data.len());
         if data.len() > 0 {
             for bank in data.chunks(size) {
                 banks.push(bank);
@@ -196,8 +204,8 @@ impl<T> Deref for Banks<T>
 where
     T: MemRead + MemWrite + Bankable,
 {
-    type Target = Vec<T>;
-    fn deref(&self) -> &Vec<T> {
+    type Target = Vec<T::Item>;
+    fn deref(&self) -> &Vec<T::Item> {
         &self.banks
     }
 }
@@ -206,7 +214,7 @@ impl<T> DerefMut for Banks<T>
 where
     T: MemRead + MemWrite + Bankable,
 {
-    fn deref_mut(&mut self) -> &mut Vec<T> {
+    fn deref_mut(&mut self) -> &mut Vec<T::Item> {
         &mut self.banks
     }
 }

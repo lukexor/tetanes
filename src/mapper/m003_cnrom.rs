@@ -7,16 +7,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
@@ -36,7 +32,7 @@ pub struct Cnrom {
 }
 
 impl Cnrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
         let cnrom = Self {
@@ -48,7 +44,7 @@ impl Cnrom {
             chr_banks,
             open_bus: 0,
         };
-        Rc::new(RefCell::new(cnrom))
+        cnrom.into()
     }
 }
 
@@ -94,7 +90,7 @@ impl Powered for Cnrom {}
 impl Loggable for Cnrom {}
 
 impl Savable for Cnrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.mirroring.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
         self.prg_rom_bank_hi.save(fh)?;
@@ -104,7 +100,7 @@ impl Savable for Cnrom {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
         self.prg_rom_bank_hi.load(fh)?;

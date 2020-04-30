@@ -1,3 +1,6 @@
+use enum_dispatch::enum_dispatch;
+
+#[enum_dispatch(MapperType)]
 pub trait Loggable {
     fn set_log_level(&mut self, _level: LogLevel) {}
     fn log_level(&self) -> LogLevel {

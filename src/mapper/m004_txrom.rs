@@ -7,16 +7,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 8 * 1024; // 8 KB ROM
 const CHR_BANK_SIZE: usize = 1024; // 1 KB ROM/RAM
@@ -98,7 +94,7 @@ impl TxRegs {
 }
 
 impl Txrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let mirroring = cart.mirroring();
         let four_screen_ram = if mirroring == Mirroring::FourScreen {
             Memory::ram(FOUR_SCREEN_RAM_SIZE)
@@ -142,7 +138,7 @@ impl Txrom {
             prg_rom_banks,
             chr_banks,
         };
-        Rc::new(RefCell::new(txrom))
+        txrom.into()
     }
 
     /// 7654 3210
@@ -276,13 +272,13 @@ impl Mapper for Txrom {
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save_sram<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load_sram<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -362,7 +358,7 @@ impl Powered for Txrom {
 impl Loggable for Txrom {}
 
 impl Savable for Txrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
         self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
@@ -378,7 +374,7 @@ impl Savable for Txrom {
         self.chr_banks.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
         self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
@@ -397,7 +393,7 @@ impl Savable for Txrom {
 }
 
 impl Savable for TxRegs {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.bank_select.save(fh)?;
         self.bank_values.save(fh)?;
         self.irq_latch.save(fh)?;
@@ -407,7 +403,7 @@ impl Savable for TxRegs {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.bank_select.load(fh)?;
         self.bank_values.load(fh)?;
         self.irq_latch.load(fh)?;

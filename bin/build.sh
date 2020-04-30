@@ -1,2 +1,2 @@
 cargo build --release
-strip target/release/rustynes
+strip target/release/tetanes

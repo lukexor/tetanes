@@ -42,12 +42,12 @@ impl Powered for Divider {
 }
 
 impl Savable for Divider {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.counter.save(fh)?;
         self.period.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.counter.load(fh)?;
         self.period.load(fh)?;
         Ok(())

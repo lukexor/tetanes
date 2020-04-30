@@ -6,16 +6,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::Loggable,
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
-use std::{
-    cell::RefCell,
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::io::{Read, Write};
 
 const PRG_ROM_BANK_SIZE: usize = 8 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 4 * 1024;
@@ -49,7 +45,7 @@ pub struct Pxrom {
 }
 
 impl Pxrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
         let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
@@ -64,7 +60,7 @@ impl Pxrom {
             chr_banks,
             open_bus: 0,
         };
-        Rc::new(RefCell::new(pxrom))
+        pxrom.into()
     }
 }
 
@@ -152,7 +148,7 @@ impl Powered for Pxrom {
 impl Loggable for Pxrom {}
 
 impl Savable for Pxrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.mirroring.save(fh)?;
         self.chr_rom_latch.save(fh)?;
         self.prg_rom_bank_idx.save(fh)?;
@@ -163,7 +159,7 @@ impl Savable for Pxrom {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.chr_rom_latch.load(fh)?;
         self.prg_rom_bank_idx.load(fh)?;

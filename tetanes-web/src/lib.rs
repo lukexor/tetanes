@@ -1,4 +1,4 @@
-use rustynes::{
+use tetanes::{
     bus::Bus,
     common::Clocked,
     cpu::Cpu,
@@ -21,7 +21,7 @@ pub fn main() -> Result<(), JsValue> {
 
     let mut cpu = Cpu::init(Bus::new());
     // let mapper = mapper::load_rom(
-    //     "/Users/caeledh/dev/rustynes/rustynes-web/roms/castlevania_iii_draculas_curse.nes",
+    //     "/Users/caeledh/dev/tetanes/tetanes-web/roms/castlevania_iii_draculas_curse.nes",
     // )?;
     // cpu.bus.load_mapper(mapper);
     for _ in 0..20 {

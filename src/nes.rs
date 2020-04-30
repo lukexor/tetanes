@@ -16,7 +16,10 @@ use crate::{
     NesResult,
 };
 use include_dir::{include_dir, Dir};
-use pix_engine::{sprite::Sprite, PixEngine, PixEngineResult, State, StateData, WindowId};
+use pix_engine::{
+    image::{Image, ImageRef},
+    PixEngine, PixEngineResult, State, StateData, WindowId,
+};
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
@@ -32,10 +35,10 @@ mod state;
 
 pub use config::NesConfig;
 
-const APP_NAME: &str = "RustyNES";
+const APP_NAME: &str = "TetaNES";
 // This includes static assets as a binary during installation
 const _STATIC_DIR: Dir = include_dir!("./static");
-const ICON_PATH: &str = "static/rustynes_icon.png";
+const ICON_PATH: &str = "static/tetanes_icon.png";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const REWIND_SLOT: u8 = 5;
@@ -44,11 +47,11 @@ const REWIND_TIMER: f32 = 5.0;
 
 #[derive(Clone)]
 pub struct Nes {
-    roms: Vec<String>,
-    loaded_rom: String,
+    roms: Vec<PathBuf>,
+    loaded_rom: PathBuf,
     paused: bool,
     background_pause: bool,
-    clock: f32,
+    running_time: f32,
     turbo_clock: u8,
     cpu: Cpu,
     cycles_remaining: f32,
@@ -66,9 +69,9 @@ pub struct Nes {
     nt_viewer: bool,
     nt_scanline: u32,
     pat_scanline: u32,
-    debug_sprite: Sprite,
-    ppu_info_sprite: Sprite,
-    nt_info_sprite: Sprite,
+    debug_image: ImageRef,
+    ppu_info_image: ImageRef,
+    nt_info_image: ImageRef,
     active_debug: bool,
     width: u32,
     height: u32,
@@ -98,10 +101,10 @@ impl Nes {
         let cpu = Cpu::init(Bus::new());
         let mut nes = Self {
             roms: Vec::new(),
-            loaded_rom: String::new(),
+            loaded_rom: PathBuf::new(),
             paused: true,
             background_pause: false,
-            clock: 0.0,
+            running_time: 0.0,
             turbo_clock: 0,
             cpu,
             cycles_remaining: 0.0,
@@ -124,9 +127,9 @@ impl Nes {
             nt_viewer: false,
             nt_scanline: 0,
             pat_scanline: 0,
-            debug_sprite: Sprite::new(DEBUG_WIDTH, height),
-            ppu_info_sprite: Sprite::rgb(INFO_WIDTH, INFO_HEIGHT),
-            nt_info_sprite: Sprite::rgb(INFO_WIDTH, INFO_HEIGHT),
+            debug_image: Image::new_ref(DEBUG_WIDTH, height),
+            ppu_info_image: Image::rgb_ref(INFO_WIDTH, INFO_HEIGHT),
+            nt_info_image: Image::rgb_ref(INFO_WIDTH, INFO_HEIGHT),
             active_debug: false,
             width,
             height,
@@ -193,7 +196,7 @@ impl Nes {
     }
 
     /// Finds roms in the current path. If there is only one, it is started
-    fn find_or_load_roms(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
+    fn find_or_load_roms(&mut self, data: &mut StateData) -> NesResult<bool> {
         match self.find_roms() {
             Ok(mut roms) => self.roms.append(&mut roms),
             Err(e) => nes_err!("{}", e)?,
@@ -226,7 +229,7 @@ impl Nes {
     }
 
     /// Sets up the emulation based on startup configuration settings
-    fn config_setup(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
+    fn config_setup(&mut self, data: &mut StateData) -> NesResult<bool> {
         if self.config.debug {
             self.config.debug = !self.config.debug;
             self.toggle_debug(data)?;
@@ -252,7 +255,7 @@ impl Nes {
     /// Runs the emulation a certain amount if not paused based on settings
     fn run_emulation(&mut self, elapsed: f32) {
         if !self.paused {
-            self.clock += elapsed;
+            self.running_time += elapsed;
             // Frames that aren't multiples of the default render 1 more/less frames
             // every other frame
             let mut frames_to_run = 0;
@@ -271,7 +274,7 @@ impl Nes {
     /// Update rendering textures with emulation state
     fn update_textures(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
         // Update main screen
-        data.copy_texture(self.nes_window, "nes", &self.cpu.bus.ppu.frame())?;
+        data.copy_texture("nes", &self.cpu.bus.ppu.frame())?;
         // Draw any open menus
         for menu in self.menus.iter_mut() {
             menu.draw(data)?;
@@ -346,10 +349,11 @@ impl Default for Nes {
 mod tests {
     use super::*;
     use crate::memory::MemRead;
+    use std::path::PathBuf;
 
-    fn load(rom: &str) -> Nes {
+    fn load(file: &str) -> Nes {
         let mut nes = Nes::new();
-        nes.roms.push(rom.to_owned());
+        nes.roms.push(PathBuf::from(file));
         nes.load_rom(0).unwrap();
         nes.power_on().unwrap();
         nes

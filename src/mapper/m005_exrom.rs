@@ -11,16 +11,14 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
-    mapper::{Mapper, MapperRef, Mirroring},
+    mapper::{Mapper, MapperType, Mirroring},
     memory::{MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
 use std::{
-    cell::RefCell,
     fmt,
     io::{Read, Write},
-    rc::Rc,
 };
 
 const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
@@ -172,7 +170,7 @@ impl ExRegs {
 }
 
 impl Exrom {
-    pub fn load(cart: Cartridge) -> MapperRef {
+    pub fn load(cart: Cartridge) -> MapperType {
         let prg_ram = Memory::ram(PRG_RAM_SIZE);
         let exram = Memory::ram(EXRAM_SIZE);
         let mirroring = cart.mirroring();
@@ -204,7 +202,7 @@ impl Exrom {
             log_level: LogLevel::default(),
             open_bus: 0x00,
         };
-        Rc::new(RefCell::new(exrom))
+        exrom.into()
     }
 
     // $5113: [.... .CPP]
@@ -802,7 +800,7 @@ impl Loggable for Exrom {
 }
 
 impl Savable for Exrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -830,7 +828,7 @@ impl Savable for Exrom {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
@@ -860,7 +858,7 @@ impl Savable for Exrom {
 }
 
 impl Savable for ExRegs {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.sprite8x16.save(fh)?;
         self.prg_mode.save(fh)?;
         self.chr_mode.save(fh)?;
@@ -885,7 +883,7 @@ impl Savable for ExRegs {
         self.mult_result.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.sprite8x16.load(fh)?;
         self.prg_mode.load(fh)?;
         self.chr_mode.load(fh)?;
@@ -913,10 +911,10 @@ impl Savable for ExRegs {
 }
 
 impl Savable for ChrBank {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -929,10 +927,10 @@ impl Savable for ChrBank {
 }
 
 impl Savable for ExRamMode {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -947,10 +945,10 @@ impl Savable for ExRamMode {
 }
 
 impl Savable for Split {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -978,8 +976,7 @@ mod tests {
         for a in 0..4 {
             for b in 0..4 {
                 let cart = Cartridge::new();
-                let exrom = Exrom::load(cart);
-                let mut exrom = exrom.borrow_mut();
+                let mut exrom = Exrom::load(cart);
 
                 exrom.write(0x5102, a);
                 exrom.write(0x5103, b);

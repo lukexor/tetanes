@@ -1,14 +1,14 @@
-# RustyNES
+# TetaNES
 
 ## Summary
 
 <p align="center">
-  <img src="static/rustynes.png" width="800">
+  <img src="static/tetanes.png" width="800">
 </p>
 
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
-`RustyNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
+`TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
 using [Rust][rust] and [SDL2][sdl2].
 
 It started as a personal curiosity that turned into a passion project. It is still
@@ -16,7 +16,7 @@ a work-in-progress, but I hope to transform it into a fully-featured NES emulato
 games as accurately as possible. It is my hope to see a Rust emulator rise in popularity and compete
 with the more popular C and C++ versions.
 
-`RustyNES` is also meant to showcase how clean and readable low-level Rust programs can be in
+`TetaNES` is also meant to showcase how clean and readable low-level Rust programs can be in
 addition to them having the type and memory-safety guarantees that Rust is known for. Many useful
 features of Rust are leveraged in this project including traits, trait objects, generics, matching,
 and iterators.
@@ -79,16 +79,16 @@ instructions to build for your platform.
     %USERPROFILE%\.cargo\bin
     ```
 
-    Next to the `rustynes.exe` binary.
-* Download & install `RustyNES`. Stable releases can be found on the `Releases` tab at the top of
+    Next to the `tetanes.exe` binary.
+* Download & install `TetaNES`. Stable releases can be found on the `Releases` tab at the top of
 the page. To build directly from a release tag, follow these steps:
 
-        $ git clone https://github.com/lukexor/rustynes.git
-        $ cd rustynes/
+        $ git clone https://github.com/lukexor/tetanes.git
+        $ cd tetanes/
         $ git checkout v0.6.0
         $ cargo install --path ./
 
-This will install the `v0.6.0` tagged release of the `RustyNES` binary to your `cargo` bin directory
+This will install the `v0.6.0` tagged release of the `TetaNES` binary to your `cargo` bin directory
 located at either `$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on
 Windows. Replace the release tag with the one you want to install. The latest is recommended. You
 can see which release tags are available by clicking the `Releases` tab at the top of this page or
@@ -106,18 +106,18 @@ but [NES 2.0](https://wiki.nesdev.com/w/index.php/NES_2.0) support is coming.
 ### Windows
 
         $ cd %USERPROFILE%\.cargo\bin
-        $ rustynes.exe {filename}
+        $ tetanes.exe {filename}
 
 ### macOS/Linux
 
         $ cd $HOME/.cargo/bin/
-        $ rustynes {filename}
+        $ tetanes {filename}
 
 ### Additional Options
 
 ```
 USAGE:
-    rustynes [FLAGS] [OPTIONS] [--] [path]
+    tetanes [FLAGS] [OPTIONS] [--] [path]
 
 FLAGS:
     -c, --clear-savestate    Removes existing savestates for current save-slot
@@ -208,18 +208,18 @@ in place of Ctrl, but I'm not bothering with OS-specific bindings just yet.
 
 ## Directories & Screenshots
 
-Battery-backed game data and save states are stored in `$HOME/.rustynes`. Screenshots are saved
-to the directory where `RustyNES` was launched from. This may change in a future release.
+Battery-backed game data and save states are stored in `$HOME/.tetanes`. Screenshots are saved
+to the directory where `TetaNES` was launched from. This may change in a future release.
 
 ## Powerup State
 
 The original NES hardware had semi-random contents located in RAM upon powerup and several games
 made use of this to seed their Random Number Generators (RNGs). By default, the binaries and build
-steps for `RustyNES` emulate randomized powerup RAM state. This shows up in several games such as
+steps for `TetaNES` emulate randomized powerup RAM state. This shows up in several games such as
 Final Fantasy, River City Ransom, and Impossible Mission II, amongst others. Not emulating this
 would make these games seem deterministic when they weren't intended to be.
 
-If you would like `RustyNES` to provide fully deterministic emulated powerup state, you'll need to
+If you would like `TetaNES` to provide fully deterministic emulated powerup state, you'll need to
 build the binary from source using the following command:
 
         $ cargo build --release --features no-randomize-ram
@@ -229,9 +229,11 @@ build the binary from source using the following command:
 To build the project, ensure the dependencies are installed as outlined in the `Installation`
 section and then run `cargo build` or `cargo build --release` (if you want better framerates).
 
-Unit and integration tests can be run with `cargo test --features no-randomize-ram`. There are also
-several test roms that can be run to test various capabilities of the emulator. They are all located
-in the `tests/` directory.
+Unit and integration tests can be run with `cargo test --features no-randomize-ram`. RAM
+randomization is enabled by default since this more accurately reflects the original NES, but many
+tests fail under this condition so it needs to be disabled. There are also several test roms that
+can be run to test various capabilities of the emulator. They are all located in the `tests/`
+directory.
 
 Run them in a similar way you would run a game. e.g.
 
@@ -337,7 +339,7 @@ The following is a checklist of features and their progress:
   - [x] PixEngine (Custom graphics library for handling video and audio)
   - [x] UI Notification messages
   - [x] SDL2
-  - [ ] WebAssembly (WASM) - Run RustyNES in the browser! (in progress!)
+  - [ ] WebAssembly (WASM) - Run TetaNES in the browser! (in progress!)
   - [x] Window
   - [ ] Menus
     - [ ] Help Menu
@@ -394,7 +396,7 @@ extensively during development:
 
 ## License
 
-`RustyNES` is licensed under the GPLv3 license. See the `LICENSE.md` file in the root for a copy.
+`TetaNES` is licensed under the GPLv3 license. See the `LICENSE.md` file in the root for a copy.
 
 ## Contact
 

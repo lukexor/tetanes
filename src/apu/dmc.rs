@@ -2,6 +2,7 @@ use crate::{
     common::{Clocked, Powered},
     logging::{LogLevel, Loggable},
     mapper::{self, MapperRef},
+    memory::MemRead,
     serialization::Savable,
     NesResult,
 };
@@ -151,7 +152,7 @@ impl Loggable for Dmc {
 }
 
 impl Savable for Dmc {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         // Ignore mapper
         self.irq_enabled.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -171,7 +172,7 @@ impl Savable for Dmc {
         // Ignore log_level
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.irq_enabled.load(fh)?;
         self.irq_pending.load(fh)?;
         self.loops.load(fh)?;

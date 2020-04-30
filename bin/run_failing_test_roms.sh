@@ -44,6 +44,6 @@ function ctrl_c() {
 
 for test in ${TESTS[*]}; do
     echo $test
-    target/debug/rustynes --speed 4 $test
+    target/debug/tetanes --speed 4 $test
 done
 

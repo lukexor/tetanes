@@ -37,10 +37,10 @@ impl MemWrite for Nametable {
 }
 
 impl Savable for Nametable {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.0.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.0.load(fh)
     }
 }

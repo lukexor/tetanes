@@ -65,13 +65,13 @@ impl Powered for FrameSequencer {
 }
 
 impl Savable for FrameSequencer {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.divider.save(fh)?;
         self.sequencer.save(fh)?;
         self.mode.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.divider.load(fh)?;
         self.sequencer.load(fh)?;
         self.mode.load(fh)?;
@@ -80,10 +80,10 @@ impl Savable for FrameSequencer {
 }
 
 impl Savable for FcMode {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
