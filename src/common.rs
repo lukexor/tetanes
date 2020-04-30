@@ -6,21 +6,22 @@ use crate::{
     serialization::Savable,
     NesResult,
 };
-use dirs;
 use enum_dispatch::enum_dispatch;
-use png;
 use std::{
     io::{BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
-pub const CONFIG_DIR: &str = ".rustynes";
+pub type Addr = u16;
+pub type Word = usize;
+pub type Byte = u8;
+pub const CONFIG_DIR: &str = ".tetanes";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum NesFormat {
-    NTSC,
-    PAL,
-    DENDY,
+    Ntsc,
+    Pal,
+    Dendy,
 }
 
 #[enum_dispatch(MapperType)]
@@ -59,16 +60,16 @@ macro_rules! hashmap {
 }
 
 impl Savable for NesFormat {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
-            0 => NesFormat::NTSC,
-            1 => NesFormat::PAL,
-            2 => NesFormat::DENDY,
+            0 => NesFormat::Ntsc,
+            1 => NesFormat::Pal,
+            2 => NesFormat::Dendy,
             _ => panic!("invalid NesFormat value"),
         };
         Ok(())

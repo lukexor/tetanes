@@ -218,13 +218,13 @@ impl Mapper for Sxrom {
     fn battery_backed(&self) -> bool {
         self.battery_backed
     }
-    fn save_sram(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save_sram<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.save(fh)?;
         }
         Ok(())
     }
-    fn load_sram(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load_sram<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         if self.battery_backed {
             self.prg_ram.load(fh)?;
         }
@@ -291,7 +291,7 @@ impl Powered for Sxrom {
 impl Loggable for Sxrom {}
 
 impl Savable for Sxrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
         self.battery_backed.save(fh)?;
         self.prg_rom_bank_lo.save(fh)?;
@@ -303,7 +303,7 @@ impl Savable for Sxrom {
         self.chr_banks.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
         self.battery_backed.load(fh)?;
         self.prg_rom_bank_lo.load(fh)?;
@@ -318,7 +318,7 @@ impl Savable for Sxrom {
 }
 
 impl Savable for SxRegs {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.write_just_occurred.save(fh)?;
         self.shift_register.save(fh)?;
         self.control.save(fh)?;
@@ -328,7 +328,7 @@ impl Savable for SxRegs {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.write_just_occurred.load(fh)?;
         self.shift_register.load(fh)?;
         self.control.load(fh)?;

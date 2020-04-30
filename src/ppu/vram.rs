@@ -110,14 +110,14 @@ impl Powered for Vram {
 }
 
 impl Savable for Vram {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.nametable.save(fh)?;
         self.palette.save(fh)?;
         // Ignore mapper
         self.buffer.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.nametable.load(fh)?;
         self.palette.load(fh)?;
         self.buffer.load(fh)?;

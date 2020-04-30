@@ -800,7 +800,7 @@ impl Loggable for Exrom {
 }
 
 impl Savable for Exrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
@@ -828,7 +828,7 @@ impl Savable for Exrom {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
@@ -858,7 +858,7 @@ impl Savable for Exrom {
 }
 
 impl Savable for ExRegs {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.sprite8x16.save(fh)?;
         self.prg_mode.save(fh)?;
         self.chr_mode.save(fh)?;
@@ -883,7 +883,7 @@ impl Savable for ExRegs {
         self.mult_result.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.sprite8x16.load(fh)?;
         self.prg_mode.load(fh)?;
         self.chr_mode.load(fh)?;
@@ -911,10 +911,10 @@ impl Savable for ExRegs {
 }
 
 impl Savable for ChrBank {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -927,10 +927,10 @@ impl Savable for ChrBank {
 }
 
 impl Savable for ExRamMode {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -945,10 +945,10 @@ impl Savable for ExRamMode {
 }
 
 impl Savable for Split {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {

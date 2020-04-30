@@ -148,7 +148,7 @@ impl Powered for Pxrom {
 impl Loggable for Pxrom {}
 
 impl Savable for Pxrom {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.mirroring.save(fh)?;
         self.chr_rom_latch.save(fh)?;
         self.prg_rom_bank_idx.save(fh)?;
@@ -159,7 +159,7 @@ impl Savable for Pxrom {
         self.open_bus.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.mirroring.load(fh)?;
         self.chr_rom_latch.load(fh)?;
         self.prg_rom_bank_idx.load(fh)?;

@@ -1,6 +1,6 @@
 //! # Summary
 //!
-//! RustyNES is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
+//! TetaNES is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
 //! using Rust and SDL2.
 //!
 //! It started as a personal curiosity that turned into a project for two classes to demonstrate
@@ -9,7 +9,7 @@
 //! hope to see a Rust emulator rise in popularity and compete with the more popular C and C++
 //! versions.
 //!
-//! RustyNES is also meant to showcase how clean and readable low-level Rust programs can be in
+//! TetaNES is also meant to showcase how clean and readable low-level Rust programs can be in
 //! addition to them having the type and memory-safety guarantees that Rust is known for.
 
 use pix_engine::PixEngineErr;

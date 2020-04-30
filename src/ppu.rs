@@ -3,7 +3,7 @@
 //! [http://wiki.nesdev.com/w/index.php/PPU]()
 
 use crate::{
-    common::{Clocked, NesFormat, Powered},
+    common::{Addr, Byte, Clocked, NesFormat, Powered},
     logging::{LogLevel, Loggable},
     mapper::{Mapper, MapperRef},
     memory::{MemRead, MemWrite},
@@ -81,10 +81,10 @@ pub struct Ppu {
     debug: bool,
     nt_scanline: u16,
     pat_scanline: u16,
-    pub nametables: Vec<Vec<u8>>,
+    pub nametables: Vec<Vec<Byte>>,
     pub nametable_ids: Vec<u8>,
-    pub pattern_tables: Vec<Vec<u8>>,
-    pub palette: Vec<u8>,
+    pub pattern_tables: Vec<Vec<Byte>>,
+    pub palette: Vec<Byte>,
     pub palette_ids: Vec<u8>,
     log_level: LogLevel,
 }
@@ -104,7 +104,7 @@ impl Ppu {
             frame: Frame::new(),
             frame_complete: false,
             ntsc_video: true,
-            nes_format: NesFormat::NTSC,
+            nes_format: NesFormat::Ntsc,
             clock_remainder: 0,
             debug: false,
             nt_scanline: 0,
@@ -146,7 +146,7 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
-    pub fn frame(&mut self) -> &Vec<u8> {
+    pub fn frame(&mut self) -> &Vec<Byte> {
         &self.frame.pixels
     }
 
@@ -159,9 +159,9 @@ impl Ppu {
 
                 let nt_base_addr = NT_START + (addr & (NT_X_MASK | NT_Y_MASK));
                 let tile = self.vram.peek(addr);
-                let tile_addr = self.regs.background_select() + u16::from(tile) * 16;
+                let tile_addr = self.regs.background_select() + Addr::from(tile) * 16;
                 let supertile_num = (x_scroll / 4) + (y_scroll / 4) * 8;
-                let attr = u16::from(self.vram.peek(nt_base_addr + 0x3C0 + supertile_num));
+                let attr = Addr::from(self.vram.peek(nt_base_addr + 0x3C0 + supertile_num));
                 let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
                 let mask = 0x03 << corner;
                 let palette = (attr & mask) >> corner;
@@ -172,8 +172,8 @@ impl Ppu {
 
                 self.nametable_ids[(addr - NT_START) as usize] = tile;
                 for y in 0..8 {
-                    let lo = u16::from(self.vram.peek(tile_addr + y));
-                    let hi = u16::from(self.vram.peek(tile_addr + y + 8));
+                    let lo = Addr::from(self.vram.peek(tile_addr + y));
+                    let hi = Addr::from(self.vram.peek(tile_addr + y + 8));
                     for x in 0..8 {
                         let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
                         let palette_idx =
@@ -196,14 +196,14 @@ impl Ppu {
     fn load_pattern_tables(&mut self) {
         let width = RENDER_WIDTH / 2;
         for table in 0..2 {
-            let start = table as u16 * 0x1000;
+            let start = table as Addr * 0x1000;
             let end = start + 0x1000;
             for tile_addr in (start..end).step_by(16) {
                 let tile_x = ((tile_addr % 0x1000) % 256) / 2;
                 let tile_y = ((tile_addr % 0x1000) / 256) * 8;
                 for y in 0..8 {
-                    let lo = u16::from(self.vram.peek(tile_addr + y));
-                    let hi = u16::from(self.vram.peek(tile_addr + y + 8));
+                    let lo = Addr::from(self.vram.peek(tile_addr + y));
+                    let hi = Addr::from(self.vram.peek(tile_addr + y + 8));
                     for x in 0..8 {
                         let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
                         let palette_idx = self.vram.peek(PALETTE_START + pix_type) as usize;
@@ -335,7 +335,7 @@ impl Ppu {
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = NT_START | (self.regs.v & nametable_addr_mask);
-        self.frame.nametable = u16::from(self.vram.read(addr));
+        self.frame.nametable = Addr::from(self.vram.read(addr));
     }
 
     fn fetch_bg_attr_byte(&mut self) {
@@ -417,7 +417,7 @@ impl Ppu {
         }
         let sprite_height = self.regs.sprite_height();
         for i in 0..OAM_SIZE / 4 {
-            let sprite_y = u16::from(self.oamdata.read((i * 4) as u16));
+            let sprite_y = Addr::from(self.oamdata.read((i * 4) as Addr));
             let sprite_on_line = sprite_y <= self.scanline
                 && self.scanline < sprite_y + sprite_height
                 && self.scanline < 255;
@@ -481,7 +481,7 @@ impl Ppu {
                 bg_color
             }
         };
-        let mut palette = self.vram.read(u16::from(color) + PALETTE_START);
+        let mut palette = self.vram.read(Addr::from(color) + PALETTE_START);
         if self.regs.grayscale() {
             palette &= !0x0F; // Remove chroma
         }
@@ -498,7 +498,7 @@ impl Ppu {
         }
     }
 
-    fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut Vec<u8>) {
+    fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut Vec<Byte>) {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
@@ -516,7 +516,7 @@ impl Ppu {
         self.frame.sprites[index].index == 0
     }
 
-    fn background_color(&self) -> u8 {
+    fn background_color(&self) -> Byte {
         if !self.regs.show_background() {
             return 0;
         }
@@ -528,10 +528,10 @@ impl Ppu {
 
         let tile_data = (self.frame.tile_data >> 32) as u32;
         let data = tile_data >> ((7 - self.regs.fine_x()) * 4);
-        (data & 0x0F) as u8
+        (data & 0x0F) as Byte
     }
 
-    fn sprite_color(&self) -> (usize, u8) {
+    fn sprite_color(&self) -> (usize, Byte) {
         if !self.regs.show_sprites() {
             return (0, 0);
         }
@@ -541,7 +541,7 @@ impl Ppu {
                 continue;
             }
             let offset = 7 - offset;
-            let color = ((self.frame.sprites[i].pattern >> (offset * 4) as u8) & 0x0F) as u8;
+            let color = ((self.frame.sprites[i].pattern >> (offset * 4) as Byte) & 0x0F) as Byte;
             if color % 4 == 0 {
                 continue;
             }
@@ -581,7 +581,7 @@ impl Ppu {
         // Get sprite info from OAMDATA
         // Each sprite takes 4 bytes
         let d = &mut self.oamdata;
-        let addr = i as u16;
+        let addr = i as Addr;
         // attribute
         // 76543210
         // ||||||||
@@ -672,7 +672,7 @@ impl Ppu {
     pub fn nmi_enabled(&self) -> bool {
         self.regs.nmi_enabled()
     }
-    fn write_ppuctrl(&mut self, val: u8) {
+    fn write_ppuctrl(&mut self, val: Byte) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
@@ -698,7 +698,7 @@ impl Ppu {
      * $2001 PPUMASK
      */
 
-    fn write_ppumask(&mut self, val: u8) {
+    fn write_ppumask(&mut self, val: Byte) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
@@ -709,7 +709,7 @@ impl Ppu {
      * $2002 PPUSTATUS
      */
 
-    pub fn read_ppustatus(&mut self) -> u8 {
+    pub fn read_ppustatus(&mut self) -> Byte {
         let mut status = self.regs.read_status();
         // Race conditions
         if self.scanline == VBLANK_SCANLINE {
@@ -728,7 +728,7 @@ impl Ppu {
             .ppu_write(0x2002, self.regs.peek_status());
         status
     }
-    fn peek_ppustatus(&self) -> u8 {
+    fn peek_ppustatus(&self) -> Byte {
         self.regs.peek_status()
     }
     fn sprite_zero_hit(&mut self) -> bool {
@@ -767,11 +767,11 @@ impl Ppu {
      * $2003 OAMADDR
      */
 
-    pub fn read_oamaddr(&self) -> u8 {
+    pub fn read_oamaddr(&self) -> Byte {
         self.regs.oamaddr
     }
 
-    fn write_oamaddr(&mut self, val: u8) {
+    fn write_oamaddr(&mut self, val: Byte) {
         self.regs.oamaddr = val;
     }
 
@@ -779,7 +779,7 @@ impl Ppu {
      * $2004 OAMDATA
      */
 
-    fn read_oamdata(&mut self) -> u8 {
+    fn read_oamdata(&mut self) -> Byte {
         if self.rendering_enabled() {
             match self.cycle {
                 0..=63 => 0xFF,
@@ -788,14 +788,14 @@ impl Ppu {
                 _ => 0x00,
             }
         } else {
-            self.oamdata.read(u16::from(self.regs.oamaddr))
+            self.oamdata.read(Addr::from(self.regs.oamaddr))
         }
     }
-    fn peek_oamdata(&self) -> u8 {
-        self.oamdata.peek(u16::from(self.regs.oamaddr))
+    fn peek_oamdata(&self) -> Byte {
+        self.oamdata.peek(Addr::from(self.regs.oamaddr))
     }
-    fn write_oamdata(&mut self, val: u8) {
-        self.oamdata.write(u16::from(self.regs.oamaddr), val);
+    fn write_oamdata(&mut self, val: Byte) {
+        self.oamdata.write(Addr::from(self.regs.oamaddr), val);
         self.regs.oamaddr = self.regs.oamaddr.wrapping_add(1);
     }
 
@@ -803,7 +803,7 @@ impl Ppu {
      * $2005 PPUSCROLL
      */
 
-    fn write_ppuscroll(&mut self, val: u8) {
+    fn write_ppuscroll(&mut self, val: Byte) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
@@ -814,10 +814,10 @@ impl Ppu {
      * $2006 PPUADDR
      */
 
-    pub fn read_ppuaddr(&self) -> u16 {
+    pub fn read_ppuaddr(&self) -> Addr {
         self.regs.read_addr()
     }
-    fn write_ppuaddr(&mut self, val: u16) {
+    fn write_ppuaddr(&mut self, val: Addr) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
@@ -829,7 +829,7 @@ impl Ppu {
      * $2007 PPUDATA
      */
 
-    fn read_ppudata(&mut self) -> u8 {
+    fn read_ppudata(&mut self) -> Byte {
         let val = self.vram.read(self.read_ppuaddr());
         // Buffering quirk resulting in a dummy read for the CPU
         // for reading pre-palette data in 0 - $3EFF
@@ -858,7 +858,7 @@ impl Ppu {
         self.vram.mapper.borrow_mut().vram_change(self.regs.v);
         val
     }
-    fn peek_ppudata(&self) -> u8 {
+    fn peek_ppudata(&self) -> Byte {
         let val = self.vram.peek(self.read_ppuaddr());
         if self.read_ppuaddr() <= 0x3EFF {
             self.vram.buffer
@@ -866,7 +866,7 @@ impl Ppu {
             val
         }
     }
-    fn write_ppudata(&mut self, val: u8) {
+    fn write_ppudata(&mut self, val: Byte) {
         self.vram.write(self.read_ppuaddr(), val);
         // During rendering, v increments coarse X and coarse Y simultaneously
         if self.rendering_enabled()
@@ -884,15 +884,18 @@ impl Ppu {
 impl Clocked for Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
     fn clock(&mut self) -> usize {
-        let mut clocks = 3;
-        if self.nes_format == NesFormat::PAL {
-            if self.clock_remainder == 5 {
-                clocks += 1;
-                self.clock_remainder = 0;
-            } else {
-                self.clock_remainder += 1;
+        let clocks = match self.nes_format {
+            NesFormat::Ntsc | NesFormat::Dendy => 3,
+            NesFormat::Pal => {
+                if self.clock_remainder == 5 {
+                    self.clock_remainder = 0;
+                    4
+                } else {
+                    self.clock_remainder += 1;
+                    3
+                }
             }
-        }
+        };
 
         for _ in 0..clocks {
             self.run_cycle();
@@ -925,7 +928,7 @@ impl Clocked for Ppu {
 }
 
 impl MemRead for Ppu {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: Addr) -> Byte {
         match addr {
             0x2000 => self.regs.open_bus, // PPUCTRL is write-only
             0x2001 => self.regs.open_bus, // PPUMASK is write-only
@@ -951,7 +954,7 @@ impl MemRead for Ppu {
         }
     }
 
-    fn peek(&self, addr: u16) -> u8 {
+    fn peek(&self, addr: Addr) -> Byte {
         match addr {
             0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
             0x2001 => self.regs.open_bus,    // PPUMASK is write-only
@@ -967,17 +970,17 @@ impl MemRead for Ppu {
 }
 
 impl MemWrite for Ppu {
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: Addr, val: Byte) {
         self.regs.open_bus = val;
         match addr {
-            0x2000 => self.write_ppuctrl(val),            // PPUCTRL
-            0x2001 => self.write_ppumask(val),            // PPUMASK
-            0x2002 => (),                                 // PPUSTATUS is read-only
-            0x2003 => self.write_oamaddr(val),            // OAMADDR
-            0x2004 => self.write_oamdata(val),            // OAMDATA
-            0x2005 => self.write_ppuscroll(val),          // PPUSCROLL
-            0x2006 => self.write_ppuaddr(u16::from(val)), // PPUADDR
-            0x2007 => self.write_ppudata(val),            // PPUDATA
+            0x2000 => self.write_ppuctrl(val),             // PPUCTRL
+            0x2001 => self.write_ppumask(val),             // PPUMASK
+            0x2002 => (),                                  // PPUSTATUS is read-only
+            0x2003 => self.write_oamaddr(val),             // OAMADDR
+            0x2004 => self.write_oamdata(val),             // OAMDATA
+            0x2005 => self.write_ppuscroll(val),           // PPUSCROLL
+            0x2006 => self.write_ppuaddr(Addr::from(val)), // PPUADDR
+            0x2007 => self.write_ppudata(val),             // PPUDATA
             _ => (),
         }
     }
@@ -1027,7 +1030,7 @@ impl Loggable for Ppu {
 }
 
 impl Savable for Ppu {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.cycle.save(fh)?;
         self.cycle_count.save(fh)?;
         self.frame_cycles.save(fh)?;
@@ -1054,7 +1057,7 @@ impl Savable for Ppu {
         // log_level
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.cycle.load(fh)?;
         self.cycle_count.load(fh)?;
         self.frame_cycles.load(fh)?;
@@ -1104,8 +1107,8 @@ mod tests {
         let ppuaddr = 0x2006;
 
         // Test write to ppuctrl
-        let ctrl_write: u8 = 0b11; // Write two 1 bits
-        let t_result: u16 = 0b11 << 10; // Make sure they're in the NN place of t
+        let ctrl_write: Byte = 0b11; // Write two 1 bits
+        let t_result: Addr = 0b11 << 10; // Make sure they're in the NN place of t
         ppu.write(ppuctrl, ctrl_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.v, 0);
@@ -1115,33 +1118,33 @@ mod tests {
         assert_eq!(ppu.regs.w, false);
 
         // Test 1st write to ppuscroll
-        let scroll_write: u8 = 0b0111_1101;
-        let t_result: u16 = 0b000_11_00000_01111;
-        let x_result: u16 = 0b101;
+        let scroll_write: Byte = 0b0111_1101;
+        let t_result: Addr = 0b000_11_00000_01111;
+        let x_result: Addr = 0b101;
         ppu.write(ppuscroll, scroll_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
         assert_eq!(ppu.regs.w, true);
 
         // Test 2nd write to ppuscroll
-        let scroll_write: u8 = 0b0101_1110;
-        let t_result: u16 = 0b110_11_01011_01111;
+        let scroll_write: Byte = 0b0101_1110;
+        let t_result: Addr = 0b110_11_01011_01111;
         ppu.write(ppuscroll, scroll_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
         assert_eq!(ppu.regs.w, false);
 
         // Test 1st write to ppuaddr
-        let addr_write: u8 = 0b0011_1101;
-        let t_result: u16 = 0b011_11_01011_01111;
+        let addr_write: Byte = 0b0011_1101;
+        let t_result: Addr = 0b011_11_01011_01111;
         ppu.write(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
         assert_eq!(ppu.regs.w, true);
 
         // Test 2nd write to ppuaddr
-        let addr_write: u8 = 0b1111_0000;
-        let t_result: u16 = 0b011_11_01111_10000;
+        let addr_write: Byte = 0b1111_0000;
+        let t_result: Addr = 0b011_11_01111_10000;
         ppu.write(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.v, t_result);
@@ -1154,7 +1157,7 @@ mod tests {
         ppu.write(ppuscroll, 0b0100_0101); // $01 hi bits coarse Y scroll, $101 fine Y scroll
         ppu.write(ppuscroll, 0b0000_0011); // $011 fine X scroll
         ppu.write(ppuaddr, 0b1001_0110); // $100 lo bits coarse Y scroll, $10110 coarse X scroll
-        let t_result: u16 = 0b101_10_01100_10110;
+        let t_result: Addr = 0b101_10_01100_10110;
         assert_eq!(ppu.regs.v, t_result);
     }
 }

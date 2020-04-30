@@ -152,7 +152,7 @@ impl Powered for Pulse {
 }
 
 impl Savable for Pulse {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.enabled.save(fh)?;
         self.duty_cycle.save(fh)?;
         self.duty_counter.save(fh)?;
@@ -164,7 +164,7 @@ impl Savable for Pulse {
         self.sweep.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.enabled.load(fh)?;
         self.duty_cycle.load(fh)?;
         self.duty_counter.load(fh)?;
@@ -179,10 +179,10 @@ impl Savable for Pulse {
 }
 
 impl Savable for PulseChannel {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {

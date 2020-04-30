@@ -1,8 +1,17 @@
 //! Contains the Filter Trait for both High Pass and Low Pass filters
 
+use enum_dispatch::enum_dispatch;
 use std::f32::consts;
 
+#[enum_dispatch]
+#[derive(Clone)]
+pub enum FilterType {
+    HiPassFilter,
+    LoPassFilter,
+}
+
 /// Filter trait
+#[enum_dispatch(FilterType)]
 pub trait Filter {
     fn process(&mut self, sample: f32) -> f32;
 }

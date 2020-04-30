@@ -12,7 +12,7 @@ pub struct Sweep {
 }
 
 impl Savable for Sweep {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.enabled.save(fh)?;
         self.reload.save(fh)?;
         self.negate.save(fh)?;
@@ -21,7 +21,7 @@ impl Savable for Sweep {
         self.shift.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.enabled.load(fh)?;
         self.reload.load(fh)?;
         self.negate.load(fh)?;

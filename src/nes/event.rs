@@ -607,12 +607,12 @@ impl FrameEvent {
 }
 
 impl Savable for FrameEvent {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.frame.save(fh)?;
         self.events.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.frame.load(fh)?;
         self.events.load(fh)?;
         Ok(())

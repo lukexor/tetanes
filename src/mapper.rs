@@ -4,7 +4,7 @@
 
 use crate::{
     cartridge::Cartridge,
-    common::{Clocked, Powered},
+    common::{Addr, Byte, Clocked, Powered},
     logging::{LogLevel, Loggable},
     memory::{MemRead, MemWrite},
     serialization::Savable,
@@ -13,7 +13,7 @@ use crate::{
 use enum_dispatch::enum_dispatch;
 use std::{
     cell::RefCell,
-    fmt,
+    fmt::Debug,
     io::{Read, Write},
     rc::Rc,
 };
@@ -69,38 +69,37 @@ pub enum MapperType {
     Pxrom,
 }
 
-/// Mapper trait requiring Memory + Send + Savable
 #[enum_dispatch(MapperType)]
-pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + fmt::Debug {
+pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + Debug {
     fn irq_pending(&mut self) -> bool {
         false
     }
     fn mirroring(&self) -> Mirroring {
         Mirroring::Horizontal
     }
-    fn vram_change(&mut self, _addr: u16) {}
+    fn vram_change(&mut self, _addr: Addr) {}
     fn battery_backed(&self) -> bool {
         false
     }
-    fn save_sram(&self, _fh: &mut dyn Write) -> NesResult<()> {
+    fn save_sram<F: Write>(&self, _fh: &mut F) -> NesResult<()> {
         Ok(())
     }
-    fn load_sram(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
+    fn load_sram<F: Read>(&mut self, _fh: &mut F) -> NesResult<()> {
         Ok(())
     }
-    fn use_ciram(&self, _addr: u16) -> bool {
+    fn use_ciram(&self, _addr: Addr) -> bool {
         true
     }
-    fn nametable_page(&self, _addr: u16) -> u16 {
+    fn nametable_page(&self, _addr: Addr) -> Addr {
         0
     }
-    fn ppu_write(&mut self, _addr: u16, _val: u8) {}
-    fn open_bus(&mut self, _addr: u16, _val: u8) {}
+    fn ppu_write(&mut self, _addr: Addr, _val: Byte) {}
+    fn open_bus(&mut self, _addr: Addr, _val: Byte) {}
 }
 
 /// Attempts to return a valid Mapper for the given rom.
-pub fn load_rom(rom: &str) -> NesResult<MapperRef> {
-    let cart = Cartridge::from_rom(rom)?;
+pub fn load_rom<F: Read>(name: &str, rom: &mut F) -> NesResult<MapperRef> {
+    let cart = Cartridge::from_rom(name, rom)?;
     let mapper = match cart.header.mapper_num {
         0 => Nrom::load(cart),
         1 => Sxrom::load(cart),
@@ -110,7 +109,6 @@ pub fn load_rom(rom: &str) -> NesResult<MapperRef> {
         5 => Exrom::load(cart),
         7 => Axrom::load(cart),
         9 => Pxrom::load(cart),
-        // 71 => Uxrom::load(cart), // TODO - Variant of Uxrom with submappers
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };
     Ok(Rc::new(RefCell::new(mapper)))
@@ -130,10 +128,10 @@ pub fn null() -> MapperRef {
 }
 
 impl Savable for Mirroring {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {

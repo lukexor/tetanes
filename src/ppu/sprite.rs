@@ -33,7 +33,7 @@ impl Sprite {
 }
 
 impl Savable for Sprite {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.index.save(fh)?;
         self.x.save(fh)?;
         self.y.save(fh)?;
@@ -46,7 +46,7 @@ impl Savable for Sprite {
         self.flip_vertical.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.index.load(fh)?;
         self.x.load(fh)?;
         self.y.load(fh)?;

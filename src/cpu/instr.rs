@@ -1,5 +1,6 @@
 use super::{Cpu, StatusRegs::*, IRQ_ADDR, NMI_ADDR, SP_BASE};
 use crate::{
+    common::{Addr, Byte},
     error,
     logging::{LogLevel, Loggable},
     memory::{MemRead, MemWrite},
@@ -61,10 +62,10 @@ use Operation::*;
 
 // (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Copy, Clone, PartialEq, Eq)]
-pub struct Instr(u8, AddrMode, Operation, usize);
+pub struct Instr(Byte, AddrMode, Operation, usize);
 
 impl Instr {
-    pub fn opcode(&self) -> u8 {
+    pub fn opcode(&self) -> Byte {
         self.0
     }
     pub fn addr_mode(&self) -> AddrMode {
@@ -147,7 +148,7 @@ impl Cpu {
     //     2    PC     R  fetch address, increment PC
     //     3  address  W  write register to effective address
     pub(super) fn zp0(&mut self) {
-        self.abs_addr = u16::from(self.read(self.pc)) & 0x00FF; // Cycle 2
+        self.abs_addr = Addr::from(self.read(self.pc)) & 0x00FF; // Cycle 2
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -195,8 +196,8 @@ impl Cpu {
     //             i.e. page boundary crossings are not handled.
     pub(super) fn zpx(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
-        self.abs_addr = u16::from(addr.wrapping_add(self.x)) & 0x00FF;
-        let _ = self.read(u16::from(addr)); // Cycle 3
+        self.abs_addr = Addr::from(addr.wrapping_add(self.x)) & 0x00FF;
+        let _ = self.read(Addr::from(addr)); // Cycle 3
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -227,8 +228,8 @@ impl Cpu {
     //             i.e. page boundary crossings are not handled.
     pub(super) fn zpy(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
-        self.abs_addr = u16::from(addr.wrapping_add(self.y)) & 0x00FF;
-        let _ = self.read(u16::from(addr)); // Cycle 3
+        self.abs_addr = Addr::from(addr.wrapping_add(self.y)) & 0x00FF;
+        let _ = self.read(Addr::from(addr)); // Cycle 3
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -461,10 +462,11 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(2);
         if addr & 0x00FF == 0x00FF {
             // Simulate bug
-            self.abs_addr = (u16::from(self.read(addr & 0xFF00)) << 8) | u16::from(self.read(addr));
+            self.abs_addr =
+                (Addr::from(self.read(addr & 0xFF00)) << 8) | Addr::from(self.read(addr));
         } else {
             // Normal behavior
-            self.abs_addr = (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr));
+            self.abs_addr = (Addr::from(self.read(addr + 1)) << 8) | Addr::from(self.read(addr));
         }
     }
 
@@ -519,7 +521,7 @@ impl Cpu {
         let addr = self.read(self.pc); // Cycle 2
         self.pc = self.pc.wrapping_add(1);
         let x_offset = addr.wrapping_add(self.x);
-        let _ = self.read(u16::from(addr)); // Cycle 3
+        let _ = self.read(Addr::from(addr)); // Cycle 3
         self.abs_addr = self.readw_zp(x_offset); // Cycles 4 & 5
     }
 
@@ -900,7 +902,7 @@ impl Cpu {
     //  6    PC     R  copy low address byte to PCL, fetch high address
     //                 byte to PCH
     pub(super) fn jsr(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
         self.push_stackw(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
     }
@@ -914,7 +916,7 @@ impl Cpu {
     //  5  $0100,S  R  pull PCL from stack, increment S
     //  6  $0100,S  R  pull PCH from stack
     pub(super) fn rti(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
         self.status = self.pop_stackb(); // Cycle 4
         self.status &= !(U as u8);
         self.status &= !(B as u8);
@@ -930,7 +932,7 @@ impl Cpu {
     //  5  $0100,S  R  pull PCH from stack
     //  6    PC     R  increment PC
     pub(super) fn rts(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
         self.pc = self.pop_stackw().wrapping_add(1); // Cycles 4 & 5
         let _ = self.read(self.pc); // Cycle 6
     }
@@ -969,7 +971,7 @@ impl Cpu {
     /// Compare opcodes
 
     /// Utility function used by all compare instructions
-    pub(super) fn compare(&mut self, a: u8, b: u8) {
+    pub(super) fn compare(&mut self, a: Byte, b: Byte) {
         let result = a.wrapping_sub(b);
         self.set_flags_zn(result);
         self.set_flag(C, a >= b);
@@ -1010,7 +1012,7 @@ impl Cpu {
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
     pub(super) fn plp(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
         self.status = self.pop_stackb();
     }
     /// PHA: Push A on Stack
@@ -1030,7 +1032,7 @@ impl Cpu {
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
     pub(super) fn pla(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
         self.acc = self.pop_stackb();
         self.set_flags_zn(self.acc);
     }
@@ -1125,7 +1127,7 @@ impl Cpu {
         let t = u32::from(self.acc & self.x).wrapping_sub(u32::from(self.fetched_data));
         self.set_flags_zn((t & 0xFF) as u8);
         self.set_flag(C, (((t >> 8) & 0x01) ^ 0x01) == 0x01);
-        self.x = (t & 0xFF) as u8;
+        self.x = (t & 0xFF) as Byte;
     }
     /// LAS: Shortcut for LDA then TSX
     pub(super) fn las(&mut self) {
@@ -1167,18 +1169,20 @@ impl Cpu {
     }
     /// SXA/SHX/XAS: AND X with the high byte of the target address + 1
     pub(super) fn sxa(&mut self) {
-        let hi = (self.abs_addr >> 8) as u8;
-        let lo = (self.abs_addr & 0xFF) as u8;
+        let hi = (self.abs_addr >> 8) as Byte;
+        let lo = (self.abs_addr & 0xFF) as Byte;
         let val = self.x & hi.wrapping_add(1);
-        self.abs_addr = ((u16::from(self.x) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
+        self.abs_addr =
+            ((Addr::from(self.x) & Addr::from(hi.wrapping_add(1))) << 8) | Addr::from(lo);
         self.write_fetched(val);
     }
     /// SYA/SHY/SAY: AND Y with the high byte of the target address + 1
     pub(super) fn sya(&mut self) {
-        let hi = (self.abs_addr >> 8) as u8;
-        let lo = (self.abs_addr & 0xFF) as u8;
+        let hi = (self.abs_addr >> 8) as Byte;
+        let lo = (self.abs_addr & 0xFF) as Byte;
         let val = self.y & hi.wrapping_add(1);
-        self.abs_addr = ((u16::from(self.y) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
+        self.abs_addr =
+            ((Addr::from(self.y) & Addr::from(hi.wrapping_add(1))) << 8) | Addr::from(lo);
         self.write_fetched(val);
     }
     /// RRA: Shortcut for ROR then ADC
@@ -1283,10 +1287,10 @@ impl Cpu {
 }
 
 impl Savable for Operation {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -1374,10 +1378,10 @@ impl Savable for Operation {
 }
 
 impl Savable for AddrMode {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
@@ -1401,13 +1405,13 @@ impl Savable for AddrMode {
 }
 
 impl Savable for Instr {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.0.save(fh)?;
         self.1.save(fh)?;
         self.2.save(fh)?;
         self.3.save(fh)
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.0.load(fh)?;
         self.1.load(fh)?;
         self.2.load(fh)?;

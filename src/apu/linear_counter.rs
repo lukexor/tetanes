@@ -25,14 +25,14 @@ impl LinearCounter {
 }
 
 impl Savable for LinearCounter {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.reload.save(fh)?;
         self.control.save(fh)?;
         self.load.save(fh)?;
         self.counter.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.reload.load(fh)?;
         self.control.load(fh)?;
         self.load.load(fh)?;

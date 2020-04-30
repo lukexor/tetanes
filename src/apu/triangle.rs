@@ -105,7 +105,7 @@ impl Powered for Triangle {
 }
 
 impl Savable for Triangle {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.enabled.save(fh)?;
         self.ultrasonic.save(fh)?;
         self.step.save(fh)?;
@@ -115,7 +115,7 @@ impl Savable for Triangle {
         self.linear.save(fh)?;
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.enabled.load(fh)?;
         self.ultrasonic.load(fh)?;
         self.step.load(fh)?;

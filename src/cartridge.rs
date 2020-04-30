@@ -6,13 +6,11 @@ use crate::{
     map_nes_err,
     mapper::Mirroring,
     memory::Memory,
-    nes_err,
-    serialization::Savable,
-    NesResult,
+    nes_err, NesResult,
 };
 use std::{
     fmt,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read},
 };
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
@@ -40,7 +38,7 @@ pub struct INesHeader {
 /// Represents an NES Cartridge
 #[derive(Default)]
 pub struct Cartridge {
-    pub rom_file: String, // '.nes' rom file
+    pub name: String, // '.nes' rom file
     pub header: INesHeader,
     pub prg_rom: Memory, // Program ROM
     pub chr_rom: Memory, // Character ROM
@@ -51,7 +49,7 @@ impl Cartridge {
     /// Creates an empty cartridge not loaded with any ROM
     pub fn new() -> Self {
         Self {
-            rom_file: String::new(),
+            name: String::new(),
             header: INesHeader::new(),
             prg_rom: Memory::new(),
             chr_rom: Memory::new(),
@@ -69,17 +67,13 @@ impl Cartridge {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom(rom_file: &str) -> NesResult<Self> {
-        use std::path::PathBuf;
-
-        let rom_data = std::fs::File::open(&PathBuf::from(rom_file))
-            .map_err(|e| map_nes_err!("unable to open file \"{}\": {}", rom_file, e))?;
-        let mut rom_data = BufReader::new(rom_data);
+    pub fn from_rom<F: Read>(name: &str, fh: &mut F) -> NesResult<Self> {
+        let mut rom_data = BufReader::new(fh);
 
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;
         let header = INesHeader::from_bytes(&header)
-            .map_err(|e| map_nes_err!("invalid rom \"{}\": {}", rom_file, e))?;
+            .map_err(|e| map_nes_err!("invalid rom \"{}\": {}", name, e))?;
 
         let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
         rom_data.read_exact(&mut prg_rom).map_err(|e| {
@@ -91,7 +85,7 @@ impl Cartridge {
 
             map_nes_err!(
                 "invalid rom \"{}\". PRG-ROM banks: {}. Bytes remaining: {}. Err: {}",
-                rom_file,
+                name,
                 header.prg_rom_size,
                 bytes_rem,
                 e,
@@ -109,7 +103,7 @@ impl Cartridge {
 
             map_nes_err!(
                 "invalid rom \"{}\". CHR-ROM banks: {}. Bytes remaining: {}. Err: {}",
-                rom_file,
+                name,
                 header.chr_rom_size,
                 bytes_rem,
                 e,
@@ -118,7 +112,7 @@ impl Cartridge {
         let chr_rom = Memory::rom_from_bytes(&chr_rom);
 
         let cart = Self {
-            rom_file: rom_file.to_owned(),
+            name: name.to_owned(),
             header,
             prg_rom,
             chr_rom,
@@ -130,7 +124,7 @@ impl Cartridge {
         info!(
             cart,
             "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}, Battery: {}",
-            rom_file,
+            name,
             cart.header.mapper_num,
             cart.mapper_board(),
             cart.header.prg_rom_size,
@@ -204,16 +198,6 @@ impl Loggable for Cartridge {
     }
     fn log_level(&self) -> LogLevel {
         self.log_level
-    }
-}
-
-impl Savable for Cartridge {
-    fn save(&self, _fh: &mut dyn Write) -> NesResult<()> {
-        // Ignore all fields since these will load upon start
-        Ok(())
-    }
-    fn load(&mut self, _fh: &mut dyn Read) -> NesResult<()> {
-        Ok(())
     }
 }
 

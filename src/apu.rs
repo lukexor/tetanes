@@ -5,7 +5,7 @@
 use crate::{
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
-    filter::{Filter, HiPassFilter, LoPassFilter},
+    filter::{Filter, FilterType, HiPassFilter, LoPassFilter},
     logging::{LogLevel, Loggable},
     mapper::MapperRef,
     memory::{MemRead, MemWrite},
@@ -54,8 +54,7 @@ pub struct Apu {
     noise: Noise,
     pub dmc: Dmc,
     log_level: LogLevel,
-    hifilters: [HiPassFilter; 2],
-    lofilters: [LoPassFilter; 1],
+    filters: [FilterType; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
 }
@@ -79,11 +78,11 @@ impl Apu {
             noise: Noise::new(),
             dmc: Dmc::new(),
             log_level: LogLevel::Off,
-            hifilters: [
-                HiPassFilter::new(90.0, SAMPLE_RATE),
-                HiPassFilter::new(440.0, SAMPLE_RATE),
+            filters: [
+                FilterType::HiPassFilter(HiPassFilter::new(90.0, SAMPLE_RATE)),
+                FilterType::HiPassFilter(HiPassFilter::new(440.0, SAMPLE_RATE)),
+                FilterType::LoPassFilter(LoPassFilter::new(14_000.0, SAMPLE_RATE)),
             ],
-            lofilters: [LoPassFilter::new(14_000.0, SAMPLE_RATE)],
             pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
             tnd_table: [0f32; Self::TND_TABLE_SIZE],
         };
@@ -287,10 +286,7 @@ impl Clocked for Apu {
 
         if self.cycle % (self.clock_rate / SAMPLE_RATE) as usize == 0 {
             let mut sample = self.output();
-            for filter in &mut self.hifilters {
-                sample = filter.process(sample);
-            }
-            for filter in &mut self.lofilters {
+            for filter in self.filters.iter_mut() {
                 sample = filter.process(sample);
             }
             self.samples.push(sample);
@@ -374,7 +370,7 @@ impl Powered for Apu {
 }
 
 impl Savable for Apu {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.irq_pending.save(fh)?;
         self.irq_enabled.save(fh)?;
         self.open_bus.save(fh)?;
@@ -395,7 +391,7 @@ impl Savable for Apu {
         // tnd_Table
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.irq_pending.load(fh)?;
         self.irq_enabled.load(fh)?;
         self.open_bus.load(fh)?;

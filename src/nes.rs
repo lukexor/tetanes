@@ -35,10 +35,10 @@ mod state;
 
 pub use config::NesConfig;
 
-const APP_NAME: &str = "RustyNES";
+const APP_NAME: &str = "TetaNES";
 // This includes static assets as a binary during installation
 const _STATIC_DIR: Dir = include_dir!("./static");
-const ICON_PATH: &str = "static/rustynes_icon.png";
+const ICON_PATH: &str = "static/tetanes_icon.png";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const REWIND_SLOT: u8 = 5;
@@ -47,8 +47,8 @@ const REWIND_TIMER: f32 = 5.0;
 
 #[derive(Clone)]
 pub struct Nes {
-    roms: Vec<String>,
-    loaded_rom: String,
+    roms: Vec<PathBuf>,
+    loaded_rom: PathBuf,
     paused: bool,
     background_pause: bool,
     running_time: f32,
@@ -101,7 +101,7 @@ impl Nes {
         let cpu = Cpu::init(Bus::new());
         let mut nes = Self {
             roms: Vec::new(),
-            loaded_rom: String::new(),
+            loaded_rom: PathBuf::new(),
             paused: true,
             background_pause: false,
             running_time: 0.0,

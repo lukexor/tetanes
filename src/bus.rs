@@ -1,6 +1,6 @@
 use crate::{
     apu::Apu,
-    common::Powered,
+    common::{Addr, Byte, Powered},
     hashmap,
     input::Input,
     mapper::{self, Mapper, MapperRef},
@@ -10,6 +10,7 @@ use crate::{
     serialization::Savable,
     NesResult,
 };
+use lazy_static::lazy_static;
 use std::{
     collections::HashMap,
     fmt,
@@ -28,23 +29,22 @@ pub struct Bus {
     pub mapper: MapperRef,
     pub input: Input,
     pub wram: Memory,
-    open_bus: u8,
-    genie_codes: HashMap<u16, GenieCode>,
-    genie_map: HashMap<char, u8>,
+    genie_codes: HashMap<Addr, GenieCode>,
+    open_bus: Byte,
 }
 
 /// Game Genie Code
 #[derive(Clone)]
 struct GenieCode {
     code: String,
-    data: u8,
-    compare: Option<u8>,
+    data: Byte,
+    compare: Option<Byte>,
 }
 
-impl Bus {
-    pub fn new() -> Self {
+lazy_static! {
+    static ref GENIE_MAP: HashMap<char, Byte> = {
         // Game genie maps these letters to binnary representations as a form of code obfuscation
-        let genie_map = hashmap! {
+        hashmap! {
             'A' => 0x0,
             'P' => 0x1,
             'Z' => 0x2,
@@ -61,17 +61,20 @@ impl Bus {
             'S' => 0xD,
             'V' => 0xE,
             'N' => 0xF
-        };
+        }
+    };
+}
 
+impl Bus {
+    pub fn new() -> Self {
         Self {
             ppu: Ppu::new(),
             apu: Apu::new(),
             input: Input::new(),
             mapper: mapper::null(),
-            open_bus: 0u8,
             wram: Memory::ram(WRAM_SIZE),
             genie_codes: HashMap::new(),
-            genie_map,
+            open_bus: 0,
         }
     }
 
@@ -85,22 +88,22 @@ impl Bus {
         if code.len() != 6 && code.len() != 8 {
             return nes_err!("Invalid Game Genie code: {}", code);
         }
-        let mut hex: Vec<u8> = Vec::with_capacity(code.len());
+        let mut hex: Vec<Byte> = Vec::with_capacity(code.len());
         for s in code.chars() {
-            if let Some(h) = self.genie_map.get(&s) {
+            if let Some(h) = GENIE_MAP.get(&s) {
                 hex.push(*h);
             } else {
                 return nes_err!("Invalid Game Genie code: {}", code);
             }
         }
         let addr = 0x8000
-            + (((u16::from(hex[3]) & 7) << 12)
-                | ((u16::from(hex[5]) & 7) << 8)
-                | ((u16::from(hex[4]) & 8) << 8)
-                | ((u16::from(hex[2]) & 7) << 4)
-                | ((u16::from(hex[1]) & 8) << 4)
-                | (u16::from(hex[4]) & 7)
-                | (u16::from(hex[3]) & 8));
+            + (((Addr::from(hex[3]) & 7) << 12)
+                | ((Addr::from(hex[5]) & 7) << 8)
+                | ((Addr::from(hex[4]) & 8) << 8)
+                | ((Addr::from(hex[2]) & 7) << 4)
+                | ((Addr::from(hex[1]) & 8) << 4)
+                | (Addr::from(hex[4]) & 7)
+                | (Addr::from(hex[3]) & 8));
         let data = if hex.len() == 6 {
             ((hex[1] & 7) << 4) | ((hex[0] & 8) << 4) | (hex[0] & 7) | (hex[5] & 8)
         } else {
@@ -126,7 +129,7 @@ impl Bus {
         self.genie_codes.retain(|_, gc| gc.code != code);
     }
 
-    fn genie_code(&self, addr: u16) -> Option<&GenieCode> {
+    fn genie_code(&self, addr: Addr) -> Option<&GenieCode> {
         if self.genie_codes.is_empty() {
             None
         } else {
@@ -136,7 +139,7 @@ impl Bus {
 }
 
 impl MemRead for Bus {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: Addr) -> Byte {
         // Order of frequently accessed
         let val = match addr {
             // Start..End => Read memory
@@ -170,7 +173,7 @@ impl MemRead for Bus {
         val
     }
 
-    fn peek(&self, addr: u16) -> u8 {
+    fn peek(&self, addr: Addr) -> Byte {
         // Order of frequently accessed
         match addr {
             // Start..End => Read memory
@@ -202,7 +205,7 @@ impl MemRead for Bus {
 }
 
 impl MemWrite for Bus {
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: Addr, val: Byte) {
         // Some mappers monitor the bus
         self.mapper.borrow_mut().open_bus(addr, val);
         self.open_bus = val;
@@ -237,17 +240,17 @@ impl Powered for Bus {
 }
 
 impl Savable for Bus {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.ppu.save(fh)?;
         self.apu.save(fh)?;
         self.mapper.borrow().save(fh)?;
         // Ignore input
         self.wram.save(fh)?;
         self.open_bus.save(fh)?;
-        // Ignore genie_codes, genie_map
+        // Ignore genie_codes
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.ppu.load(fh)?;
         self.apu.load(fh)?;
         self.mapper.borrow_mut().load(fh)?;

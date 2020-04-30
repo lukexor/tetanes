@@ -180,7 +180,7 @@ impl Powered for Frame {
 }
 
 impl Savable for Frame {
-    fn save(&self, fh: &mut dyn Write) -> NesResult<()> {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.num.save(fh)?;
         self.parity.save(fh)?;
         self.tile_lo.save(fh)?;
@@ -196,7 +196,7 @@ impl Savable for Frame {
         // Ignore palette
         Ok(())
     }
-    fn load(&mut self, fh: &mut dyn Read) -> NesResult<()> {
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.num.load(fh)?;
         self.parity.load(fh)?;
         self.tile_lo.load(fh)?;
