@@ -1,5 +1,5 @@
 # Some tests rely on deterministic RAM state
-cargo build --features no-randomize-ram
+cargo build --release --features no-randomize-ram
 
 # Count: 20
 
@@ -44,6 +44,6 @@ function ctrl_c() {
 
 for test in ${TESTS[*]}; do
     echo $test
-    target/debug/tetanus --speed 4 $test
+    target/release/tetanes --speed 4 $test
 done
 

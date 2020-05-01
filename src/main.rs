@@ -1,4 +1,4 @@
-//! Usage: tetanus [rom_file | rom_directory]
+//! Usage: tetanes [rom_file | rom_directory]
 //!
 //! 1. If a rom file is provided, that rom is loaded
 //! 2. If a directory is provided, `.nes` files are searched for in that directory
@@ -63,7 +63,7 @@ fn main() {
 /// Command-Line Options
 #[derive(StructOpt, Debug)]
 #[structopt(
-    name = "tetanus",
+    name = "tetanes",
     about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
     version = "0.5.0",
     author = "Luke Petherbridge <me@lukeworks.tech>"

@@ -1,2 +1,2 @@
 cargo build --release
-strip target/release/tetanus
+strip target/release/tetanes
