@@ -68,12 +68,12 @@ impl Frame {
     pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
         // Store the RGB color into the frame buffer.
         let color =
-            self.palette[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
+            self.palette[ppu_cycle as usize][pixel as usize][(self.prev_pixel % 64) as usize];
+        self.prev_pixel = pixel;
         let red = (color >> 16 & 0xFF) as u8;
         let green = (color >> 8 & 0xFF) as u8;
         let blue = (color & 0xFF) as u8;
         self.put_pixel(x, y, red, green, blue);
-        self.prev_pixel = pixel;
     }
 
     // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but

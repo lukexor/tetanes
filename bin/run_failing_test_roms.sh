@@ -29,10 +29,7 @@ tests/ppu/sprdma_and_dmc_dma_512.nes # Supposed to print a table and instead jus
 tests/ppu/sprite_hit/09-timing.nes # Flag set too soon for upper-right corner #5
 tests/ppu/sprite_overflow/3.Timing.nes # Failed #5
 tests/ppu/sprite_overflow/4.Obscure.nes # Failed #2
-
-## MAPPERS ========================================================================================
-# tests/mapper/mmc3/5.MMC3_rev_A.nes # Can only pass rev_A or rev_B at the same time. Passes rev_B
-
+tests/ppu/vbl_nmi/10-even_odd_timing.nes # Failed #3
 )
 
 trap ctrl_c INT
