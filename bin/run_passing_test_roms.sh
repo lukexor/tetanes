@@ -74,6 +74,7 @@ tests/apu/test_6.nes
 ## PPU ============================================================================================
 tests/ppu/oam_read.nes
 tests/ppu/oam_stress.nes
+tests/ppu/oamtest3.nes # Not really sure what this tests
 tests/ppu/open_bus.nes
 tests/ppu/palette.nes
 tests/ppu/palette_ram.nes
@@ -99,6 +100,7 @@ tests/ppu/vbl_nmi/03-vbl_clear_time.nes
 tests/ppu/vbl_nmi/04-nmi_control.nes
 tests/ppu/vbl_nmi/05-nmi_timing.nes
 tests/ppu/vbl_nmi/06-suppression.nes
+tests/ppu/vbl_nmi/07-nmi_on_timing.nes
 tests/ppu/vbl_nmi/08-nmi_off_timing.nes
 tests/ppu/vbl_nmi/09-even_odd_frames.nes
 tests/ppu/vbl_nmi_timing/1.frame_basics.nes
@@ -110,11 +112,11 @@ tests/ppu/vbl_nmi_timing/6.nmi_disable.nes
 tests/ppu/vbl_nmi_timing/7.nmi_timing.nes
 tests/ppu/vram_access.nes
 
-# Video - Skip for now
-# tests/ppu/240pee.nes
-# tests/ppu/color.nes
-# tests/ppu/ntsc_torture.nes
-# tests/ppu/tv.nes
+# Video
+tests/ppu/240pee.nes
+tests/ppu/color.nes
+tests/ppu/ntsc_torture.nes
+tests/ppu/tv.nes
 
 ## MAPPERS ========================================================================================
 tests/mapper/mmc3/1.Clocking.nes
@@ -122,6 +124,7 @@ tests/mapper/mmc3/2.Details.nes
 tests/mapper/mmc3/3.A12_clocking.nes
 tests/mapper/mmc3/4.Scanline_timing.nes
 tests/mapper/mmc3/6.MMC3_rev_B.nes
+# tests/mapper/mmc3/5.MMC3_rev_A.nes # Can only pass rev_A or rev_B at the same time. Passes rev_
 tests/mapper/mmc3/mmc3bigchrram.nes
 
 )

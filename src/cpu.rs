@@ -213,6 +213,8 @@ impl Cpu {
         self.push_stackb((self.status | U as u8) & !(B as u8));
         self.set_flag(I, true);
         self.pc = self.readw(NMI_ADDR);
+        self.nmi_pending = false;
+        self.bus.ppu.nmi_pending = false;
     }
 
     fn run_cycle(&mut self) {
@@ -572,8 +574,6 @@ impl Clocked for Cpu {
         if self.has_irq(Irq::Reset) {
             self.irq();
         } else if self.last_nmi {
-            self.nmi_pending = false;
-            self.bus.ppu.nmi_pending = false;
             self.nmi();
         } else if self.last_irq {
             self.irq();
@@ -685,7 +685,7 @@ impl Clocked for Cpu {
             ANC => self.anc(), // AND #imm
             SLO => self.slo(), // ASL & ORA
             XXX => self.xxx(), // Unimplemented opcode
-        };
+        }
 
         self.step += 1;
         self.cycle_count - start_cycles
