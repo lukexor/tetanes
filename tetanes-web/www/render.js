@@ -1,9 +1,9 @@
 import { memory } from "tetanes-web/tetanes_web_bg";
 
-let SCALE = 3;
-let WIDTH = SCALE * 256;
-let HEIGHT = SCALE * 240;
-let FRAME_LEN = 4 * WIDTH * HEIGHT;
+let SCALE = 2;
+let WIDTH;
+let HEIGHT;
+let FRAME_LEN;
 
 let drawCanvas;
 let drawCtx;
@@ -31,6 +31,16 @@ export const setup = (state) => {
 
   scaledCtx = scaledCanvas.getContext("2d");
   scaledCtx.scale(SCALE, SCALE);
+
+  for (let i = 1; i <= 3; ++i) {
+    document.getElementById(`scale${i}`).addEventListener('click', function(e) {
+      SCALE = i;
+      scaledCanvas.width = WIDTH * SCALE;
+      scaledCanvas.height = HEIGHT * SCALE;
+      scaledCtx = scaledCanvas.getContext("2d");
+      scaledCtx.scale(SCALE, SCALE);
+    }, false);
+  }
 };
 
 // Render a frame

@@ -17,12 +17,7 @@ export const playAudio = (nes) => {
   const samplesLen = nes.samples_len();
   const samplesPtr = nes.samples();
   const samples = new Float32Array(memory.buffer, samplesPtr, samplesLen);
-  let audioBuffer;
-  if (emptyBuffers.length === 0) {
-    audioBuffer = audioCtx.createBuffer(1, 4096, SAMPLE_RATE);
-  } else {
-    audioBuffer = emptyBuffers.pop();
-  }
+  const audioBuffer = audioCtx.createBuffer(1, samplesLen, SAMPLE_RATE);
   audioBuffer.copyToChannel(samples, 0, 0);
   const audioSource = audioCtx.createBufferSource();
   audioSource.buffer = audioBuffer;
@@ -37,4 +32,6 @@ export const playAudio = (nes) => {
   audioSource.start(playTimestamp);
   playTime = playTimestamp + samplesLen / SAMPLE_RATE;
   nes.clear_samples();
+  console.log(buffered);
+  return buffered;
 };
