@@ -32,6 +32,5 @@ export const playAudio = (nes) => {
   audioSource.start(playTimestamp);
   playTime = playTimestamp + samplesLen / SAMPLE_RATE;
   nes.clear_samples();
-  console.log(buffered);
   return buffered;
 };
