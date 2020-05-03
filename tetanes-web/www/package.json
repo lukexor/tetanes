@@ -4,8 +4,8 @@
   "description": "A NES Emulator written in Rust and WebAssembly",
   "main": "index.js",
   "scripts": {
-    "build": "pushd ../; sh bin/build.sh; popd; webpack --config webpack.config.js",
-    "start": "webpack-dev-server"
+    "build": "webpack --config webpack.prod.js",
+    "start": "webpack-dev-server --config webpack.prod.js"
   },
   "repository": {
     "type": "git",
@@ -33,6 +33,6 @@
     "webpack": "^4.29.3",
     "webpack-cli": "^3.1.0",
     "webpack-dev-server": "^3.1.5",
-    "copy-webpack-plugin": "^5.0.0"
+    "webpack-merge": "^4.2.2"
   }
 }
