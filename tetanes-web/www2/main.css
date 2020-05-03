@@ -1,0 +1,72 @@
+body {
+  background-color: #000;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas {
+  border: 1px solid #fff;
+  margin: 20px;
+  float: left;
+}
+
+.load-rom {
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  position: absolute;
+  z-index: -1;
+}
+
+.button {
+  background-color: #B7410E; /* Rust color */
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 1.25em;
+  font-weight: 700;
+  margin: 0;
+  padding: 5px 8px;
+  text-decoration: none;
+}
+.button:focus,
+.button:hover {
+    background-color: #A6300D;
+}
+
+.load-rom-label {
+  background-color: #B7410E; /* Rust color */
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 1.25em;
+  font-weight: 700;
+  margin: 40px 0;
+  margin-right: 20px;
+  padding: 10px 16px;
+  text-decoration: none;
+}
+
+.load-rom-label:focus,
+.load-rom-label:hover {
+    background-color: #A6300D;
+}
+
+.load-rom-label:focus {
+  outline: 1px dotted #fff;
+  outline: -webkit-focus-ring-color auto 5px;
+}
+
+.load-rom-label * {
+  pointer-events: none;
+}

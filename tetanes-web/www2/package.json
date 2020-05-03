@@ -1,0 +1,38 @@
+{
+  "name": "tetanes-www",
+  "version": "0.1.0",
+  "description": "A NES Emulator written in Rust and WebAssembly",
+  "main": "index.js",
+  "scripts": {
+    "build": "pushd ../; sh bin/build.sh; popd; webpack --config webpack.config.js",
+    "start": "webpack-dev-server"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lukexor/tetanes.git"
+  },
+  "keywords": [
+    "webassembly",
+    "wasm",
+    "rust",
+    "webpack",
+    "nes",
+    "emulator",
+    "tetanes"
+  ],
+  "author": "Luke Petherbridge <me@lukeworks.tech>",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/lukexor/tetanes/issues"
+  },
+  "homepage": "https://lukeworks.tech/tetanes",
+  "dependencies": {
+    "tetanes-web": "file:../pkg"
+  },
+  "devDependencies": {
+    "webpack": "^4.29.3",
+    "webpack-cli": "^3.1.0",
+    "webpack-dev-server": "^3.1.5",
+    "copy-webpack-plugin": "^5.0.0"
+  }
+}
