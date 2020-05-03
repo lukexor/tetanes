@@ -1,26 +1,26 @@
 [package]
 name = "tetanes"
-version = "0.5.0"
+version = "0.6.1"
 license = "GPL-3.0-or-later"
 description = "A NES Emulator written in Rust with SDL2 and WebAssembly support"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
 readme = "README.md"
-documentation = "https://github.com/lukexor/tetanes"
+documentation = "https://lukeworks.tech/tetanes/docs"
 repository = "https://github.com/lukexor/tetanes.git"
-homepage = "https://github.com/lukexor/tetanes"
+homepage = "https://lukeworks.tech/tetanes"
 edition = "2018"
 
 [dependencies]
-chrono = "~0.4.11"
-dirs = "~2.0.2"
-enum_dispatch = "~0.3.0"
-include_dir = "~0.5.0"
-lazy_static = "~1.4.0"
-pix-engine = { version = "~0.3.3", default_features = false }
-png = "~0.16.3"
-rand = "~0.7.3"
-structopt = "~0.3.14"
-wasm-bindgen = { version = "~0.2.59", optional = true }
+chrono = "0.4"
+dirs = "2.0"
+enum_dispatch = "0.3"
+include_dir = "0.5"
+lazy_static = "1.4"
+pix-engine = { version = "0.3", default_features = false }
+png = "0.16"
+rand = "0.7"
+structopt = "0.3"
+wasm-bindgen = { version = "0.2", optional = true }
 
 [features]
 default = ["sdl2-driver"]
@@ -32,7 +32,7 @@ no-randomize-ram = []
 opt-level = 2
 
 [profile.release]
-# debug = true
+debug = true
 lto = true
 codegen-units = 1
 panic = 'abort'

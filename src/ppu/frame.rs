@@ -55,10 +55,11 @@ impl Frame {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
-        let idx = 3 * (x + y * RENDER_WIDTH) as usize;
+        let idx = 4 * (x + y * RENDER_WIDTH) as usize;
         self.pixels[idx] = red;
         self.pixels[idx + 1] = green;
         self.pixels[idx + 2] = blue;
+        self.pixels[idx + 3] = 255;
     }
 
     // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
@@ -67,8 +68,8 @@ impl Frame {
     // http://wiki.nesdev.com/w/index.php/NTSC_video
     pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
         // Store the RGB color into the frame buffer.
-        let color =
-            self.palette[ppu_cycle as usize][pixel as usize][(self.prev_pixel % 64) as usize];
+        let color = self.palette[ppu_cycle as usize][(pixel % 64) as usize]
+            [(self.prev_pixel % 512) as usize];
         self.prev_pixel = pixel;
         let red = (color >> 16 & 0xFF) as u8;
         let green = (color >> 8 & 0xFF) as u8;

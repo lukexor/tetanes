@@ -36,7 +36,7 @@ pub const RENDER_HEIGHT: u32 = 240;
 const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
-const RENDER_SIZE: usize = 3 * RENDER_PIXELS;
+const RENDER_SIZE: usize = 4 * RENDER_PIXELS;
 
 // Cycles
 const IDLE_CYCLE: u16 = 0; // PPU is idle this cycle
@@ -146,7 +146,7 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
-    pub fn frame(&mut self) -> &Vec<Byte> {
+    pub fn frame(&self) -> &Vec<Byte> {
         &self.frame.pixels
     }
 
@@ -506,10 +506,11 @@ impl Ppu {
         let red = SYSTEM_PALETTE[idx];
         let green = SYSTEM_PALETTE[idx + 1];
         let blue = SYSTEM_PALETTE[idx + 2];
-        let idx = 3 * (x + y * width) as usize;
+        let idx = 4 * (x + y * width) as usize;
         pixels[idx] = red;
         pixels[idx + 1] = green;
         pixels[idx + 2] = blue;
+        pixels[idx + 3] = 255;
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {

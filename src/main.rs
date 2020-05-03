@@ -65,7 +65,7 @@ fn main() {
 #[structopt(
     name = "tetanes",
     about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
-    version = "0.5.0",
+    version = "0.6.1",
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
 struct Opt {

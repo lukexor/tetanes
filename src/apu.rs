@@ -22,7 +22,7 @@ use std::{
 };
 use triangle::Triangle;
 
-pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
+pub const SAMPLE_RATE: f32 = 48_000.0; // in Hz
 const SAMPLE_BUFFER_SIZE: usize = 4096;
 
 pub mod dmc;
@@ -99,7 +99,7 @@ impl Apu {
         self.dmc.mapper = mapper;
     }
 
-    pub fn samples(&mut self) -> &[f32] {
+    pub fn samples(&self) -> &[f32] {
         &self.samples
     }
 

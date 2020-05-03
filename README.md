@@ -163,8 +163,8 @@ There are also some emulator actions:
 | Action                            | Keyboard         | Controller         |
 | --------------------------------- | ---------------- | ------------------ |
 | Pause                             | Escape           | Guide Button       |
-| Help Menu                         | F1               |                    |
-| Configuration Menu                | Ctrl-C           |                    |
+| Help Menu<sup>\*</sup>            | F1               |                    |
+| Configuration Menu<sup>\*</sup>   | Ctrl-C           |                    |
 | Open ROM<sup>\*</sup>             | Ctrl-O           |                    |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
@@ -175,7 +175,7 @@ There are also some emulator actions:
 | Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
-| Rewind 5 Seconds (when enabled)   | R                |                    |
+| Rewind 5 Seconds                  | R                |                    |
 | Stop Action Replay Recording      | Shift-V          |                    |
 | Toggle Music/Sound                | Ctrl-M           |                    |
 | Toggle CPU Debugger               | Ctrl-D           |                    |
@@ -320,7 +320,7 @@ The following is a checklist of features and their progress:
   - [x] Keyboard
   - [x] Standard Controller
   - [x] Turbo
-  - [ ] Light Gun (Mouse implementation in progress)
+  - [ ] Zapper (Light Gun)
 - [x] Memory
 - [x] Cartridge
   - [x] Battery-backed Save RAM
