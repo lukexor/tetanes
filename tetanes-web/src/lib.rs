@@ -18,18 +18,20 @@ pub struct Nes {
 
 #[wasm_bindgen]
 impl Nes {
-    pub fn new() -> Self {
+    pub fn init() {
         utils::set_panic_hook();
         utils::init_log();
+    }
 
+    pub fn new() -> Self {
         Self {
             paused: false,
             cpu: Cpu::init(Bus::new()),
         }
     }
 
-    pub fn toggle_pause(&mut self) {
-        self.paused = !self.paused;
+    pub fn pause(&mut self, val: bool) {
+        self.paused = val;
     }
 
     pub fn power_cycle(&mut self) {
@@ -80,6 +82,8 @@ impl Nes {
     pub fn load_rom(&mut self, mut bytes: &[u8]) {
         let mapper = mapper::load_rom("file", &mut bytes).unwrap();
         self.cpu.bus.load_mapper(mapper);
+        self.cpu.power_on();
+        self.pause(false);
     }
 
     pub fn handle_event(&mut self, key: &str, pressed: bool, repeat: bool) -> bool {
@@ -89,7 +93,7 @@ impl Nes {
         let mut gamepad = &mut self.cpu.bus.input.gamepad1;
         let mut matched = true;
         match key {
-            "Escape" if pressed => self.toggle_pause(),
+            "Escape" if pressed => self.pause(!self.paused),
             "Enter" => gamepad.start = pressed,
             "Shift" => gamepad.select = pressed,
             "a" => gamepad.turbo_a = pressed,

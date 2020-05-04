@@ -15,6 +15,13 @@ const keybinds = [
 export const eventPump = [];
 
 export const setup = (state) => {
+  eventPump.splice(0);
+
+  document.getElementById('load-rom').addEventListener('click', function(e) {
+    state.nes.pause(true);
+  });
+
+
   // Set up event handler for ROM input
   document.getElementById('load-rom').addEventListener('change', function(e) {
     const reader = new FileReader();
@@ -22,10 +29,11 @@ export const setup = (state) => {
     if (reader && files.length) {
       reader.readAsArrayBuffer(files[0]);
       reader.onload = () => {
-        state.nes.power_cycle();
         const data = new Uint8Array(reader.result);
         state.nes.load_rom(data);
-        requestAnimationFrame(state.emulationLoop);
+        if (!state.animationId) {
+          state.animationId = requestAnimationFrame(state.emulationLoop);
+        }
       };
     }
   }, false);

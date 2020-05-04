@@ -3,18 +3,20 @@ import * as events from "./events.js";
 import * as render from "./render.js";
 import * as audio from "./audio.js";
 
+Nes.init();
 const state = {
   nes: Nes.new(),
+  animationId: 0,
   emulationLoop: () => {
     events.fps.render();
     events.handleEvents(state);
     state.nes.clock_frame();
     render.renderFrame(state.nes);
     audio.playAudio(state.nes);
-    requestAnimationFrame(state.emulationLoop);
+    state.animationId = requestAnimationFrame(state.emulationLoop);
   },
 };
 
-render.setup(state);
 events.setup(state);
+render.setup(state);
 audio.setup(state);
