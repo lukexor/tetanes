@@ -20,8 +20,6 @@ pub mod bus;
 pub mod cartridge;
 #[macro_use]
 pub mod common;
-#[macro_use]
-pub mod logging;
 pub mod cpu;
 pub mod filter;
 pub mod input;

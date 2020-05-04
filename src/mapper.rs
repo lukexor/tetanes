@@ -5,7 +5,6 @@
 use crate::{
     cartridge::Cartridge,
     common::{Addr, Byte, Clocked, Powered},
-    logging::{LogLevel, Loggable},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     {nes_err, NesResult},
@@ -70,7 +69,7 @@ pub enum MapperType {
 }
 
 #[enum_dispatch(MapperType)]
-pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + Debug {
+pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered {
     fn irq_pending(&mut self) -> bool {
         false
     }
@@ -109,6 +108,7 @@ pub fn load_rom<F: Read>(name: &str, rom: &mut F) -> NesResult<MapperRef> {
         5 => Exrom::load(cart),
         7 => Axrom::load(cart),
         9 => Pxrom::load(cart),
+        71 => Uxrom::load(cart), // TODO: Mapper 71 has slight differences from Uxrom
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };
     Ok(Rc::new(RefCell::new(mapper)))
@@ -120,7 +120,6 @@ impl MemWrite for NullMapper {}
 impl Savable for NullMapper {}
 impl Clocked for NullMapper {}
 impl Powered for NullMapper {}
-impl Loggable for NullMapper {}
 
 pub fn null() -> MapperRef {
     let null = NullMapper {};

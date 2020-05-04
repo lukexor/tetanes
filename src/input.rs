@@ -123,7 +123,7 @@ impl MemRead for Input {
 impl MemWrite for Input {
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
-        if addr == 0x4016 {
+        if addr == 0x4016 && val == 0 {
             self.gamepad1.reset();
             self.gamepad2.reset();
         }

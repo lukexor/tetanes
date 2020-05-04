@@ -1,12 +1,11 @@
 use super::{Cpu, StatusRegs::*, IRQ_ADDR, NMI_ADDR, SP_BASE};
 use crate::{
     common::{Addr, Byte},
-    error,
-    logging::{LogLevel, Loggable},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
+use log::error;
 use std::{
     fmt,
     io::{Read, Write},
@@ -1088,7 +1087,6 @@ impl Cpu {
     /// XXX: Captures all unimplemented opcodes
     pub(super) fn xxx(&mut self) {
         error!(
-            self,
             "Invalid opcode ${:02X} {:?} #{:?} encountered!",
             self.instr.opcode(),
             self.instr.op(),

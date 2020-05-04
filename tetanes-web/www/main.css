@@ -1,20 +1,34 @@
+@font-face {
+  font-family: 'Emulogic';
+  src:
+    local('Emulogic'),
+    url('emulogic.ttf')
+    format('truetype');
+}
+
 body {
   background-color: #000;
   position: absolute;
-  top: 0;
   left: 0;
   width: 100%;
-  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  color: #92340B;
+  font-family: Emulogic;
 }
 
 canvas {
-  border: 1px solid #fff;
-  margin: 20px;
+  background-color: #333;
+  margin: 40px;
   float: left;
+}
+
+h1 {
+  margin: 40px 0;
+  text-align: center;
 }
 
 .load-rom {
@@ -26,40 +40,36 @@ canvas {
   z-index: -1;
 }
 
-.button {
-  background-color: #B7410E; /* Rust color */
+.button,
+.load-rom-label {
+  background-color: #92340B; /* Rust color */
   border: none;
   color: white;
   cursor: pointer;
   display: inline-block;
-  font-size: 1.25em;
-  font-weight: 700;
-  margin: 0;
-  padding: 5px 8px;
   text-decoration: none;
+  font-size: 1em;
 }
-.button:focus,
-.button:hover {
-    background-color: #A6300D;
+
+.button {
+  margin: 10px 0;
+  width: 50px;
+  padding: 5px 8px;
 }
 
 .load-rom-label {
-  background-color: #B7410E; /* Rust color */
-  border: none;
-  color: white;
-  cursor: pointer;
-  display: inline-block;
-  font-size: 1.25em;
-  font-weight: 700;
-  margin: 40px 0;
-  margin-right: 20px;
+  margin-top: 80px;
+  width: 150px;
   padding: 10px 16px;
-  text-decoration: none;
+  text-align: center;
 }
 
+.button:focus,
+.button:hover,
 .load-rom-label:focus,
 .load-rom-label:hover {
-    background-color: #A6300D;
+  color: #000;
+  background-color: #48BEF1;
 }
 
 .load-rom-label:focus {

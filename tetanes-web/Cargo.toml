@@ -5,7 +5,7 @@ license = "GPL-3.0-or-later"
 description = "A NES Emulator written in Rust and WebAssembly"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
 readme = "README.md"
-documentation = "https://lukeworks.tech/tetanes/docs"
+documentation = "https://github.com/lukexor/tetanes/tree/master/tetanes-web"
 repository = "https://github.com/lukexor/tetanes.git"
 homepage = "https://lukeworks.tech/tetanes"
 edition = "2018"
@@ -17,15 +17,11 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
+console_error_panic_hook = { version = "0.1", optional = true }
+console_log = "0.2"
+log = "0.4"
 tetanes = { path = "../", default-features = false, features = ["wasm-driver", "no-randomize-ram"] }
 wasm-bindgen = "0.2"
-
-# The `console_error_panic_hook` crate provides better debugging of panics by
-# logging them with `console.error`. This is great for development, but requires
-# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
-# code size when deploying.
-console_error_panic_hook = { version = "0.1.1", optional = true }
-wee_alloc = { version = "0.4.2", optional = true }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.2"
@@ -34,6 +30,5 @@ wasm-bindgen-test = "0.2"
 opt-level = 2
 
 [profile.release]
-opt-level = "s"
+opt-level = "z"
 lto = true
-codegen-units = 1

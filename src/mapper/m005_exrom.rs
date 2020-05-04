@@ -10,7 +10,6 @@ use crate::{
     },
     cartridge::Cartridge,
     common::{Clocked, Powered},
-    logging::{LogLevel, Loggable},
     mapper::{Mapper, MapperType, Mirroring},
     memory::{MemRead, MemWrite, Memory},
     serialization::Savable,
@@ -76,7 +75,6 @@ pub struct Exrom {
     pulse2: Pulse,
     dmc: Dmc,
     dmc_mode: u8,
-    log_level: LogLevel,
     open_bus: u8,
 }
 
@@ -199,7 +197,6 @@ impl Exrom {
             pulse2: Pulse::new(PulseChannel::Two),
             dmc: Dmc::new(),
             dmc_mode: 0x01, // Default to read mode
-            log_level: LogLevel::default(),
             open_bus: 0x00,
         };
         exrom.into()
@@ -787,15 +784,6 @@ impl Powered for Exrom {
     fn reset(&mut self) {
         self.regs.prg_mode = 0x03;
         self.regs.chr_mode = 0x03;
-    }
-}
-
-impl Loggable for Exrom {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 

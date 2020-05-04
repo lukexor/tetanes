@@ -10,15 +10,9 @@ use wasm_bindgen::prelude::*;
 
 mod utils;
 
-// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global allocator.
-// if cfg!(feature = "wee_alloc") {
-//     #[global_allocator]	static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-// }
-
 #[wasm_bindgen]
 pub struct Nes {
     paused: bool,
-    bg_paused: bool,
     cpu: Cpu,
 }
 
@@ -26,12 +20,16 @@ pub struct Nes {
 impl Nes {
     pub fn new() -> Self {
         utils::set_panic_hook();
+        utils::init_log();
 
         Self {
             paused: false,
-            bg_paused: false,
             cpu: Cpu::init(Bus::new()),
         }
+    }
+
+    pub fn toggle_pause(&mut self) {
+        self.paused = !self.paused;
     }
 
     pub fn power_cycle(&mut self) {
@@ -71,10 +69,12 @@ impl Nes {
     }
 
     pub fn clock_frame(&mut self) {
-        while !self.cpu.bus.ppu.frame_complete {
-            let _ = self.cpu.clock();
+        if !self.paused {
+            while !self.cpu.bus.ppu.frame_complete {
+                let _ = self.cpu.clock();
+            }
+            self.cpu.bus.ppu.frame_complete = false;
         }
-        self.cpu.bus.ppu.frame_complete = false;
     }
 
     pub fn load_rom(&mut self, mut bytes: &[u8]) {
@@ -82,49 +82,32 @@ impl Nes {
         self.cpu.bus.load_mapper(mapper);
     }
 
-    pub fn cpu_info(&self) -> String {
-        format!(
-            "{:02X} A:{:02X} X:{:02X} Y:{:02X} P:{}, SP:{:02X} CYC:{}",
-            self.cpu.pc,
-            self.cpu.acc,
-            self.cpu.x,
-            self.cpu.y,
-            self.cpu.status,
-            self.cpu.sp,
-            self.cpu.cycle_count,
-        )
-        .to_string()
+    pub fn handle_event(&mut self, key: &str, pressed: bool, repeat: bool) -> bool {
+        if repeat {
+            return false;
+        }
+        let mut gamepad = &mut self.cpu.bus.input.gamepad1;
+        let mut matched = true;
+        match key {
+            "Escape" if pressed => self.toggle_pause(),
+            "Enter" => gamepad.start = pressed,
+            "Shift" => gamepad.select = pressed,
+            "a" => gamepad.turbo_a = pressed,
+            "s" => gamepad.turbo_b = pressed,
+            "z" => gamepad.a = pressed,
+            "x" => gamepad.b = pressed,
+            "ArrowUp" => gamepad.up = pressed,
+            "ArrowDown" => gamepad.down = pressed,
+            "ArrowLeft" => gamepad.left = pressed,
+            "ArrowRight" => gamepad.right = pressed,
+            _ => matched = false,
+        }
+        matched
     }
+}
 
-    pub fn start(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.start = pressed;
-    }
-
-    pub fn select(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.select = pressed;
-    }
-
-    pub fn a(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.a = pressed;
-    }
-
-    pub fn b(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.b = pressed;
-    }
-
-    pub fn up(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.up = pressed;
-    }
-
-    pub fn down(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.down = pressed;
-    }
-
-    pub fn left(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.left = pressed;
-    }
-
-    pub fn right(&mut self, pressed: bool) {
-        self.cpu.bus.input.gamepad1.right = pressed;
+impl Default for Nes {
+    fn default() -> Self {
+        Self::new()
     }
 }

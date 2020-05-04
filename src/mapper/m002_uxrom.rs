@@ -5,7 +5,6 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
-    logging::Loggable,
     mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
@@ -92,7 +91,6 @@ impl MemWrite for Uxrom {
 
 impl Clocked for Uxrom {}
 impl Powered for Uxrom {}
-impl Loggable for Uxrom {}
 
 impl Savable for Uxrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {

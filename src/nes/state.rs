@@ -1,7 +1,5 @@
 use crate::{
     common::{home_dir, Clocked, Powered, CONFIG_DIR},
-    error,
-    logging::{LogLevel, Loggable},
     map_nes_err, mapper,
     mapper::Mapper,
     nes::{event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
@@ -10,6 +8,7 @@ use crate::{
     NesResult,
 };
 use chrono::prelude::{DateTime, Local};
+use log::error;
 use std::{
     collections::VecDeque,
     fs::File,
@@ -45,7 +44,7 @@ impl Nes {
         }
         if let Err(e) = self.save_sram() {
             self.add_message(&e.to_string());
-            error!(self, "{}", e.to_string());
+            error!("{}", e);
         }
         // Clean up rewind states
         if self.config.rewind_enabled {
@@ -373,15 +372,6 @@ impl Clocked for Nes {
             self.cpu.bus.input.zapper.light_sense = true;
         }
         self.cpu.clock()
-    }
-}
-
-impl Loggable for Nes {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.config.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.config.log_level
     }
 }
 

@@ -1,7 +1,6 @@
 use crate::{
     common::{create_png, Clocked, Powered},
     cpu::instr::Operation::*,
-    logging::LogLevel,
     nes::{config::DEFAULT_SPEED, Nes},
     ppu::RENDER_WIDTH,
     serialization::Savable,
@@ -355,10 +354,7 @@ impl Nes {
                 }
             }
             // F# Keys
-            Key::F9 => {
-                self.config.log_level = LogLevel::increase(self.config.log_level);
-                self.set_log_level(self.config.log_level, false);
-            }
+            Key::F9 => {} // TODO change log level
             Key::F10 => match self.screenshot() {
                 Ok(s) => self.add_message(&s),
                 Err(e) => self.add_message(&e.to_string()),

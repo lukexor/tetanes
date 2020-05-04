@@ -6,7 +6,6 @@ use crate::{
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
     filter::{Filter, FilterType, HiPassFilter, LoPassFilter},
-    logging::{LogLevel, Loggable},
     mapper::MapperRef,
     memory::{MemRead, MemWrite},
     serialization::Savable,
@@ -53,7 +52,6 @@ pub struct Apu {
     triangle: Triangle,
     noise: Noise,
     pub dmc: Dmc,
-    log_level: LogLevel,
     filters: [FilterType; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
@@ -77,7 +75,6 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
-            log_level: LogLevel::Off,
             filters: [
                 FilterType::HiPassFilter(HiPassFilter::new(90.0, SAMPLE_RATE)),
                 FilterType::HiPassFilter(HiPassFilter::new(440.0, SAMPLE_RATE)),
@@ -175,16 +172,12 @@ impl Apu {
     fn output(&mut self) -> f32 {
         let pulse1 = self.pulse1.output();
         let pulse2 = self.pulse2.output();
-        // let pulse1 = 0.0;
-        // let pulse2 = 0.0;
         let triangle = self.triangle.output();
         let noise = self.noise.output();
         let dmc = self.dmc.output();
-        // let noise = 0.0;
-        // let dmc = 0.0;
 
-        let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize];
-        let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize];
+        let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
+        let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize % 203];
         2.0 * (pulse_out + tnd_out)
     }
 
@@ -293,15 +286,6 @@ impl Clocked for Apu {
         }
         self.cycle += 1;
         1
-    }
-}
-
-impl Loggable for Apu {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 

@@ -17,7 +17,7 @@ export const playAudio = (nes) => {
   const samplesLen = nes.samples_len();
   const samplesPtr = nes.samples();
   const samples = new Float32Array(memory.buffer, samplesPtr, samplesLen);
-  const audioBuffer = audioCtx.createBuffer(1, samplesLen, SAMPLE_RATE);
+  const audioBuffer = audioCtx.createBuffer(1, 4096, SAMPLE_RATE);
   audioBuffer.copyToChannel(samples, 0, 0);
   const audioSource = audioCtx.createBufferSource();
   audioSource.buffer = audioBuffer;

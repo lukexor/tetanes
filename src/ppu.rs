@@ -4,7 +4,6 @@
 
 use crate::{
     common::{Addr, Byte, Clocked, NesFormat, Powered},
-    logging::{LogLevel, Loggable},
     mapper::{Mapper, MapperRef},
     memory::{MemRead, MemWrite},
     serialization::Savable,
@@ -86,7 +85,6 @@ pub struct Ppu {
     pub pattern_tables: Vec<Vec<Byte>>,
     pub palette: Vec<Byte>,
     pub palette_ids: Vec<u8>,
-    log_level: LogLevel,
 }
 
 impl Ppu {
@@ -119,7 +117,6 @@ impl Ppu {
             pattern_tables: vec![vec![0; RENDER_SIZE / 2], vec![0; RENDER_SIZE / 2]],
             palette: vec![0; (PALETTE_SIZE + 4) * 3],
             palette_ids: vec![0; (PALETTE_SIZE + 4) * 3],
-            log_level: LogLevel::default(),
         }
     }
 
@@ -1021,15 +1018,6 @@ impl Powered for Ppu {
     }
 }
 
-impl Loggable for Ppu {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
-    }
-}
-
 impl Savable for Ppu {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.cycle.save(fh)?;
@@ -1055,7 +1043,6 @@ impl Savable for Ppu {
         // pattern_tables
         // palette
         // palette_ids
-        // log_level
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {

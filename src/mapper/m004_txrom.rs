@@ -6,7 +6,6 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
-    logging::Loggable,
     mapper::{Mapper, MapperType, Mirroring},
     memory::{Banks, MemRead, MemWrite, Memory},
     serialization::Savable,
@@ -354,8 +353,6 @@ impl Powered for Txrom {
         self.reset();
     }
 }
-
-impl Loggable for Txrom {}
 
 impl Savable for Txrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {

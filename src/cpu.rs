@@ -5,13 +5,13 @@
 use crate::{
     bus::Bus,
     common::{Addr, Byte, Clocked, Powered},
-    logging::{LogLevel, Loggable},
     mapper::Mapper,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
 use instr::{AddrMode::*, Instr, Operation::*, INSTRUCTIONS};
+use log::{log_enabled, trace, Level};
 use std::{
     collections::VecDeque,
     fmt,
@@ -38,9 +38,9 @@ const PC_LOG_LEN: usize = 20;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Irq {
     Reset = 1,
-    Mapper = (1 << 1),
-    FrameCounter = (1 << 2),
-    Dmc = (1 << 3),
+    Mapper = 1 << 1,
+    FrameCounter = 1 << 2,
+    Dmc = 1 << 3,
 }
 
 // Status Registers
@@ -57,14 +57,14 @@ pub enum Irq {
 // |+-------- Overflow
 // +--------- Negative
 pub enum StatusRegs {
-    C = 1,        // Carry
-    Z = (1 << 1), // Zero
-    I = (1 << 2), // Disable Interrupt
-    D = (1 << 3), // Decimal Mode
-    B = (1 << 4), // Break
-    U = (1 << 5), // Unused
-    V = (1 << 6), // Overflow
-    N = (1 << 7), // Negative
+    C = 1,      // Carry
+    Z = 1 << 1, // Zero
+    I = 1 << 2, // Disable Interrupt
+    D = 1 << 3, // Decimal Mode
+    B = 1 << 4, // Break
+    U = 1 << 5, // Unused
+    V = 1 << 6, // Overflow
+    N = 1 << 7, // Negative
 }
 use StatusRegs::*;
 
@@ -90,7 +90,6 @@ pub struct Cpu {
     pub nmi_pending: bool,
     last_irq: bool,
     last_nmi: bool,
-    log_level: LogLevel,
 }
 
 impl Cpu {
@@ -115,7 +114,6 @@ impl Cpu {
             nmi_pending: false,
             last_irq: false,
             last_nmi: false,
-            log_level: LogLevel::default(),
         }
     }
 
@@ -539,7 +537,7 @@ impl Cpu {
                 status_str.push(*s);
             }
         }
-        println!(
+        trace!(
             "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{} SP:{:02X} PPU:{:3},{:3} CYC:{}",
             disasm,
             self.acc,
@@ -579,7 +577,7 @@ impl Clocked for Cpu {
             self.irq();
         }
 
-        if self.log_level == LogLevel::Trace {
+        if log_enabled!(Level::Trace) {
             self.print_instruction(self.pc);
         }
         self.pc_log.push_front(self.pc);
@@ -741,15 +739,6 @@ impl Powered for Cpu {
     }
 }
 
-impl Loggable for Cpu {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
-    }
-}
-
 impl Savable for Cpu {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.cycle_count.save(fh)?;
@@ -822,7 +811,6 @@ mod tests {
     #[test]
     fn cpu_cycle_timing() {
         let mut cpu = Cpu::init(Bus::new());
-        cpu.log_level = LogLevel::Trace;
         cpu.power_on();
         cpu.clock();
 

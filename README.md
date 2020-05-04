@@ -134,8 +134,6 @@ FLAGS:
 
 OPTIONS:
     -g, --genie-codes <genie-codes>...    List of Game Genie Codes (space separated).
-    -l, --log-level <log-level>           Set logging level. [default: error]  [possible values: off, error, warn, info,
-                                          debug, trace]
     -p, --replay <replay>                 Replay a saved action replay file.
         --savestate-slot <save-slot>      Set savestate slot #. [default: 1]  [possible values: 1, 2, 3, 4]
     -s, --scale <scale>                   Window scale [default: 3]
@@ -185,7 +183,6 @@ There are also some emulator actions:
 | Toggle PPU Viewer                 | Shift-P          |                    |
 | Toggle Nametable Viewer           | Shift-N          |                    |
 | Take Screenshot                   | F10              |                    |
-| Increase Logging Level            | F9               |                    |
 
 While the CPU Debugger is open (these can also be held down):
 
@@ -259,6 +256,9 @@ to render animations.
 <img src="static/nametable_viewer.png" width="400">&nbsp;&nbsp;<img src="static/ppu_viewer.png" width="400">
 <img src="static/debugger.png" width="808">
 
+Logging can be set by setting the `RUST_LOG` environment variable and setting it
+to one of `trace`, `debug`, `info`, `warn` or `error`.
+
 ## Troubleshooting
 
 If you get an error running a ROM that's using the supported Mapper list above, it could be
@@ -284,7 +284,7 @@ guideline for what to include is:
 - What you were doing when the error happened
 - A description of the error and what happeneed
 - Any console output
-- Any related error or debug logs (not yet available)
+- Any related errors or logs
 
 When using the browser version (not yet available), also include:
 - Web browser and version (e.g. Chrome 77.0.3865)

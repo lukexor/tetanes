@@ -1,6 +1,5 @@
 use crate::{
     common::{Clocked, Powered},
-    logging::{LogLevel, Loggable},
     mapper::{self, MapperRef},
     memory::MemRead,
     serialization::Savable,
@@ -26,7 +25,6 @@ pub struct Dmc {
     output_bits: u8,
     output_shift: u8,
     output_silent: bool,
-    log_level: LogLevel,
 }
 
 impl Dmc {
@@ -53,7 +51,6 @@ impl Dmc {
             output_bits: 0u8,
             output_shift: 0u8,
             output_silent: false,
-            log_level: LogLevel::Off,
         }
     }
 
@@ -139,15 +136,6 @@ impl Clocked for Dmc {
 impl Powered for Dmc {
     fn reset(&mut self) {
         *self = Self::new();
-    }
-}
-
-impl Loggable for Dmc {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 

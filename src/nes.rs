@@ -243,9 +243,6 @@ impl Nes {
             self.config.speed = (self.config.speed * 100.0).round() / 100.0;
         }
         self.cpu.bus.apu.set_speed(self.config.speed);
-
-        self.set_log_level(self.config.log_level, true);
-
         if self.config.fullscreen {
             data.fullscreen(true)?;
         }

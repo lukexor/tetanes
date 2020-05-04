@@ -9,18 +9,21 @@
     <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
 
     <div id="wrapper">
+      <h1>TetaNES Web</h1>
+
       <canvas id="tetanes-canvas" width="512" height="480"></canvas>
 
       <input type="file" id="load-rom" name="load-rom" class="load-rom" accept=".nes">
-      <label for="load-rom" class="load-rom-label"><strong>Load ROM</strong></label><br>
+      <label for="load-rom" class="load-rom-label">Load ROM</label><br>
 
       <input type="button" id="scale1" class="button" value="1X">
       <input type="button" id="scale2" class="button" value="2X">
       <input type="button" id="scale3" class="button" value="3X">
 
-      <canvas id="tetanes-draw-canvas" style="display: none"></canvas>
+      <div id="fps"></div>
     </div>
 
+    <canvas id="tetanes-draw-canvas" style="display: none"></canvas>
     <script src="./dist/bundle.js"></script>
   </body>
 </html>

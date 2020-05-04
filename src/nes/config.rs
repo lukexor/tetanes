@@ -1,9 +1,4 @@
-use crate::{
-    logging::{LogLevel, Loggable},
-    nes::Nes,
-    serialization::Savable,
-    NesResult,
-};
+use crate::{nes::Nes, serialization::Savable, NesResult};
 use pix_engine::StateData;
 use std::{
     env,
@@ -19,7 +14,6 @@ pub struct NesConfig {
     pub path: String,
     pub debug: bool,
     pub pause_in_bg: bool,
-    pub log_level: LogLevel,
     pub fullscreen: bool,
     pub vsync: bool,
     pub sound_enabled: bool,
@@ -41,7 +35,6 @@ impl NesConfig {
             path: String::new(),
             debug: false,
             pause_in_bg: true,
-            log_level: LogLevel::default(),
             fullscreen: false,
             vsync: false,
             sound_enabled: true,
@@ -69,7 +62,6 @@ impl Savable for NesConfig {
         // Ignore
         // debug
         self.pause_in_bg.save(fh)?;
-        // Ignore log_level
         self.fullscreen.save(fh)?;
         self.vsync.save(fh)?;
         self.sound_enabled.save(fh)?;
@@ -142,19 +134,6 @@ impl Nes {
             }
         }
         data.set_title(&title);
-    }
-
-    pub(super) fn set_log_level(&mut self, level: LogLevel, startup: bool) {
-        self.cpu.set_log_level(level);
-        self.cpu.bus.ppu.set_log_level(level);
-        self.cpu.bus.apu.set_log_level(level);
-        self.cpu.bus.mapper.borrow_mut().set_log_level(level);
-        if level > LogLevel::Debug {
-            self.config.sound_enabled = false;
-        }
-        if !startup {
-            self.add_message(&format!("Set LogLevel to {:?}", level));
-        }
     }
 }
 

@@ -5,12 +5,13 @@ import * as audio from "./audio.js";
 
 const state = {
   nes: Nes.new(),
-  animationId: 0,
   emulationLoop: () => {
+    events.fps.render();
+    events.handleEvents(state);
     state.nes.clock_frame();
     render.renderFrame(state.nes);
     audio.playAudio(state.nes);
-    state.animationId = requestAnimationFrame(state.emulationLoop);
+    requestAnimationFrame(state.emulationLoop);
   },
 };
 

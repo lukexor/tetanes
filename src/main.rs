@@ -11,12 +11,14 @@
 
 use std::env;
 use structopt::StructOpt;
-use tetanes::{
-    logging::LogLevel,
-    nes::{Nes, NesConfig},
-};
+use tetanes::nes::{Nes, NesConfig};
 
 fn main() {
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info");
+    }
+    pretty_env_logger::init_timed();
+
     let opt = Opt::from_args();
     let config = NesConfig {
         path: opt.path.unwrap_or_else(|| {
@@ -28,14 +30,6 @@ fn main() {
         }),
         debug: opt.debug,
         pause_in_bg: !opt.no_pause_in_bg,
-        log_level: match opt.log_level.as_ref() {
-            "error" => LogLevel::Error,
-            "warn" => LogLevel::Warn,
-            "info" => LogLevel::Info,
-            "debug" => LogLevel::Debug,
-            "trace" => LogLevel::Trace,
-            _ => LogLevel::Off,
-        },
         fullscreen: opt.fullscreen,
         vsync: !opt.vsync_off,
         sound_enabled: !opt.sound_off,
@@ -84,14 +78,6 @@ struct Opt {
         help = "Pause emulation while the window is not in focus."
     )]
     no_pause_in_bg: bool,
-    #[structopt(
-        short = "l",
-        long = "log-level",
-        default_value = "error",
-        possible_values = &["off", "error", "warn", "info", "debug", "trace"],
-        help = "Set logging level."
-    )]
-    log_level: String,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
     #[structopt(long = "vsync-off", help = "Disable vsync.")]

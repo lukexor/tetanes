@@ -1,13 +1,7 @@
 //! Handles reading NES Cartridge headers and ROMs
 
-use crate::{
-    info,
-    logging::{LogLevel, Loggable},
-    map_nes_err,
-    mapper::Mirroring,
-    memory::Memory,
-    nes_err, NesResult,
-};
+use crate::{map_nes_err, mapper::Mirroring, memory::Memory, nes_err, NesResult};
+use log::info;
 use std::{
     fmt,
     io::{BufReader, Read},
@@ -42,7 +36,6 @@ pub struct Cartridge {
     pub header: INesHeader,
     pub prg_rom: Memory, // Program ROM
     pub chr_rom: Memory, // Character ROM
-    log_level: LogLevel,
 }
 
 impl Cartridge {
@@ -53,7 +46,6 @@ impl Cartridge {
             header: INesHeader::new(),
             prg_rom: Memory::new(),
             chr_rom: Memory::new(),
-            log_level: LogLevel::default(),
         }
     }
 
@@ -116,13 +108,8 @@ impl Cartridge {
             header,
             prg_rom,
             chr_rom,
-            #[cfg(debug_assertions)]
-            log_level: LogLevel::Debug,
-            #[cfg(not(debug_assertions))]
-            log_level: LogLevel::default(),
         };
         info!(
-            cart,
             "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}, Battery: {}",
             name,
             cart.header.mapper_num,
@@ -189,15 +176,6 @@ impl Cartridge {
         } else {
             Ok(0)
         }
-    }
-}
-
-impl Loggable for Cartridge {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 
