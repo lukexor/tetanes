@@ -1,4 +1,5 @@
 @font-face {
+  state.toggleSound();
   font-family: 'Emulogic';
   src:
     local('Emulogic'),
@@ -25,6 +26,7 @@ h1 {
   text-align: center;
 }
 
+
 #p5-container {
   margin: 0 40px;
   float: left;
@@ -41,7 +43,7 @@ h1 {
   z-index: -1;
 }
 
-.button,
+button,
 .load-rom-label {
   background-color: #92340B; /* Rust color */
   border: none;
@@ -49,12 +51,15 @@ h1 {
   cursor: pointer;
   display: inline-block;
   text-decoration: none;
+  font-family : inherit;
   font-size: 1em;
 }
 
-.button {
+#scale1, #scale2, #scale2 {
+  width: 3.5em;
+}
+button {
   margin: 10px 0;
-  width: 3.33em;
   padding: 5px 8px;
 }
 
@@ -66,8 +71,8 @@ h1 {
   text-align: center;
 }
 
-.button:focus,
-.button:hover,
+button:focus,
+button:hover,
 .load-rom-label:focus,
 .load-rom-label:hover {
   color: #000;

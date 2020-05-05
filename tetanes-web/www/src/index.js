@@ -9,6 +9,7 @@ class State {
     this.p5 = p5;
     this.events = [];
     this.fps = new Fps();
+    this.audioEnabled = true;
     this.keybinds = [
       'Escape', 'Enter', 'Shift', 'a', 's', 'z', 'x', 'ArrowUp', 'ArrowDown',
       'ArrowLeft', 'ArrowRight',
@@ -33,10 +34,6 @@ class State {
   clock() {
     this.fps.tick();
     this.nes.clock_frame();
-
-//     for (let i = 0; i < this.audioUnderrun; ++i) {
-//       console.log("Run a bit ", i);
-//     }
   }
 
   paused() {
@@ -58,7 +55,16 @@ class State {
     this.audioTime = 0;
   }
 
+  toggleAudio() {
+    this.audioEnabled = !this.audioEnabled;
+  }
+
   playAudio() {
+    if (!this.audioEnabled) {
+      this.nes.clear_samples();
+      return;
+    }
+
     const samplesLen = this.nes.samples_len();
     if (samplesLen > 0) {
       const samplesPtr = this.nes.samples();
@@ -127,6 +133,7 @@ const sketch = (p5) => {
     p5.background(33);
     document.getElementById('load-rom').addEventListener('click', function(e) {
       state.nes.pause(true);
+      this.blur();
     });
 
     document.getElementById('load-rom').addEventListener('change', function(e) {
@@ -153,8 +160,19 @@ const sketch = (p5) => {
         container.style.height = state.height + 'px';
         p5.background(33);
         p5.redraw();
+        this.blur();
       }, false);
     }
+
+    document.getElementById('toggle-audio').addEventListener('click', function(e) {
+      state.toggleAudio();
+      if (state.audioEnabled) {
+        document.getElementById('toggle-audio').textContent = "Mute";
+      } else {
+        document.getElementById('toggle-audio').textContent = "Unmute";
+      }
+      this.blur();
+    }, false);
 
     p5.noLoop();
   }
