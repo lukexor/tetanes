@@ -92,7 +92,7 @@ impl Nes {
     pub fn load_rom(&mut self, mut bytes: &[u8]) {
         let mapper = mapper::load_rom("file", &mut bytes).unwrap();
         self.cpu.bus.load_mapper(mapper);
-        self.cpu.power_cycle();
+        self.cpu.power_on();
         self.pause(false);
     }
 
