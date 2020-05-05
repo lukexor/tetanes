@@ -37,13 +37,13 @@ impl Nes {
             let src = Rect::new(0, 0, RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
             let left_dst = Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
             let right_dst = Rect::new(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_window_texture(window, "left_pattern", ColorType::Rgb, src, left_dst)?;
-            data.create_window_texture(window, "right_pattern", ColorType::Rgb, src, right_dst)?;
+            data.create_window_texture(window, "left_pattern", ColorType::Rgba, src, left_dst)?;
+            data.create_window_texture(window, "right_pattern", ColorType::Rgba, src, right_dst)?;
 
             // Set up palette texture
             let src = Rect::new(0, 0, 16, 2);
             let dst = Rect::new(0, RENDER_HEIGHT, 2 * RENDER_WIDTH, PALETTE_HEIGHT);
-            data.create_window_texture(window, "palette", ColorType::Rgb, src, dst)?;
+            data.create_window_texture(window, "palette", ColorType::Rgba, src, dst)?;
 
             // Set up info panel at the bottom
             let src = Rect::new(0, 0, 2 * RENDER_WIDTH, info_height);
@@ -73,6 +73,13 @@ impl Nes {
             let pat_tables = &self.cpu.bus.ppu.pattern_tables;
             data.copy_window_texture(ppu_viewer_window, "left_pattern", &pat_tables[0])?;
             data.copy_window_texture(ppu_viewer_window, "right_pattern", &pat_tables[1])?;
+
+            // Draw Borders
+            let borders = Image::new_ref(RENDER_WIDTH / 2, RENDER_HEIGHT);
+            data.set_draw_target(borders);
+            data.draw_line(0, 0, 0, RENDER_HEIGHT, pixel::BLACK);
+            data.copy_window_draw_target(ppu_viewer_window, "right_pattern")?;
+            data.clear_draw_target();
 
             // Set up palette
             data.copy_window_texture(ppu_viewer_window, "palette", &self.cpu.bus.ppu.palette)?;
@@ -140,18 +147,18 @@ impl Nes {
 
             // Set up four NT windows
             let src = Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            let nt1_dst = src;
+            let nt1_dst = Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
             let nt2_dst = Rect::new(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT);
             let nt3_dst = Rect::new(0, RENDER_HEIGHT, RENDER_WIDTH, RENDER_HEIGHT);
             let nt4_dst = Rect::new(RENDER_WIDTH, RENDER_HEIGHT, RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_window_texture(window, "nametable1", ColorType::Rgb, src, nt1_dst)?;
-            data.create_window_texture(window, "nametable2", ColorType::Rgb, src, nt2_dst)?;
-            data.create_window_texture(window, "nametable3", ColorType::Rgb, src, nt3_dst)?;
-            data.create_window_texture(window, "nametable4", ColorType::Rgb, src, nt4_dst)?;
+            data.create_window_texture(window, "nametable1", ColorType::Rgba, src, nt1_dst)?;
+            data.create_window_texture(window, "nametable2", ColorType::Rgba, src, nt2_dst)?;
+            data.create_window_texture(window, "nametable3", ColorType::Rgba, src, nt3_dst)?;
+            data.create_window_texture(window, "nametable4", ColorType::Rgba, src, nt4_dst)?;
 
             // Set up 2 horizontal lines for scanline detection
             let src = Rect::new(0, 0, 2 * RENDER_WIDTH, RENDER_HEIGHT);
-            let top_dst = src;
+            let top_dst = Rect::new(0, 0, 2 * RENDER_WIDTH, RENDER_HEIGHT);
             let bot_dst = Rect::new(0, RENDER_HEIGHT, 2 * RENDER_WIDTH, RENDER_HEIGHT);
             data.create_window_texture(window, "scanline_top", ColorType::Rgba, src, top_dst)?;
             data.create_window_texture(window, "scanline_bot", ColorType::Rgba, src, bot_dst)?;
@@ -176,6 +183,7 @@ impl Nes {
     pub(super) fn copy_nt_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
         if let Some(nt_viewer_window) = self.nt_viewer_window {
             let wh = pixel::WHITE;
+            let bl = pixel::BLACK;
 
             let nametables = &self.cpu.bus.ppu.nametables;
             data.copy_window_texture(nt_viewer_window, "nametable1", &nametables[0])?;
@@ -187,6 +195,21 @@ impl Nes {
             let line = Image::new_ref(2 * RENDER_WIDTH, RENDER_HEIGHT);
             data.set_draw_target(line);
             data.draw_line(0, self.nt_scanline, 2 * RENDER_WIDTH, self.nt_scanline, wh);
+            data.copy_window_draw_target(nt_viewer_window, "scanline_top")?;
+            data.copy_window_draw_target(nt_viewer_window, "scanline_bot")?;
+            data.clear_draw_target();
+
+            // Draw Borders
+            let borders = Image::new_ref(2 * RENDER_WIDTH, RENDER_HEIGHT);
+            data.set_draw_target(borders);
+            data.draw_line(
+                0,
+                RENDER_HEIGHT - 1,
+                2 * RENDER_WIDTH,
+                RENDER_HEIGHT - 1,
+                bl,
+            );
+            data.draw_line(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT, bl);
             data.copy_window_draw_target(nt_viewer_window, "scanline_top")?;
             data.copy_window_draw_target(nt_viewer_window, "scanline_bot")?;
             data.clear_draw_target();

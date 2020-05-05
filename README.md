@@ -9,7 +9,7 @@
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
 `TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
-using [Rust][rust] and [SDL2][sdl2].
+using [Rust][rust], [SDL2][sdl2] and [WASM][wasm].
 
 It started as a personal curiosity that turned into a passion project. It is still
 a work-in-progress, but I hope to transform it into a fully-featured NES emulator that can play most
@@ -20,6 +20,8 @@ with the more popular C and C++ versions.
 addition to them having the type and memory-safety guarantees that Rust is known for. Many useful
 features of Rust are leveraged in this project including traits, trait objects, generics, matching,
 and iterators.
+
+Try it out in your [browser](http://dev.lukeworks.tech/tetanes)!
 
 ## Screenshots
 
@@ -437,3 +439,4 @@ in some recent refactorings.
 
 [rust]: https://www.rust-lang.org/tools/install
 [sdl2]: https://www.libsdl.org/
+[wasm]: https://webassembly.org/

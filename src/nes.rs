@@ -3,7 +3,7 @@
 use crate::{
     apu::SAMPLE_RATE,
     bus::Bus,
-    common::Clocked,
+    common::{Clocked, Powered},
     cpu::{Cpu, CPU_CLOCK_RATE},
     nes::{
         config::{MAX_SPEED, MIN_SPEED},
@@ -203,7 +203,7 @@ impl Nes {
         }
         if self.roms.len() == 1 {
             self.load_rom(0)?;
-            self.power_on()?;
+            self.power_on();
 
             if self.config.clear_save {
                 if let Ok(save_path) = state::save_path(&self.loaded_rom, self.config.save_slot) {
@@ -325,7 +325,7 @@ impl State for Nes {
     }
 
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
-        self.power_off()?;
+        self.power_off();
         Ok(true)
     }
 }

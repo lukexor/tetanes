@@ -26,41 +26,6 @@ impl Nes {
         self.paused = paused;
     }
 
-    /// Powers on the console
-    pub(super) fn power_on(&mut self) -> NesResult<()> {
-        self.cpu.power_on();
-        if let Err(e) = self.load_sram() {
-            self.add_message(&e.to_string());
-        }
-        self.paused = false;
-        self.cycles_remaining = 0.0;
-        Ok(())
-    }
-
-    /// Powers off the console
-    pub(super) fn power_off(&mut self) -> NesResult<()> {
-        if self.recording {
-            self.save_replay()?;
-        }
-        if let Err(e) = self.save_sram() {
-            self.add_message(&e.to_string());
-            error!("{}", e);
-        }
-        // Clean up rewind states
-        if self.config.rewind_enabled {
-            for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
-                if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
-                    if save_path.exists() {
-                        let _ = std::fs::remove_file(&save_path);
-                    }
-                }
-            }
-        }
-        self.power_cycle();
-        self.paused = true;
-        Ok(())
-    }
-
     /// Loads a ROM cartridge into memory
     pub(super) fn load_rom(&mut self, rom_id: usize) -> NesResult<()> {
         self.loaded_rom = self.roms[rom_id].to_owned();
@@ -327,6 +292,40 @@ impl Nes {
 }
 
 impl Powered for Nes {
+    /// Powers on the console
+    fn power_on(&mut self) {
+        self.cpu.power_on();
+        if let Err(e) = self.load_sram() {
+            self.add_message(&e.to_string());
+        }
+        self.paused = false;
+        self.cycles_remaining = 0.0;
+    }
+
+    /// Powers off the console
+    fn power_off(&mut self) {
+        if self.recording {
+            if let Err(e) = self.save_replay() {
+                self.add_message(&e.to_string());
+            }
+        }
+        if let Err(e) = self.save_sram() {
+            self.add_message(&e.to_string());
+            error!("{}", e);
+        }
+        // Clean up rewind states
+        if self.config.rewind_enabled {
+            for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
+                if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
+                    if save_path.exists() {
+                        let _ = std::fs::remove_file(&save_path);
+                    }
+                }
+            }
+        }
+        self.paused = true;
+    }
+
     /// Soft-resets the console
     fn reset(&mut self) {
         self.cpu.reset();

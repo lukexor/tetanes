@@ -51,6 +51,7 @@ pub struct Apu {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
+    enabled: [bool; 5],
     pub dmc: Dmc,
     filters: [FilterType; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
@@ -75,6 +76,7 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
+            enabled: [true; 5],
             filters: [
                 FilterType::HiPassFilter(HiPassFilter::new(90.0, SAMPLE_RATE)),
                 FilterType::HiPassFilter(HiPassFilter::new(440.0, SAMPLE_RATE)),
@@ -106,6 +108,26 @@ impl Apu {
 
     pub fn set_speed(&mut self, speed: f32) {
         self.clock_rate = CPU_CLOCK_RATE * speed;
+    }
+
+    pub fn toggle_pulse1(&mut self) {
+        self.enabled[0] = !self.enabled[0];
+    }
+
+    pub fn toggle_pulse2(&mut self) {
+        self.enabled[1] = !self.enabled[1];
+    }
+
+    pub fn toggle_triangle(&mut self) {
+        self.enabled[2] = !self.enabled[2];
+    }
+
+    pub fn toggle_noise(&mut self) {
+        self.enabled[3] = !self.enabled[3];
+    }
+
+    pub fn toggle_dmc(&mut self) {
+        self.enabled[4] = !self.enabled[4];
     }
 
     // Counts CPU clocks and determines when to clock quarter/half frames
@@ -170,11 +192,31 @@ impl Apu {
     }
 
     fn output(&mut self) -> f32 {
-        let pulse1 = self.pulse1.output();
-        let pulse2 = self.pulse2.output();
-        let triangle = self.triangle.output();
-        let noise = self.noise.output();
-        let dmc = self.dmc.output();
+        let pulse1 = if self.enabled[0] {
+            self.pulse1.output()
+        } else {
+            0.0
+        };
+        let pulse2 = if self.enabled[1] {
+            self.pulse2.output()
+        } else {
+            0.0
+        };
+        let triangle = if self.enabled[2] {
+            self.triangle.output()
+        } else {
+            0.0
+        };
+        let noise = if self.enabled[3] {
+            self.noise.output()
+        } else {
+            0.0
+        };
+        let dmc = if self.enabled[4] {
+            self.dmc.output()
+        } else {
+            0.0
+        };
 
         let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
         let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize % 203];

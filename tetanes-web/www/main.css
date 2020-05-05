@@ -20,15 +20,16 @@ body {
   font-family: Emulogic;
 }
 
-canvas {
-  background-color: #333;
-  margin: 40px;
-  float: left;
-}
-
 h1 {
   margin: 40px 0;
   text-align: center;
+}
+
+#p5-container {
+  margin: 0 40px;
+  float: left;
+  width: 512px;
+  height: 480px;
 }
 
 .load-rom {
@@ -53,13 +54,14 @@ h1 {
 
 .button {
   margin: 10px 0;
-  width: 50px;
+  width: 3.33em;
   padding: 5px 8px;
 }
 
 .load-rom-label {
   margin-top: 80px;
-  width: 150px;
+  width: 10em;
+  font-size: 1em;
   padding: 10px 16px;
   text-align: center;
 }

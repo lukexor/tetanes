@@ -25,13 +25,17 @@ impl Nes {
 
     pub fn new() -> Self {
         Self {
-            paused: false,
+            paused: true,
             cpu: Cpu::init(Bus::new()),
         }
     }
 
     pub fn pause(&mut self, val: bool) {
         self.paused = val;
+    }
+
+    pub fn paused(&mut self) -> bool {
+        self.paused
     }
 
     pub fn power_cycle(&mut self) {
@@ -79,10 +83,16 @@ impl Nes {
         }
     }
 
+    pub fn clock(&mut self) {
+        if !self.paused {
+            let _ = self.cpu.clock();
+        }
+    }
+
     pub fn load_rom(&mut self, mut bytes: &[u8]) {
         let mapper = mapper::load_rom("file", &mut bytes).unwrap();
         self.cpu.bus.load_mapper(mapper);
-        self.cpu.power_on();
+        self.cpu.power_cycle();
         self.pause(false);
     }
 

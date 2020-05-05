@@ -115,8 +115,8 @@ impl Ppu {
             ],
             nametable_ids: vec![0; 4 * 0x0400],
             pattern_tables: vec![vec![0; RENDER_SIZE / 2], vec![0; RENDER_SIZE / 2]],
-            palette: vec![0; (PALETTE_SIZE + 4) * 3],
-            palette_ids: vec![0; (PALETTE_SIZE + 4) * 3],
+            palette: vec![0; (PALETTE_SIZE + 4) * 4],
+            palette_ids: vec![0; (PALETTE_SIZE + 4) * 4],
         }
     }
 
@@ -564,7 +564,6 @@ impl Ppu {
         self.frame_cycles = (self.frame_cycles + 1) % 3;
         if self.cycle > cycle_end {
             self.cycle = 0;
-            // self.scanline_phase = (self.frame_cycles as f32 * 8.0 + 4.9) as u32 % 12;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;

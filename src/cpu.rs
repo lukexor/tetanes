@@ -117,13 +117,6 @@ impl Cpu {
         }
     }
 
-    pub fn power_on(&mut self) {
-        self.cycle_count = 0;
-        self.stall = 0;
-        self.pc_log.clear();
-        self.set_irq(Irq::Reset, true);
-    }
-
     pub fn next_instr(&self) -> Instr {
         let opcode = self.peek(self.pc);
         INSTRUCTIONS[opcode as usize]
@@ -712,6 +705,14 @@ impl MemWrite for Cpu {
 }
 
 impl Powered for Cpu {
+    /// Powers on the CPU
+    fn power_on(&mut self) {
+        self.cycle_count = 0;
+        self.stall = 0;
+        self.pc_log.clear();
+        self.set_irq(Irq::Reset, true);
+    }
+
     /// Resets the CPU
     ///
     /// Updates the PC, SP, and Status values to defined constants.
