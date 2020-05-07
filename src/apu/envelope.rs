@@ -1,7 +1,7 @@
 use crate::{common::Clocked, serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Envelope {
     pub enabled: bool,
     loops: bool,

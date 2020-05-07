@@ -17,7 +17,7 @@ const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
 /// CNROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Cnrom {
     mirroring: Mirroring,
     prg_rom_bank_lo: usize,

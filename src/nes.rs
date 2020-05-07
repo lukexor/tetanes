@@ -399,8 +399,9 @@ mod tests {
 
     #[test]
     fn apu_timing() {
-        let mut nes = Nes::new();
-        nes.power_on();
+        // TODO assert outputs
+        let rom = "tests/cpu/nestest.nes";
+        let mut nes = load(&rom);
         for _ in 0..=29840 {
             let apu = &nes.cpu.bus.apu;
             println!(

@@ -24,7 +24,7 @@ const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
 const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
 /// TxROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Txrom {
     regs: TxRegs,
     has_chr_ram: bool,
@@ -65,7 +65,7 @@ pub struct Txrom {
     chr_banks: Banks<Memory>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TxRegs {
     bank_select: u8,
     bank_values: [u8; 8],

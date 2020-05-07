@@ -18,7 +18,7 @@ const PRG_RAM_SIZE: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
 /// NROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Nrom {
     has_chr_ram: bool,
     battery_backed: bool,

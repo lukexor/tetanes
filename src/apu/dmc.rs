@@ -1,15 +1,15 @@
 use crate::{
     common::{Clocked, Powered},
-    mapper::{self, MapperRef},
+    mapper::MapperType,
     memory::MemRead,
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Dmc {
-    pub mapper: MapperRef,
+    pub(super) mapper: *mut MapperType,
     pub irq_enabled: bool,
     pub irq_pending: bool,
     loops: bool,
@@ -35,7 +35,7 @@ impl Dmc {
     ];
     pub fn new() -> Self {
         Self {
-            mapper: mapper::null(),
+            mapper: std::ptr::null_mut(),
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -82,6 +82,10 @@ impl Dmc {
     pub fn write_length(&mut self, val: u8) {
         self.length_load = (val << 4) + 1;
     }
+
+    fn mapper_mut(&mut self) -> &mut MapperType {
+        unsafe { &mut *self.mapper }
+    }
 }
 
 impl Clocked for Dmc {
@@ -115,7 +119,8 @@ impl Clocked for Dmc {
         }
 
         if self.length > 0 && self.sample_buffer_empty {
-            self.sample_buffer = self.mapper.borrow_mut().read(self.addr);
+            let addr = self.addr;
+            self.sample_buffer = self.mapper_mut().read(addr);
             self.sample_buffer_empty = false;
             self.addr = self.addr.wrapping_add(1) | 0x8000;
             self.length -= 1;

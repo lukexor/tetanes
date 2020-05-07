@@ -4,7 +4,7 @@
 
 use crate::{
     common::{Addr, Byte, Clocked, NesFormat, Powered},
-    mapper::{Mapper, MapperRef},
+    mapper::{Mapper, MapperType},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
@@ -120,8 +120,8 @@ impl Ppu {
         }
     }
 
-    pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.vram.mapper = mapper;
+    pub fn load_mapper(&mut self, mapper: &mut MapperType) {
+        self.vram.mapper = &mut *mapper as *mut MapperType;
     }
 
     pub fn set_debug(&mut self, val: bool) {
@@ -720,8 +720,7 @@ impl Ppu {
         // read_status() modifies register, so make sure mapper is aware
         // of new status
         self.vram
-            .mapper
-            .borrow_mut()
+            .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
         status
     }
@@ -744,16 +743,14 @@ impl Ppu {
         }
         // Ensure our mapper knows vbl changed
         self.vram
-            .mapper
-            .borrow_mut()
+            .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
     }
     fn stop_vblank(&mut self) {
         self.regs.stop_vblank();
         // Ensure our mapper knows vbl changed
         self.vram
-            .mapper
-            .borrow_mut()
+            .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
     }
     pub fn vblank_started(&self) -> bool {
@@ -819,7 +816,7 @@ impl Ppu {
             return;
         }
         self.regs.write_addr(val);
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        self.vram.mapper_mut().vram_change(self.regs.v);
     }
 
     /*
@@ -852,7 +849,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        self.vram.mapper_mut().vram_change(self.regs.v);
         val
     }
     fn peek_ppudata(&self) -> Byte {
@@ -874,7 +871,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        self.vram.mapper_mut().vram_change(self.regs.v);
     }
 }
 
@@ -1083,7 +1080,8 @@ mod tests {
     #[test]
     fn ppu_scrolling_registers() {
         let mut ppu = Ppu::new();
-        ppu.load_mapper(mapper::null());
+        let mut mapper = Box::new(mapper::null());
+        ppu.load_mapper(&mut mapper);
         while ppu.cycle_count < POWER_ON_CYCLES {
             ppu.clock();
         }

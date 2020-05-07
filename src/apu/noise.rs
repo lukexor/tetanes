@@ -6,13 +6,13 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum ShiftMode {
     Zero,
     One,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Noise {
     pub enabled: bool,
     freq_timer: u16,       // timer freq_counter reload value

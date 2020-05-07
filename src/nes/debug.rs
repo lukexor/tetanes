@@ -226,7 +226,7 @@ impl Nes {
 
             data.draw_string(x, y, &format!("Scanline: {}", self.nt_scanline), wh);
             y += ypad;
-            let mirroring = self.cpu.bus.mapper.borrow().mirroring();
+            let mirroring = self.cpu.bus.mapper.mirroring();
             data.draw_string(x, y, &format!("Mirroring: {:?}", mirroring), wh);
             x = RENDER_WIDTH;
             y = 5;

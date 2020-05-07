@@ -17,7 +17,7 @@ const CHR_BANK_SIZE: usize = 8 * 1024; // 8K ROM/RAM
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
 /// UxROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Uxrom {
     mirroring: Mirroring,
     prg_rom_bank_lo: usize,

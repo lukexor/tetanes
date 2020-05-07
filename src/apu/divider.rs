@@ -5,7 +5,7 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Divider {
     pub counter: f32,
     pub period: f32,

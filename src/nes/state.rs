@@ -152,7 +152,7 @@ impl Nes {
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
     pub(super) fn save_sram(&mut self) -> NesResult<()> {
-        let mapper = self.cpu.bus.mapper.borrow();
+        let mapper = &self.cpu.bus.mapper;
         if mapper.battery_backed() {
             let sram_path = sram_path(&self.loaded_rom)?;
             let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
@@ -196,7 +196,7 @@ impl Nes {
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
     pub(super) fn load_sram(&mut self) -> NesResult<()> {
-        let mut mapper = self.cpu.bus.mapper.borrow_mut();
+        let mapper = &mut self.cpu.bus.mapper;
         if mapper.battery_backed() {
             let sram_path = sram_path(&self.loaded_rom)?;
             if sram_path.exists() {

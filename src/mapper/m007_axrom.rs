@@ -17,7 +17,7 @@ const CHR_BANK_SIZE: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
 /// AxROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Axrom {
     has_chr_ram: bool,
     mirroring: Mirroring,

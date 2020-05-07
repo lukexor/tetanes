@@ -29,7 +29,7 @@ const CHR_MODE_MASK: u8 = 0x10; // 0b10000
 const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 
 /// SxROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Sxrom {
     regs: SxRegs,
     battery_backed: bool,
@@ -44,7 +44,7 @@ pub struct Sxrom {
     chr_banks: Banks<Memory>, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SxRegs {
     write_just_occurred: u8,
     shift_register: u8, // $8000-$FFFF - 5 bit shift register

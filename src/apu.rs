@@ -6,7 +6,7 @@ use crate::{
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
     filter::{Filter, FilterType, HiPassFilter, LoPassFilter},
-    mapper::MapperRef,
+    mapper::MapperType,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
@@ -94,8 +94,8 @@ impl Apu {
         apu
     }
 
-    pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.dmc.mapper = mapper;
+    pub fn load_mapper(&mut self, mapper: &mut MapperType) {
+        self.dmc.mapper = &mut *mapper as *mut MapperType;
     }
 
     pub fn samples(&self) -> &[f32] {

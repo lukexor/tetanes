@@ -6,13 +6,13 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum PulseChannel {
     One,
     Two,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Pulse {
     pub enabled: bool,
     duty_cycle: u8,        // Select row in DUTY_TABLE

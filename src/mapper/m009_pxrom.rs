@@ -17,7 +17,7 @@ const CHR_ROM_BANK_SIZE: usize = 4 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
 
 /// PxROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pxrom {
     mirroring: Mirroring,
     // CHR ROM $FD/0000 bank select ($B000-$BFFF)

@@ -15,7 +15,7 @@ const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 /// [http://wiki.nesdev.com/w/index.php/INES]()
 /// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
 /// [http://nesdev.com/NESDoc.pdf (page 28)]()
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct INesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
     pub mapper_num: u16,   // The primary mapper number
@@ -30,7 +30,7 @@ pub struct INesHeader {
 }
 
 /// Represents an NES Cartridge
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Cartridge {
     pub name: String, // '.nes' rom file
     pub header: INesHeader,

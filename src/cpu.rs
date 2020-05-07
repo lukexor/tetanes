@@ -216,9 +216,8 @@ impl Cpu {
         self.set_nmi(self.bus.ppu.nmi_pending);
         for _ in 0..ppu_cycles {
             let irq_pending = {
-                let mut mapper = self.bus.mapper.borrow_mut();
-                let _ = mapper.clock(); // Don't care how many cycles are run
-                mapper.irq_pending()
+                let _ = self.bus.mapper.clock(); // Don't care how many cycles are run
+                self.bus.mapper.irq_pending()
             };
             self.set_irq(Irq::Mapper, irq_pending);
         }

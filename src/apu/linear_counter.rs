@@ -1,7 +1,7 @@
 use crate::{serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LinearCounter {
     pub reload: bool,
     pub control: bool,

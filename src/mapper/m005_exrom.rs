@@ -15,10 +15,7 @@ use crate::{
     serialization::Savable,
     NesResult,
 };
-use std::{
-    fmt,
-    io::{Read, Write},
-};
+use std::io::{Read, Write};
 
 const PRG_RAM_BANK_SIZE: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 64 * 1024;
@@ -50,6 +47,7 @@ const ATTR_SHIFT: [u8; 128] = [
 ];
 
 /// ExROM
+#[derive(Debug, Clone)]
 pub struct Exrom {
     regs: ExRegs,
     mirroring: Mirroring,
@@ -100,7 +98,7 @@ enum ExRamMode {
     RamProtected,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExRegs {
     sprite8x16: bool,        // $2000 PPUCTRL: false = 8x8, true = 8x16
     prg_mode: u8,            // $5100
@@ -945,12 +943,6 @@ impl Savable for Split {
             _ => panic!("invalid Split value"),
         };
         Ok(())
-    }
-}
-
-impl fmt::Debug for Exrom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Exrom {{ }}")
     }
 }
 
