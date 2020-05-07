@@ -30,5 +30,5 @@ wasm-bindgen-test = "0.2"
 opt-level = 2
 
 [profile.release]
-opt-level = "z"
 lto = true
+codegen-units = 1
