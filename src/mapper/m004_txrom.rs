@@ -127,8 +127,8 @@ impl Txrom {
             has_chr_ram,
             mirroring,
             irq_pending: false,
-            mmc3_revb: false, // TODO compare to known games
-            mmc_acc: false,   // TODO - compare to known games
+            mmc3_revb: true, // TODO compare to known games
+            mmc_acc: false,  // TODO - compare to known games
             battery_backed: cart.battery_backed(),
             prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
             chr_bank_idx: [0, 1, 2, 3, 4, 5, 6, 7],

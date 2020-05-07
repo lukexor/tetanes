@@ -124,7 +124,7 @@ tests/mapper/mmc3/2.Details.nes
 tests/mapper/mmc3/3.A12_clocking.nes
 tests/mapper/mmc3/4.Scanline_timing.nes
 tests/mapper/mmc3/6.MMC3_rev_B.nes
-# tests/mapper/mmc3/5.MMC3_rev_A.nes # Can only pass rev_A or rev_B at the same time. Passes rev_
+# tests/mapper/mmc3/5.MMC3_rev_A.nes # Can only pass rev_A or rev_B at the same time. Passes rev_B
 tests/mapper/mmc3/mmc3bigchrram.nes
 
 )
@@ -137,7 +137,6 @@ function ctrl_c() {
 }
 
 for test in ${TESTS[*]}; do
-    echo $test
     target/release/tetanes --speed 4 $test
 done
 

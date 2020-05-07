@@ -40,7 +40,6 @@ function ctrl_c() {
 }
 
 for test in ${TESTS[*]}; do
-    echo $test
     target/release/tetanes --speed 4 $test
 done
 

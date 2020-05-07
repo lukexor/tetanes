@@ -352,7 +352,7 @@ mod tests {
         let mut nes = Nes::new();
         nes.roms.push(PathBuf::from(file));
         nes.load_rom(0).unwrap();
-        nes.power_on().unwrap();
+        nes.power_on();
         nes
     }
 
@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn apu_timing() {
         let mut nes = Nes::new();
-        nes.power_on().unwrap();
+        nes.power_on();
         for _ in 0..=29840 {
             let apu = &nes.cpu.bus.apu;
             println!(
