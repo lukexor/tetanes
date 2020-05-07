@@ -1,3 +1,4 @@
+use super::NesFormat;
 use crate::{serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
@@ -125,8 +126,17 @@ impl PpuRegs {
     pub(super) fn grayscale(&self) -> bool {
         self.mask & 0x01 > 0
     }
-    pub(super) fn emphasis(&self) -> u8 {
-        (self.mask & 0xE0) >> 5
+    pub(super) fn emphasis(&self, format: NesFormat) -> u8 {
+        match format {
+            NesFormat::Ntsc => (self.mask & 0xE0) >> 5,
+            _ => {
+                // Red/Green are swapped for PAL/Dendy
+                let red = (self.mask & 0x20) << 1;
+                let green = (self.mask & 0x40) >> 1;
+                let blue = self.mask & 0x80;
+                (blue | red | green) >> 5
+            }
+        }
     }
 
     /*

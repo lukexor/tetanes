@@ -483,7 +483,8 @@ impl Ppu {
             palette &= !0x0F; // Remove chroma
         }
         if self.ntsc_video {
-            let pixel = ((self.regs.emphasis() as u32) << 6) | palette as u32;
+            let format = self.nes_format;
+            let pixel = ((self.regs.emphasis(format) as u32) << 6) | palette as u32;
             self.frame
                 .put_ntsc_pixel(x.into(), self.scanline.into(), pixel, self.frame_cycles);
         } else {
