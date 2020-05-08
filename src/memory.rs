@@ -274,6 +274,7 @@ impl BankedMemory {
         self.update_banks();
     }
 
+    #[inline]
     pub fn set_bank(&mut self, bank_start: Addr, new_bank: usize) {
         let bank = self.get_bank(bank_start);
         debug!(
@@ -288,6 +289,11 @@ impl BankedMemory {
             "new_bank is outside bankable range"
         );
         self.banks[bank].address = new_bank * self.window;
+    }
+
+    #[inline]
+    pub fn set_bank_mirror(&mut self, bank_start: Addr, mirror_bank: usize) {
+        self.set_bank(bank_start, mirror_bank);
     }
 
     #[inline]
@@ -577,6 +583,7 @@ mod tests {
         assert_eq!(memory.len(), size, "memory size");
 
         memory.add_bank_range(0x8000, 0xFFFF);
+        memory.write(0x8000, 11);
         memory.write(0xA000, 22);
         memory.write(0xC000, 33);
         memory.write(0xE000, 44);
@@ -593,15 +600,14 @@ mod tests {
 
     #[test]
     fn set_bank_test() {
-        pretty_env_logger::init_timed();
-
         let size = 128 * 1024;
         let rom = Memory::ram(size);
         let mut memory = BankedMemory::from(rom, 0x2000);
 
         assert!(!memory.is_empty(), "memory non-empty");
         assert_eq!(memory.len(), size, "memory size");
-        assert_eq!(memory.last_bank(), 15, "bank count");
+        let last_bank = memory.last_bank();
+        assert_eq!(last_bank, 15, "bank count");
 
         memory.add_bank_range(0x8000, 0xFFFF);
         memory.write(0x8000, 11);
@@ -616,5 +622,32 @@ mod tests {
 
         memory.set_bank(0x8000, 0);
         assert_eq!(memory.peek(0x8000), 11);
+
+        memory.set_bank(0x8000, last_bank);
+        memory.write(0x8000, 255);
+        assert_eq!(memory.peek(0x8000), 255);
+    }
+
+    #[test]
+    fn bank_mirroring_test() {
+        pretty_env_logger::init_timed();
+
+        let size = 128 * 1024;
+        let rom = Memory::ram(size);
+        let mut memory = BankedMemory::from(rom, 0x4000);
+
+        assert!(!memory.is_empty(), "memory non-empty");
+        assert_eq!(memory.len(), size, "memory size");
+
+        memory.add_bank_range(0x8000, 0xFFFF);
+        memory.set_bank_mirror(0xC000, 0);
+
+        memory.write(0x8000, 11);
+        memory.write(0xA000, 22);
+
+        assert_eq!(memory.peek(0x8000), 11);
+        assert_eq!(memory.peek(0xA000), 22);
+        assert_eq!(memory.peek(0xC000), 11);
+        assert_eq!(memory.peek(0xE000), 22);
     }
 }
