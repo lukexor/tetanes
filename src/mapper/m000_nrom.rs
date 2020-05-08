@@ -6,14 +6,12 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{Banks, MemRead, MemWrite, Memory},
+    memory::{MemRead, MemWrite, Memory},
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
-const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
@@ -27,8 +25,8 @@ pub struct Nrom {
     prg_ram: Memory, // CPU $6000-$7FFF 2K or 4K PRG RAM Family Basic only. 8K is provided
     // CPU $8000-$BFFF 16 KB PRG ROM Bank 1 for NROM128 or NROM256
     // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
-    prg_rom_banks: Banks<Memory>,
-    chr_banks: Banks<Memory>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Bank
+    prg_rom: Memory,
+    chr: Memory, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Bank
     open_bus: u8,
 }
 
@@ -41,28 +39,24 @@ use NromSize::*;
 
 impl Nrom {
     pub fn load(cart: Cartridge) -> MapperType {
-        let prg_ram = Memory::ram(PRG_RAM_SIZE);
-        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = if cart.chr_rom.is_empty() {
-            let chr_ram = Memory::ram(CHR_RAM_SIZE);
-            Banks::init(&chr_ram, CHR_ROM_BANK_SIZE)
-        } else {
-            Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE)
-        };
-        let nrom_size = if cart.prg_rom.len() > 0x4000 {
-            Nrom256
-        } else {
-            Nrom128
-        };
+        let has_chr_ram = cart.chr_rom.is_empty();
         let nrom = Self {
-            has_chr_ram: cart.chr_rom.is_empty(),
+            has_chr_ram,
             battery_backed: cart.battery_backed(),
             mirroring: cart.mirroring(),
-            nrom_size,
-            prg_ram,
-            prg_rom_banks,
-            chr_banks,
-            open_bus: 0u8,
+            nrom_size: if cart.prg_rom.len() > 0x4000 {
+                Nrom256
+            } else {
+                Nrom128
+            },
+            prg_ram: Memory::ram(PRG_RAM_SIZE),
+            prg_rom: cart.prg_rom,
+            chr: if has_chr_ram {
+                Memory::ram(CHR_RAM_SIZE)
+            } else {
+                cart.chr_rom
+            },
+            open_bus: 0x00,
         };
         nrom.into()
     }
@@ -100,12 +94,12 @@ impl MemRead for Nrom {
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             // PPU 8K Fixed CHR bank
-            0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
+            0x0000..=0x1FFF => self.chr.peek(addr),
             0x6000..=0x7FFF => self.prg_ram.peek(addr - 0x6000),
-            0x8000..=0xBFFF => self.prg_rom_banks[0].peek(addr & 0x3FFF),
+            0x8000..=0xBFFF => self.prg_rom.peek(addr - 0x8000),
             0xC000..=0xFFFF => match self.nrom_size {
-                Nrom128 => self.prg_rom_banks[0].peek(addr & 0x3FFF),
-                Nrom256 => self.prg_rom_banks[1].peek(addr & 0x7FFF),
+                Nrom128 => self.prg_rom.peek(addr - 0xC000),
+                Nrom256 => self.prg_rom.peek(addr - 0x8000),
             },
             // 0x4020..=0x5FFF Nothing at this range
             _ => self.open_bus,
@@ -117,7 +111,7 @@ impl MemWrite for Nrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             // Only CHR-RAM can be written to
-            0x0000..=0x1FFF if self.has_chr_ram => self.chr_banks[0].write(addr, val),
+            0x0000..=0x1FFF if self.has_chr_ram => self.chr.write(addr, val),
             0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
             // 0x4020..=0x5FFF Nothing at this range
             // 0x8000..=0xFFFF ROM is write-only
@@ -137,8 +131,8 @@ impl Savable for Nrom {
         self.open_bus.save(fh)?;
         self.nrom_size.save(fh)?;
         self.prg_ram.save(fh)?;
-        self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)?;
+        self.prg_rom.save(fh)?;
+        self.chr.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -148,8 +142,8 @@ impl Savable for Nrom {
         self.open_bus.load(fh)?;
         self.nrom_size.load(fh)?;
         self.prg_ram.load(fh)?;
-        self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)?;
+        self.prg_rom.load(fh)?;
+        self.chr.load(fh)?;
         Ok(())
     }
 }

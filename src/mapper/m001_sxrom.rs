@@ -7,14 +7,15 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{Banks, MemRead, MemWrite, Memory},
+    memory::{BankedMemory, MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
-const CHR_BANK_SIZE: usize = 4 * 1024;
+const PRG_RAM_WINDOW: usize = 8 * 1024;
+const PRG_ROM_WINDOW: usize = 16 * 1024;
+const CHR_WINDOW: usize = 4 * 1024;
 const PRG_RAM_SIZE: usize = 32 * 1024; // 32KB is safely compatible sans NES 2.0 header
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
@@ -26,73 +27,58 @@ const PRG_MODE_MASK: u8 = 0x0C; // 0b01100
 const PRG_MODE_FIX_FIRST: u8 = 0x08; // Mode 2
 const PRG_MODE_FIX_LAST: u8 = 0x0C; // Mode 3
 const CHR_MODE_MASK: u8 = 0x10; // 0b10000
-const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
+const PRG_RAM_DISABLED: usize = 0x10; // 0b10000
 
 /// SxROM
 #[derive(Debug, Clone)]
 pub struct Sxrom {
     regs: SxRegs,
     battery_backed: bool,
-    prg_rom_bank_lo: usize,
-    prg_rom_bank_hi: usize,
-    chr_bank_lo: usize,
-    chr_bank_hi: usize,
-    prg_ram: Memory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
+    prg_ram: BankedMemory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
     // CPU $8000..=$BFFF 16KB PRG ROM Bank Switchable or Fixed to First Bank
     // CPU $C000..=$FFFF 16KB PRG ROM Bank Fixed to Last Bank or Switchable
-    prg_rom_banks: Banks<Memory>,
-    chr_banks: Banks<Memory>, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
+    prg_rom: BankedMemory,
+    chr: BankedMemory, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
 }
 
 #[derive(Debug, Clone)]
 struct SxRegs {
     write_just_occurred: u8,
-    shift_register: u8, // $8000-$FFFF - 5 bit shift register
-    control: u8,        // $8000-$9FFF
-    chr_bank_0: u8,     // $A000-$BFFF
-    chr_bank_1: u8,     // $C000-$DFFF
-    prg_bank: u8,       // $E000-$FFFF
+    shift_register: u8,    // $8000-$FFFF - 5 bit shift register
+    control: u8,           // $8000-$9FFF
+    chr_banks: [usize; 2], // $A000-$BFFF, $C000-$DFFF
+    prg_bank: usize,       // $E000-$FFFF
     open_bus: u8,
 }
 
 impl Sxrom {
     pub fn load(cart: Cartridge) -> MapperType {
-        let prg_ram_size = if let Ok(prg_ram_size) = cart.prg_ram_size() {
-            if prg_ram_size > 0 {
-                prg_ram_size
-            } else {
-                PRG_RAM_SIZE
-            }
-        } else {
-            PRG_RAM_SIZE
-        };
-        let prg_ram = Memory::ram(prg_ram_size);
-        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = if cart.chr_rom.is_empty() {
-            let chr_ram = Memory::ram(CHR_RAM_SIZE);
-            Banks::init(&chr_ram, CHR_BANK_SIZE)
-        } else {
-            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
-        };
-        let sxrom = Self {
+        let prg_ram_size = cart
+            .prg_ram_size()
+            .and_then(|size| Ok(size.unwrap_or(PRG_RAM_SIZE)))
+            .unwrap();
+        let mut sxrom = Self {
             regs: SxRegs {
-                write_just_occurred: 0u8,
+                write_just_occurred: 0x00,
                 shift_register: DEFAULT_SHIFT_REGISTER,
-                control: 0u8,
-                chr_bank_0: 0u8,
-                chr_bank_1: 0u8,
-                prg_bank: PRG_MODE_FIX_LAST,
-                open_bus: 0u8,
+                control: PRG_MODE_FIX_LAST,
+                chr_banks: [0x00; 2],
+                prg_bank: 0x00,
+                open_bus: 0x00,
             },
             battery_backed: cart.battery_backed(),
-            prg_rom_bank_lo: 0usize,
-            prg_rom_bank_hi: prg_rom_banks.len() - 1,
-            chr_bank_lo: 0usize,
-            chr_bank_hi: 0usize,
-            prg_ram,
-            prg_rom_banks,
-            chr_banks,
+            prg_ram: BankedMemory::ram(prg_ram_size, PRG_RAM_WINDOW),
+            prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
+            chr: if cart.chr_rom.is_empty() {
+                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW)
+            } else {
+                BankedMemory::from(cart.chr_rom, CHR_WINDOW)
+            },
         };
+        sxrom.prg_ram.add_bank_range(0x6000, 0x7FFF);
+        sxrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
+        sxrom.chr.add_bank_range(0x0000, 0x1FFF);
+        sxrom.update_banks();
         sxrom.into()
     }
 
@@ -160,9 +146,9 @@ impl Sxrom {
             if write {
                 match addr {
                     0x8000..=0x9FFF => self.regs.control = self.regs.shift_register,
-                    0xA000..=0xBFFF => self.regs.chr_bank_0 = self.regs.shift_register,
-                    0xC000..=0xDFFF => self.regs.chr_bank_1 = self.regs.shift_register,
-                    0xE000..=0xFFFF => self.regs.prg_bank = self.regs.shift_register,
+                    0xA000..=0xBFFF => self.regs.chr_banks[0] = self.regs.shift_register as usize,
+                    0xC000..=0xDFFF => self.regs.chr_banks[1] = self.regs.shift_register as usize,
+                    0xE000..=0xFFFF => self.regs.prg_bank = self.regs.shift_register as usize,
                     _ => panic!("impossible write"),
                 }
                 self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
@@ -172,30 +158,31 @@ impl Sxrom {
     }
 
     fn update_banks(&mut self) {
-        let prg_len = self.prg_rom_banks.len();
+        let prg_bank = self.regs.prg_bank;
         match self.regs.control & PRG_MODE_MASK {
             PRG_MODE_FIX_FIRST => {
-                self.prg_rom_bank_lo = 0;
-                self.prg_rom_bank_hi = (self.regs.prg_bank as usize) % prg_len;
+                self.prg_rom.set_bank(0x8000, 0);
+                self.prg_rom.set_bank(0xC000, prg_bank);
             }
             PRG_MODE_FIX_LAST => {
-                self.prg_rom_bank_lo = (self.regs.prg_bank as usize) % prg_len;
-                self.prg_rom_bank_hi = prg_len - 1;
+                let last_bank = self.prg_rom.last_bank();
+                self.prg_rom.set_bank(0x8000, prg_bank);
+                self.prg_rom.set_bank(0xC000, last_bank);
             }
             _ => {
                 // Switch32
-                self.prg_rom_bank_lo = ((self.regs.prg_bank & 0xFE) as usize) % prg_len;
-                self.prg_rom_bank_hi = ((self.regs.prg_bank | 0x01) as usize) % prg_len;
+                self.prg_rom.set_bank(0x8000, prg_bank & 0xFE);
+                self.prg_rom.set_bank(0xC000, prg_bank | 0x01);
             }
         }
 
-        let chr_len = self.chr_banks.len();
+        let chr_banks = self.regs.chr_banks;
         if self.regs.control & CHR_MODE_MASK == CHR_MODE_MASK {
-            self.chr_bank_lo = (self.regs.chr_bank_0 as usize) % chr_len;
-            self.chr_bank_hi = (self.regs.chr_bank_1 as usize) % chr_len;
+            self.chr.set_bank(0x0000, chr_banks[0]);
+            self.chr.set_bank(0x1000, chr_banks[1]);
         } else {
-            self.chr_bank_lo = ((self.regs.chr_bank_0 & 0xFE) as usize) % chr_len;
-            self.chr_bank_hi = ((self.regs.chr_bank_0 | 0x01) as usize) % chr_len;
+            self.chr.set_bank(0x0000, chr_banks[0] & 0xFE);
+            self.chr.set_bank(0x1000, chr_banks[1] | 0x01);
         }
     }
 
@@ -241,11 +228,9 @@ impl MemRead for Sxrom {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].peek(addr),
-            0x1000..=0x1FFF => self.chr_banks[self.chr_bank_hi].peek(addr - 0x1000),
-            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.peek(addr - 0x6000),
-            0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
-            0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x0000..=0x1FFF => self.chr.peek(addr),
+            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.peek(addr),
+            0x8000..=0xFFFF => self.prg_rom.peek(addr),
             // 0x4020..=0x5FFF Nothing at this range
             _ => self.regs.open_bus,
         }
@@ -255,9 +240,8 @@ impl MemRead for Sxrom {
 impl MemWrite for Sxrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x0FFF => self.chr_banks[self.chr_bank_lo].write(addr, val),
-            0x1000..=0x1FFF => self.chr_banks[self.chr_bank_hi].write(addr - 0x1000, val),
-            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.write(addr - 0x6000, val),
+            0x0000..=0x1FFF => self.chr.write(addr, val),
+            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.write(addr, val),
             0x8000..=0xFFFF => self.write_registers(addr, val),
             // 0x4020..=0x5FFF Nothing at this range
             _ => (),
@@ -277,8 +261,9 @@ impl Clocked for Sxrom {
 impl Powered for Sxrom {
     fn reset(&mut self) {
         self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
-        self.regs.prg_bank = PRG_MODE_FIX_LAST;
-        self.prg_rom_bank_hi = self.prg_rom_banks.len() - 1;
+        self.regs.prg_bank = PRG_MODE_FIX_LAST as usize;
+        let last_bank = self.prg_rom.last_bank();
+        self.prg_rom.set_bank(0xC000, last_bank);
         self.update_banks();
     }
     fn power_cycle(&mut self) {
@@ -291,25 +276,17 @@ impl Savable for Sxrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
         self.battery_backed.save(fh)?;
-        self.prg_rom_bank_lo.save(fh)?;
-        self.prg_rom_bank_hi.save(fh)?;
-        self.chr_bank_lo.save(fh)?;
-        self.chr_bank_hi.save(fh)?;
         self.prg_ram.save(fh)?;
-        self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)?;
+        self.prg_rom.save(fh)?;
+        self.chr.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
         self.battery_backed.load(fh)?;
-        self.prg_rom_bank_lo.load(fh)?;
-        self.prg_rom_bank_hi.load(fh)?;
-        self.chr_bank_lo.load(fh)?;
-        self.chr_bank_hi.load(fh)?;
         self.prg_ram.load(fh)?;
-        self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)?;
+        self.prg_rom.load(fh)?;
+        self.chr.load(fh)?;
         Ok(())
     }
 }
@@ -319,8 +296,7 @@ impl Savable for SxRegs {
         self.write_just_occurred.save(fh)?;
         self.shift_register.save(fh)?;
         self.control.save(fh)?;
-        self.chr_bank_0.save(fh)?;
-        self.chr_bank_1.save(fh)?;
+        self.chr_banks.save(fh)?;
         self.prg_bank.save(fh)?;
         self.open_bus.save(fh)?;
         Ok(())
@@ -329,8 +305,7 @@ impl Savable for SxRegs {
         self.write_just_occurred.load(fh)?;
         self.shift_register.load(fh)?;
         self.control.load(fh)?;
-        self.chr_bank_0.load(fh)?;
-        self.chr_bank_1.load(fh)?;
+        self.chr_banks.load(fh)?;
         self.prg_bank.load(fh)?;
         self.open_bus.load(fh)?;
         Ok(())

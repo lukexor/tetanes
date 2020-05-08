@@ -154,15 +154,15 @@ impl Cartridge {
         self.header.flags & 0x02 == 0x02
     }
 
-    pub fn prg_ram_size(&self) -> NesResult<usize> {
+    pub fn prg_ram_size(&self) -> NesResult<Option<usize>> {
         if self.header.prg_ram_size > 0 {
             if let Some(size) = 64usize.checked_shl(self.header.prg_ram_size.into()) {
-                Ok(size)
+                Ok(Some(size))
             } else {
                 nes_err!("invalid header PRG-RAM size")
             }
         } else {
-            Ok(0)
+            Ok(None)
         }
     }
 

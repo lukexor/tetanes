@@ -119,7 +119,7 @@ impl Frame {
                             let noise = (sample + palette_offset * 4) % 12;
                             // Sample either the previous or the current pixel.
                             // Use pixel=color0 to disable artifacts.
-                            let pixel = if noise < 6 - channel * 2 {
+                            let pixel = if noise < 5 - channel * 2 {
                                 color0
                             } else {
                                 color1
