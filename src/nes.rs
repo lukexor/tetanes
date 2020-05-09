@@ -157,7 +157,7 @@ impl Nes {
         let vsync = self.config.vsync;
 
         // Extract title from filename
-        let mut path = PathBuf::from(self.config.path.to_owned());
+        let mut path = self.config.path.to_owned();
         path.set_extension("");
         let filename = path.file_name().and_then(|f| f.to_str());
         let title = if let Some(filename) = filename {

@@ -2,10 +2,7 @@
 
 use crate::{map_nes_err, mapper::Mirroring, memory::Memory, nes_err, NesResult};
 use log::info;
-use std::{
-    fmt,
-    io::{BufReader, Read},
-};
+use std::{fmt, io::Read};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
@@ -59,12 +56,8 @@ impl Cartridge {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom<F: Read>(name: &str, fh: &mut F) -> NesResult<Self> {
-        let mut rom_data = BufReader::new(fh);
-
-        let mut header = [0u8; 16];
-        rom_data.read_exact(&mut header)?;
-        let header = INesHeader::from_bytes(&header)
+    pub fn from_rom<F: Read>(name: &str, mut rom_data: &mut F) -> NesResult<Self> {
+        let header = INesHeader::load(&mut rom_data)
             .map_err(|e| map_nes_err!("invalid rom \"{}\": {}", name, e))?;
 
         let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
@@ -197,7 +190,10 @@ impl INesHeader {
     }
 
     /// Parses a slice of `u8` bytes and returns a valid INesHeader instance
-    fn from_bytes(header: &[u8; 16]) -> NesResult<Self> {
+    pub fn load<F: Read>(rom_data: &mut F) -> NesResult<Self> {
+        let mut header = [0u8; 16];
+        rom_data.read_exact(&mut header)?;
+
         // Header checks
         if header[0..4] != *b"NES\x1a" {
             return nes_err!("iNES header signature not found.");

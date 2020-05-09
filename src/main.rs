@@ -9,7 +9,7 @@
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
 
-use std::env;
+use std::{env, path::PathBuf};
 use structopt::StructOpt;
 use tetanes::nes::{Nes, NesConfig};
 
@@ -21,13 +21,9 @@ fn main() {
 
     let opt = Opt::from_args();
     let config = NesConfig {
-        path: opt.path.unwrap_or_else(|| {
-            if let Some(p) = env::current_dir().unwrap_or_default().to_str() {
-                p.to_string()
-            } else {
-                String::new()
-            }
-        }),
+        path: opt
+            .path
+            .unwrap_or_else(|| env::current_dir().unwrap_or_default()),
         debug: opt.debug,
         pause_in_bg: !opt.no_pause_in_bg,
         fullscreen: opt.fullscreen,
@@ -66,7 +62,7 @@ struct Opt {
     #[structopt(
         help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
     )]
-    path: Option<String>,
+    path: Option<PathBuf>,
     #[structopt(
         short = "d",
         long = "debug",
@@ -95,7 +91,7 @@ struct Opt {
         long = "replay",
         help = "Replay a saved action replay file."
     )]
-    replay: Option<String>,
+    replay: Option<PathBuf>,
     #[structopt(
         long = "concurrent-dpad",
         help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad."

@@ -37,8 +37,8 @@ pub struct Pxrom {
     // CPU $8000-$9FFF 8 KB switchable PRG ROM bank
     // CPU $A000-$FFFF Three 8 KB PRG ROM banks, fixed to the last three banks
     prg_rom_banks: Banks<Memory>,
-    // PPU $0000..=$0FFFF Two 4 KB switchable CHR ROM banks
-    // PPU $1000..=$1FFFF Two 4 KB switchable CHR ROM banks
+    // PPU $0000..=$0FFF Two 4 KB switchable CHR ROM banks
+    // PPU $1000..=$1FFF Two 4 KB switchable CHR ROM banks
     chr_banks: Banks<Memory>,
     open_bus: u8,
 }

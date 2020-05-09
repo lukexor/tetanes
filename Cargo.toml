@@ -9,6 +9,7 @@ documentation = "https://github.com/lukexor/tetanes#readme"
 repository = "https://github.com/lukexor/tetanes.git"
 homepage = "https://github.com/lukexor/tetanes"
 edition = "2018"
+default-run = "tetanes"
 
 [dependencies]
 chrono = "0.4"

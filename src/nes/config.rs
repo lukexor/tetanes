@@ -3,6 +3,7 @@ use pix_engine::StateData;
 use std::{
     env,
     io::{Read, Write},
+    path::PathBuf,
 };
 
 pub(super) const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
@@ -11,14 +12,14 @@ pub(super) const MAX_SPEED: f32 = 4.0; // 400%
 
 #[derive(Clone)]
 pub struct NesConfig {
-    pub path: String,
+    pub path: PathBuf,
     pub debug: bool,
     pub pause_in_bg: bool,
     pub fullscreen: bool,
     pub vsync: bool,
     pub sound_enabled: bool,
     pub record: bool,
-    pub replay: Option<String>,
+    pub replay: Option<PathBuf>,
     pub rewind_enabled: bool,
     pub save_enabled: bool,
     pub clear_save: bool,
@@ -31,8 +32,8 @@ pub struct NesConfig {
 
 impl NesConfig {
     pub fn new() -> Self {
-        let mut config = Self {
-            path: String::new(),
+        Self {
+            path: env::current_dir().unwrap_or_default(),
             debug: false,
             pause_in_bg: true,
             fullscreen: false,
@@ -48,17 +49,12 @@ impl NesConfig {
             scale: 3,
             speed: 1.0,
             genie_codes: Vec::new(),
-        };
-        if let Some(p) = env::current_dir().unwrap_or_default().to_str() {
-            config.path = p.to_string();
         }
-        config
     }
 }
 
 impl Savable for NesConfig {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.path.save(fh)?;
         // Ignore
         // debug
         self.pause_in_bg.save(fh)?;
@@ -77,7 +73,6 @@ impl Savable for NesConfig {
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.path.load(fh)?;
         self.pause_in_bg.load(fh)?;
         self.fullscreen.load(fh)?;
         self.vsync.load(fh)?;

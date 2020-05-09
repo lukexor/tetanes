@@ -28,7 +28,7 @@ pub struct Nrom {
     // CPU $8000-$BFFF 16 KB PRG ROM Bank 1 for NROM128 or NROM256
     // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
     prg_rom: BankedMemory,
-    chr: BankedMemory, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Bank
+    chr: BankedMemory, // PPU $0000..=$1FFF 8K Fixed CHR ROM Bank
     open_bus: u8,
 }
 
@@ -51,7 +51,7 @@ impl Nrom {
         nrom.prg_ram.add_bank_range(0x6000, 0x7FFF);
         nrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
         if nrom.prg_rom.len() <= 0x4000 {
-            // NROM128 mirrors upper bank
+            // NROM128 mirrors lower bank
             nrom.prg_rom.set_bank_mirror(0xC000, 0);
         }
         nrom.chr.add_bank_range(0x0000, 0x1FFF);

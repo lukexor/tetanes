@@ -254,7 +254,7 @@ impl Nes {
     /// If no arg[1], searches current directory for `.nes` files
     pub(super) fn find_roms(&self) -> NesResult<Vec<PathBuf>> {
         use std::ffi::OsStr;
-        let path = PathBuf::from(self.config.path.to_owned());
+        let path = self.config.path.to_owned();
         let mut roms: Vec<PathBuf> = Vec::new();
         if path.is_dir() {
             path.read_dir()
