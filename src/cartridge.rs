@@ -159,15 +159,15 @@ impl Cartridge {
         }
     }
 
-    pub fn chr_ram_size(&self) -> NesResult<usize> {
+    pub fn chr_ram_size(&self) -> NesResult<Option<usize>> {
         if self.header.chr_ram_size > 0 {
             if let Some(size) = 64usize.checked_shl(self.header.chr_ram_size.into()) {
-                Ok(size)
+                Ok(Some(size))
             } else {
                 nes_err!("invalid header CHR-RAM size")
             }
         } else {
-            Ok(0)
+            Ok(None)
         }
     }
 }

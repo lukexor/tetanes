@@ -130,8 +130,11 @@ impl MemRead for Memory {
         self.peekw(addr as Word)
     }
     #[inline]
-    fn peekw(&self, addr: Word) -> Byte {
-        debug_assert!(
+    fn peekw(&self, mut addr: Word) -> Byte {
+        if addr >= self.len() {
+            addr %= self.len();
+        }
+        assert!(
             addr < self.data.len(),
             "peek address outside memory range, {} / {}",
             addr,
@@ -147,9 +150,12 @@ impl MemWrite for Memory {
         self.writew(addr as Word, val);
     }
     #[inline]
-    fn writew(&mut self, addr: Word, val: Byte) {
+    fn writew(&mut self, mut addr: Word, val: Byte) {
         if self.writable {
-            debug_assert!(
+            if addr >= self.len() {
+                addr %= self.len();
+            }
+            assert!(
                 addr < self.data.len(),
                 "write address outside memory range {} / {}",
                 addr,
@@ -193,7 +199,7 @@ impl Savable for Memory {
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 struct Bank {
     start: usize,
     end: usize,
@@ -236,7 +242,7 @@ impl fmt::Debug for Bank {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct BankedMemory {
     banks: Vec<Bank>,
     window: usize,
@@ -364,11 +370,11 @@ impl BankedMemory {
         } else {
             0x0000
         };
-        debug_assert!(addr >= base_addr, "address is less than base address");
         debug!(
             "get_bank: (0x{:04X} - 0x{:04X}) >> {}",
             addr, base_addr, self.bank_shift
         );
+        debug_assert!(addr >= base_addr, "address is less than base address");
         (addr - base_addr) >> self.bank_shift
     }
 

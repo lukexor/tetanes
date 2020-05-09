@@ -11,22 +11,30 @@ fn main() {
     let path = opt
         .path
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
+    let board = opt.board.map(|b| b.to_lowercase());
     if path.is_dir() {
         path.read_dir()
             .unwrap_or_else(|e| panic!("unable read directory {:?}: {}", path, e))
             .filter_map(|f| f.ok())
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
-            .for_each(|f| print_mapper(&f.path()));
+            .for_each(|f| print_mapper(&f.path(), board.as_ref()));
     } else if path.is_file() {
-        print_mapper(&path);
+        print_mapper(&path, board.as_ref());
     }
 }
 
-fn print_mapper(path: &PathBuf) {
+fn print_mapper(path: &PathBuf, board: Option<&String>) {
     let file = File::open(path).expect("valid path");
     let mut reader = BufReader::new(file);
     let header = INesHeader::load(&mut reader).expect("valid header");
-    info!("{:?} - Mapper: {}", path, mapper(header.mapper_num));
+
+    if board.is_none()
+        || mapper(header.mapper_num)
+            .to_lowercase()
+            .contains(board.unwrap())
+    {
+        info!("{:?} - Mapper: {}", path, mapper(header.mapper_num));
+    }
 }
 
 #[derive(StructOpt, Debug)]
@@ -35,6 +43,8 @@ struct Opt {
         help = "The NES ROM or a directory containing `.nes` ROM files. [default: current directory]"
     )]
     path: Option<PathBuf>,
+    #[structopt(help = "The NES Mapper Board to filter by.")]
+    board: Option<String>,
 }
 
 pub fn mapper(mapper_num: u16) -> &'static str {
