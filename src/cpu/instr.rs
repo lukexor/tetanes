@@ -5,7 +5,6 @@ use crate::{
     serialization::Savable,
     NesResult,
 };
-use log::error;
 use std::{
     fmt,
     io::{Read, Write},
@@ -1086,7 +1085,7 @@ impl Cpu {
 
     /// XXX: Captures all unimplemented opcodes
     pub(super) fn xxx(&mut self) {
-        error!(
+        panic!(
             "Invalid opcode ${:02X} {:?} #{:?} encountered!",
             self.instr.opcode(),
             self.instr.op(),

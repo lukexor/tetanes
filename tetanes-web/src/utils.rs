@@ -10,5 +10,5 @@ pub fn set_panic_hook() {
 }
 
 pub fn init_log() {
-    console_log::init_with_level(log::Level::Debug).expect("error initializing log");
+    console_log::init().expect("error initializing log");
 }

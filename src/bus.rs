@@ -134,7 +134,7 @@ impl MemRead for Bus {
         // Order of frequently accessed
         let val = match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
+            0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
             0x4020..=0xFFFF => {
                 let gc = self.genie_code(addr);
                 if let Some(gc) = gc {
@@ -168,7 +168,7 @@ impl MemRead for Bus {
         // Order of frequently accessed
         match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
+            0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
             0x4020..=0xFFFF => {
                 if let Some(gc) = self.genie_code(addr) {
                     if let Some(compare) = gc.compare {
@@ -202,7 +202,7 @@ impl MemWrite for Bus {
         // Order of frequently accessed
         match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
+            0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x0800..=0x1FFF are mirrored
             0x4020..=0xFFFF => self.mapper.write(addr, val),
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
             0x4016 => self.input.write(addr, val),

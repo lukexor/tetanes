@@ -17,7 +17,7 @@ fn main() {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "info");
     }
-    pretty_env_logger::init_timed();
+    pretty_env_logger::init();
 
     let opt = Opt::from_args();
     let config = NesConfig {

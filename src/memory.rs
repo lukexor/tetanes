@@ -98,6 +98,11 @@ impl Memory {
     }
 
     #[inline]
+    pub fn extend(&mut self, memory: &Memory) {
+        self.data.extend(&memory.data);
+    }
+
+    #[inline]
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -126,7 +131,12 @@ impl MemRead for Memory {
     }
     #[inline]
     fn peekw(&self, addr: Word) -> Byte {
-        debug_assert!(addr < self.data.len(), "address outside memory range");
+        debug_assert!(
+            addr < self.data.len(),
+            "peek address outside memory range, {} / {}",
+            addr,
+            self.data.len()
+        );
         self.data[addr]
     }
 }
@@ -139,7 +149,12 @@ impl MemWrite for Memory {
     #[inline]
     fn writew(&mut self, addr: Word, val: Byte) {
         if self.writable {
-            debug_assert!(addr < self.data.len(), "address outside memory range");
+            debug_assert!(
+                addr < self.data.len(),
+                "write address outside memory range {} / {}",
+                addr,
+                self.data.len()
+            );
             self.data[addr] = val;
         }
     }
@@ -260,6 +275,12 @@ impl BankedMemory {
     }
 
     #[inline]
+    pub fn extend(&mut self, memory: &Memory) {
+        self.memory.extend(memory);
+        self.bank_count = self.memory.len() / self.window;
+    }
+
+    #[inline]
     pub fn add_bank(&mut self, start: Addr, end: Addr) {
         self.banks.push(Bank::new(start, end));
         self.update_banks();
@@ -283,10 +304,17 @@ impl BankedMemory {
             new_bank,
             self.last_bank()
         );
-        debug_assert!(bank < self.banks.len(), "bank is outside bankable range");
+        debug_assert!(
+            bank < self.banks.len(),
+            "bank is outside bankable range {} / {}",
+            bank,
+            self.banks.len()
+        );
         debug_assert!(
             new_bank <= self.last_bank(),
-            "new_bank is outside bankable range"
+            "new_bank is outside bankable range {} / {}",
+            new_bank,
+            self.last_bank()
         );
         self.banks[bank].address = new_bank * self.window;
     }
@@ -299,6 +327,11 @@ impl BankedMemory {
     #[inline]
     pub fn last_bank(&self) -> usize {
         self.bank_count.saturating_sub(1)
+    }
+
+    #[inline]
+    pub fn bank_count(&self) -> usize {
+        self.bank_count
     }
 
     #[inline]
@@ -374,7 +407,6 @@ impl MemRead for BankedMemory {
     #[inline]
     fn peek(&self, addr: Addr) -> Byte {
         let addr = self.translate_addr(addr);
-        debug!("peek: 0x{:04X} (0x{:04X})", addr, self.memory.len());
         self.peekw(addr)
     }
     #[inline]

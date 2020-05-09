@@ -143,12 +143,17 @@ impl Sxrom {
             // Move shift register and write lowest bit of val
             self.regs.shift_register >>= 1;
             self.regs.shift_register |= (val & 1) << 4;
+            use log::debug;
+            debug!("sr: 0x{:04X}", self.regs.shift_register);
             if write {
+                let sr = self.regs.shift_register;
+                let prg_banks = self.prg_rom.bank_count();
+                let chr_banks = self.chr.bank_count();
                 match addr {
-                    0x8000..=0x9FFF => self.regs.control = self.regs.shift_register,
-                    0xA000..=0xBFFF => self.regs.chr_banks[0] = self.regs.shift_register as usize,
-                    0xC000..=0xDFFF => self.regs.chr_banks[1] = self.regs.shift_register as usize,
-                    0xE000..=0xFFFF => self.regs.prg_bank = self.regs.shift_register as usize,
+                    0x8000..=0x9FFF => self.regs.control = sr,
+                    0xA000..=0xBFFF => self.regs.chr_banks[0] = (sr as usize) % chr_banks,
+                    0xC000..=0xDFFF => self.regs.chr_banks[1] = (sr as usize) % chr_banks,
+                    0xE000..=0xFFFF => self.regs.prg_bank = (sr as usize) % prg_banks,
                     _ => panic!("impossible write"),
                 }
                 self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
@@ -261,9 +266,8 @@ impl Clocked for Sxrom {
 impl Powered for Sxrom {
     fn reset(&mut self) {
         self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
-        self.regs.prg_bank = PRG_MODE_FIX_LAST as usize;
-        let last_bank = self.prg_rom.last_bank();
-        self.prg_rom.set_bank(0xC000, last_bank);
+        self.regs.control = PRG_MODE_FIX_LAST;
+        self.regs.prg_bank = 0;
         self.update_banks();
     }
     fn power_cycle(&mut self) {

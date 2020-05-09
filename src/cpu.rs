@@ -806,7 +806,6 @@ impl fmt::Debug for Cpu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::Memory;
 
     #[test]
     fn cpu_cycle_timing() {
@@ -836,7 +835,7 @@ mod tests {
             cpu.acc = 0;
             cpu.x = 0;
             cpu.y = 0;
-            cpu.bus.wram = Memory::ram_from_bytes(&[instr.opcode(), 0, 0, 0]);
+            cpu.bus.wram.write(0x0000, instr.opcode());
             cpu.clock();
             let cpu_cyc = instr.cycles() + extra_cycle;
             let ppu_cyc = 3 * (instr.cycles() + extra_cycle);
