@@ -13,11 +13,16 @@ fn main() {
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
     let board = opt.board.map(|b| b.to_lowercase());
     if path.is_dir() {
-        path.read_dir()
+        let paths: Vec<PathBuf> = path
+            .read_dir()
             .unwrap_or_else(|e| panic!("unable read directory {:?}: {}", path, e))
             .filter_map(|f| f.ok())
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
-            .for_each(|f| print_mapper(&f.path(), board.as_ref()));
+            .map(|f| f.path())
+            .collect();
+        for p in paths {
+            print_mapper(&p, board.as_ref());
+        }
     } else if path.is_file() {
         print_mapper(&path, board.as_ref());
     }
@@ -26,14 +31,14 @@ fn main() {
 fn print_mapper(path: &PathBuf, board: Option<&String>) {
     let file = File::open(path).expect("valid path");
     let mut reader = BufReader::new(file);
-    let header = INesHeader::load(&mut reader).expect("valid header");
-
-    if board.is_none()
-        || mapper(header.mapper_num)
-            .to_lowercase()
-            .contains(board.unwrap())
-    {
-        info!("{:?} - Mapper: {}", path, mapper(header.mapper_num));
+    if let Ok(header) = INesHeader::load(&mut reader) {
+        if board.is_none()
+            || mapper(header.mapper_num)
+                .to_lowercase()
+                .contains(board.unwrap())
+        {
+            info!("{:?} - Mapper: {}", path, mapper(header.mapper_num));
+        }
     }
 }
 
