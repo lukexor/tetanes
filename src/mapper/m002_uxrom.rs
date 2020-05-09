@@ -19,6 +19,7 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 /// UxROM
 #[derive(Debug, Clone)]
 pub struct Uxrom {
+    has_chr_ram: bool,
     mirroring: Mirroring,
     // CPU $8000-$BFFF 16 KB PRG ROM Bank Switchable
     // CPU $C000-$FFFF 16 KB PRG ROM Fixed to Last Bank
@@ -29,10 +30,12 @@ pub struct Uxrom {
 
 impl Uxrom {
     pub fn load(cart: Cartridge) -> MapperType {
+        let has_chr_ram = cart.chr_rom.is_empty();
         let mut uxrom = Self {
+            has_chr_ram,
             mirroring: cart.mirroring(),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
-            chr: if cart.chr_rom.is_empty() {
+            chr: if has_chr_ram {
                 BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
@@ -91,17 +94,15 @@ impl Powered for Uxrom {}
 
 impl Savable for Uxrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.save(fh)?;
-        self.prg_rom.save(fh)?;
-        self.chr.save(fh)?;
-        self.open_bus.save(fh)?;
+        if self.has_chr_ram {
+            self.chr.save(fh)?;
+        }
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.load(fh)?;
-        self.prg_rom.load(fh)?;
-        self.chr.load(fh)?;
-        self.open_bus.load(fh)?;
+        if self.has_chr_ram {
+            self.chr.load(fh)?;
+        }
         Ok(())
     }
 }

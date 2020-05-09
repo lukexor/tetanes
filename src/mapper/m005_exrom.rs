@@ -803,7 +803,6 @@ impl Savable for Exrom {
         self.prg_banks.save(fh)?;
         self.chr_banks_spr.save(fh)?;
         self.chr_banks_bg.save(fh)?;
-        // Ignore cart
         self.prg_ram.save(fh)?;
         self.exram.save(fh)?;
         self.tile_cache.save(fh)?;
@@ -813,7 +812,6 @@ impl Savable for Exrom {
         self.pulse2.save(fh)?;
         self.dmc.save(fh)?;
         self.dmc_mode.save(fh)?;
-        self.open_bus.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -840,7 +838,6 @@ impl Savable for Exrom {
         self.pulse2.load(fh)?;
         self.dmc.load(fh)?;
         self.dmc_mode.load(fh)?;
-        self.open_bus.load(fh)?;
         Ok(())
     }
 }

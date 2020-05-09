@@ -98,19 +98,19 @@ impl Powered for Axrom {}
 
 impl Savable for Axrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
         self.prg_rom.save(fh)?;
-        self.chr.save(fh)?;
-        self.open_bus.save(fh)?;
+        if self.has_chr_ram {
+            self.chr.save(fh)?;
+        }
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.prg_rom.load(fh)?;
-        self.chr.load(fh)?;
-        self.open_bus.load(fh)?;
+        if self.has_chr_ram {
+            self.chr.load(fh)?;
+        }
         Ok(())
     }
 }

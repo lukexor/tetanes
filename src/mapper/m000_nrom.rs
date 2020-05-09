@@ -48,7 +48,7 @@ impl Nrom {
             },
             open_bus: 0x00,
         };
-        nrom.prg_ram.add_bank_range(0x6000, 0x7FFF);
+        nrom.prg_ram.add_bank(0x6000, 0x7FFF);
         nrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
         if nrom.prg_rom.len() <= 0x4000 {
             // NROM128 mirrors lower bank
@@ -118,23 +118,19 @@ impl Powered for Nrom {}
 
 impl Savable for Nrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.has_chr_ram.save(fh)?;
-        self.battery_backed.save(fh)?;
         self.mirroring.save(fh)?;
-        self.open_bus.save(fh)?;
         self.prg_ram.save(fh)?;
-        self.prg_rom.save(fh)?;
-        self.chr.save(fh)?;
+        if self.has_chr_ram {
+            self.chr.save(fh)?;
+        }
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.has_chr_ram.load(fh)?;
-        self.battery_backed.load(fh)?;
         self.mirroring.load(fh)?;
-        self.open_bus.load(fh)?;
         self.prg_ram.load(fh)?;
-        self.prg_rom.load(fh)?;
-        self.chr.load(fh)?;
+        if self.has_chr_ram {
+            self.chr.load(fh)?;
+        }
         Ok(())
     }
 }

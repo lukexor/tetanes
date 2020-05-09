@@ -124,7 +124,7 @@ impl Txrom {
         if let Some(ram) = &mut txrom.four_screen_ram {
             ram.add_bank_range(0x2000, 0x3EFF);
         }
-        txrom.prg_ram.add_bank_range(0x6000, 0x7FFF);
+        txrom.prg_ram.add_bank(0x6000, 0x7FFF);
         txrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
         let last_bank = txrom.prg_rom.last_bank();
         txrom.prg_rom.set_bank(0xC000, last_bank - 1);
@@ -341,30 +341,24 @@ impl Powered for Txrom {
 impl Savable for Txrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
-        self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
-        self.mmc3_revb.save(fh)?;
-        self.mmc_acc.save(fh)?;
-        self.battery_backed.save(fh)?;
         self.four_screen_ram.save(fh)?;
         self.prg_ram.save(fh)?;
-        self.prg_rom.save(fh)?;
-        self.chr.save(fh)?;
+        if self.has_chr_ram {
+            self.chr.save(fh)?;
+        }
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
-        self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
-        self.mmc3_revb.load(fh)?;
-        self.mmc_acc.load(fh)?;
-        self.battery_backed.load(fh)?;
         self.four_screen_ram.load(fh)?;
         self.prg_ram.load(fh)?;
-        self.prg_rom.load(fh)?;
-        self.chr.load(fh)?;
+        if self.has_chr_ram {
+            self.chr.load(fh)?;
+        }
         Ok(())
     }
 }
@@ -377,7 +371,6 @@ impl Savable for TxRegs {
         self.irq_counter.save(fh)?;
         self.irq_enabled.save(fh)?;
         self.last_clock.save(fh)?;
-        self.open_bus.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -387,7 +380,6 @@ impl Savable for TxRegs {
         self.irq_counter.load(fh)?;
         self.irq_enabled.load(fh)?;
         self.last_clock.load(fh)?;
-        self.open_bus.load(fh)?;
         Ok(())
     }
 }

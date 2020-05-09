@@ -9,9 +9,7 @@ use crate::{
     mapper::{Mapper, MapperType, Mirroring},
     memory::{BankedMemory, MemRead, MemWrite},
     serialization::Savable,
-    NesResult,
 };
-use std::io::{Read, Write};
 
 const PRG_ROM_WINDOW: usize = 16 * 1024;
 const CHR_ROM_WINDOW: usize = 8 * 1024;
@@ -83,20 +81,4 @@ impl MemWrite for Cnrom {
 
 impl Clocked for Cnrom {}
 impl Powered for Cnrom {}
-
-impl Savable for Cnrom {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.save(fh)?;
-        self.prg_rom.save(fh)?;
-        self.chr_rom.save(fh)?;
-        self.open_bus.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.load(fh)?;
-        self.prg_rom.load(fh)?;
-        self.chr_rom.load(fh)?;
-        self.open_bus.load(fh)?;
-        Ok(())
-    }
-}
+impl Savable for Cnrom {}

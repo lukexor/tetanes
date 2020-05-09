@@ -12,7 +12,6 @@ use rand::Rng;
 use std::{
     fmt,
     io::{Read, Write},
-    ops::{Deref, DerefMut},
 };
 
 #[enum_dispatch(MapperType)]
@@ -35,13 +34,6 @@ pub trait MemWrite {
     fn write(&mut self, _addr: Addr, _val: Byte) {}
     fn writew(&mut self, _addr: Word, _val: Byte) {}
 }
-pub trait Bankable {
-    type Item;
-    fn chunks(&self, size: usize) -> Vec<Self::Item>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool;
-}
-
 #[derive(Default, Clone)]
 pub struct Memory {
     data: Vec<Byte>,
@@ -163,26 +155,6 @@ impl MemWrite for Memory {
             );
             self.data[addr] = val;
         }
-    }
-}
-
-impl Bankable for Memory {
-    type Item = Self;
-
-    fn chunks(&self, size: usize) -> Vec<Memory> {
-        let mut chunks: Vec<Memory> = Vec::new();
-        for slice in self.data.chunks(size) {
-            let mut chunk = Memory::from_bytes(slice);
-            chunk.writable = self.writable;
-            chunks.push(chunk);
-        }
-        chunks
-    }
-    fn len(&self) -> usize {
-        self.len()
-    }
-    fn is_empty(&self) -> bool {
-        self.is_empty()
     }
 }
 
@@ -452,56 +424,6 @@ impl Savable for BankedMemory {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    banks: Vec<T::Item>,
-    size: usize,
-}
-
-impl<T> Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    pub fn new() -> Self {
-        Self {
-            banks: vec![],
-            size: 0usize,
-        }
-    }
-
-    pub fn init(data: &T, size: usize) -> Self {
-        let mut banks: Vec<T::Item> = Vec::with_capacity(data.len());
-        if data.len() > 0 {
-            for bank in data.chunks(size) {
-                banks.push(bank);
-            }
-        }
-        Self { banks, size }
-    }
-}
-
-impl<T> Deref for Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    type Target = Vec<T::Item>;
-    fn deref(&self) -> &Vec<T::Item> {
-        &self.banks
-    }
-}
-
-impl<T> DerefMut for Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    fn deref_mut(&mut self) -> &mut Vec<T::Item> {
-        &mut self.banks
-    }
-}
-
 impl fmt::Debug for Memory {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(
@@ -509,20 +431,6 @@ impl fmt::Debug for Memory {
             "Memory {{ data: {} KB, writable: {} }}",
             self.data.len() / 1024,
             self.writable
-        )
-    }
-}
-
-impl<T> fmt::Debug for Banks<T>
-where
-    T: MemRead + MemWrite + Bankable,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(
-            f,
-            "Bank {{ len: {}, size: {} KB  }}",
-            self.banks.len(),
-            self.size / 1024,
         )
     }
 }

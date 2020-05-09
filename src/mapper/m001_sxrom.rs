@@ -33,6 +33,7 @@ const PRG_RAM_DISABLED: usize = 0x10; // 0b10000
 #[derive(Debug, Clone)]
 pub struct Sxrom {
     regs: SxRegs,
+    has_chr_ram: bool,
     battery_backed: bool,
     prg_ram: BankedMemory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
     // CPU $8000..=$BFFF 16KB PRG ROM Bank Switchable or Fixed to First Bank
@@ -57,6 +58,7 @@ impl Sxrom {
             .prg_ram_size()
             .and_then(|size| Ok(size.unwrap_or(PRG_RAM_SIZE)))
             .unwrap();
+        let has_chr_ram = cart.chr_rom.is_empty();
         let mut sxrom = Self {
             regs: SxRegs {
                 write_just_occurred: 0x00,
@@ -66,16 +68,17 @@ impl Sxrom {
                 prg_bank: 0x00,
                 open_bus: 0x00,
             },
+            has_chr_ram,
             battery_backed: cart.battery_backed(),
             prg_ram: BankedMemory::ram(prg_ram_size, PRG_RAM_WINDOW),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
-            chr: if cart.chr_rom.is_empty() {
+            chr: if has_chr_ram {
                 BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },
         };
-        sxrom.prg_ram.add_bank_range(0x6000, 0x7FFF);
+        sxrom.prg_ram.add_bank(0x6000, 0x7FFF);
         sxrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
         sxrom.chr.add_bank_range(0x0000, 0x1FFF);
         sxrom.update_banks();
@@ -279,18 +282,18 @@ impl Powered for Sxrom {
 impl Savable for Sxrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
-        self.battery_backed.save(fh)?;
         self.prg_ram.save(fh)?;
-        self.prg_rom.save(fh)?;
-        self.chr.save(fh)?;
+        if self.has_chr_ram {
+            self.chr.save(fh)?;
+        }
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
-        self.battery_backed.load(fh)?;
         self.prg_ram.load(fh)?;
-        self.prg_rom.load(fh)?;
-        self.chr.load(fh)?;
+        if self.has_chr_ram {
+            self.chr.load(fh)?;
+        }
         Ok(())
     }
 }
@@ -302,7 +305,6 @@ impl Savable for SxRegs {
         self.control.save(fh)?;
         self.chr_banks.save(fh)?;
         self.prg_bank.save(fh)?;
-        self.open_bus.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -311,7 +313,6 @@ impl Savable for SxRegs {
         self.control.load(fh)?;
         self.chr_banks.load(fh)?;
         self.prg_bank.load(fh)?;
-        self.open_bus.load(fh)?;
         Ok(())
     }
 }

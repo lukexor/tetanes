@@ -6,14 +6,14 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{Banks, MemRead, MemWrite, Memory},
+    memory::{BankedMemory, MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-const PRG_ROM_BANK_SIZE: usize = 8 * 1024;
-const CHR_ROM_BANK_SIZE: usize = 4 * 1024;
+const PRG_WINDOW: usize = 8 * 1024;
+const CHR_ROM_WINDOW: usize = 4 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
 
 /// PxROM
@@ -30,36 +30,44 @@ pub struct Pxrom {
     //    | ||||
     //    +-++++- Select 4 KB CHR ROM bank for PPU $0000/$1000-$0FFF/$1FFF
     //            used when latch 0/1 = $FD/$FE
-    chr_rom_latch: [bool; 2], // Latch 0 and Latch 1
-    prg_rom_bank_idx: [usize; 4],
-    chr_rom_bank_idx: [usize; 4], // Banks for when Latches 0 and 1 are $FD or FE
-    prg_ram: Memory,              // CPU $6000-$7FFF 8 KB PRG RAM bank (PlayChoice version only)
+    chr_rom_banks: [usize; 4], // Banks for latch 0 and latch 1
+    latch: [usize; 2],
+    prg_ram: BankedMemory, // CPU $6000-$7FFF 8 KB PRG RAM bank (PlayChoice version only)
     // CPU $8000-$9FFF 8 KB switchable PRG ROM bank
     // CPU $A000-$FFFF Three 8 KB PRG ROM banks, fixed to the last three banks
-    prg_rom_banks: Banks<Memory>,
+    prg_rom: BankedMemory,
     // PPU $0000..=$0FFF Two 4 KB switchable CHR ROM banks
     // PPU $1000..=$1FFF Two 4 KB switchable CHR ROM banks
-    chr_banks: Banks<Memory>,
+    chr_rom: BankedMemory,
     open_bus: u8,
 }
 
 impl Pxrom {
     pub fn load(cart: Cartridge) -> MapperType {
-        let prg_ram = Memory::ram(PRG_RAM_SIZE);
-        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let chr_banks = Banks::init(&cart.chr_rom, CHR_ROM_BANK_SIZE);
-        let prg_len = prg_rom_banks.len();
-        let pxrom = Self {
+        let mut pxrom = Self {
             mirroring: cart.mirroring(),
-            chr_rom_latch: [true; 2],
-            prg_rom_bank_idx: [0, prg_len - 3, prg_len - 2, prg_len - 1],
-            chr_rom_bank_idx: [0; 4],
-            prg_ram,
-            prg_rom_banks,
-            chr_banks,
-            open_bus: 0,
+            chr_rom_banks: [0x00; 4],
+            latch: [0x00; 2],
+            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW),
+            prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
+            chr_rom: BankedMemory::from(cart.chr_rom, CHR_ROM_WINDOW),
+            open_bus: 0x00,
         };
+        pxrom.prg_ram.add_bank(0x6000, 0x7FFF);
+        pxrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
+        let last_bank = pxrom.prg_rom.last_bank();
+        pxrom.prg_rom.set_bank(0xA000, last_bank - 2);
+        pxrom.prg_rom.set_bank(0xC000, last_bank - 1);
+        pxrom.prg_rom.set_bank(0xE000, last_bank);
+        pxrom.chr_rom.add_bank_range(0x0000, 0x1FFF);
         pxrom.into()
+    }
+
+    fn update_banks(&mut self) {
+        self.chr_rom
+            .set_bank(0x0000, self.chr_rom_banks[self.latch[0]]);
+        self.chr_rom
+            .set_bank(0x1000, self.chr_rom_banks[2 + self.latch[1]]);
     }
 }
 
@@ -77,10 +85,9 @@ impl MemRead for Pxrom {
         let val = self.peek(addr);
         match addr {
             0x0FD8 | 0x0FE8 | 0x1FD8..=0x1FDF | 0x1FE8..=0x1FEF => {
-                // Sets latch 0 iff addr is either $0FD8 or $0FE8, 1 otherwise
-                let latch = if addr & 0x1000 == 0 { 0 } else { 1 };
-                // Sets true if addr is $-FE-
-                self.chr_rom_latch[latch as usize] = ((addr & 0x0FF0) >> 4) == 0xFE;
+                let latch = (addr >> 12) as usize;
+                self.latch[latch] = ((addr as usize >> 4) & 0xFF) - 0xFD;
+                self.update_banks();
             }
             _ => (),
         }
@@ -89,23 +96,9 @@ impl MemRead for Pxrom {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x0FFF => {
-                // Lo banks 0 and 1
-                let idx = self.chr_rom_bank_idx[self.chr_rom_latch[0] as usize];
-                self.chr_banks[idx].peek(addr)
-            }
-            0x1000..=0x1FFF => {
-                // Hi banks 2 and 3
-                let idx = self.chr_rom_bank_idx[2 + (self.chr_rom_latch[1] as usize)];
-                self.chr_banks[idx].peek(addr - 0x1000)
-            }
-            0x6000..=0x7FFF => self.prg_ram.peek(addr - 0x6000),
-            0x8000..=0x9FFF => self.prg_rom_banks[self.prg_rom_bank_idx[0]].peek(addr - 0x8000),
-            0xA000..=0xFFFF => {
-                let bank = (addr - 0x8000) as usize / PRG_ROM_BANK_SIZE;
-                let addr = addr % PRG_ROM_BANK_SIZE as u16;
-                self.prg_rom_banks[self.prg_rom_bank_idx[bank]].peek(addr)
-            }
+            0x0000..=0x1FFF => self.chr_rom.peek(addr),
+            0x6000..=0x7FFF => self.prg_ram.peek(addr),
+            0x8000..=0xFFFF => self.prg_rom.peek(addr),
             // 0x4020..=0x5FFF Nothing at this range
             _ => self.open_bus,
         }
@@ -115,17 +108,18 @@ impl MemRead for Pxrom {
 impl MemWrite for Pxrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
-            0xA000..=0xAFFF => self.prg_rom_bank_idx[0] = (val & 0x0F) as usize,
-            0xB000..=0xBFFF => self.chr_rom_bank_idx[0] = (val & 0x1F) as usize,
-            0xC000..=0xCFFF => self.chr_rom_bank_idx[1] = (val & 0x1F) as usize,
-            0xD000..=0xDFFF => self.chr_rom_bank_idx[2] = (val & 0x1F) as usize,
-            0xE000..=0xEFFF => self.chr_rom_bank_idx[3] = (val & 0x1F) as usize,
+            0x6000..=0x7FFF => self.prg_ram.write(addr, val),
+            0xA000..=0xAFFF => self.prg_rom.set_bank(0x8000, (val & 0x0F) as usize),
+            0xB000..=0xEFFF => {
+                let bank = ((addr - 0xB000) >> 12) as usize;
+                self.chr_rom_banks[bank] = (val & 0x1F) as usize;
+                self.update_banks();
+            }
             0xF000..=0xFFFF => {
                 self.mirroring = match val & 0x01 {
                     0 => Mirroring::Vertical,
                     1 => Mirroring::Horizontal,
-                    _ => panic!("impossible mirroring mode"),
+                    _ => unreachable!("impossible mirroring mode"),
                 }
             }
             // 0x0000..=0x1FFF ROM is write-only
@@ -140,31 +134,24 @@ impl Clocked for Pxrom {}
 
 impl Powered for Pxrom {
     fn reset(&mut self) {
-        self.chr_rom_latch = [true; 2];
+        self.chr_rom_banks = [0x00; 4];
+        self.latch = [0x00; 2];
     }
 }
 
 impl Savable for Pxrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.mirroring.save(fh)?;
-        self.chr_rom_latch.save(fh)?;
-        self.prg_rom_bank_idx.save(fh)?;
-        self.chr_rom_bank_idx.save(fh)?;
+        self.chr_rom_banks.save(fh)?;
+        self.latch.save(fh)?;
         self.prg_ram.save(fh)?;
-        self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)?;
-        self.open_bus.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.mirroring.load(fh)?;
-        self.chr_rom_latch.load(fh)?;
-        self.prg_rom_bank_idx.load(fh)?;
-        self.chr_rom_bank_idx.load(fh)?;
+        self.chr_rom_banks.load(fh)?;
+        self.latch.load(fh)?;
         self.prg_ram.load(fh)?;
-        self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)?;
-        self.open_bus.load(fh)?;
         Ok(())
     }
 }
