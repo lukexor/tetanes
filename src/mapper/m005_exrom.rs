@@ -156,13 +156,7 @@ impl ExRegs {
             chr_mode: ChrMode::Bank1k,
             prg_ram_protect: [0x00; 2],
             exram_mode: ExRamMode::RamProtected,
-            nametable_mirroring: match mirroring {
-                Mirroring::Horizontal => 0x50,
-                Mirroring::Vertical => 0x44,
-                Mirroring::SingleScreenA => 0x00,
-                Mirroring::SingleScreenB => 0x55,
-                Mirroring::FourScreen => 0xFF,
-            },
+            nametable_mirroring: mirroring.into(),
             fill_tile: 0xFF,
             fill_attr: 0xFF,
             chr_banks: [0x00; 16],
@@ -626,36 +620,16 @@ impl MemWrite for Exrom {
                     self.pulse2.length.counter = 0;
                 }
             }
-            0x5100 => {
-                // [.... ..PP]    PRG Mode
-                self.regs.prg_mode = match val & 0x03 {
-                    0 => PrgMode::Bank32k,
-                    1 => PrgMode::Bank16k,
-                    2 => PrgMode::Bank16_8k,
-                    3 => PrgMode::Bank8k,
-                    _ => unreachable!("invalid prg_mode"),
-                };
-            }
-            0x5101 => {
-                // [.... ..CC]    CHR Mode
-                self.regs.chr_mode = match val & 0x03 {
-                    0 => ChrMode::Bank8k,
-                    1 => ChrMode::Bank4k,
-                    2 => ChrMode::Bank2k,
-                    3 => ChrMode::Bank1k,
-                    _ => unreachable!("invalid chr_mode"),
-                };
-            }
+            0x5100 => self.regs.prg_mode = PrgMode::from(val), // [.... ..PP]    PRG Mode
+            0x5101 => self.regs.chr_mode = ChrMode::from(val), // [.... ..CC]    CHR Mode
             0x5102 => {
                 // [.... ..AA]    PRG-RAM Protect A
                 self.regs.prg_ram_protect[0] = val & 0x03;
-                info!("Set ram_protect_a {:02b}", val & 0x03);
                 self.check_ram_protect();
             }
             0x5103 => {
                 // [.... ..BB]    PRG-RAM Protect B
                 self.regs.prg_ram_protect[1] = val & 0x03;
-                info!("Set ram_protect_b {:02b}", val & 0x03);
                 self.check_ram_protect();
             }
             0x5104 => {
@@ -664,13 +638,7 @@ impl MemWrite for Exrom {
                 //     %01 = Extended Attribute mode ("Ex1")
                 //     %10 = CPU access mode         ("Ex2")
                 //     %11 = CPU read-only mode      ("Ex3")
-                self.regs.exram_mode = match val & 0x03 {
-                    0 => ExRamMode::Nametable,
-                    1 => ExRamMode::ExAttr,
-                    2 => ExRamMode::Ram,
-                    3 => ExRamMode::RamProtected,
-                    _ => panic!("invalid mode"),
-                }
+                self.regs.exram_mode = ExRamMode::from(val);
             }
             0x5105 => {
                 // [.... ..HH]
@@ -694,16 +662,7 @@ impl MemWrite for Exrom {
                 //   SingleScreenB:  $55  (%01 01 01 01)
                 //   Fill:           $ff  (%11 11 11 11)
                 self.regs.nametable_mirroring = val;
-                self.mirroring = match self.regs.nametable_mirroring {
-                    0x50 => Mirroring::Horizontal,
-                    0x44 => Mirroring::Vertical,
-                    0x00 => Mirroring::SingleScreenA,
-                    0x55 => Mirroring::SingleScreenB,
-                    // While the below technically isn't true - it forces my implementation to
-                    // rely on the Mapper for reading Nametables in any other mode for the missing
-                    // two nametables
-                    _ => Mirroring::FourScreen,
-                };
+                self.mirroring = Mirroring::from(self.regs.nametable_mirroring);
             }
             0x5106 => {
                 // [TTTT TTTT]  Fill Tile
@@ -932,14 +891,20 @@ impl Savable for PrgMode {
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
-        *self = match val {
+        *self = PrgMode::from(val);
+        Ok(())
+    }
+}
+
+impl From<u8> for PrgMode {
+    fn from(val: u8) -> Self {
+        match val & 0x03 {
             0 => PrgMode::Bank32k,
             1 => PrgMode::Bank16k,
             2 => PrgMode::Bank16_8k,
             3 => PrgMode::Bank8k,
-            _ => panic!("invalid PrgBank value"),
-        };
-        Ok(())
+            _ => unreachable!("invalid PrgMode"),
+        }
     }
 }
 
@@ -966,14 +931,20 @@ impl Savable for ChrMode {
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
-        *self = match val {
+        *self = ChrMode::from(val);
+        Ok(())
+    }
+}
+
+impl From<u8> for ChrMode {
+    fn from(val: u8) -> Self {
+        match val & 0x03 {
             0 => ChrMode::Bank8k,
             1 => ChrMode::Bank4k,
             2 => ChrMode::Bank2k,
             3 => ChrMode::Bank1k,
-            _ => panic!("invalid ChrBank value"),
-        };
-        Ok(())
+            _ => unreachable!("invalid ChrMode"),
+        }
     }
 }
 
@@ -984,14 +955,20 @@ impl Savable for ExRamMode {
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
-        *self = match val {
+        *self = ExRamMode::from(val);
+        Ok(())
+    }
+}
+
+impl From<u8> for ExRamMode {
+    fn from(val: u8) -> Self {
+        match val {
             0 => ExRamMode::Nametable,
             1 => ExRamMode::ExAttr,
             2 => ExRamMode::Ram,
             3 => ExRamMode::RamProtected,
-            _ => panic!("invalid ExRamMode value"),
-        };
-        Ok(())
+            _ => panic!("invalid ExRamMode {}", val),
+        }
     }
 }
 
@@ -1008,6 +985,33 @@ impl Savable for Split {
             _ => panic!("invalid Split value"),
         };
         Ok(())
+    }
+}
+
+impl From<u8> for Mirroring {
+    fn from(val: u8) -> Self {
+        match val {
+            0x50 => Mirroring::Horizontal,
+            0x44 => Mirroring::Vertical,
+            0x00 => Mirroring::SingleScreenA,
+            0x55 => Mirroring::SingleScreenB,
+            // While the below technically isn't true - it forces my implementation to
+            // rely on the Mapper for reading Nametables in any other mode for the missing
+            // two nametables
+            _ => Mirroring::FourScreen,
+        }
+    }
+}
+
+impl Into<u8> for Mirroring {
+    fn into(self) -> u8 {
+        match self {
+            Mirroring::Horizontal => 0x50,
+            Mirroring::Vertical => 0x44,
+            Mirroring::SingleScreenA => 0x00,
+            Mirroring::SingleScreenB => 0x55,
+            Mirroring::FourScreen => 0xFF,
+        }
     }
 }
 
