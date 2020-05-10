@@ -192,9 +192,10 @@ impl Txrom {
     }
 
     fn update_banks(&mut self) {
+        let bank_count = self.prg_rom.bank_count();
         let prg_last = self.prg_rom.last_bank();
-        let prg_lo = self.regs.bank_values[6];
-        let prg_hi = self.regs.bank_values[7];
+        let prg_lo = self.regs.bank_values[6] % bank_count;
+        let prg_hi = self.regs.bank_values[7] % bank_count;
         if self.regs.bank_select & PRG_MODE_MASK == PRG_MODE_MASK {
             self.prg_rom.set_bank(0x8000, prg_last - 1);
             self.prg_rom.set_bank(0xA000, prg_hi);
@@ -209,25 +210,26 @@ impl Txrom {
 
         // 1: two 2 KB banks at $1000-$1FFF, four 1 KB banks at $0000-$0FFF
         // 0: two 2 KB banks at $0000-$0FFF, four 1 KB banks at $1000-$1FFF
+        let bank_count = self.chr.bank_count();
         let chr_banks = self.regs.bank_values;
         if self.regs.bank_select & CHR_INVERSION_MASK == CHR_INVERSION_MASK {
-            self.chr.set_bank(0x0000, chr_banks[2]);
-            self.chr.set_bank(0x0400, chr_banks[3]);
-            self.chr.set_bank(0x0800, chr_banks[4]);
-            self.chr.set_bank(0x0C00, chr_banks[5]);
-            self.chr.set_bank(0x1000, chr_banks[0] & 0xFE);
-            self.chr.set_bank(0x1400, chr_banks[0] | 0x01);
-            self.chr.set_bank(0x1800, chr_banks[1] & 0xFE);
-            self.chr.set_bank(0x1C00, chr_banks[1] | 0x01);
+            self.chr.set_bank(0x0000, chr_banks[2] % bank_count);
+            self.chr.set_bank(0x0400, chr_banks[3] % bank_count);
+            self.chr.set_bank(0x0800, chr_banks[4] % bank_count);
+            self.chr.set_bank(0x0C00, chr_banks[5] % bank_count);
+            self.chr.set_bank(0x1000, chr_banks[0] % bank_count & 0xFE);
+            self.chr.set_bank(0x1400, chr_banks[0] % bank_count | 0x01);
+            self.chr.set_bank(0x1800, chr_banks[1] % bank_count & 0xFE);
+            self.chr.set_bank(0x1C00, chr_banks[1] % bank_count | 0x01);
         } else {
-            self.chr.set_bank(0x0000, chr_banks[0] & 0xFE);
-            self.chr.set_bank(0x0400, chr_banks[0] | 0x01);
-            self.chr.set_bank(0x0800, chr_banks[1] & 0xFE);
-            self.chr.set_bank(0x0C00, chr_banks[1] | 0x01);
-            self.chr.set_bank(0x1000, chr_banks[2]);
-            self.chr.set_bank(0x1400, chr_banks[3]);
-            self.chr.set_bank(0x1800, chr_banks[4]);
-            self.chr.set_bank(0x1C00, chr_banks[5]);
+            self.chr.set_bank(0x0000, chr_banks[0] % bank_count & 0xFE);
+            self.chr.set_bank(0x0400, chr_banks[0] % bank_count | 0x01);
+            self.chr.set_bank(0x0800, chr_banks[1] % bank_count & 0xFE);
+            self.chr.set_bank(0x0C00, chr_banks[1] % bank_count | 0x01);
+            self.chr.set_bank(0x1000, chr_banks[2] % bank_count);
+            self.chr.set_bank(0x1400, chr_banks[3] % bank_count);
+            self.chr.set_bank(0x1800, chr_banks[4] % bank_count);
+            self.chr.set_bank(0x1C00, chr_banks[5] % bank_count);
         }
     }
 }

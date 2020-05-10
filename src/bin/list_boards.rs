@@ -37,7 +37,12 @@ fn print_mapper(path: &PathBuf, board: Option<&String>) {
                 .to_lowercase()
                 .contains(board.unwrap())
         {
-            info!("{:?} - Mapper: {}", path, mapper(header.mapper_num));
+            info!(
+                "{:?} - Mapper: {}, Board: {}",
+                path,
+                header.mapper_num,
+                mapper(header.mapper_num)
+            );
         }
     }
 }
@@ -62,6 +67,10 @@ pub fn mapper(mapper_num: u16) -> &'static str {
         5 => "ExROM/MMC5",
         7 => "AxROM",
         9 => "PxROM",
-        _ => "Unsupported Board",
+        11 => "COLORDREAMS",
+        69 => "JxROM/BTR",
+        71 => "CAMERICA",
+        206 => "DxROM",
+        _ => "Unknown Board",
     }
 }
