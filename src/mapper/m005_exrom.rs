@@ -9,7 +9,7 @@ use crate::{
         pulse::{Pulse, PulseChannel},
     },
     cartridge::Cartridge,
-    common::{Clocked, Powered},
+    common::{Addr, Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
     memory::{BankedMemory, MemRead, MemWrite},
     serialization::Savable,
@@ -21,6 +21,7 @@ const PRG_WINDOW: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 64 * 1024; // Easier to just provide 64L since mappers don't always specify
 const EXRAM_WINDOW: usize = 1024;
 const EXRAM_SIZE: usize = 1024;
+const CHR_ROM_WINDOW: usize = 1024;
 const ATTR_BITS: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
 const ATTR_LOC: [u8; 256] = [
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -53,7 +54,6 @@ pub struct Exrom {
     regs: ExRegs,
     mirroring: Mirroring,
     irq_pending: bool,
-    last_chr_write: ChrBank,
     spr_fetch_count: u32,
     ppu_prev_addr: u16,
     ppu_prev_match: u8,
@@ -62,11 +62,10 @@ pub struct Exrom {
     ppu_in_vblank: bool,
     ppu_rendering: bool,
     prg_banks: [usize; 5],
-    chr_banks_spr: [usize; 8],
-    chr_banks_bg: [usize; 4],
-    cart: Cartridge,
     prg_ram: BankedMemory,
     exram: BankedMemory,
+    prg_rom: BankedMemory,
+    chr_rom: BankedMemory,
     tile_cache: u16,
     in_split: bool,
     split_tile: u16,
@@ -125,14 +124,16 @@ pub struct ExRegs {
     nametable_mirroring: u8,  // $5105
     fill_tile: u8,            // $5106
     fill_attr: u8,            // $5107
-    chr_hi_bit: usize,        // $5130
-    vsplit_enabled: bool,     // $5200 [E... ....]
-    vsplit_side: Split,       // $5200 [.S.. ....]
-    vsplit_tile: u8,          // $5200 [...T TTTT]
-    vsplit_scroll: u8,        // $5201
-    vsplit_bank: u8,          // $5202
-    scanline_num_irq: u16,    // $5203: Write $00 to disable IRQs
-    irq_enabled: bool,        // $5204
+    chr_banks: [usize; 16],   // $5120 - $512B
+    last_chr_write: ChrBank,
+    chr_hi: usize,         // $5130
+    vsplit_enabled: bool,  // $5200 [E... ....]
+    vsplit_side: Split,    // $5200 [.S.. ....]
+    vsplit_tile: u8,       // $5200 [...T TTTT]
+    vsplit_scroll: u8,     // $5201
+    vsplit_bank: u8,       // $5202
+    scanline_num_irq: u16, // $5203: Write $00 to disable IRQs
+    irq_enabled: bool,     // $5204
     irq_counter: u16,
     in_frame: bool,
     multiplicand: u8, // $5205: write
@@ -163,7 +164,9 @@ impl ExRegs {
             },
             fill_tile: 0xFF,
             fill_attr: 0xFF,
-            chr_hi_bit: 0x00,
+            chr_banks: [0xFF; 16],
+            last_chr_write: ChrBank::Spr,
+            chr_hi: 0x00,
             vsplit_enabled: false,
             vsplit_side: Split::Left,
             vsplit_tile: 0x00,
@@ -187,7 +190,6 @@ impl Exrom {
             regs: ExRegs::new(mirroring),
             mirroring,
             irq_pending: false,
-            last_chr_write: ChrBank::Spr,
             spr_fetch_count: 0x00,
             ppu_prev_addr: 0xFFFF,
             ppu_prev_match: 0x0000,
@@ -196,11 +198,10 @@ impl Exrom {
             ppu_in_vblank: false,
             ppu_rendering: false,
             prg_banks: [0xFF; 5],
-            chr_banks_spr: [0xFF; 8],
-            chr_banks_bg: [0xFF; 4],
-            cart,
             prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW),
             exram: BankedMemory::ram(EXRAM_SIZE, EXRAM_WINDOW),
+            prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
+            chr_rom: BankedMemory::from(cart.chr_rom, CHR_ROM_WINDOW),
             tile_cache: 0x0000,
             in_split: false,
             split_tile: 0x0000,
@@ -212,6 +213,8 @@ impl Exrom {
         };
         exrom.prg_ram.add_bank(0x6000, 0x7FFF);
         exrom.exram.add_bank(0x0000, 0x0400);
+        exrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
+        exrom.chr_rom.add_bank_range(0x0000, 0x1FFF);
         exrom.into()
     }
 
@@ -277,44 +280,20 @@ impl Exrom {
     //             +---------------+---------------+---------------+---------------+
     //   C=%11:    | $5128 | $5129 | $512A | $512B | $5128 | $5129 | $512A | $512B |
     //             +-------+-------+-------+-------+-------+-------+-------+-------+
-    // Gets the bank mapped CHR ROM address
-    fn get_chr_addr(&self, addr: u16) -> usize {
-        // EXRAM Mode 1 = Extended Atribute mode
-        // Only return 20 bit CHR ROM address during BG fetches
-        // 32 BG tiles = 32 * 4 = 128 (start of SPR fetch)
-        // 8 SPR tiles = 8 * 4 = 32 + 128 = 160 (end of SPR fetch)
-        if self.regs.exram_mode == ExRamMode::ExAttr
-            && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159)
-        {
-            let hibits = self.regs.chr_hi_bit << 18;
-            let exaddr = self.tile_cache % self.exram.len() as u16;
-            let exbits = (self.exram.peek(exaddr) as usize & 0x3F) << 12;
-            hibits | exbits | (addr as usize) & 0x0FFF
-        } else {
-            // 8K, 4K, 2K, or 1K bank sizes
-            let bank_size = (8 * 1024) / (1 << self.regs.chr_mode as usize);
-            let offset = addr as usize % bank_size;
-            // Corresponds to regs $5121 - $5127
-            // BG only has half the banks as SPR, so we can AND this with 0x03
-            let bank_idx = match self.regs.chr_mode {
-                ChrMode::Bank8k => 7,
-                ChrMode::Bank4k => 3 + ((addr >> 12) << 2),
-                ChrMode::Bank2k => 1 + ((addr >> 11) << 1),
-                ChrMode::Bank1k => addr >> 10,
-            } as usize;
-            let bank = if self.regs.sprite8x16 {
-                // Means we've gotten our 32 BG tiles fetched (32 * 4)
-                if self.spr_fetch_count >= 127 && self.spr_fetch_count <= 159 {
-                    self.chr_banks_spr[bank_idx]
-                } else {
-                    self.chr_banks_bg[bank_idx & 0x03]
-                }
-            } else if self.last_chr_write == ChrBank::Spr {
-                self.chr_banks_spr[bank_idx]
-            } else {
-                self.chr_banks_bg[bank_idx & 0x03]
-            };
-            (bank * bank_size + offset) % self.cart.chr_rom.len()
+    #[allow(clippy::needless_range_loop)]
+    fn update_chr_banks(&mut self, chr_bank: ChrBank) {
+        let banks = match chr_bank {
+            ChrBank::Spr => &self.regs.chr_banks[0..8],
+            ChrBank::Bg => &self.regs.chr_banks[8..16],
+        };
+        // 8K, 4K, 2K, or 1K bank sizes
+        let num_banks = 1 << self.regs.chr_mode as usize;
+        let window = (8 * 1024) / num_banks as Addr;
+        let bank_count = self.chr_rom.bank_count();
+        for bank_num in 0..num_banks {
+            let bank = banks[bank_num] % bank_count;
+            let start = bank_num as Addr * window;
+            self.chr_rom.set_bank_range(start, start + window - 1, bank);
         }
     }
 
@@ -355,6 +334,15 @@ impl Mapper for Exrom {
     fn vram_change(&mut self, addr: u16) {
         if addr < 0x3F00 {
             self.spr_fetch_count += 1;
+
+            if self.regs.sprite8x16 {
+                match self.spr_fetch_count {
+                    127 => self.update_chr_banks(ChrBank::Spr),
+                    159 => self.update_chr_banks(ChrBank::Bg),
+                    _ => (),
+                }
+            }
+
             if (addr >> 12) == 0x02 && addr == self.ppu_prev_addr {
                 self.ppu_prev_match += 1;
                 if self.ppu_prev_match == 2 {
@@ -423,9 +411,7 @@ impl Mapper for Exrom {
 
     fn ppu_write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x2000 => {
-                self.regs.sprite8x16 = val & 0x20 > 0;
-            }
+            0x2000 => self.regs.sprite8x16 = val & 0x20 > 0,
             0x2001 => {
                 self.ppu_rendering = val & 0x18 > 0; // 1, 2, or 3
                 if !self.ppu_rendering {
@@ -469,10 +455,7 @@ impl MemRead for Exrom {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => {
-                let addr = self.get_chr_addr(addr);
-                self.cart.chr_rom.peekw(addr)
-            }
+            0x0000..=0x1FFF => self.chr_rom.peek(addr),
             0x2000..=0x3EFF => {
                 let offset = addr % 0x0400;
                 if self.in_split {
@@ -534,9 +517,13 @@ impl MemRead for Exrom {
                 status
             }
             0x5113..=0x5117 => self.prg_banks[addr as usize - 0x5113] as u8,
-            0x5120..=0x5127 => self.chr_banks_spr[addr as usize - 0x5120] as u8,
-            0x5128..=0x512B => self.chr_banks_bg[addr as usize - 0x5128] as u8,
-            0x5130 => self.regs.chr_hi_bit as u8,
+            0x5120..=0x512B => {
+                let bank = (addr - 0x5120) as usize;
+                self.regs.chr_banks[bank] as u8
+            }
+            // 0x5120..=0x5127 => self.chr_banks_spr[addr as usize - 0x5120] as u8,
+            // 0x5128..=0x512B => self.chr_banks_bg[addr as usize - 0x5128] as u8,
+            0x5130 => self.regs.chr_hi as u8,
             0x5200 => {
                 (self.regs.vsplit_enabled as u8) << 7
                     | (self.regs.vsplit_side as u8) << 6
@@ -570,7 +557,7 @@ impl MemRead for Exrom {
             0x6000..=0xFFFF => {
                 let (prg_addr, rom_select) = self.get_prg_addr(addr);
                 if rom_select {
-                    self.cart.prg_rom.peekw(prg_addr % self.cart.prg_rom.len())
+                    self.prg_rom.peekw(prg_addr % self.prg_rom.len())
                 } else {
                     self.prg_ram.peekw(prg_addr % self.prg_ram.len())
                 }
@@ -720,19 +707,17 @@ impl MemWrite for Exrom {
                 //      P = PRG page
                 self.prg_banks[addr as usize - 0x5113] = val as usize;
             }
-            0x5120..=0x5127 => {
-                // 'A' Chr Regs
-                self.last_chr_write = ChrBank::Spr;
-                self.chr_banks_spr[addr as usize - 0x5120] =
-                    val as usize | self.regs.chr_hi_bit << 8;
+            0x5120..=0x512B => {
+                let bank = (addr - 0x5120) as usize;
+                self.regs.chr_banks[bank] = (self.regs.chr_hi << 8) | val as usize;
+                if addr < 0x5128 {
+                    self.update_chr_banks(ChrBank::Spr);
+                } else {
+                    self.regs.chr_banks[bank + 4] = self.regs.chr_banks[bank];
+                    self.update_chr_banks(ChrBank::Bg);
+                }
             }
-            0x5128..=0x512B => {
-                // 'B' Chr Regs
-                self.last_chr_write = ChrBank::Bg;
-                self.chr_banks_bg[addr as usize - 0x5128] =
-                    val as usize | self.regs.chr_hi_bit << 8;
-            }
-            0x5130 => self.regs.chr_hi_bit = (val & 0x03) as usize, // [.... ..HH]  CHR Bank Hi bits
+            0x5130 => self.regs.chr_hi = (val & 0x03) as usize, // [.... ..HH]  CHR Bank Hi bits
             0x5200 => {
                 // [ES.T TTTT]    Split control
                 //   E = Enable  (0=split mode disabled, 1=split mode enabled)
@@ -824,7 +809,6 @@ impl Savable for Exrom {
         self.regs.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
-        self.last_chr_write.save(fh)?;
         self.spr_fetch_count.save(fh)?;
         self.ppu_prev_addr.save(fh)?;
         self.ppu_prev_match.save(fh)?;
@@ -833,8 +817,6 @@ impl Savable for Exrom {
         self.ppu_in_vblank.save(fh)?;
         self.ppu_rendering.save(fh)?;
         self.prg_banks.save(fh)?;
-        self.chr_banks_spr.save(fh)?;
-        self.chr_banks_bg.save(fh)?;
         self.prg_ram.save(fh)?;
         self.exram.save(fh)?;
         self.tile_cache.save(fh)?;
@@ -850,7 +832,6 @@ impl Savable for Exrom {
         self.regs.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
-        self.last_chr_write.load(fh)?;
         self.spr_fetch_count.load(fh)?;
         self.ppu_prev_addr.load(fh)?;
         self.ppu_prev_match.load(fh)?;
@@ -859,8 +840,6 @@ impl Savable for Exrom {
         self.ppu_in_vblank.load(fh)?;
         self.ppu_rendering.load(fh)?;
         self.prg_banks.load(fh)?;
-        self.chr_banks_spr.load(fh)?;
-        self.chr_banks_bg.load(fh)?;
         self.prg_ram.load(fh)?;
         self.exram.load(fh)?;
         self.tile_cache.load(fh)?;
@@ -879,12 +858,14 @@ impl Savable for ExRegs {
         self.sprite8x16.save(fh)?;
         self.prg_mode.save(fh)?;
         self.chr_mode.save(fh)?;
-        self.chr_hi_bit.save(fh)?;
+        self.chr_hi.save(fh)?;
         self.prg_ram_protect.save(fh)?;
         self.exram_mode.save(fh)?;
         self.nametable_mirroring.save(fh)?;
         self.fill_tile.save(fh)?;
         self.fill_attr.save(fh)?;
+        self.chr_banks.save(fh)?;
+        self.last_chr_write.save(fh)?;
         self.vsplit_enabled.save(fh)?;
         self.vsplit_side.save(fh)?;
         self.vsplit_tile.save(fh)?;
@@ -903,12 +884,14 @@ impl Savable for ExRegs {
         self.sprite8x16.load(fh)?;
         self.prg_mode.load(fh)?;
         self.chr_mode.load(fh)?;
-        self.chr_hi_bit.load(fh)?;
+        self.chr_hi.load(fh)?;
         self.prg_ram_protect.load(fh)?;
         self.exram_mode.load(fh)?;
         self.nametable_mirroring.load(fh)?;
         self.fill_tile.load(fh)?;
         self.fill_attr.load(fh)?;
+        self.chr_banks.load(fh)?;
+        self.last_chr_write.load(fh)?;
         self.vsplit_enabled.load(fh)?;
         self.vsplit_side.load(fh)?;
         self.vsplit_tile.load(fh)?;
