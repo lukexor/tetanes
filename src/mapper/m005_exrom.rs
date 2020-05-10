@@ -290,18 +290,9 @@ impl Exrom {
             ChrMode::Bank1k => &[0, 1, 2, 3, 4, 5, 6, 7],
         };
         let bank_count = self.chr_rom.bank_count();
-        info!("Bank count: {}", bank_count);
         for (i, bank_num) in bank_nums.iter().enumerate() {
             let bank = banks[*bank_num] % bank_count;
             let start = i as Addr * window;
-            info!(
-                "{:?}, {:?}: update bank: 0x{:04X} - 0x{:04X}, {}",
-                chr_bank,
-                self.regs.chr_mode,
-                start,
-                start + window - 1,
-                bank
-            );
             self.chr_rom.set_bank_range(start, start + window - 1, bank);
         }
     }
@@ -320,14 +311,14 @@ impl Exrom {
         }
     }
 
-    fn check_ram_protect(&mut self) {
+    fn update_ram_protection(&mut self) {
         // To allow writing to PRG-RAM you must set:
         //    A=%10
         //    B=%01
         // Any other value will prevent PRG-RAM writing.
         let writeable =
             self.regs.prg_ram_protect[0] == 0b10 && self.regs.prg_ram_protect[1] == 0b01;
-        self.prg_ram.write_protect(writeable);
+        self.prg_ram.write_protect(!writeable);
     }
 }
 
@@ -464,7 +455,19 @@ impl MemRead for Exrom {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => self.chr_rom.peek(addr),
+            0x0000..=0x1FFF => {
+                if self.regs.exram_mode == ExRamMode::ExAttr
+                    && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159)
+                {
+                    let hibits = self.regs.chr_hi << 18;
+                    let exaddr = self.tile_cache % self.exram.len() as u16;
+                    let exbits = (self.exram.peek(exaddr) as usize & 0x3F) << 12;
+                    self.chr_rom
+                        .peekw(hibits | exbits | (addr as usize) & 0x0FFF)
+                } else {
+                    self.chr_rom.peek(addr)
+                }
+            }
             0x2000..=0x3EFF => {
                 let offset = addr % 0x0400;
                 if self.in_split {
@@ -620,26 +623,15 @@ impl MemWrite for Exrom {
                     self.pulse2.length.counter = 0;
                 }
             }
-            0x5100 => self.regs.prg_mode = PrgMode::from(val), // [.... ..PP]    PRG Mode
-            0x5101 => self.regs.chr_mode = ChrMode::from(val), // [.... ..CC]    CHR Mode
-            0x5102 => {
+            0x5100 => self.regs.prg_mode = PrgMode::from(val), // [.... ..PP] PRG Mode
+            0x5101 => self.regs.chr_mode = ChrMode::from(val), // [.... ..CC] CHR Mode
+            0x5102 | 0x5103 => {
                 // [.... ..AA]    PRG-RAM Protect A
-                self.regs.prg_ram_protect[0] = val & 0x03;
-                self.check_ram_protect();
-            }
-            0x5103 => {
                 // [.... ..BB]    PRG-RAM Protect B
-                self.regs.prg_ram_protect[1] = val & 0x03;
-                self.check_ram_protect();
+                self.regs.prg_ram_protect[(addr - 0x5102) as usize] = val & 0x03;
+                self.update_ram_protection();
             }
-            0x5104 => {
-                // [.... ..XX]    ExRAM mode
-                //     %00 = Extra Nametable mode    ("Ex0")
-                //     %01 = Extended Attribute mode ("Ex1")
-                //     %10 = CPU access mode         ("Ex2")
-                //     %11 = CPU read-only mode      ("Ex3")
-                self.regs.exram_mode = ExRamMode::from(val);
-            }
+            0x5104 => self.regs.exram_mode = ExRamMode::from(val), // [.... ..XX] ExRAM mode
             0x5105 => {
                 // [.... ..HH]
                 // [DDCC BBAA]
@@ -664,14 +656,8 @@ impl MemWrite for Exrom {
                 self.regs.nametable_mirroring = val;
                 self.mirroring = Mirroring::from(self.regs.nametable_mirroring);
             }
-            0x5106 => {
-                // [TTTT TTTT]  Fill Tile
-                self.regs.fill_tile = val;
-            }
-            0x5107 => {
-                // [.... ..AA]  Fill Attribute bits
-                self.regs.fill_attr = val & 0x03;
-            }
+            0x5106 => self.regs.fill_tile = val, // [TTTT TTTT] Fill Tile
+            0x5107 => self.regs.fill_attr = val & 0x03, // [.... ..AA] Fill Attribute bits
             0x5113..=0x5117 => {
                 // PRG Bank Switching
                 // $5113: [.... .PPP]
@@ -684,7 +670,6 @@ impl MemWrite for Exrom {
             0x5120..=0x512B => {
                 let bank = (addr - 0x5120) as usize;
                 self.regs.chr_banks[bank] = (self.regs.chr_hi << 8) | val as usize;
-                info!("Set bank {} to {}", bank, self.regs.chr_banks[bank]);
                 if addr < 0x5128 {
                     self.update_chr_banks(ChrBank::Spr);
                 } else {
