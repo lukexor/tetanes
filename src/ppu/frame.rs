@@ -66,10 +66,12 @@ impl Frame {
     // to translate it to Rust
     // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
     // http://wiki.nesdev.com/w/index.php/NTSC_video
+    //
+    // Note: Because blending relies on previous x pixel, we shift everything to the
+    // left and render an extra pixel column on the right
     pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
-        // Store the RGB color into the frame buffer.
-        if x == 0 {
-            self.prev_pixel = pixel;
+        if x > RENDER_WIDTH || y >= RENDER_HEIGHT {
+            return;
         }
         let color =
             self.palette[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
@@ -77,7 +79,7 @@ impl Frame {
         let red = (color >> 16 & 0xFF) as u8;
         let green = (color >> 8 & 0xFF) as u8;
         let blue = (color & 0xFF) as u8;
-        self.put_pixel(x, y, red, green, blue);
+        self.put_pixel(x.saturating_sub(1), y, red, green, blue);
     }
 
     // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
