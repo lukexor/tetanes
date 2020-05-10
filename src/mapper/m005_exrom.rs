@@ -15,6 +15,7 @@ use crate::{
     serialization::Savable,
     NesResult,
 };
+use log::info;
 use std::io::{Read, Write};
 
 const PRG_WINDOW: usize = 8 * 1024;
@@ -164,7 +165,7 @@ impl ExRegs {
             },
             fill_tile: 0xFF,
             fill_attr: 0xFF,
-            chr_banks: [0xFF; 16],
+            chr_banks: [0x00; 16],
             last_chr_write: ChrBank::Spr,
             chr_hi: 0x00,
             vsplit_enabled: false,
@@ -257,7 +258,7 @@ impl Exrom {
         (bank * bank_size + offset, rom_select)
     }
 
-    // 'A' Set (sprites):
+    // 'A' Set (Sprites):
     //               $0000   $0400   $0800   $0C00   $1000   $1400   $1800   $1C00
     //             +---------------------------------------------------------------+
     //   C=%00:    |                             $5127                             |
@@ -286,13 +287,27 @@ impl Exrom {
             ChrBank::Spr => &self.regs.chr_banks[0..8],
             ChrBank::Bg => &self.regs.chr_banks[8..16],
         };
-        // 8K, 4K, 2K, or 1K bank sizes
         let num_banks = 1 << self.regs.chr_mode as usize;
         let window = (8 * 1024) / num_banks as Addr;
+        let bank_nums: &[usize] = match self.regs.chr_mode {
+            ChrMode::Bank8k => &[7],
+            ChrMode::Bank4k => &[3, 7],
+            ChrMode::Bank2k => &[1, 3, 5, 7],
+            ChrMode::Bank1k => &[0, 1, 2, 3, 4, 5, 6, 7],
+        };
         let bank_count = self.chr_rom.bank_count();
-        for bank_num in 0..num_banks {
-            let bank = banks[bank_num] % bank_count;
-            let start = bank_num as Addr * window;
+        info!("Bank count: {}", bank_count);
+        for (i, bank_num) in bank_nums.iter().enumerate() {
+            let bank = banks[*bank_num] % bank_count;
+            let start = i as Addr * window;
+            info!(
+                "{:?}, {:?}: update bank: 0x{:04X} - 0x{:04X}, {}",
+                chr_bank,
+                self.regs.chr_mode,
+                start,
+                start + window - 1,
+                bank
+            );
             self.chr_rom.set_bank_range(start, start + window - 1, bank);
         }
     }
@@ -521,8 +536,6 @@ impl MemRead for Exrom {
                 let bank = (addr - 0x5120) as usize;
                 self.regs.chr_banks[bank] as u8
             }
-            // 0x5120..=0x5127 => self.chr_banks_spr[addr as usize - 0x5120] as u8,
-            // 0x5128..=0x512B => self.chr_banks_bg[addr as usize - 0x5128] as u8,
             0x5130 => self.regs.chr_hi as u8,
             0x5200 => {
                 (self.regs.vsplit_enabled as u8) << 7
@@ -635,12 +648,14 @@ impl MemWrite for Exrom {
             }
             0x5102 => {
                 // [.... ..AA]    PRG-RAM Protect A
-                self.regs.prg_ram_protect[0] = val;
+                self.regs.prg_ram_protect[0] = val & 0x03;
+                info!("Set ram_protect_a {:02b}", val & 0x03);
                 self.check_ram_protect();
             }
             0x5103 => {
                 // [.... ..BB]    PRG-RAM Protect B
-                self.regs.prg_ram_protect[0] = val;
+                self.regs.prg_ram_protect[1] = val & 0x03;
+                info!("Set ram_protect_b {:02b}", val & 0x03);
                 self.check_ram_protect();
             }
             0x5104 => {
@@ -710,9 +725,11 @@ impl MemWrite for Exrom {
             0x5120..=0x512B => {
                 let bank = (addr - 0x5120) as usize;
                 self.regs.chr_banks[bank] = (self.regs.chr_hi << 8) | val as usize;
+                info!("Set bank {} to {}", bank, self.regs.chr_banks[bank]);
                 if addr < 0x5128 {
                     self.update_chr_banks(ChrBank::Spr);
                 } else {
+                    // Mirroring BG
                     self.regs.chr_banks[bank + 4] = self.regs.chr_banks[bank];
                     self.update_chr_banks(ChrBank::Bg);
                 }
@@ -763,7 +780,7 @@ impl MemWrite for Exrom {
                         }
                     }
                     ExRamMode::Ram => self.exram.write(addr, val),
-                    _ => (), // Not writable
+                    _ => (), // Not writeable
                 }
             }
             0x6000..=0xDFFF => {
