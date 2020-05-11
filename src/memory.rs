@@ -1,7 +1,7 @@
 //! Memory types for dealing with bytes
 
 use crate::{
-    common::{Addr, Byte, Word},
+    common::{Addr, Byte},
     mapper::*,
     serialization::Savable,
     NesResult,
@@ -11,6 +11,7 @@ use rand::Rng;
 use std::{
     fmt,
     io::{Read, Write},
+    ops::{Deref, DerefMut},
 };
 
 #[enum_dispatch(MapperType)]
@@ -18,20 +19,13 @@ pub trait MemRead {
     fn read(&mut self, _addr: Addr) -> Byte {
         0
     }
-    fn readw(&mut self, _addr: Word) -> Byte {
-        0
-    }
     fn peek(&self, _addr: Addr) -> Byte {
-        0
-    }
-    fn peekw(&self, _addr: Word) -> Byte {
         0
     }
 }
 #[enum_dispatch(MapperType)]
 pub trait MemWrite {
     fn write(&mut self, _addr: Addr, _val: Byte) {}
-    fn writew(&mut self, _addr: Word, _val: Byte) {}
 }
 #[derive(Default, Clone)]
 pub struct Memory {
@@ -88,70 +82,48 @@ impl Memory {
         ram
     }
 
-    #[inline]
     pub fn extend(&mut self, memory: &Memory) {
         self.data.extend(&memory.data);
     }
 
-    #[inline]
     pub fn len(&self) -> usize {
         self.data.len()
     }
-    #[inline]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
-    #[inline]
+    pub fn writable(&self) -> bool {
+        self.writable
+    }
     pub fn write_protect(&mut self, protect: bool) {
         self.writable = !protect;
     }
 }
 
 impl MemRead for Memory {
-    #[inline]
     fn read(&mut self, addr: Addr) -> Byte {
         self.peek(addr)
     }
-    #[inline]
-    fn readw(&mut self, addr: Word) -> Byte {
-        self.peekw(addr)
-    }
-    #[inline]
     fn peek(&self, addr: Addr) -> Byte {
-        self.peekw(addr as Word)
-    }
-    #[inline]
-    fn peekw(&self, mut addr: Word) -> Byte {
-        if addr >= self.len() {
-            addr %= self.len();
+        let mut addr = addr as usize;
+        let len = self.len();
+        if addr >= len {
+            addr %= len;
         }
-        assert!(
-            addr < self.data.len(),
-            "peek address outside memory range, {} / {}",
-            addr,
-            self.data.len()
-        );
+        assert!(addr < len, "peek outside memory range, {}/{}", addr, len);
         self.data[addr]
     }
 }
 
 impl MemWrite for Memory {
-    #[inline]
     fn write(&mut self, addr: Addr, val: Byte) {
-        self.writew(addr as Word, val);
-    }
-    #[inline]
-    fn writew(&mut self, mut addr: Word, val: Byte) {
         if self.writable {
-            if addr >= self.len() {
-                addr %= self.len();
+            let mut addr = addr as usize;
+            let len = self.len();
+            if addr >= len {
+                addr %= len;
             }
-            assert!(
-                addr < self.data.len(),
-                "write address outside memory range {} / {}",
-                addr,
-                self.data.len()
-            );
+            assert!(addr < len, "write outside memory range {}/{}", addr, len);
             self.data[addr] = val;
         }
     }
@@ -170,6 +142,19 @@ impl Savable for Memory {
     }
 }
 
+impl Deref for Memory {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl DerefMut for Memory {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
 #[derive(Default, Clone)]
 struct Bank {
     start: usize,
@@ -178,7 +163,6 @@ struct Bank {
 }
 
 impl Bank {
-    #[inline]
     fn new(start: Addr, end: Addr) -> Self {
         Self {
             start: start as usize,
@@ -223,12 +207,10 @@ pub struct BankedMemory {
 }
 
 impl BankedMemory {
-    #[inline]
     pub fn new(window: usize) -> Self {
         Self::ram(0x2000, window)
     }
 
-    #[inline]
     pub fn ram(capacity: usize, window: usize) -> Self {
         let memory = Memory::ram(capacity);
         Self {
@@ -240,7 +222,6 @@ impl BankedMemory {
         }
     }
 
-    #[inline]
     pub fn from(memory: Memory, window: usize) -> Self {
         Self {
             banks: Vec::new(),
@@ -251,19 +232,16 @@ impl BankedMemory {
         }
     }
 
-    #[inline]
     pub fn extend(&mut self, memory: &Memory) {
         self.memory.extend(memory);
         self.bank_count = self.memory.len() / self.window;
     }
 
-    #[inline]
     pub fn add_bank(&mut self, start: Addr, end: Addr) {
         self.banks.push(Bank::new(start, end));
         self.update_banks();
     }
 
-    #[inline]
     pub fn add_bank_range(&mut self, start: Addr, end: Addr) {
         for start in (start..end).step_by(self.window) {
             let end = start + (self.window as Addr).saturating_sub(1);
@@ -272,7 +250,6 @@ impl BankedMemory {
         self.update_banks();
     }
 
-    #[inline]
     pub fn set_bank(&mut self, bank_start: Addr, new_bank: usize) {
         debug_assert!(
             new_bank <= self.last_bank(),
@@ -313,30 +290,27 @@ impl BankedMemory {
         }
     }
 
-    #[inline]
     pub fn set_bank_mirror(&mut self, bank_start: Addr, mirror_bank: usize) {
         self.set_bank(bank_start, mirror_bank);
     }
 
-    #[inline]
     pub fn last_bank(&self) -> usize {
         self.bank_count.saturating_sub(1)
     }
 
-    #[inline]
     pub fn bank_count(&self) -> usize {
         self.bank_count
     }
 
-    #[inline]
     pub fn len(&self) -> usize {
         self.memory.len()
     }
-    #[inline]
     pub fn is_empty(&self) -> bool {
         self.memory.is_empty()
     }
-    #[inline]
+    pub fn writable(&self) -> bool {
+        self.memory.writable()
+    }
     pub fn write_protect(&mut self, protect: bool) {
         self.memory.write_protect(protect);
     }
@@ -373,7 +347,6 @@ impl BankedMemory {
         bank.address + (addr as usize - bank.start)
     }
 
-    #[inline]
     fn bank_shift(mut window: usize) -> usize {
         let mut shift = 0usize;
         while window > 0 {
@@ -385,34 +358,31 @@ impl BankedMemory {
 }
 
 impl MemRead for BankedMemory {
-    #[inline]
     fn read(&mut self, addr: Addr) -> Byte {
         self.peek(addr)
     }
-    #[inline]
-    fn readw(&mut self, addr: Word) -> Byte {
-        self.peekw(addr)
-    }
-    #[inline]
     fn peek(&self, addr: Addr) -> Byte {
-        let addr = self.translate_addr(addr);
-        self.peekw(addr)
-    }
-    #[inline]
-    fn peekw(&self, addr: Word) -> Byte {
-        self.memory.peekw(addr)
+        let mut addr = self.translate_addr(addr);
+        let len = self.len();
+        if addr >= len {
+            addr %= len;
+        }
+        assert!(addr < len, "peek outside memory range, {}/{}", addr, len);
+        self.memory[addr]
     }
 }
 
 impl MemWrite for BankedMemory {
-    #[inline]
     fn write(&mut self, addr: Addr, val: Byte) {
-        let addr = self.translate_addr(addr);
-        self.writew(addr, val);
-    }
-    #[inline]
-    fn writew(&mut self, addr: Word, val: Byte) {
-        self.memory.writew(addr, val);
+        if self.writable() {
+            let mut addr = self.translate_addr(addr);
+            let len = self.len();
+            if addr >= len {
+                addr %= len;
+            }
+            assert!(addr < len, "write outside memory range {}/{}", addr, len);
+            self.memory[addr] = val;
+        }
     }
 }
 
@@ -432,6 +402,19 @@ impl Savable for BankedMemory {
         self.bank_count.load(fh)?;
         self.memory.load(fh)?;
         Ok(())
+    }
+}
+
+impl Deref for BankedMemory {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        &self.memory
+    }
+}
+
+impl DerefMut for BankedMemory {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.memory
     }
 }
 

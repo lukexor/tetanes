@@ -402,9 +402,8 @@ impl Exrom {
         //    A=%10
         //    B=%01
         // Any other value will prevent PRG-RAM writing.
-        let writeable =
-            self.regs.prg_ram_protect[0] == 0b10 && self.regs.prg_ram_protect[1] == 0b01;
-        self.prg_ram.write_protect(!writeable);
+        let writable = self.regs.prg_ram_protect[0] == 0b10 && self.regs.prg_ram_protect[1] == 0b01;
+        self.prg_ram.write_protect(!writable);
     }
 }
 
@@ -547,8 +546,7 @@ impl MemRead for Exrom {
                 {
                     let hibits = self.regs.chr_hi << 18;
                     let exbits = (self.exram.peek(self.tile_cache) as usize & 0x3F) << 12;
-                    self.chr_rom
-                        .peekw(hibits | exbits | (addr as usize) & 0x0FFF)
+                    self.chr_rom[hibits | exbits | (addr as usize) & 0x0FFF]
                 } else {
                     self.chr_rom.peek(addr)
                 }
@@ -812,7 +810,7 @@ impl MemWrite for Exrom {
                         }
                     }
                     ExRamMode::Ram => self.exram.write(addr, val),
-                    _ => (), // Not writeable
+                    _ => (), // Not writable
                 }
             }
             0x6000..=0xDFFF => {
