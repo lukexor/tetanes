@@ -334,7 +334,7 @@ impl BankedMemory {
         debug_assert!(addr >= base_addr, "address is less than base address");
         let mut bank = (addr - base_addr) >> self.bank_shift;
         let count = self.bank_count();
-        if bank > count {
+        if bank >= count {
             bank %= count;
         }
         bank

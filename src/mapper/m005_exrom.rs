@@ -322,9 +322,9 @@ impl Exrom {
         // NOTE: Bank numbers 2 and 4 normally are right shifted to the correct page size
         // but because we use the smallest bank size by default and set_bank_range,
         // this becomes unnecessary
-        if rom_select && bank > self.prg_rom.bank_count() {
+        if rom_select && bank >= self.prg_rom.bank_count() {
             bank %= self.prg_rom.bank_count();
-        } else if bank > self.prg_ram.bank_count() {
+        } else if bank >= self.prg_ram.bank_count() {
             bank %= self.prg_ram.bank_count();
         }
         (bank & 0x7F, rom_select)
