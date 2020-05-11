@@ -15,7 +15,6 @@ use crate::{
     serialization::Savable,
     NesResult,
 };
-use log::info;
 use std::io::{Read, Write};
 
 const PRG_WINDOW: usize = 8 * 1024;
@@ -62,7 +61,6 @@ pub struct Exrom {
     ppu_idle: u8,
     ppu_in_vblank: bool,
     ppu_rendering: bool,
-    prg_banks: [usize; 5],
     prg_ram: BankedMemory,
     exram: BankedMemory,
     prg_rom: BankedMemory,
@@ -125,6 +123,7 @@ pub struct ExRegs {
     nametable_mirroring: u8,  // $5105
     fill_tile: u8,            // $5106
     fill_attr: u8,            // $5107
+    prg_banks: [usize; 5],    // $5113 - $5117
     chr_banks: [usize; 16],   // $5120 - $512B
     last_chr_write: ChrBank,
     chr_hi: usize,         // $5130
@@ -159,6 +158,7 @@ impl ExRegs {
             nametable_mirroring: mirroring.into(),
             fill_tile: 0xFF,
             fill_attr: 0xFF,
+            prg_banks: [0x00; 5],
             chr_banks: [0x00; 16],
             last_chr_write: ChrBank::Spr,
             chr_hi: 0x00,
@@ -192,7 +192,6 @@ impl Exrom {
             ppu_idle: 0x00,
             ppu_in_vblank: false,
             ppu_rendering: false,
-            prg_banks: [0xFF; 5],
             prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW),
             exram: BankedMemory::ram(EXRAM_SIZE, EXRAM_WINDOW),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
@@ -206,20 +205,15 @@ impl Exrom {
             dmc_mode: 0x01, // Default to read mode
             open_bus: 0x00,
         };
-        exrom.prg_ram.add_bank(0x6000, 0x7FFF);
+        exrom.prg_ram.add_bank_range(0x6000, 0xFFFF);
         exrom.exram.add_bank(0x0000, 0x0400);
         exrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
+        exrom.regs.prg_banks[4] = exrom.prg_rom.last_bank() | 0x80;
+        exrom.update_prg_banks(4);
         exrom.chr_rom.add_bank_range(0x0000, 0x1FFF);
         exrom.into()
     }
 
-    // $5113: [.... .CPP]
-    //      8k PRG-RAM @ $6000
-    //      C = Chip select
-    // $5114-5117: [RPPP PPPP]
-    //      R = ROM select (0=select RAM, 1=select ROM)  **unused in $5117**
-    //      P = PRG page
-    //
     //              $6000   $8000   $A000   $C000   $E000
     //            +-------+-------------------------------+
     // P=%00:     | $5113 |           <<$5117>>           |
@@ -230,26 +224,115 @@ impl Exrom {
     //            +-------+---------------+-------+-------+
     // P=%11:     | $5113 | $5114 | $5115 | $5116 | $5117 |
     //            +-------+-------+-------+-------+-------+
-    fn get_prg_addr(&self, addr: u16) -> (usize, bool) {
-        let (bank_size, bank_idx) = match (addr, self.regs.prg_mode) {
-            (0x6000..=0x7FFF, _) => (PRG_WINDOW, 0),
-            (_, PrgMode::Bank32k) => (32 * 1024, 4),
-            (_, PrgMode::Bank16k) | (0x8000..=0xBFFF, PrgMode::Bank16_8k) => {
-                (16 * 1024, 2 + (((addr - 0x8000) >> 14) << 1))
+    fn update_prg_banks(&mut self, bank_num: usize) {
+        match bank_num {
+            0 => self.prg_ram.set_bank(0x6000, self.regs.prg_banks[0] & 0x7F),
+            _ => {
+                if let Some(start) = self.prg_bank_addr(bank_num) {
+                    let (bank, rom_select) = self.prg_addr_bank(start);
+                    let window = self.prg_window(start);
+                    // 32K always selects ROM
+                    if self.regs.prg_mode == PrgMode::Bank32k || rom_select {
+                        self.prg_rom
+                            .set_bank_range(start, start + (window - 1), bank);
+                    } else if bank_num != 4 {
+                        // 0x5117 never swaps RAM
+                        self.prg_ram
+                            .set_bank_range(start, start + (window - 1), bank);
+                    }
+                }
             }
-            _ => (8 * 1024, 1 + ((addr - 0x8000) >> 13)),
-        };
-        let offset = addr as usize % bank_size;
-        let bank = self.prg_banks[bank_idx as usize];
-        let rom_select = bank & 0x80 > 0;
-        let bank = match (self.regs.prg_mode, bank_idx) {
-            (PrgMode::Bank32k, 4) => (bank & 0x7F) >> 2,
-            (PrgMode::Bank16k, 2) | (PrgMode::Bank16k, 4) | (PrgMode::Bank16_8k, 2) => {
-                (bank & 0x7F) >> 1
+        }
+    }
+
+    fn prg_window(&self, addr: Addr) -> Addr {
+        use PrgMode::*;
+        match self.regs.prg_mode {
+            Bank32k => 32 * 1024,
+            Bank16k => 16 * 1024,
+            Bank16_8k => {
+                if addr < 0xC000 {
+                    16 * 1024
+                } else {
+                    8 * 1024
+                }
             }
-            _ => bank & 0x7F,
+            Bank8k => 8 * 1024,
+        }
+    }
+
+    fn prg_bank_addr(&self, bank_num: usize) -> Option<Addr> {
+        let mode = self.regs.prg_mode;
+        use PrgMode::*;;
+        match bank_num {
+            0 => Some(0x6000),
+            1 if mode == Bank8k => Some(0x8000),
+            2 => match mode {
+                Bank8k => Some(0xA000),
+                Bank16k | Bank16_8k => Some(0x8000),
+                _ => None,
+            },
+            3 => match mode {
+                Bank8k | Bank16_8k => Some(0xC000),
+                _ => None,
+            },
+            4 => match mode {
+                Bank8k | Bank16_8k => Some(0xE000),
+                Bank16k => Some(0xC000),
+                Bank32k => Some(0x8000),
+            },
+            _ => None,
+        }
+    }
+
+    // Maps an address to a given PRG Bank Register based on the current PRG MODE
+    // Returns the bank page number and the ROM select bit
+    fn prg_addr_bank(&self, addr: Addr) -> (usize, bool) {
+        let mode = self.regs.prg_mode;
+        let banks = self.regs.prg_banks;
+        use PrgMode::*;
+        let mut bank = match addr {
+            0x6000..=0x7FFF => banks[0],
+            0x8000..=0x9FFF => match mode {
+                Bank8k => banks[1],
+                Bank16k | Bank16_8k => banks[2],
+                Bank32k => banks[4],
+            },
+            0xA000..=0xBFFF => match mode {
+                Bank8k | Bank16k | Bank16_8k => banks[2],
+                Bank32k => banks[4],
+            },
+            0xC000..=0xDFFF => match mode {
+                Bank8k | Bank16_8k => banks[3],
+                Bank16k | Bank32k => banks[4],
+            },
+            0xE000..=0xFFFF => match mode {
+                Bank8k | Bank16_8k => banks[4],
+                Bank16k | Bank32k => banks[4],
+            },
+            _ => 0x00,
         };
-        (bank * bank_size + offset, rom_select)
+        let rom_select = match addr {
+            0x6000..=0x7FFF => false,
+            _ => match mode {
+                PrgMode::Bank32k => true,
+                _ => bank & 0x80 > 0,
+            },
+        };
+        // NOTE: Bank numbers 2 and 4 normally are right shifted to the correct page size
+        // but because we use the smallest bank size by default and set_bank_range,
+        // this becomes unnecessary
+        if rom_select && bank > self.prg_rom.bank_count() {
+            bank %= self.prg_rom.bank_count();
+        } else if bank > self.prg_ram.bank_count() {
+            bank %= self.prg_ram.bank_count();
+        }
+        (bank & 0x7F, rom_select)
+    }
+
+    fn rom_select(&self, addr: Addr) -> bool {
+        let (_, rom_select) = self.prg_addr_bank(addr);
+        rom_select
     }
 
     // 'A' Set (Sprites):
@@ -291,7 +374,10 @@ impl Exrom {
         };
         let bank_count = self.chr_rom.bank_count();
         for (i, bank_num) in bank_nums.iter().enumerate() {
-            let bank = banks[*bank_num] % bank_count;
+            let mut bank = banks[*bank_num];
+            if bank >= bank_count {
+                bank %= bank_count;
+            }
             let start = i as Addr * window;
             self.chr_rom.set_bank_range(start, start + window - 1, bank);
         }
@@ -300,7 +386,7 @@ impl Exrom {
     // Determine the nametable we're trying to access
     fn nametable_mapping(&self, addr: u16) -> Nametable {
         let table_size = 0x0400;
-        let addr = (addr - 0x2000) % 0x1000 as u16;
+        let addr = (addr - 0x2000) % 0x1000;
         let table = addr / table_size;
         match (self.regs.nametable_mirroring >> (2 * table)) & 0x03 {
             0 => Nametable::NTA,
@@ -460,8 +546,7 @@ impl MemRead for Exrom {
                     && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159)
                 {
                     let hibits = self.regs.chr_hi << 18;
-                    let exaddr = self.tile_cache % self.exram.len() as u16;
-                    let exbits = (self.exram.peek(exaddr) as usize & 0x3F) << 12;
+                    let exbits = (self.exram.peek(self.tile_cache) as usize & 0x3F) << 12;
                     self.chr_rom
                         .peekw(hibits | exbits | (addr as usize) & 0x0FFF)
                 } else {
@@ -472,10 +557,10 @@ impl MemRead for Exrom {
                 let offset = addr % 0x0400;
                 if self.in_split {
                     if offset < 0x03C0 {
-                        self.exram.peek(self.split_tile % self.exram.len() as u16)
+                        self.exram.peek(self.split_tile)
                     } else {
                         let addr = 0x03C0 | u16::from(ATTR_LOC[(self.split_tile as usize) >> 2]);
-                        let attr = self.exram.peek(addr % self.exram.len() as u16) as usize;
+                        let attr = self.exram.peek(addr) as usize;
                         let shift = ATTR_SHIFT[(self.split_tile as usize) & 0x7F] as usize;
                         ATTR_BITS[(attr >> shift) & 0x03]
                     }
@@ -483,13 +568,12 @@ impl MemRead for Exrom {
                     let nametable = self.nametable_mapping(addr);
                     match self.regs.exram_mode {
                         ExRamMode::ExAttr if offset >= 0x03C0 => {
-                            let exaddr = self.tile_cache % self.exram.len() as u16;
-                            ATTR_BITS[(self.exram.peek(exaddr) as usize >> 6) & 0x03]
+                            ATTR_BITS[(self.exram.peek(self.tile_cache) as usize >> 6) & 0x03]
                         }
                         ExRamMode::Nametable | ExRamMode::ExAttr
                             if nametable == Nametable::ExRAM =>
                         {
-                            self.exram.peek((addr - 0x2000) % self.exram.len() as u16)
+                            self.exram.peek(addr - 0x2000)
                         }
                         ExRamMode::Nametable | ExRamMode::ExAttr
                             if nametable == Nametable::Fill =>
@@ -528,7 +612,10 @@ impl MemRead for Exrom {
                 }
                 status
             }
-            0x5113..=0x5117 => self.prg_banks[addr as usize - 0x5113] as u8,
+            0x5113..=0x5117 => {
+                let bank = (addr - 0x5113) as usize;
+                self.regs.prg_banks[bank] as u8
+            }
             0x5120..=0x512B => {
                 let bank = (addr - 0x5120) as usize;
                 self.regs.chr_banks[bank] as u8
@@ -561,17 +648,17 @@ impl MemRead for Exrom {
                 match self.regs.exram_mode {
                     // nametable/attr modes are not used for RAM, thus are not readable
                     ExRamMode::Nametable | ExRamMode::ExAttr => self.open_bus,
-                    _ => self.exram.peek((addr - 0x5C00) % self.exram.len() as u16),
+                    _ => self.exram.peek(addr - 0x5C00),
                 }
             }
-            0x6000..=0xFFFF => {
-                let (prg_addr, rom_select) = self.get_prg_addr(addr);
-                if rom_select {
-                    self.prg_rom.peekw(prg_addr % self.prg_rom.len())
+            0x6000..=0xDFFF => {
+                if self.rom_select(addr) {
+                    self.prg_rom.peek(addr)
                 } else {
-                    self.prg_ram.peekw(prg_addr % self.prg_ram.len())
+                    self.prg_ram.peek(addr)
                 }
             }
+            0xE000..=0xFFFF => self.prg_rom.peek(addr),
             _ => self.open_bus,
         }
     }
@@ -584,8 +671,7 @@ impl MemWrite for Exrom {
                 let nametable = self.nametable_mapping(addr);
                 match self.regs.exram_mode {
                     ExRamMode::Nametable | ExRamMode::ExAttr if nametable == Nametable::ExRAM => {
-                        self.exram
-                            .write((addr - 0x2000) % self.exram.len() as u16, val);
+                        self.exram.write(addr - 0x2000, val);
                     }
                     _ => (),
                 }
@@ -665,7 +751,9 @@ impl MemWrite for Exrom {
                 // $5114-5117: [RPPP PPPP]
                 //      R = ROM select (0=select RAM, 1=select ROM)  **unused in $5117**
                 //      P = PRG page
-                self.prg_banks[addr as usize - 0x5113] = val as usize;
+                let bank = (addr - 0x5113) as usize;
+                self.regs.prg_banks[bank] = val as usize;
+                self.update_prg_banks(bank);
             }
             0x5120..=0x512B => {
                 let bank = (addr - 0x5120) as usize;
@@ -714,7 +802,7 @@ impl MemWrite for Exrom {
             0x5209 => (), // TODO MMC5A only 6-bit Hardware Timer with IRQ
             0x5800..=0x5BFF => (), // MMC5A unknown
             0x5C00..=0x5FFF => {
-                let addr = (addr - 0x5C00) % self.exram.len() as u16;
+                let addr = addr - 0x5C00;
                 match self.regs.exram_mode {
                     ExRamMode::Nametable | ExRamMode::ExAttr => {
                         if self.ppu_rendering {
@@ -728,10 +816,8 @@ impl MemWrite for Exrom {
                 }
             }
             0x6000..=0xDFFF => {
-                // PRG-RAM/PRG-ROM
-                let (prg_addr, rom_select) = self.get_prg_addr(addr);
-                if !rom_select {
-                    self.prg_ram.writew(prg_addr % self.prg_ram.len(), val);
+                if !self.rom_select(addr) {
+                    self.prg_ram.write(addr, val)
                 }
             }
             // 0x0000..=0x1FFF CHR-ROM is read-only
@@ -777,7 +863,6 @@ impl Savable for Exrom {
         self.ppu_idle.save(fh)?;
         self.ppu_in_vblank.save(fh)?;
         self.ppu_rendering.save(fh)?;
-        self.prg_banks.save(fh)?;
         self.prg_ram.save(fh)?;
         self.exram.save(fh)?;
         self.tile_cache.save(fh)?;
@@ -800,7 +885,6 @@ impl Savable for Exrom {
         self.ppu_idle.load(fh)?;
         self.ppu_in_vblank.load(fh)?;
         self.ppu_rendering.load(fh)?;
-        self.prg_banks.load(fh)?;
         self.prg_ram.load(fh)?;
         self.exram.load(fh)?;
         self.tile_cache.load(fh)?;
@@ -825,6 +909,7 @@ impl Savable for ExRegs {
         self.nametable_mirroring.save(fh)?;
         self.fill_tile.save(fh)?;
         self.fill_attr.save(fh)?;
+        self.prg_banks.save(fh)?;
         self.chr_banks.save(fh)?;
         self.last_chr_write.save(fh)?;
         self.vsplit_enabled.save(fh)?;
@@ -851,6 +936,7 @@ impl Savable for ExRegs {
         self.nametable_mirroring.load(fh)?;
         self.fill_tile.load(fh)?;
         self.fill_attr.load(fh)?;
+        self.prg_banks.load(fh)?;
         self.chr_banks.load(fh)?;
         self.last_chr_write.load(fh)?;
         self.vsplit_enabled.load(fh)?;

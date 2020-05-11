@@ -7,7 +7,6 @@ use crate::{
     NesResult,
 };
 use enum_dispatch::enum_dispatch;
-use log::debug;
 use rand::Rng;
 use std::{
     fmt,
@@ -283,12 +282,6 @@ impl BankedMemory {
         );
 
         let bank = self.get_bank(bank_start);
-        debug!(
-            "set_bank: 0x{:04X} -> {} / {}",
-            bank_start,
-            new_bank,
-            self.last_bank()
-        );
         debug_assert!(
             bank < self.banks.len(),
             "bank is outside bankable range {} / {}",
@@ -309,12 +302,6 @@ impl BankedMemory {
         let mut new_address = new_bank * self.window;
         for bank_start in (start..end).step_by(self.window) {
             let bank = self.get_bank(bank_start);
-            debug!(
-                "set_bank: 0x{:04X} -> {} / {}",
-                bank_start,
-                new_bank,
-                self.last_bank()
-            );
             debug_assert!(
                 bank < self.banks.len(),
                 "bank is outside bankable range {} / {}",
@@ -361,33 +348,28 @@ impl BankedMemory {
             bank.address = address;
             address += bank.end - bank.start + 1;
         }
-        debug!("update_banks: {:?}", self.banks);
     }
 
-    fn get_bank(&self, addr: Addr) -> usize {
+    pub fn get_bank(&self, addr: Addr) -> usize {
         let addr = addr as usize;
         let base_addr = if let Some(bank) = self.banks.first() {
             bank.start
         } else {
             0x0000
         };
-        debug!(
-            "get_bank: (0x{:04X} - 0x{:04X}) >> {}",
-            addr, base_addr, self.bank_shift
-        );
         debug_assert!(addr >= base_addr, "address is less than base address");
-        (addr - base_addr) >> self.bank_shift
+        let mut bank = (addr - base_addr) >> self.bank_shift;
+        let count = self.bank_count();
+        if bank > count {
+            bank %= count;
+        }
+        bank
     }
 
     fn translate_addr(&self, addr: Addr) -> usize {
         let bank = self.get_bank(addr);
         debug_assert!(bank < self.banks.len(), "bank is outside bankable range");
         let bank = &self.banks[bank];
-        debug!(
-            "translate_addr: 0x{:04X} -> 0x{:04X}",
-            addr,
-            bank.address + (addr as usize - bank.start)
-        );
         bank.address + (addr as usize - bank.start)
     }
 
