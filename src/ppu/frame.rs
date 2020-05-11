@@ -69,9 +69,12 @@ impl Frame {
     //
     // Note: Because blending relies on previous x pixel, we shift everything to the
     // left and render an extra pixel column on the right
-    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
+    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, mut pixel: u32, ppu_cycle: u32) {
         if x > RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
+        }
+        if x == RENDER_WIDTH {
+            pixel = self.prev_pixel;
         }
         let color =
             self.palette[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
