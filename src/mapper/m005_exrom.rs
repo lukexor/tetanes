@@ -341,17 +341,18 @@ impl Exrom {
             ChrBank::Spr => &self.regs.chr_banks[0..8],
             ChrBank::Bg => &self.regs.chr_banks[8..16],
         };
+        // CHR banks are in actual page sizes which means they need to be shifted appropriately
         match self.regs.chr_mode {
-            ChrMode::Bank8k => self.chr_rom.set_bank_range(0x0000, 0x1FFF, banks[7]),
+            ChrMode::Bank8k => self.chr_rom.set_bank_range(0x0000, 0x1FFF, banks[7] << 3),
             ChrMode::Bank4k => {
-                self.chr_rom.set_bank_range(0x0000, 0x0FFF, banks[3]);
-                self.chr_rom.set_bank_range(0x1000, 0x1FFF, banks[7]);
+                self.chr_rom.set_bank_range(0x0000, 0x0FFF, banks[3] << 2);
+                self.chr_rom.set_bank_range(0x1000, 0x1FFF, banks[7] << 2);
             }
             ChrMode::Bank2k => {
-                self.chr_rom.set_bank_range(0x0000, 0x07FF, banks[1]);
-                self.chr_rom.set_bank_range(0x0800, 0x0FFF, banks[3]);
-                self.chr_rom.set_bank_range(0x1000, 0x17FF, banks[5]);
-                self.chr_rom.set_bank_range(0x1800, 0x1FFF, banks[7]);
+                self.chr_rom.set_bank_range(0x0000, 0x07FF, banks[1] << 1);
+                self.chr_rom.set_bank_range(0x0800, 0x0FFF, banks[3] << 1);
+                self.chr_rom.set_bank_range(0x1000, 0x17FF, banks[5] << 1);
+                self.chr_rom.set_bank_range(0x1800, 0x1FFF, banks[7] << 1);
             }
             ChrMode::Bank1k => {
                 for (i, bank) in banks[0..8].iter().enumerate() {
@@ -403,7 +404,7 @@ impl Mapper for Exrom {
             if self.regs.sprite8x16 {
                 match self.spr_fetch_count {
                     127 => self.update_chr_banks(ChrBank::Spr),
-                    159 => self.update_chr_banks(ChrBank::Bg),
+                    160 => self.update_chr_banks(ChrBank::Bg),
                     _ => (),
                 }
             }
@@ -433,7 +434,7 @@ impl Mapper for Exrom {
             && addr >= 0x2000
             && addr <= 0x3EFF
             && (addr % 0x0400) < 0x3C0
-            && (self.spr_fetch_count < 127 || self.spr_fetch_count > 158)
+            && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159)
         {
             self.tile_cache = addr % 0x0400;
         }
@@ -443,11 +444,10 @@ impl Mapper for Exrom {
     // reads or to read CIRAM instead from the mapper
     fn use_ciram(&self, addr: u16) -> bool {
         if self.in_split {
-            println!("addr ${:04X}", addr);
             false
         } else if self.regs.exram_mode == ExRamMode::ExAttr
             && (addr % 0x0400) >= 0x3C0
-            && (self.spr_fetch_count < 127 || self.spr_fetch_count > 158)
+            && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159)
         {
             // If we're in Extended Attribute mode and reading BG attributes,
             // yield to mapper for Attribute data instead of PPU
