@@ -250,12 +250,15 @@ impl BankedMemory {
         self.update_banks();
     }
 
-    pub fn set_bank(&mut self, bank_start: Addr, new_bank: usize) {
+    pub fn set_bank(&mut self, bank_start: Addr, mut new_bank: usize) {
+        if new_bank >= self.bank_count() {
+            new_bank %= self.bank_count();
+        }
         debug_assert!(
-            new_bank <= self.last_bank(),
+            new_bank < self.bank_count(),
             "new_bank is outside bankable range {} / {}",
             new_bank,
-            self.last_bank()
+            self.bank_count()
         );
 
         let bank = self.get_bank(bank_start);
@@ -268,12 +271,15 @@ impl BankedMemory {
         self.banks[bank].address = new_bank * self.window;
     }
 
-    pub fn set_bank_range(&mut self, start: Addr, end: Addr, new_bank: usize) {
+    pub fn set_bank_range(&mut self, start: Addr, end: Addr, mut new_bank: usize) {
+        if new_bank >= self.bank_count() {
+            new_bank %= self.bank_count();
+        }
         debug_assert!(
-            new_bank <= self.last_bank(),
+            new_bank < self.bank_count(),
             "new_bank is outside bankable range {} / {}",
             new_bank,
-            self.last_bank()
+            self.bank_count()
         );
 
         let mut new_address = new_bank * self.window;
