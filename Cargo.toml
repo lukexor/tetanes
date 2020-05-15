@@ -15,7 +15,7 @@ default-run = "tetanes"
 chrono = "0.4"
 dirs = "2.0"
 enum_dispatch = "0.3"
-include_dir = "0.5"
+include_dir = "0.6"
 lazy_static = "1.4"
 log = "0.4"
 pix-engine = { version = "0.3", default_features = false }
