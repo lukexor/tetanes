@@ -88,10 +88,10 @@ instructions to build for your platform.
 the page. To build directly from a release tag, follow these steps:
 
 ```
-    $ git clone https://raw.githubusercontent.com/lukexor/tetanes.git
-    $ cd tetanes/
-    $ git checkout v0.6.0
-    $ cargo install --path ./
+$ git clone https://raw.githubusercontent.com/lukexor/tetanes.git
+$ cd tetanes/
+$ git checkout v0.6.0
+$ cargo install --path ./
 ```
 
 This will install the `v0.6.0` tagged release of the `TetaNES` binary to your `cargo` bin directory
@@ -101,7 +101,7 @@ can see which release tags are available by clicking the `Releases` tab at the t
 by running the following command from the checked out git repository:
 
 ```
-    $ git tag -l
+$ git tag -l
 ```
 
 ## Usage
@@ -114,15 +114,15 @@ but [NES 2.0](https://wiki.nesdev.com/w/index.php/NES_2.0) support is coming.
 ### Windows
 
 ```
-    $ cd %USERPROFILE%\.cargo\bin
-    $ tetanes.exe {filename}
+$ cd %USERPROFILE%\.cargo\bin
+$ tetanes.exe {filename}
 ```
 
 ### macOS/Linux
 
 ```
-    $ cd $HOME/.cargo/bin/
-    $ tetanes {filename}
+$ cd $HOME/.cargo/bin/
+$ tetanes {filename}
 ```
 
 ### Additional Options

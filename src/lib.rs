@@ -86,10 +86,10 @@
 //! the page. To build directly from a release tag, follow these steps:
 //!
 //! ```text
-//!     $ git clone https://raw.githubusercontent.com/lukexor/tetanes.git
-//!     $ cd tetanes/
-//!     $ git checkout v0.6.0
-//!     $ cargo install --path ./
+//! $ git clone https://raw.githubusercontent.com/lukexor/tetanes.git
+//! $ cd tetanes/
+//! $ git checkout v0.6.0
+//! $ cargo install --path ./
 //! ```
 //!
 //! This will install the `v0.6.0` tagged release of the `TetaNES` binary to your `cargo` bin directory
@@ -99,7 +99,7 @@
 //! by running the following command from the checked out git repository:
 //!
 //! ```text
-//!     $ git tag -l
+//! $ git tag -l
 //! ```
 //!
 //! # Usage
@@ -112,15 +112,15 @@
 //! ## Windows
 //!
 //! ```text
-//!     $ cd %USERPROFILE%\.cargo\bin
-//!     $ tetanes.exe {filename}
+//! $ cd %USERPROFILE%\.cargo\bin
+//! $ tetanes.exe {filename}
 //! ```
 //!
 //! ## macOS/Linux
 //!
 //! ```text
-//!     $ cd $HOME/.cargo/bin/
-//!     $ tetanes {filename}
+//! $ cd $HOME/.cargo/bin/
+//! $ tetanes {filename}
 //! ```
 //!
 //! ## Additional Options
