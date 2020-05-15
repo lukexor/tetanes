@@ -26,9 +26,13 @@ pub enum NesFormat {
 
 #[enum_dispatch(MapperType)]
 pub trait Powered {
+    fn power_on(&mut self) {}
+    fn power_off(&mut self) {}
     fn reset(&mut self) {}
     fn power_cycle(&mut self) {
         self.reset();
+        self.power_off();
+        self.power_on();
     }
 }
 

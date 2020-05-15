@@ -5,17 +5,14 @@
 use crate::{
     cartridge::Cartridge,
     common::{Addr, Byte, Clocked, Powered},
-    logging::{LogLevel, Loggable},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     {nes_err, NesResult},
 };
 use enum_dispatch::enum_dispatch;
 use std::{
-    cell::RefCell,
     fmt::Debug,
     io::{Read, Write},
-    rc::Rc,
 };
 
 use m000_nrom::Nrom; // Mapper 0
@@ -36,9 +33,6 @@ mod m005_exrom;
 mod m007_axrom;
 mod m009_pxrom;
 
-/// Alias for Mapper wrapped in a Rc/RefCell
-pub type MapperRef = Rc<RefCell<MapperType>>;
-
 /// Nametable Mirroring Mode
 ///
 /// [http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring]()
@@ -51,12 +45,12 @@ pub enum Mirroring {
     FourScreen,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NullMapper {}
 
 #[allow(clippy::large_enum_variant)]
 #[enum_dispatch]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MapperType {
     NullMapper,
     Nrom,
@@ -70,7 +64,7 @@ pub enum MapperType {
 }
 
 #[enum_dispatch(MapperType)]
-pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + Debug {
+pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered {
     fn irq_pending(&mut self) -> bool {
         false
     }
@@ -98,7 +92,7 @@ pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered + Loggable + 
 }
 
 /// Attempts to return a valid Mapper for the given rom.
-pub fn load_rom<F: Read>(name: &str, rom: &mut F) -> NesResult<MapperRef> {
+pub fn load_rom<F: Read>(name: &str, rom: &mut F) -> NesResult<MapperType> {
     let cart = Cartridge::from_rom(name, rom)?;
     let mapper = match cart.header.mapper_num {
         0 => Nrom::load(cart),
@@ -109,9 +103,10 @@ pub fn load_rom<F: Read>(name: &str, rom: &mut F) -> NesResult<MapperRef> {
         5 => Exrom::load(cart),
         7 => Axrom::load(cart),
         9 => Pxrom::load(cart),
+        71 => Uxrom::load(cart), // TODO: Mapper 71 has slight differences from Uxrom
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };
-    Ok(Rc::new(RefCell::new(mapper)))
+    Ok(mapper)
 }
 
 impl Mapper for NullMapper {}
@@ -120,11 +115,10 @@ impl MemWrite for NullMapper {}
 impl Savable for NullMapper {}
 impl Clocked for NullMapper {}
 impl Powered for NullMapper {}
-impl Loggable for NullMapper {}
 
-pub fn null() -> MapperRef {
+pub fn null() -> MapperType {
     let null = NullMapper {};
-    Rc::new(RefCell::new(null.into()))
+    null.into()
 }
 
 impl Savable for Mirroring {

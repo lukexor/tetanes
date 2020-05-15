@@ -1,15 +1,15 @@
-# TetaNES
+# tetanes
 
 ## Summary
 
 <p align="center">
-  <img src="static/tetanes.png" width="800">
+  <img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes.png" width="800">
 </p>
 
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
 `TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
-using [Rust][rust] and [SDL2][sdl2].
+using [Rust][rust], [SDL2][sdl2] and [WASM][wasm].
 
 It started as a personal curiosity that turned into a passion project. It is still
 a work-in-progress, but I hope to transform it into a fully-featured NES emulator that can play most
@@ -21,10 +21,12 @@ addition to them having the type and memory-safety guarantees that Rust is known
 features of Rust are leveraged in this project including traits, trait objects, generics, matching,
 and iterators.
 
+Try it out in your [browser](http://dev.lukeworks.tech/tetanes)!
+
 ## Screenshots
 
-<img src="static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="static/super_mario_bros.png" width="400">
-<img src="static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="static/metroid.png" width="400">
+<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/super_mario_bros.png" width="400">
+<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/metroid.png" width="400">
 
 ## Mappers
 
@@ -60,22 +62,24 @@ instructions to build for your platform.
 * Install [Rust][rust] (follow the link)
   * If Rust is already installed. Ensure it's up-to-date by running:
 
-        $ rustup update
+    ```text
+    $ rustup update
+    ```
 
-* Install [SDL2](https://github.com/Rust-SDL2/rust-sdl2) development libraries (follow the link)
+* Install [SDL2](https://raw.githubusercontent.com/Rust-SDL2/rust-sdl2) development libraries (follow the link)
   * Linux and macOS should be straightforward
   * Windows makes this a bit more complicated. Be sure to follow the above link instructions
     carefully. For the simple case of using `rustup`, all of the files in `lib\` from the Visual C++
     32/64-bit development zip should go in:
 
-    ```
+    ```text
     C:\Users\{Your Username}\.rustup\toolchains\{current toolchain}\lib\rustlib\{current toolchain}\lib
     ```
 
     Where `{current toolchain}` will likely have `x86_64-pc-windows` in its name. then a copy of
     `lib\SDl2.dll` needs to go in:
 
-    ```
+    ```text
     %USERPROFILE%\.cargo\bin
     ```
 
@@ -83,10 +87,12 @@ instructions to build for your platform.
 * Download & install `TetaNES`. Stable releases can be found on the `Releases` tab at the top of
 the page. To build directly from a release tag, follow these steps:
 
-        $ git clone https://github.com/lukexor/tetanes.git
-        $ cd tetanes/
-        $ git checkout v0.6.0
-        $ cargo install --path ./
+```
+$ git clone https://raw.githubusercontent.com/lukexor/tetanes.git
+$ cd tetanes/
+$ git checkout v0.6.0
+$ cargo install --path ./
+```
 
 This will install the `v0.6.0` tagged release of the `TetaNES` binary to your `cargo` bin directory
 located at either `$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on
@@ -94,24 +100,30 @@ Windows. Replace the release tag with the one you want to install. The latest is
 can see which release tags are available by clicking the `Releases` tab at the top of this page or
 by running the following command from the checked out git repository:
 
-        $ git tag -l
+```
+$ git tag -l
+```
 
 ## Usage
 
 For each platform, the first `cd` command may not be needed depending on the contents of your `$PATH`
 environment variable. `filename` should be replaced by the path to your game ROM ending in `nes`.
 At present, only the [iNES](https://wiki.nesdev.com/w/index.php/INES) format is fully supported,
-but [NES 2.0](https://wiki.nesdev.com/w/index.php/NES_2.0) support is coming. 
+but [NES 2.0](https://wiki.nesdev.com/w/index.php/NES_2.0) support is coming.
 
 ### Windows
 
-        $ cd %USERPROFILE%\.cargo\bin
-        $ tetanes.exe {filename}
+```
+$ cd %USERPROFILE%\.cargo\bin
+$ tetanes.exe {filename}
+```
 
 ### macOS/Linux
 
-        $ cd $HOME/.cargo/bin/
-        $ tetanes {filename}
+```
+$ cd $HOME/.cargo/bin/
+$ tetanes {filename}
+```
 
 ### Additional Options
 
@@ -134,8 +146,6 @@ FLAGS:
 
 OPTIONS:
     -g, --genie-codes <genie-codes>...    List of Game Genie Codes (space separated).
-    -l, --log-level <log-level>           Set logging level. [default: error]  [possible values: off, error, warn, info,
-                                          debug, trace]
     -p, --replay <replay>                 Replay a saved action replay file.
         --savestate-slot <save-slot>      Set savestate slot #. [default: 1]  [possible values: 1, 2, 3, 4]
     -s, --scale <scale>                   Window scale [default: 3]
@@ -143,7 +153,6 @@ OPTIONS:
 
 ARGS:
     <path>    The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
-
 ```
 
 ## Controls
@@ -163,8 +172,8 @@ There are also some emulator actions:
 | Action                            | Keyboard         | Controller         |
 | --------------------------------- | ---------------- | ------------------ |
 | Pause                             | Escape           | Guide Button       |
-| Help Menu                         | F1               |                    |
-| Configuration Menu                | Ctrl-C           |                    |
+| Help Menu<sup>\*</sup>            | F1               |                    |
+| Configuration Menu<sup>\*</sup>   | Ctrl-C           |                    |
 | Open ROM<sup>\*</sup>             | Ctrl-O           |                    |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
@@ -175,7 +184,7 @@ There are also some emulator actions:
 | Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
-| Rewind 5 Seconds (when enabled)   | R                |                    |
+| Rewind 5 Seconds                  | R                |                    |
 | Stop Action Replay Recording      | Shift-V          |                    |
 | Toggle Music/Sound                | Ctrl-M           |                    |
 | Toggle CPU Debugger               | Ctrl-D           |                    |
@@ -185,7 +194,6 @@ There are also some emulator actions:
 | Toggle PPU Viewer                 | Shift-P          |                    |
 | Toggle Nametable Viewer           | Shift-N          |                    |
 | Take Screenshot                   | F10              |                    |
-| Increase Logging Level            | F9               |                    |
 
 While the CPU Debugger is open (these can also be held down):
 
@@ -222,7 +230,9 @@ would make these games seem deterministic when they weren't intended to be.
 If you would like `TetaNES` to provide fully deterministic emulated powerup state, you'll need to
 build the binary from source using the following command:
 
-        $ cargo build --release --features no-randomize-ram
+```
+$ cargo build --release --features no-randomize-ram
+```
 
 ## Building/Testing
 
@@ -238,7 +248,7 @@ directory.
 Run them in a similar way you would run a game. e.g.
 
 ```
-cargo run --release --features no-randomize-ram tests/cpu/nestest.nes
+$ cargo run --release --features no-randomize-ram tests/cpu/nestest.nes
 ```
 
 ## Debugging
@@ -256,8 +266,11 @@ The PPU Viewer shows the current sprite and palettes loaded. You can also scroll
 similar manner to the Nametable Viewer. Super Mario Bros 3 for example swaps out sprites mid-frame
 to render animations.
 
-<img src="static/nametable_viewer.png" width="400">&nbsp;&nbsp;<img src="static/ppu_viewer.png" width="400">
-<img src="static/debugger.png" width="808">
+<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/nametable_viewer.png" width="400">&nbsp;&nbsp;<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/ppu_viewer.png" width="400">
+<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/debugger.png" width="808">
+
+Logging can be set by setting the `RUST_LOG` environment variable and setting it
+to one of `trace`, `debug`, `info`, `warn` or `error`.
 
 ## Troubleshooting
 
@@ -284,12 +297,12 @@ guideline for what to include is:
 - What you were doing when the error happened
 - A description of the error and what happeneed
 - Any console output
-- Any related error or debug logs (not yet available)
+- Any related errors or logs
 
 When using the browser version (not yet available), also include:
 - Web browser and version (e.g. Chrome 77.0.3865)
 
-## Known Issues
+### Known Issues
 
 See the github issue tracker.
 
@@ -320,7 +333,7 @@ The following is a checklist of features and their progress:
   - [x] Keyboard
   - [x] Standard Controller
   - [x] Turbo
-  - [ ] Light Gun (Mouse implementation in progress)
+  - [ ] Zapper (Light Gun)
 - [x] Memory
 - [x] Cartridge
   - [x] Battery-backed Save RAM
@@ -398,7 +411,7 @@ extensively during development:
 
 `TetaNES` is licensed under the GPLv3 license. See the `LICENSE.md` file in the root for a copy.
 
-## Contact
+### Contact
 
 For issue reporting, please use the github issue tracker. You can contact me directly
 [here](https://lukeworks.tech/contact/).
@@ -413,11 +426,11 @@ submit a pull request if you want to help out!
 Implementation was inspiried by several amazing NES projects, without which I would not have been
 able to understand or digest all the information on the NES wiki.
 
-- [fogleman NES](https://github.com/fogleman/nes)
-- [sprocketnes](https://github.com/pcwalton/sprocketnes)
-- [nes-emulator](https://github.com/MichaelBurge/nes-emulator)
-- [LaiNES](https://github.com/AndreaOrru/LaiNES)
-- [ANESE](https://github.com/daniel5151/ANESE)
+- [fogleman NES](https://raw.githubusercontent.com/fogleman/nes)
+- [sprocketnes](https://raw.githubusercontent.com/pcwalton/sprocketnes)
+- [nes-emulator](https://raw.githubusercontent.com/MichaelBurge/nes-emulator)
+- [LaiNES](https://raw.githubusercontent.com/AndreaOrru/LaiNES)
+- [ANESE](https://raw.githubusercontent.com/daniel5151/ANESE)
 - [FCEUX](http://www.fceux.com/web/home.html)
 
 I also couldn't have gotten this far without the amazing people over on the
@@ -430,10 +443,13 @@ I also couldn't have gotten this far without the amazing people over on the
 - [rainwarrior](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=5165)
 - And many others who helped me understand the stickier bits of emulation
 
-Also, a huge shout out to [OneLoneCoder](https://github.com/OneLoneCoder/) for his
-[NES](https://github.com/OneLoneCoder/olcNES) and
-[olcPixelGameEngine](https://github.com/OneLoneCoder/olcPixelGameEngine) series as those helped a ton
+Also, a huge shout out to [OneLoneCoder](https://raw.githubusercontent.com/OneLoneCoder/) for his
+[NES](https://raw.githubusercontent.com/OneLoneCoder/olcNES) and
+[olcPixelGameEngine](https://raw.githubusercontent.com/OneLoneCoder/olcPixelGameEngine) series as those helped a ton
 in some recent refactorings.
 
 [rust]: https://www.rust-lang.org/tools/install
 [sdl2]: https://www.libsdl.org/
+[wasm]: https://webassembly.org/
+
+License: GPL-3.0-or-later

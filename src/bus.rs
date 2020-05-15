@@ -3,7 +3,7 @@ use crate::{
     common::{Addr, Byte, Powered},
     hashmap,
     input::Input,
-    mapper::{self, Mapper, MapperRef},
+    mapper::{self, Mapper, MapperType},
     memory::{MemRead, MemWrite, Memory},
     nes_err,
     ppu::Ppu,
@@ -26,7 +26,7 @@ const WRAM_SIZE: usize = 2 * 1024; // 2K NES Work Ram
 pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,
-    pub mapper: MapperRef,
+    pub mapper: Box<MapperType>,
     pub input: Input,
     pub wram: Memory,
     genie_codes: HashMap<Addr, GenieCode>,
@@ -43,44 +43,35 @@ struct GenieCode {
 
 lazy_static! {
     static ref GENIE_MAP: HashMap<char, Byte> = {
-        // Game genie maps these letters to binnary representations as a form of code obfuscation
+        // Game genie maps these letters to binary representations as a form of code obfuscation
         hashmap! {
-            'A' => 0x0,
-            'P' => 0x1,
-            'Z' => 0x2,
-            'L' => 0x3,
-            'G' => 0x4,
-            'I' => 0x5,
-            'T' => 0x6,
-            'Y' => 0x7,
-            'E' => 0x8,
-            'O' => 0x9,
-            'X' => 0xA,
-            'U' => 0xB,
-            'K' => 0xC,
-            'S' => 0xD,
-            'V' => 0xE,
-            'N' => 0xF
+            'A' => 0x0, 'P' => 0x1, 'Z' => 0x2, 'L' => 0x3, 'G' => 0x4, 'I' => 0x5, 'T' => 0x6,
+            'Y' => 0x7, 'E' => 0x8, 'O' => 0x9, 'X' => 0xA, 'U' => 0xB, 'K' => 0xC, 'S' => 0xD,
+            'V' => 0xE, 'N' => 0xF
         }
     };
 }
 
 impl Bus {
     pub fn new() -> Self {
-        Self {
+        let mut bus = Self {
             ppu: Ppu::new(),
             apu: Apu::new(),
             input: Input::new(),
-            mapper: mapper::null(),
+            mapper: Box::new(mapper::null()),
             wram: Memory::ram(WRAM_SIZE),
             genie_codes: HashMap::new(),
             open_bus: 0,
-        }
+        };
+        bus.ppu.load_mapper(&mut bus.mapper);
+        bus.apu.load_mapper(&mut bus.mapper);
+        bus
     }
 
-    pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.ppu.load_mapper(mapper.clone());
-        self.apu.load_mapper(mapper.clone());
+    pub fn load_mapper(&mut self, mapper: MapperType) {
+        let mut mapper = Box::new(mapper);
+        self.ppu.load_mapper(&mut mapper);
+        self.apu.load_mapper(&mut mapper);
         self.mapper = mapper;
     }
 
@@ -129,11 +120,11 @@ impl Bus {
         self.genie_codes.retain(|_, gc| gc.code != code);
     }
 
-    fn genie_code(&self, addr: Addr) -> Option<&GenieCode> {
+    fn genie_code(&self, addr: Addr) -> Option<GenieCode> {
         if self.genie_codes.is_empty() {
             None
         } else {
-            self.genie_codes.get(&addr)
+            self.genie_codes.get(&addr).cloned()
         }
     }
 }
@@ -143,12 +134,12 @@ impl MemRead for Bus {
         // Order of frequently accessed
         let val = match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
+            0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
             0x4020..=0xFFFF => {
-                let mut mapper = self.mapper.borrow_mut();
-                if let Some(gc) = self.genie_code(addr) {
+                let gc = self.genie_code(addr);
+                if let Some(gc) = gc {
                     if let Some(compare) = gc.compare {
-                        let val = mapper.read(addr);
+                        let val = self.mapper.read(addr);
                         if val == compare {
                             gc.data
                         } else {
@@ -158,7 +149,7 @@ impl MemRead for Bus {
                         gc.data
                     }
                 } else {
-                    mapper.read(addr)
+                    self.mapper.read(addr)
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
@@ -168,7 +159,7 @@ impl MemRead for Bus {
             0x4014 => self.open_bus,
         };
         // Helps to sync open bus behavior
-        self.mapper.borrow_mut().open_bus(addr, val);
+        self.mapper.open_bus(addr, val);
         self.open_bus = val;
         val
     }
@@ -177,12 +168,11 @@ impl MemRead for Bus {
         // Order of frequently accessed
         match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFFF are mirrored
+            0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
             0x4020..=0xFFFF => {
-                let mut mapper = self.mapper.borrow_mut();
                 if let Some(gc) = self.genie_code(addr) {
                     if let Some(compare) = gc.compare {
-                        let val = mapper.read(addr);
+                        let val = self.mapper.peek(addr);
                         if val == compare {
                             gc.data
                         } else {
@@ -192,7 +182,7 @@ impl MemRead for Bus {
                         gc.data
                     }
                 } else {
-                    mapper.read(addr)
+                    self.mapper.peek(addr)
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
@@ -207,18 +197,18 @@ impl MemRead for Bus {
 impl MemWrite for Bus {
     fn write(&mut self, addr: Addr, val: Byte) {
         // Some mappers monitor the bus
-        self.mapper.borrow_mut().open_bus(addr, val);
+        self.mapper.open_bus(addr, val);
         self.open_bus = val;
         // Order of frequently accessed
         match addr {
             // Start..End => Read memory
-            0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x8000..=0x1FFFF are mirrored
-            0x4020..=0xFFFF => self.mapper.borrow_mut().write(addr, val),
+            0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x0800..=0x1FFF are mirrored
+            0x4020..=0xFFFF => self.mapper.write(addr, val),
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
             0x4016 => self.input.write(addr, val),
             0x2000..=0x3FFF => {
                 self.ppu.write(addr & 0x2007, val); // 0x2008..=0x3FFF are mirrored
-                self.mapper.borrow_mut().ppu_write(addr, val);
+                self.mapper.ppu_write(addr, val);
             }
             0x4018..=0x401F => (), // APU/IO Test Mode
             0x4014 => (),          // Handled inside the CPU
@@ -230,12 +220,12 @@ impl Powered for Bus {
     fn reset(&mut self) {
         self.apu.reset();
         self.ppu.reset();
-        self.mapper.borrow_mut().reset();
+        self.mapper.reset();
     }
     fn power_cycle(&mut self) {
         self.apu.power_cycle();
         self.ppu.power_cycle();
-        self.mapper.borrow_mut().power_cycle();
+        self.mapper.power_cycle();
     }
 }
 
@@ -243,7 +233,7 @@ impl Savable for Bus {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.ppu.save(fh)?;
         self.apu.save(fh)?;
-        self.mapper.borrow().save(fh)?;
+        self.mapper.save(fh)?;
         // Ignore input
         self.wram.save(fh)?;
         self.open_bus.save(fh)?;
@@ -253,7 +243,9 @@ impl Savable for Bus {
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.ppu.load(fh)?;
         self.apu.load(fh)?;
-        self.mapper.borrow_mut().load(fh)?;
+        self.mapper.load(fh)?;
+        self.ppu.load_mapper(&mut self.mapper);
+        self.apu.load_mapper(&mut self.mapper);
         self.wram.load(fh)?;
         self.open_bus.load(fh)?;
         Ok(())
@@ -274,10 +266,10 @@ impl fmt::Debug for Bus {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn test_bus() {
+        use super::*;
         use crate::mapper;
         use std::{fs::File, io::BufReader};
 

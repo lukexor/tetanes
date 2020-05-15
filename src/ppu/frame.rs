@@ -55,25 +55,34 @@ impl Frame {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
-        let idx = 3 * (x + y * RENDER_WIDTH) as usize;
+        let idx = 4 * (x + y * RENDER_WIDTH) as usize;
         self.pixels[idx] = red;
         self.pixels[idx + 1] = green;
         self.pixels[idx + 2] = blue;
+        self.pixels[idx + 3] = 255;
     }
 
     // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
     // to translate it to Rust
     // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
     // http://wiki.nesdev.com/w/index.php/NTSC_video
-    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
-        // Store the RGB color into the frame buffer.
+    //
+    // Note: Because blending relies on previous x pixel, we shift everything to the
+    // left and render an extra pixel column on the right
+    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, mut pixel: u32, ppu_cycle: u32) {
+        if x > RENDER_WIDTH || y >= RENDER_HEIGHT {
+            return;
+        }
+        if x == RENDER_WIDTH {
+            pixel = self.prev_pixel;
+        }
         let color =
-            self.palette[ppu_cycle as usize][pixel as usize][(self.prev_pixel % 64) as usize];
+            self.palette[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
         self.prev_pixel = pixel;
         let red = (color >> 16 & 0xFF) as u8;
         let green = (color >> 8 & 0xFF) as u8;
         let blue = (color & 0xFF) as u8;
-        self.put_pixel(x, y, red, green, blue);
+        self.put_pixel(x.saturating_sub(1), y, red, green, blue);
     }
 
     // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
@@ -103,22 +112,28 @@ impl Frame {
         let yiq_divider = (9 * 10u32.pow(6)) as f32;
         for palette_offset in 0..3 {
             for channel in 0..3 {
-                for emp in 0..512 {
-                    for color in 0..64 {
+                for color0 in 0..512 {
+                    let emphasis = color0 / 64;
+
+                    for color1 in 0..64usize {
                         let mut y = 0;
                         let mut i = 0;
                         let mut q = 0;
                         // 12 samples of NTSC signal constitute a color.
                         for sample in 0..12 {
-                            // Sample either the previous or the current pixel.
                             let noise = (sample + palette_offset * 4) % 12;
-                            let pixel = if noise < 5 - channel * 2 { emp } else { color }; // Use pixel=emp to disable artifacts.
+                            // Sample either the previous or the current pixel.
+                            // Use pixel=color0 to disable artifacts.
+                            let pixel = if noise < 5 - channel * 2 {
+                                color0
+                            } else {
+                                color1
+                            };
 
                             // Decode the color index.
                             let chroma = pixel % 16;
                             let luma = if chroma < 0xE { (pixel / 4) & 12 } else { 4 }; // Forces luma to 0, 4, 8, or 12 for easy lookup
-                            let emphasis = emp / 64;
-                            // NES NTSC modulator (square wave between up to four voltage levels):
+                                                                                        // NES NTSC modulator (square wave between up to four voltage levels):
                             let limit = if (chroma + 8 + sample) % 12 < 6 {
                                 12
                             } else {
@@ -127,16 +142,17 @@ impl Frame {
                             let high = if chroma > limit { 1 } else { 0 };
                             // TODO: This doesn't quite work yet - green is swapped with blue
                             // and blue emphasis is more of a darker gray
-                            let emp_effect = if (152_278 >> (sample / 6)) & emphasis > 0 {
+                            let emp_effect = if (152_278 >> (sample / 2 * 3)) & emphasis > 0 {
                                 0
                             } else {
                                 2
                             };
                             let level = 40 + VOLTAGES[(high + emp_effect + luma) as usize];
                             // Ideal TV NTSC demodulator:
+                            let (sin, cos) = (PI * sample as f32 / 6.0).sin_cos();
                             y += level;
-                            i += level * ((PI * sample as f32 / 6.0).cos() * 5909.0) as i32;
-                            q += level * ((PI * sample as f32 / 6.0).sin() * 5909.0) as i32;
+                            i += level * (cos * 5909.0) as i32;
+                            q += level * (sin * 5909.0) as i32;
                         }
                         // Store color at subpixel precision
                         let y = y as f32 / 1980.0;
@@ -145,17 +161,17 @@ impl Frame {
                         match channel {
                             2 => {
                                 let rgb = y + i * 0.947 / yiq_divider + q * 0.624 / yiq_divider;
-                                self.palette[palette_offset][color][emp] +=
+                                self.palette[palette_offset][color1][color0] +=
                                     0x10000 * clamp(255.0 * gammafix(rgb));
                             }
                             1 => {
                                 let rgb = y + i * -0.275 / yiq_divider + q * -0.636 / yiq_divider;
-                                self.palette[palette_offset][color][emp] +=
+                                self.palette[palette_offset][color1][color0] +=
                                     0x00100 * clamp(255.0 * gammafix(rgb));
                             }
                             0 => {
                                 let rgb = y + i * -1.109 / yiq_divider + q * 1.709 / yiq_divider;
-                                self.palette[palette_offset][color][emp] +=
+                                self.palette[palette_offset][color1][color0] +=
                                     clamp(255.0 * gammafix(rgb));
                             }
                             _ => (), // invalid channel

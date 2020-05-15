@@ -5,13 +5,13 @@
 use crate::{
     bus::Bus,
     common::{Addr, Byte, Clocked, Powered},
-    logging::{LogLevel, Loggable},
     mapper::Mapper,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
 use instr::{AddrMode::*, Instr, Operation::*, INSTRUCTIONS};
+use log::{log_enabled, trace, Level};
 use std::{
     collections::VecDeque,
     fmt,
@@ -38,9 +38,9 @@ const PC_LOG_LEN: usize = 20;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Irq {
     Reset = 1,
-    Mapper = (1 << 1),
-    FrameCounter = (1 << 2),
-    Dmc = (1 << 3),
+    Mapper = 1 << 1,
+    FrameCounter = 1 << 2,
+    Dmc = 1 << 3,
 }
 
 // Status Registers
@@ -57,14 +57,14 @@ pub enum Irq {
 // |+-------- Overflow
 // +--------- Negative
 pub enum StatusRegs {
-    C = 1,        // Carry
-    Z = (1 << 1), // Zero
-    I = (1 << 2), // Disable Interrupt
-    D = (1 << 3), // Decimal Mode
-    B = (1 << 4), // Break
-    U = (1 << 5), // Unused
-    V = (1 << 6), // Overflow
-    N = (1 << 7), // Negative
+    C = 1,      // Carry
+    Z = 1 << 1, // Zero
+    I = 1 << 2, // Disable Interrupt
+    D = 1 << 3, // Decimal Mode
+    B = 1 << 4, // Break
+    U = 1 << 5, // Unused
+    V = 1 << 6, // Overflow
+    N = 1 << 7, // Negative
 }
 use StatusRegs::*;
 
@@ -90,7 +90,6 @@ pub struct Cpu {
     pub nmi_pending: bool,
     last_irq: bool,
     last_nmi: bool,
-    log_level: LogLevel,
 }
 
 impl Cpu {
@@ -115,15 +114,7 @@ impl Cpu {
             nmi_pending: false,
             last_irq: false,
             last_nmi: false,
-            log_level: LogLevel::default(),
         }
-    }
-
-    pub fn power_on(&mut self) {
-        self.cycle_count = 0;
-        self.stall = 0;
-        self.pc_log.clear();
-        self.set_irq(Irq::Reset, true);
     }
 
     pub fn next_instr(&self) -> Instr {
@@ -225,9 +216,8 @@ impl Cpu {
         self.set_nmi(self.bus.ppu.nmi_pending);
         for _ in 0..ppu_cycles {
             let irq_pending = {
-                let mut mapper = self.bus.mapper.borrow_mut();
-                let _ = mapper.clock(); // Don't care how many cycles are run
-                mapper.irq_pending()
+                let _ = self.bus.mapper.clock(); // Don't care how many cycles are run
+                self.bus.mapper.irq_pending()
             };
             self.set_irq(Irq::Mapper, irq_pending);
         }
@@ -539,7 +529,7 @@ impl Cpu {
                 status_str.push(*s);
             }
         }
-        println!(
+        trace!(
             "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{} SP:{:02X} PPU:{:3},{:3} CYC:{}",
             disasm,
             self.acc,
@@ -579,7 +569,7 @@ impl Clocked for Cpu {
             self.irq();
         }
 
-        if self.log_level == LogLevel::Trace {
+        if log_enabled!(Level::Trace) {
             self.print_instruction(self.pc);
         }
         self.pc_log.push_front(self.pc);
@@ -714,6 +704,14 @@ impl MemWrite for Cpu {
 }
 
 impl Powered for Cpu {
+    /// Powers on the CPU
+    fn power_on(&mut self) {
+        self.cycle_count = 0;
+        self.stall = 0;
+        self.pc_log.clear();
+        self.set_irq(Irq::Reset, true);
+    }
+
     /// Resets the CPU
     ///
     /// Updates the PC, SP, and Status values to defined constants.
@@ -738,15 +736,6 @@ impl Powered for Cpu {
         self.status = POWER_ON_STATUS;
         self.sp = 0;
         self.power_on();
-    }
-}
-
-impl Loggable for Cpu {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 
@@ -816,13 +805,11 @@ impl fmt::Debug for Cpu {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::memory::Memory;
-
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn cpu_cycle_timing() {
+        use super::*;
         let mut cpu = Cpu::init(Bus::new());
-        cpu.log_level = LogLevel::Trace;
         cpu.power_on();
         cpu.clock();
 
@@ -848,7 +835,7 @@ mod tests {
             cpu.acc = 0;
             cpu.x = 0;
             cpu.y = 0;
-            cpu.bus.wram = Memory::ram_from_bytes(&[instr.opcode(), 0, 0, 0]);
+            cpu.bus.wram.write(0x0000, instr.opcode());
             cpu.clock();
             let cpu_cyc = instr.cycles() + extra_cycle;
             let ppu_cyc = 3 * (instr.cycles() + extra_cycle);

@@ -3,7 +3,7 @@
 use crate::{
     apu::SAMPLE_RATE,
     bus::Bus,
-    common::Clocked,
+    common::{Clocked, Powered},
     cpu::{Cpu, CPU_CLOCK_RATE},
     nes::{
         config::{MAX_SPEED, MIN_SPEED},
@@ -157,7 +157,7 @@ impl Nes {
         let vsync = self.config.vsync;
 
         // Extract title from filename
-        let mut path = PathBuf::from(self.config.path.to_owned());
+        let mut path = self.config.path.to_owned();
         path.set_extension("");
         let filename = path.file_name().and_then(|f| f.to_str());
         let title = if let Some(filename) = filename {
@@ -203,7 +203,7 @@ impl Nes {
         }
         if self.roms.len() == 1 {
             self.load_rom(0)?;
-            self.power_on()?;
+            self.power_on();
 
             if self.config.clear_save {
                 if let Ok(save_path) = state::save_path(&self.loaded_rom, self.config.save_slot) {
@@ -243,9 +243,6 @@ impl Nes {
             self.config.speed = (self.config.speed * 100.0).round() / 100.0;
         }
         self.cpu.bus.apu.set_speed(self.config.speed);
-
-        self.set_log_level(self.config.log_level, true);
-
         if self.config.fullscreen {
             data.fullscreen(true)?;
         }
@@ -328,7 +325,7 @@ impl State for Nes {
     }
 
     fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
-        self.power_off()?;
+        self.power_off();
         Ok(true)
     }
 }
@@ -355,11 +352,12 @@ mod tests {
         let mut nes = Nes::new();
         nes.roms.push(PathBuf::from(file));
         nes.load_rom(0).unwrap();
-        nes.power_on().unwrap();
+        nes.power_on();
         nes
     }
 
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn nestest() {
         let rom = "tests/cpu/nestest.nes";
         let mut nes = load(&rom);
@@ -393,6 +391,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn instr_timing() {
         let rom = "tests/cpu/instr_timing.nes";
         let mut nes = load(&rom);
@@ -402,8 +401,9 @@ mod tests {
 
     #[test]
     fn apu_timing() {
-        let mut nes = Nes::new();
-        nes.power_on().unwrap();
+        // TODO assert outputs
+        let rom = "tests/cpu/nestest.nes";
+        let mut nes = load(&rom);
         for _ in 0..=29840 {
             let apu = &nes.cpu.bus.apu;
             println!(

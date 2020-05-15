@@ -6,8 +6,7 @@ use crate::{
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
     filter::{Filter, FilterType, HiPassFilter, LoPassFilter},
-    logging::{LogLevel, Loggable},
-    mapper::MapperRef,
+    mapper::MapperType,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
@@ -22,7 +21,7 @@ use std::{
 };
 use triangle::Triangle;
 
-pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
+pub const SAMPLE_RATE: f32 = 48_000.0; // in Hz
 const SAMPLE_BUFFER_SIZE: usize = 4096;
 
 pub mod dmc;
@@ -52,8 +51,8 @@ pub struct Apu {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
+    enabled: [bool; 5],
     pub dmc: Dmc,
-    log_level: LogLevel,
     filters: [FilterType; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
@@ -77,7 +76,7 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
-            log_level: LogLevel::Off,
+            enabled: [true; 5],
             filters: [
                 FilterType::HiPassFilter(HiPassFilter::new(90.0, SAMPLE_RATE)),
                 FilterType::HiPassFilter(HiPassFilter::new(440.0, SAMPLE_RATE)),
@@ -95,11 +94,11 @@ impl Apu {
         apu
     }
 
-    pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.dmc.mapper = mapper;
+    pub fn load_mapper(&mut self, mapper: &mut MapperType) {
+        self.dmc.mapper = &mut *mapper as *mut MapperType;
     }
 
-    pub fn samples(&mut self) -> &[f32] {
+    pub fn samples(&self) -> &[f32] {
         &self.samples
     }
 
@@ -109,6 +108,26 @@ impl Apu {
 
     pub fn set_speed(&mut self, speed: f32) {
         self.clock_rate = CPU_CLOCK_RATE * speed;
+    }
+
+    pub fn toggle_pulse1(&mut self) {
+        self.enabled[0] = !self.enabled[0];
+    }
+
+    pub fn toggle_pulse2(&mut self) {
+        self.enabled[1] = !self.enabled[1];
+    }
+
+    pub fn toggle_triangle(&mut self) {
+        self.enabled[2] = !self.enabled[2];
+    }
+
+    pub fn toggle_noise(&mut self) {
+        self.enabled[3] = !self.enabled[3];
+    }
+
+    pub fn toggle_dmc(&mut self) {
+        self.enabled[4] = !self.enabled[4];
     }
 
     // Counts CPU clocks and determines when to clock quarter/half frames
@@ -173,18 +192,34 @@ impl Apu {
     }
 
     fn output(&mut self) -> f32 {
-        let pulse1 = self.pulse1.output();
-        let pulse2 = self.pulse2.output();
-        // let pulse1 = 0.0;
-        // let pulse2 = 0.0;
-        let triangle = self.triangle.output();
-        let noise = self.noise.output();
-        let dmc = self.dmc.output();
-        // let noise = 0.0;
-        // let dmc = 0.0;
+        let pulse1 = if self.enabled[0] {
+            self.pulse1.output()
+        } else {
+            0.0
+        };
+        let pulse2 = if self.enabled[1] {
+            self.pulse2.output()
+        } else {
+            0.0
+        };
+        let triangle = if self.enabled[2] {
+            self.triangle.output()
+        } else {
+            0.0
+        };
+        let noise = if self.enabled[3] {
+            self.noise.output()
+        } else {
+            0.0
+        };
+        let dmc = if self.enabled[4] {
+            self.dmc.output()
+        } else {
+            0.0
+        };
 
-        let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize];
-        let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize];
+        let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
+        let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize % 203];
         2.0 * (pulse_out + tnd_out)
     }
 
@@ -293,15 +328,6 @@ impl Clocked for Apu {
         }
         self.cycle += 1;
         1
-    }
-}
-
-impl Loggable for Apu {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 

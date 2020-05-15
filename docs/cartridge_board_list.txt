@@ -1,780 +1,780 @@
-10 Yard Fight	Nintendo	E	NROM
-110 in 1 (Canada?)	Supervision		
-1942	Capcom	C+	NROM
-1943	Capcom	C+	UNROM
-6 in 1	Caltron	A	
-720	Mindscape	C	SGROM
-8 Eyes	Taxan	C-	TLROM
-A Boy and His Blob	Absolute	C	SLROM
-Abadox	Milton Bradley	C	SLROM
-Action 52	Active Enterprises	A	023-N507
-Addams Family	Ocean	B	SLROM
-Adv of Bayou Billy	Konami	C-	SLROM
-Adv of Dino Riki	Hudson	C	CNROM
-Adv of Lolo	HAL	C+	SEROM
-Adv of Lolo 2	HAL	B-	TEROM
-Adv of Lolo 3	HAL	B+	SLROM
-Adv of Tom Saywer	Seta	B	SLROM
-Adventure Island	Hudson	D	CNROM
-Adventure Island 2	Hudson	B-	TLROM
-Adventure Island 3	Hudson	B	TLROM
-After Burner	Tengen	C+	800042-01
-Air Fortress	HAL	C	SJROM
-Airwolf	Acclaim	C	SHROM
-Al Unser Racing	Data East	C	SKROM
-Aladdin Deck Enhancer	Camerica	A+	
-Alfred Chicken	Mindscape	B+	UNROM
-Alien 3	LJN	B+	55741
-Alien Syndrome	Tengen	C+	
-All Pro Basketball	Vic Tokai	C	SLROM
-Alpha Mission	SNK	C	CNROM
-Amagon	American Sammy	C	UNROM
-American Gladiators	Gametek	B-	SLROM
-Anticipation	Nintendo	C	SEROM
-Arch Rivals	Acclaim	C	AMROM
-Archon	Activision	B	UNROM
-Arkanoid	Taito	B+	CNROM
-Arkanoid Controller	Taito	A	
-Arkistas Ring	American Sammy	B	CNROM
-Astyanax	Jaleco	C	TLROM
-Athena	SNK	C	UNROM
-Athletic World	Bandai	B-	CNROM
-Attack of the Killer Tomatoes	T*HQ	B-	SLROM
-Baby Boomer	Color Dreams	B-	
-Back to the Future	LJN	D	CNROM
-Back to the Future 2 & 3	LJN	C	SLROM
-Bad Dudes	Data East	C	TLROM
-Bad News Baseball	Tecmo	B	SLROM
-Bad Street Brawler	Mattel	C	SGROM
-Balloon Fight	Nintendo	C	NROM
-Bandit Kings/China	Koei	B-	ETROM
-Barbie	Hi Tech	B	SLROM
-Bard's Tale	FCI	B-	SNROM
-Base Wars	Ultra	C	TKROM
-Baseball	Nintendo	E	NROM
-Baseball Simulator	Culture Brain	C+	SKROM
-Baseball Stars	SNK	C+	SKROM
-Baseball Stars 2	Romstar	B+	TKROM
-Bases Loaded	Jaleco	E	SFROM
-Bases Loaded 2	Jaleco	D	SL3ROM
-Bases Loaded 3	Jaleco	C	TLROM
-Bases Loaded 4	Jaleco	C+	TLROM
-Batman	Sunsoft	D	NES_B4
-Batman Return/Joker	Sunsoft	B-	NES_BTR
-Batman Returns	Konami	B+	TLROM
-Battle Chess	Data East	B+	SKROM
-Battle of Olympus	Broderbund	C	SGROM
-Battle Tank	Absolute	B	CNROM
-Battle Toads	Tradewest	D	AOROM
-Battle Toads & Double Dragon	Tradewest	B+	AOROM
-Battleship	Mindscape	B	CNROM
-Bee 52	Camerica	B+	
-Beetlejuice	LJN	C+	AMROM
-Best of the Best	Electro Brain	B+	UOROM
-Bible Adventures	Wisdom Tree	B+	
-Bible Adventures (blue label)	Wisdom Tree	B+	
-Bible Buffet	Wisdom Tree	B+	
-Big Bird Hide & Speak	Hi Tech	B	SLROM
-Big Foot	Acclaim	B-	SLROM
-Big Nose Freaks Out	Camerica	A	
-Big Nose Freaks Out (Aladdin Cart)	Camerica	A+	
-Big Nose the Caveman	Camerica	B	
-Bill & Ted's Excellent Adventure	LJN	C+	SLROM
-Bill Elliott's NASCAR Challenge	Konami	C+	TSROM
-Bionic Commando	Capcom	C	SGROM
-Black Bass	Hot B	B	UNROM
-Blackjack	American Video	A-	
-Blades of Steel	Konami	D	UNROM
-Blaster Master	Sunsoft	D	SL2ROM
-Blue Marlin	Hot B	B+	TLROM
-Blues Brothers	Titus	B	UNROM
-Bo Jackson Baseball	Data East	C+	TSROM
-Bomberman	Hudson	C	NROM
-Bomberman 2	Hudson	B	SNROM
-Bonks Adventure	Hudson	B+	TLROM
-Boulder Dash	JVC	B+	SEROM
-Break Time	FCI	B+	SFROM
-Breakthru	Data East	C	(SLROM)
-Bubble Bath Babes	Panesian	A+	
-Bubble Bobble	Taito	D	SFROM
-Bubble Bobble 2	Taito	B	TLROM
-Bucky O'Hare	Konami	B	TLROM
-Bugs Bunny Birthday Blowout	Kemco	B	TSROM
-Bugs Bunny Crazy Castle	Kemco	B+	SBROM
-Bump & Jump	Vic Tokai	B-	CNROM
-Burai Fighter	Taxan	B-	TEROM
-Burger Time	Data East	B-	NROM
-Cabal	Milton Bradley	C	AMROM
-Caesars Palace	Virgin	B	UNROM
-California Games	Milton Bradley	C	UNROM
-Captain America	Data East	B	TLROM
-Captain Comic	Color Dreams	B	
-Captain Planet	Mindscape	B	TLROM
-Captain Skyhawk	Milton Bradley	C	AMROM
-Casino Kid	Sofel	C+	UNROM
-Casino Kid 2	Sofel	B+	UNROM
-Castelian	Triffix	B	UNROM
-Castle of Deceit	Bunch Games	B	
-Castle of Dragon	Seta	B	UNROM
-Castlequest	Nexoft	B	CNROM
-Castlevania	Konami	E	UNROM
-Castlevania 2	Konami	D	SLROM
-Castlevania 3	Konami	C-	ELROM
-Caveman Games	Data East	B-	SLROM
-Challenge of the Dragon	Color Dreams	B	
-Championship Bowling	Romstar	B	CNROM
-Championship Pool	Mindscape	B+	UNROM
-Cheetahman II	Active Enterprises	A	
-Chessmaster	Hi Tech	B	SJROM
-Chiller	American Game Carts Inc	B+	
-Chubby Cherub	Bandai	B	NROM
-Circus Caper	Toho	B	SLROM
-City Connection	Jaleco	B	CNROM
-Clash at Demonhead	Vic Tokai	B-	SLROM
-Classic Concentration	Gametek	B-	UNROM
-Cliffhanger	Imagesoft	B	TLROM
-Clu Clu Land	Nintendo	B-	NES_RROM
-Cobra Command	Data East	C	SLROM
-Cobra Triangle	Nintendo	B-	ANROM
-Codename Viper	Capcom	C	TLROM
-Color A Dinosaur	Virgin	A-	UNROM
-Commando	Capcom	C	UNROM
-Conan	Mindscape	B	UNROM
-Conflict	Vic Tokai	C+	SKROM
-Conquest Crystal Palace	Asmik	C+	TLROM
-Contra	Konami	E	UNROM
-Contra Force	Konami	B	TLROM
-Cool World	Ocean	B	SLROM
-Cowboy Kid	Romstar	A-	TLROM
-Crash & the Boys Street Challange	American Technos	B	TLROM
-Crash Dummies	LJN	B	55741
-Crystal Mines	Color Dreams	B+	
-Crystalis	SNK	C	TKROM
-Cyberball	Jaleco	B	TLROM
-Cybernoid	Acclaim	C	CNROM
-Dance Aerobics	Nintendo	C+	SBROM
-Darkman	Ocean	B	SLROM
-Darkwing Duck	Capcom	B+	SLROM
-Dash Galaxy	Data East	C	CNROM
-Day Dreamin' Davey	HAL	B+	SLROM
-Days of Thunder	Mindscape	C+	TLROM
-Deadly Towers	Broderbund	C+	BNROM
-Death Race	American Game Carts Inc	B+	
-Deathbots	American Video	B+	
-Defender 2	HAL	B	NROM
-Defender of the Crown	Ultra	C+	SGROM
-Defenders of Dynacron City	JVC	B	TLROM
-Deja Vu	Kemco	C+	TKROM
-Demon Sword	Taito	C+	SL1ROM
-Desert Commander	Kemco	C-	SKROM
-Destination Earthstar	Acclaim	C	CNROM
-Destiny/Emporer	Capcom	B-	SNROM
-Dick Tracy	Bandai	C+	UNROM
-Die Hard	Activision	B+	SLROM
-Dig Dug 2	Bandai	B	NROM
-Digger	Milton Bradley	B+	AMROM
-Dirty Harry	Mindscape	C+	TLROM
-Disney Adventure	Capcom	B	SLROM
-Dizzy the Adventurer (Aladdin Cart)	Camerica	A+	
-Donkey Kong	Nintendo	B-	NROM
-Donkey Kong 3	Nintendo	B-	NROM
-Donkey Kong Classics	Nintendo	B-	CNROM
-Donkey Kong Jr	Nintendo	B-	NROM
-Donkey Kong Jr Math	Nintendo	A-	NROM
-Double Dare	Gametek	B	AOROM
-Double Dragon	Tradewest	E	SLROM
-Double Dragon 2	Acclaim	D	TL1ROM
-Double Dragon 3	Acclaim	C+	TLROM
-Double Dribble	Konami	D	UNROM
-Double Strike	American Video	B+	
-Dr. Chaos	FCI	C	UNROM
-Dr. Jeckyl/Mr. Hyde	Bandai	C+	SFROM (SFDOROM)
-Dr. Mario	Nintendo	D	SEROM
-Dracula	Imagesoft	B	TSROM
-Dragon Fighter	Sofel	B	SLROM
-Dragon Power	Bandai	C	GNROM
-Dragon Spirit	Bandai	B	TLROM
-Dragon Strike	FCI	C	TLROM
-Dragon Warrior	Nintendo	E	SAROM
-Dragon Warrior 2	Enix	C+	SNROM
-Dragon Warrior 3	Enix	B+	SUROM
-Dragon Warrior 4	Enix	B	SUROM
-Dragon's Lair	Imagesoft	B	UNROM
-Duck Hunt	Nintendo	F	NROM
-Duck Tales	Capcom	C+	UNROM
-Duck Tales 2	Capcom	B+	UNROM
-Dudes with Attitude	American Video	B+	
-Dungeon Magic	Taito	C	SKROM
-Dusty Diamond All Star Softball	Broderbund	B-	SLROM
-Dyno Warz	Bandai	C+	SLROM
-Elevator Action	Taito	B-	NROM
-Eliminator Boat Duel	Electro Brain	C+	SLROM
-Empire Strikes Back	JVC	B	TLROM
-Excitebike	Nintendo	E	NROM
-Exodus	Wisdom Tree	B+	
-F 117 Stealth	Microprose	B+	TLROM
-F 15 City War	American Video	B	
-F 15 Strike Eagle	Microprose	B+	TLROM
-F1 Built to Win	Seta	B+	SKROM
-Family Feud	Gametek	B+	SHROM
-Fantastic Adv Dizzy (Aladdin Cart)	Camerica	A+	
-Fantastic Adventures of Dizzy	Camerica	B-	
-Fantasy Zone	Tengen	C	
-Faria	Nexoft	B+	SKROM
-Fast Break	Tradewest	C	SCROM
-Faxanadu	Nintendo	C-	SGROM
-Felix the Cat	Hudson	B+	TSROM
-Ferrari Grand Prix	Acclaim	B	SLROM
-Fester's Quest	Sunsoft	C	SLROM
-Fighting Golf	SNK	C	SLROM
-Final Fantasy	Nintendo	C+	SNROM
-Fire & Ice	Tecmo	A-	TLROM
-Fire Hawk	Camerica	B	
-Firehouse Rescue	Gametek	B	CNROM
-Fist of the North Star	Taxan	C+	UNROM
-Flight of the Intruder	Mindscape	B	UNROM
-Flintstones	Taito	C+	TLROM
-Flintstones 2	Taito	A+	
-Flying Dragon	Culture Brain	C	UNROM
-Flying Warriors	Culture Brain	C	SLROM
-Frankenstein	Bandai	B+	SLRROM
-Freedom Force	Sunsoft	D	SLROM
-Friday The 13th	LJN	C-	CNROM
-Fun House	Hi Tech	B+	UNROM
-G I Joe	Taxan	B+	TLROM
-G I Joe Atlantis Factor	Capcom	C+	TLROM
-Galactic Crusader	Bunch Games	B	
-Galaga	Bandai	B	NROM
-Galaxy 5000	Activision	A-	TLROM
-Game Action Replay	STD	A-	
-Game Genie	Galoob	D	
-Gargoyle's Quest 2	Capcom	B+	TLROM
-Gauntlet (licensed)	Tengen	C	DRROM
-Gauntlet (unlicensed)	Tengen	C	
-Gauntlet 2	Mindscape	C	TSROM
-Gemfire	Koei	B-	EKROM
-Genghis Kahn	Koei	C+	SOROM
-George Forman	Acclaim	B	55741
-Ghost & Goblins	Capcom	C	UNROM
-Ghost Lion	Kemco	B	SKROM
-Ghostbusters	Activision	B-	CNROM
-Ghostbusters 2	Activision	B	SLROM
-Ghoul School	Electro Brain	B-	SLROM
-Gilligans Island	Bandai	B+	UNROM
-Goal	Jaleco	D	SL3ROM
-Goal 2	Jaleco	B-	TLSROM
-Godzilla	Toho	C+	SLROM
-Godzilla 2	Toho	B	SLROM
-Gold Metal Challenge	Capcom	B+	TKROM
-Golf	Nintendo	E	NROM
-Golf Grand Slam	Atlus	B+	SLROM
-Golf Power	Virgin	B+	SNROM
-Golgo 13 Top Secret Episode	Vic Tokai	D	SLROM
-Goonies 2	Konami	C+	351258
-Gotcha	LJN	C	CNROM
-Gradius	Konami	C-	CNROM
-Great Waldo Search	T*HQ	B-	SLROM
-Gremlins 2	Sunsoft	B-	TLROM
-Guardian Legend	Broderbund	C+	UNROM
-Guerrilla War	SNK	C	SLROM
-Gum Shoe	Nintendo	C+	GNROM
-Gun Nac	Ascii	B	TLROM
-Gunsmoke	Capcom	B-	UNROM
-Gyromite	Nintendo	E	NROM
-Gyruss	Ultra	C+	CNROM
-Harlem Globetrotters	Gametek	B	SLROM
-Hatris	Bullet Proof	A	SNROM
-Heavy Barrel	Data East	C	TLROM
-Heavy Shreddin'	Parker Brothers	B-	SLROM
-Heroes of the Lance	FCI	C	SKROM
-High Speed	Tradewest	B-	TQROM
-Hillsfar	FCI	B	SNROM
-Hogan's Alley	Nintendo	D	NROM
-Hollywood Squares	Gametek	B+	UNROM
-Home Alone	T*HQ	B-	TSROM
-Home Alone 2	T*HQ	B-	TLROM
-Hook	Imagesoft	B	SLROM
-Hoops	Jaleco	D	SLROM
-Hot Slots	Panesian	A+	
-Hudson Hawk	Imagesoft	B	SLROM
-Hunt for Red October	Hi Tech	C	TLROM
-Hydlide	FCI	D	NROM
-I Can Remember	Gametek	B	CNROM
-Ice Climber	Nintendo	C+	NROM
-Ice Hockey	Nintendo	D	NROM
-Ikari Warriors	SNK	C-	UNROM
-Ikari Warriors 2	SNK	C-	SGROM
-Ikari Warriors 3	SNK	B-	SLROM
-Image Fight	Irem	B	TSROM
-Immortal	Electronic Arts	B	TLROM
-Impossible Mission 2	American Video	A-	
-Impossible Mission 2	SEI	B+	
-Indiana Jones Last Crusade	UBI Soft	B+	UNROM
-Indiana Jones Last Crusade	Taito	B+	SGROM
-Indiana Jones Temple of Doom	Tengen	B-	
-Indiana Jones Temple of Doom	Mindscape	C	TFROM
-Indy Heat	Tradewest	B	AMROM
-Infiltrator	Mindscape	B	TLROM
-Iron Tank	SNK	C	SLROM
-Isolated Warrior	NTVIC	B	TLROM
-Jack Nicklaus Golf	Konami	B-	351258
-Jackal	Konami	C	UNROM
-Jackie Chan Kung Fu	Hudson	B	TLROM
-James Bond Jr	T*HQ	B-	TLROM
-Jaws	LJN	D	CNROM
-Jeopardy	Gametek	C	AOROM
-Jeopardy 25th Anniversary	Gametek	C+	ANROM
-Jeopardy Jr	Gametek	C	ANROM
-Jeopardy Super	Gametek	B	SLROM
-Jetsons	Taito	B+	TLROM
-Jimmy Connors Tennis	UBI Soft	B+	UNROM
-Joe & Mac	Data East	B+	TLROM
-Jordan vs. Bird	Milton Bradley	C	UNROM
-Joshua	Wisdom Tree	B+	
-Journey to Silius	Sunsoft	C+	SLROM
-Joust	HAL	B	CNROM
-Jungle Book	Virgin	A-	TLROM
-Jurassic Park	Ocean	B	TSROM
-Karate Champ	Data East	C	CNROM
-Karate Kid	LJN	C	CNROM
-Karnov	Data East	C	DEIROM
-Kick Master	Taito	C+	TLROM
-Kickle Cubicle	Irem	B+	TLROM
-Kid Icarus	Nintendo	C-	SNROM
-Kid Klown	Kemco	B	TSROM
-Kid Kool	Vic Tokai	C+	UNROM
-Kid Niki	Data East	C	SGROM
-King Neptune's Adventure	Color Dreams	B+	
-King of Kings	Wisdom Tree	B+	
-King of Kings (cartoon mule)	Wisdom Tree	B+	
-King of the Ring	Acclaim	B+	55741
-Kings Knight	Square	C+	CNROM
-Kings of the Beach	Ultra	C	CNROM
-Kings Quest 5	Konami	B+	TSROM
-Kirbys Adventure	Nintendo	B-	TKROM
-Kiwi Kraze	Taito	B+	TLROM
-Klash Ball	Sofel	B-	UNROM
-Klax	Tengen	B+	
-Knight Rider	Acclaim	B-	SCIROM
-Krazy Kreatures	American Video	B+	
-Krion Conquest	Vic Tokai	B	TLROM
-Krusty's Fun House	Acclaim	C+	TLROM
-Kung Fu	Nintendo	E	NROM
-Kung Fu Heroes	Culture Brain	C	CNROM
-L'Empereur	Koei	B	ETROM
-Laser Invasion	Konami	B-	ELROM
-Last Action Hero	Imagesoft	B+	TLROM
-Last Ninja	Jaleco	B-	TLROM
-Last Starfighter	Mindscape	C+	CNROM
-Legacy/Wizard	Broderbund	C	TFROM
-Legend of Kage	Taito	C-	CNROM
-Legendary Wings	Capcom	B	UNROM
-Legends/Diamond	Bandai	B+	TLROM
-Lemmings	Sunsoft	B-	SLROM
-Lethal Weapon	Ocean	B	SLROM
-Life Force	Konami	C	351258
-Linus Spacehead	Camerica	B	
-Linus Spacehead (Aladdin Cart)	Camerica	A+	
-Little League Baseball	SNK	B-	SLROM
-Little Mermaid	Capcom	B	UNROM
-Little Nemo	Capcom	B+	TLROM
-Little Ninja Brothers	Culture Brain	C	TLROM
-Little Sampson	Taito	B	TLROM
-Lode Runner	Broderbund	B	NROM
-Lone Ranger	Konami	B-	TLROM
-Loopz	Mindscape	B+	UNROM
-Low G Man	Taxan	C	TLROM
-Lunar Pool	FCI	C+	NROM
-M C Kids	Virgin	C+	TSROM
-M.U.L.E.	Mindscape	C+	SNROM
-Mach Rider	Nintendo	C-	NROM
-Mad Max	Mindscape	C+	TLROM
-Mafat Conspiracy	Vic Tokai	C	TLROM
-Magic Darts	Romstar	B	SLRROM
-Magic of Scheherazade	Culture Brain	C-	SLROM
-Magician	Taxan	A-	TKROM
-Magmax	FCI	C-	NROM
-Major League Baseball	LJN	E	CNROM
-Maniac Mansion	Jaleco	C+	SNROM
-Mappyland	Taxan	C+	TFROM
-Marble Madness	Milton Bradley	C+	ANROM
-Mario Brothers	Nintendo	B-	NROM
-Mario Is Missing	Mindscape	B	TLROM
-Mario Time Machine	Mindscape	A-	TLROM
-Marvel's X-Men	LJN	B-	UNROM
-Master Chu & the Drunkard Hu	Color Dreams	B	
-Maxi 15	American Video	A	
-Mechanized Attack	SNK	C	SCROM
-Mega Man	Capcom	B-	UNROM
-Mega Man 2	Capcom	C	SGROM
-Mega Man 3	Capcom	C	TLROM
-Mega Man 4	Capcom	B-	TGROM
-Mega Man 5	Capcom	B	TLROM
-Mega Man 6	Nintendo	B+	TGROM
-Menace Beach	Color Dreams	A-	
-Mendel Palace	Hudson	B	TLROM
-Mermaids of Atlantis	American Video	B+	
-Metal Fighter	Color Dreams	B	
-Metal Gear	Ultra	D	UNROM
-Metal Mech	Jaleco	B-	SLROM
-Metal Storm	Irem	B+	TLROM
-Metroid	Nintendo	D	SNROM
-Michael Andretti World GP	American Sammy	B-	TLROM
-Mickey Mousecapade	Capcom	C+	CNROM
-Mickey Numbers	Hi Tech	B+	TLROM
-Mickey's Safari in Letterland	Hi Tech	B+	55741
-Micro Machines	Camerica	A-	
-Micro Machines (Aladdin Cart)	Camerica	A+	
-Mig 29	Camerica	C+	
-Might & Magic	American Sammy	B+	TKROM
-Mighty Bombjack	Tecmo	B	CNROM
-Mighty Final Fight	Capcom	B+	TLROM
-Mike Tyson's Punch Out	Nintendo	D	PNROM
-Millipede	HAL	B	NROM
-Milon's Secret Castle	Hudson	C	CNROM
-Miracle Piano	Mindscape	A-	SJROM
-Mission Cobra	Bunch Games	A-	
-Mission Impossible	Ultra	C+	352026
-Monopoly	Parker Brothers	B-	SLROM
-Monster in my Pocket	Konami	B+	TLROM
-Monster Party	Bandai	B	SLROM
-Monster Truck Rally	INTV	B	CNROM
-Moon Ranger	Bunch Games	C	
-Motor City Patrol	Matchbox	C+	SLROM
-Ms. Pacman	Namco	A	NROM
-Ms. Pacman	Tengen	B+	
-Muppet Adventure	Hi Tech	B	SGROM
-Muscle	Bandai	B-	NROM
-Mutant Virus	American Software	B+	SLROM
-Mystery Quest	Taxan	C+	CNROM
-NARC	Acclaim	C	AMROM
-NES Open Golf	Nintendo	B-	SNROM
-NFL Football	LJN	C	UNROM
-Nigel Mansell	Gametek	B+	SLROM
-Nightmare on Elm Street	LJN	B	AMROM
-Nightshade	Ultra	C+	TLROM
-Ninja Crusaders	American Sammy	B	TGROM
-Ninja Gaiden	Tecmo	E	SLROM
-Ninja Gaiden 2	Tecmo	C-	TLROM
-Ninja Gaiden 3	Tecmo	C+	TLROM
-Ninja Kid	Bandai	C+	CNROM
-Nombunagas Ambition	Koei	C	SOROM
-Nombunagas Ambition 2	Koei	B	ETROM
-North & South	Kemco	B+	TSROM
-Operation Secret Storm	Color Dreams	A	
-Operation Wolf	Taito	D	SLROM
-ORB-3D	Hi Tech	C	SCROM
-Othello	Acclaim	C	NROM
-Overlord	Virgin	B-	SN1
-P'radikus Conflict	Color Dreams	B	
-Pac Man	Namco	A	56504
-Pac Man (licensed)	Tengen	B-	NROM
-Pac Man (unlicensed)	Tengen	B-	
-Pac Mania	Tengen	A	
-Palamedes	Hot B	B+	SEROM
-Panic Resturant	Taito	B	TLROM
-Paperboy	Mindscape	C	CNROM
-Paperboy 2	Mindscape	B	UOROM
-Parodius (England)	Palcom		
-Pebble Beach Golf	Bandai	C+	CNROM
-Peek A Boo Poker	Panesian	A+	
-Perfect Fit	Gametek	B	CNROM
-Pesterminator	Color Dreams	B	
-Peter Pan & the Pirates	T*HQ	B-	SFROM
-Phantom Fighter	FCI	C+	SGROM
-Pictionary	LJN	B-	SLROM
-Pinball	Nintendo	D	NROM
-Pinball Quest	Jaleco	B	SLROM
-Pinbot	Nintendo	B	TQROM
-Pipe Dream	Bullet Proof	B	CNROM
-Pirates	Ultra	B	SKROM
-Platoon	Sunsoft	D	SLROM
-Play Action Football	Nintendo	D	TLSROM
-Pool of Radiance	FCI	B+	TKROM
-Popeye	Nintendo	B-	NROM
-POW	SNK	C	SLROM
-Power Blade	Taito	B-	TLROM
-Power Blade 2	Taito	B-	TLROM
-Power Punch 2	American Softworks	B	TLROM
-Predator	Activision	C+	SLROM
-Prince of Persia	Virgin	C+	UNROM
-Princess Tomato	Hudson	B+	SGROM
-Pro Am	Nintendo	D	SEROM
-Pro Am 2	Tradewest	B	AOROM
-Pro Sport Hockey	Jaleco	B+	TLSROM
-Pro Wrestling	Nintendo	D	UNROM
-Puggsly's Scavenger Hunt	Ocean	B	SLROM
-Punch Out	Nintendo	C+	PNROM
-Punisher	LJN	B	TLROM
-Puss N Boots	Electro Brain	B-	UNROM
-Puzzle	American Video	A-	
-Puzznic	Taito	B+	CNROM
-Pyramid	American Video	A-	
-Q*Bert	Ultra	B-	CNROM
-Qix	Taito	A	SNROM
-Quantum Fighter	HAL	B	TLROM
-Quarterback	Tradewest	D	CNROM
-Quattro Adventure	Camerica	B+	
-Quattro Adventure (Aladdin Cart)	Camerica	A+	
-Quattro Arcade	Camerica	A-	
-Quattro Sports	Camerica	B	
-Quattro Sports (Aladdin Cart)	Camerica	A+	
-Race America	Absolute	B+	SLROM
-Racket Attack	Jaleco	C-	SLROM
-Rad Gravity	Activision	B-	SLROM
-Rad Racer	Nintendo	D	SGROM
-Rad Racer 2	Square	B-	TVROM
-Rad Racket	American Video	A-	
-Raid 2020	Color Dreams	B	
-Raid on Bungling Bay	Broderbund	B	NROM
-Rainbow Island	Taito	B+	UNROM
-Rally Bike	Romstar	B	UNROM
-Rambo	Acclaim	E	UNROM
-Rampage	Data East	C+	TFROM
-Rampart	Jaleco	B	TLROM
-RBI Baseball (licensed)	Tengen	C+	DEROM
-RBI Baseball (unlicensed)	Tengen	C	
-RBI Baseball 2	Tengen	C+	
-RBI Baseball 3	Tengen	B-	
-Remote Control	Hi Tech	C	SLROM
-Ren + Stimpy Buckaroos	T*HQ	B-	TLROM
-Renegade	Taito	C-	UNROM
-Rescue	Kemco	C-	SLROM
-Rescue Rangers	Capcom	C+	SLROM
-Rescue Rangers 2	Capcom	B+	SLROM
-Ring King	Data East	C	DEROM
-River City Ransom	American Technos	C	TLROM
-Road Blasters	Mindscape	C+	SLROM
-Road Runner	Tengen	B+	
-Robin Hood	Virgin	C+	SGROM
-Robo Cop	Data East	C	TL1ROM
-Robo Cop 2	Data East	B-	SLROM
-Robo Cop 3	Ocean	B	SLROM
-Robo Demons	Color Dreams	B	
-Robo Warrior	Jaleco	B	UNROM
-Rock N Ball	NTVIC	B	TFROM
-Rocket Ranger	Kemco	B-	SGROM
-Rocketeer	Bandai	B-	SGROM
-Rockin Kats	Atlus	B+	TLROM
-Rocky & Bullwinkle	T*HQ	B-	TLROM
-Roger Clemens	LJN	C	53361
-Roller Games	Ultra	B-	TLROM
-Rollerball	HAL	B	SFROM
-Rollerblade Racer	Hi Tech	B	53361
-Rolling Thunder	Tengen	C+	
-Romance/3 Kingdoms	Koei	C	SOROM
-Romance/3 Kingdoms 2	Koei	B	EWROM
-Roundball	Mindscape	B-	TSROM
-Rush N Attack	Konami	D	UNROM
-Rygar	Tecmo	C	UNROM
-SCAT	Natsume	B	SLROM
-Secret Scout	Color Dreams	A	
-Section Z	Capcom	C	UNROM
-Seicross	FCI	D	NROM
-Sesame Street 1-2-3	Hi Tech	C+	SEROM (SCROROM)
-Sesame Street 123/ABC	Hi Tech	B	SLROM
-Sesame Street A-B-C	Hi Tech	C+	SEROM
-Sesame Street Countdown	Hi Tech	A-	SLROM
-Shadow of the Ninja	Natsume	B	TLROM
-Shadowgate	Kemco	C+	TKROM
-Shatterhand	Jaleco	B-	TLROM
-Shingen the Ruler	Hot B	C	SNROM
-Shinobi	Tengen	C+	
-Shockwave	American Game Carts Inc	B	
-Shooting Range	Bandai	B	CNROM
-Short Order/Eggsplode	Nintendo	B+	SBROM
-Side Pocket	Data East	B	UNROM
-Silent Assault	Color Dreams	B	
-Silent Service	Ultra	C-	351258
-Silk Worm	American Sammy	C	SLROM
-Silver Surfer	Arcadia	B	TSROM
-Simpsons Bart Meets Radioactive Man	Acclaim	B+	55741
-Simpsons Bart Vs Space Mutants	Acclaim	D	SLROM
-Simpsons Bart Vs World	Acclaim	B-	53361
-Skate or Die	Ultra	D	351258
-Skate or Die 2	Electronic Arts	B	SLROM
-Ski or Die	Ultra	B-	351908
-Skull & Crossbones	Tengen	B	
-Sky Kid	Sunsoft	B-	SCEOROM
-Sky Shark	Taito	D	SL1ROM
-Slalom	Nintendo	B-	NROM
-Smash TV	Acclaim	C+	51555
-Snake Rattle & Roll	Nintendo	C+	SEROM
-Snakes Revenge	Ultra	C	SLROM
-Snoopy Silly Sports	Kemco	B+	SLROM
-Snow Brothers	Capcom	B	SLROM
-Soccer	Nintendo	D	NROM
-Solar Jetman	Tradewest	C	AOROM
-Solitaire	American Video	A-	
-Soloman's Key	Tecmo	C+	CNROM
-Solstice	Imagesoft	C	ANROM
-Space Shuttle	Absolute	B+	SGROM
-Spelunker	Broderbund	C+	NROM
-Spiderman	LJN	B-	53361
-Spiritual Warfare	Wisdom Tree	B+	
-Spot	Arcadia	B-	SNROM
-Spy Hunter	Sunsoft	C	CNROM
-Spy vs. Spy	Kemco	B-	NROM
-Sqoon	Irem	B+	NROM
-Stack Up	Nintendo	A-	HVC
-Stadium Events	Bandai	B	
-Stanley	Electro Brain	B	TLROM
-Star Force	Tecmo	C+	CNROM
-Star Soldier	Taxan	C-	CNROM
-Star Trek 25th Anniversary	Ultra	B	TLROM
-Star Trek: The Next Generation	Absolute	A-	UNROM
-Star Tropics	Nintendo	C-	HKROM
-Star Voyager	Acclaim	C+	CNROM
-Star Wars	JVC	B	TSROM
-Starship Hector	Hudson	B-	UNROM
-Stealth ATF	Activision	C+	SLROM
-Stinger	Konami	B-	UNROM
-Street Cop	Bandai	A-	SLROM
-Street Fighter 2010	Capcom	B	TLROM
-Strider	Capcom	C	SGROM
-Stunt Kids	Camerica	A-	
-Sunday Funday	Wisdom Tree	B+	
-Super C	Konami	C	352026
-Super Cars	Electro Brain	B+	UNROM
-Super Dodge Ball	Imagesoft	C	SLROM
-Super Glove Ball	Mattel	C	UNROM
-Super Mario Brothers	Nintendo	F	NROM
-Super Mario Brothers 2	Nintendo	D	TSROM
-Super Mario Brothers 3	Nintendo	D	TSROM
-Super Mario/Duck Hunt	Nintendo	F	MH
-Super Mario/Duck Hunt/Track Meet	Nintendo	C	COB
-Super Off Road	Tradewest	C-	AMROM
-Super Pitfall	Activision	C+	UNROM
-Super Spike V'Ball	Nintendo	C-	TLROM
-Super Spike/World Cup	Nintendo	B-	COB
-Super Sprint	Tengen	C	COB
-Super Spy Hunter	Sunsoft	B+	TLROM
-Super Team Games	Nintendo	C-	CNROM
-Superman	Kemco	B+	SLROM
-Swamp Thing	T*HQ	C+	SLROM
-Sword Master	Activision	A-	TLROM
-Swords & Serpents	Acclaim	B+	UNROM
-T&C Surf Design	LJN	E	CNROM
-Taboo	Tradewest	C+	SEROM
-Tag Team Wrestling	Data East	C	NROM
-Taggin Dragon	Bunch Games	B	
-Talespin	Capcom	B	SLROM
-Target Renegade	Taito	C+	SLROM
-Tecmo Baseball	Tecmo	C	SGROM
-Tecmo Basketball	Tecmo	C+	TKROM
-Tecmo Bowl	Tecmo	E	SLROM
-Tecmo Cup Soccer	Tecmo	B+	SLROM
-Tecmo Super Bowl	Tecmo	C-	TKROM
-Tecmo Wrestling	Tecmo	C	SLROM
-Teenage Turtles	Ultra	E	351908
-Teenage Turtles 2	Ultra	D	TLROM
-Teenage Turtles 3	Konami	B-	TLROM
-Teenage Turtles Tournament Fighters	Konami	B+	TLROM
-Tennis	Nintendo	D	NROM
-Terminator	Mindscape	B+	TLROM
-Terminator 2 Judgement Day	LJN	B-	53361
-Terra Cresta	Vic Tokai	B+	UNROM
-Tetris	Tengen	A-	(CNROM compatible)
-Tetris	Nintendo	D	SEROM
-Tetris 2	Nintendo	B-	TSROM
-Three Stooges	Activision	C+	SLROM
-Thrilla Safari	LJN	B	53361
-Thunder & Lightning	Romstar	B+	GNROM
-Thunderbirds	Activision	C+	SLROM
-Thundercade	American Sammy	C+	UNROM
-Tiger Heli	Acclaim	C+	CNROM
-Tiles of Fate	American Video	B+	
-Time Lord	Milton Bradley	C	AMROM
-Times of Lore	Toho	B-	UNROM
-Tiny Toon	Konami	C+	TLROM
-Tiny Toon Cartoon Workshop	Konami	B+	TSROM
-Tiny Toons 2	Konami	B+	TLROM
-To The Earth	Nintendo	C+	TEROM
-Toki	Taito	B+	TLROM
-Tom & Jerry	Hi Tech	B+	TLROM
-Tombs & Treasures	Infocom	A-	SGROM
-Toobin	Tengen	B	
-Top Gun	Konami	D	351298
-Top Gun 2	Konami	D	352026
-Top Players Tennis	Asmik	C+	SLROM
-Total Recall	Acclaim	D	UNROM
-Totally Rad	Jaleco	B-	TLROM
-Touchdown Fever	SNK	B+	SFROM
-Toxic Crusader	Bandai	B	TLROM
-Track & Field	Konami	D	CNROM
-Track & Field 2	Konami	D	SLROM
-Treasure Master	American Softworks	A-	SLROM
-Trick Shooting	Nintendo	C+	SCROM
-Trog	Acclaim	B+	UNROM
-Trojan	Capcom	C	UNROM
-Trolls on Treasure Island	American Video	A-	
-Twin Cobra	American Sammy	C+	TLROM
-Twin Eagle	Romstar	C+	UNROM
-Ultima/Exodus	FCI	C-	SNROM
-Ultima/Quest Avatar	FCI	B	SNROM
-Ultima/War Destiny	FCI	B+	SNROM
-Ultimate Air Combat	Activision	B+	TLROM
-Ultimate Basketball	American Sammy	C	TLROM
-Ultimate League Soccer	American Video	A-	
-Ultimate Stuntman	Camerica	C+	
-Uncharted Waters	Koei	B-	ETROM
-Uninvited	Kemco	B+	TKROM
-Untouchables	Ocean	B-	SLROM
-Urban Champion	Nintendo	D	NROM
-Vegas Dream	HAL	B	SKROM
-Venice Beach Volleyball	American Video	A-	
-Vice Project Doom	American Sammy	C+	TLROM
-Videomation	T*HQ	B+	CPROM
-Vindicators	Tengen	C	
-Volleyball	Nintendo	C	NROM
-Wacky Races	Atlus	B+	TLROM
-Wall Street Kid	Sofel	B	UNROM
-Wally Bear and the No Gang	American Video	A-	
-Wario Woods	Nintendo	B+	TKROM
-Wayne Gretzky	T*HQ	C+	UNROM
-Wayne's World	T*HQ	B	TLROM
-Werewolf	Data East	C	TLROM
-Wheel/Fortune	Gametek	C	AOROM
-Wheel/Fortune/Family	Gametek	C	ANROM
-Wheel/Fortune/Junior	Gametek	C	ANROM
-Wheel/Fortune/Vanna	Gametek	B	AOROM
-Where in Time is Carmen	Konami	B	TSROM
-Where's Waldo	T*HQ	C+	TSROM
-Who Framed Roger Rabbit	LJN	B-	ANROM
-Whomp Em	Jaleco	B	TLROM
-Widget	Atlus	B	TLROM
-Wild Gunman	Nintendo	C	NROM
-Willow	Capcom	B-	SLROM
-Win Lose or Draw	Hi Tech	C	SGROM
-Winter Games	Acclaim	B-	UNROM
-Wizardry	Nexoft	C+	SKROM
-Wizardry 2 Knight of Diamonds	Ascii	B+	TKROM
-Wizards & Warriors	Acclaim	D	ANROM
-Wizards & Warriors 2 - Ironsword	Acclaim	D	AOROM
-Wizards & Warriors 3	Acclaim	C-	54425
-Wolverine	LJN	B-	TLROM
-World Champ	Romstar	B+	TLROM
-World Championship Wrestling	FCI	D	TLROM
-World Class Track Meet	Nintendo	D	CNROM
-World Cup Soccer	Nintendo	C-	TLROM
-World Games	Milton Bradley	B-	ANROM
-World Runner 3D	Acclaim	C-	UNROM
-Wrath of the Black Manta	Taito	C+	SLROM
-Wrecking Crew	Nintendo	C+	NROM
-Wrestlemania	Acclaim	D	ANROM
-Wrestlemania Challenge	LJN	C-	UNROM
-Wrestlemania Steel Cage	LJN	C+	53361
-Wurm	Asmik	B-	TLROM
-Xenophobe	Sunsoft	B-	SFROM
-Xevious	Bandai	C+	NROM
-Xexyz	Hudson	C+	SLROM
-Yo Noid	Capcom	C+	SLROM
-Yoshi	Nintendo	C-	SFROM
-Yoshi's Cookie	Nintendo	B-	TFROM
-Young Indy	Jaleco	B+	TLROM
-Zanac	FCI	C+	UNROM
-Zelda	Nintendo	E	SNROM
-Zelda 2	Nintendo	D	SKROM
-Zen	Konami	B	TLROM
-Zoda's Revenge, Startropics 2	Nintendo	B-	HKROM
-Zombie Nation	Meldac	B	TLROM
+10 Yard Fight                        Nintendo                 E   NROM
+110 in 1 (Canada?)                   Supervision
+1942                                 Capcom                   C+  NROM
+1943                                 Capcom                   C+  UNROM
+6 in 1                               Caltron                  A
+720                                  Mindscape                C   SGROM
+8 Eyes                               Taxan                    C-  TLROM
+A Boy and His Blob                   Absolute                 C   SLROM
+Abadox                               Milton Bradley           C   SLROM
+Action 52                            Active Enterprises       A   023-N507
+Addams Family                        Ocean                    B   SLROM
+Adv of Bayou Billy                   Konami                   C-  SLROM
+Adv of Dino Riki                     Hudson                   C   CNROM
+Adv of Lolo                          HAL                      C+  SEROM
+Adv of Lolo 2                        HAL                      B-  TEROM
+Adv of Lolo 3                        HAL                      B+  SLROM
+Adv of Tom Saywer                    Seta                     B   SLROM
+Adventure Island                     Hudson                   D   CNROM
+Adventure Island 2                   Hudson                   B-  TLROM
+Adventure Island 3                   Hudson                   B   TLROM
+After Burner                         Tengen                   C+  800042-01
+Air Fortress                         HAL                      C   SJROM
+Airwolf                              Acclaim                  C   SHROM
+Al Unser Racing                      Data East                C   SKROM
+Aladdin Deck Enhancer                Camerica                 A+
+Alfred Chicken                       Mindscape                B+  UNROM
+Alien 3                              LJN                      B+  55741
+Alien Syndrome                       Tengen                   C+
+All Pro Basketball                   Vic Tokai                C   SLROM
+Alpha Mission                        SNK                      C   CNROM
+Amagon                               American Sammy           C   UNROM
+American Gladiators                  Gametek                  B-  SLROM
+Anticipation                         Nintendo                 C   SEROM
+Arch Rivals                          Acclaim                  C   AMROM
+Archon                               Activision               B   UNROM
+Arkanoid                             Taito                    B+  CNROM
+Arkanoid Controller                  Taito                    A
+Arkistas Ring                        American Sammy           B   CNROM
+Astyanax                             Jaleco                   C   TLROM
+Athena                               SNK                      C   UNROM
+Athletic World                       Bandai                   B-  CNROM
+Attack of the Killer Tomatoes        T*HQ                     B-  SLROM
+Baby Boomer                          Color Dreams             B-
+Back to the Future                   LJN                      D   CNROM
+Back to the Future 2 & 3             LJN                      C   SLROM
+Bad Dudes                            Data East                C   TLROM
+Bad News Baseball                    Tecmo                    B   SLROM
+Bad Street Brawler                   Mattel                   C   SGROM
+Balloon Fight                        Nintendo                 C   NROM
+Bandit Kings/China                   Koei                     B-  ETROM
+Barbie                               Hi Tech                  B   SLROM
+Bard's Tale                          FCI                      B-  SNROM
+Base Wars                            Ultra                    C   TKROM
+Baseball                             Nintendo                 E   NROM
+Baseball Simulator                   Culture Brain            C+  SKROM
+Baseball Stars                       SNK                      C+  SKROM
+Baseball Stars 2                     Romstar                  B+  TKROM
+Bases Loaded                         Jaleco                   E   SFROM
+Bases Loaded 2                       Jaleco                   D   SL3ROM
+Bases Loaded 3                       Jaleco                   C   TLROM
+Bases Loaded 4                       Jaleco                   C+  TLROM
+Batman                               Sunsoft                  D   NES_B4
+Batman Return/Joker                  Sunsoft                  B-  NES_BTR
+Batman Returns                       Konami                   B+  TLROM
+Battle Chess                         Data East                B+  SKROM
+Battle of Olympus                    Broderbund               C   SGROM
+Battle Tank                          Absolute                 B   CNROM
+Battle Toads                         Tradewest                D   AOROM
+Battle Toads & Double Dragon         Tradewest                B+  AOROM
+Battleship                           Mindscape                B   CNROM
+Bee 52                               Camerica                 B+
+Beetlejuice                          LJN                      C+  AMROM
+Best of the Best                     Electro Brain            B+  UOROM
+Bible Adventures                     Wisdom Tree              B+
+Bible Adventures (blue label)        Wisdom Tree              B+
+Bible Buffet                         Wisdom Tree              B+
+Big Bird Hide & Speak                Hi Tech                  B   SLROM
+Big Foot                             Acclaim                  B-  SLROM
+Big Nose Freaks Out                  Camerica                 A
+Big Nose Freaks Out (Aladdin Cart)   Camerica                 A+
+Big Nose the Caveman                 Camerica                 B
+Bill & Ted's Excellent Adventure     LJN                      C+  SLROM
+Bill Elliott's NASCAR Challenge      Konami                   C+  TSROM
+Bionic Commando                      Capcom                   C   SGROM
+Black Bass                           Hot B                    B   UNROM
+Blackjack                            American Video           A-
+Blades of Steel                      Konami                   D   UNROM
+Blaster Master                       Sunsoft                  D   SL2ROM
+Blue Marlin                          Hot B                    B+  TLROM
+Blues Brothers                       Titus                    B   UNROM
+Bo Jackson Baseball                  Data East                C+  TSROM
+Bomberman                            Hudson                   C   NROM
+Bomberman 2                          Hudson                   B   SNROM
+Bonks Adventure                      Hudson                   B+  TLROM
+Boulder Dash                         JVC                      B+  SEROM
+Break Time                           FCI                      B+  SFROM
+Breakthru                            Data East                C   (SLROM)
+Bubble Bath Babes                    Panesian                 A+
+Bubble Bobble                        Taito                    D   SFROM
+Bubble Bobble 2                      Taito                    B   TLROM
+Bucky O'Hare                         Konami                   B   TLROM
+Bugs Bunny Birthday Blowout          Kemco                    B   TSROM
+Bugs Bunny Crazy Castle              Kemco                    B+  SBROM
+Bump & Jump                          Vic Tokai                B-  CNROM
+Burai Fighter                        Taxan                    B-  TEROM
+Burger Time                          Data East                B-  NROM
+Cabal                                Milton Bradley           C   AMROM
+Caesars Palace                       Virgin                   B   UNROM
+California Games                     Milton Bradley           C   UNROM
+Captain America                      Data East                B   TLROM
+Captain Comic                        Color Dreams             B
+Captain Planet                       Mindscape                B   TLROM
+Captain Skyhawk                      Milton Bradley           C   AMROM
+Casino Kid                           Sofel                    C+  UNROM
+Casino Kid 2                         Sofel                    B+  UNROM
+Castelian                            Triffix                  B   UNROM
+Castle of Deceit                     Bunch Games              B
+Castle of Dragon                     Seta                     B   UNROM
+Castlequest                          Nexoft                   B   CNROM
+Castlevania                          Konami                   E   UNROM
+Castlevania 2                        Konami                   D   SLROM
+Castlevania 3                        Konami                   C-  ELROM
+Caveman Games                        Data East                B-  SLROM
+Challenge of the Dragon              Color Dreams             B
+Championship Bowling                 Romstar                  B   CNROM
+Championship Pool                    Mindscape                B+  UNROM
+Cheetahman II                        Active Enterprises       A
+Chessmaster                          Hi Tech                  B   SJROM
+Chiller                              American Game Carts Inc  B+
+Chubby Cherub                        Bandai                   B   NROM
+Circus Caper                         Toho                     B   SLROM
+City Connection                      Jaleco                   B   CNROM
+Clash at Demonhead                   Vic Tokai                B-  SLROM
+Classic Concentration                Gametek                  B-  UNROM
+Cliffhanger                          Imagesoft                B   TLROM
+Clu Clu Land                         Nintendo                 B-  NES_RROM
+Cobra Command                        Data East                C   SLROM
+Cobra Triangle                       Nintendo                 B-  ANROM
+Codename Viper                       Capcom                   C   TLROM
+Color A Dinosaur                     Virgin                   A-  UNROM
+Commando                             Capcom                   C   UNROM
+Conan                                Mindscape                B   UNROM
+Conflict                             Vic Tokai                C+  SKROM
+Conquest Crystal Palace              Asmik                    C+  TLROM
+Contra                               Konami                   E   UNROM
+Contra Force                         Konami                   B   TLROM
+Cool World                           Ocean                    B   SLROM
+Cowboy Kid                           Romstar                  A-  TLROM
+Crash & the Boys Street Challange    American Technos         B   TLROM
+Crash Dummies                        LJN                      B   55741
+Crystal Mines                        Color Dreams             B+
+Crystalis                            SNK                      C   TKROM
+Cyberball                            Jaleco                   B   TLROM
+Cybernoid                            Acclaim                  C   CNROM
+Dance Aerobics                       Nintendo                 C+  SBROM
+Darkman                              Ocean                    B   SLROM
+Darkwing Duck                        Capcom                   B+  SLROM
+Dash Galaxy                          Data East                C   CNROM
+Day Dreamin' Davey                   HAL                      B+  SLROM
+Days of Thunder                      Mindscape                C+  TLROM
+Deadly Towers                        Broderbund               C+  BNROM
+Death Race                           American Game Carts Inc  B+
+Deathbots                            American Video           B+
+Defender 2                           HAL                      B   NROM
+Defender of the Crown                Ultra                    C+  SGROM
+Defenders of Dynacron City           JVC                      B   TLROM
+Deja Vu                              Kemco                    C+  TKROM
+Demon Sword                          Taito                    C+  SL1ROM
+Desert Commander                     Kemco                    C-  SKROM
+Destination Earthstar                Acclaim                  C   CNROM
+Destiny/Emporer                      Capcom                   B-  SNROM
+Dick Tracy                           Bandai                   C+  UNROM
+Die Hard                             Activision               B+  SLROM
+Dig Dug 2                            Bandai                   B   NROM
+Digger                               Milton Bradley           B+  AMROM
+Dirty Harry                          Mindscape                C+  TLROM
+Disney Adventure                     Capcom                   B   SLROM
+Dizzy the Adventurer (Aladdin Cart)  Camerica                 A+
+Donkey Kong                          Nintendo                 B-  NROM
+Donkey Kong 3                        Nintendo                 B-  NROM
+Donkey Kong Classics                 Nintendo                 B-  CNROM
+Donkey Kong Jr                       Nintendo                 B-  NROM
+Donkey Kong Jr Math                  Nintendo                 A-  NROM
+Double Dare                          Gametek                  B   AOROM
+Double Dragon                        Tradewest                E   SLROM
+Double Dragon 2                      Acclaim                  D   TL1ROM
+Double Dragon 3                      Acclaim                  C+  TLROM
+Double Dribble                       Konami                   D   UNROM
+Double Strike                        American Video           B+
+Dr. Chaos                            FCI                      C   UNROM
+Dr. Jeckyl/Mr. Hyde                  Bandai                   C+  SFROM (SFDOROM)
+Dr. Mario                            Nintendo                 D   SEROM
+Dracula                              Imagesoft                B   TSROM
+Dragon Fighter                       Sofel                    B   SLROM
+Dragon Power                         Bandai                   C   GNROM
+Dragon Spirit                        Bandai                   B   TLROM
+Dragon Strike                        FCI                      C   TLROM
+Dragon Warrior                       Nintendo                 E   SAROM
+Dragon Warrior 2                     Enix                     C+  SNROM
+Dragon Warrior 3                     Enix                     B+  SUROM
+Dragon Warrior 4                     Enix                     B   SUROM
+Dragon's Lair                        Imagesoft                B   UNROM
+Duck Hunt                            Nintendo                 F   NROM
+Duck Tales                           Capcom                   C+  UNROM
+Duck Tales 2                         Capcom                   B+  UNROM
+Dudes with Attitude                  American Video           B+
+Dungeon Magic                        Taito                    C   SKROM
+Dusty Diamond All Star Softball      Broderbund               B-  SLROM
+Dyno Warz                            Bandai                   C+  SLROM
+Elevator Action                      Taito                    B-  NROM
+Eliminator Boat Duel                 Electro Brain            C+  SLROM
+Empire Strikes Back                  JVC                      B   TLROM
+Excitebike                           Nintendo                 E   NROM
+Exodus                               Wisdom Tree              B+
+F 117 Stealth                        Microprose               B+  TLROM
+F 15 City War                        American Video           B
+F 15 Strike Eagle                    Microprose               B+  TLROM
+F1 Built to Win                      Seta                     B+  SKROM
+Family Feud                          Gametek                  B+  SHROM
+Fantastic Adv Dizzy (Aladdin Cart)   Camerica                 A+
+Fantastic Adventures of Dizzy        Camerica                 B-
+Fantasy Zone                         Tengen                   C
+Faria                                Nexoft                   B+  SKROM
+Fast Break                           Tradewest                C   SCROM
+Faxanadu                             Nintendo                 C-  SGROM
+Felix the Cat                        Hudson                   B+  TSROM
+Ferrari Grand Prix                   Acclaim                  B   SLROM
+Fester's Quest                       Sunsoft                  C   SLROM
+Fighting Golf                        SNK                      C   SLROM
+Final Fantasy                        Nintendo                 C+  SNROM
+Fire & Ice                           Tecmo                    A-  TLROM
+Fire Hawk                            Camerica                 B
+Firehouse Rescue                     Gametek                  B   CNROM
+Fist of the North Star               Taxan                    C+  UNROM
+Flight of the Intruder               Mindscape                B   UNROM
+Flintstones                          Taito                    C+  TLROM
+Flintstones 2                        Taito                    A+
+Flying Dragon                        Culture Brain            C   UNROM
+Flying Warriors                      Culture Brain            C   SLROM
+Frankenstein                         Bandai                   B+  SLRROM
+Freedom Force                        Sunsoft                  D   SLROM
+Friday The 13th                      LJN                      C-  CNROM
+Fun House                            Hi Tech                  B+  UNROM
+G I Joe                              Taxan                    B+  TLROM
+G I Joe Atlantis Factor              Capcom                   C+  TLROM
+Galactic Crusader                    Bunch Games              B
+Galaga                               Bandai                   B   NROM
+Galaxy 5000                          Activision               A-  TLROM
+Game Action Replay                   STD                      A-
+Game Genie                           Galoob                   D
+Gargoyle's Quest 2                   Capcom                   B+  TLROM
+Gauntlet (licensed)                  Tengen                   C   DRROM
+Gauntlet (unlicensed)                Tengen                   C
+Gauntlet 2                           Mindscape                C   TSROM
+Gemfire                              Koei                     B-  EKROM
+Genghis Kahn                         Koei                     C+  SOROM
+George Forman                        Acclaim                  B   55741
+Ghost & Goblins                      Capcom                   C   UNROM
+Ghost Lion                           Kemco                    B   SKROM
+Ghostbusters                         Activision               B-  CNROM
+Ghostbusters 2                       Activision               B   SLROM
+Ghoul School                         Electro Brain            B-  SLROM
+Gilligans Island                     Bandai                   B+  UNROM
+Goal                                 Jaleco                   D   SL3ROM
+Goal 2                               Jaleco                   B-  TLSROM
+Godzilla                             Toho                     C+  SLROM
+Godzilla 2                           Toho                     B   SLROM
+Gold Metal Challenge                 Capcom                   B+  TKROM
+Golf                                 Nintendo                 E   NROM
+Golf Grand Slam                      Atlus                    B+  SLROM
+Golf Power                           Virgin                   B+  SNROM
+Golgo 13 Top Secret Episode          Vic Tokai                D   SLROM
+Goonies 2                            Konami                   C+  351258
+Gotcha                               LJN                      C   CNROM
+Gradius                              Konami                   C-  CNROM
+Great Waldo Search                   T*HQ                     B-  SLROM
+Gremlins 2                           Sunsoft                  B-  TLROM
+Guardian Legend                      Broderbund               C+  UNROM
+Guerrilla War                        SNK                      C   SLROM
+Gum Shoe                             Nintendo                 C+  GNROM
+Gun Nac                              Ascii                    B   TLROM
+Gunsmoke                             Capcom                   B-  UNROM
+Gyromite                             Nintendo                 E   NROM
+Gyruss                               Ultra                    C+  CNROM
+Harlem Globetrotters                 Gametek                  B   SLROM
+Hatris                               Bullet Proof             A   SNROM
+Heavy Barrel                         Data East                C   TLROM
+Heavy Shreddin'                      Parker Brothers          B-  SLROM
+Heroes of the Lance                  FCI                      C   SKROM
+High Speed                           Tradewest                B-  TQROM
+Hillsfar                             FCI                      B   SNROM
+Hogan's Alley                        Nintendo                 D   NROM
+Hollywood Squares                    Gametek                  B+  UNROM
+Home Alone                           T*HQ                     B-  TSROM
+Home Alone 2                         T*HQ                     B-  TLROM
+Hook                                 Imagesoft                B   SLROM
+Hoops                                Jaleco                   D   SLROM
+Hot Slots                            Panesian                 A+
+Hudson Hawk                          Imagesoft                B   SLROM
+Hunt for Red October                 Hi Tech                  C   TLROM
+Hydlide                              FCI                      D   NROM
+I Can Remember                       Gametek                  B   CNROM
+Ice Climber                          Nintendo                 C+  NROM
+Ice Hockey                           Nintendo                 D   NROM
+Ikari Warriors                       SNK                      C-  UNROM
+Ikari Warriors 2                     SNK                      C-  SGROM
+Ikari Warriors 3                     SNK                      B-  SLROM
+Image Fight                          Irem                     B   TSROM
+Immortal                             Electronic Arts          B   TLROM
+Impossible Mission 2                 American Video           A-
+Impossible Mission 2                 SEI                      B+
+Indiana Jones Last Crusade           UBI Soft                 B+  UNROM
+Indiana Jones Last Crusade           Taito                    B+  SGROM
+Indiana Jones Temple of Doom         Tengen                   B-
+Indiana Jones Temple of Doom         Mindscape                C   TFROM
+Indy Heat                            Tradewest                B   AMROM
+Infiltrator                          Mindscape                B   TLROM
+Iron Tank                            SNK                      C   SLROM
+Isolated Warrior                     NTVIC                    B   TLROM
+Jack Nicklaus Golf                   Konami                   B-  351258
+Jackal                               Konami                   C   UNROM
+Jackie Chan Kung Fu                  Hudson                   B   TLROM
+James Bond Jr                        T*HQ                     B-  TLROM
+Jaws                                 LJN                      D   CNROM
+Jeopardy                             Gametek                  C   AOROM
+Jeopardy 25th Anniversary            Gametek                  C+  ANROM
+Jeopardy Jr                          Gametek                  C   ANROM
+Jeopardy Super                       Gametek                  B   SLROM
+Jetsons                              Taito                    B+  TLROM
+Jimmy Connors Tennis                 UBI Soft                 B+  UNROM
+Joe & Mac                            Data East                B+  TLROM
+Jordan vs. Bird                      Milton Bradley           C   UNROM
+Joshua                               Wisdom Tree              B+
+Journey to Silius                    Sunsoft                  C+  SLROM
+Joust                                HAL                      B   CNROM
+Jungle Book                          Virgin                   A-  TLROM
+Jurassic Park                        Ocean                    B   TSROM
+Karate Champ                         Data East                C   CNROM
+Karate Kid                           LJN                      C   CNROM
+Karnov                               Data East                C   DEIROM
+Kick Master                          Taito                    C+  TLROM
+Kickle Cubicle                       Irem                     B+  TLROM
+Kid Icarus                           Nintendo                 C-  SNROM
+Kid Klown                            Kemco                    B   TSROM
+Kid Kool                             Vic Tokai                C+  UNROM
+Kid Niki                             Data East                C   SGROM
+King Neptune's Adventure             Color Dreams             B+
+King of Kings                        Wisdom Tree              B+
+King of Kings (cartoon mule)         Wisdom Tree              B+
+King of the Ring                     Acclaim                  B+  55741
+Kings Knight                         Square                   C+  CNROM
+Kings of the Beach                   Ultra                    C   CNROM
+Kings Quest 5                        Konami                   B+  TSROM
+Kirbys Adventure                     Nintendo                 B-  TKROM
+Kiwi Kraze                           Taito                    B+  TLROM
+Klash Ball                           Sofel                    B-  UNROM
+Klax                                 Tengen                   B+
+Knight Rider                         Acclaim                  B-  SCIROM
+Krazy Kreatures                      American Video           B+
+Krion Conquest                       Vic Tokai                B   TLROM
+Krusty's Fun House                   Acclaim                  C+  TLROM
+Kung Fu                              Nintendo                 E   NROM
+Kung Fu Heroes                       Culture Brain            C   CNROM
+L'Empereur                           Koei                     B   ETROM
+Laser Invasion                       Konami                   B-  ELROM
+Last Action Hero                     Imagesoft                B+  TLROM
+Last Ninja                           Jaleco                   B-  TLROM
+Last Starfighter                     Mindscape                C+  CNROM
+Legacy/Wizard                        Broderbund               C   TFROM
+Legend of Kage                       Taito                    C-  CNROM
+Legendary Wings                      Capcom                   B   UNROM
+Legends/Diamond                      Bandai                   B+  TLROM
+Lemmings                             Sunsoft                  B-  SLROM
+Lethal Weapon                        Ocean                    B   SLROM
+Life Force                           Konami                   C   351258
+Linus Spacehead                      Camerica                 B
+Linus Spacehead (Aladdin Cart)       Camerica                 A+
+Little League Baseball               SNK                      B-  SLROM
+Little Mermaid                       Capcom                   B   UNROM
+Little Nemo                          Capcom                   B+  TLROM
+Little Ninja Brothers                Culture Brain            C   TLROM
+Little Sampson                       Taito                    B   TLROM
+Lode Runner                          Broderbund               B   NROM
+Lone Ranger                          Konami                   B-  TLROM
+Loopz                                Mindscape                B+  UNROM
+Low G Man                            Taxan                    C   TLROM
+Lunar Pool                           FCI                      C+  NROM
+M C Kids                             Virgin                   C+  TSROM
+M.U.L.E.                             Mindscape                C+  SNROM
+Mach Rider                           Nintendo                 C-  NROM
+Mad Max                              Mindscape                C+  TLROM
+Mafat Conspiracy                     Vic Tokai                C   TLROM
+Magic Darts                          Romstar                  B   SLRROM
+Magic of Scheherazade                Culture Brain            C-  SLROM
+Magician                             Taxan                    A-  TKROM
+Magmax                               FCI                      C-  NROM
+Major League Baseball                LJN                      E   CNROM
+Maniac Mansion                       Jaleco                   C+  SNROM
+Mappyland                            Taxan                    C+  TFROM
+Marble Madness                       Milton Bradley           C+  ANROM
+Mario Brothers                       Nintendo                 B-  NROM
+Mario Is Missing                     Mindscape                B   TLROM
+Mario Time Machine                   Mindscape                A-  TLROM
+Marvel's X-Men                       LJN                      B-  UNROM
+Master Chu & the Drunkard Hu         Color Dreams             B
+Maxi 15                              American Video           A
+Mechanized Attack                    SNK                      C   SCROM
+Mega Man                             Capcom                   B-  UNROM
+Mega Man 2                           Capcom                   C   SGROM
+Mega Man 3                           Capcom                   C   TLROM
+Mega Man 4                           Capcom                   B-  TGROM
+Mega Man 5                           Capcom                   B   TLROM
+Mega Man 6                           Nintendo                 B+  TGROM
+Menace Beach                         Color Dreams             A-
+Mendel Palace                        Hudson                   B   TLROM
+Mermaids of Atlantis                 American Video           B+
+Metal Fighter                        Color Dreams             B
+Metal Gear                           Ultra                    D   UNROM
+Metal Mech                           Jaleco                   B-  SLROM
+Metal Storm                          Irem                     B+  TLROM
+Metroid                              Nintendo                 D   SNROM
+Michael Andretti World GP            American Sammy           B-  TLROM
+Mickey Mousecapade                   Capcom                   C+  CNROM
+Mickey Numbers                       Hi Tech                  B+  TLROM
+Mickey's Safari in Letterland        Hi Tech                  B+  55741
+Micro Machines                       Camerica                 A-
+Micro Machines (Aladdin Cart)        Camerica                 A+
+Mig 29                               Camerica                 C+
+Might & Magic                        American Sammy           B+  TKROM
+Mighty Bombjack                      Tecmo                    B   CNROM
+Mighty Final Fight                   Capcom                   B+  TLROM
+Mike Tyson's Punch Out               Nintendo                 D   PNROM
+Millipede                            HAL                      B   NROM
+Milon's Secret Castle                Hudson                   C   CNROM
+Miracle Piano                        Mindscape                A-  SJROM
+Mission Cobra                        Bunch Games              A-
+Mission Impossible                   Ultra                    C+  352026
+Monopoly                             Parker Brothers          B-  SLROM
+Monster in my Pocket                 Konami                   B+  TLROM
+Monster Party                        Bandai                   B   SLROM
+Monster Truck Rally                  INTV                     B   CNROM
+Moon Ranger                          Bunch Games              C
+Motor City Patrol                    Matchbox                 C+  SLROM
+Ms. Pacman                           Namco                    A   NROM
+Ms. Pacman                           Tengen                   B+
+Muppet Adventure                     Hi Tech                  B   SGROM
+Muscle                               Bandai                   B-  NROM
+Mutant Virus                         American Software        B+  SLROM
+Mystery Quest                        Taxan                    C+  CNROM
+NARC                                 Acclaim                  C   AMROM
+NES Open Golf                        Nintendo                 B-  SNROM
+NFL Football                         LJN                      C   UNROM
+Nigel Mansell                        Gametek                  B+  SLROM
+Nightmare on Elm Street              LJN                      B   AMROM
+Nightshade                           Ultra                    C+  TLROM
+Ninja Crusaders                      American Sammy           B   TGROM
+Ninja Gaiden                         Tecmo                    E   SLROM
+Ninja Gaiden 2                       Tecmo                    C-  TLROM
+Ninja Gaiden 3                       Tecmo                    C+  TLROM
+Ninja Kid                            Bandai                   C+  CNROM
+Nombunagas Ambition                  Koei                     C   SOROM
+Nombunagas Ambition 2                Koei                     B   ETROM
+North & South                        Kemco                    B+  TSROM
+Operation Secret Storm               Color Dreams             A
+Operation Wolf                       Taito                    D   SLROM
+ORB-3D                               Hi Tech                  C   SCROM
+Othello                              Acclaim                  C   NROM
+Overlord                             Virgin                   B-  SN1
+P'radikus Conflict                   Color Dreams             B
+Pac Man                              Namco                    A   56504
+Pac Man (licensed)                   Tengen                   B-  NROM
+Pac Man (unlicensed)                 Tengen                   B-
+Pac Mania                            Tengen                   A
+Palamedes                            Hot B                    B+  SEROM
+Panic Resturant                      Taito                    B   TLROM
+Paperboy                             Mindscape                C   CNROM
+Paperboy 2                           Mindscape                B   UOROM
+Parodius (England)                   Palcom
+Pebble Beach Golf                    Bandai                   C+  CNROM
+Peek A Boo Poker                     Panesian                 A+
+Perfect Fit                          Gametek                  B   CNROM
+Pesterminator                        Color Dreams             B
+Peter Pan & the Pirates              T*HQ                     B-  SFROM
+Phantom Fighter                      FCI                      C+  SGROM
+Pictionary                           LJN                      B-  SLROM
+Pinball                              Nintendo                 D   NROM
+Pinball Quest                        Jaleco                   B   SLROM
+Pinbot                               Nintendo                 B   TQROM
+Pipe Dream                           Bullet Proof             B   CNROM
+Pirates                              Ultra                    B   SKROM
+Platoon                              Sunsoft                  D   SLROM
+Play Action Football                 Nintendo                 D   TLSROM
+Pool of Radiance                     FCI                      B+  TKROM
+Popeye                               Nintendo                 B-  NROM
+POW                                  SNK                      C   SLROM
+Power Blade                          Taito                    B-  TLROM
+Power Blade 2                        Taito                    B-  TLROM
+Power Punch 2                        American Softworks       B   TLROM
+Predator                             Activision               C+  SLROM
+Prince of Persia                     Virgin                   C+  UNROM
+Princess Tomato                      Hudson                   B+  SGROM
+Pro Am                               Nintendo                 D   SEROM
+Pro Am 2                             Tradewest                B   AOROM
+Pro Sport Hockey                     Jaleco                   B+  TLSROM
+Pro Wrestling                        Nintendo                 D   UNROM
+Puggsly's Scavenger Hunt             Ocean                    B   SLROM
+Punch Out                            Nintendo                 C+  PNROM
+Punisher                             LJN                      B   TLROM
+Puss N Boots                         Electro Brain            B-  UNROM
+Puzzle                               American Video           A-
+Puzznic                              Taito                    B+  CNROM
+Pyramid                              American Video           A-
+Q*Bert                               Ultra                    B-  CNROM
+Qix                                  Taito                    A   SNROM
+Quantum Fighter                      HAL                      B   TLROM
+Quarterback                          Tradewest                D   CNROM
+Quattro Adventure                    Camerica                 B+
+Quattro Adventure (Aladdin Cart)     Camerica                 A+
+Quattro Arcade                       Camerica                 A-
+Quattro Sports                       Camerica                 B
+Quattro Sports (Aladdin Cart)        Camerica                 A+
+Race America                         Absolute                 B+  SLROM
+Racket Attack                        Jaleco                   C-  SLROM
+Rad Gravity                          Activision               B-  SLROM
+Rad Racer                            Nintendo                 D   SGROM
+Rad Racer 2                          Square                   B-  TVROM
+Rad Racket                           American Video           A-
+Raid 2020                            Color Dreams             B
+Raid on Bungling Bay                 Broderbund               B   NROM
+Rainbow Island                       Taito                    B+  UNROM
+Rally Bike                           Romstar                  B   UNROM
+Rambo                                Acclaim                  E   UNROM
+Rampage                              Data East                C+  TFROM
+Rampart                              Jaleco                   B   TLROM
+RBI Baseball (licensed)              Tengen                   C+  DEROM
+RBI Baseball (unlicensed)            Tengen                   C
+RBI Baseball 2                       Tengen                   C+
+RBI Baseball 3                       Tengen                   B-
+Remote Control                       Hi Tech                  C   SLROM
+Ren + Stimpy Buckaroos               T*HQ                     B-  TLROM
+Renegade                             Taito                    C-  UNROM
+Rescue                               Kemco                    C-  SLROM
+Rescue Rangers                       Capcom                   C+  SLROM
+Rescue Rangers 2                     Capcom                   B+  SLROM
+Ring King                            Data East                C   DEROM
+River City Ransom                    American Technos         C   TLROM
+Road Blasters                        Mindscape                C+  SLROM
+Road Runner                          Tengen                   B+
+Robin Hood                           Virgin                   C+  SGROM
+Robo Cop                             Data East                C   TL1ROM
+Robo Cop 2                           Data East                B-  SLROM
+Robo Cop 3                           Ocean                    B   SLROM
+Robo Demons                          Color Dreams             B
+Robo Warrior                         Jaleco                   B   UNROM
+Rock N Ball                          NTVIC                    B   TFROM
+Rocket Ranger                        Kemco                    B-  SGROM
+Rocketeer                            Bandai                   B-  SGROM
+Rockin Kats                          Atlus                    B+  TLROM
+Rocky & Bullwinkle                   T*HQ                     B-  TLROM
+Roger Clemens                        LJN                      C   53361
+Roller Games                         Ultra                    B-  TLROM
+Rollerball                           HAL                      B   SFROM
+Rollerblade Racer                    Hi Tech                  B   53361
+Rolling Thunder                      Tengen                   C+
+Romance/3 Kingdoms                   Koei                     C   SOROM
+Romance/3 Kingdoms 2                 Koei                     B   EWROM
+Roundball                            Mindscape                B-  TSROM
+Rush N Attack                        Konami                   D   UNROM
+Rygar                                Tecmo                    C   UNROM
+SCAT                                 Natsume                  B   SLROM
+Secret Scout                         Color Dreams             A
+Section Z                            Capcom                   C   UNROM
+Seicross                             FCI                      D   NROM
+Sesame Street 1-2-3                  Hi Tech                  C+  SEROM (SCROROM)
+Sesame Street 123/ABC                Hi Tech                  B   SLROM
+Sesame Street A-B-C                  Hi Tech                  C+  SEROM
+Sesame Street Countdown              Hi Tech                  A-  SLROM
+Shadow of the Ninja                  Natsume                  B   TLROM
+Shadowgate                           Kemco                    C+  TKROM
+Shatterhand                          Jaleco                   B-  TLROM
+Shingen the Ruler                    Hot B                    C   SNROM
+Shinobi                              Tengen                   C+
+Shockwave                            American Game Carts Inc  B
+Shooting Range                       Bandai                   B   CNROM
+Short Order/Eggsplode                Nintendo                 B+  SBROM
+Side Pocket                          Data East                B   UNROM
+Silent Assault                       Color Dreams             B
+Silent Service                       Ultra                    C-  351258
+Silk Worm                            American Sammy           C   SLROM
+Silver Surfer                        Arcadia                  B   TSROM
+Simpsons Bart Meets Radioactive Man  Acclaim                  B+  55741
+Simpsons Bart Vs Space Mutants       Acclaim                  D   SLROM
+Simpsons Bart Vs World               Acclaim                  B-  53361
+Skate or Die                         Ultra                    D   351258
+Skate or Die 2                       Electronic Arts          B   SLROM
+Ski or Die                           Ultra                    B-  351908
+Skull & Crossbones                   Tengen                   B
+Sky Kid                              Sunsoft                  B-  SCEOROM
+Sky Shark                            Taito                    D   SL1ROM
+Slalom                               Nintendo                 B-  NROM
+Smash TV                             Acclaim                  C+  51555
+Snake Rattle & Roll                  Nintendo                 C+  SEROM
+Snakes Revenge                       Ultra                    C   SLROM
+Snoopy Silly Sports                  Kemco                    B+  SLROM
+Snow Brothers                        Capcom                   B   SLROM
+Soccer                               Nintendo                 D   NROM
+Solar Jetman                         Tradewest                C   AOROM
+Solitaire                            American Video           A-
+Soloman's Key                        Tecmo                    C+  CNROM
+Solstice                             Imagesoft                C   ANROM
+Space Shuttle                        Absolute                 B+  SGROM
+Spelunker                            Broderbund               C+  NROM
+Spiderman                            LJN                      B-  53361
+Spiritual Warfare                    Wisdom Tree              B+
+Spot                                 Arcadia                  B-  SNROM
+Spy Hunter                           Sunsoft                  C   CNROM
+Spy vs. Spy                          Kemco                    B-  NROM
+Sqoon                                Irem                     B+  NROM
+Stack Up                             Nintendo                 A-  HVC
+Stadium Events                       Bandai                   B
+Stanley                              Electro Brain            B   TLROM
+Star Force                           Tecmo                    C+  CNROM
+Star Soldier                         Taxan                    C-  CNROM
+Star Trek 25th Anniversary           Ultra                    B   TLROM
+Star Trek: The Next Generation       Absolute                 A-  UNROM
+Star Tropics                         Nintendo                 C-  HKROM
+Star Voyager                         Acclaim                  C+  CNROM
+Star Wars                            JVC                      B   TSROM
+Starship Hector                      Hudson                   B-  UNROM
+Stealth ATF                          Activision               C+  SLROM
+Stinger                              Konami                   B-  UNROM
+Street Cop                           Bandai                   A-  SLROM
+Street Fighter 2010                  Capcom                   B   TLROM
+Strider                              Capcom                   C   SGROM
+Stunt Kids                           Camerica                 A-
+Sunday Funday                        Wisdom Tree              B+
+Super C                              Konami                   C   352026
+Super Cars                           Electro Brain            B+  UNROM
+Super Dodge Ball                     Imagesoft                C   SLROM
+Super Glove Ball                     Mattel                   C   UNROM
+Super Mario Brothers                 Nintendo                 F   NROM
+Super Mario Brothers 2               Nintendo                 D   TSROM
+Super Mario Brothers 3               Nintendo                 D   TSROM
+Super Mario/Duck Hunt                Nintendo                 F   MH
+Super Mario/Duck Hunt/Track Meet     Nintendo                 C   COB
+Super Off Road                       Tradewest                C-  AMROM
+Super Pitfall                        Activision               C+  UNROM
+Super Spike V'Ball                   Nintendo                 C-  TLROM
+Super Spike/World Cup                Nintendo                 B-  COB
+Super Sprint                         Tengen                   C   COB
+Super Spy Hunter                     Sunsoft                  B+  TLROM
+Super Team Games                     Nintendo                 C-  CNROM
+Superman                             Kemco                    B+  SLROM
+Swamp Thing                          T*HQ                     C+  SLROM
+Sword Master                         Activision               A-  TLROM
+Swords & Serpents                    Acclaim                  B+  UNROM
+T&C Surf Design                      LJN                      E   CNROM
+Taboo                                Tradewest                C+  SEROM
+Tag Team Wrestling                   Data East                C   NROM
+Taggin Dragon                        Bunch Games              B
+Talespin                             Capcom                   B   SLROM
+Target Renegade                      Taito                    C+  SLROM
+Tecmo Baseball                       Tecmo                    C   SGROM
+Tecmo Basketball                     Tecmo                    C+  TKROM
+Tecmo Bowl                           Tecmo                    E   SLROM
+Tecmo Cup Soccer                     Tecmo                    B+  SLROM
+Tecmo Super Bowl                     Tecmo                    C-  TKROM
+Tecmo Wrestling                      Tecmo                    C   SLROM
+Teenage Turtles                      Ultra                    E   351908
+Teenage Turtles 2                    Ultra                    D   TLROM
+Teenage Turtles 3                    Konami                   B-  TLROM
+Teenage Turtles Tournament Fighters  Konami                   B+  TLROM
+Tennis                               Nintendo                 D   NROM
+Terminator                           Mindscape                B+  TLROM
+Terminator 2 Judgement Day           LJN                      B-  53361
+Terra Cresta                         Vic Tokai                B+  UNROM
+Tetris                               Tengen                   A-  (CNROM compatible)
+Tetris                               Nintendo                 D   SEROM
+Tetris 2                             Nintendo                 B-  TSROM
+Three Stooges                        Activision               C+  SLROM
+Thrilla Safari                       LJN                      B   53361
+Thunder & Lightning                  Romstar                  B+  GNROM
+Thunderbirds                         Activision               C+  SLROM
+Thundercade                          American Sammy           C+  UNROM
+Tiger Heli                           Acclaim                  C+  CNROM
+Tiles of Fate                        American Video           B+
+Time Lord                            Milton Bradley           C   AMROM
+Times of Lore                        Toho                     B-  UNROM
+Tiny Toon                            Konami                   C+  TLROM
+Tiny Toon Cartoon Workshop           Konami                   B+  TSROM
+Tiny Toons 2                         Konami                   B+  TLROM
+To The Earth                         Nintendo                 C+  TEROM
+Toki                                 Taito                    B+  TLROM
+Tom & Jerry                          Hi Tech                  B+  TLROM
+Tombs & Treasures                    Infocom                  A-  SGROM
+Toobin                               Tengen                   B
+Top Gun                              Konami                   D   351298
+Top Gun 2                            Konami                   D   352026
+Top Players Tennis                   Asmik                    C+  SLROM
+Total Recall                         Acclaim                  D   UNROM
+Totally Rad                          Jaleco                   B-  TLROM
+Touchdown Fever                      SNK                      B+  SFROM
+Toxic Crusader                       Bandai                   B   TLROM
+Track & Field                        Konami                   D   CNROM
+Track & Field 2                      Konami                   D   SLROM
+Treasure Master                      American Softworks       A-  SLROM
+Trick Shooting                       Nintendo                 C+  SCROM
+Trog                                 Acclaim                  B+  UNROM
+Trojan                               Capcom                   C   UNROM
+Trolls on Treasure Island            American Video           A-
+Twin Cobra                           American Sammy           C+  TLROM
+Twin Eagle                           Romstar                  C+  UNROM
+Ultima/Exodus                        FCI                      C-  SNROM
+Ultima/Quest Avatar                  FCI                      B   SNROM
+Ultima/War Destiny                   FCI                      B+  SNROM
+Ultimate Air Combat                  Activision               B+  TLROM
+Ultimate Basketball                  American Sammy           C   TLROM
+Ultimate League Soccer               American Video           A-
+Ultimate Stuntman                    Camerica                 C+
+Uncharted Waters                     Koei                     B-  ETROM
+Uninvited                            Kemco                    B+  TKROM
+Untouchables                         Ocean                    B-  SLROM
+Urban Champion                       Nintendo                 D   NROM
+Vegas Dream                          HAL                      B   SKROM
+Venice Beach Volleyball              American Video           A-
+Vice Project Doom                    American Sammy           C+  TLROM
+Videomation                          T*HQ                     B+  CPROM
+Vindicators                          Tengen                   C
+Volleyball                           Nintendo                 C   NROM
+Wacky Races                          Atlus                    B+  TLROM
+Wall Street Kid                      Sofel                    B   UNROM
+Wally Bear and the No Gang           American Video           A-
+Wario Woods                          Nintendo                 B+  TKROM
+Wayne Gretzky                        T*HQ                     C+  UNROM
+Wayne's World                        T*HQ                     B   TLROM
+Werewolf                             Data East                C   TLROM
+Wheel/Fortune                        Gametek                  C   AOROM
+Wheel/Fortune/Family                 Gametek                  C   ANROM
+Wheel/Fortune/Junior                 Gametek                  C   ANROM
+Wheel/Fortune/Vanna                  Gametek                  B   AOROM
+Where in Time is Carmen              Konami                   B   TSROM
+Where's Waldo                        T*HQ                     C+  TSROM
+Who Framed Roger Rabbit              LJN                      B-  ANROM
+Whomp Em                             Jaleco                   B   TLROM
+Widget                               Atlus                    B   TLROM
+Wild Gunman                          Nintendo                 C   NROM
+Willow                               Capcom                   B-  SLROM
+Win Lose or Draw                     Hi Tech                  C   SGROM
+Winter Games                         Acclaim                  B-  UNROM
+Wizardry                             Nexoft                   C+  SKROM
+Wizardry 2 Knight of Diamonds        Ascii                    B+  TKROM
+Wizards & Warriors                   Acclaim                  D   ANROM
+Wizards & Warriors 2 - Ironsword     Acclaim                  D   AOROM
+Wizards & Warriors 3                 Acclaim                  C-  54425
+Wolverine                            LJN                      B-  TLROM
+World Champ                          Romstar                  B+  TLROM
+World Championship Wrestling         FCI                      D   TLROM
+World Class Track Meet               Nintendo                 D   CNROM
+World Cup Soccer                     Nintendo                 C-  TLROM
+World Games                          Milton Bradley           B-  ANROM
+World Runner 3D                      Acclaim                  C-  UNROM
+Wrath of the Black Manta             Taito                    C+  SLROM
+Wrecking Crew                        Nintendo                 C+  NROM
+Wrestlemania                         Acclaim                  D   ANROM
+Wrestlemania Challenge               LJN                      C-  UNROM
+Wrestlemania Steel Cage              LJN                      C+  53361
+Wurm                                 Asmik                    B-  TLROM
+Xenophobe                            Sunsoft                  B-  SFROM
+Xevious                              Bandai                   C+  NROM
+Xexyz                                Hudson                   C+  SLROM
+Yo Noid                              Capcom                   C+  SLROM
+Yoshi                                Nintendo                 C-  SFROM
+Yoshi's Cookie                       Nintendo                 B-  TFROM
+Young Indy                           Jaleco                   B+  TLROM
+Zanac                                FCI                      C+  UNROM
+Zelda                                Nintendo                 E   SNROM
+Zelda 2                              Nintendo                 D   SKROM
+Zen                                  Konami                   B   TLROM
+Zoda's Revenge, Startropics 2        Nintendo                 B-  HKROM
+Zombie Nation                        Meldac                   B   TLROM

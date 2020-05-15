@@ -5,49 +5,46 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
-    logging::Loggable,
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{Banks, MemRead, MemWrite, Memory},
+    memory::{BankedMemory, MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-const PRG_ROM_BANK_SIZE: usize = 16 * 1024; // 16L ROM
-const CHR_BANK_SIZE: usize = 8 * 1024; // 8K ROM/RAM
+const PRG_ROM_WINDOW: usize = 16 * 1024; // 16k ROM
+const CHR_WINDOW: usize = 8 * 1024; // 8K ROM/RAM
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
 /// UxROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Uxrom {
+    has_chr_ram: bool,
     mirroring: Mirroring,
-    prg_rom_bank_lo: usize,
-    prg_rom_bank_hi: usize, // prg_bank_hi is fixed to last bank
     // CPU $8000-$BFFF 16 KB PRG ROM Bank Switchable
     // CPU $C000-$FFFF 16 KB PRG ROM Fixed to Last Bank
-    prg_rom_banks: Banks<Memory>,
-    chr_banks: Banks<Memory>, // PPU $0000..=$1FFFF 8K Fixed CHR ROM Banks
+    prg_rom: BankedMemory,
+    chr: BankedMemory, // PPU $0000..=$1FFF 8K Fixed CHR ROM Banks
     open_bus: u8,
 }
 
 impl Uxrom {
     pub fn load(cart: Cartridge) -> MapperType {
-        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        // Just 1 bank
-        let chr_banks = if cart.chr_rom.is_empty() {
-            let chr_ram = Memory::ram(CHR_RAM_SIZE);
-            Banks::init(&chr_ram, CHR_BANK_SIZE)
-        } else {
-            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
-        };
-        let uxrom = Self {
+        let has_chr_ram = cart.chr_rom.is_empty();
+        let mut uxrom = Self {
+            has_chr_ram,
             mirroring: cart.mirroring(),
-            prg_rom_bank_lo: 0usize,
-            prg_rom_bank_hi: prg_rom_banks.len() - 1,
-            prg_rom_banks,
-            chr_banks,
+            prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
+            chr: if has_chr_ram {
+                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW)
+            } else {
+                BankedMemory::from(cart.chr_rom, CHR_WINDOW)
+            },
             open_bus: 0,
         };
+        uxrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
+        uxrom.prg_rom.set_bank(0xC000, uxrom.prg_rom.last_bank());
+        uxrom.chr.add_bank_range(0x0000, 0x1FFF);
         uxrom.into()
     }
 }
@@ -68,9 +65,8 @@ impl MemRead for Uxrom {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => self.chr_banks[0].peek(addr),
-            0x8000..=0xBFFF => self.prg_rom_banks[self.prg_rom_bank_lo].peek(addr - 0x8000),
-            0xC000..=0xFFFF => self.prg_rom_banks[self.prg_rom_bank_hi].peek(addr - 0xC000),
+            0x0000..=0x1FFF => self.chr.peek(addr),
+            0x8000..=0xFFFF => self.prg_rom.peek(addr),
             // 0x4020..=0x5FFF Nothing at this range
             // 0x6000..=0x7FFF No Save RAM
             _ => self.open_bus,
@@ -81,8 +77,11 @@ impl MemRead for Uxrom {
 impl MemWrite for Uxrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => self.chr_banks[0].write(addr, val),
-            0x8000..=0xFFFF => self.prg_rom_bank_lo = (val as usize) % self.prg_rom_banks.len(),
+            0x0000..=0x1FFF => self.chr.write(addr, val),
+            0x8000..=0xFFFF => {
+                let bank = val as usize % self.prg_rom.bank_count();
+                self.prg_rom.set_bank(0x8000, bank);
+            }
             // 0x4020..=0x5FFF // Nothing at this range
             // 0x6000..=0x7FFF // No Save RAM
             _ => (),
@@ -92,25 +91,18 @@ impl MemWrite for Uxrom {
 
 impl Clocked for Uxrom {}
 impl Powered for Uxrom {}
-impl Loggable for Uxrom {}
 
 impl Savable for Uxrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.save(fh)?;
-        self.prg_rom_bank_lo.save(fh)?;
-        self.prg_rom_bank_hi.save(fh)?;
-        self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)?;
-        self.open_bus.save(fh)?;
+        if self.has_chr_ram {
+            self.chr.save(fh)?;
+        }
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.load(fh)?;
-        self.prg_rom_bank_lo.load(fh)?;
-        self.prg_rom_bank_hi.load(fh)?;
-        self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)?;
-        self.open_bus.load(fh)?;
+        if self.has_chr_ram {
+            self.chr.load(fh)?;
+        }
         Ok(())
     }
 }

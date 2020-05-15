@@ -1,7 +1,5 @@
 use crate::{
     common::{home_dir, Clocked, Powered, CONFIG_DIR},
-    error,
-    logging::{LogLevel, Loggable},
     map_nes_err, mapper,
     mapper::Mapper,
     nes::{event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
@@ -10,6 +8,7 @@ use crate::{
     NesResult,
 };
 use chrono::prelude::{DateTime, Local};
+use log::error;
 use std::{
     collections::VecDeque,
     fs::File,
@@ -25,41 +24,6 @@ impl Nes {
             self.unset_static_message("Paused");
         }
         self.paused = paused;
-    }
-
-    /// Powers on the console
-    pub(super) fn power_on(&mut self) -> NesResult<()> {
-        self.cpu.power_on();
-        if let Err(e) = self.load_sram() {
-            self.add_message(&e.to_string());
-        }
-        self.paused = false;
-        self.cycles_remaining = 0.0;
-        Ok(())
-    }
-
-    /// Powers off the console
-    pub(super) fn power_off(&mut self) -> NesResult<()> {
-        if self.recording {
-            self.save_replay()?;
-        }
-        if let Err(e) = self.save_sram() {
-            self.add_message(&e.to_string());
-            error!(self, "{}", e.to_string());
-        }
-        // Clean up rewind states
-        if self.config.rewind_enabled {
-            for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
-                if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
-                    if save_path.exists() {
-                        let _ = std::fs::remove_file(&save_path);
-                    }
-                }
-            }
-        }
-        self.power_cycle();
-        self.paused = true;
-        Ok(())
     }
 
     /// Loads a ROM cartridge into memory
@@ -188,7 +152,7 @@ impl Nes {
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
     pub(super) fn save_sram(&mut self) -> NesResult<()> {
-        let mapper = self.cpu.bus.mapper.borrow();
+        let mapper = &self.cpu.bus.mapper;
         if mapper.battery_backed() {
             let sram_path = sram_path(&self.loaded_rom)?;
             let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
@@ -232,7 +196,7 @@ impl Nes {
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
     pub(super) fn load_sram(&mut self) -> NesResult<()> {
-        let mut mapper = self.cpu.bus.mapper.borrow_mut();
+        let mapper = &mut self.cpu.bus.mapper;
         if mapper.battery_backed() {
             let sram_path = sram_path(&self.loaded_rom)?;
             if sram_path.exists() {
@@ -290,7 +254,7 @@ impl Nes {
     /// If no arg[1], searches current directory for `.nes` files
     pub(super) fn find_roms(&self) -> NesResult<Vec<PathBuf>> {
         use std::ffi::OsStr;
-        let path = PathBuf::from(self.config.path.to_owned());
+        let path = self.config.path.to_owned();
         let mut roms: Vec<PathBuf> = Vec::new();
         if path.is_dir() {
             path.read_dir()
@@ -328,6 +292,40 @@ impl Nes {
 }
 
 impl Powered for Nes {
+    /// Powers on the console
+    fn power_on(&mut self) {
+        self.cpu.power_on();
+        if let Err(e) = self.load_sram() {
+            self.add_message(&e.to_string());
+        }
+        self.paused = false;
+        self.cycles_remaining = 0.0;
+    }
+
+    /// Powers off the console
+    fn power_off(&mut self) {
+        if self.recording {
+            if let Err(e) = self.save_replay() {
+                self.add_message(&e.to_string());
+            }
+        }
+        if let Err(e) = self.save_sram() {
+            self.add_message(&e.to_string());
+            error!("{}", e);
+        }
+        // Clean up rewind states
+        if self.config.rewind_enabled {
+            for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
+                if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
+                    if save_path.exists() {
+                        let _ = std::fs::remove_file(&save_path);
+                    }
+                }
+            }
+        }
+        self.paused = true;
+    }
+
     /// Soft-resets the console
     fn reset(&mut self) {
         self.cpu.reset();
@@ -373,15 +371,6 @@ impl Clocked for Nes {
             self.cpu.bus.input.zapper.light_sense = true;
         }
         self.cpu.clock()
-    }
-}
-
-impl Loggable for Nes {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.config.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.config.log_level
     }
 }
 

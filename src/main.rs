@@ -8,34 +8,25 @@
 //! In the case of 2 and 3, if valid NES rom files are found, a menu screen is displayed to select
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
+#![warn(missing_debug_implementations, rust_2018_idioms, missing_docs)]
 
-use std::env;
+use std::{env, path::PathBuf};
 use structopt::StructOpt;
-use tetanes::{
-    logging::LogLevel,
-    nes::{Nes, NesConfig},
-};
+use tetanes::nes::{Nes, NesConfig};
 
 fn main() {
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info");
+    }
+    pretty_env_logger::init();
+
     let opt = Opt::from_args();
     let config = NesConfig {
-        path: opt.path.unwrap_or_else(|| {
-            if let Some(p) = env::current_dir().unwrap_or_default().to_str() {
-                p.to_string()
-            } else {
-                String::new()
-            }
-        }),
+        path: opt
+            .path
+            .unwrap_or_else(|| env::current_dir().unwrap_or_default()),
         debug: opt.debug,
         pause_in_bg: !opt.no_pause_in_bg,
-        log_level: match opt.log_level.as_ref() {
-            "error" => LogLevel::Error,
-            "warn" => LogLevel::Warn,
-            "info" => LogLevel::Info,
-            "debug" => LogLevel::Debug,
-            "trace" => LogLevel::Trace,
-            _ => LogLevel::Off,
-        },
         fullscreen: opt.fullscreen,
         vsync: !opt.vsync_off,
         sound_enabled: !opt.sound_off,
@@ -65,14 +56,14 @@ fn main() {
 #[structopt(
     name = "tetanes",
     about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
-    version = "0.5.0",
+    version = "0.6.1",
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
 struct Opt {
     #[structopt(
         help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
     )]
-    path: Option<String>,
+    path: Option<PathBuf>,
     #[structopt(
         short = "d",
         long = "debug",
@@ -84,14 +75,6 @@ struct Opt {
         help = "Pause emulation while the window is not in focus."
     )]
     no_pause_in_bg: bool,
-    #[structopt(
-        short = "l",
-        long = "log-level",
-        default_value = "error",
-        possible_values = &["off", "error", "warn", "info", "debug", "trace"],
-        help = "Set logging level."
-    )]
-    log_level: String,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
     #[structopt(long = "vsync-off", help = "Disable vsync.")]
@@ -109,7 +92,7 @@ struct Opt {
         long = "replay",
         help = "Replay a saved action replay file."
     )]
-    replay: Option<String>,
+    replay: Option<PathBuf>,
     #[structopt(
         long = "concurrent-dpad",
         help = "Enables the ability to simulate concurrent L+R and U+D on the D-Pad."

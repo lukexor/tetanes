@@ -1,16 +1,15 @@
 use crate::{
     common::{Clocked, Powered},
-    logging::{LogLevel, Loggable},
-    mapper::{self, MapperRef},
+    mapper::MapperType,
     memory::MemRead,
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Dmc {
-    pub mapper: MapperRef,
+    pub(super) mapper: *mut MapperType,
     pub irq_enabled: bool,
     pub irq_pending: bool,
     loops: bool,
@@ -26,7 +25,6 @@ pub struct Dmc {
     output_bits: u8,
     output_shift: u8,
     output_silent: bool,
-    log_level: LogLevel,
 }
 
 impl Dmc {
@@ -37,7 +35,7 @@ impl Dmc {
     ];
     pub fn new() -> Self {
         Self {
-            mapper: mapper::null(),
+            mapper: std::ptr::null_mut(),
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -53,7 +51,6 @@ impl Dmc {
             output_bits: 0u8,
             output_shift: 0u8,
             output_silent: false,
-            log_level: LogLevel::Off,
         }
     }
 
@@ -84,6 +81,10 @@ impl Dmc {
     // $4013 DMC length
     pub fn write_length(&mut self, val: u8) {
         self.length_load = (val << 4) + 1;
+    }
+
+    fn mapper_mut(&mut self) -> &mut MapperType {
+        unsafe { &mut *self.mapper }
     }
 }
 
@@ -118,7 +119,8 @@ impl Clocked for Dmc {
         }
 
         if self.length > 0 && self.sample_buffer_empty {
-            self.sample_buffer = self.mapper.borrow_mut().read(self.addr);
+            let addr = self.addr;
+            self.sample_buffer = self.mapper_mut().read(addr);
             self.sample_buffer_empty = false;
             self.addr = self.addr.wrapping_add(1) | 0x8000;
             self.length -= 1;
@@ -139,15 +141,6 @@ impl Clocked for Dmc {
 impl Powered for Dmc {
     fn reset(&mut self) {
         *self = Self::new();
-    }
-}
-
-impl Loggable for Dmc {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 

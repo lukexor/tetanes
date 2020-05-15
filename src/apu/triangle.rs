@@ -6,7 +6,7 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Triangle {
     pub enabled: bool,
     ultrasonic: bool,

@@ -6,16 +6,15 @@
 use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
-    logging::Loggable,
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{Banks, MemRead, MemWrite, Memory},
+    memory::{BankedMemory, MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-const PRG_ROM_BANK_SIZE: usize = 8 * 1024; // 8 KB ROM
-const CHR_BANK_SIZE: usize = 1024; // 1 KB ROM/RAM
+const PRG_WINDOW: usize = 8 * 1024; // 8 KB ROM
+const CHR_WINDOW: usize = 1024; // 1 KB ROM/RAM
 
 const FOUR_SCREEN_RAM_SIZE: usize = 4 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
@@ -25,7 +24,7 @@ const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
 const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
 /// TxROM
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Txrom {
     regs: TxRegs,
     has_chr_ram: bool,
@@ -48,28 +47,26 @@ pub struct Txrom {
     mmc3_revb: bool,
     mmc_acc: bool, // Acclaims MMC3 clone - clocks on falling edge
     battery_backed: bool,
-    prg_rom_bank_idx: [usize; 4],
-    chr_bank_idx: [usize; 8],
-    four_screen_ram: Memory,
-    prg_ram: Memory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
+    four_screen_ram: Option<BankedMemory>,
+    prg_ram: BankedMemory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
     // CPU $8000..=$9FFF (or $C000..=$DFFF) 8 KB PRG ROM Bank 1 Switchable
     // CPU $A000..=$BFFF 8 KB PRG ROM Bank 2 Switchable
     // CPU $C000..=$DFFF (or $8000..=$9FFF) 8 KB PRG ROM Bank 3 Fixed to second-to-last Bank
     // CPU $E000..=$FFFF 8 KB PRG ROM Bank 4 Fixed to Last
-    prg_rom_banks: Banks<Memory>,
+    prg_rom: BankedMemory,
     // PPU $0000..=$07FF (or $1000..=$17FF) 2 KB CHR ROM/RAM Bank 1 Switchable --+
     // PPU $0800..=$0FFF (or $1800..=$1FFF) 2 KB CHR ROM/RAM Bank 2 Switchable --|-+
     // PPU $1000..=$13FF (or $0000..=$03FF) 1 KB CHR ROM/RAM Bank 3 Switchable --+ |
     // PPU $1400..=$17FF (or $0400..=$07FF) 1 KB CHR ROM/RAM Bank 4 Switchable --+ |
     // PPU $1800..=$1BFF (or $0800..=$0BFF) 1 KB CHR ROM/RAM Bank 5 Switchable ----+
     // PPU $1C00..=$1FFF (or $0C00..=$0FFF) 1 KB CHR ROM/RAM Bank 6 Switchable ----+
-    chr_banks: Banks<Memory>,
+    chr: BankedMemory,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TxRegs {
     bank_select: u8,
-    bank_values: [u8; 8],
+    bank_values: [usize; 8],
     irq_latch: u8,
     irq_counter: u8,
     irq_enabled: bool,
@@ -81,63 +78,58 @@ struct TxRegs {
 impl TxRegs {
     fn new() -> Self {
         Self {
-            bank_select: 0u8,
-            bank_values: [0u8; 8],
-            irq_latch: 0u8,
-            irq_counter: 0u8,
+            bank_select: 0x00,
+            bank_values: [0x00; 8],
+            irq_latch: 0x00,
+            irq_counter: 0x00,
             irq_enabled: false,
             irq_reload: false,
-            last_clock: 0u16,
-            open_bus: 0u8,
+            last_clock: 0x0000,
+            open_bus: 0x00,
         }
     }
 }
 
 impl Txrom {
     pub fn load(cart: Cartridge) -> MapperType {
-        let mirroring = cart.mirroring();
-        let four_screen_ram = if mirroring == Mirroring::FourScreen {
-            Memory::ram(FOUR_SCREEN_RAM_SIZE)
-        } else {
-            Memory::new()
-        };
-
-        let prg_ram = Memory::ram(PRG_RAM_SIZE);
-        let prg_rom_banks = Banks::init(&cart.prg_rom, PRG_ROM_BANK_SIZE);
-        let mut has_chr_ram = false;
-        let chr_banks = if cart.chr_rom.is_empty() {
-            let chr_ram_size = if let Ok(chr_ram_size) = cart.chr_ram_size() {
-                if chr_ram_size > 0 {
-                    chr_ram_size
-                } else {
-                    CHR_RAM_SIZE
-                }
-            } else {
-                CHR_RAM_SIZE
-            };
-            let chr_ram = Memory::ram(chr_ram_size);
-            has_chr_ram = true;
-            Banks::init(&chr_ram, CHR_BANK_SIZE)
-        } else {
-            Banks::init(&cart.chr_rom, CHR_BANK_SIZE)
-        };
-
-        let prg_len = prg_rom_banks.len();
-        let txrom = Self {
+        let has_chr_ram = cart.chr_rom.is_empty();
+        let chr_ram_size = cart
+            .chr_ram_size()
+            .and_then(|size| Ok(size.unwrap_or(CHR_RAM_SIZE)))
+            .unwrap();
+        let mut txrom = Self {
             regs: TxRegs::new(),
             has_chr_ram,
-            mirroring,
+            mirroring: cart.mirroring(),
             irq_pending: false,
-            mmc3_revb: false, // TODO compare to known games
-            mmc_acc: false,   // TODO - compare to known games
+            mmc3_revb: true, // TODO compare to known games
+            mmc_acc: false,  // TODO - compare to known games
             battery_backed: cart.battery_backed(),
-            prg_rom_bank_idx: [0, 1, prg_len - 2, prg_len - 1],
-            chr_bank_idx: [0, 1, 2, 3, 4, 5, 6, 7],
-            four_screen_ram,
-            prg_ram,
-            prg_rom_banks,
-            chr_banks,
+            four_screen_ram: if cart.mirroring() == Mirroring::FourScreen {
+                Some(BankedMemory::ram(
+                    FOUR_SCREEN_RAM_SIZE,
+                    FOUR_SCREEN_RAM_SIZE,
+                ))
+            } else {
+                None
+            },
+            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW),
+            prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
+            chr: if has_chr_ram {
+                BankedMemory::ram(chr_ram_size, CHR_WINDOW)
+            } else {
+                BankedMemory::from(cart.chr_rom, CHR_WINDOW)
+            },
         };
+        if let Some(ram) = &mut txrom.four_screen_ram {
+            ram.add_bank_range(0x2000, 0x3EFF);
+        }
+        txrom.prg_ram.add_bank(0x6000, 0x7FFF);
+        txrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
+        let last_bank = txrom.prg_rom.last_bank();
+        txrom.prg_rom.set_bank(0xC000, last_bank - 1);
+        txrom.prg_rom.set_bank(0xE000, last_bank);
+        txrom.chr.add_bank_range(0x0000, 0x1FFF);
         txrom.into()
     }
 
@@ -171,7 +163,7 @@ impl Txrom {
             }
             0x8001 => {
                 let bank = self.regs.bank_select & 0x07;
-                self.regs.bank_values[bank as usize] = val;
+                self.regs.bank_values[bank as usize] = val as usize;
                 self.update_banks();
             }
             0xA000 => {
@@ -200,40 +192,44 @@ impl Txrom {
     }
 
     fn update_banks(&mut self) {
-        let prg_len = self.prg_rom_banks.len();
+        let banks = self.prg_rom.bank_count();
+        let prg_last = self.prg_rom.last_bank();
+        let prg_lo = self.regs.bank_values[6] % banks;
+        let prg_hi = self.regs.bank_values[7] % banks;
         if self.regs.bank_select & PRG_MODE_MASK == PRG_MODE_MASK {
-            self.prg_rom_bank_idx[0] = prg_len - 2;
-            self.prg_rom_bank_idx[1] = (self.regs.bank_values[7] as usize) % prg_len;
-            self.prg_rom_bank_idx[2] = (self.regs.bank_values[6] as usize) % prg_len;
-            self.prg_rom_bank_idx[3] = prg_len - 1;
+            self.prg_rom.set_bank(0x8000, prg_last - 1);
+            self.prg_rom.set_bank(0xA000, prg_hi);
+            self.prg_rom.set_bank(0xC000, prg_lo);
+            self.prg_rom.set_bank(0xE000, prg_last);
         } else {
-            self.prg_rom_bank_idx[0] = (self.regs.bank_values[6] as usize) % prg_len;
-            self.prg_rom_bank_idx[1] = (self.regs.bank_values[7] as usize) % prg_len;
-            self.prg_rom_bank_idx[2] = prg_len - 2;
-            self.prg_rom_bank_idx[3] = prg_len - 1;
+            self.prg_rom.set_bank(0x8000, prg_lo);
+            self.prg_rom.set_bank(0xA000, prg_hi);
+            self.prg_rom.set_bank(0xC000, prg_last - 1);
+            self.prg_rom.set_bank(0xE000, prg_last);
         }
 
         // 1: two 2 KB banks at $1000-$1FFF, four 1 KB banks at $0000-$0FFF
         // 0: two 2 KB banks at $0000-$0FFF, four 1 KB banks at $1000-$1FFF
-        let chr_len = self.chr_banks.len();
+        let banks = self.chr.bank_count();
+        let chr_banks = self.regs.bank_values;
         if self.regs.bank_select & CHR_INVERSION_MASK == CHR_INVERSION_MASK {
-            self.chr_bank_idx[0] = (self.regs.bank_values[2] as usize) % chr_len;
-            self.chr_bank_idx[1] = (self.regs.bank_values[3] as usize) % chr_len;
-            self.chr_bank_idx[2] = (self.regs.bank_values[4] as usize) % chr_len;
-            self.chr_bank_idx[3] = (self.regs.bank_values[5] as usize) % chr_len;
-            self.chr_bank_idx[4] = ((self.regs.bank_values[0] & 0xFE) as usize) % chr_len;
-            self.chr_bank_idx[5] = ((self.regs.bank_values[0] | 0x01) as usize) % chr_len;
-            self.chr_bank_idx[6] = ((self.regs.bank_values[1] & 0xFE) as usize) % chr_len;
-            self.chr_bank_idx[7] = ((self.regs.bank_values[1] | 0x01) as usize) % chr_len;
+            self.chr.set_bank(0x0000, chr_banks[2] % banks);
+            self.chr.set_bank(0x0400, chr_banks[3] % banks);
+            self.chr.set_bank(0x0800, chr_banks[4] % banks);
+            self.chr.set_bank(0x0C00, chr_banks[5] % banks);
+            self.chr.set_bank(0x1000, (chr_banks[0] % banks) & 0xFE);
+            self.chr.set_bank(0x1400, (chr_banks[0] % banks) | 0x01);
+            self.chr.set_bank(0x1800, (chr_banks[1] % banks) & 0xFE);
+            self.chr.set_bank(0x1C00, (chr_banks[1] % banks) | 0x01);
         } else {
-            self.chr_bank_idx[0] = ((self.regs.bank_values[0] & 0xFE) as usize) % chr_len;
-            self.chr_bank_idx[1] = ((self.regs.bank_values[0] | 0x01) as usize) % chr_len;
-            self.chr_bank_idx[2] = ((self.regs.bank_values[1] & 0xFE) as usize) % chr_len;
-            self.chr_bank_idx[3] = ((self.regs.bank_values[1] | 0x01) as usize) % chr_len;
-            self.chr_bank_idx[4] = (self.regs.bank_values[2] as usize) % chr_len;
-            self.chr_bank_idx[5] = (self.regs.bank_values[3] as usize) % chr_len;
-            self.chr_bank_idx[6] = (self.regs.bank_values[4] as usize) % chr_len;
-            self.chr_bank_idx[7] = (self.regs.bank_values[5] as usize) % chr_len;
+            self.chr.set_bank(0x0000, (chr_banks[0] % banks) & 0xFE);
+            self.chr.set_bank(0x0400, (chr_banks[0] % banks) | 0x01);
+            self.chr.set_bank(0x0800, (chr_banks[1] % banks) & 0xFE);
+            self.chr.set_bank(0x0C00, (chr_banks[1] % banks) | 0x01);
+            self.chr.set_bank(0x1000, chr_banks[2] % banks);
+            self.chr.set_bank(0x1400, chr_banks[3] % banks);
+            self.chr.set_bank(0x1800, chr_banks[4] % banks);
+            self.chr.set_bank(0x1C00, chr_banks[5] % banks);
         }
     }
 }
@@ -285,7 +281,7 @@ impl Mapper for Txrom {
         Ok(())
     }
     fn use_ciram(&self, _addr: u16) -> bool {
-        Mirroring::FourScreen != self.mirroring
+        self.mirroring != Mirroring::FourScreen
     }
     fn open_bus(&mut self, _addr: u16, val: u8) {
         self.regs.open_bus = val;
@@ -299,22 +295,16 @@ impl MemRead for Txrom {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => {
-                let bank = addr as usize / CHR_BANK_SIZE;
-                let addr = addr % CHR_BANK_SIZE as u16;
-                let idx = self.chr_bank_idx[bank];
-                self.chr_banks[idx].peek(addr)
-            }
+            0x0000..=0x1FFF => self.chr.peek(addr),
             0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
-                self.four_screen_ram.peek(addr - 0x2000)
+                if let Some(ram) = &self.four_screen_ram {
+                    ram.peek(addr)
+                } else {
+                    0
+                }
             }
-            0x6000..=0x7FFF => self.prg_ram.peek(addr - 0x6000),
-            0x8000..=0xFFFF => {
-                let bank = (addr - 0x8000) as usize / PRG_ROM_BANK_SIZE;
-                let addr = addr % PRG_ROM_BANK_SIZE as u16;
-                let idx = self.prg_rom_bank_idx[bank];
-                self.prg_rom_banks[idx].peek(addr)
-            }
+            0x6000..=0x7FFF => self.prg_ram.peek(addr),
+            0x8000..=0xFFFF => self.prg_rom.peek(addr),
             // 0x4020..=0x5FFF Nothing at this range
             _ => self.regs.open_bus,
         }
@@ -324,18 +314,13 @@ impl MemRead for Txrom {
 impl MemWrite for Txrom {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x1FFF => {
-                if self.has_chr_ram {
-                    let bank = addr as usize / CHR_BANK_SIZE;
-                    let addr = addr % CHR_BANK_SIZE as u16;
-                    let idx = self.chr_bank_idx[bank];
-                    self.chr_banks[idx].write(addr, val);
+            0x0000..=0x1FFF if self.has_chr_ram => self.chr.write(addr, val),
+            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
+                if let Some(ram) = &mut self.four_screen_ram {
+                    ram.write(addr, val);
                 }
             }
-            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
-                self.four_screen_ram.write(addr - 0x2000, val)
-            }
-            0x6000..=0x7FFF => self.prg_ram.write(addr - 0x6000, val),
+            0x6000..=0x7FFF => self.prg_ram.write(addr, val),
             0x8000..=0xFFFF => self.write_register(addr, val),
             // 0x4020..=0x5FFF Nothing at this range
             _ => (),
@@ -355,39 +340,27 @@ impl Powered for Txrom {
     }
 }
 
-impl Loggable for Txrom {}
-
 impl Savable for Txrom {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
-        self.has_chr_ram.save(fh)?;
         self.mirroring.save(fh)?;
         self.irq_pending.save(fh)?;
-        self.mmc3_revb.save(fh)?;
-        self.mmc_acc.save(fh)?;
-        self.battery_backed.save(fh)?;
-        self.prg_rom_bank_idx.save(fh)?;
-        self.chr_bank_idx.save(fh)?;
         self.four_screen_ram.save(fh)?;
         self.prg_ram.save(fh)?;
-        self.prg_rom_banks.save(fh)?;
-        self.chr_banks.save(fh)?;
+        if self.has_chr_ram {
+            self.chr.save(fh)?;
+        }
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
-        self.has_chr_ram.load(fh)?;
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
-        self.mmc3_revb.load(fh)?;
-        self.mmc_acc.load(fh)?;
-        self.battery_backed.load(fh)?;
-        self.prg_rom_bank_idx.load(fh)?;
-        self.chr_bank_idx.load(fh)?;
         self.four_screen_ram.load(fh)?;
         self.prg_ram.load(fh)?;
-        self.prg_rom_banks.load(fh)?;
-        self.chr_banks.load(fh)?;
+        if self.has_chr_ram {
+            self.chr.load(fh)?;
+        }
         Ok(())
     }
 }
@@ -400,7 +373,6 @@ impl Savable for TxRegs {
         self.irq_counter.save(fh)?;
         self.irq_enabled.save(fh)?;
         self.last_clock.save(fh)?;
-        self.open_bus.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -410,7 +382,6 @@ impl Savable for TxRegs {
         self.irq_counter.load(fh)?;
         self.irq_enabled.load(fh)?;
         self.last_clock.load(fh)?;
-        self.open_bus.load(fh)?;
         Ok(())
     }
 }

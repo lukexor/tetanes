@@ -1,17 +1,8 @@
 //! Handles reading NES Cartridge headers and ROMs
 
-use crate::{
-    info,
-    logging::{LogLevel, Loggable},
-    map_nes_err,
-    mapper::Mirroring,
-    memory::Memory,
-    nes_err, NesResult,
-};
-use std::{
-    fmt,
-    io::{BufReader, Read},
-};
+use crate::{map_nes_err, mapper::Mirroring, memory::Memory, nes_err, NesResult};
+use log::info;
+use std::{fmt, io::Read};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
@@ -21,7 +12,7 @@ const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 /// [http://wiki.nesdev.com/w/index.php/INES]()
 /// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
 /// [http://nesdev.com/NESDoc.pdf (page 28)]()
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct INesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
     pub mapper_num: u16,   // The primary mapper number
@@ -36,13 +27,12 @@ pub struct INesHeader {
 }
 
 /// Represents an NES Cartridge
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Cartridge {
     pub name: String, // '.nes' rom file
     pub header: INesHeader,
     pub prg_rom: Memory, // Program ROM
     pub chr_rom: Memory, // Character ROM
-    log_level: LogLevel,
 }
 
 impl Cartridge {
@@ -53,7 +43,6 @@ impl Cartridge {
             header: INesHeader::new(),
             prg_rom: Memory::new(),
             chr_rom: Memory::new(),
-            log_level: LogLevel::default(),
         }
     }
 
@@ -67,12 +56,8 @@ impl Cartridge {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom<F: Read>(name: &str, fh: &mut F) -> NesResult<Self> {
-        let mut rom_data = BufReader::new(fh);
-
-        let mut header = [0u8; 16];
-        rom_data.read_exact(&mut header)?;
-        let header = INesHeader::from_bytes(&header)
+    pub fn from_rom<F: Read>(name: &str, mut rom_data: &mut F) -> NesResult<Self> {
+        let header = INesHeader::load(&mut rom_data)
             .map_err(|e| map_nes_err!("invalid rom \"{}\": {}", name, e))?;
 
         let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
@@ -116,13 +101,8 @@ impl Cartridge {
             header,
             prg_rom,
             chr_rom,
-            #[cfg(debug_assertions)]
-            log_level: LogLevel::Debug,
-            #[cfg(not(debug_assertions))]
-            log_level: LogLevel::default(),
         };
         info!(
-            cart,
             "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}, Battery: {}",
             name,
             cart.header.mapper_num,
@@ -167,37 +147,28 @@ impl Cartridge {
         self.header.flags & 0x02 == 0x02
     }
 
-    pub fn prg_ram_size(&self) -> NesResult<usize> {
+    pub fn prg_ram_size(&self) -> NesResult<Option<usize>> {
         if self.header.prg_ram_size > 0 {
             if let Some(size) = 64usize.checked_shl(self.header.prg_ram_size.into()) {
-                Ok(size)
+                Ok(Some(size))
             } else {
                 nes_err!("invalid header PRG-RAM size")
             }
         } else {
-            Ok(0)
+            Ok(None)
         }
     }
 
-    pub fn chr_ram_size(&self) -> NesResult<usize> {
+    pub fn chr_ram_size(&self) -> NesResult<Option<usize>> {
         if self.header.chr_ram_size > 0 {
             if let Some(size) = 64usize.checked_shl(self.header.chr_ram_size.into()) {
-                Ok(size)
+                Ok(Some(size))
             } else {
                 nes_err!("invalid header CHR-RAM size")
             }
         } else {
-            Ok(0)
+            Ok(None)
         }
-    }
-}
-
-impl Loggable for Cartridge {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
     }
 }
 
@@ -219,7 +190,10 @@ impl INesHeader {
     }
 
     /// Parses a slice of `u8` bytes and returns a valid INesHeader instance
-    fn from_bytes(header: &[u8; 16]) -> NesResult<Self> {
+    pub fn load<F: Read>(rom_data: &mut F) -> NesResult<Self> {
+        let mut header = [0u8; 16];
+        rom_data.read_exact(&mut header)?;
+
         // Header checks
         if header[0..4] != *b"NES\x1a" {
             return nes_err!("iNES header signature not found.");

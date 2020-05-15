@@ -4,8 +4,7 @@
 
 use crate::{
     common::{Addr, Byte, Clocked, NesFormat, Powered},
-    logging::{LogLevel, Loggable},
-    mapper::{Mapper, MapperRef},
+    mapper::{Mapper, MapperType},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
@@ -36,7 +35,7 @@ pub const RENDER_HEIGHT: u32 = 240;
 const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
-const RENDER_SIZE: usize = 3 * RENDER_PIXELS;
+const RENDER_SIZE: usize = 4 * RENDER_PIXELS;
 
 // Cycles
 const IDLE_CYCLE: u16 = 0; // PPU is idle this cycle
@@ -86,7 +85,6 @@ pub struct Ppu {
     pub pattern_tables: Vec<Vec<Byte>>,
     pub palette: Vec<Byte>,
     pub palette_ids: Vec<u8>,
-    log_level: LogLevel,
 }
 
 impl Ppu {
@@ -117,14 +115,13 @@ impl Ppu {
             ],
             nametable_ids: vec![0; 4 * 0x0400],
             pattern_tables: vec![vec![0; RENDER_SIZE / 2], vec![0; RENDER_SIZE / 2]],
-            palette: vec![0; (PALETTE_SIZE + 4) * 3],
-            palette_ids: vec![0; (PALETTE_SIZE + 4) * 3],
-            log_level: LogLevel::default(),
+            palette: vec![0; (PALETTE_SIZE + 4) * 4],
+            palette_ids: vec![0; (PALETTE_SIZE + 4) * 4],
         }
     }
 
-    pub fn load_mapper(&mut self, mapper: MapperRef) {
-        self.vram.mapper = mapper;
+    pub fn load_mapper(&mut self, mapper: &mut MapperType) {
+        self.vram.mapper = &mut *mapper as *mut MapperType;
     }
 
     pub fn set_debug(&mut self, val: bool) {
@@ -146,7 +143,7 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
-    pub fn frame(&mut self) -> &Vec<Byte> {
+    pub fn frame(&self) -> &Vec<Byte> {
         &self.frame.pixels
     }
 
@@ -486,7 +483,8 @@ impl Ppu {
             palette &= !0x0F; // Remove chroma
         }
         if self.ntsc_video {
-            let pixel = ((self.regs.emphasis() as u32) << 6) | palette as u32;
+            let format = self.nes_format;
+            let pixel = ((self.regs.emphasis(format) as u32) << 6) | palette as u32;
             self.frame
                 .put_ntsc_pixel(x.into(), self.scanline.into(), pixel, self.frame_cycles);
         } else {
@@ -506,10 +504,11 @@ impl Ppu {
         let red = SYSTEM_PALETTE[idx];
         let green = SYSTEM_PALETTE[idx + 1];
         let blue = SYSTEM_PALETTE[idx + 2];
-        let idx = 3 * (x + y * width) as usize;
+        let idx = 4 * (x + y * width) as usize;
         pixels[idx] = red;
         pixels[idx + 1] = green;
         pixels[idx + 2] = blue;
+        pixels[idx + 3] = 255;
     }
 
     fn is_sprite_zero(&self, index: usize) -> bool {
@@ -566,7 +565,6 @@ impl Ppu {
         self.frame_cycles = (self.frame_cycles + 1) % 3;
         if self.cycle > cycle_end {
             self.cycle = 0;
-            // self.scanline_phase = (self.frame_cycles as f32 * 8.0 + 4.9) as u32 % 12;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
                 self.scanline = 0;
@@ -723,8 +721,7 @@ impl Ppu {
         // read_status() modifies register, so make sure mapper is aware
         // of new status
         self.vram
-            .mapper
-            .borrow_mut()
+            .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
         status
     }
@@ -747,16 +744,14 @@ impl Ppu {
         }
         // Ensure our mapper knows vbl changed
         self.vram
-            .mapper
-            .borrow_mut()
+            .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
     }
     fn stop_vblank(&mut self) {
         self.regs.stop_vblank();
         // Ensure our mapper knows vbl changed
         self.vram
-            .mapper
-            .borrow_mut()
+            .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
     }
     pub fn vblank_started(&self) -> bool {
@@ -822,7 +817,7 @@ impl Ppu {
             return;
         }
         self.regs.write_addr(val);
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        self.vram.mapper_mut().vram_change(self.regs.v);
     }
 
     /*
@@ -855,7 +850,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        self.vram.mapper_mut().vram_change(self.regs.v);
         val
     }
     fn peek_ppudata(&self) -> Byte {
@@ -877,7 +872,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.mapper.borrow_mut().vram_change(self.regs.v);
+        self.vram.mapper_mut().vram_change(self.regs.v);
     }
 }
 
@@ -1020,15 +1015,6 @@ impl Powered for Ppu {
     }
 }
 
-impl Loggable for Ppu {
-    fn set_log_level(&mut self, level: LogLevel) {
-        self.log_level = level;
-    }
-    fn log_level(&self) -> LogLevel {
-        self.log_level
-    }
-}
-
 impl Savable for Ppu {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.cycle.save(fh)?;
@@ -1054,7 +1040,6 @@ impl Savable for Ppu {
         // pattern_tables
         // palette
         // palette_ids
-        // log_level
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -1096,7 +1081,8 @@ mod tests {
     #[test]
     fn ppu_scrolling_registers() {
         let mut ppu = Ppu::new();
-        ppu.load_mapper(mapper::null());
+        let mut mapper = Box::new(mapper::null());
+        ppu.load_mapper(&mut mapper);
         while ppu.cycle_count < POWER_ON_CYCLES {
             ppu.clock();
         }

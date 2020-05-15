@@ -1,88 +1,127 @@
 use tetanes::{
+    apu::SAMPLE_RATE,
     bus::Bus,
-    common::Clocked,
+    common::{Clocked, Powered},
     cpu::Cpu,
     mapper,
-    ui::{Ui, UiSettings},
-    NesErr,
+    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
 };
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(start)]
-pub fn main() -> Result<(), JsValue> {
-    // Ensure panics print to console
-    set_panic_hook();
+mod utils;
 
-    // Use `web_sys`'s global `window` function to get a handle on the global
-    // window object.
-    let window = web_sys::window().expect("no global `window` exists");
-    let document = window.document().expect("should have a document on window");
-    let body = document.body().expect("document should have a body");
-
-    let mut cpu = Cpu::init(Bus::new());
-    // let mapper = mapper::load_rom(
-    //     "/Users/caeledh/dev/tetanes/tetanes-web/roms/castlevania_iii_draculas_curse.nes",
-    // )?;
-    // cpu.bus.load_mapper(mapper);
-    for _ in 0..20 {
-        let val = document.create_element("div")?;
-        val.set_inner_html(&format!("${:04X}", cpu.pc));
-        cpu.clock();
-        body.append_child(&val)?;
-    }
-    // let ui = Ui::new();
-    // ui.run()?;
-    // if let Err(e) = ui.run() {
-    //     eprintln!("Error: {}", e);
-    // }
-
-    // let canvas = document.get_element_by_id("canvas").unwrap();
-    // let canvas: web_sys::HtmlCanvasElement = canvas
-    //     .dyn_into::<web_sys::HtmlCanvasElement>()
-    //     .map_err(|_| ())
-    //     .unwrap();
-    // let context = canvas
-    //     .get_context("2d")
-    //     .unwrap()
-    //     .unwrap()
-    //     .dyn_into::<web_sys::CanvasRenderingContext2d>()
-    //     .unwrap();
-
-    // context.begin_path();
-
-    // // Draw the outer circle.
-    // context
-    //     .arc(75.0, 75.0, 50.0, 0.0, f64::consts::PI * 2.0)
-    //     .unwrap();
-
-    // // Draw the mouth.
-    // context.move_to(110.0, 75.0);
-    // context.arc(75.0, 75.0, 35.0, 0.0, f64::consts::PI).unwrap();
-
-    // // Draw the left eye.
-    // context.move_to(65.0, 65.0);
-    // context
-    //     .arc(60.0, 65.0, 5.0, 0.0, f64::consts::PI * 2.0)
-    //     .unwrap();
-
-    // // Draw the right eye.
-    // context.move_to(95.0, 65.0);
-    // context
-    //     .arc(90.0, 65.0, 5.0, 0.0, f64::consts::PI * 2.0)
-    //     .unwrap();
-
-    // context.stroke();
-
-    Ok(())
+#[wasm_bindgen]
+pub struct Nes {
+    paused: bool,
+    cpu: Cpu,
 }
 
-pub fn set_panic_hook() {
-    // When the `console_error_panic_hook` feature is enabled, we can call the
-    // `set_panic_hook` function at least once during initialization, and then
-    // we will get better error messages if our code ever panics.
-    //
-    // For more details see
-    // https://github.com/rustwasm/console_error_panic_hook#readme
-    #[cfg(feature = "console_error_panic_hook")]
-    console_error_panic_hook::set_once();
+#[wasm_bindgen]
+impl Nes {
+    pub fn init() {
+        utils::set_panic_hook();
+        utils::init_log();
+    }
+
+    pub fn new() -> Self {
+        Self {
+            paused: true,
+            cpu: Cpu::init(Bus::new()),
+        }
+    }
+
+    pub fn pause(&mut self, val: bool) {
+        self.paused = val;
+    }
+
+    pub fn paused(&mut self) -> bool {
+        self.paused
+    }
+
+    pub fn power_cycle(&mut self) {
+        self.cpu.power_cycle();
+    }
+
+    pub fn frame(&self) -> *const u8 {
+        self.cpu.bus.ppu.frame().as_ptr()
+    }
+
+    pub fn frame_len(&self) -> usize {
+        self.cpu.bus.ppu.frame().len()
+    }
+
+    pub fn samples(&self) -> *const f32 {
+        self.cpu.bus.apu.samples().as_ptr()
+    }
+
+    pub fn clear_samples(&mut self) {
+        self.cpu.bus.apu.clear_samples();
+    }
+
+    pub fn samples_len(&self) -> usize {
+        self.cpu.bus.apu.samples().len()
+    }
+
+    pub fn width(&self) -> u32 {
+        RENDER_WIDTH
+    }
+
+    pub fn height(&self) -> u32 {
+        RENDER_HEIGHT
+    }
+
+    pub fn sample_rate(&self) -> f32 {
+        SAMPLE_RATE
+    }
+
+    pub fn clock_frame(&mut self) {
+        if !self.paused {
+            while !self.cpu.bus.ppu.frame_complete {
+                let _ = self.cpu.clock();
+            }
+            self.cpu.bus.ppu.frame_complete = false;
+        }
+    }
+
+    pub fn clock(&mut self) {
+        if !self.paused {
+            let _ = self.cpu.clock();
+        }
+    }
+
+    pub fn load_rom(&mut self, mut bytes: &[u8]) {
+        let mapper = mapper::load_rom("file", &mut bytes).unwrap();
+        self.cpu.bus.load_mapper(mapper);
+        self.cpu.power_on();
+        self.pause(false);
+    }
+
+    pub fn handle_event(&mut self, key: &str, pressed: bool, repeat: bool) -> bool {
+        if repeat {
+            return false;
+        }
+        let mut gamepad = &mut self.cpu.bus.input.gamepad1;
+        let mut matched = true;
+        match key {
+            "Escape" if pressed => self.pause(!self.paused),
+            "Enter" => gamepad.start = pressed,
+            "Shift" => gamepad.select = pressed,
+            "a" => gamepad.turbo_a = pressed,
+            "s" => gamepad.turbo_b = pressed,
+            "z" => gamepad.a = pressed,
+            "x" => gamepad.b = pressed,
+            "ArrowUp" => gamepad.up = pressed,
+            "ArrowDown" => gamepad.down = pressed,
+            "ArrowLeft" => gamepad.left = pressed,
+            "ArrowRight" => gamepad.right = pressed,
+            _ => matched = false,
+        }
+        matched
+    }
+}
+
+impl Default for Nes {
+    fn default() -> Self {
+        Self::new()
+    }
 }

@@ -1,7 +1,6 @@
 use crate::{
     common::{create_png, Clocked, Powered},
     cpu::instr::Operation::*,
-    logging::LogLevel,
     nes::{config::DEFAULT_SPEED, Nes},
     ppu::RENDER_WIDTH,
     serialization::Savable,
@@ -122,7 +121,7 @@ impl Nes {
                 let mut b = 0u16;
                 for x in x.saturating_sub(8)..x.saturating_add(8) {
                     for y in y.saturating_sub(8)..y.saturating_add(8) {
-                        let idx = 3 * (y * RENDER_WIDTH + x) as usize;
+                        let idx = 4 * (y * RENDER_WIDTH + x) as usize;
                         r += u16::from(frame[idx]);
                         g += u16::from(frame[idx + 1]);
                         b += u16::from(frame[idx + 2]);
@@ -343,6 +342,11 @@ impl Nes {
                 }
             }
             // Shift
+            Key::Num1 if s => self.cpu.bus.apu.toggle_pulse1(),
+            Key::Num2 if s => self.cpu.bus.apu.toggle_pulse2(),
+            Key::Num3 if s => self.cpu.bus.apu.toggle_triangle(),
+            Key::Num4 if s => self.cpu.bus.apu.toggle_noise(),
+            Key::Num5 if s => self.cpu.bus.apu.toggle_dmc(),
             Key::N if s => self.toggle_nt_viewer(data)?,
             Key::P if s => self.toggle_ppu_viewer(data)?,
             Key::V if s => {
@@ -355,10 +359,7 @@ impl Nes {
                 }
             }
             // F# Keys
-            Key::F9 => {
-                self.config.log_level = LogLevel::increase(self.config.log_level);
-                self.set_log_level(self.config.log_level, false);
-            }
+            Key::F9 => {} // TODO change log level
             Key::F10 => match self.screenshot() {
                 Ok(s) => self.add_message(&s),
                 Err(e) => self.add_message(&e.to_string()),

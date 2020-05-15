@@ -136,7 +136,7 @@ impl Nes {
     pub(super) fn create_textures(&mut self, data: &mut StateData) -> NesResult<()> {
         data.create_texture(
             "nes",
-            ColorType::Rgb,
+            ColorType::Rgba,
             Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
             Rect::new(0, 0, self.width, self.height),
         )?;
