@@ -443,11 +443,10 @@ impl Mapper for Exrom {
     // Used by the PPU to determine whether it should use it's own internal CIRAM for nametable
     // reads or to read CIRAM instead from the mapper
     fn use_ciram(&self, addr: u16) -> bool {
-        if self.in_split {
-            false
-        } else if self.regs.exram_mode == ExRamMode::ExAttr
-            && (addr % 0x0400) >= 0x3C0
-            && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159)
+        if self.in_split
+            || (self.regs.exram_mode == ExRamMode::ExAttr
+                && (addr % 0x0400) >= 0x3C0
+                && (self.spr_fetch_count < 127 || self.spr_fetch_count > 159))
         {
             // If we're in Extended Attribute mode and reading BG attributes,
             // yield to mapper for Attribute data instead of PPU
@@ -1079,13 +1078,14 @@ impl Into<u8> for Mirroring {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cartridge::Cartridge;
 
     #[test]
     fn prg_ram_protect() {
+        use crate::{cartridge::Cartridge, memory::Memory};
         for a in 0..4 {
             for b in 0..4 {
-                let cart = Cartridge::new();
+                let mut cart = Cartridge::new();
+                cart.prg_rom = Memory::rom(0xFFFF);
                 let mut exrom = Exrom::load(cart);
 
                 exrom.write(0x5102, a);

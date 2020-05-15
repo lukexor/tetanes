@@ -251,7 +251,7 @@ impl BankedMemory {
     }
 
     pub fn set_bank(&mut self, bank_start: Addr, mut new_bank: usize) {
-        if new_bank >= self.bank_count() {
+        if self.bank_count() > 0 && new_bank >= self.bank_count() {
             new_bank %= self.bank_count();
         }
         debug_assert!(
@@ -272,7 +272,7 @@ impl BankedMemory {
     }
 
     pub fn set_bank_range(&mut self, start: Addr, end: Addr, mut new_bank: usize) {
-        if new_bank >= self.bank_count() {
+        if self.bank_count() > 0 && new_bank >= self.bank_count() {
             new_bank %= self.bank_count();
         }
         debug_assert!(
@@ -339,9 +339,8 @@ impl BankedMemory {
         };
         debug_assert!(addr >= base_addr, "address is less than base address");
         let mut bank = (addr - base_addr) >> self.bank_shift;
-        let count = self.bank_count();
-        if bank >= count {
-            bank %= count;
+        if self.bank_count() > 0 && bank >= self.bank_count() {
+            bank %= self.bank_count();
         }
         bank
     }
@@ -441,7 +440,7 @@ mod tests {
 
     #[test]
     fn add_bank_range_test() {
-        let mut memory = BankedMemory::new(0x2000);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x2000);
         memory.add_bank_range(0x6000, 0xFFFF);
         assert_eq!(memory.get_bank(0x6000), 0);
         assert_eq!(memory.get_bank(0x7FFF), 0);
@@ -454,7 +453,7 @@ mod tests {
         assert_eq!(memory.get_bank(0xE000), 4);
         assert_eq!(memory.get_bank(0xFFFF), 4);
 
-        let mut memory = BankedMemory::new(0x2000);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x2000);
         memory.add_bank_range(0x8000, 0xBFFF);
         assert_eq!(memory.get_bank(0x8000), 0);
         assert_eq!(memory.get_bank(0x9FFF), 0);
@@ -465,7 +464,7 @@ mod tests {
         assert_eq!(memory.get_bank(0x6000), 0);
         assert_eq!(memory.get_bank(0x8000), 1);
 
-        let mut memory = BankedMemory::new(0x0400);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x0400);
         memory.add_bank_range(0x0000, 0x1FFF);
         assert_eq!(memory.get_bank(0x0000), 0);
         assert_eq!(memory.get_bank(0x03FF), 0);
@@ -477,7 +476,7 @@ mod tests {
 
     #[test]
     fn add_bank_test() {
-        let mut memory = BankedMemory::new(0x4000);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x4000);
         memory.add_bank(0x8000, 0xBFFF);
         memory.add_bank(0xC000, 0xFFFF);
         assert_eq!(memory.get_bank(0x8000), 0);

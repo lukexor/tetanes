@@ -8,6 +8,7 @@
 //! In the case of 2 and 3, if valid NES rom files are found, a menu screen is displayed to select
 //! which rom to run. If there are any errors related to invalid files, directories, or
 //! permissions, the program will print an error and exit.
+#![warn(missing_debug_implementations, rust_2018_idioms, missing_docs)]
 
 use std::{env, path::PathBuf};
 use structopt::StructOpt;
