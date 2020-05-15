@@ -266,10 +266,10 @@ impl fmt::Debug for Bus {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn test_bus() {
+        use super::*;
         use crate::mapper;
         use std::{fs::File, io::BufReader};
 

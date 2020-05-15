@@ -1077,10 +1077,10 @@ impl Into<u8> for Mirroring {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn prg_ram_protect() {
+        use super::*;
         use crate::{cartridge::Cartridge, memory::Memory};
         for a in 0..4 {
             for b in 0..4 {

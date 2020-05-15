@@ -357,6 +357,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn nestest() {
         let rom = "tests/cpu/nestest.nes";
         let mut nes = load(&rom);
@@ -390,6 +391,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "no-randomize-ram")]
     fn instr_timing() {
         let rom = "tests/cpu/instr_timing.nes";
         let mut nes = load(&rom);
