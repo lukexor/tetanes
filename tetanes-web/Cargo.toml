@@ -1,6 +1,6 @@
 [package]
 name = "tetanes-web"
-version = "0.1.0"
+version = "0.1.1"
 license = "GPL-3.0-or-later"
 description = "A NES Emulator written in Rust and WebAssembly"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
@@ -20,7 +20,7 @@ default = ["console_error_panic_hook"]
 console_error_panic_hook = { version = "0.1", optional = true }
 console_log = "0.2"
 log = "0.4"
-tetanes = { version = "0.7.0", default-features = false, features = ["wasm-driver", "no-randomize-ram"] }
+tetanes = { version = "0.7", default-features = false, features = ["wasm-driver", "no-randomize-ram"] }
 wasm-bindgen = "0.2"
 
 [dev-dependencies]

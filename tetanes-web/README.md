@@ -3,7 +3,7 @@
 ## Summary
 
 <p align="center">
-  <img src="../static/tetanes.png" width="800">
+  <img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes.png" width="800">
 </p>
 
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
