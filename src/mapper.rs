@@ -23,6 +23,7 @@ use m004_txrom::Txrom; // Mapper 4
 use m005_exrom::Exrom; // Mapper 5
 use m007_axrom::Axrom; // Mapper 7
 use m009_pxrom::Pxrom; // Mapper 9
+use m155_mmc1a::Mapper155; // Mapper 155
 
 mod m000_nrom;
 mod m001_sxrom;
@@ -32,6 +33,7 @@ mod m004_txrom;
 mod m005_exrom;
 mod m007_axrom;
 mod m009_pxrom;
+mod m155_mmc1a;
 
 /// Nametable Mirroring Mode
 ///
@@ -61,6 +63,7 @@ pub enum MapperType {
     Exrom,
     Axrom,
     Pxrom,
+    Mapper155,
 }
 
 #[enum_dispatch(MapperType)]
@@ -104,6 +107,7 @@ pub fn load_rom<F: Read>(name: &str, rom: &mut F) -> NesResult<MapperType> {
         7 => Axrom::load(cart),
         9 => Pxrom::load(cart),
         71 => Uxrom::load(cart), // TODO: Mapper 71 has slight differences from Uxrom
+        155 => Mapper155::load(cart),
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };
     Ok(mapper)
