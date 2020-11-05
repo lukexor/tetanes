@@ -15,7 +15,7 @@ default-run = "tetanes"
 
 [dependencies]
 chrono = "0.4"
-dirs = "2.0"
+dirs = "3.0"
 enum_dispatch = "0.3"
 include_dir = "0.6"
 lazy_static = "1.4"

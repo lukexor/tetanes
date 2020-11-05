@@ -12,5 +12,21 @@
 a modern web browser. See the main `TetaNES` [README][readme] for more details.
 `TetaNES Web` specific differences will be outlined below.
 
+## Dependencies
+
+* [Rust][rust]
+* [SDL2][sdl2]
+* [Wasm][wasm]
+
+## Building
+
+To build `TetaNES Web`, run `sh bin/build.sh` which will output the necessary
+bundle and wasm files.
+
+## Running Locally
+
+Running `sh bin/start.sh` or `sh bin/start_dev.sh` will build necessary
+resources and boot up a local server.
+
 [wasm]: https://webassembly.org/
 [readme]: https://github.com/lukexor/tetanes#readme
