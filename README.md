@@ -3,7 +3,7 @@
 ## Summary
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes.png" width="800">
+  <img src="https://github.com/lukexor/tetanes/blob/main/static/tetanes.png?raw=true" width="800">
 </p>
 
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
@@ -25,8 +25,8 @@ Try it out in your [browser](http://dev.lukeworks.tech/tetanes)!
 
 ## Screenshots
 
-<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/donkey_kong.png" width="400">&nbsp;&nbsp;<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/super_mario_bros.png" width="400">
-<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/legend_of_zelda.png" width="400">&nbsp;&nbsp;<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/metroid.png" width="400">
+<img src="https://github.com/lukexor/tetanes/blob/main/static/donkey_kong.png?raw=true" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/tetanes/blob/main/static/super_mario_bros.png?raw=true" width="400">
+<img src="https://github.com/lukexor/tetanes/blob/main/static/legend_of_zelda.png?raw=true" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/tetanes/blob/main/static/metroid.png?raw=true" width="400">
 
 ## Mappers
 
@@ -266,8 +266,8 @@ The PPU Viewer shows the current sprite and palettes loaded. You can also scroll
 similar manner to the Nametable Viewer. Super Mario Bros 3 for example swaps out sprites mid-frame
 to render animations.
 
-<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/nametable_viewer.png" width="400">&nbsp;&nbsp;<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/ppu_viewer.png" width="400">
-<img src="https://raw.githubusercontent.com/lukexor/tetanes/master/static/debugger.png" width="808">
+<img src="https://github.com/lukexor/tetanes/blob/main/static/nametable_viewer.png?raw=true" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/tetanes/blob/main/static/ppu_viewer.png?raw=true" width="400">
+<img src="https://github.com/lukexor/tetanes/blob/main/static/debugger.png?raw=true" width="808">
 
 Logging can be set by setting the `RUST_LOG` environment variable and setting it
 to one of `trace`, `debug`, `info`, `warn` or `error`.
