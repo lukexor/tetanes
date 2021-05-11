@@ -1,9 +1,10 @@
 #/bin/sh
 
-wasm-pack build --dev;
+wasm-pack build --dev
 
 if [ $? -eq 0 ]; then
-    pushd www;
-    npm run start_dev;
-    popd;
+    pushd www
+    yarn install
+    yarn run start_dev
+    popd
 fi

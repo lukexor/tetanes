@@ -138,6 +138,7 @@ impl Cartridge {
             5 => "ExROM/MMC5",
             7 => "AxROM",
             9 => "PxROM",
+            155 => "Mapper 155/MMC1A",
             _ => "Unsupported Board",
         }
     }
