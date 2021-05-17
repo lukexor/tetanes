@@ -1,16 +1,13 @@
 use crate::{
     common::{create_png, Clocked, Powered},
     cpu::instr::Operation::*,
-    nes::{config::DEFAULT_SPEED, Nes},
+    nes::Nes,
     ppu::RENDER_WIDTH,
     serialization::Savable,
     NesResult,
 };
 use chrono::prelude::{DateTime, Local};
-use pix_engine::{
-    event::{Axis, Button, Key, Mouse, PixEvent},
-    StateData,
-};
+use pix_engine::prelude::*;
 use std::{
     io::{Read, Write},
     path::PathBuf,
@@ -22,146 +19,146 @@ const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 #[derive(Clone, Debug)]
 pub(super) struct FrameEvent {
     pub(super) frame: usize,
-    pub(super) events: Vec<PixEvent>,
+    pub(super) events: Vec<Event>,
 }
 
 impl Nes {
-    /// This is called on every update loop to check for user events like quitting
-    /// the application, pressing a button, resizing the window or clicking the mouse.
-    pub(super) fn poll_events(&mut self, data: &mut StateData) -> NesResult<()> {
-        let turbo = self.clock_turbo();
-        let events = self.get_events(data);
-        if self.recording {
-            self.replay_buffer
-                .push(FrameEvent::new(self.frame, events.clone()));
-        }
-        let mut gamepad_events = Vec::new();
-        for event in events {
-            // Process system events
-            match event {
-                PixEvent::Focus(window_id, focus) => {
-                    self.focused_window = if focus { Some(window_id) } else { None };
-                }
-                PixEvent::WinClose(window_id) => match Some(window_id) {
-                    i if i == self.ppu_viewer_window => self.toggle_ppu_viewer(data)?,
-                    i if i == self.nt_viewer_window => self.toggle_nt_viewer(data)?,
-                    _ => (),
-                },
-                _ => (),
-            }
+    // /// This is called on every update loop to check for user events like quitting
+    // /// the application, pressing a button, resizing the window or clicking the mouse.
+    // pub(super) fn poll_events(&mut self, s: &mut PixState) -> NesResult<()> {
+    //     let turbo = self.clock_turbo();
+    //     let events = self.get_events(s);
+    //     if self.recording {
+    //         self.replay_buffer
+    //             .push(FrameEvent::new(self.frame, events.clone()));
+    //     }
+    //     let mut gamepad_events = Vec::new();
+    //     for event in events {
+    //         // Process system events
+    //         match event {
+    //             Event::Window {
+    //                 window_id,
+    //                 win_event,
+    //             } => match win_event {
+    //                 WindowEvent::FocusGained => self.focused_window = Some(window_id),
+    //                 WindowEvent::FocusLost => self.focused_window = None,
+    //                 WindowEvent::Close => match Some(window_id) {
+    //                     i if i == self.ppu_viewer_window => self.toggle_ppu_viewer(s)?,
+    //                     i if i == self.nt_viewer_window => self.toggle_nt_viewer(s)?,
+    //                     _ => (),
+    //                 },
+    //                 _ => (),
+    //             },
+    //             _ => (),
+    //         }
 
-            // Only process remaining events if we're focused
-            if !self.playback && self.focused_window.is_none() {
-                continue;
-            }
-            if Self::is_gamepad_event(&event) {
-                gamepad_events.push(event.clone());
-            }
-            match event {
-                PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
-                PixEvent::MousePress(..) => self.handle_mouse_event(event)?,
-                PixEvent::GamepadBtn(..) => self.handle_gamepad_button(event, turbo)?,
-                PixEvent::GamepadAxis(..) => self.handle_gamepad_axis(event)?,
-                _ => (),
-            }
-        }
-        self.frame += 1;
-        Ok(())
-    }
+    //         // Only process remaining events if we're focused
+    //         if !self.playback && self.focused_window.is_none() {
+    //             continue;
+    //         }
+    //         if Self::is_gamepad_event(&event) {
+    //             gamepad_events.push(event.clone());
+    //         }
+    //         match event {
+    //             Event::KeyDown { .. } => self.handle_key_event(event, turbo, s)?,
+    //             Event::MouseDown { .. } => self.handle_mouse_event(event)?,
+    //             Event::ControllerDown { .. } => self.handle_gamepad_button(event, turbo)?,
+    //             Event::ControllerAxisMotion { .. } => self.handle_gamepad_axis(event)?,
+    //             _ => (),
+    //         }
+    //     }
+    //     self.frame += 1;
+    //     Ok(())
+    // }
 
-    fn get_events(&mut self, data: &mut StateData) -> Vec<PixEvent> {
-        // Get the list events, either from the user or from a replay_buffer
-        let mut events: Vec<PixEvent> = Vec::new();
-        if self.playback && !self.replay_buffer.is_empty() {
-            let frame_event = self.replay_buffer.pop().unwrap();
-            if frame_event.frame == self.frame {
-                events.extend(frame_event.events);
-            }
-        } else {
-            self.playback = false;
-            events.extend(data.poll());
-        };
-        events
-    }
+    // fn get_events(&mut self, s: &mut PixState) -> Vec<Event> {
+    //     // Get the list events, either from the user or from a replay_buffer
+    //     let mut events: Vec<Event> = Vec::new();
+    //     if self.playback && !self.replay_buffer.is_empty() {
+    //         let frame_event = self.replay_buffer.pop().unwrap();
+    //         if frame_event.frame == self.frame {
+    //             events.extend(frame_event.events);
+    //         }
+    //     } else {
+    //         self.playback = false;
+    //         events.extend(s.poll_events());
+    //     };
+    //     events
+    // }
 
     /// Turbo clock counts up every frame from 0-5
     /// When it's less than 3, we toggle the button currently held down
     /// This gives the effect of pressing a button quickly every 3 frames or
     /// every ~48 milliseconds
-    fn clock_turbo(&mut self) -> bool {
-        let turbo = self.turbo_clock < 3;
+    pub(super) fn clock_turbo(&mut self) {
+        self.turbo = self.turbo_clock < 3;
         let mut input = &mut self.cpu.bus.input;
         if input.gamepad1.turbo_a {
-            input.gamepad1.a = turbo;
+            input.gamepad1.a = self.turbo;
         }
         if input.gamepad1.turbo_b {
-            input.gamepad1.b = turbo;
+            input.gamepad1.b = self.turbo;
         }
         if input.gamepad2.turbo_a {
-            input.gamepad2.a = turbo;
+            input.gamepad2.a = self.turbo;
         }
         if input.gamepad2.turbo_b {
-            input.gamepad2.b = turbo;
+            input.gamepad2.b = self.turbo;
         }
-        turbo
     }
 
     /// Handles all mouse related events
     #[allow(clippy::many_single_char_names)]
-    fn handle_mouse_event(&mut self, event: PixEvent) -> NesResult<()> {
-        if let PixEvent::MousePress(Mouse::Left, x, y, pressed) = event {
-            self.cpu.bus.input.zapper.triggered = pressed;
-            if pressed && x > 0 && x < self.width as i32 && y > 0 && y < self.height as i32 {
-                let x = x as u32 / self.config.scale;
-                let y = y as u32 / self.config.scale;
-                let frame = &self.cpu.bus.ppu.frame();
-                // Compute average brightness
-                let mut r = 0u16;
-                let mut g = 0u16;
-                let mut b = 0u16;
-                for x in x.saturating_sub(8)..x.saturating_add(8) {
-                    for y in y.saturating_sub(8)..y.saturating_add(8) {
-                        let idx = 4 * (y * RENDER_WIDTH + x) as usize;
-                        r += u16::from(frame[idx]);
-                        g += u16::from(frame[idx + 1]);
-                        b += u16::from(frame[idx + 2]);
-                    }
-                }
-                r /= 256;
-                g /= 256;
-                b /= 256;
-                let luminance = (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) as u32;
-                self.cpu.bus.input.zapper.light_sense = luminance < 84;
-                self.zapper_decay = (luminance / 10) * 113;
-                // println!(
-                //     "lum: {}, sense: {}, decay: {}",
-                //     luminance, self.cpu.bus.input.zapper.light_sense, self.zapper_decay
-                // );
-            }
-        }
-        Ok(())
-    }
+    fn handle_mouse_event(&mut self, event: Event) -> NesResult<()> {
+        let (x, y, pressed) = match event {
+            Event::MouseDown {
+                button: Mouse::Left,
+                x,
+                y,
+            } => (x, y, true),
+            Event::MouseUp {
+                button: Mouse::Left,
+                x,
+                y,
+            } => (x, y, false),
+            _ => return Ok(()),
+        };
 
-    /// Handles all keyboard related events including keyrepeat, keydown and keyup
-    fn handle_key_event(
-        &mut self,
-        event: PixEvent,
-        turbo: bool,
-        data: &mut StateData,
-    ) -> NesResult<()> {
-        match event {
-            PixEvent::KeyPress(key, true, true) => self.handle_keyrepeat(key),
-            PixEvent::KeyPress(key, true, false) => self.handle_keydown(key, turbo, data)?,
-            PixEvent::KeyPress(key, false, ..) => self.handle_keyup(key, turbo),
-            _ => (),
+        self.cpu.bus.input.zapper.triggered = pressed;
+        if pressed && x > 0 && x < self.width as i32 && y > 0 && y < self.height as i32 {
+            let x = x as u32 / self.config.scale;
+            let y = y as u32 / self.config.scale;
+            let frame = &self.cpu.bus.ppu.frame();
+            // Compute average brightness
+            let mut r = 0u16;
+            let mut g = 0u16;
+            let mut b = 0u16;
+            for x in x.saturating_sub(8)..x.saturating_add(8) {
+                for y in y.saturating_sub(8)..y.saturating_add(8) {
+                    let idx = 4 * (y * RENDER_WIDTH + x) as usize;
+                    r += u16::from(frame[idx]);
+                    g += u16::from(frame[idx + 1]);
+                    b += u16::from(frame[idx + 2]);
+                }
+            }
+            r /= 256;
+            g /= 256;
+            b /= 256;
+            let luminance = (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) as u32;
+            self.cpu.bus.input.zapper.light_sense = luminance < 84;
+            self.zapper_decay = (luminance / 10) * 113;
+            // println!(
+            //     "lum: {}, sense: {}, decay: {}",
+            //     luminance, self.cpu.bus.input.zapper.light_sense, self.zapper_decay
+            // );
         }
         Ok(())
     }
 
     /// Handles keyrepeats
-    fn handle_keyrepeat(&mut self, key: Key) {
+    pub(super) fn handle_keyrepeat(&mut self, key: Key) {
         self.held_keys.insert(key as u8, true);
-        let c = self.is_key_held(Key::Ctrl);
+        let c = self.is_key_held(Key::LCtrl);
         let d = self.config.debug;
         match key {
             // No modifiers
@@ -224,10 +221,10 @@ impl Nes {
     // up and also restructure keybind referencing to allow customization
     // TODO: abstract out window-specific focused keypresses
     #[allow(clippy::cognitive_complexity)]
-    fn handle_keydown(&mut self, key: Key, turbo: bool, data: &mut StateData) -> NesResult<()> {
+    pub(super) fn handle_keydown(&mut self, s: &mut PixState, key: Key) -> NesResult<()> {
         self.held_keys.insert(key as u8, true);
-        let c = self.is_key_held(Key::Ctrl);
-        let s = self.is_key_held(Key::LShift);
+        let c = self.is_key_held(Key::LCtrl);
+        let shift = self.is_key_held(Key::LShift);
         let d = self.config.debug;
         match key {
             // No modifiers
@@ -293,13 +290,13 @@ impl Nes {
             Key::Equals if c => self.change_speed(0.25),
             Key::Return if c => {
                 self.config.fullscreen = !self.config.fullscreen;
-                data.fullscreen(self.config.fullscreen)?;
+                s.fullscreen(self.config.fullscreen);
             }
             Key::C if c => {
                 // TODO open config menu
                 self.paused(true);
             }
-            Key::D if c => self.toggle_debug(data)?,
+            Key::D if c => self.toggle_debug(s)?,
             Key::S if c => {
                 let rewind = false;
                 self.save_state(self.config.save_slot, rewind);
@@ -327,29 +324,30 @@ impl Nes {
                 self.reset();
                 self.add_message("Reset");
             }
-            Key::P if c && !s => {
+            Key::P if c && !shift => {
                 self.paused(false);
                 self.power_cycle();
                 self.add_message("Power Cycled");
             }
             Key::V if c => {
                 self.config.vsync = !self.config.vsync;
-                data.vsync(self.config.vsync)?;
-                if self.config.vsync {
-                    self.add_message("Vsync Enabled");
-                } else {
-                    self.add_message("Vsync Disabled");
-                }
+                todo!("toggle vsync");
+                // s.vsync(self.config.vsync)?;
+                // if self.config.vsync {
+                //     self.add_message("Vsync Enabled");
+                // } else {
+                //     self.add_message("Vsync Disabled");
+                // }
             }
             // Shift
-            Key::Num1 if s => self.cpu.bus.apu.toggle_pulse1(),
-            Key::Num2 if s => self.cpu.bus.apu.toggle_pulse2(),
-            Key::Num3 if s => self.cpu.bus.apu.toggle_triangle(),
-            Key::Num4 if s => self.cpu.bus.apu.toggle_noise(),
-            Key::Num5 if s => self.cpu.bus.apu.toggle_dmc(),
-            Key::N if s => self.toggle_nt_viewer(data)?,
-            Key::P if s => self.toggle_ppu_viewer(data)?,
-            Key::V if s => {
+            Key::Num1 if shift => self.cpu.bus.apu.toggle_pulse1(),
+            Key::Num2 if shift => self.cpu.bus.apu.toggle_pulse2(),
+            Key::Num3 if shift => self.cpu.bus.apu.toggle_triangle(),
+            Key::Num4 if shift => self.cpu.bus.apu.toggle_noise(),
+            Key::Num5 if shift => self.cpu.bus.apu.toggle_dmc(),
+            Key::N if shift => self.toggle_nt_viewer(s)?,
+            Key::P if shift => self.toggle_ppu_viewer(s)?,
+            Key::V if shift => {
                 self.recording = !self.recording;
                 if self.recording {
                     self.add_message("Recording Started");
@@ -367,28 +365,16 @@ impl Nes {
             _ => {
                 let handled = self.handle_scanline_key(key);
                 if !handled {
-                    self.handle_input_event(key, true, turbo);
+                    self.handle_input_event(key, true);
                 }
             }
         }
         Ok(())
     }
 
-    /// Handles keyup events
-    fn handle_keyup(&mut self, key: Key, turbo: bool) {
-        self.held_keys.insert(key as u8, false);
-        match key {
-            Key::Space => {
-                self.config.speed = DEFAULT_SPEED;
-                self.cpu.bus.apu.set_speed(self.config.speed);
-            }
-            _ => self.handle_input_event(key, false, turbo),
-        }
-    }
-
     /// Handles gamepad events from the keyboard.
     // TODO: Update this to allow up to 4 players
-    fn handle_input_event(&mut self, key: Key, pressed: bool, turbo: bool) {
+    pub(super) fn handle_input_event(&mut self, key: Key, pressed: bool) {
         // Gamepad events only apply to the main window
         if self.focused_window != Some(self.nes_window) {
             return;
@@ -400,11 +386,11 @@ impl Nes {
             Key::X => input.gamepad1.b = pressed,
             Key::A => {
                 input.gamepad1.turbo_a = pressed;
-                input.gamepad1.a = turbo && pressed;
+                input.gamepad1.a = self.turbo && pressed;
             }
             Key::S => {
                 input.gamepad1.turbo_b = pressed;
-                input.gamepad1.b = turbo && pressed;
+                input.gamepad1.b = self.turbo && pressed;
             }
             Key::RShift => input.gamepad1.select = pressed,
             Key::Return => input.gamepad1.start = pressed,
@@ -437,58 +423,73 @@ impl Nes {
     }
 
     /// Handles controller gamepad button events
-    fn handle_gamepad_button(&mut self, event: PixEvent, turbo: bool) -> NesResult<()> {
+    fn handle_gamepad_button(&mut self, event: Event) -> NesResult<()> {
         // Gamepad events only apply to the main window
         if self.focused_window != Some(self.nes_window) {
             return Ok(());
         }
-        if let PixEvent::GamepadBtn(gamepad_id, button, pressed) = event {
-            let input = &mut self.cpu.bus.input;
-            let mut gamepad = match gamepad_id {
-                0 => &mut input.gamepad1,
-                1 => &mut input.gamepad2,
-                _ => panic!("invalid gamepad id: {}", gamepad_id),
-            };
-            match button {
-                Button::Guide if pressed => self.paused(!self.paused),
-                Button::LeftShoulder if pressed => self.change_speed(-0.25),
-                Button::RightShoulder if pressed => self.change_speed(0.25),
-                Button::A => {
-                    gamepad.a = pressed;
-                }
-                Button::B => gamepad.b = pressed,
-                Button::X => {
-                    gamepad.turbo_a = pressed;
-                    gamepad.a = turbo && pressed;
-                }
-                Button::Y => {
-                    gamepad.turbo_b = pressed;
-                    gamepad.b = turbo && pressed;
-                }
-                Button::Back => gamepad.select = pressed,
-                Button::Start => gamepad.start = pressed,
-                Button::DPadUp => gamepad.up = pressed,
-                Button::DPadDown => gamepad.down = pressed,
-                Button::DPadLeft => gamepad.left = pressed,
-                Button::DPadRight => gamepad.right = pressed,
-                _ => {}
+        let (controller_id, button, pressed) = match event {
+            Event::ControllerDown {
+                controller_id,
+                button,
+            } => (controller_id, button, true),
+            Event::ControllerUp {
+                controller_id,
+                button,
+            } => (controller_id, button, false),
+            _ => return Ok(()),
+        };
+
+        let input = &mut self.cpu.bus.input;
+        let mut gamepad = match controller_id {
+            0 => &mut input.gamepad1,
+            1 => &mut input.gamepad2,
+            _ => panic!("invalid gamepad id: {}", controller_id),
+        };
+        match button {
+            Button::Guide if pressed => self.paused(!self.paused),
+            Button::LeftShoulder if pressed => self.change_speed(-0.25),
+            Button::RightShoulder if pressed => self.change_speed(0.25),
+            Button::A => {
+                gamepad.a = pressed;
             }
+            Button::B => gamepad.b = pressed,
+            Button::X => {
+                gamepad.turbo_a = pressed;
+                gamepad.a = self.turbo && pressed;
+            }
+            Button::Y => {
+                gamepad.turbo_b = pressed;
+                gamepad.b = self.turbo && pressed;
+            }
+            Button::Back => gamepad.select = pressed,
+            Button::Start => gamepad.start = pressed,
+            Button::DPadUp => gamepad.up = pressed,
+            Button::DPadDown => gamepad.down = pressed,
+            Button::DPadLeft => gamepad.left = pressed,
+            Button::DPadRight => gamepad.right = pressed,
+            _ => {}
         }
         Ok(())
     }
 
     /// Handle controller gamepad joystick events
-    fn handle_gamepad_axis(&mut self, event: PixEvent) -> NesResult<()> {
+    fn handle_gamepad_axis(&mut self, event: Event) -> NesResult<()> {
         // Gamepad events only apply to the main window
         if self.focused_window != Some(self.nes_window) {
             return Ok(());
         }
-        if let PixEvent::GamepadAxis(gamepad_id, axis, value) = event {
+        if let Event::ControllerAxisMotion {
+            controller_id,
+            axis,
+            value,
+        } = event
+        {
             let input = &mut self.cpu.bus.input;
-            let mut gamepad = match gamepad_id {
+            let mut gamepad = match controller_id {
                 0 => &mut input.gamepad1,
                 1 => &mut input.gamepad2,
-                _ => panic!("invalid gamepad id: {}", gamepad_id),
+                _ => panic!("invalid gamepad id: {}", controller_id),
             };
             match axis {
                 // Left/Right
@@ -564,9 +565,9 @@ impl Nes {
     /// Helper function to determine if a keyboard event is a gamepad event
     // TODO: When custom keybind abstraction is complete, update this to only
     // match bindings that are tied to gamepad inputs
-    fn is_gamepad_event(event: &PixEvent) -> bool {
+    fn is_gamepad_event(event: &Event) -> bool {
         match event {
-            PixEvent::KeyPress(key, ..) => match key {
+            Event::KeyDown { key: Some(key), .. } => match key {
                 Key::A
                 | Key::S
                 | Key::Z
@@ -579,7 +580,7 @@ impl Nes {
                 | Key::Down => true,
                 _ => false,
             },
-            PixEvent::GamepadBtn(_, btn, ..) => match btn {
+            Event::ControllerDown { button, .. } => match button {
                 Button::A
                 | Button::B
                 | Button::X
@@ -592,7 +593,7 @@ impl Nes {
                 | Button::DPadDown => true,
                 _ => false,
             },
-            PixEvent::GamepadAxis(_, axis, ..) => match axis {
+            Event::ControllerAxisMotion { axis, .. } => match axis {
                 Axis::LeftX | Axis::LeftY => true,
                 _ => false,
             },
@@ -602,7 +603,7 @@ impl Nes {
 }
 
 impl FrameEvent {
-    pub(super) fn new(frame: usize, events: Vec<PixEvent>) -> Self {
+    pub(super) fn new(frame: usize, events: Vec<Event>) -> Self {
         Self { frame, events }
     }
 }

@@ -3,12 +3,7 @@ use crate::{
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     NesResult,
 };
-use pix_engine::{
-    draw::Rect,
-    image::Image,
-    pixel::{self, ColorType, Pixel},
-    StateData,
-};
+use pix_engine::prelude::*;
 
 mod config;
 mod help;
@@ -55,9 +50,9 @@ impl Menu {
         }
     }
 
-    pub(super) fn draw(&mut self, data: &mut StateData) -> NesResult<()> {
+    pub(super) fn draw(&mut self, s: &mut PixState) -> NesResult<()> {
         match &self.menu_type {
-            MenuType::OpenRom => open_rom::draw_open_menu(data),
+            MenuType::OpenRom => open_rom::draw_open_menu(s),
             _ => Ok(()),
         }
     }
@@ -65,7 +60,7 @@ impl Menu {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Message {
-    timer: f32,
+    timer: f64,
     timed: bool,
     text: String,
 }
@@ -100,64 +95,62 @@ impl Nes {
         self.messages.retain(|msg| msg.text != text);
     }
 
-    pub(super) fn draw_messages(&mut self, elapsed: f32, data: &mut StateData) -> NesResult<()> {
+    pub(super) fn draw_messages(&mut self, s: &mut PixState) -> NesResult<()> {
         self.messages.retain(|msg| !msg.timed || msg.timer > 0.0);
         self.messages.dedup();
         if !self.messages.is_empty() {
-            let msg_box = Image::new_ref(self.width, MSG_HEIGHT);
-            data.set_draw_target(msg_box);
-            let mut y = 5;
-            data.set_draw_scale(2);
+            let mut p = point!(0, 5);
+            s.text_size(24);
             for msg in self.messages.iter_mut() {
-                msg.timer -= elapsed;
-                data.fill_rect(0, y - 5, self.width, 25, Pixel([0, 0, 0, 200]));
-                let mut x = 10;
-                for s in msg.text.split_whitespace() {
-                    let curr_width = s.len() as u32 * 16;
-                    if x + curr_width >= self.width {
-                        x = 10;
-                        y += 20;
-                        data.draw_string(x, y, s, pixel::RED);
+                msg.timer -= s.delta_time();
+                s.fill(rgb!(0, 200));
+                s.rect((0, p.y - 5, self.width, 25))?;
+                p.x = 10;
+                s.fill(RED);
+                for msg in msg.text.split_whitespace() {
+                    let curr_width = msg.len() as i32 * 16;
+                    if p.x + curr_width >= self.width as i32 {
+                        p.x = 10;
+                        p.y += 20;
+                        s.text(p, msg)?;
                     } else {
-                        data.draw_string(x, y, s, pixel::RED);
+                        s.text(p, msg)?;
                     }
-                    x += curr_width;
-                    data.draw_string(x, y, " ", pixel::RED);
-                    x += 16;
+                    p.x += curr_width;
+                    s.text(p, " ")?;
+                    p.x += 16;
                 }
-                y += 20;
+                p.y += 20;
             }
-            data.set_draw_scale(1);
-            data.copy_draw_target("message")?;
         }
         Ok(())
     }
 
-    pub(super) fn create_textures(&mut self, data: &mut StateData) -> NesResult<()> {
-        data.create_texture(
-            "nes",
-            ColorType::Rgba,
-            Rect::new(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
-            Rect::new(0, 0, self.width, self.height),
-        )?;
-        data.create_texture(
-            "message",
-            ColorType::Rgba,
-            Rect::new(0, 0, self.width, MSG_HEIGHT),
-            Rect::new(0, 0, self.width, MSG_HEIGHT),
-        )?;
-        data.create_texture(
-            "menu",
-            ColorType::Rgba,
-            Rect::new(0, 0, self.width, self.height),
-            Rect::new(0, 0, self.width, self.height),
-        )?;
-        data.create_texture(
-            "debug",
-            ColorType::Rgba,
-            Rect::new(0, 0, DEBUG_WIDTH, self.height),
-            Rect::new(self.width, 0, DEBUG_WIDTH, self.height),
-        )?;
+    pub(super) fn create_textures(&mut self, _s: &mut PixState) -> NesResult<()> {
+        // s.create_texture(
+        //     "nes",
+        //     ColorType::Rgba,
+        //     rect!(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
+        //     rect!(0, 0, self.width, self.height),
+        // )?;
+        // s.create_texture(
+        //     "message",
+        //     ColorType::Rgba,
+        //     rect!(0, 0, self.width, MSG_HEIGHT),
+        //     rect!(0, 0, self.width, MSG_HEIGHT),
+        // )?;
+        // s.create_texture(
+        //     "menu",
+        //     ColorType::Rgba,
+        //     rect!(0, 0, self.width, self.height),
+        //     rect!(0, 0, self.width, self.height),
+        // )?;
+        // s.create_texture(
+        //     "debug",
+        //     ColorType::Rgba,
+        //     rect!(0, 0, DEBUG_WIDTH, self.height),
+        //     rect!(self.width, 0, DEBUG_WIDTH, self.height),
+        // )?;
         Ok(())
     }
 }

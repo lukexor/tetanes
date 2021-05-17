@@ -1,6 +1,6 @@
 use crate::NesResult;
-use pix_engine::StateData;
+use pix_engine::prelude::*;
 
-pub(super) fn draw_open_menu(_data: &mut StateData) -> NesResult<()> {
+pub(super) fn draw_open_menu(s: &mut PixState) -> NesResult<()> {
     Ok(())
 }

@@ -55,11 +55,10 @@ impl Frame {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
-        let idx = 4 * (x + y * RENDER_WIDTH) as usize;
+        let idx = 3 * (x + y * RENDER_WIDTH) as usize;
         self.pixels[idx] = red;
         self.pixels[idx + 1] = green;
         self.pixels[idx + 2] = blue;
-        self.pixels[idx + 3] = 255;
     }
 
     // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain

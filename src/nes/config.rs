@@ -1,5 +1,5 @@
 use crate::{nes::Nes, serialization::Savable, NesResult};
-use pix_engine::StateData;
+use pix_engine::prelude::*;
 use std::{
     env,
     io::{Read, Write},
@@ -115,7 +115,7 @@ impl Nes {
         }
     }
 
-    pub(super) fn update_title(&mut self, data: &mut StateData) {
+    pub(super) fn update_title(&mut self, s: &mut PixState) -> NesResult<()> {
         let mut title = String::new();
         if self.paused {
             title.push_str("Paused");
@@ -128,7 +128,8 @@ impl Nes {
                 title.push_str(" - Muted");
             }
         }
-        data.set_title(&title);
+        s.set_title(&title)?;
+        Ok(())
     }
 }
 

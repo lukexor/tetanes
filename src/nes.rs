@@ -6,7 +6,7 @@ use crate::{
     common::{Clocked, Powered},
     cpu::{Cpu, CPU_CLOCK_RATE},
     nes::{
-        config::{MAX_SPEED, MIN_SPEED},
+        config::{DEFAULT_SPEED, MAX_SPEED, MIN_SPEED},
         debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
         event::FrameEvent,
         menu::{Menu, MenuType, Message},
@@ -16,10 +16,7 @@ use crate::{
     NesResult,
 };
 use include_dir::{include_dir, Dir};
-use pix_engine::{
-    image::{Image, ImageRef},
-    PixEngine, PixEngineResult, State, StateData, WindowId,
-};
+use pix_engine::prelude::*;
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
@@ -43,7 +40,7 @@ const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 const REWIND_SLOT: u8 = 5;
 const REWIND_SIZE: u8 = 5;
-const REWIND_TIMER: f32 = 5.0;
+const REWIND_TIMER: f64 = 5.0;
 
 #[derive(Clone)]
 pub struct Nes {
@@ -51,7 +48,8 @@ pub struct Nes {
     loaded_rom: PathBuf,
     paused: bool,
     background_pause: bool,
-    running_time: f32,
+    running_time: f64,
+    turbo: bool,
     turbo_clock: u8,
     cpu: Cpu,
     cycles_remaining: f32,
@@ -69,14 +67,15 @@ pub struct Nes {
     nt_viewer: bool,
     nt_scanline: u32,
     pat_scanline: u32,
-    debug_image: ImageRef,
-    ppu_info_image: ImageRef,
-    nt_info_image: ImageRef,
+    screen: Image,
+    debug_image: Image,
+    ppu_info_image: Image,
+    nt_info_image: Image,
     active_debug: bool,
     width: u32,
     height: u32,
     speed_counter: i32,
-    rewind_timer: f32,
+    rewind_timer: f64,
     rewind_queue: VecDeque<u8>,
     recording: bool,
     playback: bool,
@@ -105,6 +104,7 @@ impl Nes {
             paused: true,
             background_pause: false,
             running_time: 0.0,
+            turbo: false,
             turbo_clock: 0,
             cpu,
             cycles_remaining: 0.0,
@@ -120,16 +120,17 @@ impl Nes {
             cpu_break: false,
             break_instr: None,
             should_close: false,
-            nes_window: 0,
+            nes_window: WindowId::default(),
             ppu_viewer_window: None,
             nt_viewer_window: None,
             ppu_viewer: false,
             nt_viewer: false,
             nt_scanline: 0,
             pat_scanline: 0,
-            debug_image: Image::new_ref(DEBUG_WIDTH, height),
-            ppu_info_image: Image::rgb_ref(INFO_WIDTH, INFO_HEIGHT),
-            nt_info_image: Image::rgb_ref(INFO_WIDTH, INFO_HEIGHT),
+            screen: Image::rgb(RENDER_WIDTH, RENDER_HEIGHT),
+            debug_image: Image::rgb(DEBUG_WIDTH, height),
+            ppu_info_image: Image::rgb(INFO_WIDTH, INFO_HEIGHT),
+            nt_info_image: Image::rgb(INFO_WIDTH, INFO_HEIGHT),
             active_debug: false,
             width,
             height,
@@ -151,10 +152,9 @@ impl Nes {
     }
 
     /// Begins emulation by starting the game engine loop
-    pub fn run(self) -> NesResult<()> {
+    pub fn run(mut self) -> NesResult<()> {
         let width = self.width;
         let height = self.height;
-        let vsync = self.config.vsync;
 
         // Extract title from filename
         let mut path = self.config.path.to_owned();
@@ -166,10 +166,16 @@ impl Nes {
             APP_NAME.to_owned()
         };
 
-        let mut engine = PixEngine::new(title, self, width, height, vsync)?;
-        engine.set_audio_sample_rate(SAMPLE_RATE as i32)?;
-        let _ = engine.set_icon(ICON_PATH);
-        engine.run()?;
+        let mut engine = PixEngine::create(width, height);
+        engine.with_title(title);
+        engine.with_frame_rate();
+        engine.audio_sample_rate(SAMPLE_RATE.round() as i32);
+        engine.icon(ICON_PATH);
+        engine.resizable();
+        if self.config.vsync {
+            // engine.vsync_enabled();
+        }
+        engine.build()?.run(&mut self)?;
         Ok(())
     }
 
@@ -181,6 +187,7 @@ impl Nes {
         self.cpu_break = false;
         self.cpu.bus.ppu.frame_complete = false;
         self.turbo_clock = (self.turbo_clock + 1) % 6;
+        self.frame += 1;
     }
 
     /// Steps the console the number of seconds
@@ -196,7 +203,7 @@ impl Nes {
     }
 
     /// Finds roms in the current path. If there is only one, it is started
-    fn find_or_load_roms(&mut self, data: &mut StateData) -> NesResult<bool> {
+    fn find_or_load_roms(&mut self, s: &mut PixState) -> NesResult<()> {
         match self.find_roms() {
             Ok(mut roms) => self.roms.append(&mut roms),
             Err(e) => nes_err!("{}", e)?,
@@ -223,16 +230,16 @@ impl Nes {
                     self.add_message(&e.to_string());
                 }
             }
-            self.update_title(data);
+            self.update_title(s)?;
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Sets up the emulation based on startup configuration settings
-    fn config_setup(&mut self, data: &mut StateData) -> NesResult<bool> {
+    fn config_setup(&mut self, s: &mut PixState) -> NesResult<()> {
         if self.config.debug {
             self.config.debug = !self.config.debug;
-            self.toggle_debug(data)?;
+            self.toggle_debug(s)?;
         }
         if self.config.speed < MIN_SPEED {
             self.config.speed = MIN_SPEED;
@@ -244,13 +251,13 @@ impl Nes {
         }
         self.cpu.bus.apu.set_speed(self.config.speed);
         if self.config.fullscreen {
-            data.fullscreen(true)?;
+            s.fullscreen(true);
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Runs the emulation a certain amount if not paused based on settings
-    fn run_emulation(&mut self, elapsed: f32) {
+    fn run_emulation(&mut self, elapsed: f64) {
         if !self.paused {
             self.running_time += elapsed;
             // Frames that aren't multiples of the default render 1 more/less frames
@@ -269,65 +276,101 @@ impl Nes {
     }
 
     /// Update rendering textures with emulation state
-    fn update_textures(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
+    fn update_textures(&mut self, s: &mut PixState) -> PixResult<()> {
         // Update main screen
-        data.copy_texture("nes", &self.cpu.bus.ppu.frame())?;
+        self.screen.update_bytes(&self.cpu.bus.ppu.frame());
+        s.image_resized(0, 0, s.width(), s.height(), &self.screen)?;
+
         // Draw any open menus
         for menu in self.menus.iter_mut() {
-            menu.draw(data)?;
+            menu.draw(s)?;
         }
-        self.draw_messages(elapsed, data)?;
+        self.draw_messages(s)?;
         if self.config.debug {
             // Draw updated debug info if active_debug is set, or if the game
             // gets paused
             if self.active_debug || self.paused {
-                self.draw_debug(data);
+                self.draw_debug(s)?;
             }
-            self.copy_debug(data)?;
+            self.copy_debug(s)?;
         }
         if self.ppu_viewer {
-            self.copy_ppu_viewer(data)?;
+            self.copy_ppu_viewer(s)?;
         }
         if self.nt_viewer {
-            self.copy_nt_viewer(data)?;
+            self.copy_nt_viewer(s)?;
         }
-        Ok(true)
+        Ok(())
     }
 }
 
-impl State for Nes {
-    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
-        self.nes_window = data.main_window_id();
+impl AppState for Nes {
+    fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
+        self.nes_window = s.window_id();
         self.focused_window = Some(self.nes_window);
-        self.create_textures(data)?;
-        self.find_or_load_roms(data)?;
-        self.config_setup(data)?;
-        Ok(true)
+        self.create_textures(s)?;
+        self.find_or_load_roms(s)?;
+        self.config_setup(s)?;
+        Ok(())
     }
 
-    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
-        self.poll_events(data)?;
+    fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
+        self.clock_turbo();
+        // self.poll_events(s)?;
         if self.should_close {
-            return Ok(false);
+            return Ok(());
         }
-        self.update_title(data);
+        self.update_title(s)?;
         self.check_window_focus();
-        self.save_rewind(elapsed);
-        self.run_emulation(elapsed);
-        self.update_textures(elapsed, data)?;
+        self.save_rewind(s.delta_time());
+        self.run_emulation(s.delta_time());
+        self.update_textures(s)?;
         // Enqueue sound
         if self.config.sound_enabled {
             let samples = self.cpu.bus.apu.samples();
-            data.enqueue_audio(&samples);
+            s.enqueue_audio(&samples);
         }
         self.cpu.bus.apu.clear_samples();
-        Ok(true)
+        Ok(())
     }
 
-    fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
+    fn on_stop(&mut self, _s: &mut PixState) -> PixResult<()> {
         self.power_off();
-        Ok(true)
+        Ok(())
     }
+
+    fn on_key_pressed(&mut self, s: &mut PixState, key: Key, repeat: bool) -> PixResult<()> {
+        // if self.recording {
+        //     self.replay_buffer
+        //         .push(FrameEvent::new(self.frame, events.clone()));
+        // }
+        // Only process event if we're focused
+        if !self.playback && self.focused_window.is_none() {
+            return Ok(());
+        }
+        if repeat {
+            self.handle_keyrepeat(key);
+        } else {
+            self.handle_keydown(s, key)?;
+        }
+        Ok(())
+    }
+
+    fn on_key_released(&mut self, s: &mut PixState, key: Key, repeat: bool) -> PixResult<()> {
+        self.held_keys.insert(key as u8, false);
+        match key {
+            Key::Space => {
+                self.config.speed = DEFAULT_SPEED;
+                self.cpu.bus.apu.set_speed(self.config.speed);
+            }
+            _ => self.handle_input_event(key, false),
+        }
+        Ok(())
+    }
+
+    // fn on_controller_down() {}
+    // fn on_controller_release() {}
+    // fn on_controller_axis_motion() {}
 }
 
 impl fmt::Debug for Nes {

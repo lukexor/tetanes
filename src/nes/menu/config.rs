@@ -1,39 +1,29 @@
 use crate::{nes::Nes, NesResult};
-use pix_engine::{
-    image::Image,
-    pixel::{self, Pixel},
-    StateData,
-};
+use pix_engine::prelude::*;
 
 impl Nes {
-    pub fn draw_config_menu(&mut self, data: &mut StateData) -> NesResult<()> {
+    pub fn draw_config_menu(&mut self, s: &mut PixState) -> NesResult<()> {
         // Darken background
-        let menu = Image::new_ref(self.width, self.height);
-        data.set_draw_target(menu);
-        data.fill(Pixel([0, 0, 0, 128]));
-        let (mut x, mut y) = (50, 50);
-        data.fill_rect(
-            x,
-            y,
-            self.width - 100,
-            self.height - 100,
-            pixel::VERY_DARK_GRAY,
-        );
-        x += 3;
-        y += 3;
-        data.fill_rect(x, y, self.width - 106, self.height - 106, pixel::DARK_GRAY);
-        x += 10;
-        y += 10;
-        data.set_draw_scale(3);
-        data.draw_string(x, y, "Configuration", pixel::WHITE);
-        y += 50;
-        data.set_draw_scale(2);
-        data.draw_string(x, y, "Not yet implemented", pixel::WHITE);
+        s.background(rgb!(0, 128));
+        s.clear();
+        let mut p = point!(50, 50);
+        let w = self.width - 100;
+        let h = self.height - 100;
+
+        s.fill(DARK_GRAY);
+        s.rect((p, w, h))?;
+        p += 3;
+        s.rect((p, w - 6, h - 6))?;
+        p += 10;
+        s.fill(WHITE);
+        s.text_size(36);
+        s.text(p, "Configuration")?;
+        p.y += 50;
+        s.text_size(24);
+        s.text(p, "Not yet implemented")?;
 
         // TODO draw menu config, add interactivity
 
-        data.copy_draw_target("menu")?;
-        data.clear_draw_target();
         Ok(())
     }
 }

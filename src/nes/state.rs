@@ -121,7 +121,7 @@ impl Nes {
         }
     }
 
-    pub(super) fn save_rewind(&mut self, elapsed: f32) {
+    pub(super) fn save_rewind(&mut self, elapsed: f64) {
         if self.config.rewind_enabled {
             self.rewind_timer -= elapsed;
             if self.rewind_timer <= 0.0 {

@@ -350,7 +350,7 @@
 //!   - [x] PixEngine (Custom graphics library for handling video and audio)
 //!   - [x] UI Notification messages
 //!   - [x] SDL2
-//!   - [ ] WebAssembly (WASM) - Run TetaNES in the browser! (in progress!)
+//!   - [x] WebAssembly (WASM) - Run TetaNES in the browser!
 //!   - [x] Window
 //!   - [ ] Menus
 //!     - [ ] Help Menu
@@ -457,8 +457,8 @@
     html_logo_url = "https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes_icon.png"
 )]
 
-use pix_engine::PixEngineErr;
-use std::fmt;
+use pix_engine::prelude::*;
+use std::{borrow::Cow, fmt, result};
 
 pub mod apu;
 pub mod bus;
@@ -474,7 +474,7 @@ pub mod nes;
 pub mod ppu;
 pub mod serialization;
 
-pub type NesResult<T> = std::result::Result<T, NesErr>;
+pub type NesResult<T> = result::Result<T, NesErr>;
 
 pub struct NesErr {
     description: String,
@@ -546,22 +546,34 @@ impl From<std::string::FromUtf8Error> for NesErr {
     }
 }
 
-impl From<NesErr> for PixEngineErr {
+impl From<NesErr> for PixError {
     fn from(err: NesErr) -> Self {
+        Self::Other(Cow::from(err.to_string()))
+    }
+}
+
+impl From<RendererError> for NesErr {
+    fn from(err: RendererError) -> Self {
         Self::new(&err.to_string())
     }
 }
 
-impl From<PixEngineErr> for NesErr {
-    fn from(err: PixEngineErr) -> Self {
+impl From<StateError> for NesErr {
+    fn from(err: StateError) -> Self {
         Self::new(&err.to_string())
     }
 }
 
-#[cfg(feature = "wasm-driver")]
+impl From<PixError> for NesErr {
+    fn from(err: PixError) -> Self {
+        Self::new(&err.to_string())
+    }
+}
+
+#[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
-#[cfg(feature = "wasm-driver")]
+#[cfg(feature = "wasm")]
 impl From<NesErr> for JsValue {
     fn from(err: NesErr) -> Self {
         JsValue::from_str(&err.to_string())

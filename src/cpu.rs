@@ -56,6 +56,7 @@ pub enum Irq {
 // ||+------- Unused - always set to 1 when pushed to stack
 // |+-------- Overflow
 // +--------- Negative
+#[derive(Debug, Copy, Clone)]
 pub enum StatusRegs {
     C = 1,      // Carry
     Z = 1 << 1, // Zero
