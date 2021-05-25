@@ -2,13 +2,15 @@ use crate::{
     common::{home_dir, Clocked, Powered, CONFIG_DIR},
     map_nes_err, mapper,
     mapper::Mapper,
-    nes::{event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
+    nes::{debug::DEBUG_WIDTH, event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
     nes_err,
+    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     serialization::{validate_save_header, write_save_header, Savable},
     NesResult,
 };
 use chrono::prelude::{DateTime, Local};
 use log::error;
+use pix_engine::prelude::*;
 use std::{
     collections::VecDeque,
     fs::File,
@@ -17,6 +19,29 @@ use std::{
 };
 
 impl Nes {
+    pub(super) fn create_textures(&mut self, s: &mut PixState) -> NesResult<()> {
+        self.screen = s.create_texture(PixelFormat::Rgb, RENDER_WIDTH, RENDER_HEIGHT)?;
+        // s.create_texture(
+        //     "message",
+        //     ColorType::Rgba,
+        //     rect!(0, 0, self.width, MSG_HEIGHT),
+        //     rect!(0, 0, self.width, MSG_HEIGHT),
+        // )?;
+        // s.create_texture(
+        //     "menu",
+        //     ColorType::Rgba,
+        //     rect!(0, 0, self.width, self.height),
+        //     rect!(0, 0, self.width, self.height),
+        // )?;
+        // s.create_texture(
+        //     "debug",
+        //     ColorType::Rgba,
+        //     rect!(0, 0, DEBUG_WIDTH, self.height),
+        //     rect!(self.width, 0, DEBUG_WIDTH, self.height),
+        // )?;
+        Ok(())
+    }
+
     pub(super) fn paused(&mut self, paused: bool) {
         if !self.paused && paused {
             self.set_static_message("Paused");
@@ -419,22 +444,23 @@ impl Savable for Nes {
         // Config
         Ok(())
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         // EXPL: Clone here prevents corrupt savestate data from crashing execution.
-        let mut nes = self.clone();
-        nes.running_time.load(fh)?;
-        nes.turbo_clock.load(fh)?;
-        nes.cpu.load(fh)?;
-        nes.cycles_remaining.load(fh)?;
-        nes.zapper_decay.load(fh)?;
-        nes.width.load(fh)?;
-        nes.height.load(fh)?;
-        nes.speed_counter.load(fh)?;
-        nes.rewind_timer.load(fh)?;
-        nes.rewind_queue = VecDeque::with_capacity(REWIND_SIZE as usize);
-        nes.rewind_queue.load(fh)?;
-        nes.frame.load(fh)?;
-        *self = nes;
+        // let mut nes = self.clone();
+        // nes.running_time.load(fh)?;
+        // nes.turbo_clock.load(fh)?;
+        // nes.cpu.load(fh)?;
+        // nes.cycles_remaining.load(fh)?;
+        // nes.zapper_decay.load(fh)?;
+        // nes.width.load(fh)?;
+        // nes.height.load(fh)?;
+        // nes.speed_counter.load(fh)?;
+        // nes.rewind_timer.load(fh)?;
+        // nes.rewind_queue = VecDeque::with_capacity(REWIND_SIZE as usize);
+        // nes.rewind_queue.load(fh)?;
+        // nes.frame.load(fh)?;
+        // *self = nes;
         Ok(())
     }
 }

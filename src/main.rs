@@ -41,7 +41,7 @@ fn main() {
         speed: opt.speed,
         genie_codes: opt.genie_codes,
     };
-    let nes = Nes::with_config(config).unwrap_or_else(|e| {
+    let mut nes = Nes::with_config(config).unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     });

@@ -1,8 +1,4 @@
-use crate::{
-    nes::{debug::DEBUG_WIDTH, Nes},
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    NesResult,
-};
+use crate::{nes::Nes, NesResult};
 use pix_engine::prelude::*;
 
 mod config;
@@ -123,34 +119,6 @@ impl Nes {
                 p.y += 20;
             }
         }
-        Ok(())
-    }
-
-    pub(super) fn create_textures(&mut self, _s: &mut PixState) -> NesResult<()> {
-        // s.create_texture(
-        //     "nes",
-        //     ColorType::Rgba,
-        //     rect!(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8), // Trims overscan
-        //     rect!(0, 0, self.width, self.height),
-        // )?;
-        // s.create_texture(
-        //     "message",
-        //     ColorType::Rgba,
-        //     rect!(0, 0, self.width, MSG_HEIGHT),
-        //     rect!(0, 0, self.width, MSG_HEIGHT),
-        // )?;
-        // s.create_texture(
-        //     "menu",
-        //     ColorType::Rgba,
-        //     rect!(0, 0, self.width, self.height),
-        //     rect!(0, 0, self.width, self.height),
-        // )?;
-        // s.create_texture(
-        //     "debug",
-        //     ColorType::Rgba,
-        //     rect!(0, 0, DEBUG_WIDTH, self.height),
-        //     rect!(self.width, 0, DEBUG_WIDTH, self.height),
-        // )?;
         Ok(())
     }
 }

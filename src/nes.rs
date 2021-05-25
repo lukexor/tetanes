@@ -42,7 +42,6 @@ const REWIND_SLOT: u8 = 5;
 const REWIND_SIZE: u8 = 5;
 const REWIND_TIMER: f64 = 5.0;
 
-#[derive(Clone)]
 pub struct Nes {
     roms: Vec<PathBuf>,
     loaded_rom: PathBuf,
@@ -67,7 +66,7 @@ pub struct Nes {
     nt_viewer: bool,
     nt_scanline: u32,
     pat_scanline: u32,
-    screen: Image,
+    screen: usize,
     debug_image: Image,
     ppu_info_image: Image,
     nt_info_image: Image,
@@ -127,7 +126,7 @@ impl Nes {
             nt_viewer: false,
             nt_scanline: 0,
             pat_scanline: 0,
-            screen: Image::rgb(RENDER_WIDTH, RENDER_HEIGHT),
+            screen: 0,
             debug_image: Image::rgb(DEBUG_WIDTH, height),
             ppu_info_image: Image::rgb(INFO_WIDTH, INFO_HEIGHT),
             nt_info_image: Image::rgb(INFO_WIDTH, INFO_HEIGHT),
@@ -152,7 +151,7 @@ impl Nes {
     }
 
     /// Begins emulation by starting the game engine loop
-    pub fn run(mut self) -> NesResult<()> {
+    pub fn run(&mut self) -> NesResult<()> {
         let width = self.width;
         let height = self.height;
 
@@ -173,9 +172,9 @@ impl Nes {
         engine.icon(ICON_PATH);
         engine.resizable();
         if self.config.vsync {
-            // engine.vsync_enabled();
+            engine.vsync_enabled();
         }
-        engine.build()?.run(&mut self)?;
+        engine.build()?.run(self)?;
         Ok(())
     }
 
@@ -278,8 +277,18 @@ impl Nes {
     /// Update rendering textures with emulation state
     fn update_textures(&mut self, s: &mut PixState) -> PixResult<()> {
         // Update main screen
-        self.screen.update_bytes(&self.cpu.bus.ppu.frame());
-        s.image_resized(0, 0, s.width(), s.height(), &self.screen)?;
+        s.update_texture(
+            self.screen,
+            Some(rect!(0, 0, RENDER_WIDTH, RENDER_HEIGHT)),
+            &self.cpu.bus.ppu.frame(),
+            3 * RENDER_WIDTH as usize,
+        )?;
+        s.draw_texture(
+            self.screen,
+            Some(rect!(0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8)),
+            Some(rect!(0, 0, self.width, self.height)),
+        )?;
+        // s.image_resized(0, 0, s.width(), s.height(), &self.screen)?;
 
         // Draw any open menus
         for menu in self.menus.iter_mut() {
@@ -316,7 +325,6 @@ impl AppState for Nes {
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
         self.clock_turbo();
-        // self.poll_events(s)?;
         if self.should_close {
             return Ok(());
         }
@@ -356,7 +364,7 @@ impl AppState for Nes {
         Ok(())
     }
 
-    fn on_key_released(&mut self, s: &mut PixState, key: Key, repeat: bool) -> PixResult<()> {
+    fn on_key_released(&mut self, _s: &mut PixState, key: Key, _repeat: bool) -> PixResult<()> {
         self.held_keys.insert(key as u8, false);
         match key {
             Key::Space => {

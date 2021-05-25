@@ -570,10 +570,10 @@ impl From<PixError> for NesErr {
     }
 }
 
-#[cfg(feature = "wasm")]
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-#[cfg(feature = "wasm")]
+#[cfg(target_arch = "wasm32")]
 impl From<NesErr> for JsValue {
     fn from(err: NesErr) -> Self {
         JsValue::from_str(&err.to_string())
