@@ -13,18 +13,15 @@ edition = "2018"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[features]
-default = ["console_error_panic_hook"]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_log = "^0.2"
+log = "^0.4"
+tetanes = "^0.7"
+wasm-bindgen = "^0.2"
 
-[dependencies]
-console_error_panic_hook = { version = "0.1", optional = true }
-console_log = "0.2"
-log = "0.4"
-tetanes = { version = "0.7", default-features = false, features = ["wasm-driver", "no-randomize-ram"] }
-wasm-bindgen = "0.2"
-
-[dev-dependencies]
-wasm-bindgen-test = "0.3"
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "^0.3"
+console_error_panic_hook = "^0.1"
 
 [profile.dev]
 opt-level = 2
