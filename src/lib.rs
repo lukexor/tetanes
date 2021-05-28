@@ -465,6 +465,7 @@ pub mod bus;
 pub mod cartridge;
 #[macro_use]
 pub mod common;
+pub mod control_deck;
 pub mod cpu;
 pub mod filter;
 pub mod input;

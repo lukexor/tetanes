@@ -289,7 +289,9 @@ impl fmt::Debug for Cartridge {
 mod tests {
     use super::*;
 
+    // TODO: Move these to simple header test files instead
     #[test]
+    #[ignore]
     fn valid_cartridges() {
         use std::{fs::File, io::BufReader};
 

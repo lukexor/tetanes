@@ -143,7 +143,7 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
-    pub fn frame(&self) -> &Vec<Byte> {
+    pub fn frame(&self) -> &[Byte] {
         &self.frame.pixels
     }
 

@@ -51,17 +51,6 @@ impl Nes {
         self.paused = paused;
     }
 
-    /// Loads a ROM cartridge into memory
-    pub(super) fn load_rom(&mut self, rom_id: usize) -> NesResult<()> {
-        self.loaded_rom = self.roms[rom_id].to_owned();
-        let rom = File::open(&self.loaded_rom)
-            .map_err(|e| map_nes_err!("unable to open file {:?}: {}", self.loaded_rom, e))?;
-        let mut rom = BufReader::new(rom);
-        let mapper = mapper::load_rom(&self.loaded_rom.to_string_lossy(), &mut rom)?;
-        self.cpu.bus.load_mapper(mapper);
-        Ok(())
-    }
-
     /// Changes the savestate slot
     pub(super) fn set_save_slot(&mut self, slot: u8) {
         if self.config.save_enabled {
@@ -273,32 +262,6 @@ impl Nes {
         }
     }
 
-    /// Searches for valid NES rom files ending in `.nes`
-    ///
-    /// If rom_path is a `.nes` file, uses that
-    /// If no arg[1], searches current directory for `.nes` files
-    pub(super) fn find_roms(&self) -> NesResult<Vec<PathBuf>> {
-        use std::ffi::OsStr;
-        let path = self.config.path.to_owned();
-        let mut roms: Vec<PathBuf> = Vec::new();
-        if path.is_dir() {
-            path.read_dir()
-                .map_err(|e| map_nes_err!("unable to read directory {:?}: {}", path, e))?
-                .filter_map(|f| f.ok())
-                .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
-                .for_each(|f| roms.push(f.path()));
-        } else if path.is_file() {
-            roms.push(path.clone());
-        } else {
-            nes_err!("invalid path: {:?}", path)?;
-        }
-        if roms.is_empty() {
-            nes_err!("no rom files found or specified in {:?}", path)
-        } else {
-            Ok(roms)
-        }
-    }
-
     pub(super) fn check_window_focus(&mut self) {
         if self.config.pause_in_bg {
             if self.focused_window.is_none() {
@@ -313,155 +276,6 @@ impl Nes {
                 self.paused(false);
             }
         }
-    }
-}
-
-impl Powered for Nes {
-    /// Powers on the console
-    fn power_on(&mut self) {
-        self.cpu.power_on();
-        if let Err(e) = self.load_sram() {
-            self.add_message(&e.to_string());
-        }
-        self.paused = false;
-        self.cycles_remaining = 0.0;
-    }
-
-    /// Powers off the console
-    fn power_off(&mut self) {
-        if self.recording {
-            if let Err(e) = self.save_replay() {
-                self.add_message(&e.to_string());
-            }
-        }
-        if let Err(e) = self.save_sram() {
-            self.add_message(&e.to_string());
-            error!("{}", e);
-        }
-        // Clean up rewind states
-        if self.config.rewind_enabled {
-            for slot in REWIND_SLOT..(REWIND_SLOT + REWIND_SIZE) {
-                if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
-                    if save_path.exists() {
-                        let _ = std::fs::remove_file(&save_path);
-                    }
-                }
-            }
-        }
-        self.paused = true;
-    }
-
-    /// Soft-resets the console
-    fn reset(&mut self) {
-        self.cpu.reset();
-        self.running_time = 0.0;
-        self.cycles_remaining = 0.0;
-        if self.config.debug {
-            self.paused(true);
-        }
-    }
-
-    /// Hard-resets the console
-    fn power_cycle(&mut self) {
-        self.cpu.power_cycle();
-        self.running_time = 0.0;
-        self.cycles_remaining = 0.0;
-        if self.config.debug {
-            self.paused(true);
-        }
-    }
-}
-
-impl Clocked for Nes {
-    /// Steps the console a single CPU instruction at a time
-    fn clock(&mut self) -> usize {
-        if self.config.debug && self.should_break() {
-            if self.break_instr == Some(self.cpu.pc) {
-                self.break_instr = None;
-            } else {
-                self.paused(true);
-                self.cpu_break = true;
-                self.break_instr = Some(self.cpu.pc);
-                return 0;
-            }
-        }
-        if self.zapper_decay > 0 {
-            self.zapper_decay -= 1;
-            // println!(
-            //     "decay: {}, sense: {}, sl: {}",
-            //     self.zapper_decay, self.cpu.bus.input.zapper.light_sense, self.cpu.bus.ppu.scanline
-            // );
-        }
-        if self.zapper_decay == 0 {
-            self.cpu.bus.input.zapper.light_sense = true;
-        }
-        self.cpu.clock()
-    }
-}
-
-impl Savable for Nes {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        // Ignore
-        // roms
-        // loaded_rom
-        // paused
-        // background_pause
-        self.running_time.save(fh)?;
-        self.turbo_clock.save(fh)?;
-        self.cpu.save(fh)?;
-        self.cycles_remaining.save(fh)?;
-        self.zapper_decay.save(fh)?;
-        // Ignore
-        // focused_window
-        // menus
-        // held_keys
-        // cpu_break
-        // break_instr
-        // should_close
-        // nes_window
-        // ppu_viewer_window
-        // nt_viewer_window
-        // ppu_viewer
-        // nt_viewer
-        // nt_scanline
-        // pat_scanline
-        // debug_image
-        // ppu_info_image
-        // nt_info_image
-        // active_debug
-        self.width.save(fh)?;
-        self.height.save(fh)?;
-        self.speed_counter.save(fh)?;
-        self.rewind_timer.save(fh)?;
-        self.rewind_queue.save(fh)?;
-        // Ignore
-        // recording
-        // playback
-        self.frame.save(fh)?;
-        // Ignore
-        // replay_buffer
-        // messages
-        // Config
-        Ok(())
-    }
-
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        // EXPL: Clone here prevents corrupt savestate data from crashing execution.
-        // let mut nes = self.clone();
-        // nes.running_time.load(fh)?;
-        // nes.turbo_clock.load(fh)?;
-        // nes.cpu.load(fh)?;
-        // nes.cycles_remaining.load(fh)?;
-        // nes.zapper_decay.load(fh)?;
-        // nes.width.load(fh)?;
-        // nes.height.load(fh)?;
-        // nes.speed_counter.load(fh)?;
-        // nes.rewind_timer.load(fh)?;
-        // nes.rewind_queue = VecDeque::with_capacity(REWIND_SIZE as usize);
-        // nes.rewind_queue.load(fh)?;
-        // nes.frame.load(fh)?;
-        // *self = nes;
-        Ok(())
     }
 }
 
