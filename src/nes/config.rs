@@ -1,27 +1,25 @@
-use std::{env, path::PathBuf};
+use crate::nes::event::Keybind;
+use pix_engine::prelude::KeyEvent;
+use std::{collections::HashMap, env, path::PathBuf};
 
-pub(super) const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
-pub(super) const MIN_SPEED: f32 = 0.10; // 10%
-pub(super) const MAX_SPEED: f32 = 4.0; // 400%
+pub(crate) const MAX_SPEED: f32 = 4.0; // 400%
 
 #[derive(Debug, Clone)]
-pub struct NesConfig {
-    pub path: PathBuf,
-    pub debug: bool,
-    pub pause_in_bg: bool,
-    pub fullscreen: bool,
-    pub vsync: bool,
-    pub sound_enabled: bool,
-    pub record: bool,
-    pub replay: Option<PathBuf>,
-    pub rewind_enabled: bool,
-    pub save_enabled: bool,
-    pub clear_save: bool,
-    pub concurrent_dpad: bool,
-    pub save_slot: u8,
-    pub scale: f32,
-    pub speed: f32,
-    pub genie_codes: Vec<String>,
+pub(crate) struct NesConfig {
+    pub(crate) rom_path: PathBuf,
+    pub(crate) pause_in_bg: bool,
+    pub(crate) debug_enabled: bool,
+    pub(crate) sound_enabled: bool,
+    pub(crate) fullscreen: bool,
+    pub(crate) vsync: bool,
+    pub(crate) recording: bool,
+    pub(crate) concurrent_dpad: bool,
+    pub(crate) randomize_ram: bool,
+    pub(crate) save_slot: u8,
+    pub(crate) scale: f32,
+    pub(crate) speed: f32,
+    pub(crate) bindings: HashMap<KeyEvent, Keybind>,
+    pub(crate) genie_codes: Vec<String>,
 }
 
 impl NesConfig {
@@ -57,43 +55,24 @@ impl NesConfig {
 //             self.cpu.bus.apu.set_speed(self.config.speed);
 //         }
 //     }
-
-//     pub(super) fn update_title(&mut self, s: &mut PixState) -> NesResult<()> {
-//         let mut title = String::new();
-//         if self.paused {
-//             title.push_str("Paused");
-//         } else {
-//             title.push_str(&format!("Save Slot: {}", self.config.save_slot));
-//             if self.config.speed != DEFAULT_SPEED {
-//                 title.push_str(&format!(" - Speed: {:2.0}%", self.config.speed * 100.0));
-//             }
-//             if !self.config.sound_enabled {
-//                 title.push_str(" - Muted");
-//             }
-//         }
-//         s.set_title(&title)?;
-//         Ok(())
-//     }
 // }
 
 impl Default for NesConfig {
     fn default() -> Self {
         Self {
-            path: env::current_dir().unwrap_or_default(),
-            debug: false,
+            rom_path: env::current_dir().unwrap_or_default(),
             pause_in_bg: true,
+            debug_enabled: false,
+            sound_enabled: true,
             fullscreen: false,
             vsync: false,
-            sound_enabled: true,
-            record: false,
-            replay: None,
-            rewind_enabled: true,
-            save_enabled: true,
-            clear_save: true,
+            recording: false,
             concurrent_dpad: false,
+            randomize_ram: true,
             save_slot: 1,
             scale: 3.0,
             speed: 1.0,
+            bindings: HashMap::new(),
             genie_codes: Vec::new(),
         }
     }

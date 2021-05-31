@@ -36,6 +36,7 @@ no-randomize-ram = []
 
 [profile.dev]
 opt-level = 2
+split-debuginfo = "unpacked"
 
 [profile.release]
 lto = true

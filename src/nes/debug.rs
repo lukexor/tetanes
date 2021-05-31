@@ -16,6 +16,10 @@ pub(super) const DEBUG_WIDTH: u32 = 350;
 pub(super) const INFO_WIDTH: u32 = 2 * RENDER_WIDTH;
 pub(super) const INFO_HEIGHT: u32 = 4 * 10;
 
+struct Debug {
+    running_time: Duration,
+}
+
 impl Nes {
     pub(super) fn toggle_ppu_viewer(&mut self, s: &mut PixState) -> NesResult<()> {
         self.ppu_viewer = !self.ppu_viewer;

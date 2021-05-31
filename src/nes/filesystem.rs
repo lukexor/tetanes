@@ -1,10 +1,6 @@
 use super::{Nes, NesResult};
 use crate::{map_nes_err, nes_err};
-use std::{
-    fs::File,
-    io::{BufReader, BufWriter, Read, Write},
-    path::PathBuf,
-};
+use std::{fs::File, io::BufReader};
 
 impl Nes {
     /// Searches for valid NES rom files ending in `.nes`
@@ -13,7 +9,7 @@ impl Nes {
     /// If no arg[1], searches current directory for `.nes` files
     pub(crate) fn find_roms(&mut self) -> NesResult<()> {
         use std::ffi::OsStr;
-        let path = self.config.path.to_owned();
+        let path = self.config.rom_path.to_owned();
         self.roms.clear();
         if path.is_dir() {
             path.read_dir()

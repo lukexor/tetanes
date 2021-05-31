@@ -4,10 +4,10 @@ use crate::{
     apu::SAMPLE_RATE,
     common::{Clocked, Powered},
     control_deck::ControlDeck,
-    nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     NesResult,
 };
+use config::NesConfig;
 use pix_engine::prelude::*;
 use std::path::PathBuf;
 use window::{Window, WindowBuilder};
@@ -16,8 +16,6 @@ mod config;
 mod event;
 mod filesystem;
 mod window;
-
-pub use config::NesConfig;
 
 const APP_NAME: &str = "TetaNES";
 const ICON_PATH: &str = "static/tetanes_icon.png";
@@ -50,6 +48,7 @@ const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
  *   - genie_codes
  *   - save_slot
  *   - record
+ *   - screenshot
  */
 
 #[derive(Debug, Clone)]
@@ -91,7 +90,7 @@ impl NesBuilder {
     pub fn build(&self) -> Nes {
         let control_deck = ControlDeck::new();
         let mut config = NesConfig::new();
-        config.path = self.path.to_owned();
+        config.rom_path = self.path.to_owned();
         config.scale = self.scale;
         config.fullscreen = self.fullscreen;
         Nes {
@@ -115,7 +114,7 @@ pub struct Nes {
 impl Nes {
     /// Begins emulation by starting the game engine loop
     pub fn run(&mut self) -> NesResult<()> {
-        let filename = self.config.path.file_name().and_then(|f| f.to_str());
+        let filename = self.config.rom_path.file_name().and_then(|f| f.to_str());
         let title = if let Some(filename) = filename {
             format!("{} - {}", APP_NAME, filename.replace(".nes", ""))
         } else {
@@ -160,6 +159,7 @@ impl AppState for Nes {
         self.find_roms()?;
         if self.roms.len() == 1 {
             self.load_rom(0)?;
+
             self.control_deck.power_on();
         }
         Ok(())
@@ -180,12 +180,12 @@ impl AppState for Nes {
         Ok(())
     }
 
-    fn on_key_pressed(&mut self, s: &mut PixState, key: Key, repeat: bool) -> PixResult<()> {
-        self.handle_key_pressed(s, key, repeat)
+    fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<()> {
+        self.handle_key_pressed(s, event)
     }
 
-    fn on_key_released(&mut self, s: &mut PixState, key: Key, _repeat: bool) -> PixResult<()> {
-        self.handle_key_released(s, key)
+    fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<()> {
+        self.handle_key_released(s, event)
     }
 
     // TODO: controller

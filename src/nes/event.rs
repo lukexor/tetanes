@@ -1,15 +1,93 @@
-use super::Nes;
+use super::{Nes, NesResult};
+use crate::common::create_png;
+use chrono::prelude::{DateTime, Local};
 use pix_engine::prelude::*;
+use std::path::PathBuf;
 
 const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
 const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum Keybind {
+    TogglePause,
+    ToggleFullscreen,
+    ToggleVsync,
+    ToggleNtsc,
+    ToggleSound,
+    TogglePulse1,
+    TogglePulse2,
+    ToggleTriangle,
+    ToggleNoise,
+    ToggleDmc,
+    ToggleRecording,
+    FastFoward,
+    IncSpeed,
+    DecSpeed,
+    Rewind,
+    OpenHelp,
+    OpenConfig,
+    OpenRom,
+    Quit,
+    Reset,
+    PowerCycle,
+    ToggleDebugger,
+    ToggleNtViewer,
+    TogglePpuViewer,
+    StepInto,
+    StepOver,
+    StepOut,
+    StepFrame,
+    StepScanline,
+    SetSaveSlot(usize),
+    SaveState,
+    LoadState,
+    TakeScreenshot,
+    IncScanline,
+    DecScanline,
+    ButtonA,
+    ButtonB,
+    ButtonATurbo,
+    ButtonBTurbo,
+    ButtonSelect,
+    ButtonStart,
+    ButtonUp,
+    ButtonDown,
+    ButtonLeft,
+    ButtonRight,
+    Zapper,
+}
 
 impl Nes {
     pub(super) fn handle_key_pressed(
         &mut self,
         s: &mut PixState,
-        key: Key,
-        repeat: bool,
+        keyevent: KeyEvent,
+    ) -> PixResult<()> {
+        if !s.focused() {
+            return Ok(());
+        }
+        if let Some(action) = self.config.bindings.get(&keyevent) {
+            match action {
+                // ButtonA,
+                // ButtonB,
+                // ButtonATurbo,
+                // ButtonBTurbo,
+                // ButtonSelect,
+                // ButtonStart,
+                // ButtonUp,
+                // ButtonDown,
+                // ButtonLeft,
+                // ButtonRight,
+                _ => (), // Invalid action
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn handle_key_released(
+        &mut self,
+        s: &mut PixState,
+        event: KeyEvent,
     ) -> PixResult<()> {
         if !s.focused() {
             return Ok(());
@@ -17,145 +95,31 @@ impl Nes {
         Ok(())
     }
 
-    pub(super) fn handle_key_released(&mut self, s: &mut PixState, key: Key) -> PixResult<()> {
-        if !s.focused() {
-            return Ok(());
-        }
-        Ok(())
+    /// Takes a screenshot and saves it to the current directory as a `.png` file
+    ///
+    /// # Arguments
+    ///
+    /// * `pixels` - An array of pixel data to save in `.png` format
+    ///
+    /// # Errors
+    ///
+    /// It's possible for this method to fail, but instead of erroring the program,
+    /// it'll simply log the error out to STDERR
+    // TODO Scale screenshot to current width/height
+    // TODO Screenshot the currently focused window
+    fn screenshot(&mut self) -> NesResult<String> {
+        let datetime: DateTime<Local> = Local::now();
+        let mut png_path = PathBuf::from(
+            datetime
+                .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S")
+                .to_string(),
+        );
+        let pixels = self.control_deck.get_frame();
+        png_path.set_extension("png");
+        println!("Saved screenshot: {:?}", png_path);
+        create_png(&png_path, pixels)
     }
 }
-//    // /// This is called on every update loop to check for user events like quitting
-//    // /// the application, pressing a button, resizing the window or clicking the mouse.
-//    // pub(super) fn poll_events(&mut self, s: &mut PixState) -> NesResult<()> {
-//    //     let turbo = self.clock_turbo();
-//    //     let events = self.get_events(s);
-//    //     if self.recording {
-//    //         self.replay_buffer
-//    //             .push(FrameEvent::new(self.frame, events.clone()));
-//    //     }
-//    //     let mut gamepad_events = Vec::new();
-//    //     for event in events {
-//    //         // Process system events
-//    //         match event {
-//    //             Event::Window {
-//    //                 window_id,
-//    //                 win_event,
-//    //             } => match win_event {
-//    //                 WindowEvent::FocusGained => self.focused_window = Some(window_id),
-//    //                 WindowEvent::FocusLost => self.focused_window = None,
-//    //                 WindowEvent::Close => match Some(window_id) {
-//    //                     i if i == self.ppu_viewer_window => self.toggle_ppu_viewer(s)?,
-//    //                     i if i == self.nt_viewer_window => self.toggle_nt_viewer(s)?,
-//    //                     _ => (),
-//    //                 },
-//    //                 _ => (),
-//    //             },
-//    //             _ => (),
-//    //         }
-
-//    //         // Only process remaining events if we're focused
-//    //         if !self.playback && self.focused_window.is_none() {
-//    //             continue;
-//    //         }
-//    //         if Self::is_gamepad_event(&event) {
-//    //             gamepad_events.push(event.clone());
-//    //         }
-//    //         match event {
-//    //             Event::KeyDown { .. } => self.handle_key_event(event, turbo, s)?,
-//    //             Event::MouseDown { .. } => self.handle_mouse_event(event)?,
-//    //             Event::ControllerDown { .. } => self.handle_gamepad_button(event, turbo)?,
-//    //             Event::ControllerAxisMotion { .. } => self.handle_gamepad_axis(event)?,
-//    //             _ => (),
-//    //         }
-//    //     }
-//    //     self.frame += 1;
-//    //     Ok(())
-//    // }
-
-//    // fn get_events(&mut self, s: &mut PixState) -> Vec<Event> {
-//    //     // Get the list events, either from the user or from a replay_buffer
-//    //     let mut events: Vec<Event> = Vec::new();
-//    //     if self.playback && !self.replay_buffer.is_empty() {
-//    //         let frame_event = self.replay_buffer.pop().unwrap();
-//    //         if frame_event.frame == self.frame {
-//    //             events.extend(frame_event.events);
-//    //         }
-//    //     } else {
-//    //         self.playback = false;
-//    //         events.extend(s.poll_events());
-//    //     };
-//    //     events
-//    // }
-
-//    /// Turbo clock counts up every frame from 0-5
-//    /// When it's less than 3, we toggle the button currently held down
-//    /// This gives the effect of pressing a button quickly every 3 frames or
-//    /// every ~48 milliseconds
-//    pub(super) fn clock_turbo(&mut self) {
-//        self.turbo = self.turbo_clock < 3;
-//        let mut input = &mut self.cpu.bus.input;
-//        if input.gamepad1.turbo_a {
-//            input.gamepad1.a = self.turbo;
-//        }
-//        if input.gamepad1.turbo_b {
-//            input.gamepad1.b = self.turbo;
-//        }
-//        if input.gamepad2.turbo_a {
-//            input.gamepad2.a = self.turbo;
-//        }
-//        if input.gamepad2.turbo_b {
-//            input.gamepad2.b = self.turbo;
-//        }
-//    }
-
-//    /// Handles all mouse related events
-//    #[allow(clippy::many_single_char_names)]
-//    fn handle_mouse_event(&mut self, event: Event) -> NesResult<()> {
-//        let (x, y, pressed) = match event {
-//            Event::MouseDown {
-//                button: Mouse::Left,
-//                x,
-//                y,
-//            } => (x, y, true),
-//            Event::MouseUp {
-//                button: Mouse::Left,
-//                x,
-//                y,
-//            } => (x, y, false),
-//            _ => return Ok(()),
-//        };
-
-//        self.cpu.bus.input.zapper.triggered = pressed;
-//        if pressed && x > 0 && x < self.width as i32 && y > 0 && y < self.height as i32 {
-//            let x = x as u32 / self.config.scale;
-//            let y = y as u32 / self.config.scale;
-//            let frame = &self.cpu.bus.ppu.frame();
-//            // Compute average brightness
-//            let mut r = 0u16;
-//            let mut g = 0u16;
-//            let mut b = 0u16;
-//            for x in x.saturating_sub(8)..x.saturating_add(8) {
-//                for y in y.saturating_sub(8)..y.saturating_add(8) {
-//                    let idx = 4 * (y * RENDER_WIDTH + x) as usize;
-//                    r += u16::from(frame[idx]);
-//                    g += u16::from(frame[idx + 1]);
-//                    b += u16::from(frame[idx + 2]);
-//                }
-//            }
-//            r /= 256;
-//            g /= 256;
-//            b /= 256;
-//            let luminance = (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) as u32;
-//            self.cpu.bus.input.zapper.light_sense = luminance < 84;
-//            self.zapper_decay = (luminance / 10) * 113;
-//            // println!(
-//            //     "lum: {}, sense: {}, decay: {}",
-//            //     luminance, self.cpu.bus.input.zapper.light_sense, self.zapper_decay
-//            // );
-//        }
-//        Ok(())
-//    }
-
 //    /// Handles keyrepeats
 //    pub(super) fn handle_keyrepeat(&mut self, key: Key) {
 //        self.held_keys.insert(key as u8, true);
@@ -528,105 +492,3 @@ impl Nes {
 //        }
 //        Ok(())
 //    }
-
-//    /// Takes a screenshot and saves it to the current directory as a `.png` file
-//    ///
-//    /// # Arguments
-//    ///
-//    /// * `pixels` - An array of pixel data to save in `.png` format
-//    ///
-//    /// # Errors
-//    ///
-//    /// It's possible for this method to fail, but instead of erroring the program,
-//    /// it'll simply log the error out to STDERR
-//    // TODO Scale screenshot to current width/height
-//    // TODO Screenshot the currently focused window
-//    fn screenshot(&mut self) -> NesResult<String> {
-//        let datetime: DateTime<Local> = Local::now();
-//        let mut png_path = PathBuf::from(
-//            datetime
-//                .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S")
-//                .to_string(),
-//        );
-//        let pixels = self.cpu.bus.ppu.frame();
-//        png_path.set_extension("png");
-//        println!("Saved screenshot: {:?}", png_path);
-//        create_png(&png_path, pixels)
-//    }
-
-//    /// Helper function to get held keys
-//    fn is_key_held(&self, key: Key) -> bool {
-//        if let Some(held) = self.held_keys.get(&(key as u8)) {
-//            *held
-//        } else {
-//            false
-//        }
-//    }
-
-//    /// Helper function to determine if a keyboard event is a gamepad event
-//    // TODO: When custom keybind abstraction is complete, update this to only
-//    // match bindings that are tied to gamepad inputs
-//    fn is_gamepad_event(event: &Event) -> bool {
-//        match event {
-//            Event::KeyDown { key: Some(key), .. } => match key {
-//                Key::A
-//                | Key::S
-//                | Key::Z
-//                | Key::X
-//                | Key::Return
-//                | Key::RShift
-//                | Key::Left
-//                | Key::Right
-//                | Key::Up
-//                | Key::Down => true,
-//                _ => false,
-//            },
-//            Event::ControllerDown { button, .. } => match button {
-//                Button::A
-//                | Button::B
-//                | Button::X
-//                | Button::Y
-//                | Button::Start
-//                | Button::Back
-//                | Button::DPadLeft
-//                | Button::DPadRight
-//                | Button::DPadUp
-//                | Button::DPadDown => true,
-//                _ => false,
-//            },
-//            Event::ControllerAxisMotion { axis, .. } => match axis {
-//                Axis::LeftX | Axis::LeftY => true,
-//                _ => false,
-//            },
-//            _ => false,
-//        }
-//    }
-//}
-
-//impl FrameEvent {
-//    pub(super) fn new(frame: usize, events: Vec<Event>) -> Self {
-//        Self { frame, events }
-//    }
-//}
-
-//impl Savable for FrameEvent {
-//    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-//        self.frame.save(fh)?;
-//        self.events.save(fh)?;
-//        Ok(())
-//    }
-//    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-//        self.frame.load(fh)?;
-//        self.events.load(fh)?;
-//        Ok(())
-//    }
-//}
-
-//impl Default for FrameEvent {
-//    fn default() -> Self {
-//        Self {
-//            frame: 0,
-//            events: Vec::new(),
-//        }
-//    }
-//}
