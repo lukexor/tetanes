@@ -19,8 +19,23 @@ const STROBE_DOWN: u8 = 5;
 const STROBE_LEFT: u8 = 6;
 const STROBE_RIGHT: u8 = 7;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum GamepadBtn {
+    Left,
+    Right,
+    Up,
+    Down,
+    A,
+    B,
+    TurboA,
+    TurboB,
+    Select,
+    Start,
+    Zapper,
+}
+
 /// Represents an NES Joypad
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Gamepad {
     pub left: bool,
     pub right: bool,
@@ -35,7 +50,7 @@ pub struct Gamepad {
     pub strobe_state: u8,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Zapper {
     pub light_sense: bool,
     pub triggered: bool,
@@ -80,7 +95,7 @@ impl Powered for Gamepad {
 }
 
 /// Input containing gamepad input state
-#[derive(Default, Clone)]
+#[derive(Default, Copy, Clone)]
 pub struct Input {
     pub gamepad1: Gamepad,
     pub gamepad2: Gamepad,
@@ -138,7 +153,7 @@ impl Powered for Input {
 }
 
 impl fmt::Debug for Input {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(f, "Input {{ }} ")
     }
 }

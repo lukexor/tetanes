@@ -259,7 +259,8 @@ impl Default for Bus {
 }
 
 impl fmt::Debug for Bus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // TODO Bus Debug
         write!(f, "Bus {{ }}")
     }
 }

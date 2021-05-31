@@ -1,60 +1,75 @@
 use super::{Nes, NesResult};
-use crate::common::create_png;
+use crate::{common::create_png, input::GamepadBtn};
 use chrono::prelude::{DateTime, Local};
 use pix_engine::prelude::*;
 use std::path::PathBuf;
 
-const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
-const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
+// const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
+// const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Keybind {
-    TogglePause,
-    ToggleFullscreen,
-    ToggleVsync,
-    ToggleNtsc,
-    ToggleSound,
-    TogglePulse1,
-    TogglePulse2,
-    ToggleTriangle,
-    ToggleNoise,
-    ToggleDmc,
-    ToggleRecording,
-    FastFoward,
-    IncSpeed,
-    DecSpeed,
-    Rewind,
-    OpenHelp,
-    OpenConfig,
-    OpenRom,
-    Quit,
-    Reset,
-    PowerCycle,
-    ToggleDebugger,
-    ToggleNtViewer,
-    TogglePpuViewer,
-    StepInto,
-    StepOver,
-    StepOut,
-    StepFrame,
-    StepScanline,
-    SetSaveSlot(usize),
-    SaveState,
-    LoadState,
-    TakeScreenshot,
-    IncScanline,
-    DecScanline,
-    ButtonA,
-    ButtonB,
-    ButtonATurbo,
-    ButtonBTurbo,
-    ButtonSelect,
-    ButtonStart,
-    ButtonUp,
-    ButtonDown,
-    ButtonLeft,
-    ButtonRight,
-    Zapper,
+    // Nes(NesState),
+    // Menu(Menu),
+    // Feature(Feature),
+    // Setting(Setting),
+    // Debug(DebugAction),
+    Gamepad(GamepadBtn),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum NesState {
+    // TogglePause,
+// Quit,
+// Reset,
+// PowerCycle,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum Menu {
+    // OpenHelp,
+// OpenConfig,
+// OpenRom,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum Feature {
+    // ToggleRecording,
+// Rewind,
+// TakeScreenshot,
+// SaveState,
+// LoadState,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum Setting {
+    // SetSaveSlot(usize),
+// ToggleFullscreen,
+// ToggleVsync,
+// ToggleNtsc,
+// ToggleSound,
+// TogglePulse1,
+// TogglePulse2,
+// ToggleTriangle,
+// ToggleNoise,
+// ToggleDmc,
+// FastFoward,
+// IncSpeed,
+// DecSpeed,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum DebugAction {
+    // ToggleDebugger,
+// ToggleNtViewer,
+// TogglePpuViewer,
+// StepInto,
+// StepOver,
+// StepOut,
+// StepFrame,
+// StepScanline,
+// IncScanline,
+// DecScanline,
 }
 
 impl Nes {
@@ -63,22 +78,14 @@ impl Nes {
         s: &mut PixState,
         keyevent: KeyEvent,
     ) -> PixResult<()> {
+        use Keybind::*;
         if !s.focused() {
             return Ok(());
         }
-        if let Some(action) = self.config.bindings.get(&keyevent) {
-            match action {
-                // ButtonA,
-                // ButtonB,
-                // ButtonATurbo,
-                // ButtonBTurbo,
-                // ButtonSelect,
-                // ButtonStart,
-                // ButtonUp,
-                // ButtonDown,
-                // ButtonLeft,
-                // ButtonRight,
-                _ => (), // Invalid action
+        if let Some(binding) = self.config.bindings.get(&keyevent).copied() {
+            match binding {
+                Gamepad(button) => self.handle_gamepad_pressed(button, keyevent.pressed),
+                // _ => (), // Invalid action
             }
         }
         Ok(())
@@ -87,12 +94,21 @@ impl Nes {
     pub(crate) fn handle_key_released(
         &mut self,
         s: &mut PixState,
-        event: KeyEvent,
+        _event: KeyEvent,
     ) -> PixResult<()> {
         if !s.focused() {
             return Ok(());
         }
         Ok(())
+    }
+
+    fn handle_gamepad_pressed(&mut self, button: GamepadBtn, pressed: bool) {
+        use GamepadBtn::*;
+        let mut input = self.control_deck.get_input_mut();
+        match button {
+            Start => input.gamepad1.start = pressed,
+            _ => (),
+        }
     }
 
     /// Takes a screenshot and saves it to the current directory as a `.png` file
@@ -107,7 +123,7 @@ impl Nes {
     /// it'll simply log the error out to STDERR
     // TODO Scale screenshot to current width/height
     // TODO Screenshot the currently focused window
-    fn screenshot(&mut self) -> NesResult<String> {
+    pub(crate) fn _screenshot(&mut self) -> NesResult<String> {
         let datetime: DateTime<Local> = Local::now();
         let mut png_path = PathBuf::from(
             datetime

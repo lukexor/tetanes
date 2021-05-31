@@ -95,7 +95,7 @@ impl Txrom {
         let has_chr_ram = cart.chr_rom.is_empty();
         let chr_ram_size = cart
             .chr_ram_size()
-            .and_then(|size| Ok(size.unwrap_or(CHR_RAM_SIZE)))
+            .map(|size| size.unwrap_or(CHR_RAM_SIZE))
             .unwrap();
         let mut txrom = Self {
             regs: TxRegs::new(),

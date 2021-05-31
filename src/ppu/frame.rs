@@ -146,7 +146,7 @@ impl Frame {
                             } else {
                                 2
                             };
-                            let level = 40 + VOLTAGES[(high + emp_effect + luma) as usize];
+                            let level = 40 + VOLTAGES[high + emp_effect + luma];
                             // Ideal TV NTSC demodulator:
                             let (sin, cos) = (PI * sample as f32 / 6.0).sin_cos();
                             y += level;

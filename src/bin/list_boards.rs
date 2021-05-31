@@ -1,5 +1,11 @@
 use log::info;
-use std::{env, ffi::OsStr, fs::File, io::BufReader, path::PathBuf};
+use std::{
+    env,
+    ffi::OsStr,
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+};
 use structopt::StructOpt;
 use tetanes::cartridge::INesHeader;
 
@@ -28,7 +34,8 @@ fn main() {
     }
 }
 
-fn print_mapper(path: &PathBuf, board: Option<&String>) {
+fn print_mapper<P: AsRef<Path>>(path: P, board: Option<&String>) {
+    let path = path.as_ref();
     let file = File::open(path).expect("valid path");
     let mut reader = BufReader::new(file);
     if let Ok(header) = INesHeader::load(&mut reader) {

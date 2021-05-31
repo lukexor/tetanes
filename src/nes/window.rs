@@ -46,24 +46,24 @@ impl WindowBuilder {
         }
     }
 
-    pub(crate) fn with_id<'a>(&'a mut self, id: WindowId) -> &'a mut Self {
+    pub(crate) fn with_id(&mut self, id: WindowId) -> &mut Self {
         self.id = Some(id);
         self
     }
 
-    pub(crate) fn create_texture<'a>(
-        &'a mut self,
+    pub(crate) fn create_texture(
+        &mut self,
         format: PixelFormat,
         width: u32,
         height: u32,
-    ) -> &'a mut Self {
+    ) -> &mut Self {
         self.texture_format = format;
         self.texture_width = width;
         self.texture_height = height;
         self
     }
 
-    pub(crate) fn clip<'a, R>(&'a mut self, rect: R) -> &'a mut Self
+    pub(crate) fn clip<R>(&mut self, rect: R) -> &mut Self
     where
         R: Into<Rect>,
     {

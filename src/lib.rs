@@ -1,3 +1,23 @@
+#![warn(unused)]
+#![deny(
+    bare_trait_objects,
+    ellipsis_inclusive_range_patterns,
+    future_incompatible,
+    missing_copy_implementations,
+    missing_debug_implementations,
+    nonstandard_style,
+    rust_2018_idioms,
+    trivial_casts,
+    trivial_numeric_casts,
+    variant_size_differences
+)]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes_icon.png"
+)]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes_icon.png"
+)]
+
 //! # Summary
 //!
 //! <p align="center">
@@ -450,13 +470,6 @@
 //! [sdl2]: https://www.libsdl.org/
 //! [wasm]: https://webassembly.org/
 
-#![doc(
-    html_favicon_url = "https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes_icon.png"
-)]
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes_icon.png"
-)]
-
 use pix_engine::prelude::*;
 use std::{borrow::Cow, fmt, result};
 
@@ -508,13 +521,13 @@ macro_rules! map_nes_err {
 }
 
 impl fmt::Display for NesErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.description)
     }
 }
 
 impl fmt::Debug for NesErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{{ err: {}, file: {}, line: {} }}",

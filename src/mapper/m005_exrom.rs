@@ -97,6 +97,7 @@ enum ChrMode {
     Bank1k,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum Nametable {
     NTA,
@@ -456,10 +457,7 @@ impl Mapper for Exrom {
             // 2 means internal EXRAM
             // 3 means Fill-mode
             let nametable = self.nametable_mapping(addr);
-            match nametable {
-                Nametable::NTA | Nametable::NTB => true,
-                _ => false,
-            }
+            matches!(nametable, Nametable::NTA | Nametable::NTB)
         }
     }
 
@@ -1050,27 +1048,29 @@ impl Savable for Split {
 
 impl From<u8> for Mirroring {
     fn from(val: u8) -> Self {
+        use Mirroring::*;
         match val {
-            0x50 => Mirroring::Horizontal,
-            0x44 => Mirroring::Vertical,
-            0x00 => Mirroring::SingleScreenA,
-            0x55 => Mirroring::SingleScreenB,
+            0x50 => Horizontal,
+            0x44 => Vertical,
+            0x00 => SingleScreenA,
+            0x55 => SingleScreenB,
             // While the below technically isn't true - it forces my implementation to
             // rely on the Mapper for reading Nametables in any other mode for the missing
             // two nametables
-            _ => Mirroring::FourScreen,
+            _ => FourScreen,
         }
     }
 }
 
-impl Into<u8> for Mirroring {
-    fn into(self) -> u8 {
-        match self {
-            Mirroring::Horizontal => 0x50,
-            Mirroring::Vertical => 0x44,
-            Mirroring::SingleScreenA => 0x00,
-            Mirroring::SingleScreenB => 0x55,
-            Mirroring::FourScreen => 0xFF,
+impl From<Mirroring> for u8 {
+    fn from(mirroring: Mirroring) -> Self {
+        use Mirroring::*;
+        match mirroring {
+            Horizontal => 0x50,
+            Vertical => 0x44,
+            SingleScreenA => 0x00,
+            SingleScreenB => 0x55,
+            FourScreen => 0xFF,
         }
     }
 }

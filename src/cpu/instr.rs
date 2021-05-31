@@ -32,6 +32,7 @@ pub const INSTRUCTIONS: [Instr; 256] = [
 ];
 
 #[rustfmt::skip]
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 // List of all CPU official and unofficial operations
 // http://wiki.nesdev.com/w/index.php/6502_instructions
@@ -46,6 +47,7 @@ pub enum Operation {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 #[rustfmt::skip]
 pub enum AddrMode {
     IMM,
@@ -1417,7 +1419,7 @@ impl Savable for Instr {
 }
 
 impl fmt::Debug for Instr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         let mut op = self.op();
         let unofficial = match self.op() {
             XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SXA | RRA | TAS | SYA | ARR

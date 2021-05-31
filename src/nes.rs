@@ -69,19 +69,19 @@ impl NesBuilder {
     }
 
     /// The initial ROM or path to search ROMs for.
-    pub fn path<'a>(&'a mut self, path: PathBuf) -> &'a mut Self {
+    pub fn path(&mut self, path: PathBuf) -> &mut Self {
         self.path = path;
         self
     }
 
     /// Enables fullscreen mode.
-    pub fn fullscreen<'a>(&'a mut self, val: bool) -> &'a mut Self {
+    pub fn fullscreen(&mut self, val: bool) -> &mut Self {
         self.fullscreen = val;
         self
     }
 
     /// Set the window scale.
-    pub fn scale<'a>(&'a mut self, val: f32) -> &'a mut Self {
+    pub fn scale(&mut self, val: f32) -> &mut Self {
         self.scale = val;
         self
     }
@@ -99,6 +99,12 @@ impl NesBuilder {
             windows: Vec::new(),
             config,
         }
+    }
+}
+
+impl Default for NesBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

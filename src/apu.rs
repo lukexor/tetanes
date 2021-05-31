@@ -95,7 +95,7 @@ impl Apu {
     }
 
     pub fn load_mapper(&mut self, mapper: &mut MapperType) {
-        self.dmc.mapper = &mut *mapper as *mut MapperType;
+        self.dmc.mapper = mapper;
     }
 
     pub fn samples(&self) -> &[f32] {
@@ -439,7 +439,8 @@ impl Default for Apu {
 }
 
 impl fmt::Debug for Apu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+        // TODO APU Debug
         write!(f, "APU {{ cyc: {} }}", self.cycle)
     }
 }

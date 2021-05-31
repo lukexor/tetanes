@@ -121,7 +121,7 @@ impl Ppu {
     }
 
     pub fn load_mapper(&mut self, mapper: &mut MapperType) {
-        self.vram.mapper = &mut *mapper as *mut MapperType;
+        self.vram.mapper = mapper;
     }
 
     pub fn set_debug(&mut self, val: bool) {
@@ -536,7 +536,7 @@ impl Ppu {
         }
         for i in 0..self.frame.sprite_count as usize {
             let offset = self.cycle as i16 - 1 - self.frame.sprites[i].x as i16;
-            if offset < 0 || offset > 7 {
+            if !(0..=7).contains(&offset) {
                 continue;
             }
             let offset = 7 - offset;
@@ -1068,7 +1068,7 @@ impl Default for Ppu {
 }
 
 impl fmt::Debug for Ppu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Ppu {{ }}")
     }
 }

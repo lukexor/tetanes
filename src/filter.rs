@@ -4,7 +4,7 @@ use enum_dispatch::enum_dispatch;
 use std::f32::consts;
 
 #[enum_dispatch]
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum FilterType {
     HiPassFilter,
     LoPassFilter,
@@ -17,7 +17,7 @@ pub trait Filter {
 }
 
 /// High Pass Filter
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct HiPassFilter {
     b0: f32,
     b1: f32,
@@ -28,7 +28,7 @@ pub struct HiPassFilter {
 
 impl HiPassFilter {
     pub fn new(freq: f32, sample_rate: f32) -> Self {
-        let c = (sample_rate / consts::PI / freq) as f32;
+        let c = sample_rate / consts::PI / freq;
         let a0i = 1.0 / (1.0 + c);
         Self {
             b0: c * a0i,
@@ -50,7 +50,7 @@ impl Filter for HiPassFilter {
 }
 
 /// Low Pass Filter
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct LoPassFilter {
     b0: f32,
     b1: f32,
@@ -61,7 +61,7 @@ pub struct LoPassFilter {
 
 impl LoPassFilter {
     pub fn new(freq: f32, sample_rate: f32) -> Self {
-        let c = (sample_rate / consts::PI / freq) as f32;
+        let c = sample_rate / consts::PI / freq;
         let a0i = 1.0 / (1.0 + c);
         Self {
             b0: a0i,

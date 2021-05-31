@@ -1,8 +1,8 @@
-use crate::nes::event::Keybind;
-use pix_engine::prelude::KeyEvent;
+use crate::{input::GamepadBtn, nes::event::Keybind};
+use pix_engine::prelude::*;
 use std::{collections::HashMap, env, path::PathBuf};
 
-pub(crate) const MAX_SPEED: f32 = 4.0; // 400%
+// pub(crate) const MAX_SPEED: f32 = 4.0; // 400%
 
 #[derive(Debug, Clone)]
 pub(crate) struct NesConfig {
@@ -24,7 +24,32 @@ pub(crate) struct NesConfig {
 
 impl NesConfig {
     pub fn new() -> Self {
-        Self::default()
+        let mut bindings = HashMap::new();
+        bindings.insert(
+            KeyEvent {
+                key: Key::Return,
+                keymod: KeyMod::NONE,
+                pressed: true,
+                repeat: false,
+            },
+            Keybind::Gamepad(GamepadBtn::Start),
+        );
+        Self {
+            rom_path: env::current_dir().unwrap_or_default(),
+            pause_in_bg: true,
+            debug_enabled: false,
+            sound_enabled: true,
+            fullscreen: false,
+            vsync: false,
+            recording: false,
+            concurrent_dpad: false,
+            randomize_ram: true,
+            save_slot: 1,
+            scale: 3.0,
+            speed: 1.0,
+            bindings,
+            genie_codes: Vec::new(),
+        }
     }
 }
 
@@ -59,21 +84,6 @@ impl NesConfig {
 
 impl Default for NesConfig {
     fn default() -> Self {
-        Self {
-            rom_path: env::current_dir().unwrap_or_default(),
-            pause_in_bg: true,
-            debug_enabled: false,
-            sound_enabled: true,
-            fullscreen: false,
-            vsync: false,
-            recording: false,
-            concurrent_dpad: false,
-            randomize_ram: true,
-            save_slot: 1,
-            scale: 3.0,
-            speed: 1.0,
-            bindings: HashMap::new(),
-            genie_codes: Vec::new(),
-        }
+        Self::new()
     }
 }

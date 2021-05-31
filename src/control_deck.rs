@@ -2,6 +2,7 @@ use crate::{
     bus::Bus,
     common::{Clocked, Powered},
     cpu::{Cpu, CPU_CLOCK_RATE},
+    input::Input,
     mapper, NesResult,
 };
 use std::io::Read;
@@ -56,6 +57,17 @@ impl ControlDeck {
         while self.cycles_remaining > 0.0 {
             self.cycles_remaining -= self.cpu.clock() as f32;
         }
+    }
+
+    /// Returns a mutable reference to the control deck gamepads.
+    pub fn get_input_mut(&mut self) -> &mut Input {
+        &mut self.cpu.bus.input
+    }
+}
+
+impl Default for ControlDeck {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

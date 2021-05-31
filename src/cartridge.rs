@@ -12,7 +12,7 @@ const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 /// [http://wiki.nesdev.com/w/index.php/INES]()
 /// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
 /// [http://nesdev.com/NESDoc.pdf (page 28)]()
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct INesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
     pub mapper_num: u16,   // The primary mapper number
@@ -259,12 +259,12 @@ impl INesHeader {
             return nes_err!("Trained ROMs are currently not supported.");
         }
         Ok(Self {
+            version,
             mapper_num,
             submapper_num,
             flags,
             prg_rom_size,
             chr_rom_size,
-            version,
             prg_ram_size,
             chr_ram_size,
             tv_mode,
@@ -274,7 +274,7 @@ impl INesHeader {
 }
 
 impl fmt::Debug for Cartridge {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
             "Cartridge {{ header: {:?}, PRG-ROM: {}, CHR-ROM: {}",

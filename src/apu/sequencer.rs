@@ -5,7 +5,7 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Sequencer {
     pub step: usize,
     pub length: usize,
@@ -24,7 +24,7 @@ impl Clocked for Sequencer {
         if self.step > self.length {
             self.step = 1;
         }
-        clock as usize
+        clock
     }
 }
 
