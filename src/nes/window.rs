@@ -98,14 +98,14 @@ impl WindowBuilder {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Window {
-    id: WindowId,
-    win_width: u32,
-    win_height: u32,
-    texture_id: TextureId,
-    texture_format: PixelFormat,
-    texture_width: u32,
-    texture_height: u32,
-    texture_clip: Option<Rect>,
+    pub(crate) id: WindowId,
+    pub(crate) win_width: u32,
+    pub(crate) win_height: u32,
+    pub(crate) texture_id: TextureId,
+    pub(crate) texture_format: PixelFormat,
+    pub(crate) texture_width: u32,
+    pub(crate) texture_height: u32,
+    pub(crate) texture_clip: Option<Rect>,
 }
 
 impl Window {
@@ -121,7 +121,7 @@ impl Window {
             bytes,
             channels * self.texture_width as usize,
         )?;
-        s.draw_texture(self.texture_id, self.texture_clip, None)?;
+        s.texture(self.texture_id, self.texture_clip, None)?;
         Ok(())
     }
 }

@@ -1,0 +1,12 @@
+[
+  { "key": "Left", "keymod": 0, "action": { "Gamepad": "Left" } },
+  { "key": "Right", "keymod": 0, "action": { "Gamepad": "Right" } },
+  { "key": "Up", "keymod": 0, "action": { "Gamepad": "Up" } },
+  { "key": "Down", "keymod": 0, "action": { "Gamepad": "Down" } },
+  { "key": "Z", "keymod": 0, "action": { "Gamepad": "A" } },
+  { "key": "X", "keymod": 0, "action": { "Gamepad": "B" } },
+  { "key": "A", "keymod": 0, "action": { "Gamepad": "TurboA" } },
+  { "key": "S", "keymod": 0, "action": { "Gamepad": "TurboB" } },
+  { "key": "Return", "keymod": 0, "action": { "Gamepad": "Start" } },
+  { "key": "RShift", "keymod": 0, "action": { "Gamepad": "Select" } }
+]

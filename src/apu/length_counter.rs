@@ -1,7 +1,7 @@
 use crate::{common::Clocked, serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct LengthCounter {
     pub enabled: bool,
     pub counter: u8, // Entry into LENGTH_TABLE

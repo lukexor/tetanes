@@ -311,7 +311,7 @@ impl Ppu {
                 && self.cycle <= SPRITE_PREFETCH_CYCLE_END;
             if sprite_prefetch {
                 let sprite_idx = (self.cycle - SPRITE_PREFETCH_CYCLE_START) / 8;
-                let sprite = self.frame.sprites[sprite_idx as usize];
+                let sprite = &self.frame.sprites[sprite_idx as usize];
                 match self.cycle % 8 {
                     1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
                     3 => self.fetch_bg_attr_byte(), // Garbage attr fetch

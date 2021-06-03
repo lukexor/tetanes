@@ -11,6 +11,7 @@ documentation = "https://github.com/lukexor/tetanes#readme"
 repository = "https://github.com/lukexor/tetanes.git"
 homepage = "https://github.com/lukexor/tetanes"
 edition = "2018"
+resolver = "2"
 default-run = "tetanes"
 
 [dependencies]
@@ -19,11 +20,13 @@ dirs = "^3.0"
 enum_dispatch = "^0.3"
 lazy_static = "^1.4"
 log = "^0.4"
-pix-engine = "^0.4"
+pix-engine = { version = "^0.4", features = ["serde"] }
 png = "^0.16"
 pretty_env_logger = "^0.4"
 rand = "^0.8"
 structopt = "^0.3"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "^0.2"

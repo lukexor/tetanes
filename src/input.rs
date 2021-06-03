@@ -4,6 +4,7 @@ use crate::{
     common::Powered,
     memory::{MemRead, MemWrite},
 };
+use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, fmt, rc::Rc};
 
 /// Alias for Input wrapped in a Rc/RefCell
@@ -19,7 +20,9 @@ const STROBE_DOWN: u8 = 5;
 const STROBE_LEFT: u8 = 6;
 const STROBE_RIGHT: u8 = 7;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+/// A NES Gameepad.
+#[allow(missing_docs)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GamepadBtn {
     Left,
     Right,
@@ -35,7 +38,8 @@ pub enum GamepadBtn {
 }
 
 /// Represents an NES Joypad
-#[derive(Default, Debug, Copy, Clone)]
+#[allow(missing_docs)]
+#[derive(Default, Debug, Clone)]
 pub struct Gamepad {
     pub left: bool,
     pub right: bool,
@@ -50,7 +54,7 @@ pub struct Gamepad {
     pub strobe_state: u8,
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Zapper {
     pub light_sense: bool,
     pub triggered: bool,
@@ -72,6 +76,7 @@ impl Gamepad {
         self.strobe_state = (self.strobe_state + 1) & 7;
         state as u8
     }
+
     fn peek_state(&self) -> u8 {
         let state = match self.strobe_state {
             STROBE_A => self.a,
@@ -95,7 +100,7 @@ impl Powered for Gamepad {
 }
 
 /// Input containing gamepad input state
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Clone)]
 pub struct Input {
     pub gamepad1: Gamepad,
     pub gamepad2: Gamepad,

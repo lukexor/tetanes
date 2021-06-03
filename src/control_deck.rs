@@ -2,7 +2,7 @@ use crate::{
     bus::Bus,
     common::{Clocked, Powered},
     cpu::{Cpu, CPU_CLOCK_RATE},
-    input::Input,
+    input::Gamepad,
     mapper, NesResult,
 };
 use std::io::Read;
@@ -14,6 +14,7 @@ pub struct ControlDeck {
     cpu: Cpu,
     running: bool,
     cycles_remaining: f32,
+    turbo_clock: usize,
 }
 
 impl ControlDeck {
@@ -25,6 +26,7 @@ impl ControlDeck {
             cpu,
             running: false,
             cycles_remaining: 0.0,
+            turbo_clock: 0,
         }
     }
 
@@ -59,9 +61,35 @@ impl ControlDeck {
         }
     }
 
-    /// Returns a mutable reference to the control deck gamepads.
-    pub fn get_input_mut(&mut self) -> &mut Input {
-        &mut self.cpu.bus.input
+    /// Returns a mutable reference to gamepad1.
+    pub fn get_gamepad1_mut(&mut self) -> &mut Gamepad {
+        &mut self.cpu.bus.input.gamepad1
+    }
+
+    /// Returns a mutable reference to gamepad2.
+    pub fn get_gamepad2_mut(&mut self) -> &mut Gamepad {
+        &mut self.cpu.bus.input.gamepad2
+    }
+
+    fn clock_turbo(&mut self) {
+        self.turbo_clock += 1;
+        if self.turbo_clock > 3 {
+            self.turbo_clock = 0;
+        }
+        let turbo = self.turbo_clock == 0;
+        let mut input = &mut self.cpu.bus.input;
+        if input.gamepad1.turbo_a {
+            input.gamepad1.a = turbo;
+        }
+        if input.gamepad1.turbo_b {
+            input.gamepad1.b = turbo;
+        }
+        if input.gamepad2.turbo_a {
+            input.gamepad2.a = turbo;
+        }
+        if input.gamepad2.turbo_b {
+            input.gamepad2.b = turbo;
+        }
     }
 }
 
@@ -74,6 +102,7 @@ impl Default for ControlDeck {
 impl Clocked for ControlDeck {
     /// Steps the control deck an entire frame
     fn clock(&mut self) -> usize {
+        self.clock_turbo();
         while !self.cpu.bus.ppu.frame_complete {
             self.cpu.clock();
         }

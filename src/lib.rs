@@ -1,15 +1,16 @@
-#![warn(unused)]
+#![warn(missing_docs, unused)]
 #![deny(
     bare_trait_objects,
     ellipsis_inclusive_range_patterns,
     future_incompatible,
-    missing_copy_implementations,
     missing_debug_implementations,
     nonstandard_style,
     rust_2018_idioms,
     trivial_casts,
     trivial_numeric_casts,
-    variant_size_differences
+    variant_size_differences,
+    rustdoc::broken_intra_doc_links,
+    rustdoc::private_intra_doc_links
 )]
 #![doc(
     html_favicon_url = "https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes_icon.png"

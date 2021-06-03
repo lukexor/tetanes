@@ -7,7 +7,7 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Dmc {
     pub(super) mapper: *mut MapperType,
     pub irq_enabled: bool,

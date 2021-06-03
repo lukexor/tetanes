@@ -1,6 +1,9 @@
-use crate::{input::GamepadBtn, nes::event::Keybind};
+use crate::{
+    input::GamepadBtn,
+    nes::event::{Action, KeyBind, KeyBindings},
+};
 use pix_engine::prelude::*;
-use std::{collections::HashMap, env, path::PathBuf};
+use std::{env, path::PathBuf};
 
 // pub(crate) const MAX_SPEED: f32 = 4.0; // 400%
 
@@ -18,22 +21,12 @@ pub(crate) struct NesConfig {
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
     pub(crate) speed: f32,
-    pub(crate) bindings: HashMap<KeyEvent, Keybind>,
+    pub(crate) bindings: KeyBindings,
     pub(crate) genie_codes: Vec<String>,
 }
 
 impl NesConfig {
     pub fn new() -> Self {
-        let mut bindings = HashMap::new();
-        bindings.insert(
-            KeyEvent {
-                key: Key::Return,
-                keymod: KeyMod::NONE,
-                pressed: true,
-                repeat: false,
-            },
-            Keybind::Gamepad(GamepadBtn::Start),
-        );
         Self {
             rom_path: env::current_dir().unwrap_or_default(),
             pause_in_bg: true,
@@ -47,7 +40,7 @@ impl NesConfig {
             save_slot: 1,
             scale: 3.0,
             speed: 1.0,
-            bindings,
+            bindings: KeyBindings::with_config("./config/keyinds.json").unwrap(),
             genie_codes: Vec::new(),
         }
     }

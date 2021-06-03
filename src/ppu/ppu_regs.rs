@@ -18,7 +18,7 @@ pub(super) const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width 
 pub(super) const Y_MAX_COL: u16 = 29; // last row of tiles - (240 pixel height / 8 pixel tall tiles) - 1
 pub(super) const Y_OVER_COL: u16 = 31; // overscan row
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct PpuRegs {
     ctrl: u8,         // $2000 PPUCTRL write-only
     mask: u8,         // $2001 PPUMASK write-only

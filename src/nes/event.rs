@@ -2,13 +2,64 @@ use super::{Nes, NesResult};
 use crate::{common::create_png, input::GamepadBtn};
 use chrono::prelude::{DateTime, Local};
 use pix_engine::prelude::*;
-use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::BufReader,
+    ops::{Deref, DerefMut},
+    path::{Path, PathBuf},
+};
 
 // const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
 // const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum Keybind {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct KeyBind {
+    pub(crate) key: Key,
+    pub(crate) keymod: KeyMod,
+    pub(crate) action: Action,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct KeyBindings(HashMap<(Key, KeyMod), Action>);
+
+impl KeyBindings {
+    pub(crate) fn with_config<P: AsRef<Path>>(config: P) -> NesResult<Self> {
+        let config = config.as_ref();
+        let file = BufReader::new(File::open(config)?);
+
+        let keybinds: Vec<KeyBind> = serde_json::from_reader(file).unwrap();
+        let mut bindings = HashMap::new();
+        for bind in keybinds {
+            bindings.insert((bind.key, bind.keymod), bind.action);
+        }
+
+        Ok(Self(bindings))
+    }
+}
+
+impl Deref for KeyBindings {
+    type Target = HashMap<(Key, KeyMod), Action>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for KeyBindings {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Default for KeyBindings {
+    fn default() -> Self {
+        Self(HashMap::default())
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) enum Action {
     // Nes(NesState),
     // Menu(Menu),
     // Feature(Feature),
@@ -76,39 +127,70 @@ impl Nes {
     pub(super) fn handle_key_pressed(
         &mut self,
         s: &mut PixState,
-        keyevent: KeyEvent,
+        event: KeyEvent,
     ) -> PixResult<()> {
-        use Keybind::*;
-        if !s.focused() {
-            return Ok(());
-        }
-        if let Some(binding) = self.config.bindings.get(&keyevent).copied() {
+        self.handle_key_event(s, event)
+    }
+
+    pub(crate) fn handle_key_released(
+        &mut self,
+        s: &mut PixState,
+        event: KeyEvent,
+    ) -> PixResult<()> {
+        self.handle_key_event(s, event)
+    }
+
+    fn handle_key_event(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<()> {
+        use Action::*;
+        if let Some(binding) = self
+            .config
+            .bindings
+            .get(&(event.key, event.keymod))
+            .copied()
+        {
             match binding {
-                Gamepad(button) => self.handle_gamepad_pressed(button, keyevent.pressed),
+                Gamepad(button) => self.handle_gamepad_pressed(s, button, event.pressed)?,
                 // _ => (), // Invalid action
             }
         }
         Ok(())
     }
 
-    pub(crate) fn handle_key_released(
+    fn handle_gamepad_pressed(
         &mut self,
         s: &mut PixState,
-        _event: KeyEvent,
+        button: GamepadBtn,
+        pressed: bool,
     ) -> PixResult<()> {
-        if !s.focused() {
+        if !s.focused_window(self.windows[0].id) {
             return Ok(());
         }
-        Ok(())
-    }
 
-    fn handle_gamepad_pressed(&mut self, button: GamepadBtn, pressed: bool) {
         use GamepadBtn::*;
-        let mut input = self.control_deck.get_input_mut();
-        match button {
-            Start => input.gamepad1.start = pressed,
-            _ => (),
+        let mut gamepad = self.control_deck.get_gamepad1_mut();
+        if !self.config.concurrent_dpad && pressed {
+            match button {
+                Left => gamepad.right = false,
+                Right => gamepad.left = false,
+                Up => gamepad.down = false,
+                Down => gamepad.up = false,
+                _ => (),
+            }
         }
+        match button {
+            Left => gamepad.left = pressed,
+            Right => gamepad.right = pressed,
+            Up => gamepad.up = pressed,
+            Down => gamepad.down = pressed,
+            A => gamepad.a = pressed,
+            B => gamepad.b = pressed,
+            TurboA => gamepad.turbo_a = pressed,
+            TurboB => gamepad.turbo_b = pressed,
+            Select => gamepad.select = pressed,
+            Start => gamepad.start = pressed,
+            Zapper => todo!("zapper"),
+        };
+        Ok(())
     }
 
     /// Takes a screenshot and saves it to the current directory as a `.png` file
@@ -351,56 +433,6 @@ impl Nes {
 //            }
 //        }
 //        Ok(())
-//    }
-
-//    /// Handles gamepad events from the keyboard.
-//    // TODO: Update this to allow up to 4 players
-//    pub(super) fn handle_input_event(&mut self, key: Key, pressed: bool) {
-//        // Gamepad events only apply to the main window
-//        if self.focused_window != Some(self.nes_window) {
-//            return;
-//        }
-//        let mut input = &mut self.cpu.bus.input;
-//        match key {
-//            // Gamepad
-//            Key::Z => input.gamepad1.a = pressed,
-//            Key::X => input.gamepad1.b = pressed,
-//            Key::A => {
-//                input.gamepad1.turbo_a = pressed;
-//                input.gamepad1.a = self.turbo && pressed;
-//            }
-//            Key::S => {
-//                input.gamepad1.turbo_b = pressed;
-//                input.gamepad1.b = self.turbo && pressed;
-//            }
-//            Key::RShift => input.gamepad1.select = pressed,
-//            Key::Return => input.gamepad1.start = pressed,
-//            Key::Up => {
-//                if !self.config.concurrent_dpad && pressed {
-//                    input.gamepad1.down = false;
-//                }
-//                input.gamepad1.up = pressed;
-//            }
-//            Key::Down => {
-//                if !self.config.concurrent_dpad && pressed {
-//                    input.gamepad1.up = false;
-//                }
-//                input.gamepad1.down = pressed;
-//            }
-//            Key::Left => {
-//                if !self.config.concurrent_dpad && pressed {
-//                    input.gamepad1.right = false;
-//                }
-//                input.gamepad1.left = pressed;
-//            }
-//            Key::Right => {
-//                if !self.config.concurrent_dpad && pressed {
-//                    input.gamepad1.left = false;
-//                }
-//                input.gamepad1.right = pressed;
-//            }
-//            _ => (),
-//        }
 //    }
 
 //    /// Handles controller gamepad button events

@@ -6,14 +6,14 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct FrameSequencer {
     pub divider: Divider,
     pub sequencer: Sequencer,
     pub mode: FcMode,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FcMode {
     Step4,
     Step5,
