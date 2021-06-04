@@ -817,9 +817,6 @@ mod tests {
         assert_eq!(cpu.cycle_count, 14, "cpu after power + one clock");
         assert_eq!(cpu.bus.ppu.cycle_count, 42, "ppu after power + one clock");
 
-        // TODO test extra dummy read cases for ABX, ABY, REL, IDY
-        // TODO add tests for branch page crossing
-
         for instr in INSTRUCTIONS.iter() {
             let extra_cycle = match instr.op() {
                 BCC | BNE | BPL | BVC => 1,

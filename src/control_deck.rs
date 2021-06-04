@@ -197,7 +197,6 @@ mod tests {
 
     #[test]
     fn apu_timing() {
-        // TODO assert outputs
         let rom = "tests/cpu/nestest.nes";
         let mut deck = load(&rom);
         for _ in 0..=29840 {

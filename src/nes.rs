@@ -23,34 +23,6 @@ const _STATIC_ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
 
-/* TODO:
- * turbo/clock
- * zapper decay
- * Rewind
- * ppu view / scanline
- * nt view / scanline
- * debug view / active
- * cpu break points
- * emulation speed
- * recording / playback (based on cli path)
- * messages
- * clear_savestate
- * savable
- * config file:
- *   - speed 0.1 - 4.0
- *   - savestates_off
- *   - rewind_off
- *   - concurrent_dpad
- *   - vsync_off
- *   - sound_off
- *   - no_pause_in_bg
- *   - debug
- *   - genie_codes
- *   - save_slot
- *   - record
- *   - screenshot
- */
-
 #[derive(Debug, Clone)]
 pub struct NesBuilder {
     path: PathBuf,
@@ -86,7 +58,7 @@ impl NesBuilder {
         self
     }
 
-    /// TODO: build documentation
+    /// Creates an Nes instance from an NesBuilder.
     pub fn build(&self) -> Nes {
         let control_deck = ControlDeck::new();
         let mut config = NesConfig::new();
@@ -193,11 +165,6 @@ impl AppState for Nes {
     fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<()> {
         self.handle_key_released(s, event)
     }
-
-    // TODO: controller
-    // fn on_controller_down() {}
-    // fn on_controller_release() {}
-    // fn on_controller_axis_motion() {}
 }
 
 impl Default for Nes {
