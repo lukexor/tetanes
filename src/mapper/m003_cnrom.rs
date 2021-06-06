@@ -26,7 +26,7 @@ pub struct Cnrom {
 }
 
 impl Cnrom {
-    pub fn load(cart: Cartridge) -> MapperType {
+    pub fn load(cart: Cartridge, _consistent_ram: bool) -> MapperType {
         let mut cnrom = Self {
             mirroring: cart.mirroring(),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),

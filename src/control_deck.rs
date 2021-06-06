@@ -10,30 +10,32 @@ use std::io::Read;
 /// Represents an NES Control Deck
 #[derive(Debug, Clone)]
 pub struct ControlDeck {
-    loaded_rom: Option<String>,
-    cpu: Cpu,
     running: bool,
-    cycles_remaining: f32,
+    consistent_ram: bool,
+    loaded_rom: Option<String>,
     turbo_clock: usize,
+    cycles_remaining: f32,
+    cpu: Cpu,
 }
 
 impl ControlDeck {
     /// Creates a new ControlDeck instance.
-    pub fn new() -> Self {
-        let cpu = Cpu::init(Bus::new());
+    pub fn new(consistent_ram: bool) -> Self {
+        let cpu = Cpu::init(Bus::new(consistent_ram));
         Self {
-            loaded_rom: None,
-            cpu,
             running: false,
-            cycles_remaining: 0.0,
+            consistent_ram,
+            loaded_rom: None,
             turbo_clock: 0,
+            cycles_remaining: 0.0,
+            cpu,
         }
     }
 
     /// Loads a ROM cartridge into memory
     pub fn load_rom<F: Read>(&mut self, name: &str, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_owned());
-        let mapper = mapper::load_rom(name, rom)?;
+        let mapper = mapper::load_rom(name, rom, self.consistent_ram)?;
         self.cpu.bus.load_mapper(mapper);
         Ok(())
     }
@@ -95,7 +97,8 @@ impl ControlDeck {
 
 impl Default for ControlDeck {
     fn default() -> Self {
-        Self::new()
+        let consistent_ram = true;
+        Self::new(consistent_ram)
     }
 }
 
@@ -144,7 +147,8 @@ mod tests {
     use std::{fs::File, io::BufReader, path::PathBuf};
 
     fn load(file: &str) -> ControlDeck {
-        let mut deck = ControlDeck::new();
+        let consistent_ram = true;
+        let mut deck = ControlDeck::new(consistent_ram);
         let rom = File::open(PathBuf::from(file)).unwrap();
         let mut rom = BufReader::new(rom);
         deck.load_rom(file, &mut rom).unwrap();
@@ -153,7 +157,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "no-randomize-ram")]
     fn nestest() {
         let rom = "tests/cpu/nestest.nes";
         let mut deck = load(&rom);
@@ -187,7 +190,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "no-randomize-ram")]
     fn instr_timing() {
         let rom = "tests/cpu/instr_timing.nes";
         let mut deck = load(&rom);

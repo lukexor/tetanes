@@ -180,7 +180,7 @@ impl ExRegs {
 }
 
 impl Exrom {
-    pub fn load(cart: Cartridge) -> MapperType {
+    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
         let mirroring = cart.mirroring();
         let mut exrom = Self {
             regs: ExRegs::new(mirroring),
@@ -193,8 +193,8 @@ impl Exrom {
             ppu_idle: 0x00,
             ppu_in_vblank: false,
             ppu_rendering: false,
-            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW),
-            exram: BankedMemory::ram(EXRAM_SIZE, EXRAM_WINDOW),
+            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW, consistent_ram),
+            exram: BankedMemory::ram(EXRAM_SIZE, EXRAM_WINDOW, consistent_ram),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
             chr_rom: BankedMemory::from(cart.chr_rom, CHR_ROM_WINDOW),
             tile_cache: 0x0000,
@@ -1078,7 +1078,6 @@ impl From<Mirroring> for u8 {
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(feature = "no-randomize-ram")]
     fn prg_ram_protect() {
         use super::*;
         use crate::{cartridge::Cartridge, memory::Memory};

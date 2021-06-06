@@ -52,7 +52,7 @@ struct SxRegs {
 }
 
 impl Mapper155 {
-    pub fn load(cart: Cartridge) -> MapperType {
+    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
         let prg_ram_size = cart
             .prg_ram_size()
             .map(|size| size.unwrap_or(PRG_RAM_SIZE))
@@ -69,10 +69,10 @@ impl Mapper155 {
             },
             has_chr_ram,
             battery_backed: cart.battery_backed(),
-            prg_ram: BankedMemory::ram(prg_ram_size, PRG_RAM_WINDOW),
+            prg_ram: BankedMemory::ram(prg_ram_size, PRG_RAM_WINDOW, consistent_ram),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
             chr: if has_chr_ram {
-                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW)
+                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, consistent_ram)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },

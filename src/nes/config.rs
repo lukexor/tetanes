@@ -1,9 +1,8 @@
-use crate::{
-    input::GamepadBtn,
-    nes::event::{Action, KeyBind, KeyBindings},
-};
-use pix_engine::prelude::*;
+use crate::nes::event::KeyBindings;
 use std::{env, path::PathBuf};
+
+// pub(crate) const SETTINGS: &str = "./config/settings.json";
+pub(crate) const KEYBINDS: &str = "./config/keyinds.json";
 
 // pub(crate) const MAX_SPEED: f32 = 4.0; // 400%
 
@@ -17,7 +16,7 @@ pub(crate) struct NesConfig {
     pub(crate) vsync: bool,
     pub(crate) recording: bool,
     pub(crate) concurrent_dpad: bool,
-    pub(crate) randomize_ram: bool,
+    pub(crate) consistent_ram: bool,
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
     pub(crate) speed: f32,
@@ -36,11 +35,11 @@ impl NesConfig {
             vsync: false,
             recording: false,
             concurrent_dpad: false,
-            randomize_ram: true,
+            consistent_ram: false,
             save_slot: 1,
             scale: 3.0,
             speed: 1.0,
-            bindings: KeyBindings::with_config("./config/keyinds.json").unwrap(),
+            bindings: KeyBindings::with_config(KEYBINDS).unwrap(),
             genie_codes: Vec::new(),
         }
     }

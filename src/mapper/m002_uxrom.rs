@@ -29,14 +29,14 @@ pub struct Uxrom {
 }
 
 impl Uxrom {
-    pub fn load(cart: Cartridge) -> MapperType {
+    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
         let has_chr_ram = cart.chr_rom.is_empty();
         let mut uxrom = Self {
             has_chr_ram,
             mirroring: cart.mirroring(),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
             chr: if has_chr_ram {
-                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW)
+                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, consistent_ram)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },

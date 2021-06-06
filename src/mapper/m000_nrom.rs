@@ -33,16 +33,16 @@ pub struct Nrom {
 }
 
 impl Nrom {
-    pub fn load(cart: Cartridge) -> MapperType {
+    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
         let has_chr_ram = cart.chr_rom.is_empty();
         let mut nrom = Self {
             has_chr_ram,
             battery_backed: cart.battery_backed(),
             mirroring: cart.mirroring(),
-            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_RAM_WINDOW),
+            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_RAM_WINDOW, consistent_ram),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
             chr: if has_chr_ram {
-                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW)
+                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, consistent_ram)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },

@@ -60,8 +60,8 @@ impl NesBuilder {
 
     /// Creates an Nes instance from an NesBuilder.
     pub fn build(&self) -> Nes {
-        let control_deck = ControlDeck::new();
         let mut config = NesConfig::new();
+        let control_deck = ControlDeck::new(config.consistent_ram);
         config.rom_path = self.path.to_owned();
         config.scale = self.scale;
         config.fullscreen = self.fullscreen;

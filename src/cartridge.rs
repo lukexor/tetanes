@@ -38,11 +38,12 @@ pub struct Cartridge {
 impl Cartridge {
     /// Creates an empty cartridge not loaded with any ROM
     pub fn new() -> Self {
+        let consistent_ram = true;
         Self {
             name: String::new(),
             header: INesHeader::new(),
-            prg_rom: Memory::new(),
-            chr_rom: Memory::new(),
+            prg_rom: Memory::new(consistent_ram),
+            chr_rom: Memory::new(consistent_ram),
         }
     }
 

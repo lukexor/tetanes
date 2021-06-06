@@ -807,10 +807,10 @@ impl fmt::Debug for Cpu {
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(feature = "no-randomize-ram")]
     fn cpu_cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::init(Bus::new());
+        let consistent_ram = true;
+        let mut cpu = Cpu::init(Bus::new(consistent_ram));
         cpu.power_on();
         cpu.clock();
 

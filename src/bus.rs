@@ -53,13 +53,13 @@ lazy_static! {
 }
 
 impl Bus {
-    pub fn new() -> Self {
+    pub fn new(consistent_ram: bool) -> Self {
         let mut bus = Self {
             ppu: Ppu::new(),
             apu: Apu::new(),
             input: Input::new(),
             mapper: Box::new(mapper::null()),
-            wram: Memory::ram(WRAM_SIZE),
+            wram: Memory::ram(WRAM_SIZE, consistent_ram),
             genie_codes: HashMap::new(),
             open_bus: 0,
         };
@@ -254,7 +254,8 @@ impl Savable for Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new()
+        let consistent_ram = true;
+        Self::new(consistent_ram)
     }
 }
 
@@ -268,7 +269,6 @@ impl fmt::Debug for Bus {
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(feature = "no-randomize-ram")]
     fn test_bus() {
         use super::*;
         use crate::mapper;
@@ -277,8 +277,9 @@ mod tests {
         let rom_file = "tests/cpu/nestest.nes";
         let rom = File::open(rom_file).expect("valid file");
         let mut rom = BufReader::new(rom);
-        let mapper = mapper::load_rom(&rom_file, &mut rom).expect("loaded mapper");
-        let mut mem = Bus::new();
+        let consistent_ram = true;
+        let mapper = mapper::load_rom(&rom_file, &mut rom, consistent_ram).expect("loaded mapper");
+        let mut mem = Bus::new(consistent_ram);
         mem.load_mapper(mapper);
         mem.write(0x0005, 0x0015);
         mem.write(0x0015, 0x0050);

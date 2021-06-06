@@ -101,7 +101,7 @@ impl Ppu {
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
-            ntsc_video: true,
+            ntsc_video: false,
             nes_format: NesFormat::Ntsc,
             clock_remainder: 0,
             debug: false,

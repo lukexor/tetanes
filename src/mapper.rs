@@ -95,19 +95,19 @@ pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered {
 }
 
 /// Attempts to return a valid Mapper for the given rom.
-pub fn load_rom<F: Read>(name: &str, rom: &mut F) -> NesResult<MapperType> {
+pub fn load_rom<F: Read>(name: &str, rom: &mut F, consistent_ram: bool) -> NesResult<MapperType> {
     let cart = Cartridge::from_rom(name, rom)?;
     let mapper = match cart.header.mapper_num {
-        0 => Nrom::load(cart),
-        1 => Sxrom::load(cart),
-        2 => Uxrom::load(cart),
-        3 => Cnrom::load(cart),
-        4 => Txrom::load(cart),
-        5 => Exrom::load(cart),
-        7 => Axrom::load(cart),
-        9 => Pxrom::load(cart),
-        71 => Uxrom::load(cart), // TODO: Mapper 71 has slight differences from Uxrom
-        155 => Mapper155::load(cart),
+        0 => Nrom::load(cart, consistent_ram),
+        1 => Sxrom::load(cart, consistent_ram),
+        2 => Uxrom::load(cart, consistent_ram),
+        3 => Cnrom::load(cart, consistent_ram),
+        4 => Txrom::load(cart, consistent_ram),
+        5 => Exrom::load(cart, consistent_ram),
+        7 => Axrom::load(cart, consistent_ram),
+        9 => Pxrom::load(cart, consistent_ram),
+        71 => Uxrom::load(cart, consistent_ram), // TODO: Mapper 71 has slight differences from Uxrom
+        155 => Mapper155::load(cart, consistent_ram),
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };
     Ok(mapper)
