@@ -6,9 +6,9 @@ use crate::{
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone)]
-pub struct Divider {
-    pub counter: f32,
-    pub period: f32,
+pub(crate) struct Divider {
+    pub(crate) counter: f32,
+    pub(crate) period: f32,
 }
 
 impl Divider {

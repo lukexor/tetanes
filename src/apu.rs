@@ -40,19 +40,19 @@ mod sweep;
 /// Audio Processing Unit
 #[derive(Clone)]
 pub struct Apu {
-    pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
-    irq_enabled: bool,     // Set by $4017 D6
-    pub open_bus: u8,      // This open bus gets set during any write to PPU registers
-    clock_rate: f32,       // Same as CPU but is affected by speed changes
-    cycle: usize,          // Current APU cycle
-    samples: Vec<f32>,     // Buffer of samples
-    pub frame_sequencer: FrameSequencer,
+    pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
+    irq_enabled: bool,            // Set by $4017 D6
+    pub(crate) open_bus: u8,      // This open bus gets set during any write to PPU registers
+    clock_rate: f32,              // Same as CPU but is affected by speed changes
+    cycle: usize,                 // Current APU cycle
+    samples: Vec<f32>,            // Buffer of samples
+    frame_sequencer: FrameSequencer,
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
     enabled: [bool; 5],
-    pub dmc: Dmc,
+    pub(crate) dmc: Dmc,
     filters: [FilterType; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
@@ -303,6 +303,13 @@ impl Apu {
         if !self.irq_enabled {
             self.irq_pending = false;
         }
+    }
+}
+
+#[cfg(test)]
+impl Apu {
+    fn frame_sequencer(&self) -> FrameSequencer {
+        self.frame_sequencer
     }
 }
 

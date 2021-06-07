@@ -51,7 +51,7 @@ impl Savable for Palette {
 
 // 64 total possible colors, though only 32 can be loaded at a time
 #[rustfmt::skip]
-pub const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
+pub(crate) const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
     // 0x00
     84, 84, 84,    0, 30, 116,    8, 16, 144,    48, 0, 136,    // $00-$03
     68, 0, 100,    92, 0, 48,     84, 4, 0,      60, 24, 0,     // $04-$07

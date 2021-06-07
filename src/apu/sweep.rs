@@ -2,13 +2,13 @@ use crate::{serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone)]
-pub struct Sweep {
-    pub enabled: bool,
-    pub reload: bool,
-    pub negate: bool, // Treats PulseChannel 1 differently than PulseChannel 2
-    pub timer: u8,    // counter reload value
-    pub counter: u8,  // current timer value
-    pub shift: u8,
+pub(crate) struct Sweep {
+    pub(crate) enabled: bool,
+    pub(crate) reload: bool,
+    pub(crate) negate: bool, // Treats PulseChannel 1 differently than PulseChannel 2
+    pub(crate) timer: u8,    // counter reload value
+    pub(crate) counter: u8,  // current timer value
+    pub(crate) shift: u8,
 }
 
 impl Savable for Sweep {

@@ -1,5 +1,9 @@
-// #![warn(missing_docs, unused)]
-#![deny(
+#![warn(
+    // missing_docs,
+    unused,
+    deprecated_in_future,
+    unreachable_pub,
+    unused_crate_dependencies,
     bare_trait_objects,
     ellipsis_inclusive_range_patterns,
     future_incompatible,
@@ -470,7 +474,9 @@
 //! [wasm]: https://webassembly.org/
 
 use pix_engine::prelude::*;
+use pretty_env_logger as _;
 use std::{borrow::Cow, fmt, result};
+use structopt as _;
 
 pub mod apu;
 pub mod bus;

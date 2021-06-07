@@ -211,8 +211,8 @@ impl Savable for usize {
 impl<T: Savable> Savable for [T] {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         let len: usize = self.len();
-        if len > std::u32::MAX as usize {
-            return nes_err!("Unable to save more than {} bytes", std::u32::MAX);
+        if len > u32::MAX as usize {
+            return nes_err!("Unable to save more than {} bytes", u32::MAX);
         }
         let len = len as u32;
         len.save(fh)?;
@@ -241,8 +241,8 @@ impl<T: Savable> Savable for [T] {
 impl<T: Savable + Default> Savable for Vec<T> {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         let len: usize = self.len();
-        if len > std::u32::MAX as usize {
-            return nes_err!("Unable to save more than {} bytes", std::u32::MAX);
+        if len > u32::MAX as usize {
+            return nes_err!("Unable to save more than {} bytes", u32::MAX);
         }
         let len = len as u32;
         len.save(fh)?;
@@ -276,8 +276,8 @@ impl<T: Savable + Default> Savable for Vec<T> {
 impl<T: Savable + Default> Savable for VecDeque<T> {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         let len: usize = self.len();
-        if len > std::u32::MAX as usize {
-            return nes_err!("Unable to save more than {} bytes", std::u32::MAX);
+        if len > u32::MAX as usize {
+            return nes_err!("Unable to save more than {} bytes", u32::MAX);
         }
         let len = len as u32;
         len.save(fh)?;

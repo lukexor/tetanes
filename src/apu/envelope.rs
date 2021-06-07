@@ -2,17 +2,17 @@ use crate::{common::Clocked, serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone)]
-pub struct Envelope {
-    pub enabled: bool,
+pub(crate) struct Envelope {
+    pub(crate) enabled: bool,
     loops: bool,
-    pub reset: bool,
-    pub volume: u8,
-    pub constant_volume: u8,
+    pub(crate) reset: bool,
+    pub(crate) volume: u8,
+    pub(crate) constant_volume: u8,
     counter: u8,
 }
 
 impl Envelope {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             enabled: false,
             loops: false,
@@ -24,7 +24,7 @@ impl Envelope {
     }
 
     // $4000/$4004/$400C Envelope control
-    pub fn write_control(&mut self, val: u8) {
+    pub(crate) fn write_control(&mut self, val: u8) {
         self.loops = (val >> 5) & 1 == 1; // D5
         self.enabled = (val >> 4) & 1 == 0; // !D4
         self.constant_volume = val & 0x0F; // D3..D0

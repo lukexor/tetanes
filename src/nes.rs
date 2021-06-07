@@ -116,7 +116,7 @@ impl Nes {
             engine.vsync_enabled();
         }
 
-        Ok(engine.build()?.run(self)?)
+        Ok(engine.build().run(self)?)
     }
 
     /// Update rendering textures with emulation state

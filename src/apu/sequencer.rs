@@ -6,13 +6,13 @@ use crate::{
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone)]
-pub struct Sequencer {
-    pub step: usize,
-    pub length: usize,
+pub(crate) struct Sequencer {
+    pub(crate) step: usize,
+    pub(crate) length: usize,
 }
 
 impl Sequencer {
-    pub(super) fn new(length: usize) -> Self {
+    pub(crate) fn new(length: usize) -> Self {
         Self { step: 1, length }
     }
 }

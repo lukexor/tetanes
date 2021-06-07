@@ -5,7 +5,7 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-pub const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
+pub(crate) const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 
 // Addr Low Nibble
 // $00, $04, $08, $0C   Sprite Y coord
@@ -13,12 +13,12 @@ pub const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 // $02, $06, $0A, $0E   Sprite attribute
 // $03, $07, $0B, $0F   Sprite X coord
 #[derive(Clone)]
-pub struct Oam {
-    pub entries: [u8; OAM_SIZE],
+pub(crate) struct Oam {
+    pub(crate) entries: [u8; OAM_SIZE],
 }
 
 impl Oam {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             entries: [0; OAM_SIZE],
         }

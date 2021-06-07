@@ -115,7 +115,7 @@ enum ExRamMode {
 }
 
 #[derive(Debug, Clone)]
-pub struct ExRegs {
+struct ExRegs {
     sprite8x16: bool,         // $2000 PPUCTRL: false = 8x8, true = 8x16
     prg_mode: PrgMode,        // $5100
     chr_mode: ChrMode,        // $5101
@@ -143,7 +143,7 @@ pub struct ExRegs {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Split {
+enum Split {
     Left,
     Right,
 }

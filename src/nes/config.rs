@@ -25,7 +25,7 @@ pub(crate) struct NesConfig {
 }
 
 impl NesConfig {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             rom_path: env::current_dir().unwrap_or_default(),
             pause_in_bg: true,
