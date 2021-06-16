@@ -17,7 +17,7 @@ pub(crate) struct WindowBuilder {
     texture_format: PixelFormat,
     texture_width: u32,
     texture_height: u32,
-    texture_clip: Option<Rect>,
+    texture_clip: Option<Rect<u32>>,
 }
 
 impl Default for WindowBuilder {
@@ -65,7 +65,7 @@ impl WindowBuilder {
 
     pub(crate) fn clip<R>(&mut self, rect: R) -> &mut Self
     where
-        R: Into<Rect>,
+        R: Into<Rect<u32>>,
     {
         self.texture_clip = Some(rect.into());
         self
@@ -105,7 +105,7 @@ pub(crate) struct Window {
     pub(crate) texture_format: PixelFormat,
     pub(crate) texture_width: u32,
     pub(crate) texture_height: u32,
-    pub(crate) texture_clip: Option<Rect>,
+    pub(crate) texture_clip: Option<Rect<u32>>,
 }
 
 impl Window {

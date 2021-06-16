@@ -60,67 +60,67 @@ impl Default for KeyBindings {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Action {
-    // Nes(NesState),
-    // Menu(Menu),
-    // Feature(Feature),
-    // Setting(Setting),
-    // Debug(DebugAction),
+    Nes(NesState),
+    Menu(Menu),
+    Feature(Feature),
+    Setting(Setting),
+    Debug(DebugAction),
     Gamepad(GamepadBtn),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum NesState {
-    // TogglePause,
-// Quit,
-// Reset,
-// PowerCycle,
+    TogglePause,
+    Quit,
+    Reset,
+    PowerCycle,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Menu {
-    // OpenHelp,
-// OpenConfig,
-// OpenRom,
+    Help,
+    Config,
+    LoadRom,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Feature {
-    // ToggleRecording,
-// Rewind,
-// TakeScreenshot,
-// SaveState,
-// LoadState,
+    ToggleRecording,
+    Rewind,
+    TakeScreenshot,
+    SaveState,
+    LoadState,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Setting {
-    // SetSaveSlot(usize),
-// ToggleFullscreen,
-// ToggleVsync,
-// ToggleNtsc,
-// ToggleSound,
-// TogglePulse1,
-// TogglePulse2,
-// ToggleTriangle,
-// ToggleNoise,
-// ToggleDmc,
-// FastFoward,
-// IncSpeed,
-// DecSpeed,
+    SetSaveSlot(u8),
+    ToggleFullscreen,
+    ToggleVsync,
+    ToggleNtsc,
+    ToggleSound,
+    TogglePulse1,
+    TogglePulse2,
+    ToggleTriangle,
+    ToggleNoise,
+    ToggleDmc,
+    FastForward,
+    IncSpeed,
+    DecSpeed,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum DebugAction {
-    // ToggleDebugger,
-// ToggleNtViewer,
-// TogglePpuViewer,
-// StepInto,
-// StepOver,
-// StepOut,
-// StepFrame,
-// StepScanline,
-// IncScanline,
-// DecScanline,
+    ToggleDebugger,
+    ToggleNtViewer,
+    TogglePpuViewer,
+    StepInto,
+    StepOver,
+    StepOut,
+    StepFrame,
+    StepScanline,
+    IncScanline,
+    DecScanline,
 }
 
 impl Nes {
@@ -148,9 +148,13 @@ impl Nes {
             .get(&(event.key, event.keymod))
             .copied()
         {
+            if event.repeat {
+                return Ok(());
+            }
             match binding {
+                Setting(setting) => self.handle_setting(s, setting, event.pressed)?,
                 Gamepad(button) => self.handle_gamepad_pressed(s, button, event.pressed)?,
-                // _ => (), // Invalid action
+                _ => (), // Invalid action
             }
         }
         Ok(())
@@ -184,12 +188,44 @@ impl Nes {
             Down => gamepad.down = pressed,
             A => gamepad.a = pressed,
             B => gamepad.b = pressed,
-            TurboA => gamepad.turbo_a = pressed,
-            TurboB => gamepad.turbo_b = pressed,
+            TurboA => {
+                gamepad.turbo_a = pressed;
+                if !pressed {
+                    gamepad.a = pressed;
+                }
+            }
+            TurboB => {
+                gamepad.turbo_b = pressed;
+                if !pressed {
+                    gamepad.b = pressed;
+                }
+            }
             Select => gamepad.select = pressed,
             Start => gamepad.start = pressed,
             Zapper => todo!("zapper"),
         };
+        Ok(())
+    }
+
+    fn handle_setting(
+        &mut self,
+        _s: &mut PixState,
+        setting: Setting,
+        pressed: bool,
+    ) -> NesResult<()> {
+        use Setting::*;
+        match setting {
+            FastForward => {
+                if pressed {
+                    self.set_speed(2.0);
+                } else {
+                    self.set_speed(1.0);
+                }
+            }
+            IncSpeed => self.change_speed(0.25),
+            DecSpeed => self.change_speed(-0.25),
+            _ => (),
+        }
         Ok(())
     }
 
@@ -295,7 +331,6 @@ impl Nes {
 //                // TODO close top menu
 //                self.paused(!self.paused);
 //            }
-//            Key::Space => self.set_speed(2.0),
 //            Key::R if !c => self.rewind(),
 //            Key::F1 => {
 //                // TODO open help menu
@@ -349,8 +384,6 @@ impl Nes {
 //            Key::Num2 if c => self.set_save_slot(2),
 //            Key::Num3 if c => self.set_save_slot(3),
 //            Key::Num4 if c => self.set_save_slot(4),
-//            Key::Minus if c => self.change_speed(-0.25),
-//            Key::Equals if c => self.change_speed(0.25),
 //            Key::Return if c => {
 //                self.config.fullscreen = !self.config.fullscreen;
 //                s.fullscreen(self.config.fullscreen);

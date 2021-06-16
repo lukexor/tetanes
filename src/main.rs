@@ -1,3 +1,20 @@
+//! A NES Emulator written in Rust with SDL2 and WebAssembly support
+//!
+//! USAGE:
+//!     tetanes [FLAGS] [OPTIONS] [path]
+//!
+//! FLAGS:
+//!     -f, --fullscreen    Start fullscreen.
+//!     -h, --help          Prints help information
+//!     -V, --version       Prints version information
+//!
+//! OPTIONS:
+//!     -s, --scale <scale>    Window scale [default: 3.0]
+//!
+//! ARGS:
+//!     <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a recording
+//!               playback `.playback` file. [default: current directory]
+
 #![warn(
     future_incompatible,
     missing_copy_implementations,
@@ -11,22 +28,11 @@
     variant_size_differences
 )]
 
-//! Usage: tetanes [rom_file | rom_directory]
-//!
-//! 1. If a rom file is provided, that rom is loaded
-//! 2. If a directory is provided, `.nes` files are searched for in that directory
-//! 3. If no arguments are provided, the current directory is searched for rom files ending in
-//!    `.nes`
-//!
-//! In the case of 2 and 3, if valid NES rom files are found, a menu screen is displayed to select
-//! which rom to run. If there are any errors related to invalid files, directories, or
-//! permissions, the program will print an error and exit.
-
 use std::{env, path::PathBuf};
 use structopt::StructOpt;
 use tetanes::{nes::NesBuilder, NesErr};
 
-fn main() {
+fn main() -> Result<(), NesErr> {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "info");
     }
@@ -34,23 +40,13 @@ fn main() {
 
     let opt = Opt::from_args();
     NesBuilder::new()
-        .path(
-            opt.path
-                .unwrap_or_else(|| env::current_dir().unwrap_or_default()),
-        )
+        .path(opt.path)
         .fullscreen(opt.fullscreen)
         .scale(opt.scale)
         .build()
         .run()
-        .unwrap_or_else(|e| error_exit(e));
 }
 
-fn error_exit(e: NesErr) -> ! {
-    eprintln!("Error: {}", e);
-    std::process::exit(1);
-}
-
-/// Command-Line Options
 #[derive(StructOpt, Debug)]
 #[structopt(
     name = "tetanes",
@@ -58,6 +54,7 @@ fn error_exit(e: NesErr) -> ! {
     version = "0.6.1",
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
+/// TetaNES Command-Line Options
 struct Opt {
     #[structopt(
         help = "The NES ROM to load, a directory containing `.nes` ROM files, or a recording playback `.playback` file. [default: current directory]"

@@ -9,7 +9,7 @@ use crate::{
 };
 use config::NesConfig;
 use pix_engine::prelude::*;
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 use window::{Window, WindowBuilder};
 
 mod config;
@@ -41,8 +41,13 @@ impl NesBuilder {
     }
 
     /// The initial ROM or path to search ROMs for.
-    pub fn path(&mut self, path: PathBuf) -> &mut Self {
-        self.path = path;
+    pub fn path<P>(&mut self, path: Option<P>) -> &mut Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.path = path
+            .map(|p| p.into())
+            .unwrap_or_else(|| env::current_dir().unwrap_or_default());
         self
     }
 
@@ -101,8 +106,9 @@ impl Nes {
 
         let width = (self.config.scale * WINDOW_WIDTH as f32) as u32;
         let height = (self.config.scale * WINDOW_HEIGHT as f32) as u32;
-        let mut engine = PixEngine::create(width, height);
+        let mut engine = PixEngine::builder();
         engine
+            .with_dimensions(width, height)
             .with_title(title)
             .with_frame_rate()
             .audio_sample_rate(SAMPLE_RATE.floor() as i32)
@@ -146,7 +152,7 @@ impl AppState for Nes {
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
         self.control_deck.clock();
         self.render_frame(s)?;
-        if self.config.sound_enabled {
+        if self.config.sound {
             s.enqueue_audio(&self.control_deck.get_audio_samples());
         }
         self.control_deck.clear_audio_samples();

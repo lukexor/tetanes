@@ -1,17 +1,20 @@
-use crate::nes::event::KeyBindings;
+use crate::nes::{event::KeyBindings, Nes};
 use std::{env, path::PathBuf};
 
 // pub(crate) const SETTINGS: &str = "./config/settings.json";
 pub(crate) const KEYBINDS: &str = "./config/keyinds.json";
 
-// pub(crate) const MAX_SPEED: f32 = 4.0; // 400%
+const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
+const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
+const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
 
 #[derive(Debug, Clone)]
+/// NES emulation configuration settings.
 pub(crate) struct NesConfig {
     pub(crate) rom_path: PathBuf,
     pub(crate) pause_in_bg: bool,
-    pub(crate) debug_enabled: bool,
-    pub(crate) sound_enabled: bool,
+    pub(crate) debug: bool,
+    pub(crate) sound: bool,
     pub(crate) fullscreen: bool,
     pub(crate) vsync: bool,
     pub(crate) recording: bool,
@@ -29,8 +32,8 @@ impl NesConfig {
         Self {
             rom_path: env::current_dir().unwrap_or_default(),
             pause_in_bg: true,
-            debug_enabled: false,
-            sound_enabled: true,
+            debug: false,
+            sound: true,
             fullscreen: false,
             vsync: false,
             recording: false,
@@ -45,34 +48,34 @@ impl NesConfig {
     }
 }
 
-// impl Nes {
-//     pub(super) fn change_speed(&mut self, delta: f32) {
-//         if self.recording || self.playback {
-//             self.add_message("Speed changes disabled while recording or replaying");
-//         } else {
-//             if self.config.speed % 0.25 != 0.0 {
-//                 // Round to nearest quarter
-//                 self.config.speed = (self.config.speed * 4.0).floor() / 4.0;
-//             }
-//             self.config.speed += DEFAULT_SPEED * delta;
-//             if self.config.speed < MIN_SPEED {
-//                 self.config.speed = MIN_SPEED;
-//             } else if self.config.speed > MAX_SPEED {
-//                 self.config.speed = MAX_SPEED;
-//             }
-//             self.cpu.bus.apu.set_speed(self.config.speed);
-//         }
-//     }
+impl Nes {
+    pub(crate) fn change_speed(&mut self, delta: f32) {
+        // if self.recording || self.playback {
+        //     self.add_message("Speed changes disabled while recording or replaying");
+        //     return;
+        // }
+        if self.config.speed % 0.25 != 0.0 {
+            // Round to nearest quarter
+            self.config.speed = (self.config.speed * 4.0).floor() / 4.0;
+        }
+        self.config.speed += DEFAULT_SPEED * delta;
+        if self.config.speed < MIN_SPEED {
+            self.config.speed = MIN_SPEED;
+        } else if self.config.speed > MAX_SPEED {
+            self.config.speed = MAX_SPEED;
+        }
+        self.control_deck.set_speed(self.config.speed);
+    }
 
-//     pub(super) fn set_speed(&mut self, speed: f32) {
-//         if self.recording || self.playback {
-//             self.add_message("Speed changes disabled while recording or replaying");
-//         } else {
-//             self.config.speed = speed;
-//             self.cpu.bus.apu.set_speed(self.config.speed);
-//         }
-//     }
-// }
+    pub(crate) fn set_speed(&mut self, speed: f32) {
+        // if self.recording || self.playback {
+        //     self.add_message("Speed changes disabled while recording or replaying");
+        //     return;
+        // }
+        self.config.speed = speed;
+        self.control_deck.set_speed(self.config.speed);
+    }
+}
 
 impl Default for NesConfig {
     fn default() -> Self {

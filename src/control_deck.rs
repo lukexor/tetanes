@@ -55,6 +55,11 @@ impl ControlDeck {
         self.cpu.bus.apu.clear_samples();
     }
 
+    /// Set the emulation speed.
+    pub fn set_speed(&mut self, speed: f32) {
+        self.cpu.bus.apu.set_speed(speed);
+    }
+
     /// Steps the control deck the number of seconds
     pub fn clock_seconds(&mut self, seconds: f32) {
         self.cycles_remaining += CPU_CLOCK_RATE * seconds;
@@ -206,8 +211,8 @@ mod tests {
             println!(
                 "{}: counter: {}, step: {}, irq: {}",
                 deck.cpu.cycle_count,
-                apu.frame_sequencer.divider.counter,
-                apu.frame_sequencer.sequencer.step,
+                apu.frame_sequencer().divider.counter,
+                apu.frame_sequencer().sequencer.step,
                 apu.irq_pending
             );
             deck.cpu.clock();
