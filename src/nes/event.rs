@@ -55,7 +55,7 @@ impl Nes {
                 continue;
             }
             if Self::is_gamepad_event(&event) {
-                gamepad_events.push(event.clone());
+                gamepad_events.push(event);
             }
             match event {
                 PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
@@ -566,7 +566,7 @@ impl Nes {
     // match bindings that are tied to gamepad inputs
     fn is_gamepad_event(event: &PixEvent) -> bool {
         match event {
-            PixEvent::KeyPress(key, ..) => match key {
+            PixEvent::KeyPress(key, ..) => matches!(key,
                 Key::A
                 | Key::S
                 | Key::Z
@@ -576,10 +576,9 @@ impl Nes {
                 | Key::Left
                 | Key::Right
                 | Key::Up
-                | Key::Down => true,
-                _ => false,
-            },
-            PixEvent::GamepadBtn(_, btn, ..) => match btn {
+                | Key::Down
+            ),
+            PixEvent::GamepadBtn(_, btn, ..) => matches!(btn,
                 Button::A
                 | Button::B
                 | Button::X
@@ -589,13 +588,9 @@ impl Nes {
                 | Button::DPadLeft
                 | Button::DPadRight
                 | Button::DPadUp
-                | Button::DPadDown => true,
-                _ => false,
-            },
-            PixEvent::GamepadAxis(_, axis, ..) => match axis {
-                Axis::LeftX | Axis::LeftY => true,
-                _ => false,
-            },
+                | Button::DPadDown
+            ),
+            PixEvent::GamepadAxis(_, axis, ..) => matches!(axis, Axis::LeftX | Axis::LeftY),
             _ => false,
         }
     }

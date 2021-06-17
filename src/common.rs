@@ -114,7 +114,7 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<Stri
     if let Err(e) = writer {
         return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
     }
-    let result = writer.unwrap().write_image_data(&pixels);
+    let result = writer.unwrap().write_image_data(pixels);
     if let Err(e) = result {
         return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
     }
@@ -141,7 +141,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
         if line_len % 16 > 0 {
             let words_left = (16 - line_len) / 2;
             for _ in 0..3 * words_left {
-                line.push_str(" ");
+                line.push(' ');
             }
         }
 
@@ -151,10 +151,10 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
                 if (*c as char).is_ascii() && !(*c as char).is_control() {
                     line.push_str(&format!("{}", (*c as char)));
                 } else {
-                    line.push_str(".");
+                    line.push('.');
                 }
             }
-            line.push_str("|");
+            line.push('|');
         }
         if last_line == line {
             if !last_line_same {

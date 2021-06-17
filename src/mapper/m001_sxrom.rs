@@ -56,7 +56,7 @@ impl Sxrom {
     pub fn load(cart: Cartridge) -> MapperType {
         let prg_ram_size = cart
             .prg_ram_size()
-            .and_then(|size| Ok(size.unwrap_or(PRG_RAM_SIZE)))
+            .map(|size| size.unwrap_or(PRG_RAM_SIZE))
             .unwrap();
         let has_chr_ram = cart.chr_rom.is_empty();
         let mut sxrom = Self {

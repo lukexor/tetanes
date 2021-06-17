@@ -259,12 +259,12 @@ impl INesHeader {
             return nes_err!("Trained ROMs are currently not supported.");
         }
         Ok(Self {
+            version,
             mapper_num,
             submapper_num,
             flags,
             prg_rom_size,
             chr_rom_size,
-            version,
             prg_ram_size,
             chr_ram_size,
             tv_mode,
