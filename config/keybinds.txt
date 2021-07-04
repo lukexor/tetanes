@@ -1,0 +1,13 @@
+# Keybinds JSON
+
+Keybinds are an array of objects with the following properties:
+
+- "key": String that maps to a `pix_engine::prelude::Key` enum variant.
+- "keymod": Number that maps to a `pix_engine::prelude::KeyMod` set of bitflag
+  constants:
+  - NONE: 0
+  - SHIFT: 1,
+  - CTRL: 64,
+  - ALT: 256,
+  - GUI/META: 1024,
+- "action": Object that maps to an `nes::Action` enum variant.

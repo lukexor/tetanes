@@ -8,6 +8,7 @@
   { "key": "A", "keymod": 0, "action": { "Gamepad": "TurboA" } },
   { "key": "S", "keymod": 0, "action": { "Gamepad": "TurboB" } },
   { "key": "Return", "keymod": 0, "action": { "Gamepad": "Start" } },
+  { "key": "RShift", "keymod": 1, "action": { "Gamepad": "Select" } },
   { "key": "RShift", "keymod": 0, "action": { "Gamepad": "Select" } },
   { "key": "Space", "keymod": 0, "action": { "Setting": "FastForward" } },
   { "key": "Minus", "keymod": 64, "action": { "Setting": "DecSpeed" } },

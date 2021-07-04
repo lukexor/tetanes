@@ -2,7 +2,7 @@ use crate::nes::{event::KeyBindings, Nes};
 use std::{env, path::PathBuf};
 
 // pub(crate) const SETTINGS: &str = "./config/settings.json";
-pub(crate) const KEYBINDS: &str = "./config/keyinds.json";
+pub(crate) const KEYBINDS: &str = "./config/keybinds.json";
 
 const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
@@ -42,7 +42,7 @@ impl NesConfig {
             save_slot: 1,
             scale: 3.0,
             speed: 1.0,
-            bindings: KeyBindings::with_config(KEYBINDS).unwrap(),
+            bindings: KeyBindings::with_config(KEYBINDS).expect("missing keybinds.json"),
             genie_codes: Vec::new(),
         }
     }

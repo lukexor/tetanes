@@ -166,7 +166,7 @@ impl Nes {
         button: GamepadBtn,
         pressed: bool,
     ) -> PixResult<()> {
-        if !s.focused_window(self.windows[0].id) {
+        if !s.focused_window(self.windows.get(0).map(|w| w.id).unwrap_or(0)) {
             return Ok(());
         }
 
