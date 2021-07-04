@@ -571,18 +571,6 @@ impl From<NesErr> for PixError {
     }
 }
 
-impl From<RendererError> for NesErr {
-    fn from(err: RendererError) -> Self {
-        Self::new(&err.to_string())
-    }
-}
-
-impl From<StateError> for NesErr {
-    fn from(err: StateError) -> Self {
-        Self::new(&err.to_string())
-    }
-}
-
 impl From<PixError> for NesErr {
     fn from(err: PixError) -> Self {
         Self::new(&err.to_string())

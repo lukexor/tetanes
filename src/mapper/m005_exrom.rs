@@ -1081,11 +1081,12 @@ mod tests {
     fn prg_ram_protect() {
         use super::*;
         use crate::{cartridge::Cartridge, memory::Memory};
+        let consistent_ram = true;
         for a in 0..4 {
             for b in 0..4 {
                 let mut cart = Cartridge::new();
                 cart.prg_rom = Memory::rom(0xFFFF);
-                let mut exrom = Exrom::load(cart);
+                let mut exrom = Exrom::load(cart, consistent_ram);
 
                 exrom.write(0x5102, a);
                 exrom.write(0x5103, b);

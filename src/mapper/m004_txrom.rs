@@ -201,13 +201,12 @@ impl Txrom {
             self.prg_rom.set_bank(0x8000, prg_last - 1);
             self.prg_rom.set_bank(0xA000, prg_hi);
             self.prg_rom.set_bank(0xC000, prg_lo);
-            self.prg_rom.set_bank(0xE000, prg_last);
         } else {
             self.prg_rom.set_bank(0x8000, prg_lo);
             self.prg_rom.set_bank(0xA000, prg_hi);
             self.prg_rom.set_bank(0xC000, prg_last - 1);
-            self.prg_rom.set_bank(0xE000, prg_last);
         }
+        self.prg_rom.set_bank(0xE000, prg_last);
 
         // 1: two 2 KB banks at $1000-$1FFF, four 1 KB banks at $0000-$0FFF
         // 0: two 2 KB banks at $0000-$0FFF, four 1 KB banks at $1000-$1FFF

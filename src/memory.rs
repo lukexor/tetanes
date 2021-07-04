@@ -503,13 +503,13 @@ mod tests {
 
         memory.add_bank_range(0x8000, 0xFFFF);
         memory.memory.write(0x0000, 1);
-        memory.memory.write(0x0000 + 1, 2);
+        memory.memory.write(0x0001, 2);
         memory.memory.write(0x2000, 3);
-        memory.memory.write(0x2000 + 1, 4);
+        memory.memory.write(0x2001, 4);
         memory.memory.write(0x4000, 5);
-        memory.memory.write(0x4000 + 1, 6);
+        memory.memory.write(0x4001, 6);
         memory.memory.write(0x6000, 7);
-        memory.memory.write(0x6000 + 1, 8);
+        memory.memory.write(0x6001, 8);
 
         assert_eq!(memory.peek(0x8000), 1);
         assert_eq!(memory.peek(0x8001), 2);

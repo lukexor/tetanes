@@ -308,8 +308,8 @@ impl Apu {
 
 #[cfg(test)]
 impl Apu {
-    pub(crate) fn frame_sequencer(&self) -> FrameSequencer {
-        self.frame_sequencer
+    pub(crate) fn frame_sequencer(&self) -> &FrameSequencer {
+        &self.frame_sequencer
     }
 }
 

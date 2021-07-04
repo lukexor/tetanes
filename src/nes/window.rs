@@ -17,7 +17,7 @@ pub(crate) struct WindowBuilder {
     texture_format: PixelFormat,
     texture_width: u32,
     texture_height: u32,
-    texture_clip: Option<Rect<u32>>,
+    texture_clip: Option<Rect<i32>>,
 }
 
 impl Default for WindowBuilder {
@@ -65,7 +65,7 @@ impl WindowBuilder {
 
     pub(crate) fn clip<R>(&mut self, rect: R) -> &mut Self
     where
-        R: Into<Rect<u32>>,
+        R: Into<Rect<i32>>,
     {
         self.texture_clip = Some(rect.into());
         self
@@ -75,7 +75,7 @@ impl WindowBuilder {
         let texture_id = match self.texture_id {
             Some(id) => id,
             None => {
-                s.create_texture(self.texture_format, self.texture_width, self.texture_height)?
+                s.create_texture(self.texture_width, self.texture_height, self.texture_format)?
             }
         };
         let id = match self.id {
@@ -105,7 +105,7 @@ pub(crate) struct Window {
     pub(crate) texture_format: PixelFormat,
     pub(crate) texture_width: u32,
     pub(crate) texture_height: u32,
-    pub(crate) texture_clip: Option<Rect<u32>>,
+    pub(crate) texture_clip: Option<Rect<i32>>,
 }
 
 impl Window {
@@ -117,7 +117,12 @@ impl Window {
         };
         s.update_texture(
             self.texture_id,
-            Some(rect!(0, 0, self.texture_width, self.texture_height)),
+            Some(rect![
+                0,
+                0,
+                self.texture_width as i32,
+                self.texture_height as i32
+            ]),
             bytes,
             channels * self.texture_width as usize,
         )?;

@@ -847,7 +847,7 @@ mod tests {
             );
             assert_eq!(
                 cpu.bus.ppu.cycle_count,
-                ppu_cyc as usize,
+                ppu_cyc,
                 "ppu ${:02X} {:?} #{:?}",
                 instr.opcode(),
                 instr.op(),

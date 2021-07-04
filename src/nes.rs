@@ -137,7 +137,7 @@ impl AppState for Nes {
         let main_window = WindowBuilder::new(s.width(), s.height())
             .with_id(s.window_id())
             .create_texture(PixelFormat::Rgb, RENDER_WIDTH, RENDER_HEIGHT)
-            .clip((0, 8, RENDER_WIDTH, RENDER_HEIGHT - 8))
+            .clip([0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 8])
             .build(s)?;
         self.windows.push(main_window);
         self.find_roms()?;
