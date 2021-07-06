@@ -117,10 +117,9 @@ impl Nes {
                     if x + curr_width >= self.width {
                         x = 10;
                         y += 20;
-                        data.draw_string(x, y, s, pixel::RED);
                     } else {
-                        data.draw_string(x, y, s, pixel::RED);
                     }
+                    data.draw_string(x, y, s, pixel::RED);
                     x += curr_width;
                     data.draw_string(x, y, " ", pixel::RED);
                     x += 16;

@@ -300,7 +300,7 @@ impl Nes {
     pub(super) fn copy_debug(&mut self, data: &mut StateData) -> NesResult<()> {
         let debug = self.debug_image.borrow();
         let pixels = debug.bytes();
-        data.copy_texture("debug", &pixels)?;
+        data.copy_texture("debug", pixels)?;
         Ok(())
     }
 

@@ -456,10 +456,7 @@ impl Mapper for Exrom {
             // 2 means internal EXRAM
             // 3 means Fill-mode
             let nametable = self.nametable_mapping(addr);
-            match nametable {
-                Nametable::NTA | Nametable::NTB => true,
-                _ => false,
-            }
+            matches!(nametable, Nametable::NTA | Nametable::NTB)
         }
     }
 

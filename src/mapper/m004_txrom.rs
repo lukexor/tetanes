@@ -95,7 +95,7 @@ impl Txrom {
         let has_chr_ram = cart.chr_rom.is_empty();
         let chr_ram_size = cart
             .chr_ram_size()
-            .and_then(|size| Ok(size.unwrap_or(CHR_RAM_SIZE)))
+            .map(|size| size.unwrap_or(CHR_RAM_SIZE))
             .unwrap();
         let mut txrom = Self {
             regs: TxRegs::new(),
@@ -200,13 +200,12 @@ impl Txrom {
             self.prg_rom.set_bank(0x8000, prg_last - 1);
             self.prg_rom.set_bank(0xA000, prg_hi);
             self.prg_rom.set_bank(0xC000, prg_lo);
-            self.prg_rom.set_bank(0xE000, prg_last);
         } else {
             self.prg_rom.set_bank(0x8000, prg_lo);
             self.prg_rom.set_bank(0xA000, prg_hi);
             self.prg_rom.set_bank(0xC000, prg_last - 1);
-            self.prg_rom.set_bank(0xE000, prg_last);
         }
+        self.prg_rom.set_bank(0xE000, prg_last);
 
         // 1: two 2 KB banks at $1000-$1FFF, four 1 KB banks at $0000-$0FFF
         // 0: two 2 KB banks at $0000-$0FFF, four 1 KB banks at $1000-$1FFF

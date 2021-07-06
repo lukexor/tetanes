@@ -536,7 +536,7 @@ impl Ppu {
         }
         for i in 0..self.frame.sprite_count as usize {
             let offset = self.cycle as i16 - 1 - self.frame.sprites[i].x as i16;
-            if offset < 0 || offset > 7 {
+            if !(0..=7).contains(&offset) {
                 continue;
             }
             let offset = 7 - offset;

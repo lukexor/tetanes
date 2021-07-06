@@ -271,7 +271,7 @@ impl Nes {
     /// Update rendering textures with emulation state
     fn update_textures(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
         // Update main screen
-        data.copy_texture("nes", &self.cpu.bus.ppu.frame())?;
+        data.copy_texture("nes", self.cpu.bus.ppu.frame())?;
         // Draw any open menus
         for menu in self.menus.iter_mut() {
             menu.draw(data)?;
@@ -318,7 +318,7 @@ impl State for Nes {
         // Enqueue sound
         if self.config.sound_enabled {
             let samples = self.cpu.bus.apu.samples();
-            data.enqueue_audio(&samples);
+            data.enqueue_audio(samples);
         }
         self.cpu.bus.apu.clear_samples();
         Ok(true)
