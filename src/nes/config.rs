@@ -35,7 +35,7 @@ impl NesConfig {
             debug: false,
             sound: true,
             fullscreen: false,
-            vsync: false,
+            vsync: true,
             recording: false,
             concurrent_dpad: false,
             consistent_ram: false,
