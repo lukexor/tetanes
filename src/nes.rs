@@ -153,7 +153,7 @@ impl AppState for Nes {
         self.control_deck.clock();
         self.render_frame(s)?;
         if self.config.sound {
-            s.enqueue_audio(&self.control_deck.get_audio_samples());
+            s.enqueue_audio(self.control_deck.get_audio_samples());
         }
         self.control_deck.clear_audio_samples();
         Ok(())

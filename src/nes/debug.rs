@@ -288,7 +288,7 @@ impl Nes {
 
     pub(super) fn copy_debug(&mut self, s: &mut PixState) -> NesResult<()> {
         let pixels = self.debug_image.bytes();
-        // s.copy_texture("debug", &pixels)?;
+        // s.copy_texture("debug", pixels)?;
         Ok(())
     }
 

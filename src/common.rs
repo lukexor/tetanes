@@ -114,7 +114,7 @@ pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<Stri
     if let Err(e) = writer {
         return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
     }
-    let result = writer.unwrap().write_image_data(&pixels);
+    let result = writer.unwrap().write_image_data(pixels);
     if let Err(e) = result {
         return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
     }

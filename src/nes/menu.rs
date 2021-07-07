@@ -108,10 +108,8 @@ impl Nes {
                     if p.x + curr_width >= self.width as i32 {
                         p.x = 10;
                         p.y += 20;
-                        s.text(p, msg)?;
-                    } else {
-                        s.text(p, msg)?;
                     }
+                    s.text(p, msg)?;
                     p.x += curr_width;
                     s.text(p, " ")?;
                     p.x += 16;
