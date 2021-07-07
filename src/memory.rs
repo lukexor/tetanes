@@ -44,7 +44,7 @@ impl Memory {
             let mut rng = rand::thread_rng();
             let mut data = Vec::with_capacity(capacity);
             for _ in 0..capacity {
-                data.push(rng.gen_range(0x00, 0xFF));
+                data.push(rng.gen_range(0x00..=0xFF));
             }
             data
         } else {
