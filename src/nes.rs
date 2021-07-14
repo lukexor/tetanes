@@ -18,7 +18,9 @@ mod filesystem;
 mod window;
 
 const APP_NAME: &str = "TetaNES";
+#[cfg(not(target_arch = "wasm32"))]
 const ICON_PATH: &str = "static/tetanes_icon.png";
+#[cfg(not(target_arch = "wasm32"))]
 const _STATIC_ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
@@ -112,8 +114,12 @@ impl Nes {
             .with_title(title)
             .with_frame_rate()
             .audio_sample_rate(SAMPLE_RATE.floor() as i32)
-            .icon(ICON_PATH)
             .resizable();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            engine.icon(ICON_PATH);
+        }
 
         if self.config.fullscreen {
             engine.fullscreen();

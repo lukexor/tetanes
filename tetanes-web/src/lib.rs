@@ -26,7 +26,7 @@ impl Nes {
     pub fn new() -> Self {
         Self {
             paused: true,
-            cpu: Cpu::init(Bus::new()),
+            cpu: Cpu::init(Bus::new(true)),
         }
     }
 
@@ -90,7 +90,7 @@ impl Nes {
     }
 
     pub fn load_rom(&mut self, mut bytes: &[u8]) {
-        let mapper = mapper::load_rom("file", &mut bytes).unwrap();
+        let mapper = mapper::load_rom("file", &mut bytes, true).unwrap();
         self.cpu.bus.load_mapper(mapper);
         self.cpu.power_on();
         self.pause(false);
