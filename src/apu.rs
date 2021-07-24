@@ -439,7 +439,7 @@ impl Default for Apu {
 }
 
 impl fmt::Debug for Apu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(f, "APU {{ cyc: {} }}", self.cycle)
     }
 }

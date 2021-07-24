@@ -56,6 +56,7 @@ pub enum Irq {
 // ||+------- Unused - always set to 1 when pushed to stack
 // |+-------- Overflow
 // +--------- Negative
+#[derive(Debug, Copy, Clone)]
 pub enum StatusRegs {
     C = 1,      // Carry
     Z = 1 << 1, // Zero
@@ -787,7 +788,7 @@ impl Savable for Cpu {
 }
 
 impl fmt::Debug for Cpu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
             "Cpu {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} rel_addr:{} }}",

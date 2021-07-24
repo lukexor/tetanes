@@ -10,7 +10,7 @@ pub(super) const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 pub(super) const MIN_SPEED: f32 = 0.10; // 10%
 pub(super) const MAX_SPEED: f32 = 4.0; // 400%
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NesConfig {
     pub path: PathBuf,
     pub debug: bool,

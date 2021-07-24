@@ -37,7 +37,7 @@ pub use config::NesConfig;
 
 const APP_NAME: &str = "TetaNES";
 // This includes static assets as a binary during installation
-const _STATIC_DIR: Dir = include_dir!("./static");
+const _STATIC_DIR: Dir<'_> = include_dir!("./static");
 const ICON_PATH: &str = "static/tetanes_icon.png";
 const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
@@ -331,7 +331,7 @@ impl State for Nes {
 }
 
 impl fmt::Debug for Nes {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(f, "Nes {{\n  cpu: {:?}\n}} ", self.cpu)
     }
 }
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn dummy_writes_oam() {
         let rom = "tests/cpu/dummy_writes_oam.nes";
-        let mut nes = load(&rom);
+        let mut nes = load(rom);
         let _ = nes.clock_seconds(6.0);
         assert_eq!(nes.cpu.peek(0x6000), 0x00, "{}", rom);
     }
@@ -377,7 +377,7 @@ mod tests {
     #[test]
     fn dummy_writes_ppumem() {
         let rom = "tests/cpu/dummy_writes_ppumem.nes";
-        let mut nes = load(&rom);
+        let mut nes = load(rom);
         let _ = nes.clock_seconds(4.0);
         assert_eq!(nes.cpu.peek(0x6000), 0x00, "{}", rom);
     }
@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn exec_space_ppuio() {
         let rom = "tests/cpu/exec_space_ppuio.nes";
-        let mut nes = load(&rom);
+        let mut nes = load(rom);
         let _ = nes.clock_seconds(2.0);
         assert_eq!(nes.cpu.peek(0x6000), 0x00, "{}", rom);
     }
@@ -403,7 +403,7 @@ mod tests {
     fn apu_timing() {
         // TODO assert outputs
         let rom = "tests/cpu/nestest.nes";
-        let mut nes = load(&rom);
+        let mut nes = load(rom);
         for _ in 0..=29840 {
             let apu = &nes.cpu.bus.apu;
             println!(

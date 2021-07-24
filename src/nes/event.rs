@@ -566,29 +566,31 @@ impl Nes {
     // match bindings that are tied to gamepad inputs
     fn is_gamepad_event(event: &PixEvent) -> bool {
         match event {
-            PixEvent::KeyPress(key, ..) => matches!(key,
+            PixEvent::KeyPress(key, ..) => matches!(
+                key,
                 Key::A
-                | Key::S
-                | Key::Z
-                | Key::X
-                | Key::Return
-                | Key::RShift
-                | Key::Left
-                | Key::Right
-                | Key::Up
-                | Key::Down
+                    | Key::S
+                    | Key::Z
+                    | Key::X
+                    | Key::Return
+                    | Key::RShift
+                    | Key::Left
+                    | Key::Right
+                    | Key::Up
+                    | Key::Down
             ),
-            PixEvent::GamepadBtn(_, btn, ..) => matches!(btn,
+            PixEvent::GamepadBtn(_, btn, ..) => matches!(
+                btn,
                 Button::A
-                | Button::B
-                | Button::X
-                | Button::Y
-                | Button::Start
-                | Button::Back
-                | Button::DPadLeft
-                | Button::DPadRight
-                | Button::DPadUp
-                | Button::DPadDown
+                    | Button::B
+                    | Button::X
+                    | Button::Y
+                    | Button::Start
+                    | Button::Back
+                    | Button::DPadLeft
+                    | Button::DPadRight
+                    | Button::DPadUp
+                    | Button::DPadDown
             ),
             PixEvent::GamepadAxis(_, axis, ..) => matches!(axis, Axis::LeftX | Axis::LeftY),
             _ => false,

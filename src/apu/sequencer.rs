@@ -5,7 +5,7 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Sequencer {
     pub step: usize,
     pub length: usize,

@@ -4,7 +4,7 @@ use enum_dispatch::enum_dispatch;
 use std::f32::consts;
 
 #[enum_dispatch]
-#[derive(Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum FilterType {
     HiPassFilter,
     LoPassFilter,
@@ -17,7 +17,7 @@ pub trait Filter {
 }
 
 /// High Pass Filter
-#[derive(Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct HiPassFilter {
     b0: f32,
     b1: f32,
@@ -50,7 +50,7 @@ impl Filter for HiPassFilter {
 }
 
 /// Low Pass Filter
-#[derive(Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct LoPassFilter {
     b0: f32,
     b1: f32,

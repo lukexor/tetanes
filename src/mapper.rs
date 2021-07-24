@@ -47,7 +47,7 @@ pub enum Mirroring {
     FourScreen,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct NullMapper {}
 
 #[allow(clippy::large_enum_variant)]

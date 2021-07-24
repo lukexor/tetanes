@@ -1417,7 +1417,7 @@ impl Savable for Instr {
 }
 
 impl fmt::Debug for Instr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         let mut op = self.op();
         let unofficial = match self.op() {
             XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SXA | RRA | TAS | SYA | ARR

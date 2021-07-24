@@ -1068,7 +1068,7 @@ impl Default for Ppu {
 }
 
 impl fmt::Debug for Ppu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Ppu {{ }}")
     }
 }
@@ -1105,7 +1105,7 @@ mod tests {
 
         // Test 1st write to ppuscroll
         let scroll_write: Byte = 0b0111_1101;
-        let t_result: Addr = 0b000_11_00000_01111;
+        let t_result: Addr = 0b000_1100_0000_1111;
         let x_result: Addr = 0b101;
         ppu.write(ppuscroll, scroll_write);
         assert_eq!(ppu.regs.t, t_result);
@@ -1114,7 +1114,7 @@ mod tests {
 
         // Test 2nd write to ppuscroll
         let scroll_write: Byte = 0b0101_1110;
-        let t_result: Addr = 0b110_11_01011_01111;
+        let t_result: Addr = 0b110_1101_0110_1111;
         ppu.write(ppuscroll, scroll_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
@@ -1122,7 +1122,7 @@ mod tests {
 
         // Test 1st write to ppuaddr
         let addr_write: Byte = 0b0011_1101;
-        let t_result: Addr = 0b011_11_01011_01111;
+        let t_result: Addr = 0b011_1101_0110_1111;
         ppu.write(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.x, x_result);
@@ -1130,7 +1130,7 @@ mod tests {
 
         // Test 2nd write to ppuaddr
         let addr_write: Byte = 0b1111_0000;
-        let t_result: Addr = 0b011_11_01111_10000;
+        let t_result: Addr = 0b011_1101_1111_0000;
         ppu.write(ppuaddr, addr_write);
         assert_eq!(ppu.regs.t, t_result);
         assert_eq!(ppu.regs.v, t_result);
@@ -1143,7 +1143,7 @@ mod tests {
         ppu.write(ppuscroll, 0b0100_0101); // $01 hi bits coarse Y scroll, $101 fine Y scroll
         ppu.write(ppuscroll, 0b0000_0011); // $011 fine X scroll
         ppu.write(ppuaddr, 0b1001_0110); // $100 lo bits coarse Y scroll, $10110 coarse X scroll
-        let t_result: Addr = 0b101_10_01100_10110;
+        let t_result: Addr = 0b101_1001_1001_0110;
         assert_eq!(ppu.regs.v, t_result);
     }
 }

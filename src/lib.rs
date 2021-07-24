@@ -456,6 +456,12 @@
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/lukexor/tetanes/master/static/tetanes_icon.png"
 )]
+#![deny(
+    missing_debug_implementations,
+    missing_copy_implementations,
+    rust_2018_idioms
+)]
+#![allow(clippy::identity_op)]
 
 use pix_engine::PixEngineErr;
 use std::fmt;
@@ -507,13 +513,13 @@ macro_rules! map_nes_err {
 }
 
 impl fmt::Display for NesErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.description)
     }
 }
 
 impl fmt::Debug for NesErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{{ err: {}, file: {}, line: {} }}",

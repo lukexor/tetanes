@@ -6,7 +6,7 @@ use crate::{
 };
 use std::io::{Read, Write};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct FrameSequencer {
     pub divider: Divider,
     pub sequencer: Sequencer,

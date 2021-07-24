@@ -12,7 +12,7 @@ const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 /// [http://wiki.nesdev.com/w/index.php/INES]()
 /// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
 /// [http://nesdev.com/NESDoc.pdf (page 28)]()
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct INesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
     pub mapper_num: u16,   // The primary mapper number
@@ -274,7 +274,7 @@ impl INesHeader {
 }
 
 impl fmt::Debug for Cartridge {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(
             f,
             "Cartridge {{ header: {:?}, PRG-ROM: {}, CHR-ROM: {}",
@@ -309,7 +309,7 @@ mod tests {
         for data in rom_data {
             let rom = File::open(&data.0).expect("valid file");
             let mut rom = BufReader::new(rom);
-            let c = Cartridge::from_rom(&data.0, &mut rom);
+            let c = Cartridge::from_rom(data.0, &mut rom);
             assert!(c.is_ok(), "new cartridge {}", data.0);
             let c = c.unwrap();
             assert_eq!(
