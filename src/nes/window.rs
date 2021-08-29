@@ -11,12 +11,12 @@ use pix_engine::prelude::*;
 #[derive(Debug, Clone)]
 pub(crate) struct WindowBuilder {
     id: Option<WindowId>,
-    win_width: u32,
-    win_height: u32,
+    win_width: i32,
+    win_height: i32,
     texture_id: Option<TextureId>,
     texture_format: PixelFormat,
-    texture_width: u32,
-    texture_height: u32,
+    texture_width: i32,
+    texture_height: i32,
     texture_clip: Option<Rect<i32>>,
 }
 
@@ -36,7 +36,7 @@ impl Default for WindowBuilder {
 }
 
 impl WindowBuilder {
-    pub(crate) fn new(win_width: u32, win_height: u32) -> Self {
+    pub(crate) fn new(win_width: i32, win_height: i32) -> Self {
         Self {
             win_width,
             win_height,
@@ -54,8 +54,8 @@ impl WindowBuilder {
     pub(crate) fn create_texture(
         &mut self,
         format: PixelFormat,
-        width: u32,
-        height: u32,
+        width: i32,
+        height: i32,
     ) -> &mut Self {
         self.texture_format = format;
         self.texture_width = width;
@@ -99,12 +99,12 @@ impl WindowBuilder {
 #[derive(Debug, Clone)]
 pub(crate) struct Window {
     pub(crate) id: WindowId,
-    pub(crate) win_width: u32,
-    pub(crate) win_height: u32,
+    pub(crate) win_width: i32,
+    pub(crate) win_height: i32,
     pub(crate) texture_id: TextureId,
     pub(crate) texture_format: PixelFormat,
-    pub(crate) texture_width: u32,
-    pub(crate) texture_height: u32,
+    pub(crate) texture_width: i32,
+    pub(crate) texture_height: i32,
     pub(crate) texture_clip: Option<Rect<i32>>,
 }
 
@@ -113,16 +113,10 @@ impl Window {
         let channels = match self.texture_format {
             PixelFormat::Rgb => 3,
             PixelFormat::Rgba => 4,
-            _ => panic!("invalid texture_format"),
         };
         s.update_texture(
             self.texture_id,
-            Some(rect![
-                0,
-                0,
-                self.texture_width as i32,
-                self.texture_height as i32
-            ]),
+            Some(rect![0, 0, self.texture_width, self.texture_height]),
             bytes,
             channels * self.texture_width as usize,
         )?;
