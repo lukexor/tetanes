@@ -8,15 +8,15 @@ use pix_engine::prelude::*;
 //     Help,
 // }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct WindowBuilder {
     id: Option<WindowId>,
-    win_width: i32,
-    win_height: i32,
-    texture_id: Option<TextureId>,
+    win_width: u32,
+    win_height: u32,
+    texture: Option<Texture>,
     texture_format: PixelFormat,
-    texture_width: i32,
-    texture_height: i32,
+    texture_width: u32,
+    texture_height: u32,
     texture_clip: Option<Rect<i32>>,
 }
 
@@ -26,7 +26,7 @@ impl Default for WindowBuilder {
             id: None,
             win_width: 800,
             win_height: 600,
-            texture_id: None,
+            texture: None,
             texture_format: PixelFormat::Rgb,
             texture_width: 800,
             texture_height: 600,
@@ -36,7 +36,7 @@ impl Default for WindowBuilder {
 }
 
 impl WindowBuilder {
-    pub(crate) fn new(win_width: i32, win_height: i32) -> Self {
+    pub(crate) fn new(win_width: u32, win_height: u32) -> Self {
         Self {
             win_width,
             win_height,
@@ -54,8 +54,8 @@ impl WindowBuilder {
     pub(crate) fn create_texture(
         &mut self,
         format: PixelFormat,
-        width: i32,
-        height: i32,
+        width: u32,
+        height: u32,
     ) -> &mut Self {
         self.texture_format = format;
         self.texture_width = width;
@@ -71,9 +71,9 @@ impl WindowBuilder {
         self
     }
 
-    pub(crate) fn build(&self, s: &mut PixState) -> PixResult<Window> {
-        let texture_id = match self.texture_id {
-            Some(id) => id,
+    pub(crate) fn build(&mut self, s: &mut PixState) -> PixResult<Window> {
+        let texture = match self.texture.take() {
+            Some(texture) => texture,
             None => {
                 s.create_texture(self.texture_width, self.texture_height, self.texture_format)?
             }
@@ -87,7 +87,7 @@ impl WindowBuilder {
             id,
             win_width: self.win_width,
             win_height: self.win_height,
-            texture_id,
+            texture,
             texture_format: self.texture_format,
             texture_width: self.texture_width,
             texture_height: self.texture_height,
@@ -96,15 +96,15 @@ impl WindowBuilder {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Window {
     pub(crate) id: WindowId,
-    pub(crate) win_width: i32,
-    pub(crate) win_height: i32,
-    pub(crate) texture_id: TextureId,
+    pub(crate) win_width: u32,
+    pub(crate) win_height: u32,
+    pub(crate) texture: Texture,
     pub(crate) texture_format: PixelFormat,
-    pub(crate) texture_width: i32,
-    pub(crate) texture_height: i32,
+    pub(crate) texture_width: u32,
+    pub(crate) texture_height: u32,
     pub(crate) texture_clip: Option<Rect<i32>>,
 }
 
@@ -115,12 +115,12 @@ impl Window {
             PixelFormat::Rgba => 4,
         };
         s.update_texture(
-            self.texture_id,
-            Some(rect![0, 0, self.texture_width, self.texture_height]),
+            &mut self.texture,
+            rect![0, 0, self.texture_width as i32, self.texture_height as i32],
             bytes,
             channels * self.texture_width as usize,
         )?;
-        s.texture(self.texture_id, self.texture_clip, None)?;
+        s.texture(&self.texture, self.texture_clip, None)?;
         Ok(())
     }
 }
