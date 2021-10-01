@@ -50,6 +50,7 @@ impl NesConfig {
 
 impl Nes {
     pub(crate) fn change_speed(&mut self, delta: f32) {
+        // TODO
         // if self.recording || self.playback {
         //     self.add_message("Speed changes disabled while recording or replaying");
         //     return;

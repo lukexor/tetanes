@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+// TODO
 // const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
 // const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
 
@@ -166,7 +167,7 @@ impl Nes {
         button: GamepadBtn,
         pressed: bool,
     ) -> PixResult<()> {
-        if !s.focused_window(self.windows.get(0).map(|w| w.id).unwrap_or(0)) {
+        if !s.focused() {
             return Ok(());
         }
 
@@ -254,6 +255,8 @@ impl Nes {
         create_png(&png_path, pixels)
     }
 }
+
+// TODO
 //    /// Handles keyrepeats
 //    pub(super) fn handle_keyrepeat(&mut self, key: Key) {
 //        self.held_keys.insert(key as u8, true);

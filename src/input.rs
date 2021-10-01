@@ -5,10 +5,7 @@ use crate::{
     memory::{MemRead, MemWrite},
 };
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, fmt, rc::Rc};
-
-/// Alias for Input wrapped in a Rc/RefCell
-pub type InputRef = Rc<RefCell<Input>>;
+use std::fmt;
 
 // The "strobe state": the order in which the NES reads the buttons.
 const STROBE_A: u8 = 0;

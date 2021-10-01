@@ -80,7 +80,10 @@ impl WindowBuilder {
         };
         let id = match self.id {
             Some(id) => id,
-            None => s.create_window(self.win_width, self.win_height).build()?,
+            None => s
+                .window()
+                .with_dimensions(self.win_width, self.win_height)
+                .build()?,
         };
 
         Ok(Window {
@@ -113,6 +116,7 @@ impl Window {
         let channels = match self.texture_format {
             PixelFormat::Rgb => 3,
             PixelFormat::Rgba => 4,
+            _ => unreachable!("invalid format"),
         };
         s.update_texture(
             &mut self.texture,

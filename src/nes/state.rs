@@ -21,6 +21,7 @@ use std::{
 impl Nes {
     pub(super) fn create_textures(&mut self, s: &mut PixState) -> NesResult<()> {
         self.screen = s.create_texture(PixelFormat::Rgb, RENDER_WIDTH, RENDER_HEIGHT)?;
+        // TODO
         // s.create_texture(
         //     "message",
         //     ColorType::Rgba,

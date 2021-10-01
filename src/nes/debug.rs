@@ -38,6 +38,7 @@ impl Nes {
             let src = rect!(0, 0, RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
             let left_dst = rect!(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
             let right_dst = rect!(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT);
+            // TODO
             // s.create_texture(window, "left_pattern", ColorType::Rgba, src, left_dst)?;
             // s.create_texture(window, "right_pattern", ColorType::Rgba, src, right_dst)?;
 
