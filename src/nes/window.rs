@@ -124,7 +124,7 @@ impl Window {
             bytes,
             channels * self.texture_width as usize,
         )?;
-        s.texture(&self.texture, self.texture_clip, None)?;
+        s.texture(&mut self.texture, self.texture_clip, None)?;
         Ok(())
     }
 }

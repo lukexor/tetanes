@@ -170,11 +170,11 @@ impl AppState for Nes {
         Ok(())
     }
 
-    fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<()> {
+    fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
         self.handle_key_pressed(s, event)
     }
 
-    fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<()> {
+    fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
         self.handle_key_released(s, event)
     }
 }

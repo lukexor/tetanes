@@ -310,9 +310,9 @@ mod tests {
             ("roms/metroid.nes", "Metroid (USA)", 8, 0, 1, 0, false),
         ];
         for data in rom_data {
-            let rom = File::open(&data.0).expect("valid file");
+            let rom = File::open(data.0).expect("valid file");
             let mut rom = BufReader::new(rom);
-            let c = Cartridge::from_rom(&data.0, &mut rom);
+            let c = Cartridge::from_rom(data.0, &mut rom);
             assert!(c.is_ok(), "new cartridge {}", data.0);
             let c = c.unwrap();
             assert_eq!(

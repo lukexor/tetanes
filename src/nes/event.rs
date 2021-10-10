@@ -129,16 +129,18 @@ impl Nes {
         &mut self,
         s: &mut PixState,
         event: KeyEvent,
-    ) -> PixResult<()> {
-        self.handle_key_event(s, event)
+    ) -> PixResult<bool> {
+        self.handle_key_event(s, event)?;
+        Ok(false)
     }
 
     pub(crate) fn handle_key_released(
         &mut self,
         s: &mut PixState,
         event: KeyEvent,
-    ) -> PixResult<()> {
-        self.handle_key_event(s, event)
+    ) -> PixResult<bool> {
+        self.handle_key_event(s, event)?;
+        Ok(false)
     }
 
     fn handle_key_event(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<()> {
@@ -242,7 +244,7 @@ impl Nes {
     /// it'll simply log the error out to STDERR
     // TODO Scale screenshot to current width/height
     // TODO Screenshot the currently focused window
-    pub(crate) fn _screenshot(&mut self) -> NesResult<String> {
+    pub(crate) fn _screenshot(&mut self) -> NesResult<()> {
         let datetime: DateTime<Local> = Local::now();
         let mut png_path = PathBuf::from(
             datetime

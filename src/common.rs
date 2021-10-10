@@ -1,14 +1,14 @@
 //! Utils and Traits shared among modules
 
 use crate::{
-    nes_err,
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     serialization::Savable,
-    NesResult,
+    NesErr, NesResult,
 };
 use enum_dispatch::enum_dispatch;
+use pix_engine::prelude::{Image, PixelFormat};
 use std::{
-    io::{BufWriter, Read, Write},
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -97,28 +97,17 @@ pub fn home_dir() -> Option<PathBuf> {
 ///
 /// It's possible for this method to fail, but instead of erroring the program,
 /// it'll simply log the error out to STDERR
-pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<String> {
-    let png_path = png_path.as_ref();
-    let png_file = std::fs::File::create(&png_path);
-    if png_file.is_err() {
-        return nes_err!(
-            "failed to create png file {:?}: {}",
-            png_path.display(),
-            png_file.err().unwrap(),
-        );
-    }
-    let png_file = BufWriter::new(png_file.unwrap()); // Safe to unwrap
-    let mut png = png::Encoder::new(png_file, RENDER_WIDTH, RENDER_HEIGHT);
-    png.set_color(png::ColorType::RGB);
-    let writer = png.write_header();
-    if let Err(e) = writer {
-        return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
-    }
-    let result = writer.unwrap().write_image_data(pixels);
-    if let Err(e) = result {
-        return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
-    }
-    Ok(format!("{}", png_path.display()))
+pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<()> {
+    let image =
+        Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, pixels, PixelFormat::Rgb).map_err(|e| {
+            NesErr::new(format!(
+                "failed to create png image {:?}: {}",
+                png_path.as_ref(),
+                e
+            ))
+        })?;
+    image.save(png_path)?;
+    Ok(())
 }
 
 pub fn hexdump(data: &[u8], addr_offset: usize) {

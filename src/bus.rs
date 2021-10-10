@@ -278,7 +278,7 @@ mod tests {
         let rom = File::open(rom_file).expect("valid file");
         let mut rom = BufReader::new(rom);
         let consistent_ram = true;
-        let mapper = mapper::load_rom(&rom_file, &mut rom, consistent_ram).expect("loaded mapper");
+        let mapper = mapper::load_rom(rom_file, &mut rom, consistent_ram).expect("loaded mapper");
         let mut mem = Bus::new(consistent_ram);
         mem.load_mapper(mapper);
         mem.write(0x0005, 0x0015);

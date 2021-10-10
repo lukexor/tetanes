@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn nestest() {
         let rom = "tests/cpu/nestest.nes";
-        let mut deck = load(&rom);
+        let mut deck = load(rom);
         deck.cpu.pc = 0xC000; // Start automated tests
         deck.clock_seconds(1.0);
         assert_eq!(deck.cpu.peek(0x0000), 0x00, "{}", rom);
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn dummy_writes_oam() {
         let rom = "tests/cpu/dummy_writes_oam.nes";
-        let mut deck = load(&rom);
+        let mut deck = load(rom);
         deck.clock_seconds(6.0);
         assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
     }
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn dummy_writes_ppumem() {
         let rom = "tests/cpu/dummy_writes_ppumem.nes";
-        let mut deck = load(&rom);
+        let mut deck = load(rom);
         deck.clock_seconds(4.0);
         assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
     }
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn exec_space_ppuio() {
         let rom = "tests/cpu/exec_space_ppuio.nes";
-        let mut deck = load(&rom);
+        let mut deck = load(rom);
         deck.clock_seconds(2.0);
         assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
     }
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn instr_timing() {
         let rom = "tests/cpu/instr_timing.nes";
-        let mut deck = load(&rom);
+        let mut deck = load(rom);
         deck.clock_seconds(23.0);
         assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
     }
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn apu_timing() {
         let rom = "tests/cpu/nestest.nes";
-        let mut deck = load(&rom);
+        let mut deck = load(rom);
         for _ in 0..=29840 {
             let apu = &deck.cpu.bus.apu;
             println!(
