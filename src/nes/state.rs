@@ -20,7 +20,7 @@ use std::{
 
 impl Nes {
     pub(super) fn create_textures(&mut self, s: &mut PixState) -> NesResult<()> {
-        self.screen = s.create_texture(PixelFormat::Rgb, RENDER_WIDTH, RENDER_HEIGHT)?;
+        self.screen = s.create_texture(PixelFormat::Rgba, RENDER_WIDTH, RENDER_HEIGHT)?;
         // TODO
         // s.create_texture(
         //     "message",
@@ -34,12 +34,7 @@ impl Nes {
         //     rect!(0, 0, self.width, self.height),
         //     rect!(0, 0, self.width, self.height),
         // )?;
-        // s.create_texture(
-        //     "debug",
-        //     ColorType::Rgba,
-        //     rect!(0, 0, DEBUG_WIDTH, self.height),
-        //     rect!(self.width, 0, DEBUG_WIDTH, self.height),
-        // )?;
+        self.debug = s.create_texture(PixelFormat::Rgba, DEBUG_WIDTH, self.height)?;
         Ok(())
     }
 

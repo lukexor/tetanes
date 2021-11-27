@@ -128,7 +128,7 @@ impl Nes {
             engine.vsync_enabled();
         }
 
-        Ok(engine.build().run(self)?)
+        Ok(engine.build()?.run(self)?)
     }
 
     /// Update rendering textures with emulation state
@@ -140,9 +140,9 @@ impl Nes {
 
 impl AppState for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
-        let main_window = WindowBuilder::new(s.width(), s.height())
+        let main_window = WindowBuilder::new(s.width()?, s.height()?)
             .with_id(s.window_id())
-            .create_texture(PixelFormat::Rgb, RENDER_WIDTH, RENDER_HEIGHT)
+            .create_texture(PixelFormat::Rgba, RENDER_WIDTH, RENDER_HEIGHT)
             .clip([0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 8])
             .build(s)?;
         self.windows.push(main_window);

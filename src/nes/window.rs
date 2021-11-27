@@ -13,7 +13,6 @@ pub(crate) struct WindowBuilder {
     id: Option<WindowId>,
     win_width: u32,
     win_height: u32,
-    texture: Option<Texture>,
     texture_format: PixelFormat,
     texture_width: u32,
     texture_height: u32,
@@ -26,7 +25,6 @@ impl Default for WindowBuilder {
             id: None,
             win_width: 800,
             win_height: 600,
-            texture: None,
             texture_format: PixelFormat::Rgb,
             texture_width: 800,
             texture_height: 600,
@@ -72,12 +70,8 @@ impl WindowBuilder {
     }
 
     pub(crate) fn build(&mut self, s: &mut PixState) -> PixResult<Window> {
-        let texture = match self.texture.take() {
-            Some(texture) => texture,
-            None => {
-                s.create_texture(self.texture_width, self.texture_height, self.texture_format)?
-            }
-        };
+        let texture_id =
+            s.create_texture(self.texture_width, self.texture_height, self.texture_format)?;
         let id = match self.id {
             Some(id) => id,
             None => s
@@ -90,7 +84,7 @@ impl WindowBuilder {
             id,
             win_width: self.win_width,
             win_height: self.win_height,
-            texture,
+            texture_id,
             texture_format: self.texture_format,
             texture_width: self.texture_width,
             texture_height: self.texture_height,
@@ -104,7 +98,7 @@ pub(crate) struct Window {
     pub(crate) id: WindowId,
     pub(crate) win_width: u32,
     pub(crate) win_height: u32,
-    pub(crate) texture: Texture,
+    pub(crate) texture_id: TextureId,
     pub(crate) texture_format: PixelFormat,
     pub(crate) texture_width: u32,
     pub(crate) texture_height: u32,
@@ -119,12 +113,12 @@ impl Window {
             _ => unreachable!("invalid format"),
         };
         s.update_texture(
-            &mut self.texture,
+            self.texture_id,
             rect![0, 0, self.texture_width as i32, self.texture_height as i32],
             bytes,
             channels * self.texture_width as usize,
         )?;
-        s.texture(&mut self.texture, self.texture_clip, None)?;
+        s.texture(self.texture_id, self.texture_clip, None)?;
         Ok(())
     }
 }

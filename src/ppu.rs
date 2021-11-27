@@ -35,7 +35,7 @@ pub const RENDER_HEIGHT: u32 = 240;
 const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
-const RENDER_SIZE: usize = 3 * RENDER_PIXELS;
+const RENDER_SIZE: usize = 4 * RENDER_PIXELS;
 
 // Cycles
 const IDLE_CYCLE: u16 = 0; // PPU is idle this cycle
@@ -101,7 +101,7 @@ impl Ppu {
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
-            ntsc_video: false,
+            ntsc_video: true,
             nes_format: NesFormat::Ntsc,
             clock_remainder: 0,
             debug: false,

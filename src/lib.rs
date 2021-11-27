@@ -475,7 +475,7 @@
 
 use pix_engine::prelude::*;
 use pretty_env_logger as _;
-use std::{borrow::Cow, fmt, result};
+use std::{fmt, result};
 use structopt as _;
 
 pub mod apu;
@@ -567,12 +567,12 @@ impl From<std::string::FromUtf8Error> for NesErr {
 
 impl From<NesErr> for PixError {
     fn from(err: NesErr) -> Self {
-        Self::Other(Cow::from(err.to_string()))
+        Self::Other(err.into())
     }
 }
 
-impl From<PixError> for NesErr {
-    fn from(err: PixError) -> Self {
+impl From<anyhow::Error> for NesErr {
+    fn from(err: anyhow::Error) -> Self {
         Self::new(&err.to_string())
     }
 }
