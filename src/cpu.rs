@@ -1,6 +1,6 @@
 //! A 6502 Central Processing Unit
 //!
-//! [http://wiki.nesdev.com/w/index.php/CPU]()
+//! <http://wiki.nesdev.com/w/index.php/CPU>
 
 use crate::{
     bus::Bus,
@@ -125,7 +125,7 @@ impl Cpu {
 
     /// Sends an IRQ Interrupt to the CPU
     ///
-    /// http://wiki.nesdev.com/w/index.php/IRQ
+    /// <http://wiki.nesdev.com/w/index.php/IRQ>
     pub fn set_irq(&mut self, irq: Irq, val: bool) {
         if val {
             self.irq_pending |= irq as u8;
@@ -182,7 +182,7 @@ impl Cpu {
 
     /// Sends a NMI Interrupt to the CPU
     ///
-    /// http://wiki.nesdev.com/w/index.php/NMI
+    /// <http://wiki.nesdev.com/w/index.php/NMI>
     pub fn set_nmi(&mut self, val: bool) {
         self.nmi_pending = val;
         self.bus.ppu.nmi_pending = val;

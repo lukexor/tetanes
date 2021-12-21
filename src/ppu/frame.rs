@@ -1,4 +1,4 @@
-use super::{Sprite, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH};
+use super::{Sprite, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH};
 use crate::{common::Powered, serialization::Savable, NesResult};
 use std::{
     f32::consts::PI,
@@ -55,7 +55,7 @@ impl Frame {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
-        let idx = 4 * (x + y * RENDER_WIDTH) as usize;
+        let idx = RENDER_CHANNELS * (x + y * RENDER_WIDTH) as usize;
         self.pixels[idx] = red;
         self.pixels[idx + 1] = green;
         self.pixels[idx + 2] = blue;

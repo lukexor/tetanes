@@ -32,10 +32,12 @@ mod vram;
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
+pub const RENDER_CHANNELS: usize = 4;
+pub const RENDER_PITCH: usize = RENDER_CHANNELS * RENDER_WIDTH as usize;
 const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
-const RENDER_SIZE: usize = 4 * RENDER_PIXELS;
+const RENDER_SIZE: usize = RENDER_CHANNELS * RENDER_PIXELS;
 
 // Cycles
 const IDLE_CYCLE: u16 = 0; // PPU is idle this cycle
@@ -61,6 +63,12 @@ const _POSTRENDER_SCANLINE: u16 = 240; // Idle scanline
 const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
 const PRERENDER_SCANLINE: u16 = 261;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum Filter {
+    None,
+    Ntsc,
+}
+
 #[derive(Clone)]
 pub struct Ppu {
     pub cycle: u16,         // (0, 340) 341 cycles happen per scanline
@@ -74,7 +82,7 @@ pub struct Ppu {
     oamdata: Oam,           // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
     frame: Frame,           // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
-    pub ntsc_video: bool,
+    pub filter: Filter,
     nes_format: NesFormat,
     clock_remainder: u8,
     debug: bool,
@@ -101,7 +109,7 @@ impl Ppu {
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
-            ntsc_video: true,
+            filter: Filter::Ntsc,
             nes_format: NesFormat::Ntsc,
             clock_remainder: 0,
             debug: false,
@@ -482,7 +490,7 @@ impl Ppu {
         if self.regs.grayscale() {
             palette &= !0x0F; // Remove chroma
         }
-        if self.ntsc_video {
+        if let Filter::Ntsc = self.filter {
             let format = self.nes_format;
             let pixel = ((self.regs.emphasis(format) as u32) << 6) | palette as u32;
             self.frame
@@ -1028,7 +1036,7 @@ impl Savable for Ppu {
         self.oamdata.save(fh)?;
         self.frame.save(fh)?;
         self.frame_complete.save(fh)?;
-        self.ntsc_video.save(fh)?;
+        self.filter.save(fh)?;
         self.nes_format.save(fh)?;
         self.clock_remainder.save(fh)?;
         // Ignore
@@ -1054,7 +1062,7 @@ impl Savable for Ppu {
         self.oamdata.load(fh)?;
         self.frame.load(fh)?;
         self.frame_complete.load(fh)?;
-        self.ntsc_video.load(fh)?;
+        self.filter.load(fh)?;
         self.nes_format.load(fh)?;
         self.clock_remainder.load(fh)?;
         Ok(())
@@ -1070,6 +1078,22 @@ impl Default for Ppu {
 impl fmt::Debug for Ppu {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Ppu {{ }}")
+    }
+}
+
+impl Savable for Filter {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
+        (*self as u8).save(fh)
+    }
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Filter::None,
+            1 => Filter::Ntsc,
+            _ => panic!("invalid Filter value"),
+        };
+        Ok(())
     }
 }
 

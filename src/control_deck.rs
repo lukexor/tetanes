@@ -1,9 +1,12 @@
 use crate::{
+    apu::AudioChannel,
     bus::Bus,
     common::{Clocked, Powered},
     cpu::{Cpu, CPU_CLOCK_RATE},
-    input::Gamepad,
-    mapper, NesResult,
+    input::{Gamepad, GamepadSlot},
+    mapper,
+    ppu::Filter,
+    NesResult,
 };
 use std::io::Read;
 
@@ -41,12 +44,12 @@ impl ControlDeck {
     }
 
     /// Get a frame worth of pixels
-    pub fn get_frame(&self) -> &[u8] {
+    pub fn frame(&self) -> &[u8] {
         self.cpu.bus.ppu.frame()
     }
 
     /// Get audio samples.
-    pub fn get_audio_samples(&self) -> &[f32] {
+    pub fn audio_samples(&self) -> &[f32] {
         self.cpu.bus.apu.samples()
     }
 
@@ -61,23 +64,62 @@ impl ControlDeck {
     }
 
     /// Steps the control deck the number of seconds
-    pub fn clock_seconds(&mut self, seconds: f32) {
+    pub fn clock_seconds(&mut self, seconds: f32) -> usize {
         self.cycles_remaining += CPU_CLOCK_RATE * seconds;
+        let mut total_ticks = 0;
         while self.cycles_remaining > 0.0 {
-            self.cycles_remaining -= self.cpu.clock() as f32;
+            let ticks = self.cpu.clock();
+            total_ticks += ticks;
+            self.cycles_remaining -= ticks as f32;
+        }
+        total_ticks
+    }
+
+    /// Steps the control deck a single clock cycle.
+    pub fn clock_cpu(&mut self) -> usize {
+        self.cpu.clock()
+    }
+
+    /// Steps the control deck a single scanline.
+    pub fn clock_scanline(&mut self) -> usize {
+        let current_scanline = self.cpu.bus.ppu.scanline;
+        let mut total_ticks = 0;
+        while self.cpu.bus.ppu.scanline == current_scanline {
+            total_ticks += self.clock_cpu();
+        }
+        total_ticks
+    }
+
+    /// Returns a mutable reference to a gamepad.
+    pub fn get_gamepad_mut(&mut self, gamepad: GamepadSlot) -> &mut Gamepad {
+        match gamepad {
+            GamepadSlot::One => &mut self.cpu.bus.input.gamepad1,
+            GamepadSlot::Two => &mut self.cpu.bus.input.gamepad2,
         }
     }
 
-    /// Returns a mutable reference to gamepad1.
-    pub fn get_gamepad1_mut(&mut self) -> &mut Gamepad {
-        &mut self.cpu.bus.input.gamepad1
+    /// Get the video filter for the emulation.
+    pub fn filter(&self) -> Filter {
+        self.cpu.bus.ppu.filter
     }
 
-    /// Returns a mutable reference to gamepad2.
-    pub fn get_gamepad2_mut(&mut self) -> &mut Gamepad {
-        &mut self.cpu.bus.input.gamepad2
+    /// Set the video filter for the emulation.
+    pub fn set_filter(&mut self, filter: Filter) {
+        self.cpu.bus.ppu.filter = filter;
     }
 
+    /// Returns whether a given API audio channel is enabled.
+    pub fn channel_enabled(&mut self, channel: AudioChannel) -> bool {
+        self.cpu.bus.apu.channel_enabled(channel)
+    }
+
+    /// Toggle one of the APU audio channels.
+    pub fn toggle_channel(&mut self, channel: AudioChannel) {
+        self.cpu.bus.apu.toggle_channel(channel);
+    }
+}
+
+impl ControlDeck {
     fn clock_turbo(&mut self) {
         self.turbo_clock += 1;
         if self.turbo_clock > 3 {

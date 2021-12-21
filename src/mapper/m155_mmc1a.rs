@@ -145,8 +145,6 @@ impl Mapper155 {
             // Move shift register and write lowest bit of val
             self.regs.shift_register >>= 1;
             self.regs.shift_register |= (val & 1) << 4;
-            use log::debug;
-            debug!("sr: 0x{:04X}", self.regs.shift_register);
             if write {
                 let sr = self.regs.shift_register;
                 let prg_banks = self.prg_rom.bank_count();

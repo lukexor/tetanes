@@ -15,24 +15,11 @@
 //!     <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a recording
 //!               playback `.playback` file. [default: current directory]
 
-#![warn(
-    future_incompatible,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    missing_docs,
-    nonstandard_style,
-    rust_2018_idioms,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused,
-    variant_size_differences
-)]
-
 use std::{env, path::PathBuf};
 use structopt::StructOpt;
-use tetanes::{nes::NesBuilder, NesErr};
+use tetanes::{nes::NesBuilder, NesResult};
 
-fn main() -> Result<(), NesErr> {
+fn main() -> NesResult<()> {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "info");
     }
@@ -42,8 +29,11 @@ fn main() -> Result<(), NesErr> {
     NesBuilder::new()
         .path(opt.path)
         .fullscreen(opt.fullscreen)
+        .consistent_ram(opt.consistent_ram)
         .scale(opt.scale)
-        .build()
+        .speed(opt.speed)
+        .genie_codes(opt.genie_codes)
+        .build()?
         .run()
 }
 
@@ -62,11 +52,21 @@ struct Opt {
     path: Option<PathBuf>,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
+    #[structopt(long = "consistent_ram", help = "Power up with consistent ram state.")]
+    consistent_ram: bool,
     #[structopt(
         short = "s",
         long = "scale",
         default_value = "3.0",
-        help = "Window scale"
+        help = "Window scale."
     )]
     scale: f32,
+    #[structopt(long = "speed", default_value = "1.0", help = "Emulation speed.")]
+    speed: f32,
+    #[structopt(
+        short = "g",
+        long = "genie-codes",
+        help = "List of Game Genie Codes (space separated)."
+    )]
+    genie_codes: Vec<String>,
 }

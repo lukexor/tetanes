@@ -17,41 +17,71 @@ const STROBE_DOWN: u8 = 5;
 const STROBE_LEFT: u8 = 6;
 const STROBE_RIGHT: u8 = 7;
 
-/// A NES Gameepad.
-#[allow(missing_docs)]
+/// A NES Gamepad slot.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GamepadSlot {
+    /// Player one
+    One,
+    /// Player two
+    Two,
+}
+
+/// A NES Gamepad.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GamepadBtn {
+    /// Left D-Pad.
     Left,
+    /// Right D-Pad.
     Right,
+    /// Up D-Pad.
     Up,
+    /// Down D-Pad.
     Down,
+    /// A Button.
     A,
+    /// B Button.
     B,
+    /// A Button (Turbo).
     TurboA,
+    /// B Button (Turbo).
     TurboB,
+    /// Select Button.
     Select,
+    /// Start Button.
     Start,
+    /// Zapper Trigger.
     Zapper,
 }
 
 /// Represents an NES Joypad
-#[allow(missing_docs)]
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Gamepad {
+    /// Left D-Pad pressed or not.
     pub left: bool,
+    /// Right D-Pad pressed or not.
     pub right: bool,
+    /// Up D-Pad pressed or not.
     pub up: bool,
+    /// Down D-Pad pressed or not.
     pub down: bool,
+    /// A Button pressed or not.
     pub a: bool,
+    /// B Button pressed or not.
     pub b: bool,
+    /// A Button (Turbo) pressed or not.
     pub turbo_a: bool,
+    /// B Button (Turbo) pressed or not.
     pub turbo_b: bool,
+    /// Select Button pressed or not.
     pub select: bool,
+    /// Start Button pressed or not.
     pub start: bool,
+    /// Current strobe state. This is the shift register position for which gamepad button to read
+    /// this tick.
     pub strobe_state: u8,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Zapper {
     pub light_sense: bool,
     pub triggered: bool,
@@ -97,7 +127,7 @@ impl Powered for Gamepad {
 }
 
 /// Input containing gamepad input state
-#[derive(Default, Clone)]
+#[derive(Default, Copy, Clone)]
 pub struct Input {
     pub gamepad1: Gamepad,
     pub gamepad2: Gamepad,

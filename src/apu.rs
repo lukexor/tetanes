@@ -21,7 +21,7 @@ use std::{
 };
 use triangle::Triangle;
 
-pub const SAMPLE_RATE: f32 = 48_000.0; // in Hz
+pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
 const SAMPLE_BUFFER_SIZE: usize = 4096;
 
 pub mod dmc;
@@ -36,6 +36,16 @@ mod length_counter;
 mod linear_counter;
 mod sequencer;
 mod sweep;
+
+/// A given APU audio channel.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum AudioChannel {
+    Pulse1,
+    Pulse2,
+    Triangle,
+    Noise,
+    Dmc,
+}
 
 /// Audio Processing Unit
 #[derive(Clone)]
@@ -110,24 +120,12 @@ impl Apu {
         self.clock_rate = CPU_CLOCK_RATE * speed;
     }
 
-    pub fn toggle_pulse1(&mut self) {
-        self.enabled[0] = !self.enabled[0];
+    pub fn channel_enabled(&self, channel: AudioChannel) -> bool {
+        self.enabled[channel as usize]
     }
 
-    pub fn toggle_pulse2(&mut self) {
-        self.enabled[1] = !self.enabled[1];
-    }
-
-    pub fn toggle_triangle(&mut self) {
-        self.enabled[2] = !self.enabled[2];
-    }
-
-    pub fn toggle_noise(&mut self) {
-        self.enabled[3] = !self.enabled[3];
-    }
-
-    pub fn toggle_dmc(&mut self) {
-        self.enabled[4] = !self.enabled[4];
+    pub fn toggle_channel(&mut self, channel: AudioChannel) {
+        self.enabled[channel as usize] = !self.enabled[channel as usize];
     }
 
     // Counts CPU clocks and determines when to clock quarter/half frames

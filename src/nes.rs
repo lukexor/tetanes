@@ -4,32 +4,42 @@ use crate::{
     apu::SAMPLE_RATE,
     common::{Clocked, Powered},
     control_deck::ControlDeck,
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
+    input::GamepadSlot,
+    ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
-use config::NesConfig;
+use bitflags::bitflags;
+use config::Config;
+use menu::Menu;
 use pix_engine::prelude::*;
-use std::{env, path::PathBuf};
-use window::{Window, WindowBuilder};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    env,
+    path::PathBuf,
+    time::Instant,
+};
 
-mod config;
-mod event;
-mod filesystem;
-mod window;
+pub(crate) mod config;
+pub(crate) mod event;
+pub(crate) mod filesystem;
+pub(crate) mod menu;
 
 const APP_NAME: &str = "TetaNES";
 #[cfg(not(target_arch = "wasm32"))]
-const ICON_PATH: &str = "static/tetanes_icon.png";
-#[cfg(not(target_arch = "wasm32"))]
-const _STATIC_ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
-const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
-const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
+const ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
+const WINDOW_WIDTH: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
+const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
+// Trim top and bottom 8 scanlines
+const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 8];
 
 #[derive(Debug, Clone)]
 pub struct NesBuilder {
     path: PathBuf,
     fullscreen: bool,
+    consistent_ram: bool,
     scale: f32,
+    speed: f32,
+    genie_codes: Vec<String>,
 }
 
 impl NesBuilder {
@@ -38,7 +48,10 @@ impl NesBuilder {
         Self {
             path: PathBuf::new(),
             fullscreen: false,
+            consistent_ram: false,
             scale: 3.0,
+            speed: 1.0,
+            genie_codes: vec![],
         }
     }
 
@@ -59,25 +72,54 @@ impl NesBuilder {
         self
     }
 
+    /// Enables consistent RAM during startup.
+    pub fn consistent_ram(&mut self, val: bool) -> &mut Self {
+        self.consistent_ram = val;
+        self
+    }
+
     /// Set the window scale.
     pub fn scale(&mut self, val: f32) -> &mut Self {
         self.scale = val;
         self
     }
 
+    /// Set the emulation speed.
+    pub fn speed(&mut self, val: f32) -> &mut Self {
+        self.speed = val;
+        self
+    }
+
+    /// Set the game genie codes to use on startup.
+    pub fn genie_codes(&mut self, codes: Vec<String>) -> &mut Self {
+        self.genie_codes = codes;
+        self
+    }
+
     /// Creates an Nes instance from an NesBuilder.
-    pub fn build(&self) -> Nes {
-        let mut config = NesConfig::new();
-        let control_deck = ControlDeck::new(config.consistent_ram);
+    pub fn build(&self) -> NesResult<Nes> {
+        let mut config = Config::new()?;
         config.rom_path = self.path.to_owned();
-        config.scale = self.scale;
         config.fullscreen = self.fullscreen;
-        Nes {
-            roms: Vec::new(),
+        config.consistent_ram = self.consistent_ram;
+        config.scale = self.scale;
+        config.speed = self.speed;
+        config.genie_codes = self.genie_codes.clone();
+        let control_deck = ControlDeck::new(config.consistent_ram);
+        Ok(Nes {
+            roms: vec![],
             control_deck,
-            windows: Vec::new(),
+            players: HashMap::new(),
+            emulation: Default::default(),
             config,
-        }
+            mode: Mode::default(),
+            rewinding: false,
+            debugger: Debugger::default(),
+            scanline: 0,
+            speed_counter: 0.0,
+            messages: vec![],
+            paths: vec![],
+        })
     }
 }
 
@@ -87,17 +129,76 @@ impl Default for NesBuilder {
     }
 }
 
-/// Represents an NES Emulation.
+/// Represents which mode the emulator is in.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum Mode {
+    Playing,
+    Paused,
+    InMenu(Menu),
+    Recording,
+    Replaying,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Self::InMenu(Menu::LoadRom)
+    }
+}
+
+bitflags! {
+    pub struct Debugger: u8 {
+        /// Debugging disabled.
+        const NONE = 0x00;
+        /// CPU.
+        const CPU = 0x01;
+        /// NameTable.
+        const NAMETABLE = 0x02;
+        /// PPU.
+        const PPU = 0x03;
+    }
+}
+
+impl Default for Debugger {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+/// A NES window view.
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct View {
+    window_id: WindowId,
+    texture_id: TextureId,
+}
+
+impl View {
+    pub fn new(window_id: WindowId, texture_id: TextureId) -> Self {
+        Self {
+            window_id,
+            texture_id,
+        }
+    }
+}
+
+/// Represents all the NES Emulation state.
 #[derive(Debug)]
 pub struct Nes {
     roms: Vec<PathBuf>,
     control_deck: ControlDeck,
-    windows: Vec<Window>,
-    config: NesConfig,
+    players: HashMap<GamepadSlot, ControllerId>,
+    emulation: View,
+    config: Config,
+    mode: Mode,
+    rewinding: bool,
+    debugger: Debugger,
+    scanline: u32,
+    speed_counter: f32,
+    messages: Vec<(String, Instant)>,
+    paths: Vec<String>,
 }
 
 impl Nes {
-    /// Begins emulation by starting the game engine loop
+    /// Begins emulation by starting the game engine loop.
     pub fn run(&mut self) -> NesResult<()> {
         let filename = self.config.rom_path.file_name().and_then(|f| f.to_str());
         let title = if let Some(filename) = filename {
@@ -106,19 +207,21 @@ impl Nes {
             APP_NAME.to_owned()
         };
 
-        let width = (self.config.scale * WINDOW_WIDTH as f32) as u32;
-        let height = (self.config.scale * WINDOW_HEIGHT as f32) as u32;
+        let width = (self.config.scale * WINDOW_WIDTH) as u32;
+        let height = (self.config.scale * WINDOW_HEIGHT) as u32;
         let mut engine = PixEngine::builder();
         engine
             .with_dimensions(width, height)
             .with_title(title)
             .with_frame_rate()
+            .target_frame_rate(60)
             .audio_sample_rate(SAMPLE_RATE.floor() as i32)
+            .audio_channels(1)
             .resizable();
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            engine.icon(ICON_PATH);
+            engine.icon(Image::from_read(ICON)?);
         }
 
         if self.config.fullscreen {
@@ -128,40 +231,63 @@ impl Nes {
             engine.vsync_enabled();
         }
 
-        Ok(engine.build()?.run(self)?)
+        engine.build()?.run(self)
     }
 
     /// Update rendering textures with emulation state
     fn render_frame(&mut self, s: &mut PixState) -> PixResult<()> {
-        self.windows[0].update_texture(s, self.control_deck.get_frame())?;
+        s.update_texture(
+            self.emulation.texture_id,
+            None,
+            self.control_deck.frame(),
+            RENDER_PITCH,
+        )?;
+        s.texture(self.emulation.texture_id, NES_FRAME_SRC, None)?;
         Ok(())
     }
 }
 
 impl AppState for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
-        let main_window = WindowBuilder::new(s.width()?, s.height()?)
-            .with_id(s.window_id())
-            .create_texture(PixelFormat::Rgba, RENDER_WIDTH, RENDER_HEIGHT)
-            .clip([0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 8])
-            .build(s)?;
-        self.windows.push(main_window);
-        self.find_roms()?;
-        if self.roms.len() == 1 {
-            self.load_rom(0)?;
-
+        self.emulation = View::new(
+            s.window_id(),
+            s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?,
+        );
+        if self.config.rom_path.is_file()
+            && self.config.rom_path.extension().unwrap_or_default() == "nes"
+        {
+            let path = self.config.rom_path.clone();
+            self.load_rom(path)?;
             self.control_deck.power_on();
+            s.resume_audio();
+            self.mode = Mode::Playing;
         }
+        self.find_roms()?;
         Ok(())
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
-        self.control_deck.clock();
-        self.render_frame(s)?;
-        if self.config.sound {
-            s.enqueue_audio(self.control_deck.get_audio_samples());
+        if let Mode::Playing | Mode::Recording | Mode::Replaying = self.mode {
+            self.speed_counter += self.config.speed;
+            while self.speed_counter > 0.0 {
+                self.speed_counter -= 1.0;
+                self.control_deck.clock();
+            }
+            if self.config.sound {
+                s.enqueue_audio(self.control_deck.audio_samples());
+            }
+            self.control_deck.clear_audio_samples();
         }
-        self.control_deck.clear_audio_samples();
+
+        self.render_frame(s)?;
+        match self.mode {
+            Mode::Paused => self.render_status(s, "Paused")?,
+            Mode::Recording => self.render_status(s, "Recording")?,
+            Mode::Replaying => self.render_status(s, "Replay")?,
+            Mode::InMenu(menu) => self.render_menu(s, menu)?,
+            Mode::Playing => (),
+        }
+        self.render_messages(s)?;
         Ok(())
     }
 
@@ -171,20 +297,88 @@ impl AppState for Nes {
     }
 
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
-        self.handle_key_pressed(s, event)
+        self.handle_key_event(s, event, true)
     }
 
     fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
-        self.handle_key_released(s, event)
+        self.handle_key_event(s, event, false)
     }
-}
 
-impl Default for Nes {
-    fn default() -> Self {
-        Self {
-            roms: Vec::new(),
-            windows: Vec::new(),
-            ..Default::default()
+    fn on_controller_update(
+        &mut self,
+        _s: &mut PixState,
+        controller_id: ControllerId,
+        update: ControllerUpdate,
+    ) -> PixResult<bool> {
+        match update {
+            ControllerUpdate::Added => {
+                match self.players.entry(GamepadSlot::One) {
+                    Entry::Vacant(v) => {
+                        v.insert(controller_id);
+                    }
+                    Entry::Occupied(_) => {
+                        self.players
+                            .entry(GamepadSlot::Two)
+                            .or_insert(controller_id);
+                    }
+                }
+                Ok(true)
+            }
+            ControllerUpdate::Removed => {
+                self.players.retain(|_, &mut id| id != controller_id);
+                Ok(true)
+            }
+            _ => Ok(false),
         }
+    }
+
+    fn on_controller_pressed(
+        &mut self,
+        s: &mut PixState,
+        event: ControllerEvent,
+    ) -> PixResult<bool> {
+        self.handle_controller_event(s, event, true)
+    }
+
+    fn on_controller_released(
+        &mut self,
+        s: &mut PixState,
+        event: ControllerEvent,
+    ) -> PixResult<bool> {
+        self.handle_controller_event(s, event, false)
+    }
+
+    fn on_controller_axis_motion(
+        &mut self,
+        s: &mut PixState,
+        controller_id: ControllerId,
+        axis: Axis,
+        value: i32,
+    ) -> PixResult<bool> {
+        self.handle_controller_axis(s, controller_id, axis, value)
+    }
+
+    fn on_window_event(
+        &mut self,
+        _s: &mut PixState,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) -> PixResult<()> {
+        if self.emulation.window_id == window_id {
+            match event {
+                WindowEvent::Hidden | WindowEvent::FocusLost => {
+                    if self.config.pause_in_bg && self.mode == Mode::Playing {
+                        self.mode = Mode::Paused
+                    }
+                }
+                WindowEvent::Restored | WindowEvent::FocusGained => {
+                    if self.config.pause_in_bg && self.mode == Mode::Paused {
+                        self.mode = Mode::Playing;
+                    }
+                }
+                _ => (),
+            }
+        }
+        Ok(())
     }
 }

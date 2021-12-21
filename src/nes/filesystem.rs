@@ -1,45 +1,39 @@
 use super::{Nes, NesResult};
-use crate::{map_nes_err, nes_err};
-use std::{fs::File, io::BufReader};
+use anyhow::Context;
+use std::{fs::File, io::BufReader, path::Path};
 
 impl Nes {
     /// Searches for valid NES rom files ending in `.nes`
-    ///
-    /// If rom_path is a `.nes` file, uses that
-    /// If no arg[1], searches current directory for `.nes` files
     pub(crate) fn find_roms(&mut self) -> NesResult<()> {
-        use std::ffi::OsStr;
-        let path = self.config.rom_path.to_owned();
         self.roms.clear();
-        if path.is_dir() {
-            path.read_dir()
-                .map_err(|e| map_nes_err!("unable to read directory {:?}: {}", path, e))?
-                .filter_map(|f| f.ok())
-                .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
-                .for_each(|f| self.roms.push(f.path()));
-        } else if path.is_file() {
-            self.roms.push(path.clone());
-        } else {
-            nes_err!("invalid path: {:?}", path)?;
+        if self.config.rom_path.is_file() {
+            match self.config.rom_path.parent() {
+                Some(parent) => self.config.rom_path = parent.to_path_buf(),
+                None => return Ok(()),
+            }
         }
-        if self.roms.is_empty() {
-            nes_err!("no rom files found or specified in {:?}", path)
-        } else {
-            Ok(())
+        match self.config.rom_path.read_dir() {
+            Ok(read_dir) => {
+                read_dir
+                    .filter_map(Result::ok)
+                    .filter(|f| f.path().extension().unwrap_or_default() == "nes")
+                    .for_each(|f| self.roms.push(f.path()));
+                Ok(())
+            }
+            Err(_) => Ok(()),
         }
     }
 
     /// Loads a ROM cartridge into memory
-    pub(crate) fn load_rom(&mut self, rom_id: usize) -> NesResult<()> {
-        if rom_id >= self.roms.len() {
-            nes_err!("invalid rom_id")?;
-        }
-        let rom_path = &self.roms[rom_id];
-        let rom = File::open(&self.roms[rom_id])
-            .map_err(|e| map_nes_err!("unable to open file {:?}: {}", rom_path, e))?;
+    pub(crate) fn load_rom<P>(&mut self, path: P) -> NesResult<()>
+    where
+        P: AsRef<Path>,
+    {
+        let path = path.as_ref();
+        let rom = File::open(&path).with_context(|| format!("failed to open rom {:?}", path))?;
         let mut rom = BufReader::new(rom);
         self.control_deck
-            .load_rom(&rom_path.to_string_lossy(), &mut rom)?;
+            .load_rom(&path.to_string_lossy(), &mut rom)?;
         Ok(())
     }
 }

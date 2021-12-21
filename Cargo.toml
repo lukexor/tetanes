@@ -17,18 +17,19 @@ exclude = ["/static", "/test_roms", "/docs"]
 msrv = "1.56.1"
 
 [dependencies]
+bitflags = "1.2.1"
 chrono = "0.4.19"
 dirs = "4.0.0"
 enum_dispatch = "0.3.7"
 lazy_static = "1.4.0"
 log = "0.4.14"
-pix-engine = { version = "0.5.0", features = ["serde"] }
+pix-engine = { version = "0.5.2", features = ["serde"] }
 pretty_env_logger = "0.4.0"
 rand = "0.8.4"
 structopt = "0.3.25"
 serde = { version = "1.0.130", features = ["derive"] }
 serde_json = "1.0.72"
-anyhow = "1.0.49"
+anyhow = "1.0.50"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.78"
@@ -36,9 +37,21 @@ wasm-bindgen = "0.2.78"
 [patch.crates-io]
 pix-engine = { path = "../pix-engine" }
 
-[profile.dev]
+[features]
+default = ["pix-engine/use-vcpkg"]
+
+[profile.dev-opt]
+inherits = "dev"
 opt-level = 2
 
 [profile.release]
 codegen-units = 1
 lto = true
+
+[package.metadata.vcpkg]
+dependencies = ["sdl2", "sdl2-image[libjpeg-turbo,tiff,libwebp]", "sdl2-ttf", "sdl2-gfx", "sdl2-mixer"]
+git = "https://github.com/microsoft/vcpkg"
+rev = "2a31089e777fc187f1cc05338250b8e1810cfb52"
+
+[package.metadata.vcpkg.target]
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md" }
