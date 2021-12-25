@@ -1,5 +1,6 @@
 //! User Interface representing the the NES Control Deck
 
+use self::filesystem::is_nes_rom;
 use crate::{
     apu::SAMPLE_RATE,
     common::{Clocked, Powered},
@@ -15,6 +16,7 @@ use pix_engine::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap},
     env,
+    fmt::Write,
     path::PathBuf,
     time::Instant,
 };
@@ -99,7 +101,7 @@ impl NesBuilder {
     /// Creates an Nes instance from an NesBuilder.
     pub fn build(&self) -> NesResult<Nes> {
         let mut config = Config::new()?;
-        config.rom_path = self.path.to_owned();
+        config.rom_path = self.path.to_owned().canonicalize()?;
         config.fullscreen = self.fullscreen;
         config.consistent_ram = self.consistent_ram;
         config.scale = self.scale;
@@ -107,7 +109,6 @@ impl NesBuilder {
         config.genie_codes = self.genie_codes.clone();
         let control_deck = ControlDeck::new(config.consistent_ram);
         Ok(Nes {
-            roms: vec![],
             control_deck,
             players: HashMap::new(),
             emulation: Default::default(),
@@ -119,6 +120,8 @@ impl NesBuilder {
             speed_counter: 0.0,
             messages: vec![],
             paths: vec![],
+            selected_path: 0,
+            error: None,
         })
     }
 }
@@ -183,7 +186,6 @@ impl View {
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
 pub struct Nes {
-    roms: Vec<PathBuf>,
     control_deck: ControlDeck,
     players: HashMap<GamepadSlot, ControllerId>,
     emulation: View,
@@ -194,18 +196,26 @@ pub struct Nes {
     scanline: u32,
     speed_counter: f32,
     messages: Vec<(String, Instant)>,
-    paths: Vec<String>,
+    paths: Vec<PathBuf>,
+    selected_path: usize,
+    error: Option<String>,
 }
 
 impl Nes {
     /// Begins emulation by starting the game engine loop.
     pub fn run(&mut self) -> NesResult<()> {
-        let filename = self.config.rom_path.file_name().and_then(|f| f.to_str());
-        let title = if let Some(filename) = filename {
-            format!("{} - {}", APP_NAME, filename.replace(".nes", ""))
-        } else {
-            APP_NAME.to_owned()
-        };
+        let mut title = APP_NAME.to_owned();
+        if is_nes_rom(&self.config.rom_path) {
+            if let Some(filename) = self
+                .config
+                .rom_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .map(|f| f.replace(".nes", ""))
+            {
+                write!(title, " - {}", filename)?;
+            }
+        }
 
         let width = (self.config.scale * WINDOW_WIDTH) as u32;
         let height = (self.config.scale * WINDOW_HEIGHT) as u32;
@@ -253,16 +263,10 @@ impl AppState for Nes {
             s.window_id(),
             s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?,
         );
-        if self.config.rom_path.is_file()
-            && self.config.rom_path.extension().unwrap_or_default() == "nes"
-        {
-            let path = self.config.rom_path.clone();
-            self.load_rom(path)?;
-            self.control_deck.power_on();
+        if is_nes_rom(&self.config.rom_path) {
+            self.load_rom()?;
             s.resume_audio();
-            self.mode = Mode::Playing;
         }
-        self.find_roms()?;
         Ok(())
     }
 

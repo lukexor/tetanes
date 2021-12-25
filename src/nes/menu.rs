@@ -1,13 +1,12 @@
+use super::filesystem::is_nes_rom;
 use crate::{
     apu::AudioChannel,
-    common::Powered,
     nes::{Mode, Nes, WINDOW_HEIGHT, WINDOW_WIDTH},
     ppu::Filter,
 };
-use log::error;
 use pix_engine::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Menu {
@@ -171,57 +170,75 @@ impl Nes {
         s.spacing()?;
 
         if self.paths.is_empty() {
-            match self.config.rom_path.read_dir() {
-                Ok(read_dir) => {
-                    self.paths.push("../".to_string());
-                    self.paths.append(
-                        &mut read_dir
-                            .filter_map(Result::ok)
-                            .filter(|f| {
-                                f.path().is_dir()
-                                    || f.path().extension().unwrap_or_default() == "nes"
-                            })
-                            .map(|f| f.path().to_string_lossy().to_string().replace("./", ""))
-                            .collect(),
-                    )
-                }
-                Err(err) => error!("{}", err),
-            }
+            self.update_paths()?;
         }
 
-        if self.paths.is_empty() {
+        if let Some(error) = &self.error {
             s.fill(s.theme().colors.error);
-            s.text(format!("Unable to read {:?}", self.config.rom_path))?;
+            s.text(&error)?;
         } else {
             let line_height = s.theme().font_size as i32 + 4 * s.theme().spacing.item_pad.y();
-            let mut selected = 0;
-            let displayed_count = s.height()? as usize / line_height as usize;
-            s.next_width(s.width()? - 2 * s.theme().spacing.frame_pad.x() as u32);
-            if s.select_list(
-                format!("{}: ", self.config.rom_path.display()),
-                &mut selected,
-                &self.paths,
+            let displayed_count =
+                (s.height()? as usize - s.cursor_pos().y() as usize) / line_height as usize;
+            let rom_dir = if self.config.rom_path.is_file() {
+                self.config.rom_path.parent().unwrap()
+            } else {
+                self.config.rom_path.as_path()
+            };
+            let path_list: Vec<Cow<'_, str>> = self
+                .paths
+                .iter()
+                .map(|p| p.strip_prefix(&rom_dir).unwrap_or(p).to_string_lossy())
+                .collect();
+            s.next_width(s.width()? - 2 * s.theme().spacing.frame_pad.x() as u32 - 12);
+            s.select_list(
+                rom_dir.to_string_lossy(),
+                &mut self.selected_path,
+                &path_list,
                 displayed_count,
-            )? {
-                if "../" == &self.paths[selected] {
-                    self.paths.clear();
-                    self.config.rom_path = self
-                        .config
-                        .rom_path
-                        .parent()
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|| "/".into())
+            )?;
+            if s.button("Open")? {
+                let parent = self.config.rom_path.parent();
+                if self.selected_path == 0 && parent.is_some() {
+                    if let Some(path) = parent {
+                        self.config.rom_path = path.to_path_buf();
+                        self.update_paths()?;
+                    }
                 } else {
-                    let path = PathBuf::from(self.paths[selected].clone());
-                    if path.is_dir() {
-                        self.paths.clear();
-                        self.config.rom_path = path;
-                    } else if path.extension().unwrap_or_default() == "nes" {
-                        self.load_rom(path)?;
-                        self.control_deck.power_cycle();
-                        self.mode = Mode::Playing;
+                    self.config.rom_path = self.paths[self.selected_path].to_path_buf();
+                    if self.config.rom_path.is_dir() {
+                        self.update_paths()?;
+                    } else if is_nes_rom(&self.config.rom_path) {
+                        self.load_rom()?;
+                        s.resume_audio();
                     }
                 }
+                self.selected_path = 0;
+            }
+        }
+        Ok(())
+    }
+
+    fn update_paths(&mut self) -> PixResult<()> {
+        self.paths.clear();
+        let mut path = self.config.rom_path.as_path();
+        if path.is_file() {
+            path = path.parent().expect("file should have a parent folder");
+        }
+        match path.read_dir() {
+            Ok(read_dir) => {
+                read_dir
+                    .filter_map(Result::ok)
+                    .map(|f| f.path())
+                    .filter(|p| p.is_dir() || is_nes_rom(p))
+                    .for_each(|p| self.paths.push(p));
+                self.paths.sort();
+                if path.parent().is_some() {
+                    self.paths.insert(0, PathBuf::from("../"));
+                }
+            }
+            Err(err) => {
+                self.error = Some(err.to_string());
             }
         }
         Ok(())
