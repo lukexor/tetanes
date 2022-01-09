@@ -320,8 +320,8 @@ The following is a checklist of features and their progress:
   - [x] Window
   - [ ] Menus
     - [ ] Help Menu
-    - [ ] Open/Run ROM with file browser
-    - [ ] Configuration options
+    - [x] Open/Run ROM with file browser
+    - [x] Configuration options
     - [ ] Custom Keybinds
     - [ ] Recent Game Selection
   - [x] Pause
