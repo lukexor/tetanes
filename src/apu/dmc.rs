@@ -152,6 +152,7 @@ impl Powered for Dmc {
         self.sample_buffer = 0;
         self.sample_buffer_empty = false;
         self.output = 0;
+        self.output_bits = 0;
         self.output_shift = 0;
         self.output_silent = false;
     }

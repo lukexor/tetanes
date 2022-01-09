@@ -136,6 +136,7 @@ impl Powered for Pxrom {
     fn reset(&mut self) {
         self.chr_rom_banks = [0x00; 4];
         self.latch = [0x00; 2];
+        self.update_banks();
     }
 }
 
@@ -151,6 +152,7 @@ impl Savable for Pxrom {
         self.mirroring.load(fh)?;
         self.chr_rom_banks.load(fh)?;
         self.latch.load(fh)?;
+        self.update_banks();
         self.prg_ram.load(fh)?;
         Ok(())
     }

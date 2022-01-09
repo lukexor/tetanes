@@ -290,6 +290,7 @@ impl Savable for Sxrom {
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
+        self.update_banks();
         self.prg_ram.load(fh)?;
         if self.has_chr_ram {
             self.chr.load(fh)?;
@@ -305,6 +306,7 @@ impl Savable for SxRegs {
         self.control.save(fh)?;
         self.chr_banks.save(fh)?;
         self.prg_bank.save(fh)?;
+        self.open_bus.save(fh)?;
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -313,6 +315,7 @@ impl Savable for SxRegs {
         self.control.load(fh)?;
         self.chr_banks.load(fh)?;
         self.prg_bank.load(fh)?;
+        self.open_bus.load(fh)?;
         Ok(())
     }
 }
