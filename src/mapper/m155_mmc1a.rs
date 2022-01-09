@@ -287,6 +287,7 @@ impl Savable for Mapper155 {
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
+        self.update_banks();
         self.prg_ram.load(fh)?;
         if self.has_chr_ram {
             self.chr.load(fh)?;

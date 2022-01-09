@@ -334,6 +334,7 @@ impl Powered for Txrom {
     fn reset(&mut self) {
         self.irq_pending = false;
         self.regs = TxRegs::new();
+        self.update_banks();
     }
     fn power_cycle(&mut self) {
         self.reset();
@@ -354,6 +355,7 @@ impl Savable for Txrom {
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.regs.load(fh)?;
+        self.update_banks();
         self.mirroring.load(fh)?;
         self.irq_pending.load(fh)?;
         self.four_screen_ram.load(fh)?;

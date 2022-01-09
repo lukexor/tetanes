@@ -140,7 +140,21 @@ impl Clocked for Dmc {
 
 impl Powered for Dmc {
     fn reset(&mut self) {
-        *self = Self::new();
+        self.irq_enabled = false;
+        self.irq_pending = false;
+        self.loops = false;
+        self.freq_timer = 0;
+        self.freq_counter = 0;
+        self.addr = 0;
+        self.addr_load = 0;
+        self.length = 0;
+        self.length_load = 0;
+        self.sample_buffer = 0;
+        self.sample_buffer_empty = false;
+        self.output = 0;
+        self.output_bits = 0;
+        self.output_shift = 0;
+        self.output_silent = false;
     }
 }
 
