@@ -37,9 +37,11 @@ impl ControlDeck {
 
     /// Loads a ROM cartridge into memory
     pub fn load_rom<F: Read>(&mut self, name: &str, rom: &mut F) -> NesResult<()> {
+        self.power_off();
         self.loaded_rom = Some(name.to_owned());
         let mapper = mapper::load_rom(name, rom, self.consistent_ram)?;
         self.cpu.bus.load_mapper(mapper);
+        self.power_on();
         Ok(())
     }
 
@@ -117,6 +119,11 @@ impl ControlDeck {
     pub fn toggle_channel(&mut self, channel: AudioChannel) {
         self.cpu.bus.apu.toggle_channel(channel);
     }
+
+    /// Is control deck running.
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
 }
 
 impl ControlDeck {
@@ -170,6 +177,7 @@ impl Powered for ControlDeck {
 
     /// Powers off the console
     fn power_off(&mut self) {
+        self.cpu.power_cycle();
         self.cpu.power_off();
         self.running = false;
     }

@@ -9,13 +9,15 @@ use enum_dispatch::enum_dispatch;
 use pix_engine::prelude::{Image, PixelFormat};
 use std::{
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 pub type Addr = u16;
 pub type Word = usize;
 pub type Byte = u8;
 pub const CONFIG_DIR: &str = ".tetanes";
+pub const SAVE_DIR: &str = "save";
+pub const SRAM_DIR: &str = "sram";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum NesFormat {
@@ -78,11 +80,6 @@ impl Savable for NesFormat {
         };
         Ok(())
     }
-}
-
-/// Returns the users current HOME directory (if one exists)
-pub fn home_dir() -> Option<PathBuf> {
-    dirs::home_dir()
 }
 
 /// Creates a '.png' file

@@ -2,16 +2,34 @@ use crate::{
     nes::{event::InputBindings, Mode, Nes},
     NesResult,
 };
-use std::{env, path::PathBuf};
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use std::{
+    env,
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+};
 
-pub(crate) const SETTINGS: &str = "./config/settings.json";
-pub(crate) const INPUT_BINDS: &str = "./config/keybinds.json";
-
+const KEYBINDS: &str = "./config/keybinds.json";
 const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
 const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Settings {
+    pub(crate) pause_in_bg: bool,
+    pub(crate) sound: bool,
+    pub(crate) fullscreen: bool,
+    pub(crate) vsync: bool,
+    pub(crate) concurrent_dpad: bool,
+    pub(crate) consistent_ram: bool,
+    pub(crate) save_slot: u8,
+    pub(crate) scale: f32,
+    pub(crate) speed: f32,
+}
+
+#[derive(Default, Debug, Clone)]
 /// NES emulation configuration settings.
 pub(crate) struct Config {
     pub(crate) rom_path: PathBuf,
@@ -42,8 +60,29 @@ impl Config {
             save_slot: 1,
             scale: 3.0,
             speed: 1.0,
-            input_bindings: InputBindings::with_config(INPUT_BINDS)?,
+            input_bindings: InputBindings::from_file(KEYBINDS)?,
             genie_codes: vec![],
+        })
+    }
+
+    pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> NesResult<Self> {
+        let path = path.as_ref();
+        let file = BufReader::new(File::open(path)?);
+
+        let settings: Settings = serde_json::from_reader(file)
+            .with_context(|| format!("Failed to parse `{}`", path.display()))?;
+
+        Ok(Self {
+            pause_in_bg: settings.pause_in_bg,
+            sound: settings.sound,
+            fullscreen: settings.fullscreen,
+            vsync: settings.vsync,
+            concurrent_dpad: settings.concurrent_dpad,
+            consistent_ram: settings.consistent_ram,
+            save_slot: settings.save_slot,
+            scale: settings.scale,
+            speed: settings.speed,
+            ..Config::new()?
         })
     }
 }

@@ -1,10 +1,29 @@
-# tetanes
+# TetaNES
+
+## Table of Contents
+
+- [Summary](#summary)
+- [Screenshots](#screenshots)
+- [Getting Started](#getting-started)
+  - [Usage](#usage)
+  - [Supported Mappers](#supported-mappers)
+  - [Controls](#controls)
+  - [Directories](#directories)
+  - [Powerup State](#powerup-state)
+- [Building](#building)
+- [Debugging](#debugging)
+- [Troubleshooting](#troubleshooting)
+- [Known Issues](#known-issues)
+- [Roadmap](#roadmap)
+- [Documentation](#documentation)
+- [License](#license)
+- [Contribution](#contribution)
+- [Contact](#contact)
+- [Credits](#credits)
 
 ## Summary
 
-<p align="center">
-  <img src="https://github.com/lukexor/tetanes/blob/main/static/tetanes.png?raw=true" width=90%">
-</p>
+<img width="100%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/tetanes.png">
 
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
@@ -26,68 +45,31 @@ Try it out in your [browser](http://dev.lukeworks.tech/tetanes)!
 
 ## Screenshots
 
-<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between">
-  <div style="flex: 0 50%; padding: 10px; min-width: 300px"><img width="100%" alt="Donkey Kong" src="https://github.com/lukexor/tetanes/blob/main/static/donkey_kong.png?raw=true"></div>
-  <div style="flex: 0 50%; padding: 10px; min-width: 300px"><img width="100%" alt="Super Mario Bros." src="https://github.com/lukexor/tetanes/blob/main/static/super_mario_bros.png?raw=true"></div>
-  <div style="flex: 0 50%; padding: 10px; min-width: 300px"><img width="100%" alt="The Legend of Zelda" src="https://github.com/lukexor/tetanes/blob/main/static/legend_of_zelda.png?raw=true"></div>
-  <div style="flex: 0 50%; padding: 10px; min-width: 300px"><img width="100%" alt="Metroid" src="https://github.com/lukexor/tetanes/blob/main/static/metroid.png?raw=true"></div>
-</div>
+<img width="48%" alt="Donkey Kong" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/donkey_kong.png">&nbsp;&nbsp;<img width="48%" alt="Super Mario Bros." src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/super_mario_bros.png">
+<img width="48%" alt="The Legend of Zelda" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/legend_of_zelda.png">&nbsp;&nbsp;<img width="48%" alt="Metroid" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/metroid.png">
 
-## Mappers
+## Getting Started
 
-Support for the following mappers is currently implemented or in development:
+`TetaNES` should run on most platforms that support `Rust` and `SDL2`. Platform
+binaries will be available when `1.0.0` is released, but for the time being you
+can install with `cargo` which comes installed with [Rust][].
 
-| #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
-| --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
-| 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                 10.14% |
-| 001 | SxROM/MMC1             | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.91% |
-| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~269                   |                 11.04% |
-| 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
-| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.59% |
-| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
-| 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
-| 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
-|     |                        |                                           | ~2050                   |                 84.11% |
+### Installing Dependencies
 
-1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
+See [Installing Dependencies](https://github.com/lukexor/pix-engine#installing-dependencies)
+in [pix-engine][].
 
-## Dependencies
-
-* [Rust][]
-* [SDL2][]
-
-There are two methods for linking to `SDL2` libraries when building or
-installing `TetaNES` from source:
-
-- Static linking (the default).
-- Dynamic linking with the `--no-default-features` feature flag. You'll need to
-  manually install them using one of the methods outlined in the [rust-sdl2][]
-  crate.
-
-## Installation
-
-This should run on most platforms that support `Rust` and `SDL2`, however, it's
-only being developed on macOS at this time.
-
-### Static Linking
+### Install
 
 ```sh
-cargo install cargo-vcpkg
-cargo vcpkg build
 cargo install tetanes
-```
-
-### Dynamic Linking
-
-```sh
-cargo install tetanes --no-default-features
 ```
 
 This will install the latest version of the `TetaNES` binary to your `cargo` bin
 directory located at either `$HOME/.cargo/bin/` on a Unix-like platform or
 `%USERPROFILE%\.cargo\bin` on Windows.
 
-## Usage
+### Usage
 
 ```text
 USAGE:
@@ -108,24 +90,45 @@ ARGS:
               file. [default: current directory]
 ```
 
-[iNES](https://wiki.nesdev.com/w/index.php/INES) and [NES
-2.0](https://wiki.nesdev.com/w/index.php/NES_2.0) formats are fully supported.
+[iNES][] and [NES 2.0][] formatted ROMS are supported, though some `NES 2.0`
+features may not be implemented.
 
-## Controls
+[iNES]: https://wiki.nesdev.com/w/index.php/INES
+[NES 2.0]: https://wiki.nesdev.com/w/index.php/NES_2.0
+
+### Supported Mappers
+
+Support for the following mappers is currently implemented or in development:
+
+| #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
+| --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
+| 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                 10.14% |
+| 001 | SxROM/MMC1             | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.91% |
+| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~269                   |                 11.04% |
+| 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
+| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.59% |
+| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
+| 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
+| 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
+|     |                        |                                           | ~2050                   |                 84.11% |
+
+1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
+
+### Controls
 
 Keybindings can be customized in the configuration menu. Below are the defaults.
 
 NES gamepad:
 
-| Button                | Keyboard    | Controller       |
-| --------------------- | ----------- | ---------------- |
-| A                     | Z           | A                |
-| B                     | X           | B                |
-| A (Turbo)             | A           | X                |
-| B (Turbo)             | S           | Y                |
-| Start                 | Return      | Start            |
-| Select                | Right Shift | Back             |
-| Up, Down, Left, Right | Arrow Keys  | Left Stick/D-Pad |
+| Button     | Keyboard    | Controller       |
+| ---------- | ----------- | ---------------- |
+| A          | Z           | A                |
+| B          | X           | B                |
+| A (Turbo)  | A           | X                |
+| B (Turbo)  | S           | Y                |
+| Start      | Return      | Start            |
+| Select     | Right Shift | Back             |
+| D-Pad      | Arrow Keys  | Left Stick/D-Pad |
 
 Emulator shortcuts:
 
@@ -174,13 +177,13 @@ While the CPU Debugger is open (these can also be held down):
 | Move Viewer scanline up           | Shift-Up         |
 | Move Viewer scanline down         | Shift-Down       |
 
-## Directories & Screenshots
+### Directories
 
 Battery-backed game data and save states are stored in
 `$HOME/.tetanes`. Screenshots are saved to the directory where `TetaNES` was
 launched from.
 
-## Powerup State
+### Powerup State
 
 The original NES hardware had semi-random contents located in RAM upon powerup
 and several games made use of this to seed their Random Number Generators
@@ -195,7 +198,7 @@ state, you'll need to enable the `Consistent RAM` setting in the configuration
 menu and trigger a power-cycle or use the `--consistent_ram` flag from the
 command line.
 
-## Building/Testing
+## Building
 
 To build the project run `cargo build` or `cargo build --release` (if you want
 better framerates). There is also a optimized dev profile you can use which
@@ -231,8 +234,8 @@ The PPU Viewer shows the current sprite and palettes loaded. You can also scroll
 up/down in a similar manner to the Nametable Viewer. `Super Mario Bros 3` for
 example swaps out sprites mid-frame to render animations.
 
-<img src="https://github.com/lukexor/tetanes/blob/main/static/nametable_viewer.png?raw=true" width="49%">&nbsp;&nbsp;<img src="https://github.com/lukexor/tetanes/blob/main/static/ppu_viewer.png?raw=true" width="49%">
-<img src="https://github.com/lukexor/tetanes/blob/main/static/debugger.png?raw=true" width="100%">
+<img width="48%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/nametable_viewer.png">&nbsp;&nbsp;<img width="48%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/ppu_viewer.png">
+<img width="100%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/debugger.png">
 
 Logging can be set by setting the `RUST_LOG` environment variable and setting it
 to one of `trace`, `debug`, `info`, `warn` or `error` prior to building the
@@ -422,4 +425,5 @@ series as those helped a ton in some recent refactorings.
 [rust-sdl2]: https://github.com/Rust-SDL2/rust-sdl2#sdl20-development-libraries
 [SDL2]: https://www.libsdl.org/
 [WASM]: https://webassembly.org/
+[pix-engine]: https://github.com/lukexor/pix-engine
 [github issue tracker]: https://github.com/lukexor/tetanes/issues

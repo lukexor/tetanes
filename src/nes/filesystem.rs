@@ -1,6 +1,6 @@
 use super::{Mode, Nes, NesResult};
-use crate::common::Powered;
 use anyhow::Context;
+use pix_engine::prelude::PixState;
 use std::{fs::File, io::BufReader, path::Path};
 
 pub(crate) fn is_nes_rom<P>(path: P) -> bool
@@ -13,15 +13,15 @@ where
 
 impl Nes {
     /// Loads a ROM cartridge into memory
-    pub(crate) fn load_rom(&mut self) -> NesResult<()> {
+    pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
         self.mode = Mode::Paused;
-        self.control_deck.power_off();
+        s.pause_audio();
         let rom = File::open(&self.config.rom_path)
             .with_context(|| format!("failed to open rom {:?}", self.config.rom_path))?;
         let mut rom = BufReader::new(rom);
         self.control_deck
             .load_rom(&self.config.rom_path.to_string_lossy(), &mut rom)?;
-        self.control_deck.power_on();
+        s.resume_audio();
         self.mode = Mode::Playing;
         Ok(())
     }

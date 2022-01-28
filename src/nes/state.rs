@@ -287,7 +287,7 @@ impl Nes {
 /// Panics if path is not a valid path
 fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
     let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
-    let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
+    let mut path = dir::home_dir().unwrap_or_else(|| PathBuf::from("./"));
     path.push(CONFIG_DIR);
     path.push("sram");
     path.push(save_name);
@@ -307,7 +307,7 @@ fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
 /// Panics if path is not a valid path
 pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
     if let Some(save_name) = path.as_ref().file_stem().and_then(|s| s.to_str()) {
-        let mut path = home_dir().unwrap_or_else(|| PathBuf::from("./"));
+        let mut path = dir::home_dir().unwrap_or_else(|| PathBuf::from("./"));
         path.push(CONFIG_DIR);
         path.push("save");
         path.push(save_name);

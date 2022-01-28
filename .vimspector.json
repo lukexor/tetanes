@@ -1,0 +1,23 @@
+{
+  "configurations": {
+    "launch": {
+      "adapter": "CodeLLDB",
+      "configuration": {
+        "type": "lldb",
+        "request": "launch",
+        "sourceLanguages": [
+          "rust"
+        ],
+        "program": "${workspaceRoot}/target/debug/tetanes",
+        "MIMode": "gdb",
+        "setupCommands": [
+          {
+            "description": "Enable pretty-printing for gdb",
+            "text": "-enable-pretty-printing",
+            "ignoreFailures": true
+          }
+        ]
+      }
+    }
+  }
+}

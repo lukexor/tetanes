@@ -72,12 +72,12 @@ pub(crate) struct InputBinds {
 pub(crate) struct InputBindings(HashMap<Input, Action>);
 
 impl InputBindings {
-    pub(crate) fn with_config<P: AsRef<Path>>(config: P) -> NesResult<Self> {
-        let config = config.as_ref();
-        let file = BufReader::new(File::open(config)?);
+    pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> NesResult<Self> {
+        let path = path.as_ref();
+        let file = BufReader::new(File::open(path)?);
 
         let input_binds: InputBinds = serde_json::from_reader(file)
-            .with_context(|| format!("Failed to parse `{}`", config.display()))?;
+            .with_context(|| format!("Failed to parse `{}`", path.display()))?;
 
         let mut bindings = HashMap::new();
         for bind in input_binds.keys {
@@ -285,16 +285,20 @@ impl Nes {
                 _ => (),
             }
         }
-        Ok(true)
+        Ok(false)
     }
 
     fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<()> {
         match state {
             NesState::ToggleMenu => {
                 if let Mode::InMenu(..) = self.mode {
-                    self.mode = Mode::Playing;
+                    if self.control_deck.is_running() {
+                        self.mode = Mode::Playing;
+                    } else {
+                        self.mode = Mode::InMenu(Menu::Help);
+                    }
                 } else {
-                    self.mode = Mode::InMenu(Menu::Main);
+                    self.mode = Mode::InMenu(Menu::Help);
                 }
             }
             NesState::Quit => s.quit(),

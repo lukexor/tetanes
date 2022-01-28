@@ -27,6 +27,7 @@ pub(crate) mod filesystem;
 pub(crate) mod menu;
 
 const APP_NAME: &str = "TetaNES";
+const SETTINGS: &str = "./config/settings.json";
 #[cfg(not(target_arch = "wasm32"))]
 const ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
 const WINDOW_WIDTH: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
@@ -100,7 +101,7 @@ impl NesBuilder {
 
     /// Creates an Nes instance from an NesBuilder.
     pub fn build(&self) -> NesResult<Nes> {
-        let mut config = Config::new()?;
+        let mut config = Config::from_file(SETTINGS)?;
         config.rom_path = self.path.to_owned().canonicalize()?;
         config.fullscreen = self.fullscreen;
         config.consistent_ram = self.consistent_ram;
@@ -134,7 +135,7 @@ impl Default for NesBuilder {
 
 /// Represents which mode the emulator is in.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum Mode {
+pub(crate) enum Mode {
     Playing,
     Paused,
     InMenu(Menu),
@@ -149,7 +150,7 @@ impl Default for Mode {
 }
 
 bitflags! {
-    pub struct Debugger: u8 {
+    pub(crate) struct Debugger: u8 {
         /// Debugging disabled.
         const NONE = 0x00;
         /// CPU.
@@ -169,13 +170,13 @@ impl Default for Debugger {
 
 /// A NES window view.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct View {
+pub(crate) struct View {
     window_id: WindowId,
     texture_id: TextureId,
 }
 
 impl View {
-    pub fn new(window_id: WindowId, texture_id: TextureId) -> Self {
+    pub(crate) fn new(window_id: WindowId, texture_id: TextureId) -> Self {
         Self {
             window_id,
             texture_id,
@@ -264,8 +265,7 @@ impl AppState for Nes {
             s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?,
         );
         if is_nes_rom(&self.config.rom_path) {
-            self.load_rom()?;
-            s.resume_audio();
+            self.load_rom(s)?;
         }
         Ok(())
     }
