@@ -8,7 +8,19 @@ where
     P: AsRef<Path>,
 {
     let path = path.as_ref();
+    // FIXME: Also check nes header
     path.extension().map(|ext| ext == "nes").unwrap_or(false)
+}
+
+pub(crate) fn is_playback_file<P>(path: P) -> bool
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    // FIXME: Also check playback header
+    path.extension()
+        .map(|ext| ext == "playback")
+        .unwrap_or(false)
 }
 
 impl Nes {

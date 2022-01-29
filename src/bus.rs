@@ -274,7 +274,7 @@ mod tests {
         use crate::mapper;
         use std::{fs::File, io::BufReader};
 
-        let rom_file = "tests/cpu/nestest.nes";
+        let rom_file = "test_roms/cpu/nestest.nes";
         let rom = File::open(rom_file).expect("valid file");
         let mut rom = BufReader::new(rom);
         let consistent_ram = true;

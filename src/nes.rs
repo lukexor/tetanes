@@ -1,6 +1,5 @@
 //! User Interface representing the the NES Control Deck
 
-use self::filesystem::is_nes_rom;
 use crate::{
     apu::SAMPLE_RATE,
     common::{Clocked, Powered},
@@ -11,6 +10,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use config::Config;
+use filesystem::{is_nes_rom, is_playback_file};
 use menu::Menu;
 use pix_engine::prelude::*;
 use std::{
@@ -266,6 +266,9 @@ impl AppState for Nes {
         );
         if is_nes_rom(&self.config.rom_path) {
             self.load_rom(s)?;
+        } else if is_playback_file(&self.config.rom_path) {
+            self.mode = Mode::Replaying;
+            unimplemented!("Replay not implemented");
         }
         Ok(())
     }

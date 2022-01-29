@@ -14,7 +14,7 @@ default-run = "tetanes"
 exclude = ["/static", "/test_roms", "/docs"]
 
 [package.metadata]
-msrv = "1.56.1"
+msrv = "1.57.0"
 
 [dependencies]
 bitflags = "1.2.1"
@@ -27,23 +27,29 @@ pix-engine = { version = "0.5.4", features = ["serde"] }
 pretty_env_logger = "0.4.0"
 rand = "0.8.4"
 structopt = "0.3.25"
-serde = { version = "1.0.130", features = ["derive"] }
+serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.72"
-anyhow = "1.0.50"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.78"
+anyhow = "1.0.53"
 
 [patch.crates-io]
 pix-engine = { path = "../pix-engine" }
+
+[dev-dependencies.cargo-husky]
+version = "1.5.0"
+default-features = false
+features = ["prepush-hook", "run-cargo-test", "run-cargo-clippy"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.78"
 
 [features]
 default = []
 vcpkg = ["pix-engine/vcpkg"]
 
-[profile.dev-opt]
-inherits = "dev"
-opt-level = 2
+# FIXME: Disabled until dependabot is updated
+# [profile.dev-opt]
+# inherits = "dev"
+# opt-level = 2
 
 [profile.release]
 codegen-units = 1
