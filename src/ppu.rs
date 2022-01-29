@@ -504,7 +504,7 @@ impl Ppu {
         }
     }
 
-    fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut Vec<Byte>) {
+    fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut [Byte]) {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
         }
