@@ -13,8 +13,8 @@
 - [Building](#building)
 - [Debugging](#debugging)
 - [Troubleshooting](#troubleshooting)
+- [Features](#features)
 - [Known Issues](#known-issues)
-- [Roadmap](#roadmap)
 - [Documentation](#documentation)
 - [License](#license)
 - [Contribution](#contribution)
@@ -269,61 +269,59 @@ to create it. A good guideline for what to include is:
 When using the WASM version in the browser, also include:
 - Web browser and version (e.g. Chrome 77.0.3865)
 
-### Known Issues
+## Features
 
-See the [github issue tracker][].
-
-## Roadmap
-
-The following is a checklist of features and their progress:
-- [x] Console
+- [ ] NES Formats & Run Modes
   - [x] NTSC
   - [ ] PAL
   - [ ] Dendy
   - [ ] Headless mode
 - [x] Central Processing Unit (CPU)
   - [x] Official Instructions
-  - [x] Unofficial Instructions (Some still incorrect)
+  - [x] Unofficial Instructions
   - [x] Interrupts
-- [x] Picture Processing Unit (PPU)
+- [ ] Picture Processing Unit (PPU)
   - [x] VRAM
   - [x] Background
   - [x] Sprites
   - [x] NTSC TV Artifact Effects
   - [x] Emphasize RGB/Grayscale
-- [x] Audio Processing Unit (APU)
+  - [ ] Accurate OAM management ([#31](https://github.com/lukexor/tetanes/issues/31))
+- [ ] Audio Processing Unit (APU)
   - [x] Pulse Channels
-  - [x] Triangle Channels
-  - [x] Noise Channels
-  - [x] Delta Mulation Channel (DMC)
-- [x] Inputs
-  - [x] Keyboard
-  - [x] Standard Controller
-  - [x] Turbo
+  - [x] Triangle Channel
+  - [x] Noise Channel
+  - [x] Delta Modulation Channel (DMC)
+  - [ ] Accurate DMC timing ([#30](https://github.com/lukexor/tetanes/issues/30))
+- [ ] Inputs
+  - [x] 1-Player Keyboard
+  - [x] 1-2 Player Standard Controllers
+  - [x] Turbo Buttons
   - [ ] Zapper (Light Gun)
-- [x] Memory
-- [x] Cartridge
+  - [ ] 3-4 Player Support ([#32](https://github.com/lukexor/tetanes/issues/32))
+- [ ] Cartridge
   - [x] Battery-backed Save RAM
   - [x] iNES Format
-  - [x] NES 2.0 Format (Can read headers, but many features still unsupported)
-  - [x] Mappers
+  - [x] NES 2.0 Format
+  - [ ] Complete NES 2.0 support
+  - [ ] Mappers
     - [x] NROM (Mapper 0)
-    - [x] SxROM/MMC1 (Mapper 1)
+    - [x] SxROM/MMC1 (Mapper 1 & 155)
     - [x] UxROM (Mapper 2)
     - [x] CNROM (Mapper 3)
     - [x] TxROM/MMC3 (Mapper 4)
-    - [x] ExROM/MMC5 (Mapper 5) (Split screen and sound is unfinished)
+    - [ ] ExROM/MMC5 (Mapper 5) (Works, but split screen and sound are unfinished)
     - [x] AxROM (Mapper 7)
     - [x] PxROM/MMC2 (Mapper 9)
 - [x] User Interface (UI)
-  - [x] PixEngine (Custom graphics library for handling video and audio)
   - [ ] UI Notification messages
   - [x] SDL2
   - [x] WebAssembly (WASM) - Run TetaNES in the browser!
-  - [x] Window
+  - [x] Multiple Windows
+  - [x] Configurable keybinds and default settings
   - [ ] Menus
     - [ ] Help Menu
-    - [x] Open/Run ROM with file browser
+    - [x] Load/Open ROM with file browser
     - [x] Configuration options
     - [ ] Custom Keybinds
     - [ ] Recent Game Selection
@@ -336,23 +334,23 @@ The following is a checklist of features and their progress:
   - [ ] Visual Rewind (Holding R will time-travel backward)
   - [ ] Save/Load State
   - [X] Take Screenshots
-  - [ ] Toggle Gameplay Recording
+  - [ ] Gameplay Recording
   - [ ] Sound Recording (Save those memorable tunes!)
   - [x] Toggle Fullscreen
   - [x] Toggle Sound
+    - [x] Toggle individual sound channels
   - [x] Toggle NTSC Filter
-  - [x] Toggle individual sound channels
   - [ ] Toggle Debugger
   - [x] Game Genie
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
   - [ ] 4-Player support
   - [ ] Network Multi-player
   - [ ] Self Updater
-- [x] Testing/Debugging/Documentation
+- [ ] Testing/Debugging/Documentation
   - [ ] CPU Debugger (Displays CPU status, registers, and disassembly)
     - [ ] Step Into/Out/Over
     - [ ] Breakpoints
-  - [ ] Memory Hex Debugger
+  - [ ] Hex Memory Debugger
   - [ ] PPU Viewer (Displays PPU sprite patterns and color palettes)
   - [ ] Nametable Viewer (Displays all four PPU backgrounds)
     - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
@@ -361,11 +359,15 @@ The following is a checklist of features and their progress:
   - [x] Unit/Integration tests (run with cargo test)
     - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
     - [ ] Other tests (Missing a lot here)
-  - [x] Test ROMs (most pass, many still do not)
-      - [ ] Automated rom tests (in progress now that action recording is
+  - [ ] Test ROMs (most pass, many still do not)
+      - [ ] Automated ROM tests (in progress now that action recording is
       finished)
-  - [x] Rust Docs
+  - [ ] Documentation
   - [x] Logging
+
+### Known Issues
+
+See the [github issue tracker][].
 
 ## Documentation
 

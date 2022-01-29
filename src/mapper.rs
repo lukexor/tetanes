@@ -16,14 +16,13 @@ use std::{
 };
 
 use m000_nrom::Nrom; // Mapper 0
-use m001_sxrom::Sxrom; // Mapper 1
+use m001_sxrom::{MMC1Variant, Sxrom}; // Mapper 1, 155
 use m002_uxrom::Uxrom; // Mapper 2
 use m003_cnrom::Cnrom; // Mapper 3
 use m004_txrom::Txrom; // Mapper 4
 use m005_exrom::Exrom; // Mapper 5
 use m007_axrom::Axrom; // Mapper 7
 use m009_pxrom::Pxrom; // Mapper 9
-use m155_mmc1a::Mapper155; // Mapper 155
 
 mod m000_nrom;
 mod m001_sxrom;
@@ -33,7 +32,6 @@ mod m004_txrom;
 mod m005_exrom;
 mod m007_axrom;
 mod m009_pxrom;
-mod m155_mmc1a;
 
 /// Nametable Mirroring Mode
 ///
@@ -63,7 +61,6 @@ pub enum MapperType {
     Exrom,
     Axrom,
     Pxrom,
-    Mapper155,
 }
 
 #[enum_dispatch(MapperType)]
@@ -99,7 +96,7 @@ pub fn load_rom<F: Read>(name: &str, rom: &mut F, consistent_ram: bool) -> NesRe
     let cart = Cartridge::from_rom(name, rom)?;
     let mapper = match cart.header.mapper_num {
         0 => Nrom::load(cart, consistent_ram),
-        1 => Sxrom::load(cart, consistent_ram),
+        1 => Sxrom::load(cart, MMC1Variant::B, consistent_ram),
         2 => Uxrom::load(cart, consistent_ram),
         3 => Cnrom::load(cart, consistent_ram),
         4 => Txrom::load(cart, consistent_ram),
@@ -107,7 +104,7 @@ pub fn load_rom<F: Read>(name: &str, rom: &mut F, consistent_ram: bool) -> NesRe
         7 => Axrom::load(cart, consistent_ram),
         9 => Pxrom::load(cart, consistent_ram),
         71 => Uxrom::load(cart, consistent_ram), // TODO: Mapper 71 has slight differences from Uxrom
-        155 => Mapper155::load(cart, consistent_ram),
+        155 => Sxrom::load(cart, MMC1Variant::A, consistent_ram),
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };
     Ok(mapper)

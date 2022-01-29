@@ -29,6 +29,13 @@ const PRG_MODE_FIX_LAST: u8 = 0x0C; // Mode 3
 const CHR_MODE_MASK: u8 = 0x10; // 0b10000
 const PRG_RAM_DISABLED: usize = 0x10; // 0b10000
 
+#[derive(Debug, Copy, Clone)]
+pub enum MMC1Variant {
+    A,
+    B,
+    C,
+}
+
 /// SxROM
 #[derive(Debug, Clone)]
 pub struct Sxrom {
@@ -40,6 +47,7 @@ pub struct Sxrom {
     // CPU $C000..=$FFFF 16KB PRG ROM Bank Fixed to Last Bank or Switchable
     prg_rom: BankedMemory,
     chr: BankedMemory, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
+    variant: MMC1Variant,
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +61,7 @@ struct SxRegs {
 }
 
 impl Sxrom {
-    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
+    pub fn load(cart: Cartridge, variant: MMC1Variant, consistent_ram: bool) -> MapperType {
         let prg_ram_size = cart
             .prg_ram_size()
             .map(|size| size.unwrap_or(PRG_RAM_SIZE))
@@ -65,7 +73,12 @@ impl Sxrom {
                 shift_register: DEFAULT_SHIFT_REGISTER,
                 control: PRG_MODE_FIX_LAST,
                 chr_banks: [0x00; 2],
-                prg_bank: 0x00,
+                prg_bank: match variant {
+                    // C has PRG RAM disabled by default
+                    MMC1Variant::C => 0x10,
+                    // A is always enabled, and B is enabled by default
+                    _ => 0x00,
+                },
                 open_bus: 0x00,
             },
             has_chr_ram,
@@ -77,6 +90,7 @@ impl Sxrom {
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },
+            variant,
         };
         sxrom.prg_ram.add_bank(0x6000, 0x7FFF);
         sxrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
@@ -193,7 +207,10 @@ impl Sxrom {
     }
 
     fn prg_ram_enabled(&self) -> bool {
-        self.regs.prg_bank & PRG_RAM_DISABLED == 0
+        match self.variant {
+            MMC1Variant::A => true,
+            _ => self.regs.prg_bank & PRG_RAM_DISABLED == 0,
+        }
     }
 }
 
