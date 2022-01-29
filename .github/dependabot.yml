@@ -4,17 +4,20 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    target-branch: "next"
     assignees:
       - "lukexor"
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "daily"
+    target-branch: "next"
     assignees:
       - "lukexor"
   - package-ecosystem: "npm"
     directory: "/tetanes-web/www"
     schedule:
       interval: "daily"
+    target-branch: "next"
     assignees:
       - "lukexor"
