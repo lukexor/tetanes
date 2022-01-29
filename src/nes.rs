@@ -225,7 +225,6 @@ impl Nes {
             .with_dimensions(width, height)
             .with_title(title)
             .with_frame_rate()
-            .target_frame_rate(60)
             .audio_sample_rate(SAMPLE_RATE.floor() as i32)
             .audio_channels(1)
             .resizable();
