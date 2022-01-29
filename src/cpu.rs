@@ -510,7 +510,7 @@ impl Cpu {
             if i < bytes.len() {
                 disasm.push_str(&format!("{:02X} ", bytes[i]));
             } else {
-                disasm.push_str(&"   ".to_string());
+                disasm.push_str("   ");
             }
         }
         disasm.push_str(&format!("{:?} {}", instr, mode));
