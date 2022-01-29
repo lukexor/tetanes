@@ -86,7 +86,7 @@ impl Savable for NesFormat {
 ///
 /// # Arguments
 ///
-/// * `png_path` - An object that implements AsRef<Path> for the location to save the `.png`
+/// * `png_path` - An object that implements [`AsRef<Path>`] for the location to save the `.png`
 /// file
 /// * `pixels` - An array of pixel data to save in `.png` format
 ///
