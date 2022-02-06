@@ -8,6 +8,8 @@ use pix_engine::prelude::*;
 impl Nes {
     pub(super) fn render_config(&mut self, s: &mut PixState) -> PixResult<()> {
         s.collapsing_header("General", |s: &mut PixState| {
+            s.spacing()?;
+
             s.checkbox("Pause in Background", &mut self.config.pause_in_bg)?;
 
             let mut save_slot = self.config.save_slot as usize - 1;
@@ -15,10 +17,14 @@ impl Nes {
             if s.select_box("Save Slot", &mut save_slot, &["1", "2", "3", "4"], 4)? {
                 self.config.save_slot = save_slot as u8 + 1;
             }
+
+            s.spacing()?;
             Ok(())
         })?;
 
         s.collapsing_header("Emulation", |s: &mut PixState| {
+            s.spacing()?;
+
             s.checkbox("Consistent Power-up RAM", &mut self.config.consistent_ram)?;
             s.checkbox("Concurrent D-Pad", &mut self.config.concurrent_dpad)?;
 
@@ -26,10 +32,14 @@ impl Nes {
             if s.slider("Speed", &mut self.config.speed, 0.25, 2.0)? {
                 self.set_speed(self.config.speed);
             }
+
+            s.spacing()?;
             Ok(())
         })?;
 
         s.collapsing_header("Sound", |s: &mut PixState| {
+            s.spacing()?;
+
             s.checkbox("Enabled", &mut self.config.sound)?;
             s.spacing()?;
 
@@ -54,10 +64,14 @@ impl Nes {
             if s.checkbox("DMC", &mut dmc)? {
                 self.control_deck.toggle_channel(AudioChannel::Dmc);
             }
+
+            s.spacing()?;
             Ok(())
         })?;
 
         s.collapsing_header("Video", |s: &mut PixState| {
+            s.spacing()?;
+
             let mut scale = self.config.scale as usize - 1;
             s.next_width(50);
             if s.select_box("Scale", &mut scale, &["1", "2", "3", "4"], 4)? {
@@ -90,6 +104,8 @@ impl Nes {
             if s.checkbox("VSync Enabled", &mut self.config.vsync)? {
                 s.vsync(self.config.vsync)?;
             }
+
+            s.spacing()?;
             Ok(())
         })?;
 

@@ -9,13 +9,13 @@ use enum_dispatch::enum_dispatch;
 use pix_engine::prelude::{Image, PixelFormat};
 use std::{
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub type Addr = u16;
 pub type Word = usize;
 pub type Byte = u8;
-pub const CONFIG_DIR: &str = ".tetanes";
+pub const CONFIG_DIR: &str = ".config/tetanes";
 pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
 
@@ -80,6 +80,16 @@ impl Savable for NesFormat {
         };
         Ok(())
     }
+}
+
+pub(crate) fn config_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("./"))
+        .join(CONFIG_DIR)
+}
+
+pub(crate) fn config_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    config_dir().join(path)
 }
 
 /// Creates a '.png' file

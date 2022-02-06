@@ -18,7 +18,7 @@ A `keys` array with the following values:
 
 A `buttons` array with the following values:
 
-- `controller`: `One`, `Two`, `Three`, or `Four` for each possible player.
+- `player`: `One`, `Two`, `Three`, or `Four` for each possible player.
 - `button`: String that maps to a `pix_engine::prelude::ControllerButton`
   variant.
 - `action`: Object that maps to an `nes::Action` variant. e.g.
@@ -28,7 +28,7 @@ A `buttons` array with the following values:
 
 A `axes` array with the following values:
 
-- `controller`: `One`, `Two`, `Three`, or `Four` for each possible player.
+- `player`: `One`, `Two`, `Three`, or `Four` for each possible player.
 - `axis`: String that maps to a `pix_engine::prelude::Axis` variant.
 - `direction`: `None`, `Positive`, or `Negative` to indicate axis direction.
 - `action`: Object that maps to an `nes::Action` variant. e.g.

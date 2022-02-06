@@ -2,7 +2,10 @@ use crate::{
     apu::AudioChannel,
     common::{Clocked, Powered},
     input::{GamepadBtn, GamepadSlot},
-    nes::{menu::Menu, Debugger, Mode, Nes, NesResult},
+    nes::{
+        menu::{keybinds::Player, Menu},
+        Debugger, Mode, Nes, NesResult,
+    },
     ppu::{Filter, RENDER_HEIGHT},
 };
 use anyhow::Context;
@@ -13,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     collections::HashMap,
+    fmt,
     fs::File,
     io::BufReader,
     ops::{Deref, DerefMut},
@@ -38,6 +42,26 @@ pub(crate) enum Input {
     Axis((GamepadSlot, Axis, AxisDirection)),
 }
 
+impl fmt::Display for Input {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Input::Key((key, keymod)) => {
+                if keymod.is_empty() {
+                    write!(f, "{:?}", key)
+                } else {
+                    write!(f, "{:?} {:?}", keymod, key)
+                }
+            }
+            Input::Button((_, btn)) => {
+                write!(f, "{:?}", btn)
+            }
+            Input::Axis((_, axis, _)) => {
+                write!(f, "{:?}", axis)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct KeyBinding {
     key: Key,
@@ -47,14 +71,14 @@ pub(crate) struct KeyBinding {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerButtonBinding {
-    controller: GamepadSlot,
+    player: GamepadSlot,
     button: ControllerButton,
     action: Action,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerAxisBinding {
-    controller: GamepadSlot,
+    player: GamepadSlot,
     axis: Axis,
     direction: AxisDirection,
     action: Action,
@@ -74,21 +98,22 @@ pub(crate) struct InputBindings(HashMap<Input, Action>);
 impl InputBindings {
     pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> NesResult<Self> {
         let path = path.as_ref();
-        let file = BufReader::new(File::open(path)?);
+        let file =
+            BufReader::new(File::open(path).with_context(|| format!("`{}`", path.display()))?);
 
         let input_binds: InputBinds = serde_json::from_reader(file)
-            .with_context(|| format!("Failed to parse `{}`", path.display()))?;
+            .with_context(|| format!("failed to parse `{}`", path.display()))?;
 
         let mut bindings = HashMap::new();
         for bind in input_binds.keys {
             bindings.insert(Input::Key((bind.key, bind.keymod)), bind.action);
         }
         for bind in input_binds.buttons {
-            bindings.insert(Input::Button((bind.controller, bind.button)), bind.action);
+            bindings.insert(Input::Button((bind.player, bind.button)), bind.action);
         }
         for bind in input_binds.axes {
             bindings.insert(
-                Input::Axis((bind.controller, bind.axis, bind.direction)),
+                Input::Axis((bind.player, bind.axis, bind.direction)),
                 bind.action,
             );
         }
@@ -110,7 +135,7 @@ impl DerefMut for InputBindings {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum Action {
     Nes(NesState),
     Menu(Menu),
@@ -121,7 +146,7 @@ pub(crate) enum Action {
     Debug(DebugAction),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum NesState {
     ToggleMenu,
     Quit,
@@ -129,7 +154,7 @@ pub(crate) enum NesState {
     PowerCycle,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum Feature {
     ToggleGameplayRecording,
     ToggleSoundRecording,
@@ -139,7 +164,7 @@ pub(crate) enum Feature {
     LoadState,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum Setting {
     SetSaveSlot(u8),
     ToggleFullscreen,
@@ -156,7 +181,7 @@ pub(crate) enum Setting {
     DecSpeed,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum DebugAction {
     ToggleDebugger,
     ToggleNtViewer,
@@ -266,7 +291,7 @@ impl Nes {
         } else if pressed {
             match action {
                 Action::Nes(state) => self.handle_nes_state(s, state)?,
-                Action::Menu(menu) => self.mode = Mode::InMenu(menu),
+                Action::Menu(menu) => self.mode = Mode::InMenu(menu, Player::One),
                 Action::Feature(feature) => self.handle_feature(s, feature, false)?,
                 Action::Setting(setting) => self.handle_setting(s, setting)?,
                 Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed)?,
@@ -294,11 +319,9 @@ impl Nes {
                 if let Mode::InMenu(..) = self.mode {
                     if self.control_deck.is_running() {
                         self.mode = Mode::Playing;
-                    } else {
-                        self.mode = Mode::InMenu(Menu::Help);
                     }
                 } else {
-                    self.mode = Mode::InMenu(Menu::Help);
+                    self.mode = Mode::InMenu(Menu::Config, Player::One);
                 }
             }
             NesState::Quit => s.quit(),

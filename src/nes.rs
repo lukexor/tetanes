@@ -2,21 +2,23 @@
 
 use crate::{
     apu::SAMPLE_RATE,
-    common::{Clocked, Powered},
+    common::{config_dir, config_path, Clocked, Powered},
     control_deck::ControlDeck,
     input::GamepadSlot,
     ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
+use anyhow::Context;
 use bitflags::bitflags;
 use config::Config;
 use filesystem::{is_nes_rom, is_playback_file};
-use menu::Menu;
+use menu::{keybinds::Player, Menu};
 use pix_engine::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap},
     env,
     fmt::Write,
+    fs,
     path::PathBuf,
     time::Instant,
 };
@@ -26,8 +28,10 @@ pub(crate) mod event;
 pub(crate) mod filesystem;
 pub(crate) mod menu;
 
+pub(crate) const SETTINGS: &str = "settings.json";
+const DEFAULT_SETTINGS: &[u8] = include_bytes!("../config/settings.json");
+
 const APP_NAME: &str = "TetaNES";
-const SETTINGS: &str = "./config/settings.json";
 #[cfg(not(target_arch = "wasm32"))]
 const ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
 const WINDOW_WIDTH: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
@@ -101,7 +105,17 @@ impl NesBuilder {
 
     /// Creates an Nes instance from an NesBuilder.
     pub fn build(&self) -> NesResult<Nes> {
-        let mut config = Config::from_file(SETTINGS)?;
+        let config_dir = config_dir();
+        if !config_dir.exists() {
+            fs::create_dir_all(config_dir).context("unable to create config directory")?;
+        }
+
+        let settings = config_path(SETTINGS);
+        if !settings.exists() {
+            fs::write(&settings, DEFAULT_SETTINGS)
+                .context("unable to create default `settings.json`")?;
+        }
+        let mut config = Config::from_file(settings)?;
         config.rom_path = self.path.to_owned().canonicalize()?;
         config.fullscreen = self.fullscreen;
         config.consistent_ram = self.consistent_ram;
@@ -138,14 +152,14 @@ impl Default for NesBuilder {
 pub(crate) enum Mode {
     Playing,
     Paused,
-    InMenu(Menu),
+    InMenu(Menu, Player),
     Recording,
     Replaying,
 }
 
 impl Default for Mode {
     fn default() -> Self {
-        Self::InMenu(Menu::LoadRom)
+        Self::InMenu(Menu::LoadRom, Player::One)
     }
 }
 
@@ -290,7 +304,7 @@ impl AppState for Nes {
             Mode::Paused => self.render_status(s, "Paused")?,
             Mode::Recording => self.render_status(s, "Recording")?,
             Mode::Replaying => self.render_status(s, "Replay")?,
-            Mode::InMenu(menu) => self.render_menu(s, menu)?,
+            Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
             Mode::Playing => (),
         }
         self.render_messages(s)?;

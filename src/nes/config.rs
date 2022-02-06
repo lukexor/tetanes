@@ -1,4 +1,5 @@
 use crate::{
+    common::config_path,
     nes::{event::InputBindings, Mode, Nes},
     NesResult,
 };
@@ -6,12 +7,13 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::{
     env,
-    fs::File,
+    fs::{self, File},
     io::BufReader,
     path::{Path, PathBuf},
 };
 
-const KEYBINDS: &str = "./config/keybinds.json";
+pub(crate) const KEYBINDS: &str = "keybinds.json";
+const DEFAULT_KEYBINDS: &[u8] = include_bytes!("../../config/keybinds.json");
 const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
 const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
@@ -49,6 +51,11 @@ pub(crate) struct Config {
 
 impl Config {
     pub(crate) fn new() -> NesResult<Self> {
+        let keybinds = config_path(KEYBINDS);
+        if !keybinds.exists() {
+            fs::write(&keybinds, DEFAULT_KEYBINDS)
+                .context("unable to create default `keybinds.json`")?;
+        }
         Ok(Self {
             rom_path: env::current_dir().unwrap_or_default(),
             pause_in_bg: true,
@@ -60,17 +67,18 @@ impl Config {
             save_slot: 1,
             scale: 3.0,
             speed: 1.0,
-            input_bindings: InputBindings::from_file(KEYBINDS)?,
+            input_bindings: InputBindings::from_file(keybinds)?,
             genie_codes: vec![],
         })
     }
 
     pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> NesResult<Self> {
         let path = path.as_ref();
-        let file = BufReader::new(File::open(path)?);
+        let file =
+            BufReader::new(File::open(path).with_context(|| format!("`{}`", path.display()))?);
 
         let settings: Settings = serde_json::from_reader(file)
-            .with_context(|| format!("Failed to parse `{}`", path.display()))?;
+            .with_context(|| format!("failed to parse `{}`", path.display()))?;
 
         Ok(Self {
             pause_in_bg: settings.pause_in_bg,

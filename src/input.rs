@@ -27,7 +27,7 @@ pub enum GamepadSlot {
 }
 
 /// A NES Gamepad.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum GamepadBtn {
     /// Left D-Pad.
     Left,
@@ -51,6 +51,24 @@ pub enum GamepadBtn {
     Start,
     /// Zapper Trigger.
     Zapper,
+}
+
+impl AsRef<str> for GamepadBtn {
+    fn as_ref(&self) -> &str {
+        match self {
+            GamepadBtn::Left => "Left",
+            GamepadBtn::Right => "Right",
+            GamepadBtn::Up => "Up",
+            GamepadBtn::Down => "Down",
+            GamepadBtn::A => "A",
+            GamepadBtn::TurboA => "A (Turbo)",
+            GamepadBtn::B => "B",
+            GamepadBtn::TurboB => "B (Turbo)",
+            GamepadBtn::Select => "Select",
+            GamepadBtn::Start => "Start",
+            GamepadBtn::Zapper => "Zapper Trigger",
+        }
+    }
 }
 
 /// Represents an NES Joypad
