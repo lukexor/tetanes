@@ -6,18 +6,20 @@ use crate::{
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub(crate) struct Sequencer {
     pub(crate) step: usize,
     pub(crate) length: usize,
 }
 
 impl Sequencer {
-    pub(crate) fn new(length: usize) -> Self {
+    pub(crate) const fn new(length: usize) -> Self {
         Self { step: 1, length }
     }
 }
 
 impl Clocked for Sequencer {
+    #[inline]
     fn clock(&mut self) -> usize {
         let clock = self.step;
         self.step += 1;

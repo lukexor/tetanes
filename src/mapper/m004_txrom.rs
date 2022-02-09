@@ -1,7 +1,7 @@
-//! TxROM/MMC3 (Mapper 4)
+//! `TxROM`/`MMC3` (Mapper 4)
 //!
-//! [https://wiki.nesdev.com/w/index.php/TxROM]()
-//! [https://wiki.nesdev.com/w/index.php/MMC3]()
+//! <https://wiki.nesdev.com/w/index.php/TxROM>
+//! <https://wiki.nesdev.com/w/index.php/MMC3>
 
 use crate::{
     cartridge::Cartridge,
@@ -23,8 +23,8 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
 const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
-/// TxROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Txrom {
     regs: TxRegs,
     has_chr_ram: bool,
@@ -64,6 +64,7 @@ pub struct Txrom {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 struct TxRegs {
     bank_select: u8,
     bank_values: [usize; 8],
@@ -76,7 +77,7 @@ struct TxRegs {
 }
 
 impl TxRegs {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             bank_select: 0x00,
             bank_values: [0x00; 8],
@@ -296,13 +297,10 @@ impl MemRead for Txrom {
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.chr.peek(addr),
-            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
-                if let Some(ram) = &self.four_screen_ram {
-                    ram.peek(addr)
-                } else {
-                    0
-                }
-            }
+            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => self
+                .four_screen_ram
+                .as_ref()
+                .map_or(0, |ram| ram.peek(addr)),
             0x6000..=0x7FFF => self.prg_ram.peek(addr),
             0x8000..=0xFFFF => self.prg_rom.peek(addr),
             // 0x4020..=0x5FFF Nothing at this range

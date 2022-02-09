@@ -3,7 +3,7 @@
 //! Converts primative types and arrays of primatives from/to Big-Endian byte arrays and writes
 //! them to a file handle that implements Read/Write.
 
-use crate::{mapper::*, nes_err, NesResult};
+use crate::{mapper::MapperType, nes_err, NesResult};
 use enum_dispatch::enum_dispatch;
 use std::{
     collections::VecDeque,
@@ -16,37 +16,57 @@ const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
 const VERSION: u8 = 0;
 
 /// Writes a header including a magic string and a version
+///
+/// # Errors
+///
+/// If the header fails to write to disk, then an error is returned.
 pub fn write_save_header<F: Write>(fh: &mut F) -> NesResult<()> {
     SAVE_FILE_MAGIC.save(fh)?;
     VERSION.save(fh)
 }
 
+/// Verifies a `TetaNES` saved state header.
+///
+/// # Errors
+///
+/// If the header fails to validate, then an error is returned.
 pub fn validate_save_header<F: Read>(fh: &mut F) -> NesResult<()> {
     let mut magic = [0u8; SAVE_FILE_MAGIC_LEN];
     magic.load(fh)?;
-    if magic != SAVE_FILE_MAGIC {
-        nes_err!("invalid save file format")
-    } else {
+    if magic == SAVE_FILE_MAGIC {
         let mut version = 0u8;
         version.load(fh)?;
-        if version != VERSION {
+        if version == VERSION {
+            Ok(())
+        } else {
             nes_err!(
                 "invalid save file version. current: {}, save file: {}",
                 VERSION,
                 version,
             )
-        } else {
-            Ok(())
         }
+    } else {
+        nes_err!("invalid save file format")
     }
 }
 
 /// Savable trait
 #[enum_dispatch(MapperType)]
 pub trait Savable {
+    /// Saves a given type to the file handle.
+    ///
+    /// # Errors
+    ///
+    /// If data fails to serialize, then an error is returned.
     fn save<F: Write>(&self, _fh: &mut F) -> NesResult<()> {
         Ok(())
     }
+
+    /// Loads a given type from the file handle.
+    ///
+    /// # Errors
+    ///
+    /// If data fails to deserialize, then an error is returned.
     fn load<F: Read>(&mut self, _fh: &mut F) -> NesResult<()> {
         Ok(())
     }
@@ -57,6 +77,7 @@ impl Savable for bool {
         fh.write_all(&[*self as u8])?;
         Ok(())
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut bytes = [0; 1];
         fh.read_exact(&mut bytes)?;
@@ -224,13 +245,12 @@ impl<T: Savable> Savable for [T] {
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut len = 0u32;
         len.load(fh)?;
-        if len != self.len() as u32 {
-            panic!(
-                "Array read len does not match. Got {}, expected {}",
-                len,
-                self.len() as u32
-            );
-        }
+        assert!(
+            len == self.len() as u32,
+            "Array read len does not match. Got {}, expected {}",
+            len,
+            self.len() as u32
+        );
         for i in 0..len {
             self[i as usize].load(fh)?;
         }

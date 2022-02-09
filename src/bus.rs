@@ -21,8 +21,9 @@ const WRAM_SIZE: usize = 2 * 1024; // 2K NES Work Ram
 
 /// NES Bus
 ///
-/// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
+/// <http://wiki.nesdev.com/w/index.php/CPU_memory_map>
 #[derive(Clone)]
+#[must_use]
 pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,
@@ -75,6 +76,11 @@ impl Bus {
         self.mapper = mapper;
     }
 
+    /// Add a Game Genie code to override memory reads/writes.
+    ///
+    /// # Errors
+    ///
+    /// Errors if genie code is invalid.
     pub fn add_genie_code(&mut self, code: &str) -> NesResult<()> {
         if code.len() != 6 && code.len() != 8 {
             return nes_err!("Invalid Game Genie code: {}", code);
@@ -155,8 +161,7 @@ impl MemRead for Bus {
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
             0x4016..=0x4017 => self.input.read(addr),
             0x2000..=0x3FFF => self.ppu.read(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
-            0x4014 => self.open_bus,
+            0x4014 | 0x4018..=0x401F => self.open_bus,       // APU/IO Test Mode
         };
         // Helps to sync open bus behavior
         self.mapper.open_bus(addr, val);
@@ -188,8 +193,7 @@ impl MemRead for Bus {
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
             0x4016..=0x4017 => self.input.peek(addr),
             0x2000..=0x3FFF => self.ppu.peek(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
-            0x4014 => self.open_bus,
+            0x4014 | 0x4018..=0x401F => self.open_bus,       // APU/IO Test Mode
         }
     }
 }
@@ -210,8 +214,8 @@ impl MemWrite for Bus {
                 self.ppu.write(addr & 0x2007, val); // 0x2008..=0x3FFF are mirrored
                 self.mapper.ppu_write(addr, val);
             }
-            0x4018..=0x401F => (), // APU/IO Test Mode
-            0x4014 => (),          // Handled inside the CPU
+            // DMA is handled inside the CPU
+            0x4014 | 0x4018..=0x401F => (), // APU/IO Test Mode
         }
     }
 }

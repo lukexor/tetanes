@@ -1,6 +1,6 @@
-//! PxROM/MMC2 (mapper 9)
+//! `PxROM`/`MMC2` (mapper 9)
 //!
-//! [http://wiki.nesdev.com/w/index.php/MMC2]()
+//! <http://wiki.nesdev.com/w/index.php/MMC2>
 
 use crate::{
     cartridge::Cartridge,
@@ -16,8 +16,8 @@ const PRG_WINDOW: usize = 8 * 1024;
 const CHR_ROM_WINDOW: usize = 4 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
 
-/// PxROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Pxrom {
     mirroring: Mirroring,
     // CHR ROM $FD/0000 bank select ($B000-$BFFF)

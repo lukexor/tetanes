@@ -1,7 +1,7 @@
 //! CNROM (Mapper 3)
 //!
-//! [https://wiki.nesdev.com/w/index.php/CNROM]()
-//! [https://wiki.nesdev.com/w/index.php/INES_Mapper_003]()
+//! <https://wiki.nesdev.com/w/index.php/CNROM>
+//! <https://wiki.nesdev.com/w/index.php/INES_Mapper_003>
 
 use crate::{
     cartridge::Cartridge,
@@ -14,8 +14,8 @@ use crate::{
 const PRG_ROM_WINDOW: usize = 16 * 1024;
 const CHR_ROM_WINDOW: usize = 8 * 1024;
 
-/// CNROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Cnrom {
     mirroring: Mirroring,
     // CPU $8000-$FFFF 16 KB PRG ROM Bank 1 Fixed

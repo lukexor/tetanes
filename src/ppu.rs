@@ -1,6 +1,6 @@
-//! Picture Processing Unit
+//! Picture Processing Unit (PPU)
 //!
-//! [http://wiki.nesdev.com/w/index.php/PPU]()
+//! <http://wiki.nesdev.com/w/index.php/PPU>
 
 use crate::{
     common::{Addr, Byte, Clocked, NesFormat, Powered},
@@ -64,12 +64,14 @@ const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
 const PRERENDER_SCANLINE: u16 = 261;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum Filter {
+#[must_use]
+pub enum VideoFormat {
     None,
     Ntsc,
 }
 
 #[derive(Clone)]
+#[must_use]
 pub struct Ppu {
     pub cycle: u16,         // (0, 340) 341 cycles happen per scanline
     pub cycle_count: usize, // Total number of PPU cycles run
@@ -82,7 +84,7 @@ pub struct Ppu {
     oamdata: Oam,           // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
     frame: Frame,           // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
-    pub filter: Filter,
+    pub filter: VideoFormat,
     nes_format: NesFormat,
     clock_remainder: u8,
     debug: bool,
@@ -109,7 +111,7 @@ impl Ppu {
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
-            filter: Filter::Ntsc,
+            filter: VideoFormat::Ntsc,
             nes_format: NesFormat::Ntsc,
             clock_remainder: 0,
             debug: false,
@@ -151,6 +153,8 @@ impl Ppu {
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
+    #[must_use]
+    #[inline]
     pub fn frame(&self) -> &[Byte] {
         &self.frame.pixels
     }
@@ -252,6 +256,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn run_cycle(&mut self) {
         self.tick();
 
@@ -480,19 +485,19 @@ impl Ppu {
             {
                 self.set_sprite_zero_hit(true);
             }
-            if !self.frame.sprites[i].has_priority {
-                sprite_color | 0x10
-            } else {
+            if self.frame.sprites[i].has_priority {
                 bg_color
+            } else {
+                sprite_color | 0x10
             }
         };
         let mut palette = self.vram.read(Addr::from(color) + PALETTE_START);
         if self.regs.grayscale() {
             palette &= !0x0F; // Remove chroma
         }
-        if let Filter::Ntsc = self.filter {
+        if self.filter == VideoFormat::Ntsc {
             let format = self.nes_format;
-            let pixel = ((self.regs.emphasis(format) as u32) << 6) | palette as u32;
+            let pixel = (u32::from(self.regs.emphasis(format)) << 6) | u32::from(palette);
             self.frame
                 .put_ntsc_pixel(x.into(), self.scanline.into(), pixel, self.frame_cycles);
         } else {
@@ -504,6 +509,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut [Byte]) {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return;
@@ -519,11 +525,13 @@ impl Ppu {
         pixels[idx + 3] = 255;
     }
 
-    fn is_sprite_zero(&self, index: usize) -> bool {
+    #[inline]
+    const fn is_sprite_zero(&self, index: usize) -> bool {
         self.frame.sprites[index].index == 0
     }
 
-    fn background_color(&self) -> Byte {
+    #[inline]
+    const fn background_color(&self) -> Byte {
         if !self.regs.show_background() {
             return 0;
         }
@@ -538,6 +546,7 @@ impl Ppu {
         (data & 0x0F) as Byte
     }
 
+    #[inline]
     fn sprite_color(&self) -> (usize, Byte) {
         if !self.regs.show_sprites() {
             return (0, 0);
@@ -557,6 +566,7 @@ impl Ppu {
         (0, 0)
     }
 
+    #[inline]
     fn tick(&mut self) {
         // Clear open bus roughly once every frame
         if self.scanline == 0 {
@@ -665,8 +675,16 @@ impl Ppu {
         sprite
     }
 
-    pub fn rendering_enabled(&self) -> bool {
+    #[must_use]
+    #[inline]
+    pub const fn rendering_enabled(&self) -> bool {
         self.regs.show_background() || self.regs.show_sprites()
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn nmi_enabled(&self) -> bool {
+        self.regs.nmi_enabled()
     }
 
     // Register read/writes
@@ -675,9 +693,7 @@ impl Ppu {
      * $2000 PPUCTRL
      */
 
-    pub fn nmi_enabled(&self) -> bool {
-        self.regs.nmi_enabled()
-    }
+    #[inline]
     fn write_ppuctrl(&mut self, val: Byte) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
@@ -704,6 +720,7 @@ impl Ppu {
      * $2001 PPUMASK
      */
 
+    #[inline]
     fn write_ppumask(&mut self, val: Byte) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
@@ -715,6 +732,7 @@ impl Ppu {
      * $2002 PPUSTATUS
      */
 
+    #[inline]
     pub fn read_ppustatus(&mut self) -> Byte {
         let mut status = self.regs.read_status();
         // Race conditions
@@ -733,18 +751,28 @@ impl Ppu {
             .ppu_write(0x2002, self.regs.peek_status());
         status
     }
-    fn peek_ppustatus(&self) -> Byte {
+
+    #[inline]
+    const fn peek_ppustatus(&self) -> Byte {
         self.regs.peek_status()
     }
+
+    #[inline]
     fn sprite_zero_hit(&mut self) -> bool {
         self.regs.sprite_zero_hit()
     }
+
+    #[inline]
     fn set_sprite_zero_hit(&mut self, val: bool) {
         self.regs.set_sprite_zero_hit(val);
     }
+
+    #[inline]
     fn set_sprite_overflow(&mut self, val: bool) {
         self.regs.set_sprite_overflow(val);
     }
+
+    #[inline]
     fn start_vblank(&mut self) {
         self.regs.start_vblank();
         if self.nmi_enabled() {
@@ -755,6 +783,8 @@ impl Ppu {
             .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
     }
+
+    #[inline]
     fn stop_vblank(&mut self) {
         self.regs.stop_vblank();
         // Ensure our mapper knows vbl changed
@@ -762,7 +792,10 @@ impl Ppu {
             .mapper_mut()
             .ppu_write(0x2002, self.regs.peek_status());
     }
-    pub fn vblank_started(&self) -> bool {
+
+    #[must_use]
+    #[inline]
+    pub const fn vblank_started(&self) -> bool {
         self.regs.vblank_started()
     }
 
@@ -770,10 +803,13 @@ impl Ppu {
      * $2003 OAMADDR
      */
 
-    pub fn read_oamaddr(&self) -> Byte {
+    #[must_use]
+    #[inline]
+    pub const fn read_oamaddr(&self) -> Byte {
         self.regs.oamaddr
     }
 
+    #[inline]
     fn write_oamaddr(&mut self, val: Byte) {
         self.regs.oamaddr = val;
     }
@@ -782,21 +818,25 @@ impl Ppu {
      * $2004 OAMDATA
      */
 
+    #[must_use]
+    #[inline]
     fn read_oamdata(&mut self) -> Byte {
         if self.rendering_enabled() {
             match self.cycle {
-                0..=63 => 0xFF,
-                64..=255 => 0x00,
-                256..=319 => 0xFF,
+                0..=63 | 256..=319 => 0xFF,
                 _ => 0x00,
             }
         } else {
             self.oamdata.read(Addr::from(self.regs.oamaddr))
         }
     }
+
+    #[inline]
     fn peek_oamdata(&self) -> Byte {
         self.oamdata.peek(Addr::from(self.regs.oamaddr))
     }
+
+    #[inline]
     fn write_oamdata(&mut self, val: Byte) {
         self.oamdata.write(Addr::from(self.regs.oamaddr), val);
         self.regs.oamaddr = self.regs.oamaddr.wrapping_add(1);
@@ -806,6 +846,7 @@ impl Ppu {
      * $2005 PPUSCROLL
      */
 
+    #[inline]
     fn write_ppuscroll(&mut self, val: Byte) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
@@ -817,9 +858,13 @@ impl Ppu {
      * $2006 PPUADDR
      */
 
-    pub fn read_ppuaddr(&self) -> Addr {
+    #[must_use]
+    #[inline]
+    pub const fn read_ppuaddr(&self) -> Addr {
         self.regs.read_addr()
     }
+
+    #[inline]
     fn write_ppuaddr(&mut self, val: Addr) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
@@ -832,6 +877,7 @@ impl Ppu {
      * $2007 PPUDATA
      */
 
+    #[inline]
     fn read_ppudata(&mut self) -> Byte {
         let val = self.vram.read(self.read_ppuaddr());
         // Buffering quirk resulting in a dummy read for the CPU
@@ -861,6 +907,8 @@ impl Ppu {
         self.vram.mapper_mut().vram_change(self.regs.v);
         val
     }
+
+    #[inline]
     fn peek_ppudata(&self) -> Byte {
         let val = self.vram.peek(self.read_ppuaddr());
         if self.read_ppuaddr() <= 0x3EFF {
@@ -869,6 +917,8 @@ impl Ppu {
             val
         }
     }
+
+    #[inline]
     fn write_ppudata(&mut self, val: Byte) {
         self.vram.write(self.read_ppuaddr(), val);
         // During rendering, v increments coarse X and coarse Y simultaneously
@@ -931,59 +981,62 @@ impl Clocked for Ppu {
 }
 
 impl MemRead for Ppu {
+    #[inline]
     fn read(&mut self, addr: Addr) -> Byte {
         match addr {
-            0x2000 => self.regs.open_bus, // PPUCTRL is write-only
-            0x2001 => self.regs.open_bus, // PPUMASK is write-only
             0x2002 => {
                 let val = self.read_ppustatus(); // PPUSTATUS
                 self.regs.open_bus |= val & !0x1F;
                 (val & !0x1F) | (self.regs.open_bus & 0x1F)
             }
-            0x2003 => self.regs.open_bus, // OAMADDR is write-only
             0x2004 => {
                 let val = self.read_oamdata(); // OAMDATA
                 self.regs.open_bus = val;
                 val
             }
-            0x2005 => self.regs.open_bus, // PPUSCROLL is write-only
-            0x2006 => self.regs.open_bus, // PPUADDR is write-only
             0x2007 => {
                 let val = self.read_ppudata(); // PPUDATA
                 self.regs.open_bus = val;
                 val
             }
-            _ => 0,
+            // 0x2000 PPUCTRL is write-only
+            // 0x2001 PPUMASK is write-only
+            // 0x2003 OAMADDR is write-only
+            // 0x2005 PPUSCROLL is write-only
+            // 0x2006 PPUADDR is write-only
+            _ => self.regs.open_bus,
         }
     }
 
+    #[inline]
     fn peek(&self, addr: Addr) -> Byte {
         match addr {
-            0x2000 => self.regs.open_bus,    // PPUCTRL is write-only
-            0x2001 => self.regs.open_bus,    // PPUMASK is write-only
             0x2002 => self.peek_ppustatus(), // PPUSTATUS
-            0x2003 => self.regs.open_bus,    // OAMADDR is write-only
             0x2004 => self.peek_oamdata(),   // OAMDATA
-            0x2005 => self.regs.open_bus,    // PPUSCROLL is write-only
-            0x2006 => self.regs.open_bus,    // PPUADDR is write-only
             0x2007 => self.peek_ppudata(),   // PPUDATA
-            _ => 0,
+            // 0x2000 PPUCTRL is write-only
+            // 0x2001 PPUMASK is write-only
+            // 0x2003 OAMADDR is write-only
+            // 0x2005 PPUSCROLL is write-only
+            // 0x2006 PPUADDR is write-only
+            _ => self.regs.open_bus,
         }
     }
 }
 
 impl MemWrite for Ppu {
+    #[inline]
     fn write(&mut self, addr: Addr, val: Byte) {
         self.regs.open_bus = val;
         match addr {
             0x2000 => self.write_ppuctrl(val),             // PPUCTRL
             0x2001 => self.write_ppumask(val),             // PPUMASK
-            0x2002 => (),                                  // PPUSTATUS is read-only
             0x2003 => self.write_oamaddr(val),             // OAMADDR
             0x2004 => self.write_oamdata(val),             // OAMDATA
             0x2005 => self.write_ppuscroll(val),           // PPUSCROLL
             0x2006 => self.write_ppuaddr(Addr::from(val)), // PPUADDR
             0x2007 => self.write_ppudata(val),             // PPUDATA
+            // 0x2002 PPUSTATUS is read-only
             _ => (),
         }
     }
@@ -1081,7 +1134,7 @@ impl fmt::Debug for Ppu {
     }
 }
 
-impl Savable for Filter {
+impl Savable for VideoFormat {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         (*self as u8).save(fh)
     }
@@ -1089,8 +1142,8 @@ impl Savable for Filter {
         let mut val = 0u8;
         val.load(fh)?;
         *self = match val {
-            0 => Filter::None,
-            1 => Filter::Ntsc,
+            0 => VideoFormat::None,
+            1 => VideoFormat::Ntsc,
             _ => panic!("invalid Filter value"),
         };
         Ok(())

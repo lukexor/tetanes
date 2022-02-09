@@ -3,10 +3,10 @@ use crate::{
     common::{Clocked, Powered},
     input::{GamepadBtn, GamepadSlot},
     nes::{
-        menu::{keybinds::Player, Menu},
+        menu::{Menu, Player},
         Debugger, Mode, Nes, NesResult,
     },
-    ppu::{Filter, RENDER_HEIGHT},
+    ppu::{VideoFormat, RENDER_HEIGHT},
 };
 use anyhow::Context;
 use chrono::Local;
@@ -84,7 +84,7 @@ pub(crate) struct ControllerAxisBinding {
     action: Action,
 }
 
-/// A binding of a [KeyInput] or [ControllerInput] to an [Action].
+/// A binding of a [`KeyInput`] or [`ControllerInput`] to an [Action].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct InputBinds {
     pub(crate) keys: Vec<KeyBinding>,
@@ -253,7 +253,7 @@ impl Nes {
             let direction = match value.cmp(&0) {
                 Ordering::Greater => AxisDirection::Positive,
                 Ordering::Less => AxisDirection::Negative,
-                _ => AxisDirection::None,
+                Ordering::Equal => AxisDirection::None,
             };
             let input = Input::Axis((slot, axis, direction));
             self.config
@@ -346,18 +346,17 @@ impl Nes {
         repeat: bool,
     ) -> NesResult<()> {
         match feature {
-            Feature::ToggleGameplayRecording => match self.mode {
-                Mode::Recording => {
+            Feature::ToggleGameplayRecording => {
+                if self.mode == Mode::Recording {
                     self.mode = Mode::Playing;
                     self.add_message("Recording Stopped");
                     todo!("Save recording");
-                }
-                _ => {
+                } else {
                     self.mode = Mode::Recording;
                     self.add_message("Recording Started");
                     todo!("Recording")
                 }
-            },
+            }
             Feature::ToggleSoundRecording => {
                 todo!("Toggle sound recording")
             }
@@ -406,9 +405,12 @@ impl Nes {
                 }
             }
             Setting::ToggleNtscFilter => {
-                let enabled = self.control_deck.filter() == Filter::Ntsc;
-                self.control_deck
-                    .set_filter(if enabled { Filter::None } else { Filter::Ntsc });
+                let enabled = self.control_deck.filter() == VideoFormat::Ntsc;
+                self.control_deck.set_filter(if enabled {
+                    VideoFormat::None
+                } else {
+                    VideoFormat::Ntsc
+                });
             }
             Setting::ToggleSound => {
                 self.config.sound = !self.config.sound;
@@ -540,7 +542,7 @@ impl Nes {
         self.messages.dedup();
         s.push();
         s.no_stroke();
-        for (message, _) in self.messages.iter() {
+        for (message, _) in &self.messages {
             s.fill(rgb!(0, 200));
             s.rect([
                 0,

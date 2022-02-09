@@ -2,6 +2,7 @@ use crate::{serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
 #[derive(Default, Debug, Copy, Clone)]
+#[must_use]
 pub(super) struct Sprite {
     pub(super) index: u8,
     pub(super) x: u16,
@@ -16,7 +17,7 @@ pub(super) struct Sprite {
 }
 
 impl Sprite {
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             index: 0u8,
             x: 0xFF,
@@ -46,6 +47,7 @@ impl Savable for Sprite {
         self.flip_vertical.save(fh)?;
         Ok(())
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.index.load(fh)?;
         self.x.load(fh)?;

@@ -2,6 +2,7 @@ use crate::{serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub(crate) struct LinearCounter {
     pub(crate) reload: bool,
     pub(crate) control: bool,
@@ -10,7 +11,7 @@ pub(crate) struct LinearCounter {
 }
 
 impl LinearCounter {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             reload: false,
             control: false,
@@ -19,6 +20,7 @@ impl LinearCounter {
         }
     }
 
+    #[inline]
     pub(crate) fn load_value(&mut self, val: u8) {
         self.load = val >> 1; // D6..D0
     }

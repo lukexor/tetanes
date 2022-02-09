@@ -1,6 +1,6 @@
 //! NES Memory Mappers for Cartridges
 //!
-//! [http://wiki.nesdev.com/w/index.php/Mapper]()
+//! <http://wiki.nesdev.com/w/index.php/Mapper>
 
 use crate::{
     cartridge::Cartridge,
@@ -35,8 +35,9 @@ mod m009_pxrom;
 
 /// Nametable Mirroring Mode
 ///
-/// [http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring]()
+/// <http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring>
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum Mirroring {
     Horizontal,
     Vertical,
@@ -46,11 +47,13 @@ pub enum Mirroring {
 }
 
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub struct NullMapper {}
 
 #[allow(clippy::large_enum_variant)]
 #[enum_dispatch]
 #[derive(Debug, Clone)]
+#[must_use]
 pub enum MapperType {
     NullMapper,
     Nrom,
@@ -75,9 +78,19 @@ pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered {
     fn battery_backed(&self) -> bool {
         false
     }
+    /// Save SRAM data to filehnadle.
+    ///
+    /// # Errors
+    ///
+    /// If save fails, an error is returned.
     fn save_sram<F: Write>(&self, _fh: &mut F) -> NesResult<()> {
         Ok(())
     }
+    /// Load SRAM data from filehnadle.
+    ///
+    /// # Errors
+    ///
+    /// If load fails, an error is returned.
     fn load_sram<F: Read>(&mut self, _fh: &mut F) -> NesResult<()> {
         Ok(())
     }
@@ -92,18 +105,23 @@ pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered {
 }
 
 /// Attempts to return a valid Mapper for the given rom.
+///
+/// # Errors
+///
+/// If loaded ROM has invalid headers or data, an error is returned.
 pub fn load_rom<F: Read>(name: &str, rom: &mut F, consistent_ram: bool) -> NesResult<MapperType> {
     let cart = Cartridge::from_rom(name, rom)?;
     let mapper = match cart.header.mapper_num {
         0 => Nrom::load(cart, consistent_ram),
         1 => Sxrom::load(cart, MMC1Variant::B, consistent_ram),
-        2 => Uxrom::load(cart, consistent_ram),
+        // TODO: Mapper 71 has slight differences from Uxrom
+        // <https://wiki.nesdev.org/w/index.php?title=INES_Mapper_071>
+        2 | 71 => Uxrom::load(cart, consistent_ram),
         3 => Cnrom::load(cart, consistent_ram),
         4 => Txrom::load(cart, consistent_ram),
         5 => Exrom::load(cart, consistent_ram),
         7 => Axrom::load(cart, consistent_ram),
         9 => Pxrom::load(cart, consistent_ram),
-        71 => Uxrom::load(cart, consistent_ram), // TODO: Mapper 71 has slight differences from Uxrom
         155 => Sxrom::load(cart, MMC1Variant::A, consistent_ram),
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };

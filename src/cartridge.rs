@@ -7,12 +7,13 @@ use std::{fmt, io::Read};
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
-/// Represents an iNES header
+/// Represents an `iNES` header
 ///
-/// [http://wiki.nesdev.com/w/index.php/INES]()
-/// [http://wiki.nesdev.com/w/index.php/NES_2.0]()
-/// [http://nesdev.com/NESDoc.pdf (page 28)]()
+/// <http://wiki.nesdev.com/w/index.php/INES>
+/// <http://wiki.nesdev.com/w/index.php/NES_2.0>
+/// <http://nesdev.com/NESDoc.pdf> (page 28)
 #[derive(Default, Debug, Copy, Clone)]
+#[must_use]
 pub struct INesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
     pub mapper_num: u16,   // The primary mapper number
@@ -28,6 +29,7 @@ pub struct INesHeader {
 
 /// Represents an NES Cartridge
 #[derive(Default, Clone)]
+#[must_use]
 pub struct Cartridge {
     pub name: String, // '.nes' rom file
     pub header: INesHeader,
@@ -117,6 +119,7 @@ impl Cartridge {
     }
 
     /// The nametable mirroring mode defined in the header
+    #[inline]
     pub fn mirroring(&self) -> Mirroring {
         if self.header.flags & 0x08 == 0x08 {
             Mirroring::FourScreen
@@ -124,50 +127,66 @@ impl Cartridge {
             match self.header.flags & 0x01 {
                 0 => Mirroring::Horizontal,
                 1 => Mirroring::Vertical,
-                _ => panic!("impossible mirroring"),
+                _ => unreachable!("impossible mirroring"),
             }
         }
     }
 
-    pub fn mapper_board(&self) -> &'static str {
+    #[must_use]
+    pub const fn mapper_board(&self) -> &'static str {
         match self.header.mapper_num {
-            0 => "NROM",
-            1 => "Sxrom/MMC1",
-            2 => "UxROM",
-            3 => "CNROM",
-            4 => "TxROM/MMC3/MMC6",
-            5 => "ExROM/MMC5",
-            7 => "AxROM",
-            9 => "PxROM",
-            155 => "Mapper 155/MMC1A",
-            _ => "Unsupported Board",
+            0 => "Mapper 000 - NROM",
+            1 => "Mapper 001 - SxROM/MMC1",
+            2 => "Mapper 002 - UxROM",
+            3 => "Mapper 003 - CNROM",
+            4 => "Mapper 004 - TxROM/MMC3/MMC6",
+            5 => "Mapper 005 - ExROM/MMC5",
+            7 => "Mapper 007 - AxROM",
+            9 => "Mapper 009 - PxROM",
+            71 => "Mapper 071 - UxROM/CAMERICA",
+            155 => "Mapper 155 - SxROM/MMC1A",
+            _ => "Unsupported Mapper",
         }
     }
 
     /// Returns whether this cartridge has battery-backed Save RAM
-    pub fn battery_backed(&self) -> bool {
+    #[must_use]
+    #[inline]
+    pub const fn battery_backed(&self) -> bool {
         self.header.flags & 0x02 == 0x02
     }
 
+    /// Returns Program RAM size.
+    ///
+    /// # Errors
+    ///
+    /// Errors if an invalid PRG-RAM header value is found.
     pub fn prg_ram_size(&self) -> NesResult<Option<usize>> {
         if self.header.prg_ram_size > 0 {
-            if let Some(size) = 64usize.checked_shl(self.header.prg_ram_size.into()) {
-                Ok(Some(size))
-            } else {
-                nes_err!("invalid header PRG-RAM size")
-            }
+            64usize
+                .checked_shl(self.header.prg_ram_size.into())
+                .map_or_else(
+                    || nes_err!("invalid header PRG-RAM size"),
+                    |size| Ok(Some(size)),
+                )
         } else {
             Ok(None)
         }
     }
 
+    /// Returns Character RAM size.
+    ///
+    /// # Errors
+    ///
+    /// Errors if an invalid CHR-RAM header value is found.
     pub fn chr_ram_size(&self) -> NesResult<Option<usize>> {
         if self.header.chr_ram_size > 0 {
-            if let Some(size) = 64usize.checked_shl(self.header.chr_ram_size.into()) {
-                Ok(Some(size))
-            } else {
-                nes_err!("invalid header CHR-RAM size")
-            }
+            64usize
+                .checked_shl(self.header.chr_ram_size.into())
+                .map_or_else(
+                    || nes_err!("invalid header CHR-RAM size"),
+                    |size| Ok(Some(size)),
+                )
         } else {
             Ok(None)
         }
@@ -175,8 +194,8 @@ impl Cartridge {
 }
 
 impl INesHeader {
-    /// Returns an empty INesHeader not loaded with any data
-    fn new() -> Self {
+    /// Returns an empty `INesHeader` not loaded with any data
+    const fn new() -> Self {
         Self {
             version: 1u8,
             mapper_num: 0u16,
@@ -191,7 +210,12 @@ impl INesHeader {
         }
     }
 
-    /// Parses a slice of `u8` bytes and returns a valid INesHeader instance
+    /// Parses a slice of `u8` bytes and returns a valid `INesHeader` instance
+    ///
+    /// # Errors
+    ///
+    /// If any header values are invalid, or if cart data doesn't match the header, then an error
+    /// is returned.
     pub fn load<F: Read>(rom_data: &mut F) -> NesResult<Self> {
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;

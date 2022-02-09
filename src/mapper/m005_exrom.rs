@@ -1,7 +1,7 @@
-//! ExROM/MMC5 (Mapper 5)
+//! `ExROM`/`MMC5` (Mapper 5)
 //!
-//! [https://wiki.nesdev.com/w/index.php/ExROM]()
-//! [https://wiki.nesdev.com/w/index.php/MMC5]()
+//! <https://wiki.nesdev.com/w/index.php/ExROM>
+//! <https://wiki.nesdev.com/w/index.php/MMC5>
 
 use crate::{
     apu::{
@@ -15,6 +15,7 @@ use crate::{
     serialization::Savable,
     NesResult,
 };
+use anyhow::anyhow;
 use std::io::{Read, Write};
 
 const PRG_WINDOW: usize = 8 * 1024;
@@ -48,8 +49,8 @@ const ATTR_SHIFT: [u8; 128] = [
     4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
 ];
 
-/// ExROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Exrom {
     regs: ExRegs,
     mirroring: Mirroring,
@@ -76,6 +77,7 @@ pub struct Exrom {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
 enum PrgMode {
     Bank32k,
     Bank16k,
@@ -84,12 +86,14 @@ enum PrgMode {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
 enum ChrBank {
     Spr,
     Bg,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
 enum ChrMode {
     Bank8k,
     Bank4k,
@@ -99,6 +103,7 @@ enum ChrMode {
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
 enum Nametable {
     NTA,
     NTB,
@@ -107,6 +112,7 @@ enum Nametable {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
 enum ExRamMode {
     Nametable,
     ExAttr,
@@ -115,6 +121,7 @@ enum ExRamMode {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 struct ExRegs {
     sprite8x16: bool,         // $2000 PPUCTRL: false = 8x8, true = 8x16
     prg_mode: PrgMode,        // $5100
@@ -143,6 +150,7 @@ struct ExRegs {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
 enum Split {
     Left,
     Right,
@@ -226,8 +234,6 @@ impl Exrom {
     // P=%11:     | $5113 | $5114 | $5115 | $5116 | $5117 |
     //            +-------+-------+-------+-------+-------+
     fn update_prg_banks(&mut self) {
-        use PrgMode::*;
-
         let mode = self.regs.prg_mode;
         let banks = self.regs.prg_banks;
 
@@ -235,14 +241,14 @@ impl Exrom {
         self.set_prg_bank_range(0x6000, 0x7FFF, banks[0], false);
         match mode {
             // $5117 always selects ROM
-            Bank32k => self.set_prg_bank_range(0x8000, 0xFFFF, banks[4], true),
-            Bank16k => {
+            PrgMode::Bank32k => self.set_prg_bank_range(0x8000, 0xFFFF, banks[4], true),
+            PrgMode::Bank16k => {
                 let rom = banks[2] & 0x80 > 0;
                 self.set_prg_bank_range(0x8000, 0xBFFF, banks[2], rom);
                 // $5117 always selets ROM
                 self.set_prg_bank_range(0xC000, 0xFFFF, banks[4], true);
             }
-            Bank16_8k => {
+            PrgMode::Bank16_8k => {
                 let rom = banks[2] & 0x80 > 0;
                 self.set_prg_bank_range(0x8000, 0xBFFF, banks[2], rom);
                 let rom = banks[3] & 0x80 > 0;
@@ -250,7 +256,7 @@ impl Exrom {
                 // $5117 always selets ROM
                 self.set_prg_bank_range(0xE000, 0xFFFF, banks[4], true);
             }
-            Bank8k => {
+            PrgMode::Bank8k => {
                 for (i, bank) in banks[1..5].iter().enumerate() {
                     // $5116 always selects ROM
                     let rom = if i == 4 { false } else { bank & 0x80 > 0 };
@@ -273,24 +279,23 @@ impl Exrom {
 
     // Maps an address to a given PRG Bank Register based on the current PRG MODE
     // Returns the bank page number and the ROM select bit
-    fn prg_addr_bank(&self, addr: Addr) -> (usize, bool) {
+    const fn prg_addr_bank(&self, addr: Addr) -> (usize, bool) {
         let mode = self.regs.prg_mode;
         let banks = self.regs.prg_banks;
-        use PrgMode::*;
         let bank = match addr {
             0x6000..=0x7FFF => banks[0],
             0x8000..=0x9FFF => match mode {
-                Bank8k => banks[1],
-                Bank16k | Bank16_8k => banks[2],
-                Bank32k => banks[4],
+                PrgMode::Bank8k => banks[1],
+                PrgMode::Bank16k | PrgMode::Bank16_8k => banks[2],
+                PrgMode::Bank32k => banks[4],
             },
             0xA000..=0xBFFF => match mode {
-                Bank8k | Bank16k | Bank16_8k => banks[2],
-                Bank32k => banks[4],
+                PrgMode::Bank8k | PrgMode::Bank16k | PrgMode::Bank16_8k => banks[2],
+                PrgMode::Bank32k => banks[4],
             },
             0xC000..=0xDFFF => match mode {
-                Bank8k | Bank16_8k => banks[3],
-                Bank16k | Bank32k => banks[4],
+                PrgMode::Bank8k | PrgMode::Bank16_8k => banks[3],
+                PrgMode::Bank16k | PrgMode::Bank32k => banks[4],
             },
             0xE000..=0xFFFF => banks[4],
             _ => 0x00,
@@ -308,7 +313,8 @@ impl Exrom {
         (bank & 0x7F, rom_select)
     }
 
-    fn rom_select(&self, addr: Addr) -> bool {
+    #[inline]
+    const fn rom_select(&self, addr: Addr) -> bool {
         let (_, rom_select) = self.prg_addr_bank(addr);
         rom_select
     }
@@ -366,6 +372,7 @@ impl Exrom {
     }
 
     // Determine the nametable we're trying to access
+    #[inline]
     fn nametable_mapping(&self, addr: u16) -> Nametable {
         let table_size = 0x0400;
         let addr = (addr - 0x2000) % 0x1000;
@@ -379,6 +386,7 @@ impl Exrom {
         }
     }
 
+    #[inline]
     fn update_ram_protection(&mut self) {
         // To allow writing to PRG-RAM you must set:
         //    A=%10
@@ -390,6 +398,7 @@ impl Exrom {
 }
 
 impl Mapper for Exrom {
+    #[inline]
     fn irq_pending(&mut self) -> bool {
         self.regs.irq_enabled && self.irq_pending
     }
@@ -413,14 +422,14 @@ impl Mapper for Exrom {
             if (addr >> 12) == 0x02 && addr == self.ppu_prev_addr {
                 self.ppu_prev_match += 1;
                 if self.ppu_prev_match == 2 {
-                    if !self.regs.in_frame {
-                        self.regs.in_frame = true;
-                        self.regs.irq_counter = 0;
-                    } else {
+                    if self.regs.in_frame {
                         self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
                         if self.regs.irq_counter == self.regs.scanline_num_irq {
                             self.irq_pending = true;
                         }
+                    } else {
+                        self.regs.in_frame = true;
+                        self.regs.irq_counter = 0;
                     }
                     self.spr_fetch_count = 0;
                 }
@@ -463,6 +472,7 @@ impl Mapper for Exrom {
 
     // Returns a nametable page based on $5105 nametable mapping
     // 0/1 use PPU CIRAM, 2/3 use EXRAM/Fill-mode
+    #[inline]
     fn nametable_page(&self, addr: u16) -> u16 {
         let nametable = self.nametable_mapping(addr);
         match nametable {
@@ -484,6 +494,8 @@ impl Mapper for Exrom {
             _ => (),
         }
     }
+
+    #[inline]
     fn open_bus(&mut self, _addr: u16, val: u8) {
         self.open_bus = val;
     }
@@ -619,10 +631,6 @@ impl MemRead for Exrom {
             }
             0x5205 => (self.regs.mult_result & 0xFF) as u8,
             0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
-            0x5207 => self.open_bus, // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
-            0x5208 => self.open_bus, // TODO MMC5A only CL3 / SL3 Status
-            0x5209 => self.open_bus, // TODO MMC5A only 6-bit Hardware Timer with IRQ
-            0x5800..=0x5BFF => self.open_bus, // MMC5A unknown - reads open_bus
             0x5C00..=0x5FFF => {
                 match self.regs.exram_mode {
                     // nametable/attr modes are not used for RAM, thus are not readable
@@ -638,6 +646,11 @@ impl MemRead for Exrom {
                 }
             }
             0xE000..=0xFFFF => self.prg_rom.peek(addr),
+            // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
+            // TODO MMC5A only CL3 / SL3 Status
+            // TODO MMC5A only 6-bit Hardware Timer with IRQ
+            0x5207 | 0x5208 | 0x5209 => 0,
+            // 0x5800..=0x5BFF - MMC5A unknown - reads open_bus
             _ => self.open_bus,
         }
     }
@@ -704,7 +717,12 @@ impl MemWrite for Exrom {
                 self.regs.prg_ram_protect[(addr - 0x5102) as usize] = val & 0x03;
                 self.update_ram_protection();
             }
-            0x5104 => self.regs.exram_mode = ExRamMode::from(val), // [.... ..XX] ExRAM mode
+            0x5104 => {
+                // [.... ..XX] ExRAM mode
+                if let Ok(mode) = ExRamMode::try_from(val) {
+                    self.regs.exram_mode = mode;
+                }
+            }
             0x5105 => {
                 // [.... ..HH]
                 // [DDCC BBAA]
@@ -784,10 +802,10 @@ impl MemWrite for Exrom {
                 self.regs.mult_result =
                     u16::from(self.regs.multiplicand) * u16::from(self.regs.multiplier);
             }
-            0x5207 => (), // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
-            0x5208 => (), // TODO MMC5A only CL3 / SL3 Status
-            0x5209 => (), // TODO MMC5A only 6-bit Hardware Timer with IRQ
-            0x5800..=0x5BFF => (), // MMC5A unknown
+            // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
+            // TODO MMC5A only CL3 / SL3 Status
+            // TODO MMC5A only 6-bit Hardware Timer with IRQ
+            0x5207 | 0x5208 | 0x5209 => {}
             0x5C00..=0x5FFF => {
                 let addr = addr - 0x5C00;
                 match self.regs.exram_mode {
@@ -799,15 +817,16 @@ impl MemWrite for Exrom {
                         }
                     }
                     ExRamMode::Ram => self.exram.write(addr, val),
-                    _ => (), // Not writable
+                    ExRamMode::RamProtected => (),
                 }
             }
             0x6000..=0xDFFF => {
                 if !self.rom_select(addr) {
-                    self.prg_ram.write(addr, val)
+                    self.prg_ram.write(addr, val);
                 }
             }
             // 0x0000..=0x1FFF CHR-ROM is read-only
+            // 0x5800..=0x5BFF MMC5A unknown
             // 0xE000..=0xFFFF ROM is write-only
             _ => (),
         }
@@ -815,6 +834,7 @@ impl MemWrite for Exrom {
 }
 
 impl Clocked for Exrom {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.ppu_reading {
             self.ppu_idle = 0;
@@ -1013,19 +1033,20 @@ impl Savable for ExRamMode {
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         let mut val = 0u8;
         val.load(fh)?;
-        *self = ExRamMode::from(val);
+        *self = ExRamMode::try_from(val)?;
         Ok(())
     }
 }
 
-impl From<u8> for ExRamMode {
-    fn from(val: u8) -> Self {
+impl TryFrom<u8> for ExRamMode {
+    type Error = anyhow::Error;
+    fn try_from(val: u8) -> NesResult<Self> {
         match val {
-            0 => ExRamMode::Nametable,
-            1 => ExRamMode::ExAttr,
-            2 => ExRamMode::Ram,
-            3 => ExRamMode::RamProtected,
-            _ => panic!("invalid ExRamMode {}", val),
+            0 => Ok(ExRamMode::Nametable),
+            1 => Ok(ExRamMode::ExAttr),
+            2 => Ok(ExRamMode::Ram),
+            3 => Ok(ExRamMode::RamProtected),
+            _ => Err(anyhow!("invalid ExRamMode {}", val)),
         }
     }
 }
@@ -1048,29 +1069,27 @@ impl Savable for Split {
 
 impl From<u8> for Mirroring {
     fn from(val: u8) -> Self {
-        use Mirroring::*;
         match val {
-            0x50 => Horizontal,
-            0x44 => Vertical,
-            0x00 => SingleScreenA,
-            0x55 => SingleScreenB,
+            0x50 => Mirroring::Horizontal,
+            0x44 => Mirroring::Vertical,
+            0x00 => Mirroring::SingleScreenA,
+            0x55 => Mirroring::SingleScreenB,
             // While the below technically isn't true - it forces my implementation to
             // rely on the Mapper for reading Nametables in any other mode for the missing
             // two nametables
-            _ => FourScreen,
+            _ => Mirroring::FourScreen,
         }
     }
 }
 
 impl From<Mirroring> for u8 {
     fn from(mirroring: Mirroring) -> Self {
-        use Mirroring::*;
         match mirroring {
-            Horizontal => 0x50,
-            Vertical => 0x44,
-            SingleScreenA => 0x00,
-            SingleScreenB => 0x55,
-            FourScreen => 0xFF,
+            Mirroring::Horizontal => 0x50,
+            Mirroring::Vertical => 0x44,
+            Mirroring::SingleScreenA => 0x00,
+            Mirroring::SingleScreenB => 0x55,
+            Mirroring::FourScreen => 0xFF,
         }
     }
 }

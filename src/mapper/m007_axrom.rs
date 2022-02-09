@@ -1,6 +1,6 @@
-//!AExROM (Mapper 7)
+//! `AxROM` (Mapper 7)
 //!
-//! [https://wiki.nesdev.com/w/index.php/AxROM]()
+//! <https://wiki.nesdev.com/w/index.php/AxROM>
 
 use crate::{
     cartridge::Cartridge,
@@ -16,8 +16,8 @@ const PRG_ROM_WINDOW: usize = 32 * 1024;
 const CHR_WINDOW: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
-/// AxROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Axrom {
     has_chr_ram: bool,
     mirroring: Mirroring,

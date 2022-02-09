@@ -1,6 +1,6 @@
 //! Audio Processing Unit
 //!
-//! [https://wiki.nesdev.com/w/index.php/APU]()
+//! <https://wiki.nesdev.com/w/index.php/APU>
 
 use crate::{
     common::{Clocked, Powered},
@@ -39,6 +39,7 @@ mod sweep;
 
 /// A given APU audio channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[must_use]
 pub enum AudioChannel {
     Pulse1,
     Pulse2,
@@ -49,6 +50,7 @@ pub enum AudioChannel {
 
 /// Audio Processing Unit
 #[derive(Clone)]
+#[must_use]
 pub struct Apu {
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_enabled: bool,            // Set by $4017 D6
@@ -108,10 +110,13 @@ impl Apu {
         self.dmc.mapper = mapper;
     }
 
+    #[must_use]
+    #[inline]
     pub fn samples(&self) -> &[f32] {
         &self.samples
     }
 
+    #[inline]
     pub fn clear_samples(&mut self) {
         self.samples.clear();
     }
@@ -120,7 +125,8 @@ impl Apu {
         self.clock_rate = CPU_CLOCK_RATE * speed;
     }
 
-    pub fn channel_enabled(&self, channel: AudioChannel) -> bool {
+    #[must_use]
+    pub const fn channel_enabled(&self, channel: AudioChannel) -> bool {
         self.enabled[channel as usize]
     }
 
@@ -130,6 +136,7 @@ impl Apu {
 
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
+    #[inline]
     fn clock_frame_sequencer(&mut self) {
         let clock = self.frame_sequencer.clock();
         match self.frame_sequencer.mode {
@@ -175,6 +182,7 @@ impl Apu {
         }
     }
 
+    #[inline]
     fn clock_quarter_frame(&mut self) {
         self.pulse1.clock_quarter_frame();
         self.pulse2.clock_quarter_frame();
@@ -182,6 +190,7 @@ impl Apu {
         self.noise.clock_quarter_frame();
     }
 
+    #[inline]
     fn clock_half_frame(&mut self) {
         self.pulse1.clock_half_frame();
         self.pulse2.clock_half_frame();
@@ -189,6 +198,8 @@ impl Apu {
         self.noise.clock_half_frame();
     }
 
+    #[must_use]
+    #[inline]
     fn output(&mut self) -> f32 {
         let pulse1 = if self.enabled[0] {
             self.pulse1.output()
@@ -217,18 +228,21 @@ impl Apu {
         };
 
         let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
-        let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize % 203];
+        let tnd_out = self.tnd_table[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
         2.0 * (pulse_out + tnd_out)
     }
 
     // $4015 READ
+    #[inline]
     fn read_status(&mut self) -> u8 {
         let val = self.peek_status();
         self.irq_pending = false;
         val
     }
 
-    fn peek_status(&self) -> u8 {
+    #[must_use]
+    #[inline]
+    const fn peek_status(&self) -> u8 {
         let mut status = 0;
         if self.pulse1.length.counter > 0 {
             status |= 0x01;
@@ -255,6 +269,7 @@ impl Apu {
     }
 
     // $4015 WRITE
+    #[inline]
     fn write_status(&mut self, val: u8) {
         self.pulse1.enabled = val & 1 == 1;
         if !self.pulse1.enabled {
@@ -285,6 +300,7 @@ impl Apu {
     }
 
     // $4017 APU frame counter
+    #[inline]
     fn write_frame_counter(&mut self, val: u8) {
         self.frame_sequencer.reload(val);
         if self.cycle % 2 == 0 {
@@ -306,6 +322,7 @@ impl Apu {
 
 #[cfg(test)]
 impl Apu {
+    #[inline]
     pub(crate) fn frame_sequencer(&self) -> &FrameSequencer {
         &self.frame_sequencer
     }
@@ -326,7 +343,7 @@ impl Clocked for Apu {
 
         if self.cycle % (self.clock_rate / SAMPLE_RATE) as usize == 0 {
             let mut sample = self.output();
-            for filter in self.filters.iter_mut() {
+            for filter in &mut self.filters {
                 sample = filter.process(sample);
             }
             self.samples.push(sample);
@@ -337,6 +354,7 @@ impl Clocked for Apu {
 }
 
 impl MemRead for Apu {
+    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         if addr == 0x4015 {
             let val = self.read_status();
@@ -347,6 +365,7 @@ impl MemRead for Apu {
         }
     }
 
+    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         if addr == 0x4015 {
             self.peek_status()
@@ -357,6 +376,7 @@ impl MemRead for Apu {
 }
 
 impl MemWrite for Apu {
+    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         match addr {

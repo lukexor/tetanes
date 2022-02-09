@@ -5,6 +5,7 @@ use std::f32::consts;
 
 #[enum_dispatch]
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub enum FilterType {
     HiPassFilter,
     LoPassFilter,
@@ -18,6 +19,7 @@ pub trait Filter {
 
 /// High Pass Filter
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub struct HiPassFilter {
     b0: f32,
     b1: f32,
@@ -42,7 +44,7 @@ impl HiPassFilter {
 
 impl Filter for HiPassFilter {
     fn process(&mut self, sample: f32) -> f32 {
-        let y = self.b0 * sample + self.b1 * self.prev_x - self.a1 * self.prev_y;
+        let y = self.b0.mul_add(sample, self.b1 * self.prev_x) - self.a1 * self.prev_y;
         self.prev_y = y;
         self.prev_x = sample;
         y
@@ -51,6 +53,7 @@ impl Filter for HiPassFilter {
 
 /// Low Pass Filter
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub struct LoPassFilter {
     b0: f32,
     b1: f32,
@@ -75,7 +78,7 @@ impl LoPassFilter {
 
 impl Filter for LoPassFilter {
     fn process(&mut self, sample: f32) -> f32 {
-        let y = self.b0 * sample + self.b1 * self.prev_x - self.a1 * self.prev_y;
+        let y = self.b0.mul_add(sample, self.b1 * self.prev_x) - self.a1 * self.prev_y;
         self.prev_y = y;
         self.prev_x = sample;
         y

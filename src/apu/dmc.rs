@@ -8,6 +8,7 @@ use crate::{
 use std::io::{Read, Write};
 
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub struct Dmc {
     pub(super) mapper: *mut MapperType,
     pub irq_enabled: bool,
@@ -33,7 +34,8 @@ impl Dmc {
         0x1AC, 0x17C, 0x154, 0x140, 0x11E, 0x0FE, 0x0E2, 0x0D6, 0x0BE, 0x0A0, 0x08E, 0x080, 0x06A,
         0x054, 0x048, 0x036,
     ];
-    pub fn new() -> Self {
+
+    pub const fn new() -> Self {
         Self {
             mapper: std::ptr::null_mut(),
             irq_enabled: false,
@@ -54,11 +56,14 @@ impl Dmc {
         }
     }
 
+    #[must_use]
+    #[inline]
     pub fn output(&self) -> f32 {
         f32::from(self.output)
     }
 
     // $4010 DMC timer
+    #[inline]
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = (val >> 7) & 1 == 1;
         self.loops = (val >> 6) & 1 == 1;
@@ -69,26 +74,31 @@ impl Dmc {
     }
 
     // $4011 DMC output
+    #[inline]
     pub fn write_output(&mut self, val: u8) {
         self.output = val >> 1;
     }
 
     // $4012 DMC addr load
+    #[inline]
     pub fn write_addr_load(&mut self, val: u8) {
         self.addr_load = 0xC000 | (u16::from(val) << 6);
     }
 
     // $4013 DMC length
+    #[inline]
     pub fn write_length(&mut self, val: u8) {
         self.length_load = (val << 4) + 1;
     }
 
+    #[inline]
     fn mapper_mut(&mut self) -> &mut MapperType {
         unsafe { &mut *self.mapper }
     }
 }
 
 impl Clocked for Dmc {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;
@@ -108,12 +118,12 @@ impl Clocked for Dmc {
             self.output_bits = self.output_bits.saturating_sub(1);
             if self.output_bits == 0 {
                 self.output_bits = 8;
-                if !self.sample_buffer_empty {
+                if self.sample_buffer_empty {
+                    self.output_silent = true;
+                } else {
                     self.output_shift = self.sample_buffer;
                     self.sample_buffer_empty = true;
                     self.output_silent = false;
-                } else {
-                    self.output_silent = true;
                 }
             }
         }

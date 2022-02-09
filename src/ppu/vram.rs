@@ -12,6 +12,7 @@ use crate::{
 use std::io::{Read, Write};
 
 #[derive(Clone)]
+#[must_use]
 pub(super) struct Vram {
     nametable: Nametable, // Used to layout backgrounds on the screen
     palette: Palette,     // Background/Sprite color palettes
@@ -20,10 +21,10 @@ pub(super) struct Vram {
 }
 
 impl Vram {
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
-            nametable: Nametable::new([0u8; NT_SIZE]),
-            palette: Palette::new([0u8; PALETTE_SIZE]),
+            nametable: Nametable([0u8; NT_SIZE]),
+            palette: Palette([0u8; PALETTE_SIZE]),
             mapper: std::ptr::null_mut(),
             buffer: 0u8,
         }
@@ -44,10 +45,12 @@ impl Vram {
         NT_START + page * table_size + offset
     }
 
+    #[inline]
     pub(super) fn mapper(&self) -> &MapperType {
         unsafe { &*self.mapper }
     }
 
+    #[inline]
     pub(super) fn mapper_mut(&mut self) -> &mut MapperType {
         unsafe { &mut *self.mapper }
     }
@@ -112,6 +115,7 @@ impl Powered for Vram {
     fn reset(&mut self) {
         self.buffer = 0;
     }
+
     fn power_cycle(&mut self) {
         self.reset();
     }
@@ -125,6 +129,7 @@ impl Savable for Vram {
         self.buffer.save(fh)?;
         Ok(())
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.nametable.load(fh)?;
         self.palette.load(fh)?;

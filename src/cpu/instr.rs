@@ -37,6 +37,7 @@ pub const INSTRUCTIONS: [Instr; 256] = [
 // List of all CPU official and unofficial operations
 // http://wiki.nesdev.com/w/index.php/6502_instructions
 // http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf
+#[must_use]
 pub enum Operation {
     ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC, CLD, CLI, CLV, CMP, CPX,
     CPY, DEC, DEX, DEY, EOR, INC, INX, INY, JMP, JSR, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA,
@@ -49,6 +50,7 @@ pub enum Operation {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
 #[rustfmt::skip]
+#[must_use]
 pub enum AddrMode {
     IMM,
     ZP0, ZPX, ZPY,
@@ -62,19 +64,22 @@ use Operation::*;
 
 // (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Copy, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct Instr(Byte, AddrMode, Operation, usize);
 
 impl Instr {
-    pub fn opcode(&self) -> Byte {
+    #[must_use]
+    pub const fn opcode(&self) -> Byte {
         self.0
     }
-    pub fn addr_mode(&self) -> AddrMode {
+    pub const fn addr_mode(&self) -> AddrMode {
         self.1
     }
-    pub fn op(&self) -> Operation {
+    pub const fn op(&self) -> Operation {
         self.2
     }
-    pub fn cycles(&self) -> usize {
+    #[must_use]
+    pub const fn cycles(&self) -> usize {
         self.3
     }
 }
@@ -106,7 +111,7 @@ impl Cpu {
     }
 
     /// Immediate
-    /// Uses the next byte as the value, so we'll update the abs_addr to the next byte.
+    /// Uses the next byte as the value, so we'll update the `abs_addr` to the next byte.
     // #  address R/W description
     //   --- ------- --- ------------------------------------------
     //    1    PC     R  fetch opcode, increment PC
@@ -818,7 +823,7 @@ impl Cpu {
         } else {
             self.pc.wrapping_add(self.rel_addr)
         };
-        if self.pages_differ(self.abs_addr, self.pc) {
+        if Self::pages_differ(self.abs_addr, self.pc) {
             self.run_cycle();
         } else {
             if skip_nmi {

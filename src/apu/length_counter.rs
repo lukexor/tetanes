@@ -2,6 +2,7 @@ use crate::{common::Clocked, serialization::Savable, NesResult};
 use std::io::{Read, Write};
 
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub struct LengthCounter {
     pub enabled: bool,
     pub counter: u8, // Entry into LENGTH_TABLE
@@ -13,23 +14,26 @@ impl LengthCounter {
         22, 192, 24, 72, 26, 16, 28, 32, 30,
     ];
 
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             enabled: false,
             counter: 0u8,
         }
     }
 
+    #[inline]
     pub fn load_value(&mut self, val: u8) {
         self.counter = Self::LENGTH_TABLE[(val >> 3) as usize]; // D7..D3
     }
 
+    #[inline]
     pub fn write_control(&mut self, val: u8) {
         self.enabled = (val >> 5) & 1 == 0; // !D5
     }
 }
 
 impl Clocked for LengthCounter {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled && self.counter > 0 {
             self.counter -= 1;

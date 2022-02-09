@@ -1,4 +1,4 @@
-//! A NES Emulator written in Rust with SDL2 and WebAssembly support
+//! A NES Emulator written in Rust with `SDL2` and `WebAssembly` support
 //!
 //! USAGE:
 //!     tetanes [FLAGS] [OPTIONS] [path]
@@ -38,13 +38,14 @@ fn main() -> NesResult<()> {
 }
 
 #[derive(StructOpt, Debug)]
+#[must_use]
 #[structopt(
     name = "tetanes",
     about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
     version = "0.6.1",
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]
-/// TetaNES Command-Line Options
+/// `TetaNES` Command-Line Options
 struct Opt {
     #[structopt(
         help = "The NES ROM to load, a directory containing `.nes` ROM files, or a recording playback `.playback` file. [default: current directory]"

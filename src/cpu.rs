@@ -71,6 +71,7 @@ use StatusRegs::*;
 
 /// The Central Processing Unit status and registers
 #[derive(Clone)]
+#[must_use]
 pub struct Cpu {
     pub cycle_count: usize, // total number of cycles ran
     pub step: usize,        // total number of CPU instructions run
@@ -118,6 +119,7 @@ impl Cpu {
         }
     }
 
+    #[inline]
     pub fn next_instr(&self) -> Instr {
         let opcode = self.peek(self.pc);
         INSTRUCTIONS[opcode as usize]
@@ -126,6 +128,7 @@ impl Cpu {
     /// Sends an IRQ Interrupt to the CPU
     ///
     /// <http://wiki.nesdev.com/w/index.php/IRQ>
+    #[inline]
     pub fn set_irq(&mut self, irq: Irq, val: bool) {
         if val {
             self.irq_pending |= irq as u8;
@@ -135,6 +138,7 @@ impl Cpu {
     }
 
     /// Checks if a a given IRQ is active
+    #[inline]
     pub fn has_irq(&mut self, irq: Irq) -> bool {
         (self.irq_pending & irq as u8) > 0
     }
@@ -148,6 +152,7 @@ impl Cpu {
     //  5  $0100,S  W  push P to stack, decrement S
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
+    #[inline]
     pub fn irq(&mut self) {
         self.read(self.pc);
         self.read(self.pc);
@@ -183,6 +188,7 @@ impl Cpu {
     /// Sends a NMI Interrupt to the CPU
     ///
     /// <http://wiki.nesdev.com/w/index.php/NMI>
+    #[inline]
     pub fn set_nmi(&mut self, val: bool) {
         self.nmi_pending = val;
         self.bus.ppu.nmi_pending = val;
@@ -197,6 +203,7 @@ impl Cpu {
     //  5  $0100,S  W  push P to stack, decrement S
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
+    #[inline]
     fn nmi(&mut self) {
         self.read(self.pc);
         self.read(self.pc);
@@ -209,6 +216,7 @@ impl Cpu {
         self.bus.ppu.nmi_pending = false;
     }
 
+    #[inline]
     fn run_cycle(&mut self) {
         self.cycle_count = self.cycle_count.wrapping_add(1);
         self.last_nmi = self.nmi_pending;
@@ -230,12 +238,14 @@ impl Cpu {
     // Status Register functions
 
     // Convenience method to set both Z and N
+    #[inline]
     fn set_flags_zn(&mut self, val: Byte) {
         self.set_flag(Z, val == 0x00);
         self.set_flag(N, val & 0x80 == 0x80);
     }
 
-    fn get_flag(&self, flag: StatusRegs) -> u8 {
+    #[inline]
+    const fn get_flag(&self, flag: StatusRegs) -> u8 {
         if (self.status & flag as u8) > 0 {
             1
         } else {
@@ -243,6 +253,7 @@ impl Cpu {
         }
     }
 
+    #[inline]
     fn set_flag(&mut self, flag: StatusRegs, val: bool) {
         if val {
             self.status |= flag as u8;
@@ -254,6 +265,7 @@ impl Cpu {
     // Stack Functions
 
     // Push a byte to the stack
+    #[inline]
     fn push_stackb(&mut self, val: Byte) {
         self.write(SP_BASE | Addr::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
@@ -262,24 +274,30 @@ impl Cpu {
     // Push a byte to the stack with read value set, so no actual operation is done
     // except decrement the stack pointer
     // Used by Irq::Reset
+    #[inline]
     fn push_read_stackb(&mut self, _val: Byte) {
         let _ = self.read(SP_BASE | Addr::from(self.sp));
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Pull a byte from the stack
+    #[must_use]
+    #[inline]
     fn pop_stackb(&mut self) -> Byte {
         self.sp = self.sp.wrapping_add(1);
         self.read(SP_BASE | Addr::from(self.sp))
     }
 
     // Peek byte at the top of the stack
+    #[must_use]
+    #[inline]
     pub fn peek_stackb(&self) -> Byte {
         let sp = self.sp.wrapping_add(1);
         self.peek(SP_BASE | Addr::from(sp))
     }
 
     // Push a word (two bytes) to the stack
+    #[inline]
     fn push_stackw(&mut self, val: Addr) {
         let lo = (val & 0xFF) as Byte;
         let hi = (val >> 8) as Byte;
@@ -290,6 +308,7 @@ impl Cpu {
     // Push a word (two bytes) to the stack with read value set, so no actual operation is done
     // except decrementing the stack pointer
     // Used by Irq::Reset
+    #[inline]
     fn push_read_stackw(&mut self, val: Addr) {
         let lo = (val & 0xFF) as Byte;
         let hi = (val >> 8) as Byte;
@@ -298,6 +317,7 @@ impl Cpu {
     }
 
     // Pull a word (two bytes) from the stack
+    #[inline]
     fn pop_stackw(&mut self) -> Addr {
         let lo = Addr::from(self.pop_stackb());
         let hi = Addr::from(self.pop_stackb());
@@ -305,6 +325,8 @@ impl Cpu {
     }
 
     // Peek at the top of the stack
+    #[must_use]
+    #[inline]
     pub fn peek_stackw(&self) -> Addr {
         let sp = self.sp.wrapping_add(1);
         let lo = Addr::from(self.peek(SP_BASE | Addr::from(sp)));
@@ -345,6 +367,7 @@ impl Cpu {
 
     // Writes data back to where fetched_data was sourced from. Either accumulator or memory
     // specified in abs_addr.
+    #[inline]
     fn write_fetched(&mut self, val: Byte) {
         match self.instr.addr_mode() {
             IMP | ACC => self.acc = val,
@@ -356,6 +379,8 @@ impl Cpu {
     // Memory accesses
 
     // Utility to read a full 16-bit word
+    #[must_use]
+    #[inline]
     pub fn readw(&mut self, addr: Addr) -> Addr {
         let lo = Addr::from(self.read(addr));
         let hi = Addr::from(self.read(addr.wrapping_add(1)));
@@ -363,6 +388,8 @@ impl Cpu {
     }
 
     // readw but don't accidentally modify state
+    #[must_use]
+    #[inline]
     pub fn peekw(&self, addr: Addr) -> Addr {
         let lo = Addr::from(self.peek(addr));
         let hi = Addr::from(self.peek(addr.wrapping_add(1)));
@@ -370,6 +397,8 @@ impl Cpu {
     }
 
     // Like readw, but for Zero Page which means it'll wrap around at 0xFF
+    #[must_use]
+    #[inline]
     fn readw_zp(&mut self, addr: Byte) -> Addr {
         let lo = Addr::from(self.read(addr.into()));
         let hi = Addr::from(self.read(addr.wrapping_add(1).into()));
@@ -377,6 +406,8 @@ impl Cpu {
     }
 
     // Like peekw, but for Zero Page which means it'll wrap around at 0xFF
+    #[must_use]
+    #[inline]
     fn peekw_zp(&self, addr: Byte) -> Addr {
         let lo = Addr::from(self.peek(addr.into()));
         let hi = Addr::from(self.peek(addr.wrapping_add(1).into()));
@@ -401,6 +432,7 @@ impl Cpu {
         }
     }
 
+    #[must_use]
     pub fn disassemble(&self, pc: &mut Addr) -> String {
         let opcode = self.peek(*pc);
         let instr = INSTRUCTIONS[opcode as usize];
@@ -503,8 +535,7 @@ impl Cpu {
                 }
                 format!("${:04X}", pc.wrapping_add(rel_addr))
             }
-            ACC => "".to_string(),
-            IMP => "".to_string(),
+            ACC | IMP => "".to_string(),
         };
         for i in 0..3 {
             if i < bytes.len() {
@@ -546,7 +577,9 @@ impl Cpu {
 
     /// Utilities
 
-    fn pages_differ(&self, addr1: Addr, addr2: Addr) -> bool {
+    #[must_use]
+    #[inline]
+    const fn pages_differ(addr1: Addr, addr2: Addr) -> bool {
         (addr1 & 0xFF00) != (addr2 & 0xFF00)
     }
 }
@@ -684,16 +717,19 @@ impl Clocked for Cpu {
 }
 
 impl MemRead for Cpu {
+    #[inline]
     fn read(&mut self, addr: Addr) -> Byte {
         self.run_cycle();
         self.bus.read(addr)
     }
 
+    #[inline]
     fn peek(&self, addr: Addr) -> Byte {
         self.bus.peek(addr)
     }
 }
 impl MemWrite for Cpu {
+    #[inline]
     fn write(&mut self, addr: Addr, val: Byte) {
         if addr == 0x4014 {
             self.write_oamdma(val);

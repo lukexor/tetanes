@@ -56,29 +56,24 @@ pub struct NesErr {
 }
 
 impl NesErr {
-    fn new<D: ToString>(desc: D) -> Self {
-        Self {
-            description: desc.to_string(),
-        }
+    const fn new(desc: String) -> Self {
+        Self { description: desc }
     }
-    fn err<T, D: ToString>(desc: D) -> NesResult<T> {
-        Err(Self {
-            description: desc.to_string(),
-        }
-        .into())
+    fn err<T>(desc: String) -> NesResult<T> {
+        Err(Self { description: desc }.into())
     }
 }
 
 #[macro_export]
 macro_rules! nes_err {
     ($($arg:tt)*) => {
-        crate::NesErr::err(&format!($($arg)*))
+        crate::NesErr::err(format!($($arg)*))
     };
 }
 #[macro_export]
 macro_rules! map_nes_err {
     ($($arg:tt)*) => {
-        crate::NesErr::new(&format!($($arg)*))
+        crate::NesErr::new(format!($($arg)*))
     };
 }
 
@@ -130,7 +125,7 @@ impl From<NesErr> for PixError {
 
 impl From<anyhow::Error> for NesErr {
     fn from(err: anyhow::Error) -> Self {
-        Self::new(&err.to_string())
+        Self::new(err.to_string())
     }
 }
 

@@ -19,15 +19,21 @@ const STROBE_RIGHT: u8 = 7;
 
 /// A NES Gamepad slot.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
 pub enum GamepadSlot {
     /// Player one
     One,
     /// Player two
     Two,
+    /// Player three
+    Three,
+    /// Player four
+    Four,
 }
 
 /// A NES Gamepad.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[must_use]
 pub enum GamepadBtn {
     /// Left D-Pad.
     Left,
@@ -106,22 +112,14 @@ pub struct Zapper {
 }
 
 impl Gamepad {
+    #[inline]
     fn next_state(&mut self) -> u8 {
-        let state = match self.strobe_state {
-            STROBE_A => self.a,
-            STROBE_B => self.b,
-            STROBE_SELECT => self.select,
-            STROBE_START => self.start,
-            STROBE_UP => self.up,
-            STROBE_DOWN => self.down,
-            STROBE_LEFT => self.left,
-            STROBE_RIGHT => self.right,
-            _ => panic!("invalid state {}", self.strobe_state),
-        };
+        let state = self.peek_state();
         self.strobe_state = (self.strobe_state + 1) & 7;
-        state as u8
+        state
     }
 
+    #[inline]
     fn peek_state(&self) -> u8 {
         let state = match self.strobe_state {
             STROBE_A => self.a,
@@ -146,9 +144,9 @@ impl Powered for Gamepad {
 
 /// Input containing gamepad input state
 #[derive(Default, Copy, Clone)]
+#[must_use]
 pub struct Input {
-    pub gamepad1: Gamepad,
-    pub gamepad2: Gamepad,
+    pub gamepads: [Gamepad; 4],
     pub zapper: Zapper,
     open_bus: u8,
 }
@@ -157,8 +155,7 @@ impl Input {
     /// Returns an empty Input instance with no event pump
     pub fn new() -> Self {
         Self {
-            gamepad1: Gamepad::default(),
-            gamepad2: Gamepad::default(),
+            gamepads: [Gamepad::default(); 4],
             zapper: Zapper::default(),
             open_bus: 0u8,
         }
@@ -166,39 +163,44 @@ impl Input {
 }
 
 impl MemRead for Input {
+    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
-            0x4016 => self.gamepad1.next_state() | 0x40,
-            0x4017 => self.gamepad2.next_state() | 0x40,
+            0x4016 => self.gamepads[0].next_state() | 0x40,
+            0x4017 => self.gamepads[1].next_state() | 0x40,
             _ => self.open_bus,
         };
         self.open_bus = val;
         val
     }
 
+    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x4016 => self.gamepad1.peek_state() | 0x40,
-            0x4017 => self.gamepad2.peek_state() | 0x40,
+            0x4016 => self.gamepads[0].peek_state() | 0x40,
+            0x4017 => self.gamepads[1].peek_state() | 0x40,
             _ => self.open_bus,
         }
     }
 }
 
 impl MemWrite for Input {
+    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         if addr == 0x4016 && val == 0 {
-            self.gamepad1.reset();
-            self.gamepad2.reset();
+            for gamepad in &mut self.gamepads {
+                gamepad.reset();
+            }
         }
     }
 }
 
 impl Powered for Input {
     fn reset(&mut self) {
-        self.gamepad1.reset();
-        self.gamepad2.reset();
+        for gamepad in &mut self.gamepads {
+            gamepad.reset();
+        }
     }
 }
 

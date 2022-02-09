@@ -20,7 +20,7 @@ pub(crate) enum FcMode {
 }
 
 impl FrameSequencer {
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             divider: Divider::new(7457.5),
             sequencer: Sequencer::new(4),

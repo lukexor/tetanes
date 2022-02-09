@@ -1,12 +1,15 @@
-use crate::nes::{Mode, Nes};
-use keybinds::Player;
+use super::{
+    config::KEYBINDS, filesystem::is_nes_rom, Mode, Nes, SETTINGS, WINDOW_HEIGHT, WINDOW_WIDTH,
+};
+use crate::{
+    apu::AudioChannel,
+    common::{config_path, SAVE_DIR, SRAM_DIR},
+    ppu::VideoFormat,
+};
+use anyhow::anyhow;
 use pix_engine::prelude::*;
 use serde::{Deserialize, Serialize};
-
-pub(crate) mod about;
-pub(crate) mod config;
-pub(crate) mod keybinds;
-pub(crate) mod load_rom;
+use std::{borrow::Cow, path::PathBuf};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum Menu {
@@ -23,6 +26,38 @@ impl AsRef<str> for Menu {
             Self::Keybind => "Keybindings",
             Self::LoadRom => "Load ROM",
             Self::About => "About",
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) enum Player {
+    One,
+    Two,
+    Three,
+    Four,
+}
+
+impl AsRef<str> for Player {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::One => "Player One",
+            Self::Two => "Player Two",
+            Self::Three => "Player Three",
+            Self::Four => "Player Four",
+        }
+    }
+}
+
+impl TryFrom<usize> for Player {
+    type Error = PixError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::One),
+            1 => Ok(Self::Two),
+            2 => Ok(Self::Three),
+            3 => Ok(Self::Four),
+            _ => Err(anyhow!("invalid `Player`").into()),
         }
     }
 }
@@ -62,6 +97,311 @@ impl Nes {
         )? {
             self.mode = Mode::InMenu(menu_selection, player);
         }
+
+        Ok(())
+    }
+}
+
+impl Nes {
+    fn render_config(&mut self, s: &mut PixState) -> PixResult<()> {
+        s.collapsing_header("General", |s: &mut PixState| {
+            s.spacing()?;
+
+            s.checkbox("Pause in Background", &mut self.config.pause_in_bg)?;
+
+            let mut save_slot = self.config.save_slot as usize - 1;
+            s.next_width(50);
+            if s.select_box("Save Slot", &mut save_slot, &["1", "2", "3", "4"], 4)? {
+                self.config.save_slot = save_slot as u8 + 1;
+            }
+
+            s.spacing()?;
+            Ok(())
+        })?;
+
+        s.collapsing_header("Emulation", |s: &mut PixState| {
+            s.spacing()?;
+
+            s.checkbox("Consistent Power-up RAM", &mut self.config.consistent_ram)?;
+            s.checkbox("Concurrent D-Pad", &mut self.config.concurrent_dpad)?;
+
+            s.next_width(s.theme().font_size * 15);
+            if s.slider("Speed", &mut self.config.speed, 0.25, 2.0)? {
+                self.set_speed(self.config.speed);
+            }
+
+            s.spacing()?;
+            Ok(())
+        })?;
+
+        s.collapsing_header("Sound", |s: &mut PixState| {
+            s.spacing()?;
+
+            s.checkbox("Enabled", &mut self.config.sound)?;
+            s.spacing()?;
+
+            s.text("Channels:")?;
+            let mut pulse1 = self.control_deck.channel_enabled(AudioChannel::Pulse1);
+            if s.checkbox("Pulse 1", &mut pulse1)? {
+                self.control_deck.toggle_channel(AudioChannel::Pulse1);
+            }
+            let mut pulse2 = self.control_deck.channel_enabled(AudioChannel::Pulse2);
+            if s.checkbox("Pulse 2", &mut pulse2)? {
+                self.control_deck.toggle_channel(AudioChannel::Pulse2);
+            }
+            let mut triangle = self.control_deck.channel_enabled(AudioChannel::Triangle);
+            if s.checkbox("Triangle", &mut triangle)? {
+                self.control_deck.toggle_channel(AudioChannel::Triangle);
+            }
+            let mut noise = self.control_deck.channel_enabled(AudioChannel::Noise);
+            if s.checkbox("Noise", &mut noise)? {
+                self.control_deck.toggle_channel(AudioChannel::Noise);
+            }
+            let mut dmc = self.control_deck.channel_enabled(AudioChannel::Dmc);
+            if s.checkbox("DMC", &mut dmc)? {
+                self.control_deck.toggle_channel(AudioChannel::Dmc);
+            }
+
+            s.spacing()?;
+            Ok(())
+        })?;
+
+        s.collapsing_header("Video", |s: &mut PixState| {
+            s.spacing()?;
+
+            let mut scale = self.config.scale as usize - 1;
+            s.next_width(50);
+            if s.select_box("Scale", &mut scale, &["1", "2", "3", "4"], 4)? {
+                self.config.scale = scale as f32 + 1.0;
+                let width = (self.config.scale * WINDOW_WIDTH) as u32;
+                let height = (self.config.scale * WINDOW_HEIGHT) as u32;
+                s.set_window_dimensions((width, height))?;
+                let (font_size, pad, ipady) = match scale {
+                    0 => (6, 4, 3),
+                    1 => (8, 6, 4),
+                    2 => (12, 8, 6),
+                    3 => (16, 10, 8),
+                    _ => unreachable!("invalid scale"),
+                };
+                s.font_size(font_size)?;
+                s.theme_mut().spacing.frame_pad = point!(pad, pad);
+                s.theme_mut().spacing.item_pad = point!(pad, ipady);
+            }
+
+            let mut enabled = self.control_deck.filter() == VideoFormat::Ntsc;
+            if s.checkbox("NTSC Filter", &mut enabled)? {
+                self.control_deck.set_filter(if enabled {
+                    VideoFormat::Ntsc
+                } else {
+                    VideoFormat::None
+                });
+            }
+
+            if s.checkbox("Fullscreen", &mut self.config.fullscreen)? {
+                s.fullscreen(self.config.fullscreen)?;
+            }
+
+            if s.checkbox("VSync Enabled", &mut self.config.vsync)? {
+                s.vsync(self.config.vsync)?;
+            }
+
+            s.spacing()?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    fn render_keybinds(&mut self, s: &mut PixState, menu: Menu, player: Player) -> PixResult<()> {
+        let mut selected = player as usize;
+        s.next_width(200);
+        if s.select_box(
+            "",
+            &mut selected,
+            &[Player::One, Player::Two, Player::Three, Player::Four],
+            4,
+        )? {
+            self.mode = Mode::InMenu(menu, selected.try_into()?);
+        }
+        s.spacing()?;
+
+        self.render_gamepad_binds(player, s)?;
+        self.render_emulator_binds(player, s)?;
+        self.render_debugger_binds(player, s)?;
+        Ok(())
+    }
+
+    fn render_gamepad_binds(&mut self, _player: Player, s: &mut PixState) -> PixResult<()> {
+        s.collapsing_header("Gamepad", |s: &mut PixState| {
+            s.text("Coming soon!")?;
+            // let mut bindings: Vec<(&Action, &Input)> = self
+            //     .config
+            //     .input_bindings
+            //     .iter()
+            //     .filter(|(_, action)| matches!(action, Action::Gamepad(..) | Action::ZeroAxis(..)))
+            //     .map(|(binding, action)| (action, binding))
+            //     .collect();
+            // bindings.sort_by_key(|(action, _)| *action);
+            // for (action, binding) in bindings {
+            //     // Keyboard bindings are for Player One only
+            //     if matches!(binding, Input::Key(..)) && player != Player::One {
+            //         continue;
+            //     }
+            //     match action {
+            //         Action::Gamepad(btn) => {
+            //             // dbg!(binding, action);
+            //             s.text(btn)?;
+            //             s.same_line(None);
+            //             s.text(":")?;
+            //             s.same_line(None);
+            //             s.text(binding.to_string())?;
+            //         }
+            //         Action::ZeroAxis(..) => {}
+            //         _ => (),
+            //     }
+            // }
+            s.spacing()?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    fn render_emulator_binds(&mut self, _player: Player, s: &mut PixState) -> PixResult<()> {
+        s.collapsing_header("Emulator", |s: &mut PixState| {
+            s.text("Coming soon!")?;
+            // Action::Nes
+            // Action::Menu
+            // Action::Feature
+            // Action::Setting
+            s.spacing()?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    fn render_debugger_binds(&mut self, _player: Player, s: &mut PixState) -> PixResult<()> {
+        s.collapsing_header("Debugger", |s: &mut PixState| {
+            s.text("Coming soon!")?;
+            // Action::Debug
+            s.spacing()?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    fn render_load_rom(&mut self, s: &mut PixState) -> PixResult<()> {
+        let colors = s.theme().colors;
+        let font_size = s.theme().font_size;
+        let spacing = s.theme().spacing;
+
+        if self.paths.is_empty() {
+            self.update_paths();
+        }
+
+        if let Some(error) = &self.error {
+            s.fill(colors.error);
+            s.text(&error)?;
+        } else {
+            let line_height = font_size as i32 + 4 * spacing.item_pad.y();
+            let displayed_count =
+                (s.height()? as usize - s.cursor_pos().y() as usize) / line_height as usize;
+            let rom_dir = if self.config.rom_path.is_file() {
+                self.config.rom_path.parent().unwrap()
+            } else {
+                self.config.rom_path.as_path()
+            };
+            let path_list: Vec<Cow<'_, str>> = self
+                .paths
+                .iter()
+                .map(|p| p.strip_prefix(&rom_dir).unwrap_or(p).to_string_lossy())
+                .collect();
+
+            s.fill(colors.secondary);
+            s.next_width((s.ui_width()? - spacing.scroll_size) as u32);
+            s.select_list(
+                format!("{}:", rom_dir.to_string_lossy()),
+                &mut self.selected_path,
+                &path_list,
+                displayed_count,
+            )?;
+            let path = self.paths[self.selected_path].clone();
+            if s.dbl_clicked() {
+                if self.selected_path == 0 {
+                    if let Some(parent) = self.config.rom_path.parent() {
+                        self.config.rom_path = parent.to_path_buf();
+                        self.update_paths();
+                    }
+                } else if path.is_dir() {
+                    self.config.rom_path = path.clone();
+                    self.update_paths();
+                }
+            }
+            if !is_nes_rom(&path) {
+                s.disable();
+            }
+            if s.dbl_clicked() || s.button("Open")? {
+                self.config.rom_path = path;
+                self.selected_path = 0;
+                self.load_rom(s)?;
+            }
+            s.no_disable();
+        }
+        Ok(())
+    }
+
+    fn update_paths(&mut self) {
+        self.selected_path = 0;
+        self.paths.clear();
+        let mut path = self.config.rom_path.as_path();
+        if path.is_file() {
+            path = path.parent().expect("file should have a parent folder");
+        }
+        match path.read_dir() {
+            Ok(read_dir) => {
+                read_dir
+                    .filter_map(Result::ok)
+                    .map(|f| f.path())
+                    .filter(|p| p.is_dir() || is_nes_rom(p))
+                    .for_each(|p| self.paths.push(p));
+                self.paths.sort();
+                if path.parent().is_some() {
+                    self.paths.insert(0, PathBuf::from("../"));
+                }
+            }
+            Err(err) => {
+                self.error = Some(err.to_string());
+            }
+        }
+    }
+
+    fn render_about(&self, s: &mut PixState) -> PixResult<()> {
+        s.heading("TetaNES v0.8.0")?;
+        s.spacing()?;
+
+        if s.link("github.com/lukexor/tetanes")? {
+            s.open_url("https://github.com/lukexor/tetanes")?;
+        }
+        s.spacing()?;
+
+        s.text("Configuration:")?;
+
+        s.bullet("Keybinds: ")?;
+        s.same_line(None);
+        s.monospace(config_path(KEYBINDS).to_string_lossy())?;
+
+        s.bullet("Settings: ")?;
+        s.same_line(None);
+        s.monospace(config_path(SETTINGS).to_string_lossy())?;
+
+        s.text("Directories:")?;
+
+        s.bullet("Save states: ")?;
+        s.same_line(None);
+        s.monospace(config_path(SAVE_DIR).to_string_lossy())?;
+
+        s.bullet("Battery-Backed Save RAM: ")?;
+        s.same_line(None);
+        s.monospace(config_path(SRAM_DIR).to_string_lossy())?;
 
         Ok(())
     }

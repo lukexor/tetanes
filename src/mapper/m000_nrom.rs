@@ -1,6 +1,6 @@
-//! NROM (mapper 0)
+//! `NROM` (mapper 0)
 //!
-//! [http://wiki.nesdev.com/w/index.php/NROM]()
+//! <http://wiki.nesdev.com/w/index.php/NROM>
 
 use crate::{
     cartridge::Cartridge,
@@ -18,8 +18,8 @@ const CHR_WINDOW: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
-/// NROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Nrom {
     has_chr_ram: bool,
     battery_backed: bool,

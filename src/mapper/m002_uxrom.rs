@@ -1,6 +1,6 @@
-//! UxROM (Mapper 2)
+//! `UxROM` (Mapper 2)
 //!
-//! [https://wiki.nesdev.com/w/index.php/UxROM]()
+//! <https://wiki.nesdev.com/w/index.php/UxROM>
 
 use crate::{
     cartridge::Cartridge,
@@ -16,8 +16,8 @@ const PRG_ROM_WINDOW: usize = 16 * 1024; // 16k ROM
 const CHR_WINDOW: usize = 8 * 1024; // 8K ROM/RAM
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
-/// UxROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Uxrom {
     has_chr_ram: bool,
     mirroring: Mirroring,

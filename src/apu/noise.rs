@@ -13,6 +13,7 @@ enum ShiftMode {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Noise {
     pub enabled: bool,
     freq_timer: u16,       // timer freq_counter reload value
@@ -29,7 +30,7 @@ impl Noise {
     ];
     const SHIFT_BIT_15_MASK: u16 = !0x8000;
 
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             enabled: false,
             freq_timer: 0u16,
@@ -41,14 +42,18 @@ impl Noise {
         }
     }
 
+    #[inline]
     pub fn clock_quarter_frame(&mut self) {
         self.envelope.clock();
     }
 
+    #[inline]
     pub fn clock_half_frame(&mut self) {
         self.length.clock();
     }
 
+    #[inline]
+    #[must_use]
     pub fn output(&self) -> f32 {
         if self.shift & 1 == 0 && self.length.counter != 0 {
             if self.envelope.enabled {
@@ -61,12 +66,14 @@ impl Noise {
         }
     }
 
+    #[inline]
     pub fn write_control(&mut self, val: u8) {
         self.length.write_control(val);
         self.envelope.write_control(val);
     }
 
     // $400E Noise timer
+    #[inline]
     pub fn write_timer(&mut self, val: u8) {
         self.freq_timer = Self::FREQ_TABLE[(val & 0x0F) as usize];
         self.shift_mode = if (val >> 7) & 1 == 1 {
@@ -76,6 +83,7 @@ impl Noise {
         };
     }
 
+    #[inline]
     pub fn write_length(&mut self, val: u8) {
         if self.enabled {
             self.length.load_value(val);
@@ -85,6 +93,7 @@ impl Noise {
 }
 
 impl Clocked for Noise {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;

@@ -2,7 +2,7 @@
 
 use crate::{
     common::{Addr, Byte},
-    mapper::*,
+    mapper::MapperType,
     serialization::Savable,
     NesResult,
 };
@@ -19,15 +19,19 @@ pub trait MemRead {
     fn read(&mut self, _addr: Addr) -> Byte {
         0
     }
+
     fn peek(&self, _addr: Addr) -> Byte {
         0
     }
 }
+
 #[enum_dispatch(MapperType)]
 pub trait MemWrite {
     fn write(&mut self, _addr: Addr, _val: Byte) {}
 }
+
 #[derive(Default, Clone)]
+#[must_use]
 pub struct Memory {
     data: Vec<Byte>,
     writable: bool,
@@ -68,6 +72,7 @@ impl Memory {
         rom.writable = false;
         rom
     }
+
     pub fn rom_from_bytes(bytes: &[Byte]) -> Self {
         let mut rom = Self::rom(bytes.len());
         rom.data = bytes.to_vec();
@@ -77,6 +82,7 @@ impl Memory {
     pub fn ram(capacity: usize, consistent: bool) -> Self {
         Self::with_capacity(capacity, consistent)
     }
+
     pub fn ram_from_bytes(bytes: &[Byte]) -> Self {
         let consistent = true;
         let mut ram = Self::ram(bytes.len(), consistent);
@@ -84,28 +90,41 @@ impl Memory {
         ram
     }
 
+    #[inline]
     pub fn extend(&mut self, memory: &Memory) {
         self.data.extend(&memory.data);
     }
 
+    #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.data.len()
     }
+
+    #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
-    pub fn writable(&self) -> bool {
+
+    #[must_use]
+    #[inline]
+    pub const fn writable(&self) -> bool {
         self.writable
     }
+
+    #[inline]
     pub fn write_protect(&mut self, protect: bool) {
         self.writable = !protect;
     }
 }
 
 impl MemRead for Memory {
+    #[inline]
     fn read(&mut self, addr: Addr) -> Byte {
         self.peek(addr)
     }
+
     fn peek(&self, addr: Addr) -> Byte {
         let mut addr = addr as usize;
         let len = self.len();
@@ -137,6 +156,7 @@ impl Savable for Memory {
         self.writable.save(fh)?;
         Ok(())
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.data.load(fh)?;
         self.writable.load(fh)?;
@@ -158,6 +178,7 @@ impl DerefMut for Memory {
 }
 
 #[derive(Default, Clone)]
+#[must_use]
 struct Bank {
     start: usize,
     end: usize,
@@ -165,7 +186,7 @@ struct Bank {
 }
 
 impl Bank {
-    fn new(start: Addr, end: Addr) -> Self {
+    const fn new(start: Addr, end: Addr) -> Self {
         Self {
             start: start as usize,
             end: end as usize,
@@ -181,6 +202,7 @@ impl Savable for Bank {
         self.address.save(fh)?;
         Ok(())
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.start.load(fh)?;
         self.end.load(fh)?;
@@ -200,6 +222,7 @@ impl fmt::Debug for Bank {
 }
 
 #[derive(Default, Debug, Clone)]
+#[must_use]
 pub struct BankedMemory {
     banks: Vec<Bank>,
     window: usize,
@@ -298,27 +321,42 @@ impl BankedMemory {
         }
     }
 
+    #[inline]
     pub fn set_bank_mirror(&mut self, bank_start: Addr, mirror_bank: usize) {
         self.set_bank(bank_start, mirror_bank);
     }
 
-    pub fn last_bank(&self) -> usize {
+    #[must_use]
+    #[inline]
+    pub const fn last_bank(&self) -> usize {
         self.bank_count.saturating_sub(1)
     }
 
-    pub fn bank_count(&self) -> usize {
+    #[must_use]
+    #[inline]
+    pub const fn bank_count(&self) -> usize {
         self.bank_count
     }
 
+    #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.memory.len()
     }
+
+    #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.memory.is_empty()
     }
-    pub fn writable(&self) -> bool {
+
+    #[must_use]
+    #[inline]
+    pub const fn writable(&self) -> bool {
         self.memory.writable()
     }
+
+    #[inline]
     pub fn write_protect(&mut self, protect: bool) {
         self.memory.write_protect(protect);
     }
@@ -326,19 +364,16 @@ impl BankedMemory {
     fn update_banks(&mut self) {
         self.banks.sort_by(|a, b| a.start.cmp(&b.start));
         let mut address = 0x0000;
-        for bank in self.banks.iter_mut() {
+        for bank in &mut self.banks {
             bank.address = address;
             address += bank.end - bank.start + 1;
         }
     }
 
+    #[must_use]
     pub fn get_bank(&self, addr: Addr) -> usize {
         let addr = addr as usize;
-        let base_addr = if let Some(bank) = self.banks.first() {
-            bank.start
-        } else {
-            0x0000
-        };
+        let base_addr = self.banks.first().map_or(0x0000, |bank| bank.start);
         debug_assert!(addr >= base_addr, "address is less than base address");
         let mut bank = (addr - base_addr) >> self.bank_shift;
         if self.bank_count() > 0 && bank >= self.bank_count() {
@@ -347,6 +382,7 @@ impl BankedMemory {
         bank
     }
 
+    #[must_use]
     fn translate_addr(&self, addr: Addr) -> usize {
         let bank = self.get_bank(addr);
         debug_assert!(bank < self.banks.len(), "bank is outside bankable range");
@@ -354,7 +390,8 @@ impl BankedMemory {
         bank.address + (addr as usize - bank.start)
     }
 
-    fn bank_shift(mut window: usize) -> usize {
+    #[must_use]
+    const fn bank_shift(mut window: usize) -> usize {
         let mut shift = 0usize;
         while window > 0 {
             window >>= 1;
@@ -365,9 +402,11 @@ impl BankedMemory {
 }
 
 impl MemRead for BankedMemory {
+    #[inline]
     fn read(&mut self, addr: Addr) -> Byte {
         self.peek(addr)
     }
+
     fn peek(&self, addr: Addr) -> Byte {
         let mut addr = self.translate_addr(addr);
         let len = self.len();
@@ -402,6 +441,7 @@ impl Savable for BankedMemory {
         self.memory.save(fh)?;
         Ok(())
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.banks.load(fh)?;
         self.window.load(fh)?;

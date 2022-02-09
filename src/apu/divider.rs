@@ -6,13 +6,14 @@ use crate::{
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub(crate) struct Divider {
     pub(crate) counter: f32,
     pub(crate) period: f32,
 }
 
 impl Divider {
-    pub(super) fn new(period: f32) -> Self {
+    pub(super) const fn new(period: f32) -> Self {
         Self {
             counter: period,
             period,
@@ -21,6 +22,7 @@ impl Divider {
 }
 
 impl Clocked for Divider {
+    #[must_use]
     fn clock(&mut self) -> usize {
         if self.counter > 0.0 {
             self.counter -= 1.0;

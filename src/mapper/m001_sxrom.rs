@@ -1,7 +1,7 @@
-//! SxROM/MMC1 (Mapper 1)
+//! `SxROM`/`MMC1` (Mapper 1)
 //!
-//! [http://wiki.nesdev.com/w/index.php/SxROM]()
-//! [http://wiki.nesdev.com/w/index.php/MMC1]()
+//! <http://wiki.nesdev.com/w/index.php/SxROM>
+//! <http://wiki.nesdev.com/w/index.php/MMC1>
 
 use crate::{
     cartridge::Cartridge,
@@ -30,14 +30,15 @@ const CHR_MODE_MASK: u8 = 0x10; // 0b10000
 const PRG_RAM_DISABLED: usize = 0x10; // 0b10000
 
 #[derive(Debug, Copy, Clone)]
+#[must_use]
 pub enum MMC1Variant {
     A,
     B,
     C,
 }
 
-/// SxROM
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Sxrom {
     regs: SxRegs,
     has_chr_ram: bool,
@@ -51,6 +52,7 @@ pub struct Sxrom {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 struct SxRegs {
     write_just_occurred: u8,
     shift_register: u8,    // $8000-$FFFF - 5 bit shift register
@@ -100,7 +102,7 @@ impl Sxrom {
     }
 
     /// Writes data into a shift register. At every 5th
-    /// write, the data is written out to the SxRom registers
+    /// write, the data is written out to the `SxROM` registers
     /// and the shift register is cleared
     ///
     /// Load Register $8000-$FFFF
@@ -206,7 +208,7 @@ impl Sxrom {
         }
     }
 
-    fn prg_ram_enabled(&self) -> bool {
+    const fn prg_ram_enabled(&self) -> bool {
         match self.variant {
             MMC1Variant::A => true,
             _ => self.regs.prg_bank & PRG_RAM_DISABLED == 0,

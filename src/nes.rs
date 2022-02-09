@@ -12,11 +12,12 @@ use anyhow::Context;
 use bitflags::bitflags;
 use config::Config;
 use filesystem::{is_nes_rom, is_playback_file};
-use menu::{keybinds::Player, Menu};
+use menu::{Menu, Player};
 use pix_engine::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap},
     env,
+    ffi::OsStr,
     fmt::Write,
     fs,
     path::PathBuf,
@@ -40,6 +41,7 @@ const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
 const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 8];
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct NesBuilder {
     path: PathBuf,
     fullscreen: bool,
@@ -50,7 +52,7 @@ pub struct NesBuilder {
 }
 
 impl NesBuilder {
-    /// Creates a new NesBuilder instance.
+    /// Creates a new `NesBuilder` instance.
     pub fn new() -> Self {
         Self {
             path: PathBuf::new(),
@@ -67,9 +69,7 @@ impl NesBuilder {
     where
         P: Into<PathBuf>,
     {
-        self.path = path
-            .map(|p| p.into())
-            .unwrap_or_else(|| env::current_dir().unwrap_or_default());
+        self.path = path.map_or_else(|| env::current_dir().unwrap_or_default(), Into::into);
         self
     }
 
@@ -103,7 +103,11 @@ impl NesBuilder {
         self
     }
 
-    /// Creates an Nes instance from an NesBuilder.
+    /// Creates an Nes instance from an `NesBuilder`.
+    ///
+    /// # Errors
+    ///
+    /// If the default configuration directories and files can't be created, an error is returned.
     pub fn build(&self) -> NesResult<Nes> {
         let config_dir = config_dir();
         if !config_dir.exists() {
@@ -116,7 +120,7 @@ impl NesBuilder {
                 .context("unable to create default `settings.json`")?;
         }
         let mut config = Config::from_file(settings)?;
-        config.rom_path = self.path.to_owned().canonicalize()?;
+        config.rom_path = self.path.clone().canonicalize()?;
         config.fullscreen = self.fullscreen;
         config.consistent_ram = self.consistent_ram;
         config.scale = self.scale;
@@ -126,7 +130,7 @@ impl NesBuilder {
         Ok(Nes {
             control_deck,
             players: HashMap::new(),
-            emulation: Default::default(),
+            emulation: View::default(),
             config,
             mode: Mode::default(),
             rewinding: false,
@@ -190,7 +194,7 @@ pub(crate) struct View {
 }
 
 impl View {
-    pub(crate) fn new(window_id: WindowId, texture_id: TextureId) -> Self {
+    pub(crate) const fn new(window_id: WindowId, texture_id: TextureId) -> Self {
         Self {
             window_id,
             texture_id,
@@ -218,6 +222,10 @@ pub struct Nes {
 
 impl Nes {
     /// Begins emulation by starting the game engine loop.
+    ///
+    /// # Errors
+    ///
+    /// If engine fails to build or run, then an error is returned.
     pub fn run(&mut self) -> NesResult<()> {
         let mut title = APP_NAME.to_owned();
         if is_nes_rom(&self.config.rom_path) {
@@ -225,7 +233,7 @@ impl Nes {
                 .config
                 .rom_path
                 .file_name()
-                .and_then(|f| f.to_str())
+                .map(OsStr::to_string_lossy)
                 .map(|f| f.replace(".nes", ""))
             {
                 write!(title, " - {}", filename)?;
@@ -348,7 +356,7 @@ impl AppState for Nes {
                 self.players.retain(|_, &mut id| id != controller_id);
                 Ok(true)
             }
-            _ => Ok(false),
+            ControllerUpdate::Remapped => Ok(false),
         }
     }
 
@@ -388,7 +396,7 @@ impl AppState for Nes {
             match event {
                 WindowEvent::Hidden | WindowEvent::FocusLost => {
                     if self.config.pause_in_bg && self.mode == Mode::Playing {
-                        self.mode = Mode::Paused
+                        self.mode = Mode::Paused;
                     }
                 }
                 WindowEvent::Restored | WindowEvent::FocusGained => {

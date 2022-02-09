@@ -5,13 +5,14 @@ use crate::{
     cpu::{Cpu, CPU_CLOCK_RATE},
     input::{Gamepad, GamepadSlot},
     mapper,
-    ppu::Filter,
+    ppu::VideoFormat,
     NesResult,
 };
 use std::io::Read;
 
 /// Represents an NES Control Deck
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct ControlDeck {
     running: bool,
     consistent_ram: bool,
@@ -22,7 +23,7 @@ pub struct ControlDeck {
 }
 
 impl ControlDeck {
-    /// Creates a new ControlDeck instance.
+    /// Creates a new `ControlDeck` instance.
     pub fn new(consistent_ram: bool) -> Self {
         let cpu = Cpu::init(Bus::new(consistent_ram));
         Self {
@@ -36,6 +37,10 @@ impl ControlDeck {
     }
 
     /// Loads a ROM cartridge into memory
+    ///
+    /// # Errors
+    ///
+    /// If there is any issue loading the ROM, then an error is returned.
     pub fn load_rom<F: Read>(&mut self, name: &str, rom: &mut F) -> NesResult<()> {
         self.power_off();
         self.loaded_rom = Some(name.to_owned());
@@ -46,11 +51,13 @@ impl ControlDeck {
     }
 
     /// Get a frame worth of pixels
+    #[must_use]
     pub fn frame(&self) -> &[u8] {
         self.cpu.bus.ppu.frame()
     }
 
     /// Get audio samples.
+    #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         self.cpu.bus.apu.samples()
     }
@@ -94,19 +101,16 @@ impl ControlDeck {
 
     /// Returns a mutable reference to a gamepad.
     pub fn get_gamepad_mut(&mut self, gamepad: GamepadSlot) -> &mut Gamepad {
-        match gamepad {
-            GamepadSlot::One => &mut self.cpu.bus.input.gamepad1,
-            GamepadSlot::Two => &mut self.cpu.bus.input.gamepad2,
-        }
+        &mut self.cpu.bus.input.gamepads[gamepad as usize]
     }
 
     /// Get the video filter for the emulation.
-    pub fn filter(&self) -> Filter {
+    pub const fn filter(&self) -> VideoFormat {
         self.cpu.bus.ppu.filter
     }
 
     /// Set the video filter for the emulation.
-    pub fn set_filter(&mut self, filter: Filter) {
+    pub fn set_filter(&mut self, filter: VideoFormat) {
         self.cpu.bus.ppu.filter = filter;
     }
 
@@ -121,7 +125,8 @@ impl ControlDeck {
     }
 
     /// Is control deck running.
-    pub fn is_running(&self) -> bool {
+    #[must_use]
+    pub const fn is_running(&self) -> bool {
         self.running
     }
 }
@@ -133,18 +138,13 @@ impl ControlDeck {
             self.turbo_clock = 0;
         }
         let turbo = self.turbo_clock == 0;
-        let mut input = &mut self.cpu.bus.input;
-        if input.gamepad1.turbo_a {
-            input.gamepad1.a = turbo;
-        }
-        if input.gamepad1.turbo_b {
-            input.gamepad1.b = turbo;
-        }
-        if input.gamepad2.turbo_a {
-            input.gamepad2.a = turbo;
-        }
-        if input.gamepad2.turbo_b {
-            input.gamepad2.b = turbo;
+        for gamepad in &mut self.cpu.bus.input.gamepads {
+            if gamepad.turbo_a {
+                gamepad.a = turbo;
+            }
+            if gamepad.turbo_b {
+                gamepad.b = turbo;
+            }
         }
     }
 }

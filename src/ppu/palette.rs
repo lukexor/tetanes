@@ -12,18 +12,16 @@ pub(super) const PALETTE_END: u16 = 0x3F20;
 
 // http://wiki.nesdev.com/w/index.php/PPU_palettes
 #[derive(Clone)]
-pub(super) struct Palette([u8; PALETTE_SIZE]);
-
-impl Palette {
-    pub(super) fn new(data: [u8; PALETTE_SIZE]) -> Self {
-        Self(data)
-    }
-}
+#[must_use]
+pub(super) struct Palette(pub(super) [u8; PALETTE_SIZE]);
 
 impl MemRead for Palette {
+    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
+
+    #[inline]
     fn peek(&self, mut addr: u16) -> u8 {
         if addr >= 16 && addr.trailing_zeros() >= 2 {
             addr -= 16;
@@ -32,6 +30,7 @@ impl MemRead for Palette {
     }
 }
 impl MemWrite for Palette {
+    #[inline]
     fn write(&mut self, mut addr: u16, val: u8) {
         if addr >= 16 && addr.trailing_zeros() >= 2 {
             addr -= 16;
@@ -44,6 +43,7 @@ impl Savable for Palette {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.0.save(fh)
     }
+
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
         self.0.load(fh)
     }

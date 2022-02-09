@@ -22,7 +22,7 @@ fn main() {
         let paths: Vec<PathBuf> = path
             .read_dir()
             .unwrap_or_else(|e| panic!("unable read directory {:?}: {}", path, e))
-            .filter_map(|f| f.ok())
+            .filter_map(Result::ok)
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .map(|f| f.path())
             .collect();
@@ -55,6 +55,7 @@ fn print_mapper<P: AsRef<Path>>(path: P, board: Option<&String>) {
 }
 
 #[derive(StructOpt, Debug)]
+#[must_use]
 struct Opt {
     #[structopt(
         help = "The NES ROM or a directory containing `.nes` ROM files. [default: current directory]"
@@ -64,20 +65,22 @@ struct Opt {
     board: Option<String>,
 }
 
-pub fn mapper(mapper_num: u16) -> &'static str {
+#[must_use]
+pub const fn mapper(mapper_num: u16) -> &'static str {
     match mapper_num {
-        0 => "NROM",
-        1 => "Sxrom/MMC1",
-        2 => "UxROM",
-        3 => "CNROM",
-        4 => "TxROM/MMC3/MMC6",
-        5 => "ExROM/MMC5",
-        7 => "AxROM",
-        9 => "PxROM",
-        11 => "COLORDREAMS",
-        69 => "JxROM/BTR",
-        71 => "CAMERICA",
-        206 => "DxROM",
+        0 => "Mapper 000 - NROM",
+        1 => "Mapper 001 - SxROM/MMC1",
+        2 => "Mapper 002 - UxROM",
+        3 => "Mapper 003 - CNROM",
+        4 => "Mapper 004 - TxROM/MMC3/MMC6",
+        5 => "Mapper 005 - ExROM/MMC5",
+        7 => "Mapper 007 - AxROM",
+        9 => "Mapper 009 - PxROM",
+        11 => "Mapper 011 - COLORDREAMS",
+        69 => "Mapper 069 - JxROM/BTR",
+        71 => "Mapper 071 - UxROM/CAMERICA",
+        155 => "Mapper 155 - SxROM/MMC1A",
+        206 => "Mapper 206 - DxROM",
         _ => "Unknown Board",
     }
 }
