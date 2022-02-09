@@ -294,7 +294,7 @@ impl AppState for Nes {
                 self.control_deck.clock();
             }
             if self.config.sound {
-                s.enqueue_audio(self.control_deck.audio_samples());
+                s.enqueue_audio(self.control_deck.audio_samples())?;
             }
             self.control_deck.clear_audio_samples();
         }
