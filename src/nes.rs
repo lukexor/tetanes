@@ -126,7 +126,8 @@ impl NesBuilder {
         config.scale = self.scale;
         config.speed = self.speed;
         config.genie_codes = self.genie_codes.clone();
-        let control_deck = ControlDeck::new(config.consistent_ram);
+        let mut control_deck = ControlDeck::new(config.consistent_ram);
+        control_deck.set_speed(config.speed);
         Ok(Nes {
             control_deck,
             players: HashMap::new(),
