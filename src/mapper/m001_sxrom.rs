@@ -157,7 +157,7 @@ impl Sxrom {
                     0xA000..=0xBFFF => self.regs.chr_banks[0] = (sr as usize) % chr_banks,
                     0xC000..=0xDFFF => self.regs.chr_banks[1] = (sr as usize) % chr_banks,
                     0xE000..=0xFFFF => self.regs.prg_bank = (sr as usize) % prg_banks,
-                    _ => panic!("impossible write"),
+                    _ => unreachable!("impossible write"),
                 }
                 self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
                 self.update_banks();
@@ -206,7 +206,7 @@ impl Mapper for Sxrom {
             1 => Mirroring::SingleScreenB,
             2 => Mirroring::Vertical,
             3 => Mirroring::Horizontal,
-            _ => panic!("impossible mirroring mode"),
+            _ => unreachable!("impossible mirroring mode"),
         }
     }
     fn battery_backed(&self) -> bool {

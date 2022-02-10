@@ -264,6 +264,7 @@ impl BankedMemory {
 
     pub fn add_bank(&mut self, start: Addr, end: Addr) {
         self.banks.push(Bank::new(start, end));
+        self.bank_count += 1;
         self.update_banks();
     }
 
@@ -271,6 +272,7 @@ impl BankedMemory {
         for start in (start..end).step_by(self.window) {
             let end = start + (self.window as Addr).saturating_sub(1);
             self.banks.push(Bank::new(start, end));
+            self.bank_count += 1;
         }
         self.update_banks();
     }

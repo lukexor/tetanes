@@ -349,7 +349,7 @@ impl Cpu {
                         let reg = match mode {
                             ABX => self.x,
                             ABY | IDY => self.y,
-                            _ => panic!("not possible"),
+                            _ => unreachable!("not possible"),
                         };
                         // Read if we crossed, otherwise use what was already read
                         if (self.abs_addr & 0x00FF) < Addr::from(reg) {

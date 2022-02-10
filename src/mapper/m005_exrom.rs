@@ -382,7 +382,7 @@ impl Exrom {
             1 => Nametable::NTB,
             2 => Nametable::ExRAM,
             3 => Nametable::Fill,
-            _ => panic!("invalid mirroring"),
+            _ => unreachable!("invalid mirroring"),
         }
     }
 

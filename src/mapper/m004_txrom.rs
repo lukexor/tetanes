@@ -173,7 +173,7 @@ impl Txrom {
                     self.mirroring = match val & 0x01 {
                         0 => Mirroring::Vertical,
                         1 => Mirroring::Horizontal,
-                        _ => panic!("impossible mirroring"),
+                        _ => unreachable!("impossible mirroring"),
                     };
                     self.update_banks();
                 }
@@ -189,7 +189,7 @@ impl Txrom {
                 self.regs.irq_enabled = false;
             }
             0xE001 => self.regs.irq_enabled = true,
-            _ => panic!("impossible address"),
+            _ => unreachable!("impossible address"),
         }
     }
 

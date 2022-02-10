@@ -105,7 +105,8 @@ impl ControlDeck {
     }
 
     /// Get the video filter for the emulation.
-    pub const fn filter(&self) -> VideoFormat {
+    #[must_use]
+    pub fn filter(&self) -> VideoFormat {
         self.cpu.bus.ppu.filter
     }
 
