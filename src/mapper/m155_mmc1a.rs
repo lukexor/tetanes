@@ -1,7 +1,6 @@
-//! `SxROM`/`MMC1` (Mapper 1)
+//! `SxROM`/`MMC1A` (Mapper 155)
 //!
-//! <http://wiki.nesdev.com/w/index.php/SxROM>
-//! <http://wiki.nesdev.com/w/index.php/MMC1>
+//! <https://wiki.nesdev.org/w/index.php?title=INES_Mapper_155>
 
 use crate::{
     cartridge::Cartridge,
@@ -27,12 +26,11 @@ const PRG_MODE_MASK: u8 = 0x0C; // 0b01100
 const PRG_MODE_FIX_FIRST: u8 = 0x08; // Mode 2
 const PRG_MODE_FIX_LAST: u8 = 0x0C; // Mode 3
 const CHR_MODE_MASK: u8 = 0x10; // 0b10000
-const PRG_RAM_DISABLED: usize = 0x10; // 0b10000
 
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct Sxrom {
-    regs: SxRegs,
+pub struct Mmc1a {
+    regs: Mmc1aRegs,
     has_chr_ram: bool,
     battery_backed: bool,
     prg_ram: BankedMemory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
@@ -44,7 +42,7 @@ pub struct Sxrom {
 
 #[derive(Debug, Clone)]
 #[must_use]
-struct SxRegs {
+struct Mmc1aRegs {
     write_just_occurred: u8,
     shift_register: u8,    // $8000-$FFFF - 5 bit shift register
     control: u8,           // $8000-$9FFF
@@ -53,21 +51,20 @@ struct SxRegs {
     open_bus: u8,
 }
 
-impl Sxrom {
+impl Mmc1a {
     pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
         let prg_ram_size = cart
             .prg_ram_size()
             .map(|size| size.unwrap_or(PRG_RAM_SIZE))
             .unwrap();
         let has_chr_ram = cart.chr_rom.is_empty();
-        let mut sxrom = Self {
-            regs: SxRegs {
+        let mut mmc1a = Self {
+            regs: Mmc1aRegs {
                 write_just_occurred: 0x00,
                 shift_register: DEFAULT_SHIFT_REGISTER,
                 control: PRG_MODE_FIX_LAST,
                 chr_banks: [0x00; 2],
-                // Disabled by default
-                prg_bank: 0x10,
+                prg_bank: 0x00, // Always enabled
                 open_bus: 0x00,
             },
             has_chr_ram,
@@ -80,11 +77,11 @@ impl Sxrom {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },
         };
-        sxrom.prg_ram.add_bank(0x6000, 0x7FFF);
-        sxrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
-        sxrom.chr.add_bank_range(0x0000, 0x1FFF);
-        sxrom.update_banks();
-        sxrom.into()
+        mmc1a.prg_ram.add_bank(0x6000, 0x7FFF);
+        mmc1a.prg_rom.add_bank_range(0x8000, 0xFFFF);
+        mmc1a.chr.add_bank_range(0x0000, 0x1FFF);
+        mmc1a.update_banks();
+        mmc1a.into()
     }
 
     /// Writes data into a shift register. At every 5th
@@ -195,11 +192,11 @@ impl Sxrom {
     }
 
     const fn prg_ram_enabled(&self) -> bool {
-        self.regs.prg_bank & PRG_RAM_DISABLED == 0
+        true
     }
 }
 
-impl Mapper for Sxrom {
+impl Mapper for Mmc1a {
     fn mirroring(&self) -> Mirroring {
         match self.regs.control & MIRRORING_MASK {
             0 => Mirroring::SingleScreenA,
@@ -229,7 +226,7 @@ impl Mapper for Sxrom {
     }
 }
 
-impl MemRead for Sxrom {
+impl MemRead for Mmc1a {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
@@ -245,7 +242,7 @@ impl MemRead for Sxrom {
     }
 }
 
-impl MemWrite for Sxrom {
+impl MemWrite for Mmc1a {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x1FFF => self.chr.write(addr, val),
@@ -257,7 +254,7 @@ impl MemWrite for Sxrom {
     }
 }
 
-impl Clocked for Sxrom {
+impl Clocked for Mmc1a {
     fn clock(&mut self) -> usize {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
@@ -266,7 +263,7 @@ impl Clocked for Sxrom {
     }
 }
 
-impl Powered for Sxrom {
+impl Powered for Mmc1a {
     fn reset(&mut self) {
         self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
         self.regs.control = PRG_MODE_FIX_LAST;
@@ -279,7 +276,7 @@ impl Powered for Sxrom {
     }
 }
 
-impl Savable for Sxrom {
+impl Savable for Mmc1a {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.regs.save(fh)?;
         self.prg_ram.save(fh)?;
@@ -299,7 +296,7 @@ impl Savable for Sxrom {
     }
 }
 
-impl Savable for SxRegs {
+impl Savable for Mmc1aRegs {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.write_just_occurred.save(fh)?;
         self.shift_register.save(fh)?;
