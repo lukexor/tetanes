@@ -914,7 +914,7 @@ impl Ppu {
         if self.read_ppuaddr() <= 0x3EFF {
             self.vram.buffer
         } else {
-            val
+            val | (self.regs.open_bus & 0xC0)
         }
     }
 
