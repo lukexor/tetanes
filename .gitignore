@@ -1,6 +1,0 @@
-target
-Cargo.lock
-**/*.rs.bk
-roms/*
-node_modules
-dist
