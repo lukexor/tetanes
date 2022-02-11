@@ -79,10 +79,12 @@ pub struct Ppu {
     pub scanline: u16,      // (0, 261) 262 total scanlines per frame
     scanline_phase: u32,    // Phase at the start of this scanline
     pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
-    vram: Vram,             // $2007 PPUDATA
-    pub regs: PpuRegs,      // Registers
-    oamdata: Oam,           // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    frame: Frame,           // Frame data keeps track of data and shift registers between frames
+    pub dma_running: bool,
+    pub dma_offset: u8,
+    vram: Vram,        // $2007 PPUDATA
+    pub regs: PpuRegs, // Registers
+    oamdata: Oam,      // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    frame: Frame,      // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub filter: VideoFormat,
     nes_format: NesFormat,
@@ -106,6 +108,8 @@ impl Ppu {
             scanline: 0,
             scanline_phase: 0,
             nmi_pending: false,
+            dma_running: false,
+            dma_offset: 0x00,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
             vram: Vram::new(),

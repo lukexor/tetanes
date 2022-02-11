@@ -92,6 +92,7 @@ pub struct Cpu {
     pub nmi_pending: bool,
     last_irq: bool,
     last_nmi: bool,
+    dmc_dma_running: bool,
 }
 
 impl Cpu {
@@ -116,6 +117,7 @@ impl Cpu {
             nmi_pending: false,
             last_irq: false,
             last_nmi: false,
+            dmc_dma_running: false,
         }
     }
 
@@ -233,6 +235,79 @@ impl Cpu {
         let _ = self.bus.apu.clock(); // Don't care how many cycles are run
         self.set_irq(Irq::FrameCounter, self.bus.apu.irq_pending);
         self.set_irq(Irq::Dmc, self.bus.apu.dmc.irq_pending);
+        if self.bus.apu.dmc.dma_pending {
+            self.bus.apu.dmc.dma_pending = false;
+            self.dmc_dma_running = true;
+            self.bus.halt = true;
+            self.bus.dummy_read = true;
+        }
+    }
+
+    #[inline]
+    fn process_dma_cycle(&mut self) {
+        if self.bus.halt {
+            self.bus.halt = false;
+        } else if self.bus.dummy_read {
+            self.bus.dummy_read = false;
+        }
+        self.run_cycle();
+    }
+
+    #[inline]
+    fn handle_dma(&mut self, addr: u16) {
+        if !self.bus.halt {
+            return;
+        }
+        self.run_cycle();
+        self.bus.read(addr); // throw away
+        self.bus.halt = false;
+
+        let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
+        let oam_read_addr = Addr::from(self.bus.ppu.dma_offset) << 8;
+        let mut oam_read_offset = 0;
+        let mut oam_data = 0;
+        let mut oam_dma_count = 0;
+
+        while self.bus.ppu.dma_running || self.dmc_dma_running {
+            if self.cycle_count & 0x01 == 0x00 {
+                if self.dmc_dma_running && !self.bus.halt && !self.bus.dummy_read {
+                    // DMC DMA ready to read a byte (halt and dummy read done before)
+                    self.process_dma_cycle();
+                    let val = self.bus.read(self.bus.apu.dmc.addr);
+                    self.bus.apu.dmc.set_sample_buffer(val);
+                    self.dmc_dma_running = false;
+                } else if self.bus.ppu.dma_running {
+                    self.process_dma_cycle();
+                    // DMC DMA not running or ready, run OAM DMA
+                    oam_data = self.bus.read(oam_read_addr + oam_read_offset);
+                    oam_read_offset += 1;
+                    oam_dma_count += 1;
+                } else {
+                    // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
+                    // DMA isn't running
+                    assert!(self.bus.halt || self.bus.dummy_read);
+                    self.process_dma_cycle();
+                    if !skip_dummy_reads {
+                        self.bus.read(addr); // throw away
+                    }
+                }
+            } else if self.bus.ppu.dma_running && oam_dma_count & 0x01 == 0x01 {
+                self.process_dma_cycle();
+                // OAM DMA write cycle
+                self.bus.write(0x2004, oam_data);
+                oam_dma_count += 1;
+                if oam_dma_count == 0x200 {
+                    // Finished OAM DMA
+                    self.bus.ppu.dma_running = false;
+                }
+            } else {
+                // Align to read cycle before starting OAM DMA (or align to perform DMC read)
+                self.process_dma_cycle();
+                if !skip_dummy_reads {
+                    self.bus.read(addr); // throw away
+                }
+            }
+        }
     }
 
     // Status Register functions
@@ -351,7 +426,11 @@ impl Cpu {
                             ABY | IDY => self.y,
                             _ => unreachable!("not possible"),
                         };
-                        // Read if we crossed, otherwise use what was already read
+                        // Read if we crossed, otherwise use what was already set in cycle 4 from
+                        // addressing mode
+                        //
+                        // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
+                        // around to 0.
                         if (self.abs_addr & 0x00FF) < Addr::from(reg) {
                             self.read(self.abs_addr)
                         } else {
@@ -412,24 +491,6 @@ impl Cpu {
         let lo = Addr::from(self.peek(addr.into()));
         let hi = Addr::from(self.peek(addr.wrapping_add(1).into()));
         (hi << 8) | lo
-    }
-
-    // Copies data to the PPU OAMDATA ($2004) using DMA (Direct Memory Access)
-    // http://wiki.nesdev.com/w/index.php/PPU_registers#OAMDMA
-    fn write_oamdma(&mut self, addr: Byte) {
-        let mut addr = Addr::from(addr) << 8; // Start at $XX00
-        let oam_addr = 0x2004;
-        self.run_cycle(); // Dummy cyle to wait for writes to complete
-        if self.cycle_count & 0x01 == 1 {
-            // +1 cycle if on an odd cycle
-            self.run_cycle();
-        }
-        for _ in 0..256 {
-            // Copy 256 bytes from $XX00-$XXFF
-            let val = self.read(addr);
-            self.write(oam_addr, val);
-            addr = addr.saturating_add(1);
-        }
     }
 
     #[must_use]
@@ -587,12 +648,6 @@ impl Cpu {
 impl Clocked for Cpu {
     /// Runs the CPU one instruction
     fn clock(&mut self) -> usize {
-        if self.stall > 0 {
-            self.cycle_count = self.cycle_count.wrapping_add(1);
-            self.stall -= 1;
-            return 1;
-        }
-
         let start_cycles = self.cycle_count;
 
         if self.has_irq(Irq::Reset) {
@@ -719,6 +774,7 @@ impl Clocked for Cpu {
 impl MemRead for Cpu {
     #[inline]
     fn read(&mut self, addr: Addr) -> Byte {
+        self.handle_dma(addr);
         self.run_cycle();
         self.bus.read(addr)
     }
@@ -731,12 +787,8 @@ impl MemRead for Cpu {
 impl MemWrite for Cpu {
     #[inline]
     fn write(&mut self, addr: Addr, val: Byte) {
-        if addr == 0x4014 {
-            self.write_oamdma(val);
-        } else {
-            self.run_cycle();
-            self.bus.write(addr, val);
-        }
+        self.run_cycle();
+        self.bus.write(addr, val);
     }
 }
 

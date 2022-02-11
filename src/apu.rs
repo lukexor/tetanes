@@ -6,7 +6,6 @@ use crate::{
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
     filter::{Filter, FilterType, HiPassFilter, LoPassFilter},
-    mapper::MapperType,
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
@@ -104,10 +103,6 @@ impl Apu {
             apu.tnd_table[i] = 163.67 / (24_329.0 / (i as f32) + 100.0);
         }
         apu
-    }
-
-    pub fn load_mapper(&mut self, mapper: &mut MapperType) {
-        self.dmc.mapper = mapper;
     }
 
     #[must_use]
@@ -271,32 +266,11 @@ impl Apu {
     // $4015 WRITE
     #[inline]
     fn write_status(&mut self, val: u8) {
-        self.pulse1.enabled = val & 1 == 1;
-        if !self.pulse1.enabled {
-            self.pulse1.length.counter = 0;
-        }
-        self.pulse2.enabled = (val >> 1) & 1 == 1;
-        if !self.pulse2.enabled {
-            self.pulse2.length.counter = 0;
-        }
-        self.triangle.enabled = (val >> 2) & 1 == 1;
-        if !self.triangle.enabled {
-            self.triangle.length.counter = 0;
-        }
-        self.noise.enabled = (val >> 3) & 1 == 1;
-        if !self.noise.enabled {
-            self.noise.length.counter = 0;
-        }
-        let dmc_enabled = (val >> 4) & 1 == 1;
-        if dmc_enabled {
-            if self.dmc.length == 0 {
-                self.dmc.length = self.dmc.length_load;
-                self.dmc.addr = self.dmc.addr_load;
-            }
-        } else {
-            self.dmc.length = 0;
-        }
-        self.dmc.irq_pending = false;
+        self.pulse1.set_enabled(val & 0x01 == 0x01);
+        self.pulse2.set_enabled(val & 0x02 == 0x02);
+        self.triangle.set_enabled(val & 0x04 == 0x04);
+        self.noise.set_enabled(val & 0x08 == 0x08);
+        self.dmc.set_enabled(val & 0x10 == 0x10, self.cycle);
     }
 
     // $4017 APU frame counter
@@ -330,7 +304,7 @@ impl Apu {
 
 impl Clocked for Apu {
     fn clock(&mut self) -> usize {
-        if self.cycle % 2 == 0 {
+        if self.cycle & 0x01 == 0x00 {
             self.pulse1.clock();
             self.pulse2.clock();
             self.noise.clock();

@@ -1,5 +1,5 @@
-# Some tests rely on deterministic RAM state
 cargo build --release
+
 TESTS=(
 ## CPU ============================================================================================
 test_roms/cpu/branch_timing/1.Branch_Basics.nes
@@ -32,6 +32,7 @@ test_roms/cpu/instr_timing.nes
 test_roms/cpu/interrupts/1-cli_latency.nes
 test_roms/cpu/interrupts/2-nmi_and_brk.nes
 test_roms/cpu/interrupts/3-nmi_and_irq.nes
+test_roms/cpu/interrupts/4-irq_and_dma.nes
 test_roms/cpu/interrupts/5-branch_delays_irq.nes
 test_roms/cpu/nestest.nes
 test_roms/cpu/overclock.nes

@@ -81,6 +81,14 @@ impl Triangle {
             self.length.load_value(val);
         }
     }
+
+    #[inline]
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.length.counter = 0;
+        }
+    }
 }
 
 impl Clocked for Triangle {

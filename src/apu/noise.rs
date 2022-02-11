@@ -90,6 +90,14 @@ impl Noise {
         }
         self.envelope.reset = true;
     }
+
+    #[inline]
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.length.counter = 0;
+        }
+    }
 }
 
 impl Clocked for Noise {

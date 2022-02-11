@@ -30,6 +30,8 @@ pub struct Bus {
     pub mapper: Box<MapperType>,
     pub input: Input,
     pub wram: Memory,
+    pub halt: bool,
+    pub dummy_read: bool,
     genie_codes: HashMap<Addr, GenieCode>,
     open_bus: Byte,
 }
@@ -61,18 +63,18 @@ impl Bus {
             input: Input::new(),
             mapper: Box::new(mapper::null()),
             wram: Memory::ram(WRAM_SIZE, consistent_ram),
+            halt: false,
+            dummy_read: false,
             genie_codes: HashMap::new(),
             open_bus: 0,
         };
         bus.ppu.load_mapper(&mut bus.mapper);
-        bus.apu.load_mapper(&mut bus.mapper);
         bus
     }
 
     pub fn load_mapper(&mut self, mapper: MapperType) {
         let mut mapper = Box::new(mapper);
         self.ppu.load_mapper(&mut mapper);
-        self.apu.load_mapper(&mut mapper);
         self.mapper = mapper;
     }
 
@@ -214,8 +216,12 @@ impl MemWrite for Bus {
                 self.ppu.write(addr & 0x2007, val); // 0x2008..=0x3FFF are mirrored
                 self.mapper.ppu_write(addr, val);
             }
-            // DMA is handled inside the CPU
-            0x4014 | 0x4018..=0x401F => (), // APU/IO Test Mode
+            0x4014 => {
+                self.ppu.dma_running = true;
+                self.ppu.dma_offset = val;
+                self.halt = true;
+            }
+            0x4018..=0x401F => (), // APU/IO Test Mode
         }
     }
 }
@@ -225,11 +231,15 @@ impl Powered for Bus {
         self.apu.reset();
         self.ppu.reset();
         self.mapper.reset();
+        self.halt = false;
+        self.dummy_read = false;
     }
     fn power_cycle(&mut self) {
         self.apu.power_cycle();
         self.ppu.power_cycle();
         self.mapper.power_cycle();
+        self.halt = false;
+        self.dummy_read = false;
     }
 }
 
@@ -240,6 +250,8 @@ impl Savable for Bus {
         self.mapper.save(fh)?;
         // Ignore input
         self.wram.save(fh)?;
+        self.halt.save(fh)?;
+        self.dummy_read.save(fh)?;
         self.open_bus.save(fh)?;
         // Ignore genie_codes
         Ok(())
@@ -249,8 +261,9 @@ impl Savable for Bus {
         self.apu.load(fh)?;
         self.mapper.load(fh)?;
         self.ppu.load_mapper(&mut self.mapper);
-        self.apu.load_mapper(&mut self.mapper);
         self.wram.load(fh)?;
+        self.halt.load(fh)?;
+        self.dummy_read.load(fh)?;
         self.open_bus.load(fh)?;
         Ok(())
     }

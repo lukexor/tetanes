@@ -1,7 +1,5 @@
 use crate::{
     common::{Clocked, Powered},
-    mapper::MapperType,
-    memory::MemRead,
     serialization::Savable,
     NesResult,
 };
@@ -10,7 +8,6 @@ use std::io::{Read, Write};
 #[derive(Debug, Copy, Clone)]
 #[must_use]
 pub struct Dmc {
-    pub(super) mapper: *mut MapperType,
     pub irq_enabled: bool,
     pub irq_pending: bool,
     loops: bool,
@@ -22,6 +19,8 @@ pub struct Dmc {
     pub length_load: u8,
     sample_buffer: u8,
     sample_buffer_empty: bool,
+    pub dma_pending: bool,
+    pub init: u8,
     pub output: u8,
     output_bits: u8,
     output_shift: u8,
@@ -37,7 +36,6 @@ impl Dmc {
 
     pub const fn new() -> Self {
         Self {
-            mapper: std::ptr::null_mut(),
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -49,6 +47,8 @@ impl Dmc {
             length_load: 0u8,
             sample_buffer: 0u8,
             sample_buffer_empty: false,
+            dma_pending: false,
+            init: 0,
             output: 0u8,
             output_bits: 0u8,
             output_shift: 0u8,
@@ -91,21 +91,58 @@ impl Dmc {
         self.length_load = (val << 4) + 1;
     }
 
+    // $4015 WRITE
     #[inline]
-    fn mapper_mut(&mut self) -> &mut MapperType {
-        unsafe { &mut *self.mapper }
+    pub fn set_enabled(&mut self, enabled: bool, cycle: usize) {
+        self.irq_pending = false;
+        if !enabled {
+            self.length = 0;
+        } else if self.length == 0 {
+            self.addr = self.addr_load;
+            self.length = self.length_load;
+            self.init = if cycle & 0x01 == 0 { 2 } else { 3 };
+        }
+    }
+
+    #[inline]
+    pub fn set_sample_buffer(&mut self, val: u8) {
+        self.dma_pending = false;
+        if self.length > 0 {
+            self.sample_buffer = val;
+            self.sample_buffer_empty = false;
+            self.addr = self.addr.wrapping_add(1);
+            if self.addr == 0 {
+                self.addr = 0x8000;
+            }
+            self.length -= 1;
+            if self.length == 0 {
+                if self.loops {
+                    self.length = self.length_load;
+                    self.addr = self.addr_load;
+                } else if self.irq_enabled {
+                    self.irq_pending = true;
+                }
+            }
+        }
     }
 }
 
 impl Clocked for Dmc {
     #[inline]
     fn clock(&mut self) -> usize {
+        if self.init > 0 {
+            self.init -= 1;
+            if self.init == 0 && self.sample_buffer_empty && self.length > 0 {
+                self.dma_pending = true;
+            }
+        }
+
         if self.freq_counter > 0 {
             self.freq_counter -= 1;
         } else {
             self.freq_counter = self.freq_timer;
             if !self.output_silent {
-                if self.output_shift & 1 == 1 {
+                if self.output_shift & 0x01 == 1 {
                     if self.output <= 0x7D {
                         self.output += 2;
                     }
@@ -124,23 +161,9 @@ impl Clocked for Dmc {
                     self.output_shift = self.sample_buffer;
                     self.sample_buffer_empty = true;
                     self.output_silent = false;
-                }
-            }
-        }
-
-        if self.length > 0 && self.sample_buffer_empty {
-            let addr = self.addr;
-            self.sample_buffer = self.mapper_mut().read(addr);
-            self.sample_buffer_empty = false;
-            self.addr = self.addr.wrapping_add(1) | 0x8000;
-            self.length -= 1;
-
-            if self.length == 0 {
-                if self.loops {
-                    self.length = self.length_load;
-                    self.addr = self.addr_load;
-                } else if self.irq_enabled {
-                    self.irq_pending = true;
+                    if self.length > 0 {
+                        self.dma_pending = true;
+                    }
                 }
             }
         }
@@ -161,6 +184,8 @@ impl Powered for Dmc {
         self.length_load = 0;
         self.sample_buffer = 0;
         self.sample_buffer_empty = false;
+        self.dma_pending = false;
+        self.init = 0;
         self.output = 0;
         self.output_bits = 0;
         self.output_shift = 0;
@@ -182,6 +207,8 @@ impl Savable for Dmc {
         self.length_load.save(fh)?;
         self.sample_buffer.save(fh)?;
         self.sample_buffer_empty.save(fh)?;
+        self.dma_pending.save(fh)?;
+        self.init.save(fh)?;
         self.output.save(fh)?;
         self.output_bits.save(fh)?;
         self.output_shift.save(fh)?;
@@ -201,6 +228,8 @@ impl Savable for Dmc {
         self.length_load.load(fh)?;
         self.sample_buffer.load(fh)?;
         self.sample_buffer_empty.load(fh)?;
+        self.dma_pending.load(fh)?;
+        self.init.load(fh)?;
         self.output.load(fh)?;
         self.output_bits.load(fh)?;
         self.output_shift.load(fh)?;
