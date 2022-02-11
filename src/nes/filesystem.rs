@@ -1,4 +1,4 @@
-use super::{Mode, Nes, NesResult};
+use super::{menu::Player, Menu, Mode, Nes, NesResult};
 use anyhow::Context;
 use pix_engine::prelude::PixState;
 use std::{fs::File, io::BufReader, path::Path};
@@ -26,13 +26,30 @@ impl Nes {
     pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
         self.mode = Mode::Paused;
         s.pause_audio();
-        let rom = File::open(&self.config.rom_path)
-            .with_context(|| format!("failed to open rom {:?}", self.config.rom_path))?;
+        let rom = match File::open(&self.config.rom_path)
+            .with_context(|| format!("failed to open rom {:?}", self.config.rom_path))
+        {
+            Ok(rom) => rom,
+            Err(err) => {
+                self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+                self.error = Some(err.to_string());
+                return Ok(());
+            }
+        };
         let mut rom = BufReader::new(rom);
-        self.control_deck
-            .load_rom(&self.config.rom_path.to_string_lossy(), &mut rom)?;
-        s.resume_audio();
-        self.mode = Mode::Playing;
+        match self
+            .control_deck
+            .load_rom(&self.config.rom_path.to_string_lossy(), &mut rom)
+        {
+            Ok(()) => {
+                s.resume_audio();
+                self.mode = Mode::Playing;
+            }
+            Err(err) => {
+                self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+                self.error = Some(err.to_string());
+            }
+        }
         Ok(())
     }
 }
