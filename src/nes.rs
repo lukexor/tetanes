@@ -38,7 +38,7 @@ const ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
 const WINDOW_WIDTH: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
 const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
 // Trim top and bottom 8 scanlines
-const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 8];
+const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
 
 #[derive(Debug, Clone)]
 #[must_use]
