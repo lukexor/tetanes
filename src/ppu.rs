@@ -1053,6 +1053,8 @@ impl Powered for Ppu {
         self.scanline = 0;
         self.scanline_phase = 0;
         self.regs.w = false;
+        self.oam_dma = false;
+        self.dma_offset = 0x00;
         self.frame.reset();
         self.vram.reset();
         self.set_sprite_zero_hit(false);
@@ -1060,6 +1062,10 @@ impl Powered for Ppu {
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_ppuscroll(0);
+        // FIXME: Technically PPUADDR should remain unchanged on reset.
+        // https://wiki.nesdev.org/w/index.php?title=PPU_power_up_state
+        // However, it results in glitched sprites in some games
+        self.write_ppuaddr(0);
     }
     fn power_cycle(&mut self) {
         self.cycle = 0;
@@ -1067,6 +1073,8 @@ impl Powered for Ppu {
         self.scanline = 0;
         self.scanline_phase = 0;
         self.regs.w = false;
+        self.oam_dma = false;
+        self.dma_offset = 0x00;
         self.frame.power_cycle();
         self.vram.power_cycle();
         self.set_sprite_zero_hit(false);
@@ -1076,7 +1084,7 @@ impl Powered for Ppu {
         self.write_oamaddr(0);
         self.write_ppuscroll(0);
         self.write_ppuaddr(0);
-        self.cycle_count = 0; // This has to reset after register writes
+        self.cycle_count = 0; // This has to reset after register writes due to PPU ignoring writes during power up
     }
 }
 
@@ -1088,6 +1096,8 @@ impl Savable for Ppu {
         self.scanline.save(fh)?;
         self.scanline_phase.save(fh)?;
         self.nmi_pending.save(fh)?;
+        self.oam_dma.save(fh)?;
+        self.dma_offset.save(fh)?;
         self.vram.save(fh)?;
         self.regs.save(fh)?;
         self.oamdata.save(fh)?;
@@ -1114,6 +1124,8 @@ impl Savable for Ppu {
         self.scanline.load(fh)?;
         self.scanline_phase.load(fh)?;
         self.nmi_pending.load(fh)?;
+        self.oam_dma.load(fh)?;
+        self.dma_offset.load(fh)?;
         self.vram.load(fh)?;
         self.regs.load(fh)?;
         self.oamdata.load(fh)?;

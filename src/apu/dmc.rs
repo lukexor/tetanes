@@ -46,13 +46,13 @@ impl Dmc {
             length: 0u8,
             length_load: 0u8,
             sample_buffer: 0u8,
-            sample_buffer_empty: false,
+            sample_buffer_empty: true,
             dma_pending: false,
             init: 0,
             output: 0u8,
             output_bits: 0u8,
             output_shift: 0u8,
-            output_silent: false,
+            output_silent: true,
         }
     }
 
@@ -185,13 +185,13 @@ impl Powered for Dmc {
         self.length = 0;
         self.length_load = 0;
         self.sample_buffer = 0;
-        self.sample_buffer_empty = false;
+        self.sample_buffer_empty = true;
         self.dma_pending = false;
         self.init = 0;
         self.output = 0;
         self.output_bits = 0;
         self.output_shift = 0;
-        self.output_silent = false;
+        self.output_silent = true;
     }
 }
 

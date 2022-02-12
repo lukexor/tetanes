@@ -83,7 +83,6 @@ pub struct Cpu {
     pub status: Byte,       // Status Registers
     pub bus: Bus,
     pub pc_log: VecDeque<Addr>,
-    pub stall: usize,       // Number of cycles to stall with nop (used by DMA)
     pub instr: Instr,       // The currently executing instruction
     pub abs_addr: Addr,     // Used memory addresses get set here
     pub rel_addr: Addr,     // Relative address for branch instructions
@@ -108,7 +107,6 @@ impl Cpu {
             status: POWER_ON_STATUS,
             bus,
             pc_log: VecDeque::with_capacity(PC_LOG_LEN),
-            stall: 0,
             instr: INSTRUCTIONS[0x00],
             abs_addr: 0x0000,
             rel_addr: 0x0000,
@@ -794,7 +792,7 @@ impl Powered for Cpu {
     /// Powers on the CPU
     fn power_on(&mut self) {
         self.cycle_count = 0;
-        self.stall = 0;
+        self.dmc_dma = false;
         self.pc_log.clear();
         self.set_irq(Irq::Reset, true);
     }
@@ -838,7 +836,6 @@ impl Savable for Cpu {
         self.status.save(fh)?;
         self.bus.save(fh)?;
         // Ignore pc_log
-        self.stall.save(fh)?;
         self.instr.save(fh)?;
         self.abs_addr.save(fh)?;
         self.rel_addr.save(fh)?;
@@ -847,6 +844,7 @@ impl Savable for Cpu {
         self.nmi_pending.save(fh)?;
         self.last_irq.save(fh)?;
         self.last_nmi.save(fh)?;
+        self.dmc_dma.save(fh)?;
         // Ignore log_level
         Ok(())
     }
@@ -860,7 +858,6 @@ impl Savable for Cpu {
         self.y.load(fh)?;
         self.status.load(fh)?;
         self.bus.load(fh)?;
-        self.stall.load(fh)?;
         self.instr.load(fh)?;
         self.abs_addr.load(fh)?;
         self.rel_addr.load(fh)?;
@@ -869,6 +866,7 @@ impl Savable for Cpu {
         self.nmi_pending.load(fh)?;
         self.last_irq.load(fh)?;
         self.last_nmi.load(fh)?;
+        self.dmc_dma.load(fh)?;
         Ok(())
     }
 }
