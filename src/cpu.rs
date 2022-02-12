@@ -223,16 +223,12 @@ impl Cpu {
         self.cycle_count = self.cycle_count.wrapping_add(1);
         self.last_nmi = self.nmi_pending;
         self.last_irq = self.irq_pending > 0 && self.get_flag(I) == 0;
-        let ppu_cycles = self.bus.ppu.clock();
+        self.bus.ppu.clock();
         self.set_nmi(self.bus.ppu.nmi_pending);
-        for _ in 0..ppu_cycles {
-            let irq_pending = {
-                let _ = self.bus.mapper.clock(); // Don't care how many cycles are run
-                self.bus.mapper.irq_pending()
-            };
-            self.set_irq(Irq::Mapper, irq_pending);
-        }
-        let _ = self.bus.apu.clock(); // Don't care how many cycles are run
+        self.bus.mapper.clock();
+        let irq_pending = self.bus.mapper.irq_pending();
+        self.set_irq(Irq::Mapper, irq_pending);
+        self.bus.apu.clock();
         self.set_irq(Irq::FrameCounter, self.bus.apu.irq_pending);
         self.set_irq(Irq::Dmc, self.bus.apu.dmc.irq_pending);
         if self.bus.apu.dmc.dma_pending {

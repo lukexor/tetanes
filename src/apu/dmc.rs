@@ -10,21 +10,21 @@ use std::io::{Read, Write};
 pub struct Dmc {
     pub irq_enabled: bool,
     pub irq_pending: bool,
-    loops: bool,
-    freq_timer: u16,
-    freq_counter: u16,
+    pub loops: bool,
+    pub freq_timer: u16,
+    pub freq_counter: u16,
     pub addr: u16,
     pub addr_load: u16,
     pub length: u8,
     pub length_load: u8,
-    sample_buffer: u8,
-    sample_buffer_empty: bool,
+    pub sample_buffer: u8,
+    pub sample_buffer_empty: bool,
     pub dma_pending: bool,
     pub init: u8,
     pub output: u8,
-    output_bits: u8,
-    output_shift: u8,
-    output_silent: bool,
+    pub output_bits: u8,
+    pub output_shift: u8,
+    pub output_silent: bool,
 }
 
 impl Dmc {
@@ -137,20 +137,22 @@ impl Clocked for Dmc {
             }
         }
 
-        if self.freq_counter > 0 {
-            self.freq_counter -= 1;
+        // Because APU is only clocked every other CPU cycle
+        if self.freq_counter >= 2 {
+            self.freq_counter -= 2;
         } else {
             self.freq_counter = self.freq_timer;
+
             if !self.output_silent {
-                if self.output_shift & 0x01 == 1 {
-                    if self.output <= 0x7D {
+                if self.output_shift & 0x01 == 0x01 {
+                    if self.output <= 125 {
                         self.output += 2;
                     }
-                } else if self.output >= 0x02 {
+                } else if self.output >= 2 {
                     self.output -= 2;
                 }
+                self.output_shift >>= 1;
             }
-            self.output_shift >>= 1;
 
             self.output_bits = self.output_bits.saturating_sub(1);
             if self.output_bits == 0 {
@@ -158,9 +160,9 @@ impl Clocked for Dmc {
                 if self.sample_buffer_empty {
                     self.output_silent = true;
                 } else {
+                    self.output_silent = false;
                     self.output_shift = self.sample_buffer;
                     self.sample_buffer_empty = true;
-                    self.output_silent = false;
                     if self.length > 0 {
                         self.dma_pending = true;
                     }
