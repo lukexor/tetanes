@@ -217,7 +217,7 @@ impl MemWrite for Bus {
                 self.mapper.ppu_write(addr, val);
             }
             0x4014 => {
-                self.ppu.dma_running = true;
+                self.ppu.oam_dma = true;
                 self.ppu.dma_offset = val;
                 self.halt = true;
             }

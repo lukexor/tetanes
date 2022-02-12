@@ -92,7 +92,7 @@ pub struct Cpu {
     pub nmi_pending: bool,
     last_irq: bool,
     last_nmi: bool,
-    dmc_dma_running: bool,
+    dmc_dma: bool,
 }
 
 impl Cpu {
@@ -117,7 +117,7 @@ impl Cpu {
             nmi_pending: false,
             last_irq: false,
             last_nmi: false,
-            dmc_dma_running: false,
+            dmc_dma: false,
         }
     }
 
@@ -237,7 +237,7 @@ impl Cpu {
         self.set_irq(Irq::Dmc, self.bus.apu.dmc.irq_pending);
         if self.bus.apu.dmc.dma_pending {
             self.bus.apu.dmc.dma_pending = false;
-            self.dmc_dma_running = true;
+            self.dmc_dma = true;
             self.bus.halt = true;
             self.bus.dummy_read = true;
         }
@@ -245,6 +245,7 @@ impl Cpu {
 
     #[inline]
     fn process_dma_cycle(&mut self) {
+        // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
         if self.bus.halt {
             self.bus.halt = false;
         } else if self.bus.dummy_read {
@@ -258,8 +259,9 @@ impl Cpu {
         if !self.bus.halt {
             return;
         }
+
         self.run_cycle();
-        self.bus.read(addr); // throw away
+        self.bus.read(addr);
         self.bus.halt = false;
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
@@ -268,37 +270,37 @@ impl Cpu {
         let mut oam_data = 0;
         let mut oam_dma_count = 0;
 
-        while self.bus.ppu.dma_running || self.dmc_dma_running {
+        while self.bus.ppu.oam_dma || self.dmc_dma {
             if self.cycle_count & 0x01 == 0x00 {
-                if self.dmc_dma_running && !self.bus.halt && !self.bus.dummy_read {
+                if self.dmc_dma && !self.bus.halt && !self.bus.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
                     let val = self.bus.read(self.bus.apu.dmc.addr);
                     self.bus.apu.dmc.set_sample_buffer(val);
-                    self.dmc_dma_running = false;
-                } else if self.bus.ppu.dma_running {
-                    self.process_dma_cycle();
+                    self.dmc_dma = false;
+                } else if self.bus.ppu.oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
+                    self.process_dma_cycle();
                     oam_data = self.bus.read(oam_read_addr + oam_read_offset);
                     oam_read_offset += 1;
                     oam_dma_count += 1;
                 } else {
                     // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
                     // DMA isn't running
-                    assert!(self.bus.halt || self.bus.dummy_read);
+                    debug_assert!(self.bus.halt || self.bus.dummy_read);
                     self.process_dma_cycle();
                     if !skip_dummy_reads {
                         self.bus.read(addr); // throw away
                     }
                 }
-            } else if self.bus.ppu.dma_running && oam_dma_count & 0x01 == 0x01 {
+            } else if self.bus.ppu.oam_dma && oam_dma_count & 0x01 == 0x01 {
+                // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.process_dma_cycle();
-                // OAM DMA write cycle
                 self.bus.write(0x2004, oam_data);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
                     // Finished OAM DMA
-                    self.bus.ppu.dma_running = false;
+                    self.bus.ppu.oam_dma = false;
                 }
             } else {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)

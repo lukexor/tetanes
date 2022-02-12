@@ -79,7 +79,7 @@ pub struct Ppu {
     pub scanline: u16,      // (0, 261) 262 total scanlines per frame
     scanline_phase: u32,    // Phase at the start of this scanline
     pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
-    pub dma_running: bool,
+    pub oam_dma: bool,
     pub dma_offset: u8,
     vram: Vram,        // $2007 PPUDATA
     pub regs: PpuRegs, // Registers
@@ -108,7 +108,7 @@ impl Ppu {
             scanline: 0,
             scanline_phase: 0,
             nmi_pending: false,
-            dma_running: false,
+            oam_dma: false,
             dma_offset: 0x00,
             regs: PpuRegs::new(),
             oamdata: Oam::new(),
