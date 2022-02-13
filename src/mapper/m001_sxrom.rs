@@ -62,7 +62,7 @@ struct SxRegs {
 
 impl Sxrom {
     pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
-        let prg_ram_size = cart.prg_ram_size().unwrap_or(PRG_RAM_SIZE);
+        let prg_ram_size = cart.prg_ram_size.unwrap_or(PRG_RAM_SIZE);
         let has_chr_ram = cart.chr_rom.is_empty();
         let battery_backed = cart.battery_backed();
         let prg_rom = BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW);

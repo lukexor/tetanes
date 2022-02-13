@@ -35,6 +35,8 @@ pub struct Cartridge {
     pub header: INesHeader,
     pub prg_rom: Memory, // Program ROM
     pub chr_rom: Memory, // Character ROM
+    pub prg_ram_size: Option<usize>,
+    pub chr_ram_size: Option<usize>,
 }
 
 impl Cartridge {
@@ -46,6 +48,8 @@ impl Cartridge {
             header: INesHeader::new(),
             prg_rom: Memory::new(consistent_ram),
             chr_rom: Memory::new(consistent_ram),
+            prg_ram_size: None,
+            chr_ram_size: None,
         }
     }
 
@@ -99,11 +103,32 @@ impl Cartridge {
         })?;
         let chr_rom = Memory::rom_from_bytes(&chr_rom);
 
+        let prg_ram_size = if header.prg_ram_size > 0 {
+            let prg_ram_size = 64usize.checked_shl(header.prg_ram_size.into());
+            if prg_ram_size.is_none() {
+                return nes_err!("invalid header PRG-RAM size");
+            }
+            prg_ram_size
+        } else {
+            None
+        };
+        let chr_ram_size = if header.chr_ram_size > 0 {
+            let chr_ram_size = 64usize.checked_shl(header.chr_ram_size.into());
+            if chr_ram_size.is_none() {
+                return nes_err!("invalid header CHR-RAM size");
+            }
+            chr_ram_size
+        } else {
+            None
+        };
+
         let cart = Self {
             name: name.to_owned(),
             header,
             prg_rom,
             chr_rom,
+            prg_ram_size,
+            chr_ram_size,
         };
         info!(
             "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}, Battery: {}",
@@ -154,32 +179,6 @@ impl Cartridge {
     #[inline]
     pub const fn battery_backed(&self) -> bool {
         self.header.flags & 0x02 == 0x02
-    }
-
-    /// Returns Program RAM size.
-    ///
-    /// # Errors
-    ///
-    /// Errors if an invalid PRG-RAM header value is found.
-    pub fn prg_ram_size(&self) -> Option<usize> {
-        if self.header.prg_ram_size > 0 {
-            Some(self.header.prg_ram_size.into())
-        } else {
-            None
-        }
-    }
-
-    /// Returns Character RAM size.
-    ///
-    /// # Errors
-    ///
-    /// Errors if an invalid CHR-RAM header value is found.
-    pub fn chr_ram_size(&self) -> Option<usize> {
-        if self.header.chr_ram_size > 0 {
-            Some(self.header.chr_ram_size.into())
-        } else {
-            None
-        }
     }
 }
 
@@ -251,12 +250,8 @@ impl INesHeader {
 
             if prg_ram_size & 0x0F == 0x0F || prg_ram_size & 0xF0 == 0xF0 {
                 return nes_err!("invalid PRG-RAM size in header");
-            } else if 64usize.checked_shl(prg_ram_size.into()).is_none() {
-                return nes_err!("invalid header PRG-RAM size");
             } else if chr_ram_size & 0x0F == 0x0F || chr_ram_size & 0xF0 == 0xF0 {
                 return nes_err!("invalid CHR-RAM size in header");
-            } else if 64usize.checked_shl(chr_ram_size.into()).is_none() {
-                return nes_err!("invalid header CHR-RAM size");
             } else if chr_ram_size & 0xF0 == 0xF0 {
                 return nes_err!("battery-backed CHR-RAM is currently not supported");
             } else if header[14] > 0 || header[15] > 0 {

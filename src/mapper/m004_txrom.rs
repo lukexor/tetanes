@@ -94,7 +94,7 @@ impl TxRegs {
 impl Txrom {
     pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
         let has_chr_ram = cart.chr_rom.is_empty();
-        let chr_ram_size = cart.chr_ram_size().unwrap_or(CHR_RAM_SIZE);
+        let chr_ram_size = cart.chr_ram_size.unwrap_or(CHR_RAM_SIZE);
         let mut txrom = Self {
             regs: TxRegs::new(),
             has_chr_ram,
