@@ -1,4 +1,4 @@
-cargo build --release
+cargo build --profile dev-opt
 
 TESTS=(
 ## APU ============================================================================================
@@ -34,6 +34,6 @@ function ctrl_c() {
 }
 
 for test in ${TESTS[*]}; do
-    target/release/tetanes --speed 4 --consistent_ram $test
+    target/dev-opt/tetanes --speed 4 --consistent_ram $test
 done
 

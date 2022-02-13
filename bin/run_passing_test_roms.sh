@@ -1,4 +1,4 @@
-cargo build --release
+cargo build --profile dev-opt
 
 TESTS=(
 ## CPU ============================================================================================
@@ -90,6 +90,7 @@ test_roms/ppu/sprite_hit/05-left_clip.nes
 test_roms/ppu/sprite_hit/06-right_edge.nes
 test_roms/ppu/sprite_hit/07-screen_bottom.nes
 test_roms/ppu/sprite_hit/08-double_height.nes
+# FAIL
 test_roms/ppu/sprite_hit/10-timing_order.nes
 test_roms/ppu/sprite_overflow/1.Basics.nes
 test_roms/ppu/sprite_overflow/2.Details.nes
@@ -138,6 +139,6 @@ function ctrl_c() {
 }
 
 for test in ${TESTS[*]}; do
-    target/release/tetanes --speed 4 --consistent_ram $test
+    target/dev-opt/tetanes --speed 4 --consistent_ram $test
 done
 
