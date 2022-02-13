@@ -103,16 +103,16 @@ Support for the following mappers is currently implemented or in development:
 | #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
 | --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
 | 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                 10.14% |
-| 001 | SxROM/MMC1             | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.91% |
-| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~269                   |                 11.04% |
+| 001 | SxROM/MMC1             | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.90% |
+| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~270                   |                 11.08% |
 | 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
-| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.59% |
-| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
+| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.58% |
+| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.98% |
 | 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
 | 071 | BF9093/BF9097          | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
 | 155 | MMC1A                  | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
-|     |                        |                                           | ~2050                   |                 84.11% |
+|     |                        |                                           | ~2068 / 2437            |                 84.86% |
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
 

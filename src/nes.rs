@@ -2,9 +2,10 @@
 
 use crate::{
     apu::SAMPLE_RATE,
-    common::{config_dir, config_path, Clocked, Powered},
+    common::{config_dir, config_path, Powered},
     control_deck::ControlDeck,
     input::GamepadSlot,
+    memory::MemAccess,
     ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
@@ -296,11 +297,28 @@ impl AppState for Nes {
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
+        // FIXME: Temporary CPU breakpoint stopgap
+        let breakpoints = [];
+
         if let Mode::Playing | Mode::Recording | Mode::Replaying = self.mode {
             self.speed_counter += self.config.speed;
-            while self.speed_counter > 0.0 {
+            'run: while self.speed_counter > 0.0 {
                 self.speed_counter -= 1.0;
-                self.control_deck.clock();
+                while !self.control_deck.frame_complete() {
+                    if let (Some(addr), _) = self.control_deck.next_addr(MemAccess::Write) {
+                        if breakpoints.contains(&addr) {
+                            log::info!(
+                                "{}",
+                                self.control_deck
+                                    .disasm(self.control_deck.pc(), self.control_deck.pc())[0]
+                            );
+                            self.mode = Mode::Paused;
+                            break 'run;
+                        }
+                    }
+                    self.control_deck.clock_cpu();
+                }
+                self.control_deck.start_new_frame();
             }
             if self.config.sound {
                 s.enqueue_audio(self.control_deck.audio_samples())?;
@@ -326,6 +344,28 @@ impl AppState for Nes {
     }
 
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
+        // FIXME: Move to debug keybinds
+        if event.key == Key::D {
+            let disasm = self.control_deck.disasm(
+                self.control_deck.pc().saturating_sub(20),
+                self.control_deck.pc() + 20,
+            );
+            for s in disasm.iter().take(20) {
+                log::info!("{}", s);
+            }
+            log::info!(">> {}", disasm[20]);
+            for s in disasm.iter().skip(21) {
+                log::info!("{}", s);
+            }
+        }
+        if event.key == Key::C {
+            self.control_deck.clock_cpu();
+            self.mode = Mode::Playing;
+        }
+        // FIXME: Convert to ApuViewer window
+        if event.key == Key::A {
+            self.control_deck.apu_info();
+        }
         self.handle_key_event(s, event, true)
     }
 

@@ -15,8 +15,8 @@ pub struct Dmc {
     pub freq_counter: u16,
     pub addr: u16,
     pub addr_load: u16,
-    pub length: u8,
-    pub length_load: u8,
+    pub length: u16,
+    pub length_load: u16,
     pub sample_buffer: u8,
     pub sample_buffer_empty: bool,
     pub dma_pending: bool,
@@ -39,19 +39,19 @@ impl Dmc {
             irq_enabled: false,
             irq_pending: false,
             loops: false,
-            freq_timer: 0u16,
-            freq_counter: 0u16,
-            addr: 0u16,
-            addr_load: 0u16,
-            length: 0u8,
-            length_load: 0u8,
-            sample_buffer: 0u8,
+            freq_timer: Self::NTSC_FREQ_TABLE[0] - 2,
+            freq_counter: Self::NTSC_FREQ_TABLE[0] - 2,
+            addr: 0xC000,
+            addr_load: 0x0000,
+            length: 0x0000,
+            length_load: 0x0001,
+            sample_buffer: 0x00,
             sample_buffer_empty: true,
             dma_pending: false,
             init: 0,
-            output: 0u8,
-            output_bits: 0u8,
-            output_shift: 0u8,
+            output: 0x00,
+            output_bits: 0x00,
+            output_shift: 0x00,
             output_silent: true,
         }
     }
@@ -65,9 +65,9 @@ impl Dmc {
     // $4010 DMC timer
     #[inline]
     pub fn write_timer(&mut self, val: u8) {
-        self.irq_enabled = (val >> 7) & 1 == 1;
-        self.loops = (val >> 6) & 1 == 1;
-        self.freq_timer = Self::NTSC_FREQ_TABLE[(val & 0x0F) as usize];
+        self.irq_enabled = val & 0x80 == 0x80;
+        self.loops = val & 0x40 == 0x40;
+        self.freq_timer = Self::NTSC_FREQ_TABLE[(val & 0x0F) as usize] - 2;
         if !self.irq_enabled {
             self.irq_pending = false;
         }
@@ -88,7 +88,7 @@ impl Dmc {
     // $4013 DMC length
     #[inline]
     pub fn write_length(&mut self, val: u8) {
-        self.length_load = (val << 4) + 1;
+        self.length_load = (u16::from(val) << 4) + 1;
     }
 
     // $4015 WRITE
@@ -178,20 +178,26 @@ impl Powered for Dmc {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
-        self.freq_timer = 0;
-        self.freq_counter = 0;
-        self.addr = 0;
-        self.addr_load = 0;
-        self.length = 0;
-        self.length_load = 0;
-        self.sample_buffer = 0;
+        self.freq_timer = Self::NTSC_FREQ_TABLE[0] - 2;
+        self.freq_counter = Self::NTSC_FREQ_TABLE[0] - 2;
+        self.addr = 0x0000;
+        self.addr_load = 0x0000;
+        self.length = 0x0000;
+        self.length_load = 0x0000;
+        self.sample_buffer = 0x00;
         self.sample_buffer_empty = true;
         self.dma_pending = false;
         self.init = 0;
-        self.output = 0;
-        self.output_bits = 0;
-        self.output_shift = 0;
+        self.output = 0x00;
+        self.output_bits = 0x00;
+        self.output_shift = 0x00;
         self.output_silent = true;
+    }
+
+    fn power_cycle(&mut self) {
+        self.reset();
+        self.addr = 0xC000;
+        self.length_load = 0x0001;
     }
 }
 

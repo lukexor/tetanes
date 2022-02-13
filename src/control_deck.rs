@@ -1,10 +1,11 @@
 use crate::{
     apu::AudioChannel,
     bus::Bus,
-    common::{Clocked, Powered},
-    cpu::{Cpu, CPU_CLOCK_RATE},
+    common::{Addr, Clocked, Powered},
+    cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
     input::{Gamepad, GamepadSlot},
     mapper,
+    memory::MemAccess,
     ppu::VideoFormat,
     NesResult,
 };
@@ -99,6 +100,48 @@ impl ControlDeck {
         total_ticks
     }
 
+    /// Returns the current CPU program counter.
+    pub fn pc(&self) -> Addr {
+        self.cpu.pc
+    }
+
+    /// Returns the next CPU instruction to be executed.
+    pub fn next_instr(&self) -> Instr {
+        self.cpu.next_instr()
+    }
+
+    /// Returns the next address on the bus to be either read or written to along with the current
+    /// value at the target address.
+    pub fn next_addr(&self, access: MemAccess) -> (Option<Addr>, Option<u16>) {
+        self.cpu.next_addr(access)
+    }
+
+    /// Disassemble an address range of CPU instructions.
+    pub fn disasm(&self, start: Addr, end: Addr) -> Vec<String> {
+        let mut disassembly = Vec::with_capacity(256);
+        let mut addr = start;
+        while addr <= end {
+            disassembly.push(self.cpu.disassemble(&mut addr));
+        }
+        disassembly
+    }
+
+    pub fn apu_info(&self) {
+        log::info!("DMC Period: {}", self.cpu.bus.apu.dmc.freq_timer);
+        log::info!("DMC Timer: {}", self.cpu.bus.apu.dmc.freq_counter);
+        log::info!("DMC Sample Address: 0x{:04X}", self.cpu.bus.apu.dmc.addr);
+        log::info!("DMC Sample Length: {}", self.cpu.bus.apu.dmc.length_load);
+        log::info!("DMC Bytes Remaining: {}", self.cpu.bus.apu.dmc.output_bits);
+    }
+
+    pub fn frame_complete(&self) -> bool {
+        self.cpu.bus.ppu.frame_complete
+    }
+
+    pub fn start_new_frame(&mut self) {
+        self.cpu.bus.ppu.frame_complete = false;
+    }
+
     /// Returns a mutable reference to a gamepad.
     pub fn get_gamepad_mut(&mut self, gamepad: GamepadSlot) -> &mut Gamepad {
         &mut self.cpu.bus.input.gamepads[gamepad as usize]
@@ -160,10 +203,10 @@ impl Clocked for ControlDeck {
     /// Steps the control deck an entire frame
     fn clock(&mut self) -> usize {
         self.clock_turbo();
-        while !self.cpu.bus.ppu.frame_complete {
+        while !self.frame_complete() {
             self.cpu.clock();
         }
-        self.cpu.bus.ppu.frame_complete = false;
+        self.start_new_frame();
         1
     }
 }

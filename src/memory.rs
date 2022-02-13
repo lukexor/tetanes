@@ -30,6 +30,13 @@ pub trait MemWrite {
     fn write(&mut self, _addr: Addr, _val: Byte) {}
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum MemAccess {
+    Read,
+    Write,
+}
+
 #[derive(Default, Clone)]
 #[must_use]
 pub struct Memory {

@@ -46,7 +46,8 @@ test_roms/apu/02.len_table.nes
 test_roms/apu/03.irq_flag.nes
 test_roms/apu/04.clock_jitter.nes
 test_roms/apu/08.irq_timing.nes
-test_roms/apu/dpcmletterbox.nes # works, but should be rendered at lower scanline
+test_roms/apu/dpcmletterbox.nes
+test_roms/apu/dmc/7-dmc_basics.nes
 test_roms/apu/dmc/buffer_retained.nes
 test_roms/apu/dmc/latency.nes
 test_roms/apu/dmc/status.nes

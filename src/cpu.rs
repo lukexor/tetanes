@@ -6,14 +6,13 @@ use crate::{
     bus::Bus,
     common::{Addr, Byte, Clocked, Powered},
     mapper::Mapper,
-    memory::{MemRead, MemWrite},
+    memory::{MemAccess, MemRead, MemWrite},
     serialization::Savable,
     NesResult,
 };
 use instr::{AddrMode::*, Instr, Operation::*, INSTRUCTIONS};
 use log::{log_enabled, trace, Level};
 use std::{
-    collections::VecDeque,
     fmt,
     io::{Read, Write},
 };
@@ -33,7 +32,6 @@ const IRQ_ADDR: Addr = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: Addr = 0xFFFC; // Vector address at reset
 const POWER_ON_STATUS: Byte = 0x24; // 0010 0100 - Unused and Interrupt Disable set
 const SP_BASE: Addr = 0x0100; // Stack-pointer starting address
-const PC_LOG_LEN: usize = 20;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Irq {
@@ -82,7 +80,6 @@ pub struct Cpu {
     pub y: Byte,            // y register
     pub status: Byte,       // Status Registers
     pub bus: Bus,
-    pub pc_log: VecDeque<Addr>,
     pub instr: Instr,       // The currently executing instruction
     pub abs_addr: Addr,     // Used memory addresses get set here
     pub rel_addr: Addr,     // Relative address for branch instructions
@@ -106,7 +103,6 @@ impl Cpu {
             y: 0x00,
             status: POWER_ON_STATUS,
             bus,
-            pc_log: VecDeque::with_capacity(PC_LOG_LEN),
             instr: INSTRUCTIONS[0x00],
             abs_addr: 0x0000,
             rel_addr: 0x0000,
@@ -123,6 +119,96 @@ impl Cpu {
     pub fn next_instr(&self) -> Instr {
         let opcode = self.peek(self.pc);
         INSTRUCTIONS[opcode as usize]
+    }
+
+    #[inline]
+    pub fn next_addr(&self, access: MemAccess) -> (Option<Addr>, Option<u16>) {
+        if access == MemAccess::Write && self.cycle_count & 0x01 == 0x01 {
+            return (None, None);
+        }
+        let instr = self.next_instr();
+        let addr = self.pc.wrapping_add(1);
+        match instr.addr_mode() {
+            IMM => (None, Some(self.peek(addr).into())),
+            ZP0 => {
+                let abs_addr = self.peek(addr);
+                let val = self.peek(abs_addr.into());
+                (Some(abs_addr.into()), Some(val.into()))
+            }
+            ZPX => {
+                let abs_addr = self.peek(addr);
+                let x_offset = abs_addr.wrapping_add(self.x);
+                let val = self.peek(x_offset.into());
+                (Some(x_offset.into()), Some(val.into()))
+            }
+            ZPY => {
+                let abs_addr = self.peek(addr);
+                let y_offset = abs_addr.wrapping_add(self.y);
+                let val = self.peek(y_offset.into());
+                (Some(y_offset.into()), Some(val.into()))
+            }
+            ABS => {
+                let abs_addr = self.peekw(addr);
+                if instr.op() == JMP || instr.op() == JSR {
+                    (Some(abs_addr), None)
+                } else {
+                    let val = self.peek(abs_addr);
+                    (Some(abs_addr), Some(val.into()))
+                }
+            }
+            ABX => {
+                let abs_addr = self.peekw(addr);
+                let x_offset = abs_addr.wrapping_add(self.x.into());
+                let val = self.peek(x_offset);
+                (Some(x_offset), Some(val.into()))
+            }
+            ABY => {
+                let abs_addr = self.peekw(addr);
+                let y_offset = abs_addr.wrapping_add(self.y.into());
+                let val = self.peek(y_offset);
+                (Some(y_offset), Some(val.into()))
+            }
+            IND => {
+                let abs_addr = self.peekw(addr);
+                let val = if abs_addr & 0x00FF == 0x00FF {
+                    (Addr::from(self.peek(abs_addr & 0xFF00)) << 8)
+                        | Addr::from(self.peek(abs_addr))
+                } else {
+                    (Addr::from(self.peek(abs_addr + 1)) << 8) | Addr::from(self.peek(abs_addr))
+                };
+                (Some(abs_addr), Some(val))
+            }
+            IDX => {
+                let ind_addr = self.peek(addr);
+                let x_offset = ind_addr.wrapping_add(self.x);
+                let abs_addr = self.peekw_zp(x_offset);
+                let val = self.peek(abs_addr);
+                (Some(abs_addr), Some(val.into()))
+            }
+            IDY => {
+                let ind_addr = self.peek(addr);
+                let abs_addr = self.peekw_zp(ind_addr);
+                let y_offset = abs_addr.wrapping_add(self.y.into());
+                let val = self.peek(y_offset);
+                (Some(y_offset), Some(val.into()))
+            }
+            REL => {
+                let mut rel_addr = self.peek(addr).into();
+                if rel_addr & 0x80 == 0x80 {
+                    // If address is negative, extend sign to 16-bits
+                    rel_addr |= 0xFF00;
+                }
+                (Some(rel_addr), None)
+            }
+            ACC => (None, Some(self.acc.into())),
+            IMP => match instr.op() {
+                TXA | TYA => (None, Some(self.acc.into())),
+                INY | DEY | TAY => (None, Some(self.y.into())),
+                INX | DEX | TAX | TSX => (None, Some(self.x.into())),
+                TXS => (None, Some(self.sp.into())),
+                _ => (None, None),
+            },
+        }
     }
 
     /// Sends an IRQ Interrupt to the CPU
@@ -493,107 +579,109 @@ impl Cpu {
     pub fn disassemble(&self, pc: &mut Addr) -> String {
         let opcode = self.peek(*pc);
         let instr = INSTRUCTIONS[opcode as usize];
-        let mut bytes = Vec::new();
-        let mut disasm = String::with_capacity(50);
+        let mut bytes = Vec::with_capacity(3);
+        let mut disasm = String::with_capacity(100);
         disasm.push_str(&format!("${:04X}:", pc));
-        bytes.push(self.peek(*pc));
-        *pc = pc.wrapping_add(1);
+        bytes.push(opcode);
+        let mut addr = pc.wrapping_add(1);
         let mode = match instr.addr_mode() {
             IMM => {
-                bytes.push(self.peek(*pc));
-                *pc = pc.wrapping_add(1);
+                bytes.push(self.peek(addr));
+                addr = addr.wrapping_add(1);
                 format!("#${:02X}", bytes[1])
             }
             ZP0 => {
-                bytes.push(self.peek(*pc));
-                *pc = pc.wrapping_add(1);
+                bytes.push(self.peek(addr));
+                addr = addr.wrapping_add(1);
                 let val = self.peek(bytes[1].into());
                 format!("${:02X} = #${:02X}", bytes[1], val)
             }
             ZPX => {
-                bytes.push(self.peek(*pc));
-                *pc = pc.wrapping_add(1);
+                bytes.push(self.peek(addr));
+                addr = addr.wrapping_add(1);
                 let x_offset = bytes[1].wrapping_add(self.x);
                 let val = self.peek(x_offset.into());
                 format!("${:02X},X @ ${:04X} = #${:02X}", bytes[1], x_offset, val)
             }
             ZPY => {
-                bytes.push(self.peek(*pc));
-                *pc = pc.wrapping_add(1);
+                bytes.push(self.peek(addr));
+                addr = addr.wrapping_add(1);
                 let y_offset = bytes[1].wrapping_add(self.y);
                 let val = self.peek(y_offset.into());
                 format!("${:02X},Y @ ${:02X} = #${:02X}", bytes[1], y_offset, val)
             }
             ABS => {
-                bytes.push(self.peek(*pc));
-                bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(*pc);
-                *pc = pc.wrapping_add(2);
+                bytes.push(self.peek(addr));
+                bytes.push(self.peek(addr.wrapping_add(1)));
+                let abs_addr = self.peekw(addr);
+                addr = addr.wrapping_add(2);
                 if instr.op() == JMP || instr.op() == JSR {
-                    format!("${:04X}", addr)
+                    format!("${:04X}", abs_addr)
                 } else {
-                    let val = self.peek(addr);
-                    format!("${:04X} = #${:02X}", addr, val)
+                    let val = self.peek(abs_addr);
+                    format!("${:04X} = #${:02X}", abs_addr, val)
                 }
             }
             ABX => {
-                bytes.push(self.peek(*pc));
-                bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(*pc);
-                *pc = pc.wrapping_add(2);
-                let x_offset = addr.wrapping_add(self.x.into());
+                bytes.push(self.peek(addr));
+                bytes.push(self.peek(addr.wrapping_add(1)));
+                let abs_addr = self.peekw(addr);
+                addr = addr.wrapping_add(2);
+                let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
-                format!("${:04X},X @ ${:04X} = #${:02X}", addr, x_offset, val)
+                format!("${:04X},X @ ${:04X} = #${:02X}", abs_addr, x_offset, val)
             }
             ABY => {
-                bytes.push(self.peek(*pc));
-                bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(*pc);
-                *pc = pc.wrapping_add(2);
-                let y_offset = addr.wrapping_add(self.y.into());
+                bytes.push(self.peek(addr));
+                bytes.push(self.peek(addr.wrapping_add(1)));
+                let abs_addr = self.peekw(addr);
+                addr = addr.wrapping_add(2);
+                let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                format!("${:04X},Y @ ${:04X} = #${:02X}", addr, y_offset, val)
+                format!("${:04X},Y @ ${:04X} = #${:02X}", abs_addr, y_offset, val)
             }
             IND => {
-                bytes.push(self.peek(*pc));
-                bytes.push(self.peek(pc.wrapping_add(1)));
-                let addr = self.peekw(*pc);
-                *pc = pc.wrapping_add(2);
-                let val = if addr & 0x00FF == 0x00FF {
-                    (Addr::from(self.peek(addr & 0xFF00)) << 8) | Addr::from(self.peek(addr))
+                bytes.push(self.peek(addr));
+                bytes.push(self.peek(addr.wrapping_add(1)));
+                let abs_addr = self.peekw(addr);
+                addr = addr.wrapping_add(2);
+                let val = if abs_addr & 0x00FF == 0x00FF {
+                    (Addr::from(self.peek(abs_addr & 0xFF00)) << 8)
+                        | Addr::from(self.peek(abs_addr))
                 } else {
-                    (Addr::from(self.peek(addr + 1)) << 8) | Addr::from(self.peek(addr))
+                    (Addr::from(self.peek(abs_addr + 1)) << 8) | Addr::from(self.peek(abs_addr))
                 };
-                format!("(${:04X}) = ${:04X}", addr, val)
+                format!("(${:04X}) = ${:04X}", abs_addr, val)
             }
             IDX => {
-                bytes.push(self.peek(*pc));
-                *pc = pc.wrapping_add(1);
+                bytes.push(self.peek(addr));
+                addr = addr.wrapping_add(1);
                 let x_offset = bytes[1].wrapping_add(self.x);
-                let addr = self.peekw_zp(x_offset);
-                let val = self.peek(addr);
-                format!("(${:02X},X) @ ${:04X} = #${:02X}", bytes[1], addr, val)
+                let abs_addr = self.peekw_zp(x_offset);
+                let val = self.peek(abs_addr);
+                format!("(${:02X},X) @ ${:04X} = #${:02X}", bytes[1], abs_addr, val)
             }
             IDY => {
-                bytes.push(self.peek(*pc));
-                *pc = pc.wrapping_add(1);
-                let addr = self.peekw_zp(bytes[1]);
-                let y_offset = addr.wrapping_add(self.y.into());
+                bytes.push(self.peek(addr));
+                addr = addr.wrapping_add(1);
+                let abs_addr = self.peekw_zp(bytes[1]);
+                let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
                 format!("(${:02X}),Y @ ${:04X} = #${:02X}", bytes[1], y_offset, val)
             }
             REL => {
-                bytes.push(self.peek(*pc));
-                let mut rel_addr = self.peek(*pc).into();
-                *pc = pc.wrapping_add(1);
+                bytes.push(self.peek(addr));
+                let mut rel_addr = self.peek(addr).into();
+                addr = addr.wrapping_add(1);
                 if rel_addr & 0x80 == 0x80 {
                     // If address is negative, extend sign to 16-bits
                     rel_addr |= 0xFF00;
                 }
-                format!("${:04X}", pc.wrapping_add(rel_addr))
+                format!("${:04X}", addr.wrapping_add(rel_addr))
             }
             ACC | IMP => "".to_string(),
         };
+        *pc = addr;
         for i in 0..3 {
             if i < bytes.len() {
                 disasm.push_str(&format!("{:02X} ", bytes[i]));
@@ -606,7 +694,8 @@ impl Cpu {
     }
 
     // Print the current instruction and status
-    pub fn print_instruction(&mut self, mut pc: Addr) {
+    pub fn print_instruction(&self) {
+        let mut pc = self.pc;
         let disasm = self.disassemble(&mut pc);
 
         let status_flags = vec!['n', 'v', '-', 'b', 'd', 'i', 'z', 'c'];
@@ -655,11 +744,7 @@ impl Clocked for Cpu {
         }
 
         if log_enabled!(Level::Trace) {
-            self.print_instruction(self.pc);
-        }
-        self.pc_log.push_front(self.pc);
-        if self.pc_log.len() > PC_LOG_LEN {
-            self.pc_log.pop_back();
+            self.print_instruction();
         }
 
         let opcode = self.read(self.pc); // Cycle 1 of instruction
@@ -793,7 +878,6 @@ impl Powered for Cpu {
     fn power_on(&mut self) {
         self.cycle_count = 0;
         self.dmc_dma = false;
-        self.pc_log.clear();
         self.set_irq(Irq::Reset, true);
     }
 
@@ -835,7 +919,6 @@ impl Savable for Cpu {
         self.y.save(fh)?;
         self.status.save(fh)?;
         self.bus.save(fh)?;
-        // Ignore pc_log
         self.instr.save(fh)?;
         self.abs_addr.save(fh)?;
         self.rel_addr.save(fh)?;
