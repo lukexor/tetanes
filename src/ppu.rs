@@ -481,7 +481,6 @@ impl Ppu {
                 && self.frame.sprite_zero_on_line
                 && self.rendering_enabled()
                 && !self.sprite_zero_hit()
-                && x > 0
                 && x != 255
                 && y <= VISIBLE_SCANLINE_END
                 && bg_opaque
