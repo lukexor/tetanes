@@ -110,6 +110,8 @@ Support for the following mappers is currently implemented or in development:
 | 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
 | 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
+| 071 | BF9093/BF9097          | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
+| 155 | MMC1A                  | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
 |     |                        |                                           | ~2050                   |                 84.11% |
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
@@ -271,60 +273,62 @@ When using the WASM version in the browser, also include:
 
 ## Features
 
-- [ ] NES Formats & Run Modes
+- NES Formats & Run Modes
   - [x] NTSC
   - [ ] PAL
   - [ ] Dendy
   - [ ] Headless mode
-- [x] Central Processing Unit (CPU)
+- Central Processing Unit (CPU)
   - [x] Official Instructions
   - [x] Unofficial Instructions
   - [x] Interrupts
-- [ ] Picture Processing Unit (PPU)
+- Picture Processing Unit (PPU)
   - [x] VRAM
   - [x] Background
   - [x] Sprites
   - [x] NTSC TV Artifact Effects
   - [x] Emphasize RGB/Grayscale
   - [ ] Accurate OAM management ([#31](https://github.com/lukexor/tetanes/issues/31))
-- [ ] Audio Processing Unit (APU)
+- Audio Processing Unit (APU)
   - [x] Pulse Channels
   - [x] Triangle Channel
   - [x] Noise Channel
   - [x] Delta Modulation Channel (DMC)
   - [ ] Accurate DMC timing ([#30](https://github.com/lukexor/tetanes/issues/30))
-- [ ] Inputs
-  - [x] 1-Player Keyboard
-  - [x] 1-2 Player Standard Controllers
+- Player Input
+  - [x] 1-Player w/ Keyboard
+  - [x] 1-2 Player w/ Standard Controllers
   - [x] Turbo Buttons
   - [ ] Zapper (Light Gun)
   - [ ] 3-4 Player Support ([#32](https://github.com/lukexor/tetanes/issues/32))
-- [ ] Cartridge
+- Cartridge
   - [x] Battery-backed Save RAM
   - [x] iNES Format
   - [x] NES 2.0 Format
   - [ ] Complete NES 2.0 support
-  - [ ] Mappers
-    - [x] NROM (Mapper 0)
-    - [x] SxROM/MMC1 (Mapper 1 & 155)
-    - [x] UxROM (Mapper 2)
-    - [x] CNROM (Mapper 3)
-    - [x] TxROM/MMC3 (Mapper 4)
-    - [ ] ExROM/MMC5 (Mapper 5) (Works, but split screen and sound are unfinished)
-    - [x] AxROM (Mapper 7)
-    - [x] PxROM/MMC2 (Mapper 9)
+  - Mappers
+    - [x] Mapper 000 - NROM
+    - [x] Mapper 001 - SxROM/MMC1
+    - [x] Mapper 002 - UxROM
+    - [x] Mapper 003 - CNROM
+    - [x] Mapper 004 - TxROM/MMC3
+    - [ ] Mapper 005 - ExROM/MMC5 (works, but extra sound support is missing)
+    - [x] Mapper 007 - AxROM
+    - [x] Mapper 009 - PxROM/MMC2
+    - [x] Mapper 071 - BF9093/BF9097
+    - [x] Mapper 155 - MMC1A
 - [x] User Interface (UI)
-  - [ ] UI Notification messages
+  - [x] UI Notification messages
   - [x] SDL2
   - [x] WebAssembly (WASM) - Run TetaNES in the browser!
   - [x] Multiple Windows
   - [x] Configurable keybinds and default settings
-  - [ ] Menus
-    - [ ] Help Menu
-    - [x] Load/Open ROM with file browser
+  - Menus
     - [x] Configuration options
     - [ ] Custom Keybinds
+    - [x] Load/Open ROM with file browser
     - [ ] Recent Game Selection
+    - [x] About Menu
   - [x] Pause
   - [x] Reset
   - [x] Power Cycle
@@ -343,14 +347,13 @@ When using the WASM version in the browser, also include:
   - [ ] Toggle Debugger
   - [x] Game Genie
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
-  - [ ] 4-Player support
   - [ ] Network Multi-player
   - [ ] Self Updater
-- [ ] Testing/Debugging/Documentation
+- Testing/Debugging/Documentation
   - [ ] CPU Debugger (Displays CPU status, registers, and disassembly)
     - [ ] Step Into/Out/Over
     - [ ] Breakpoints
-  - [ ] Hex Memory Debugger
+  - [ ] Hex Memory Editor & Debugger
   - [ ] PPU Viewer (Displays PPU sprite patterns and color palettes)
   - [ ] Nametable Viewer (Displays all four PPU backgrounds)
     - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
@@ -359,11 +362,13 @@ When using the WASM version in the browser, also include:
   - [x] Unit/Integration tests (run with cargo test)
     - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
     - [ ] Other tests (Missing a lot here)
-  - [ ] Test ROMs (most pass, many still do not)
-      - [ ] Automated ROM tests (in progress now that action recording is
+  - [x] Test ROMs (most pass, many still do not)
+    - [ ] Automated ROM tests (in progress now that action recording is
       finished)
   - [ ] Documentation
-  - [x] Logging
+  - Logging
+    - [x] Environment logging
+    - [ ] File logging
 
 ### Known Issues
 
