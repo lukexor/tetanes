@@ -8,7 +8,8 @@ test_roms/apu/07.irq_flag_timing.nes # $04
 test_roms/apu/09.reset_timing.nes # $04
 test_roms/apu/10.len_halt_timing.nes # $03
 test_roms/apu/11.len_reload_timing.nes # $04
-test_roms/apu/dpcmletterbox.nes # Jitters and should be rendered at lower scanline
+test_roms/apu/dmc/7-dmc_basics.nes
+test_roms/apu/dmc/8-dmc_rates.nes
 test_roms/apu/test.nes # Channel: 0 second length of mode 0 is too soon, 5-len-timing #4 5 of 8
 test_roms/apu/test_3.nes # failed
 test_roms/apu/test_4.nes # failed
