@@ -161,16 +161,11 @@ impl Cartridge {
     /// # Errors
     ///
     /// Errors if an invalid PRG-RAM header value is found.
-    pub fn prg_ram_size(&self) -> NesResult<Option<usize>> {
+    pub fn prg_ram_size(&self) -> Option<usize> {
         if self.header.prg_ram_size > 0 {
-            64usize
-                .checked_shl(self.header.prg_ram_size.into())
-                .map_or_else(
-                    || nes_err!("invalid header PRG-RAM size"),
-                    |size| Ok(Some(size)),
-                )
+            Some(self.header.prg_ram_size.into())
         } else {
-            Ok(None)
+            None
         }
     }
 
@@ -179,16 +174,11 @@ impl Cartridge {
     /// # Errors
     ///
     /// Errors if an invalid CHR-RAM header value is found.
-    pub fn chr_ram_size(&self) -> NesResult<Option<usize>> {
+    pub fn chr_ram_size(&self) -> Option<usize> {
         if self.header.chr_ram_size > 0 {
-            64usize
-                .checked_shl(self.header.chr_ram_size.into())
-                .map_or_else(
-                    || nes_err!("invalid header CHR-RAM size"),
-                    |size| Ok(Some(size)),
-                )
+            Some(self.header.chr_ram_size.into())
         } else {
-            Ok(None)
+            None
         }
     }
 }
@@ -260,13 +250,17 @@ impl INesHeader {
             vs_data = header[13];
 
             if prg_ram_size & 0x0F == 0x0F || prg_ram_size & 0xF0 == 0xF0 {
-                return nes_err!("Invalid PRG-RAM size in header.");
+                return nes_err!("invalid PRG-RAM size in header");
+            } else if 64usize.checked_shl(prg_ram_size.into()).is_none() {
+                return nes_err!("invalid header PRG-RAM size");
             } else if chr_ram_size & 0x0F == 0x0F || chr_ram_size & 0xF0 == 0xF0 {
-                return nes_err!("Invalid CHR-RAM size in header.");
+                return nes_err!("invalid CHR-RAM size in header");
+            } else if 64usize.checked_shl(chr_ram_size.into()).is_none() {
+                return nes_err!("invalid header CHR-RAM size");
             } else if chr_ram_size & 0xF0 == 0xF0 {
-                return nes_err!("Battery-backed CHR-RAM is currently not supported.");
+                return nes_err!("battery-backed CHR-RAM is currently not supported");
             } else if header[14] > 0 || header[15] > 0 {
-                return nes_err!("Unrecognized data found at header offsets 14-15.");
+                return nes_err!("unrecognized data found at header offsets 14-15");
             }
         } else {
             for (i, header) in header.iter().enumerate().take(16).skip(8) {

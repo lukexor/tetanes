@@ -53,10 +53,7 @@ struct Mmc1aRegs {
 
 impl Mmc1a {
     pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
-        let prg_ram_size = cart
-            .prg_ram_size()
-            .map(|size| size.unwrap_or(PRG_RAM_SIZE))
-            .unwrap();
+        let prg_ram_size = cart.prg_ram_size().unwrap_or(PRG_RAM_SIZE);
         let has_chr_ram = cart.chr_rom.is_empty();
         let mut mmc1a = Self {
             regs: Mmc1aRegs {

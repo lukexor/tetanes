@@ -126,12 +126,7 @@ impl MemRead for Memory {
     }
 
     fn peek(&self, addr: Addr) -> Byte {
-        let mut addr = addr as usize;
-        let len = self.len();
-        if addr >= len {
-            addr %= len;
-        }
-        assert!(addr < len, "peek outside memory range, {}/{}", addr, len);
+        let addr = addr as usize % self.len();
         self.data[addr]
     }
 }
@@ -139,12 +134,7 @@ impl MemRead for Memory {
 impl MemWrite for Memory {
     fn write(&mut self, addr: Addr, val: Byte) {
         if self.writable {
-            let mut addr = addr as usize;
-            let len = self.len();
-            if addr >= len {
-                addr %= len;
-            }
-            assert!(addr < len, "write outside memory range {}/{}", addr, len);
+            let addr = addr as usize % self.len();
             self.data[addr] = val;
         }
     }
@@ -174,6 +164,15 @@ impl Deref for Memory {
 impl DerefMut for Memory {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
+    }
+}
+
+impl fmt::Debug for Memory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+        f.debug_struct("Memory")
+            .field("data", &format_args!("{} KB", self.data.len() / 1024))
+            .field("writable", &self.writable)
+            .finish()
     }
 }
 
@@ -213,15 +212,15 @@ impl Savable for Bank {
 
 impl fmt::Debug for Bank {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        write!(
-            f,
-            "Bank {{ start: 0x{:04X}, end: 0x{:04X}, address: 0x{:04X} }}",
-            self.start, self.end, self.address,
-        )
+        f.debug_struct("Bank")
+            .field("start", &format_args!("0x{:04X}", self.start))
+            .field("end", &format_args!("0x{:04X}", self.end))
+            .field("address", &format_args!("0x{:04X}", self.address))
+            .finish()
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Clone)]
 #[must_use]
 pub struct BankedMemory {
     banks: Vec<Bank>,
@@ -259,7 +258,7 @@ impl BankedMemory {
 
     pub fn extend(&mut self, memory: &Memory) {
         self.memory.extend(memory);
-        self.bank_count = self.memory.len() / self.window;
+        self.bank_count = std::cmp::max(1, self.memory.len() / self.window);
     }
 
     pub fn add_bank(&mut self, start: Addr, end: Addr) {
@@ -275,17 +274,7 @@ impl BankedMemory {
         self.update_banks();
     }
 
-    pub fn set_bank(&mut self, bank_start: Addr, mut new_bank: usize) {
-        if self.bank_count() > 0 && new_bank >= self.bank_count() {
-            new_bank %= self.bank_count();
-        }
-        debug_assert!(
-            new_bank < self.bank_count(),
-            "new_bank is outside bankable range {} / {}",
-            new_bank,
-            self.bank_count()
-        );
-
+    pub fn set_bank(&mut self, bank_start: Addr, new_bank: usize) {
         let bank = self.get_bank(bank_start);
         debug_assert!(
             bank < self.banks.len(),
@@ -293,21 +282,11 @@ impl BankedMemory {
             bank,
             self.banks.len()
         );
-        self.banks[bank].address = new_bank * self.window;
+        self.banks[bank].address = (new_bank % self.bank_count()) * self.window;
     }
 
-    pub fn set_bank_range(&mut self, start: Addr, end: Addr, mut new_bank: usize) {
-        if self.bank_count() > 0 && new_bank >= self.bank_count() {
-            new_bank %= self.bank_count();
-        }
-        debug_assert!(
-            new_bank < self.bank_count(),
-            "new_bank is outside bankable range {} / {}",
-            new_bank,
-            self.bank_count()
-        );
-
-        let mut new_address = new_bank * self.window;
+    pub fn set_bank_range(&mut self, start: Addr, end: Addr, new_bank: usize) {
+        let mut new_address = (new_bank % self.bank_count()) * self.window;
         for bank_start in (start..end).step_by(self.window) {
             let bank = self.get_bank(bank_start);
             debug_assert!(
@@ -375,15 +354,11 @@ impl BankedMemory {
         let addr = addr as usize;
         let base_addr = self.banks.first().map_or(0x0000, |bank| bank.start);
         debug_assert!(addr >= base_addr, "address is less than base address");
-        let mut bank = (addr - base_addr) >> self.bank_shift;
-        if self.bank_count() > 0 && bank >= self.bank_count() {
-            bank %= self.bank_count();
-        }
-        bank
+        ((addr - base_addr) >> self.bank_shift) % self.bank_count()
     }
 
     #[must_use]
-    fn translate_addr(&self, addr: Addr) -> usize {
+    pub fn translate_addr(&self, addr: Addr) -> usize {
         let bank = self.get_bank(addr);
         debug_assert!(bank < self.banks.len(), "bank is outside bankable range");
         let bank = &self.banks[bank];
@@ -408,12 +383,7 @@ impl MemRead for BankedMemory {
     }
 
     fn peek(&self, addr: Addr) -> Byte {
-        let mut addr = self.translate_addr(addr);
-        let len = self.len();
-        if addr >= len {
-            addr %= len;
-        }
-        assert!(addr < len, "peek outside memory range, {}/{}", addr, len);
+        let addr = self.translate_addr(addr) % self.len();
         self.memory[addr]
     }
 }
@@ -421,12 +391,7 @@ impl MemRead for BankedMemory {
 impl MemWrite for BankedMemory {
     fn write(&mut self, addr: Addr, val: Byte) {
         if self.writable() {
-            let mut addr = self.translate_addr(addr);
-            let len = self.len();
-            if addr >= len {
-                addr %= len;
-            }
-            assert!(addr < len, "write outside memory range {}/{}", addr, len);
+            let addr = self.translate_addr(addr) % self.len();
             self.memory[addr] = val;
         }
     }
@@ -465,14 +430,15 @@ impl DerefMut for BankedMemory {
     }
 }
 
-impl fmt::Debug for Memory {
+impl fmt::Debug for BankedMemory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        write!(
-            f,
-            "Memory {{ data: {} KB, writable: {} }}",
-            self.data.len() / 1024,
-            self.writable
-        )
+        f.debug_struct("BankedMemory")
+            .field("banks", &self.banks)
+            .field("window", &format_args!("0x{:04X}", self.window))
+            .field("bank_shift", &self.bank_shift)
+            .field("bank_count", &self.bank_count)
+            .field("memory", &self.memory)
+            .finish()
     }
 }
 
