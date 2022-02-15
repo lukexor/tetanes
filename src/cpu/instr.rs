@@ -1092,7 +1092,8 @@ impl Cpu {
 
     /// XXX: Captures all unimplemented opcodes
     pub(super) fn xxx(&mut self) {
-        panic!(
+        self.corrupted = true;
+        log::error!(
             "Invalid opcode ${:02X} {:?} #{:?} encountered!",
             self.instr.opcode(),
             self.instr.op(),

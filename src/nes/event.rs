@@ -326,11 +326,13 @@ impl Nes {
             }
             NesState::Quit => s.quit(),
             NesState::Reset => {
+                self.error = None;
                 self.control_deck.reset();
                 s.run();
                 self.add_message("Reset");
             }
             NesState::PowerCycle => {
+                self.error = None;
                 self.control_deck.power_cycle();
                 s.run();
                 self.add_message("Power Cycled");
@@ -569,6 +571,10 @@ impl Nes {
         ])?;
         s.fill(Color::WHITE);
         s.text(status)?;
+        if let Some(ref err) = self.error {
+            s.fill(Color::RED);
+            s.text(err)?;
+        }
         s.pop();
         Ok(())
     }

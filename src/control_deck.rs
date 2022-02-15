@@ -100,6 +100,11 @@ impl ControlDeck {
         total_ticks
     }
 
+    /// Returns whether the CPU is corrupted or not.
+    pub fn cpu_corrupted(&self) -> bool {
+        self.cpu.corrupted
+    }
+
     /// Returns the current CPU program counter.
     pub fn pc(&self) -> Addr {
         self.cpu.pc

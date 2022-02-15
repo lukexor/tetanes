@@ -24,6 +24,7 @@ where
 impl Nes {
     /// Loads a ROM cartridge into memory
     pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
+        self.error = None;
         self.mode = Mode::Paused;
         s.pause_audio();
         let rom = match File::open(&self.config.rom_path)

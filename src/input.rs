@@ -130,7 +130,10 @@ impl Gamepad {
             STROBE_DOWN => self.down,
             STROBE_LEFT => self.left,
             STROBE_RIGHT => self.right,
-            _ => panic!("invalid state {}", self.strobe_state),
+            _ => {
+                log::error!("invalid state {}", self.strobe_state);
+                false
+            }
         };
         state as u8
     }

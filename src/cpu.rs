@@ -86,6 +86,7 @@ pub struct Cpu {
     pub fetched_data: Byte, // Represents data fetched for the ALU
     pub irq_pending: u8,    // Pending interrupts
     pub nmi_pending: bool,
+    pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     last_irq: bool,
     last_nmi: bool,
     dmc_dma: bool,
@@ -109,6 +110,7 @@ impl Cpu {
             fetched_data: 0x00,
             irq_pending: Irq::Reset as u8,
             nmi_pending: false,
+            corrupted: false,
             last_irq: false,
             last_nmi: false,
             dmc_dma: false,

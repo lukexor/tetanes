@@ -305,18 +305,23 @@ impl AppState for Nes {
             'run: while self.speed_counter > 0.0 {
                 self.speed_counter -= 1.0;
                 while !self.control_deck.frame_complete() {
+                    if breakpoints.contains(&self.control_deck.pc()) {
+                        self.mode = Mode::Paused;
+                        break 'run;
+                    }
                     if let (Some(addr), _) = self.control_deck.next_addr(MemAccess::Write) {
                         if breakpoints.contains(&addr) {
-                            log::info!(
-                                "{}",
-                                self.control_deck
-                                    .disasm(self.control_deck.pc(), self.control_deck.pc())[0]
-                            );
                             self.mode = Mode::Paused;
                             break 'run;
                         }
                     }
                     self.control_deck.clock_cpu();
+
+                    if self.control_deck.cpu_corrupted() {
+                        self.mode = Mode::Paused;
+                        self.error = Some("CPU crash occurred".into());
+                        break 'run;
+                    }
                 }
                 self.control_deck.start_new_frame();
             }
@@ -346,16 +351,12 @@ impl AppState for Nes {
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
         // FIXME: Move to debug keybinds
         if event.key == Key::D {
-            let disasm = self.control_deck.disasm(
-                self.control_deck.pc().saturating_sub(20),
-                self.control_deck.pc() + 20,
-            );
-            for s in disasm.iter().take(20) {
-                log::info!("{}", s);
-            }
-            log::info!(">> {}", disasm[20]);
-            for s in disasm.iter().skip(21) {
-                log::info!("{}", s);
+            // FIXME: disasm has to start at the correct addr - which can depend on mapper
+            let disasm = self
+                .control_deck
+                .disasm(self.control_deck.pc(), self.control_deck.pc() + 20);
+            for instr in &disasm {
+                log::info!("{}", instr);
             }
         }
         if event.key == Key::C {
