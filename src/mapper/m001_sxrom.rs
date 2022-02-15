@@ -254,7 +254,6 @@ impl MemRead for Sxrom {
 
 impl MemWrite for Sxrom {
     fn write(&mut self, addr: u16, val: u8) {
-        self.regs.open_bus = val;
         match addr {
             0x0000..=0x1FFF => self.chr.write(addr, val),
             0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram.write(addr, val),

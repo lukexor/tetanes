@@ -66,7 +66,6 @@ impl MemRead for Axrom {
 
 impl MemWrite for Axrom {
     fn write(&mut self, addr: u16, val: u8) {
-        self.open_bus = val;
         match addr {
             0x0000..=0x1FFF => self.chr.write(addr, val),
             0x8000..=0xFFFF => {
