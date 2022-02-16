@@ -8,10 +8,12 @@ use crate::{
 };
 use enum_dispatch::enum_dispatch;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     io::{Read, Write},
     ops::{Deref, DerefMut},
+    str::FromStr,
 };
 
 #[enum_dispatch(MapperType)]
@@ -30,14 +32,51 @@ pub trait MemWrite {
     fn write(&mut self, _addr: Addr, _val: Byte) {}
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum MemAccess {
     Read,
     Write,
+    Execute,
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub enum RamState {
+    AllZeros,
+    AllOnes,
+    Random,
+}
+
+impl Default for RamState {
+    fn default() -> Self {
+        Self::Random
+    }
+}
+
+impl From<usize> for RamState {
+    fn from(value: usize) -> Self {
+        match value {
+            0 => Self::AllZeros,
+            1 => Self::AllOnes,
+            _ => Self::Random,
+        }
+    }
+}
+
+impl FromStr for RamState {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "zeros" => Ok(Self::AllZeros),
+            "ones" => Ok(Self::AllOnes),
+            "random" => Ok(Self::Random),
+            _ => Err("invalid RamState value. valid options: `zeros`, `ones`, or `random`"),
+        }
+    }
+}
+
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Memory {
     data: Vec<Byte>,
@@ -45,61 +84,37 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(consistent: bool) -> Self {
-        Self::with_capacity(0, consistent)
+    pub fn new() -> Self {
+        Self {
+            data: vec![],
+            writable: true,
+        }
     }
 
-    pub fn with_capacity(capacity: usize, consistent: bool) -> Self {
-        let data = if consistent {
-            vec![0; capacity]
-        } else {
-            let mut rng = rand::thread_rng();
-            let mut data = Vec::with_capacity(capacity);
-            for _ in 0..capacity {
-                data.push(rng.gen_range(0x00..=0xFF));
+    pub fn rom(bytes: &[Byte]) -> Self {
+        Self {
+            data: bytes.to_vec(),
+            writable: false,
+        }
+    }
+
+    pub fn ram(capacity: usize, state: RamState) -> Self {
+        let data = match state {
+            RamState::AllZeros => vec![0x00; capacity],
+            RamState::AllOnes => vec![0xFF; capacity],
+            RamState::Random => {
+                let mut rng = rand::thread_rng();
+                let mut data = Vec::with_capacity(capacity);
+                for _ in 0..capacity {
+                    data.push(rng.gen_range(0x00..=0xFF));
+                }
+                data
             }
-            data
         };
         Self {
             data,
             writable: true,
         }
-    }
-
-    pub fn from_bytes(bytes: &[Byte]) -> Self {
-        let consistent = true;
-        let mut memory = Self::with_capacity(bytes.len(), consistent);
-        memory.data = bytes.to_vec();
-        memory
-    }
-
-    pub fn rom(capacity: usize) -> Self {
-        let consistent = true;
-        let mut rom = Self::with_capacity(capacity, consistent);
-        rom.writable = false;
-        rom
-    }
-
-    pub fn rom_from_bytes(bytes: &[Byte]) -> Self {
-        let mut rom = Self::rom(bytes.len());
-        rom.data = bytes.to_vec();
-        rom
-    }
-
-    pub fn ram(capacity: usize, consistent: bool) -> Self {
-        Self::with_capacity(capacity, consistent)
-    }
-
-    pub fn ram_from_bytes(bytes: &[Byte]) -> Self {
-        let consistent = true;
-        let mut ram = Self::ram(bytes.len(), consistent);
-        ram.data = bytes.to_vec();
-        ram
-    }
-
-    #[inline]
-    pub fn extend(&mut self, memory: &Memory) {
-        self.data.extend(&memory.data);
     }
 
     #[must_use]
@@ -238,14 +253,11 @@ pub struct BankedMemory {
 }
 
 impl BankedMemory {
-    pub fn new(window: usize, consistent: bool) -> Self {
-        Self::ram(0x2000, window, consistent)
-    }
-
-    pub fn ram(capacity: usize, window: usize, consistent: bool) -> Self {
-        let memory = Memory::ram(capacity, consistent);
+    #[inline]
+    pub fn ram(capacity: usize, window: usize, state: RamState) -> Self {
+        let memory = Memory::ram(capacity, state);
         Self {
-            banks: Vec::new(),
+            banks: vec![],
             window,
             bank_shift: Self::bank_shift(window),
             bank_count: std::cmp::max(1, memory.len() / window),
@@ -253,9 +265,10 @@ impl BankedMemory {
         }
     }
 
+    #[inline]
     pub fn from(memory: Memory, window: usize) -> Self {
         Self {
-            banks: Vec::new(),
+            banks: vec![],
             window,
             bank_shift: Self::bank_shift(window),
             bank_count: std::cmp::max(1, memory.len() / window),
@@ -263,16 +276,13 @@ impl BankedMemory {
         }
     }
 
-    pub fn extend(&mut self, memory: &Memory) {
-        self.memory.extend(memory);
-        self.bank_count = std::cmp::max(1, self.memory.len() / self.window);
-    }
-
+    #[inline]
     pub fn add_bank(&mut self, start: Addr, end: Addr) {
         self.banks.push(Bank::new(start, end));
         self.update_banks();
     }
 
+    #[inline]
     pub fn add_bank_range(&mut self, start: Addr, end: Addr) {
         for start in (start..end).step_by(self.window) {
             let end = start + (self.window as Addr).saturating_sub(1);
@@ -281,6 +291,7 @@ impl BankedMemory {
         self.update_banks();
     }
 
+    #[inline]
     pub fn set_bank(&mut self, bank_start: Addr, new_bank: usize) {
         let bank = self.get_bank(bank_start);
         debug_assert!(
@@ -292,6 +303,7 @@ impl BankedMemory {
         self.banks[bank].address = (new_bank % self.bank_count()) * self.window;
     }
 
+    #[inline]
     pub fn set_bank_range(&mut self, start: Addr, end: Addr, new_bank: usize) {
         let mut new_address = (new_bank % self.bank_count()) * self.window;
         for bank_start in (start..end).step_by(self.window) {
@@ -452,11 +464,10 @@ impl fmt::Debug for BankedMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const CONSISTENT_RAM: bool = true;
 
     #[test]
     fn add_bank_range_test() {
-        let mut memory = BankedMemory::ram(0xFFFF, 0x2000, CONSISTENT_RAM);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x2000, RamState::AllZeros);
         memory.add_bank_range(0x6000, 0xFFFF);
         assert_eq!(memory.get_bank(0x6000), 0);
         assert_eq!(memory.get_bank(0x7FFF), 0);
@@ -469,7 +480,7 @@ mod tests {
         assert_eq!(memory.get_bank(0xE000), 4);
         assert_eq!(memory.get_bank(0xFFFF), 4);
 
-        let mut memory = BankedMemory::ram(0xFFFF, 0x2000, CONSISTENT_RAM);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x2000, RamState::AllZeros);
         memory.add_bank_range(0x8000, 0xBFFF);
         assert_eq!(memory.get_bank(0x8000), 0);
         assert_eq!(memory.get_bank(0x9FFF), 0);
@@ -480,7 +491,7 @@ mod tests {
         assert_eq!(memory.get_bank(0x6000), 0);
         assert_eq!(memory.get_bank(0x8000), 1);
 
-        let mut memory = BankedMemory::ram(0xFFFF, 0x0400, CONSISTENT_RAM);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x0400, RamState::AllZeros);
         memory.add_bank_range(0x0000, 0x1FFF);
         assert_eq!(memory.get_bank(0x0000), 0);
         assert_eq!(memory.get_bank(0x03FF), 0);
@@ -492,7 +503,7 @@ mod tests {
 
     #[test]
     fn add_bank_test() {
-        let mut memory = BankedMemory::ram(0xFFFF, 0x4000, CONSISTENT_RAM);
+        let mut memory = BankedMemory::ram(0xFFFF, 0x4000, RamState::AllZeros);
         memory.add_bank(0x8000, 0xBFFF);
         memory.add_bank(0xC000, 0xFFFF);
         assert_eq!(memory.get_bank(0x8000), 0);
@@ -508,7 +519,7 @@ mod tests {
     #[test]
     fn peek_bank_test() {
         let size = 40 * 1024;
-        let rom = Memory::ram(size, CONSISTENT_RAM);
+        let rom = Memory::ram(size, RamState::AllZeros);
         let mut memory = BankedMemory::from(rom, 0x2000);
 
         assert!(!memory.is_empty(), "memory non-empty");
@@ -537,7 +548,7 @@ mod tests {
     #[test]
     fn write_bank_test() {
         let size = 40 * 1024;
-        let rom = Memory::ram(size, CONSISTENT_RAM);
+        let rom = Memory::ram(size, RamState::AllZeros);
         let mut memory = BankedMemory::from(rom, 0x2000);
 
         assert!(!memory.is_empty(), "memory non-empty");
@@ -562,7 +573,7 @@ mod tests {
     #[test]
     fn set_bank_test() {
         let size = 128 * 1024;
-        let rom = Memory::ram(size, CONSISTENT_RAM);
+        let rom = Memory::ram(size, RamState::AllZeros);
         let mut memory = BankedMemory::from(rom, 0x2000);
 
         assert!(!memory.is_empty(), "memory non-empty");
@@ -594,7 +605,7 @@ mod tests {
         pretty_env_logger::init_timed();
 
         let size = 128 * 1024;
-        let rom = Memory::ram(size, CONSISTENT_RAM);
+        let rom = Memory::ram(size, RamState::AllZeros);
         let mut memory = BankedMemory::from(rom, 0x4000);
 
         assert!(!memory.is_empty(), "memory non-empty");

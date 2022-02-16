@@ -6,7 +6,7 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite},
+    memory::{BankedMemory, MemRead, MemWrite, RamState},
     serialization::Savable,
     NesResult,
 };
@@ -37,14 +37,14 @@ pub struct Bf909x {
 }
 
 impl Bf909x {
-    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
+    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
         let has_chr_ram = cart.chr_rom.is_empty();
         let mut bf909x = Self {
             has_chr_ram,
             mirroring: cart.mirroring(),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
             chr: if has_chr_ram {
-                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, consistent_ram)
+                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, state)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },

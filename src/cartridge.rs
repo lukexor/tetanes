@@ -42,12 +42,11 @@ pub struct Cartridge {
 impl Cartridge {
     /// Creates an empty cartridge not loaded with any ROM
     pub fn new() -> Self {
-        let consistent_ram = true;
         Self {
             name: String::new(),
             header: INesHeader::new(),
-            prg_rom: Memory::new(consistent_ram),
-            chr_rom: Memory::new(consistent_ram),
+            prg_rom: Memory::new(),
+            chr_rom: Memory::new(),
             prg_ram_size: None,
             chr_ram_size: None,
         }
@@ -83,7 +82,7 @@ impl Cartridge {
                 e,
             )
         })?;
-        let prg_rom = Memory::rom_from_bytes(&prg_rom);
+        let prg_rom = Memory::rom(&prg_rom);
 
         let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_BANK_SIZE];
         rom_data.read_exact(&mut chr_rom).map_err(|e| {
@@ -101,7 +100,7 @@ impl Cartridge {
                 e,
             )
         })?;
-        let chr_rom = Memory::rom_from_bytes(&chr_rom);
+        let chr_rom = Memory::rom(&chr_rom);
 
         let prg_ram_size = if header.prg_ram_size > 0 {
             let prg_ram_size = 64usize.checked_shl(header.prg_ram_size.into());

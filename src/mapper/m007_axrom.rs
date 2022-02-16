@@ -6,7 +6,7 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite},
+    memory::{BankedMemory, MemRead, MemWrite, RamState},
     serialization::Savable,
     NesResult,
 };
@@ -26,11 +26,11 @@ pub struct Axrom {
 }
 
 impl Axrom {
-    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
+    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
         let mut axrom = Self {
             mirroring: cart.mirroring(),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
-            chr: BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, consistent_ram),
+            chr: BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, state),
             open_bus: 0x00,
         };
         axrom.prg_rom.add_bank_range(0x8000, 0xFFFF);

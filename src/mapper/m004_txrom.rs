@@ -7,7 +7,7 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite},
+    memory::{BankedMemory, MemRead, MemWrite, RamState},
     serialization::Savable,
     NesResult,
 };
@@ -92,7 +92,7 @@ impl TxRegs {
 }
 
 impl Txrom {
-    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
+    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
         let has_chr_ram = cart.chr_rom.is_empty();
         let chr_ram_size = cart.chr_ram_size.unwrap_or(CHR_RAM_SIZE);
         let mut txrom = Self {
@@ -107,15 +107,15 @@ impl Txrom {
                 Some(BankedMemory::ram(
                     FOUR_SCREEN_RAM_SIZE,
                     FOUR_SCREEN_RAM_SIZE,
-                    consistent_ram,
+                    state,
                 ))
             } else {
                 None
             },
-            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW, consistent_ram),
+            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW, state),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
             chr: if has_chr_ram {
-                BankedMemory::ram(chr_ram_size, CHR_WINDOW, consistent_ram)
+                BankedMemory::ram(chr_ram_size, CHR_WINDOW, state)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },

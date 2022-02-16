@@ -11,7 +11,7 @@ use crate::{
     cartridge::Cartridge,
     common::{Addr, Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite},
+    memory::{BankedMemory, MemRead, MemWrite, RamState},
     serialization::Savable,
     NesResult,
 };
@@ -188,7 +188,7 @@ impl ExRegs {
 }
 
 impl Exrom {
-    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
+    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
         let mirroring = cart.mirroring();
         let mut exrom = Self {
             regs: ExRegs::new(mirroring),
@@ -201,8 +201,8 @@ impl Exrom {
             ppu_idle: 0x00,
             ppu_in_vblank: false,
             ppu_rendering: false,
-            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW, consistent_ram),
-            exram: BankedMemory::ram(EXRAM_SIZE, EXRAM_WINDOW, consistent_ram),
+            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW, state),
+            exram: BankedMemory::ram(EXRAM_SIZE, EXRAM_WINDOW, state),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
             chr_rom: BankedMemory::from(cart.chr_rom, CHR_ROM_WINDOW),
             tile_cache: 0x0000,
@@ -1099,13 +1099,11 @@ mod tests {
     #[test]
     fn prg_ram_protect() {
         use super::*;
-        use crate::{cartridge::Cartridge, memory::Memory};
-        let consistent_ram = true;
+        use crate::{cartridge::Cartridge, memory::RamState};
         for a in 0..4 {
             for b in 0..4 {
-                let mut cart = Cartridge::new();
-                cart.prg_rom = Memory::rom(0xFFFF);
-                let mut exrom = Exrom::load(cart, consistent_ram);
+                let cart = Cartridge::new();
+                let mut exrom = Exrom::load(cart, RamState::AllZeros);
 
                 exrom.write(0x5102, a);
                 exrom.write(0x5103, b);

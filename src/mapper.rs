@@ -5,7 +5,7 @@
 use crate::{
     cartridge::Cartridge,
     common::{Addr, Byte, Clocked, Powered},
-    memory::{MemRead, MemWrite},
+    memory::{MemRead, MemWrite, RamState},
     serialization::Savable,
     {nes_err, NesResult},
 };
@@ -115,19 +115,19 @@ pub trait Mapper: MemRead + MemWrite + Savable + Clocked + Powered {
 /// # Errors
 ///
 /// If loaded ROM has invalid headers or data, an error is returned.
-pub fn load_rom<F: Read>(name: &str, rom: &mut F, consistent_ram: bool) -> NesResult<MapperType> {
+pub fn load_rom<F: Read>(name: &str, rom: &mut F, state: RamState) -> NesResult<MapperType> {
     let cart = Cartridge::from_rom(name, rom)?;
     let mapper = match cart.header.mapper_num {
-        0 => Nrom::load(cart, consistent_ram),
-        1 => Sxrom::load(cart, consistent_ram),
-        2 => Uxrom::load(cart, consistent_ram),
-        3 => Cnrom::load(cart, consistent_ram),
-        4 => Txrom::load(cart, consistent_ram),
-        5 => Exrom::load(cart, consistent_ram),
-        7 => Axrom::load(cart, consistent_ram),
-        9 => Pxrom::load(cart, consistent_ram),
-        71 => Bf909x::load(cart, consistent_ram),
-        155 => Mmc1a::load(cart, consistent_ram),
+        0 => Nrom::load(cart, state),
+        1 => Sxrom::load(cart, state),
+        2 => Uxrom::load(cart, state),
+        3 => Cnrom::load(cart),
+        4 => Txrom::load(cart, state),
+        5 => Exrom::load(cart, state),
+        7 => Axrom::load(cart, state),
+        9 => Pxrom::load(cart, state),
+        71 => Bf909x::load(cart, state),
+        155 => Mmc1a::load(cart, state),
         _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
     };
     Ok(mapper)

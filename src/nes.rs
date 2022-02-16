@@ -5,7 +5,7 @@ use crate::{
     common::{config_dir, config_path, Powered},
     control_deck::ControlDeck,
     input::GamepadSlot,
-    memory::MemAccess,
+    memory::{MemAccess, RamState},
     ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
@@ -46,7 +46,7 @@ const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT 
 pub struct NesBuilder {
     path: PathBuf,
     fullscreen: bool,
-    consistent_ram: bool,
+    power_state: RamState,
     scale: f32,
     speed: f32,
     genie_codes: Vec<String>,
@@ -58,7 +58,7 @@ impl NesBuilder {
         Self {
             path: PathBuf::new(),
             fullscreen: false,
-            consistent_ram: false,
+            power_state: RamState::Random,
             scale: 3.0,
             speed: 1.0,
             genie_codes: vec![],
@@ -80,9 +80,9 @@ impl NesBuilder {
         self
     }
 
-    /// Enables consistent RAM during startup.
-    pub fn consistent_ram(&mut self, val: bool) -> &mut Self {
-        self.consistent_ram = val;
+    /// Sets the default power-on state for RAM values.
+    pub fn power_state(&mut self, state: RamState) -> &mut Self {
+        self.power_state = state;
         self
     }
 
@@ -123,11 +123,11 @@ impl NesBuilder {
         let mut config = Config::from_file(settings)?;
         config.rom_path = self.path.clone().canonicalize()?;
         config.fullscreen = self.fullscreen;
-        config.consistent_ram = self.consistent_ram;
+        config.power_state = self.power_state;
         config.scale = self.scale;
         config.speed = self.speed;
         config.genie_codes = self.genie_codes.clone();
-        let mut control_deck = ControlDeck::new(config.consistent_ram);
+        let mut control_deck = ControlDeck::new(config.power_state);
         control_deck.set_speed(config.speed);
         Ok(Nes {
             control_deck,
@@ -251,6 +251,7 @@ impl Nes {
             .with_frame_rate()
             .audio_sample_rate(SAMPLE_RATE.floor() as i32)
             .audio_channels(1)
+            .target_frame_rate(65)
             .resizable();
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -364,7 +365,7 @@ impl AppState for Nes {
             self.mode = Mode::Playing;
         }
         // FIXME: Convert to ApuViewer window
-        if event.key == Key::A {
+        if event.key == Key::A && event.keymod.intersects(KeyMod::SHIFT) {
             self.control_deck.apu_info();
         }
         self.handle_key_event(s, event, true)

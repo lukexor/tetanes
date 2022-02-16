@@ -5,7 +5,7 @@ use crate::{
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
     input::{Gamepad, GamepadSlot},
     mapper,
-    memory::MemAccess,
+    memory::{MemAccess, RamState},
     ppu::VideoFormat,
     NesResult,
 };
@@ -16,7 +16,7 @@ use std::io::Read;
 #[must_use]
 pub struct ControlDeck {
     running: bool,
-    consistent_ram: bool,
+    power_state: RamState,
     loaded_rom: Option<String>,
     turbo_clock: usize,
     cycles_remaining: f32,
@@ -25,11 +25,11 @@ pub struct ControlDeck {
 
 impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
-    pub fn new(consistent_ram: bool) -> Self {
-        let cpu = Cpu::init(Bus::new(consistent_ram));
+    pub fn new(power_state: RamState) -> Self {
+        let cpu = Cpu::init(Bus::new(power_state));
         Self {
             running: false,
-            consistent_ram,
+            power_state,
             loaded_rom: None,
             turbo_clock: 0,
             cycles_remaining: 0.0,
@@ -45,7 +45,7 @@ impl ControlDeck {
     pub fn load_rom<F: Read>(&mut self, name: &str, rom: &mut F) -> NesResult<()> {
         self.power_off();
         self.loaded_rom = Some(name.to_owned());
-        let mapper = mapper::load_rom(name, rom, self.consistent_ram)?;
+        let mapper = mapper::load_rom(name, rom, self.power_state)?;
         self.cpu.bus.load_mapper(mapper);
         self.power_on();
         Ok(())
@@ -199,8 +199,7 @@ impl ControlDeck {
 
 impl Default for ControlDeck {
     fn default() -> Self {
-        let consistent_ram = true;
-        Self::new(consistent_ram)
+        Self::new(RamState::default())
     }
 }
 
@@ -250,8 +249,7 @@ mod tests {
     use std::{fs::File, io::BufReader, path::PathBuf};
 
     fn load(file: &str) -> ControlDeck {
-        let consistent_ram = true;
-        let mut deck = ControlDeck::new(consistent_ram);
+        let mut deck = ControlDeck::new(RamState::AllZeros);
         let rom = File::open(PathBuf::from(file)).unwrap();
         let mut rom = BufReader::new(rom);
         deck.load_rom(file, &mut rom).unwrap();

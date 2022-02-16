@@ -17,7 +17,7 @@
 
 use std::{env, path::PathBuf};
 use structopt::StructOpt;
-use tetanes::{nes::NesBuilder, NesResult};
+use tetanes::{memory::RamState, nes::NesBuilder, NesResult};
 
 fn main() -> NesResult<()> {
     if env::var("RUST_LOG").is_err() {
@@ -29,7 +29,7 @@ fn main() -> NesResult<()> {
     NesBuilder::new()
         .path(opt.path)
         .fullscreen(opt.fullscreen)
-        .consistent_ram(opt.consistent_ram)
+        .power_state(opt.power_state)
         .scale(opt.scale)
         .speed(opt.speed)
         .genie_codes(opt.genie_codes)
@@ -53,8 +53,12 @@ struct Opt {
     path: Option<PathBuf>,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
-    #[structopt(long = "consistent_ram", help = "Power up with consistent ram state.")]
-    consistent_ram: bool,
+    #[structopt(
+        long = "power_state",
+        default_value = "random",
+        help = "Choose power-up RAM state (zeros, ones, or random)"
+    )]
+    power_state: RamState,
     #[structopt(
         short = "s",
         long = "scale",

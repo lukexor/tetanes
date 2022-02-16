@@ -5,35 +5,33 @@
 use crate::{
     common::{Addr, Byte, Clocked, NesFormat, Powered},
     mapper::{Mapper, MapperType},
-    memory::{MemRead, MemWrite},
+    memory::{MemRead, MemWrite, Memory, RamState},
     serialization::Savable,
     NesResult,
 };
 use frame::Frame;
-use nametable::{ATTRIBUTE_START, NT_START};
-use oam::{Oam, OAM_SIZE};
-use palette::{PALETTE_END, PALETTE_SIZE, PALETTE_START, SYSTEM_PALETTE, SYSTEM_PALETTE_SIZE};
 use ppu_regs::{PpuRegs, COARSE_X_MASK, COARSE_Y_MASK, NT_X_MASK, NT_Y_MASK};
 use sprite::Sprite;
 use std::{
     fmt,
     io::{Read, Write},
 };
-use vram::Vram;
+use vram::{
+    Vram, ATTRIBUTE_START, NT_START, PALETTE_END, PALETTE_SIZE, PALETTE_START, SYSTEM_PALETTE,
+    SYSTEM_PALETTE_SIZE,
+};
 
-mod frame;
-mod nametable;
-mod oam;
-mod palette;
-mod ppu_regs;
-mod sprite;
-mod vram;
+pub mod frame;
+pub mod ppu_regs;
+pub mod sprite;
+pub mod vram;
 
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
 pub const RENDER_CHANNELS: usize = 4;
 pub const RENDER_PITCH: usize = RENDER_CHANNELS * RENDER_WIDTH as usize;
+
 const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
@@ -63,6 +61,8 @@ const _POSTRENDER_SCANLINE: u16 = 240; // Idle scanline
 const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
 const PRERENDER_SCANLINE: u16 = 261;
 
+pub const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[must_use]
 pub enum VideoFormat {
@@ -83,8 +83,13 @@ pub struct Ppu {
     pub dma_offset: u8,
     vram: Vram,        // $2007 PPUDATA
     pub regs: PpuRegs, // Registers
-    oamdata: Oam,      // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    frame: Frame,      // Frame data keeps track of data and shift registers between frames
+    // Addr Low Nibble
+    // $00, $04, $08, $0C   Sprite Y coord
+    // $01, $05, $09, $0D   Sprite tile #
+    // $02, $06, $0A, $0E   Sprite attribute
+    // $03, $07, $0B, $0F   Sprite X coord
+    oamdata: Memory, // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
+    frame: Frame,    // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub filter: VideoFormat,
     nes_format: NesFormat,
@@ -111,7 +116,7 @@ impl Ppu {
             oam_dma: false,
             dma_offset: 0x00,
             regs: PpuRegs::new(),
-            oamdata: Oam::new(),
+            oamdata: Memory::ram(OAM_SIZE, RamState::AllZeros),
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
@@ -836,7 +841,14 @@ impl Ppu {
 
     #[inline]
     fn peek_oamdata(&self) -> Byte {
-        self.oamdata.peek(Addr::from(self.regs.oamaddr))
+        let addr = Addr::from(self.regs.oamaddr);
+        let val = self.oamdata[addr as usize];
+        // Bits 2-4 of Sprite attribute should always be 0
+        if let 0x02 | 0x06 | 0x0A | 0x0E = addr & 0x0F {
+            val & 0xE3
+        } else {
+            val
+        }
     }
 
     #[inline]

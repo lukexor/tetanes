@@ -187,7 +187,7 @@ launched from.
 
 ### Powerup State
 
-The original NES hardware had semi-random contents located in RAM upon powerup
+The original NES hardware had semi-random contents located in RAM upon power-up
 and several games made use of this to seed their Random Number Generators
 (RNGs). By default, `TetaNES` honors the original hardware and emulates
 randomized powerup RAM state. This shows up in several games such as `Final
@@ -195,9 +195,9 @@ Fantasy`, `River City Ransom`, and `Impossible Mission II`, amongst others. Not
 emulating this would make these games seem deterministic when they weren't
 intended to be.
 
-If you would like `TetaNES` to provide fully deterministic emulated powerup
-state, you'll need to enable the `Consistent RAM` setting in the configuration
-menu and trigger a power-cycle or use the `--consistent_ram` flag from the
+If you would like `TetaNES` to provide fully deterministic emulated power-up
+state, you'll need to change the `power_state` setting in the configuration
+menu and trigger a power-cycle or use the `--power_state` flag from the
 command line.
 
 ## Building

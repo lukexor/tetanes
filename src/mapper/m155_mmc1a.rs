@@ -6,7 +6,7 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite},
+    memory::{BankedMemory, MemRead, MemWrite, RamState},
     serialization::Savable,
     NesResult,
 };
@@ -52,7 +52,7 @@ struct Mmc1aRegs {
 }
 
 impl Mmc1a {
-    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
+    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
         let prg_ram_size = cart.prg_ram_size.unwrap_or(PRG_RAM_SIZE);
         let has_chr_ram = cart.chr_rom.is_empty();
         let mut mmc1a = Self {
@@ -66,10 +66,10 @@ impl Mmc1a {
             },
             has_chr_ram,
             battery_backed: cart.battery_backed(),
-            prg_ram: BankedMemory::ram(prg_ram_size, PRG_RAM_WINDOW, consistent_ram),
+            prg_ram: BankedMemory::ram(prg_ram_size, PRG_RAM_WINDOW, state),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
             chr: if has_chr_ram {
-                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, consistent_ram)
+                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, state)
             } else {
                 BankedMemory::from(cart.chr_rom, CHR_WINDOW)
             },

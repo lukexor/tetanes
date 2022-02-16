@@ -1,36 +1,81 @@
-use super::{
-    nametable::{Nametable, NT_SIZE, NT_START},
-    palette::{Palette, PALETTE_SIZE},
-};
 use crate::{
     common::Powered,
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{MemRead, MemWrite},
+    memory::{MemRead, MemWrite, Memory, RamState},
     serialization::Savable,
     NesResult,
 };
 use std::io::{Read, Write};
 
-#[derive(Clone)]
+// Two 1K nametables exist in hardware
+pub const NT_SIZE: usize = 2 * 1024;
+// Nametable ranges:
+// [ $2000 $2400 ]
+// [ $2800 $2C00 ]
+pub const NT_START: u16 = 0x2000;
+pub const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NameTables
+
+pub const PALETTE_SIZE: usize = 32;
+pub const SYSTEM_PALETTE_SIZE: usize = 64;
+pub const PALETTE_START: u16 = 0x3F00;
+pub const PALETTE_END: u16 = 0x3F20;
+
+// 64 total possible colors, though only 32 can be loaded at a time
+#[rustfmt::skip]
+pub const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
+    // 0x00
+    84, 84, 84,    0, 30, 116,    8, 16, 144,    48, 0, 136,    // $00-$03
+    68, 0, 100,    92, 0, 48,     84, 4, 0,      60, 24, 0,     // $04-$07
+    32, 42, 0,     8, 58, 0,      0, 64, 0,      0, 60, 0,      // $08-$0B
+    0, 50, 60,     0, 0, 0,       0, 0, 0,       0, 0, 0,       // $0C-$0F
+    // 0x10
+    152, 150, 152, 8, 76, 196,    48, 50, 236,   92, 30, 228,   // $10-$13
+    136, 20, 176,  160, 20, 100,  152, 34, 32,   120, 60, 0,    // $14-$17
+    84, 90, 0,     40, 114, 0,    8, 124, 0,     0, 118, 40,    // $18-$1B
+    0, 102, 120,   0, 0, 0,       0, 0, 0,       0, 0, 0,       // $1C-$1F
+    // 0x20
+    236, 238, 236, 76, 154, 236,  120, 124, 236, 176, 98, 236,  // $20-$23
+    228, 84, 236,  236, 88, 180,  236, 106, 100, 212, 136, 32,  // $24-$27
+    160, 170, 0,   116, 196, 0,   76, 208, 32,   56, 204, 108,  // $28-$2B
+    56, 180, 204,  60, 60, 60,    0, 0, 0,       0, 0, 0,       // $2C-$2F
+    // 0x30
+    236, 238, 236, 168, 204, 236, 188, 188, 236, 212, 178, 236, // $30-$33
+    236, 174, 236, 236, 174, 212, 236, 180, 176, 228, 196, 144, // $34-$37
+    204, 210, 120, 180, 222, 120, 168, 226, 144, 152, 226, 180, // $38-$3B
+    160, 214, 228, 160, 162, 160, 0, 0, 0,       0, 0, 0,       // $3C-$3F
+];
+
+#[derive(Debug, Clone)]
 #[must_use]
-pub(super) struct Vram {
-    nametable: Nametable, // Used to layout backgrounds on the screen
-    palette: Palette,     // Background/Sprite color palettes
-    pub(super) mapper: *mut MapperType,
-    pub(super) buffer: u8, // PPUDATA buffer
+pub struct Vram {
+    // Used to layout backgrounds on the screen
+    // http://wiki.nesdev.com/w/index.php/PPU_nametables
+    // http://wiki.nesdev.com/w/index.php/PPU_attribute_tables
+    pub nametable: Memory,
+    // Background/Sprite color palettes
+    // http://wiki.nesdev.com/w/index.php/PPU_palettes
+    pub palette: Memory,
+    pub mapper: *mut MapperType,
+    pub buffer: u8, // PPUDATA buffer
+}
+
+impl Default for Vram {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Vram {
-    pub(super) const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            nametable: Nametable([0u8; NT_SIZE]),
-            palette: Palette([0u8; PALETTE_SIZE]),
+            nametable: Memory::ram(NT_SIZE, RamState::AllZeros),
+            palette: Memory::ram(PALETTE_SIZE, RamState::AllZeros),
             mapper: std::ptr::null_mut(),
             buffer: 0u8,
         }
     }
 
-    pub(super) fn nametable_addr(&self, addr: u16) -> u16 {
+    pub fn nametable_addr(&self, addr: u16) -> u16 {
         let mirroring = self.mapper().mirroring();
         // Maps addresses to nametable pages based on mirroring mode
         let page = match mirroring {
@@ -46,18 +91,18 @@ impl Vram {
     }
 
     #[inline]
-    pub(super) fn mapper(&self) -> &MapperType {
+    pub fn mapper(&self) -> &MapperType {
         unsafe { &*self.mapper }
     }
 
     #[inline]
-    pub(super) fn mapper_mut(&mut self) -> &mut MapperType {
+    pub fn mapper_mut(&mut self) -> &mut MapperType {
         unsafe { &mut *self.mapper }
     }
 }
 
 impl MemRead for Vram {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, mut addr: u16) -> u8 {
         self.mapper_mut().vram_change(addr);
         match addr {
             0x0000..=0x1FFF => self.mapper_mut().read(addr),
@@ -70,7 +115,12 @@ impl MemRead for Vram {
                     self.mapper_mut().read(addr)
                 }
             }
-            0x3F00..=0x3FFF => self.palette.read(addr % PALETTE_SIZE as u16),
+            0x3F00..=0x3FFF => {
+                if addr >= 16 && addr.trailing_zeros() >= 2 {
+                    addr -= 16;
+                }
+                self.palette.read(addr % PALETTE_SIZE as u16)
+            }
             _ => 0,
         }
     }
@@ -92,8 +142,9 @@ impl MemRead for Vram {
         }
     }
 }
+
 impl MemWrite for Vram {
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, mut addr: u16, val: u8) {
         self.mapper_mut().vram_change(addr);
         match addr {
             0x0000..=0x1FFF => self.mapper_mut().write(addr, val),
@@ -105,7 +156,12 @@ impl MemWrite for Vram {
                     self.mapper_mut().write(addr, val);
                 }
             }
-            0x3F00..=0x3FFF => self.palette.write(addr % PALETTE_SIZE as u16, val),
+            0x3F00..=0x3FFF => {
+                if addr >= 16 && addr.trailing_zeros() >= 2 {
+                    addr -= 16;
+                }
+                self.palette.write(addr % PALETTE_SIZE as u16, val);
+            }
             _ => (),
         }
     }

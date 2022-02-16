@@ -34,6 +34,6 @@ function ctrl_c() {
 }
 
 for test in ${TESTS[*]}; do
-    target/dev-opt/tetanes --speed 4 --consistent_ram $test
+    target/dev-opt/tetanes --speed 4 --power_state zeros $test
 done
 

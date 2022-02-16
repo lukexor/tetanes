@@ -4,7 +4,7 @@ use crate::{
     hashmap,
     input::Input,
     mapper::{self, Mapper, MapperType},
-    memory::{MemRead, MemWrite, Memory},
+    memory::{MemRead, MemWrite, Memory, RamState},
     nes_err,
     ppu::Ppu,
     serialization::Savable,
@@ -56,13 +56,13 @@ lazy_static! {
 }
 
 impl Bus {
-    pub fn new(consistent_ram: bool) -> Self {
+    pub fn new(power_state: RamState) -> Self {
         let mut bus = Self {
             ppu: Ppu::new(),
             apu: Apu::new(),
             input: Input::new(),
             mapper: Box::new(mapper::null()),
-            wram: Memory::ram(WRAM_SIZE, consistent_ram),
+            wram: Memory::ram(WRAM_SIZE, power_state),
             halt: false,
             dummy_read: false,
             genie_codes: HashMap::new(),
@@ -271,8 +271,7 @@ impl Savable for Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        let consistent_ram = true;
-        Self::new(consistent_ram)
+        Self::new(RamState::AllZeros)
     }
 }
 
@@ -294,9 +293,9 @@ mod tests {
         let rom_file = "test_roms/cpu/nestest.nes";
         let rom = File::open(rom_file).expect("valid file");
         let mut rom = BufReader::new(rom);
-        let consistent_ram = true;
-        let mapper = mapper::load_rom(rom_file, &mut rom, consistent_ram).expect("loaded mapper");
-        let mut mem = Bus::new(consistent_ram);
+        let mapper =
+            mapper::load_rom(rom_file, &mut rom, RamState::AllZeros).expect("loaded mapper");
+        let mut mem = Bus::new(RamState::AllZeros);
         mem.load_mapper(mapper);
         mem.write(0x0005, 0x0015);
         mem.write(0x0015, 0x0050);

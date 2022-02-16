@@ -978,8 +978,8 @@ mod tests {
     #[test]
     fn cpu_cycle_timing() {
         use super::*;
-        let consistent_ram = true;
-        let mut cpu = Cpu::init(Bus::new(consistent_ram));
+        use crate::memory::RamState;
+        let mut cpu = Cpu::init(Bus::new(RamState::AllZeros));
         cpu.power_on();
         cpu.clock();
 

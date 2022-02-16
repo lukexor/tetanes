@@ -4,7 +4,7 @@
   "fullscreen": false,
   "vsync": true,
   "concurrent_dpad": false,
-  "consistent_ram": false,
+  "power_state": "Random",
   "save_slot": 1,
   "scale": 3.0,
   "speed": 1.0

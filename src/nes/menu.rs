@@ -111,7 +111,7 @@ impl Nes {
 
             let mut save_slot = self.config.save_slot as usize - 1;
             s.next_width(50);
-            if s.select_box("Save Slot", &mut save_slot, &["1", "2", "3", "4"], 4)? {
+            if s.select_box("Save Slot: ", &mut save_slot, &["1", "2", "3", "4"], 4)? {
                 self.config.save_slot = save_slot as u8 + 1;
             }
 
@@ -122,12 +122,27 @@ impl Nes {
         s.collapsing_header("Emulation", |s: &mut PixState| {
             s.spacing()?;
 
-            s.checkbox("Consistent Power-up RAM", &mut self.config.consistent_ram)?;
+            s.next_width(125);
+            let mut selected = self.config.power_state as usize;
+            if s.select_box(
+                "Power-up RAM State: ",
+                &mut selected,
+                &["All $00", "All $FF", "Random"],
+                3,
+            )? {
+                self.config.power_state = selected.into();
+            }
             s.checkbox("Concurrent D-Pad", &mut self.config.concurrent_dpad)?;
 
-            s.next_width(s.theme().font_size * 15);
-            if s.slider("Speed", &mut self.config.speed, 0.25, 2.0)? {
-                self.set_speed(self.config.speed);
+            let mut selected = (4.0 * self.config.speed) as usize - 1;
+            s.next_width(100);
+            if s.select_box(
+                "Speed: ",
+                &mut selected,
+                &["25%", "50%", "75%", "100%", "125%", "150%", "175%", "200%"],
+                4,
+            )? {
+                self.set_speed((selected + 1) as f32 / 4.0);
             }
 
             s.spacing()?;

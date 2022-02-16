@@ -6,7 +6,7 @@ use crate::{
     cartridge::Cartridge,
     common::{Clocked, Powered},
     mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite},
+    memory::{BankedMemory, MemRead, MemWrite, RamState},
     serialization::Savable,
     NesResult,
 };
@@ -43,12 +43,12 @@ pub struct Pxrom {
 }
 
 impl Pxrom {
-    pub fn load(cart: Cartridge, consistent_ram: bool) -> MapperType {
+    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
         let mut pxrom = Self {
             mirroring: cart.mirroring(),
             chr_rom_banks: [0x00; 4],
             latch: [0x00; 2],
-            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW, consistent_ram),
+            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_WINDOW, state),
             prg_rom: BankedMemory::from(cart.prg_rom, PRG_WINDOW),
             chr_rom: BankedMemory::from(cart.chr_rom, CHR_ROM_WINDOW),
             open_bus: 0x00,
