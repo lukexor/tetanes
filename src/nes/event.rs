@@ -362,11 +362,9 @@ impl Nes {
             Feature::ToggleSoundRecording => {
                 todo!("Toggle sound recording")
             }
-            Feature::Rewind => {
-                if repeat {
-                    self.rewinding = true;
-                    todo!("Rewinding")
-                }
+            Feature::Rewind if repeat => {
+                self.rewinding = true;
+                todo!("Rewinding")
             }
             Feature::TakeScreenshot => {
                 let filename = Local::now()
@@ -383,6 +381,7 @@ impl Nes {
             Feature::LoadState => {
                 todo!("Load state");
             }
+            _ => (),
         }
         Ok(())
     }
