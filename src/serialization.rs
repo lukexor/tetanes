@@ -3,7 +3,8 @@
 //! Converts primative types and arrays of primatives from/to Big-Endian byte arrays and writes
 //! them to a file handle that implements Read/Write.
 
-use crate::{mapper::MapperType, nes_err, NesResult};
+use crate::{mapper::MapperType, NesResult};
+use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use std::{
     collections::VecDeque,
@@ -39,14 +40,14 @@ pub fn validate_save_header<F: Read>(fh: &mut F) -> NesResult<()> {
         if version == VERSION {
             Ok(())
         } else {
-            nes_err!(
+            Err(anyhow!(
                 "invalid save file version. current: {}, save file: {}",
                 VERSION,
                 version,
-            )
+            ))
         }
     } else {
-        nes_err!("invalid save file format")
+        Err(anyhow!("invalid save file format"))
     }
 }
 
@@ -233,7 +234,7 @@ impl<T: Savable> Savable for [T] {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         let len: usize = self.len();
         if len > u32::MAX as usize {
-            return nes_err!("Unable to save more than {} bytes", u32::MAX);
+            return Err(anyhow!("unable to save more than {} bytes", u32::MAX));
         }
         let len = len as u32;
         len.save(fh)?;
@@ -262,7 +263,7 @@ impl<T: Savable + Default> Savable for Vec<T> {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         let len: usize = self.len();
         if len > u32::MAX as usize {
-            return nes_err!("Unable to save more than {} bytes", u32::MAX);
+            return Err(anyhow!("unable to save more than {} bytes", u32::MAX));
         }
         let len = len as u32;
         len.save(fh)?;
@@ -280,11 +281,11 @@ impl<T: Savable + Default> Savable for Vec<T> {
                 self.push(T::default());
             }
         } else if len != self.len() as u32 {
-            return nes_err!(
+            return Err(anyhow!(
                 "Vec read len does not match. Got {}, expected {}",
                 len,
                 self.len() as u32
-            );
+            ));
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -297,7 +298,7 @@ impl<T: Savable + Default> Savable for VecDeque<T> {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         let len: usize = self.len();
         if len > u32::MAX as usize {
-            return nes_err!("Unable to save more than {} bytes", u32::MAX);
+            return Err(anyhow!("unable to save more than {} bytes", u32::MAX));
         }
         let len = len as u32;
         len.save(fh)?;
@@ -315,11 +316,11 @@ impl<T: Savable + Default> Savable for VecDeque<T> {
                 self.push_back(T::default());
             }
         } else if len != self.len() as u32 {
-            return nes_err!(
+            return Err(anyhow!(
                 "VecDeque read len does not match. Got {}, expected {}",
                 len,
                 self.len() as u32
-            );
+            ));
         }
         for i in 0..len {
             self[i as usize].load(fh)?;
@@ -349,7 +350,7 @@ impl<T: Savable + Default> Savable for Option<T> {
                 val.load(fh)?;
                 Some(val)
             }
-            _ => return nes_err!("invalid Option<T> read"),
+            _ => return Err(anyhow!("invalid Option<T> read")),
         };
         Ok(())
     }
@@ -368,11 +369,11 @@ impl Savable for String {
             bytes.load(fh)?;
             *self = String::from_utf8(bytes)?;
         } else if len != self.len() as u32 {
-            return nes_err!(
-                "String read len does not match. Got {}, expected {}",
+            return Err(anyhow!(
+                "string read len does not match. got {}, expected {}",
                 len,
                 self.len() as u32
-            );
+            ));
         }
         Ok(())
     }

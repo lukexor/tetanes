@@ -1,12 +1,12 @@
 use crate::{
-    apu::AudioChannel,
+    apu::{Apu, AudioChannel},
     bus::Bus,
     common::{Addr, Clocked, Powered},
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
     input::{Gamepad, GamepadSlot},
-    mapper,
+    mapper::{self, MapperType},
     memory::{MemAccess, RamState},
-    ppu::VideoFormat,
+    ppu::{Ppu, VideoFormat},
     NesResult,
 };
 use std::io::Read;
@@ -129,6 +129,30 @@ impl ControlDeck {
             disassembly.push(self.cpu.disassemble(&mut addr));
         }
         disassembly
+    }
+
+    pub fn set_debug_scanline(&mut self, scanline: u16) {
+        self.cpu.bus.ppu.set_debug_scanline(scanline);
+    }
+
+    pub fn cpu(&self) -> &Cpu {
+        &self.cpu
+    }
+
+    pub fn ppu(&self) -> &Ppu {
+        &self.cpu.bus.ppu
+    }
+
+    pub fn ppu_mut(&mut self) -> &mut Ppu {
+        &mut self.cpu.bus.ppu
+    }
+
+    pub fn apu(&self) -> &Apu {
+        &self.cpu.bus.apu
+    }
+
+    pub fn mapper(&self) -> &MapperType {
+        &self.cpu.bus.mapper
     }
 
     pub fn apu_info(&self) {

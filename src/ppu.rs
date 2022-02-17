@@ -94,9 +94,8 @@ pub struct Ppu {
     pub filter: VideoFormat,
     nes_format: NesFormat,
     clock_remainder: u8,
-    debug: bool,
-    nt_scanline: u16,
-    pat_scanline: u16,
+    debugging: bool,
+    debug_scanline: u16,
     pub nametables: Vec<Vec<Byte>>,
     pub nametable_ids: Vec<u8>,
     pub pattern_tables: Vec<Vec<Byte>>,
@@ -123,9 +122,8 @@ impl Ppu {
             filter: VideoFormat::Ntsc,
             nes_format: NesFormat::Ntsc,
             clock_remainder: 0,
-            debug: false,
-            nt_scanline: 0,
-            pat_scanline: 0,
+            debugging: false,
+            debug_scanline: 0,
             nametables: vec![
                 vec![0; RENDER_SIZE],
                 vec![0; RENDER_SIZE],
@@ -143,16 +141,12 @@ impl Ppu {
         self.vram.mapper = mapper;
     }
 
-    pub fn set_debug(&mut self, val: bool) {
-        self.debug = val;
+    pub fn set_debugging(&mut self, val: bool) {
+        self.debugging = val;
     }
 
-    pub fn set_nt_scanline(&mut self, scanline: u16) {
-        self.nt_scanline = scanline;
-    }
-
-    pub fn set_pat_scanline(&mut self, scanline: u16) {
-        self.pat_scanline = scanline;
+    pub fn set_debug_scanline(&mut self, scanline: u16) {
+        self.debug_scanline = scanline;
     }
 
     pub fn update_debug(&mut self) {
@@ -981,14 +975,8 @@ impl Clocked for Ppu {
                 self.set_sprite_overflow(false);
                 self.stop_vblank();
             }
-            if self.debug && self.cycle == IDLE_CYCLE {
-                if self.scanline == self.nt_scanline {
-                    self.load_nametables();
-                }
-                if self.scanline == self.pat_scanline {
-                    self.load_pattern_tables();
-                    self.load_palettes();
-                }
+            if self.debugging && self.cycle == IDLE_CYCLE && self.scanline == self.debug_scanline {
+                self.update_debug();
             }
         }
         clocks
@@ -1119,8 +1107,7 @@ impl Savable for Ppu {
         self.clock_remainder.save(fh)?;
         // Ignore
         // debug
-        // nt_scanline
-        // pat_scanline
+        // debug_scanline
         // nametables
         // nametable_ids
         // pattern_tables

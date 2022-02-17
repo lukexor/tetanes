@@ -78,7 +78,11 @@ impl Nes {
 
         s.heading("Menu")?;
         if self.control_deck.is_running() && s.menu("< Exit")? {
-            self.mode = Mode::Playing;
+            if self.cpu_debugger.is_some() {
+                self.mode = Mode::Debugging;
+            } else {
+                self.mode = Mode::Playing;
+            }
         }
         s.spacing()?;
 

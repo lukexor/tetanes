@@ -29,9 +29,7 @@
     html_logo_url = "https://github.com/lukexor/tetanes/blob/main/static/tetanes_icon.png?raw=true"
 )]
 
-use pix_engine::prelude::*;
 use pretty_env_logger as _;
-use std::{fmt, result};
 use structopt as _;
 
 pub mod apu;
@@ -49,85 +47,7 @@ pub mod nes;
 pub mod ppu;
 pub mod serialization;
 
-pub type NesResult<T> = result::Result<T, anyhow::Error>;
-
-pub struct NesErr {
-    description: String,
-}
-
-impl NesErr {
-    const fn new(desc: String) -> Self {
-        Self { description: desc }
-    }
-    fn err<T>(desc: String) -> NesResult<T> {
-        Err(Self { description: desc }.into())
-    }
-}
-
-#[macro_export]
-macro_rules! nes_err {
-    ($($arg:tt)*) => {
-        crate::NesErr::err(format!($($arg)*))
-    };
-}
-#[macro_export]
-macro_rules! map_nes_err {
-    ($($arg:tt)*) => {
-        crate::NesErr::new(format!($($arg)*))
-    };
-}
-
-impl fmt::Display for NesErr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.description)
-    }
-}
-
-impl fmt::Debug for NesErr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{{ err: {}, file: {}, line: {} }}",
-            self.description,
-            file!(),
-            line!()
-        )
-    }
-}
-
-impl std::error::Error for NesErr {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-}
-
-impl From<std::io::Error> for NesErr {
-    fn from(err: std::io::Error) -> Self {
-        Self {
-            description: err.to_string(),
-        }
-    }
-}
-
-impl From<std::string::FromUtf8Error> for NesErr {
-    fn from(err: std::string::FromUtf8Error) -> Self {
-        Self {
-            description: err.to_string(),
-        }
-    }
-}
-
-impl From<NesErr> for PixError {
-    fn from(err: NesErr) -> Self {
-        Self::Other(err.into())
-    }
-}
-
-impl From<anyhow::Error> for NesErr {
-    fn from(err: anyhow::Error) -> Self {
-        Self::new(err.to_string())
-    }
-}
+pub type NesResult<T> = anyhow::Result<T, anyhow::Error>;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;

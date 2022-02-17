@@ -3,7 +3,7 @@
 use crate::{
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
     serialization::Savable,
-    NesErr, NesResult,
+    NesResult,
 };
 use enum_dispatch::enum_dispatch;
 use pix_engine::prelude::{Image, PixelFormat};
@@ -105,15 +105,7 @@ pub(crate) fn config_path<P: AsRef<Path>>(path: P) -> PathBuf {
 /// It's possible for this method to fail, but instead of erroring the program,
 /// it'll simply log the error out to STDERR
 pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<()> {
-    let image =
-        Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, pixels, PixelFormat::Rgb).map_err(|e| {
-            NesErr::new(format!(
-                "failed to create png image {:?}: {}",
-                png_path.as_ref(),
-                e
-            ))
-        })?;
-    image.save(png_path)?;
+    Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, pixels, PixelFormat::Rgb)?.save(png_path)?;
     Ok(())
 }
 

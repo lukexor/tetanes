@@ -10,7 +10,6 @@ use crate::{
     NesResult,
 };
 use anyhow::Context;
-use bitflags::bitflags;
 use config::Config;
 use filesystem::{is_nes_rom, is_playback_file};
 use menu::{Menu, Player};
@@ -26,6 +25,7 @@ use std::{
 };
 
 pub(crate) mod config;
+pub(crate) mod debug;
 pub(crate) mod event;
 pub(crate) mod filesystem;
 pub(crate) mod menu;
@@ -129,21 +129,7 @@ impl NesBuilder {
         config.genie_codes = self.genie_codes.clone();
         let mut control_deck = ControlDeck::new(config.power_state);
         control_deck.set_speed(config.speed);
-        Ok(Nes {
-            control_deck,
-            players: HashMap::new(),
-            emulation: View::default(),
-            config,
-            mode: Mode::default(),
-            rewinding: false,
-            debugger: Debugger::default(),
-            scanline: 0,
-            speed_counter: 0.0,
-            messages: vec![],
-            paths: vec![],
-            selected_path: 0,
-            error: None,
-        })
+        Ok(Nes::new(control_deck, config))
     }
 }
 
@@ -158,6 +144,7 @@ impl Default for NesBuilder {
 pub(crate) enum Mode {
     Playing,
     Paused,
+    Debugging,
     InMenu(Menu, Player),
     Recording,
     Replaying,
@@ -169,34 +156,15 @@ impl Default for Mode {
     }
 }
 
-bitflags! {
-    pub(crate) struct Debugger: u8 {
-        /// Debugging disabled.
-        const NONE = 0x00;
-        /// CPU.
-        const CPU = 0x01;
-        /// NameTable.
-        const NAMETABLE = 0x02;
-        /// PPU.
-        const PPU = 0x03;
-    }
-}
-
-impl Default for Debugger {
-    fn default() -> Self {
-        Self::NONE
-    }
-}
-
 /// A NES window view.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct View {
     window_id: WindowId,
-    texture_id: TextureId,
+    texture_id: Option<TextureId>,
 }
 
 impl View {
-    pub(crate) const fn new(window_id: WindowId, texture_id: TextureId) -> Self {
+    pub(crate) const fn new(window_id: WindowId, texture_id: Option<TextureId>) -> Self {
         Self {
             window_id,
             texture_id,
@@ -209,12 +177,14 @@ impl View {
 pub struct Nes {
     control_deck: ControlDeck,
     players: HashMap<GamepadSlot, ControllerId>,
-    emulation: View,
+    emulation: Option<View>,
+    cpu_debugger: Option<View>,
+    ppu_debugger: Option<View>,
+    apu_debugger: Option<View>,
     config: Config,
     mode: Mode,
     rewinding: bool,
-    debugger: Debugger,
-    scanline: u32,
+    scanline: u16,
     speed_counter: f32,
     messages: Vec<(String, Instant)>,
     paths: Vec<PathBuf>,
@@ -223,6 +193,26 @@ pub struct Nes {
 }
 
 impl Nes {
+    pub(crate) fn new(control_deck: ControlDeck, config: Config) -> Self {
+        Self {
+            control_deck,
+            players: HashMap::new(),
+            emulation: None,
+            cpu_debugger: None,
+            ppu_debugger: None,
+            apu_debugger: None,
+            config,
+            mode: Mode::default(),
+            rewinding: false,
+            scanline: 0,
+            speed_counter: 0.0,
+            messages: vec![],
+            paths: vec![],
+            selected_path: 0,
+            error: None,
+        }
+    }
+
     /// Begins emulation by starting the game engine loop.
     ///
     /// # Errors
@@ -270,24 +260,25 @@ impl Nes {
     }
 
     /// Update rendering textures with emulation state
-    fn render_frame(&mut self, s: &mut PixState) -> PixResult<()> {
-        s.update_texture(
-            self.emulation.texture_id,
-            None,
-            self.control_deck.frame(),
-            RENDER_PITCH,
-        )?;
-        s.texture(self.emulation.texture_id, NES_FRAME_SRC, None)?;
+    fn render_views(&mut self, s: &mut PixState) -> PixResult<()> {
+        if let Some(view) = self.emulation {
+            if let Some(texture_id) = view.texture_id {
+                s.update_texture(texture_id, None, self.control_deck.frame(), RENDER_PITCH)?;
+                s.texture(texture_id, NES_FRAME_SRC, None)?;
+            }
+        }
+        self.render_cpu_debugger(s)?;
+        self.render_ppu_debugger(s)?;
         Ok(())
     }
 }
 
 impl AppState for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
-        self.emulation = View::new(
+        self.emulation = Some(View::new(
             s.window_id(),
-            s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?,
-        );
+            Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?),
+        ));
         if is_nes_rom(&self.config.rom_path) {
             self.load_rom(s)?;
         } else if is_playback_file(&self.config.rom_path) {
@@ -332,9 +323,10 @@ impl AppState for Nes {
             self.control_deck.clear_audio_samples();
         }
 
-        self.render_frame(s)?;
+        self.render_views(s)?;
         match self.mode {
             Mode::Paused => self.render_status(s, "Paused")?,
+            Mode::Debugging => self.render_status(s, "Debugging")?,
             Mode::Recording => self.render_status(s, "Recording")?,
             Mode::Replaying => self.render_status(s, "Replay")?,
             Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
@@ -350,20 +342,6 @@ impl AppState for Nes {
     }
 
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
-        // FIXME: Move to debug keybinds
-        if event.key == Key::D {
-            // FIXME: disasm has to start at the correct addr - which can depend on mapper
-            let disasm = self
-                .control_deck
-                .disasm(self.control_deck.pc(), self.control_deck.pc() + 20);
-            for instr in &disasm {
-                log::info!("{}", instr);
-            }
-        }
-        if event.key == Key::C {
-            self.control_deck.clock_cpu();
-            self.mode = Mode::Playing;
-        }
         // FIXME: Convert to ApuViewer window
         if event.key == Key::A && event.keymod.intersects(KeyMod::SHIFT) {
             self.control_deck.apu_info();
@@ -435,19 +413,22 @@ impl AppState for Nes {
         window_id: WindowId,
         event: WindowEvent,
     ) -> PixResult<()> {
-        if self.emulation.window_id == window_id {
-            match event {
-                WindowEvent::Hidden | WindowEvent::FocusLost => {
-                    if self.config.pause_in_bg && self.mode == Mode::Playing {
-                        self.mode = Mode::Paused;
+        if let Some(view) = self.emulation {
+            if view.window_id == window_id {
+                // FIXME: Don't pause if debug windows have focus
+                match event {
+                    WindowEvent::Hidden | WindowEvent::FocusLost => {
+                        if self.config.pause_in_bg && self.mode == Mode::Playing {
+                            self.mode = Mode::Paused;
+                        }
                     }
-                }
-                WindowEvent::Restored | WindowEvent::FocusGained => {
-                    if self.config.pause_in_bg && self.mode == Mode::Paused {
-                        self.mode = Mode::Playing;
+                    WindowEvent::Restored | WindowEvent::FocusGained => {
+                        if self.config.pause_in_bg && self.mode == Mode::Paused {
+                            self.mode = Mode::Playing;
+                        }
                     }
+                    _ => (),
                 }
-                _ => (),
             }
         }
         Ok(())

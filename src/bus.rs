@@ -5,11 +5,11 @@ use crate::{
     input::Input,
     mapper::{self, Mapper, MapperType},
     memory::{MemRead, MemWrite, Memory, RamState},
-    nes_err,
     ppu::Ppu,
     serialization::Savable,
     NesResult,
 };
+use anyhow::anyhow;
 use lazy_static::lazy_static;
 use std::{
     collections::HashMap,
@@ -85,14 +85,14 @@ impl Bus {
     /// Errors if genie code is invalid.
     pub fn add_genie_code(&mut self, code: &str) -> NesResult<()> {
         if code.len() != 6 && code.len() != 8 {
-            return nes_err!("Invalid Game Genie code: {}", code);
+            return Err(anyhow!("invalid game genie code: {}", code));
         }
         let mut hex: Vec<Byte> = Vec::with_capacity(code.len());
         for s in code.chars() {
             if let Some(h) = GENIE_MAP.get(&s) {
                 hex.push(*h);
             } else {
-                return nes_err!("Invalid Game Genie code: {}", code);
+                return Err(anyhow!("invalid game genie code: {}", code));
             }
         }
         let addr = 0x8000

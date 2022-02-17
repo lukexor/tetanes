@@ -4,7 +4,7 @@ use crate::{
     input::{GamepadBtn, GamepadSlot},
     nes::{
         menu::{Menu, Player},
-        Debugger, Mode, Nes, NesResult,
+        Mode, Nes, NesResult,
     },
     ppu::{VideoFormat, RENDER_HEIGHT},
 };
@@ -183,9 +183,9 @@ pub(crate) enum Setting {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum DebugAction {
-    ToggleDebugger,
-    ToggleNtViewer,
-    TogglePpuViewer,
+    ToggleCpuDebugger,
+    TogglePpuDebugger,
+    ToggleApuDebugger,
     StepInto,
     StepOver,
     StepOut,
@@ -286,7 +286,7 @@ impl Nes {
         }
         if repeat {
             if let Action::Debug(debug_action) = action {
-                self.handle_debug(debug_action, pressed, repeat)?;
+                self.handle_debug(s, debug_action, pressed, repeat)?;
             }
         } else if pressed {
             match action {
@@ -300,7 +300,7 @@ impl Nes {
                         self.handle_gamepad_pressed(slot, button, false)?;
                     }
                 }
-                Action::Debug(action) => self.handle_debug(action, pressed, false)?,
+                Action::Debug(action) => self.handle_debug(s, action, pressed, false)?,
             }
         } else {
             match action {
@@ -317,7 +317,9 @@ impl Nes {
         match state {
             NesState::ToggleMenu => {
                 if let Mode::InMenu(..) = self.mode {
-                    if self.control_deck.is_running() {
+                    if self.cpu_debugger.is_some() {
+                        self.mode = Mode::Debugging;
+                    } else if self.control_deck.is_running() {
                         self.mode = Mode::Playing;
                     }
                 } else {
@@ -473,24 +475,16 @@ impl Nes {
 
     fn handle_debug(
         &mut self,
+        s: &mut PixState,
         action: DebugAction,
         _pressed: bool,
         _repeat: bool,
     ) -> PixResult<()> {
-        let debugging = self.debugger.contains(Debugger::CPU);
+        let debugging = self.cpu_debugger.is_some();
         match action {
-            DebugAction::ToggleDebugger => {
-                self.debugger ^= Debugger::CPU;
-                todo!("CPU Debugger");
-            }
-            DebugAction::ToggleNtViewer => {
-                self.debugger ^= Debugger::NAMETABLE;
-                todo!("NT Viewer");
-            }
-            DebugAction::TogglePpuViewer => {
-                self.debugger ^= Debugger::PPU;
-                todo!("PPU Viewer");
-            }
+            DebugAction::ToggleCpuDebugger => self.toggle_cpu_debugger(s)?,
+            DebugAction::TogglePpuDebugger => self.toggle_ppu_debugger(s)?,
+            DebugAction::ToggleApuDebugger => self.toggle_apu_debugger(s)?,
             DebugAction::StepInto if debugging => {
                 self.control_deck.clock_cpu();
             }
@@ -521,8 +515,18 @@ impl Nes {
             DebugAction::StepScanline if debugging => {
                 self.control_deck.clock_scanline();
             }
-            DebugAction::IncScanline => self.scanline = (self.scanline + 1).clamp(0, RENDER_HEIGHT),
-            DebugAction::DecScanline => self.scanline = self.scanline.saturating_sub(1),
+            DebugAction::IncScanline => {
+                // FIXME: Only trigger when PPU Debugger focused
+                let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
+                self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT as u16 - 1);
+                self.control_deck.set_debug_scanline(self.scanline);
+            }
+            DebugAction::DecScanline => {
+                // FIXME: Only trigger when PPU Debugger focused
+                let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
+                self.scanline = self.scanline.saturating_sub(decrement);
+                self.control_deck.set_debug_scanline(self.scanline);
+            }
             _ => (),
         }
         Ok(())

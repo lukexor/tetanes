@@ -1,6 +1,7 @@
 //! Handles reading NES Cartridge headers and ROMs
 
-use crate::{map_nes_err, mapper::Mirroring, memory::Memory, nes_err, NesResult};
+use crate::{mapper::Mirroring, memory::Memory, NesResult};
+use anyhow::{anyhow, Context};
 use log::info;
 use std::{fmt, io::Read};
 
@@ -63,41 +64,34 @@ impl Cartridge {
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
     pub fn from_rom<F: Read>(name: &str, mut rom_data: &mut F) -> NesResult<Self> {
-        let header = INesHeader::load(&mut rom_data)
-            .map_err(|e| map_nes_err!("invalid rom \"{}\": {}", name, e))?;
+        let header = INesHeader::load(&mut rom_data)?;
 
         let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut prg_rom).map_err(|e| {
+        rom_data.read_exact(&mut prg_rom).with_context(|| {
             let bytes_rem = if let Ok(bytes) = rom_data.read_to_end(&mut prg_rom) {
                 bytes.to_string()
             } else {
                 "unknown".to_string()
             };
 
-            map_nes_err!(
-                "invalid rom \"{}\". PRG-ROM banks: {}. Bytes remaining: {}. Err: {}",
-                name,
-                header.prg_rom_size,
-                bytes_rem,
-                e,
+            format!(
+                "invalid rom \"{}\". prg-rom banks: {}. bytes remaining: {}",
+                name, header.prg_rom_size, bytes_rem
             )
         })?;
         let prg_rom = Memory::rom(&prg_rom);
 
         let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut chr_rom).map_err(|e| {
+        rom_data.read_exact(&mut chr_rom).with_context(|| {
             let bytes_rem = if let Ok(bytes) = rom_data.read_to_end(&mut chr_rom) {
                 bytes.to_string()
             } else {
                 "unknown".to_string()
             };
 
-            map_nes_err!(
-                "invalid rom \"{}\". CHR-ROM banks: {}. Bytes remaining: {}. Err: {}",
-                name,
-                header.chr_rom_size,
-                bytes_rem,
-                e,
+            format!(
+                "invalid rom \"{}\". chr-rom banks: {}. bytes remaining: {}",
+                name, header.chr_rom_size, bytes_rem,
             )
         })?;
         let chr_rom = Memory::rom(&chr_rom);
@@ -105,7 +99,7 @@ impl Cartridge {
         let prg_ram_size = if header.prg_ram_size > 0 {
             let prg_ram_size = 64usize.checked_shl(header.prg_ram_size.into());
             if prg_ram_size.is_none() {
-                return nes_err!("invalid header PRG-RAM size");
+                return Err(anyhow!("invalid header prg-ram size"));
             }
             prg_ram_size
         } else {
@@ -114,7 +108,7 @@ impl Cartridge {
         let chr_ram_size = if header.chr_ram_size > 0 {
             let chr_ram_size = 64usize.checked_shl(header.chr_ram_size.into());
             if chr_ram_size.is_none() {
-                return nes_err!("invalid header CHR-RAM size");
+                return Err(anyhow!("invalid header chr-ram size"));
             }
             chr_ram_size
         } else {
@@ -210,11 +204,13 @@ impl INesHeader {
 
         // Header checks
         if header[0..4] != *b"NES\x1a" {
-            return nes_err!("iNES header signature not found.");
+            return Err(anyhow!("iNES header signature not found"));
         } else if (header[7] & 0x0C) == 0x04 {
-            return nes_err!("Header is corrupted by \"DiskDude!\" - repair and try again.");
+            return Err(anyhow!(
+                "header is corrupted by `DiskDude!`. repair and try again"
+            ));
         } else if (header[7] & 0x0C) == 0x0C {
-            return nes_err!("Unrecognized header format - repair and try again.");
+            return Err(anyhow!("unrecognized header format. repair and try again"));
         }
 
         let mut prg_rom_size = u16::from(header[4]);
@@ -248,28 +244,28 @@ impl INesHeader {
             vs_data = header[13];
 
             if prg_ram_size & 0x0F == 0x0F || prg_ram_size & 0xF0 == 0xF0 {
-                return nes_err!("invalid PRG-RAM size in header");
+                return Err(anyhow!("invalid prg-ram size in header"));
             } else if chr_ram_size & 0x0F == 0x0F || chr_ram_size & 0xF0 == 0xF0 {
-                return nes_err!("invalid CHR-RAM size in header");
+                return Err(anyhow!("invalid chr-ram size in header"));
             } else if chr_ram_size & 0xF0 == 0xF0 {
-                return nes_err!("battery-backed CHR-RAM is currently not supported");
+                return Err(anyhow!("battery-backed chr-ram is currently not supported"));
             } else if header[14] > 0 || header[15] > 0 {
-                return nes_err!("unrecognized data found at header offsets 14-15");
+                return Err(anyhow!("unrecognized data found at header offsets 14-15"));
             }
         } else {
             for (i, header) in header.iter().enumerate().take(16).skip(8) {
                 if *header > 0 {
-                    return nes_err!(
-                        "Unregonized data found at header offset {} - repair and try again.",
+                    return Err(anyhow!(
+                        "unrecogonized data found at header offset {}. repair and try again",
                         i,
-                    );
+                    ));
                 }
             }
         }
 
         // Trainer
         if flags & 0x04 == 0x04 {
-            return nes_err!("Trained ROMs are currently not supported.");
+            return Err(anyhow!("trained roms are currently not supported."));
         }
         Ok(Self {
             version,

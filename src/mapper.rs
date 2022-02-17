@@ -7,8 +7,9 @@ use crate::{
     common::{Addr, Byte, Clocked, Powered},
     memory::{MemRead, MemWrite, RamState},
     serialization::Savable,
-    {nes_err, NesResult},
+    NesResult,
 };
+use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use std::{
     fmt::Debug,
@@ -128,7 +129,12 @@ pub fn load_rom<F: Read>(name: &str, rom: &mut F, state: RamState) -> NesResult<
         9 => Pxrom::load(cart, state),
         71 => Bf909x::load(cart, state),
         155 => Mmc1a::load(cart, state),
-        _ => nes_err!("unsupported mapper number: {}", cart.header.mapper_num)?,
+        _ => {
+            return Err(anyhow!(
+                "unsupported mapper number: {}",
+                cart.header.mapper_num
+            ))
+        }
     };
     Ok(mapper)
 }

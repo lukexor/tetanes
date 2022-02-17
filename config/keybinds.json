@@ -53,16 +53,18 @@
     { "key": "Return", "keymod": 64, "action": { "Setting": "ToggleFullscreen" } },
     { "key": "V", "keymod": 64, "action": { "Setting": "ToggleVsync" } },
     { "key": "N", "keymod": 64, "action": { "Setting": "ToggleNtscFilter" } },
-    { "key": "D", "keymod": 64, "action": { "Debug": "ToggleDebugger" } },
-    { "key": "P", "keymod": 1, "action": { "Debug": "TogglePpuViewer" } },
-    { "key": "N", "keymod": 1, "action": { "Debug": "ToggleNtViewer" } },
+    { "key": "D", "keymod": 1, "action": { "Debug": "ToggleCpuDebugger" } },
+    { "key": "P", "keymod": 1, "action": { "Debug": "TogglePpuDebugger" } },
+    { "key": "A", "keymod": 1, "action": { "Debug": "ToggleApuDebugger" } },
     { "key": "C", "keymod": 0, "action": { "Debug": "StepInto" } },
     { "key": "O", "keymod": 0, "action": { "Debug": "StepOver" } },
     { "key": "O", "keymod": 1, "action": { "Debug": "StepOut" } },
     { "key": "L", "keymod": 0, "action": { "Debug": "StepScanline" } },
     { "key": "F", "keymod": 0, "action": { "Debug": "StepFrame" } },
-    { "key": "Up", "keymod": 1, "action": { "Debug": "IncScanline" } },
-    { "key": "Down", "keymod": 1, "action": { "Debug": "DecScanline" } }
+    { "key": "Down", "keymod": 0, "action": { "Debug": "IncScanline" } },
+    { "key": "Up", "keymod": 0, "action": { "Debug": "DecScanline" } },
+    { "key": "Down", "keymod": 1, "action": { "Debug": "IncScanline" } },
+    { "key": "Up", "keymod": 1, "action": { "Debug": "DecScanline" } }
   ],
   "buttons": [
     { "player": "One", "button": "DPadLeft", "action": { "Gamepad": "Left" } },
