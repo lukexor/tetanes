@@ -78,11 +78,7 @@ impl Nes {
 
         s.heading("Menu")?;
         if self.control_deck.is_running() && s.menu("< Exit")? {
-            if self.cpu_debugger.is_some() {
-                self.mode = Mode::Debugging;
-            } else {
-                self.mode = Mode::Playing;
-            }
+            self.mode = Mode::Playing;
         }
         s.spacing()?;
 
@@ -197,6 +193,11 @@ impl Nes {
                 let width = (self.config.scale * WINDOW_WIDTH) as u32;
                 let height = (self.config.scale * WINDOW_HEIGHT) as u32;
                 s.set_window_dimensions((width, height))?;
+                if let Some(view) = self.cpu_debugger {
+                    s.with_window(view.window_id, |s: &mut PixState| {
+                        s.set_window_dimensions((width, height))
+                    })?;
+                }
                 let (font_size, pad, ipady) = match scale {
                     0 => (6, 4, 3),
                     1 => (8, 6, 4),

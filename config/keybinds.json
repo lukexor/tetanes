@@ -24,7 +24,7 @@
     { "key": "F2", "keymod": 0, "action": { "Menu": "Config" } },
     { "key": "O", "keymod": 64, "action": { "Menu": "LoadRom" } },
     { "key": "F3", "keymod": 0, "action": { "Menu": "LoadRom" } },
-    { "key": "Escape", "keymod": 0, "action": { "Nes": "ToggleMenu" } },
+    { "key": "Escape", "keymod": 0, "action": { "Nes": "TogglePause" } },
     { "key": "Q", "keymod": 64, "action": { "Nes": "Quit" } },
     { "key": "R", "keymod": 64, "action": { "Nes": "Reset" } },
     { "key": "P", "keymod": 64, "action": { "Nes": "PowerCycle" } },

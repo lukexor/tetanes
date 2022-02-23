@@ -1,7 +1,8 @@
 use crate::{
+    common::Clocked,
     cpu::StatusRegs,
     mapper::Mapper,
-    memory::MemRead,
+    memory::{MemAccess, MemRead},
     nes::{Mode, Nes, View},
     ppu::{vram::NT_START, RENDER_HEIGHT, RENDER_WIDTH},
 };
@@ -10,6 +11,46 @@ use pix_engine::prelude::*;
 const PALETTE_HEIGHT: u32 = 64;
 
 impl Nes {
+    pub(crate) fn clock_debug(&mut self) -> bool {
+        // FIXME: Temporary CPU breakpoint stopgap
+        // Types of breakpoints:
+        // - Address: Read/Write/Execute
+        // - Address Range: R/W/E
+        // - Any
+        //
+        // Conditions:
+        // - A/X/Y/P/SP
+        // - PC
+        // - Opcode
+        // - Scanline
+        // - Cycle
+        // - Memory value
+        // - Branched
+        // - IRQ/NMI
+        // - Spr0 Hit/Spr Overflow
+        // - VBlank
+        //
+        // Break enabled: bool
+        let breakpoints = [];
+
+        while !self.control_deck.frame_complete() {
+            if breakpoints.contains(&self.control_deck.pc()) {
+                self.mode = Mode::Paused;
+                return true;
+            }
+            if let (Some(addr), _) = self.control_deck.next_addr(MemAccess::Write) {
+                if breakpoints.contains(&addr) {
+                    self.mode = Mode::Paused;
+                    return true;
+                }
+            }
+            self.control_deck.clock();
+        }
+        self.control_deck.start_new_frame();
+
+        false
+    }
+
     pub(crate) fn toggle_cpu_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
         match self.cpu_debugger {
             None => {
@@ -22,16 +63,13 @@ impl Nes {
                     .resizable()
                     .build()?;
                 self.cpu_debugger = Some(View::new(window_id, None));
-                self.mode = Mode::Debugging;
+                if self.control_deck.is_running() {
+                    self.mode = Mode::Paused;
+                }
             }
             Some(debugger) => {
                 s.close_window(debugger.window_id)?;
                 self.cpu_debugger = None;
-                if self.control_deck.is_running() {
-                    self.mode = Mode::Playing;
-                } else {
-                    self.mode = Mode::Paused;
-                }
             }
         }
         Ok(())
@@ -286,6 +324,7 @@ impl Nes {
                         s.text("Palette: $00")?;
                     }
 
+                    s.reset_column_offset();
                     Ok(())
                 })?;
             }

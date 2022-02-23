@@ -5,7 +5,7 @@ use crate::{
     common::{config_dir, config_path, Powered},
     control_deck::ControlDeck,
     input::GamepadSlot,
-    memory::{MemAccess, RamState},
+    memory::RamState,
     ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
@@ -144,7 +144,7 @@ impl Default for NesBuilder {
 pub(crate) enum Mode {
     Playing,
     Paused,
-    Debugging,
+    PausedBg,
     InMenu(Menu, Player),
     Recording,
     Replaying,
@@ -289,33 +289,23 @@ impl AppState for Nes {
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
-        // FIXME: Temporary CPU breakpoint stopgap
-        let breakpoints = [];
-
+        let debugging = self.cpu_debugger.is_some();
         if let Mode::Playing | Mode::Recording | Mode::Replaying = self.mode {
             self.speed_counter += self.config.speed;
             'run: while self.speed_counter > 0.0 {
                 self.speed_counter -= 1.0;
-                while !self.control_deck.frame_complete() {
-                    if breakpoints.contains(&self.control_deck.pc()) {
-                        self.mode = Mode::Paused;
+                if debugging {
+                    if !self.clock_debug() {
                         break 'run;
                     }
-                    if let (Some(addr), _) = self.control_deck.next_addr(MemAccess::Write) {
-                        if breakpoints.contains(&addr) {
-                            self.mode = Mode::Paused;
-                            break 'run;
-                        }
-                    }
-                    self.control_deck.clock_cpu();
-
-                    if self.control_deck.cpu_corrupted() {
-                        self.mode = Mode::Paused;
-                        self.error = Some("CPU crash occurred".into());
-                        break 'run;
-                    }
+                } else {
+                    self.control_deck.clock_frame();
                 }
-                self.control_deck.start_new_frame();
+                if self.control_deck.cpu_corrupted() {
+                    self.mode = Mode::Paused;
+                    self.error = Some("CPU crash occurred".into());
+                    break 'run;
+                }
             }
             if self.config.sound {
                 s.enqueue_audio(self.control_deck.audio_samples())?;
@@ -324,9 +314,11 @@ impl AppState for Nes {
         }
 
         self.render_views(s)?;
+        if debugging && !matches!(self.mode, Mode::InMenu(..)) {
+            self.render_status(s, "Debugging")?;
+        }
         match self.mode {
-            Mode::Paused => self.render_status(s, "Paused")?,
-            Mode::Debugging => self.render_status(s, "Debugging")?,
+            Mode::Paused | Mode::PausedBg => self.render_status(s, "Paused")?,
             Mode::Recording => self.render_status(s, "Recording")?,
             Mode::Replaying => self.render_status(s, "Replay")?,
             Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
@@ -409,27 +401,34 @@ impl AppState for Nes {
 
     fn on_window_event(
         &mut self,
-        _s: &mut PixState,
+        s: &mut PixState,
         window_id: WindowId,
         event: WindowEvent,
     ) -> PixResult<()> {
-        if let Some(view) = self.emulation {
-            if view.window_id == window_id {
-                // FIXME: Don't pause if debug windows have focus
-                match event {
-                    WindowEvent::Hidden | WindowEvent::FocusLost => {
-                        if self.config.pause_in_bg && self.mode == Mode::Playing {
-                            self.mode = Mode::Paused;
-                        }
+        use WindowEvent::{Close, FocusGained, FocusLost, Hidden, Restored};
+        match event {
+            Close => {
+                if matches!(self.cpu_debugger, Some(view) if view.window_id == window_id) {
+                    self.cpu_debugger = None;
+                    if self.control_deck.is_running() {
+                        self.mode = Mode::Playing;
                     }
-                    WindowEvent::Restored | WindowEvent::FocusGained => {
-                        if self.config.pause_in_bg && self.mode == Mode::Paused {
-                            self.mode = Mode::Playing;
-                        }
-                    }
-                    _ => (),
+                }
+                if matches!(self.ppu_debugger, Some(view) if view.window_id == window_id) {
+                    self.ppu_debugger = None;
                 }
             }
+            Hidden | FocusLost => {
+                if self.mode == Mode::Playing && self.config.pause_in_bg && !s.focused() {
+                    self.mode = Mode::PausedBg;
+                }
+            }
+            Restored | FocusGained => {
+                if self.mode == Mode::PausedBg {
+                    self.mode = Mode::Playing;
+                }
+            }
+            _ => (),
         }
         Ok(())
     }

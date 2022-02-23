@@ -78,16 +78,21 @@ impl ControlDeck {
         self.cycles_remaining += CPU_CLOCK_RATE * seconds;
         let mut total_ticks = 0;
         while self.cycles_remaining > 0.0 {
-            let ticks = self.cpu.clock();
+            let ticks = self.clock();
             total_ticks += ticks;
             self.cycles_remaining -= ticks as f32;
         }
         total_ticks
     }
 
-    /// Steps the control deck a single clock cycle.
-    pub fn clock_cpu(&mut self) -> usize {
-        self.cpu.clock()
+    /// Steps the control deck an entire frame
+    pub fn clock_frame(&mut self) -> usize {
+        self.clock_turbo();
+        while !self.frame_complete() {
+            self.clock();
+        }
+        self.start_new_frame();
+        1
     }
 
     /// Steps the control deck a single scanline.
@@ -95,7 +100,7 @@ impl ControlDeck {
         let current_scanline = self.cpu.bus.ppu.scanline;
         let mut total_ticks = 0;
         while self.cpu.bus.ppu.scanline == current_scanline {
-            total_ticks += self.clock_cpu();
+            total_ticks += self.clock();
         }
         total_ticks
     }
@@ -119,6 +124,11 @@ impl ControlDeck {
     /// value at the target address.
     pub fn next_addr(&self, access: MemAccess) -> (Option<Addr>, Option<u16>) {
         self.cpu.next_addr(access)
+    }
+
+    /// Returns the address at the top of the stack.
+    pub fn stack_addr(&self) -> Addr {
+        self.cpu.peek_stackw()
     }
 
     /// Disassemble an address range of CPU instructions.
@@ -228,14 +238,9 @@ impl Default for ControlDeck {
 }
 
 impl Clocked for ControlDeck {
-    /// Steps the control deck an entire frame
+    /// Steps the control deck a single clock cycle.
     fn clock(&mut self) -> usize {
-        self.clock_turbo();
-        while !self.frame_complete() {
-            self.cpu.clock();
-        }
-        self.start_new_frame();
-        1
+        self.cpu.clock()
     }
 }
 
@@ -335,7 +340,7 @@ mod tests {
                 apu.frame_sequencer().sequencer.step,
                 apu.irq_pending
             );
-            deck.cpu.clock();
+            deck.clock();
         }
     }
 }
