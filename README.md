@@ -136,7 +136,7 @@ Emulator shortcuts:
 
 | Action                            | Keyboard         | Controller         |
 | --------------------------------- | ---------------- | ------------------ |
-| Help Menu                         | Ctrl-H or F1     |                    |
+| About Menu                        | Ctrl-H or F1     |                    |
 | Configuration Menu                | Ctrl-C or F2     |                    |
 | Load/Open ROM                     | Ctrl-O or F3     |                    |
 | Pause                             | Escape           | Guide Button       |
@@ -163,21 +163,28 @@ Emulator shortcuts:
 | Toggle Fullscreen                 | Ctrl-Return      |                    |
 | Toggle Vsync                      | Ctrl-V           |                    |
 | Toggle NTSC Filter                | Ctrl-N           |                    |
-| Toggle CPU Debugger               | Ctrl-D           |                    |
-| Toggle PPU Viewer                 | Shift-P          |                    |
-| Toggle Nametable Viewer           | Shift-N          |                    |
+| Toggle CPU Debugger               | Shift-D          |                    |
+| Toggle PPU Debugger               | Shift-P          |                    |
+| Toggle APU Debugger               | Shift-A          |                    |
 
 While the CPU Debugger is open (these can also be held down):
 
 | Action                            | Keyboard         |
 | --------------------------------- | ---------------- |
 | Step a single CPU instruction     | C                |
-| Step over a CPU instruction       | O                |
-| Step out of a CPU instruction     | Shift-O          |
+| Step over a function              | O                |
+| Step out of a function            | Shift-O          |
 | Step a single scanline            | L                |
 | Step an entire frame              | F                |
-| Move Viewer scanline up           | Shift-Up         |
-| Move Viewer scanline down         | Shift-Down       |
+
+While the PPU Debugger is open (these can also be held down):
+
+| Action                            | Keyboard         |
+| --------------------------------- | ---------------- |
+| Move debug scanline up by 1       | Ctrl-Up          |
+| Move debug scanline up by 10      | Ctrl-Shift-Up    |
+| Move debug scanline down by 1     | Ctrl-Down        |
+| Move debug scanline down by 10    | Ctrl-Shift-Down  |
 
 ### Directories
 
