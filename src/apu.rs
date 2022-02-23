@@ -62,8 +62,8 @@ pub struct Apu {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
-    enabled: [bool; 5],
     pub(crate) dmc: Dmc,
+    enabled: [bool; 5],
     filters: [FilterType; 3],
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
@@ -409,11 +409,8 @@ impl Savable for Apu {
         self.noise.save(fh)?;
         self.dmc.save(fh)?;
         // Ignore
-        // log_level
-        // hifilters
-        // lofilters
         // pulse_table
-        // tnd_Table
+        // tnd_table
         Ok(())
     }
     fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
@@ -439,8 +436,21 @@ impl Default for Apu {
 
 impl fmt::Debug for Apu {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        // TODO APU Debug
-        write!(f, "APU {{ cyc: {} }}", self.cycle)
+        f.debug_struct("Apu")
+            .field("irq_pending", &self.irq_pending)
+            .field("irq_enabled", &self.irq_enabled)
+            .field("open_bus", &format_args!("${:02X}", &self.open_bus))
+            .field("clock_rate", &self.clock_rate)
+            .field("samples len", &self.samples.len())
+            .field("frame_sequencer", &self.frame_sequencer)
+            .field("pulse1", &self.pulse1)
+            .field("pulse2", &self.pulse2)
+            .field("triangle", &self.triangle)
+            .field("noise", &self.noise)
+            .field("dmc", &self.dmc)
+            .field("enabled", &self.enabled)
+            .field("filters", &self.filters)
+            .finish()
     }
 }
 

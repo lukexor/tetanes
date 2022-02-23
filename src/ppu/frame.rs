@@ -140,8 +140,6 @@ impl Frame {
                                 0
                             };
                             let high = if chroma > limit { 1 } else { 0 };
-                            // TODO: This doesn't quite work yet - green is swapped with blue
-                            // and blue emphasis is more of a darker gray
                             let emp_effect = if (152_278 >> (sample / 2 * 3)) & emphasis > 0 {
                                 0
                             } else {

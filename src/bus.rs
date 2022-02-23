@@ -44,6 +44,12 @@ struct GenieCode {
     compare: Option<Byte>,
 }
 
+impl fmt::Debug for GenieCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &self.code)
+    }
+}
+
 lazy_static! {
     static ref GENIE_MAP: HashMap<char, Byte> = {
         // Game genie maps these letters to binary representations as a form of code obfuscation
@@ -277,8 +283,17 @@ impl Default for Bus {
 
 impl fmt::Debug for Bus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // TODO Bus Debug
-        write!(f, "Bus {{ }}")
+        f.debug_struct("Bus")
+            .field("ppu", &self.ppu)
+            .field("apu", &self.apu)
+            .field("mapper", &self.mapper)
+            .field("input", &self.input)
+            .field("wram", &self.wram)
+            .field("halt", &self.halt)
+            .field("dummy_read", &self.dummy_read)
+            .field("genie_codes", &self.genie_codes.values())
+            .field("open_bus", &format_args!("${:02X}", &self.open_bus))
+            .finish()
     }
 }
 
