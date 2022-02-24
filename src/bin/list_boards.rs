@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tetanes::cartridge::INesHeader;
+use tetanes::cartridge::NesHeader;
 
 fn main() {
     env::set_var("RUST_LOG", "info");
@@ -38,7 +38,7 @@ fn print_mapper<P: AsRef<Path>>(path: P, board: Option<&String>) {
     let path = path.as_ref();
     let file = File::open(path).expect("valid path");
     let mut reader = BufReader::new(file);
-    if let Ok(header) = INesHeader::load(&mut reader) {
+    if let Ok(header) = NesHeader::load(&mut reader) {
         if board.is_none()
             || mapper(header.mapper_num)
                 .to_lowercase()

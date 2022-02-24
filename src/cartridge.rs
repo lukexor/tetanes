@@ -2,20 +2,20 @@
 
 use crate::{mapper::Mirroring, memory::Memory, NesResult};
 use anyhow::{anyhow, Context};
-use log::info;
+use log::{debug, info};
 use std::{fmt, io::Read};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
-/// Represents an `iNES` header
+/// Represents an `iNES` or `NES 2.0` header
 ///
 /// <http://wiki.nesdev.com/w/index.php/INES>
 /// <http://wiki.nesdev.com/w/index.php/NES_2.0>
 /// <http://nesdev.com/NESDoc.pdf> (page 28)
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Copy, Clone)]
 #[must_use]
-pub struct INesHeader {
+pub struct NesHeader {
     pub version: u8,       // 1 for iNES or 2 for NES 2.0
     pub mapper_num: u16,   // The primary mapper number
     pub submapper_num: u8, // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
@@ -33,7 +33,7 @@ pub struct INesHeader {
 #[must_use]
 pub struct Cartridge {
     pub name: String, // '.nes' rom file
-    pub header: INesHeader,
+    pub header: NesHeader,
     pub prg_rom: Memory, // Program ROM
     pub chr_rom: Memory, // Character ROM
     pub prg_ram_size: Option<usize>,
@@ -45,7 +45,7 @@ impl Cartridge {
     pub fn new() -> Self {
         Self {
             name: String::new(),
-            header: INesHeader::new(),
+            header: NesHeader::new(),
             prg_rom: Memory::new(),
             chr_rom: Memory::new(),
             prg_ram_size: None,
@@ -64,9 +64,9 @@ impl Cartridge {
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
     pub fn from_rom<F: Read>(name: &str, mut rom_data: &mut F) -> NesResult<Self> {
-        let header = INesHeader::load(&mut rom_data)?;
+        let header = NesHeader::load(&mut rom_data)?;
 
-        let mut prg_rom = vec![0u8; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
+        let mut prg_rom = vec![0x00; (header.prg_rom_size as usize) * PRG_ROM_BANK_SIZE];
         rom_data.read_exact(&mut prg_rom).with_context(|| {
             let bytes_rem = if let Ok(bytes) = rom_data.read_to_end(&mut prg_rom) {
                 bytes.to_string()
@@ -81,7 +81,7 @@ impl Cartridge {
         })?;
         let prg_rom = Memory::rom(&prg_rom);
 
-        let mut chr_rom = vec![0u8; (header.chr_rom_size as usize) * CHR_ROM_BANK_SIZE];
+        let mut chr_rom = vec![0x00; (header.chr_rom_size as usize) * CHR_ROM_BANK_SIZE];
         rom_data.read_exact(&mut chr_rom).with_context(|| {
             let bytes_rem = if let Ok(bytes) = rom_data.read_to_end(&mut chr_rom) {
                 bytes.to_string()
@@ -123,16 +123,8 @@ impl Cartridge {
             prg_ram_size,
             chr_ram_size,
         };
-        info!(
-            "Loaded `{}` - Mapper: {} - {}, PRG ROM: {}, CHR ROM: {}, Mirroring: {:?}, Battery: {}",
-            name,
-            cart.header.mapper_num,
-            cart.mapper_board(),
-            cart.header.prg_rom_size,
-            cart.header.chr_rom_size,
-            cart.mirroring(),
-            cart.battery_backed(),
-        );
+        info!("Loaded `{}`", cart);
+        debug!("{:?}", cart);
         Ok(cart)
     }
 
@@ -175,20 +167,49 @@ impl Cartridge {
     }
 }
 
-impl INesHeader {
+impl fmt::Display for Cartridge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+        write!(f, "{} - {}, PRG-ROM: {} KB, PRG_RAM: {} KB, CHR-ROM: {} KB, CHR-RAM: {} KB, Mirroring: {:?}, Battery: {}",
+            self.name,
+            self.mapper_board(),
+            self.prg_rom.len() / 1024,
+            self.prg_ram_size.map_or(0, |size| size / 1024),
+            self.chr_rom.len() / 1024,
+            self.chr_ram_size.map_or(0, |size| size / 1024),
+            self.mirroring(),
+            self.battery_backed(),
+        )
+    }
+}
+
+impl fmt::Debug for Cartridge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+        f.debug_struct("Cartridge")
+            .field("name", &self.name)
+            .field("header", &self.header)
+            .field("prg_ram_size", &self.prg_ram_size)
+            .field("chr_ram_size", &self.chr_ram_size)
+            .field("mirroring", &self.mirroring())
+            .field("board", &self.mapper_board())
+            .field("battery_backed", &self.battery_backed())
+            .finish()
+    }
+}
+
+impl NesHeader {
     /// Returns an empty `INesHeader` not loaded with any data
     const fn new() -> Self {
         Self {
-            version: 1u8,
-            mapper_num: 0u16,
-            submapper_num: 0u8,
-            flags: 0u8,
-            prg_rom_size: 0u16,
-            chr_rom_size: 0u16,
-            prg_ram_size: 0u8,
-            chr_ram_size: 0u8,
-            tv_mode: 0u8,
-            vs_data: 0u8,
+            version: 0x01,
+            mapper_num: 0x0000,
+            submapper_num: 0x00,
+            flags: 0x00,
+            prg_rom_size: 0x0000,
+            chr_rom_size: 0x0000,
+            prg_ram_size: 0x00,
+            chr_ram_size: 0x00,
+            tv_mode: 0x00,
+            vs_data: 0x00,
         }
     }
 
@@ -282,15 +303,18 @@ impl INesHeader {
     }
 }
 
-impl fmt::Debug for Cartridge {
+impl fmt::Debug for NesHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        write!(
-            f,
-            "Cartridge {{ header: {:?}, PRG-ROM: {}, CHR-ROM: {}",
-            self.header,
-            self.prg_rom.len(),
-            self.chr_rom.len(),
-        )
+        f.debug_struct("NesHeader")
+            .field("version", &self.version)
+            .field("mapper_num", &format_args!("{:03}", &self.mapper_num))
+            .field("submapper_num", &self.submapper_num)
+            .field("flags", &format_args!("0b{:0b}", &self.flags))
+            .field("prg_rom_size", &self.prg_rom_size)
+            .field("chr_rom_size", &self.chr_rom_size)
+            .field("tv_mode", &self.tv_mode)
+            .field("vs_data", &self.vs_data)
+            .finish()
     }
 }
 
