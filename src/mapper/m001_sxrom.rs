@@ -82,7 +82,7 @@ impl Sxrom {
                 control: PRG_MODE_FIX_LAST,
                 chr_bank0: 0x00,
                 chr_bank1: 0x00,
-                prg_bank: PRG_RAM_DISABLED,
+                prg_bank: 0x00,
                 last_chr_reg: Mmc1Regs::A000,
                 open_bus: 0x00,
             },

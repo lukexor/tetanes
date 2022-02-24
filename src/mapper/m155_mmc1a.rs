@@ -61,7 +61,7 @@ impl Mmc1a {
                 shift_register: DEFAULT_SHIFT_REGISTER,
                 control: PRG_MODE_FIX_LAST,
                 chr_banks: [0x00; 2],
-                prg_bank: 0x00, // Always enabled
+                prg_bank: 0x00,
                 open_bus: 0x00,
             },
             has_chr_ram,
