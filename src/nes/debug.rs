@@ -85,9 +85,9 @@ impl Nes {
                     let cpu = self.control_deck.cpu();
 
                     s.text("Status: ")?;
-                    use StatusRegs::{B, C, D, I, N, U, V};
+                    use StatusRegs::{B, C, D, I, N, U, V, Z};
                     s.push();
-                    for status in &[N, V, U, B, D, I, C] {
+                    for status in &[N, V, U, B, D, I, Z, C] {
                         s.same_line(None);
                         s.fill(if cpu.status & *status as u8 > 0 {
                             Color::RED
@@ -135,9 +135,15 @@ impl Nes {
                     ))?;
 
                     s.spacing()?;
-                    let m = s.mouse_pos() / self.config.scale as i32;
-                    let mx = (m.x() as f32 * 7.0 / 8.0) as u32;
-                    s.text(&format!("Mouse: {:3}, {:3}", mx, m.y()))?;
+                    if let Some(view) = self.emulation {
+                        if s.focused_window(view.window_id) {
+                            let m = s.mouse_pos() / self.config.scale as i32;
+                            let mx = (m.x() as f32 * 7.0 / 8.0) as u32;
+                            s.text(&format!("Mouse: {:3}, {:3}", mx, m.y()))?;
+                        } else {
+                            s.text("Mouse: 0, 0")?;
+                        }
+                    }
                 }
 
                 s.spacing()?;
@@ -226,7 +232,9 @@ impl Nes {
                     let mirroring = self.control_deck.mapper().mirroring();
                     s.text(&format!("Mirroring: {:?}", mirroring))?;
 
-                    if rect![0, 0, 2 * width, 2 * height].contains_point(m) {
+                    if s.focused_window(view.window_id)
+                        && rect![0, 0, 2 * width, 2 * height].contains_point(m)
+                    {
                         let nt_addr =
                             NT_START as i32 + (m.x() / width) * 0x0400 + (m.y() / height) * 0x0800;
                         let ppu_addr = nt_addr + ((((m.y() / 8) % 30) << 5) | ((m.x() / 8) % 32));
