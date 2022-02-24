@@ -195,41 +195,6 @@ impl Sxrom {
             _ => unreachable!("impossible mirroring mode"),
         };
 
-        //         self.prg_ram_enabled = self.regs.prg_bank & PRG_RAM_DISABLED == 0;
-        //         self.bank_select = if self.regs.control & 0x04 == 0x04 {
-        //             BankSelect::x8000
-        //         } else {
-        //             BankSelect::xC000
-        //         };
-        //         self.prg_mode = if self.regs.control & 0x08 == 0x08 {
-        //             PrgMode::Bank16k
-        //         } else {
-        //             PrgMode::Bank32K
-        //         };
-        //         self.chr_mode = if self.regs.control & 0x10 == 0x10 {
-        //             ChrMode::Bank4k
-        //         } else {
-        //             ChrMode::Bank8K
-        //         };
-
-        //         let chr_bank0 = self.regs.chr_bank0 as usize & 0x1F;
-        //         let chr_bank1 = self.regs.chr_bank1 as usize & 0x1F;
-        //         let prg_bank = self.regs.prg_bank as usize & 0x0F;
-
-        //         let extra_bank = if self.last_chr_bank == MMC1Regs::C000 && self.chr_mode == ChrMode::Bank4k
-        //         {
-        //             chr_bank1
-        //         } else {
-        //             chr_bank0
-        //         };
-        //         let prg_bank_select = if self.prg_rom.len() == 0x80000 {
-        //             // 512kb carts use bit 7 of $A000/$C000 to select page
-        //             // This is used for SUROM (Dragon Warrior 3/4, Dragon Quest 4)
-        //             extra_bank & 0x10;
-        //         } else {
-        //             0
-        //         };
-
         let extra_reg = if self.regs.last_chr_reg == Mmc1Regs::C000
             && self.regs.control & CHR_MODE_MASK == CHR_MODE_MASK
         {
@@ -244,7 +209,7 @@ impl Sxrom {
             0x00
         };
         if self.submapper_num == 5 {
-            // "001: 5 Fixed PRG    SEROM, SHROM, SH1ROM use a fixed 32k PRG ROM with no banking support.
+            // Fixed PRG SEROM, SHROM, SH1ROM use a fixed 32k PRG ROM with no banking support.
             self.prg_rom.set_bank_range(0x8000, 0xFFFF, 0);
         } else {
             match self.regs.control & PRG_MODE_MASK {
