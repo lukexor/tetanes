@@ -102,7 +102,7 @@ impl Vram {
 }
 
 impl MemRead for Vram {
-    fn read(&mut self, mut addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         self.mapper_mut().vram_change(addr);
         match addr {
             0x0000..=0x1FFF => self.mapper_mut().read(addr),
@@ -116,10 +116,11 @@ impl MemRead for Vram {
                 }
             }
             0x3F00..=0x3FFF => {
+                let mut addr = addr % PALETTE_SIZE as u16;
                 if addr >= 16 && addr.trailing_zeros() >= 2 {
                     addr -= 16;
                 }
-                self.palette.read(addr % PALETTE_SIZE as u16)
+                self.palette.read(addr)
             }
             _ => 0,
         }
@@ -144,7 +145,7 @@ impl MemRead for Vram {
 }
 
 impl MemWrite for Vram {
-    fn write(&mut self, mut addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8) {
         self.mapper_mut().vram_change(addr);
         match addr {
             0x0000..=0x1FFF => self.mapper_mut().write(addr, val),
@@ -157,10 +158,11 @@ impl MemWrite for Vram {
                 }
             }
             0x3F00..=0x3FFF => {
+                let mut addr = addr % PALETTE_SIZE as u16;
                 if addr >= 16 && addr.trailing_zeros() >= 2 {
                     addr -= 16;
                 }
-                self.palette.write(addr % PALETTE_SIZE as u16, val);
+                self.palette.write(addr, val);
             }
             _ => (),
         }
