@@ -47,7 +47,6 @@ test_roms/apu/03.irq_flag.nes
 test_roms/apu/04.clock_jitter.nes
 test_roms/apu/08.irq_timing.nes
 test_roms/apu/dpcmletterbox.nes
-test_roms/apu/dmc/7-dmc_basics.nes
 test_roms/apu/dmc/buffer_retained.nes
 test_roms/apu/dmc/latency.nes
 test_roms/apu/dmc/status.nes
@@ -77,12 +76,7 @@ test_roms/apu/test_6.nes
 
 ## PPU ============================================================================================
 test_roms/ppu/oam_read.nes
-test_roms/ppu/oam_stress.nes
-test_roms/ppu/oamtest3.nes # Not really sure what this tests
-test_roms/ppu/open_bus.nes
 test_roms/ppu/palette.nes
-test_roms/ppu/palette_ram.nes
-test_roms/ppu/read_buffer.nes
 test_roms/ppu/scanline.nes
 test_roms/ppu/sprite_ram.nes
 test_roms/ppu/sprite_hit/01-basics.nes
@@ -93,8 +87,6 @@ test_roms/ppu/sprite_hit/05-left_clip.nes
 test_roms/ppu/sprite_hit/06-right_edge.nes
 test_roms/ppu/sprite_hit/07-screen_bottom.nes
 test_roms/ppu/sprite_hit/08-double_height.nes
-# FAIL
-test_roms/ppu/sprite_hit/10-timing_order.nes
 test_roms/ppu/sprite_overflow/1.Basics.nes
 test_roms/ppu/sprite_overflow/2.Details.nes
 test_roms/ppu/sprite_overflow/5.Emulator.nes

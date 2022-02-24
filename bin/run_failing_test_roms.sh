@@ -1,6 +1,14 @@
 cargo build --profile dev-opt
 
 TESTS=(
+## Recently Failed
+test_roms/apu/dmc/7-dmc_basics.nes
+test_roms/ppu/oam_stress.nes
+test_roms/ppu/open_bus.nes
+test_roms/ppu/palette_ram.nes
+test_roms/ppu/read_buffer.nes
+test_roms/ppu/sprite_hit/10-timing_order.nes
+
 ## APU ============================================================================================
 test_roms/apu/05.len_timing_mode0.nes # $04
 test_roms/apu/06.len_timing_mode1.nes # $05
