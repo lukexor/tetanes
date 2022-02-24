@@ -50,6 +50,7 @@ pub struct Sxrom {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[must_use]
 enum Mmc1Regs {
     A000,
     C000,

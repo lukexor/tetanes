@@ -23,6 +23,29 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
 const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
+// http://forums.nesdev.com/viewtopic.php?p=62546#p62546
+// MMC3
+// Conquest of the Crystal Palace (MMC3B S 9039 1 DB)
+// Kickle Cubicle (MMC3B S 9031 3 DA)
+// M.C. Kids (MMC3B S 9152 3 AB)
+// Mega Man 3 (MMC3B S 9046 1 DB)
+// Super Mario Bros. 3 (MMC3B S 9027 5 A)
+// Startropics (MMC6B P 03'5)
+// Batman (MMC3B 9006KP006)
+// Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
+// Crystalis (MMC3B 9024KPO53)
+// Legacy of the Wizard (MMC3A 8940EP)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[must_use]
+#[allow(dead_code)]
+enum Mmc3Rev {
+    A,
+    B,
+    C,
+    /// Acclaims MMC3 clone - clocks on falling edge
+    Acc,
+}
+
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Txrom {
@@ -30,22 +53,7 @@ pub struct Txrom {
     has_chr_ram: bool,
     mirroring: Mirroring,
     irq_pending: bool,
-    // http://forums.nesdev.com/viewtopic.php?p=62546#p62546
-    // MMC3
-    // Conquest of the Crystal Palace (MMC3B S 9039 1 DB)
-    // Kickle Cubicle (MMC3B S 9031 3 DA)
-    // M.C. Kids (MMC3B S 9152 3 AB)
-    // Mega Man 3 (MMC3B S 9046 1 DB)
-    // Super Mario Bros. 3 (MMC3B S 9027 5 A)
-    // Startropics (MMC6B P 03'5)
-
-    // MMC3_revb:
-    // Batman (MMC3B 9006KP006)
-    // Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
-    // Crystalis (MMC3B 9024KPO53)
-    // Legacy of the Wizard (MMC3A 8940EP)
-    mmc3_revb: bool,
-    mmc_acc: bool, // Acclaims MMC3 clone - clocks on falling edge
+    revision: Mmc3Rev,
     battery_backed: bool,
     four_screen_ram: Option<BankedMemory>,
     prg_ram: BankedMemory, // CPU $6000..=$7FFF 8K PRG RAM Bank (optional)
@@ -100,8 +108,7 @@ impl Txrom {
             has_chr_ram,
             mirroring: cart.mirroring(),
             irq_pending: false,
-            mmc3_revb: true, // TODO compare to known games
-            mmc_acc: false,  // TODO - compare to known games
+            revision: Mmc3Rev::B, // TODO compare to known games
             battery_backed: cart.battery_backed(),
             four_screen_ram: if cart.mirroring() == Mirroring::FourScreen {
                 Some(BankedMemory::ram(
@@ -242,8 +249,11 @@ impl Mapper for Txrom {
     fn vram_change(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
-            // MMC_ACC = Falling edge, otherwise Rising edge
-            let (last, next) = if self.mmc_acc { (1, 0) } else { (0, 1) };
+            let (last, next) = if self.revision == Mmc3Rev::Acc {
+                (1, 0)
+            } else {
+                (0, 1)
+            };
             if self.regs.last_clock == last && next_clock == next {
                 let counter = self.regs.irq_counter;
                 if counter == 0 || self.regs.irq_reload {
@@ -251,8 +261,9 @@ impl Mapper for Txrom {
                 } else {
                     self.regs.irq_counter -= 1;
                 }
-                // if (counter > 0 || self.regs.irq_reload)
-                if (((counter & 0x01) | self.mmc3_revb as u8) == 0x01 || self.regs.irq_reload)
+                if (counter & 0x01 == 0x01
+                    || matches!(self.revision, Mmc3Rev::B | Mmc3Rev::C)
+                    || self.regs.irq_reload)
                     && self.regs.irq_counter == 0
                     && self.regs.irq_enabled
                 {
