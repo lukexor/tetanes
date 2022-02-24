@@ -38,6 +38,7 @@ const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 #[must_use]
 pub struct Sxrom {
     regs: SxRegs,
+    submapper_num: u8,
     has_chr_ram: bool,
     mirroring: Mirroring,
     battery_backed: bool,
@@ -46,6 +47,12 @@ pub struct Sxrom {
     // CPU $C000..=$FFFF 16KB PRG ROM Bank Fixed to Last Bank or Switchable
     prg_rom: BankedMemory,
     chr: BankedMemory, // PPU $0000..=$1FFF 2 4KB CHR ROM/RAM Bank Switchable
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+enum Mmc1Regs {
+    A000,
+    C000,
 }
 
 #[derive(Clone)]
@@ -57,6 +64,7 @@ struct SxRegs {
     chr_bank0: u8,      // $A000-$BFFF
     chr_bank1: u8,      // $C000-$DFFF
     prg_bank: u8,       // $E000-$FFFF
+    last_chr_reg: Mmc1Regs,
     open_bus: u8,
 }
 
@@ -74,8 +82,10 @@ impl Sxrom {
                 chr_bank0: 0x00,
                 chr_bank1: 0x00,
                 prg_bank: PRG_RAM_DISABLED,
+                last_chr_reg: Mmc1Regs::A000,
                 open_bus: 0x00,
             },
+            submapper_num: cart.header.submapper_num,
             has_chr_ram,
             mirroring: Mirroring::SingleScreenA,
             battery_backed,
@@ -158,8 +168,14 @@ impl Sxrom {
             if write {
                 match addr {
                     0x8000..=0x9FFF => self.regs.control = self.regs.shift_register,
-                    0xA000..=0xBFFF => self.regs.chr_bank0 = self.regs.shift_register,
-                    0xC000..=0xDFFF => self.regs.chr_bank1 = self.regs.shift_register,
+                    0xA000..=0xBFFF => {
+                        self.regs.last_chr_reg = Mmc1Regs::A000;
+                        self.regs.chr_bank0 = self.regs.shift_register;
+                    }
+                    0xC000..=0xDFFF => {
+                        self.regs.last_chr_reg = Mmc1Regs::C000;
+                        self.regs.chr_bank1 = self.regs.shift_register;
+                    }
                     0xE000..=0xFFFF => self.regs.prg_bank = self.regs.shift_register,
                     _ => unreachable!("impossible write"),
                 }
@@ -170,21 +186,83 @@ impl Sxrom {
     }
 
     fn update_banks(&mut self) {
+        self.mirroring = match self.regs.control & MIRRORING_MASK {
+            0 => Mirroring::SingleScreenA,
+            1 => Mirroring::SingleScreenB,
+            2 => Mirroring::Vertical,
+            3 => Mirroring::Horizontal,
+            _ => unreachable!("impossible mirroring mode"),
+        };
+
+        //         self.prg_ram_enabled = self.regs.prg_bank & PRG_RAM_DISABLED == 0;
+        //         self.bank_select = if self.regs.control & 0x04 == 0x04 {
+        //             BankSelect::x8000
+        //         } else {
+        //             BankSelect::xC000
+        //         };
+        //         self.prg_mode = if self.regs.control & 0x08 == 0x08 {
+        //             PrgMode::Bank16k
+        //         } else {
+        //             PrgMode::Bank32K
+        //         };
+        //         self.chr_mode = if self.regs.control & 0x10 == 0x10 {
+        //             ChrMode::Bank4k
+        //         } else {
+        //             ChrMode::Bank8K
+        //         };
+
+        //         let chr_bank0 = self.regs.chr_bank0 as usize & 0x1F;
+        //         let chr_bank1 = self.regs.chr_bank1 as usize & 0x1F;
+        //         let prg_bank = self.regs.prg_bank as usize & 0x0F;
+
+        //         let extra_bank = if self.last_chr_bank == MMC1Regs::C000 && self.chr_mode == ChrMode::Bank4k
+        //         {
+        //             chr_bank1
+        //         } else {
+        //             chr_bank0
+        //         };
+        //         let prg_bank_select = if self.prg_rom.len() == 0x80000 {
+        //             // 512kb carts use bit 7 of $A000/$C000 to select page
+        //             // This is used for SUROM (Dragon Warrior 3/4, Dragon Quest 4)
+        //             extra_bank & 0x10;
+        //         } else {
+        //             0
+        //         };
+
+        let extra_reg = if self.regs.last_chr_reg == Mmc1Regs::C000
+            && self.regs.control & CHR_MODE_MASK == CHR_MODE_MASK
+        {
+            self.regs.chr_bank1
+        } else {
+            self.regs.chr_bank0
+        };
         let prg_bank = (self.regs.prg_bank & PRG_BANK_MASK) as usize;
-        match self.regs.control & PRG_MODE_MASK {
-            PRG_MODE_FIX_FIRST => {
-                self.prg_rom.set_bank(0x8000, 0);
-                self.prg_rom.set_bank(0xC000, prg_bank);
-            }
-            PRG_MODE_FIX_LAST => {
-                let last_bank = self.prg_rom.last_bank();
-                self.prg_rom.set_bank(0x8000, prg_bank);
-                self.prg_rom.set_bank(0xC000, last_bank);
-            }
-            _ => {
-                // Switch32
-                self.prg_rom.set_bank(0x8000, prg_bank & 0xFE);
-                self.prg_rom.set_bank(0xC000, prg_bank | 0x01);
+        let prg_bank_select = if self.prg_rom.len() == 0x80000 {
+            (extra_reg & CHR_MODE_MASK) as usize
+        } else {
+            0x00
+        };
+        if self.submapper_num == 5 {
+            // "001: 5 Fixed PRG    SEROM, SHROM, SH1ROM use a fixed 32k PRG ROM with no banking support.
+            self.prg_rom.set_bank_range(0x8000, 0xFFFF, 0);
+        } else {
+            match self.regs.control & PRG_MODE_MASK {
+                PRG_MODE_FIX_FIRST => {
+                    self.prg_rom.set_bank(0x8000, prg_bank_select);
+                    self.prg_rom.set_bank(0xC000, prg_bank | prg_bank_select);
+                }
+                PRG_MODE_FIX_LAST => {
+                    let last_bank = self.prg_rom.last_bank();
+                    self.prg_rom.set_bank(0x8000, prg_bank | prg_bank_select);
+                    self.prg_rom.set_bank(0xC000, last_bank | prg_bank_select);
+                }
+                _ => {
+                    // Switch32
+                    self.prg_rom
+                        .set_bank(0x8000, (prg_bank & 0xFE) | prg_bank_select);
+                    self.prg_rom
+                        .set_bank(0xC000, prg_bank | 0x01 | prg_bank_select);
+                }
             }
         }
 
@@ -197,14 +275,6 @@ impl Sxrom {
             self.chr.set_bank(0x0000, chr_bank0 & 0xFE);
             self.chr.set_bank(0x1000, chr_bank0 | 0x01);
         }
-
-        self.mirroring = match self.regs.control & MIRRORING_MASK {
-            0 => Mirroring::SingleScreenA,
-            1 => Mirroring::SingleScreenB,
-            2 => Mirroring::Vertical,
-            3 => Mirroring::Horizontal,
-            _ => unreachable!("impossible mirroring mode"),
-        };
     }
 
     const fn prg_ram_enabled(&self) -> bool {
@@ -306,6 +376,22 @@ impl Savable for Sxrom {
     }
 }
 
+impl Savable for Mmc1Regs {
+    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
+        (*self as u8).save(fh)
+    }
+    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
+        let mut val = 0u8;
+        val.load(fh)?;
+        *self = match val {
+            0 => Mmc1Regs::A000,
+            1 => Mmc1Regs::C000,
+            _ => panic!("invalid Mmc1Regs value"),
+        };
+        Ok(())
+    }
+}
+
 impl Savable for SxRegs {
     fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
         self.write_just_occurred.save(fh)?;
@@ -314,6 +400,7 @@ impl Savable for SxRegs {
         self.chr_bank0.save(fh)?;
         self.chr_bank1.save(fh)?;
         self.prg_bank.save(fh)?;
+        self.last_chr_reg.save(fh)?;
         self.open_bus.save(fh)?;
         Ok(())
     }
@@ -324,6 +411,7 @@ impl Savable for SxRegs {
         self.chr_bank0.load(fh)?;
         self.chr_bank1.load(fh)?;
         self.prg_bank.load(fh)?;
+        self.last_chr_reg.load(fh)?;
         self.open_bus.load(fh)?;
         Ok(())
     }
