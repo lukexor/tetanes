@@ -14,7 +14,7 @@ default-run = "tetanes"
 exclude = ["/bin", "/static", "/test_roms", "/docs"]
 
 [package.metadata]
-msrv = "1.57.0"
+msrv = "1.59.0"
 
 [dependencies]
 bitflags = "1.2.1"
@@ -51,6 +51,7 @@ inherits = "dev"
 opt-level = 2
 
 [profile.release]
+strip = "symbols"
 codegen-units = 1
 lto = true
 

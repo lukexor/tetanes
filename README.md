@@ -43,6 +43,10 @@ including traits, trait objects, generics, matching, and iterators.
 
 Try it out in your [browser](http://dev.lukeworks.tech/tetanes)!
 
+## Minimum Supported Rust Version (MSRV)
+
+The current minimum Rust version is `1.59.0`.
+
 ## Screenshots
 
 <img width="48%" alt="Donkey Kong" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/donkey_kong.png">&nbsp;&nbsp;<img width="48%" alt="Super Mario Bros." src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/super_mario_bros.png">
@@ -351,21 +355,15 @@ When using the WASM version in the browser, also include:
   - [x] Toggle Sound
     - [x] Toggle individual sound channels
   - [x] Toggle NTSC Filter
-  - [ ] Toggle Debugger
   - [x] Game Genie
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
   - [ ] Network Multi-player
   - [ ] Self Updater
 - Testing/Debugging/Documentation
-  - [ ] CPU Debugger (Displays CPU status, registers, and disassembly)
-    - [ ] Step Into/Out/Over
-    - [ ] Breakpoints
-  - [ ] Hex Memory Editor & Debugger
-  - [ ] PPU Viewer (Displays PPU sprite patterns and color palettes)
-  - [ ] Nametable Viewer (Displays all four PPU backgrounds)
-    - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
-    - [ ] Scroll lines (Automatically adjusts the scanline, showing live
-    nametable changes)
+  - [x] CPU Debugger (Displays CPU status, registers, and disassembly)
+    - [x] Step Into/Out/Over
+  - [x] PPU Debugger (Displays PPU sprite patterns and color palettes)
+    - [X] Scanline Hit Configuration (For debugging IRQ Nametable changes)
   - [x] Unit/Integration tests (run with cargo test)
     - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
     - [ ] Other tests (Missing a lot here)

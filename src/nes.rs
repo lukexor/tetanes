@@ -21,7 +21,7 @@ use std::{
     fmt::Write,
     fs,
     path::PathBuf,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 pub(crate) mod config;
@@ -241,7 +241,7 @@ impl Nes {
             .with_frame_rate()
             .audio_sample_rate(SAMPLE_RATE.floor() as i32)
             .audio_channels(1)
-            .target_frame_rate(65)
+            .target_frame_rate(60)
             .resizable();
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -308,6 +308,11 @@ impl AppState for Nes {
                 }
             }
             if self.config.sound {
+                if s.audio_size() < 2048 {
+                    self.control_deck.clock_frame();
+                } else if s.audio_size() > 8192 {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
                 s.enqueue_audio(self.control_deck.audio_samples())?;
             }
             self.control_deck.clear_audio_samples();

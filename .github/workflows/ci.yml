@@ -18,8 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         os:  [macos-latest, ubuntu-latest, windows-latest]
-        # MSRV 1.57.0
-        toolchain: [nightly, beta, stable, 1.57.0]
+        # MSRV 1.59.0
+        toolchain: [nightly, beta, stable, 1.59.0]
     steps:
     - name: Checkout
       uses: actions/checkout@v2

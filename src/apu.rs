@@ -5,7 +5,6 @@
 use crate::{
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
-    filter::{Filter, FilterType, HiPassFilter, LoPassFilter},
     memory::{MemRead, MemWrite},
     serialization::Savable,
     NesResult,
@@ -21,7 +20,8 @@ use std::{
 use triangle::Triangle;
 
 pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
-const SAMPLE_BUFFER_SIZE: usize = 4096;
+                                       // pub const SAMPLE_RATE: f32 = 44_671.0; // in Hz
+const SAMPLE_BUFFER_SIZE: usize = 1024;
 
 pub mod dmc;
 pub mod noise;
@@ -64,7 +64,8 @@ pub struct Apu {
     noise: Noise,
     pub(crate) dmc: Dmc,
     enabled: [bool; 5],
-    filters: [FilterType; 3],
+    sample_timer: f32,
+    sample_rate: f32,
     pulse_table: [f32; Self::PULSE_TABLE_SIZE],
     tnd_table: [f32; Self::TND_TABLE_SIZE],
 }
@@ -88,11 +89,8 @@ impl Apu {
             noise: Noise::new(),
             dmc: Dmc::new(),
             enabled: [true; 5],
-            filters: [
-                FilterType::HiPassFilter(HiPassFilter::new(90.0, SAMPLE_RATE)),
-                FilterType::HiPassFilter(HiPassFilter::new(440.0, SAMPLE_RATE)),
-                FilterType::LoPassFilter(LoPassFilter::new(14_000.0, SAMPLE_RATE)),
-            ],
+            sample_timer: 0.0,
+            sample_rate: CPU_CLOCK_RATE / SAMPLE_RATE,
             pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
             tnd_table: [0f32; Self::TND_TABLE_SIZE],
         };
@@ -118,6 +116,7 @@ impl Apu {
 
     pub fn set_speed(&mut self, speed: f32) {
         self.clock_rate = CPU_CLOCK_RATE * speed;
+        self.sample_rate = self.clock_rate / SAMPLE_RATE;
     }
 
     #[must_use]
@@ -315,12 +314,11 @@ impl Clocked for Apu {
         // to half-cycle timings, we clock every cycle
         self.clock_frame_sequencer();
 
-        if self.cycle % (self.clock_rate / SAMPLE_RATE) as usize == 0 {
-            let mut sample = self.output();
-            for filter in &mut self.filters {
-                sample = filter.process(sample);
-            }
+        self.sample_timer += 1.0;
+        if self.sample_timer > self.sample_rate {
+            let sample = self.output();
             self.samples.push(sample);
+            self.sample_timer -= self.sample_rate;
         }
         self.cycle += 1;
         1
@@ -449,7 +447,6 @@ impl fmt::Debug for Apu {
             .field("noise", &self.noise)
             .field("dmc", &self.dmc)
             .field("enabled", &self.enabled)
-            .field("filters", &self.filters)
             .finish()
     }
 }
