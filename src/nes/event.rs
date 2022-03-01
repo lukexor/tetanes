@@ -212,7 +212,7 @@ impl Nes {
             .retain(|(_, created)| created.elapsed() < Duration::from_secs(3));
         self.messages.dedup();
         s.push();
-        s.no_stroke();
+        s.stroke(None);
         for (message, _) in &self.messages {
             s.fill(rgb!(0, 200));
             s.rect([
@@ -230,7 +230,7 @@ impl Nes {
 
     pub(crate) fn render_status(&mut self, s: &mut PixState, status: &str) -> PixResult<()> {
         s.push();
-        s.no_stroke();
+        s.stroke(None);
         s.fill(rgb!(0, 200));
         s.rect([
             0,
@@ -394,13 +394,13 @@ impl Nes {
             NesState::Reset => {
                 self.error = None;
                 self.control_deck.reset();
-                s.run();
+                s.run(true);
                 self.add_message("Reset");
             }
             NesState::PowerCycle => {
                 self.error = None;
                 self.control_deck.power_cycle();
-                s.run();
+                s.run(true);
                 self.add_message("Power Cycled");
             }
         }

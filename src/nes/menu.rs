@@ -73,7 +73,7 @@ impl Nes {
         bg.set_alpha(200);
         s.fill(bg);
         s.rect([0, 0, s.width()? as i32, s.height()? as i32])?;
-        s.no_stroke();
+        s.stroke(None);
         s.fill(Color::WHITE);
 
         s.heading("Menu")?;
@@ -362,14 +362,14 @@ impl Nes {
             }
         }
         if !is_nes_rom(&path) {
-            s.disable();
+            s.disable(true);
         }
         if s.dbl_clicked() || s.button("Open")? {
             self.config.rom_path = path;
             self.selected_path = 0;
             self.load_rom(s)?;
         }
-        s.no_disable();
+        s.disable(false);
 
         Ok(())
     }

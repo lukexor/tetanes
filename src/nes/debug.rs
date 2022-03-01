@@ -79,7 +79,7 @@ impl Nes {
         if let Some(view) = self.cpu_debugger {
             s.with_window(view.window_id, |s: &mut PixState| {
                 s.clear()?;
-                s.no_stroke();
+                s.stroke(None);
 
                 {
                     let cpu = self.control_deck.cpu();
@@ -233,7 +233,7 @@ impl Nes {
                     s.text(&format!("Mirroring: {:?}", mirroring))?;
 
                     if s.focused_window(view.window_id)
-                        && rect![0, 0, 2 * width, 2 * height].contains_point(m)
+                        && rect![0, 0, 2 * width, 2 * height].contains(m)
                     {
                         let nt_addr =
                             NT_START as i32 + (m.x() / width) * 0x0400 + (m.y() / height) * 0x0800;
@@ -289,7 +289,7 @@ impl Nes {
                     s.push();
 
                     s.stroke(Color::DIM_GRAY);
-                    s.no_fill();
+                    s.fill(None);
                     s.stroke_weight(2);
 
                     s.rect(nametable1)?;
@@ -311,14 +311,14 @@ impl Nes {
                     s.set_cursor_pos([s.cursor_pos().x(), palette_dst.bottom() + 4]);
                     s.set_column_offset(pattern_x);
 
-                    if pattern_dst.contains_point(m) {
+                    if pattern_dst.contains(m) {
                         let tile = (m.y() / 16) << 4 | ((m.x() / 16) % 16);
                         s.text(&format!("Tile: ${:02X}", tile))?;
                     } else {
                         s.text("Tile: $00")?;
                     }
 
-                    if palette_dst.contains_point(m) {
+                    if palette_dst.contains(m) {
                         let py = m.y().saturating_sub(height + 2) / 32;
                         let px = m.x() / 32;
                         let palette = self
