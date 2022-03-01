@@ -76,33 +76,34 @@ impl ControlDeck {
     /// Steps the control deck the number of seconds
     pub fn clock_seconds(&mut self, seconds: f32) -> usize {
         self.cycles_remaining += CPU_CLOCK_RATE * seconds;
-        let mut total_ticks = 0;
-        while self.cycles_remaining > 0.0 {
-            let ticks = self.clock();
-            total_ticks += ticks;
-            self.cycles_remaining -= ticks as f32;
+        let mut clocks = 0;
+        while self.cycles_remaining > 0.0 && !self.cpu_corrupted() {
+            let cycles = self.clock();
+            clocks += cycles;
+            self.cycles_remaining -= cycles as f32;
         }
-        total_ticks
+        clocks
     }
 
     /// Steps the control deck an entire frame
     pub fn clock_frame(&mut self) -> usize {
         self.clock_turbo();
-        while !self.frame_complete() {
-            self.clock();
+        let mut clocks = 0;
+        while !self.frame_complete() && !self.cpu_corrupted() {
+            clocks += self.clock();
         }
         self.start_new_frame();
-        1
+        clocks
     }
 
     /// Steps the control deck a single scanline.
     pub fn clock_scanline(&mut self) -> usize {
         let current_scanline = self.cpu.bus.ppu.scanline;
-        let mut total_ticks = 0;
-        while self.cpu.bus.ppu.scanline == current_scanline {
-            total_ticks += self.clock();
+        let mut clocks = 0;
+        while self.cpu.bus.ppu.scanline == current_scanline && !self.cpu_corrupted() {
+            clocks += self.clock();
         }
-        total_ticks
+        clocks
     }
 
     /// Returns whether the CPU is corrupted or not.
