@@ -78,6 +78,8 @@ test_roms/apu/test_6.nes
 test_roms/ppu/oam_read.nes
 test_roms/ppu/palette.nes
 test_roms/ppu/scanline.nes
+test_roms/ppu/palette_ram.nes
+test_roms/ppu/read_buffer.nes
 test_roms/ppu/sprite_ram.nes
 test_roms/ppu/sprite_hit/01-basics.nes
 test_roms/ppu/sprite_hit/02-alignment.nes
