@@ -114,9 +114,10 @@ Support for the following mappers is currently implemented or in development:
 | 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.98% |
 | 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
+| 066 | GxROM                  | Super Mario Bros. + Duck Hunt             |   ~17                   |              &lt;0.01% |
 | 071 | BF9093/BF9097          | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
 | 155 | MMC1A                  | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
-|     |                        |                                           | ~2068 / 2437            |                 84.86% |
+|     |                        |                                           | ~2085 / 2437            |                 85.56% |
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
 

@@ -24,6 +24,7 @@ use m004_txrom::Txrom;
 use m005_exrom::Exrom;
 use m007_axrom::Axrom;
 use m009_pxrom::Pxrom;
+use m066_gxrom::Gxrom;
 use m071_bf909x::Bf909x;
 use m155_mmc1a::Mmc1a;
 
@@ -35,6 +36,7 @@ mod m004_txrom;
 mod m005_exrom;
 mod m007_axrom;
 mod m009_pxrom;
+mod m066_gxrom;
 mod m071_bf909x;
 mod m155_mmc1a;
 
@@ -69,6 +71,7 @@ pub enum MapperType {
     Exrom,
     Axrom,
     Pxrom,
+    Gxrom,
     Bf909x,
     Mmc1a,
 }
@@ -127,6 +130,7 @@ pub fn load_rom<F: Read>(name: &str, rom: &mut F, state: RamState) -> NesResult<
         5 => Exrom::load(cart, state),
         7 => Axrom::load(cart, state),
         9 => Pxrom::load(cart, state),
+        66 => Gxrom::load(cart),
         71 => Bf909x::load(cart, state),
         155 => Mmc1a::load(cart, state),
         _ => {
