@@ -302,9 +302,9 @@ impl AppState for Nes {
                     self.control_deck.clock_frame();
                 }
                 if self.control_deck.cpu_corrupted() {
-                    self.mode = Mode::Paused;
-                    self.error = Some("CPU crash occurred".into());
-                    break 'run;
+                    self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+                    self.error = Some("CPU encountered invalid opcode.".into());
+                    return Ok(());
                 }
             }
             if self.config.sound {
