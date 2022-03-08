@@ -1,28 +1,25 @@
 use super::{Sprite, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH};
-use crate::{common::Powered, serialization::Savable, NesResult};
-use std::{
-    f32::consts::PI,
-    io::{Read, Write},
-};
+use crate::common::Powered;
+use std::{f32::consts::PI, fmt};
 
 #[derive(Clone)]
-pub(super) struct Frame {
-    num: u32,
-    pub(super) parity: bool,
+pub struct Frame {
+    pub num: u32,
+    pub parity: bool,
     // Shift registers
-    pub(super) tile_lo: u8,
-    pub(super) tile_hi: u8,
+    pub tile_lo: u8,
+    pub tile_hi: u8,
     // Tile data - stored in cycles 0 mod 8
-    pub(super) nametable: u16,
-    pub(super) attribute: u8,
-    pub(super) tile_data: u64,
+    pub nametable: u16,
+    pub attribute: u8,
+    pub tile_data: u64,
     // Sprite data
-    pub(super) sprite_count: u8,
-    pub(super) sprite_zero_on_line: bool,
-    pub(super) sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
-    prev_pixel: u32,
-    palette: Vec<Vec<Vec<u32>>>,
-    pub(super) pixels: Vec<u8>,
+    pub sprite_count: u8,
+    pub sprite_zero_on_line: bool,
+    pub sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
+    pub prev_pixel: u32,
+    pub palette: Vec<Vec<Vec<u32>>>,
+    pub pixels: Vec<u8>,
 }
 
 impl Frame {
@@ -191,36 +188,28 @@ impl Powered for Frame {
     }
 }
 
-impl Savable for Frame {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.num.save(fh)?;
-        self.parity.save(fh)?;
-        self.tile_lo.save(fh)?;
-        self.tile_hi.save(fh)?;
-        self.nametable.save(fh)?;
-        self.attribute.save(fh)?;
-        self.tile_data.save(fh)?;
-        self.sprite_count.save(fh)?;
-        self.sprite_zero_on_line.save(fh)?;
-        self.sprites.save(fh)?;
-        self.prev_pixel.save(fh)?;
-        self.pixels.save(fh)?;
-        // Ignore palette
-        Ok(())
+impl Default for Frame {
+    fn default() -> Self {
+        Self::new()
     }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.num.load(fh)?;
-        self.parity.load(fh)?;
-        self.tile_lo.load(fh)?;
-        self.tile_hi.load(fh)?;
-        self.nametable.load(fh)?;
-        self.attribute.load(fh)?;
-        self.tile_data.load(fh)?;
-        self.sprite_count.load(fh)?;
-        self.sprite_zero_on_line.load(fh)?;
-        self.sprites.load(fh)?;
-        self.prev_pixel.load(fh)?;
-        self.pixels.load(fh)?;
-        Ok(())
+}
+
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Frame")
+            .field("num", &self.num)
+            .field("parity", &self.parity)
+            .field("tile_lo", &format_args!("${:02X}", &self.tile_lo))
+            .field("tile_hi", &format_args!("${:02X}", &self.tile_hi))
+            .field("nametable", &format_args!("${:04X}", &self.nametable))
+            .field("attribute", &format_args!("${:02X}", &self.attribute))
+            .field("tile_data", &format_args!("${:16X}", &self.tile_data))
+            .field("sprite_count", &self.sprite_count)
+            .field("sprite_zero_on_line", &self.sprite_zero_on_line)
+            .field("sprites", &self.sprites)
+            .field("prev_pixel", &self.prev_pixel)
+            .field("palette", &self.palette)
+            .field("pixels", &self.pixels)
+            .finish()
     }
 }

@@ -1,10 +1,9 @@
 use crate::{
     common::Clocked,
     cpu::StatusRegs,
-    mapper::Mapper,
     memory::{MemAccess, MemRead},
     nes::{Mode, Nes, View},
-    ppu::{vram::NT_START, RENDER_HEIGHT, RENDER_WIDTH},
+    ppu::{PATTERN_WIDTH, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_WIDTH},
 };
 use pix_engine::prelude::*;
 
@@ -38,13 +37,18 @@ impl Nes {
                 self.mode = Mode::Paused;
                 return true;
             }
-            if let (Some(addr), _) = self.control_deck.next_addr(MemAccess::Write) {
+            if let (Some(addr), _) = self.control_deck.next_addr(MemAccess::Read) {
                 if breakpoints.contains(&addr) {
                     self.mode = Mode::Paused;
                     return true;
                 }
             }
             self.control_deck.clock();
+            if self.control_deck.cpu_corrupted() {
+                self.mode = Mode::Paused;
+                self.error = Some("CPU encountered invalid opcode.".into());
+                return true;
+            }
         }
         self.control_deck.start_new_frame();
 
@@ -147,9 +151,10 @@ impl Nes {
                 }
 
                 s.spacing()?;
-                let disasm = self
-                    .control_deck
-                    .disasm(self.control_deck.pc(), self.control_deck.pc() + 20);
+                let disasm = self.control_deck.disasm(
+                    self.control_deck.pc(),
+                    self.control_deck.pc().saturating_add(20),
+                );
                 for instr in &disasm {
                     s.text(&instr)?;
                 }
@@ -207,7 +212,7 @@ impl Nes {
                     let nametable3 = rect![0, height, width, height];
                     let nametable4 = rect![width, height, width, height];
                     let nametable_src = rect![0, 0, 2 * width, 2 * height];
-                    let nametable_pitch = 4 * width as usize;
+                    let nametable_pitch = RENDER_CHANNELS * RENDER_WIDTH as usize;
 
                     s.update_texture(texture_id, nametable1, &nametables[0], nametable_pitch)?;
                     s.update_texture(texture_id, nametable2, &nametables[1], nametable_pitch)?;
@@ -229,27 +234,30 @@ impl Nes {
                     s.set_cursor_pos([s.cursor_pos().x(), nametable3.bottom() + 4]);
 
                     s.text(&format!("Scanline: {}", self.scanline))?;
-                    let mirroring = self.control_deck.mapper().mirroring();
+                    let mirroring = self.control_deck.cart().mirroring();
                     s.text(&format!("Mirroring: {:?}", mirroring))?;
 
                     if s.focused_window(view.window_id)
                         && rect![0, 0, 2 * width, 2 * height].contains(m)
                     {
-                        let nt_addr =
-                            NT_START as i32 + (m.x() / width) * 0x0400 + (m.y() / height) * 0x0800;
-                        let ppu_addr = nt_addr + ((((m.y() / 8) % 30) << 5) | ((m.x() / 8) % 32));
+                        let x = m.x() - nametable_src.x();
+                        let y = m.y() - nametable_src.y();
+                        let nt_addr = (x / width) * 0x0400 + (y / height) * 0x0800;
+                        let ppu_addr = nt_addr + ((((y / 8) % 30) << 5) | ((x / 8) % 32));
                         let tile_id = self
                             .control_deck
                             .ppu()
                             .nametable_ids
-                            .get((ppu_addr - NT_START as i32) as usize)
+                            .get(ppu_addr as usize)
                             .unwrap_or(&0x00);
                         s.text(&format!("Tile ID: ${:02X}", tile_id))?;
-                        s.text(&format!("(X, Y): ({}, {})", m.x() % width, m.y() % height))?;
+                        s.text(&format!("(X, Y): ({}, {})", x, y))?;
+                        s.text(&format!("Nametable: ${:04X}", nt_addr))?;
                         s.text(&format!("PPU Addr: ${:04X}", ppu_addr))?;
                     } else {
                         s.text("Tile ID: $00")?;
                         s.text("(X, Y): (0, 0)")?;
+                        s.text("Nametable: $0000")?;
                         s.text("PPU Addr: $0000")?;
                     }
 
@@ -257,13 +265,13 @@ impl Nes {
 
                     let patterns = &self.control_deck.ppu().pattern_tables;
                     let pattern_x = nametable_src.right() + 8;
-                    let pattern_w = width / 2;
-                    let pattern_h = height / 2;
+                    let pattern_w = PATTERN_WIDTH as i32;
+                    let pattern_h = pattern_w;
                     let pattern_left = rect![pattern_x, 0, pattern_w, pattern_h];
                     let pattern_right = rect![pattern_x + pattern_w, 0, pattern_w, pattern_h];
                     let pattern_src = rect![pattern_x, 0, 2 * pattern_w, pattern_h];
-                    let pattern_dst = rect![pattern_x, 0, 2 * width, height];
-                    let pattern_pitch = 4 * pattern_w as usize;
+                    let pattern_dst = rect![pattern_x, 0, 4 * pattern_w, 2 * pattern_h];
+                    let pattern_pitch = RENDER_CHANNELS * pattern_w as usize;
                     s.update_texture(texture_id, pattern_left, &patterns[0], pattern_pitch)?;
                     s.update_texture(texture_id, pattern_right, &patterns[1], pattern_pitch)?;
                     s.texture(texture_id, pattern_src, pattern_dst)?;
@@ -280,7 +288,7 @@ impl Nes {
                         2 * width,
                         PALETTE_HEIGHT as i32
                     ];
-                    let palette_pitch = 4 * palette_w as usize;
+                    let palette_pitch = RENDER_CHANNELS * palette_w as usize;
                     s.update_texture(texture_id, palette_src, &palette, palette_pitch)?;
                     s.texture(texture_id, palette_src, palette_dst)?;
 
@@ -312,7 +320,9 @@ impl Nes {
                     s.set_column_offset(pattern_x);
 
                     if pattern_dst.contains(m) {
-                        let tile = (m.y() / 16) << 4 | ((m.x() / 16) % 16);
+                        let x = m.x() - pattern_dst.x();
+                        let y = m.y() - pattern_dst.y();
+                        let tile = (y / 16) << 4 | ((x / 16) % 16);
                         s.text(&format!("Tile: ${:02X}", tile))?;
                     } else {
                         s.text("Tile: $00")?;

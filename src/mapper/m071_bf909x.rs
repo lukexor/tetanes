@@ -3,18 +3,21 @@
 //! <https://wiki.nesdev.org/w/index.php?title=INES_Mapper_071>
 
 use crate::{
-    cartridge::Cartridge,
+    cart::Cart,
     common::{Clocked, Powered},
-    mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite, RamState},
-    serialization::Savable,
-    NesResult,
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, MirroringType},
+    memory::MemoryBanks,
+    ppu::Mirroring,
 };
-use std::io::{Read, Write};
 
-const PRG_ROM_WINDOW: usize = 16 * 1024; // 16k ROM
-const CHR_WINDOW: usize = 8 * 1024; // 8K ROM/RAM
+const PRG_ROM_WINDOW: usize = 16 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
+
+const SINGLE_SCREEN_A: u8 = 0x10; // 0b10000
+
+// PPU $0000..=$1FFF 8K Fixed CHR-ROM Banks
+// CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
+// CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
@@ -26,108 +29,72 @@ enum Variant {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Bf909x {
-    has_chr_ram: bool,
     mirroring: Mirroring,
-    // CPU $8000-$BFFF 16 KB PRG ROM Bank Switchable
-    // CPU $C000-$FFFF 16 KB PRG ROM Fixed to Last Bank
-    prg_rom: BankedMemory,
-    chr: BankedMemory, // PPU $0000..=$1FFF 8K Fixed CHR ROM Banks
+    prg_rom_banks: MemoryBanks,
     variant: Variant,
-    open_bus: u8,
 }
 
 impl Bf909x {
-    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
-        let has_chr_ram = cart.chr_rom.is_empty();
+    pub fn load(cart: &mut Cart) -> Mapper {
+        if cart.chr.is_empty() {
+            cart.chr.resize(CHR_RAM_SIZE);
+            cart.chr.write_protect(false);
+        }
         let mut bf909x = Self {
-            has_chr_ram,
             mirroring: cart.mirroring(),
-            prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
-            chr: if has_chr_ram {
-                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, state)
-            } else {
-                BankedMemory::from(cart.chr_rom, CHR_WINDOW)
-            },
+            prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_ROM_WINDOW),
             variant: if cart.header.submapper_num == 1 {
                 Variant::Bf9097
             } else {
                 Variant::Bf909x
             },
-            open_bus: 0,
         };
-        bf909x.prg_rom.add_bank_range(0x8000, 0xFFFF);
-        bf909x.prg_rom.set_bank(0xC000, bf909x.prg_rom.last_bank());
-        bf909x.chr.add_bank_range(0x0000, 0x1FFF);
+        bf909x.prg_rom_banks.set(1, bf909x.prg_rom_banks.last());
         bf909x.into()
     }
 }
 
-impl Mapper for Bf909x {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-    fn open_bus(&mut self, _addr: u16, val: u8) {
-        self.open_bus = val;
+impl Mapped for Bf909x {
+    #[inline]
+    fn mirroring(&self) -> MirroringType {
+        self.mirroring.into()
     }
 }
 
-impl MemRead for Bf909x {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
+impl MapRead for Bf909x {
+    fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
-            0x0000..=0x1FFF => self.chr.peek(addr),
-            0x8000..=0xFFFF => self.prg_rom.peek(addr),
-            // 0x4020..=0x5FFF Nothing at this range
-            // 0x6000..=0x7FFF No Save RAM
-            _ => self.open_bus,
+            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
+            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
+            _ => MappedRead::None,
         }
     }
 }
 
-impl MemWrite for Bf909x {
-    fn write(&mut self, addr: u16, val: u8) {
+impl MapWrite for Bf909x {
+    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         // Firehawk uses $9000 to change mirroring
         if addr == 0x9000 {
             self.variant = Variant::Bf9097;
         }
         match addr {
-            0x0000..=0x1FFF => self.chr.write(addr, val),
+            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
             0x8000..=0xFFFF => {
                 if addr >= 0xC000 || self.variant != Variant::Bf9097 {
-                    let bank = val as usize % self.prg_rom.bank_count();
-                    self.prg_rom.set_bank(0x8000, bank);
+                    self.prg_rom_banks.set(0, val as usize);
                 } else {
-                    self.mirroring = if val & 0x10 > 0 {
+                    self.mirroring = if val & SINGLE_SCREEN_A == SINGLE_SCREEN_A {
                         Mirroring::SingleScreenA
                     } else {
                         Mirroring::SingleScreenB
                     };
                 }
+                MappedWrite::None
             }
-            // 0x4020..=0x5FFF // Nothing at this range
-            // 0x6000..=0x7FFF // No Save RAM
-            _ => (),
+            _ => MappedWrite::None,
         }
     }
 }
 
 impl Clocked for Bf909x {}
 impl Powered for Bf909x {}
-
-impl Savable for Bf909x {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        if self.has_chr_ram {
-            self.chr.save(fh)?;
-        }
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        if self.has_chr_ram {
-            self.chr.load(fh)?;
-        }
-        Ok(())
-    }
-}

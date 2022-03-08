@@ -367,14 +367,14 @@ impl PpuRegs {
     // 1st write writes hi 6 bits
     // 2nd write writes lo 8 bits
     // Total size is a 14 bit addr
-    pub(super) fn write_addr(&mut self, val: u16) {
+    pub(super) fn write_addr(&mut self, val: u8) {
         if self.w {
             // Write lo address on second write
             let lo_bits_mask = 0x7F00;
             // val: HGFEDCBA
             // t: ........ HGFEDCBA
             // v: t
-            self.t = (self.t & lo_bits_mask) | val;
+            self.t = (self.t & lo_bits_mask) | u16::from(val);
             self.v = self.t;
         } else {
             // Write hi address on first write
@@ -384,7 +384,7 @@ impl PpuRegs {
             // val: ..FEDCBA
             //    FEDCBA98 76543210
             // t: 00FEDCBA ........
-            self.t = (self.t & hi_bits_mask) | ((val & six_bits_mask) << hi_lshift);
+            self.t = (self.t & hi_bits_mask) | ((u16::from(val) & six_bits_mask) << hi_lshift);
         }
         self.w = !self.w;
     }

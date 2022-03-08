@@ -1,7 +1,6 @@
-use crate::{common::Clocked, serialization::Savable, NesResult};
-use std::io::{Read, Write};
+use crate::common::Clocked;
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 #[must_use]
 pub(crate) struct Envelope {
     pub(crate) enabled: bool,
@@ -51,26 +50,5 @@ impl Clocked for Envelope {
             }
         }
         1
-    }
-}
-
-impl Savable for Envelope {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.enabled.save(fh)?;
-        self.loops.save(fh)?;
-        self.reset.save(fh)?;
-        self.volume.save(fh)?;
-        self.constant_volume.save(fh)?;
-        self.counter.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.enabled.load(fh)?;
-        self.loops.load(fh)?;
-        self.reset.load(fh)?;
-        self.volume.load(fh)?;
-        self.constant_volume.load(fh)?;
-        self.counter.load(fh)?;
-        Ok(())
     }
 }

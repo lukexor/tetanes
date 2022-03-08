@@ -1,10 +1,5 @@
-use super::{envelope::Envelope, length_counter::LengthCounter};
-use crate::{
-    common::{Clocked, Powered},
-    serialization::Savable,
-    NesResult,
-};
-use std::io::{Read, Write};
+use super::{envelope::Envelope, LengthCounter};
+use crate::common::{Clocked, Powered};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum ShiftMode {
@@ -124,45 +119,6 @@ impl Clocked for Noise {
 impl Powered for Noise {
     fn reset(&mut self) {
         *self = Self::new();
-    }
-}
-
-impl Savable for Noise {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.enabled.save(fh)?;
-        self.freq_timer.save(fh)?;
-        self.freq_counter.save(fh)?;
-        self.shift.save(fh)?;
-        self.shift_mode.save(fh)?;
-        self.length.save(fh)?;
-        self.envelope.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.enabled.load(fh)?;
-        self.freq_timer.load(fh)?;
-        self.freq_counter.load(fh)?;
-        self.shift.load(fh)?;
-        self.shift_mode.load(fh)?;
-        self.length.load(fh)?;
-        self.envelope.load(fh)?;
-        Ok(())
-    }
-}
-
-impl Savable for ShiftMode {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => ShiftMode::Zero,
-            1 => ShiftMode::One,
-            _ => panic!("invalid ShiftMode value"),
-        };
-        Ok(())
     }
 }
 

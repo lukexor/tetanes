@@ -33,6 +33,7 @@ fn main() -> NesResult<()> {
         .scale(opt.scale)
         .speed(opt.speed)
         .genie_codes(opt.genie_codes)
+        .debug(opt.debug)
         .build()?
         .run()
 }
@@ -74,4 +75,6 @@ struct Opt {
         help = "List of Game Genie Codes (space separated)."
     )]
     genie_codes: Vec<String>,
+    #[structopt(long = "debug", help = "Start debugging")]
+    debug: bool,
 }

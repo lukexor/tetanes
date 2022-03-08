@@ -1,10 +1,10 @@
 use crate::{
     apu::{Apu, AudioChannel},
     bus::Bus,
-    common::{Addr, Clocked, Powered},
+    cart::Cart,
+    common::{Clocked, Powered},
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
     input::{Gamepad, GamepadSlot},
-    mapper::{self, MapperType},
     memory::{MemAccess, RamState},
     ppu::{Ppu, VideoFormat},
     NesResult,
@@ -45,8 +45,8 @@ impl ControlDeck {
     pub fn load_rom<F: Read>(&mut self, name: &str, rom: &mut F) -> NesResult<()> {
         self.power_off();
         self.loaded_rom = Some(name.to_owned());
-        let mapper = mapper::load_rom(name, rom, self.power_state)?;
-        self.cpu.bus.load_mapper(mapper);
+        let cart = Cart::from_rom(name, rom, self.power_state)?;
+        self.cpu.bus.load_cart(cart);
         self.power_on();
         Ok(())
     }
@@ -112,7 +112,7 @@ impl ControlDeck {
     }
 
     /// Returns the current CPU program counter.
-    pub fn pc(&self) -> Addr {
+    pub fn pc(&self) -> u16 {
         self.cpu.pc
     }
 
@@ -123,17 +123,17 @@ impl ControlDeck {
 
     /// Returns the next address on the bus to be either read or written to along with the current
     /// value at the target address.
-    pub fn next_addr(&self, access: MemAccess) -> (Option<Addr>, Option<u16>) {
+    pub fn next_addr(&self, access: MemAccess) -> (Option<u16>, Option<u16>) {
         self.cpu.next_addr(access)
     }
 
     /// Returns the address at the top of the stack.
-    pub fn stack_addr(&self) -> Addr {
+    pub fn stack_addr(&self) -> u16 {
         self.cpu.peek_stackw()
     }
 
     /// Disassemble an address range of CPU instructions.
-    pub fn disasm(&self, start: Addr, end: Addr) -> Vec<String> {
+    pub fn disasm(&self, start: u16, end: u16) -> Vec<String> {
         let mut disassembly = Vec::with_capacity(256);
         let mut addr = start;
         while addr <= end {
@@ -162,8 +162,8 @@ impl ControlDeck {
         &self.cpu.bus.apu
     }
 
-    pub fn mapper(&self) -> &MapperType {
-        &self.cpu.bus.mapper
+    pub fn cart(&self) -> &Cart {
+        &self.cpu.bus.cart
     }
 
     pub fn apu_info(&self) {

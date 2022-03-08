@@ -1,10 +1,5 @@
-use super::{length_counter::LengthCounter, linear_counter::LinearCounter};
-use crate::{
-    common::{Clocked, Powered},
-    serialization::Savable,
-    NesResult,
-};
-use std::io::{Read, Write};
+use super::{LengthCounter, LinearCounter};
+use crate::common::{Clocked, Powered};
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -118,29 +113,6 @@ impl Clocked for Triangle {
 impl Powered for Triangle {
     fn reset(&mut self) {
         *self = Self::new();
-    }
-}
-
-impl Savable for Triangle {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.enabled.save(fh)?;
-        self.ultrasonic.save(fh)?;
-        self.step.save(fh)?;
-        self.freq_timer.save(fh)?;
-        self.freq_counter.save(fh)?;
-        self.length.save(fh)?;
-        self.linear.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.enabled.load(fh)?;
-        self.ultrasonic.load(fh)?;
-        self.step.load(fh)?;
-        self.freq_timer.load(fh)?;
-        self.freq_counter.load(fh)?;
-        self.length.load(fh)?;
-        self.linear.load(fh)?;
-        Ok(())
     }
 }
 

@@ -1,12 +1,7 @@
-use super::{divider::Divider, sequencer::Sequencer};
-use crate::{
-    common::{Clocked, Powered},
-    serialization::Savable,
-    NesResult,
-};
-use std::io::{Read, Write};
+use super::{Divider, Sequencer};
+use crate::common::{Clocked, Powered};
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct FrameSequencer {
     pub(crate) divider: Divider,
     pub(crate) sequencer: Sequencer,
@@ -17,6 +12,12 @@ pub(crate) struct FrameSequencer {
 pub(crate) enum FcMode {
     Step4,
     Step5,
+}
+
+impl Default for FcMode {
+    fn default() -> Self {
+        Self::Step4
+    }
 }
 
 impl FrameSequencer {
@@ -61,36 +62,5 @@ impl Powered for FrameSequencer {
         self.divider.reset();
         self.sequencer.reset();
         self.mode = FcMode::Step4;
-    }
-}
-
-impl Savable for FrameSequencer {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.divider.save(fh)?;
-        self.sequencer.save(fh)?;
-        self.mode.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.divider.load(fh)?;
-        self.sequencer.load(fh)?;
-        self.mode.load(fh)?;
-        Ok(())
-    }
-}
-
-impl Savable for FcMode {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => FcMode::Step4,
-            1 => FcMode::Step5,
-            _ => panic!("invalid FcMode value"),
-        };
-        Ok(())
     }
 }

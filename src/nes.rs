@@ -50,6 +50,7 @@ pub struct NesBuilder {
     scale: f32,
     speed: f32,
     genie_codes: Vec<String>,
+    debug: bool,
 }
 
 impl NesBuilder {
@@ -62,6 +63,7 @@ impl NesBuilder {
             scale: 3.0,
             speed: 1.0,
             genie_codes: vec![],
+            debug: false,
         }
     }
 
@@ -104,6 +106,11 @@ impl NesBuilder {
         self
     }
 
+    pub fn debug(&mut self, debug: bool) -> &mut Self {
+        self.debug = debug;
+        self
+    }
+
     /// Creates an Nes instance from an `NesBuilder`.
     ///
     /// # Errors
@@ -129,7 +136,7 @@ impl NesBuilder {
         config.genie_codes = self.genie_codes.clone();
         let mut control_deck = ControlDeck::new(config.power_state);
         control_deck.set_speed(config.speed);
-        Ok(Nes::new(control_deck, config))
+        Ok(Nes::new(control_deck, config, self.debug))
     }
 }
 
@@ -183,6 +190,7 @@ pub struct Nes {
     apu_debugger: Option<View>,
     config: Config,
     mode: Mode,
+    debug: bool,
     rewinding: bool,
     scanline: u16,
     speed_counter: f32,
@@ -193,7 +201,7 @@ pub struct Nes {
 }
 
 impl Nes {
-    pub(crate) fn new(control_deck: ControlDeck, config: Config) -> Self {
+    pub(crate) fn new(control_deck: ControlDeck, config: Config, debug: bool) -> Self {
         Self {
             control_deck,
             players: HashMap::new(),
@@ -202,7 +210,8 @@ impl Nes {
             ppu_debugger: None,
             apu_debugger: None,
             config,
-            mode: Mode::default(),
+            mode: if debug { Mode::Paused } else { Mode::default() },
+            debug,
             rewinding: false,
             scanline: 0,
             speed_counter: 0.0,
@@ -284,6 +293,10 @@ impl AppState for Nes {
         } else if is_playback_file(&self.config.rom_path) {
             self.mode = Mode::Replaying;
             unimplemented!("Replay not implemented");
+        }
+        if self.debug {
+            self.mode = Mode::Paused;
+            self.toggle_cpu_debugger(s)?;
         }
         Ok(())
     }

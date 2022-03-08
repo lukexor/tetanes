@@ -1,101 +1,76 @@
-//! `AxROM` (Mapper 7)
+//! `AxROM` (Mapper 007)
 //!
 //! <https://wiki.nesdev.com/w/index.php/AxROM>
 
 use crate::{
-    cartridge::Cartridge,
+    cart::Cart,
     common::{Clocked, Powered},
-    mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite, RamState},
-    serialization::Savable,
-    NesResult,
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, MirroringType},
+    memory::MemoryBanks,
+    ppu::Mirroring,
 };
-use std::io::{Read, Write};
 
 const PRG_ROM_WINDOW: usize = 32 * 1024;
-const CHR_WINDOW: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
+
+const SINGLE_SCREEN_B: u8 = 0x10; // 0b10000
+
+// PPU $0000..=$1FFF 8K CHR-ROM/RAM Bank Fixed
+// CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Axrom {
     mirroring: Mirroring,
-    prg_rom: BankedMemory, // CPU $8000..=$FFFF 32 KB switchable PRG ROM bank
-    chr: BankedMemory,     // PPU $0000..=$1FFF 8KB CHR ROM/RAM Bank Fixed
-    open_bus: u8,
+    prg_rom_banks: MemoryBanks,
 }
 
 impl Axrom {
-    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
-        let mut axrom = Self {
+    pub fn load(cart: &mut Cart) -> Mapper {
+        cart.chr.resize(CHR_RAM_SIZE);
+        cart.chr.write_protect(false);
+        let axrom = Self {
             mirroring: cart.mirroring(),
-            prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
-            chr: BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, state),
-            open_bus: 0x00,
+            prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_ROM_WINDOW),
         };
-        axrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
-        axrom.chr.add_bank_range(0x0000, 0x1FFF);
         axrom.into()
     }
 }
 
-impl Mapper for Axrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-    fn open_bus(&mut self, _addr: u16, val: u8) {
-        self.open_bus = val;
+impl Mapped for Axrom {
+    #[inline]
+    fn mirroring(&self) -> MirroringType {
+        self.mirroring.into()
     }
 }
 
-impl MemRead for Axrom {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
+impl MapRead for Axrom {
+    fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
-            0x0000..=0x1FFF => self.chr.peek(addr),
-            0x8000..=0xFFFF => self.prg_rom.peek(addr),
-            // 0x4020..=0x5FFF Nothing at this range
-            // 0x6000..=0x7FFF Nothing at this range
-            _ => self.open_bus,
+            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
+            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
+            _ => MappedRead::None,
         }
     }
 }
 
-impl MemWrite for Axrom {
-    fn write(&mut self, addr: u16, val: u8) {
+impl MapWrite for Axrom {
+    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => self.chr.write(addr, val),
+            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
             0x8000..=0xFFFF => {
-                self.prg_rom.set_bank(0x8000, val as usize & 0x0F);
-                self.mirroring = if val & 0x10 == 0x10 {
+                self.prg_rom_banks.set(0, (val & 0x0F) as usize);
+                self.mirroring = if val & SINGLE_SCREEN_B == SINGLE_SCREEN_B {
                     Mirroring::SingleScreenB
                 } else {
                     Mirroring::SingleScreenA
                 };
+                MappedWrite::None
             }
-            // 0x4020..=0x7FFF Nothing at this range
-            _ => (),
+            _ => MappedWrite::None,
         }
     }
 }
 
 impl Clocked for Axrom {}
 impl Powered for Axrom {}
-
-impl Savable for Axrom {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.save(fh)?;
-        self.prg_rom.save(fh)?;
-        self.chr.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.load(fh)?;
-        self.prg_rom.load(fh)?;
-        self.chr.load(fh)?;
-        Ok(())
-    }
-}

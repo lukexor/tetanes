@@ -3,7 +3,7 @@
 //! Converts primative types and arrays of primatives from/to Big-Endian byte arrays and writes
 //! them to a file handle that implements Read/Write.
 
-use crate::{mapper::MapperType, NesResult};
+use crate::NesResult;
 use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use std::{

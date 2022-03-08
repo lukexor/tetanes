@@ -38,10 +38,15 @@ impl Nes {
             }
         };
         let mut rom = BufReader::new(rom);
-        match self
-            .control_deck
-            .load_rom(&self.config.rom_path.to_string_lossy(), &mut rom)
-        {
+        match self.control_deck.load_rom(
+            &self
+                .config
+                .rom_path
+                .file_name()
+                .map(|f| f.to_string_lossy())
+                .unwrap_or_else(|| "Unknown".into()),
+            &mut rom,
+        ) {
             Ok(()) => {
                 s.resume_audio();
                 self.mode = Mode::Playing;

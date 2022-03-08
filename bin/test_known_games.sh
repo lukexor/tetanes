@@ -1,2 +1,2 @@
 cargo build --profile dev-opt
-find roms/ -name '*nes' -depth 1 -exec target/dev-opt/tetanes --speed 4 {} \;
+find roms/ -name '*nes' -depth 1 -exec target/dev-opt/tetanes {} \;

@@ -2,19 +2,12 @@
 
 use crate::{
     ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    serialization::Savable,
     NesResult,
 };
 use enum_dispatch::enum_dispatch;
 use pix_engine::prelude::{Image, PixelFormat};
-use std::{
-    io::{Read, Write},
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-pub type Addr = u16;
-pub type Word = usize;
-pub type Byte = u8;
 pub const CONFIG_DIR: &str = ".config/tetanes";
 pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
@@ -26,7 +19,7 @@ pub enum NesFormat {
     Dendy,
 }
 
-#[enum_dispatch(MapperType)]
+#[enum_dispatch(Mapper)]
 pub trait Powered {
     fn power_on(&mut self) {}
     fn power_off(&mut self) {}
@@ -38,7 +31,7 @@ pub trait Powered {
     }
 }
 
-#[enum_dispatch(MapperType)]
+#[enum_dispatch(Mapper)]
 pub trait Clocked {
     fn clock(&mut self) -> usize {
         0
@@ -63,23 +56,6 @@ macro_rules! hashmap {
             )+
         }
     );
-}
-
-impl Savable for NesFormat {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => NesFormat::Ntsc,
-            1 => NesFormat::Pal,
-            2 => NesFormat::Dendy,
-            _ => panic!("invalid NesFormat value"),
-        };
-        Ok(())
-    }
 }
 
 pub(crate) fn config_dir() -> PathBuf {

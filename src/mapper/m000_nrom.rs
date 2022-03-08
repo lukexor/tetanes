@@ -1,136 +1,69 @@
-//! `NROM` (mapper 0)
+//! `NROM` (Mapper 000)
 //!
 //! <http://wiki.nesdev.com/w/index.php/NROM>
 
 use crate::{
-    cartridge::Cartridge,
+    cart::Cart,
     common::{Clocked, Powered},
-    mapper::{Mapper, MapperType, Mirroring},
-    memory::{BankedMemory, MemRead, MemWrite, RamState},
-    serialization::Savable,
-    NesResult,
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
 };
-use std::io::{Read, Write};
 
-const PRG_RAM_WINDOW: usize = 8 * 1024;
-const PRG_ROM_WINDOW: usize = 16 * 1024;
-const CHR_WINDOW: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
 
-#[derive(Debug, Clone)]
+// PPU $0000..=$1FFF 8K Fixed CHR-ROM Bank
+// CPU $6000..=$7FFF 2K or 4K PRG-RAM Family Basic only. 8K is provided by default.
+// CPU $8000..=$BFFF 16K PRG-ROM Bank 1 for NROM128 or NROM256
+// CPU $C000..=$FFFF 16K PRG-ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
+
+#[derive(Debug, Copy, Clone)]
 #[must_use]
 pub struct Nrom {
-    has_chr_ram: bool,
-    battery_backed: bool,
-    mirroring: Mirroring,
-    prg_ram: BankedMemory, // CPU $6000-$7FFF 2K or 4K PRG RAM Family Basic only. 8K is provided
-    // CPU $8000-$BFFF 16 KB PRG ROM Bank 1 for NROM128 or NROM256
-    // CPU $C000-$FFFF 16 KB PRG ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
-    prg_rom: BankedMemory,
-    chr: BankedMemory, // PPU $0000..=$1FFF 8K Fixed CHR ROM Bank
-    open_bus: u8,
+    mirror_prg: bool,
 }
 
 impl Nrom {
-    pub fn load(cart: Cartridge, state: RamState) -> MapperType {
-        let has_chr_ram = cart.chr_rom.is_empty();
-        let mut nrom = Self {
-            has_chr_ram,
-            battery_backed: cart.battery_backed(),
-            mirroring: cart.mirroring(),
-            prg_ram: BankedMemory::ram(PRG_RAM_SIZE, PRG_RAM_WINDOW, state),
-            prg_rom: BankedMemory::from(cart.prg_rom, PRG_ROM_WINDOW),
-            chr: if has_chr_ram {
-                BankedMemory::ram(CHR_RAM_SIZE, CHR_WINDOW, state)
-            } else {
-                BankedMemory::from(cart.chr_rom, CHR_WINDOW)
-            },
-            open_bus: 0x00,
-        };
-        nrom.prg_ram.add_bank(0x6000, 0x7FFF);
-        nrom.prg_rom.add_bank_range(0x8000, 0xFFFF);
-        if nrom.prg_rom.len() <= 0x4000 {
-            // NROM128 mirrors lower bank
-            nrom.prg_rom.set_bank_mirror(0xC000, 0);
+    pub fn load(cart: &mut Cart) -> Mapper {
+        cart.prg_ram.resize(PRG_RAM_SIZE);
+        if cart.chr.is_empty() {
+            cart.chr.resize(CHR_RAM_SIZE);
+            cart.chr.write_protect(false);
         }
-        nrom.chr.add_bank_range(0x0000, 0x1FFF);
+
+        let nrom = Self {
+            mirror_prg: cart.prg_rom.len() <= 0x4000,
+        };
         nrom.into()
     }
 }
 
-impl Mapper for Nrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-    fn battery_backed(&self) -> bool {
-        self.battery_backed
-    }
-    fn save_sram<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        if self.battery_backed {
-            self.prg_ram.save(fh)?;
-        }
-        Ok(())
-    }
-    fn load_sram<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        if self.battery_backed {
-            self.prg_ram.load(fh)?;
-        }
-        Ok(())
-    }
-    fn open_bus(&mut self, _addr: u16, val: u8) {
-        self.open_bus = val;
-    }
-}
-
-impl MemRead for Nrom {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
+impl MapRead for Nrom {
+    fn map_peek(&self, addr: u16) -> MappedRead {
+        let addr = addr as usize;
         match addr {
-            // PPU 8K Fixed CHR bank
-            0x0000..=0x1FFF => self.chr.peek(addr),
-            0x6000..=0x7FFF => self.prg_ram.peek(addr),
-            0x8000..=0xFFFF => self.prg_rom.peek(addr),
-            // 0x4020..=0x5FFF Nothing at this range
-            _ => self.open_bus,
+            0x0000..=0x1FFF => MappedRead::Chr(addr),
+            0x6000..=0x7FFF => MappedRead::PrgRam(addr & 0x1FFF),
+            0x8000..=0xFFFF => MappedRead::PrgRom(if self.mirror_prg {
+                addr & 0x3FFF
+            } else {
+                addr & 0x7FFF
+            }),
+            _ => MappedRead::None,
         }
     }
 }
 
-impl MemWrite for Nrom {
-    fn write(&mut self, addr: u16, val: u8) {
+impl MapWrite for Nrom {
+    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+        let addr = addr as usize;
         match addr {
-            // Only CHR-RAM can be written to
-            0x0000..=0x1FFF if self.has_chr_ram => self.chr.write(addr, val),
-            0x6000..=0x7FFF => self.prg_ram.write(addr, val),
-            // 0x4020..=0x5FFF Nothing at this range
-            // 0x8000..=0xFFFF ROM is write-only
-            _ => (),
+            0x0000..=0x1FFF => MappedWrite::Chr(addr, val),
+            0x6000..=0x7FFF => MappedWrite::PrgRam(addr & 0x1FFF, val),
+            _ => MappedWrite::None,
         }
     }
 }
 
+impl Mapped for Nrom {}
 impl Clocked for Nrom {}
 impl Powered for Nrom {}
-
-impl Savable for Nrom {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.save(fh)?;
-        self.prg_ram.save(fh)?;
-        if self.has_chr_ram {
-            self.chr.save(fh)?;
-        }
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.mirroring.load(fh)?;
-        self.prg_ram.load(fh)?;
-        if self.has_chr_ram {
-            self.chr.load(fh)?;
-        }
-        Ok(())
-    }
-}

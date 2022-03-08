@@ -1,14 +1,6 @@
 use super::{Cpu, StatusRegs::*, IRQ_ADDR, NMI_ADDR, SP_BASE};
-use crate::{
-    common::{Addr, Byte},
-    memory::{MemRead, MemWrite},
-    serialization::Savable,
-    NesResult,
-};
-use std::{
-    fmt,
-    io::{Read, Write},
-};
+use crate::memory::{MemRead, MemWrite};
+use std::fmt;
 
 // 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
 #[rustfmt::skip]
@@ -65,11 +57,11 @@ use Operation::*;
 // (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[must_use]
-pub struct Instr(Byte, AddrMode, Operation, usize);
+pub struct Instr(u8, AddrMode, Operation, usize);
 
 impl Instr {
     #[must_use]
-    pub const fn opcode(&self) -> Byte {
+    pub const fn opcode(&self) -> u8 {
         self.0
     }
     pub const fn addr_mode(&self) -> AddrMode {
@@ -153,7 +145,7 @@ impl Cpu {
     //     2    PC     R  fetch address, increment PC
     //     3  address  W  write register to effective address
     pub(super) fn zp0(&mut self) {
-        self.abs_addr = Addr::from(self.read(self.pc)) & 0x00FF; // Cycle 2
+        self.abs_addr = u16::from(self.read(self.pc)) & 0x00FF; // Cycle 2
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -201,8 +193,8 @@ impl Cpu {
     //             i.e. page boundary crossings are not handled.
     pub(super) fn zpx(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
-        self.abs_addr = Addr::from(addr.wrapping_add(self.x)) & 0x00FF;
-        let _ = self.read(Addr::from(addr)); // Cycle 3
+        self.abs_addr = u16::from(addr.wrapping_add(self.x)) & 0x00FF;
+        let _ = self.read(u16::from(addr)); // Cycle 3
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -233,8 +225,8 @@ impl Cpu {
     //             i.e. page boundary crossings are not handled.
     pub(super) fn zpy(&mut self) {
         let addr = self.read(self.pc); // Cycle 2
-        self.abs_addr = Addr::from(addr.wrapping_add(self.y)) & 0x00FF;
-        let _ = self.read(Addr::from(addr)); // Cycle 3
+        self.abs_addr = u16::from(addr.wrapping_add(self.y)) & 0x00FF;
+        let _ = self.read(u16::from(addr)); // Cycle 3
         self.pc = self.pc.wrapping_add(1);
     }
 
@@ -467,11 +459,10 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(2);
         if addr & 0x00FF == 0x00FF {
             // Simulate bug
-            self.abs_addr =
-                (Addr::from(self.read(addr & 0xFF00)) << 8) | Addr::from(self.read(addr));
+            self.abs_addr = (u16::from(self.read(addr & 0xFF00)) << 8) | u16::from(self.read(addr));
         } else {
             // Normal behavior
-            self.abs_addr = (Addr::from(self.read(addr + 1)) << 8) | Addr::from(self.read(addr));
+            self.abs_addr = (u16::from(self.read(addr + 1)) << 8) | u16::from(self.read(addr));
         }
     }
 
@@ -526,7 +517,7 @@ impl Cpu {
         let addr = self.read(self.pc); // Cycle 2
         self.pc = self.pc.wrapping_add(1);
         let x_offset = addr.wrapping_add(self.x);
-        let _ = self.read(Addr::from(addr)); // Cycle 3
+        let _ = self.read(u16::from(addr)); // Cycle 3
         self.abs_addr = self.readw_zp(x_offset); // Cycles 4 & 5
     }
 
@@ -907,7 +898,7 @@ impl Cpu {
     //  6    PC     R  copy low address byte to PCL, fetch high address
     //                 byte to PCH
     pub(super) fn jsr(&mut self) {
-        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.push_stackw(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
     }
@@ -921,7 +912,7 @@ impl Cpu {
     //  5  $0100,S  R  pull PCL from stack, increment S
     //  6  $0100,S  R  pull PCH from stack
     pub(super) fn rti(&mut self) {
-        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = self.pop_stackb(); // Cycle 4
         self.status &= !(U as u8);
         self.status &= !(B as u8);
@@ -937,7 +928,7 @@ impl Cpu {
     //  5  $0100,S  R  pull PCH from stack
     //  6    PC     R  increment PC
     pub(super) fn rts(&mut self) {
-        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.pc = self.pop_stackw().wrapping_add(1); // Cycles 4 & 5
         let _ = self.read(self.pc); // Cycle 6
     }
@@ -976,7 +967,7 @@ impl Cpu {
     /// Compare opcodes
 
     /// Utility function used by all compare instructions
-    pub(super) fn compare(&mut self, a: Byte, b: Byte) {
+    pub(super) fn compare(&mut self, a: u8, b: u8) {
         let result = a.wrapping_sub(b);
         self.set_flags_zn(result);
         self.set_flag(C, a >= b);
@@ -1017,7 +1008,7 @@ impl Cpu {
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
     pub(super) fn plp(&mut self) {
-        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = self.pop_stackb();
     }
     /// PHA: Push A on Stack
@@ -1037,7 +1028,7 @@ impl Cpu {
     //  3  $0100,S  R  increment S
     //  4  $0100,S  R  pull register from stack
     pub(super) fn pla(&mut self) {
-        let _ = self.read(SP_BASE | Addr::from(self.sp)); // Cycle 3
+        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.acc = self.pop_stackb();
         self.set_flags_zn(self.acc);
     }
@@ -1132,7 +1123,7 @@ impl Cpu {
         let t = u32::from(self.acc & self.x).wrapping_sub(u32::from(self.fetched_data));
         self.set_flags_zn((t & 0xFF) as u8);
         self.set_flag(C, (((t >> 8) & 0x01) ^ 0x01) == 0x01);
-        self.x = (t & 0xFF) as Byte;
+        self.x = (t & 0xFF) as u8;
     }
     /// LAS: Shortcut for LDA then TSX
     pub(super) fn las(&mut self) {
@@ -1174,20 +1165,18 @@ impl Cpu {
     }
     /// SXA/SHX/XAS: AND X with the high byte of the target address + 1
     pub(super) fn sxa(&mut self) {
-        let hi = (self.abs_addr >> 8) as Byte;
-        let lo = (self.abs_addr & 0xFF) as Byte;
+        let hi = (self.abs_addr >> 8) as u8;
+        let lo = (self.abs_addr & 0xFF) as u8;
         let val = self.x & hi.wrapping_add(1);
-        self.abs_addr =
-            ((Addr::from(self.x) & Addr::from(hi.wrapping_add(1))) << 8) | Addr::from(lo);
+        self.abs_addr = ((u16::from(self.x) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
         self.write_fetched(val);
     }
     /// SYA/SHY/SAY: AND Y with the high byte of the target address + 1
     pub(super) fn sya(&mut self) {
-        let hi = (self.abs_addr >> 8) as Byte;
-        let lo = (self.abs_addr & 0xFF) as Byte;
+        let hi = (self.abs_addr >> 8) as u8;
+        let lo = (self.abs_addr & 0xFF) as u8;
         let val = self.y & hi.wrapping_add(1);
-        self.abs_addr =
-            ((Addr::from(self.y) & Addr::from(hi.wrapping_add(1))) << 8) | Addr::from(lo);
+        self.abs_addr = ((u16::from(self.y) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
         self.write_fetched(val);
     }
     /// RRA: Shortcut for ROR then ADC
@@ -1288,139 +1277,6 @@ impl Cpu {
         // ORA
         self.acc |= val;
         self.set_flags_zn(self.acc);
-    }
-}
-
-impl Savable for Operation {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => Operation::ADC,
-            1 => Operation::AND,
-            2 => Operation::ASL,
-            3 => Operation::BCC,
-            4 => Operation::BCS,
-            5 => Operation::BEQ,
-            6 => Operation::BIT,
-            7 => Operation::BMI,
-            8 => Operation::BNE,
-            9 => Operation::BPL,
-            10 => Operation::BRK,
-            11 => Operation::BVC,
-            12 => Operation::BVS,
-            13 => Operation::CLC,
-            14 => Operation::CLD,
-            15 => Operation::CLI,
-            16 => Operation::CLV,
-            17 => Operation::CMP,
-            18 => Operation::CPX,
-            19 => Operation::CPY,
-            20 => Operation::DEC,
-            21 => Operation::DEX,
-            22 => Operation::DEY,
-            23 => Operation::EOR,
-            24 => Operation::INC,
-            25 => Operation::INX,
-            26 => Operation::INY,
-            27 => Operation::JMP,
-            28 => Operation::JSR,
-            29 => Operation::LDA,
-            30 => Operation::LDX,
-            31 => Operation::LDY,
-            32 => Operation::LSR,
-            33 => Operation::NOP,
-            34 => Operation::ORA,
-            35 => Operation::PHA,
-            36 => Operation::PHP,
-            37 => Operation::PLA,
-            38 => Operation::PLP,
-            39 => Operation::ROL,
-            40 => Operation::ROR,
-            41 => Operation::RTI,
-            42 => Operation::RTS,
-            43 => Operation::SBC,
-            44 => Operation::SEC,
-            45 => Operation::SED,
-            46 => Operation::SEI,
-            47 => Operation::STA,
-            48 => Operation::STX,
-            49 => Operation::STY,
-            50 => Operation::TAX,
-            51 => Operation::TAY,
-            52 => Operation::TSX,
-            53 => Operation::TXA,
-            54 => Operation::TXS,
-            55 => Operation::TYA,
-            56 => Operation::SKB,
-            57 => Operation::IGN,
-            58 => Operation::ISB,
-            59 => Operation::DCP,
-            60 => Operation::AXS,
-            61 => Operation::LAS,
-            62 => Operation::LAX,
-            63 => Operation::AHX,
-            64 => Operation::SAX,
-            65 => Operation::XAA,
-            66 => Operation::SXA,
-            67 => Operation::RRA,
-            68 => Operation::TAS,
-            69 => Operation::SYA,
-            70 => Operation::ARR,
-            71 => Operation::SRE,
-            72 => Operation::ALR,
-            73 => Operation::RLA,
-            74 => Operation::ANC,
-            75 => Operation::SLO,
-            76 => Operation::XXX,
-            _ => panic!("invalid Operation value"),
-        };
-        Ok(())
-    }
-}
-
-impl Savable for AddrMode {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => AddrMode::IMM,
-            1 => AddrMode::ZP0,
-            2 => AddrMode::ZPX,
-            3 => AddrMode::ZPY,
-            4 => AddrMode::ABS,
-            5 => AddrMode::ABX,
-            6 => AddrMode::ABY,
-            7 => AddrMode::IND,
-            8 => AddrMode::IDX,
-            9 => AddrMode::IDY,
-            10 => AddrMode::REL,
-            11 => AddrMode::ACC,
-            12 => AddrMode::IMP,
-            _ => panic!("invalid AddrMode value"),
-        };
-        Ok(())
-    }
-}
-
-impl Savable for Instr {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.0.save(fh)?;
-        self.1.save(fh)?;
-        self.2.save(fh)?;
-        self.3.save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.0.load(fh)?;
-        self.1.load(fh)?;
-        self.2.load(fh)?;
-        self.3.load(fh)
     }
 }
 

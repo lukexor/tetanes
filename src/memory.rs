@@ -1,38 +1,40 @@
 //! Memory types for dealing with bytes
 
-use crate::{
-    common::{Addr, Byte},
-    mapper::MapperType,
-    serialization::Savable,
-    NesResult,
-};
-use enum_dispatch::enum_dispatch;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
-    io::{Read, Write},
     ops::{Deref, DerefMut},
     str::FromStr,
 };
 
-#[enum_dispatch(MapperType)]
 pub trait MemRead {
-    fn read(&mut self, _addr: Addr) -> Byte {
-        0
+    #[inline]
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
     }
-
-    fn peek(&self, _addr: Addr) -> Byte {
-        0
+    #[inline]
+    fn peek(&self, addr: u16) -> u8 {
+        self.peekw(addr as usize)
+    }
+    #[inline]
+    fn readw(&mut self, addr: usize) -> u8 {
+        self.peekw(addr)
+    }
+    fn peekw(&self, _addr: usize) -> u8 {
+        0x00
     }
 }
 
-#[enum_dispatch(MapperType)]
 pub trait MemWrite {
-    fn write(&mut self, _addr: Addr, _val: Byte) {}
+    #[inline]
+    fn write(&mut self, addr: u16, val: u8) {
+        self.writew(addr as usize, val);
+    }
+    fn writew(&mut self, _addr: usize, _val: u8) {}
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum MemAccess {
     Read,
@@ -40,7 +42,7 @@ pub enum MemAccess {
     Execute,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum RamState {
     AllZeros,
@@ -76,11 +78,12 @@ impl FromStr for RamState {
     }
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
 #[must_use]
 pub struct Memory {
-    data: Vec<Byte>,
+    data: Vec<u8>,
     writable: bool,
+    state: RamState,
 }
 
 impl Memory {
@@ -88,33 +91,28 @@ impl Memory {
         Self {
             data: vec![],
             writable: true,
+            state: RamState::AllZeros,
         }
     }
 
-    pub fn rom(bytes: &[Byte]) -> Self {
+    pub fn rom(bytes: Vec<u8>) -> Self {
         Self {
-            data: bytes.to_vec(),
+            data: bytes,
             writable: false,
+            state: RamState::AllZeros,
         }
     }
 
     pub fn ram(capacity: usize, state: RamState) -> Self {
-        let data = match state {
-            RamState::AllZeros => vec![0x00; capacity],
-            RamState::AllOnes => vec![0xFF; capacity],
-            RamState::Random => {
-                let mut rng = rand::thread_rng();
-                let mut data = Vec::with_capacity(capacity);
-                for _ in 0..capacity {
-                    data.push(rng.gen_range(0x00..=0xFF));
-                }
-                data
-            }
-        };
         Self {
-            data,
+            data: Self::allocate_ram(capacity, state),
             writable: true,
+            state,
         }
+    }
+
+    pub fn resize(&mut self, new_size: usize) {
+        self.data = Self::allocate_ram(new_size, self.state);
     }
 
     #[must_use]
@@ -139,40 +137,36 @@ impl Memory {
     pub fn write_protect(&mut self, protect: bool) {
         self.writable = !protect;
     }
-}
 
-impl MemRead for Memory {
-    #[inline]
-    fn read(&mut self, addr: Addr) -> Byte {
-        self.peek(addr)
-    }
-
-    fn peek(&self, addr: Addr) -> Byte {
-        let addr = addr as usize % self.len();
-        self.data[addr]
-    }
-}
-
-impl MemWrite for Memory {
-    fn write(&mut self, addr: Addr, val: Byte) {
-        if self.writable {
-            let addr = addr as usize % self.len();
-            self.data[addr] = val;
+    fn allocate_ram(capacity: usize, state: RamState) -> Vec<u8> {
+        match state {
+            RamState::AllZeros => vec![0x00; capacity],
+            RamState::AllOnes => vec![0xFF; capacity],
+            RamState::Random => {
+                let mut rng = rand::thread_rng();
+                let mut data = Vec::with_capacity(capacity);
+                for _ in 0..capacity {
+                    data.push(rng.gen_range(0x00..=0xFF));
+                }
+                data
+            }
         }
     }
 }
 
-impl Savable for Memory {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.data.save(fh)?;
-        self.writable.save(fh)?;
-        Ok(())
+impl MemRead for Memory {
+    fn peekw(&self, addr: usize) -> u8 {
+        let len = self.data.len();
+        self.data[addr % len]
     }
+}
 
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.data.load(fh)?;
-        self.writable.load(fh)?;
-        Ok(())
+impl MemWrite for Memory {
+    fn writew(&mut self, addr: usize, val: u8) {
+        if self.writable {
+            let len = self.data.len();
+            self.data[addr % len] = val;
+        }
     }
 }
 
@@ -200,263 +194,81 @@ impl fmt::Debug for Memory {
 
 #[derive(Default, Clone)]
 #[must_use]
-struct Bank {
+pub struct MemoryBanks {
     start: usize,
     end: usize,
-    address: usize,
+    window: usize,
+    banks: Vec<usize>,
+    page_count: usize,
 }
 
-impl Bank {
-    const fn new(start: Addr, end: Addr) -> Self {
+impl MemoryBanks {
+    #[inline]
+    pub fn new(start: usize, end: usize, capacity: usize, window: usize) -> Self {
+        let bank_count = (end - start + 1) / window;
+        let mut banks = Vec::with_capacity(bank_count);
+        for bank in 0..bank_count {
+            banks.push(bank * window);
+        }
         Self {
-            start: start as usize,
-            end: end as usize,
-            address: start as usize,
+            start,
+            end,
+            window,
+            banks,
+            page_count: std::cmp::max(1, capacity / window),
         }
     }
-}
 
-impl Savable for Bank {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.start.save(fh)?;
-        self.end.save(fh)?;
-        self.address.save(fh)?;
-        Ok(())
+    #[inline]
+    pub fn set(&mut self, slot: usize, mut bank: usize) {
+        if bank >= self.page_count {
+            bank %= self.page_count;
+        }
+        self.banks[slot] = bank * self.window;
     }
 
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.start.load(fh)?;
-        self.end.load(fh)?;
-        self.address.load(fh)?;
-        Ok(())
+    #[inline]
+    pub fn set_range(&mut self, start: usize, end: usize, mut bank: usize) {
+        if bank >= self.page_count {
+            bank %= self.page_count;
+        }
+        let mut new_addr = bank * self.window;
+        for slot in start..=end {
+            self.banks[slot] = new_addr;
+            new_addr += self.window;
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn last(&self) -> usize {
+        self.page_count.saturating_sub(1)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn get_bank(&self, addr: u16) -> usize {
+        ((addr as usize - self.start) >> self.window.trailing_zeros() as usize)
+            & (self.banks.len() - 1)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn translate(&self, addr: u16) -> usize {
+        let bank = self.get_bank(addr);
+        let offset = (addr as usize) & (self.window - 1);
+        self.banks[bank] + offset
     }
 }
 
-impl fmt::Debug for Bank {
+impl fmt::Debug for MemoryBanks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         f.debug_struct("Bank")
             .field("start", &format_args!("0x{:04X}", self.start))
             .field("end", &format_args!("0x{:04X}", self.end))
-            .field("address", &format_args!("0x{:04X}", self.address))
-            .finish()
-    }
-}
-
-#[derive(Default, Clone)]
-#[must_use]
-pub struct BankedMemory {
-    banks: Vec<Bank>,
-    window: usize,
-    bank_shift: usize,
-    bank_count: usize,
-    memory: Memory,
-}
-
-impl BankedMemory {
-    #[inline]
-    pub fn ram(capacity: usize, window: usize, state: RamState) -> Self {
-        let memory = Memory::ram(capacity, state);
-        Self {
-            banks: vec![],
-            window,
-            bank_shift: Self::bank_shift(window),
-            bank_count: std::cmp::max(1, memory.len() / window),
-            memory,
-        }
-    }
-
-    #[inline]
-    pub fn from(memory: Memory, window: usize) -> Self {
-        Self {
-            banks: vec![],
-            window,
-            bank_shift: Self::bank_shift(window),
-            bank_count: std::cmp::max(1, memory.len() / window),
-            memory,
-        }
-    }
-
-    #[inline]
-    pub fn add_bank(&mut self, start: Addr, end: Addr) {
-        self.banks.push(Bank::new(start, end));
-        self.update_banks();
-    }
-
-    #[inline]
-    pub fn add_bank_range(&mut self, start: Addr, end: Addr) {
-        for start in (start..end).step_by(self.window) {
-            let end = start + (self.window as Addr).saturating_sub(1);
-            self.banks.push(Bank::new(start, end));
-        }
-        self.update_banks();
-    }
-
-    #[inline]
-    pub fn set_bank(&mut self, bank_start: Addr, new_bank: usize) {
-        let bank = self.get_bank(bank_start);
-        debug_assert!(
-            bank < self.banks.len(),
-            "bank is outside bankable range {} / {}",
-            bank,
-            self.banks.len()
-        );
-        self.banks[bank].address = (new_bank % self.bank_count()) * self.window;
-    }
-
-    #[inline]
-    pub fn set_bank_range(&mut self, start: Addr, end: Addr, new_bank: usize) {
-        let mut new_address = (new_bank % self.bank_count()) * self.window;
-        for bank_start in (start..end).step_by(self.window) {
-            let bank = self.get_bank(bank_start);
-            debug_assert!(
-                bank < self.banks.len(),
-                "bank is outside bankable range {} / {}",
-                bank,
-                self.banks.len()
-            );
-            self.banks[bank].address = new_address;
-            new_address += self.window;
-        }
-    }
-
-    #[inline]
-    pub fn set_bank_mirror(&mut self, bank_start: Addr, mirror_bank: usize) {
-        self.set_bank(bank_start, mirror_bank);
-    }
-
-    #[must_use]
-    #[inline]
-    pub const fn last_bank(&self) -> usize {
-        self.bank_count.saturating_sub(1)
-    }
-
-    #[must_use]
-    #[inline]
-    pub const fn bank_count(&self) -> usize {
-        self.bank_count
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.memory.len()
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.memory.is_empty()
-    }
-
-    #[must_use]
-    #[inline]
-    pub const fn writable(&self) -> bool {
-        self.memory.writable()
-    }
-
-    #[inline]
-    pub fn write_protect(&mut self, protect: bool) {
-        self.memory.write_protect(protect);
-    }
-
-    fn update_banks(&mut self) {
-        self.banks.sort_by(|a, b| a.start.cmp(&b.start));
-        let mut address = 0x0000;
-        for bank in &mut self.banks {
-            bank.address = address;
-            address += bank.end - bank.start + 1;
-        }
-    }
-
-    #[must_use]
-    pub fn get_bank(&self, addr: Addr) -> usize {
-        let addr = addr as usize;
-        let base_addr = self.banks.first().map_or(0x0000, |bank| bank.start);
-        debug_assert!(addr >= base_addr, "address is less than base address");
-        ((addr - base_addr) >> self.bank_shift) % self.bank_count()
-    }
-
-    #[must_use]
-    pub fn translate_addr(&self, addr: Addr) -> usize {
-        let bank = self.get_bank(addr);
-        debug_assert!(bank < self.banks.len(), "bank is outside bankable range");
-        let bank = &self.banks[bank];
-        bank.address + (addr as usize - bank.start)
-    }
-
-    #[must_use]
-    const fn bank_shift(mut window: usize) -> usize {
-        let mut shift = 0usize;
-        while window > 0 {
-            window >>= 1;
-            shift += 1;
-        }
-        shift.saturating_sub(1)
-    }
-}
-
-impl MemRead for BankedMemory {
-    #[inline]
-    fn read(&mut self, addr: Addr) -> Byte {
-        self.peek(addr)
-    }
-
-    fn peek(&self, addr: Addr) -> Byte {
-        let addr = self.translate_addr(addr) % self.len();
-        self.memory[addr]
-    }
-}
-
-impl MemWrite for BankedMemory {
-    fn write(&mut self, addr: Addr, val: Byte) {
-        if self.writable() {
-            let addr = self.translate_addr(addr) % self.len();
-            self.memory[addr] = val;
-        }
-    }
-}
-
-impl Savable for BankedMemory {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.banks.save(fh)?;
-        self.window.save(fh)?;
-        self.bank_shift.save(fh)?;
-        self.bank_count.save(fh)?;
-        self.memory.save(fh)?;
-        Ok(())
-    }
-
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.banks.load(fh)?;
-        self.window.load(fh)?;
-        self.bank_shift.load(fh)?;
-        self.bank_count.load(fh)?;
-        self.memory.load(fh)?;
-        Ok(())
-    }
-}
-
-impl Deref for BankedMemory {
-    type Target = [u8];
-    fn deref(&self) -> &Self::Target {
-        &self.memory
-    }
-}
-
-impl DerefMut for BankedMemory {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.memory
-    }
-}
-
-impl fmt::Debug for BankedMemory {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        f.debug_struct("BankedMemory")
-            .field("banks", &self.banks)
             .field("window", &format_args!("0x{:04X}", self.window))
-            .field("bank_shift", &self.bank_shift)
-            .field("bank_count", &self.bank_count)
-            .field("memory", &self.memory)
+            .field("banks", &self.banks)
+            .field("page_count", &self.page_count)
             .finish()
     }
 }
@@ -466,160 +278,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn add_bank_range_test() {
-        let mut memory = BankedMemory::ram(0xFFFF, 0x2000, RamState::AllZeros);
-        memory.add_bank_range(0x6000, 0xFFFF);
-        assert_eq!(memory.get_bank(0x6000), 0);
-        assert_eq!(memory.get_bank(0x7FFF), 0);
-        assert_eq!(memory.get_bank(0x8000), 1);
-        assert_eq!(memory.get_bank(0x9FFF), 1);
-        assert_eq!(memory.get_bank(0xA000), 2);
-        assert_eq!(memory.get_bank(0xBFFF), 2);
-        assert_eq!(memory.get_bank(0xC000), 3);
-        assert_eq!(memory.get_bank(0xDFFF), 3);
-        assert_eq!(memory.get_bank(0xE000), 4);
-        assert_eq!(memory.get_bank(0xFFFF), 4);
-
-        let mut memory = BankedMemory::ram(0xFFFF, 0x2000, RamState::AllZeros);
-        memory.add_bank_range(0x8000, 0xBFFF);
-        assert_eq!(memory.get_bank(0x8000), 0);
-        assert_eq!(memory.get_bank(0x9FFF), 0);
-        assert_eq!(memory.get_bank(0xA000), 1);
-        assert_eq!(memory.get_bank(0xBFFF), 1);
-
-        memory.add_bank(0x6000, 0x7FFF);
-        assert_eq!(memory.get_bank(0x6000), 0);
-        assert_eq!(memory.get_bank(0x8000), 1);
-
-        let mut memory = BankedMemory::ram(0xFFFF, 0x0400, RamState::AllZeros);
-        memory.add_bank_range(0x0000, 0x1FFF);
-        assert_eq!(memory.get_bank(0x0000), 0);
-        assert_eq!(memory.get_bank(0x03FF), 0);
-        assert_eq!(memory.get_bank(0x0400), 1);
-        assert_eq!(memory.get_bank(0x07FF), 1);
-        assert_eq!(memory.get_bank(0x1C00), 7);
-        assert_eq!(memory.get_bank(0x1FFF), 7);
-    }
-
-    #[test]
-    fn add_bank_test() {
-        let mut memory = BankedMemory::ram(0xFFFF, 0x4000, RamState::AllZeros);
-        memory.add_bank(0x8000, 0xBFFF);
-        memory.add_bank(0xC000, 0xFFFF);
-        assert_eq!(memory.get_bank(0x8000), 0);
-        assert_eq!(memory.get_bank(0x9FFF), 0);
-        assert_eq!(memory.get_bank(0xA000), 0);
-        assert_eq!(memory.get_bank(0xBFFF), 0);
-        assert_eq!(memory.get_bank(0xC000), 1);
-        assert_eq!(memory.get_bank(0xDFFF), 1);
-        assert_eq!(memory.get_bank(0xE000), 1);
-        assert_eq!(memory.get_bank(0xFFFF), 1);
-    }
-
-    #[test]
-    fn peek_bank_test() {
-        let size = 40 * 1024;
-        let rom = Memory::ram(size, RamState::AllZeros);
-        let mut memory = BankedMemory::from(rom, 0x2000);
-
-        assert!(!memory.is_empty(), "memory non-empty");
-        assert_eq!(memory.len(), size, "memory size");
-
-        memory.add_bank_range(0x8000, 0xFFFF);
-        memory.memory.write(0x0000, 1);
-        memory.memory.write(0x0001, 2);
-        memory.memory.write(0x2000, 3);
-        memory.memory.write(0x2001, 4);
-        memory.memory.write(0x4000, 5);
-        memory.memory.write(0x4001, 6);
-        memory.memory.write(0x6000, 7);
-        memory.memory.write(0x6001, 8);
-
-        assert_eq!(memory.peek(0x8000), 1);
-        assert_eq!(memory.peek(0x8001), 2);
-        assert_eq!(memory.peek(0xA000), 3);
-        assert_eq!(memory.peek(0xA001), 4);
-        assert_eq!(memory.peek(0xC000), 5);
-        assert_eq!(memory.peek(0xC001), 6);
-        assert_eq!(memory.peek(0xE000), 7);
-        assert_eq!(memory.peek(0xE001), 8);
-    }
-
-    #[test]
-    fn write_bank_test() {
-        let size = 40 * 1024;
-        let rom = Memory::ram(size, RamState::AllZeros);
-        let mut memory = BankedMemory::from(rom, 0x2000);
-
-        assert!(!memory.is_empty(), "memory non-empty");
-        assert_eq!(memory.len(), size, "memory size");
-
-        memory.add_bank_range(0x8000, 0xFFFF);
-        memory.write(0x8000, 11);
-        memory.write(0xA000, 22);
-        memory.write(0xC000, 33);
-        memory.write(0xE000, 44);
-
-        assert_eq!(memory.memory.peek(0x0000), 11);
-        assert_eq!(memory.memory.peek(0x2000), 22);
-        assert_eq!(memory.memory.peek(0x4000), 33);
-        assert_eq!(memory.memory.peek(0x6000), 44);
-
-        memory.write_protect(true);
-        memory.write(0x8000, 255);
-        assert_eq!(memory.memory.peek(0x0000), 11);
-    }
-
-    #[test]
-    fn set_bank_test() {
+    fn get_bank() {
         let size = 128 * 1024;
-        let rom = Memory::ram(size, RamState::AllZeros);
-        let mut memory = BankedMemory::from(rom, 0x2000);
+        let banks = MemoryBanks::new(0x8000, 0xFFFF, size, 0x4000);
+        assert_eq!(banks.get_bank(0x8000), 0);
+        assert_eq!(banks.get_bank(0x9FFF), 0);
+        assert_eq!(banks.get_bank(0xA000), 0);
+        assert_eq!(banks.get_bank(0xBFFF), 0);
+        assert_eq!(banks.get_bank(0xC000), 1);
+        assert_eq!(banks.get_bank(0xDFFF), 1);
+        assert_eq!(banks.get_bank(0xE000), 1);
+        assert_eq!(banks.get_bank(0xFFFF), 1);
+    }
 
-        assert!(!memory.is_empty(), "memory non-empty");
-        assert_eq!(memory.len(), size, "memory size");
-        let last_bank = memory.last_bank();
+    #[test]
+    fn bank_translate() {
+        let size = 128 * 1024;
+        let mut banks = MemoryBanks::new(0x8000, 0xFFFF, size, 0x2000);
+
+        let last_bank = banks.last();
         assert_eq!(last_bank, 15, "bank count");
 
-        memory.add_bank_range(0x8000, 0xFFFF);
-        memory.write(0x8000, 11);
-        memory.write(0xA000, 22);
-        assert_eq!(memory.peek(0x8000), 11);
-
-        memory.set_bank(0x8000, 1);
-        assert_eq!(memory.peek(0x8000), 22);
-
-        memory.write(0xA000, 33);
-        assert_eq!(memory.peek(0x8000), 33);
-
-        memory.set_bank(0x8000, 0);
-        assert_eq!(memory.peek(0x8000), 11);
-
-        memory.set_bank(0x8000, last_bank);
-        memory.write(0x8000, 255);
-        assert_eq!(memory.peek(0x8000), 255);
-    }
-
-    #[test]
-    fn bank_mirroring_test() {
-        pretty_env_logger::init_timed();
-
-        let size = 128 * 1024;
-        let rom = Memory::ram(size, RamState::AllZeros);
-        let mut memory = BankedMemory::from(rom, 0x4000);
-
-        assert!(!memory.is_empty(), "memory non-empty");
-        assert_eq!(memory.len(), size, "memory size");
-
-        memory.add_bank_range(0x8000, 0xFFFF);
-        memory.set_bank_mirror(0xC000, 0);
-
-        memory.write(0x8000, 11);
-        memory.write(0xA000, 22);
-
-        assert_eq!(memory.peek(0x8000), 11);
-        assert_eq!(memory.peek(0xA000), 22);
-        assert_eq!(memory.peek(0xC000), 11);
-        assert_eq!(memory.peek(0xE000), 22);
+        assert_eq!(banks.translate(0x8000), 0x0000);
+        banks.set(0, 1);
+        assert_eq!(banks.translate(0x8000), 0x2000);
+        banks.set(0, 2);
+        assert_eq!(banks.translate(0x8000), 0x4000);
+        banks.set(0, 0);
+        assert_eq!(banks.translate(0x8000), 0x0000);
+        banks.set(0, banks.last());
+        assert_eq!(banks.translate(0x8000), 0x1E000);
     }
 }

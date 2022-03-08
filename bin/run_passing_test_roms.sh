@@ -8,10 +8,7 @@ test_roms/cpu/branch_timing/3.Forward_Branch.nes
 test_roms/cpu/cpu_timing_test.nes
 test_roms/cpu/flag_concurrency.nes
 test_roms/cpu/dummy_reads.nes
-test_roms/cpu/dummy_writes_oam.nes
-test_roms/cpu/dummy_writes_ppumem.nes
 test_roms/cpu/exec_space_apu.nes
-test_roms/cpu/exec_space_ppuio.nes
 test_roms/cpu/instr/01-implied.nes
 test_roms/cpu/instr/02-immediate.nes
 test_roms/cpu/instr/03-zero_page.nes
@@ -28,16 +25,21 @@ test_roms/cpu/instr/13-rti.nes
 test_roms/cpu/instr/14-brk.nes
 test_roms/cpu/instr/15-special.nes
 test_roms/cpu/instr_misc.nes
-test_roms/cpu/instr_timing.nes
 test_roms/cpu/interrupts/1-cli_latency.nes
 test_roms/cpu/interrupts/2-nmi_and_brk.nes
 test_roms/cpu/interrupts/3-nmi_and_irq.nes
 test_roms/cpu/interrupts/4-irq_and_dma.nes
 test_roms/cpu/interrupts/5-branch_delays_irq.nes
-test_roms/cpu/nestest.nes
 test_roms/cpu/overclock.nes
 test_roms/cpu/ram_after_reset.nes
 test_roms/cpu/registers_after_reset.nes
+
+# Automated
+# test_roms/cpu/nestest.nes
+# test_roms/cpu/exec_space_ppuio.nes
+# test_roms/cpu/dummy_writes_oam.nes
+# test_roms/cpu/dummy_writes_ppumem.nes
+# test_roms/cpu/instr_timing.nes
 
 ## APU ============================================================================================
 # These tests have a white garbled background with randomized RAM

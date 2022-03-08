@@ -1,10 +1,5 @@
-use super::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep};
-use crate::{
-    common::{Clocked, Powered},
-    serialization::Savable,
-    NesResult,
-};
-use std::io::{Read, Write};
+use super::{envelope::Envelope, LengthCounter, Sweep};
+use crate::common::{Clocked, Powered};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum PulseChannel {
@@ -171,49 +166,6 @@ impl Clocked for Pulse {
 impl Powered for Pulse {
     fn reset(&mut self) {
         *self = Self::new(self.channel);
-    }
-}
-
-impl Savable for Pulse {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.enabled.save(fh)?;
-        self.duty_cycle.save(fh)?;
-        self.duty_counter.save(fh)?;
-        self.freq_timer.save(fh)?;
-        self.freq_counter.save(fh)?;
-        self.channel.save(fh)?;
-        self.length.save(fh)?;
-        self.envelope.save(fh)?;
-        self.sweep.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.enabled.load(fh)?;
-        self.duty_cycle.load(fh)?;
-        self.duty_counter.load(fh)?;
-        self.freq_timer.load(fh)?;
-        self.freq_counter.load(fh)?;
-        self.channel.load(fh)?;
-        self.length.load(fh)?;
-        self.envelope.load(fh)?;
-        self.sweep.load(fh)?;
-        Ok(())
-    }
-}
-
-impl Savable for PulseChannel {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => PulseChannel::One,
-            1 => PulseChannel::Two,
-            _ => panic!("invalid PulseChannel value"),
-        };
-        Ok(())
     }
 }
 

@@ -1,9 +1,4 @@
-use crate::{
-    common::{Clocked, Powered},
-    serialization::Savable,
-    NesResult,
-};
-use std::io::{Read, Write};
+use crate::common::{Clocked, Powered};
 
 #[derive(Debug, Copy, Clone)]
 #[must_use]
@@ -198,51 +193,6 @@ impl Powered for Dmc {
         self.reset();
         self.addr = 0xC000;
         self.length_load = 0x0001;
-    }
-}
-
-impl Savable for Dmc {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        // Ignore mapper
-        self.irq_enabled.save(fh)?;
-        self.irq_pending.save(fh)?;
-        self.loops.save(fh)?;
-        self.freq_timer.save(fh)?;
-        self.freq_counter.save(fh)?;
-        self.addr.save(fh)?;
-        self.addr_load.save(fh)?;
-        self.length.save(fh)?;
-        self.length_load.save(fh)?;
-        self.sample_buffer.save(fh)?;
-        self.sample_buffer_empty.save(fh)?;
-        self.dma_pending.save(fh)?;
-        self.init.save(fh)?;
-        self.output.save(fh)?;
-        self.output_bits.save(fh)?;
-        self.output_shift.save(fh)?;
-        self.output_silent.save(fh)?;
-        // Ignore log_level
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.irq_enabled.load(fh)?;
-        self.irq_pending.load(fh)?;
-        self.loops.load(fh)?;
-        self.freq_timer.load(fh)?;
-        self.freq_counter.load(fh)?;
-        self.addr.load(fh)?;
-        self.addr_load.load(fh)?;
-        self.length.load(fh)?;
-        self.length_load.load(fh)?;
-        self.sample_buffer.load(fh)?;
-        self.sample_buffer_empty.load(fh)?;
-        self.dma_pending.load(fh)?;
-        self.init.load(fh)?;
-        self.output.load(fh)?;
-        self.output_bits.load(fh)?;
-        self.output_shift.load(fh)?;
-        self.output_silent.load(fh)?;
-        Ok(())
     }
 }
 

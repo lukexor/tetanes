@@ -4,18 +4,13 @@
 
 use crate::{
     bus::Bus,
-    common::{Addr, Byte, Clocked, Powered},
-    mapper::Mapper,
+    common::{Clocked, Powered},
+    mapper::Mapped,
     memory::{MemAccess, MemRead, MemWrite},
-    serialization::Savable,
-    NesResult,
 };
 use instr::{AddrMode::*, Instr, Operation::*, INSTRUCTIONS};
 use log::{log_enabled, trace, Level};
-use std::{
-    fmt,
-    io::{Read, Write},
-};
+use std::fmt;
 
 pub mod instr;
 
@@ -27,11 +22,11 @@ pub mod instr;
 pub const MASTER_CLOCK_RATE: f32 = 21_477_270.0; // 21.47727 MHz Hardware clock rate
 pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
 
-const NMI_ADDR: Addr = 0xFFFA; // NMI Vector address
-const IRQ_ADDR: Addr = 0xFFFE; // IRQ Vector address
-const RESET_ADDR: Addr = 0xFFFC; // Vector address at reset
-const POWER_ON_STATUS: Byte = 0x24; // 0010 0100 - Unused and Interrupt Disable set
-const SP_BASE: Addr = 0x0100; // Stack-pointer starting address
+const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
+const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
+const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
+const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
+const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Irq {
@@ -73,23 +68,23 @@ use StatusRegs::*;
 pub struct Cpu {
     pub cycle_count: usize, // total number of cycles ran
     pub step: usize,        // total number of CPU instructions run
-    pub pc: Addr,           // program counter
-    pub sp: Byte,           // stack pointer - stack is at $0100-$01FF
-    pub acc: Byte,          // accumulator
-    pub x: Byte,            // x register
-    pub y: Byte,            // y register
-    pub status: Byte,       // Status Registers
+    pub pc: u16,            // program counter
+    pub sp: u8,             // stack pointer - stack is at $0100-$01FF
+    pub acc: u8,            // accumulator
+    pub x: u8,              // x register
+    pub y: u8,              // y register
+    pub status: u8,         // Status Registers
     pub bus: Bus,
-    pub instr: Instr,       // The currently executing instruction
-    pub abs_addr: Addr,     // Used memory addresses get set here
-    pub rel_addr: Addr,     // Relative address for branch instructions
-    pub fetched_data: Byte, // Represents data fetched for the ALU
-    pub irq_pending: u8,    // Pending interrupts
+    pub instr: Instr,     // The currently executing instruction
+    pub abs_addr: u16,    // Used memory addresses get set here
+    pub rel_addr: u16,    // Relative address for branch instructions
+    pub fetched_data: u8, // Represents data fetched for the ALU
+    pub irq_pending: u8,  // Pending interrupts
     pub nmi_pending: bool,
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
-    last_irq: bool,
-    last_nmi: bool,
-    dmc_dma: bool,
+    pub last_irq: bool,
+    pub last_nmi: bool,
+    pub dmc_dma: bool,
 }
 
 impl Cpu {
@@ -124,7 +119,7 @@ impl Cpu {
     }
 
     #[inline]
-    pub fn next_addr(&self, access: MemAccess) -> (Option<Addr>, Option<u16>) {
+    pub fn next_addr(&self, access: MemAccess) -> (Option<u16>, Option<u16>) {
         if access == MemAccess::Write && self.cycle_count & 0x01 == 0x01 {
             return (None, None);
         }
@@ -173,10 +168,9 @@ impl Cpu {
             IND => {
                 let abs_addr = self.peekw(addr);
                 let val = if abs_addr & 0x00FF == 0x00FF {
-                    (Addr::from(self.peek(abs_addr & 0xFF00)) << 8)
-                        | Addr::from(self.peek(abs_addr))
+                    (u16::from(self.peek(abs_addr & 0xFF00)) << 8) | u16::from(self.peek(abs_addr))
                 } else {
-                    (Addr::from(self.peek(abs_addr + 1)) << 8) | Addr::from(self.peek(abs_addr))
+                    (u16::from(self.peek(abs_addr + 1)) << 8) | u16::from(self.peek(abs_addr))
                 };
                 (Some(abs_addr), Some(val))
             }
@@ -311,8 +305,8 @@ impl Cpu {
         self.last_irq = self.irq_pending > 0 && self.get_flag(I) == 0;
         self.bus.ppu.clock();
         self.set_nmi(self.bus.ppu.nmi_pending);
-        self.bus.mapper.clock();
-        let irq_pending = self.bus.mapper.irq_pending();
+        self.bus.cart.clock();
+        let irq_pending = self.bus.cart.irq_pending();
         self.set_irq(Irq::Mapper, irq_pending);
         self.bus.apu.clock();
         self.set_irq(Irq::FrameCounter, self.bus.apu.irq_pending);
@@ -347,7 +341,7 @@ impl Cpu {
         self.bus.halt = false;
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
-        let oam_read_addr = Addr::from(self.bus.ppu.dma_offset) << 8;
+        let oam_read_addr = u16::from(self.bus.ppu.dma_offset) << 8;
         let mut oam_read_offset = 0;
         let mut oam_data = 0;
         let mut oam_dma_count = 0;
@@ -398,7 +392,7 @@ impl Cpu {
 
     // Convenience method to set both Z and N
     #[inline]
-    fn set_flags_zn(&mut self, val: Byte) {
+    fn set_flags_zn(&mut self, val: u8) {
         self.set_flag(Z, val == 0x00);
         self.set_flag(N, val & 0x80 == 0x80);
     }
@@ -425,8 +419,8 @@ impl Cpu {
 
     // Push a byte to the stack
     #[inline]
-    fn push_stackb(&mut self, val: Byte) {
-        self.write(SP_BASE | Addr::from(self.sp), val);
+    fn push_stackb(&mut self, val: u8) {
+        self.write(SP_BASE | u16::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
     }
 
@@ -434,32 +428,32 @@ impl Cpu {
     // except decrement the stack pointer
     // Used by Irq::Reset
     #[inline]
-    fn push_read_stackb(&mut self, _val: Byte) {
-        let _ = self.read(SP_BASE | Addr::from(self.sp));
+    fn push_read_stackb(&mut self, _val: u8) {
+        let _ = self.read(SP_BASE | u16::from(self.sp));
         self.sp = self.sp.wrapping_sub(1);
     }
 
     // Pull a byte from the stack
     #[must_use]
     #[inline]
-    fn pop_stackb(&mut self) -> Byte {
+    fn pop_stackb(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read(SP_BASE | Addr::from(self.sp))
+        self.read(SP_BASE | u16::from(self.sp))
     }
 
     // Peek byte at the top of the stack
     #[must_use]
     #[inline]
-    pub fn peek_stackb(&self) -> Byte {
+    pub fn peek_stackb(&self) -> u8 {
         let sp = self.sp.wrapping_add(1);
-        self.peek(SP_BASE | Addr::from(sp))
+        self.peek(SP_BASE | u16::from(sp))
     }
 
     // Push a word (two bytes) to the stack
     #[inline]
-    fn push_stackw(&mut self, val: Addr) {
-        let lo = (val & 0xFF) as Byte;
-        let hi = (val >> 8) as Byte;
+    fn push_stackw(&mut self, val: u16) {
+        let lo = (val & 0xFF) as u8;
+        let hi = (val >> 8) as u8;
         self.push_stackb(hi);
         self.push_stackb(lo);
     }
@@ -468,29 +462,29 @@ impl Cpu {
     // except decrementing the stack pointer
     // Used by Irq::Reset
     #[inline]
-    fn push_read_stackw(&mut self, val: Addr) {
-        let lo = (val & 0xFF) as Byte;
-        let hi = (val >> 8) as Byte;
+    fn push_read_stackw(&mut self, val: u16) {
+        let lo = (val & 0xFF) as u8;
+        let hi = (val >> 8) as u8;
         self.push_read_stackb(hi);
         self.push_read_stackb(lo);
     }
 
     // Pull a word (two bytes) from the stack
     #[inline]
-    fn pop_stackw(&mut self) -> Addr {
-        let lo = Addr::from(self.pop_stackb());
-        let hi = Addr::from(self.pop_stackb());
+    fn pop_stackw(&mut self) -> u16 {
+        let lo = u16::from(self.pop_stackb());
+        let hi = u16::from(self.pop_stackb());
         hi << 8 | lo
     }
 
     // Peek at the top of the stack
     #[must_use]
     #[inline]
-    pub fn peek_stackw(&self) -> Addr {
+    pub fn peek_stackw(&self) -> u16 {
         let sp = self.sp.wrapping_add(1);
-        let lo = Addr::from(self.peek(SP_BASE | Addr::from(sp)));
+        let lo = u16::from(self.peek(SP_BASE | u16::from(sp)));
         let sp = sp.wrapping_add(1);
-        let hi = Addr::from(self.peek(SP_BASE | Addr::from(sp)));
+        let hi = u16::from(self.peek(SP_BASE | u16::from(sp)));
         hi << 8 | lo
     }
 
@@ -515,7 +509,7 @@ impl Cpu {
                         //
                         // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
                         // around to 0.
-                        if (self.abs_addr & 0x00FF) < Addr::from(reg) {
+                        if (self.abs_addr & 0x00FF) < u16::from(reg) {
                             self.read(self.abs_addr)
                         } else {
                             self.fetched_data
@@ -531,7 +525,7 @@ impl Cpu {
     // Writes data back to where fetched_data was sourced from. Either accumulator or memory
     // specified in abs_addr.
     #[inline]
-    fn write_fetched(&mut self, val: Byte) {
+    fn write_fetched(&mut self, val: u8) {
         match self.instr.addr_mode() {
             IMP | ACC => self.acc = val,
             IMM => (), // noop
@@ -544,41 +538,41 @@ impl Cpu {
     // Utility to read a full 16-bit word
     #[must_use]
     #[inline]
-    pub fn readw(&mut self, addr: Addr) -> Addr {
-        let lo = Addr::from(self.read(addr));
-        let hi = Addr::from(self.read(addr.wrapping_add(1)));
+    pub fn readw(&mut self, addr: u16) -> u16 {
+        let lo = u16::from(self.read(addr));
+        let hi = u16::from(self.read(addr.wrapping_add(1)));
         (hi << 8) | lo
     }
 
     // readw but don't accidentally modify state
     #[must_use]
     #[inline]
-    pub fn peekw(&self, addr: Addr) -> Addr {
-        let lo = Addr::from(self.peek(addr));
-        let hi = Addr::from(self.peek(addr.wrapping_add(1)));
+    pub fn peekw(&self, addr: u16) -> u16 {
+        let lo = u16::from(self.peek(addr));
+        let hi = u16::from(self.peek(addr.wrapping_add(1)));
         (hi << 8) | lo
     }
 
     // Like readw, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
     #[inline]
-    fn readw_zp(&mut self, addr: Byte) -> Addr {
-        let lo = Addr::from(self.read(addr.into()));
-        let hi = Addr::from(self.read(addr.wrapping_add(1).into()));
+    fn readw_zp(&mut self, addr: u8) -> u16 {
+        let lo = u16::from(self.read(addr.into()));
+        let hi = u16::from(self.read(addr.wrapping_add(1).into()));
         (hi << 8) | lo
     }
 
     // Like peekw, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
     #[inline]
-    fn peekw_zp(&self, addr: Byte) -> Addr {
-        let lo = Addr::from(self.peek(addr.into()));
-        let hi = Addr::from(self.peek(addr.wrapping_add(1).into()));
+    fn peekw_zp(&self, addr: u8) -> u16 {
+        let lo = u16::from(self.peek(addr.into()));
+        let hi = u16::from(self.peek(addr.wrapping_add(1).into()));
         (hi << 8) | lo
     }
 
     #[must_use]
-    pub fn disassemble(&self, pc: &mut Addr) -> String {
+    pub fn disassemble(&self, pc: &mut u16) -> String {
         let opcode = self.peek(*pc);
         let instr = INSTRUCTIONS[opcode as usize];
         let mut bytes = Vec::with_capacity(3);
@@ -648,10 +642,9 @@ impl Cpu {
                 let abs_addr = self.peekw(addr);
                 addr = addr.wrapping_add(2);
                 let val = if abs_addr & 0x00FF == 0x00FF {
-                    (Addr::from(self.peek(abs_addr & 0xFF00)) << 8)
-                        | Addr::from(self.peek(abs_addr))
+                    (u16::from(self.peek(abs_addr & 0xFF00)) << 8) | u16::from(self.peek(abs_addr))
                 } else {
-                    (Addr::from(self.peek(abs_addr + 1)) << 8) | Addr::from(self.peek(abs_addr))
+                    (u16::from(self.peek(abs_addr + 1)) << 8) | u16::from(self.peek(abs_addr))
                 };
                 format!("(${:04X}) = ${:04X}", abs_addr, val)
             }
@@ -727,7 +720,7 @@ impl Cpu {
 
     #[must_use]
     #[inline]
-    const fn pages_differ(addr1: Addr, addr2: Addr) -> bool {
+    const fn pages_differ(addr1: u16, addr2: u16) -> bool {
         (addr1 & 0xFF00) != (addr2 & 0xFF00)
     }
 }
@@ -856,20 +849,20 @@ impl Clocked for Cpu {
 
 impl MemRead for Cpu {
     #[inline]
-    fn read(&mut self, addr: Addr) -> Byte {
+    fn read(&mut self, addr: u16) -> u8 {
         self.handle_dma(addr);
         self.run_cycle();
         self.bus.read(addr)
     }
 
     #[inline]
-    fn peek(&self, addr: Addr) -> Byte {
+    fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)
     }
 }
 impl MemWrite for Cpu {
     #[inline]
-    fn write(&mut self, addr: Addr, val: Byte) {
+    fn write(&mut self, addr: u16, val: u8) {
         self.run_cycle();
         self.bus.write(addr, val);
     }
@@ -907,52 +900,6 @@ impl Powered for Cpu {
         self.status = POWER_ON_STATUS;
         self.sp = 0;
         self.power_on();
-    }
-}
-
-impl Savable for Cpu {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.cycle_count.save(fh)?;
-        self.step.save(fh)?;
-        self.pc.save(fh)?;
-        self.sp.save(fh)?;
-        self.acc.save(fh)?;
-        self.x.save(fh)?;
-        self.y.save(fh)?;
-        self.status.save(fh)?;
-        self.bus.save(fh)?;
-        self.instr.save(fh)?;
-        self.abs_addr.save(fh)?;
-        self.rel_addr.save(fh)?;
-        self.fetched_data.save(fh)?;
-        self.irq_pending.save(fh)?;
-        self.nmi_pending.save(fh)?;
-        self.last_irq.save(fh)?;
-        self.last_nmi.save(fh)?;
-        self.dmc_dma.save(fh)?;
-        // Ignore log_level
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.cycle_count.load(fh)?;
-        self.step.load(fh)?;
-        self.pc.load(fh)?;
-        self.sp.load(fh)?;
-        self.acc.load(fh)?;
-        self.x.load(fh)?;
-        self.y.load(fh)?;
-        self.status.load(fh)?;
-        self.bus.load(fh)?;
-        self.instr.load(fh)?;
-        self.abs_addr.load(fh)?;
-        self.rel_addr.load(fh)?;
-        self.fetched_data.load(fh)?;
-        self.irq_pending.load(fh)?;
-        self.nmi_pending.load(fh)?;
-        self.last_irq.load(fh)?;
-        self.last_nmi.load(fh)?;
-        self.dmc_dma.load(fh)?;
-        Ok(())
     }
 }
 

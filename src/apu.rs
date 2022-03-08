@@ -6,21 +6,15 @@ use crate::{
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
     memory::{MemRead, MemWrite},
-    serialization::Savable,
-    NesResult,
 };
 use dmc::Dmc;
 use frame_sequencer::{FcMode, FrameSequencer};
 use noise::Noise;
 use pulse::{Pulse, PulseChannel};
-use std::{
-    fmt,
-    io::{Read, Write},
-};
+use std::fmt;
 use triangle::Triangle;
 
 pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
-                                       // pub const SAMPLE_RATE: f32 = 44_671.0; // in Hz
 const SAMPLE_BUFFER_SIZE: usize = 1024;
 
 pub mod dmc;
@@ -28,13 +22,8 @@ pub mod noise;
 pub mod pulse;
 pub mod triangle;
 
-mod divider;
 mod envelope;
 mod frame_sequencer;
-mod length_counter;
-mod linear_counter;
-mod sequencer;
-mod sweep;
 
 /// A given APU audio channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -392,40 +381,6 @@ impl Powered for Apu {
     }
 }
 
-impl Savable for Apu {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.irq_pending.save(fh)?;
-        self.irq_enabled.save(fh)?;
-        self.open_bus.save(fh)?;
-        // Ignore clock_rate
-        self.cycle.save(fh)?;
-        // Ignore samples
-        self.frame_sequencer.save(fh)?;
-        self.pulse1.save(fh)?;
-        self.pulse2.save(fh)?;
-        self.triangle.save(fh)?;
-        self.noise.save(fh)?;
-        self.dmc.save(fh)?;
-        // Ignore
-        // pulse_table
-        // tnd_table
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.irq_pending.load(fh)?;
-        self.irq_enabled.load(fh)?;
-        self.open_bus.load(fh)?;
-        self.cycle.load(fh)?;
-        self.frame_sequencer.load(fh)?;
-        self.pulse1.load(fh)?;
-        self.pulse2.load(fh)?;
-        self.triangle.load(fh)?;
-        self.noise.load(fh)?;
-        self.dmc.load(fh)?;
-        Ok(())
-    }
-}
-
 impl Default for Apu {
     fn default() -> Self {
         Self::new()
@@ -448,6 +403,153 @@ impl fmt::Debug for Apu {
             .field("dmc", &self.dmc)
             .field("enabled", &self.enabled)
             .finish()
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+#[must_use]
+pub(crate) struct Sequencer {
+    pub(crate) step: usize,
+    pub(crate) length: usize,
+}
+
+impl Sequencer {
+    pub(crate) const fn new(length: usize) -> Self {
+        Self { step: 1, length }
+    }
+}
+
+impl Clocked for Sequencer {
+    #[inline]
+    fn clock(&mut self) -> usize {
+        let clock = self.step;
+        self.step += 1;
+        if self.step > self.length {
+            self.step = 1;
+        }
+        clock
+    }
+}
+
+impl Powered for Sequencer {
+    fn reset(&mut self) {
+        self.step = 1;
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+#[must_use]
+pub(crate) struct Divider {
+    pub(crate) counter: f32,
+    pub(crate) period: f32,
+}
+
+impl Divider {
+    pub(super) const fn new(period: f32) -> Self {
+        Self {
+            counter: period,
+            period,
+        }
+    }
+}
+
+impl Clocked for Divider {
+    #[must_use]
+    fn clock(&mut self) -> usize {
+        if self.counter > 0.0 {
+            self.counter -= 1.0;
+        }
+        if self.counter <= 0.0 {
+            // Reset and output a clock
+            self.counter += self.period;
+            1
+        } else {
+            0
+        }
+    }
+}
+
+impl Powered for Divider {
+    fn reset(&mut self) {
+        self.counter = self.period;
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+pub(crate) struct Sweep {
+    pub(crate) enabled: bool,
+    pub(crate) reload: bool,
+    pub(crate) negate: bool, // Treats PulseChannel 1 differently than PulseChannel 2
+    pub(crate) timer: u8,    // counter reload value
+    pub(crate) counter: u8,  // current timer value
+    pub(crate) shift: u8,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[must_use]
+pub struct LengthCounter {
+    pub enabled: bool,
+    pub counter: u8, // Entry into LENGTH_TABLE
+}
+
+impl LengthCounter {
+    const LENGTH_TABLE: [u8; 32] = [
+        10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96,
+        22, 192, 24, 72, 26, 16, 28, 32, 30,
+    ];
+
+    pub const fn new() -> Self {
+        Self {
+            enabled: false,
+            counter: 0u8,
+        }
+    }
+
+    #[inline]
+    pub fn load_value(&mut self, val: u8) {
+        self.counter = Self::LENGTH_TABLE[(val >> 3) as usize]; // D7..D3
+    }
+
+    #[inline]
+    pub fn write_control(&mut self, val: u8) {
+        self.enabled = (val >> 5) & 1 == 0; // !D5
+    }
+}
+
+impl Clocked for LengthCounter {
+    #[inline]
+    fn clock(&mut self) -> usize {
+        if self.enabled && self.counter > 0 {
+            self.counter -= 1;
+            1
+        } else {
+            0
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+#[must_use]
+pub(crate) struct LinearCounter {
+    pub(crate) reload: bool,
+    pub(crate) control: bool,
+    pub(crate) load: u8,
+    pub(crate) counter: u8,
+}
+
+impl LinearCounter {
+    pub(crate) const fn new() -> Self {
+        Self {
+            reload: false,
+            control: false,
+            load: 0u8,
+            counter: 0u8,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn load_value(&mut self, val: u8) {
+        self.load = val >> 1; // D6..D0
     }
 }
 

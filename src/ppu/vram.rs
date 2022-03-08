@@ -1,19 +1,21 @@
 use crate::{
+    cart::Cart,
     common::Powered,
-    mapper::{Mapper, MapperType, Mirroring},
+    mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
-    serialization::Savable,
-    NesResult,
+    ppu::Mirroring,
 };
-use std::io::{Read, Write};
+use std::fmt;
 
 // Two 1K nametables exist in hardware
-pub const NT_SIZE: usize = 2 * 1024;
+pub const VRAM_SIZE: usize = 2 * 1024;
 // Nametable ranges:
 // [ $2000 $2400 ]
 // [ $2800 $2C00 ]
 pub const NT_START: u16 = 0x2000;
-pub const ATTRIBUTE_START: u16 = 0x23C0; // Attributes for NameTables
+pub const NT_SIZE: u16 = 0x0400;
+pub const ATTR_START: u16 = 0x23C0; // Attributes for NameTables
+pub const ATTR_OFFSET: u16 = 0x03C0;
 
 pub const PALETTE_SIZE: usize = 32;
 pub const SYSTEM_PALETTE_SIZE: usize = 64;
@@ -45,7 +47,7 @@ pub const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
     160, 214, 228, 160, 162, 160, 0, 0, 0,       0, 0, 0,       // $3C-$3F
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[must_use]
 pub struct Vram {
     // Used to layout backgrounds on the screen
@@ -55,64 +57,57 @@ pub struct Vram {
     // Background/Sprite color palettes
     // http://wiki.nesdev.com/w/index.php/PPU_palettes
     pub palette: Memory,
-    pub mapper: *mut MapperType,
+    pub cart: *mut Cart,
     pub buffer: u8, // PPUDATA buffer
-}
-
-impl Default for Vram {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl Vram {
     pub fn new() -> Self {
         Self {
-            nametable: Memory::ram(NT_SIZE, RamState::AllZeros),
+            nametable: Memory::ram(VRAM_SIZE, RamState::AllZeros),
             palette: Memory::ram(PALETTE_SIZE, RamState::AllZeros),
-            mapper: std::ptr::null_mut(),
+            cart: std::ptr::null_mut(),
             buffer: 0u8,
         }
     }
 
     pub fn nametable_addr(&self, addr: u16) -> u16 {
-        let mirroring = self.mapper().mirroring();
+        let mirroring = self.cart().mirroring();
         // Maps addresses to nametable pages based on mirroring mode
         let page = match mirroring {
             Mirroring::Horizontal => (addr >> 11) & 1,
             Mirroring::Vertical => (addr >> 10) & 1,
             Mirroring::SingleScreenA => (addr >> 14) & 1,
             Mirroring::SingleScreenB => (addr >> 13) & 1,
-            Mirroring::FourScreen => self.mapper().nametable_page(addr),
+            Mirroring::FourScreen => self.cart().nametable_page(addr),
         };
-        let table_size = 0x0400;
-        let offset = addr % table_size;
-        NT_START + page * table_size + offset
+        let offset = addr % NT_SIZE;
+        NT_START + page * NT_SIZE + offset
     }
 
     #[inline]
-    pub fn mapper(&self) -> &MapperType {
-        unsafe { &*self.mapper }
+    pub fn cart(&self) -> &Cart {
+        unsafe { &*self.cart }
     }
 
     #[inline]
-    pub fn mapper_mut(&mut self) -> &mut MapperType {
-        unsafe { &mut *self.mapper }
+    pub fn cart_mut(&mut self) -> &mut Cart {
+        unsafe { &mut *self.cart }
     }
 }
 
 impl MemRead for Vram {
     fn read(&mut self, addr: u16) -> u8 {
-        self.mapper_mut().vram_change(addr);
+        let cart_data = self.cart_mut().read(addr); // Some carts spy on PPU reads
         match addr {
-            0x0000..=0x1FFF => self.mapper_mut().read(addr),
+            0x0000..=0x1FFF => cart_data,
             0x2000..=0x3EFF => {
                 // Use PPU Nametables or Cartridge RAM
-                if self.mapper().use_ciram(addr) {
+                if self.cart().use_ciram(addr) {
                     let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.read(mirror_addr % NT_SIZE as u16)
+                    self.nametable.read(mirror_addr % VRAM_SIZE as u16)
                 } else {
-                    self.mapper_mut().read(addr)
+                    cart_data
                 }
             }
             0x3F00..=0x3FFF => {
@@ -128,14 +123,14 @@ impl MemRead for Vram {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => self.mapper().peek(addr),
+            0x0000..=0x1FFF => self.cart().peek(addr),
             0x2000..=0x3EFF => {
                 // Use PPU Nametables or Cartridge RAM
-                if self.mapper().use_ciram(addr) {
+                if self.cart().use_ciram(addr) {
                     let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.peek(mirror_addr % NT_SIZE as u16)
+                    self.nametable.peek(mirror_addr % VRAM_SIZE as u16)
                 } else {
-                    self.mapper().peek(addr)
+                    self.cart().peek(addr)
                 }
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
@@ -146,15 +141,14 @@ impl MemRead for Vram {
 
 impl MemWrite for Vram {
     fn write(&mut self, addr: u16, val: u8) {
-        self.mapper_mut().vram_change(addr);
         match addr {
-            0x0000..=0x1FFF => self.mapper_mut().write(addr, val),
+            0x0000..=0x1FFF => self.cart_mut().write(addr, val),
             0x2000..=0x3EFF => {
-                if self.mapper().use_ciram(addr) {
+                if self.cart().use_ciram(addr) {
                     let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.write(mirror_addr % NT_SIZE as u16, val);
+                    self.nametable.write(mirror_addr % VRAM_SIZE as u16, val);
                 } else {
-                    self.mapper_mut().write(addr, val);
+                    self.cart_mut().write(addr, val);
                 }
             }
             0x3F00..=0x3FFF => {
@@ -179,19 +173,19 @@ impl Powered for Vram {
     }
 }
 
-impl Savable for Vram {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.nametable.save(fh)?;
-        self.palette.save(fh)?;
-        // Ignore mapper
-        self.buffer.save(fh)?;
-        Ok(())
+impl Default for Vram {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.nametable.load(fh)?;
-        self.palette.load(fh)?;
-        self.buffer.load(fh)?;
-        Ok(())
+impl fmt::Debug for Vram {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Vram")
+            .field("nametable", &self.nametable)
+            .field("palette", &self.palette)
+            .field("cart", &format_args!("{:p}", self.cart))
+            .field("buffer", &format_args!("${:02X}", &self.buffer))
+            .finish()
     }
 }
