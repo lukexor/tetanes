@@ -288,89 +288,30 @@ impl Exrom {
         let mode = self.regs.prg_mode;
         let banks = self.regs.prg_banks;
 
-        // $5113 always selects RAM
-        self.set_prg_bank_range(0x6000, 0x7FFF, banks[0], false);
-        match mode {
-            // $5117 always selects ROM
-            PrgMode::Bank32k => self.set_prg_bank_range(0x8000, 0xFFFF, banks[4], true),
-            PrgMode::Bank16k => {
-                let rom = banks[2] & 0x80 > 0;
-                self.set_prg_bank_range(0x8000, 0xBFFF, banks[2], rom);
-                // $5117 always selets ROM
-                self.set_prg_bank_range(0xC000, 0xFFFF, banks[4], true);
-            }
-            PrgMode::Bank16_8k => {
-                let rom = banks[2] & 0x80 > 0;
-                self.set_prg_bank_range(0x8000, 0xBFFF, banks[2], rom);
-                let rom = banks[3] & 0x80 > 0;
-                self.set_prg_bank_range(0xC000, 0xDFFF, banks[3], rom);
-                // $5117 always selets ROM
-                self.set_prg_bank_range(0xE000, 0xFFFF, banks[4], true);
-            }
-            PrgMode::Bank8k => {
-                for (i, bank) in banks[1..5].iter().enumerate() {
-                    // $5116 always selects ROM
-                    let rom = if i == 4 { false } else { bank & 0x80 > 0 };
-                    let start = 0x8000 + i as u16 * 0x2000;
-                    let end = start + 0x1FFF;
-                    self.set_prg_bank_range(start, end, *bank, rom);
-                }
-            }
-        }
-    }
-
-    fn update_prg_banks_v2(&mut self) {
-        let mode = self.regs.prg_mode;
-        let banks = self.regs.prg_banks;
-
         self.prg_ram_banks.set(0, banks[0]); // $5113 always selects RAM
         match mode {
             // $5117 always selects ROM
             PrgMode::Bank32k => self.prg_rom_banks.set_range(0, 3, banks[4]),
             PrgMode::Bank16k => {
-                self.set_prg_bank_range_v2(0, 1, banks[2]);
+                self.set_prg_bank_range(0, 1, banks[2]);
                 self.prg_rom_banks.set_range(2, 3, banks[4] & BANK_MASK);
             }
             PrgMode::Bank16_8k => {
-                self.set_prg_bank_range_v2(0, 1, banks[2]);
-                self.set_prg_bank(2, banks[3]);
+                self.set_prg_bank_range(0, 1, banks[2]);
+                self.set_prg_bank_range(2, 2, banks[3]);
                 self.prg_rom_banks.set(3, banks[4] & BANK_MASK);
             }
             PrgMode::Bank8k => {
-                self.set_prg_bank(0, banks[1]);
-                self.set_prg_bank(1, banks[2]);
-                self.set_prg_bank(2, banks[3]);
+                self.set_prg_bank_range(0, 0, banks[1]);
+                self.set_prg_bank_range(1, 1, banks[2]);
+                self.set_prg_bank_range(2, 2, banks[3]);
                 self.prg_rom_banks.set(3, banks[4] & BANK_MASK);
             }
         };
     }
 
-    fn set_prg_bank_range(&mut self, start: u16, end: u16, bank: usize, rom: bool) {
-        let bank = bank & BANK_MASK;
-        if rom {
-            let start = self.prg_rom_banks.get_bank(start);
-            let end = self.prg_rom_banks.get_bank(end);
-            self.prg_rom_banks.set_range(start, end, bank);
-        } else {
-            let start = self.prg_ram_banks.get_bank(start);
-            let end = self.prg_ram_banks.get_bank(end);
-            self.prg_ram_banks.set_range(start, end, bank);
-        }
-    }
-
     #[inline]
-    fn set_prg_bank(&mut self, slot: usize, bank: usize) {
-        let rom = bank & ROM_SELECT_MASK == ROM_SELECT_MASK;
-        let bank = bank & BANK_MASK;
-        if rom {
-            self.prg_rom_banks.set(slot, bank);
-        } else {
-            self.prg_ram_banks.set(slot + 1, bank);
-        }
-    }
-
-    #[inline]
-    fn set_prg_bank_range_v2(&mut self, start: usize, end: usize, bank: usize) {
+    fn set_prg_bank_range(&mut self, start: usize, end: usize, bank: usize) {
         let rom = bank & ROM_SELECT_MASK == ROM_SELECT_MASK;
         let bank = bank & BANK_MASK;
         if rom {
@@ -380,50 +321,8 @@ impl Exrom {
         }
     }
 
-    // Maps an address to a given PRG Bank Register based on the current PRG MODE
-    // Returns the bank page number and the ROM select bit
-    const fn prg_addr_bank(&self, addr: u16) -> (usize, bool) {
-        let mode = self.regs.prg_mode;
-        let banks = self.regs.prg_banks;
-        let bank = match addr {
-            0x6000..=0x7FFF => banks[0],
-            0x8000..=0x9FFF => match mode {
-                PrgMode::Bank8k => banks[1],
-                PrgMode::Bank16k | PrgMode::Bank16_8k => banks[2],
-                PrgMode::Bank32k => banks[4],
-            },
-            0xA000..=0xBFFF => match mode {
-                PrgMode::Bank8k | PrgMode::Bank16k | PrgMode::Bank16_8k => banks[2],
-                PrgMode::Bank32k => banks[4],
-            },
-            0xC000..=0xDFFF => match mode {
-                PrgMode::Bank8k | PrgMode::Bank16_8k => banks[3],
-                PrgMode::Bank16k | PrgMode::Bank32k => banks[4],
-            },
-            0xE000..=0xFFFF => banks[4],
-            _ => 0x00,
-        };
-        let rom_select = match addr {
-            0x6000..=0x7FFF => false,
-            _ => match mode {
-                PrgMode::Bank32k => true,
-                _ => bank & 0x80 > 0,
-            },
-        };
-        // NOTE: Bank numbers 2 and 4 normally are right shifted to the correct page size
-        // but because we use the smallest bank size by default and set_bank_range,
-        // this becomes unnecessary
-        (bank & 0x7F, rom_select)
-    }
-
     #[inline]
     fn rom_select(&self, addr: u16) -> bool {
-        let (_, rom_select) = self.prg_addr_bank(addr);
-        rom_select
-    }
-
-    #[inline]
-    fn rom_select_v2(&self, addr: u16) -> bool {
         let mode = self.regs.prg_mode;
         if matches!(addr, 0x6000..=0x7FFF) {
             false
