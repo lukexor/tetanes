@@ -7,6 +7,12 @@ pub enum PulseChannel {
     Two,
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum OutputFreq {
+    Default,
+    Ultrasonic,
+}
+
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Pulse {
@@ -19,6 +25,7 @@ pub struct Pulse {
     pub length: LengthCounter,
     envelope: Envelope,
     sweep: Sweep,
+    output_freq: OutputFreq,
 }
 
 impl Pulse {
@@ -29,7 +36,7 @@ impl Pulse {
         [1, 0, 0, 1, 1, 1, 1, 1],
     ];
 
-    pub const fn new(channel: PulseChannel) -> Self {
+    pub const fn new(channel: PulseChannel, output_freq: OutputFreq) -> Self {
         Self {
             enabled: false,
             duty_cycle: 0u8,
@@ -47,6 +54,7 @@ impl Pulse {
                 counter: 0u8,
                 shift: 0u8,
             },
+            output_freq,
         }
     }
 
@@ -84,8 +92,13 @@ impl Pulse {
 
     #[must_use]
     pub const fn sweep_forcing_silence(&self) -> bool {
-        let next_freq = self.freq_timer + (self.freq_timer >> self.sweep.shift);
-        self.freq_timer < 8 || (!self.sweep.negate && next_freq >= 0x800)
+        match self.output_freq {
+            OutputFreq::Default => {
+                let next_freq = self.freq_timer + (self.freq_timer >> self.sweep.shift);
+                self.freq_timer < 8 || (!self.sweep.negate && next_freq >= 0x800)
+            }
+            OutputFreq::Ultrasonic => false,
+        }
     }
 
     #[inline]
@@ -165,12 +178,12 @@ impl Clocked for Pulse {
 
 impl Powered for Pulse {
     fn reset(&mut self) {
-        *self = Self::new(self.channel);
+        *self = Self::new(self.channel, OutputFreq::Default);
     }
 }
 
 impl Default for Pulse {
     fn default() -> Self {
-        Self::new(PulseChannel::One)
+        Self::new(PulseChannel::One, OutputFreq::Default)
     }
 }

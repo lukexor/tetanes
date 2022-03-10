@@ -155,18 +155,22 @@ impl Ppu {
         }
     }
 
+    #[inline]
     pub fn load_cart(&mut self, cart: &mut Cart) {
         self.vram.cart = cart;
     }
 
+    #[inline]
     pub fn set_debugging(&mut self, val: bool) {
         self.debugging = val;
     }
 
+    #[inline]
     pub fn set_debug_scanline(&mut self, scanline: u16) {
         self.debug_scanline = scanline;
     }
 
+    #[inline]
     pub fn update_debug(&mut self) {
         self.load_nametables();
         self.load_pattern_tables();

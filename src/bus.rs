@@ -70,12 +70,15 @@ impl Bus {
             open_bus: 0,
         };
         bus.ppu.load_cart(&mut bus.cart);
+        bus.apu.load_cart(&mut bus.cart);
         bus
     }
 
+    #[inline]
     pub fn load_cart(&mut self, cart: Cart) {
         self.cart = Box::new(cart);
         self.ppu.load_cart(&mut self.cart);
+        self.apu.load_cart(&mut self.cart);
     }
 
     /// Add a Game Genie code to override memory reads/writes.
@@ -124,10 +127,12 @@ impl Bus {
         Ok(())
     }
 
+    #[inline]
     pub fn remove_genie_code(&mut self, code: &str) {
         self.genie_codes.retain(|_, gc| gc.code != code);
     }
 
+    #[inline]
     fn genie_code(&self, addr: u16) -> Option<GenieCode> {
         if self.genie_codes.is_empty() {
             None

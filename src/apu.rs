@@ -3,8 +3,11 @@
 //! <https://wiki.nesdev.com/w/index.php/APU>
 
 use crate::{
+    apu::pulse::OutputFreq,
+    cart::Cart,
     common::{Clocked, Powered},
     cpu::CPU_CLOCK_RATE,
+    mapper::Mapper,
     memory::{MemRead, MemWrite},
 };
 use dmc::Dmc;
@@ -42,7 +45,7 @@ pub enum AudioChannel {
 pub struct Apu {
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_enabled: bool,            // Set by $4017 D6
-    pub(crate) open_bus: u8,      // This open bus gets set during any write to PPU registers
+    pub(crate) open_bus: u8,      // This open bus gets set during any write to APU registers
     clock_rate: f32,              // Same as CPU but is affected by speed changes
     cycle: usize,                 // Current APU cycle
     samples: Vec<f32>,            // Buffer of samples
@@ -52,6 +55,7 @@ pub struct Apu {
     triangle: Triangle,
     noise: Noise,
     pub(crate) dmc: Dmc,
+    cart: *mut Cart,
     enabled: [bool; 5],
     sample_timer: f32,
     sample_rate: f32,
@@ -72,11 +76,12 @@ impl Apu {
             cycle: 0usize,
             samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
             frame_sequencer: FrameSequencer::new(),
-            pulse1: Pulse::new(PulseChannel::One),
-            pulse2: Pulse::new(PulseChannel::Two),
+            pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
+            pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
+            cart: std::ptr::null_mut(),
             enabled: [true; 5],
             sample_timer: 0.0,
             sample_rate: CPU_CLOCK_RATE / SAMPLE_RATE,
@@ -209,10 +214,28 @@ impl Apu {
         } else {
             0.0
         };
-
-        let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
-        let tnd_out = self.tnd_table[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
-        2.0 * (pulse_out + tnd_out)
+        if let Mapper::Exrom(exrom) = &self.cart().mapper {
+            let pulse3 = if exrom.pulse1.enabled {
+                exrom.pulse1.output()
+            } else {
+                0.0
+            };
+            let pulse4 = if exrom.pulse2.enabled {
+                exrom.pulse2.output()
+            } else {
+                0.0
+            };
+            let dmc2 = exrom.dmc.output();
+            let pulse_out = self.pulse_table[(pulse1 + pulse2 + pulse3 + pulse4) as usize % 31];
+            let tnd_out =
+                self.tnd_table[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc + dmc2) as usize % 203];
+            2.0 * (pulse_out + tnd_out)
+        } else {
+            let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
+            let tnd_out =
+                self.tnd_table[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
+            2.0 * (pulse_out + tnd_out)
+        }
     }
 
     // $4015 READ
@@ -279,6 +302,21 @@ impl Apu {
         if !self.irq_enabled {
             self.irq_pending = false;
         }
+    }
+
+    #[inline]
+    pub fn load_cart(&mut self, cart: &mut Cart) {
+        self.cart = cart;
+    }
+
+    #[inline]
+    pub fn cart(&self) -> &Cart {
+        unsafe { &*self.cart }
+    }
+
+    #[inline]
+    pub fn cart_mut(&mut self) -> &mut Cart {
+        unsafe { &mut *self.cart }
     }
 }
 

@@ -6,7 +6,7 @@
 use crate::{
     apu::{
         dmc::Dmc,
-        pulse::{Pulse, PulseChannel},
+        pulse::{OutputFreq, Pulse, PulseChannel},
     },
     cart::Cart,
     common::{Clocked, Powered},
@@ -58,7 +58,7 @@ const ATTR_SHIFT: [u8; 128] = [
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-enum PrgMode {
+pub enum PrgMode {
     Bank32k,
     Bank16k,
     Bank16_8k,
@@ -67,7 +67,7 @@ enum PrgMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-enum ChrMode {
+pub enum ChrMode {
     Bank8k,
     Bank4k,
     Bank2k,
@@ -76,7 +76,7 @@ enum ChrMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-enum ExMode {
+pub enum ExMode {
     Nametable,
     Attr,
     Ram,
@@ -85,7 +85,7 @@ enum ExMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-enum ChrBank {
+pub enum ChrBank {
     Spr,
     Bg,
 }
@@ -93,70 +93,70 @@ enum ChrBank {
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-enum Nametable {
+pub enum Nametable {
     ScreenA,
     ScreenB,
     ExRAM,
     Fill,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[must_use]
-struct Fill {
-    tile: u8, // $5106
-    attr: u8, // $5107
+pub struct Fill {
+    pub tile: u8, // $5106
+    pub attr: u8, // $5107
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-enum SplitSide {
+pub enum SplitSide {
     Left,
     Right,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[must_use]
-struct VSplit {
-    enabled: bool,   // $5200 [E... ....]
-    side: SplitSide, // $5200 [.S.. ....]
-    tile: u8,        // $5200 [...T TTTT]
-    scroll: u8,      // $5201
-    bank: u8,        // $5202
+pub struct VSplit {
+    pub enabled: bool,   // $5200 [E... ....]
+    pub side: SplitSide, // $5200 [.S.. ....]
+    pub tile: u8,        // $5200 [...T TTTT]
+    pub scroll: u8,      // $5201
+    pub bank: u8,        // $5202
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[must_use]
-struct ExRegs {
-    prg_mode: PrgMode,        // $5100
-    chr_mode: ChrMode,        // $5101
-    prg_ram_protect: [u8; 2], // $5102 - $5103
-    exmode: ExMode,           // $5104
-    nametable_mirroring: u8,  // $5105
-    fill: Fill,               // $5106 - $5107
-    prg_banks: [usize; 5],    // $5113 - $5117
-    chr_banks: [usize; 16],   // $5120 - $512B
-    chr_hi: usize,            // $5130
-    vsplit: VSplit,           // $5200 - $5202
-    irq_scanline: u16,        // $5203: Write $00 to disable IRQs
-    irq_enabled: bool,        // $5204
-    multiplicand: u8,         // $5205: write
-    multiplier: u8,           // $5206: write
-    mult_result: u16,         // $5205: read lo, $5206: read hi
+pub struct ExRegs {
+    pub prg_mode: PrgMode,        // $5100
+    pub chr_mode: ChrMode,        // $5101
+    pub prg_ram_protect: [u8; 2], // $5102 - $5103
+    pub exmode: ExMode,           // $5104
+    pub nametable_mirroring: u8,  // $5105
+    pub fill: Fill,               // $5106 - $5107
+    pub prg_banks: [usize; 5],    // $5113 - $5117
+    pub chr_banks: [usize; 16],   // $5120 - $512B
+    pub chr_hi: usize,            // $5130
+    pub vsplit: VSplit,           // $5200 - $5202
+    pub irq_scanline: u16,        // $5203: Write $00 to disable IRQs
+    pub irq_enabled: bool,        // $5204
+    pub multiplicand: u8,         // $5205: write
+    pub multiplier: u8,           // $5206: write
+    pub mult_result: u16,         // $5205: read lo, $5206: read hi
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[must_use]
-struct PpuStatus {
-    fetch_count: u32,
-    prev_addr: u16,
-    prev_match: u8,
-    reading: bool,
-    idle: u8,
-    in_vblank: bool,
-    sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
-    rendering: bool,
-    scanline: u16,
-    in_frame: bool,
+pub struct PpuStatus {
+    pub fetch_count: u32,
+    pub prev_addr: u16,
+    pub prev_match: u8,
+    pub reading: bool,
+    pub idle: u8,
+    pub in_vblank: bool,
+    pub sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
+    pub rendering: bool,
+    pub scanline: u16,
+    pub in_frame: bool,
 }
 
 impl PpuStatus {
@@ -180,22 +180,22 @@ impl PpuStatus {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Exrom {
-    regs: ExRegs,
-    mirroring: Mirroring,
-    irq_pending: bool,
-    ppu_status: PpuStatus,
-    exram: Memory,
-    prg_ram_banks: MemoryBanks,
-    prg_rom_banks: MemoryBanks,
-    chr_banks: MemoryBanks,
-    tile_cache: u16,
-    in_split: bool,
-    split_tile: u16,
-    last_chr_write: ChrBank,
-    pulse1: Pulse,
-    pulse2: Pulse,
-    dmc: Dmc,
-    dmc_mode: u8,
+    pub regs: ExRegs,
+    pub mirroring: Mirroring,
+    pub irq_pending: bool,
+    pub ppu_status: PpuStatus,
+    pub exram: Memory,
+    pub prg_ram_banks: MemoryBanks,
+    pub prg_rom_banks: MemoryBanks,
+    pub chr_banks: MemoryBanks,
+    pub tile_cache: u16,
+    pub in_split: bool,
+    pub split_tile: u16,
+    pub last_chr_write: ChrBank,
+    pub pulse1: Pulse,
+    pub pulse2: Pulse,
+    pub dmc: Dmc,
+    pub dmc_mode: u8,
 }
 
 impl ExRegs {
@@ -264,8 +264,8 @@ impl Exrom {
             in_split: false,
             split_tile: 0x0000,
             last_chr_write: ChrBank::Spr,
-            pulse1: Pulse::new(PulseChannel::One),
-            pulse2: Pulse::new(PulseChannel::Two),
+            pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
+            pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
             dmc: Dmc::new(),
             dmc_mode: 0x01, // Default to read mode
         };
@@ -690,7 +690,11 @@ impl MapWrite for Exrom {
                 // [DDDD DDDD] PCM Data
                 if self.dmc_mode == 0 {
                     // Write mode
-                    self.dmc.output = val;
+                    if val == 0x00 {
+                        self.dmc.irq_enabled = true;
+                    } else {
+                        self.dmc.output = val;
+                    }
                 }
             }
             0x5015 => {
