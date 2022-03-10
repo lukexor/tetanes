@@ -557,8 +557,46 @@ impl Mapped for Exrom {
         }
     }
 
+    fn ppu_read(&mut self, addr: u16) {
+        // Ignore palette reads
+        if addr > 0x3EFF {
+            return;
+        }
+
+        if matches!(addr, 0x2000..=0x3EFF)
+            && self.regs.exmode == ExMode::Attr
+            && (addr & 0x03FF) < ATTR_OFFSET
+            && (self.ppu_status.fetch_count < START_SPR_FETCH
+                || self.ppu_status.fetch_count >= END_SPR_FETCH)
+        {
+            self.tile_cache = addr & 0x03FF;
+        }
+
+        // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
+        let status = &mut self.ppu_status;
+        if matches!(addr, 0x2000..=0x2FFF) && addr == status.prev_addr {
+            status.prev_match += 1;
+            if status.prev_match == 2 {
+                if status.in_frame {
+                    status.scanline = status.scanline.wrapping_add(1);
+                    if status.scanline == self.regs.irq_scanline {
+                        self.irq_pending = true;
+                    }
+                } else {
+                    status.in_frame = true;
+                    status.scanline = 0;
+                }
+                status.fetch_count = 0;
+            }
+        } else {
+            status.prev_match = 0;
+        }
+        status.prev_addr = addr;
+        status.reading = true;
+    }
+
     #[inline]
-    fn bus_write(&mut self, addr: u16, val: u8) {
+    fn ppu_write(&mut self, addr: u16, val: u8) {
         self.ppu_status.write(addr, val);
     }
 }
@@ -566,6 +604,17 @@ impl Mapped for Exrom {
 impl MapRead for Exrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         match addr {
+            0x0000..=0x1FFF => {
+                self.ppu_status.fetch_count += 1;
+
+                if self.ppu_status.sprite8x16 {
+                    match self.ppu_status.fetch_count {
+                        START_SPR_FETCH => self.update_chr_banks(ChrBank::Spr),
+                        END_SPR_FETCH => self.update_chr_banks(ChrBank::Bg),
+                        _ => (),
+                    }
+                }
+            }
             0x2000..=0x3EFF => {
                 // Detect split
                 let offset = addr % NT_SIZE;
@@ -582,49 +631,6 @@ impl MapRead for Exrom {
             }
             _ => (),
         }
-
-        if matches!(addr, 0x2000..=0x3EFF) {
-            self.ppu_status.fetch_count += 1;
-            // println!("fetch {} -> ${:04X}", self.ppu_status.fetch_count, addr);
-
-            if self.ppu_status.sprite8x16 {
-                match self.ppu_status.fetch_count {
-                    START_SPR_FETCH => self.update_chr_banks(ChrBank::Spr),
-                    END_SPR_FETCH => self.update_chr_banks(ChrBank::Bg),
-                    _ => (),
-                }
-            }
-
-            if self.regs.exmode == ExMode::Attr
-                && (addr & 0x03FF) < ATTR_OFFSET
-                && (self.ppu_status.fetch_count < START_SPR_FETCH
-                    || self.ppu_status.fetch_count >= END_SPR_FETCH)
-            {
-                self.tile_cache = addr & 0x03FF;
-            }
-
-            let status = &mut self.ppu_status;
-            if matches!(addr, 0x2000..=0x2FFF) && addr == status.prev_addr {
-                status.prev_match += 1;
-                if status.prev_match == 2 {
-                    if status.in_frame {
-                        status.scanline = status.scanline.wrapping_add(1);
-                        if status.scanline == self.regs.irq_scanline {
-                            self.irq_pending = true;
-                        }
-                    } else {
-                        status.in_frame = true;
-                        status.scanline = 0;
-                    }
-                    status.fetch_count = 0;
-                }
-            } else {
-                status.prev_match = 0;
-            }
-            status.prev_addr = addr;
-            status.reading = true;
-        }
-
         self.map_peek(addr)
     }
 

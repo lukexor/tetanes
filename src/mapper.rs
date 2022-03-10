@@ -130,7 +130,14 @@ pub trait Mapped {
         0x00
     }
 
-    fn bus_write(&mut self, _addr: u16, _val: u8) {}
+    #[inline]
+    fn ppu_addr(&mut self, _addr: u16) {}
+
+    #[inline]
+    fn ppu_read(&mut self, _addr: u16) {}
+
+    #[inline]
+    fn ppu_write(&mut self, _addr: u16, _val: u8) {}
 }
 
 #[derive(Debug, Copy, Clone)]

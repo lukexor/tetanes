@@ -65,7 +65,6 @@ struct TxRegs {
     irq_enabled: bool,
     irq_reload: bool,
     last_clock: u16,
-    next_clock: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +90,6 @@ impl TxRegs {
             irq_enabled: false,
             irq_reload: false,
             last_clock: 0x0000,
-            next_clock: 0x0000,
         }
     }
 }
@@ -218,13 +216,13 @@ impl Txrom {
 
     fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
-            self.regs.next_clock = (addr >> 12) & 1;
+            let next_clock = (addr >> 12) & 1;
             let (last, next) = if self.revision == Mmc3Rev::Acc {
                 (1, 0)
             } else {
                 (0, 1)
             };
-            if self.regs.last_clock == last && self.regs.next_clock == next {
+            if self.regs.last_clock == last && next_clock == next {
                 let counter = self.regs.irq_counter;
                 if counter == 0 || self.regs.irq_reload {
                     self.regs.irq_counter = self.regs.irq_latch;
@@ -239,7 +237,7 @@ impl Txrom {
                 }
                 self.regs.irq_reload = false;
             }
-            self.regs.last_clock = self.regs.next_clock;
+            self.regs.last_clock = next_clock;
         }
     }
 }
@@ -256,7 +254,7 @@ impl Mapped for Txrom {
     }
 
     #[inline]
-    fn bus_write(&mut self, addr: u16, _val: u8) {
+    fn ppu_addr(&mut self, addr: u16) {
         self.clock_irq(addr);
     }
 }

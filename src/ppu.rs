@@ -383,10 +383,6 @@ impl Ppu {
         let x_bits = (v >> 2) & 0x07;
         let addr = ATTR_START | nametable_select | y_bits | x_bits;
         self.frame.attribute = self.vram.read(addr);
-        // println!(
-        //     "bg attr fetch ({}, {}) -> ${:04X}",
-        //     self.cycle, self.scanline, addr
-        // );
         // If the top bit of the low 3 bits is set, shift to next quadrant
         if self.regs.coarse_y() & 2 > 0 {
             self.frame.attribute >>= 4;
@@ -408,10 +404,6 @@ impl Ppu {
                 // Fetch BG tile lo bitmap
                 let tile_addr =
                     self.regs.background_select() + self.frame.nametable * 16 + self.regs.fine_y();
-                // println!(
-                //     "bg fetch ({}, {}) -> ${:04X}",
-                //     self.cycle, self.scanline, tile_addr
-                // );
                 self.frame.tile_lo = self.vram.read(tile_addr);
             }
             7 => {
@@ -610,9 +602,6 @@ impl Ppu {
         self.cycle_count = self.cycle_count.wrapping_add(1);
         self.frame_cycles = (self.frame_cycles + 1) % 3;
         if self.cycle > cycle_end {
-            // if self.cycle_count > POWER_ON_CYCLES {
-            //     println!("scanline start: {}", self.scanline);
-            // }
             self.cycle = 0;
             self.scanline += 1;
             if self.scanline > PRERENDER_SCANLINE {
@@ -783,7 +772,7 @@ impl Ppu {
         // of new status
         self.vram
             .cart_mut()
-            .bus_write(0x2002, self.regs.peek_status());
+            .ppu_write(0x2002, self.regs.peek_status());
         status
     }
 
@@ -816,7 +805,7 @@ impl Ppu {
         // Ensure our mapper knows vbl changed
         self.vram
             .cart_mut()
-            .bus_write(0x2002, self.regs.peek_status());
+            .ppu_write(0x2002, self.regs.peek_status());
     }
 
     #[inline]
@@ -825,7 +814,7 @@ impl Ppu {
         // Ensure our mapper knows vbl changed
         self.vram
             .cart_mut()
-            .bus_write(0x2002, self.regs.peek_status());
+            .ppu_write(0x2002, self.regs.peek_status());
     }
 
     #[must_use]
@@ -912,7 +901,7 @@ impl Ppu {
             return;
         }
         self.regs.write_addr(val);
-        self.vram.cart_mut().bus_write(self.regs.v, val);
+        self.vram.cart_mut().ppu_addr(self.regs.v);
     }
 
     /*
@@ -946,7 +935,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.cart_mut().bus_write(self.regs.v, val);
+        self.vram.cart_mut().ppu_addr(self.regs.v);
         val
     }
 
@@ -972,7 +961,7 @@ impl Ppu {
         } else {
             self.regs.increment_v();
         }
-        self.vram.cart_mut().bus_write(self.regs.v, val);
+        self.vram.cart_mut().ppu_addr(self.regs.v);
     }
 }
 
@@ -1063,6 +1052,7 @@ impl MemRead for Ppu {
 impl MemWrite for Ppu {
     #[inline]
     fn write(&mut self, addr: u16, val: u8) {
+        self.vram.cart_mut().ppu_write(addr, val);
         self.regs.open_bus = val;
         match addr {
             0x2000 => self.write_ppuctrl(val),   // PPUCTRL

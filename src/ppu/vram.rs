@@ -98,16 +98,16 @@ impl Vram {
 
 impl MemRead for Vram {
     fn read(&mut self, addr: u16) -> u8 {
-        let cart_data = self.cart_mut().read(addr); // Some carts spy on PPU reads
+        self.cart_mut().ppu_read(addr);
         match addr {
-            0x0000..=0x1FFF => cart_data,
+            0x0000..=0x1FFF => self.cart_mut().read(addr),
             0x2000..=0x3EFF => {
                 // Use PPU Nametables or Cartridge RAM
                 if self.cart().use_ciram(addr) {
                     let mirror_addr = self.nametable_addr(addr);
                     self.nametable.read(mirror_addr % VRAM_SIZE as u16)
                 } else {
-                    cart_data
+                    self.cart_mut().read(addr)
                 }
             }
             0x3F00..=0x3FFF => {
@@ -117,7 +117,7 @@ impl MemRead for Vram {
                 }
                 self.palette.read(addr)
             }
-            _ => 0,
+            _ => 0x00,
         }
     }
 
@@ -134,7 +134,7 @@ impl MemRead for Vram {
                 }
             }
             0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
-            _ => 0,
+            _ => 0x00,
         }
     }
 }

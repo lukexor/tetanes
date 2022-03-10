@@ -275,7 +275,7 @@ impl Powered for ControlDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::MemRead;
+    use crate::memory::{MemRead, MemWrite};
     use std::{fs::File, io::BufReader, path::PathBuf};
 
     fn load(file: &str) -> ControlDeck {
@@ -332,16 +332,30 @@ mod tests {
     fn apu_timing() {
         let rom = "test_roms/cpu/nestest.nes";
         let mut deck = load(rom);
+        deck.cpu.bus.write(0x4017, 0x00);
+        let mut irq_cycles = vec![];
         for _ in 0..=29840 {
-            let apu = &deck.cpu.bus.apu;
-            println!(
-                "{}: counter: {}, step: {}, irq: {}",
-                deck.cpu.cycle_count,
-                apu.frame_sequencer().divider.counter,
-                apu.frame_sequencer().sequencer.step,
-                apu.irq_pending
-            );
             deck.clock();
+            if deck.cpu.bus.apu.irq_pending {
+                irq_cycles.push(deck.cpu.cycle_count);
+                deck.cpu.bus.read(0x4015);
+            }
         }
+        assert_eq!(deck.cpu.cycle_count, 98172, "cpu cycle count should match");
+        let frame_seq = deck.cpu.bus.apu.frame_sequencer();
+        assert_eq!(
+            frame_seq.divider.counter, 1626.5,
+            "frame sequencer divider should match"
+        );
+        assert_eq!(
+            frame_seq.sequencer.step, 2,
+            "frame sequencer step should match"
+        );
+        assert_eq!(
+            irq_cycles,
+            vec![29831, 59662, 89491],
+            "apu irq should occur on correct cycles"
+        );
+        assert!(!deck.cpu.bus.apu.irq_pending, "apu irq should be clear");
     }
 }

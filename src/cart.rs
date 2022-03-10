@@ -232,9 +232,18 @@ impl Mapped for Cart {
     }
 
     #[inline]
-    fn bus_write(&mut self, addr: u16, val: u8) {
-        self.open_bus = val;
-        self.mapper.bus_write(addr, val);
+    fn ppu_addr(&mut self, addr: u16) {
+        self.mapper.ppu_addr(addr);
+    }
+
+    #[inline]
+    fn ppu_read(&mut self, addr: u16) {
+        self.mapper.ppu_read(addr);
+    }
+
+    #[inline]
+    fn ppu_write(&mut self, addr: u16, val: u8) {
+        self.mapper.ppu_write(addr, val);
     }
 }
 

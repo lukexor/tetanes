@@ -28,20 +28,27 @@
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
 `TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in
-1983, written using [Rust][], [SDL2][] and [WASM][].
+Japan in 1983 and North America in 1986, written using [Rust][], [SDL2][] and
+[WASM][].
 
 It started as a personal curiosity that turned into a passion project. It is
-still a work-in-progress, but I hope to transform it into a fully-featured NES
-emulator that can play most games as accurately as possible. It is my hope to
-see a Rust emulator rise in popularity and compete with the more popular C and
-C++ versions.
+still a work-in-progress with new features and improvements constantly being added.
+It is already a fairly accurate emulator that can play most games with several
+debugging features.
 
-`TetaNES` is also meant to showcase how clean and readable low-level Rust
-programs can be in addition to them having the type and memory-safety guarantees
-that Rust is known for. Many features of Rust are leveraged in this project
-including traits, trait objects, generics, matching, and iterators.
+`TetaNES` is also meant to showcase how great Rust is in addition to having the
+type and memory-safety guarantees that Rust is known for. Many features of Rust
+are leveraged in this project including complex enums, traits, trait objects,
+generics, matching, and iterators.
 
-Try it out in your [browser](http://dev.lukeworks.tech/tetanes)!
+There are a few uses of `unsafe` for coordinating NES components to simplify
+the architecture and increase performance. The NES hardware is highly integrated
+since the address and data buses are mutable global state which is normally
+restricted in Rust, but is safe here given the synchronized nature of the
+emulation.
+
+`TetaNES` also compiles for the web! Try it out in your
+[browser](http://dev.lukeworks.tech/tetanes)!
 
 ## Minimum Supported Rust Version (MSRV)
 
@@ -107,7 +114,7 @@ Support for the following mappers is currently implemented or in development:
 | #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
 | --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
 | 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                 10.14% |
-| 001 | SxROM/MMC1             | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.90% |
+| 001 | SxROM/MMC1B/C          | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.90% |
 | 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~270                   |                 11.08% |
 | 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
 | 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.58% |
@@ -116,7 +123,7 @@ Support for the following mappers is currently implemented or in development:
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
 | 066 | GxROM                  | Super Mario Bros. + Duck Hunt             |   ~17                   |              &lt;0.01% |
 | 071 | BF9093/BF9097          | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
-| 155 | MMC1A                  | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
+| 155 | SxROM/MMC1A            | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
 |     |                        |                                           | ~2085 / 2437            |                 85.56% |
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)

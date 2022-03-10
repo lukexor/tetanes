@@ -4,7 +4,6 @@ use crate::{
     common::Powered,
     hashmap,
     input::Input,
-    mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
     ppu::Ppu,
     NesResult,
@@ -198,7 +197,6 @@ impl MemRead for Bus {
 
 impl MemWrite for Bus {
     fn write(&mut self, addr: u16, val: u8) {
-        self.cart.bus_write(addr, val);
         self.open_bus = val;
         match addr {
             0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x0800..=0x1FFF are mirrored
