@@ -38,7 +38,7 @@ pub(crate) enum AxisDirection {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Input {
-    Key((Key, KeyMod)),
+    Key((GamepadSlot, Key, KeyMod)),
     Button((GamepadSlot, ControllerButton)),
     Axis((GamepadSlot, Axis, AxisDirection)),
 }
@@ -46,7 +46,7 @@ pub(crate) enum Input {
 impl fmt::Display for Input {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Input::Key((key, keymod)) => {
+            Input::Key((_, key, keymod)) => {
                 if keymod.is_empty() {
                     write!(f, "{:?}", key)
                 } else {
@@ -65,6 +65,7 @@ impl fmt::Display for Input {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct KeyBinding {
+    player: GamepadSlot,
     key: Key,
     keymod: KeyMod,
     action: Action,
@@ -107,7 +108,10 @@ impl InputBindings {
 
         let mut bindings = HashMap::new();
         for bind in input_binds.keys {
-            bindings.insert(Input::Key((bind.key, bind.keymod)), bind.action);
+            bindings.insert(
+                Input::Key((bind.player, bind.key, bind.keymod)),
+                bind.action,
+            );
         }
         for bind in input_binds.buttons {
             bindings.insert(Input::Button((bind.player, bind.button)), bind.action);
@@ -255,14 +259,26 @@ impl Nes {
         event: KeyEvent,
         pressed: bool,
     ) -> PixResult<bool> {
-        let input = Input::Key((event.key, event.keymod));
-        self.config
-            .input_bindings
-            .get(&input)
-            .copied()
-            .map_or(Ok(false), |action| {
-                self.handle_input_action(s, GamepadSlot::One, action, pressed, event.repeat)
-            })
+        for slot in [
+            GamepadSlot::One,
+            GamepadSlot::Two,
+            GamepadSlot::Three,
+            GamepadSlot::Four,
+        ] {
+            let input = Input::Key((slot, event.key, event.keymod));
+            if let Ok(true) = self
+                .config
+                .input_bindings
+                .get(&input)
+                .copied()
+                .map_or(Ok(false), |action| {
+                    self.handle_input_action(s, slot, action, pressed, event.repeat)
+                })
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     #[inline]

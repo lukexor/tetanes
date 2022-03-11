@@ -319,7 +319,7 @@ When using the WASM version in the browser, also include:
   - [x] 1-2 Player w/ Standard Controllers
   - [x] Turbo Buttons
   - [ ] Zapper (Light Gun)
-  - [ ] 3-4 Player Support ([#32](https://github.com/lukexor/tetanes/issues/32))
+  - [x] 3-4 Player Support ([#32](https://github.com/lukexor/tetanes/issues/32))
 - Cartridge
   - [x] Battery-backed Save RAM
   - [x] iNES Format
@@ -331,9 +331,10 @@ When using the WASM version in the browser, also include:
     - [x] Mapper 002 - UxROM
     - [x] Mapper 003 - CNROM
     - [x] Mapper 004 - TxROM/MMC3
-    - [ ] Mapper 005 - ExROM/MMC5 (works, but extra sound support is missing)
+    - [x] Mapper 005 - ExROM/MMC5
     - [x] Mapper 007 - AxROM
     - [x] Mapper 009 - PxROM/MMC2
+    - [x] Mapper 066 - GxROM
     - [x] Mapper 071 - BF9093/BF9097
     - [x] Mapper 155 - MMC1A
 - [x] User Interface (UI)
