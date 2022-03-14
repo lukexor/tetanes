@@ -542,7 +542,7 @@ impl Ppu {
         let red = SYSTEM_PALETTE[palette_idx];
         let green = SYSTEM_PALETTE[palette_idx + 1];
         let blue = SYSTEM_PALETTE[palette_idx + 2];
-        let idx = 4 * (x + y * width) as usize;
+        let idx = RENDER_CHANNELS * (x + y * width) as usize;
         pixels[idx] = red;
         pixels[idx + 1] = green;
         pixels[idx + 2] = blue;

@@ -85,6 +85,7 @@ pub struct Cpu {
     pub last_irq: bool,
     pub last_nmi: bool,
     pub dmc_dma: bool,
+    pub debugging: bool,
 }
 
 impl Cpu {
@@ -109,6 +110,7 @@ impl Cpu {
             last_irq: false,
             last_nmi: false,
             dmc_dma: false,
+            debugging: false,
         }
     }
 
@@ -690,6 +692,9 @@ impl Cpu {
 
     // Print the current instruction and status
     pub fn print_instruction(&self) {
+        if !self.debugging {
+            return;
+        }
         let mut pc = self.pc;
         let disasm = self.disassemble(&mut pc);
 

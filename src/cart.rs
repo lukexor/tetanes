@@ -12,7 +12,12 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use log::{debug, info};
-use std::{fmt, io::Read};
+use std::{
+    fmt,
+    fs::File,
+    io::{BufReader, Read},
+    path::Path,
+};
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
@@ -56,7 +61,7 @@ pub struct NesHeader {
 #[derive(Default, Clone)]
 #[must_use]
 pub struct Cart {
-    pub rom: String,
+    pub name: String,
     pub header: NesHeader,
     pub ram_state: RamState,
     pub mirroring: Mirroring,
@@ -72,7 +77,7 @@ impl Cart {
     #[inline]
     pub fn new() -> Self {
         Self {
-            rom: String::new(),
+            name: String::new(),
             ram_state: RamState::Random,
             header: NesHeader::new(),
             mirroring: Mirroring::default(),
@@ -82,6 +87,13 @@ impl Cart {
             mapper: Empty.into(),
             open_bus: 0x00,
         }
+    }
+
+    pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
+        let path = path.as_ref();
+        let rom = File::open(path).with_context(|| format!("failed to open rom {:?}", path))?;
+        let mut rom = BufReader::new(rom);
+        Self::from_rom(path.to_string_lossy(), &mut rom, RamState::AllZeros)
     }
 
     /// Creates a new Cart instance by reading in a `.nes` file
@@ -94,11 +106,12 @@ impl Cart {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom<F: Read>(
-        rom: &str,
-        mut rom_data: &mut F,
-        ram_state: RamState,
-    ) -> NesResult<Self> {
+    pub fn from_rom<S, F>(name: S, mut rom_data: &mut F, ram_state: RamState) -> NesResult<Self>
+    where
+        S: ToString,
+        F: Read,
+    {
+        let name = name.to_string();
         let header = NesHeader::load(&mut rom_data)?;
         let prg_ram_size = Self::calculate_ram_size("prg", header.prg_ram_shift)?;
         let chr_ram_size = Self::calculate_ram_size("chr", header.chr_ram_shift)?;
@@ -111,7 +124,7 @@ impl Cart {
                 .unwrap_or_else(|_| "unknown".to_string());
             format!(
                 "invalid rom header \"{}\". prg-rom banks: {}. bytes remaining: {}",
-                rom, header.prg_rom_banks, bytes_rem
+                name, header.prg_rom_banks, bytes_rem
             )
         })?;
         let prg_rom = Memory::rom(prg_data);
@@ -124,7 +137,7 @@ impl Cart {
                 .unwrap_or_else(|_| "unknown".to_string());
             format!(
                 "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
-                rom, header.chr_rom_banks, bytes_rem,
+                name, header.chr_rom_banks, bytes_rem,
             )
         })?;
 
@@ -145,7 +158,7 @@ impl Cart {
         };
 
         let mut cart = Self {
-            rom: rom.to_owned(),
+            name,
             header,
             ram_state,
             mirroring,
@@ -173,6 +186,10 @@ impl Cart {
         info!("Loaded `{}`", cart);
         debug!("{:?}", cart);
         Ok(cart)
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The nametable mirroring mode defined in the header
@@ -305,7 +322,7 @@ impl fmt::Display for Cart {
         write!(
             f,
             "{} - {}, CHR-{}: {}K, PRG-ROM: {}K, PRG-RAM: {}K, Mirroring: {:?}, Battery: {}",
-            self.rom,
+            self.name,
             self.mapper_board(),
             if self.chr.writable() { "RAM" } else { "ROM" },
             self.chr.len() / 1024,
@@ -320,7 +337,7 @@ impl fmt::Display for Cart {
 impl fmt::Debug for Cart {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         f.debug_struct("Cart")
-            .field("rom", &self.rom)
+            .field("name", &self.name)
             .field("header", &self.header)
             .field("mirroring", &self.mirroring())
             .field("battery_backed", &self.battery_backed())

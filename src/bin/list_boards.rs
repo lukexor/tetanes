@@ -2,12 +2,10 @@ use log::info;
 use std::{
     env,
     ffi::OsStr,
-    fs::File,
-    io::BufReader,
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tetanes::{cart::NesHeader, NesResult};
+use tetanes::{cart::Cart, NesResult};
 
 fn main() -> NesResult<()> {
     env::set_var("RUST_LOG", "info");
@@ -44,11 +42,8 @@ fn main() -> NesResult<()> {
 }
 
 fn get_mapper<P: AsRef<Path>>(path: P) -> NesResult<String> {
-    let path = path.as_ref();
-    let file = File::open(path).expect("valid path");
-    let mut reader = BufReader::new(file);
-    let board = NesHeader::load(&mut reader)?.mapper_board();
-    Ok(format!("{:<30} {:?}", board, path))
+    let cart = Cart::from_path(path)?;
+    Ok(format!("{:<30} {:?}", cart.mapper_board(), cart.name()))
 }
 
 #[derive(StructOpt, Debug)]

@@ -67,12 +67,14 @@ impl Nes {
                     .resizable()
                     .build()?;
                 self.cpu_debugger = Some(View::new(window_id, None));
+                self.control_deck.cpu_mut().debugging = true;
                 if self.control_deck.is_running() {
                     self.mode = Mode::Paused;
                 }
             }
             Some(debugger) => {
                 s.close_window(debugger.window_id)?;
+                self.control_deck.cpu_mut().debugging = false;
                 self.cpu_debugger = None;
             }
         }
@@ -142,7 +144,7 @@ impl Nes {
                     if let Some(view) = self.emulation {
                         if s.focused_window(view.window_id) {
                             let m = s.mouse_pos() / self.config.scale as i32;
-                            let mx = (m.x() as f32 * 7.0 / 8.0) as u32;
+                            let mx = (m.x() as f32 * 7.0 / 8.0) as i32; // Adjust ratio
                             s.text(&format!("Mouse: {:3}, {:3}", mx, m.y()))?;
                         } else {
                             s.text("Mouse: 0, 0")?;
