@@ -402,7 +402,12 @@ impl Nes {
             NesState::TogglePause => {
                 self.mode = match self.mode {
                     Mode::Playing | Mode::Recording | Mode::Replaying => Mode::Paused,
-                    Mode::Paused | Mode::PausedBg => Mode::Playing,
+                    Mode::Paused | Mode::PausedBg => {
+                        if self.cpu_debugger.is_some() {
+                            self.control_deck.clock();
+                        }
+                        Mode::Playing
+                    }
                     Mode::InMenu(..) if self.control_deck.is_running() => Mode::Playing,
                     _ => self.mode,
                 };
@@ -613,12 +618,12 @@ impl Nes {
             DebugAction::IncScanline if self.ppu_debugger.is_some() => {
                 let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT as u16 - 1);
-                self.control_deck.set_debug_scanline(self.scanline);
+                self.control_deck.ppu_mut().debug_scanline = self.scanline;
             }
             DebugAction::DecScanline if self.ppu_debugger.is_some() => {
                 let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = self.scanline.saturating_sub(decrement);
-                self.control_deck.set_debug_scanline(self.scanline);
+                self.control_deck.ppu_mut().debug_scanline = self.scanline;
             }
             _ => (),
         }

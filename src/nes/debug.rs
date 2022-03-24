@@ -1,7 +1,7 @@
 use crate::{
     common::Clocked,
     cpu::StatusRegs,
-    memory::{MemAccess, MemRead},
+    memory::MemRead,
     nes::{Mode, Nes, View},
     ppu::{PATTERN_WIDTH, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_WIDTH},
 };
@@ -10,7 +10,7 @@ use pix_engine::prelude::*;
 const PALETTE_HEIGHT: u32 = 64;
 
 impl Nes {
-    pub(crate) fn clock_debug(&mut self) -> bool {
+    pub(crate) fn clock_debug(&mut self) -> Mode {
         // FIXME: Temporary CPU breakpoint stopgap
         // Types of breakpoints:
         // - Address: Read/Write/Execute
@@ -32,27 +32,20 @@ impl Nes {
         // Break enabled: bool
         let breakpoints = [];
 
-        while !self.control_deck.frame_complete() {
+        while !self.control_deck.frame_complete() && !self.control_deck.cpu_corrupted() {
             if breakpoints.contains(&self.control_deck.pc()) {
-                self.mode = Mode::Paused;
-                return true;
+                return Mode::Paused;
             }
-            if let (Some(addr), _) = self.control_deck.next_addr(MemAccess::Read) {
+            if let (Some(addr), _) = self.control_deck.next_addr() {
                 if breakpoints.contains(&addr) {
-                    self.mode = Mode::Paused;
-                    return true;
+                    return Mode::Paused;
                 }
             }
             self.control_deck.clock();
-            if self.control_deck.cpu_corrupted() {
-                self.mode = Mode::Paused;
-                self.error = Some("CPU encountered invalid opcode.".into());
-                return true;
-            }
         }
         self.control_deck.start_new_frame();
 
-        false
+        self.mode
     }
 
     pub(crate) fn toggle_cpu_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
@@ -119,14 +112,21 @@ impl Nes {
 
                     s.spacing()?;
                     s.text(&format!("Stack: $01{:02X}", cpu.sp))?;
+                    s.push();
                     let bytes_per_row = 8;
                     for (i, offset) in (0xE0..=0xFF).rev().enumerate() {
                         let val = cpu.peek(0x0100 | offset);
+                        if u16::from(cpu.sp) == offset {
+                            s.fill(Color::GREEN)
+                        } else {
+                            s.fill(Color::GRAY)
+                        }
                         s.text(&format!("{:02X} ", val))?;
                         if i % bytes_per_row < bytes_per_row - 1 {
                             s.same_line(None);
                         }
                     }
+                    s.pop();
                 }
 
                 {
@@ -155,9 +155,9 @@ impl Nes {
                 s.spacing()?;
                 let disasm = self.control_deck.disasm(
                     self.control_deck.pc(),
-                    self.control_deck.pc().saturating_add(20),
+                    self.control_deck.pc().saturating_add(30),
                 );
-                for instr in &disasm {
+                for instr in disasm.iter().take(10) {
                     s.text(&instr)?;
                 }
 
@@ -185,12 +185,12 @@ impl Nes {
                     Ok(())
                 })?;
                 self.control_deck.ppu_mut().update_debug();
-                self.control_deck.ppu_mut().set_debugging(true);
+                self.control_deck.ppu_mut().debugging = true;
             }
             Some(debugger) => {
                 s.close_window(debugger.window_id)?;
                 self.ppu_debugger = None;
-                self.control_deck.ppu_mut().set_debugging(false);
+                self.control_deck.ppu_mut().debugging = false;
             }
         }
         Ok(())

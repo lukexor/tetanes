@@ -308,7 +308,8 @@ impl AppState for Nes {
             'run: while self.speed_counter > 0.0 {
                 self.speed_counter -= 1.0;
                 if debugging {
-                    if !self.clock_debug() {
+                    self.mode = self.clock_debug();
+                    if self.mode == Mode::Paused {
                         break 'run;
                     }
                 } else {
@@ -320,7 +321,8 @@ impl AppState for Nes {
                     return Ok(());
                 }
             }
-            if self.config.sound {
+
+            if self.config.sound && self.mode != Mode::Paused {
                 if s.audio_size() < 2048 {
                     self.control_deck.clock_frame();
                 } else if s.audio_size() > 8192 {
@@ -428,12 +430,14 @@ impl AppState for Nes {
             Close => {
                 if matches!(self.cpu_debugger, Some(view) if view.window_id == window_id) {
                     self.cpu_debugger = None;
+                    self.control_deck.cpu_mut().debugging = false;
                     if self.control_deck.is_running() {
                         self.mode = Mode::Playing;
                     }
                 }
                 if matches!(self.ppu_debugger, Some(view) if view.window_id == window_id) {
                     self.ppu_debugger = None;
+                    self.control_deck.ppu_mut().debugging = false;
                 }
             }
             Hidden | FocusLost => {

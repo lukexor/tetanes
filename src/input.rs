@@ -215,57 +215,55 @@ impl Input {
 impl MemRead for Input {
     #[inline]
     fn read(&mut self, addr: u16) -> u8 {
-        if matches!(addr, 0x4016 | 0x4017) {
-            if self.shift_strobe == 0x01 {
-                self.reset();
+        let val = match addr {
+            0x4016 => {
+                if self.shift_strobe == 0x01 {
+                    self.reset();
+                }
+                // Read $4016 D0 8x for controller #1.
+                // Read $4016 D0 8x for controller #3.
+                // Read $4016 D0 8x for signature: 0b00010000
+                if self.gamepads[0].strobe < STROBE_MAX {
+                    self.gamepads[0].read()
+                } else if self.gamepads[2].strobe < STROBE_MAX {
+                    self.gamepads[2].read()
+                } else if self.signatures[0].strobe < STROBE_MAX {
+                    self.signatures[0].read()
+                } else {
+                    0x01
+                }
             }
-
-            let val = match addr {
-                0x4016 => {
-                    // Read $4016 D0 8x for controller #1.
-                    // Read $4016 D0 8x for controller #3.
-                    // Read $4016 D0 8x for signature: 0b00010000
-                    if self.gamepads[0].strobe < STROBE_MAX {
-                        self.gamepads[0].read()
-                    } else if self.gamepads[2].strobe < STROBE_MAX {
-                        self.gamepads[2].read()
-                    } else if self.signatures[0].strobe < STROBE_MAX {
-                        self.signatures[0].read()
-                    } else {
-                        0x01
-                    }
+            0x4017 => {
+                if self.shift_strobe == 0x01 {
+                    self.reset();
                 }
-                0x4017 => {
-                    // Read $4017 D0 8x for controller #2.
-                    // Read $4017 D0 8x for controller #4.
-                    // Read $4017 D0 8x for signature: 0b00100000
-                    if self.gamepads[1].strobe < STROBE_MAX {
-                        self.gamepads[1].read()
-                    } else if self.gamepads[3].strobe < STROBE_MAX {
-                        self.gamepads[3].read()
-                    } else if self.signatures[1].strobe < STROBE_MAX {
-                        self.signatures[1].read()
-                    } else {
-                        0x01
-                    }
+                // Read $4017 D0 8x for controller #2.
+                // Read $4017 D0 8x for controller #4.
+                // Read $4017 D0 8x for signature: 0b00100000
+                if self.gamepads[1].strobe < STROBE_MAX {
+                    self.gamepads[1].read()
+                } else if self.gamepads[3].strobe < STROBE_MAX {
+                    self.gamepads[3].read()
+                } else if self.signatures[1].strobe < STROBE_MAX {
+                    self.signatures[1].read()
+                } else {
+                    0x01
                 }
-                _ => self.open_bus,
-            };
-            self.open_bus = val;
-            val | 0x40
-        } else {
-            self.open_bus
-        }
+            }
+            _ => self.open_bus,
+        };
+        self.open_bus = val;
+        val | 0x40
     }
 
     #[inline]
     fn peek(&self, addr: u16) -> u8 {
-        match addr {
+        let val = match addr {
             0x4016 => {
                 if self.gamepads[0].strobe < STROBE_MAX {
-                    self.gamepads[0].peek() | 0x40
+                    self.gamepads[0].peek()
                 } else if self.gamepads[2].strobe < STROBE_MAX {
-                    self.gamepads[2].peek() | 0x40
+                    self.gamepads[2].peek()
                 } else if self.signatures[0].strobe < STROBE_MAX {
                     self.signatures[0].peek()
                 } else {
@@ -274,9 +272,9 @@ impl MemRead for Input {
             }
             0x4017 => {
                 if self.gamepads[1].strobe < STROBE_MAX {
-                    self.gamepads[1].peek() | 0x40
+                    self.gamepads[1].peek()
                 } else if self.gamepads[3].strobe < STROBE_MAX {
-                    self.gamepads[3].peek() | 0x40
+                    self.gamepads[3].peek()
                 } else if self.signatures[1].strobe < STROBE_MAX {
                     self.signatures[1].peek()
                 } else {
@@ -284,7 +282,8 @@ impl MemRead for Input {
                 }
             }
             _ => self.open_bus,
-        }
+        };
+        val | 0x40
     }
 }
 

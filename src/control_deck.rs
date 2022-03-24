@@ -5,7 +5,7 @@ use crate::{
     common::{Clocked, Powered},
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
     input::{Gamepad, GamepadSlot},
-    memory::{MemAccess, RamState},
+    memory::RamState,
     ppu::{Ppu, VideoFormat},
     NesResult,
 };
@@ -121,10 +121,10 @@ impl ControlDeck {
         self.cpu.next_instr()
     }
 
-    /// Returns the next address on the bus to be either read or written to along with the current
-    /// value at the target address.
-    pub fn next_addr(&self, access: MemAccess) -> (Option<u16>, Option<u16>) {
-        self.cpu.next_addr(access)
+    /// Returns the next address on the bus with the current value at the target address, if
+    /// appropriate.
+    pub fn next_addr(&self) -> (Option<u16>, Option<u16>) {
+        self.cpu.next_addr()
     }
 
     /// Returns the address at the top of the stack.
@@ -142,12 +142,12 @@ impl ControlDeck {
         disassembly
     }
 
-    pub fn set_debug_scanline(&mut self, scanline: u16) {
-        self.cpu.bus.ppu.set_debug_scanline(scanline);
-    }
-
     pub fn cpu(&self) -> &Cpu {
         &self.cpu
+    }
+
+    pub fn cpu_mut(&mut self) -> &mut Cpu {
+        &mut self.cpu
     }
 
     pub fn ppu(&self) -> &Ppu {
@@ -217,7 +217,8 @@ impl ControlDeck {
 impl ControlDeck {
     fn clock_turbo(&mut self) {
         self.turbo_clock += 1;
-        if self.turbo_clock > 3 {
+        // Every 2 frames, ~30Hz turbo
+        if self.turbo_clock > 2 {
             self.turbo_clock = 0;
         }
         let turbo = self.turbo_clock == 0;
