@@ -290,7 +290,7 @@ to create it. A good guideline for what to include is:
 When using the WASM version in the browser, also include:
 - Web browser and version (e.g. Chrome 77.0.3865)
 
-## Features
+## Roadmap
 
 - NES Formats & Run Modes
   - [x] NTSC
@@ -300,28 +300,19 @@ When using the WASM version in the browser, also include:
 - Central Processing Unit (CPU)
   - [x] Official Instructions
   - [x] Unofficial Instructions
-  - [x] Interrupts
+  - [x] Cycle Accurate
 - Picture Processing Unit (PPU)
-  - [x] VRAM
-  - [x] Background
-  - [x] Sprites
-  - [x] NTSC TV Artifact Effects
-  - [x] Emphasize RGB/Grayscale
-  - [ ] Accurate OAM management ([#31](https://github.com/lukexor/tetanes/issues/31))
+  - [x] NTSC Filter
 - Audio Processing Unit (APU)
   - [x] Pulse Channels
   - [x] Triangle Channel
   - [x] Noise Channel
   - [x] Delta Modulation Channel (DMC)
-  - [ ] Accurate DMC timing ([#30](https://github.com/lukexor/tetanes/issues/30))
 - Player Input
-  - [x] 1-Player w/ Keyboard
-  - [x] 1-2 Player w/ Standard Controllers
-  - [x] Turbo Buttons
+  - [x] 1-2 Player w/ Keyboard or Controllers
+  - [ ] 3-4 Player Support w/ Controllers
   - [ ] Zapper (Light Gun)
-  - [x] 3-4 Player Support ([#32](https://github.com/lukexor/tetanes/issues/32))
 - Cartridge
-  - [x] Battery-backed Save RAM
   - [x] iNES Format
   - [x] NES 2.0 Format
   - [ ] Complete NES 2.0 support
@@ -338,20 +329,15 @@ When using the WASM version in the browser, also include:
     - [x] Mapper 071 - BF9093/BF9097
     - [x] Mapper 155 - MMC1A
 - [x] User Interface (UI)
-  - [x] UI Notification messages
   - [x] SDL2
   - [x] WebAssembly (WASM) - Run TetaNES in the browser!
-  - [x] Multiple Windows
   - [x] Configurable keybinds and default settings
   - Menus
     - [x] Configuration options
-    - [ ] Custom Keybinds
+    - [ ] Customize Keybinds & Controllers
     - [x] Load/Open ROM with file browser
     - [ ] Recent Game Selection
     - [x] About Menu
-  - [x] Pause
-  - [x] Reset
-  - [x] Power Cycle
   - [x] Increase/Decrease Speed
   - [x] Fast-forward
   - [ ] Instant Rewind (5 seconds)
@@ -364,22 +350,29 @@ When using the WASM version in the browser, also include:
   - [x] Toggle Sound
     - [x] Toggle individual sound channels
   - [x] Toggle NTSC Filter
-  - [x] Game Genie
+  - Game Genie Support
+    - [x] Command-Line
+    - [ ] UI Menu
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
   - [ ] Network Multi-player
   - [ ] Self Updater
 - Testing/Debugging/Documentation
-  - [x] CPU Debugger (Displays CPU status, registers, and disassembly)
+  - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
     - [x] Step Into/Out/Over
-  - [x] PPU Debugger (Displays PPU sprite patterns and color palettes)
+    - [ ] Breakpoints
+    - [ ] Modify state
+    - [ ] Labels
+  - [ ] Hex Memory Editor & Debugger
+  - PPU Viewer
     - [X] Scanline Hit Configuration (For debugging IRQ Nametable changes)
-  - [x] Unit/Integration tests (run with cargo test)
-    - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
-    - [ ] Other tests (Missing a lot here)
-  - [x] Test ROMs (most pass, many still do not)
-    - [ ] Automated ROM tests (in progress now that action recording is
-      finished)
-  - [ ] Documentation
+    - [x] Nametable Viewer (background rendering)
+    - [x] CHR Viewer (sprite tiles)
+    - [ ] OAM Viewer (on screen sprites)
+    - [ ] Palette Viewer
+  - [ ] APU Viewer (Displays audio status and registers)
+  - [ ] 117/141 Rom tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
+    - [ ] Automated (partially)
+  - [ ] Detailed Documentation
   - Logging
     - [x] Environment logging
     - [ ] File logging
