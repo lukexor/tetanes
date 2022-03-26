@@ -94,7 +94,7 @@ impl Cpu {
             cycle_count: 0,
             step: 0,
             pc: 0x0000,
-            sp: 0xFF,
+            sp: 0x00,
             acc: 0x00,
             x: 0x00,
             y: 0x00,
@@ -261,9 +261,7 @@ impl Cpu {
                 self.pc = self.readw(IRQ_ADDR);
             }
             // Prevent NMI from triggering immediately after IRQ
-            if self.last_nmi {
-                self.last_nmi = false;
-            }
+            self.last_nmi = false;
         }
     }
 
@@ -273,7 +271,6 @@ impl Cpu {
     #[inline]
     pub fn set_nmi(&mut self, val: bool) {
         self.nmi_pending = val;
-        self.bus.ppu.nmi_pending = val;
     }
 
     //  #  address R/W description
@@ -575,7 +572,7 @@ impl Cpu {
         let instr = INSTRUCTIONS[opcode as usize];
         let mut bytes = Vec::with_capacity(3);
         let mut disasm = String::with_capacity(100);
-        disasm.push_str(&format!("${:04X}:", pc));
+        disasm.push_str(&format!("${:04X} ", pc));
         bytes.push(opcode);
         let mut addr = pc.wrapping_add(1);
         let mode = match instr.addr_mode() {
@@ -588,21 +585,21 @@ impl Cpu {
                 bytes.push(self.peek(addr));
                 addr = addr.wrapping_add(1);
                 let val = self.peek(bytes[1].into());
-                format!(" ${:02X} = #${:02X}", bytes[1], val)
+                format!(" ${:02X} = ${:02X}", bytes[1], val)
             }
             ZPX => {
                 bytes.push(self.peek(addr));
                 addr = addr.wrapping_add(1);
                 let x_offset = bytes[1].wrapping_add(self.x);
                 let val = self.peek(x_offset.into());
-                format!(" ${:02X},X @ ${:04X} = #${:02X}", bytes[1], x_offset, val)
+                format!(" ${:02X},X @ ${:02X} = ${:02X}", bytes[1], x_offset, val)
             }
             ZPY => {
                 bytes.push(self.peek(addr));
                 addr = addr.wrapping_add(1);
                 let y_offset = bytes[1].wrapping_add(self.y);
                 let val = self.peek(y_offset.into());
-                format!(" ${:02X},Y @ ${:02X} = #${:02X}", bytes[1], y_offset, val)
+                format!(" ${:02X},Y @ ${:02X} = ${:02X}", bytes[1], y_offset, val)
             }
             ABS => {
                 bytes.push(self.peek(addr));
@@ -613,7 +610,7 @@ impl Cpu {
                     format!(" ${:04X}", abs_addr)
                 } else {
                     let val = self.peek(abs_addr);
-                    format!(" ${:04X} = #${:02X}", abs_addr, val)
+                    format!(" ${:04X} = ${:02X}", abs_addr, val)
                 }
             }
             ABX => {
@@ -623,7 +620,7 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
-                format!(" ${:04X},X @ ${:04X} = #${:02X}", abs_addr, x_offset, val)
+                format!(" ${:04X},X @ ${:04X} = ${:02X}", abs_addr, x_offset, val)
             }
             ABY => {
                 bytes.push(self.peek(addr));
@@ -632,7 +629,7 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                format!(" ${:04X},Y @ ${:04X} = #${:02X}", abs_addr, y_offset, val)
+                format!(" ${:04X},Y @ ${:04X} = ${:02X}", abs_addr, y_offset, val)
             }
             IND => {
                 bytes.push(self.peek(addr));
@@ -652,7 +649,7 @@ impl Cpu {
                 let x_offset = bytes[1].wrapping_add(self.x);
                 let abs_addr = self.peekw_zp(x_offset);
                 let val = self.peek(abs_addr);
-                format!(" (${:02X},X) @ ${:04X} = #${:02X}", bytes[1], abs_addr, val)
+                format!(" (${:02X},X) @ ${:04X} = ${:02X}", bytes[1], abs_addr, val)
             }
             IDY => {
                 bytes.push(self.peek(addr));
@@ -660,7 +657,7 @@ impl Cpu {
                 let abs_addr = self.peekw_zp(bytes[1]);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                format!(" (${:02X}),Y @ ${:04X} = #${:02X}", bytes[1], y_offset, val)
+                format!(" (${:02X}),Y @ ${:04X} = ${:02X}", bytes[1], y_offset, val)
             }
             REL => {
                 bytes.push(self.peek(addr));
@@ -677,9 +674,9 @@ impl Cpu {
         *pc = addr;
         for i in 0..3 {
             if i < bytes.len() {
-                disasm.push_str(&format!("{:02X} ", bytes[i]));
+                disasm.push_str(&format!("${:02X} ", bytes[i]));
             } else {
-                disasm.push_str("   ");
+                disasm.push_str("    ");
             }
         }
         disasm.push_str(&format!("{:?}{}", instr, mode));
@@ -691,7 +688,7 @@ impl Cpu {
         let mut pc = self.pc;
         let disasm = self.disassemble(&mut pc);
 
-        let status_flags = vec!['n', 'v', '-', 'b', 'd', 'i', 'z', 'c'];
+        let status_flags = vec!['n', 'v', '-', '-', 'd', 'i', 'z', 'c'];
         let mut status_str = String::with_capacity(8);
         for (i, s) in status_flags.iter().enumerate() {
             if ((self.status >> (7 - i)) & 1) > 0 {
@@ -736,11 +733,10 @@ impl Clocked for Cpu {
             self.irq();
         }
 
+        let opcode = self.read(self.pc); // Cycle 1 of instruction
         if log_enabled!(Level::Trace) && self.debugging {
             self.print_instruction();
         }
-
-        let opcode = self.read(self.pc); // Cycle 1 of instruction
         self.pc = self.pc.wrapping_add(1);
         self.instr = INSTRUCTIONS[opcode as usize];
 
@@ -896,7 +892,7 @@ impl Powered for Cpu {
         self.x = 0x00;
         self.y = 0x00;
         self.status = POWER_ON_STATUS;
-        self.sp = 0xFF;
+        self.sp = 0x00;
         self.power_on();
     }
 }

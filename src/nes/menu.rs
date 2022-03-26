@@ -193,8 +193,8 @@ impl Nes {
                 let width = (self.config.scale * WINDOW_WIDTH) as u32;
                 let height = (self.config.scale * WINDOW_HEIGHT) as u32;
                 s.set_window_dimensions((width, height))?;
-                if let Some(view) = self.cpu_debugger {
-                    s.with_window(view.window_id, |s: &mut PixState| {
+                if let Some(debugger) = &self.debugger {
+                    s.with_window(debugger.view.window_id, |s: &mut PixState| {
                         s.set_window_dimensions((width, height))
                     })?;
                 }
@@ -235,6 +235,20 @@ impl Nes {
     }
 
     fn render_keybinds(&mut self, s: &mut PixState, menu: Menu, player: Player) -> PixResult<()> {
+        s.checkbox(
+            "Enable Zapper on Port #2",
+            &mut self.config.zapper_connected,
+        )?;
+        self.control_deck
+            .zapper_mut()
+            .set_connected(self.config.zapper_connected);
+        if self.config.zapper_connected {
+            s.cursor(None)?;
+        } else {
+            s.cursor(Cursor::arrow())?;
+        }
+        s.spacing()?;
+
         let mut selected = player as usize;
         s.next_width(200);
         if s.select_box(
@@ -248,40 +262,16 @@ impl Nes {
         s.spacing()?;
 
         self.render_gamepad_binds(player, s)?;
-        self.render_emulator_binds(player, s)?;
-        self.render_debugger_binds(player, s)?;
+        if player == Player::One {
+            self.render_emulator_binds(player, s)?;
+            self.render_debugger_binds(player, s)?;
+        }
         Ok(())
     }
 
     fn render_gamepad_binds(&mut self, _player: Player, s: &mut PixState) -> PixResult<()> {
         s.collapsing_header("Gamepad", |s: &mut PixState| {
             s.text("Coming soon!")?;
-            // let mut bindings: Vec<(&Action, &Input)> = self
-            //     .config
-            //     .input_bindings
-            //     .iter()
-            //     .filter(|(_, action)| matches!(action, Action::Gamepad(..) | Action::ZeroAxis(..)))
-            //     .map(|(binding, action)| (action, binding))
-            //     .collect();
-            // bindings.sort_by_key(|(action, _)| *action);
-            // for (action, binding) in bindings {
-            //     // Keyboard bindings are for Player One only
-            //     if matches!(binding, Input::Key(..)) && player != Player::One {
-            //         continue;
-            //     }
-            //     match action {
-            //         Action::Gamepad(btn) => {
-            //             // dbg!(binding, action);
-            //             s.text(btn)?;
-            //             s.same_line(None);
-            //             s.text(":")?;
-            //             s.same_line(None);
-            //             s.text(binding.to_string())?;
-            //         }
-            //         Action::ZeroAxis(..) => {}
-            //         _ => (),
-            //     }
-            // }
             s.spacing()?;
             Ok(())
         })?;

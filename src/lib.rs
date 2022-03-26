@@ -35,6 +35,7 @@ use structopt as _;
 pub mod apu;
 pub mod bus;
 pub mod cart;
+pub mod debugger;
 #[macro_use]
 pub mod common;
 pub mod control_deck;

@@ -165,7 +165,14 @@ impl MemRead for Bus {
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
-            0x4016..=0x4017 => self.input.read(addr),
+            0x4016 => self.input.read(addr),
+            0x4017 => {
+                if self.input.zapper.connected {
+                    self.input.read_zapper(&self.ppu)
+                } else {
+                    self.input.read(addr)
+                }
+            }
             0x4014 | 0x4018..=0x401F => self.open_bus, // APU/IO Test Mode
         };
         self.cart.bus_read(val);
@@ -194,7 +201,14 @@ impl MemRead for Bus {
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
-            0x4016 | 0x4017 => self.input.peek(addr),
+            0x4016 => self.input.peek(addr),
+            0x4017 => {
+                if self.input.zapper.connected {
+                    self.input.read_zapper(&self.ppu)
+                } else {
+                    self.input.peek(addr)
+                }
+            }
             0x4014 | 0x4018..=0x401F => self.open_bus, // APU/IO Test Mode
         }
     }

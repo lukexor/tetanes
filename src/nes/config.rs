@@ -30,6 +30,7 @@ pub(crate) struct Settings {
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
     pub(crate) speed: f32,
+    pub(crate) zapper_connected: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -45,6 +46,7 @@ pub(crate) struct Config {
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
     pub(crate) speed: f32,
+    pub(crate) zapper_connected: bool,
     pub(crate) input_bindings: InputBindings,
     pub(crate) genie_codes: Vec<String>,
     // TODO: Runtime log level
@@ -68,6 +70,7 @@ impl Config {
             save_slot: 1,
             scale: 3.0,
             speed: 1.0,
+            zapper_connected: false,
             input_bindings: InputBindings::from_file(keybinds)?,
             genie_codes: vec![],
         })
@@ -91,6 +94,7 @@ impl Config {
             save_slot: settings.save_slot,
             scale: settings.scale,
             speed: settings.speed,
+            zapper_connected: settings.zapper_connected,
             ..Config::new()?
         })
     }

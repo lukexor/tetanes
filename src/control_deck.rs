@@ -4,12 +4,13 @@ use crate::{
     cart::Cart,
     common::{Clocked, Powered},
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
-    input::{Gamepad, GamepadSlot},
+    debugger::Breakpoint,
+    input::{Gamepad, GamepadSlot, Zapper},
     memory::RamState,
     ppu::{Ppu, VideoFormat},
     NesResult,
 };
-use std::io::Read;
+use std::{io::Read, ops::ControlFlow};
 
 /// Represents an NES Control Deck
 #[derive(Debug, Clone)]
@@ -25,6 +26,7 @@ pub struct ControlDeck {
 
 impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
+    #[inline]
     pub fn new(power_state: RamState) -> Self {
         let cpu = Cpu::init(Bus::new(power_state));
         Self {
@@ -42,6 +44,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is any issue loading the ROM, then an error is returned.
+    #[inline]
     pub fn load_rom<F: Read>(&mut self, name: &str, rom: &mut F) -> NesResult<()> {
         self.power_off();
         self.loaded_rom = Some(name.to_owned());
@@ -52,28 +55,33 @@ impl ControlDeck {
     }
 
     /// Get a frame worth of pixels
+    #[inline]
     #[must_use]
     pub fn frame(&self) -> &[u8] {
         self.cpu.bus.ppu.frame()
     }
 
     /// Get audio samples.
+    #[inline]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         self.cpu.bus.apu.samples()
     }
 
     /// Clear audio samples.
+    #[inline]
     pub fn clear_audio_samples(&mut self) {
         self.cpu.bus.apu.clear_samples();
     }
 
     /// Set the emulation speed.
+    #[inline]
     pub fn set_speed(&mut self, speed: f32) {
         self.cpu.bus.apu.set_speed(speed);
     }
 
     /// Steps the control deck the number of seconds
+    #[inline]
     pub fn clock_seconds(&mut self, seconds: f32) -> usize {
         self.cycles_remaining += CPU_CLOCK_RATE * seconds;
         let mut clocks = 0;
@@ -85,18 +93,34 @@ impl ControlDeck {
         clocks
     }
 
-    /// Steps the control deck an entire frame
-    pub fn clock_frame(&mut self) -> usize {
+    #[inline]
+    pub(crate) fn debug_clock_frame(
+        &mut self,
+        breakpoints: &[Breakpoint],
+    ) -> ControlFlow<usize, usize> {
+        self.cpu.bus.input.zapper.update();
         self.clock_turbo();
         let mut clocks = 0;
         while !self.frame_complete() && !self.cpu_corrupted() {
+            if breakpoints.iter().any(|bp| bp.matches(&self.cpu)) {
+                return ControlFlow::Break(clocks);
+            }
             clocks += self.clock();
         }
         self.start_new_frame();
-        clocks
+        ControlFlow::Continue(clocks)
+    }
+
+    /// Steps the control deck an entire frame
+    #[inline]
+    pub fn clock_frame(&mut self) -> usize {
+        match self.debug_clock_frame(&[]) {
+            ControlFlow::Continue(clocks) | ControlFlow::Break(clocks) => clocks,
+        }
     }
 
     /// Steps the control deck a single scanline.
+    #[inline]
     pub fn clock_scanline(&mut self) -> usize {
         let current_scanline = self.cpu.bus.ppu.scanline;
         let mut clocks = 0;
@@ -107,32 +131,38 @@ impl ControlDeck {
     }
 
     /// Returns whether the CPU is corrupted or not.
+    #[inline]
     pub fn cpu_corrupted(&self) -> bool {
         self.cpu.corrupted
     }
 
     /// Returns the current CPU program counter.
+    #[inline]
     pub fn pc(&self) -> u16 {
         self.cpu.pc
     }
 
     /// Returns the next CPU instruction to be executed.
+    #[inline]
     pub fn next_instr(&self) -> Instr {
         self.cpu.next_instr()
     }
 
     /// Returns the next address on the bus with the current value at the target address, if
     /// appropriate.
+    #[inline]
     pub fn next_addr(&self) -> (Option<u16>, Option<u16>) {
         self.cpu.next_addr()
     }
 
     /// Returns the address at the top of the stack.
+    #[inline]
     pub fn stack_addr(&self) -> u16 {
         self.cpu.peek_stackw()
     }
 
     /// Disassemble an address range of CPU instructions.
+    #[inline]
     pub fn disasm(&self, start: u16, end: u16) -> Vec<String> {
         let mut disassembly = Vec::with_capacity(256);
         let mut addr = start;
@@ -142,30 +172,37 @@ impl ControlDeck {
         disassembly
     }
 
+    #[inline]
     pub fn cpu(&self) -> &Cpu {
         &self.cpu
     }
 
+    #[inline]
     pub fn cpu_mut(&mut self) -> &mut Cpu {
         &mut self.cpu
     }
 
+    #[inline]
     pub fn ppu(&self) -> &Ppu {
         &self.cpu.bus.ppu
     }
 
+    #[inline]
     pub fn ppu_mut(&mut self) -> &mut Ppu {
         &mut self.cpu.bus.ppu
     }
 
+    #[inline]
     pub fn apu(&self) -> &Apu {
         &self.cpu.bus.apu
     }
 
+    #[inline]
     pub fn cart(&self) -> &Cart {
         &self.cpu.bus.cart
     }
 
+    #[inline]
     pub fn apu_info(&self) {
         log::info!("DMC Period: {}", self.cpu.bus.apu.dmc.freq_timer);
         log::info!("DMC Timer: {}", self.cpu.bus.apu.dmc.freq_counter);
@@ -174,40 +211,60 @@ impl ControlDeck {
         log::info!("DMC Bytes Remaining: {}", self.cpu.bus.apu.dmc.output_bits);
     }
 
+    #[inline]
     pub fn frame_complete(&self) -> bool {
         self.cpu.bus.ppu.frame_complete
     }
 
+    #[inline]
     pub fn start_new_frame(&mut self) {
         self.cpu.bus.ppu.frame_complete = false;
     }
 
     /// Returns a mutable reference to a gamepad.
-    pub fn get_gamepad_mut(&mut self, gamepad: GamepadSlot) -> &mut Gamepad {
+    #[inline]
+    pub fn gamepad_mut(&mut self, gamepad: GamepadSlot) -> &mut Gamepad {
         &mut self.cpu.bus.input.gamepads[gamepad as usize]
     }
 
+    /// Returns a reference to the zapper.
+    #[inline]
+    pub fn zapper(&self) -> &Zapper {
+        &self.cpu.bus.input.zapper
+    }
+
+    /// Returns a mutable reference to the zapper.
+    #[inline]
+    pub fn zapper_mut(&mut self) -> &mut Zapper {
+        &mut self.cpu.bus.input.zapper
+    }
+
     /// Get the video filter for the emulation.
+    #[inline]
     pub const fn filter(&self) -> VideoFormat {
         self.cpu.bus.ppu.filter
     }
 
     /// Set the video filter for the emulation.
+    #[inline]
     pub fn set_filter(&mut self, filter: VideoFormat) {
         self.cpu.bus.ppu.filter = filter;
     }
 
     /// Returns whether a given API audio channel is enabled.
+    #[inline]
     pub fn channel_enabled(&mut self, channel: AudioChannel) -> bool {
         self.cpu.bus.apu.channel_enabled(channel)
     }
 
     /// Toggle one of the APU audio channels.
+    #[inline]
     pub fn toggle_channel(&mut self, channel: AudioChannel) {
         self.cpu.bus.apu.toggle_channel(channel);
     }
 
     /// Is control deck running.
+    #[inline]
     #[must_use]
     pub const fn is_running(&self) -> bool {
         self.running
@@ -215,6 +272,7 @@ impl ControlDeck {
 }
 
 impl ControlDeck {
+    #[inline]
     fn clock_turbo(&mut self) {
         self.turbo_clock += 1;
         // Every 2 frames, ~30Hz turbo
@@ -241,6 +299,7 @@ impl Default for ControlDeck {
 
 impl Clocked for ControlDeck {
     /// Steps the control deck a single clock cycle.
+    #[inline]
     fn clock(&mut self) -> usize {
         self.cpu.clock()
     }
@@ -248,12 +307,14 @@ impl Clocked for ControlDeck {
 
 impl Powered for ControlDeck {
     /// Powers on the console
+    #[inline]
     fn power_on(&mut self) {
         self.cpu.power_on();
         self.running = true;
     }
 
     /// Powers off the console
+    #[inline]
     fn power_off(&mut self) {
         self.cpu.power_cycle();
         self.cpu.power_off();
@@ -261,12 +322,14 @@ impl Powered for ControlDeck {
     }
 
     /// Soft-resets the console
+    #[inline]
     fn reset(&mut self) {
         self.cpu.reset();
         self.running = true;
     }
 
     /// Hard-resets the console
+    #[inline]
     fn power_cycle(&mut self) {
         self.cpu.power_cycle();
         self.running = true;

@@ -809,7 +809,7 @@ impl Cpu {
 
         self.run_cycle();
 
-        self.abs_addr = if self.rel_addr >= 128 {
+        self.abs_addr = if self.rel_addr & 0x80 == 0x80 {
             self.pc.wrapping_add(self.rel_addr | 0xFF00)
         } else {
             self.pc.wrapping_add(self.rel_addr)

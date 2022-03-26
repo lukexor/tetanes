@@ -1,6 +1,6 @@
 use crate::{
-    common::Clocked,
     cpu::StatusRegs,
+    debugger::Breakpoint,
     memory::MemRead,
     nes::{Mode, Nes, View},
     ppu::{PATTERN_WIDTH, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_WIDTH},
@@ -9,75 +9,54 @@ use pix_engine::prelude::*;
 
 const PALETTE_HEIGHT: u32 = 64;
 
-impl Nes {
-    pub(crate) fn clock_debug(&mut self) -> Mode {
-        // FIXME: Temporary CPU breakpoint stopgap
-        // Types of breakpoints:
-        // - Address: Read/Write/Execute
-        // - Address Range: R/W/E
-        // - Any
-        //
-        // Conditions:
-        // - A/X/Y/P/SP
-        // - PC
-        // - Opcode
-        // - Scanline
-        // - Cycle
-        // - Memory value
-        // - Branched
-        // - IRQ/NMI
-        // - Spr0 Hit/Spr Overflow
-        // - VBlank
-        //
-        // Break enabled: bool
-        let breakpoints = [];
+#[derive(Debug)]
+pub(crate) struct Debugger {
+    pub(crate) view: View,
+    pub(crate) breakpoints: Vec<Breakpoint>,
+}
 
-        while !self.control_deck.frame_complete() && !self.control_deck.cpu_corrupted() {
-            if breakpoints.contains(&self.control_deck.pc()) {
-                return Mode::Paused;
-            }
-            if let (Some(addr), _) = self.control_deck.next_addr() {
-                if breakpoints.contains(&addr) {
-                    return Mode::Paused;
-                }
-            }
-            self.control_deck.clock();
+impl Debugger {
+    fn new(view: View) -> Self {
+        Self {
+            view,
+            breakpoints: vec![],
         }
-        self.control_deck.start_new_frame();
-
-        self.mode
     }
+}
 
-    pub(crate) fn toggle_cpu_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
-        match self.cpu_debugger {
+impl Nes {
+    pub(crate) fn toggle_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
+        match &self.debugger {
             None => {
                 let (w, h) = s.dimensions()?;
                 let window_id = s
                     .window()
                     .with_dimensions(w, h)
-                    .with_title("CPU Debugger")
+                    .with_title("Debugger")
                     .position(10, 10)
                     .resizable()
                     .build()?;
-                self.cpu_debugger = Some(View::new(window_id, None));
+                let view = View::new(window_id, None);
+                self.debugger = Some(Debugger::new(view));
                 self.control_deck.cpu_mut().debugging = true;
                 if self.control_deck.is_running() {
                     self.mode = Mode::Paused;
                 }
             }
             Some(debugger) => {
-                s.close_window(debugger.window_id)?;
+                s.close_window(debugger.view.window_id)?;
                 self.control_deck.cpu_mut().debugging = false;
-                self.cpu_debugger = None;
+                self.debugger = None;
             }
         }
         Ok(())
     }
 
-    pub(crate) fn render_cpu_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
-        if let Some(view) = self.cpu_debugger {
-            s.with_window(view.window_id, |s: &mut PixState| {
+    pub(crate) fn render_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
+        if let Some(debugger) = &self.debugger {
+            s.with_window(debugger.view.window_id, |s: &mut PixState| {
                 s.clear()?;
+                s.fill(Color::WHITE);
                 s.stroke(None);
 
                 {
@@ -167,40 +146,42 @@ impl Nes {
         Ok(())
     }
 
-    pub(crate) fn toggle_ppu_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
-        match self.ppu_debugger {
+    pub(crate) fn toggle_ppu_viewer(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.ppu_viewer {
             None => {
                 let w = 4 * RENDER_WIDTH;
                 let h = 3 * RENDER_HEIGHT;
                 let window_id = s
                     .window()
                     .with_dimensions(w, h)
-                    .with_title("PPU Debugger")
+                    .with_title("PPU Viewer")
                     .position(10, 10)
                     .resizable()
                     .build()?;
                 s.with_window(window_id, |s: &mut PixState| {
                     let texture_id = s.create_texture(w, h, PixelFormat::Rgba)?;
-                    self.ppu_debugger = Some(View::new(window_id, Some(texture_id)));
+                    self.ppu_viewer = Some(View::new(window_id, Some(texture_id)));
                     Ok(())
                 })?;
                 self.control_deck.ppu_mut().update_debug();
                 self.control_deck.ppu_mut().debugging = true;
             }
-            Some(debugger) => {
-                s.close_window(debugger.window_id)?;
-                self.ppu_debugger = None;
+            Some(viewer) => {
+                s.close_window(viewer.window_id)?;
+                self.ppu_viewer = None;
                 self.control_deck.ppu_mut().debugging = false;
             }
         }
         Ok(())
     }
 
-    pub(crate) fn render_ppu_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
-        if let Some(view) = self.ppu_debugger {
+    pub(crate) fn render_ppu_viewer(&mut self, s: &mut PixState) -> PixResult<()> {
+        if let Some(view) = self.ppu_viewer {
             if let Some(texture_id) = view.texture_id {
                 s.with_window(view.window_id, |s: &mut PixState| {
                     s.clear()?;
+                    s.fill(Color::WHITE);
+                    s.stroke(None);
 
                     let width = RENDER_WIDTH as i32;
                     let height = RENDER_HEIGHT as i32;
@@ -352,20 +333,22 @@ impl Nes {
         Ok(())
     }
 
-    pub(crate) fn toggle_apu_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
-        match self.apu_debugger {
+    pub(crate) fn toggle_apu_viewer(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.apu_viewer {
             None => {
-                // let window_id = s
-                //     .window()
-                //     .with_dimensions(w, h)
-                //     .with_title("APU Debugger")
-                //     .position(10, 10)
-                //     .build()?;
-                // self.apu_debugger = Some(View::new(window_id, Some(texture_id)));
+                let w = 2 * RENDER_WIDTH;
+                let h = 2 * RENDER_HEIGHT;
+                let window_id = s
+                    .window()
+                    .with_dimensions(w, h)
+                    .with_title("APU Viewer")
+                    .position(10, 10)
+                    .build()?;
+                self.apu_viewer = Some(View::new(window_id, None));
             }
-            Some(debugger) => {
-                s.close_window(debugger.window_id)?;
-                self.apu_debugger = None;
+            Some(viewer) => {
+                s.close_window(viewer.window_id)?;
+                self.apu_viewer = None;
             }
         }
         Ok(())

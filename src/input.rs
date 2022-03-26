@@ -3,7 +3,9 @@
 use crate::{
     common::Powered,
     memory::{MemRead, MemWrite},
+    ppu::{Ppu, RENDER_HEIGHT, RENDER_WIDTH},
 };
+use pix_engine::shape::Point;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -183,8 +185,78 @@ impl Powered for Signature {
 #[derive(Default, Debug, Copy, Clone)]
 #[must_use]
 pub struct Zapper {
-    pub light_sense: bool,
-    pub triggered: bool,
+    pub triggered: u8,
+    pub pos: Point<i32>,
+    pub radius: i32,
+    pub connected: bool,
+}
+
+impl Zapper {
+    pub fn trigger(&mut self) {
+        if self.triggered == 0 {
+            self.triggered = 7;
+        }
+    }
+
+    pub fn update(&mut self) {
+        if self.triggered > 0 {
+            self.triggered -= 1;
+        }
+    }
+
+    pub fn set_connected(&mut self, connected: bool) {
+        self.connected = connected;
+    }
+}
+
+impl Zapper {
+    fn new() -> Self {
+        Self {
+            triggered: 0,
+            pos: Point::default(),
+            radius: 3,
+            connected: false,
+        }
+    }
+
+    fn read(&self, ppu: &Ppu) -> u8 {
+        self.triggered() | self.light_sense(ppu) | 0x40
+    }
+
+    fn triggered(&self) -> u8 {
+        if self.triggered > 0 {
+            0x10
+        } else {
+            0x00
+        }
+    }
+
+    fn light_sense(&self, ppu: &Ppu) -> u8 {
+        let width = RENDER_WIDTH as i32;
+        let height = RENDER_HEIGHT as i32;
+        // EXPL: Light sense is 1 scanline delayed for, likely due to slightly inaccurate NMI timing
+        let scanline = ppu.scanline as i32 - 1;
+        let cycle = ppu.cycle as i32;
+        let [x, y] = self.pos.as_array();
+        if x >= 0 && y >= 0 {
+            for y in (y - self.radius)..=(y + self.radius) {
+                if y >= 0 && y < height {
+                    for x in (x - self.radius)..=(x + self.radius) {
+                        let in_bounds = x >= 0 && x < width;
+                        let behind_ppu =
+                            scanline >= y && (scanline - y) <= 20 && (scanline != y || cycle > x);
+                        if in_bounds
+                            && behind_ppu
+                            && ppu.get_pixel_brightness(x as u32, y as u32) >= 85
+                        {
+                            return 0x00;
+                        }
+                    }
+                }
+            }
+        }
+        0x08
+    }
 }
 
 /// Input containing gamepad input state
@@ -205,10 +277,14 @@ impl Input {
             gamepads: [Gamepad::default(); 4],
             // Signature bits are reversed so they can shift right
             signatures: [Signature::new(0b00001000), Signature::new(0b00000100)],
-            zapper: Zapper::default(),
+            zapper: Zapper::new(),
             shift_strobe: 0x00,
             open_bus: 0x00,
         }
+    }
+
+    pub fn read_zapper(&self, ppu: &Ppu) -> u8 {
+        self.zapper.read(ppu)
     }
 }
 

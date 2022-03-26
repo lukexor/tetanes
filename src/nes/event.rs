@@ -282,6 +282,39 @@ impl Nes {
     }
 
     #[inline]
+    pub fn handle_mouse_event(
+        &mut self,
+        s: &mut PixState,
+        btn: Mouse,
+        _pos: Point<i32>,
+        clicked: bool,
+    ) -> PixResult<bool> {
+        if self.mode == Mode::Playing && clicked && btn == Mouse::Left {
+            if let Some(view) = self.emulation {
+                if s.focused_window(view.window_id) {
+                    self.control_deck.zapper_mut().trigger();
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    #[inline]
+    pub fn handle_mouse_motion(&mut self, s: &mut PixState, pos: Point<i32>) -> PixResult<bool> {
+        if self.mode == Mode::Playing {
+            if let Some(view) = self.emulation {
+                if s.focused_window(view.window_id) {
+                    let mut zapper = self.control_deck.zapper_mut();
+                    let mut pos = pos / self.config.scale as i32;
+                    pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
+                    zapper.pos = pos;
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    #[inline]
     pub(crate) fn handle_controller_event(
         &mut self,
         s: &mut PixState,
@@ -403,7 +436,7 @@ impl Nes {
                 self.mode = match self.mode {
                     Mode::Playing | Mode::Recording | Mode::Replaying => Mode::Paused,
                     Mode::Paused | Mode::PausedBg => {
-                        if self.cpu_debugger.is_some() {
+                        if self.debugger.is_some() {
                             self.control_deck.clock();
                         }
                         Mode::Playing
@@ -529,7 +562,7 @@ impl Nes {
         button: GamepadBtn,
         pressed: bool,
     ) -> PixResult<()> {
-        let mut gamepad = self.control_deck.get_gamepad_mut(slot);
+        let mut gamepad = self.control_deck.gamepad_mut(slot);
         if !self.config.concurrent_dpad && pressed {
             match button {
                 GamepadBtn::Left => gamepad.right = !pressed,
@@ -556,7 +589,7 @@ impl Nes {
             }
             GamepadBtn::Select => gamepad.select = pressed,
             GamepadBtn::Start => gamepad.start = pressed,
-            GamepadBtn::Zapper => todo!("zapper"),
+            _ => (),
         };
         Ok(())
     }
@@ -569,11 +602,11 @@ impl Nes {
         _pressed: bool,
         _repeat: bool,
     ) -> PixResult<()> {
-        let debugging = self.cpu_debugger.is_some();
+        let debugging = self.debugger.is_some();
         match action {
-            DebugAction::ToggleCpuDebugger => self.toggle_cpu_debugger(s)?,
-            DebugAction::TogglePpuDebugger => self.toggle_ppu_debugger(s)?,
-            DebugAction::ToggleApuDebugger => self.toggle_apu_debugger(s)?,
+            DebugAction::ToggleCpuDebugger => self.toggle_debugger(s)?,
+            DebugAction::TogglePpuDebugger => self.toggle_ppu_viewer(s)?,
+            DebugAction::ToggleApuDebugger => self.toggle_apu_viewer(s)?,
             DebugAction::StepInto if debugging => {
                 if self.mode == Mode::Playing {
                     self.mode = Mode::Paused;
@@ -615,12 +648,12 @@ impl Nes {
                 }
                 self.control_deck.clock_scanline();
             }
-            DebugAction::IncScanline if self.ppu_debugger.is_some() => {
+            DebugAction::IncScanline if self.ppu_viewer.is_some() => {
                 let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT as u16 - 1);
                 self.control_deck.ppu_mut().debug_scanline = self.scanline;
             }
-            DebugAction::DecScanline if self.ppu_debugger.is_some() => {
+            DebugAction::DecScanline if self.ppu_viewer.is_some() => {
                 let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = self.scanline.saturating_sub(decrement);
                 self.control_deck.ppu_mut().debug_scanline = self.scanline;

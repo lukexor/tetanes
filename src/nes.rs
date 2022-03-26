@@ -6,6 +6,7 @@ use crate::{
     control_deck::ControlDeck,
     input::GamepadSlot,
     memory::RamState,
+    nes::debug::Debugger,
     ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
@@ -20,6 +21,7 @@ use std::{
     ffi::OsStr,
     fmt::Write,
     fs,
+    ops::ControlFlow,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -185,9 +187,9 @@ pub struct Nes {
     control_deck: ControlDeck,
     players: HashMap<GamepadSlot, ControllerId>,
     emulation: Option<View>,
-    cpu_debugger: Option<View>,
-    ppu_debugger: Option<View>,
-    apu_debugger: Option<View>,
+    debugger: Option<Debugger>,
+    ppu_viewer: Option<View>,
+    apu_viewer: Option<View>,
     config: Config,
     mode: Mode,
     debug: bool,
@@ -206,9 +208,9 @@ impl Nes {
             control_deck,
             players: HashMap::new(),
             emulation: None,
-            cpu_debugger: None,
-            ppu_debugger: None,
-            apu_debugger: None,
+            debugger: None,
+            ppu_viewer: None,
+            apu_viewer: None,
             config,
             mode: if debug { Mode::Paused } else { Mode::default() },
             debug,
@@ -273,11 +275,22 @@ impl Nes {
         if let Some(view) = self.emulation {
             if let Some(texture_id) = view.texture_id {
                 s.update_texture(texture_id, None, self.control_deck.frame(), RENDER_PITCH)?;
+
+                let zapper = self.control_deck.zapper();
+                if zapper.connected {
+                    s.with_texture(texture_id, |s: &mut PixState| {
+                        let [x, y] = zapper.pos.as_array();
+                        s.stroke(Color::GRAY);
+                        s.line([x - 8, y, x + 8, y])?;
+                        s.line([x, y - 8, x, y + 8])?;
+                        Ok(())
+                    })?;
+                }
                 s.texture(texture_id, NES_FRAME_SRC, None)?;
             }
         }
-        self.render_cpu_debugger(s)?;
-        self.render_ppu_debugger(s)?;
+        self.render_debugger(s)?;
+        self.render_ppu_viewer(s)?;
         Ok(())
     }
 }
@@ -296,20 +309,21 @@ impl AppState for Nes {
         }
         if self.debug {
             self.mode = Mode::Paused;
-            self.toggle_cpu_debugger(s)?;
+            self.toggle_debugger(s)?;
         }
         Ok(())
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
-        let debugging = self.cpu_debugger.is_some();
         if let Mode::Playing | Mode::Recording | Mode::Replaying = self.mode {
             self.speed_counter += self.config.speed;
             'run: while self.speed_counter > 0.0 {
                 self.speed_counter -= 1.0;
-                if debugging {
-                    self.mode = self.clock_debug();
-                    if self.mode == Mode::Paused {
+                if let Some(debugger) = &self.debugger {
+                    if let ControlFlow::Break(_) =
+                        self.control_deck.debug_clock_frame(&debugger.breakpoints)
+                    {
+                        self.mode = Mode::Paused;
                         break 'run;
                     }
                 } else {
@@ -334,7 +348,7 @@ impl AppState for Nes {
         }
 
         self.render_views(s)?;
-        if debugging && !matches!(self.mode, Mode::InMenu(..)) {
+        if self.debugger.is_some() && !matches!(self.mode, Mode::InMenu(..)) {
             self.render_status(s, "Debugging")?;
         }
         match self.mode {
@@ -363,6 +377,24 @@ impl AppState for Nes {
 
     fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
         self.handle_key_event(s, event, false)
+    }
+
+    fn on_mouse_pressed(
+        &mut self,
+        s: &mut PixState,
+        btn: Mouse,
+        pos: Point<i32>,
+    ) -> PixResult<bool> {
+        self.handle_mouse_event(s, btn, pos, true)
+    }
+
+    fn on_mouse_motion(
+        &mut self,
+        s: &mut PixState,
+        pos: Point<i32>,
+        _rel_pos: Point<i32>,
+    ) -> PixResult<bool> {
+        self.handle_mouse_motion(s, pos)
     }
 
     fn on_controller_update(
@@ -428,15 +460,16 @@ impl AppState for Nes {
         use WindowEvent::{Close, FocusGained, FocusLost, Hidden, Restored};
         match event {
             Close => {
-                if matches!(self.cpu_debugger, Some(view) if view.window_id == window_id) {
-                    self.cpu_debugger = None;
+                if matches!(&self.debugger, Some(debugger) if debugger.view.window_id == window_id)
+                {
+                    self.debugger = None;
                     self.control_deck.cpu_mut().debugging = false;
                     if self.control_deck.is_running() {
                         self.mode = Mode::Playing;
                     }
                 }
-                if matches!(self.ppu_debugger, Some(view) if view.window_id == window_id) {
-                    self.ppu_debugger = None;
+                if matches!(self.ppu_viewer, Some(view) if view.window_id == window_id) {
+                    self.ppu_viewer = None;
                     self.control_deck.ppu_mut().debugging = false;
                 }
             }

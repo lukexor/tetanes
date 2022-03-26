@@ -56,9 +56,7 @@ const CYCLE_END: u16 = 340; // 2 cycles each for 2 fetches
 const POWER_ON_CYCLES: usize = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
 
 // Scanlines
-const _VISIBLE_SCANLINE_START: u16 = 0; // Rendering graphics for the screen
 const VISIBLE_SCANLINE_END: u16 = 239; // Rendering graphics for the screen
-const _POSTRENDER_SCANLINE: u16 = 240; // Idle scanline
 const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
 const PRERENDER_SCANLINE: u16 = 261;
 
@@ -537,6 +535,17 @@ impl Ppu {
         pixels[idx + 1] = green;
         pixels[idx + 2] = blue;
         pixels[idx + 3] = 255;
+    }
+
+    #[inline]
+    pub fn get_pixel_brightness(&self, x: u32, y: u32) -> u32 {
+        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
+            return 0;
+        }
+        // Used by `Zapper`
+        let idx = RENDER_CHANNELS * (x + y * RENDER_WIDTH) as usize;
+        let pixels = &self.frame.pixels[idx..idx + 3];
+        u32::from(pixels[0]) + u32::from(pixels[1]) + u32::from(pixels[2])
     }
 
     #[inline]

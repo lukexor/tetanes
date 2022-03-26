@@ -7,5 +7,6 @@
   "power_state": "Random",
   "save_slot": 1,
   "scale": 3.0,
-  "speed": 1.0
+  "speed": 1.0,
+  "zapper_connected": false
 }
