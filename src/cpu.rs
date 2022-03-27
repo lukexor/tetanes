@@ -8,8 +8,10 @@ use crate::{
     mapper::Mapped,
     memory::{MemRead, MemWrite},
 };
+use bitflags::bitflags;
 use instr::{AddrMode::*, Instr, Operation::*, INSTRUCTIONS};
 use log::{log_enabled, trace, Level};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub mod instr;
@@ -25,15 +27,17 @@ pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
 const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
-const POWER_ON_STATUS: u8 = 0x24; // 0010 0100 - Unused and Interrupt Disable set
+const POWER_ON_STATUS: Status = Status::U.union(Status::I);
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Irq {
-    Reset = 1,
-    Mapper = 1 << 1,
-    FrameCounter = 1 << 2,
-    Dmc = 1 << 3,
+bitflags! {
+    #[derive(Default, Serialize, Deserialize)]
+    pub struct Irq: u8 {
+        const RESET = 1;
+        const MAPPER = 1 << 1;
+        const FRAME_COUNTER = 1 << 2;
+        const DMC = 1 << 3;
+    }
 }
 
 // Status Registers
@@ -49,18 +53,29 @@ pub enum Irq {
 // ||+------- Unused - always set to 1 when pushed to stack
 // |+-------- Overflow
 // +--------- Negative
-#[derive(Debug, Copy, Clone)]
-pub enum StatusRegs {
-    C = 1,      // Carry
-    Z = 1 << 1, // Zero
-    I = 1 << 2, // Disable Interrupt
-    D = 1 << 3, // Decimal Mode
-    B = 1 << 4, // Break
-    U = 1 << 5, // Unused
-    V = 1 << 6, // Overflow
-    N = 1 << 7, // Negative
+bitflags! {
+    #[derive(Default, Serialize, Deserialize)]
+    pub struct Status: u8 {
+        const C = 1;      // Carry
+        const Z = 1 << 1; // Zero
+        const I = 1 << 2; // Disable Interrupt
+        const D = 1 << 3; // Decimal Mode
+        const B = 1 << 4; // Break
+        const U = 1 << 5; // Unused
+        const V = 1 << 6; // Overflow
+        const N = 1 << 7; // Negative
+    }
 }
-use StatusRegs::*;
+pub const STATUS_REGS: [Status; 8] = [
+    Status::N,
+    Status::V,
+    Status::U,
+    Status::B,
+    Status::D,
+    Status::I,
+    Status::Z,
+    Status::C,
+];
 
 /// The Central Processing Unit status and registers
 #[derive(Clone)]
@@ -73,13 +88,13 @@ pub struct Cpu {
     pub acc: u8,            // accumulator
     pub x: u8,              // x register
     pub y: u8,              // y register
-    pub status: u8,         // Status Registers
+    pub status: Status,     // Status Registers
     pub bus: Bus,
-    pub instr: Instr,     // The currently executing instruction
-    pub abs_addr: u16,    // Used memory addresses get set here
-    pub rel_addr: u16,    // Relative address for branch instructions
-    pub fetched_data: u8, // Represents data fetched for the ALU
-    pub irq_pending: u8,  // Pending interrupts
+    pub instr: Instr,      // The currently executing instruction
+    pub abs_addr: u16,     // Used memory addresses get set here
+    pub rel_addr: u16,     // Relative address for branch instructions
+    pub fetched_data: u8,  // Represents data fetched for the ALU
+    pub irqs_pending: Irq, // Pending interrupts
     pub nmi_pending: bool,
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     pub last_irq: bool,
@@ -104,7 +119,7 @@ impl Cpu {
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            irq_pending: Irq::Reset as u8,
+            irqs_pending: Irq::RESET,
             nmi_pending: false,
             corrupted: false,
             last_irq: false,
@@ -213,16 +228,16 @@ impl Cpu {
     #[inline]
     pub fn set_irq(&mut self, irq: Irq, val: bool) {
         if val {
-            self.irq_pending |= irq as u8;
+            self.irqs_pending |= irq;
         } else {
-            self.irq_pending &= !(irq as u8);
+            self.irqs_pending &= !irq;
         }
     }
 
     /// Checks if a a given IRQ is active
     #[inline]
     pub fn has_irq(&mut self, irq: Irq) -> bool {
-        (self.irq_pending & irq as u8) > 0
+        self.irqs_pending.intersects(irq)
     }
 
     //  #  address R/W description
@@ -238,21 +253,21 @@ impl Cpu {
     pub fn irq(&mut self) {
         self.read(self.pc);
         self.read(self.pc);
-        if self.has_irq(Irq::Reset) {
+        if self.has_irq(Irq::RESET) {
             // EXPL: Reset follows the same push behavior as IRQ/NMI except the
             // read flag is set, so results are discarded
-            self.push_read_stackw(self.pc);
-            self.push_read_stackb((self.status | U as u8) & !(B as u8));
+            self.push_stackw_nop();
+            self.push_stackb_nop();
             self.pc = self.readw(RESET_ADDR);
-            self.set_irq(Irq::Reset, false);
+            self.set_irq(Irq::RESET, false);
         } else {
             self.push_stackw(self.pc);
             // Set U and !B during push
-            self.push_stackb((self.status | U as u8) & !(B as u8));
-            self.set_flag(I, true);
-            if self.has_irq(Irq::Reset) {
+            self.push_stackb(((self.status | Status::U) & !Status::B).bits());
+            self.status.set(Status::I, true);
+            if self.has_irq(Irq::RESET) {
                 self.pc = self.readw(RESET_ADDR);
-                self.set_irq(Irq::Reset, false);
+                self.set_irq(Irq::RESET, false);
             } else if self.last_nmi {
                 self.nmi_pending = false;
                 self.bus.ppu.nmi_pending = false;
@@ -288,8 +303,8 @@ impl Cpu {
         self.read(self.pc);
         self.push_stackw(self.pc);
         // Set U and !B during push
-        self.push_stackb((self.status | U as u8) & !(B as u8));
-        self.set_flag(I, true);
+        self.push_stackb(((self.status | Status::U) & !Status::B).bits());
+        self.status.set(Status::I, true);
         self.pc = self.readw(NMI_ADDR);
         self.nmi_pending = false;
         self.bus.ppu.nmi_pending = false;
@@ -299,15 +314,15 @@ impl Cpu {
     fn run_cycle(&mut self) {
         self.cycle_count = self.cycle_count.wrapping_add(1);
         self.last_nmi = self.nmi_pending;
-        self.last_irq = self.irq_pending > 0 && self.get_flag(I) == 0;
+        self.last_irq = !self.irqs_pending.is_empty() && !self.status.intersects(Status::I);
         self.bus.ppu.clock();
         self.set_nmi(self.bus.ppu.nmi_pending);
         self.bus.cart.clock();
         let irq_pending = self.bus.cart.irq_pending();
-        self.set_irq(Irq::Mapper, irq_pending);
+        self.set_irq(Irq::MAPPER, irq_pending);
         self.bus.apu.clock();
-        self.set_irq(Irq::FrameCounter, self.bus.apu.irq_pending);
-        self.set_irq(Irq::Dmc, self.bus.apu.dmc.irq_pending);
+        self.set_irq(Irq::FRAME_COUNTER, self.bus.apu.irq_pending);
+        self.set_irq(Irq::DMC, self.bus.apu.dmc.irq_pending);
         if self.bus.apu.dmc.dma_pending {
             self.bus.apu.dmc.dma_pending = false;
             self.dmc_dma = true;
@@ -389,27 +404,14 @@ impl Cpu {
 
     // Convenience method to set both Z and N
     #[inline]
-    fn set_flags_zn(&mut self, val: u8) {
-        self.set_flag(Z, val == 0x00);
-        self.set_flag(N, val & 0x80 == 0x80);
+    fn set_zn_status(&mut self, val: u8) {
+        self.status.set(Status::Z, val == 0x00);
+        self.status.set(Status::N, val & 0x80 == 0x80);
     }
 
     #[inline]
-    const fn get_flag(&self, flag: StatusRegs) -> u8 {
-        if (self.status & flag as u8) > 0 {
-            1
-        } else {
-            0
-        }
-    }
-
-    #[inline]
-    fn set_flag(&mut self, flag: StatusRegs, val: bool) {
-        if val {
-            self.status |= flag as u8;
-        } else {
-            self.status &= !(flag as u8);
-        }
+    const fn status_bit(&self, reg: Status) -> u8 {
+        self.status.intersection(reg).bits()
     }
 
     // Stack Functions
@@ -425,7 +427,7 @@ impl Cpu {
     // except decrement the stack pointer
     // Used by Irq::Reset
     #[inline]
-    fn push_read_stackb(&mut self, _val: u8) {
+    fn push_stackb_nop(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp));
         self.sp = self.sp.wrapping_sub(1);
     }
@@ -458,11 +460,9 @@ impl Cpu {
     // except decrementing the stack pointer
     // Used by Irq::Reset
     #[inline]
-    fn push_read_stackw(&mut self, val: u16) {
-        let lo = (val & 0xFF) as u8;
-        let hi = (val >> 8) as u8;
-        self.push_read_stackb(hi);
-        self.push_read_stackb(lo);
+    fn push_stackw_nop(&mut self) {
+        self.push_stackb_nop();
+        self.push_stackb_nop();
     }
 
     // Pull a word (two bytes) from the stack
@@ -688,13 +688,13 @@ impl Cpu {
         let mut pc = self.pc;
         let disasm = self.disassemble(&mut pc);
 
-        let status_flags = vec!['n', 'v', '-', '-', 'd', 'i', 'z', 'c'];
+        let flags = ['n', 'v', '-', '-', 'd', 'i', 'z', 'c'];
         let mut status_str = String::with_capacity(8);
-        for (i, s) in status_flags.iter().enumerate() {
-            if ((self.status >> (7 - i)) & 1) > 0 {
-                status_str.push(s.to_ascii_uppercase());
+        for (flag, status) in flags.iter().zip(STATUS_REGS.iter()) {
+            if self.status.intersects(*status) {
+                status_str.push(flag.to_ascii_uppercase());
             } else {
-                status_str.push(*s);
+                status_str.push(*flag);
             }
         }
         trace!(
@@ -725,7 +725,7 @@ impl Clocked for Cpu {
     fn clock(&mut self) -> usize {
         let start_cycles = self.cycle_count;
 
-        if self.has_irq(Irq::Reset) {
+        if self.has_irq(Irq::RESET) {
             self.irq();
         } else if self.last_nmi {
             self.nmi();
@@ -867,7 +867,7 @@ impl Powered for Cpu {
     fn power_on(&mut self) {
         self.cycle_count = 0;
         self.dmc_dma = false;
-        self.set_irq(Irq::Reset, true);
+        self.set_irq(Irq::RESET, true);
     }
 
     /// Resets the CPU
@@ -877,7 +877,7 @@ impl Powered for Cpu {
     /// These operations take the CPU 7 cycle.
     fn reset(&mut self) {
         self.bus.reset();
-        self.set_flag(I, true);
+        self.status.set(Status::I, true);
         self.power_on();
     }
 

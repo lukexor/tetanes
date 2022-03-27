@@ -1,4 +1,4 @@
-use super::{Cpu, StatusRegs::*, IRQ_ADDR, NMI_ADDR, SP_BASE};
+use super::{Cpu, Status, IRQ_ADDR, NMI_ADDR, SP_BASE};
 use crate::memory::{MemRead, MemWrite};
 use std::fmt;
 
@@ -604,19 +604,19 @@ impl Cpu {
     pub(super) fn lda(&mut self) {
         self.fetch_data();
         self.acc = self.fetched_data;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// LDX: Load X with M
     pub(super) fn ldx(&mut self) {
         self.fetch_data();
         self.x = self.fetched_data;
-        self.set_flags_zn(self.x);
+        self.set_zn_status(self.x);
     }
     /// LDY: Load Y with M
     pub(super) fn ldy(&mut self) {
         self.fetch_data();
         self.y = self.fetched_data;
-        self.set_flags_zn(self.y);
+        self.set_zn_status(self.y);
     }
     /// STA: Store A into M
     pub(super) fn sta(&mut self) {
@@ -633,22 +633,22 @@ impl Cpu {
     /// TAX: Transfer A to X
     pub(super) fn tax(&mut self) {
         self.x = self.acc;
-        self.set_flags_zn(self.x);
+        self.set_zn_status(self.x);
     }
     /// TAY: Transfer A to Y
     pub(super) fn tay(&mut self) {
         self.y = self.acc;
-        self.set_flags_zn(self.y);
+        self.set_zn_status(self.y);
     }
     /// TSX: Transfer Stack Pointer to X
     pub(super) fn tsx(&mut self) {
         self.x = self.sp;
-        self.set_flags_zn(self.x);
+        self.set_zn_status(self.x);
     }
     /// TXA: Transfer X to A
     pub(super) fn txa(&mut self) {
         self.acc = self.x;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// TXS: Transfer X to Stack Pointer
     pub(super) fn txs(&mut self) {
@@ -657,7 +657,7 @@ impl Cpu {
     /// TYA: Transfer Y to A
     pub(super) fn tya(&mut self) {
         self.acc = self.y;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
 
     /// Arithmetic opcodes
@@ -667,28 +667,28 @@ impl Cpu {
         self.fetch_data();
         let a = self.acc;
         let (x1, o1) = self.fetched_data.overflowing_add(a);
-        let (x2, o2) = x1.overflowing_add(self.get_flag(C));
+        let (x2, o2) = x1.overflowing_add(self.status_bit(Status::C));
         self.acc = x2;
-        self.set_flag(C, o1 | o2);
-        self.set_flag(
-            V,
+        self.status.set(Status::C, o1 | o2);
+        self.status.set(
+            Status::V,
             (a ^ self.fetched_data) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0,
         );
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// SBC: Subtract M from A with Carry
     pub(super) fn sbc(&mut self) {
         self.fetch_data();
         let a = self.acc;
         let (x1, o1) = a.overflowing_sub(self.fetched_data);
-        let (x2, o2) = x1.overflowing_sub(1 - self.get_flag(C));
+        let (x2, o2) = x1.overflowing_sub(1 - self.status_bit(Status::C));
         self.acc = x2;
-        self.set_flag(C, !(o1 | o2));
-        self.set_flag(
-            V,
+        self.status.set(Status::C, !(o1 | o2));
+        self.status.set(
+            Status::V,
             (a ^ self.fetched_data) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0,
         );
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// DEC: Decrement M by One
     pub(super) fn dec(&mut self) {
@@ -696,35 +696,35 @@ impl Cpu {
         self.write_fetched(self.fetched_data); // dummy write
         let val = self.fetched_data.wrapping_sub(1);
         self.write_fetched(val);
-        self.set_flags_zn(val);
+        self.set_zn_status(val);
     }
     /// DEX: Decrement X by One
     pub(super) fn dex(&mut self) {
         self.x = self.x.wrapping_sub(1);
-        self.set_flags_zn(self.x);
+        self.set_zn_status(self.x);
     }
     /// DEY: Decrement Y by One
     pub(super) fn dey(&mut self) {
         self.y = self.y.wrapping_sub(1);
-        self.set_flags_zn(self.y);
+        self.set_zn_status(self.y);
     }
     /// INC: Increment M by One
     pub(super) fn inc(&mut self) {
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
         let val = self.fetched_data.wrapping_add(1);
-        self.set_flags_zn(val);
+        self.set_zn_status(val);
         self.write_fetched(val);
     }
     /// INX: Increment X by One
     pub(super) fn inx(&mut self) {
         self.x = self.x.wrapping_add(1);
-        self.set_flags_zn(self.x);
+        self.set_zn_status(self.x);
     }
     /// INY: Increment Y by One
     pub(super) fn iny(&mut self) {
         self.y = self.y.wrapping_add(1);
-        self.set_flags_zn(self.y);
+        self.set_zn_status(self.y);
     }
 
     /// Bitwise opcodes
@@ -733,54 +733,54 @@ impl Cpu {
     pub(super) fn and(&mut self) {
         self.fetch_data();
         self.acc &= self.fetched_data;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// ASL: Shift Left One Bit (M or A)
     pub(super) fn asl(&mut self) {
         self.fetch_data(); // Cycle 4 & 5
         self.write_fetched(self.fetched_data); // Cycle 6
-        self.set_flag(C, (self.fetched_data >> 7) & 1 > 0);
+        self.status.set(Status::C, (self.fetched_data >> 7) & 1 > 0);
         let val = self.fetched_data.wrapping_shl(1);
-        self.set_flags_zn(val);
+        self.set_zn_status(val);
         self.write_fetched(val); // Cycle 7
     }
     /// BIT: Test Bits in M with A (Affects N, V, and Z)
     pub(super) fn bit(&mut self) {
         self.fetch_data();
         let val = self.acc & self.fetched_data;
-        self.set_flag(Z, val == 0);
-        self.set_flag(N, self.fetched_data & (1 << 7) > 0);
-        self.set_flag(V, self.fetched_data & (1 << 6) > 0);
+        self.status.set(Status::Z, val == 0);
+        self.status.set(Status::N, self.fetched_data & (1 << 7) > 0);
+        self.status.set(Status::V, self.fetched_data & (1 << 6) > 0);
     }
     /// EOR: "Exclusive-Or" M with A
     pub(super) fn eor(&mut self) {
         self.fetch_data();
         self.acc ^= self.fetched_data;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// LSR: Shift Right One Bit (M or A)
     pub(super) fn lsr(&mut self) {
         self.fetch_data(); // Cycle 4 & 5
         self.write_fetched(self.fetched_data); // Cycle 6
-        self.set_flag(C, self.fetched_data & 1 > 0);
+        self.status.set(Status::C, self.fetched_data & 1 > 0);
         let val = self.fetched_data.wrapping_shr(1);
-        self.set_flags_zn(val);
+        self.set_zn_status(val);
         self.write_fetched(val); // Cycle 7
     }
     /// ORA: "OR" M with A
     pub(super) fn ora(&mut self) {
         self.fetch_data();
         self.acc |= self.fetched_data;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// ROL: Rotate One Bit Left (M or A)
     pub(super) fn rol(&mut self) {
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
-        let old_c = self.get_flag(C);
-        self.set_flag(C, (self.fetched_data >> 7) & 1 > 0);
+        let old_c = self.status_bit(Status::C);
+        self.status.set(Status::C, (self.fetched_data >> 7) & 1 > 0);
         let val = (self.fetched_data << 1) | old_c;
-        self.set_flags_zn(val);
+        self.set_zn_status(val);
         self.write_fetched(val);
     }
     /// ROR: Rotate One Bit Right (M or A)
@@ -788,13 +788,13 @@ impl Cpu {
         self.fetch_data();
         self.write_fetched(self.fetched_data); // dummy write
         let mut ret = self.fetched_data.rotate_right(1);
-        if self.get_flag(C) == 1 {
+        if self.status.intersects(Status::C) {
             ret |= 1 << 7;
         } else {
             ret &= !(1 << 7);
         }
-        self.set_flag(C, self.fetched_data & 1 > 0);
-        self.set_flags_zn(ret);
+        self.status.set(Status::C, self.fetched_data & 1 > 0);
+        self.set_zn_status(ret);
         self.write_fetched(ret);
     }
 
@@ -805,7 +805,7 @@ impl Cpu {
         // If an interrupt occurs during the final cycle of a non-pagecrossing branch
         // then it will be ignored until the next instruction completes
         let skip_nmi = self.nmi_pending && !self.last_nmi;
-        let skip_irq = self.irq_pending > 0 && !self.last_irq;
+        let skip_irq = !self.irqs_pending.is_empty() && !self.last_irq;
 
         self.run_cycle();
 
@@ -828,49 +828,49 @@ impl Cpu {
     }
     /// BCC: Branch on Carry Clear
     pub(super) fn bcc(&mut self) {
-        if self.get_flag(C) == 0 {
+        if !self.status.intersects(Status::C) {
             self.branch();
         }
     }
     /// BCS: Branch on Carry Set
     pub(super) fn bcs(&mut self) {
-        if self.get_flag(C) == 1 {
+        if self.status.intersects(Status::C) {
             self.branch();
         }
     }
     /// BEQ: Branch on Result Zero
     pub(super) fn beq(&mut self) {
-        if self.get_flag(Z) == 1 {
+        if self.status.intersects(Status::Z) {
             self.branch();
         }
     }
     /// BMI: Branch on Result Negative
     pub(super) fn bmi(&mut self) {
-        if self.get_flag(N) == 1 {
+        if self.status.intersects(Status::N) {
             self.branch();
         }
     }
     /// BNE: Branch on Result Not Zero
     pub(super) fn bne(&mut self) {
-        if self.get_flag(Z) == 0 {
+        if !self.status.intersects(Status::Z) {
             self.branch();
         }
     }
     /// BPL: Branch on Result Positive
     pub(super) fn bpl(&mut self) {
-        if self.get_flag(N) == 0 {
+        if !self.status.intersects(Status::N) {
             self.branch();
         }
     }
     /// BVC: Branch on Overflow Clear
     pub(super) fn bvc(&mut self) {
-        if self.get_flag(V) == 0 {
+        if !self.status.intersects(Status::V) {
             self.branch();
         }
     }
     /// BVS: Branch on Overflow Set
     pub(super) fn bvs(&mut self) {
-        if self.get_flag(V) == 1 {
+        if self.status.intersects(Status::V) {
             self.branch();
         }
     }
@@ -913,9 +913,9 @@ impl Cpu {
     //  6  $0100,S  R  pull PCH from stack
     pub(super) fn rti(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
-        self.status = self.pop_stackb(); // Cycle 4
-        self.status &= !(U as u8);
-        self.status &= !(B as u8);
+        self.status = Status::from_bits_truncate(self.pop_stackb()); // Cycle 4
+        self.status &= !Status::U;
+        self.status &= !Status::B;
         self.pc = self.pop_stackw(); // Cycles 5 & 6
     }
     /// RTS: Return from Subroutine
@@ -937,31 +937,31 @@ impl Cpu {
 
     /// CLC: Clear Carry Flag
     pub(super) fn clc(&mut self) {
-        self.set_flag(C, false);
+        self.status.set(Status::C, false);
     }
     /// SEC: Set Carry Flag
     pub(super) fn sec(&mut self) {
-        self.set_flag(C, true);
+        self.status.set(Status::C, true);
     }
     /// CLD: Clear Decimal Mode
     pub(super) fn cld(&mut self) {
-        self.set_flag(D, false);
+        self.status.set(Status::D, false);
     }
     /// SED: Set Decimal Mode
     pub(super) fn sed(&mut self) {
-        self.set_flag(D, true);
+        self.status.set(Status::D, true);
     }
     /// CLI: Clear Interrupt Disable Bit
     pub(super) fn cli(&mut self) {
-        self.set_flag(I, false);
+        self.status.set(Status::I, false);
     }
     /// SEI: Set Interrupt Disable Status
     pub(super) fn sei(&mut self) {
-        self.set_flag(I, true);
+        self.status.set(Status::I, true);
     }
     /// CLV: Clear Overflow Flag
     pub(super) fn clv(&mut self) {
-        self.set_flag(V, false);
+        self.status.set(Status::V, false);
     }
 
     /// Compare opcodes
@@ -969,8 +969,8 @@ impl Cpu {
     /// Utility function used by all compare instructions
     pub(super) fn compare(&mut self, a: u8, b: u8) {
         let result = a.wrapping_sub(b);
-        self.set_flags_zn(result);
-        self.set_flag(C, a >= b);
+        self.set_zn_status(result);
+        self.status.set(Status::C, a >= b);
     }
     /// CMP: Compare M and A
     pub(super) fn cmp(&mut self) {
@@ -998,7 +998,7 @@ impl Cpu {
     //  3  $0100,S  W  push register on stack, decrement S
     pub(super) fn php(&mut self) {
         // Set U and B when pushing during PHP and BRK
-        self.push_stackb(self.status | U as u8 | B as u8);
+        self.push_stackb((self.status | Status::U | Status::B).bits());
     }
     /// PLP: Pull Processor Status from Stack
     //  #  address R/W description
@@ -1009,7 +1009,7 @@ impl Cpu {
     //  4  $0100,S  R  pull register from stack
     pub(super) fn plp(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
-        self.status = self.pop_stackb();
+        self.status = Status::from_bits_truncate(self.pop_stackb());
     }
     /// PHA: Push A on Stack
     //  #  address R/W description
@@ -1030,7 +1030,7 @@ impl Cpu {
     pub(super) fn pla(&mut self) {
         let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
         self.acc = self.pop_stackb();
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
 
     /// System opcodes
@@ -1050,8 +1050,8 @@ impl Cpu {
         self.fetch_data(); // throw away
         self.push_stackw(self.pc);
         // Set U and B when pushing during PHP and BRK
-        self.push_stackb(self.status | U as u8 | B as u8);
-        self.set_flag(I, true);
+        self.push_stackb((self.status | Status::U | Status::B).bits());
+        self.status.set(Status::I, true);
         if self.last_nmi {
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
@@ -1100,11 +1100,14 @@ impl Cpu {
         // SBC
         let a = self.acc;
         let (x1, o1) = a.overflowing_sub(val);
-        let (x2, o2) = x1.overflowing_sub(1 - self.get_flag(C));
+        let (x2, o2) = x1.overflowing_sub(1 - self.status_bit(Status::C));
         self.acc = x2;
-        self.set_flag(C, !(o1 | o2));
-        self.set_flag(V, (a ^ val) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0);
-        self.set_flags_zn(self.acc);
+        self.status.set(Status::C, !(o1 | o2));
+        self.status.set(
+            Status::V,
+            (a ^ val) & 0x80 != 0 && (a ^ self.acc) & 0x80 != 0,
+        );
+        self.set_zn_status(self.acc);
         self.write_fetched(val);
     }
     /// DCP: Shortcut for DEC then CMP
@@ -1121,8 +1124,9 @@ impl Cpu {
     pub(super) fn axs(&mut self) {
         self.fetch_data();
         let t = u32::from(self.acc & self.x).wrapping_sub(u32::from(self.fetched_data));
-        self.set_flags_zn((t & 0xFF) as u8);
-        self.set_flag(C, (((t >> 8) & 0x01) ^ 0x01) == 0x01);
+        self.set_zn_status((t & 0xFF) as u8);
+        self.status
+            .set(Status::C, (((t >> 8) & 0x01) ^ 0x01) == 0x01);
         self.x = (t & 0xFF) as u8;
     }
     /// LAS: Shortcut for LDA then TSX
@@ -1161,7 +1165,7 @@ impl Cpu {
         self.acc &= self.x;
         // AND
         self.acc &= self.fetched_data;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// SXA/SHX/XAS: AND X with the high byte of the target address + 1
     pub(super) fn sxa(&mut self) {
@@ -1185,20 +1189,23 @@ impl Cpu {
         // ROR
         self.write_fetched(self.fetched_data); // dummy write
         let mut ret = self.fetched_data.rotate_right(1);
-        if self.get_flag(C) == 1 {
+        if self.status.intersects(Status::C) {
             ret |= 1 << 7;
         } else {
             ret &= !(1 << 7);
         }
-        self.set_flag(C, self.fetched_data & 1 > 0);
+        self.status.set(Status::C, self.fetched_data & 1 > 0);
         // ADC
         let a = self.acc;
         let (x1, o1) = ret.overflowing_add(a);
-        let (x2, o2) = x1.overflowing_add(self.get_flag(C));
+        let (x2, o2) = x1.overflowing_add(self.status_bit(Status::C));
         self.acc = x2;
-        self.set_flag(C, o1 | o2);
-        self.set_flag(V, (a ^ ret) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0);
-        self.set_flags_zn(self.acc);
+        self.status.set(Status::C, o1 | o2);
+        self.status.set(
+            Status::V,
+            (a ^ ret) & 0x80 == 0 && (a ^ self.acc) & 0x80 != 0,
+        );
+        self.set_zn_status(self.acc);
         self.write_fetched(ret);
     }
     /// TAS: Shortcut for STA then TXS
@@ -1215,23 +1222,24 @@ impl Cpu {
         self.fetch_data();
         self.acc &= self.fetched_data;
         // ROR
-        self.set_flag(V, (self.acc ^ (self.acc >> 1)) & 0x40 == 0x40);
+        self.status
+            .set(Status::V, (self.acc ^ (self.acc >> 1)) & 0x40 == 0x40);
         let t = self.acc >> 7;
         self.acc >>= 1;
-        self.acc |= self.get_flag(C) << 7;
-        self.set_flag(C, t & 0x01 == 0x01);
-        self.set_flags_zn(self.acc);
+        self.acc |= self.status_bit(Status::C) << 7;
+        self.status.set(Status::C, t & 0x01 == 0x01);
+        self.set_zn_status(self.acc);
     }
     /// SRA: Shortcut for LSR then EOR
     pub(super) fn sre(&mut self) {
         self.fetch_data();
         // LSR
         self.write_fetched(self.fetched_data); // dummy write
-        self.set_flag(C, self.fetched_data & 1 > 0);
+        self.status.set(Status::C, self.fetched_data & 1 > 0);
         let val = self.fetched_data.wrapping_shr(1);
         // EOR
         self.acc ^= val;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
         self.write_fetched(val);
     }
     /// ALR/ASR: Shortcut for AND #imm then LSR
@@ -1240,21 +1248,21 @@ impl Cpu {
         self.fetch_data();
         self.acc &= self.fetched_data;
         // LSR
-        self.set_flag(C, self.acc & 0x01 == 0x01);
+        self.status.set(Status::C, self.acc & 0x01 == 0x01);
         self.acc >>= 1;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
     /// RLA: Shortcut for ROL then AND
     pub(super) fn rla(&mut self) {
         self.fetch_data();
         // ROL
         self.write_fetched(self.fetched_data); // dummy write
-        let old_c = self.get_flag(C);
-        self.set_flag(C, (self.fetched_data >> 7) & 1 > 0);
+        let old_c = self.status_bit(Status::C);
+        self.status.set(Status::C, (self.fetched_data >> 7) & 1 > 0);
         let val = (self.fetched_data << 1) | old_c;
         // AND
         self.acc &= val;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
         self.write_fetched(val);
     }
     /// ANC/AAC: AND #imm but puts bit 7 into carry as if ASL was executed
@@ -1262,21 +1270,21 @@ impl Cpu {
         // AND
         self.fetch_data();
         self.acc &= self.fetched_data;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
         // Put bit 7 into carry
-        self.set_flag(C, (self.acc >> 7) & 1 > 0);
+        self.status.set(Status::C, (self.acc >> 7) & 1 > 0);
     }
     /// SLO: Shortcut for ASL then ORA
     pub(super) fn slo(&mut self) {
         self.fetch_data();
         // ASL
         self.write_fetched(self.fetched_data); // dummy write
-        self.set_flag(C, (self.fetched_data >> 7) & 1 > 0);
+        self.status.set(Status::C, (self.fetched_data >> 7) & 1 > 0);
         let val = self.fetched_data.wrapping_shl(1);
         self.write_fetched(val);
         // ORA
         self.acc |= val;
-        self.set_flags_zn(self.acc);
+        self.set_zn_status(self.acc);
     }
 }
 

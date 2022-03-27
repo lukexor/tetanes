@@ -1,5 +1,5 @@
 use crate::{
-    cpu::StatusRegs,
+    cpu::STATUS_REGS,
     debugger::Breakpoint,
     memory::MemRead,
     nes::{Mode, Nes, View},
@@ -63,11 +63,10 @@ impl Nes {
                     let cpu = self.control_deck.cpu();
 
                     s.text("Status: ")?;
-                    use StatusRegs::{B, C, D, I, N, U, V, Z};
                     s.push();
-                    for status in &[N, V, U, B, D, I, Z, C] {
+                    for status in STATUS_REGS {
                         s.same_line(None);
-                        s.fill(if cpu.status & *status as u8 > 0 {
+                        s.fill(if cpu.status.intersects(status) {
                             Color::RED
                         } else {
                             Color::GREEN
