@@ -181,6 +181,7 @@ impl ControlDeck {
     pub fn load_cpu(&mut self, mut cpu: Cpu) {
         cpu.bus.ppu.load_cart(&mut cpu.bus.cart);
         cpu.bus.apu.load_cart(&mut cpu.bus.cart);
+        cpu.bus.input.reset();
         self.cpu = cpu;
     }
 

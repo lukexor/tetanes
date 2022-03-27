@@ -13,6 +13,7 @@ const PALETTE_HEIGHT: u32 = 64;
 pub(crate) struct Debugger {
     pub(crate) view: View,
     pub(crate) breakpoints: Vec<Breakpoint>,
+    pub(crate) on_breakpoint: bool,
 }
 
 impl Debugger {
@@ -20,13 +21,14 @@ impl Debugger {
         Self {
             view,
             breakpoints: vec![],
+            on_breakpoint: false,
         }
     }
 }
 
 impl Nes {
     pub(crate) fn toggle_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
-        match &self.debugger {
+        match self.debugger {
             None => {
                 let (w, h) = s.dimensions()?;
                 let window_id = s
@@ -43,7 +45,7 @@ impl Nes {
                     self.mode = Mode::Paused;
                 }
             }
-            Some(debugger) => {
+            Some(ref debugger) => {
                 s.close_window(debugger.view.window_id)?;
                 self.control_deck.cpu_mut().debugging = false;
                 self.debugger = None;
@@ -53,7 +55,7 @@ impl Nes {
     }
 
     pub(crate) fn render_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
-        if let Some(debugger) = &self.debugger {
+        if let Some(ref debugger) = self.debugger {
             s.with_window(debugger.view.window_id, |s: &mut PixState| {
                 s.clear()?;
                 s.fill(Color::WHITE);

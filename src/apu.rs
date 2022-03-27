@@ -223,7 +223,7 @@ impl Apu {
         } else {
             0.0
         };
-        if let Mapper::Exrom(exrom) = &self.cart().mapper {
+        if let Mapper::Exrom(ref exrom) = self.cart().mapper {
             let pulse3 = if exrom.pulse1.enabled {
                 exrom.pulse1.output()
             } else {

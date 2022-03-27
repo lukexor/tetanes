@@ -63,6 +63,30 @@ impl TryFrom<usize> for Player {
 }
 
 impl Nes {
+    pub(crate) fn open_menu(&mut self, s: &mut PixState, menu: Menu) -> PixResult<()> {
+        s.cursor(Cursor::arrow())?;
+        self.mode = Mode::InMenu(menu, Player::One);
+        Ok(())
+    }
+
+    pub(crate) fn exit_menu(&mut self, s: &mut PixState) -> PixResult<()> {
+        if self.config.zapper_connected {
+            s.cursor(None)?;
+        }
+        if self.control_deck.is_running() {
+            self.mode = Mode::Playing;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn toggle_menu(&mut self, menu: Menu, s: &mut PixState) -> PixResult<()> {
+        if let Mode::InMenu(..) = self.mode {
+            self.exit_menu(s)
+        } else {
+            self.open_menu(s, menu)
+        }
+    }
+
     pub(crate) fn render_menu(
         &mut self,
         s: &mut PixState,
@@ -78,7 +102,7 @@ impl Nes {
 
         s.heading("Menu")?;
         if self.control_deck.is_running() && s.menu("< Exit")? {
-            self.mode = Mode::Playing;
+            self.exit_menu(s)?;
         }
         s.spacing()?;
 
@@ -242,11 +266,6 @@ impl Nes {
         self.control_deck
             .zapper_mut()
             .set_connected(self.config.zapper_connected);
-        if self.config.zapper_connected {
-            s.cursor(None)?;
-        } else {
-            s.cursor(Cursor::arrow())?;
-        }
         s.spacing()?;
 
         let mut selected = player as usize;
@@ -310,7 +329,7 @@ impl Nes {
             self.update_paths();
         }
 
-        if let Some(error) = &self.error {
+        if let Some(ref error) = self.error {
             s.fill(colors.error);
             s.wrap(s.width()? - 2 * spacing.frame_pad.x() as u32);
             s.text(&error)?;

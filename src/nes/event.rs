@@ -3,10 +3,7 @@ use crate::{
     common::{Clocked, Powered},
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
-    nes::{
-        menu::{Menu, Player},
-        Mode, Nes, NesResult,
-    },
+    nes::{menu::Menu, Mode, Nes, NesResult},
     ppu::{VideoFormat, RENDER_HEIGHT},
 };
 use anyhow::Context;
@@ -397,7 +394,7 @@ impl Nes {
         } else if pressed {
             match action {
                 Action::Nes(state) => self.handle_nes_state(s, state)?,
-                Action::Menu(menu) => self.mode = Mode::InMenu(menu, Player::One),
+                Action::Menu(menu) => self.open_menu(s, menu)?,
                 Action::Feature(feature) => self.handle_feature(s, feature, false)?,
                 Action::Setting(setting) => self.handle_setting(s, setting)?,
                 Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed)?,
@@ -422,29 +419,20 @@ impl Nes {
     #[inline]
     fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<()> {
         match state {
-            NesState::ToggleMenu => {
-                if let Mode::InMenu(..) = self.mode {
-                    if self.control_deck.is_running() {
-                        self.mode = Mode::Playing;
-                    }
-                } else {
-                    self.mode = Mode::InMenu(Menu::Config, Player::One);
-                }
-            }
+            NesState::ToggleMenu => self.toggle_menu(Menu::Config, s)?,
             NesState::Quit => s.quit(),
-            NesState::TogglePause => {
-                self.mode = match self.mode {
-                    Mode::Playing | Mode::Recording | Mode::Replaying => Mode::Paused,
-                    Mode::Paused | Mode::PausedBg => {
-                        if self.debugger.is_some() {
+            NesState::TogglePause => match self.mode {
+                Mode::Playing | Mode::Recording | Mode::Replaying => self.mode = Mode::Paused,
+                Mode::Paused | Mode::PausedBg => {
+                    if let Some(ref debugger) = self.debugger {
+                        if debugger.on_breakpoint {
                             self.control_deck.clock();
                         }
-                        Mode::Playing
                     }
-                    Mode::InMenu(..) if self.control_deck.is_running() => Mode::Playing,
-                    _ => self.mode,
-                };
-            }
+                    self.mode = Mode::Playing;
+                }
+                Mode::InMenu(..) => self.exit_menu(s)?,
+            },
             NesState::Reset => {
                 self.error = None;
                 self.control_deck.reset();

@@ -309,7 +309,6 @@ impl AppState for Nes {
             unimplemented!("Replay not implemented");
         }
         if self.debug {
-            self.mode = Mode::Paused;
             self.toggle_debugger(s)?;
         }
         Ok(())
@@ -320,10 +319,11 @@ impl AppState for Nes {
             self.speed_counter += self.config.speed;
             'run: while self.speed_counter > 0.0 {
                 self.speed_counter -= 1.0;
-                if let Some(debugger) = &self.debugger {
+                if let Some(ref mut debugger) = self.debugger {
                     if let ControlFlow::Break(_) =
                         self.control_deck.debug_clock_frame(&debugger.breakpoints)
                     {
+                        debugger.on_breakpoint = true;
                         self.mode = Mode::Paused;
                         break 'run;
                     }
@@ -331,7 +331,7 @@ impl AppState for Nes {
                     self.control_deck.clock_frame();
                 }
                 if self.control_deck.cpu_corrupted() {
-                    self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+                    self.open_menu(s, Menu::LoadRom)?;
                     self.error = Some("CPU encountered invalid opcode.".into());
                     return Ok(());
                 }
@@ -461,9 +461,8 @@ impl AppState for Nes {
         window_id: WindowId,
         event: WindowEvent,
     ) -> PixResult<()> {
-        use WindowEvent::{Close, FocusGained, FocusLost, Hidden, Restored};
         match event {
-            Close => {
+            WindowEvent::Close => {
                 if matches!(&self.debugger, Some(debugger) if debugger.view.window_id == window_id)
                 {
                     self.debugger = None;
@@ -476,13 +475,16 @@ impl AppState for Nes {
                     self.ppu_viewer = None;
                     self.control_deck.ppu_mut().debugging = false;
                 }
+                if matches!(self.apu_viewer, Some(view) if view.window_id == window_id) {
+                    self.apu_viewer = None;
+                }
             }
-            Hidden | FocusLost => {
+            WindowEvent::Hidden | WindowEvent::FocusLost => {
                 if self.mode == Mode::Playing && self.config.pause_in_bg && !s.focused() {
                     self.mode = Mode::PausedBg;
                 }
             }
-            Restored | FocusGained => {
+            WindowEvent::Restored | WindowEvent::FocusGained => {
                 if self.mode == Mode::PausedBg {
                     self.mode = Mode::Playing;
                 }
