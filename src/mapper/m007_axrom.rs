@@ -9,6 +9,7 @@ use crate::{
     memory::MemoryBanks,
     ppu::Mirroring,
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_ROM_WINDOW: usize = 32 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
@@ -18,7 +19,7 @@ const SINGLE_SCREEN_B: u8 = 0x10; // 0b10000
 // PPU $0000..=$1FFF 8K CHR-ROM/RAM Bank Fixed
 // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Axrom {
     mirroring: Mirroring,

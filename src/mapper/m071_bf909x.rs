@@ -9,6 +9,7 @@ use crate::{
     memory::MemoryBanks,
     ppu::Mirroring,
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_ROM_WINDOW: usize = 16 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
@@ -19,14 +20,14 @@ const SINGLE_SCREEN_A: u8 = 0x10; // 0b10000
 // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
 // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 enum Variant {
     Bf909x,
     Bf9097,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bf909x {
     mirroring: Mirroring,

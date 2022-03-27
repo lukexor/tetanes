@@ -6,13 +6,14 @@ use crate::{
 };
 use enum_dispatch::enum_dispatch;
 use pix_engine::prelude::{Image, PixelFormat};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_DIR: &str = ".config/tetanes";
 pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NesFormat {
     Ntsc,
     Pal,

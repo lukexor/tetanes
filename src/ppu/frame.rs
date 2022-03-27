@@ -1,8 +1,9 @@
 use super::{Sprite, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH};
 use crate::common::Powered;
+use serde::{Deserialize, Serialize};
 use std::{f32::consts::PI, fmt};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Frame {
     pub num: u32,
     pub parity: bool,

@@ -54,6 +54,11 @@ impl ControlDeck {
         Ok(())
     }
 
+    #[inline]
+    pub fn loaded_rom(&self) -> &Option<String> {
+        &self.loaded_rom
+    }
+
     /// Get a frame worth of pixels
     #[inline]
     #[must_use]
@@ -173,6 +178,13 @@ impl ControlDeck {
     }
 
     #[inline]
+    pub fn load_cpu(&mut self, mut cpu: Cpu) {
+        cpu.bus.ppu.load_cart(&mut cpu.bus.cart);
+        cpu.bus.apu.load_cart(&mut cpu.bus.cart);
+        self.cpu = cpu;
+    }
+
+    #[inline]
     pub fn cpu(&self) -> &Cpu {
         &self.cpu
     }
@@ -200,6 +212,11 @@ impl ControlDeck {
     #[inline]
     pub fn cart(&self) -> &Cart {
         &self.cpu.bus.cart
+    }
+
+    #[inline]
+    pub fn cart_mut(&mut self) -> &mut Cart {
+        &mut self.cpu.bus.cart
     }
 
     #[inline]

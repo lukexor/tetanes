@@ -5,6 +5,7 @@ use crate::{
     memory::{MemRead, MemWrite, Memory, RamState},
     ppu::Mirroring,
 };
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 // Two 1K nametables exist in hardware
@@ -47,7 +48,7 @@ pub const SYSTEM_PALETTE: [u8; SYSTEM_PALETTE_SIZE * 3] = [
     160, 214, 228, 160, 162, 160, 0, 0, 0,       0, 0, 0,       // $3C-$3F
 ];
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vram {
     // Used to layout backgrounds on the screen
@@ -57,6 +58,7 @@ pub struct Vram {
     // Background/Sprite color palettes
     // http://wiki.nesdev.com/w/index.php/PPU_palettes
     pub palette: Memory,
+    #[serde(skip, default = "std::ptr::null_mut")]
     pub cart: *mut Cart,
     pub buffer: u8, // PPUDATA buffer
 }

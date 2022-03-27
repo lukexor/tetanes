@@ -1,5 +1,6 @@
 use super::{Cpu, Status, IRQ_ADDR, NMI_ADDR, SP_BASE};
 use crate::memory::{MemRead, MemWrite};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 // 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
@@ -25,7 +26,7 @@ pub const INSTRUCTIONS: [Instr; 256] = [
 
 #[rustfmt::skip]
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 // List of all CPU official and unofficial operations
 // http://wiki.nesdev.com/w/index.php/6502_instructions
 // http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf
@@ -39,7 +40,7 @@ pub enum Operation {
     SLO, XXX
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::upper_case_acronyms)]
 #[rustfmt::skip]
 #[must_use]
@@ -55,7 +56,7 @@ use AddrMode::*;
 use Operation::*;
 
 // (opcode, Addressing Mode, Operation, cycles taken)
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub struct Instr(u8, AddrMode, Operation, usize);
 

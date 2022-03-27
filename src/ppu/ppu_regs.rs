@@ -1,6 +1,5 @@
 use super::NesFormat;
-use crate::{serialization::Savable, NesResult};
-use std::io::{Read, Write};
+use serde::{Deserialize, Serialize};
 
 // PPUSCROLL masks
 // yyy NN YYYYY XXXXX
@@ -18,7 +17,7 @@ pub(super) const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width 
 pub(super) const Y_MAX_COL: u16 = 29; // last row of tiles - (240 pixel height / 8 pixel tall tiles) - 1
 pub(super) const Y_OVER_COL: u16 = 31; // overscan row
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuRegs {
     ctrl: u8,         // $2000 PPUCTRL write-only
@@ -402,34 +401,6 @@ impl PpuRegs {
     #[inline]
     fn reset_rw(&mut self) {
         self.w = false;
-    }
-}
-
-impl Savable for PpuRegs {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.ctrl.save(fh)?;
-        self.mask.save(fh)?;
-        self.status.save(fh)?;
-        self.oamaddr.save(fh)?;
-        self.v.save(fh)?;
-        self.t.save(fh)?;
-        self.x.save(fh)?;
-        self.w.save(fh)?;
-        self.open_bus.save(fh)?;
-        Ok(())
-    }
-
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.ctrl.load(fh)?;
-        self.mask.load(fh)?;
-        self.status.load(fh)?;
-        self.oamaddr.load(fh)?;
-        self.v.load(fh)?;
-        self.t.load(fh)?;
-        self.x.load(fh)?;
-        self.w.load(fh)?;
-        self.open_bus.load(fh)?;
-        Ok(())
     }
 }
 

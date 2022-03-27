@@ -1,7 +1,8 @@
 use super::{LengthCounter, LinearCounter};
 use crate::common::{Clocked, Powered};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Triangle {
     pub enabled: bool,

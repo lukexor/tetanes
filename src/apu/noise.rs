@@ -1,13 +1,14 @@
 use super::{envelope::Envelope, LengthCounter};
 use crate::common::{Clocked, Powered};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 enum ShiftMode {
     Zero,
     One,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Noise {
     pub enabled: bool,

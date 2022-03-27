@@ -32,6 +32,7 @@ const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
 bitflags! {
     #[derive(Default, Serialize, Deserialize)]
+    #[must_use]
     pub struct Irq: u8 {
         const RESET = 1;
         const MAPPER = 1 << 1;
@@ -55,6 +56,7 @@ bitflags! {
 // +--------- Negative
 bitflags! {
     #[derive(Default, Serialize, Deserialize)]
+    #[must_use]
     pub struct Status: u8 {
         const C = 1;      // Carry
         const Z = 1 << 1; // Zero
@@ -78,7 +80,7 @@ pub const STATUS_REGS: [Status; 8] = [
 ];
 
 /// The Central Processing Unit status and registers
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cpu {
     pub cycle_count: usize, // total number of cycles ran

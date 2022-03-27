@@ -10,6 +10,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt};
 
 const WRAM_SIZE: usize = 2 * 1024; // 2K NES Work Ram
@@ -17,7 +18,7 @@ const WRAM_SIZE: usize = 2 * 1024; // 2K NES Work Ram
 /// NES Bus
 ///
 /// <http://wiki.nesdev.com/w/index.php/CPU_memory_map>
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bus {
     pub ppu: Ppu,
@@ -32,7 +33,7 @@ pub struct Bus {
 }
 
 /// Game Genie Code
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct GenieCode {
     code: String,
     data: u8,

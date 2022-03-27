@@ -7,6 +7,7 @@ use crate::{
     ppu::Mirroring,
 };
 use enum_dispatch::enum_dispatch;
+use serde::{Deserialize, Serialize};
 
 pub use m000_nrom::Nrom;
 pub use m001_sxrom::Sxrom;
@@ -31,7 +32,7 @@ pub mod m066_gxrom;
 pub mod m071_bf909x;
 
 #[enum_dispatch]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum Mapper {
     Empty,
@@ -53,7 +54,7 @@ impl Default for Mapper {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MirroringType {
     Hardware,
@@ -72,7 +73,7 @@ impl From<Mirroring> for MirroringType {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedRead {
     None,
@@ -82,7 +83,7 @@ pub enum MappedRead {
     Data(u8),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedWrite {
     None,
@@ -140,7 +141,7 @@ pub trait Mapped {
     fn ppu_write(&mut self, _addr: u16, _val: u8) {}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Empty;
 

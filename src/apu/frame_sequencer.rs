@@ -1,14 +1,15 @@
 use super::{Divider, Sequencer};
 use crate::common::{Clocked, Powered};
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FrameSequencer {
     pub(crate) divider: Divider,
     pub(crate) sequencer: Sequencer,
     pub(crate) mode: FcMode,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum FcMode {
     Step4,
     Step5,

@@ -1,6 +1,7 @@
 use crate::common::Clocked;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub(crate) struct Envelope {
     pub(crate) enabled: bool,

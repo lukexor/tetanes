@@ -1,320 +1,219 @@
 use crate::{
-    common::{home_dir, Clocked, Powered, CONFIG_DIR},
-    map_nes_err, mapper,
-    mapper::Mapper,
-    nes::{debug::DEBUG_WIDTH, event::FrameEvent, Nes, REWIND_SIZE, REWIND_SLOT, REWIND_TIMER},
-    nes_err,
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    serialization::{validate_save_header, write_save_header, Savable},
+    common::config_dir,
+    cpu::Cpu,
+    nes::{
+        filesystem::{validate_save_header, write_save_header},
+        Nes,
+    },
     NesResult,
 };
-use chrono::prelude::{DateTime, Local};
-use log::error;
-use pix_engine::prelude::*;
+use anyhow::{anyhow, Context};
 use std::{
-    collections::VecDeque,
-    fs::File,
+    fs::{create_dir_all, File, OpenOptions},
     io::{BufReader, BufWriter, Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 impl Nes {
-    pub(super) fn create_textures(&mut self, s: &mut PixState) -> NesResult<()> {
-        self.screen = s.create_texture(PixelFormat::Rgba, RENDER_WIDTH, RENDER_HEIGHT)?;
-        // TODO
-        // s.create_texture(
-        //     "message",
-        //     ColorType::Rgba,
-        //     rect!(0, 0, self.width, MSG_HEIGHT),
-        //     rect!(0, 0, self.width, MSG_HEIGHT),
-        // )?;
-        // s.create_texture(
-        //     "menu",
-        //     ColorType::Rgba,
-        //     rect!(0, 0, self.width, self.height),
-        //     rect!(0, 0, self.width, self.height),
-        // )?;
-        self.debug = s.create_texture(PixelFormat::Rgba, DEBUG_WIDTH, self.height)?;
-        Ok(())
-    }
-
-    pub(super) fn paused(&mut self, paused: bool) {
-        if !self.paused && paused {
-            self.set_static_message("Paused");
-        } else if !paused {
-            self.unset_static_message("Paused");
-        }
-        self.paused = paused;
-    }
-
-    /// Changes the savestate slot
-    pub(super) fn set_save_slot(&mut self, slot: u8) {
-        if self.config.save_enabled {
-            if self.config.save_slot != slot {
-                self.config.save_slot = slot;
-                self.add_message(&format!("Set Save Slot to {}", slot));
+    /// Returns the path where battery-backed Save RAM files are stored
+    pub(crate) fn sram_path(&self) -> NesResult<PathBuf> {
+        match self.control_deck.loaded_rom() {
+            Some(ref rom) => {
+                if let Some(save_name) = PathBuf::from(rom).file_stem().and_then(|s| s.to_str()) {
+                    Ok(config_dir()
+                        .join("sram")
+                        .join(save_name)
+                        .with_extension("sram"))
+                } else {
+                    Err(anyhow!("failed to create sram path for `{}`", rom))
+                }
             }
-        } else {
-            self.add_message("Savestates Disabled");
+            None => Err(anyhow!("no rom is loaded")),
         }
     }
 
+    /// Returns the path where Save states are stored
+    pub(crate) fn save_path(&self) -> NesResult<PathBuf> {
+        match self.control_deck.loaded_rom() {
+            Some(ref rom) => {
+                if let Some(save_name) = PathBuf::from(rom).file_stem().and_then(|s| s.to_str()) {
+                    Ok(config_dir()
+                        .join("save")
+                        .join(save_name)
+                        .join(self.config.save_slot.to_string())
+                        .with_extension("save"))
+                } else {
+                    Err(anyhow!("failed to create save path for `{}`", rom))
+                }
+            }
+            None => Err(anyhow!("no rom is loaded")),
+        }
+    }
     /// Save the current state of the console into a save file
-    pub(super) fn save_state(&mut self, slot: u8, rewind: bool) {
-        if self.config.save_enabled || (rewind && self.config.rewind_enabled) {
-            let save = || -> NesResult<()> {
-                let save_path = save_path(&self.loaded_rom, slot)?;
-                let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
-                if !save_dir.exists() {
-                    std::fs::create_dir_all(save_dir).map_err(|e| {
-                        map_nes_err!("failed to create directory {:?}: {}", save_dir.display(), e)
-                    })?;
-                }
-                let save_file = std::fs::File::create(&save_path).map_err(|e| {
-                    map_nes_err!("failed to create file {:?}: {}", save_path.display(), e)
+    pub(crate) fn save_state(&mut self) {
+        let slot = self.config.save_slot;
+        let save = || -> NesResult<()> {
+            let save_path = self.save_path()?;
+            let save_dir = save_path.parent().unwrap(); // Safe to do because save_path is never root
+            if !save_dir.exists() {
+                create_dir_all(save_dir).with_context(|| {
+                    anyhow!("failed to create save directory {:?}", save_dir.display())
                 })?;
-                let mut writer = BufWriter::new(save_file);
-                write_save_header(&mut writer).map_err(|e| {
-                    map_nes_err!("failed to write header {:?}: {}", save_path.display(), e)
-                })?;
-                self.save(&mut writer)?;
-                Ok(())
-            };
-            let save = save();
-            if !rewind {
-                match save {
-                    Ok(_) => self.add_message(&format!("Saved Slot {}", slot)),
-                    Err(e) => self.add_message(&e.to_string()),
-                }
-            } else if let Err(e) = save {
-                eprintln!("{}", &e.to_string());
             }
-        } else {
-            self.add_message("Savestates Disabled");
+            let save_file = File::create(&save_path)
+                .with_context(|| anyhow!("failed to create save file {:?}", save_path.display()))?;
+            let mut writer = BufWriter::new(save_file);
+            write_save_header(&mut writer).with_context(|| {
+                anyhow!("failed to write save header {:?}", save_path.display())
+            })?;
+            writer.write_all(&bincode::serialize(self.control_deck.cpu())?)?;
+            Ok(())
+        };
+        match save() {
+            Ok(_) => self.add_message(&format!("Saved Slot {}", slot)),
+            Err(e) => self.add_message(&e.to_string()),
         }
     }
 
     /// Load the console with data saved from a save state
-    pub(super) fn load_state(&mut self, slot: u8, rewind: bool) {
-        if self.config.save_enabled || (rewind && self.config.rewind_enabled) {
-            if let Ok(save_path) = save_path(&self.loaded_rom, slot) {
-                if save_path.exists() {
-                    let mut load = || -> NesResult<()> {
-                        let save_file = std::fs::File::open(&save_path).map_err(|e| {
-                            map_nes_err!("Failed to open file {:?}: {}", save_path.display(), e)
-                        })?;
-                        let mut reader = BufReader::new(save_file);
-                        match validate_save_header(&mut reader) {
-                            Ok(_) => {
-                                if let Err(e) = self.load(&mut reader) {
-                                    self.power_cycle();
-                                    return nes_err!("Failed to load savestate #{}: {}", slot, e);
-                                }
-                            }
-                            Err(e) => return nes_err!("Failed to load savestate #{}: {}", slot, e),
-                        }
-                        Ok(())
-                    };
-                    let load = load();
-                    if !rewind {
-                        match load {
-                            Ok(()) => self.add_message(&format!("Loaded Slot {}", slot)),
-                            Err(e) => self.add_message(&e.to_string()),
-                        }
-                    } else if let Err(e) = load {
-                        eprintln!("{}", &e.to_string());
-                    }
-                }
-            }
-        } else {
-            self.add_message("Savestates Disabled");
+    pub(crate) fn load_state(&mut self) {
+        let slot = self.config.save_slot;
+        let mut load = || -> NesResult<()> {
+            let save_path = self.save_path()?;
+            let save_file = File::open(&save_path)
+                .with_context(|| anyhow!("Failed to open file {:?}", save_path.display()))?;
+            let mut reader = BufReader::new(save_file);
+            validate_save_header(&mut reader)
+                .and_then(|_| {
+                    let mut bytes = vec![];
+                    reader.read_to_end(&mut bytes)?;
+                    bincode::deserialize::<Cpu>(&bytes)
+                        .map(|cpu| self.control_deck.load_cpu(cpu))
+                        .with_context(|| anyhow!("Failed to load save #{}", slot))
+                })
+                .with_context(|| anyhow!("Failed to load save #{}", slot))
+        };
+        match load() {
+            Ok(()) => self.add_message(&format!("Loaded Slot {}", slot)),
+            Err(e) => self.add_message(&e.to_string()),
         }
     }
 
-    pub(super) fn save_rewind(&mut self, elapsed: f64) {
-        if self.config.rewind_enabled {
-            self.rewind_timer -= elapsed;
-            if self.rewind_timer <= 0.0 {
-                self.rewind_timer = REWIND_TIMER;
-                let rewind_slot = if self.rewind_queue.len() >= REWIND_SIZE as usize {
-                    self.rewind_queue.pop_front().unwrap() // Safe to unwrap
-                } else {
-                    REWIND_SLOT + self.rewind_queue.len() as u8
-                };
-                let rewind = true;
-                self.save_state(rewind_slot, rewind);
-                self.rewind_queue.push_back(rewind_slot);
-            }
-        }
-    }
+    // pub(super) fn save_rewind(&mut self, elapsed: f64) {
+    //     if self.config.rewind_enabled {
+    //         self.rewind_timer -= elapsed;
+    //         if self.rewind_timer <= 0.0 {
+    //             self.rewind_timer = REWIND_TIMER;
+    //             let rewind_slot = if self.rewind_queue.len() >= REWIND_SIZE as usize {
+    //                 self.rewind_queue.pop_front().unwrap() // Safe to unwrap
+    //             } else {
+    //                 REWIND_SLOT + self.rewind_queue.len() as u8
+    //             };
+    //             let rewind = true;
+    //             self.save_state(rewind_slot, rewind);
+    //             self.rewind_queue.push_back(rewind_slot);
+    //         }
+    //     }
+    // }
 
-    pub(super) fn rewind(&mut self) {
-        if self.config.rewind_enabled {
-            if let Some(rewind_slot) = self.rewind_queue.pop_back() {
-                self.add_message("Rewind");
-                let rewind = true;
-                self.load_state(rewind_slot, rewind);
-            }
-        } else {
-            self.add_message("Rewind disabled");
-        }
-    }
+    // pub(super) fn rewind(&mut self) {
+    //     if self.config.rewind_enabled {
+    //         if let Some(rewind_slot) = self.rewind_queue.pop_back() {
+    //             self.add_message("Rewind");
+    //             let rewind = true;
+    //             self.load_state(rewind_slot, rewind);
+    //         }
+    //     } else {
+    //         self.add_message("Rewind disabled");
+    //     }
+    // }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
     pub(super) fn save_sram(&mut self) -> NesResult<()> {
-        let mapper = &self.cpu.bus.mapper;
-        if mapper.battery_backed() {
-            let sram_path = sram_path(&self.loaded_rom)?;
+        let cart = &self.control_deck.cart();
+        if cart.battery_backed() {
+            let sram_path = self.sram_path()?;
             let sram_dir = sram_path.parent().unwrap(); // Safe to do because sram_path is never root
             if !sram_dir.exists() {
-                std::fs::create_dir_all(sram_dir).map_err(|e| {
-                    map_nes_err!("failed to create directory {:?}: {}", sram_dir.display(), e)
+                create_dir_all(sram_dir).with_context(|| {
+                    anyhow!("failed to create directory {:?}", sram_dir.display())
                 })?;
             }
 
-            let mut sram_opts = std::fs::OpenOptions::new()
+            let mut sram_opts = OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .open(&sram_path)
-                .map_err(|e| {
-                    map_nes_err!("failed to open file {:?}: {}", sram_path.display(), e)
-                })?;
+                .with_context(|| anyhow!("failed to open file {:?}", sram_path.display()))?;
 
             // Empty file means we just created it
             if sram_opts.metadata()?.len() == 0 {
                 let mut sram_file = BufWriter::new(sram_opts);
-                write_save_header(&mut sram_file).map_err(|e| {
-                    map_nes_err!("failed to write header {:?}: {}", sram_path.display(), e)
-                })?;
-                mapper.save_sram(&mut sram_file)?;
+                write_save_header(&mut sram_file)
+                    .with_context(|| anyhow!("failed to write header {:?}", sram_path.display()))?;
+                cart.save_sram(&mut sram_file)
             } else {
                 // Check if exists and header is different, so we avoid overwriting
-                match validate_save_header(&mut sram_opts) {
-                    Ok(_) => {
+                validate_save_header(&mut sram_opts)
+                    .and_then(|_| {
                         let mut sram_file = BufWriter::new(sram_opts);
-                        mapper.save_sram(&mut sram_file)?;
-                    }
-                    Err(e) => {
-                        return nes_err!("failed to write sram due to invalid header. error: {}", e)
-                    }
-                }
+                        cart.save_sram(&mut sram_file)
+                    })
+                    .with_context(|| anyhow!("failed to write sram due to invalid header",))
             }
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
     pub(super) fn load_sram(&mut self) -> NesResult<()> {
-        let mapper = &mut self.cpu.bus.mapper;
-        if mapper.battery_backed() {
-            let sram_path = sram_path(&self.loaded_rom)?;
-            if sram_path.exists() {
-                let sram_file = std::fs::File::open(&sram_path).map_err(|e| {
-                    map_nes_err!("failed to open file {:?}: {}", sram_path.display(), e)
-                })?;
-                let mut sram_file = BufReader::new(sram_file);
-                match validate_save_header(&mut sram_file) {
-                            Ok(_) => {
-                                if let Err(e) = mapper.load_sram(&mut sram_file) {
-                                    return nes_err!("failed to load save sram: {}", e);
-                                }
-                            }
-                            Err(e) => return nes_err!(
-                                "failed to load sram: {}.\n  move or delete `{}` before exiting, otherwise sram data will be lost.",
-                                e,
-                                sram_path.display()
-                            ),
-                        }
-            }
-        }
-        Ok(())
-    }
-
-    /// Saves the replay buffer out to a file
-    pub fn save_replay(&mut self) -> NesResult<()> {
-        let datetime: DateTime<Local> = Local::now();
-        let mut path = PathBuf::from(datetime.format("tetanes_%Y-%m-%d_at_%H.%M.%S").to_string());
-        path.set_extension("replay");
-        let file = std::fs::File::create(&path)?;
-        let mut file = BufWriter::new(file);
-        self.replay_buffer.save(&mut file)?;
-        println!("Saved replay: {:?}", path);
-        Ok(())
-    }
-
-    /// Loads a replay file into a Vec
-    pub(super) fn load_replay(&self) -> NesResult<Vec<FrameEvent>> {
-        if let Some(replay) = &self.config.replay {
-            let file = std::fs::File::open(&PathBuf::from(replay))
-                .map_err(|e| map_nes_err!("failed to open file {:?}: {}", replay, e))?;
-            let mut file = BufReader::new(file);
-            let mut buffer: Vec<FrameEvent> = Vec::new();
-            buffer.load(&mut file)?;
-            buffer.reverse();
-            Ok(buffer)
+        let sram_path = self.sram_path()?;
+        let cart = &mut self.control_deck.cart_mut();
+        if cart.battery_backed() && sram_path.exists() {
+            let sram_file = File::open(&sram_path)
+                .with_context(|| anyhow!("failed to open file {:?}", sram_path.display()))?;
+            let mut sram_file = BufReader::new(sram_file);
+            validate_save_header(&mut sram_file)
+                .and_then(|_| {
+                    cart.load_sram(&mut sram_file).with_context(|| {
+                        anyhow!("failed to load save sram")
+                    })
+                })
+                .with_context(|| anyhow!(
+                    "failed to load sram. move or delete `{}` before exiting, otherwise sram data will be lost.",
+                    sram_path.display()
+                ))
         } else {
-            Ok(Vec::new())
+            Ok(())
         }
     }
 
-    pub(super) fn check_window_focus(&mut self) {
-        if self.config.pause_in_bg {
-            if self.focused_window.is_none() {
-                // Only pause and set background_pause if we weren't already paused
-                if !self.paused && self.config.pause_in_bg {
-                    self.background_pause = true;
-                }
-                self.paused(true);
-            } else if self.background_pause {
-                self.background_pause = false;
-                // Only unpause if we weren't paused as a result of losing focus
-                self.paused(false);
-            }
-        }
-    }
-}
+    // /// Saves the replay buffer out to a file
+    // pub fn save_replay(&mut self) -> NesResult<()> {
+    //     let datetime: DateTime<Local> = Local::now();
+    //     let mut path = PathBuf::from(datetime.format("tetanes_%Y-%m-%d_at_%H.%M.%S").to_string());
+    //     path.set_extension("replay");
+    //     let file = File::create(&path)?;
+    //     let mut file = BufWriter::new(file);
+    //     self.replay_buffer.save(&mut file)?;
+    //     println!("Saved replay: {:?}", path);
+    //     Ok(())
+    // }
 
-/// Returns the path where battery-backed Save RAM files are stored
-///
-/// # Arguments
-///
-/// * `path` - An object that implements AsRef<Path> that holds the path to the currently
-/// running ROM
-///
-/// # Errors
-///
-/// Panics if path is not a valid path
-fn sram_path<P: AsRef<Path>>(path: &P) -> NesResult<PathBuf> {
-    let save_name = path.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
-    let mut path = dir::home_dir().unwrap_or_else(|| PathBuf::from("./"));
-    path.push(CONFIG_DIR);
-    path.push("sram");
-    path.push(save_name);
-    path.set_extension("sram");
-    Ok(path)
-}
-
-/// Returns the path where Save states are stored
-///
-/// # Arguments
-///
-/// * `path` - An object that implements AsRef<Path> that holds the path to the currently
-/// running ROM
-///
-/// # Errors
-///
-/// Panics if path is not a valid path
-pub fn save_path<P: AsRef<Path>>(path: &P, slot: u8) -> NesResult<PathBuf> {
-    if let Some(save_name) = path.as_ref().file_stem().and_then(|s| s.to_str()) {
-        let mut path = dir::home_dir().unwrap_or_else(|| PathBuf::from("./"));
-        path.push(CONFIG_DIR);
-        path.push("save");
-        path.push(save_name);
-        path.push(format!("{}", slot));
-        path.set_extension("save");
-        Ok(path)
-    } else {
-        nes_err!("failed to create save path for {:?}", path.as_ref())
-    }
+    // /// Loads a replay file into a Vec
+    // pub(super) fn load_replay(&self) -> NesResult<Vec<FrameEvent>> {
+    //     if let Some(replay) = &self.config.replay {
+    //         let file = File::open(&PathBuf::from(replay))
+    //             .map_err(|e| map_nes_err!("failed to open file {:?}: {}", replay, e))?;
+    //         let mut file = BufReader::new(file);
+    //         let mut buffer: Vec<FrameEvent> = Vec::new();
+    //         buffer.load(&mut file)?;
+    //         buffer.reverse();
+    //         Ok(buffer)
+    //     } else {
+    //         Ok(Vec::new())
+    //     }
+    // }
 }

@@ -81,7 +81,7 @@ impl AsRef<str> for GamepadBtn {
 }
 
 /// Represents an NES Joypad
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Gamepad {
     /// Left D-Pad pressed or not.
@@ -142,7 +142,7 @@ impl Powered for Gamepad {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Signature {
     signature: u8,
@@ -182,7 +182,7 @@ impl Powered for Signature {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
     pub triggered: u8,
@@ -260,7 +260,7 @@ impl Zapper {
 }
 
 /// Input containing gamepad input state
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Input {
     pub gamepads: [Gamepad; 4],

@@ -31,6 +31,7 @@ pub(crate) mod debug;
 pub(crate) mod event;
 pub(crate) mod filesystem;
 pub(crate) mod menu;
+pub(crate) mod state;
 
 pub(crate) const SETTINGS: &str = "settings.json";
 const DEFAULT_SETTINGS: &[u8] = include_bytes!("../config/settings.json");
@@ -363,6 +364,9 @@ impl AppState for Nes {
     }
 
     fn on_stop(&mut self, _s: &mut PixState) -> PixResult<()> {
+        if let Err(e) = self.save_sram() {
+            log::error!("{}", e);
+        }
         self.control_deck.power_off();
         Ok(())
     }

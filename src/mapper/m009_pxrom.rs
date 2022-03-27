@@ -10,6 +10,7 @@ use crate::{
     },
     memory::MemoryBanks,
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_WINDOW: usize = 8 * 1024;
 const CHR_ROM_WINDOW: usize = 4 * 1024;
@@ -23,7 +24,7 @@ const MIRRORING_MASK: u8 = 0x01;
 // CPU $8000..=$9FFF 8K switchable PRG-ROM bank
 // CPU $A000..=$FFFF Three 8K PRG-ROM banks, fixed to the last three banks
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pxrom {
     mirroring: Mirroring,

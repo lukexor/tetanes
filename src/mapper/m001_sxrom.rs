@@ -10,6 +10,7 @@ use crate::{
     memory::MemoryBanks,
     ppu::Mirroring,
 };
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 const PRG_RAM_WINDOW: usize = 8 * 1024;
@@ -33,14 +34,14 @@ const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable or Fixed to First Bank
 // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed to Last Bank or Switchable
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum Mmc1 {
     A,
     BC,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 struct SxRegs {
     write_just_occurred: u8,
@@ -51,25 +52,7 @@ struct SxRegs {
     prg: u8,            // $E000-$FFFF
 }
 
-impl fmt::Debug for SxRegs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let prg_ram_enabled = self.prg & PRG_RAM_DISABLED == PRG_RAM_DISABLED;
-        f.debug_struct("SxRegs")
-            .field("write_just_occurred", &self.write_just_occurred)
-            .field(
-                "shift_register",
-                &format_args!("0b{:08b}", self.shift_register),
-            )
-            .field("control", &format_args!("0x{:02X}", self.control))
-            .field("chr_bank0", &format_args!("0x{:02X}", self.chr0))
-            .field("chr_bank1", &format_args!("0x{:02X}", self.chr1))
-            .field("prg_bank", &format_args!("0x{:02X}", self.prg & 0x0F))
-            .field("prg_ram_enabled", &prg_ram_enabled)
-            .finish()
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Sxrom {
     regs: SxRegs,
@@ -305,5 +288,23 @@ impl Powered for Sxrom {
     fn power_cycle(&mut self) {
         self.regs.write_just_occurred = 0;
         self.reset();
+    }
+}
+
+impl fmt::Debug for SxRegs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let prg_ram_enabled = self.prg & PRG_RAM_DISABLED == PRG_RAM_DISABLED;
+        f.debug_struct("SxRegs")
+            .field("write_just_occurred", &self.write_just_occurred)
+            .field(
+                "shift_register",
+                &format_args!("0b{:08b}", self.shift_register),
+            )
+            .field("control", &format_args!("0x{:02X}", self.control))
+            .field("chr_bank0", &format_args!("0x{:02X}", self.chr0))
+            .field("chr_bank1", &format_args!("0x{:02X}", self.chr1))
+            .field("prg_bank", &format_args!("0x{:02X}", self.prg & 0x0F))
+            .field("prg_ram_enabled", &prg_ram_enabled)
+            .finish()
     }
 }

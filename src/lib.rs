@@ -45,7 +45,6 @@ pub mod mapper;
 pub mod memory;
 pub mod nes;
 pub mod ppu;
-pub mod serialization;
 
 pub type NesResult<T> = anyhow::Result<T, anyhow::Error>;
 

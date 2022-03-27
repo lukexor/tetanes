@@ -1,6 +1,7 @@
 use crate::common::{Clocked, Powered};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
     pub irq_enabled: bool,

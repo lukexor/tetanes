@@ -12,17 +12,18 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use log::{debug, info};
+use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     fs::File,
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     path::Path,
 };
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum RomSize {
     S128, // 128 kilobits - not kilobytes
@@ -30,7 +31,7 @@ pub enum RomSize {
     S512,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum ChrMode {
     Rom,
@@ -42,7 +43,7 @@ pub enum ChrMode {
 /// <http://wiki.nesdev.com/w/index.php/INES>
 /// <http://wiki.nesdev.com/w/index.php/NES_2.0>
 /// <http://nesdev.com/NESDoc.pdf> (page 28)
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct NesHeader {
     pub version: u8,        // 1 for iNES or 2 for NES 2.0
@@ -58,7 +59,7 @@ pub struct NesHeader {
 }
 
 /// Represents an NES Cart
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cart {
     pub name: String,
@@ -188,6 +189,7 @@ impl Cart {
         Ok(cart)
     }
 
+    #[inline]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -199,6 +201,22 @@ impl Cart {
             MirroringType::Hardware => self.mirroring,
             MirroringType::Software(mirroring) => mirroring,
         }
+    }
+
+    #[inline]
+    pub fn save_sram<F: Write>(&self, f: &mut F) -> NesResult<()> {
+        if self.battery_backed() {
+            f.write_all(&self.prg_ram)?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub fn load_sram<F: Read>(&mut self, f: &mut F) -> NesResult<()> {
+        if self.battery_backed() {
+            f.read_exact(&mut self.prg_ram)?;
+        }
+        Ok(())
     }
 
     #[inline]

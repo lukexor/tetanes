@@ -34,7 +34,7 @@ pub trait MemWrite {
     fn writew(&mut self, _addr: usize, _val: u8) {}
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MemAccess {
     Read,
@@ -78,7 +78,7 @@ impl FromStr for RamState {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Memory {
     data: Vec<u8>,
@@ -192,7 +192,7 @@ impl fmt::Debug for Memory {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct MemoryBanks {
     start: usize,

@@ -1,19 +1,20 @@
 use super::{envelope::Envelope, LengthCounter, Sweep};
 use crate::common::{Clocked, Powered};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum PulseChannel {
     One,
     Two,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum OutputFreq {
     Default,
     Ultrasonic,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pulse {
     pub enabled: bool,

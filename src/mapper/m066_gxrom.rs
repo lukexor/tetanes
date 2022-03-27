@@ -8,6 +8,7 @@ use crate::{
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_ROM_WINDOW: usize = 32 * 1024;
 const CHR_WINDOW: usize = 8 * 1024;
@@ -18,7 +19,7 @@ const PRG_BANK_MASK: u8 = 0x30; // 0b110000
 // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
 // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Gxrom {
     chr_banks: MemoryBanks,

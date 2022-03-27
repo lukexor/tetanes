@@ -17,6 +17,7 @@ use crate::{
         Mirroring,
     },
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_WINDOW: usize = 8 * 1024;
 const PRG_RAM_SIZE: usize = 64 * 1024; // Provide 64K since mappers don't always specify
@@ -56,7 +57,7 @@ const ATTR_SHIFT: [u8; 128] = [
     4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
 ];
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum PrgMode {
     Bank32k,
@@ -65,7 +66,7 @@ pub enum PrgMode {
     Bank8k,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum ChrMode {
     Bank8k,
@@ -74,7 +75,7 @@ pub enum ChrMode {
     Bank1k,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum ExMode {
     Nametable,
@@ -83,15 +84,14 @@ pub enum ExMode {
     RamProtected,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum ChrBank {
     Spr,
     Bg,
 }
 
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum Nametable {
     ScreenA,
@@ -100,21 +100,21 @@ pub enum Nametable {
     Fill,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fill {
     pub tile: u8, // $5106
     pub attr: u8, // $5107
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum SplitSide {
     Left,
     Right,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct VSplit {
     pub enabled: bool,   // $5200 [E... ....]
@@ -124,7 +124,7 @@ pub struct VSplit {
     pub bank: u8,        // $5202
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct ExRegs {
     pub prg_mode: PrgMode,        // $5100
@@ -144,7 +144,7 @@ pub struct ExRegs {
     pub mult_result: u16,         // $5205: read lo, $5206: read hi
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuStatus {
     pub fetch_count: u32,
@@ -177,7 +177,7 @@ impl PpuStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Exrom {
     pub regs: ExRegs,

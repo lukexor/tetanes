@@ -12,13 +12,35 @@ use crate::{
 };
 use dmc::Dmc;
 use frame_sequencer::{FcMode, FrameSequencer};
+use lazy_static::lazy_static;
 use noise::Noise;
 use pulse::{Pulse, PulseChannel};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use triangle::Triangle;
 
 pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
 const SAMPLE_BUFFER_SIZE: usize = 1024;
+
+const PULSE_TABLE_SIZE: usize = 31;
+const TND_TABLE_SIZE: usize = 203;
+
+lazy_static! {
+    static ref PULSE_TABLE: [f32; PULSE_TABLE_SIZE] = {
+        let mut pulse_table = [0.0; PULSE_TABLE_SIZE];
+        for (i, val) in pulse_table.iter_mut().enumerate().skip(1) {
+            *val = 95.52 / (8_128.0 / (i as f32) + 100.0);
+        }
+        pulse_table
+    };
+    static ref TND_TABLE: [f32; TND_TABLE_SIZE] = {
+        let mut tnd_table = [0.0; TND_TABLE_SIZE];
+        for (i, val) in tnd_table.iter_mut().enumerate().skip(1) {
+            *val = 163.67 / (24_329.0 / (i as f32) + 100.0);
+        }
+        tnd_table
+    };
+}
 
 pub mod dmc;
 pub mod noise;
@@ -29,7 +51,7 @@ mod envelope;
 mod frame_sequencer;
 
 /// A given APU audio channel.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum AudioChannel {
     Pulse1,
@@ -40,7 +62,7 @@ pub enum AudioChannel {
 }
 
 /// Audio Processing Unit
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Apu {
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
@@ -55,20 +77,16 @@ pub struct Apu {
     triangle: Triangle,
     noise: Noise,
     pub(crate) dmc: Dmc,
+    #[serde(skip, default = "std::ptr::null_mut")]
     cart: *mut Cart,
     enabled: [bool; 5],
     sample_timer: f32,
     sample_rate: f32,
-    pulse_table: [f32; Self::PULSE_TABLE_SIZE],
-    tnd_table: [f32; Self::TND_TABLE_SIZE],
 }
 
 impl Apu {
-    const PULSE_TABLE_SIZE: usize = 31;
-    const TND_TABLE_SIZE: usize = 203;
-
     pub fn new() -> Self {
-        let mut apu = Self {
+        Self {
             irq_pending: false,
             irq_enabled: false,
             open_bus: 0u8,
@@ -85,16 +103,7 @@ impl Apu {
             enabled: [true; 5],
             sample_timer: 0.0,
             sample_rate: CPU_CLOCK_RATE / SAMPLE_RATE,
-            pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
-            tnd_table: [0f32; Self::TND_TABLE_SIZE],
-        };
-        for i in 1..Self::PULSE_TABLE_SIZE {
-            apu.pulse_table[i] = 95.52 / (8_128.0 / (i as f32) + 100.0);
         }
-        for i in 1..Self::TND_TABLE_SIZE {
-            apu.tnd_table[i] = 163.67 / (24_329.0 / (i as f32) + 100.0);
-        }
-        apu
     }
 
     #[must_use]
@@ -226,14 +235,13 @@ impl Apu {
                 0.0
             };
             let dmc2 = exrom.dmc.output();
-            let pulse_out = self.pulse_table[(pulse1 + pulse2 + pulse3 + pulse4) as usize % 31];
+            let pulse_out = PULSE_TABLE[(pulse1 + pulse2 + pulse3 + pulse4) as usize % 31];
             let tnd_out =
-                self.tnd_table[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc + dmc2) as usize % 203];
+                TND_TABLE[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc + dmc2) as usize % 203];
             2.0 * (pulse_out + tnd_out)
         } else {
-            let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
-            let tnd_out =
-                self.tnd_table[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
+            let pulse_out = PULSE_TABLE[(pulse1 + pulse2) as usize % 31];
+            let tnd_out = TND_TABLE[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
             2.0 * (pulse_out + tnd_out)
         }
     }
@@ -444,7 +452,7 @@ impl fmt::Debug for Apu {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub(crate) struct Sequencer {
     pub(crate) step: usize,
@@ -475,7 +483,7 @@ impl Powered for Sequencer {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub(crate) struct Divider {
     pub(crate) counter: f32,
@@ -513,7 +521,7 @@ impl Powered for Divider {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Sweep {
     pub(crate) enabled: bool,
     pub(crate) reload: bool,
@@ -523,7 +531,7 @@ pub(crate) struct Sweep {
     pub(crate) shift: u8,
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct LengthCounter {
     pub enabled: bool,
@@ -566,7 +574,7 @@ impl Clocked for LengthCounter {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub(crate) struct LinearCounter {
     pub(crate) reload: bool,

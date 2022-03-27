@@ -496,12 +496,8 @@ impl Nes {
                     Err(e) => self.add_message(e.to_string()),
                 }
             }
-            Feature::SaveState => {
-                todo!("Save state");
-            }
-            Feature::LoadState => {
-                todo!("Load state");
-            }
+            Feature::SaveState => self.save_state(),
+            Feature::LoadState => self.load_state(),
             _ => (),
         }
         Ok(())

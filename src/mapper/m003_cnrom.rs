@@ -9,6 +9,7 @@ use crate::{
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
 };
+use serde::{Deserialize, Serialize};
 
 const CHR_ROM_WINDOW: usize = 8 * 1024;
 
@@ -16,7 +17,7 @@ const CHR_ROM_WINDOW: usize = 8 * 1024;
 // CPU $8000..=$FFFF 16K PRG-ROM Bank Fixed
 // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed or Bank 1 Mirror if only 16 KB PRG-ROM
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cnrom {
     chr_banks: MemoryBanks,

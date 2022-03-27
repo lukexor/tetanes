@@ -7,6 +7,7 @@ use crate::{
     common::{Clocked, Powered},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_RAM_SIZE: usize = 8 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
@@ -16,7 +17,7 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 // CPU $8000..=$BFFF 16K PRG-ROM Bank 1 for NROM128 or NROM256
 // CPU $C000..=$FFFF 16K PRG-ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Nrom {
     mirror_prg: bool,

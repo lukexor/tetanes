@@ -11,6 +11,7 @@ use crate::{
 };
 use frame::Frame;
 use ppu_regs::{PpuRegs, COARSE_X_MASK, COARSE_Y_MASK, NT_X_MASK, NT_Y_MASK};
+use serde::{Deserialize, Serialize};
 use sprite::Sprite;
 use std::fmt;
 use vram::{
@@ -62,7 +63,7 @@ const PRERENDER_SCANLINE: u16 = 261;
 
 pub const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum VideoFormat {
     None,
@@ -72,7 +73,7 @@ pub enum VideoFormat {
 /// Nametable Mirroring Mode
 ///
 /// <http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring>
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum Mirroring {
     Horizontal,
@@ -88,7 +89,7 @@ impl Default for Mirroring {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
     pub cycle: u16,         // (0, 340) 341 cycles happen per scanline

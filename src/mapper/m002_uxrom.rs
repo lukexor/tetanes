@@ -8,6 +8,7 @@ use crate::{
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_ROM_WINDOW: usize = 16 * 1024;
 const CHR_RAM_SIZE: usize = 8 * 1024;
@@ -16,7 +17,7 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
 // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Uxrom {
     prg_rom_banks: MemoryBanks,

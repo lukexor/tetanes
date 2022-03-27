@@ -11,6 +11,7 @@ use crate::{
     },
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
 };
+use serde::{Deserialize, Serialize};
 
 const PRG_WINDOW: usize = 8 * 1024;
 const CHR_WINDOW: usize = 1024;
@@ -46,7 +47,7 @@ const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 // Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
 // Crystalis (MMC3B 9024KPO53)
 // Legacy of the Wizard (MMC3A 8940EP)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 enum Mmc3Rev {
     // A, // TODO: Match games that use MMC3A
@@ -55,7 +56,7 @@ enum Mmc3Rev {
     Acc,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 struct TxRegs {
     bank_select: u8,
@@ -67,7 +68,7 @@ struct TxRegs {
     last_clock: u16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Txrom {
     regs: TxRegs,
