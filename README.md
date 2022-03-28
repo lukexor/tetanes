@@ -342,7 +342,7 @@ When using the WASM version in the browser, also include:
   - [x] Fast-forward
   - [ ] Instant Rewind (5 seconds)
   - [ ] Visual Rewind (Holding R will time-travel backward)
-  - [ ] Save/Load State
+  - [x] Save/Load State
   - [X] Take Screenshots
   - [ ] Gameplay Recording
   - [ ] Sound Recording (Save those memorable tunes!)
