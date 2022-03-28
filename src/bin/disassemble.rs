@@ -2,7 +2,10 @@ use std::{env, path::PathBuf};
 use structopt::StructOpt;
 use tetanes::{
     cart::Cart,
-    cpu::instr::{AddrMode::*, INSTRUCTIONS},
+    cpu::instr::{
+        AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY},
+        INSTRUCTIONS,
+    },
     NesResult,
 };
 

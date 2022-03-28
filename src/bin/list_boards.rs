@@ -34,7 +34,9 @@ fn main() -> NesResult<()> {
             })
             .collect();
         boards.sort();
-        boards.iter().for_each(|board| info!("{}", board));
+        for board in &boards {
+            info!("{}", board);
+        }
     } else if path.is_file() {
         info!("{}", get_mapper(&path)?);
     }

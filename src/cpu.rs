@@ -9,7 +9,18 @@ use crate::{
     memory::{MemRead, MemWrite},
 };
 use bitflags::bitflags;
-use instr::{AddrMode::*, Instr, Operation::*, INSTRUCTIONS};
+use instr::{
+    AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY},
+    Instr,
+    Operation::{
+        ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS,
+        CLC, CLD, CLI, CLV, CMP, CPX, CPY, DCP, DEC, DEX, DEY, EOR, IGN, INC, INX, INY, ISB, JMP,
+        JSR, LAS, LAX, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, RLA, ROL, ROR, RRA, RTI,
+        RTS, SAX, SBC, SEC, SED, SEI, SKB, SLO, SRE, STA, STX, STY, SXA, SYA, TAS, TAX, TAY, TSX,
+        TXA, TXS, TYA, XAA, XXX,
+    },
+    INSTRUCTIONS,
+};
 use log::{log_enabled, trace, Level};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -106,7 +117,7 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn init(bus: Bus) -> Self {
+    pub const fn init(bus: Bus) -> Self {
         Self {
             cycle_count: 0,
             step: 0,
@@ -138,6 +149,7 @@ impl Cpu {
     }
 
     #[inline]
+    #[must_use]
     pub fn next_addr(&self) -> (Option<u16>, Option<u16>) {
         let instr = self.next_instr();
         let addr = self.pc.wrapping_add(1);

@@ -52,8 +52,14 @@ pub enum AddrMode {
     REL, ACC, IMP,
 }
 
-use AddrMode::*;
-use Operation::*;
+use AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY};
+use Operation::{
+    ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
+    CLD, CLI, CLV, CMP, CPX, CPY, DCP, DEC, DEX, DEY, EOR, IGN, INC, INX, INY, ISB, JMP, JSR, LAS,
+    LAX, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, RLA, ROL, ROR, RRA, RTI, RTS, SAX, SBC,
+    SEC, SED, SEI, SKB, SLO, SRE, STA, STX, STY, SXA, SYA, TAS, TAX, TAY, TSX, TXA, TXS, TYA, XAA,
+    XXX,
+};
 
 // (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]

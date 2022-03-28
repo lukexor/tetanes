@@ -255,7 +255,7 @@ impl Nes {
         s: &mut PixState,
         event: KeyEvent,
         pressed: bool,
-    ) -> PixResult<bool> {
+    ) -> bool {
         for slot in [
             GamepadSlot::One,
             GamepadSlot::Two,
@@ -272,10 +272,10 @@ impl Nes {
                     self.handle_input_action(s, slot, action, pressed, event.repeat)
                 })
             {
-                return Ok(true);
+                return true;
             }
         }
-        Ok(false)
+        false
     }
 
     #[inline]
@@ -285,7 +285,7 @@ impl Nes {
         btn: Mouse,
         _pos: Point<i32>,
         clicked: bool,
-    ) -> PixResult<bool> {
+    ) {
         if self.mode == Mode::Playing && clicked && btn == Mouse::Left {
             if let Some(view) = self.emulation {
                 if s.focused_window(view.window_id) {
@@ -293,11 +293,10 @@ impl Nes {
                 }
             }
         }
-        Ok(false)
     }
 
     #[inline]
-    pub fn handle_mouse_motion(&mut self, s: &mut PixState, pos: Point<i32>) -> PixResult<bool> {
+    pub fn handle_mouse_motion(&mut self, s: &mut PixState, pos: Point<i32>) {
         if self.mode == Mode::Playing {
             if let Some(view) = self.emulation {
                 if s.focused_window(view.window_id) {
@@ -308,7 +307,6 @@ impl Nes {
                 }
             }
         }
-        Ok(false)
     }
 
     #[inline]
@@ -395,12 +393,12 @@ impl Nes {
             match action {
                 Action::Nes(state) => self.handle_nes_state(s, state)?,
                 Action::Menu(menu) => self.open_menu(s, menu)?,
-                Action::Feature(feature) => self.handle_feature(s, feature, false)?,
+                Action::Feature(feature) => self.handle_feature(s, feature, false),
                 Action::Setting(setting) => self.handle_setting(s, setting)?,
-                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed)?,
+                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
                 Action::ZeroAxis(buttons) => {
                     for button in buttons {
-                        self.handle_gamepad_pressed(slot, button, false)?;
+                        self.handle_gamepad_pressed(slot, button, false);
                     }
                 }
                 Action::Debug(action) => self.handle_debug(s, action, pressed, false)?,
@@ -409,7 +407,7 @@ impl Nes {
             match action {
                 Action::Feature(Feature::Rewind) if !self.rewinding => todo!("Rewind 5 seconds"),
                 Action::Setting(Setting::FastForward) => self.set_speed(1.0),
-                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed)?,
+                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
                 _ => (),
             }
         }
@@ -450,12 +448,7 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_feature(
-        &mut self,
-        s: &mut PixState,
-        feature: Feature,
-        repeat: bool,
-    ) -> NesResult<()> {
+    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, repeat: bool) {
         match feature {
             Feature::ToggleGameplayRecording => {
                 if self.mode == Mode::Recording {
@@ -471,9 +464,13 @@ impl Nes {
             Feature::ToggleSoundRecording => {
                 todo!("Toggle sound recording")
             }
-            Feature::Rewind if repeat => {
-                self.rewinding = true;
-                todo!("Rewinding")
+            Feature::Rewind => {
+                if repeat {
+                    self.rewinding = true;
+                    todo!("Rewinding")
+                } else {
+                    todo!("Rewind 5 seconds");
+                }
             }
             Feature::TakeScreenshot => {
                 let filename = Local::now()
@@ -486,9 +483,7 @@ impl Nes {
             }
             Feature::SaveState => self.save_state(),
             Feature::LoadState => self.load_state(),
-            _ => (),
         }
-        Ok(())
     }
 
     #[inline]
@@ -540,12 +535,7 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_gamepad_pressed(
-        &mut self,
-        slot: GamepadSlot,
-        button: GamepadBtn,
-        pressed: bool,
-    ) -> PixResult<()> {
+    fn handle_gamepad_pressed(&mut self, slot: GamepadSlot, button: GamepadBtn, pressed: bool) {
         let mut gamepad = self.control_deck.gamepad_mut(slot);
         if !self.config.concurrent_dpad && pressed {
             match button {
@@ -573,9 +563,8 @@ impl Nes {
             }
             GamepadBtn::Select => gamepad.select = pressed,
             GamepadBtn::Start => gamepad.start = pressed,
-            _ => (),
+            GamepadBtn::Zapper => (), // Zapper handled only with mouse currently
         };
-        Ok(())
     }
 
     #[inline]
@@ -602,14 +591,12 @@ impl Nes {
                     self.mode = Mode::Paused;
                 }
                 let instr = self.control_deck.next_instr();
+                self.control_deck.clock();
                 if instr.op() == Operation::JSR {
-                    self.control_deck.clock();
                     let rti_addr = self.control_deck.stack_addr().wrapping_add(1);
                     while self.control_deck.pc() != rti_addr {
                         self.control_deck.clock();
                     }
-                } else {
-                    self.control_deck.clock();
                 }
             }
             DebugAction::StepOut if debugging => {

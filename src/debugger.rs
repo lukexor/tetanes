@@ -32,7 +32,7 @@ pub(crate) struct Breakpoint {
 }
 
 impl Breakpoint {
-    pub(crate) fn matches(&self, _cpu: &Cpu) -> bool {
+    pub(crate) const fn matches(&self, _cpu: &Cpu) -> bool {
         // TODO: Breakpoint matching
         false
     }

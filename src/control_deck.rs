@@ -45,9 +45,9 @@ impl ControlDeck {
     ///
     /// If there is any issue loading the ROM, then an error is returned.
     #[inline]
-    pub fn load_rom<F: Read>(&mut self, name: &str, rom: &mut F) -> NesResult<()> {
+    pub fn load_rom<S: ToString, F: Read>(&mut self, name: &S, rom: &mut F) -> NesResult<()> {
         self.power_off();
-        self.loaded_rom = Some(name.to_owned());
+        self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.power_state)?;
         self.cpu.bus.load_cart(cart);
         self.power_on();
@@ -55,7 +55,8 @@ impl ControlDeck {
     }
 
     #[inline]
-    pub fn loaded_rom(&self) -> &Option<String> {
+    #[must_use]
+    pub const fn loaded_rom(&self) -> &Option<String> {
         &self.loaded_rom
     }
 
@@ -137,13 +138,15 @@ impl ControlDeck {
 
     /// Returns whether the CPU is corrupted or not.
     #[inline]
-    pub fn cpu_corrupted(&self) -> bool {
+    #[must_use]
+    pub const fn cpu_corrupted(&self) -> bool {
         self.cpu.corrupted
     }
 
     /// Returns the current CPU program counter.
     #[inline]
-    pub fn pc(&self) -> u16 {
+    #[must_use]
+    pub const fn pc(&self) -> u16 {
         self.cpu.pc
     }
 
@@ -156,18 +159,21 @@ impl ControlDeck {
     /// Returns the next address on the bus with the current value at the target address, if
     /// appropriate.
     #[inline]
+    #[must_use]
     pub fn next_addr(&self) -> (Option<u16>, Option<u16>) {
         self.cpu.next_addr()
     }
 
     /// Returns the address at the top of the stack.
     #[inline]
+    #[must_use]
     pub fn stack_addr(&self) -> u16 {
         self.cpu.peek_stackw()
     }
 
     /// Disassemble an address range of CPU instructions.
     #[inline]
+    #[must_use]
     pub fn disasm(&self, start: u16, end: u16) -> Vec<String> {
         let mut disassembly = Vec::with_capacity(256);
         let mut addr = start;
@@ -186,7 +192,7 @@ impl ControlDeck {
     }
 
     #[inline]
-    pub fn cpu(&self) -> &Cpu {
+    pub const fn cpu(&self) -> &Cpu {
         &self.cpu
     }
 
@@ -196,7 +202,7 @@ impl ControlDeck {
     }
 
     #[inline]
-    pub fn ppu(&self) -> &Ppu {
+    pub const fn ppu(&self) -> &Ppu {
         &self.cpu.bus.ppu
     }
 
@@ -206,12 +212,12 @@ impl ControlDeck {
     }
 
     #[inline]
-    pub fn apu(&self) -> &Apu {
+    pub const fn apu(&self) -> &Apu {
         &self.cpu.bus.apu
     }
 
     #[inline]
-    pub fn cart(&self) -> &Cart {
+    pub const fn cart(&self) -> &Cart {
         &self.cpu.bus.cart
     }
 
@@ -221,16 +227,8 @@ impl ControlDeck {
     }
 
     #[inline]
-    pub fn apu_info(&self) {
-        log::info!("DMC Period: {}", self.cpu.bus.apu.dmc.freq_timer);
-        log::info!("DMC Timer: {}", self.cpu.bus.apu.dmc.freq_counter);
-        log::info!("DMC Sample Address: 0x{:04X}", self.cpu.bus.apu.dmc.addr);
-        log::info!("DMC Sample Length: {}", self.cpu.bus.apu.dmc.length_load);
-        log::info!("DMC Bytes Remaining: {}", self.cpu.bus.apu.dmc.output_bits);
-    }
-
-    #[inline]
-    pub fn frame_complete(&self) -> bool {
+    #[must_use]
+    pub const fn frame_complete(&self) -> bool {
         self.cpu.bus.ppu.frame_complete
     }
 
@@ -247,7 +245,7 @@ impl ControlDeck {
 
     /// Returns a reference to the zapper.
     #[inline]
-    pub fn zapper(&self) -> &Zapper {
+    pub const fn zapper(&self) -> &Zapper {
         &self.cpu.bus.input.zapper
     }
 
@@ -364,7 +362,7 @@ mod tests {
         let mut deck = ControlDeck::new(RamState::AllZeros);
         let rom = File::open(PathBuf::from(file)).unwrap();
         let mut rom = BufReader::new(rom);
-        deck.load_rom(file, &mut rom).unwrap();
+        deck.load_rom(&file, &mut rom).unwrap();
         deck.power_on();
         deck
     }

@@ -372,15 +372,11 @@ impl AppState for Nes {
     }
 
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
-        // FIXME: Convert to ApuViewer window
-        if event.key == Key::A && event.keymod.intersects(KeyMod::SHIFT) {
-            self.control_deck.apu_info();
-        }
-        self.handle_key_event(s, event, true)
+        Ok(self.handle_key_event(s, event, true))
     }
 
     fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
-        self.handle_key_event(s, event, false)
+        Ok(self.handle_key_event(s, event, false))
     }
 
     fn on_mouse_pressed(
@@ -389,7 +385,8 @@ impl AppState for Nes {
         btn: Mouse,
         pos: Point<i32>,
     ) -> PixResult<bool> {
-        self.handle_mouse_event(s, btn, pos, true)
+        self.handle_mouse_event(s, btn, pos, true);
+        Ok(false)
     }
 
     fn on_mouse_motion(
@@ -398,7 +395,8 @@ impl AppState for Nes {
         pos: Point<i32>,
         _rel_pos: Point<i32>,
     ) -> PixResult<bool> {
-        self.handle_mouse_motion(s, pos)
+        self.handle_mouse_motion(s, pos);
+        Ok(false)
     }
 
     fn on_controller_update(

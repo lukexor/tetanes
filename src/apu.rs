@@ -317,6 +317,7 @@ impl Apu {
         self.cart = cart;
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     #[inline]
     pub fn cart(&self) -> &Cart {
         unsafe { &*self.cart }
@@ -331,7 +332,7 @@ impl Apu {
 #[cfg(test)]
 impl Apu {
     #[inline]
-    pub(crate) fn frame_sequencer(&self) -> &FrameSequencer {
+    pub(crate) const fn frame_sequencer(&self) -> &FrameSequencer {
         &self.frame_sequencer
     }
 }

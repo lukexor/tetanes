@@ -17,7 +17,7 @@ pub(crate) struct Debugger {
 }
 
 impl Debugger {
-    fn new(view: View) -> Self {
+    const fn new(view: View) -> Self {
         Self {
             view,
             breakpoints: vec![],
@@ -97,9 +97,9 @@ impl Nes {
                     for (i, offset) in (0xE0..=0xFF).rev().enumerate() {
                         let val = cpu.peek(0x0100 | offset);
                         if u16::from(cpu.sp) == offset {
-                            s.fill(Color::GREEN)
+                            s.fill(Color::GREEN);
                         } else {
-                            s.fill(Color::GRAY)
+                            s.fill(Color::GRAY);
                         }
                         s.text(&format!("{:02X} ", val))?;
                         if i % bytes_per_row < bytes_per_row - 1 {
@@ -205,7 +205,7 @@ impl Nes {
                     s.texture(texture_id, nametable_src, nametable_src)?;
 
                     // Scanline
-                    let scanline = self.scanline as i32;
+                    let scanline = i32::from(self.scanline);
                     s.push();
                     s.stroke(Color::WHITE);
                     s.stroke_weight(2);

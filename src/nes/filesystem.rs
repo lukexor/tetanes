@@ -2,6 +2,7 @@ use super::{menu::Player, Menu, Mode, Nes, NesResult};
 use anyhow::{anyhow, Context};
 use pix_engine::prelude::PixState;
 use std::{
+    ffi::OsStr,
     fs::File,
     io::{BufReader, Read, Write},
     path::Path,
@@ -86,8 +87,7 @@ impl Nes {
             .config
             .rom_path
             .file_name()
-            .map(|f| f.to_string_lossy())
-            .unwrap_or_else(|| "Unknown".into());
+            .map_or_else(|| "unknown".into(), OsStr::to_string_lossy);
         let mut rom = BufReader::new(rom);
         match self.control_deck.load_rom(&name, &mut rom) {
             Ok(()) => {

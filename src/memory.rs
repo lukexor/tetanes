@@ -87,7 +87,8 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new() -> Self {
+    #[inline]
+    pub const fn new() -> Self {
         Self {
             data: vec![],
             writable: true,
@@ -95,6 +96,7 @@ impl Memory {
         }
     }
 
+    #[inline]
     pub fn rom(bytes: Vec<u8>) -> Self {
         Self {
             data: bytes,
@@ -103,6 +105,7 @@ impl Memory {
         }
     }
 
+    #[inline]
     pub fn ram(capacity: usize, state: RamState) -> Self {
         Self {
             data: Self::allocate_ram(capacity, state),
@@ -111,6 +114,7 @@ impl Memory {
         }
     }
 
+    #[inline]
     pub fn resize(&mut self, new_size: usize) {
         self.data = Self::allocate_ram(new_size, self.state);
     }
@@ -138,6 +142,7 @@ impl Memory {
         self.writable = !protect;
     }
 
+    #[inline]
     fn allocate_ram(capacity: usize, state: RamState) -> Vec<u8> {
         match state {
             RamState::AllZeros => vec![0x00; capacity],
@@ -155,6 +160,7 @@ impl Memory {
 }
 
 impl MemRead for Memory {
+    #[inline]
     fn peekw(&self, addr: usize) -> u8 {
         let len = self.data.len();
         self.data[addr % len]
@@ -162,6 +168,7 @@ impl MemRead for Memory {
 }
 
 impl MemWrite for Memory {
+    #[inline]
     fn writew(&mut self, addr: usize, val: u8) {
         if self.writable {
             let len = self.data.len();

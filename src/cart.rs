@@ -50,10 +50,10 @@ pub struct NesHeader {
     pub mapper_num: u16,    // The primary mapper number
     pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
     pub flags: u8,          // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
-    pub chr_rom_banks: u16, // Number of 8 KB CHR-ROM banks (Character ROM)
     pub prg_rom_banks: u16, // Number of 16 KB PRG-ROM banks (Program ROM)
-    pub chr_ram_shift: u8,  // NES 2.0 CHR-RAM
+    pub chr_rom_banks: u16, // Number of 8 KB CHR-ROM banks (Character ROM)
     pub prg_ram_shift: u8,  // NES 2.0 PRG-RAM
+    pub chr_ram_shift: u8,  // NES 2.0 CHR-RAM
     pub tv_mode: u8,        // NES 2.0 NTSC/PAL indicator
     pub vs_data: u8,        // NES 2.0 VS System data
 }
@@ -66,9 +66,9 @@ pub struct Cart {
     pub header: NesHeader,
     pub ram_state: RamState,
     pub mirroring: Mirroring,
-    pub chr: Memory,     // Character ROM/RAM
     pub prg_rom: Memory, // Program ROM
     pub prg_ram: Memory, // Program RAM
+    pub chr: Memory,     // Character ROM/RAM
     pub mapper: Mapper,
     pub open_bus: u8,
 }
@@ -82,19 +82,25 @@ impl Cart {
             ram_state: RamState::Random,
             header: NesHeader::new(),
             mirroring: Mirroring::default(),
-            chr: Memory::new(),
             prg_rom: Memory::new(),
             prg_ram: Memory::new(),
+            chr: Memory::new(),
             mapper: Empty.into(),
             open_bus: 0x00,
         }
     }
 
+    /// Create a `Cart` from a ROM path.
+    ///
+    /// # Errors
+    ///
+    /// If the ROM can not be opened, or the NES header is corrupted, then an error is returned.
+    #[inline]
     pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
         let path = path.as_ref();
         let rom = File::open(path).with_context(|| format!("failed to open rom {:?}", path))?;
         let mut rom = BufReader::new(rom);
-        Self::from_rom(path.to_string_lossy(), &mut rom, RamState::AllZeros)
+        Self::from_rom(&path.to_string_lossy(), &mut rom, RamState::AllZeros)
     }
 
     /// Creates a new Cart instance by reading in a `.nes` file
@@ -107,7 +113,7 @@ impl Cart {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom<S, F>(name: S, mut rom_data: &mut F, ram_state: RamState) -> NesResult<Self>
+    pub fn from_rom<S, F>(name: &S, mut rom_data: &mut F, ram_state: RamState) -> NesResult<Self>
     where
         S: ToString,
         F: Read,
@@ -121,8 +127,7 @@ impl Cart {
         rom_data.read_exact(&mut prg_data).with_context(|| {
             let bytes_rem = rom_data
                 .read_to_end(&mut prg_data)
-                .map(|rem| rem.to_string())
-                .unwrap_or_else(|_| "unknown".to_string());
+                .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
             format!(
                 "invalid rom header \"{}\". prg-rom banks: {}. bytes remaining: {}",
                 name, header.prg_rom_banks, bytes_rem
@@ -134,8 +139,7 @@ impl Cart {
         rom_data.read_exact(&mut chr_data).with_context(|| {
             let bytes_rem = rom_data
                 .read_to_end(&mut chr_data)
-                .map(|rem| rem.to_string())
-                .unwrap_or_else(|_| "unknown".to_string());
+                .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
             format!(
                 "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
                 name, header.chr_rom_banks, bytes_rem,
@@ -190,6 +194,7 @@ impl Cart {
     }
 
     #[inline]
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -203,6 +208,11 @@ impl Cart {
         }
     }
 
+    /// Save battery-backed RAM to disk.
+    ///
+    /// # Errors
+    ///
+    /// If any of the bytes in save RAM can't be saved, an error is returned.
     #[inline]
     pub fn save_sram<F: Write>(&self, f: &mut F) -> NesResult<()> {
         if self.battery_backed() {
@@ -211,6 +221,11 @@ impl Cart {
         Ok(())
     }
 
+    /// Load battery-backed RAM from disk.
+    ///
+    /// # Errors
+    ///
+    /// If the exact number of bytes in save file can't be read into memory, an error is returned.
     #[inline]
     pub fn load_sram<F: Read>(&mut self, f: &mut F) -> NesResult<()> {
         if self.battery_backed() {
@@ -312,7 +327,7 @@ impl MemWrite for Cart {
         match self.mapper.map_write(addr, val) {
             MappedWrite::Chr(addr, val) if self.chr.writable() => self.chr.writew(addr, val),
             MappedWrite::PrgRam(addr, val) if self.prg_ram.writable() => {
-                self.prg_ram.writew(addr, val)
+                self.prg_ram.writew(addr, val);
             }
             MappedWrite::PrgRamProtect(protect) => self.prg_ram.write_protect(protect),
             _ => (),
@@ -369,7 +384,7 @@ impl fmt::Debug for Cart {
 }
 
 impl NesHeader {
-    /// Returns an empty `INesHeader` not loaded with any data
+    /// Returns an empty `NesHeader` not loaded with any data
     const fn new() -> Self {
         Self {
             version: 0x01,
@@ -385,7 +400,7 @@ impl NesHeader {
         }
     }
 
-    /// Parses a slice of `u8` bytes and returns a valid `INesHeader` instance
+    /// Parses a slice of `u8` bytes and returns a valid `NesHeader` instance
     ///
     /// # Errors
     ///
@@ -536,7 +551,7 @@ mod tests {
         for data in rom_data {
             let rom = File::open(data.0).expect("valid file");
             let mut rom = BufReader::new(rom);
-            let c = Cart::from_rom(data.0, &mut rom, RamState::AllZeros);
+            let c = Cart::from_rom(&data.0, &mut rom, RamState::AllZeros);
             assert!(c.is_ok(), "new cartridge {}", data.0);
             let c = c.unwrap();
             assert_eq!(

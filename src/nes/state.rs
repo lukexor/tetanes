@@ -9,6 +9,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use std::{
+    ffi::OsStr,
     fs::{create_dir_all, File, OpenOptions},
     io::{BufReader, BufWriter, Read, Write},
     path::PathBuf,
@@ -18,16 +19,18 @@ impl Nes {
     /// Returns the path where battery-backed Save RAM files are stored
     pub(crate) fn sram_path(&self) -> NesResult<PathBuf> {
         match self.control_deck.loaded_rom() {
-            Some(ref rom) => {
-                if let Some(save_name) = PathBuf::from(rom).file_stem().and_then(|s| s.to_str()) {
-                    Ok(config_dir()
-                        .join("sram")
-                        .join(save_name)
-                        .with_extension("sram"))
-                } else {
-                    Err(anyhow!("failed to create sram path for `{}`", rom))
-                }
-            }
+            Some(ref rom) => PathBuf::from(rom)
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .map_or_else(
+                    || Err(anyhow!("failed to create sram path for `{}`", rom)),
+                    |save_name| {
+                        Ok(config_dir()
+                            .join("sram")
+                            .join(save_name)
+                            .with_extension("sram"))
+                    },
+                ),
             None => Err(anyhow!("no rom is loaded")),
         }
     }
@@ -35,17 +38,19 @@ impl Nes {
     /// Returns the path where Save states are stored
     pub(crate) fn save_path(&self) -> NesResult<PathBuf> {
         match self.control_deck.loaded_rom() {
-            Some(ref rom) => {
-                if let Some(save_name) = PathBuf::from(rom).file_stem().and_then(|s| s.to_str()) {
-                    Ok(config_dir()
-                        .join("save")
-                        .join(save_name)
-                        .join(self.config.save_slot.to_string())
-                        .with_extension("save"))
-                } else {
-                    Err(anyhow!("failed to create save path for `{}`", rom))
-                }
-            }
+            Some(ref rom) => PathBuf::from(rom)
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .map_or_else(
+                    || Err(anyhow!("failed to create save path for `{}`", rom)),
+                    |save_name| {
+                        Ok(config_dir()
+                            .join("save")
+                            .join(save_name)
+                            .join(self.config.save_slot.to_string())
+                            .with_extension("save"))
+                    },
+                ),
             None => Err(anyhow!("no rom is loaded")),
         }
     }
@@ -170,7 +175,7 @@ impl Nes {
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
     pub(super) fn load_sram(&mut self) -> NesResult<()> {
         let sram_path = self.sram_path()?;
-        let cart = &mut self.control_deck.cart_mut();
+        let cart = self.control_deck.cart_mut();
         if cart.battery_backed() && sram_path.exists() {
             let sram_file = File::open(&sram_path)
                 .with_context(|| anyhow!("failed to open file {:?}", sram_path.display()))?;

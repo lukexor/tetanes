@@ -199,7 +199,7 @@ pub struct Exrom {
 }
 
 impl ExRegs {
-    fn new(mirroring: Mirroring) -> Self {
+    const fn new(mirroring: Mirroring) -> Self {
         Self {
             prg_mode: PrgMode::Bank8k,
             chr_mode: ChrMode::Bank1k,
@@ -588,7 +588,7 @@ impl MapRead for Exrom {
                 //   I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 //   M = Mode select (0 = write mode. 1 = read mode.)
                 let irq = self.dmc.irq_pending && self.dmc.irq_enabled;
-                MappedRead::Data((irq as u8) << 7 | self.dmc_mode)
+                MappedRead::Data(u8::from(irq) << 7 | self.dmc_mode)
             }
             0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
             0x5101 => MappedRead::Data(self.regs.chr_mode as u8),
@@ -617,7 +617,7 @@ impl MapRead for Exrom {
             }
             0x5130 => MappedRead::Data(self.regs.chr_hi as u8),
             0x5200 => MappedRead::Data(
-                (self.regs.vsplit.enabled as u8) << 7
+                u8::from(self.regs.vsplit.enabled) << 7
                     | (self.regs.vsplit.side as u8) << 6
                     | self.regs.vsplit.tile,
             ),
@@ -632,7 +632,7 @@ impl MapRead for Exrom {
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in the read() function
                 MappedRead::Data(
-                    (self.irq_pending as u8) << 7 | (self.ppu_status.in_frame as u8) << 6,
+                    u8::from(self.irq_pending) << 7 | u8::from(self.ppu_status.in_frame) << 6,
                 )
             }
             0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),

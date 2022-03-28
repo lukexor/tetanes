@@ -111,6 +111,7 @@ pub struct Gamepad {
 
 impl Gamepad {
     #[inline]
+    #[must_use]
     fn read(&mut self) -> u8 {
         let state = self.peek();
         if self.strobe <= 7 {
@@ -120,6 +121,7 @@ impl Gamepad {
     }
 
     #[inline]
+    #[must_use]
     fn peek(&self) -> u8 {
         let state = match self.strobe {
             STROBE_A => self.a,
@@ -132,11 +134,12 @@ impl Gamepad {
             STROBE_RIGHT => self.right,
             _ => true,
         };
-        state as u8
+        u8::from(state)
     }
 }
 
 impl Powered for Gamepad {
+    #[inline]
     fn reset(&mut self) {
         self.strobe = STROBE_A;
     }
@@ -150,7 +153,8 @@ pub struct Signature {
 }
 
 impl Signature {
-    fn new(signature: u8) -> Self {
+    #[inline]
+    const fn new(signature: u8) -> Self {
         Self {
             signature,
             strobe: 0x00,
@@ -158,6 +162,7 @@ impl Signature {
     }
 
     #[inline]
+    #[must_use]
     fn read(&mut self) -> u8 {
         let state = self.peek();
         if self.strobe <= 7 {
@@ -167,7 +172,8 @@ impl Signature {
     }
 
     #[inline]
-    fn peek(&self) -> u8 {
+    #[must_use]
+    const fn peek(self) -> u8 {
         if self.strobe == STROBE_MAX {
             0x01
         } else {
@@ -177,6 +183,7 @@ impl Signature {
 }
 
 impl Powered for Signature {
+    #[inline]
     fn reset(&mut self) {
         self.strobe = 0x00;
     }
@@ -210,6 +217,7 @@ impl Zapper {
 }
 
 impl Zapper {
+    #[inline]
     fn new() -> Self {
         Self {
             triggered: 0,
@@ -219,11 +227,14 @@ impl Zapper {
         }
     }
 
+    #[inline]
+    #[must_use]
     fn read(&self, ppu: &Ppu) -> u8 {
         self.triggered() | self.light_sense(ppu) | 0x40
     }
 
-    fn triggered(&self) -> u8 {
+    #[inline]
+    const fn triggered(&self) -> u8 {
         if self.triggered > 0 {
             0x10
         } else {
@@ -231,12 +242,13 @@ impl Zapper {
         }
     }
 
+    #[inline]
     fn light_sense(&self, ppu: &Ppu) -> u8 {
         let width = RENDER_WIDTH as i32;
         let height = RENDER_HEIGHT as i32;
         // EXPL: Light sense is 1 scanline delayed for, likely due to slightly inaccurate NMI timing
-        let scanline = ppu.scanline as i32 - 1;
-        let cycle = ppu.cycle as i32;
+        let scanline = i32::from(ppu.scanline) - 1;
+        let cycle = i32::from(ppu.cycle);
         let [x, y] = self.pos.as_array();
         if x >= 0 && y >= 0 {
             for y in (y - self.radius)..=(y + self.radius) {
@@ -272,17 +284,20 @@ pub struct Input {
 
 impl Input {
     /// Returns an empty Input instance with no event pump
+    #[inline]
     pub fn new() -> Self {
         Self {
             gamepads: [Gamepad::default(); 4],
             // Signature bits are reversed so they can shift right
-            signatures: [Signature::new(0b00001000), Signature::new(0b00000100)],
+            signatures: [Signature::new(0b0000_1000), Signature::new(0b0000_0100)],
             zapper: Zapper::new(),
             shift_strobe: 0x00,
             open_bus: 0x00,
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn read_zapper(&self, ppu: &Ppu) -> u8 {
         self.zapper.read(ppu)
     }

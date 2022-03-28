@@ -73,6 +73,8 @@ impl Vram {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn nametable_addr(&self, addr: u16) -> u16 {
         let mirroring = self.cart().mirroring();
         // Maps addresses to nametable pages based on mirroring mode
@@ -87,6 +89,7 @@ impl Vram {
         NT_START + page * NT_SIZE + offset
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     #[inline]
     pub fn cart(&self) -> &Cart {
         unsafe { &*self.cart }

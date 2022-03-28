@@ -539,6 +539,7 @@ impl Ppu {
     }
 
     #[inline]
+    #[must_use]
     pub fn get_pixel_brightness(&self, x: u32, y: u32) -> u32 {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return 0;
