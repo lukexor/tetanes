@@ -1,7 +1,7 @@
 use crate::{
     common::config_path,
     memory::RamState,
-    nes::{event::InputBindings, Mode, Nes},
+    nes::{event::InputBindings, Mode, Nes, DEFAULT_SETTINGS},
     NesResult,
 };
 use anyhow::Context;
@@ -14,7 +14,7 @@ use std::{
 };
 
 pub(crate) const KEYBINDS: &str = "keybinds.json";
-const DEFAULT_KEYBINDS: &[u8] = include_bytes!("../../config/keybinds.json");
+pub(crate) const DEFAULT_KEYBINDS: &[u8] = include_bytes!("../../config/keybinds.json");
 const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
 const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
@@ -82,6 +82,14 @@ impl Config {
             BufReader::new(File::open(path).with_context(|| format!("`{}`", path.display()))?);
 
         let settings: Settings = serde_json::from_reader(file)
+            .or_else(|err| {
+                log::error!(
+                    "Invalid `{}`, reverting to defaults. Error: {}",
+                    path.display(),
+                    err
+                );
+                serde_json::from_reader(DEFAULT_SETTINGS)
+            })
             .with_context(|| format!("failed to parse `{}`", path.display()))?;
 
         Ok(Self {

@@ -3,7 +3,7 @@ use crate::{
     common::{Clocked, Powered},
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
-    nes::{menu::Menu, Mode, Nes, NesResult},
+    nes::{config::DEFAULT_KEYBINDS, menu::Menu, Mode, Nes, NesResult},
     ppu::{VideoFormat, RENDER_HEIGHT},
 };
 use anyhow::Context;
@@ -101,6 +101,14 @@ impl InputBindings {
             BufReader::new(File::open(path).with_context(|| format!("`{}`", path.display()))?);
 
         let input_binds: InputBinds = serde_json::from_reader(file)
+            .or_else(|err| {
+                log::error!(
+                    "Invalid `{}`, reverting to defaults. Error: {}",
+                    path.display(),
+                    err
+                );
+                serde_json::from_reader(DEFAULT_KEYBINDS)
+            })
             .with_context(|| format!("failed to parse `{}`", path.display()))?;
 
         let mut bindings = HashMap::new();
