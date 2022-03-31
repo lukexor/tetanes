@@ -50,6 +50,27 @@ pub(crate) fn validate_save_header<F: Read>(f: &mut F) -> NesResult<()> {
     }
 }
 
+pub(crate) fn encode_data(data: &[u8]) -> NesResult<Vec<u8>> {
+    let mut encoded = vec![];
+    let mut encoder = DeflateEncoder::new(&mut encoded, Compression::default());
+    encoder
+        .write_all(data)
+        .with_context(|| anyhow!("failed to encode data"))?;
+    encoder
+        .finish()
+        .with_context(|| anyhow!("failed to write data"))?;
+    Ok(encoded)
+}
+
+pub(crate) fn decode_data(data: &[u8]) -> NesResult<Vec<u8>> {
+    let mut decoded = vec![];
+    let mut decoder = DeflateDecoder::new(BufReader::new(data));
+    decoder
+        .read_to_end(&mut decoded)
+        .with_context(|| anyhow!("failed to read data"))?;
+    Ok(decoded)
+}
+
 pub(crate) fn save_data<P>(path: P, data: &[u8]) -> NesResult<()>
 where
     P: AsRef<Path>,
@@ -134,7 +155,7 @@ where
 
 impl Nes {
     /// Loads a ROM cartridge into memory
-    pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
+    pub(crate) fn load_rom(&mut self, s: &mut PixState) {
         self.error = None;
         self.mode = Mode::Paused;
         s.pause_audio();
@@ -145,7 +166,7 @@ impl Nes {
             Err(err) => {
                 self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
                 self.error = Some(err.to_string());
-                return Ok(());
+                return;
             }
         };
         let name = self
@@ -168,7 +189,6 @@ impl Nes {
                 self.error = Some(err.to_string());
             }
         }
-        Ok(())
     }
 }
 

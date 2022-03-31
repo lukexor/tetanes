@@ -137,6 +137,21 @@ impl Nes {
                 self.config.save_slot = save_slot as u8 + 1;
             }
 
+            s.checkbox("Enable Rewind", &mut self.config.rewind)?;
+            if self.config.rewind {
+                s.indent()?;
+                s.next_width(200);
+                s.slider("Rewind Frames", &mut self.config.rewind_frames, 1, 10)?;
+                s.indent()?;
+                s.next_width(200);
+                s.slider(
+                    "Rewind Buffer Size (MB)",
+                    &mut self.config.rewind_buffer_size,
+                    8,
+                    256,
+                )?;
+            }
+
             s.spacing()?;
             Ok(())
         })?;
@@ -374,7 +389,7 @@ impl Nes {
         if s.dbl_clicked() || s.button("Open")? {
             self.config.rom_path = path;
             self.selected_path = 0;
-            self.load_rom(s)?;
+            self.load_rom(s);
         }
         s.disable(false);
 

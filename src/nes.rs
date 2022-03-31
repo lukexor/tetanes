@@ -16,7 +16,7 @@ use filesystem::{is_nes_rom, is_playback_file};
 use menu::{Menu, Player};
 use pix_engine::prelude::*;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, VecDeque},
     env,
     ffi::OsStr,
     fmt::Write,
@@ -158,6 +158,7 @@ pub(crate) enum Mode {
     InMenu(Menu, Player),
     Recording,
     Replaying,
+    Rewinding,
 }
 
 impl Default for Mode {
@@ -194,9 +195,10 @@ pub struct Nes {
     config: Config,
     mode: Mode,
     debug: bool,
-    rewinding: bool,
+    rewind_frame: u32,
     scanline: u16,
     speed_counter: f32,
+    rewind_buffer: VecDeque<Vec<u8>>,
     messages: Vec<(String, Instant)>,
     paths: Vec<PathBuf>,
     selected_path: usize,
@@ -216,9 +218,10 @@ impl Nes {
             config,
             mode: if debug { Mode::Paused } else { Mode::default() },
             debug,
-            rewinding: false,
             scanline: 0,
             speed_counter: 0.0,
+            rewind_frame: 0,
+            rewind_buffer: VecDeque::new(),
             messages: vec![],
             paths: vec![],
             selected_path: 0,
@@ -305,7 +308,7 @@ impl AppState for Nes {
             Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgb)?),
         ));
         if is_nes_rom(&self.config.rom_path) {
-            self.load_rom(s)?;
+            self.load_rom(s);
         } else if is_playback_file(&self.config.rom_path) {
             self.mode = Mode::Replaying;
             unimplemented!("Replay not implemented");
@@ -332,6 +335,7 @@ impl AppState for Nes {
                 } else {
                     self.control_deck.clock_frame();
                 }
+                self.update_rewind();
                 if self.control_deck.cpu_corrupted() {
                     self.open_menu(s, Menu::LoadRom)?;
                     self.error = Some("CPU encountered invalid opcode.".into());
@@ -381,6 +385,10 @@ impl AppState for Nes {
             Mode::Recording => self.render_status(s, "Recording")?,
             Mode::Replaying => self.render_status(s, "Replay")?,
             Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
+            Mode::Rewinding => {
+                self.render_status(s, "Rewinding")?;
+                self.rewind();
+            }
             Mode::Playing => (),
         }
         self.render_messages(s)?;

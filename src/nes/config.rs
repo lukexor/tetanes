@@ -31,6 +31,9 @@ pub(crate) struct Settings {
     pub(crate) scale: f32,
     pub(crate) speed: f32,
     pub(crate) zapper_connected: bool,
+    pub(crate) rewind: bool,
+    pub(crate) rewind_frames: u32,
+    pub(crate) rewind_buffer_size: usize,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -47,6 +50,9 @@ pub(crate) struct Config {
     pub(crate) scale: f32,
     pub(crate) speed: f32,
     pub(crate) zapper_connected: bool,
+    pub(crate) rewind: bool,
+    pub(crate) rewind_frames: u32,
+    pub(crate) rewind_buffer_size: usize,
     pub(crate) input_bindings: InputBindings,
     pub(crate) genie_codes: Vec<String>,
     // TODO: Runtime log level
@@ -71,6 +77,9 @@ impl Config {
             scale: 3.0,
             speed: 1.0,
             zapper_connected: false,
+            rewind: false,
+            rewind_frames: 2,
+            rewind_buffer_size: 50,
             input_bindings: InputBindings::from_file(keybinds)?,
             genie_codes: vec![],
         })

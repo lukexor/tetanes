@@ -8,5 +8,8 @@
   "save_slot": 1,
   "scale": 3.0,
   "speed": 1.0,
-  "zapper_connected": false
+  "zapper_connected": false,
+  "rewind": false,
+  "rewind_frames": 2,
+  "rewind_buffer_size": 20
 }

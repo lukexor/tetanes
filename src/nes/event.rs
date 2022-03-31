@@ -393,31 +393,20 @@ impl Nes {
                 action, slot, pressed
             );
         }
-        if repeat {
-            if let Action::Debug(debug_action) = action {
-                self.handle_debug(s, debug_action, pressed, repeat)?;
-            }
-        } else if pressed {
-            match action {
-                Action::Nes(state) => self.handle_nes_state(s, state)?,
-                Action::Menu(menu) => self.open_menu(s, menu)?,
-                Action::Feature(feature) => self.handle_feature(s, feature, false),
-                Action::Setting(setting) => self.handle_setting(s, setting)?,
-                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
-                Action::ZeroAxis(buttons) => {
-                    for button in buttons {
-                        self.handle_gamepad_pressed(slot, button, false);
-                    }
+        match action {
+            Action::Debug(action) => self.handle_debug(s, action, pressed, repeat)?,
+            Action::Feature(feature) => self.handle_feature(s, feature, pressed, repeat),
+            Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
+            Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
+            Action::Setting(setting) if pressed => self.handle_setting(s, setting)?,
+            Action::Setting(Setting::FastForward) if !pressed => self.set_speed(1.0),
+            Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
+            Action::ZeroAxis(buttons) => {
+                for button in buttons {
+                    self.handle_gamepad_pressed(slot, button, pressed);
                 }
-                Action::Debug(action) => self.handle_debug(s, action, pressed, false)?,
             }
-        } else {
-            match action {
-                Action::Feature(Feature::Rewind) if !self.rewinding => todo!("Rewind 5 seconds"),
-                Action::Setting(Setting::FastForward) => self.set_speed(1.0),
-                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
-                _ => (),
-            }
+            _ => (),
         }
         Ok(false)
     }
@@ -428,7 +417,9 @@ impl Nes {
             NesState::ToggleMenu => self.toggle_menu(Menu::Config, s)?,
             NesState::Quit => s.quit(),
             NesState::TogglePause => match self.mode {
-                Mode::Playing | Mode::Recording | Mode::Replaying => self.mode = Mode::Paused,
+                Mode::Playing | Mode::Recording | Mode::Replaying | Mode::Rewinding => {
+                    self.mode = Mode::Paused;
+                }
                 Mode::Paused | Mode::PausedBg => {
                     if let Some(ref debugger) = self.debugger {
                         if debugger.on_breakpoint {
@@ -456,7 +447,7 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, repeat: bool) {
+    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool, repeat: bool) {
         match feature {
             Feature::ToggleGameplayRecording => {
                 if self.mode == Mode::Recording {
@@ -473,11 +464,14 @@ impl Nes {
                 todo!("Toggle sound recording")
             }
             Feature::Rewind => {
-                if repeat {
-                    self.rewinding = true;
-                    todo!("Rewinding")
-                } else {
-                    todo!("Rewind 5 seconds");
+                if pressed && repeat {
+                    self.mode = Mode::Rewinding;
+                } else if !pressed {
+                    if self.mode == Mode::Rewinding {
+                        self.resume_play();
+                    } else {
+                        self.instant_rewind();
+                    }
                 }
             }
             Feature::TakeScreenshot => {

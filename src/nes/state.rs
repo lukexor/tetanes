@@ -1,7 +1,7 @@
 use crate::{
     common::config_dir,
     nes::{
-        filesystem::{load_data, save_data},
+        filesystem::{decode_data, encode_data, load_data, save_data},
         Mode, Nes,
     },
     NesResult,
@@ -30,7 +30,7 @@ impl Nes {
                 .file_stem()
                 .and_then(OsStr::to_str)
                 .map_or_else(
-                    || Err(anyhow!("failed to create sram path for `{}`", rom)),
+                    || Err(anyhow!("failed to create sram path for `{:?}`", rom)),
                     |save_name| {
                         Ok(config_dir()
                             .join("sram")
@@ -49,7 +49,7 @@ impl Nes {
                 .file_stem()
                 .and_then(OsStr::to_str)
                 .map_or_else(
-                    || Err(anyhow!("failed to create save path for `{}`", rom)),
+                    || Err(anyhow!("failed to create save path for `{:?}`", rom)),
                     |save_name| {
                         Ok(config_dir()
                             .join("save")
@@ -93,34 +93,76 @@ impl Nes {
         }
     }
 
-    // pub(super) fn save_rewind(&mut self, elapsed: f64) {
-    //     if self.config.rewind_enabled {
-    //         self.rewind_timer -= elapsed;
-    //         if self.rewind_timer <= 0.0 {
-    //             self.rewind_timer = REWIND_TIMER;
-    //             let rewind_slot = if self.rewind_queue.len() >= REWIND_SIZE as usize {
-    //                 self.rewind_queue.pop_front().unwrap() // Safe to unwrap
-    //             } else {
-    //                 REWIND_SLOT + self.rewind_queue.len() as u8
-    //             };
-    //             let rewind = true;
-    //             self.save_state(rewind_slot, rewind);
-    //             self.rewind_queue.push_back(rewind_slot);
-    //         }
-    //     }
-    // }
+    pub(crate) fn update_rewind(&mut self) {
+        if !self.config.rewind {
+            return;
+        }
+        self.rewind_frame += 1;
+        if self.rewind_frame >= self.config.rewind_frames {
+            self.rewind_frame = 0;
+            if let Err(err) = bincode::serialize(self.control_deck.cpu())
+                .context("failed to serialize rewind state")
+                .and_then(|data| encode_data(&data))
+                .map(|data| self.rewind_buffer.push_front(data))
+            {
+                log::error!("{:?}", err);
+                self.config.rewind = false;
+                self.rewind_buffer.clear();
+                return;
+            }
+            let buffer_size = self
+                .rewind_buffer
+                .iter()
+                .fold(0, |size, data| size + data.len());
+            if buffer_size > self.config.rewind_buffer_size * 1024 * 1024 {
+                self.rewind_buffer.truncate(self.rewind_buffer.len() / 2);
+            }
+        }
+    }
 
-    // pub(super) fn rewind(&mut self) {
-    //     if self.config.rewind_enabled {
-    //         if let Some(rewind_slot) = self.rewind_queue.pop_back() {
-    //             self.add_message("Rewind");
-    //             let rewind = true;
-    //             self.load_state(rewind_slot, rewind);
-    //         }
-    //     } else {
-    //         self.add_message("Rewind disabled");
-    //     }
-    // }
+    pub(crate) fn rewind(&mut self) {
+        if self.config.rewind {
+            if let Some(data) = self.rewind_buffer.pop_front() {
+                if let Err(err) = decode_data(&data).and_then(|data| {
+                    bincode::deserialize(&data)
+                        .context("failed to deserialize rewind state")
+                        .map(|cpu| self.control_deck.load_cpu(cpu))
+                }) {
+                    log::error!("{:?}", err);
+                    self.config.rewind = false;
+                    self.rewind_buffer.clear();
+                }
+            }
+        } else {
+            self.add_message("Rewind disabled. You can enable it in the Config menu.");
+        }
+    }
+
+    pub(crate) fn instant_rewind(&mut self) {
+        if self.config.rewind {
+            // Two seconds worth of frames @ 60 FPS
+            let mut rewind_frames = 120 / self.config.rewind_frames as usize;
+            while rewind_frames > 0 {
+                self.rewind_buffer.pop_front();
+                rewind_frames -= 1;
+            }
+
+            if let Some(data) = self.rewind_buffer.pop_front() {
+                self.add_message("Rewind");
+                if let Err(err) = decode_data(&data).and_then(|data| {
+                    bincode::deserialize(&data)
+                        .context("failed to deserialize rewind state")
+                        .map(|cpu| self.control_deck.load_cpu(cpu))
+                }) {
+                    log::error!("{:?}", err);
+                    self.config.rewind = false;
+                    self.rewind_buffer.clear();
+                }
+            }
+        } else {
+            self.add_message("Rewind disabled. You can enable it in the Config menu.");
+        }
+    }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
     pub(super) fn save_sram(&mut self) -> NesResult<()> {

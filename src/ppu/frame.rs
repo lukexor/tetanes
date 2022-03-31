@@ -11,12 +11,13 @@ lazy_static! {
         // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
         // http://wiki.nesdev.com/w/index.php/NTSC_video
 
-        let mut ntsc_palette = vec![vec![vec![0; 512]; 64]; 3];
-
         // Calculate the luma and chroma by emulating the relevant circuits:
         const VOLTAGES: [i32; 16] = [
             -6, -69, 26, -59, 29, -55, 73, -40, 68, -17, 125, 11, 68, 33, 125, 78,
         ];
+
+        let mut ntsc_palette = vec![vec![vec![0; 512]; 64]; 3];
+
         // Helper functions for converting YIQ to RGB
         let gammafix = |color: f32| {
             if color < 0.0 {

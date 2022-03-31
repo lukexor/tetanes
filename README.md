@@ -340,8 +340,8 @@ When using the WASM version in the browser, also include:
     - [x] About Menu
   - [x] Increase/Decrease Speed
   - [x] Fast-forward
-  - [ ] Instant Rewind (5 seconds)
-  - [ ] Visual Rewind (Holding R will time-travel backward)
+  - [x] Instant Rewind (2 seconds)
+  - [x] Visual Rewind (Holding R will time-travel backward)
   - [x] Save/Load State
   - [X] Take Screenshots
   - [ ] Gameplay Recording
