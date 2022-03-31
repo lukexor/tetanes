@@ -190,6 +190,16 @@ impl DerefMut for Memory {
     }
 }
 
+impl From<Vec<u8>> for Memory {
+    fn from(data: Vec<u8>) -> Self {
+        Self {
+            data,
+            writable: true,
+            state: RamState::default(),
+        }
+    }
+}
+
 impl fmt::Debug for Memory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         f.debug_struct("Memory")

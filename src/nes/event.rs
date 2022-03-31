@@ -435,7 +435,7 @@ impl Nes {
                             self.control_deck.clock();
                         }
                     }
-                    self.mode = Mode::Playing;
+                    self.resume_play();
                 }
                 Mode::InMenu(..) => self.exit_menu(s)?,
             },
@@ -589,15 +589,11 @@ impl Nes {
             DebugAction::TogglePpuDebugger => self.toggle_ppu_viewer(s)?,
             DebugAction::ToggleApuDebugger => self.toggle_apu_viewer(s)?,
             DebugAction::StepInto if debugging => {
-                if self.mode == Mode::Playing {
-                    self.mode = Mode::Paused;
-                }
+                self.pause_play();
                 self.control_deck.clock();
             }
             DebugAction::StepOver if debugging => {
-                if self.mode == Mode::Playing {
-                    self.mode = Mode::Paused;
-                }
+                self.pause_play();
                 let instr = self.control_deck.next_instr();
                 self.control_deck.clock();
                 if instr.op() == Operation::JSR {
@@ -616,26 +612,26 @@ impl Nes {
                 self.control_deck.clock();
             }
             DebugAction::StepFrame if debugging => {
-                if self.mode == Mode::Playing {
-                    self.mode = Mode::Paused;
-                }
+                self.pause_play();
                 self.control_deck.clock_frame();
             }
             DebugAction::StepScanline if debugging => {
-                if self.mode == Mode::Playing {
-                    self.mode = Mode::Paused;
-                }
+                self.pause_play();
                 self.control_deck.clock_scanline();
             }
             DebugAction::IncScanline if self.ppu_viewer.is_some() => {
                 let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT as u16 - 1);
-                self.control_deck.ppu_mut().debug_scanline = self.scanline;
+                self.control_deck
+                    .ppu_mut()
+                    .set_viewer_scanline(self.scanline);
             }
             DebugAction::DecScanline if self.ppu_viewer.is_some() => {
                 let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = self.scanline.saturating_sub(decrement);
-                self.control_deck.ppu_mut().debug_scanline = self.scanline;
+                self.control_deck
+                    .ppu_mut()
+                    .set_viewer_scanline(self.scanline);
             }
             _ => (),
         }

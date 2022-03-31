@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fmt,
     fs::File,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read},
     path::Path,
 };
 
@@ -73,8 +73,7 @@ pub struct Cart {
     #[serde(skip)]
     pub prg_rom: Memory, // Program ROM
     pub prg_ram: Memory, // Program RAM
-    #[serde(skip)]
-    pub chr: Memory, // Character ROM/RAM
+    pub chr: Memory,     // Character ROM/RAM
     pub mapper: Mapper,
     pub open_bus: u8,
 }
@@ -214,30 +213,17 @@ impl Cart {
         }
     }
 
-    /// Save battery-backed RAM to disk.
-    ///
-    /// # Errors
-    ///
-    /// If any of the bytes in save RAM can't be saved, an error is returned.
+    /// Get battery-backed RAM data.
     #[inline]
-    pub fn save_sram<F: Write>(&self, f: &mut F) -> NesResult<()> {
-        if self.battery_backed() {
-            f.write_all(&self.prg_ram)?;
-        }
-        Ok(())
+    #[must_use]
+    pub fn sram(&self) -> &[u8] {
+        &self.prg_ram
     }
 
-    /// Load battery-backed RAM from disk.
-    ///
-    /// # Errors
-    ///
-    /// If the exact number of bytes in save file can't be read into memory, an error is returned.
+    /// Load battery-backed RAM data.
     #[inline]
-    pub fn load_sram<F: Read>(&mut self, f: &mut F) -> NesResult<()> {
-        if self.battery_backed() {
-            f.read_exact(&mut self.prg_ram)?;
-        }
-        Ok(())
+    pub fn load_sram(&mut self, sram: Vec<u8>) {
+        self.prg_ram = Memory::from(sram);
     }
 
     #[inline]

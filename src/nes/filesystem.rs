@@ -1,10 +1,11 @@
 use super::{menu::Player, Menu, Mode, Nes, NesResult};
 use anyhow::{anyhow, Context};
+use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use pix_engine::prelude::PixState;
 use std::{
     ffi::OsStr,
-    fs::File,
-    io::{BufReader, Read, Write},
+    fs::{create_dir_all, File},
+    io::{BufReader, BufWriter, Read, Write},
     path::Path,
 };
 
@@ -19,7 +20,7 @@ const VERSION: u8 = 0;
 ///
 /// If the header fails to write to disk, then an error is returned.
 pub(crate) fn write_save_header<F: Write>(f: &mut F) -> NesResult<()> {
-    f.write_all(&bincode::serialize(&SAVE_FILE_MAGIC)?)?;
+    f.write_all(&SAVE_FILE_MAGIC)?;
     f.write_all(&[VERSION])?;
     Ok(())
 }
@@ -47,6 +48,70 @@ pub(crate) fn validate_save_header<F: Read>(f: &mut F) -> NesResult<()> {
     } else {
         Err(anyhow!("invalid save file format"))
     }
+}
+
+pub(crate) fn save_data<P>(path: P, data: &[u8]) -> NesResult<()>
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    let directory = path.parent().expect("can not save to root path");
+    if !directory.exists() {
+        create_dir_all(directory)
+            .with_context(|| anyhow!("failed to create directory {:?}", directory.display()))?;
+    }
+
+    let write_data = || {
+        let mut writer = BufWriter::new(
+            File::create(&path)
+                .with_context(|| anyhow!("failed to create file {:?}", path.display()))?,
+        );
+        write_save_header(&mut writer)
+            .with_context(|| anyhow!("failed to write header {:?}", path.display()))?;
+        let mut encoder = DeflateEncoder::new(writer, Compression::default());
+        encoder
+            .write_all(data)
+            .with_context(|| anyhow!("failed to encode file {:?}", path.display()))?;
+        encoder
+            .finish()
+            .with_context(|| anyhow!("failed to write file {:?}", path.display()))?;
+        Ok(())
+    };
+
+    if path.exists() {
+        // Check if exists and header is different, so we avoid overwriting
+        let mut reader = BufReader::new(
+            File::open(&path)
+                .with_context(|| anyhow!("failed to open file {:?}", path.display()))?,
+        );
+        validate_save_header(&mut reader)
+            .with_context(|| anyhow!("failed to validate header {:?}", path.display()))
+            .and_then(|_| write_data())?;
+    } else {
+        write_data()?;
+    }
+    Ok(())
+}
+
+pub(crate) fn load_data<P>(path: P) -> NesResult<Vec<u8>>
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    let mut reader = BufReader::new(
+        File::open(&path).with_context(|| anyhow!("Failed to open file {:?}", path.display()))?,
+    );
+    let mut bytes = vec![];
+    // Don't care about the size read
+    let _ = validate_save_header(&mut reader)
+        .with_context(|| anyhow!("failed to validate header {:?}", path.display()))
+        .and_then(|_| {
+            let mut decoder = DeflateDecoder::new(reader);
+            decoder
+                .read_to_end(&mut bytes)
+                .with_context(|| anyhow!("failed to read file {:?}", path.display()))
+        })?;
+    Ok(bytes)
 }
 
 pub(crate) fn is_nes_rom<P>(path: P) -> bool
@@ -92,7 +157,10 @@ impl Nes {
         match self.control_deck.load_rom(&name, &mut rom) {
             Ok(()) => {
                 s.resume_audio();
-                self.load_sram()?;
+                if let Err(err) = self.load_sram() {
+                    log::error!("{:?}", err);
+                    self.add_message("Failed to load game state");
+                }
                 self.mode = Mode::Playing;
             }
             Err(err) => {

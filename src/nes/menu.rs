@@ -73,9 +73,7 @@ impl Nes {
         if self.config.zapper_connected {
             s.cursor(None)?;
         }
-        if self.control_deck.is_running() {
-            self.mode = Mode::Playing;
-        }
+        self.resume_play();
         Ok(())
     }
 

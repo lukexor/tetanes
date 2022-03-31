@@ -62,6 +62,7 @@ impl ControlDeck {
         self.cpu.bus.ppu.load_cart(&mut self.cpu.bus.cart);
         self.cpu.bus.apu.load_cart(&mut self.cpu.bus.cart);
         self.cpu.bus.cart.prg_ram = cpu.bus.cart.prg_ram;
+        self.cpu.bus.cart.chr = cpu.bus.cart.chr;
         self.cpu.bus.cart.mapper = cpu.bus.cart.mapper;
     }
 

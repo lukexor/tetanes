@@ -89,6 +89,35 @@ impl Default for Mirroring {
     }
 }
 
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct Viewer {
+    pub scanline: u16,
+    pub nametables: Vec<Vec<u8>>,
+    pub nametable_ids: Vec<u8>,
+    pub pattern_tables: [Vec<u8>; 2],
+    pub palette: Vec<u8>,
+    pub palette_ids: Vec<u8>,
+}
+
+impl Default for Viewer {
+    fn default() -> Self {
+        Self {
+            scanline: 0,
+            nametables: vec![
+                vec![0; RENDER_SIZE],
+                vec![0; RENDER_SIZE],
+                vec![0; RENDER_SIZE],
+                vec![0; RENDER_SIZE],
+            ],
+            nametable_ids: vec![0; 4 * NT_SIZE as usize],
+            pattern_tables: [vec![0; PATTERN_SIZE], vec![0; PATTERN_SIZE]],
+            palette: vec![0; (PALETTE_SIZE + 4) * 4],
+            palette_ids: vec![0; (PALETTE_SIZE + 4) * 4],
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
@@ -113,19 +142,7 @@ pub struct Ppu {
     pub nes_format: NesFormat,
     pub clock_remainder: u8,
     #[serde(skip)]
-    pub debugging: bool,
-    #[serde(skip)]
-    pub debug_scanline: u16,
-    #[serde(skip)]
-    pub nametables: Vec<Vec<u8>>,
-    #[serde(skip)]
-    pub nametable_ids: Vec<u8>,
-    #[serde(skip)]
-    pub pattern_tables: [Vec<u8>; 2],
-    #[serde(skip)]
-    pub palette: Vec<u8>,
-    #[serde(skip)]
-    pub palette_ids: Vec<u8>,
+    pub viewer: Option<Viewer>,
 }
 
 impl Ppu {
@@ -146,18 +163,7 @@ impl Ppu {
             filter: VideoFormat::Ntsc,
             nes_format: NesFormat::Ntsc,
             clock_remainder: 0,
-            debugging: false,
-            debug_scanline: 0,
-            nametables: vec![
-                vec![0; RENDER_SIZE],
-                vec![0; RENDER_SIZE],
-                vec![0; RENDER_SIZE],
-                vec![0; RENDER_SIZE],
-            ],
-            nametable_ids: vec![0; 4 * NT_SIZE as usize],
-            pattern_tables: [vec![0; PATTERN_SIZE], vec![0; PATTERN_SIZE]],
-            palette: vec![0; (PALETTE_SIZE + 4) * 4],
-            palette_ids: vec![0; (PALETTE_SIZE + 4) * 4],
+            viewer: None,
         }
     }
 
@@ -167,10 +173,34 @@ impl Ppu {
     }
 
     #[inline]
-    pub fn update_debug(&mut self) {
+    pub fn open_viewer(&mut self) {
+        self.viewer = Some(Viewer::default());
         self.load_nametables();
         self.load_pattern_tables();
         self.load_palettes();
+    }
+
+    #[inline]
+    pub fn close_viewer(&mut self) {
+        self.viewer = None;
+    }
+
+    #[inline]
+    pub fn update_viewer(&mut self) {
+        if let Some(ref viewer) = self.viewer {
+            if self.cycle == IDLE_CYCLE && self.scanline == viewer.scanline {
+                self.load_nametables();
+                self.load_pattern_tables();
+                self.load_palettes();
+            }
+        }
+    }
+
+    #[inline]
+    pub fn set_viewer_scanline(&mut self, scanline: u16) {
+        if let Some(ref mut viewer) = self.viewer {
+            viewer.scanline = scanline;
+        }
     }
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
@@ -181,42 +211,45 @@ impl Ppu {
     }
 
     fn load_nametables(&mut self) {
-        for i in 0..4 {
-            let base_addr = NT_START + i * NT_SIZE;
-            for addr in base_addr..(base_addr + NT_SIZE - 64) {
-                let x_scroll = addr & COARSE_X_MASK;
-                let y_scroll = (addr & COARSE_Y_MASK) >> 5;
+        if let Some(ref mut viewer) = self.viewer {
+            for i in 0..4 {
+                let base_addr = NT_START + i * NT_SIZE;
+                for addr in base_addr..(base_addr + NT_SIZE - 64) {
+                    let x_scroll = addr & COARSE_X_MASK;
+                    let y_scroll = (addr & COARSE_Y_MASK) >> 5;
 
-                let nt_base_addr = NT_START + (addr & (NT_X_MASK | NT_Y_MASK));
-                let tile = self.vram.peek(addr);
-                let tile_addr = self.regs.background_select() + u16::from(tile) * 16;
-                let supertile_num = (x_scroll / 4) + (y_scroll / 4) * 8;
-                let attr = u16::from(self.vram.peek(nt_base_addr + ATTR_OFFSET + supertile_num));
-                let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
-                let mask = 0x03 << corner;
-                let palette = (attr & mask) >> corner;
+                    let nt_base_addr = NT_START + (addr & (NT_X_MASK | NT_Y_MASK));
+                    let tile = self.vram.peek(addr);
+                    let tile_addr = self.regs.background_select() + u16::from(tile) * 16;
+                    let supertile_num = (x_scroll / 4) + (y_scroll / 4) * 8;
+                    let attr =
+                        u16::from(self.vram.peek(nt_base_addr + ATTR_OFFSET + supertile_num));
+                    let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
+                    let mask = 0x03 << corner;
+                    let palette = (attr & mask) >> corner;
 
-                let tile_num = x_scroll + y_scroll * 32;
-                let tile_x = (tile_num % 32) * 8;
-                let tile_y = (tile_num / 32) * 8;
+                    let tile_num = x_scroll + y_scroll * 32;
+                    let tile_x = (tile_num % 32) * 8;
+                    let tile_y = (tile_num / 32) * 8;
 
-                self.nametable_ids[(addr - NT_START) as usize] = tile;
-                for y in 0..8 {
-                    let lo = u16::from(self.vram.peek(tile_addr + y));
-                    let hi = u16::from(self.vram.peek(tile_addr + y + 8));
-                    for x in 0..8 {
-                        let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
-                        let palette_idx =
-                            self.vram.peek(PALETTE_START + palette * 4 + pix_type) as usize;
-                        let x = tile_x + (7 - x);
-                        let y = tile_y + y;
-                        Self::put_pixel(
-                            palette_idx,
-                            x.into(),
-                            y.into(),
-                            RENDER_WIDTH,
-                            &mut self.nametables[i as usize],
-                        );
+                    viewer.nametable_ids[(addr - NT_START) as usize] = tile;
+                    for y in 0..8 {
+                        let lo = u16::from(self.vram.peek(tile_addr + y));
+                        let hi = u16::from(self.vram.peek(tile_addr + y + 8));
+                        for x in 0..8 {
+                            let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
+                            let palette_idx =
+                                self.vram.peek(PALETTE_START + palette * 4 + pix_type) as usize;
+                            let x = tile_x + (7 - x);
+                            let y = tile_y + y;
+                            Self::put_pixel(
+                                palette_idx,
+                                x.into(),
+                                y.into(),
+                                RENDER_WIDTH,
+                                &mut viewer.nametables[i as usize],
+                            );
+                        }
                     }
                 }
             }
@@ -224,28 +257,30 @@ impl Ppu {
     }
 
     fn load_pattern_tables(&mut self) {
-        let width = RENDER_WIDTH / 2;
-        for table in 0..2 {
-            let start = table as u16 * 0x1000;
-            let end = start + 0x1000;
-            for tile_addr in (start..end).step_by(16) {
-                let tile_x = ((tile_addr % 0x1000) % 256) / 2;
-                let tile_y = ((tile_addr % 0x1000) / 256) * 8;
-                for y in 0..8 {
-                    let lo = u16::from(self.vram.peek(tile_addr + y));
-                    let hi = u16::from(self.vram.peek(tile_addr + y + 8));
-                    for x in 0..8 {
-                        let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
-                        let palette_idx = self.vram.peek(PALETTE_START + pix_type) as usize;
-                        let x = tile_x + (7 - x);
-                        let y = tile_y + y;
-                        Self::put_pixel(
-                            palette_idx,
-                            x.into(),
-                            y.into(),
-                            width,
-                            &mut self.pattern_tables[table as usize],
-                        );
+        if let Some(ref mut viewer) = self.viewer {
+            let width = RENDER_WIDTH / 2;
+            for table in 0..2 {
+                let start = table as u16 * 0x1000;
+                let end = start + 0x1000;
+                for tile_addr in (start..end).step_by(16) {
+                    let tile_x = ((tile_addr % 0x1000) % 256) / 2;
+                    let tile_y = ((tile_addr % 0x1000) / 256) * 8;
+                    for y in 0..8 {
+                        let lo = u16::from(self.vram.peek(tile_addr + y));
+                        let hi = u16::from(self.vram.peek(tile_addr + y + 8));
+                        for x in 0..8 {
+                            let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
+                            let palette_idx = self.vram.peek(PALETTE_START + pix_type) as usize;
+                            let x = tile_x + (7 - x);
+                            let y = tile_y + y;
+                            Self::put_pixel(
+                                palette_idx,
+                                x.into(),
+                                y.into(),
+                                width,
+                                &mut viewer.pattern_tables[table as usize],
+                            );
+                        }
                     }
                 }
             }
@@ -253,27 +288,29 @@ impl Ppu {
     }
 
     fn load_palettes(&mut self) {
-        // Global  // BG 0 ----------------------------------  // Unused    // SPR 0 -------------------------------
-        // 0x3F00: 0,0  0x3F01: 1,0  0x3F02: 2,0  0x3F03: 3,0  0x3F10: 5,0  0x3F11: 6,0  0x3F12: 7,0  0x3F13: 8,0
-        // Unused  // BG 1 ----------------------------------  // Unused    // SPR 1 -------------------------------
-        // 0x3F04: 0,1  0x3F05: 1,1  0x3F06: 2,1  0x3F07: 3,1  0x3F14: 5,1  0x3F15: 6,1  0x3F16: 7,1  0x3F17: 8,1
-        // Unused  // BG 2 ----------------------------------  // Unused    // SPR 2 -------------------------------
-        // 0x3F08: 0,2  0x3F09: 1,2  0x3F0A: 2,2  0x3F0B: 3,2  0x3F18: 5,2  0x3F19: 6,2  0x3F1A: 7,2  0x3F1B: 8,2
-        // Unused  // BG 3 ----------------------------------  // Unused    // SPR 3 -------------------------------
-        // 0x3F0C: 0,3  0x3F0D: 1,3  0x3F0E: 2,3  0x3F0F: 3,3  0x3F1C: 5,3  0x3F1D: 6,3  0x3F1E: 7,3  0x3F1F: 8,3
-        let width = 16;
-        for addr in PALETTE_START..PALETTE_END {
-            let x = (addr - PALETTE_START) % 16;
-            let y = (addr - PALETTE_START) / 16;
-            let palette_idx = self.vram.peek(addr);
-            self.palette_ids[y as usize * width + x as usize] = palette_idx;
-            Self::put_pixel(
-                palette_idx as usize,
-                x.into(),
-                y.into(),
-                width as u32,
-                &mut self.palette,
-            );
+        if let Some(ref mut viewer) = self.viewer {
+            // Global  // BG 0 ----------------------------------  // Unused    // SPR 0 -------------------------------
+            // 0x3F00: 0,0  0x3F01: 1,0  0x3F02: 2,0  0x3F03: 3,0  0x3F10: 5,0  0x3F11: 6,0  0x3F12: 7,0  0x3F13: 8,0
+            // Unused  // BG 1 ----------------------------------  // Unused    // SPR 1 -------------------------------
+            // 0x3F04: 0,1  0x3F05: 1,1  0x3F06: 2,1  0x3F07: 3,1  0x3F14: 5,1  0x3F15: 6,1  0x3F16: 7,1  0x3F17: 8,1
+            // Unused  // BG 2 ----------------------------------  // Unused    // SPR 2 -------------------------------
+            // 0x3F08: 0,2  0x3F09: 1,2  0x3F0A: 2,2  0x3F0B: 3,2  0x3F18: 5,2  0x3F19: 6,2  0x3F1A: 7,2  0x3F1B: 8,2
+            // Unused  // BG 3 ----------------------------------  // Unused    // SPR 3 -------------------------------
+            // 0x3F0C: 0,3  0x3F0D: 1,3  0x3F0E: 2,3  0x3F0F: 3,3  0x3F1C: 5,3  0x3F1D: 6,3  0x3F1E: 7,3  0x3F1F: 8,3
+            let width = 16;
+            for addr in PALETTE_START..PALETTE_END {
+                let x = (addr - PALETTE_START) % 16;
+                let y = (addr - PALETTE_START) / 16;
+                let palette_idx = self.vram.peek(addr);
+                viewer.palette_ids[y as usize * width + x as usize] = palette_idx;
+                Self::put_pixel(
+                    palette_idx as usize,
+                    x.into(),
+                    y.into(),
+                    width as u32,
+                    &mut viewer.palette,
+                );
+            }
         }
     }
 
@@ -1008,9 +1045,7 @@ impl Clocked for Ppu {
                 self.set_sprite_overflow(false);
                 self.stop_vblank();
             }
-            if self.debugging && self.cycle == IDLE_CYCLE && self.scanline == self.debug_scanline {
-                self.update_debug();
-            }
+            self.update_viewer();
         }
         clocks
     }
@@ -1142,13 +1177,6 @@ impl fmt::Debug for Ppu {
             .field("filter", &self.filter)
             .field("nes_format", &self.nes_format)
             .field("clock_remainder", &self.clock_remainder)
-            .field("debugging", &self.debugging)
-            .field("debug_scanline", &self.debug_scanline)
-            .field("nametables", &self.nametables)
-            .field("nametable_ids", &self.nametable_ids)
-            .field("pattern_tables", &self.pattern_tables)
-            .field("palette", &self.palette)
-            .field("palette_ids", &self.palette_ids)
             .finish()
     }
 }

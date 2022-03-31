@@ -201,6 +201,7 @@ pub struct Nes {
     paths: Vec<PathBuf>,
     selected_path: usize,
     error: Option<String>,
+    confirm_quit: Option<(String, bool)>,
 }
 
 impl Nes {
@@ -222,6 +223,7 @@ impl Nes {
             paths: vec![],
             selected_path: 0,
             error: None,
+            confirm_quit: None,
         }
     }
 
@@ -324,7 +326,7 @@ impl AppState for Nes {
                         self.control_deck.debug_clock_frame(&debugger.breakpoints)
                     {
                         debugger.on_breakpoint = true;
-                        self.mode = Mode::Paused;
+                        self.pause_play();
                         break 'run;
                     }
                 } else {
@@ -353,7 +355,29 @@ impl AppState for Nes {
             self.render_status(s, "Debugging")?;
         }
         match self.mode {
-            Mode::Paused | Mode::PausedBg => self.render_status(s, "Paused")?,
+            Mode::Paused | Mode::PausedBg => {
+                let mut bg = s.theme().colors.background;
+                bg.set_alpha(200);
+                s.fill(bg);
+                s.rect([0, 0, s.width()? as i32, s.height()? as i32])?;
+                self.render_status(s, "Paused")?;
+                if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
+                    s.stroke(None);
+                    s.fill(Color::WHITE);
+                    s.spacing()?;
+                    s.text(msg)?;
+                    s.spacing()?;
+                    if s.button("Confirm")? {
+                        *confirm = true;
+                        s.quit();
+                    }
+                    s.same_line(None);
+                    if s.button("Cancel")? {
+                        self.confirm_quit = None;
+                        self.resume_play();
+                    }
+                }
+            }
             Mode::Recording => self.render_status(s, "Recording")?,
             Mode::Replaying => self.render_status(s, "Replay")?,
             Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
@@ -363,9 +387,25 @@ impl AppState for Nes {
         Ok(())
     }
 
-    fn on_stop(&mut self, _s: &mut PixState) -> PixResult<()> {
-        if let Err(e) = self.save_sram() {
-            log::error!("{}", e);
+    fn on_stop(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.confirm_quit {
+            None => {
+                if let Err(err) = self.save_sram() {
+                    log::error!("{}", err);
+                    self.confirm_quit = Some((
+                        "Failed to save game state. Do you still want to quit?".to_string(),
+                        false,
+                    ));
+                    self.pause_play();
+                    s.abort_quit();
+                    return Ok(());
+                }
+            }
+            Some((_, false)) => {
+                s.abort_quit();
+                return Ok(());
+            }
+            _ => (),
         }
         self.control_deck.power_off();
         Ok(())
@@ -465,13 +505,11 @@ impl AppState for Nes {
                 {
                     self.debugger = None;
                     self.control_deck.cpu_mut().debugging = false;
-                    if self.control_deck.is_running() {
-                        self.mode = Mode::Playing;
-                    }
+                    self.resume_play();
                 }
                 if matches!(self.ppu_viewer, Some(view) if view.window_id == window_id) {
                     self.ppu_viewer = None;
-                    self.control_deck.ppu_mut().debugging = false;
+                    self.control_deck.ppu_mut().open_viewer();
                 }
                 if matches!(self.apu_viewer, Some(view) if view.window_id == window_id) {
                     self.apu_viewer = None;
@@ -484,7 +522,7 @@ impl AppState for Nes {
             }
             WindowEvent::Restored | WindowEvent::FocusGained => {
                 if self.mode == Mode::PausedBg {
-                    self.mode = Mode::Playing;
+                    self.resume_play();
                 }
             }
             _ => (),
