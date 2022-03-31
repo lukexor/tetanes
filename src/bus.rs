@@ -24,6 +24,7 @@ pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,
     pub cart: Box<Cart>,
+    #[serde(skip)]
     pub input: Input,
     pub wram: Memory,
     pub halt: bool,

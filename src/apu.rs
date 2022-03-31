@@ -67,7 +67,6 @@ pub enum AudioChannel {
 pub struct Apu {
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_enabled: bool,            // Set by $4017 D6
-    pub(crate) open_bus: u8,      // This open bus gets set during any write to APU registers
     clock_rate: f32,              // Same as CPU but is affected by speed changes
     cycle: usize,                 // Current APU cycle
     samples: Vec<f32>,            // Buffer of samples
@@ -82,6 +81,7 @@ pub struct Apu {
     enabled: [bool; 5],
     sample_timer: f32,
     sample_rate: f32,
+    pub(crate) open_bus: u8, // This open bus gets set during any write to APU registers
 }
 
 impl Apu {
@@ -89,7 +89,6 @@ impl Apu {
         Self {
             irq_pending: false,
             irq_enabled: false,
-            open_bus: 0u8,
             clock_rate: CPU_CLOCK_RATE,
             cycle: 0usize,
             samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
@@ -103,6 +102,7 @@ impl Apu {
             enabled: [true; 5],
             sample_timer: 0.0,
             sample_rate: CPU_CLOCK_RATE / SAMPLE_RATE,
+            open_bus: 0u8,
         }
     }
 

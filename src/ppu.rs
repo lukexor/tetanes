@@ -27,7 +27,7 @@ pub mod vram;
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
-pub const RENDER_CHANNELS: usize = 4;
+pub const RENDER_CHANNELS: usize = 3;
 pub const RENDER_PITCH: usize = RENDER_CHANNELS * RENDER_WIDTH as usize;
 
 const _TOTAL_CYCLES: u32 = 341;
@@ -112,12 +112,19 @@ pub struct Ppu {
     pub filter: VideoFormat,
     pub nes_format: NesFormat,
     pub clock_remainder: u8,
+    #[serde(skip)]
     pub debugging: bool,
+    #[serde(skip)]
     pub debug_scanline: u16,
+    #[serde(skip)]
     pub nametables: Vec<Vec<u8>>,
+    #[serde(skip)]
     pub nametable_ids: Vec<u8>,
+    #[serde(skip)]
     pub pattern_tables: [Vec<u8>; 2],
+    #[serde(skip)]
     pub palette: Vec<u8>,
+    #[serde(skip)]
     pub palette_ids: Vec<u8>,
 }
 
@@ -535,7 +542,6 @@ impl Ppu {
         pixels[idx] = red;
         pixels[idx + 1] = green;
         pixels[idx + 2] = blue;
-        pixels[idx + 3] = 255;
     }
 
     #[inline]

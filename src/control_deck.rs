@@ -55,6 +55,17 @@ impl ControlDeck {
     }
 
     #[inline]
+    pub fn load_cpu(&mut self, mut cpu: Cpu) {
+        // Swap CPU, but keep original loaded cart, except for ram and mapper
+        std::mem::swap(&mut self.cpu, &mut cpu);
+        std::mem::swap(&mut self.cpu.bus.cart, &mut cpu.bus.cart);
+        self.cpu.bus.ppu.load_cart(&mut self.cpu.bus.cart);
+        self.cpu.bus.apu.load_cart(&mut self.cpu.bus.cart);
+        self.cpu.bus.cart.prg_ram = cpu.bus.cart.prg_ram;
+        self.cpu.bus.cart.mapper = cpu.bus.cart.mapper;
+    }
+
+    #[inline]
     #[must_use]
     pub const fn loaded_rom(&self) -> &Option<String> {
         &self.loaded_rom
@@ -181,14 +192,6 @@ impl ControlDeck {
             disassembly.push(self.cpu.disassemble(&mut addr));
         }
         disassembly
-    }
-
-    #[inline]
-    pub fn load_cpu(&mut self, mut cpu: Cpu) {
-        cpu.bus.ppu.load_cart(&mut cpu.bus.cart);
-        cpu.bus.apu.load_cart(&mut cpu.bus.cart);
-        cpu.bus.input.reset();
-        self.cpu = cpu;
     }
 
     #[inline]

@@ -300,7 +300,7 @@ impl AppState for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
         self.emulation = Some(View::new(
             s.window_id(),
-            Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?),
+            Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgb)?),
         ));
         if is_nes_rom(&self.config.rom_path) {
             self.load_rom(s)?;

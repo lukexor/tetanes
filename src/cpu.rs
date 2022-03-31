@@ -109,10 +109,12 @@ pub struct Cpu {
     pub fetched_data: u8,  // Represents data fetched for the ALU
     pub irqs_pending: Irq, // Pending interrupts
     pub nmi_pending: bool,
+    #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     pub last_irq: bool,
     pub last_nmi: bool,
     pub dmc_dma: bool,
+    #[serde(skip)]
     pub debugging: bool,
 }
 

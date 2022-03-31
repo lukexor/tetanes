@@ -1,93 +1,18 @@
 use super::{Sprite, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH};
 use crate::common::Powered;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::{f32::consts::PI, fmt};
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Frame {
-    pub num: u32,
-    pub parity: bool,
-    // Shift registers
-    pub tile_lo: u8,
-    pub tile_hi: u8,
-    // Tile data - stored in cycles 0 mod 8
-    pub nametable: u16,
-    pub attribute: u8,
-    pub tile_data: u64,
-    // Sprite data
-    pub sprite_count: u8,
-    pub sprite_zero_on_line: bool,
-    pub sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
-    pub prev_pixel: u32,
-    pub palette: Vec<Vec<Vec<u32>>>,
-    pub pixels: Vec<u8>,
-}
+lazy_static! {
+    static ref NTSC_PALETTE: Vec<Vec<Vec<u32>>> = {
+        // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
+        // I'm afraid to touch it now that it works
+        // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
+        // http://wiki.nesdev.com/w/index.php/NTSC_video
 
-impl Frame {
-    pub(super) fn new() -> Self {
-        let mut frame = Self {
-            num: 0,
-            parity: false,
-            nametable: 0,
-            attribute: 0,
-            tile_lo: 0,
-            tile_hi: 0,
-            tile_data: 0,
-            sprite_count: 0,
-            sprite_zero_on_line: false,
-            sprites: [Sprite::new(); 8],
-            prev_pixel: 0xFFFF,
-            palette: vec![vec![vec![0; 512]; 64]; 3],
-            pixels: vec![0; RENDER_SIZE],
-        };
-        frame.generate_ntsc_palette();
-        frame
-    }
+        let mut ntsc_palette = vec![vec![vec![0; 512]; 64]; 3];
 
-    pub(super) fn increment(&mut self) {
-        self.num += 1;
-        self.parity = !self.parity;
-    }
-
-    pub(super) fn put_pixel(&mut self, x: u32, y: u32, red: u8, green: u8, blue: u8) {
-        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
-            return;
-        }
-        let idx = RENDER_CHANNELS * (x + y * RENDER_WIDTH) as usize;
-        self.pixels[idx] = red;
-        self.pixels[idx + 1] = green;
-        self.pixels[idx + 2] = blue;
-        self.pixels[idx + 3] = 255;
-    }
-
-    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
-    // to translate it to Rust
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // http://wiki.nesdev.com/w/index.php/NTSC_video
-    //
-    // Note: Because blending relies on previous x pixel, we shift everything to the
-    // left and render an extra pixel column on the right
-    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, mut pixel: u32, ppu_cycle: u32) {
-        if x > RENDER_WIDTH || y >= RENDER_HEIGHT {
-            return;
-        }
-        if x == RENDER_WIDTH {
-            pixel = self.prev_pixel;
-        }
-        let color =
-            self.palette[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
-        self.prev_pixel = pixel;
-        let red = (color >> 16 & 0xFF) as u8;
-        let green = (color >> 8 & 0xFF) as u8;
-        let blue = (color & 0xFF) as u8;
-        self.put_pixel(x.saturating_sub(1), y, red, green, blue);
-    }
-
-    // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
-    // I'm afraid to touch it now that it works
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // http://wiki.nesdev.com/w/index.php/NTSC_video
-    fn generate_ntsc_palette(&mut self) {
         // Calculate the luma and chroma by emulating the relevant circuits:
         const VOLTAGES: [i32; 16] = [
             -6, -69, 26, -59, 29, -55, 73, -40, 68, -17, 125, 11, 68, 33, 125, 78,
@@ -108,12 +33,12 @@ impl Frame {
             }
         };
         let yiq_divider = (9 * 10u32.pow(6)) as f32;
-        for palette_offset in 0..3 {
+        for (palette_offset, palette) in ntsc_palette.iter_mut().enumerate() {
             for channel in 0..3 {
-                for color0 in 0..512 {
-                    let emphasis = color0 / 64;
+                for color0_offset in 0..512 {
+                    let emphasis = color0_offset / 64;
 
-                    for color1 in 0..64usize {
+                    for (color1_offset, color1) in palette.iter_mut().enumerate() {
                         let mut y = 0;
                         let mut i = 0;
                         let mut q = 0;
@@ -123,9 +48,9 @@ impl Frame {
                             // Sample either the previous or the current pixel.
                             // Use pixel=color0 to disable artifacts.
                             let pixel = if noise < 5 - channel * 2 {
-                                color0
+                                color0_offset
                             } else {
-                                color1
+                                color1_offset
                             };
 
                             // Decode the color index.
@@ -157,17 +82,17 @@ impl Frame {
                         match channel {
                             2 => {
                                 let rgb = y + i * 0.947 / yiq_divider + q * 0.624 / yiq_divider;
-                                self.palette[palette_offset][color1][color0] +=
+                                color1[color0_offset] +=
                                     0x10000 * clamp(255.0 * gammafix(rgb));
                             }
                             1 => {
                                 let rgb = y + i * -0.275 / yiq_divider + q * -0.636 / yiq_divider;
-                                self.palette[palette_offset][color1][color0] +=
+                                color1[color0_offset] +=
                                     0x00100 * clamp(255.0 * gammafix(rgb));
                             }
                             0 => {
                                 let rgb = y + i * -1.109 / yiq_divider + q * 1.709 / yiq_divider;
-                                self.palette[palette_offset][color1][color0] +=
+                                color1[color0_offset] +=
                                     clamp(255.0 * gammafix(rgb));
                             }
                             _ => (), // invalid channel
@@ -176,6 +101,84 @@ impl Frame {
                 }
             }
         }
+
+        ntsc_palette
+    };
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Frame {
+    pub num: u32,
+    pub parity: bool,
+    // Shift registers
+    pub tile_lo: u8,
+    pub tile_hi: u8,
+    // Tile data - stored in cycles 0 mod 8
+    pub nametable: u16,
+    pub attribute: u8,
+    pub tile_data: u64,
+    // Sprite data
+    pub sprite_count: u8,
+    pub sprite_zero_on_line: bool,
+    pub sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
+    pub prev_pixel: u32,
+    pub pixels: Vec<u8>,
+}
+
+impl Frame {
+    pub(super) fn new() -> Self {
+        Self {
+            num: 0,
+            parity: false,
+            nametable: 0,
+            attribute: 0,
+            tile_lo: 0,
+            tile_hi: 0,
+            tile_data: 0,
+            sprite_count: 0,
+            sprite_zero_on_line: false,
+            sprites: [Sprite::new(); 8],
+            prev_pixel: 0xFFFF,
+            pixels: vec![0; RENDER_SIZE],
+        }
+    }
+
+    pub(super) fn increment(&mut self) {
+        self.num += 1;
+        self.parity = !self.parity;
+    }
+
+    pub(super) fn put_pixel(&mut self, x: u32, y: u32, red: u8, green: u8, blue: u8) {
+        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
+            return;
+        }
+        let idx = RENDER_CHANNELS * (x + y * RENDER_WIDTH) as usize;
+        self.pixels[idx] = red;
+        self.pixels[idx + 1] = green;
+        self.pixels[idx + 2] = blue;
+    }
+
+    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
+    // to translate it to Rust
+    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
+    // http://wiki.nesdev.com/w/index.php/NTSC_video
+    //
+    // Note: Because blending relies on previous x pixel, we shift everything to the
+    // left and render an extra pixel column on the right
+    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, mut pixel: u32, ppu_cycle: u32) {
+        if x > RENDER_WIDTH || y >= RENDER_HEIGHT {
+            return;
+        }
+        if x == RENDER_WIDTH {
+            pixel = self.prev_pixel;
+        }
+        let color =
+            NTSC_PALETTE[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
+        self.prev_pixel = pixel;
+        let red = (color >> 16 & 0xFF) as u8;
+        let green = (color >> 8 & 0xFF) as u8;
+        let blue = (color & 0xFF) as u8;
+        self.put_pixel(x.saturating_sub(1), y, red, green, blue);
     }
 }
 
@@ -209,7 +212,6 @@ impl fmt::Debug for Frame {
             .field("sprite_zero_on_line", &self.sprite_zero_on_line)
             .field("sprites", &self.sprites)
             .field("prev_pixel", &self.prev_pixel)
-            .field("palette", &self.palette)
             .field("pixels", &self.pixels)
             .finish()
     }

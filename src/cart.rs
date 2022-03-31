@@ -43,7 +43,7 @@ pub enum ChrMode {
 /// <http://wiki.nesdev.com/w/index.php/INES>
 /// <http://wiki.nesdev.com/w/index.php/NES_2.0>
 /// <http://nesdev.com/NESDoc.pdf> (page 28)
-#[derive(Default, Copy, Clone, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone)]
 #[must_use]
 pub struct NesHeader {
     pub version: u8,        // 1 for iNES or 2 for NES 2.0
@@ -62,13 +62,19 @@ pub struct NesHeader {
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cart {
+    #[serde(skip)]
     pub name: String,
+    #[serde(skip)]
     pub header: NesHeader,
+    #[serde(skip)]
     pub ram_state: RamState,
+    #[serde(skip)]
     pub mirroring: Mirroring,
+    #[serde(skip)]
     pub prg_rom: Memory, // Program ROM
     pub prg_ram: Memory, // Program RAM
-    pub chr: Memory,     // Character ROM/RAM
+    #[serde(skip)]
+    pub chr: Memory, // Character ROM/RAM
     pub mapper: Mapper,
     pub open_bus: u8,
 }
