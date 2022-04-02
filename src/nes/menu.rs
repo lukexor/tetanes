@@ -73,7 +73,7 @@ impl Nes {
     }
 
     pub(crate) fn exit_menu(&mut self, s: &mut PixState) -> PixResult<()> {
-        if self.zapper_connected {
+        if self.control_deck.zapper(GamepadSlot::Two).connected {
             s.cursor(None)?;
         }
         self.resume_play();
@@ -275,12 +275,13 @@ impl Nes {
     }
 
     fn render_keybinds(&mut self, s: &mut PixState, menu: Menu, player: Player) -> PixResult<()> {
-        if s.checkbox("Enable Zapper on Port #2", &mut self.zapper_connected)? {
+        let mut zapper_connected = self.control_deck.zapper(GamepadSlot::Two).connected;
+        if s.checkbox("Enable Zapper on Port #2", &mut zapper_connected)? {
             self.control_deck
                 .zapper_mut(GamepadSlot::Two)
-                .set_connected(self.zapper_connected);
+                .set_connected(zapper_connected);
             let input = Input::Mouse((GamepadSlot::Two, Mouse::Left));
-            if self.zapper_connected {
+            if zapper_connected {
                 let action = Action::Zapper(Some(s.mouse_pos()));
                 self.config.add_binding(input, action);
             } else {

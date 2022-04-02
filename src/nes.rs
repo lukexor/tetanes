@@ -207,7 +207,6 @@ pub struct Nes {
     debugger: Option<Debugger>,
     ppu_viewer: Option<View>,
     apu_viewer: Option<View>,
-    zapper_connected: bool,
     config: Config,
     mode: Mode,
     replay_path: Option<PathBuf>,
@@ -239,7 +238,6 @@ impl Nes {
             debugger: None,
             ppu_viewer: None,
             apu_viewer: None,
-            zapper_connected: false,
             config,
             mode: if debug { Mode::Paused } else { Mode::default() },
             replay_path,
@@ -339,9 +337,9 @@ impl AppState for Nes {
         ));
         if is_nes_rom(&self.config.rom_path) {
             self.load_rom(s);
-            if let Ok(path) = self.save_path(0) {
+            if let Ok(path) = self.save_path(1) {
                 if path.exists() {
-                    self.load_state(0);
+                    self.load_state(1);
                 }
             }
             self.load_replay();
@@ -455,7 +453,14 @@ impl AppState for Nes {
             }
             _ => (),
         }
-        self.save_state(0);
+        if self
+            .config
+            .rom_path
+            .iter()
+            .all(|path| path != OsStr::new("test_roms"))
+        {
+            self.save_state(1);
+        }
         self.save_config();
         if self.replay.mode == ReplayMode::Recording {
             self.stop_replay();
