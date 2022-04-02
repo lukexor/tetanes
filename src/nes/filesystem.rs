@@ -1,10 +1,11 @@
 use super::{menu::Player, Menu, Mode, Nes, NesResult};
+use crate::cart::Cart;
 use anyhow::{anyhow, Context};
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use pix_engine::prelude::PixState;
 use std::{
     ffi::OsStr,
-    fs::{create_dir_all, File},
+    fs::{self, File},
     io::{BufReader, BufWriter, Read, Write},
     path::Path,
 };
@@ -78,7 +79,7 @@ where
     let path = path.as_ref();
     let directory = path.parent().expect("can not save to root path");
     if !directory.exists() {
-        create_dir_all(directory)
+        fs::create_dir_all(directory)
             .with_context(|| anyhow!("failed to create directory {:?}", directory.display()))?;
     }
 
@@ -140,17 +141,7 @@ where
     P: AsRef<Path>,
 {
     let path = path.as_ref();
-    // FIXME: Check nes header instead
-    path.extension().map_or(false, |ext| ext == "nes")
-}
-
-pub(crate) fn is_playback_file<P>(path: P) -> bool
-where
-    P: AsRef<Path>,
-{
-    let path = path.as_ref();
-    // FIXME: Also check playback header
-    path.extension().map_or(false, |ext| ext == "playback")
+    Cart::from_path(path).is_ok()
 }
 
 impl Nes {

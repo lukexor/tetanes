@@ -1,14 +1,44 @@
 use crate::{
-    common::config_dir,
+    common::{config_dir, Clocked},
+    cpu::Cpu,
     nes::{
+        event::ActionEvent,
         filesystem::{decode_data, encode_data, load_data, save_data},
         Mode, Nes,
     },
     NesResult,
 };
 use anyhow::{anyhow, Context};
-
+use chrono::{DateTime, Local};
+use pix_engine::prelude::PixState;
+use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, path::PathBuf};
+
+/// Represents which mode the emulator is in for the Replay feature.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub(crate) enum ReplayMode {
+    Off,
+    Recording,
+    Playback,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub(crate) struct Replay {
+    pub(crate) mode: ReplayMode,
+    pub(crate) start: Option<Cpu>,
+    pub(crate) buffer: Vec<ActionEvent>,
+}
+
+impl Default for Replay {
+    fn default() -> Self {
+        Self {
+            mode: ReplayMode::Off,
+            start: None,
+            buffer: vec![],
+        }
+    }
+}
 
 impl Nes {
     pub(crate) fn resume_play(&mut self) {
@@ -43,7 +73,7 @@ impl Nes {
     }
 
     /// Returns the path where Save states are stored
-    pub(crate) fn save_path(&self) -> NesResult<PathBuf> {
+    pub(crate) fn save_path(&self, slot: u8) -> NesResult<PathBuf> {
         match self.control_deck.loaded_rom() {
             Some(ref rom) => PathBuf::from(rom)
                 .file_stem()
@@ -54,7 +84,7 @@ impl Nes {
                         Ok(config_dir()
                             .join("save")
                             .join(save_name)
-                            .join(self.config.save_slot.to_string())
+                            .join(slot.to_string())
                             .with_extension("save"))
                     },
                 ),
@@ -62,9 +92,8 @@ impl Nes {
         }
     }
     /// Save the current state of the console into a save file
-    pub(crate) fn save_state(&mut self) {
-        let slot = self.config.save_slot;
-        match self.save_path().and_then(|save_path| {
+    pub(crate) fn save_state(&mut self, slot: u8) {
+        match self.save_path(slot).and_then(|save_path| {
             bincode::serialize(self.control_deck.cpu())
                 .context("failed to serialize save state")
                 .map(|data| save_data(save_path, &data))
@@ -78,9 +107,8 @@ impl Nes {
     }
 
     /// Load the console with data saved from a save state
-    pub(crate) fn load_state(&mut self) {
-        let slot = self.config.save_slot;
-        match self.save_path().and_then(load_data).and_then(|data| {
+    pub(crate) fn load_state(&mut self, slot: u8) {
+        match self.save_path(slot).and_then(load_data).and_then(|data| {
             bincode::deserialize(&data)
                 .context("failed to deserialize load state")
                 .map(|cpu| self.control_deck.load_cpu(cpu))
@@ -89,6 +117,19 @@ impl Nes {
             Err(err) => {
                 log::error!("{:?}", err);
                 self.add_message(format!("Failed to load slot {}", slot));
+            }
+        }
+    }
+
+    pub(crate) fn save_screenshot(&mut self, s: &mut PixState) {
+        let filename = Local::now()
+            .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S.png")
+            .to_string();
+        match s.save_canvas(None, &filename) {
+            Ok(()) => self.add_message(filename),
+            Err(err) => {
+                log::error!("{:?}", err);
+                self.add_message("Failed to save screenshot");
             }
         }
     }
@@ -121,20 +162,16 @@ impl Nes {
     }
 
     pub(crate) fn rewind(&mut self) {
-        if self.config.rewind {
-            if let Some(data) = self.rewind_buffer.pop_front() {
-                if let Err(err) = decode_data(&data).and_then(|data| {
-                    bincode::deserialize(&data)
-                        .context("failed to deserialize rewind state")
-                        .map(|cpu| self.control_deck.load_cpu(cpu))
-                }) {
-                    log::error!("{:?}", err);
-                    self.config.rewind = false;
-                    self.rewind_buffer.clear();
-                }
+        if let Some(data) = self.rewind_buffer.pop_front() {
+            if let Err(err) = decode_data(&data).and_then(|data| {
+                bincode::deserialize(&data)
+                    .context("failed to deserialize rewind state")
+                    .map(|cpu| self.control_deck.load_cpu(cpu))
+            }) {
+                log::error!("{:?}", err);
+                self.config.rewind = false;
+                self.rewind_buffer.clear();
             }
-        } else {
-            self.add_message("Rewind disabled. You can enable it in the Config menu.");
         }
     }
 
@@ -165,7 +202,7 @@ impl Nes {
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
-    pub(super) fn save_sram(&mut self) -> NesResult<()> {
+    pub(crate) fn save_sram(&self) -> NesResult<()> {
         let cart = &self.control_deck.cart();
         if cart.battery_backed() {
             let sram_path = self.sram_path()?;
@@ -175,7 +212,7 @@ impl Nes {
     }
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
-    pub(super) fn load_sram(&mut self) -> NesResult<()> {
+    pub(crate) fn load_sram(&mut self) -> NesResult<()> {
         let sram_path = self.sram_path()?;
         let cart = self.control_deck.cart_mut();
         if cart.battery_backed() && sram_path.exists() {
@@ -184,30 +221,87 @@ impl Nes {
         Ok(())
     }
 
-    // /// Saves the replay buffer out to a file
-    // pub fn save_replay(&mut self) -> NesResult<()> {
-    //     let datetime: DateTime<Local> = Local::now();
-    //     let mut path = PathBuf::from(datetime.format("tetanes_%Y-%m-%d_at_%H.%M.%S").to_string());
-    //     path.set_extension("replay");
-    //     let file = File::create(&path)?;
-    //     let mut file = BufWriter::new(file);
-    //     self.replay_buffer.save(&mut file)?;
-    //     println!("Saved replay: {:?}", path);
-    //     Ok(())
-    // }
+    pub(crate) fn start_replay(&mut self) {
+        self.replay.start = Some(self.control_deck.cpu().clone());
+        self.replay.mode = ReplayMode::Recording;
+        self.add_message("Replay Recording Started");
+    }
 
-    // /// Loads a replay file into a Vec
-    // pub(super) fn load_replay(&self) -> NesResult<Vec<FrameEvent>> {
-    //     if let Some(replay) = &self.config.replay {
-    //         let file = File::open(&PathBuf::from(replay))
-    //             .map_err(|e| map_nes_err!("failed to open file {:?}: {}", replay, e))?;
-    //         let mut file = BufReader::new(file);
-    //         let mut buffer: Vec<FrameEvent> = Vec::new();
-    //         buffer.load(&mut file)?;
-    //         buffer.reverse();
-    //         Ok(buffer)
-    //     } else {
-    //         Ok(Vec::new())
-    //     }
-    // }
+    pub(crate) fn stop_replay(&mut self) {
+        if self.replay.mode == ReplayMode::Playback {
+            self.add_message("Replay Playback Stopped");
+        } else {
+            self.add_message("Replay Recording Stopped");
+            self.save_replay();
+        }
+        self.replay.mode = ReplayMode::Off;
+    }
+
+    /// Saves the replay buffer out to a file
+    pub(crate) fn save_replay(&mut self) {
+        let datetime: DateTime<Local> = Local::now();
+        let replay_path =
+            PathBuf::from(datetime.format("tetanes_%Y-%m-%d_at_%H.%M.%S").to_string())
+                .with_extension("replay");
+        self.replay.buffer.reverse();
+        match bincode::serialize(&self.replay)
+            .context("failed to serialize replay recording")
+            .map(|data| save_data(replay_path, &data))
+        {
+            Ok(_) => {
+                self.replay.buffer.clear();
+                self.add_message("Saved replay recording");
+            }
+            Err(err) => {
+                log::error!("{:?}", err);
+                self.add_message("Failed to save replay recording");
+            }
+        }
+    }
+
+    /// Loads a replay file
+    pub(crate) fn load_replay(&mut self) {
+        if let Some(replay_path) = &self.replay_path {
+            match load_data(replay_path).and_then(|data| {
+                bincode::deserialize::<Replay>(&data)
+                    .context("failed to deserialize replay recording")
+                    .map(|mut replay| {
+                        self.control_deck
+                            .load_cpu(replay.start.take().expect("valid replay start"));
+                        self.replay = replay;
+                        self.replay.mode = ReplayMode::Playback;
+                    })
+            }) {
+                Ok(_) => self.add_message("Loaded replay recording"),
+                Err(err) => {
+                    log::error!("{:?}", err);
+                    self.add_message("Failed to load replay recording");
+                }
+            }
+        }
+    }
+
+    pub(crate) fn toggle_pause(&mut self, s: &mut PixState) -> NesResult<()> {
+        match self.mode {
+            Mode::Playing | Mode::Rewinding => {
+                self.mode = Mode::Paused;
+            }
+            Mode::Paused | Mode::PausedBg => {
+                if let Some(ref debugger) = self.debugger {
+                    if debugger.on_breakpoint {
+                        self.control_deck.clock();
+                    }
+                }
+                self.resume_play();
+            }
+            Mode::InMenu(..) => self.exit_menu(s)?,
+        }
+        Ok(())
+    }
+
+    pub(crate) fn toggle_sound_recording(&mut self, _s: &mut PixState) {
+        self.record_sound = !self.record_sound;
+        // TODO
+        self.add_message("Toggle sound recording not implemented yet");
+    }
 }

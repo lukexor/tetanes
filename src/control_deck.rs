@@ -72,11 +72,18 @@ impl ControlDeck {
         &self.loaded_rom
     }
 
-    /// Get a frame worth of pixels
+    /// Get a frame worth of pixels.
     #[inline]
     #[must_use]
     pub fn frame(&self) -> &[u8] {
-        self.cpu.bus.ppu.frame()
+        self.cpu.bus.ppu.frame_buffer()
+    }
+
+    /// Get the current frame number.
+    #[inline]
+    #[must_use]
+    pub fn frame_number(&self) -> u32 {
+        self.cpu.bus.ppu.frame.num
     }
 
     /// Get audio samples.
@@ -116,7 +123,9 @@ impl ControlDeck {
         &mut self,
         breakpoints: &[Breakpoint],
     ) -> ControlFlow<usize, usize> {
-        self.cpu.bus.input.zapper.update();
+        for zapper in &mut self.cpu.bus.input.zappers {
+            zapper.update();
+        }
         self.clock_turbo();
         let mut clocks = 0;
         while !self.frame_complete() && !self.cpu_corrupted() {
@@ -243,20 +252,20 @@ impl ControlDeck {
 
     /// Returns a mutable reference to a gamepad.
     #[inline]
-    pub fn gamepad_mut(&mut self, gamepad: GamepadSlot) -> &mut Gamepad {
-        &mut self.cpu.bus.input.gamepads[gamepad as usize]
+    pub fn gamepad_mut(&mut self, slot: GamepadSlot) -> &mut Gamepad {
+        &mut self.cpu.bus.input.gamepads[slot as usize]
     }
 
     /// Returns a reference to the zapper.
     #[inline]
-    pub const fn zapper(&self) -> &Zapper {
-        &self.cpu.bus.input.zapper
+    pub const fn zapper(&self, slot: GamepadSlot) -> &Zapper {
+        &self.cpu.bus.input.zappers[slot as usize]
     }
 
     /// Returns a mutable reference to the zapper.
     #[inline]
-    pub fn zapper_mut(&mut self) -> &mut Zapper {
-        &mut self.cpu.bus.input.zapper
+    pub fn zapper_mut(&mut self, slot: GamepadSlot) -> &mut Zapper {
+        &mut self.cpu.bus.input.zappers[slot as usize]
     }
 
     /// Get the video filter for the emulation.

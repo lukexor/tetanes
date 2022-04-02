@@ -2,7 +2,7 @@
 
 use crate::{
     common::Powered,
-    memory::{MemRead, MemWrite},
+    memory::MemWrite,
     ppu::{Ppu, RENDER_HEIGHT, RENDER_WIDTH},
 };
 use pix_engine::shape::Point;
@@ -34,6 +34,12 @@ pub enum GamepadSlot {
     Four,
 }
 
+impl Default for GamepadSlot {
+    fn default() -> Self {
+        Self::One
+    }
+}
+
 /// A NES Gamepad.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[must_use]
@@ -58,8 +64,6 @@ pub enum GamepadBtn {
     Select,
     /// Start Button.
     Start,
-    /// Zapper Trigger.
-    Zapper,
 }
 
 impl AsRef<str> for GamepadBtn {
@@ -75,7 +79,6 @@ impl AsRef<str> for GamepadBtn {
             GamepadBtn::TurboB => "B (Turbo)",
             GamepadBtn::Select => "Select",
             GamepadBtn::Start => "Start",
-            GamepadBtn::Zapper => "Zapper Trigger",
         }
     }
 }
@@ -277,7 +280,8 @@ impl Zapper {
 pub struct Input {
     pub gamepads: [Gamepad; 4],
     pub signatures: [Signature; 2],
-    pub zapper: Zapper,
+    // Since there are 4 gamepad slots, but NES only recognizes Zapper in the first two slots.
+    pub zappers: [Zapper; 4],
     pub shift_strobe: u8,
     pub open_bus: u8,
 }
@@ -290,7 +294,7 @@ impl Input {
             gamepads: [Gamepad::default(); 4],
             // Signature bits are reversed so they can shift right
             signatures: [Signature::new(0b0000_1000), Signature::new(0b0000_0100)],
-            zapper: Zapper::new(),
+            zappers: [Zapper::new(); 4],
             shift_strobe: 0x00,
             open_bus: 0x00,
         }
@@ -298,47 +302,48 @@ impl Input {
 
     #[inline]
     #[must_use]
-    pub fn read_zapper(&self, ppu: &Ppu) -> u8 {
-        self.zapper.read(ppu)
-    }
-}
-
-impl MemRead for Input {
-    #[inline]
-    fn read(&mut self, addr: u16) -> u8 {
+    pub fn read(&mut self, addr: u16, ppu: &Ppu) -> u8 {
         let val = match addr {
             0x4016 => {
-                if self.shift_strobe == 0x01 {
-                    self.reset();
-                }
-                // Read $4016 D0 8x for controller #1.
-                // Read $4016 D0 8x for controller #3.
-                // Read $4016 D0 8x for signature: 0b00010000
-                if self.gamepads[0].strobe < STROBE_MAX {
-                    self.gamepads[0].read()
-                } else if self.gamepads[2].strobe < STROBE_MAX {
-                    self.gamepads[2].read()
-                } else if self.signatures[0].strobe < STROBE_MAX {
-                    self.signatures[0].read()
+                if self.zappers[0].connected {
+                    self.zappers[0].read(ppu)
                 } else {
-                    0x01
+                    if self.shift_strobe == 0x01 {
+                        self.reset();
+                    }
+                    // Read $4016 D0 8x for controller #1.
+                    // Read $4016 D0 8x for controller #3.
+                    // Read $4016 D0 8x for signature: 0b00010000
+                    if self.gamepads[0].strobe < STROBE_MAX {
+                        self.gamepads[0].read()
+                    } else if self.gamepads[2].strobe < STROBE_MAX {
+                        self.gamepads[2].read()
+                    } else if self.signatures[0].strobe < STROBE_MAX {
+                        self.signatures[0].read()
+                    } else {
+                        0x01
+                    }
                 }
             }
             0x4017 => {
-                if self.shift_strobe == 0x01 {
-                    self.reset();
-                }
-                // Read $4017 D0 8x for controller #2.
-                // Read $4017 D0 8x for controller #4.
-                // Read $4017 D0 8x for signature: 0b00100000
-                if self.gamepads[1].strobe < STROBE_MAX {
-                    self.gamepads[1].read()
-                } else if self.gamepads[3].strobe < STROBE_MAX {
-                    self.gamepads[3].read()
-                } else if self.signatures[1].strobe < STROBE_MAX {
-                    self.signatures[1].read()
+                if self.zappers[1].connected {
+                    self.zappers[1].read(ppu)
                 } else {
-                    0x01
+                    if self.shift_strobe == 0x01 {
+                        self.reset();
+                    }
+                    // Read $4017 D0 8x for controller #2.
+                    // Read $4017 D0 8x for controller #4.
+                    // Read $4017 D0 8x for signature: 0b00100000
+                    if self.gamepads[1].strobe < STROBE_MAX {
+                        self.gamepads[1].read()
+                    } else if self.gamepads[3].strobe < STROBE_MAX {
+                        self.gamepads[3].read()
+                    } else if self.signatures[1].strobe < STROBE_MAX {
+                        self.signatures[1].read()
+                    } else {
+                        0x01
+                    }
                 }
             }
             _ => self.open_bus,
@@ -348,10 +353,13 @@ impl MemRead for Input {
     }
 
     #[inline]
-    fn peek(&self, addr: u16) -> u8 {
+    #[must_use]
+    pub fn peek(&self, addr: u16, ppu: &Ppu) -> u8 {
         let val = match addr {
             0x4016 => {
-                if self.gamepads[0].strobe < STROBE_MAX {
+                if self.zappers[0].connected {
+                    self.zappers[0].read(ppu)
+                } else if self.gamepads[0].strobe < STROBE_MAX {
                     self.gamepads[0].peek()
                 } else if self.gamepads[2].strobe < STROBE_MAX {
                     self.gamepads[2].peek()
@@ -362,7 +370,9 @@ impl MemRead for Input {
                 }
             }
             0x4017 => {
-                if self.gamepads[1].strobe < STROBE_MAX {
+                if self.zappers[1].connected {
+                    self.zappers[1].read(ppu)
+                } else if self.gamepads[1].strobe < STROBE_MAX {
                     self.gamepads[1].peek()
                 } else if self.gamepads[3].strobe < STROBE_MAX {
                     self.gamepads[3].peek()

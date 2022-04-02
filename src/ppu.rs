@@ -206,7 +206,7 @@ impl Ppu {
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
     #[must_use]
     #[inline]
-    pub fn frame(&self) -> &[u8] {
+    pub fn frame_buffer(&self) -> &[u8] {
         &self.frame.pixels
     }
 

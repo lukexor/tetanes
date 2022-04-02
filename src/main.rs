@@ -28,6 +28,7 @@ fn main() -> NesResult<()> {
     let opt = Opt::from_args();
     NesBuilder::new()
         .path(opt.path)
+        .replay(opt.replay)
         .fullscreen(opt.fullscreen)
         .power_state(opt.power_state)
         .scale(opt.scale)
@@ -49,26 +50,26 @@ fn main() -> NesResult<()> {
 /// `TetaNES` Command-Line Options
 struct Opt {
     #[structopt(
-        help = "The NES ROM to load, a directory containing `.nes` ROM files, or a recording playback `.playback` file. [default: current directory]"
+        help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
     )]
     path: Option<PathBuf>,
+    #[structopt(
+        short = "r",
+        long = "replay",
+        help = "A `.replay` recording file for gameplay recording and playback."
+    )]
+    replay: Option<PathBuf>,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
     #[structopt(
         long = "power_state",
-        default_value = "random",
-        help = "Choose power-up RAM state (zeros, ones, or random)"
+        help = "Choose power-up RAM state, defaults to random."
     )]
-    power_state: RamState,
-    #[structopt(
-        short = "s",
-        long = "scale",
-        default_value = "3.0",
-        help = "Window scale."
-    )]
-    scale: f32,
-    #[structopt(long = "speed", default_value = "1.0", help = "Emulation speed.")]
-    speed: f32,
+    power_state: Option<RamState>,
+    #[structopt(short = "s", long = "scale", help = "Window scale, defaults to 3.0.")]
+    scale: Option<f32>,
+    #[structopt(long = "speed", help = "Emulation speed, defaults to 1.0.")]
+    speed: Option<f32>,
     #[structopt(
         short = "g",
         long = "genie-codes",

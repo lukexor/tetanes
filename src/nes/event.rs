@@ -3,27 +3,22 @@ use crate::{
     common::{Clocked, Powered},
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
-    nes::{config::DEFAULT_KEYBINDS, menu::Menu, Mode, Nes, NesResult},
+    nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode},
     ppu::{VideoFormat, RENDER_HEIGHT},
 };
-use anyhow::Context;
-use chrono::Local;
-use log::{debug, info};
 use pix_engine::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     collections::HashMap,
     fmt,
-    fs::File,
-    io::BufReader,
     ops::{Deref, DerefMut},
-    path::Path,
     time::{Duration, Instant},
 };
 
 /// Indicates an [Axis] direction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
 pub(crate) enum AxisDirection {
     /// No direction, axis is in a deadzone/not pressed.
     None,
@@ -34,10 +29,22 @@ pub(crate) enum AxisDirection {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub(crate) struct ActionEvent {
+    pub(crate) frame: u32,
+    pub(crate) slot: GamepadSlot,
+    pub(crate) action: Action,
+    pub(crate) pressed: bool,
+    pub(crate) repeat: bool,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
 pub(crate) enum Input {
     Key((GamepadSlot, Key, KeyMod)),
     Button((GamepadSlot, ControllerButton)),
     Axis((GamepadSlot, Axis, AxisDirection)),
+    Mouse((GamepadSlot, Mouse)),
 }
 
 impl fmt::Display for Input {
@@ -50,101 +57,141 @@ impl fmt::Display for Input {
                     write!(f, "{:?} {:?}", keymod, key)
                 }
             }
-            Input::Button((_, btn)) => {
-                write!(f, "{:?}", btn)
-            }
-            Input::Axis((_, axis, _)) => {
-                write!(f, "{:?}", axis)
-            }
+            Input::Button((_, btn)) => write!(f, "{:?}", btn),
+            Input::Axis((_, axis, _)) => write!(f, "{:?}", axis),
+            Input::Mouse((_, btn)) => write!(f, "{:?}", btn),
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct KeyBinding {
-    player: GamepadSlot,
-    key: Key,
-    keymod: KeyMod,
-    action: Action,
+    pub(crate) player: GamepadSlot,
+    pub(crate) key: Key,
+    pub(crate) keymod: KeyMod,
+    pub(crate) action: Action,
+}
+
+impl KeyBinding {
+    pub(crate) fn new(player: GamepadSlot, key: Key, keymod: KeyMod, action: Action) -> Self {
+        Self {
+            player,
+            key,
+            keymod,
+            action,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct MouseBinding {
+    pub(crate) player: GamepadSlot,
+    pub(crate) button: Mouse,
+    pub(crate) action: Action,
+}
+
+impl MouseBinding {
+    pub(crate) fn new(player: GamepadSlot, button: Mouse, action: Action) -> Self {
+        Self {
+            player,
+            button,
+            action,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerButtonBinding {
-    player: GamepadSlot,
-    button: ControllerButton,
-    action: Action,
+    pub(crate) player: GamepadSlot,
+    pub(crate) button: ControllerButton,
+    pub(crate) action: Action,
+}
+
+impl ControllerButtonBinding {
+    pub(crate) fn new(player: GamepadSlot, button: ControllerButton, action: Action) -> Self {
+        Self {
+            player,
+            button,
+            action,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerAxisBinding {
-    player: GamepadSlot,
-    axis: Axis,
-    direction: AxisDirection,
-    action: Action,
+    pub(crate) player: GamepadSlot,
+    pub(crate) axis: Axis,
+    pub(crate) direction: AxisDirection,
+    pub(crate) action: Action,
 }
 
-/// A binding of a [`KeyInput`] or [`ControllerInput`] to an [Action].
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) struct InputBinds {
+impl ControllerAxisBinding {
+    pub(crate) fn new(
+        player: GamepadSlot,
+        axis: Axis,
+        direction: AxisDirection,
+        action: Action,
+    ) -> Self {
+        Self {
+            player,
+            axis,
+            direction,
+            action,
+        }
+    }
+}
+
+/// A binding of a inputs to an [Action].
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct InputBindings {
     pub(crate) keys: Vec<KeyBinding>,
+    pub(crate) mouse: Vec<MouseBinding>,
     pub(crate) buttons: Vec<ControllerButtonBinding>,
     pub(crate) axes: Vec<ControllerAxisBinding>,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InputBindings(HashMap<Input, Action>);
-
 impl InputBindings {
-    pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> NesResult<Self> {
-        let path = path.as_ref();
-        let file =
-            BufReader::new(File::open(path).with_context(|| format!("`{}`", path.display()))?);
-
-        let input_binds: InputBinds = serde_json::from_reader(file)
-            .or_else(|err| {
-                log::error!(
-                    "Invalid `{}`, reverting to defaults. Error: {}",
-                    path.display(),
-                    err
-                );
-                serde_json::from_reader(DEFAULT_KEYBINDS)
-            })
-            .with_context(|| format!("failed to parse `{}`", path.display()))?;
-
-        let mut bindings = HashMap::new();
-        for bind in input_binds.keys {
-            bindings.insert(
-                Input::Key((bind.player, bind.key, bind.keymod)),
-                bind.action,
-            );
+    pub(crate) fn update_from_map(&mut self, input_map: &InputMapping) {
+        self.keys.clear();
+        self.mouse.clear();
+        self.buttons.clear();
+        self.axes.clear();
+        for (&input, &action) in input_map.iter() {
+            match input {
+                Input::Key((slot, key, keymod)) => {
+                    self.keys.push(KeyBinding::new(slot, key, keymod, action));
+                }
+                Input::Mouse((slot, button)) => {
+                    self.mouse.push(MouseBinding::new(slot, button, action));
+                }
+                Input::Button((slot, button)) => self
+                    .buttons
+                    .push(ControllerButtonBinding::new(slot, button, action)),
+                Input::Axis((slot, axis, direction)) => self
+                    .axes
+                    .push(ControllerAxisBinding::new(slot, axis, direction, action)),
+            }
         }
-        for bind in input_binds.buttons {
-            bindings.insert(Input::Button((bind.player, bind.button)), bind.action);
-        }
-        for bind in input_binds.axes {
-            bindings.insert(
-                Input::Axis((bind.player, bind.axis, bind.direction)),
-                bind.action,
-            );
-        }
-
-        Ok(Self(bindings))
     }
 }
 
-impl Deref for InputBindings {
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InputMapping(HashMap<Input, Action>);
+
+impl Deref for InputMapping {
     type Target = HashMap<Input, Action>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for InputBindings {
+impl DerefMut for InputMapping {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
+#[allow(variant_size_differences)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum Action {
     Nes(NesState),
@@ -152,6 +199,7 @@ pub(crate) enum Action {
     Feature(Feature),
     Setting(Setting),
     Gamepad(GamepadBtn),
+    Zapper(Option<Point>),
     ZeroAxis([GamepadBtn; 2]),
     Debug(DebugAction),
 }
@@ -206,55 +254,84 @@ pub(crate) enum DebugAction {
     DecScanline,
 }
 
+fn render_message(s: &mut PixState, message: &str, color: Color) -> NesResult<()> {
+    s.push();
+    s.stroke(None);
+    s.fill(rgb!(0, 200));
+    let pady = s.theme().spacing.frame_pad.y();
+    s.rect([
+        0,
+        s.cursor_pos().y() - pady,
+        s.width()? as i32,
+        s.theme().font_size as i32 + 2 * pady,
+    ])?;
+    s.fill(color);
+    s.text(message)?;
+    s.pop();
+    Ok(())
+}
+
 impl Nes {
+    #[inline]
     pub(crate) fn add_message<S>(&mut self, text: S)
     where
         S: Into<String>,
     {
         let text = text.into();
-        info!("{}", text);
+        log::info!("{}", text);
         self.messages.push((text, Instant::now()));
     }
 
+    #[inline]
     pub(crate) fn render_messages(&mut self, s: &mut PixState) -> NesResult<()> {
         self.messages
             .retain(|(_, created)| created.elapsed() < Duration::from_secs(3));
         self.messages.dedup();
-        s.push();
-        s.stroke(None);
         for (message, _) in &self.messages {
-            s.fill(rgb!(0, 200));
-            s.rect([
-                0,
-                s.cursor_pos().y() - s.theme().spacing.frame_pad.y(),
-                s.width()? as i32,
-                34,
-            ])?;
-            s.fill(Color::WHITE);
-            s.text(message)?;
+            render_message(s, message, Color::WHITE)?;
         }
-        s.pop();
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn render_status(&mut self, s: &mut PixState, status: &str) -> PixResult<()> {
-        s.push();
-        s.stroke(None);
-        s.fill(rgb!(0, 200));
-        s.rect([
-            0,
-            s.cursor_pos().y() - s.theme().spacing.frame_pad.y(),
-            s.width()? as i32,
-            34,
-        ])?;
-        s.fill(Color::WHITE);
-        s.text(status)?;
+        render_message(s, status, Color::WHITE)?;
         if let Some(ref err) = self.error {
-            s.fill(Color::RED);
-            s.text(err)?;
+            render_message(s, err, Color::RED)?;
         }
-        s.pop();
         Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn handle_input(
+        &mut self,
+        s: &mut PixState,
+        slot: GamepadSlot,
+        input: Input,
+        pressed: bool,
+        repeat: bool,
+        pos: Option<Point>,
+    ) -> NesResult<bool> {
+        self.config
+            .input_map
+            .get(&input)
+            .copied()
+            .map_or(Ok(false), |mut action| {
+                if pressed && self.replay.mode == ReplayMode::Playback {
+                    match action {
+                        Action::Feature(Feature::ToggleGameplayRecording) => self.stop_replay(),
+                        Action::Nes(state) => self.handle_nes_state(s, state)?,
+                        Action::Menu(menu) => self.open_menu(s, menu)?,
+                        _ => return Ok(false),
+                    }
+                    Ok(true)
+                } else {
+                    if let Action::Zapper(ref mut p) = action {
+                        *p = pos;
+                    }
+                    self.handle_action(s, slot, action, pressed, repeat)
+                }
+            })
     }
 
     #[inline]
@@ -271,15 +348,7 @@ impl Nes {
             GamepadSlot::Four,
         ] {
             let input = Input::Key((slot, event.key, event.keymod));
-            if let Ok(true) = self
-                .config
-                .input_bindings
-                .get(&input)
-                .copied()
-                .map_or(Ok(false), |action| {
-                    self.handle_input_action(s, slot, action, pressed, event.repeat)
-                })
-            {
+            if let Ok(true) = self.handle_input(s, slot, input, pressed, event.repeat, None) {
                 return true;
             }
         }
@@ -291,30 +360,18 @@ impl Nes {
         &mut self,
         s: &mut PixState,
         btn: Mouse,
-        _pos: Point<i32>,
+        pos: Point<i32>,
         clicked: bool,
-    ) {
-        if self.mode == Mode::Playing && clicked && btn == Mouse::Left {
-            if let Some(view) = self.emulation {
-                if s.focused_window(view.window_id) {
-                    self.control_deck.zapper_mut().trigger();
-                }
-            }
-        }
-    }
-
-    #[inline]
-    pub fn handle_mouse_motion(&mut self, s: &mut PixState, pos: Point<i32>) {
+    ) -> bool {
         if self.mode == Mode::Playing {
-            if let Some(view) = self.emulation {
-                if s.focused_window(view.window_id) {
-                    let mut zapper = self.control_deck.zapper_mut();
-                    let mut pos = pos / self.config.scale as i32;
-                    pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
-                    zapper.pos = pos;
+            for slot in [GamepadSlot::One, GamepadSlot::Two] {
+                let input = Input::Mouse((slot, btn));
+                if let Ok(true) = self.handle_input(s, slot, input, clicked, false, Some(pos)) {
+                    return true;
                 }
             }
         }
+        false
     }
 
     #[inline]
@@ -326,13 +383,7 @@ impl Nes {
     ) -> PixResult<bool> {
         if let Some(slot) = self.get_controller_slot(event.controller_id) {
             let input = Input::Button((slot, event.button));
-            self.config
-                .input_bindings
-                .get(&input)
-                .copied()
-                .map_or(Ok(false), |action| {
-                    self.handle_input_action(s, slot, action, pressed, false)
-                })
+            self.handle_input(s, slot, input, pressed, false, None)
         } else {
             Ok(false)
         }
@@ -353,20 +404,125 @@ impl Nes {
                 Ordering::Equal => AxisDirection::None,
             };
             let input = Input::Axis((slot, axis, direction));
-            self.config
-                .input_bindings
-                .get(&input)
-                .copied()
-                .map_or(Ok(false), |action| {
-                    self.handle_input_action(s, slot, action, true, false)
-                })
+            self.handle_input(s, slot, input, true, false, None)
         } else {
             Ok(false)
         }
     }
+
+    #[inline]
+    pub(crate) fn handle_action(
+        &mut self,
+        s: &mut PixState,
+        slot: GamepadSlot,
+        action: Action,
+        pressed: bool,
+        repeat: bool,
+    ) -> PixResult<bool> {
+        if !repeat {
+            log::debug!(
+                "Input: {{ action: {:?}, slot: {:?}, pressed: {} }}",
+                action,
+                slot,
+                pressed
+            );
+        }
+
+        if repeat && pressed {
+            match action {
+                Action::Debug(action) => self.handle_debug(s, action, repeat)?,
+                Action::Feature(Feature::Rewind) => {
+                    if self.config.rewind {
+                        self.mode = Mode::Rewinding;
+                    } else {
+                        self.add_message("Rewind disabled. You can enable it in the Config menu.");
+                    }
+                }
+                _ => return Ok(false),
+            }
+        } else {
+            match action {
+                Action::Debug(action) if pressed => self.handle_debug(s, action, repeat)?,
+                Action::Feature(feature) => self.handle_feature(s, feature, pressed),
+                Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
+                Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
+                Action::Setting(setting) => self.handle_setting(s, setting, pressed)?,
+                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
+                Action::Zapper(pos) => self.handle_zapper(slot, pos, pressed),
+                Action::ZeroAxis(buttons) => {
+                    for button in buttons {
+                        self.handle_gamepad_pressed(slot, button, pressed);
+                    }
+                }
+                _ => return Ok(false),
+            }
+        }
+
+        if self.replay.mode == ReplayMode::Recording
+            && !matches!(
+                action,
+                Action::Feature(Feature::ToggleGameplayRecording)
+                    | Action::Nes(NesState::TogglePause | NesState::ToggleMenu),
+            )
+        {
+            self.replay
+                .buffer
+                .push(self.action_event(slot, action, pressed, repeat));
+        }
+
+        Ok(true)
+    }
+
+    pub(crate) fn replay_action(&mut self, s: &mut PixState) -> NesResult<()> {
+        let current_frame = self.control_deck.frame_number();
+        while let Some(action_event) = self.replay.buffer.last() {
+            match action_event.frame.cmp(&current_frame) {
+                Ordering::Equal => {
+                    let ActionEvent {
+                        slot,
+                        action,
+                        pressed,
+                        repeat,
+                        ..
+                    } = self.replay.buffer.pop().expect("valid action event");
+                    self.handle_action(s, slot, action, pressed, repeat)?;
+                }
+                Ordering::Less => {
+                    log::warn!(
+                        "Encountered action event out of order: {} < {}",
+                        action_event.frame,
+                        current_frame
+                    );
+                    self.replay.buffer.pop();
+                }
+                Ordering::Greater => break,
+            }
+        }
+        if self.replay.buffer.is_empty() {
+            self.stop_replay();
+        }
+        Ok(())
+    }
 }
 
 impl Nes {
+    #[inline]
+    fn action_event(
+        &self,
+        slot: GamepadSlot,
+        action: Action,
+        pressed: bool,
+        repeat: bool,
+    ) -> ActionEvent {
+        ActionEvent {
+            frame: self.control_deck.frame_number(),
+            slot,
+            action,
+            pressed,
+            repeat,
+        }
+    }
+
     #[inline]
     fn get_controller_slot(&self, controller_id: ControllerId) -> Option<GamepadSlot> {
         self.players.iter().find_map(|(&slot, &id)| {
@@ -379,57 +535,14 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_input_action(
-        &mut self,
-        s: &mut PixState,
-        slot: GamepadSlot,
-        action: Action,
-        pressed: bool,
-        repeat: bool,
-    ) -> PixResult<bool> {
-        if !repeat {
-            debug!(
-                "Input: {{ action: {:?}, slot: {:?}, pressed: {} }}",
-                action, slot, pressed
-            );
-        }
-        match action {
-            Action::Debug(action) => self.handle_debug(s, action, pressed, repeat)?,
-            Action::Feature(feature) => self.handle_feature(s, feature, pressed, repeat),
-            Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
-            Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
-            Action::Setting(setting) if pressed => self.handle_setting(s, setting)?,
-            Action::Setting(Setting::FastForward) if !pressed => self.set_speed(1.0),
-            Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
-            Action::ZeroAxis(buttons) => {
-                for button in buttons {
-                    self.handle_gamepad_pressed(slot, button, pressed);
-                }
-            }
-            _ => (),
-        }
-        Ok(false)
-    }
-
-    #[inline]
     fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<()> {
+        if self.replay.mode == ReplayMode::Recording {
+            return Ok(());
+        }
         match state {
             NesState::ToggleMenu => self.toggle_menu(Menu::Config, s)?,
             NesState::Quit => s.quit(),
-            NesState::TogglePause => match self.mode {
-                Mode::Playing | Mode::Recording | Mode::Replaying | Mode::Rewinding => {
-                    self.mode = Mode::Paused;
-                }
-                Mode::Paused | Mode::PausedBg => {
-                    if let Some(ref debugger) = self.debugger {
-                        if debugger.on_breakpoint {
-                            self.control_deck.clock();
-                        }
-                    }
-                    self.resume_play();
-                }
-                Mode::InMenu(..) => self.exit_menu(s)?,
-            },
+            NesState::TogglePause => self.toggle_pause(s)?,
             NesState::Reset => {
                 self.error = None;
                 self.control_deck.reset();
@@ -447,49 +560,41 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool, repeat: bool) {
+    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool) {
+        if feature == Feature::Rewind && !pressed {
+            if self.mode == Mode::Rewinding {
+                self.resume_play();
+            } else {
+                self.instant_rewind();
+            }
+            return;
+        }
+
         match feature {
-            Feature::ToggleGameplayRecording => {
-                if self.mode == Mode::Recording {
-                    self.mode = Mode::Playing;
-                    self.add_message("Recording Stopped");
-                    todo!("Save recording");
-                } else {
-                    self.mode = Mode::Recording;
-                    self.add_message("Recording Started");
-                    todo!("Recording")
-                }
-            }
-            Feature::ToggleSoundRecording => {
-                todo!("Toggle sound recording")
-            }
-            Feature::Rewind => {
-                if pressed && repeat {
-                    self.mode = Mode::Rewinding;
-                } else if !pressed {
-                    if self.mode == Mode::Rewinding {
-                        self.resume_play();
-                    } else {
-                        self.instant_rewind();
-                    }
-                }
-            }
-            Feature::TakeScreenshot => {
-                let filename = Local::now()
-                    .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S.png")
-                    .to_string();
-                match s.save_canvas(None, &filename) {
-                    Ok(()) => self.add_message(filename),
-                    Err(e) => self.add_message(e.to_string()),
-                }
-            }
-            Feature::SaveState => self.save_state(),
-            Feature::LoadState => self.load_state(),
+            Feature::ToggleGameplayRecording => match self.replay.mode {
+                ReplayMode::Off => self.start_replay(),
+                ReplayMode::Recording | ReplayMode::Playback => self.stop_replay(),
+            },
+            Feature::ToggleSoundRecording => self.toggle_sound_recording(s),
+            Feature::TakeScreenshot => self.save_screenshot(s),
+            Feature::SaveState => self.save_state(self.config.save_slot),
+            Feature::LoadState => self.load_state(self.config.save_slot),
+            // Instant Rewind happens on key release
+            Feature::Rewind => (),
         }
     }
 
     #[inline]
-    fn handle_setting(&mut self, s: &mut PixState, setting: Setting) -> NesResult<()> {
+    fn handle_setting(
+        &mut self,
+        s: &mut PixState,
+        setting: Setting,
+        pressed: bool,
+    ) -> NesResult<()> {
+        if setting == Setting::FastForward && !pressed {
+            self.set_speed(1.0);
+            return Ok(());
+        }
         match setting {
             Setting::SetSaveSlot(slot) => {
                 self.config.save_slot = slot;
@@ -565,8 +670,22 @@ impl Nes {
             }
             GamepadBtn::Select => gamepad.select = pressed,
             GamepadBtn::Start => gamepad.start = pressed,
-            GamepadBtn::Zapper => (), // Zapper handled only with mouse currently
         };
+    }
+
+    #[inline]
+    fn handle_zapper(&mut self, slot: GamepadSlot, pos: Option<Point>, triggered: bool) {
+        if self.mode == Mode::Playing {
+            let zapper = self.control_deck.zapper_mut(slot);
+            if let Some(pos) = pos {
+                let mut pos = pos / self.config.scale as i32;
+                pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
+                zapper.pos = pos;
+            }
+            if triggered {
+                zapper.trigger();
+            }
+        }
     }
 
     #[inline]
@@ -574,14 +693,13 @@ impl Nes {
         &mut self,
         s: &mut PixState,
         action: DebugAction,
-        _pressed: bool,
-        _repeat: bool,
-    ) -> PixResult<()> {
+        repeat: bool,
+    ) -> NesResult<()> {
         let debugging = self.debugger.is_some();
         match action {
-            DebugAction::ToggleCpuDebugger => self.toggle_debugger(s)?,
-            DebugAction::TogglePpuDebugger => self.toggle_ppu_viewer(s)?,
-            DebugAction::ToggleApuDebugger => self.toggle_apu_viewer(s)?,
+            DebugAction::ToggleCpuDebugger if !repeat => self.toggle_debugger(s)?,
+            DebugAction::TogglePpuDebugger if !repeat => self.toggle_ppu_viewer(s)?,
+            DebugAction::ToggleApuDebugger if !repeat => self.toggle_apu_viewer(s)?,
             DebugAction::StepInto if debugging => {
                 self.pause_play();
                 self.control_deck.clock();

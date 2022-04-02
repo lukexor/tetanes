@@ -1,42 +1,26 @@
 use crate::{
-    common::config_path,
+    common::{config_dir, config_path},
     memory::RamState,
-    nes::{event::InputBindings, Mode, Nes, DEFAULT_SETTINGS},
-    NesResult,
+    nes::{
+        event::{Action, Input, InputBindings, InputMapping},
+        Nes,
+    },
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::{
-    env,
     fs::{self, File},
-    io::BufReader,
-    path::{Path, PathBuf},
+    io::{BufReader, BufWriter},
+    path::PathBuf,
 };
 
-pub(crate) const KEYBINDS: &str = "keybinds.json";
-pub(crate) const DEFAULT_KEYBINDS: &[u8] = include_bytes!("../../config/keybinds.json");
+pub(crate) const CONFIG: &str = "config.json";
+const DEFAULT_CONFIG: &[u8] = include_bytes!("../../config/config.json");
 const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
 const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Settings {
-    pub(crate) pause_in_bg: bool,
-    pub(crate) sound: bool,
-    pub(crate) fullscreen: bool,
-    pub(crate) vsync: bool,
-    pub(crate) concurrent_dpad: bool,
-    pub(crate) power_state: RamState,
-    pub(crate) save_slot: u8,
-    pub(crate) scale: f32,
-    pub(crate) speed: f32,
-    pub(crate) zapper_connected: bool,
-    pub(crate) rewind: bool,
-    pub(crate) rewind_frames: u32,
-    pub(crate) rewind_buffer_size: usize,
-}
-
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 /// NES emulation configuration settings.
 pub(crate) struct Config {
     pub(crate) rom_path: PathBuf,
@@ -49,80 +33,102 @@ pub(crate) struct Config {
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
     pub(crate) speed: f32,
-    pub(crate) zapper_connected: bool,
     pub(crate) rewind: bool,
     pub(crate) rewind_frames: u32,
     pub(crate) rewind_buffer_size: usize,
-    pub(crate) input_bindings: InputBindings,
     pub(crate) genie_codes: Vec<String>,
+    pub(crate) bindings: InputBindings,
+    #[serde(skip)]
+    pub(crate) input_map: InputMapping,
     // TODO: Runtime log level
 }
 
 impl Config {
-    pub(crate) fn new() -> NesResult<Self> {
-        let keybinds = config_path(KEYBINDS);
-        if !keybinds.exists() {
-            fs::write(&keybinds, DEFAULT_KEYBINDS)
-                .context("unable to create default `keybinds.json`")?;
+    pub(crate) fn load() -> Self {
+        let config_dir = config_dir();
+        if !config_dir.exists() {
+            if let Err(err) =
+                fs::create_dir_all(config_dir).context("failed to create config directory")
+            {
+                log::error!("{:?}", err);
+            }
         }
-        Ok(Self {
-            rom_path: env::current_dir().unwrap_or_default(),
-            pause_in_bg: true,
-            sound: true,
-            fullscreen: false,
-            vsync: true,
-            concurrent_dpad: false,
-            power_state: RamState::Random,
-            save_slot: 1,
-            scale: 3.0,
-            speed: 1.0,
-            zapper_connected: false,
-            rewind: false,
-            rewind_frames: 2,
-            rewind_buffer_size: 50,
-            input_bindings: InputBindings::from_file(keybinds)?,
-            genie_codes: vec![],
-        })
-    }
+        let config_path = config_path(CONFIG);
+        if !config_path.exists() {
+            if let Err(err) =
+                fs::write(&config_path, DEFAULT_CONFIG).context("failed to create default config")
+            {
+                log::error!("{:?}", err);
+            }
+        }
 
-    pub(crate) fn from_file<P: AsRef<Path>>(path: P) -> NesResult<Self> {
-        let path = path.as_ref();
-        let file =
-            BufReader::new(File::open(path).with_context(|| format!("`{}`", path.display()))?);
-
-        let settings: Settings = serde_json::from_reader(file)
+        let mut config = File::open(&config_path)
+            .with_context(|| format!("failed to open {:?}", config_path.display()))
+            .and_then(|file| Ok(serde_json::from_reader::<_, Config>(BufReader::new(file))?))
             .or_else(|err| {
                 log::error!(
-                    "Invalid `{}`, reverting to defaults. Error: {}",
-                    path.display(),
+                    "Invalid config: {:?}, reverting to defaults. Error: {}",
+                    config_path.display(),
                     err
                 );
-                serde_json::from_reader(DEFAULT_SETTINGS)
+                serde_json::from_reader(DEFAULT_CONFIG)
             })
-            .with_context(|| format!("failed to parse `{}`", path.display()))?;
+            .with_context(|| format!("failed to parse {:?}", config_path.display()))
+            .expect("valid configuration");
 
-        Ok(Self {
-            pause_in_bg: settings.pause_in_bg,
-            sound: settings.sound,
-            fullscreen: settings.fullscreen,
-            vsync: settings.vsync,
-            concurrent_dpad: settings.concurrent_dpad,
-            power_state: settings.power_state,
-            save_slot: settings.save_slot,
-            scale: settings.scale,
-            speed: settings.speed,
-            zapper_connected: settings.zapper_connected,
-            ..Config::new()?
-        })
+        for bind in &config.bindings.keys {
+            config.input_map.insert(
+                Input::Key((bind.player, bind.key, bind.keymod)),
+                bind.action,
+            );
+        }
+        for bind in &config.bindings.mouse {
+            config
+                .input_map
+                .insert(Input::Mouse((bind.player, bind.button)), bind.action);
+        }
+        for bind in &config.bindings.buttons {
+            config
+                .input_map
+                .insert(Input::Button((bind.player, bind.button)), bind.action);
+        }
+        for bind in &config.bindings.axes {
+            config.input_map.insert(
+                Input::Axis((bind.player, bind.axis, bind.direction)),
+                bind.action,
+            );
+        }
+
+        config
+    }
+
+    pub(crate) fn add_binding(&mut self, input: Input, action: Action) {
+        self.input_map.insert(input, action);
+        self.bindings.update_from_map(&self.input_map);
+    }
+
+    pub(crate) fn remove_binding(&mut self, input: Input) {
+        self.input_map.remove(&input);
+        self.bindings.update_from_map(&self.input_map);
     }
 }
 
 impl Nes {
-    pub(crate) fn change_speed(&mut self, delta: f32) {
-        if let Mode::Recording | Mode::Replaying = self.mode {
-            self.add_message("Speed changes disabled while recording or replaying");
-            return;
+    pub(crate) fn save_config(&mut self) {
+        let path = config_path(CONFIG);
+        match File::create(&path)
+            .with_context(|| format!("failed to open {:?}", path.display()))
+            .map(|file| serde_json::to_writer_pretty(BufWriter::new(file), &self.config))
+        {
+            Ok(_) => log::info!("Saved configuration"),
+            Err(err) => {
+                log::error!("{:?}", err);
+                self.add_message("Failed to save configuration");
+            }
         }
+    }
+
+    pub(crate) fn change_speed(&mut self, delta: f32) {
         if self.config.speed % 0.25 != 0.0 {
             // Round to nearest quarter
             self.config.speed = (self.config.speed * 4.0).floor() / 4.0;
@@ -137,10 +143,6 @@ impl Nes {
     }
 
     pub(crate) fn set_speed(&mut self, speed: f32) {
-        if let Mode::Recording | Mode::Replaying = self.mode {
-            self.add_message("Speed changes disabled while recording or replaying");
-            return;
-        }
         self.config.speed = speed;
         self.control_deck.set_speed(self.config.speed);
     }

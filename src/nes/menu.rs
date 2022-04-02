@@ -1,9 +1,12 @@
-use super::{
-    config::KEYBINDS, filesystem::is_nes_rom, Mode, Nes, SETTINGS, WINDOW_HEIGHT, WINDOW_WIDTH,
-};
+use super::{filesystem::is_nes_rom, Mode, Nes, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::{
     apu::AudioChannel,
     common::{config_path, SAVE_DIR, SRAM_DIR},
+    input::GamepadSlot,
+    nes::{
+        config::CONFIG,
+        event::{Action, Input},
+    },
     ppu::VideoFormat,
 };
 use anyhow::anyhow;
@@ -70,7 +73,7 @@ impl Nes {
     }
 
     pub(crate) fn exit_menu(&mut self, s: &mut PixState) -> PixResult<()> {
-        if self.config.zapper_connected {
+        if self.zapper_connected {
             s.cursor(None)?;
         }
         self.resume_play();
@@ -272,13 +275,18 @@ impl Nes {
     }
 
     fn render_keybinds(&mut self, s: &mut PixState, menu: Menu, player: Player) -> PixResult<()> {
-        s.checkbox(
-            "Enable Zapper on Port #2",
-            &mut self.config.zapper_connected,
-        )?;
-        self.control_deck
-            .zapper_mut()
-            .set_connected(self.config.zapper_connected);
+        if s.checkbox("Enable Zapper on Port #2", &mut self.zapper_connected)? {
+            self.control_deck
+                .zapper_mut(GamepadSlot::Two)
+                .set_connected(self.zapper_connected);
+            let input = Input::Mouse((GamepadSlot::Two, Mouse::Left));
+            if self.zapper_connected {
+                let action = Action::Zapper(Some(s.mouse_pos()));
+                self.config.add_binding(input, action);
+            } else {
+                self.config.remove_binding(input);
+            }
+        }
         s.spacing()?;
 
         let mut selected = player as usize;
@@ -430,17 +438,9 @@ impl Nes {
         }
         s.spacing()?;
 
-        s.text("Configuration:")?;
-
-        s.bullet("Keybinds: ")?;
+        s.bullet("Configuration: ")?;
         s.same_line(None);
-        s.monospace(config_path(KEYBINDS).to_string_lossy())?;
-
-        s.bullet("Settings: ")?;
-        s.same_line(None);
-        s.monospace(config_path(SETTINGS).to_string_lossy())?;
-
-        s.text("Directories:")?;
+        s.monospace(config_path(CONFIG).to_string_lossy())?;
 
         s.bullet("Save states: ")?;
         s.same_line(None);

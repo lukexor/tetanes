@@ -2,17 +2,20 @@
 
 use crate::{
     apu::SAMPLE_RATE,
-    common::{config_dir, config_path, Powered},
+    common::Powered,
     control_deck::ControlDeck,
     input::GamepadSlot,
     memory::RamState,
-    nes::debug::Debugger,
+    nes::{
+        debug::Debugger,
+        event::{Action, Input},
+        state::{Replay, ReplayMode},
+    },
     ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
-use anyhow::Context;
 use config::Config;
-use filesystem::{is_nes_rom, is_playback_file};
+use filesystem::is_nes_rom;
 use menu::{Menu, Player};
 use pix_engine::prelude::*;
 use std::{
@@ -20,7 +23,6 @@ use std::{
     env,
     ffi::OsStr,
     fmt::Write,
-    fs,
     ops::ControlFlow,
     path::PathBuf,
     time::{Duration, Instant},
@@ -32,9 +34,6 @@ pub(crate) mod event;
 pub(crate) mod filesystem;
 pub(crate) mod menu;
 pub(crate) mod state;
-
-pub(crate) const SETTINGS: &str = "settings.json";
-const DEFAULT_SETTINGS: &[u8] = include_bytes!("../config/settings.json");
 
 const APP_NAME: &str = "TetaNES";
 #[cfg(not(target_arch = "wasm32"))]
@@ -48,10 +47,11 @@ const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT 
 #[must_use]
 pub struct NesBuilder {
     path: PathBuf,
+    replay: Option<PathBuf>,
     fullscreen: bool,
-    power_state: RamState,
-    scale: f32,
-    speed: f32,
+    power_state: Option<RamState>,
+    scale: Option<f32>,
+    speed: Option<f32>,
     genie_codes: Vec<String>,
     debug: bool,
 }
@@ -61,10 +61,11 @@ impl NesBuilder {
     pub fn new() -> Self {
         Self {
             path: PathBuf::new(),
+            replay: None,
             fullscreen: false,
-            power_state: RamState::Random,
-            scale: 3.0,
-            speed: 1.0,
+            power_state: None,
+            scale: None,
+            speed: None,
             genie_codes: vec![],
             debug: false,
         }
@@ -79,6 +80,15 @@ impl NesBuilder {
         self
     }
 
+    /// A replay recording file.
+    pub fn replay<P>(&mut self, path: Option<P>) -> &mut Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.replay = path.map(Into::into);
+        self
+    }
+
     /// Enables fullscreen mode.
     pub fn fullscreen(&mut self, val: bool) -> &mut Self {
         self.fullscreen = val;
@@ -86,19 +96,19 @@ impl NesBuilder {
     }
 
     /// Sets the default power-on state for RAM values.
-    pub fn power_state(&mut self, state: RamState) -> &mut Self {
+    pub fn power_state(&mut self, state: Option<RamState>) -> &mut Self {
         self.power_state = state;
         self
     }
 
     /// Set the window scale.
-    pub fn scale(&mut self, val: f32) -> &mut Self {
+    pub fn scale(&mut self, val: Option<f32>) -> &mut Self {
         self.scale = val;
         self
     }
 
     /// Set the emulation speed.
-    pub fn speed(&mut self, val: f32) -> &mut Self {
+    pub fn speed(&mut self, val: Option<f32>) -> &mut Self {
         self.speed = val;
         self
     }
@@ -120,26 +130,33 @@ impl NesBuilder {
     ///
     /// If the default configuration directories and files can't be created, an error is returned.
     pub fn build(&self) -> NesResult<Nes> {
-        let config_dir = config_dir();
-        if !config_dir.exists() {
-            fs::create_dir_all(config_dir).context("unable to create config directory")?;
-        }
-
-        let settings = config_path(SETTINGS);
-        if !settings.exists() {
-            fs::write(&settings, DEFAULT_SETTINGS)
-                .context("unable to create default `settings.json`")?;
-        }
-        let mut config = Config::from_file(settings)?;
+        let mut config = Config::load();
         config.rom_path = self.path.clone().canonicalize()?;
-        config.fullscreen = self.fullscreen;
-        config.power_state = self.power_state;
-        config.scale = self.scale;
-        config.speed = self.speed;
-        config.genie_codes = self.genie_codes.clone();
+        config.fullscreen = self.fullscreen || config.fullscreen;
+        config.power_state = self.power_state.unwrap_or(config.power_state);
+        config.scale = self.scale.unwrap_or(config.scale);
+        config.speed = self.speed.unwrap_or(config.speed);
+        config.genie_codes.append(&mut self.genie_codes.clone());
+
         let mut control_deck = ControlDeck::new(config.power_state);
         control_deck.set_speed(config.speed);
-        Ok(Nes::new(control_deck, config, self.debug))
+        for (&input, &action) in config.input_map.iter() {
+            if let Action::Zapper(_) = action {
+                if let Input::Mouse((slot, ..))
+                | Input::Key((slot, ..))
+                | Input::Button((slot, ..)) = input
+                {
+                    control_deck.zapper_mut(slot).set_connected(true);
+                }
+            }
+        }
+
+        Ok(Nes::new(
+            control_deck,
+            config,
+            self.replay.clone(),
+            self.debug,
+        ))
     }
 }
 
@@ -156,8 +173,6 @@ pub(crate) enum Mode {
     Paused,
     PausedBg,
     InMenu(Menu, Player),
-    Recording,
-    Replaying,
     Rewinding,
 }
 
@@ -192,13 +207,17 @@ pub struct Nes {
     debugger: Option<Debugger>,
     ppu_viewer: Option<View>,
     apu_viewer: Option<View>,
+    zapper_connected: bool,
     config: Config,
     mode: Mode,
+    replay_path: Option<PathBuf>,
+    record_sound: bool,
     debug: bool,
     rewind_frame: u32,
     scanline: u16,
     speed_counter: f32,
     rewind_buffer: VecDeque<Vec<u8>>,
+    replay: Replay,
     messages: Vec<(String, Instant)>,
     paths: Vec<PathBuf>,
     selected_path: usize,
@@ -207,7 +226,12 @@ pub struct Nes {
 }
 
 impl Nes {
-    pub(crate) fn new(control_deck: ControlDeck, config: Config, debug: bool) -> Self {
+    pub(crate) fn new(
+        control_deck: ControlDeck,
+        config: Config,
+        replay_path: Option<PathBuf>,
+        debug: bool,
+    ) -> Self {
         Self {
             control_deck,
             players: HashMap::new(),
@@ -215,13 +239,17 @@ impl Nes {
             debugger: None,
             ppu_viewer: None,
             apu_viewer: None,
+            zapper_connected: false,
             config,
             mode: if debug { Mode::Paused } else { Mode::default() },
+            replay_path,
+            record_sound: false,
             debug,
             scanline: 0,
             speed_counter: 0.0,
             rewind_frame: 0,
             rewind_buffer: VecDeque::new(),
+            replay: Replay::default(),
             messages: vec![],
             paths: vec![],
             selected_path: 0,
@@ -282,15 +310,17 @@ impl Nes {
             if let Some(texture_id) = view.texture_id {
                 s.update_texture(texture_id, None, self.control_deck.frame(), RENDER_PITCH)?;
 
-                let zapper = self.control_deck.zapper();
-                if zapper.connected {
-                    s.with_texture(texture_id, |s: &mut PixState| {
-                        let [x, y] = zapper.pos.as_array();
-                        s.stroke(Color::GRAY);
-                        s.line([x - 8, y, x + 8, y])?;
-                        s.line([x, y - 8, x, y + 8])?;
-                        Ok(())
-                    })?;
+                for slot in [GamepadSlot::One, GamepadSlot::Two] {
+                    let zapper = self.control_deck.zapper(slot);
+                    if zapper.connected {
+                        s.with_texture(texture_id, |s: &mut PixState| {
+                            let [x, y] = zapper.pos.as_array();
+                            s.stroke(Color::GRAY);
+                            s.line([x - 8, y, x + 8, y])?;
+                            s.line([x, y - 8, x, y + 8])?;
+                            Ok(())
+                        })?;
+                    }
                 }
                 s.texture(texture_id, NES_FRAME_SRC, None)?;
             }
@@ -309,9 +339,12 @@ impl AppState for Nes {
         ));
         if is_nes_rom(&self.config.rom_path) {
             self.load_rom(s);
-        } else if is_playback_file(&self.config.rom_path) {
-            self.mode = Mode::Replaying;
-            unimplemented!("Replay not implemented");
+            if let Ok(path) = self.save_path(0) {
+                if path.exists() {
+                    self.load_state(0);
+                }
+            }
+            self.load_replay();
         }
         if self.debug {
             self.toggle_debugger(s)?;
@@ -320,7 +353,11 @@ impl AppState for Nes {
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
-        if let Mode::Playing | Mode::Recording | Mode::Replaying = self.mode {
+        if self.replay.mode == ReplayMode::Playback {
+            self.replay_action(s)?;
+        }
+
+        if self.mode == Mode::Playing {
             self.speed_counter += self.config.speed;
             'run: while self.speed_counter > 0.0 {
                 self.speed_counter -= 1.0;
@@ -382,14 +419,17 @@ impl AppState for Nes {
                     }
                 }
             }
-            Mode::Recording => self.render_status(s, "Recording")?,
-            Mode::Replaying => self.render_status(s, "Replay")?,
             Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
             Mode::Rewinding => {
                 self.render_status(s, "Rewinding")?;
                 self.rewind();
             }
             Mode::Playing => (),
+        }
+        match self.replay.mode {
+            ReplayMode::Recording => self.render_status(s, "Recording Replay")?,
+            ReplayMode::Playback => self.render_status(s, "Replay Playback")?,
+            ReplayMode::Off => (),
         }
         self.render_messages(s)?;
         Ok(())
@@ -415,6 +455,11 @@ impl AppState for Nes {
             }
             _ => (),
         }
+        self.save_state(0);
+        self.save_config();
+        if self.replay.mode == ReplayMode::Recording {
+            self.stop_replay();
+        }
         self.control_deck.power_off();
         Ok(())
     }
@@ -433,8 +478,7 @@ impl AppState for Nes {
         btn: Mouse,
         pos: Point<i32>,
     ) -> PixResult<bool> {
-        self.handle_mouse_event(s, btn, pos, true);
-        Ok(false)
+        Ok(self.handle_mouse_event(s, btn, pos, true))
     }
 
     fn on_mouse_motion(
@@ -443,8 +487,7 @@ impl AppState for Nes {
         pos: Point<i32>,
         _rel_pos: Point<i32>,
     ) -> PixResult<bool> {
-        self.handle_mouse_motion(s, pos);
-        Ok(false)
+        Ok(self.handle_mouse_event(s, Mouse::Left, pos, false))
     }
 
     fn on_controller_update(
