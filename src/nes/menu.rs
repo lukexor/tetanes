@@ -7,7 +7,7 @@ use crate::{
         config::CONFIG,
         event::{Action, Input},
     },
-    ppu::VideoFormat,
+    ppu::VideoFilter,
 };
 use anyhow::anyhow;
 use pix_engine::prelude::*;
@@ -250,13 +250,16 @@ impl Nes {
                 s.theme_mut().spacing.item_pad = point!(pad, ipady);
             }
 
-            let mut enabled = self.control_deck.filter() == VideoFormat::Ntsc;
-            if s.checkbox("NTSC Filter", &mut enabled)? {
-                self.control_deck.set_filter(if enabled {
-                    VideoFormat::Ntsc
-                } else {
-                    VideoFormat::None
-                });
+            let mut filter = self.config.filter as usize;
+            s.next_width(150);
+            if s.select_box(
+                "Filter",
+                &mut filter,
+                &[VideoFilter::None, VideoFilter::Ntsc],
+                2,
+            )? {
+                self.config.filter = VideoFilter::from(filter);
+                self.control_deck.set_filter(self.config.filter);
             }
 
             if s.checkbox("Fullscreen", &mut self.config.fullscreen)? {

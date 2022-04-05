@@ -49,8 +49,8 @@ const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 // Legacy of the Wizard (MMC3A 8940EP)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-enum Mmc3Rev {
-    // A, // TODO: Match games that use MMC3A
+pub enum Mmc3Rev {
+    A, // TODO: Match games that use MMC3A
     BC,
     /// Acclaims MMC3 clone - clocks on falling edge
     Acc,
@@ -120,6 +120,11 @@ impl Txrom {
         txrom.prg_rom_banks.set(2, last_bank - 1);
         txrom.prg_rom_banks.set(3, last_bank);
         txrom.into()
+    }
+
+    #[inline]
+    pub fn set_revision(&mut self, revision: Mmc3Rev) {
+        self.revision = revision;
     }
 
     ///  7654 3210
@@ -315,3 +320,74 @@ impl Powered for Txrom {
 }
 
 impl Clocked for Txrom {}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unreadable_literal)]
+    use super::*;
+    use crate::common::tests::*;
+
+    #[test]
+    fn m004_txrom_clocking() {
+        test_rom("mapper/m004_txrom/1-clocking.nes", 18, 322938496700885059);
+    }
+
+    #[test]
+    fn m004_txrom_details() {
+        test_rom("mapper/m004_txrom/2-details.nes", 23, 51582360794753888);
+    }
+
+    #[test]
+    fn m004_txrom_a12_clocking() {
+        test_rom(
+            "mapper/m004_txrom/3-a12_clocking.nes",
+            18,
+            3539219657249989563,
+        );
+    }
+
+    #[test]
+    fn m004_txrom_scanline_timing() {
+        test_rom(
+            "mapper/m004_txrom/4-scanline_timing.nes",
+            86,
+            5608742911791212006,
+        );
+    }
+
+    #[test]
+    fn m004_txrom_rev_a() {
+        test_rom_advanced("mapper/m004_txrom/5-mmc3_rev_a.nes", 18, |frame, deck| {
+            if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
+                mapper.set_revision(Mmc3Rev::A);
+            }
+            if frame == 18 {
+                compare(12265830583915381923, deck.frame_buffer(), "mmc3_rev_a");
+            }
+        });
+    }
+
+    #[test]
+    fn m004_txrom_rev_b() {
+        test_rom(
+            "mapper/m004_txrom/6-mmc3_rev_b.nes",
+            18,
+            1278523550437424362,
+        );
+    }
+
+    #[test]
+    fn m004_txrom_big_chr_ram() {
+        test_rom_advanced(
+            "mapper/m004_txrom/mmc3bigchrram.nes",
+            12,
+            |frame, deck| match frame {
+                6 => compare(12299299979523053842, deck.frame_buffer(), "mmc3bigchr_1"),
+                10 => deck.gamepad_mut(SLOT1).start = true,
+                11 => deck.gamepad_mut(SLOT1).start = false,
+                72 => compare(13853852112044024080, deck.frame_buffer(), "mmc3bigchr_2"),
+                _ => (),
+            },
+        );
+    }
+}

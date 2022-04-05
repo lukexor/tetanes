@@ -80,7 +80,7 @@ impl Nes {
 
                     s.spacing()?;
                     s.text(&format!(
-                        "PC: ${:04X}           A: ${:02X} [{:03}]",
+                        "PC: ${:04X}       A: ${:02X} [{:03}]",
                         cpu.pc, cpu.acc, cpu.acc
                     ))?;
                     s.text(&format!(
@@ -110,12 +110,18 @@ impl Nes {
                 {
                     let ppu = self.control_deck.ppu();
 
-                    s.text(&format!("VRAM Addr: ${:04X}", ppu.read_ppuaddr()))?;
-                    s.text(&format!("OAM Addr:  ${:02X}", ppu.read_oamaddr()))?;
+                    s.spacing()?;
+                    s.text("PPU:")?;
                     s.text(&format!(
-                        "PPU Cycle: {:3}  Scanline: {:3}",
+                        "VRAM Addr: ${:04X}  OAM Addr: ${:02X}",
+                        ppu.read_ppuaddr(),
+                        ppu.read_oamaddr()
+                    ))?;
+                    s.text(&format!(
+                        "Cycle: {:3}  Scanline: {:3}  Frame: {}",
                         ppu.cycle,
-                        i32::from(ppu.scanline) - 1
+                        i32::from(ppu.scanline) - 1,
+                        ppu.frame.num
                     ))?;
 
                     s.spacing()?;

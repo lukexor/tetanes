@@ -329,14 +329,6 @@ impl Apu {
     }
 }
 
-#[cfg(test)]
-impl Apu {
-    #[inline]
-    pub(crate) const fn frame_sequencer(&self) -> &FrameSequencer {
-        &self.frame_sequencer
-    }
-}
-
 impl Clocked for Apu {
     fn clock(&mut self) -> usize {
         if self.cycle & 0x01 == 0x00 {
@@ -601,4 +593,157 @@ impl LinearCounter {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    #![allow(clippy::unreadable_literal)]
+    use crate::common::tests::*;
+
+    #[test]
+    fn apu_len_ctr() {
+        test_rom("apu/01-len_ctr.nes", 25, 11142254853534581794);
+    }
+
+    #[test]
+    fn apu_len_table() {
+        test_rom("apu/02-len_table.nes", 10, 11142254853534581794);
+    }
+
+    #[test]
+    fn apu_irq_flag() {
+        test_rom("apu/03-irq_flag.nes", 16, 11142254853534581794);
+    }
+
+    #[test]
+    #[ignore = "Channel: 0 second length of mode 0 is too soon, 5-len-timing #4 5 of 8"]
+    fn apu_test() {
+        test_rom("apu/test.nes", 0, 0);
+    }
+
+    #[test]
+    fn apu_test_1() {
+        test_rom("apu/test_1.nes", 10, 2319187644663237904);
+    }
+
+    #[test]
+    fn apu_test_2() {
+        test_rom("apu/test_2.nes", 10, 2319187644663237904);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn apu_test_3() {
+        test_rom("apu/test_3.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn apu_test_4() {
+        test_rom("apu/test_4.nes", 0, 0);
+    }
+
+    #[test]
+    fn apu_test_5() {
+        test_rom("apu/test_5.nes", 10, 2319187644663237904);
+    }
+
+    #[test]
+    fn apu_test_6() {
+        test_rom("apu/test_6.nes", 10, 2319187644663237904);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn apu_test_7() {
+        test_rom("apu/test_7.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn apu_test_8() {
+        test_rom("apu/test_8.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn apu_test_9() {
+        test_rom("apu/test_9.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn apu_test_10() {
+        test_rom("apu/test_10.nes", 0, 0);
+    }
+
+    #[test]
+    fn apu_clock_jitter() {
+        test_rom("apu/04-clock_jitter.nes", 15, 11142254853534581794);
+    }
+
+    #[test]
+    #[ignore = "failed $04"]
+    fn apu_len_timing_mode0() {
+        test_rom("apu/05-len_timing_mode0.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed $05"]
+    fn apu_len_timing_mode1() {
+        test_rom("apu/06-len_timing_mode1.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed $04"]
+    fn apu_irq_flag_timing() {
+        test_rom("apu/07-irq_flag_timing.nes", 0, 0);
+    }
+
+    #[test]
+    fn apu_irq_timing() {
+        test_rom("apu/08-irq_timing.nes", 15, 11142254853534581794);
+    }
+
+    #[test]
+    #[ignore = "failed $04"]
+    fn apu_reset_timing() {
+        test_rom("apu/09-reset_timing.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed $03"]
+    fn apu_len_halt_timing() {
+        test_rom("apu/10-len_halt_timing.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed $04"]
+    fn apu_len_reload_timing() {
+        test_rom("apu/11-len_reload_timing.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "Recently failed"]
+    fn apu_dmc_basics() {
+        test_rom("apu/dmc/7-dmc_basics.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn apu_dmc_rates() {
+        test_rom("apu/dmc/8-dmc_rates.nes", 0, 0);
+    }
+
+    #[test]
+    fn apu_double_2007_read() {
+        test_rom("apu/dmc/double_2007_read.nes", 20, 10498985860445899032);
+    }
+
+    #[test]
+    fn apu_read_write_2007() {
+        test_rom("apu/dmc/read_write_2007.nes", 24, 17262164619652057735);
+    }
+
+    #[test]
+    fn apu_dmc_interrupts() {
+        test_rom("apu/dpcmletterbox.nes", 10, 1985156316546052267);
+    }
+}

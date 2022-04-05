@@ -7,7 +7,7 @@ use crate::{
     debugger::Breakpoint,
     input::{Gamepad, GamepadSlot, Zapper},
     memory::RamState,
-    ppu::{Ppu, VideoFormat},
+    ppu::{Ppu, VideoFilter},
     NesResult,
 };
 use std::{io::Read, ops::ControlFlow};
@@ -75,7 +75,7 @@ impl ControlDeck {
     /// Get a frame worth of pixels.
     #[inline]
     #[must_use]
-    pub fn frame(&self) -> &[u8] {
+    pub fn frame_buffer(&self) -> &[u8] {
         self.cpu.bus.ppu.frame_buffer()
     }
 
@@ -141,9 +141,12 @@ impl ControlDeck {
     /// Steps the control deck an entire frame
     #[inline]
     pub fn clock_frame(&mut self) -> usize {
-        match self.debug_clock_frame(&[]) {
-            ControlFlow::Continue(clocks) | ControlFlow::Break(clocks) => clocks,
+        let mut clocks = 0;
+        while !self.frame_complete() && !self.cpu_corrupted() {
+            clocks += self.clock();
         }
+        self.start_new_frame();
+        clocks
     }
 
     /// Steps the control deck a single scanline.
@@ -270,13 +273,13 @@ impl ControlDeck {
 
     /// Get the video filter for the emulation.
     #[inline]
-    pub const fn filter(&self) -> VideoFormat {
+    pub const fn filter(&self) -> VideoFilter {
         self.cpu.bus.ppu.filter
     }
 
     /// Set the video filter for the emulation.
     #[inline]
-    pub fn set_filter(&mut self, filter: VideoFormat) {
+    pub fn set_filter(&mut self, filter: VideoFilter) {
         self.cpu.bus.ppu.filter = filter;
     }
 
@@ -362,93 +365,5 @@ impl Powered for ControlDeck {
     fn power_cycle(&mut self) {
         self.cpu.power_cycle();
         self.running = true;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::memory::{MemRead, MemWrite};
-    use std::{fs::File, io::BufReader, path::PathBuf};
-
-    fn load(file: &str) -> ControlDeck {
-        let mut deck = ControlDeck::new(RamState::AllZeros);
-        let rom = File::open(PathBuf::from(file)).unwrap();
-        let mut rom = BufReader::new(rom);
-        deck.load_rom(&file, &mut rom).unwrap();
-        deck.power_on();
-        deck
-    }
-
-    #[test]
-    fn nestest() {
-        let rom = "test_roms/cpu/nestest.nes";
-        let mut deck = load(rom);
-        deck.cpu.pc = 0xC000; // Start automated tests
-        deck.clock_seconds(1.0);
-        assert_eq!(deck.cpu.peek(0x0000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn dummy_writes_oam() {
-        let rom = "test_roms/cpu/dummy_writes_oam.nes";
-        let mut deck = load(rom);
-        deck.clock_seconds(6.0);
-        assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn dummy_writes_ppumem() {
-        let rom = "test_roms/cpu/dummy_writes_ppumem.nes";
-        let mut deck = load(rom);
-        deck.clock_seconds(4.0);
-        assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn exec_space_ppuio() {
-        let rom = "test_roms/cpu/exec_space_ppuio.nes";
-        let mut deck = load(rom);
-        deck.clock_seconds(2.0);
-        assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn instr_timing() {
-        let rom = "test_roms/cpu/instr_timing.nes";
-        let mut deck = load(rom);
-        deck.clock_seconds(23.0);
-        assert_eq!(deck.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn apu_timing() {
-        let rom = "test_roms/cpu/nestest.nes";
-        let mut deck = load(rom);
-        deck.cpu.bus.write(0x4017, 0x00);
-        let mut irq_cycles = vec![];
-        for _ in 0..=29840 {
-            deck.clock();
-            if deck.cpu.bus.apu.irq_pending {
-                irq_cycles.push(deck.cpu.cycle_count);
-                deck.cpu.bus.read(0x4015);
-            }
-        }
-        assert_eq!(deck.cpu.cycle_count, 98172, "cpu cycle count should match");
-        let frame_seq = deck.cpu.bus.apu.frame_sequencer();
-        assert_eq!(
-            frame_seq.divider.counter, 1626.5,
-            "frame sequencer divider should match"
-        );
-        assert_eq!(
-            frame_seq.sequencer.step, 2,
-            "frame sequencer step should match"
-        );
-        assert_eq!(
-            irq_cycles,
-            vec![29831, 59662, 89491],
-            "apu irq should occur on correct cycles"
-        );
-        assert!(!deck.cpu.bus.apu.irq_pending, "apu irq should be clear");
     }
 }

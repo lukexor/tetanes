@@ -4,6 +4,7 @@
   "sound": true,
   "fullscreen": false,
   "vsync": true,
+  "filter": "Ntsc",
   "concurrent_dpad": false,
   "power_state": "Random",
   "save_slot": 1,

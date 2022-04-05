@@ -21,7 +21,7 @@ use instr::{
     },
     INSTRUCTIONS,
 };
-use log::{log_enabled, trace, Level};
+use log::{log_enabled, Level};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -35,17 +35,17 @@ pub mod instr;
 pub const MASTER_CLOCK_RATE: f32 = 21_477_270.0; // 21.47727 MHz Hardware clock rate
 pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
 
-const NMI_ADDR: u16 = 0xFFFA; // NMI Vector address
-const IRQ_ADDR: u16 = 0xFFFE; // IRQ Vector address
-const RESET_ADDR: u16 = 0xFFFC; // Vector address at reset
+const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
+const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
+const RESET_VECTOR: u16 = 0xFFFC; // Vector address at reset
 const POWER_ON_STATUS: Status = Status::U.union(Status::I);
+const POWER_ON_SP: u8 = 0xFD;
 const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
 bitflags! {
     #[derive(Default, Serialize, Deserialize)]
     #[must_use]
     pub struct Irq: u8 {
-        const RESET = 1;
         const MAPPER = 1 << 1;
         const FRAME_COUNTER = 1 << 2;
         const DMC = 1 << 3;
@@ -134,7 +134,7 @@ impl Cpu {
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            irqs_pending: Irq::RESET,
+            irqs_pending: Irq::empty(),
             nmi_pending: false,
             corrupted: false,
             last_irq: false,
@@ -269,39 +269,25 @@ impl Cpu {
     pub fn irq(&mut self) {
         self.read(self.pc);
         self.read(self.pc);
-        if self.has_irq(Irq::RESET) {
-            // EXPL: Reset follows the same push behavior as IRQ/NMI except the
-            // read flag is set, so results are discarded
-            self.push_stackw_nop();
-            self.push_stackb_nop();
-            self.pc = self.readw(RESET_ADDR);
-            self.set_irq(Irq::RESET, false);
-        } else {
-            self.push_stackw(self.pc);
-            // Set U and !B during push
-            self.push_stackb(((self.status | Status::U) & !Status::B).bits());
-            self.status.set(Status::I, true);
-            if self.has_irq(Irq::RESET) {
-                self.pc = self.readw(RESET_ADDR);
-                self.set_irq(Irq::RESET, false);
-            } else if self.last_nmi {
-                self.nmi_pending = false;
-                self.bus.ppu.nmi_pending = false;
-                self.pc = self.readw(NMI_ADDR);
-            } else {
-                self.pc = self.readw(IRQ_ADDR);
+        self.push_stackw(self.pc);
+        // Set U and !B during push
+        self.push_stackb(((self.status | Status::U) & !Status::B).bits());
+        self.status.set(Status::I, true);
+        if self.last_nmi {
+            self.nmi_pending = false;
+            self.bus.ppu.nmi_pending = false;
+            self.pc = self.readw(NMI_VECTOR);
+            if log_enabled!(Level::Trace) && self.debugging {
+                log::trace!("NMI: {}", self.cycle_count);
             }
-            // Prevent NMI from triggering immediately after IRQ
-            self.last_nmi = false;
+        } else {
+            self.pc = self.readw(IRQ_VECTOR);
+            if log_enabled!(Level::Trace) && self.debugging {
+                log::trace!("IRQ: {}", self.cycle_count);
+            }
         }
-    }
-
-    /// Sends a NMI Interrupt to the CPU
-    ///
-    /// <http://wiki.nesdev.com/w/index.php/NMI>
-    #[inline]
-    pub fn set_nmi(&mut self, val: bool) {
-        self.nmi_pending = val;
+        // Prevent NMI from triggering immediately after IRQ
+        self.last_nmi = false;
     }
 
     //  #  address R/W description
@@ -321,7 +307,7 @@ impl Cpu {
         // Set U and !B during push
         self.push_stackb(((self.status | Status::U) & !Status::B).bits());
         self.status.set(Status::I, true);
-        self.pc = self.readw(NMI_ADDR);
+        self.pc = self.readw(NMI_VECTOR);
         self.nmi_pending = false;
         self.bus.ppu.nmi_pending = false;
     }
@@ -332,7 +318,7 @@ impl Cpu {
         self.last_nmi = self.nmi_pending;
         self.last_irq = !self.irqs_pending.is_empty() && !self.status.intersects(Status::I);
         self.bus.ppu.clock();
-        self.set_nmi(self.bus.ppu.nmi_pending);
+        self.nmi_pending = self.bus.ppu.nmi_pending;
         self.bus.cart.clock();
         let irq_pending = self.bus.cart.irq_pending();
         self.set_irq(Irq::MAPPER, irq_pending);
@@ -439,15 +425,6 @@ impl Cpu {
         self.sp = self.sp.wrapping_sub(1);
     }
 
-    // Push a byte to the stack with read value set, so no actual operation is done
-    // except decrement the stack pointer
-    // Used by Irq::Reset
-    #[inline]
-    fn push_stackb_nop(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp));
-        self.sp = self.sp.wrapping_sub(1);
-    }
-
     // Pull a byte from the stack
     #[must_use]
     #[inline]
@@ -470,15 +447,6 @@ impl Cpu {
         let hi = (val >> 8) as u8;
         self.push_stackb(hi);
         self.push_stackb(lo);
-    }
-
-    // Push a word (two bytes) to the stack with read value set, so no actual operation is done
-    // except decrementing the stack pointer
-    // Used by Irq::Reset
-    #[inline]
-    fn push_stackw_nop(&mut self) {
-        self.push_stackb_nop();
-        self.push_stackb_nop();
     }
 
     // Pull a word (two bytes) from the stack
@@ -700,7 +668,11 @@ impl Cpu {
     }
 
     // Print the current instruction and status
-    pub fn print_instruction(&self) {
+    pub fn trace_instr(&self) {
+        if !log_enabled!(Level::Trace) || !self.debugging {
+            return;
+        }
+
         let mut pc = self.pc;
         let disasm = self.disassemble(&mut pc);
 
@@ -713,7 +685,7 @@ impl Cpu {
                 status_str.push(*flag);
             }
         }
-        trace!(
+        log::trace!(
             "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{} SP:{:02X} PPU:{:3},{:3} CYC:{}",
             disasm,
             self.acc,
@@ -741,18 +713,8 @@ impl Clocked for Cpu {
     fn clock(&mut self) -> usize {
         let start_cycles = self.cycle_count;
 
-        if self.has_irq(Irq::RESET) {
-            self.irq();
-        } else if self.last_nmi {
-            self.nmi();
-        } else if self.last_irq {
-            self.irq();
-        }
-
         let opcode = self.read(self.pc); // Cycle 1 of instruction
-        if log_enabled!(Level::Trace) && self.debugging {
-            self.print_instruction();
-        }
+        self.trace_instr();
         self.pc = self.pc.wrapping_add(1);
         self.instr = INSTRUCTIONS[opcode as usize];
 
@@ -852,6 +814,12 @@ impl Clocked for Cpu {
             XXX => self.xxx(), // Unimplemented opcode
         }
 
+        if self.last_nmi {
+            self.nmi();
+        } else if self.last_irq {
+            self.irq();
+        }
+
         self.step += 1;
         self.cycle_count - start_cycles
     }
@@ -882,8 +850,19 @@ impl Powered for Cpu {
     /// Powers on the CPU
     fn power_on(&mut self) {
         self.cycle_count = 0;
+        self.irqs_pending = Irq::empty();
+        self.nmi_pending = false;
+        self.corrupted = false;
         self.dmc_dma = false;
-        self.set_irq(Irq::RESET, true);
+
+        // Don't clock other components during reset
+        let lo = u16::from(self.bus.read(RESET_VECTOR));
+        let hi = u16::from(self.bus.read(RESET_VECTOR + 1));
+        self.pc = (hi << 8) | lo;
+
+        for _ in 0..7 {
+            self.run_cycle();
+        }
     }
 
     /// Resets the CPU
@@ -894,6 +873,9 @@ impl Powered for Cpu {
     fn reset(&mut self) {
         self.bus.reset();
         self.status.set(Status::I, true);
+        // Reset pushes to the stack similar to IRQ, but since the read bit is set, nothing is
+        // written except the SP being decremented
+        self.sp -= 0x03;
         self.power_on();
     }
 
@@ -908,7 +890,7 @@ impl Powered for Cpu {
         self.x = 0x00;
         self.y = 0x00;
         self.status = POWER_ON_STATUS;
-        self.sp = 0x00;
+        self.sp = POWER_ON_SP;
         self.power_on();
     }
 }
@@ -932,6 +914,10 @@ impl fmt::Debug for Cpu {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unreadable_literal)]
+    use super::*;
+    use crate::common::tests::*;
+
     #[test]
     fn cpu_cycle_timing() {
         use super::*;
@@ -980,5 +966,238 @@ mod tests {
                 instr.addr_mode()
             );
         }
+    }
+
+    #[test]
+    fn nestest() {
+        test_rom_advanced("cpu/nestest.nes", 40, |frame, deck| match frame {
+            5 | 25 => deck.gamepad_mut(SLOT1).start = true,
+            6 | 26 => deck.gamepad_mut(SLOT1).start = false,
+            22 => compare(15753613247032665412, deck.frame_buffer(), "nestest_valid"),
+            23 => deck.gamepad_mut(SLOT1).select = true,
+            24 => deck.gamepad_mut(SLOT1).select = false,
+            40 => compare(9375754280498950464, deck.frame_buffer(), "nestest_invalid"),
+            _ => (),
+        });
+    }
+
+    #[test]
+    fn cpu_dummy_reads() {
+        test_rom("cpu/dummy_reads.nes", 48, 18309258797429833529);
+    }
+
+    #[test]
+    fn cpu_dummy_writes_oam() {
+        test_rom("cpu/dummy_writes_oam.nes", 330, 15348699353236208271);
+    }
+
+    #[test]
+    fn cpu_dummy_writes_ppumem() {
+        test_rom("cpu/dummy_writes_ppumem.nes", 235, 16925061668762177335);
+    }
+
+    #[test]
+    fn cpu_exec_space_ppuio() {
+        test_rom("cpu/exec_space_ppuio.nes", 50, 18223146813660982201);
+    }
+
+    #[test]
+    fn cpu_exec_space_apu() {
+        test_rom("cpu/exec_space_apu.nes", 300, 9746493037754339701);
+    }
+
+    #[test]
+    fn cpu_instr_implied() {
+        test_rom("cpu/instr/01-implied.nes", 110, 3635073173910586497);
+    }
+
+    #[test]
+    fn cpu_instr_immediate() {
+        test_rom("cpu/instr/02-immediate.nes", 88, 15603678654691135356);
+    }
+
+    #[test]
+    fn cpu_instr_zero_page() {
+        test_rom("cpu/instr/03-zero_page.nes", 119, 10087936018475398294);
+    }
+
+    #[test]
+    fn cpu_instr_zp_xy() {
+        test_rom("cpu/instr/04-zp_xy.nes", 261, 8324323703779705624);
+    }
+
+    #[test]
+    fn cpu_instr_absolute() {
+        test_rom("cpu/instr/05-absolute.nes", 111, 1020433661014349973);
+    }
+
+    #[test]
+    fn cpu_instr_abs_xy() {
+        test_rom("cpu/instr/06-abs_xy.nes", 367, 18414146725849507085);
+    }
+
+    #[test]
+    fn cpu_instr_ind_x() {
+        test_rom("cpu/instr/07-ind_x.nes", 148, 2953592126388098909);
+    }
+
+    #[test]
+    fn cpu_instr_ind_y() {
+        test_rom("cpu/instr/08-ind_y.nes", 138, 3197740518018157303);
+    }
+
+    #[test]
+    fn cpu_instr_branches() {
+        test_rom("cpu/instr/09-branches.nes", 44, 11569134198446789786);
+    }
+
+    #[test]
+    fn cpu_instr_stack() {
+        test_rom("cpu/instr/10-stack.nes", 168, 15211316055101168882);
+    }
+
+    #[test]
+    fn cpu_instr_jmp_jsr() {
+        test_rom("cpu/instr/11-jmp_jsr.nes", 17, 16184526519168544917);
+    }
+
+    #[test]
+    fn cpu_instr_rts() {
+        test_rom("cpu/instr/12-rts.nes", 17, 3480626052174766819);
+    }
+
+    #[test]
+    fn cpu_instr_rti() {
+        test_rom("cpu/instr/13-rti.nes", 14, 18409538363051570770);
+    }
+
+    #[test]
+    fn cpu_instr_brk() {
+        test_rom("cpu/instr/14-brk.nes", 26, 6151346189217710074);
+    }
+
+    #[test]
+    fn cpu_instr_special() {
+        test_rom("cpu/instr/15-special.nes", 11, 18220406969987149590);
+    }
+
+    #[test]
+    fn cpu_instr_misc() {
+        test_rom("cpu/instr_misc.nes", 240, 6410133862686352196);
+    }
+
+    #[test]
+    fn cpu_instr_timing() {
+        test_rom("cpu/instr_timing.nes", 1300, 13007721788673393267);
+    }
+
+    #[test]
+    fn cpu_timing_test() {
+        test_rom("cpu/cpu_timing_test.nes", 615, 1923625356858417593);
+    }
+
+    #[test]
+    fn cpu_branch_basics() {
+        test_rom(
+            "cpu/branch_timing/1-branch_basics.nes",
+            15,
+            6621961544636391238,
+        );
+    }
+
+    #[test]
+    fn cpu_backward_branch() {
+        test_rom(
+            "cpu/branch_timing/2-backward_branch.nes",
+            15,
+            16058243446172272683,
+        );
+    }
+
+    #[test]
+    fn cpu_forward_branch() {
+        test_rom(
+            "cpu/branch_timing/3-forward_branch.nes",
+            15,
+            6908221038165255313,
+        );
+    }
+
+    #[test]
+    #[ignore = "Need to compare output to determine successful result"]
+    fn cpu_flag_concurrency() {
+        test_rom("cpu/flag_concurrency.nes", 840, 2638664853799669848);
+    }
+
+    #[test]
+    fn cpu_cli_latency() {
+        test_rom("cpu/interrupts/1-cli_latency.nes", 17, 6258840410173416640);
+    }
+
+    #[test]
+    fn cpu_nmi_and_brk() {
+        test_rom(
+            "cpu/interrupts/2-nmi_and_brk.nes",
+            105,
+            17633239368772221973,
+        );
+    }
+
+    #[test]
+    fn cpu_nmi_and_irq() {
+        test_rom(
+            "cpu/interrupts/3-nmi_and_irq.nes",
+            134,
+            10095178669490697839,
+        );
+    }
+
+    #[test]
+    fn cpu_branch_delays_irq() {
+        test_rom(
+            "cpu/interrupts/5-branch_delays_irq.nes",
+            377,
+            16452878842435291825,
+        );
+    }
+
+    #[test]
+    fn cpu_irq_and_dma() {
+        test_rom("cpu/interrupts/4-irq_and_dma.nes", 68, 13358975779607334897);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn cpu_spr_dma_and_dmc_dma() {
+        test_rom("ppu/sprdma_and_dmc_dma.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "failed"]
+    fn cpu_spr_dma_and_dmc_dma_512() {
+        test_rom("ppu/sprdma_and_dmc_dma_512.nes", 0, 0);
+    }
+
+    #[test]
+    fn cpu_overclock() {
+        test_rom("cpu/overclock.nes", 12, 8933913286013221836);
+    }
+
+    #[test]
+    fn cpu_ram_after_reset() {
+        test_rom_advanced("cpu/ram_after_reset.nes", 146, |frame, deck| match frame {
+            135 => deck.reset(),
+            146 => compare(12537292272764789395, deck.frame_buffer(), "ram_after_reset"),
+            _ => (),
+        });
+    }
+
+    #[test]
+    fn cpu_regs_after_reset() {
+        test_rom_advanced("cpu/regs_after_reset.nes", 150, |frame, deck| match frame {
+            137 => deck.reset(),
+            150 => compare(5135615513596903671, deck.frame_buffer(), "regs_after_reset"),
+            _ => (),
+        });
     }
 }

@@ -187,6 +187,7 @@ impl Powered for Frame {
     fn reset(&mut self) {
         self.num = 0;
         self.parity = false;
+        self.pixels.fill(0);
     }
     fn power_cycle(&mut self) {
         self.reset();

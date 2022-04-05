@@ -1,4 +1,4 @@
-use super::{Cpu, Status, IRQ_ADDR, NMI_ADDR, SP_BASE};
+use super::{Cpu, Status, IRQ_VECTOR, NMI_VECTOR, SP_BASE};
 use crate::memory::{MemRead, MemWrite};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -52,6 +52,7 @@ pub enum AddrMode {
     REL, ACC, IMP,
 }
 
+use log::{log_enabled, Level};
 use AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY};
 use Operation::{
     ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
@@ -1062,14 +1063,18 @@ impl Cpu {
         if self.last_nmi {
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
-            self.pc = self.readw(NMI_ADDR);
+            self.pc = self.readw(NMI_VECTOR);
+            if log_enabled!(Level::Trace) && self.debugging {
+                log::trace!("NMI: {}", self.cycle_count);
+            }
         } else {
-            self.pc = self.readw(IRQ_ADDR);
+            self.pc = self.readw(IRQ_VECTOR);
+            if log_enabled!(Level::Trace) && self.debugging {
+                log::trace!("IRQ: {}", self.cycle_count);
+            }
         }
         // Prevent NMI from triggering immediately after BRK
-        if self.last_nmi {
-            self.last_nmi = false;
-        }
+        self.last_nmi = false;
     }
     /// NOP: No Operation
     pub(super) fn nop(&mut self) {

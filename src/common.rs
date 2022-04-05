@@ -135,3 +135,80 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
         addr += 16;
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use crate::{
+        common::Powered,
+        control_deck::ControlDeck,
+        input::GamepadSlot,
+        memory::RamState,
+        ppu::{VideoFilter, RENDER_HEIGHT, RENDER_WIDTH},
+    };
+    use pix_engine::prelude::{Image, PixelFormat};
+    use std::{
+        collections::hash_map::DefaultHasher,
+        fs::{self, File},
+        hash::{Hash, Hasher},
+        io::BufReader,
+        path::{Path, PathBuf},
+    };
+
+    pub(crate) const SLOT1: GamepadSlot = GamepadSlot::One;
+    pub(crate) const TEST_DIR: &str = "test_roms";
+
+    pub(crate) fn load<P: AsRef<Path>>(path: P) -> ControlDeck {
+        let path = path.as_ref();
+        let mut deck = ControlDeck::new(RamState::AllZeros);
+        deck.set_filter(VideoFilter::None);
+        let rom = File::open(path).unwrap();
+        let mut rom = BufReader::new(rom);
+        deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
+        deck.power_on();
+        deck
+    }
+
+    pub(crate) fn compare(expected_hash: u64, frame: &[u8], test: &str) {
+        let mut hasher = DefaultHasher::new();
+        frame.hash(&mut hasher);
+        let actual_hash = hasher.finish();
+        let results_dir = PathBuf::from("test_results");
+        let screenshot_path = results_dir.join(PathBuf::from(test)).with_extension("png");
+        if expected_hash != actual_hash {
+            if !results_dir.exists() {
+                fs::create_dir(&results_dir).expect("created test results dir");
+            }
+            Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, frame, PixelFormat::Rgb)
+                .expect("valid frame")
+                .save(screenshot_path)
+                .expect("failure screenshot");
+        } else if screenshot_path.exists() {
+            let _ = fs::remove_file(screenshot_path);
+        }
+        assert_eq!(expected_hash, actual_hash, "mismatched {}.png", test);
+    }
+
+    pub(crate) fn test_rom<P: AsRef<Path>>(rom: P, run_frames: i32, expected_hash: u64) {
+        let rom = rom.as_ref();
+        let mut deck = load(PathBuf::from(TEST_DIR).join(rom));
+        for _ in 0..=run_frames {
+            deck.clock_frame();
+        }
+        let frame = deck.frame_buffer();
+        let test = rom.file_stem().expect("valid test file").to_string_lossy();
+        compare(expected_hash, frame, &test);
+    }
+
+    pub(crate) fn test_rom_advanced<P, F>(rom: P, run_frames: i32, f: F)
+    where
+        P: AsRef<Path>,
+        F: Fn(i32, &mut ControlDeck),
+    {
+        let rom = rom.as_ref();
+        let mut deck = load(PathBuf::from(TEST_DIR).join(rom));
+        for frame in 0..=run_frames {
+            f(frame, &mut deck);
+            deck.clock_frame();
+        }
+    }
+}

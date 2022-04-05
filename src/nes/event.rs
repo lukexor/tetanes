@@ -4,7 +4,7 @@ use crate::{
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
     nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode},
-    ppu::{VideoFormat, RENDER_HEIGHT},
+    ppu::{VideoFilter, RENDER_HEIGHT},
 };
 use pix_engine::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -546,14 +546,14 @@ impl Nes {
             NesState::Reset => {
                 self.error = None;
                 self.control_deck.reset();
-                s.run(true);
                 self.add_message("Reset");
+                self.toggle_pause(s)?;
             }
             NesState::PowerCycle => {
                 self.error = None;
                 self.control_deck.power_cycle();
-                s.run(true);
                 self.add_message("Power Cycled");
+                self.toggle_pause(s)?;
             }
         }
         Ok(())
@@ -614,11 +614,11 @@ impl Nes {
                 }
             }
             Setting::ToggleNtscFilter => {
-                let enabled = self.control_deck.filter() == VideoFormat::Ntsc;
+                let enabled = self.control_deck.filter() == VideoFilter::Ntsc;
                 self.control_deck.set_filter(if enabled {
-                    VideoFormat::None
+                    VideoFilter::None
                 } else {
-                    VideoFormat::Ntsc
+                    VideoFilter::Ntsc
                 });
             }
             Setting::ToggleSound => {

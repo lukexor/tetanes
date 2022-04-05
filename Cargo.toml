@@ -52,6 +52,9 @@ vcpkg = ["pix-engine/vcpkg"]
 inherits = "dev"
 opt-level = 2
 
+[profile.test]
+inherits = "dev-opt"
+
 [profile.release]
 strip = "symbols"
 codegen-units = 1

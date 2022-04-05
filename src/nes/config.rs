@@ -5,6 +5,7 @@ use crate::{
         event::{Action, Input, InputBindings, InputMapping},
         Nes,
     },
+    ppu::VideoFilter,
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,7 @@ pub(crate) struct Config {
     pub(crate) sound: bool,
     pub(crate) fullscreen: bool,
     pub(crate) vsync: bool,
+    pub(crate) filter: VideoFilter,
     pub(crate) concurrent_dpad: bool,
     pub(crate) power_state: RamState,
     pub(crate) save_slot: u8,

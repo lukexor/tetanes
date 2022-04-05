@@ -418,3 +418,32 @@ impl fmt::Debug for Input {
         write!(f, "Input {{ }} ")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::common::tests::*;
+
+    #[test]
+    #[ignore = "TODO: handle mouse input"]
+    fn zapper_flip() {
+        test_rom("zapper/flip.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "TODO: handle mouse input"]
+    fn zapper_light() {
+        test_rom("zapper/light.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "TODO: handle mouse input"]
+    fn zapper_stream() {
+        test_rom("zapper/stream.nes", 0, 0);
+    }
+
+    #[test]
+    #[ignore = "TODO: handle mouse input"]
+    fn zapper_trigger() {
+        test_rom("zapper/trigger.nes", 0, 0);
+    }
+}

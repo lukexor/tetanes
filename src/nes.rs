@@ -150,6 +150,7 @@ impl NesBuilder {
                 }
             }
         }
+        control_deck.set_filter(config.filter);
 
         Ok(Nes::new(
             control_deck,
@@ -306,7 +307,12 @@ impl Nes {
     fn render_views(&mut self, s: &mut PixState) -> PixResult<()> {
         if let Some(view) = self.emulation {
             if let Some(texture_id) = view.texture_id {
-                s.update_texture(texture_id, None, self.control_deck.frame(), RENDER_PITCH)?;
+                s.update_texture(
+                    texture_id,
+                    None,
+                    self.control_deck.frame_buffer(),
+                    RENDER_PITCH,
+                )?;
 
                 for slot in [GamepadSlot::One, GamepadSlot::Two] {
                     let zapper = self.control_deck.zapper(slot);
@@ -351,6 +357,16 @@ impl AppState for Nes {
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
+        // {
+        //     let buffer = self.control_deck.frame_buffer();
+        //     if self.debugger.is_none()
+        //         && buffer[0] == 0
+        //         && buffer[3 * (256 * 240) - 1] == 0
+        //         && buffer != &vec![0; 3 * (256 * 240)][..]
+        //     {
+        //         self.toggle_debugger(s)?;
+        //     }
+        // }
         if self.replay.mode == ReplayMode::Playback {
             self.replay_action(s)?;
         }
@@ -390,16 +406,12 @@ impl AppState for Nes {
         }
 
         self.render_views(s)?;
-        if self.debugger.is_some() && !matches!(self.mode, Mode::InMenu(..)) {
-            self.render_status(s, "Debugging")?;
-        }
         match self.mode {
             Mode::Paused | Mode::PausedBg => {
                 let mut bg = s.theme().colors.background;
-                bg.set_alpha(200);
+                bg.set_alpha(225);
                 s.fill(bg);
                 s.rect([0, 0, s.width()? as i32, s.height()? as i32])?;
-                self.render_status(s, "Paused")?;
                 if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
                     s.stroke(None);
                     s.fill(Color::WHITE);
@@ -415,6 +427,8 @@ impl AppState for Nes {
                         self.confirm_quit = None;
                         self.resume_play();
                     }
+                } else {
+                    self.render_status(s, "Paused")?;
                 }
             }
             Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
@@ -422,18 +436,22 @@ impl AppState for Nes {
                 self.render_status(s, "Rewinding")?;
                 self.rewind();
             }
-            Mode::Playing => (),
-        }
-        match self.replay.mode {
-            ReplayMode::Recording => self.render_status(s, "Recording Replay")?,
-            ReplayMode::Playback => self.render_status(s, "Replay Playback")?,
-            ReplayMode::Off => (),
+            Mode::Playing => match self.replay.mode {
+                ReplayMode::Recording => self.render_status(s, "Recording Replay")?,
+                ReplayMode::Playback => self.render_status(s, "Replay Playback")?,
+                ReplayMode::Off => (),
+            },
         }
         self.render_messages(s)?;
         Ok(())
     }
 
     fn on_stop(&mut self, s: &mut PixState) -> PixResult<()> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.control_deck.frame_buffer().hash(&mut hasher);
+        println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
+
         match self.confirm_quit {
             None => {
                 if let Err(err) = self.save_sram() {
@@ -470,6 +488,12 @@ impl AppState for Nes {
     }
 
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
+        if event.key == Key::Return {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            self.control_deck.frame_buffer().hash(&mut hasher);
+            println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
+        }
         Ok(self.handle_key_event(s, event, true))
     }
 
