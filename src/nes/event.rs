@@ -547,13 +547,17 @@ impl Nes {
                 self.error = None;
                 self.control_deck.reset();
                 self.add_message("Reset");
-                self.toggle_pause(s)?;
+                if self.debugger.is_some() {
+                    self.toggle_pause(s)?;
+                }
             }
             NesState::PowerCycle => {
                 self.error = None;
                 self.control_deck.power_cycle();
                 self.add_message("Power Cycled");
-                self.toggle_pause(s)?;
+                if self.debugger.is_some() {
+                    self.toggle_pause(s)?;
+                }
             }
         }
         Ok(())
