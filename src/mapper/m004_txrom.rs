@@ -328,17 +328,17 @@ mod tests {
     use crate::common::tests::*;
 
     #[test]
-    fn m004_txrom_clocking() {
+    fn clocking() {
         test_rom("mapper/m004_txrom/1-clocking.nes", 18, 322938496700885059);
     }
 
     #[test]
-    fn m004_txrom_details() {
+    fn details() {
         test_rom("mapper/m004_txrom/2-details.nes", 23, 51582360794753888);
     }
 
     #[test]
-    fn m004_txrom_a12_clocking() {
+    fn a12_clocking() {
         test_rom(
             "mapper/m004_txrom/3-a12_clocking.nes",
             18,
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn m004_txrom_scanline_timing() {
+    fn scanline_timing() {
         test_rom(
             "mapper/m004_txrom/4-scanline_timing.nes",
             86,
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn m004_txrom_rev_a() {
+    fn rev_a() {
         test_rom_advanced("mapper/m004_txrom/5-mmc3_rev_a.nes", 18, |frame, deck| {
             if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
                 mapper.set_revision(Mmc3Rev::A);
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn m004_txrom_rev_b() {
+    fn rev_b() {
         test_rom(
             "mapper/m004_txrom/6-mmc3_rev_b.nes",
             18,
@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn m004_txrom_big_chr_ram() {
+    fn big_chr_ram() {
         test_rom_advanced(
             "mapper/m004_txrom/mmc3bigchrram.nes",
             12,

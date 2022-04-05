@@ -919,7 +919,7 @@ mod tests {
     use crate::common::tests::*;
 
     #[test]
-    fn cpu_cycle_timing() {
+    fn cycle_timing() {
         use super::*;
         use crate::memory::RamState;
         let mut cpu = Cpu::init(Bus::new(RamState::AllZeros));
@@ -982,122 +982,122 @@ mod tests {
     }
 
     #[test]
-    fn cpu_dummy_reads() {
+    fn dummy_reads() {
         test_rom("cpu/dummy_reads.nes", 48, 18309258797429833529);
     }
 
     #[test]
-    fn cpu_dummy_writes_oam() {
+    fn dummy_writes_oam() {
         test_rom("cpu/dummy_writes_oam.nes", 330, 15348699353236208271);
     }
 
     #[test]
-    fn cpu_dummy_writes_ppumem() {
+    fn dummy_writes_ppumem() {
         test_rom("cpu/dummy_writes_ppumem.nes", 235, 16925061668762177335);
     }
 
     #[test]
-    fn cpu_exec_space_ppuio() {
+    fn exec_space_ppuio() {
         test_rom("cpu/exec_space_ppuio.nes", 50, 18223146813660982201);
     }
 
     #[test]
-    fn cpu_exec_space_apu() {
+    fn exec_space_apu() {
         test_rom("cpu/exec_space_apu.nes", 300, 9746493037754339701);
     }
 
     #[test]
-    fn cpu_instr_implied() {
+    fn instr_implied() {
         test_rom("cpu/instr/01-implied.nes", 110, 3635073173910586497);
     }
 
     #[test]
-    fn cpu_instr_immediate() {
+    fn instr_immediate() {
         test_rom("cpu/instr/02-immediate.nes", 88, 15603678654691135356);
     }
 
     #[test]
-    fn cpu_instr_zero_page() {
+    fn instr_zero_page() {
         test_rom("cpu/instr/03-zero_page.nes", 119, 10087936018475398294);
     }
 
     #[test]
-    fn cpu_instr_zp_xy() {
+    fn instr_zp_xy() {
         test_rom("cpu/instr/04-zp_xy.nes", 261, 8324323703779705624);
     }
 
     #[test]
-    fn cpu_instr_absolute() {
+    fn instr_absolute() {
         test_rom("cpu/instr/05-absolute.nes", 111, 1020433661014349973);
     }
 
     #[test]
-    fn cpu_instr_abs_xy() {
+    fn instr_abs_xy() {
         test_rom("cpu/instr/06-abs_xy.nes", 367, 18414146725849507085);
     }
 
     #[test]
-    fn cpu_instr_ind_x() {
+    fn instr_ind_x() {
         test_rom("cpu/instr/07-ind_x.nes", 148, 2953592126388098909);
     }
 
     #[test]
-    fn cpu_instr_ind_y() {
+    fn instr_ind_y() {
         test_rom("cpu/instr/08-ind_y.nes", 138, 3197740518018157303);
     }
 
     #[test]
-    fn cpu_instr_branches() {
+    fn instr_branches() {
         test_rom("cpu/instr/09-branches.nes", 44, 11569134198446789786);
     }
 
     #[test]
-    fn cpu_instr_stack() {
+    fn instr_stack() {
         test_rom("cpu/instr/10-stack.nes", 168, 15211316055101168882);
     }
 
     #[test]
-    fn cpu_instr_jmp_jsr() {
+    fn instr_jmp_jsr() {
         test_rom("cpu/instr/11-jmp_jsr.nes", 17, 16184526519168544917);
     }
 
     #[test]
-    fn cpu_instr_rts() {
+    fn instr_rts() {
         test_rom("cpu/instr/12-rts.nes", 17, 3480626052174766819);
     }
 
     #[test]
-    fn cpu_instr_rti() {
+    fn instr_rti() {
         test_rom("cpu/instr/13-rti.nes", 14, 18409538363051570770);
     }
 
     #[test]
-    fn cpu_instr_brk() {
+    fn instr_brk() {
         test_rom("cpu/instr/14-brk.nes", 26, 6151346189217710074);
     }
 
     #[test]
-    fn cpu_instr_special() {
+    fn instr_special() {
         test_rom("cpu/instr/15-special.nes", 11, 18220406969987149590);
     }
 
     #[test]
-    fn cpu_instr_misc() {
+    fn instr_misc() {
         test_rom("cpu/instr_misc.nes", 240, 6410133862686352196);
     }
 
     #[test]
-    fn cpu_instr_timing() {
+    fn instr_timing() {
         test_rom("cpu/instr_timing.nes", 1300, 13007721788673393267);
     }
 
     #[test]
-    fn cpu_timing_test() {
+    fn timing_test() {
         test_rom("cpu/cpu_timing_test.nes", 615, 1923625356858417593);
     }
 
     #[test]
-    fn cpu_branch_basics() {
+    fn branch_basics() {
         test_rom(
             "cpu/branch_timing/1-branch_basics.nes",
             15,
@@ -1106,7 +1106,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_backward_branch() {
+    fn backward_branch() {
         test_rom(
             "cpu/branch_timing/2-backward_branch.nes",
             15,
@@ -1115,7 +1115,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_forward_branch() {
+    fn forward_branch() {
         test_rom(
             "cpu/branch_timing/3-forward_branch.nes",
             15,
@@ -1125,17 +1125,17 @@ mod tests {
 
     #[test]
     #[ignore = "Need to compare output to determine successful result"]
-    fn cpu_flag_concurrency() {
+    fn flag_concurrency() {
         test_rom("cpu/flag_concurrency.nes", 840, 2638664853799669848);
     }
 
     #[test]
-    fn cpu_cli_latency() {
+    fn cli_latency() {
         test_rom("cpu/interrupts/1-cli_latency.nes", 17, 6258840410173416640);
     }
 
     #[test]
-    fn cpu_nmi_and_brk() {
+    fn nmi_and_brk() {
         test_rom(
             "cpu/interrupts/2-nmi_and_brk.nes",
             105,
@@ -1144,7 +1144,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_nmi_and_irq() {
+    fn nmi_and_irq() {
         test_rom(
             "cpu/interrupts/3-nmi_and_irq.nes",
             134,
@@ -1153,7 +1153,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_branch_delays_irq() {
+    fn branch_delays_irq() {
         test_rom(
             "cpu/interrupts/5-branch_delays_irq.nes",
             377,
@@ -1162,29 +1162,29 @@ mod tests {
     }
 
     #[test]
-    fn cpu_irq_and_dma() {
+    fn irq_and_dma() {
         test_rom("cpu/interrupts/4-irq_and_dma.nes", 68, 13358975779607334897);
     }
 
     #[test]
     #[ignore = "failed"]
-    fn cpu_spr_dma_and_dmc_dma() {
+    fn spr_dma_and_dmc_dma() {
         test_rom("ppu/sprdma_and_dmc_dma.nes", 0, 0);
     }
 
     #[test]
     #[ignore = "failed"]
-    fn cpu_spr_dma_and_dmc_dma_512() {
+    fn spr_dma_and_dmc_dma_512() {
         test_rom("ppu/sprdma_and_dmc_dma_512.nes", 0, 0);
     }
 
     #[test]
-    fn cpu_overclock() {
+    fn overclock() {
         test_rom("cpu/overclock.nes", 12, 8933913286013221836);
     }
 
     #[test]
-    fn cpu_ram_after_reset() {
+    fn ram_after_reset() {
         test_rom_advanced("cpu/ram_after_reset.nes", 146, |frame, deck| match frame {
             135 => deck.reset(),
             146 => compare(12537292272764789395, deck.frame_buffer(), "ram_after_reset"),
@@ -1193,7 +1193,7 @@ mod tests {
     }
 
     #[test]
-    fn cpu_regs_after_reset() {
+    fn regs_after_reset() {
         test_rom_advanced("cpu/regs_after_reset.nes", 150, |frame, deck| match frame {
             137 => deck.reset(),
             150 => compare(5135615513596903671, deck.frame_buffer(), "regs_after_reset"),
