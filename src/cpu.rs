@@ -915,8 +915,13 @@ impl fmt::Debug for Cpu {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unreadable_literal)]
-    use super::*;
-    use crate::common::tests::*;
+    use crate::{
+        common::{
+            tests::{compare, SLOT1},
+            Powered,
+        },
+        test_roms, test_roms_adv,
+    };
 
     #[test]
     fn cycle_timing() {
@@ -968,236 +973,65 @@ mod tests {
         }
     }
 
-    #[test]
-    fn nestest() {
-        test_rom_advanced("cpu/nestest.nes", 40, |frame, deck| match frame {
-            5 | 25 => deck.gamepad_mut(SLOT1).start = true,
-            6 | 26 => deck.gamepad_mut(SLOT1).start = false,
-            22 => compare(15753613247032665412, deck.frame_buffer(), "nestest_valid"),
+    test_roms!("cpu", {
+        (branch_backward, 15, 16058243446172272683),
+        (branch_basics, 15, 6621961544636391238),
+        (branch_forward, 15, 6908221038165255313),
+        (dummy_reads, 48, 18309258797429833529),
+        (dummy_writes_oam, 330, 15348699353236208271),
+        (dummy_writes_ppumem, 235, 16925061668762177335),
+        (exec_space_apu, 300, 9746493037754339701),
+        (exec_space_ppuio, 50, 18223146813660982201),
+        (flag_concurrency, 840, 2638664853799669848, "Need to compare output to determine successful result"),
+        (instr_abs, 111, 1020433661014349973),
+        (instr_abs_xy, 367, 18414146725849507085),
+        (instr_branches, 44, 11569134198446789786),
+        (instr_brk, 26, 6151346189217710074),
+        (instr_imm, 88, 15603678654691135356),
+        (instr_imp, 110, 3635073173910586497),
+        (instr_ind_x, 148, 2953592126388098909),
+        (instr_ind_y, 138, 3197740518018157303),
+        (instr_jmp_jsr, 17, 16184526519168544917),
+        (instr_misc, 240, 6410133862686352196),
+        (instr_rti, 14, 18409538363051570770),
+        (instr_rts, 17, 3480626052174766819),
+        (instr_special, 11, 18220406969987149590),
+        (instr_stack, 168, 15211316055101168882),
+        (instr_timing, 1300, 13007721788673393267),
+        (instr_zp, 119, 10087936018475398294),
+        (instr_zp_xy, 261, 8324323703779705624),
+        (int_branch_delays_irq, 377, 16452878842435291825),
+        (int_cli_latency, 17, 6258840410173416640),
+        (int_irq_and_dma, 68, 13358975779607334897),
+        (int_nmi_and_brk, 105, 17633239368772221973),
+        (int_nmi_and_irq, 134, 10095178669490697839),
+        (overclock, 12, 8933913286013221836),
+        (sprdma_and_dmc_dma, 0, 0, "fails with black screen and beeping"),
+        (sprdma_and_dmc_dma_512, 0, 0, "fails with black screen and beeping"),
+        (timing_test, 615, 1923625356858417593),
+    });
+
+    test_roms_adv!("cpu", {
+        (nestest, 40, |frame, deck| match frame {
+            5 => deck.gamepad_mut(SLOT1).start = true,
+            6 => deck.gamepad_mut(SLOT1).start = false,
+            22 => compare(15753613247032665412, deck, "nestest_valid"),
             23 => deck.gamepad_mut(SLOT1).select = true,
             24 => deck.gamepad_mut(SLOT1).select = false,
-            40 => compare(9375754280498950464, deck.frame_buffer(), "nestest_invalid"),
+            25 => deck.gamepad_mut(SLOT1).start = true,
+            26 => deck.gamepad_mut(SLOT1).start = false,
+            40 => compare(9375754280498950464, deck, "nestest_invalid"),
             _ => (),
-        });
-    }
-
-    #[test]
-    fn dummy_reads() {
-        test_rom("cpu/dummy_reads.nes", 48, 18309258797429833529);
-    }
-
-    #[test]
-    fn dummy_writes_oam() {
-        test_rom("cpu/dummy_writes_oam.nes", 330, 15348699353236208271);
-    }
-
-    #[test]
-    fn dummy_writes_ppumem() {
-        test_rom("cpu/dummy_writes_ppumem.nes", 235, 16925061668762177335);
-    }
-
-    #[test]
-    fn exec_space_ppuio() {
-        test_rom("cpu/exec_space_ppuio.nes", 50, 18223146813660982201);
-    }
-
-    #[test]
-    fn exec_space_apu() {
-        test_rom("cpu/exec_space_apu.nes", 300, 9746493037754339701);
-    }
-
-    #[test]
-    fn instr_implied() {
-        test_rom("cpu/instr/01-implied.nes", 110, 3635073173910586497);
-    }
-
-    #[test]
-    fn instr_immediate() {
-        test_rom("cpu/instr/02-immediate.nes", 88, 15603678654691135356);
-    }
-
-    #[test]
-    fn instr_zero_page() {
-        test_rom("cpu/instr/03-zero_page.nes", 119, 10087936018475398294);
-    }
-
-    #[test]
-    fn instr_zp_xy() {
-        test_rom("cpu/instr/04-zp_xy.nes", 261, 8324323703779705624);
-    }
-
-    #[test]
-    fn instr_absolute() {
-        test_rom("cpu/instr/05-absolute.nes", 111, 1020433661014349973);
-    }
-
-    #[test]
-    fn instr_abs_xy() {
-        test_rom("cpu/instr/06-abs_xy.nes", 367, 18414146725849507085);
-    }
-
-    #[test]
-    fn instr_ind_x() {
-        test_rom("cpu/instr/07-ind_x.nes", 148, 2953592126388098909);
-    }
-
-    #[test]
-    fn instr_ind_y() {
-        test_rom("cpu/instr/08-ind_y.nes", 138, 3197740518018157303);
-    }
-
-    #[test]
-    fn instr_branches() {
-        test_rom("cpu/instr/09-branches.nes", 44, 11569134198446789786);
-    }
-
-    #[test]
-    fn instr_stack() {
-        test_rom("cpu/instr/10-stack.nes", 168, 15211316055101168882);
-    }
-
-    #[test]
-    fn instr_jmp_jsr() {
-        test_rom("cpu/instr/11-jmp_jsr.nes", 17, 16184526519168544917);
-    }
-
-    #[test]
-    fn instr_rts() {
-        test_rom("cpu/instr/12-rts.nes", 17, 3480626052174766819);
-    }
-
-    #[test]
-    fn instr_rti() {
-        test_rom("cpu/instr/13-rti.nes", 14, 18409538363051570770);
-    }
-
-    #[test]
-    fn instr_brk() {
-        test_rom("cpu/instr/14-brk.nes", 26, 6151346189217710074);
-    }
-
-    #[test]
-    fn instr_special() {
-        test_rom("cpu/instr/15-special.nes", 11, 18220406969987149590);
-    }
-
-    #[test]
-    fn instr_misc() {
-        test_rom("cpu/instr_misc.nes", 240, 6410133862686352196);
-    }
-
-    #[test]
-    fn instr_timing() {
-        test_rom("cpu/instr_timing.nes", 1300, 13007721788673393267);
-    }
-
-    #[test]
-    fn timing_test() {
-        test_rom("cpu/cpu_timing_test.nes", 615, 1923625356858417593);
-    }
-
-    #[test]
-    fn branch_basics() {
-        test_rom(
-            "cpu/branch_timing/1-branch_basics.nes",
-            15,
-            6621961544636391238,
-        );
-    }
-
-    #[test]
-    fn backward_branch() {
-        test_rom(
-            "cpu/branch_timing/2-backward_branch.nes",
-            15,
-            16058243446172272683,
-        );
-    }
-
-    #[test]
-    fn forward_branch() {
-        test_rom(
-            "cpu/branch_timing/3-forward_branch.nes",
-            15,
-            6908221038165255313,
-        );
-    }
-
-    #[test]
-    #[ignore = "Need to compare output to determine successful result"]
-    fn flag_concurrency() {
-        test_rom("cpu/flag_concurrency.nes", 840, 2638664853799669848);
-    }
-
-    #[test]
-    fn cli_latency() {
-        test_rom("cpu/interrupts/1-cli_latency.nes", 17, 6258840410173416640);
-    }
-
-    #[test]
-    fn nmi_and_brk() {
-        test_rom(
-            "cpu/interrupts/2-nmi_and_brk.nes",
-            105,
-            17633239368772221973,
-        );
-    }
-
-    #[test]
-    fn nmi_and_irq() {
-        test_rom(
-            "cpu/interrupts/3-nmi_and_irq.nes",
-            134,
-            10095178669490697839,
-        );
-    }
-
-    #[test]
-    fn branch_delays_irq() {
-        test_rom(
-            "cpu/interrupts/5-branch_delays_irq.nes",
-            377,
-            16452878842435291825,
-        );
-    }
-
-    #[test]
-    fn irq_and_dma() {
-        test_rom("cpu/interrupts/4-irq_and_dma.nes", 68, 13358975779607334897);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn spr_dma_and_dmc_dma() {
-        test_rom("ppu/sprdma_and_dmc_dma.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn spr_dma_and_dmc_dma_512() {
-        test_rom("ppu/sprdma_and_dmc_dma_512.nes", 0, 0);
-    }
-
-    #[test]
-    fn overclock() {
-        test_rom("cpu/overclock.nes", 12, 8933913286013221836);
-    }
-
-    #[test]
-    fn ram_after_reset() {
-        test_rom_advanced("cpu/ram_after_reset.nes", 146, |frame, deck| match frame {
+        }),
+        (ram_after_reset, 146, |frame, deck| match frame {
             135 => deck.reset(),
-            146 => compare(12537292272764789395, deck.frame_buffer(), "ram_after_reset"),
+            146 => compare(12537292272764789395, deck, "ram_after_reset"),
             _ => (),
-        });
-    }
-
-    #[test]
-    fn regs_after_reset() {
-        test_rom_advanced("cpu/regs_after_reset.nes", 150, |frame, deck| match frame {
+        }),
+        (regs_after_reset, 150, |frame, deck| match frame {
             137 => deck.reset(),
-            150 => compare(5135615513596903671, deck.frame_buffer(), "regs_after_reset"),
+            150 => compare(5135615513596903671, deck, "regs_after_reset"),
             _ => (),
-        });
-    }
+        }),
+    });
 }

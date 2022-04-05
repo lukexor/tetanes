@@ -595,155 +595,35 @@ impl LinearCounter {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unreadable_literal)]
-    use crate::common::tests::*;
+    use crate::test_roms;
 
-    #[test]
-    fn len_ctr() {
-        test_rom("apu/01-len_ctr.nes", 25, 11142254853534581794);
-    }
-
-    #[test]
-    fn len_table() {
-        test_rom("apu/02-len_table.nes", 10, 11142254853534581794);
-    }
-
-    #[test]
-    fn irq_flag() {
-        test_rom("apu/03-irq_flag.nes", 16, 11142254853534581794);
-    }
-
-    #[test]
-    #[ignore = "Channel: 0 second length of mode 0 is too soon, 5-len-timing #4 5 of 8"]
-    fn test() {
-        test_rom("apu/test.nes", 0, 0);
-    }
-
-    #[test]
-    fn test_1() {
-        test_rom("apu/test_1.nes", 10, 2319187644663237904);
-    }
-
-    #[test]
-    fn test_2() {
-        test_rom("apu/test_2.nes", 10, 2319187644663237904);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn test_3() {
-        test_rom("apu/test_3.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn test_4() {
-        test_rom("apu/test_4.nes", 0, 0);
-    }
-
-    #[test]
-    fn test_5() {
-        test_rom("apu/test_5.nes", 10, 2319187644663237904);
-    }
-
-    #[test]
-    fn test_6() {
-        test_rom("apu/test_6.nes", 10, 2319187644663237904);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn test_7() {
-        test_rom("apu/test_7.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn test_8() {
-        test_rom("apu/test_8.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn test_9() {
-        test_rom("apu/test_9.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn test_10() {
-        test_rom("apu/test_10.nes", 0, 0);
-    }
-
-    #[test]
-    fn clock_jitter() {
-        test_rom("apu/04-clock_jitter.nes", 15, 11142254853534581794);
-    }
-
-    #[test]
-    #[ignore = "failed $04"]
-    fn len_timing_mode0() {
-        test_rom("apu/05-len_timing_mode0.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed $05"]
-    fn len_timing_mode1() {
-        test_rom("apu/06-len_timing_mode1.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed $04"]
-    fn irq_flag_timing() {
-        test_rom("apu/07-irq_flag_timing.nes", 0, 0);
-    }
-
-    #[test]
-    fn irq_timing() {
-        test_rom("apu/08-irq_timing.nes", 15, 11142254853534581794);
-    }
-
-    #[test]
-    #[ignore = "failed $04"]
-    fn reset_timing() {
-        test_rom("apu/09-reset_timing.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed $03"]
-    fn len_halt_timing() {
-        test_rom("apu/10-len_halt_timing.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed $04"]
-    fn len_reload_timing() {
-        test_rom("apu/11-len_reload_timing.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "Recently failed"]
-    fn dmc_basics() {
-        test_rom("apu/dmc/7-dmc_basics.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "failed"]
-    fn dmc_rates() {
-        test_rom("apu/dmc/8-dmc_rates.nes", 0, 0);
-    }
-
-    #[test]
-    fn double_2007_read() {
-        test_rom("apu/dmc/double_2007_read.nes", 20, 10498985860445899032);
-    }
-
-    #[test]
-    fn read_write_2007() {
-        test_rom("apu/dmc/read_write_2007.nes", 24, 17262164619652057735);
-    }
-
-    #[test]
-    fn dmc_interrupts() {
-        test_rom("apu/dpcmletterbox.nes", 10, 1985156316546052267);
-    }
+    test_roms!("apu", {
+        (clock_jitter, 15, 11142254853534581794),
+        (dmc_basics, 0, 0, "recently failed"),
+        (dmc_double_2007_read, 20, 10498985860445899032),
+        (dmc_rates, 0, 0, "fails"),
+        (dmc_read_write_2007, 24, 17262164619652057735),
+        (dpcmletterbox, 10, 1985156316546052267),
+        (irq_flag, 16, 11142254853534581794),
+        (irq_flag_timing, 0, 0, "fails $04"),
+        (irq_timing, 15, 11142254853534581794),
+        (len_ctr, 25, 11142254853534581794),
+        (len_halt_timing, 0, 0, "fails $03"),
+        (len_reload_timing, 0, 0, "fails $04"),
+        (len_table, 10, 11142254853534581794),
+        (len_timing_mode0, 0, 0, "fails $04"),
+        (len_timing_mode1, 0, 0, "fails $05"),
+        (reset_timing, 0, 0, "fails $04"),
+        (test, 0, 0, "Channel: 0 second length of mode 0 is too soon, 5-len-timing #4 5 of 8"),
+        (test_1, 10, 2319187644663237904),
+        (test_10, 0, 0, "fails"),
+        (test_2, 10, 2319187644663237904),
+        (test_3, 0, 0, "fails"),
+        (test_4, 0, 0, "fails"),
+        (test_5, 10, 2319187644663237904),
+        (test_6, 10, 2319187644663237904),
+        (test_7, 0, 0, "fails"),
+        (test_8, 0, 0, "fails"),
+        (test_9, 0, 0, "fails"),
+    });
 }

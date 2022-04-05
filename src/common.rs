@@ -41,22 +41,18 @@ pub trait Clocked {
 
 #[macro_export]
 macro_rules! hashmap {
-    { $($key:expr => $value:expr),+ } => {
-        {
-            let mut m = ::std::collections::HashMap::new();
-            $(
-                m.insert($key, $value);
-            )+
-            m
-        }
-    };
-    ($hm:ident, { $($key:expr => $value:expr),+ } ) => (
-        {
-            $(
-                $hm.insert($key, $value);
-            )+
-        }
-    );
+    { $($key:expr => $value:expr),* $(,)? } => {{
+        let mut m = ::std::collections::HashMap::new();
+        $(
+            m.insert($key, $value);
+        )*
+        m
+    }};
+    ($hm:ident, { $($key:expr => $value:expr),* $(,)? } ) => ({
+        $(
+            $hm.insert($key, $value);
+        )*
+    });
 }
 
 pub(crate) fn config_dir() -> PathBuf {
@@ -154,6 +150,27 @@ pub(crate) mod tests {
         path::{Path, PathBuf},
     };
 
+    #[macro_export]
+    macro_rules! test_roms {
+        ($dir:expr, { $( ($test:ident, $run_frames:expr, $hash:expr$(, $ignore:expr)?$(,)?) ),* $(,)? }) => {$(
+            $(#[ignore = $ignore])?
+            #[test]
+            fn $test() {
+                crate::common::tests::test_rom(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $hash);
+            }
+        )*};
+    }
+
+    #[macro_export]
+    macro_rules! test_roms_adv {
+        ($dir:expr, { $( ($test:ident, $run_frames:expr, $fn:expr$(,)?) ),* $(,)? }) => {$(
+            #[test]
+            fn $test() {
+                crate::common::tests::test_rom_advanced(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $fn);
+            }
+        )*};
+    }
+
     pub(crate) const SLOT1: GamepadSlot = GamepadSlot::One;
     pub(crate) const TEST_DIR: &str = "test_roms";
 
@@ -168,8 +185,9 @@ pub(crate) mod tests {
         deck
     }
 
-    pub(crate) fn compare(expected_hash: u64, frame: &[u8], test: &str) {
+    pub(crate) fn compare(expected_hash: u64, deck: &ControlDeck, test: &str) {
         let mut hasher = DefaultHasher::new();
+        let frame = deck.frame_buffer();
         frame.hash(&mut hasher);
         let actual_hash = hasher.finish();
         let results_dir = PathBuf::from("test_results");
@@ -194,9 +212,8 @@ pub(crate) mod tests {
         for _ in 0..=run_frames {
             deck.clock_frame();
         }
-        let frame = deck.frame_buffer();
         let test = rom.file_stem().expect("valid test file").to_string_lossy();
-        compare(expected_hash, frame, &test);
+        compare(expected_hash, &deck, &test);
     }
 
     pub(crate) fn test_rom_advanced<P, F>(rom: P, run_frames: i32, f: F)

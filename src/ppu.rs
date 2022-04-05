@@ -1210,7 +1210,11 @@ impl fmt::Debug for Ppu {
 mod tests {
     #![allow(clippy::unreadable_literal)]
     use super::*;
-    use crate::{cart::Cart, common::tests::*};
+    use crate::{
+        cart::Cart,
+        common::tests::{compare, SLOT1},
+        test_roms, test_roms_adv,
+    };
 
     #[test]
     fn scrolling_registers() {
@@ -1281,242 +1285,46 @@ mod tests {
         assert_eq!(ppu.regs.v, t_result);
     }
 
-    #[test]
-    fn oam_read() {
-        test_rom("ppu/oam_read.nes", 40, 5391082701375294984);
-    }
+    test_roms!("ppu", {
+        (oam_read, 40, 5391082701375294984),
+        (oam_stress, 0, 0, "recently failed"),
+        (open_bus, 0, 0, "recently failed"),
+        (palette_ram, 20, 11142254853534581794),
+        (read_buffer, 1350, 15036289633292458322),
+        (spr_hit_alignment, 41, 17220156047486935074),
+        (spr_hit_basics, 44, 1467428815858025816),
+        (spr_hit_corners, 25, 14745742404640002538),
+        (spr_hit_double_height, 25, 9807671663724507698),
+        (spr_hit_flip, 22, 17928878637009813518),
+        (spr_hit_left_clip, 37, 13578789643585691205),
+        (spr_hit_right_edge, 28, 5173768868609846010),
+        (spr_hit_screen_bottom, 33, 10661004246044495047),
+        (spr_hit_timing, 0, 0, "flag set too soon for upper-right corner #5"),
+        (spr_hit_timing_order, 0, 0, "hit time shouldn't be based on pixels at X=255 #7"),
+        (spr_overflow_basics, 15, 10054896470839760921),
+        (spr_overflow_details, 24, 11524930027717629233),
+        (spr_overflow_emulator, 14, 8625109434711991653),
+        (spr_overflow_obscure, 0, 0, "fails #2"),
+        (spr_overflow_timing, 0, 0, "fails #5"),
+        (sprite_ram, 20, 11142254853534581794),
+        (vbl_nmi_basics, 142, 8937881636620623435),
+        (vbl_nmi_clear_timing, 116, 2291069159326703442),
+        (vbl_nmi_control, 32, 4131055501321333343),
+        (vbl_nmi_even_odd_frames, 98, 5875371302101286592),
+        (vbl_nmi_even_odd_timing, 0, 0, "clock is skipped too late relative to enabling BG Failed #3"),
+        (vbl_nmi_frame_basics, 176, 13634614598154212129),
+        (vbl_nmi_disable, 108, 14947006170784498304),
+        (vbl_nmi_off_timing, 219, 18122867419946705951),
+        (vbl_nmi_on_timing, 195, 11282034744231147503),
+        (vbl_nmi_set_time, 179, 2066789294549825214),
+        (vbl_nmi_suppression, 165, 9416276197017867323),
+        (vbl_nmi_timing, 108, 9647565883026464538),
+        (vbl_timing, 153, 7155821767737052174),
+        (vram_access, 20, 11142254853534581794),
+    });
 
-    #[test]
-    #[ignore = "Recently failed"]
-    fn oam_stress() {
-        test_rom("ppu/oam_stress.nes", 0, 0);
-    }
-
-    #[test]
-    fn read_buffer() {
-        test_rom("ppu/read_buffer.nes", 1350, 15036289633292458322);
-    }
-
-    #[test]
-    #[ignore = "Recently failed"]
-    fn open_bus() {
-        test_rom("ppu/open_bus.nes", 0, 0);
-    }
-
-    #[test]
-    fn ram() {
-        test_rom("ppu/palette_ram.nes", 20, 11142254853534581794);
-        test_rom("ppu/sprite_ram.nes", 20, 11142254853534581794);
-        test_rom("ppu/vram_access.nes", 20, 11142254853534581794);
-    }
-
-    #[test]
-    fn scanline() {
-        test_rom_advanced("ppu/scanline.nes", 5, |frame, deck| match frame {
-            5 => compare(3136340140872979734, deck.frame_buffer(), "ppu_scanline_1"),
-            6 => compare(3868019551320379969, deck.frame_buffer(), "ppu_scanline_2"),
-            12 => compare(7688435326324348918, deck.frame_buffer(), "ppu_scanline_3"),
-            17 => compare(3720568469732822584, deck.frame_buffer(), "ppu_scanline_4"),
-            _ => (),
-        });
-    }
-
-    #[test]
-    fn sprite_hit_basics() {
-        test_rom("ppu/sprite_hit/01-basics.nes", 44, 1467428815858025816);
-    }
-
-    #[test]
-    fn sprite_hit_alignment() {
-        test_rom("ppu/sprite_hit/02-alignment.nes", 41, 17220156047486935074);
-    }
-
-    #[test]
-    fn sprite_hit_corners() {
-        test_rom("ppu/sprite_hit/03-corners.nes", 25, 14745742404640002538);
-    }
-
-    #[test]
-    fn sprite_hit_flip() {
-        test_rom("ppu/sprite_hit/04-flip.nes", 22, 17928878637009813518);
-    }
-
-    #[test]
-    fn sprite_hit_left_clip() {
-        test_rom("ppu/sprite_hit/05-left_clip.nes", 37, 13578789643585691205);
-    }
-
-    #[test]
-    fn sprite_hit_right_edge() {
-        test_rom("ppu/sprite_hit/06-right_edge.nes", 28, 5173768868609846010);
-    }
-
-    #[test]
-    fn sprite_hit_screen_bottom() {
-        test_rom(
-            "ppu/sprite_hit/07-screen_bottom.nes",
-            33,
-            10661004246044495047,
-        );
-    }
-
-    #[test]
-    fn sprite_hit_double_height() {
-        test_rom(
-            "ppu/sprite_hit/08-double_height.nes",
-            25,
-            9807671663724507698,
-        );
-    }
-
-    #[test]
-    #[ignore = "Flag set too soon for upper-right corner #5"]
-    fn sprite_hit_timing() {
-        test_rom("ppu/sprite_hit/09-timing.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "Hit time shouldn't be based on pixels at X=255 #7"]
-    fn sprite_hit_timing_order() {
-        test_rom("ppu/sprite_hit/10-timing_order.nes", 0, 0);
-    }
-
-    #[test]
-    fn sprite_overflow_basics() {
-        test_rom("ppu/sprite_overflow/1-basics.nes", 15, 10054896470839760921);
-    }
-
-    #[test]
-    fn sprite_overflow_details() {
-        test_rom(
-            "ppu/sprite_overflow/2-details.nes",
-            24,
-            11524930027717629233,
-        );
-    }
-
-    #[test]
-    #[ignore = "Failed #5"]
-    fn sprite_overflow_timing() {
-        test_rom("ppu/sprite_overflow/3-timing.nes", 0, 0);
-    }
-
-    #[test]
-    #[ignore = "Failed #2"]
-    fn sprite_overflow_obscure() {
-        test_rom("ppu/sprite_overflow/4-obscure.nes", 0, 0);
-    }
-
-    #[test]
-    fn sprite_overflow_emulator() {
-        test_rom(
-            "ppu/sprite_overflow/5-emulator.nes",
-            14,
-            8625109434711991653,
-        );
-    }
-
-    #[test]
-    fn vbl_clear_time() {
-        test_rom(
-            "ppu/vbl_nmi_timing/4-vbl_clear_timing.nes",
-            116,
-            2291069159326703442,
-        );
-    }
-
-    #[test]
-    fn vbl_nmi_basics() {
-        test_rom("ppu/vbl_nmi/01-vbl_basics.nes", 142, 8937881636620623435);
-    }
-
-    #[test]
-    fn vbl_nmi_set_time() {
-        test_rom("ppu/vbl_nmi/02-vbl_set_time.nes", 179, 2066789294549825214);
-    }
-
-    #[test]
-    fn vbl_nmi_control() {
-        test_rom("ppu/vbl_nmi/04-nmi_control.nes", 32, 4131055501321333343);
-    }
-
-    #[test]
-    fn vbl_nmi_timing() {
-        test_rom(
-            "ppu/vbl_nmi_timing/2-vbl_timing.nes",
-            153,
-            7155821767737052174,
-        );
-        test_rom(
-            "ppu/vbl_nmi_timing/7-nmi_timing.nes",
-            108,
-            9647565883026464538,
-        );
-    }
-
-    #[test]
-    fn vbl_nmi_suppression() {
-        test_rom(
-            "ppu/vbl_nmi_timing/5-nmi_suppression.nes",
-            165,
-            9416276197017867323,
-        );
-    }
-
-    #[test]
-    fn vbl_nmi_on_timing() {
-        test_rom(
-            "ppu/vbl_nmi/07-nmi_on_timing.nes",
-            195,
-            11282034744231147503,
-        );
-    }
-
-    #[test]
-    fn vbl_nmi_off_timing() {
-        test_rom(
-            "ppu/vbl_nmi/08-nmi_off_timing.nes",
-            219,
-            18122867419946705951,
-        );
-    }
-
-    #[test]
-    #[ignore = "Clock is skipped too late relative to enabling BG Failed #3"]
-    fn vbl_nmi_even_odd_timing() {
-        test_rom("ppu/vbl_nmi/10-even_odd_timing.nes", 0, 0);
-    }
-
-    #[test]
-    fn vbl_nmi_even_odd_frames() {
-        test_rom(
-            "ppu/vbl_nmi_timing/3-even_odd_frames.nes",
-            98,
-            5875371302101286592,
-        );
-    }
-
-    #[test]
-    fn vbl_nmi_frame_basics() {
-        test_rom(
-            "ppu/vbl_nmi_timing/1-frame_basics.nes",
-            176,
-            13634614598154212129,
-        );
-    }
-
-    #[test]
-    fn vbl_nmi_disable() {
-        test_rom(
-            "ppu/vbl_nmi_timing/6-nmi_disable.nes",
-            108,
-            14947006170784498304,
-        );
-    }
-
-    #[test]
-    fn palette() {
-        test_rom_advanced("ppu/palette.nes", 47, |frame, deck| match frame {
+    test_roms_adv!("ppu", {
+        (palette, 47, |frame, deck| match frame {
             // blue | green | red
             // 1    | 1     | 1
             // 0    | 1     | 1
@@ -1526,101 +1334,74 @@ mod tests {
             // 0    | 1     | 0
             // 1    | 0     | 0
             // 0    | 0     | 0
-            10 => {
-                compare(
-                    9596027790758142943,
-                    deck.frame_buffer(),
-                    "palette_no_filter",
-                );
-                deck.set_filter(VideoFilter::Ntsc);
-            }
-            11 => compare(8441941249755838084, deck.frame_buffer(), "palette_ntsc_111"),
+            9 => compare(9596027790758142943, deck, "palette_no_filter"),
+            10 => deck.set_filter(VideoFilter::Ntsc),
+            11 => compare(8441941249755838084, deck, "palette_ntsc_111"),
             12 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             13 => deck.gamepad_mut(SLOT1).left = false,
-            15 => compare(9537844273161972404, deck.frame_buffer(), "palette_ntsc_011"),
+            15 => compare(9537844273161972404, deck, "palette_ntsc_011"),
             16 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             17 => deck.gamepad_mut(SLOT1).left = false,
             18 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             19 => deck.gamepad_mut(SLOT1).up = false,
-            21 => compare(
-                11716719779005054431,
-                deck.frame_buffer(),
-                "palette_ntsc_101",
-            ),
+            21 => compare(11716719779005054431, deck, "palette_ntsc_101"),
             22 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             23 => deck.gamepad_mut(SLOT1).left = false,
-            25 => compare(6475539855739803374, deck.frame_buffer(), "palette_ntsc_001"),
+            25 => compare(6475539855739803374, deck, "palette_ntsc_001"),
             26 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             27 => deck.gamepad_mut(SLOT1).left = false,
             28 => deck.gamepad_mut(SLOT1).up = true, // Enable green emphasis
             29 => deck.gamepad_mut(SLOT1).up = false,
             30 => deck.gamepad_mut(SLOT1).right = true, // Disable red emphasis
             31 => deck.gamepad_mut(SLOT1).right = false,
-            33 => compare(
-                17676051504629173425,
-                deck.frame_buffer(),
-                "palette_ntsc_110",
-            ),
+            33 => compare(17676051504629173425, deck, "palette_ntsc_110"),
             34 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             35 => deck.gamepad_mut(SLOT1).left = false,
-            37 => compare(2571053923959605246, deck.frame_buffer(), "palette_ntsc_010"),
+            37 => compare(2571053923959605246, deck, "palette_ntsc_010"),
             38 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             39 => deck.gamepad_mut(SLOT1).left = false,
             40 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             41 => deck.gamepad_mut(SLOT1).up = false,
-            43 => compare(6955900250073991544, deck.frame_buffer(), "palette_ntsc_100"),
+            43 => compare(6955900250073991544, deck, "palette_ntsc_100"),
             44 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             45 => deck.gamepad_mut(SLOT1).left = false,
-            47 => compare(
-                12402069094353198765,
-                deck.frame_buffer(),
-                "palette_ntsc_000",
-            ),
+            47 => compare(12402069094353198765, deck, "palette_ntsc_000"),
             _ => (),
-        });
-    }
-
-    #[test]
-    #[allow(clippy::single_match)]
-    fn color() {
-        // TODO: Test all color combinations
-        test_rom_advanced("ppu/color.nes", 5, |frame, deck| match frame {
-            10 => compare(16690057311268587282, deck.frame_buffer(), "color_1"),
+        }),
+        (scanline, 5, |frame, deck| match frame {
+            5 => compare(3136340140872979734, deck, "ppu_scanline_1"),
+            6 => compare(3868019551320379969, deck, "ppu_scanline_2"),
+            12 => compare(7688435326324348918, deck, "ppu_scanline_3"),
+            17 => compare(3720568469732822584, deck, "ppu_scanline_4"),
             _ => (),
-        });
-    }
-
-    #[test]
-    fn ntsc_torture() {
-        // TODO: Test more combinations
-        test_rom_advanced("ppu/ntsc_torture.nes", 10, |frame, deck| match frame {
+        }),
+        (color, 5, |frame, deck| match frame {
+            // TODO: Test all color combinations
+            10 => compare(16690057311268587282, deck, "color_1"),
+            12 => compare(16690057311268587282, deck, "color_2"),
+            _ => (),
+        }),
+        (ntsc_torture, 10, |frame, deck| match frame {
+            // TODO: Test more combinations
             0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(5237860285535505011, deck.frame_buffer(), "ntsc_torture_1"),
-            11 => compare(17400786824798675033, deck.frame_buffer(), "ntsc_torture_2"),
+            10 => compare(5237860285535505011, deck, "ntsc_torture_1"),
+            11 => compare(17400786824798675033, deck, "ntsc_torture_2"),
             _ => (),
-        });
-    }
-
-    #[test]
-    fn tv() {
-        test_rom_advanced("ppu/tv.nes", 10, |frame, deck| match frame {
+        }),
+        (tv, 10, |frame, deck| match frame {
             0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(4783216579876513198, deck.frame_buffer(), "tv_1"),
+            10 => compare(4783216579876513198, deck, "tv_1"),
             11 => deck.gamepad_mut(SLOT1).start = true,
             12 => deck.gamepad_mut(SLOT1).start = false,
-            14 => compare(15545778642599554983, deck.frame_buffer(), "tv_2"),
-            15 => compare(9114117571813023629, deck.frame_buffer(), "tv_3"),
+            14 => compare(15545778642599554983, deck, "tv_2"),
+            15 => compare(9114117571813023629, deck, "tv_3"),
             _ => (),
-        });
-    }
-
-    #[test]
-    #[allow(clippy::single_match)]
-    fn _240pee() {
-        // TODO: Compare each test
-        test_rom_advanced("ppu/240pee.nes", 0, |frame, deck| match frame {
-            30 => compare(16678219602842852704, deck.frame_buffer(), "240pee_1"),
+        }),
+        (_240pee, 0, |frame, deck| match frame {
+            // TODO: Compare each test
+            30 => compare(16678219602842852704, deck, "240pee_1"),
+            32 => compare(16678219602842852704, deck, "240pee_2"),
             _ => (),
-        });
-    }
+        }),
+    });
 }

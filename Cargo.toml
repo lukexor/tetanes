@@ -11,7 +11,7 @@ repository = "https://github.com/lukexor/tetanes.git"
 resolver = "2"
 version = "0.8.0"
 default-run = "tetanes"
-exclude = ["/bin", "/static", "/test_roms", "/docs"]
+exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
 
 [package.metadata]
 msrv = "1.59.0"

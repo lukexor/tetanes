@@ -325,69 +325,35 @@ impl Clocked for Txrom {}
 mod tests {
     #![allow(clippy::unreadable_literal)]
     use super::*;
-    use crate::common::tests::*;
+    use crate::{
+        common::tests::{compare, SLOT1},
+        test_roms, test_roms_adv,
+    };
 
-    #[test]
-    fn clocking() {
-        test_rom("mapper/m004_txrom/1-clocking.nes", 18, 322938496700885059);
-    }
+    test_roms!("mapper/m004_txrom", {
+        (clocking, 18, 322938496700885059),
+        (details, 23, 51582360794753888),
+        (a12_clocking, 18, 3539219657249989563),
+        (scanline_timing, 86, 5608742911791212006),
+        (rev_b, 18, 1278523550437424362),
+    });
 
-    #[test]
-    fn details() {
-        test_rom("mapper/m004_txrom/2-details.nes", 23, 51582360794753888);
-    }
-
-    #[test]
-    fn a12_clocking() {
-        test_rom(
-            "mapper/m004_txrom/3-a12_clocking.nes",
-            18,
-            3539219657249989563,
-        );
-    }
-
-    #[test]
-    fn scanline_timing() {
-        test_rom(
-            "mapper/m004_txrom/4-scanline_timing.nes",
-            86,
-            5608742911791212006,
-        );
-    }
-
-    #[test]
-    fn rev_a() {
-        test_rom_advanced("mapper/m004_txrom/5-mmc3_rev_a.nes", 18, |frame, deck| {
+    test_roms_adv!("mapper/m004_txrom", {
+        (rev_a, 18, |frame, deck| {
             if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
                 mapper.set_revision(Mmc3Rev::A);
             }
             if frame == 18 {
-                compare(12265830583915381923, deck.frame_buffer(), "mmc3_rev_a");
+                compare(12265830583915381923, deck, "mmc3_rev_a");
             }
-        });
-    }
-
-    #[test]
-    fn rev_b() {
-        test_rom(
-            "mapper/m004_txrom/6-mmc3_rev_b.nes",
-            18,
-            1278523550437424362,
-        );
-    }
-
-    #[test]
-    fn big_chr_ram() {
-        test_rom_advanced(
-            "mapper/m004_txrom/mmc3bigchrram.nes",
-            12,
-            |frame, deck| match frame {
-                6 => compare(12299299979523053842, deck.frame_buffer(), "mmc3bigchr_1"),
+        }),
+        (big_chr_ram, 12, |frame, deck| match frame {
+                6 => compare(12299299979523053842, deck, "mmc3_big_chr_1"),
                 10 => deck.gamepad_mut(SLOT1).start = true,
                 11 => deck.gamepad_mut(SLOT1).start = false,
-                72 => compare(13853852112044024080, deck.frame_buffer(), "mmc3bigchr_2"),
+                72 => compare(13853852112044024080, deck, "mmc3_big_chr_2"),
                 _ => (),
             },
-        );
-    }
+        ),
+    });
 }
