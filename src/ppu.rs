@@ -924,7 +924,7 @@ impl Ppu {
                 _ => 0x00,
             }
         } else {
-            self.oamdata.read(u16::from(self.regs.oamaddr))
+            self.peek_oamdata()
         }
     }
 
@@ -1287,13 +1287,13 @@ mod tests {
 
     test_roms!("ppu", {
         (oam_read, 40, 5391082701375294984),
-        (oam_stress, 0, 0, "recently failed"),
-        (open_bus, 0, 0, "recently failed"),
+        (oam_stress, 1706, 13301009503779195361),
+        (open_bus, 250, 11106403589362705259),
         (palette_ram, 20, 11142254853534581794),
         (read_buffer, 1350, 15036289633292458322),
         (spr_hit_alignment, 41, 17220156047486935074),
         (spr_hit_basics, 44, 1467428815858025816),
-        (spr_hit_corners, 25, 14745742404640002538),
+        (spr_hit_corners, 32, 14745742404640002538),
         (spr_hit_double_height, 25, 9807671663724507698),
         (spr_hit_flip, 22, 17928878637009813518),
         (spr_hit_left_clip, 37, 13578789643585691205),
@@ -1368,27 +1368,26 @@ mod tests {
             47 => compare(12402069094353198765, deck, "palette_ntsc_000"),
             _ => (),
         }),
-        (scanline, 5, |frame, deck| match frame {
-            5 => compare(3136340140872979734, deck, "ppu_scanline_1"),
-            6 => compare(3868019551320379969, deck, "ppu_scanline_2"),
-            12 => compare(7688435326324348918, deck, "ppu_scanline_3"),
-            17 => compare(3720568469732822584, deck, "ppu_scanline_4"),
+        (scanline, 10, |frame, deck| match frame {
+            5 => compare(3868019551320379969, deck, "ppu_scanline_1"),
+            8 => compare(9831945725782967870, deck, "ppu_scanline_2"),
+            10 => compare(7688435326324348918, deck, "ppu_scanline_3"),
             _ => (),
         }),
-        (color, 5, |frame, deck| match frame {
+        (color, 12, |frame, deck| match frame {
             // TODO: Test all color combinations
             10 => compare(16690057311268587282, deck, "color_1"),
             12 => compare(16690057311268587282, deck, "color_2"),
             _ => (),
         }),
-        (ntsc_torture, 10, |frame, deck| match frame {
+        (ntsc_torture, 11, |frame, deck| match frame {
             // TODO: Test more combinations
             0 => deck.set_filter(VideoFilter::Ntsc),
             10 => compare(5237860285535505011, deck, "ntsc_torture_1"),
             11 => compare(17400786824798675033, deck, "ntsc_torture_2"),
             _ => (),
         }),
-        (tv, 10, |frame, deck| match frame {
+        (tv, 15, |frame, deck| match frame {
             0 => deck.set_filter(VideoFilter::Ntsc),
             10 => compare(4783216579876513198, deck, "tv_1"),
             11 => deck.gamepad_mut(SLOT1).start = true,
@@ -1397,7 +1396,7 @@ mod tests {
             15 => compare(9114117571813023629, deck, "tv_3"),
             _ => (),
         }),
-        (_240pee, 0, |frame, deck| match frame {
+        (_240pee, 32, |frame, deck| match frame {
             // TODO: Compare each test
             30 => compare(16678219602842852704, deck, "240pee_1"),
             32 => compare(16678219602842852704, deck, "240pee_2"),

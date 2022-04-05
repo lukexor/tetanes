@@ -357,16 +357,17 @@ impl AppState for Nes {
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
-        // {
-        //     let buffer = self.control_deck.frame_buffer();
-        //     if self.debugger.is_none()
-        //         && buffer[0] == 0
-        //         && buffer[3 * (256 * 240) - 1] == 0
-        //         && buffer != &vec![0; 3 * (256 * 240)][..]
-        //     {
-        //         self.toggle_debugger(s)?;
-        //     }
-        // }
+        if std::env::var("TEST").is_ok() {
+            let buffer = self.control_deck.frame_buffer();
+            if self.debugger.is_none()
+                && buffer[0] == 0
+                && buffer[3 * (256 * 240) - 1] == 0
+                && buffer != &vec![0; 3 * (256 * 240)][..]
+            {
+                self.toggle_debugger(s)?;
+            }
+        }
+
         if self.replay.mode == ReplayMode::Playback {
             self.replay_action(s)?;
         }
@@ -447,10 +448,12 @@ impl AppState for Nes {
     }
 
     fn on_stop(&mut self, s: &mut PixState) -> PixResult<()> {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.control_deck.frame_buffer().hash(&mut hasher);
-        println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
+        if std::env::var("TEST").is_ok() {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            self.control_deck.frame_buffer().hash(&mut hasher);
+            println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
+        }
 
         match self.confirm_quit {
             None => {
@@ -488,7 +491,7 @@ impl AppState for Nes {
     }
 
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
-        if event.key == Key::Return {
+        if std::env::var("TEST").is_ok() && event.key == Key::Return {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             self.control_deck.frame_buffer().hash(&mut hasher);

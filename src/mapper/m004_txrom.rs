@@ -347,11 +347,11 @@ mod tests {
                 compare(12265830583915381923, deck, "mmc3_rev_a");
             }
         }),
-        (big_chr_ram, 12, |frame, deck| match frame {
+        (big_chr_ram, 72, |frame, deck| match frame {
                 6 => compare(12299299979523053842, deck, "mmc3_big_chr_1"),
                 10 => deck.gamepad_mut(SLOT1).start = true,
                 11 => deck.gamepad_mut(SLOT1).start = false,
-                72 => compare(13853852112044024080, deck, "mmc3_big_chr_2"),
+                75 => compare(13853852112044024080, deck, "mmc3_big_chr_2"),
                 _ => (),
             },
         ),

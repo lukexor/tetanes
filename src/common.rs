@@ -135,7 +135,6 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::{
-        common::Powered,
         control_deck::ControlDeck,
         input::GamepadSlot,
         memory::RamState,
@@ -172,6 +171,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) const SLOT1: GamepadSlot = GamepadSlot::One;
+    pub(crate) const RESULT_DIR: &str = "test_results";
     pub(crate) const TEST_DIR: &str = "test_roms";
 
     pub(crate) fn load<P: AsRef<Path>>(path: P) -> ControlDeck {
@@ -181,7 +181,6 @@ pub(crate) mod tests {
         let rom = File::open(path).unwrap();
         let mut rom = BufReader::new(rom);
         deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
-        deck.power_on();
         deck
     }
 
@@ -190,7 +189,7 @@ pub(crate) mod tests {
         let frame = deck.frame_buffer();
         frame.hash(&mut hasher);
         let actual_hash = hasher.finish();
-        let results_dir = PathBuf::from("test_results");
+        let results_dir = PathBuf::from(RESULT_DIR);
         let screenshot_path = results_dir.join(PathBuf::from(test)).with_extension("png");
         if expected_hash != actual_hash {
             if !results_dir.exists() {
@@ -203,7 +202,11 @@ pub(crate) mod tests {
         } else if screenshot_path.exists() {
             let _ = fs::remove_file(screenshot_path);
         }
-        assert_eq!(expected_hash, actual_hash, "mismatched {}.png", test);
+        assert_eq!(
+            expected_hash, actual_hash,
+            "mismatched {}/{}.png",
+            RESULT_DIR, test
+        );
     }
 
     pub(crate) fn test_rom<P: AsRef<Path>>(rom: P, run_frames: i32, expected_hash: u64) {
@@ -211,6 +214,7 @@ pub(crate) mod tests {
         let mut deck = load(PathBuf::from(TEST_DIR).join(rom));
         for _ in 0..=run_frames {
             deck.clock_frame();
+            deck.clear_audio_samples();
         }
         let test = rom.file_stem().expect("valid test file").to_string_lossy();
         compare(expected_hash, &deck, &test);
@@ -226,6 +230,7 @@ pub(crate) mod tests {
         for frame in 0..=run_frames {
             f(frame, &mut deck);
             deck.clock_frame();
+            deck.clear_audio_samples();
         }
     }
 }

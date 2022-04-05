@@ -21,7 +21,6 @@ use instr::{
     },
     INSTRUCTIONS,
 };
-use log::{log_enabled, Level};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -277,12 +276,12 @@ impl Cpu {
             self.nmi_pending = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_VECTOR);
-            if log_enabled!(Level::Trace) && self.debugging {
+            if self.debugging {
                 log::trace!("NMI: {}", self.cycle_count);
             }
         } else {
             self.pc = self.readw(IRQ_VECTOR);
-            if log_enabled!(Level::Trace) && self.debugging {
+            if self.debugging {
                 log::trace!("IRQ: {}", self.cycle_count);
             }
         }
@@ -668,8 +667,9 @@ impl Cpu {
     }
 
     // Print the current instruction and status
+    #[inline]
     pub fn trace_instr(&self) {
-        if !log_enabled!(Level::Trace) || !self.debugging {
+        if !self.debugging {
             return;
         }
 
@@ -1000,10 +1000,10 @@ mod tests {
         (instr_timing, 1300, 13007721788673393267),
         (instr_zp, 119, 10087936018475398294),
         (instr_zp_xy, 261, 8324323703779705624),
-        (int_branch_delays_irq, 377, 16452878842435291825),
+        (int_branch_delays_irq, 384, 16452878842435291825),
         (int_cli_latency, 17, 6258840410173416640),
-        (int_irq_and_dma, 68, 13358975779607334897),
-        (int_nmi_and_brk, 105, 17633239368772221973),
+        (int_irq_and_dma, 75, 13358975779607334897),
+        (int_nmi_and_brk, 114, 17633239368772221973),
         (int_nmi_and_irq, 134, 10095178669490697839),
         (overclock, 12, 8933913286013221836),
         (sprdma_and_dmc_dma, 0, 0, "fails with black screen and beeping"),
@@ -1023,9 +1023,9 @@ mod tests {
             40 => compare(9375754280498950464, deck, "nestest_invalid"),
             _ => (),
         }),
-        (ram_after_reset, 146, |frame, deck| match frame {
-            135 => deck.reset(),
-            146 => compare(12537292272764789395, deck, "ram_after_reset"),
+        (ram_after_reset, 153, |frame, deck| match frame {
+            142 => deck.reset(),
+            153 => compare(12537292272764789395, deck, "ram_after_reset"),
             _ => (),
         }),
         (regs_after_reset, 150, |frame, deck| match frame {

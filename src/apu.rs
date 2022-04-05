@@ -599,7 +599,7 @@ mod tests {
 
     test_roms!("apu", {
         (clock_jitter, 15, 11142254853534581794),
-        (dmc_basics, 0, 0, "recently failed"),
+        (dmc_basics, 25, 4777243056264901558),
         (dmc_double_2007_read, 20, 10498985860445899032),
         (dmc_rates, 0, 0, "fails"),
         (dmc_read_write_2007, 24, 17262164619652057735),
