@@ -43,7 +43,7 @@ pub enum ChrMode {
 /// <http://wiki.nesdev.com/w/index.php/INES>
 /// <http://wiki.nesdev.com/w/index.php/NES_2.0>
 /// <http://nesdev.com/NESDoc.pdf> (page 28)
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct NesHeader {
     pub version: u8,        // 1 for iNES or 2 for NES 2.0
@@ -521,58 +521,47 @@ impl fmt::Debug for NesHeader {
 mod tests {
     use super::*;
 
-    // TODO: Move these to simple header test files instead
-    #[test]
-    #[ignore]
-    fn valid_cartridges() {
-        use std::{fs::File, io::BufReader};
-
-        let rom_data = &[
-            // (File, PRG, CHR, Mapper, Mirroring, Battery)
-            (
-                "roms/super_mario_bros.nes",
-                "Super Mario Bros. (World)",
-                2,
-                1,
-                0,
-                1,
-                false,
-            ),
-            ("roms/metroid.nes", "Metroid (USA)", 8, 0, 1, 0, false),
-        ];
-        for data in rom_data {
-            let rom = File::open(data.0).expect("valid file");
-            let mut rom = BufReader::new(rom);
-            let c = Cart::from_rom(&data.0, &mut rom, RamState::AllZeros);
-            assert!(c.is_ok(), "new cartridge {}", data.0);
-            let c = c.unwrap();
-            assert_eq!(
-                c.header.prg_rom_banks, data.2,
-                "PRG-ROM size matches for {}",
-                data.0
-            );
-            assert_eq!(
-                c.header.chr_rom_banks, data.3,
-                "CHR-ROM size matches for {}",
-                data.0
-            );
-            assert_eq!(
-                c.header.mapper_num, data.4,
-                "mapper num matches for {}",
-                data.0
-            );
-            assert_eq!(
-                c.header.flags & 0x01,
-                data.5,
-                "mirroring matches for {}",
-                data.0
-            );
-            assert_eq!(
-                c.header.flags & 0x02 == 0x02,
-                data.6,
-                "battery matches for {}",
-                data.0
-            );
-        }
+    macro_rules! test_headers {
+        ($(($test:ident, $data:expr, $header:expr$(,)?)),*$(,)?) => {$(
+            #[test]
+            fn $test() {
+                let header = NesHeader::load(&mut $data.as_slice()).expect("valid header");
+                assert_eq!(header, $header);
+            }
+        )*};
     }
+
+    #[rustfmt::skip]
+    test_headers!(
+        (
+            mapper000_horizontal,
+            [0x4E, 0x45, 0x53, 0x1A,
+             0x02, 0x01, 0x01, 0x00,
+             0x00, 0x00, 0x00, 0x00,
+             0x00, 0x00, 0x00, 0x00],
+            NesHeader {
+                version: 1,
+                mapper_num: 0,
+                flags: 0b0000_0001,
+                prg_rom_banks: 2,
+                chr_rom_banks: 1,
+                ..NesHeader::default()
+            },
+        ),
+        (
+            mapper001_vertical,
+            [0x4E, 0x45, 0x53, 0x1A,
+             0x08, 0x00, 0x10, 0x00,
+             0x00, 0x00, 0x00, 0x00,
+             0x00, 0x00, 0x00, 0x00],
+            NesHeader {
+                version: 1,
+                mapper_num: 1,
+                flags: 0b0000_0000,
+                prg_rom_banks: 8,
+                chr_rom_banks: 0,
+                ..NesHeader::default()
+            },
+        ),
+    );
 }
