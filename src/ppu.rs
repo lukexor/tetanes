@@ -797,11 +797,10 @@ impl Ppu {
         }
         let nmi_flag = val & 0x80 > 0;
         if nmi_flag && !self.nmi_enabled() && self.vblank_started()
-        // FIXME This is a bit of a hack - VBL should clear on cycle 1,
-        // but something is off with timing and cycle 1 causes
-        // 03-vbl_clear_time.nes/4.vbl_clear_timing.nes to fail.
-        // Changing it to 2 makes them pass, but then causes 07-nmi_on_timing.nes
-        // to fail so this condition is added to correct it
+        // FIXME This is a bit of a hack - VBL should clear on cycle 1, but something is off with
+        // timing and cycle 1 causes `vbl_nmi_clear_time` to fail. Changing it to 2 makes them
+        // pass, but then causes `vbl_nmi_on_timing` to fail so this condition is added to correct
+        // it
         && (self.scanline != PRERENDER_SCANLINE || self.cycle == 0)
         {
             self.nmi_pending = true;
@@ -1060,11 +1059,10 @@ impl Clocked for Ppu {
             if self.cycle == VISIBLE_CYCLE_START && self.scanline == VBLANK_SCANLINE {
                 self.start_vblank();
             }
-            // FIXME This is a bit of a hack - VBL should clear on cycle 1,
-            // but something is off with timing and cycle 1 causes
-            // 03-vbl_clear_time.nes/4.vbl_clear_timing.nes to fail.
-            // Changing it to 2 makes them pass, but then causes 07-nmi_on_timing.nes
-            // to fail so write_ppuctrl is changed as a result
+            // FIXME This is a bit of a hack - VBL should clear on cycle 1, but something is off with
+            // timing and cycle 1 causes `vbl_nmi_clear_time` to fail. Changing it to 2 makes them
+            // pass, but then causes `vbl_nmi_on_timing` to fail so this condition is added to correct
+            // it
             if self.cycle == VISIBLE_CYCLE_START + 1 && self.scanline == PRERENDER_SCANLINE {
                 self.set_sprite_zero_hit(false);
                 self.set_sprite_overflow(false);
@@ -1308,9 +1306,9 @@ mod tests {
         (spr_overflow_timing, 0, 0, "fails #5"),
         (sprite_ram, 20, 11142254853534581794),
         (vbl_nmi_basics, 142, 8937881636620623435),
-        (vbl_nmi_clear_timing, 116, 2291069159326703442),
+        (vbl_nmi_clear_timing, 120, 2291069159326703442),
         (vbl_nmi_control, 32, 4131055501321333343),
-        (vbl_nmi_even_odd_frames, 98, 5875371302101286592),
+        (vbl_nmi_even_odd_frames, 100, 5875371302101286592),
         (vbl_nmi_even_odd_timing, 0, 0, "clock is skipped too late relative to enabling BG Failed #3"),
         (vbl_nmi_frame_basics, 176, 13634614598154212129),
         (vbl_nmi_disable, 108, 14947006170784498304),
@@ -1336,7 +1334,7 @@ mod tests {
             // 0    | 0     | 0
             9 => compare(9596027790758142943, deck, "palette_no_filter"),
             10 => deck.set_filter(VideoFilter::Ntsc),
-            11 => compare(8441941249755838084, deck, "palette_ntsc_111"),
+            11 => compare(4387552714011383977, deck, "palette_ntsc_111"),
             12 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             13 => deck.gamepad_mut(SLOT1).left = false,
             15 => compare(9537844273161972404, deck, "palette_ntsc_011"),
@@ -1369,9 +1367,9 @@ mod tests {
             _ => (),
         }),
         (scanline, 10, |frame, deck| match frame {
-            5 => compare(3868019551320379969, deck, "ppu_scanline_1"),
-            8 => compare(9831945725782967870, deck, "ppu_scanline_2"),
-            10 => compare(7688435326324348918, deck, "ppu_scanline_3"),
+            5 => compare(3720568469732822584, deck, "ppu_scanline_1"),
+            8 => compare(7688435326324348918, deck, "ppu_scanline_2"),
+            10 => compare(9831945725782967870, deck, "ppu_scanline_3"),
             _ => (),
         }),
         (color, 12, |frame, deck| match frame {

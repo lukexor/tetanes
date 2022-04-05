@@ -312,16 +312,21 @@ impl Cpu {
     }
 
     #[inline]
-    fn run_cycle(&mut self) {
+    fn start_cycle(&mut self) {
+        self.bus.ppu.clock();
+        self.bus.cart.clock();
+        self.bus.apu.clock();
+    }
+
+    #[inline]
+    fn end_cycle(&mut self) {
         self.cycle_count = self.cycle_count.wrapping_add(1);
+
         self.last_nmi = self.nmi_pending;
         self.last_irq = !self.irqs_pending.is_empty() && !self.status.intersects(Status::I);
-        self.bus.ppu.clock();
         self.nmi_pending = self.bus.ppu.nmi_pending;
-        self.bus.cart.clock();
-        let irq_pending = self.bus.cart.irq_pending();
-        self.set_irq(Irq::MAPPER, irq_pending);
-        self.bus.apu.clock();
+
+        self.set_irq(Irq::MAPPER, self.bus.cart.irq_pending());
         self.set_irq(Irq::FRAME_COUNTER, self.bus.apu.irq_pending);
         self.set_irq(Irq::DMC, self.bus.apu.dmc.irq_pending);
         if self.bus.apu.dmc.dma_pending {
@@ -340,7 +345,7 @@ impl Cpu {
         } else if self.bus.dummy_read {
             self.bus.dummy_read = false;
         }
-        self.run_cycle();
+        self.start_cycle();
     }
 
     #[inline]
@@ -349,8 +354,9 @@ impl Cpu {
             return;
         }
 
-        self.run_cycle();
+        self.start_cycle();
         self.bus.read(addr);
+        self.end_cycle();
         self.bus.halt = false;
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
@@ -365,12 +371,14 @@ impl Cpu {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
                     let val = self.bus.read(self.bus.apu.dmc.addr);
+                    self.end_cycle();
                     self.bus.apu.dmc.set_sample_buffer(val);
                     self.dmc_dma = false;
                 } else if self.bus.ppu.oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
                     self.process_dma_cycle();
                     oam_data = self.bus.read(oam_read_addr + oam_read_offset);
+                    self.end_cycle();
                     oam_read_offset += 1;
                     oam_dma_count += 1;
                 } else {
@@ -381,11 +389,13 @@ impl Cpu {
                     if !skip_dummy_reads {
                         self.bus.read(addr); // throw away
                     }
+                    self.end_cycle();
                 }
             } else if self.bus.ppu.oam_dma && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.process_dma_cycle();
                 self.bus.write(0x2004, oam_data);
+                self.end_cycle();
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
                     // Finished OAM DMA
@@ -397,6 +407,7 @@ impl Cpu {
                 if !skip_dummy_reads {
                     self.bus.read(addr); // throw away
                 }
+                self.end_cycle();
             }
         }
     }
@@ -829,8 +840,10 @@ impl MemRead for Cpu {
     #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         self.handle_dma(addr);
-        self.run_cycle();
-        self.bus.read(addr)
+        self.start_cycle();
+        let val = self.bus.read(addr);
+        self.end_cycle();
+        val
     }
 
     #[inline]
@@ -841,8 +854,9 @@ impl MemRead for Cpu {
 impl MemWrite for Cpu {
     #[inline]
     fn write(&mut self, addr: u16, val: u8) {
-        self.run_cycle();
+        self.start_cycle();
         self.bus.write(addr, val);
+        self.end_cycle();
     }
 }
 
@@ -855,13 +869,14 @@ impl Powered for Cpu {
         self.corrupted = false;
         self.dmc_dma = false;
 
-        // Don't clock other components during reset
+        // Read directly from bus so as to not clock other components during reset
         let lo = u16::from(self.bus.read(RESET_VECTOR));
         let hi = u16::from(self.bus.read(RESET_VECTOR + 1));
         self.pc = (hi << 8) | lo;
 
-        for _ in 0..7 {
-            self.run_cycle();
+        for _ in 0..8 {
+            self.start_cycle();
+            self.end_cycle();
         }
     }
 
@@ -869,7 +884,7 @@ impl Powered for Cpu {
     ///
     /// Updates the PC, SP, and Status values to defined constants.
     ///
-    /// These operations take the CPU 7 cycle.
+    /// These operations take the CPU 7 cycles.
     fn reset(&mut self) {
         self.bus.reset();
         self.status.set(Status::I, true);
@@ -883,7 +898,7 @@ impl Powered for Cpu {
     ///
     /// Updates all status as if powered on for the first time
     ///
-    /// These operations take the CPU 7 cycle.
+    /// These operations take the CPU 7 cycles.
     fn power_cycle(&mut self) {
         self.bus.power_cycle();
         self.acc = 0x00;
@@ -931,8 +946,8 @@ mod tests {
         cpu.power_on();
         cpu.clock();
 
-        assert_eq!(cpu.cycle_count, 14, "cpu after power + one clock");
-        assert_eq!(cpu.bus.ppu.cycle_count, 42, "ppu after power + one clock");
+        assert_eq!(cpu.cycle_count, 15, "cpu after power + one clock");
+        assert_eq!(cpu.bus.ppu.cycle_count, 45, "ppu after power + one clock");
 
         for instr in INSTRUCTIONS.iter() {
             let extra_cycle = match instr.op() {
@@ -997,7 +1012,7 @@ mod tests {
         (instr_rts, 17, 3480626052174766819),
         (instr_special, 11, 18220406969987149590),
         (instr_stack, 168, 15211316055101168882),
-        (instr_timing, 1300, 13007721788673393267),
+        (instr_timing, 1305, 13007721788673393267),
         (instr_zp, 119, 10087936018475398294),
         (instr_zp_xy, 261, 8324323703779705624),
         (int_branch_delays_irq, 384, 16452878842435291825),

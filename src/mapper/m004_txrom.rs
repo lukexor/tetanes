@@ -339,11 +339,11 @@ mod tests {
     });
 
     test_roms_adv!("mapper/m004_txrom", {
-        (rev_a, 18, |frame, deck| {
+        (rev_a, 20, |frame, deck| {
             if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
                 mapper.set_revision(Mmc3Rev::A);
             }
-            if frame == 18 {
+            if frame == 20 {
                 compare(12265830583915381923, deck, "mmc3_rev_a");
             }
         }),

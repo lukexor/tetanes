@@ -815,7 +815,7 @@ impl Cpu {
         let skip_nmi = self.nmi_pending && !self.last_nmi;
         let skip_irq = !self.irqs_pending.is_empty() && !self.last_irq;
 
-        self.run_cycle();
+        self.read(self.pc); // Dummy read
 
         self.abs_addr = if self.rel_addr & 0x80 == 0x80 {
             self.pc.wrapping_add(self.rel_addr | 0xFF00)
@@ -823,7 +823,7 @@ impl Cpu {
             self.pc.wrapping_add(self.rel_addr)
         };
         if Self::pages_differ(self.abs_addr, self.pc) {
-            self.run_cycle();
+            self.read(self.pc); // Dummy read
         } else {
             if skip_nmi {
                 self.last_nmi = false;
