@@ -176,11 +176,14 @@ pub(crate) mod tests {
 
     pub(crate) fn load<P: AsRef<Path>>(path: P) -> ControlDeck {
         let path = path.as_ref();
+        let mut rom = BufReader::new(File::open(path).unwrap());
         let mut deck = ControlDeck::new(RamState::AllZeros);
-        deck.set_filter(VideoFilter::None);
-        let rom = File::open(path).unwrap();
-        let mut rom = BufReader::new(rom);
         deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
+        deck.set_filter(VideoFilter::None);
+        if std::env::var("RUST_LOG").is_ok() {
+            pretty_env_logger::init();
+            deck.cpu_mut().debugging = true;
+        }
         deck
     }
 

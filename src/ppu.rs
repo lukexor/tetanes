@@ -931,7 +931,7 @@ impl Ppu {
     #[inline]
     fn peek_oamdata(&self) -> u8 {
         let addr = u16::from(self.regs.oamaddr);
-        let val = self.oamdata[addr as usize];
+        let val = self.oamdata.peek(addr);
         // Bits 2-4 of Sprite attribute should always be 0
         if let 0x02 | 0x06 | 0x0A | 0x0E = addr & 0x0F {
             val & 0xE3
