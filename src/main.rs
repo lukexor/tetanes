@@ -30,7 +30,7 @@ fn main() -> NesResult<()> {
         .path(opt.path)
         .replay(opt.replay)
         .fullscreen(opt.fullscreen)
-        .power_state(opt.power_state)
+        .ram_state(opt.ram_state)
         .scale(opt.scale)
         .speed(opt.speed)
         .genie_codes(opt.genie_codes)
@@ -62,10 +62,10 @@ struct Opt {
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
     #[structopt(
-        long = "power_state",
-        help = "Choose power-up RAM state, defaults to random."
+        long = "ram_state",
+        help = "Choose power-up RAM state: 'all_zeros', `all_ones`, `random` (default)."
     )]
-    power_state: Option<RamState>,
+    ram_state: Option<RamState>,
     #[structopt(short = "s", long = "scale", help = "Window scale, defaults to 3.0.")]
     scale: Option<f32>,
     #[structopt(long = "speed", help = "Emulation speed, defaults to 1.0.")]

@@ -17,7 +17,7 @@ use std::{io::Read, ops::ControlFlow};
 #[must_use]
 pub struct ControlDeck {
     running: bool,
-    power_state: RamState,
+    ram_state: RamState,
     loaded_rom: Option<String>,
     turbo_clock: usize,
     cycles_remaining: f32,
@@ -27,11 +27,11 @@ pub struct ControlDeck {
 impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
     #[inline]
-    pub fn new(power_state: RamState) -> Self {
-        let cpu = Cpu::init(Bus::new(power_state));
+    pub fn new(ram_state: RamState) -> Self {
+        let cpu = Cpu::init(Bus::new(ram_state));
         Self {
             running: false,
-            power_state,
+            ram_state,
             loaded_rom: None,
             turbo_clock: 0,
             cycles_remaining: 0.0,
@@ -48,7 +48,7 @@ impl ControlDeck {
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: &S, rom: &mut F) -> NesResult<()> {
         self.power_off();
         self.loaded_rom = Some(name.to_string());
-        let cart = Cart::from_rom(name, rom, self.power_state)?;
+        let cart = Cart::from_rom(name, rom, self.ram_state)?;
         self.cpu.bus.load_cart(cart);
         self.power_on();
         Ok(())

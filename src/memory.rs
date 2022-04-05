@@ -70,10 +70,10 @@ impl FromStr for RamState {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "zeros" => Ok(Self::AllZeros),
-            "ones" => Ok(Self::AllOnes),
+            "all_zeros" => Ok(Self::AllZeros),
+            "all_ones" => Ok(Self::AllOnes),
             "random" => Ok(Self::Random),
-            _ => Err("invalid RamState value. valid options: `zeros`, `ones`, or `random`"),
+            _ => Err("invalid RamState value. valid options: `all_zeros`, `all_ones`, or `random`"),
         }
     }
 }

@@ -163,14 +163,14 @@ impl Nes {
             s.spacing()?;
 
             s.next_width(125);
-            let mut selected = self.config.power_state as usize;
+            let mut selected = self.config.ram_state as usize;
             if s.select_box(
                 "Power-up RAM State:",
                 &mut selected,
                 &["All $00", "All $FF", "Random"],
                 3,
             )? {
-                self.config.power_state = selected.into();
+                self.config.ram_state = selected.into();
             }
 
             let mut selected = (4.0 * self.config.speed) as usize - 1;

@@ -215,8 +215,8 @@ emulating this would make these games seem deterministic when they weren't
 intended to be.
 
 If you would like `TetaNES` to provide fully deterministic emulated power-up
-state, you'll need to change the `power_state` setting in the configuration
-menu and trigger a power-cycle or use the `--power_state` flag from the
+state, you'll need to change the `ram_state` setting in the configuration
+menu and trigger a power-cycle or use the `--ram_state` flag from the
 command line.
 
 ## Building

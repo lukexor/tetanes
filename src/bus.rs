@@ -59,13 +59,13 @@ lazy_static! {
 }
 
 impl Bus {
-    pub fn new(power_state: RamState) -> Self {
+    pub fn new(ram_state: RamState) -> Self {
         let mut bus = Self {
             ppu: Ppu::new(),
             apu: Apu::new(),
             input: Input::new(),
             cart: Box::new(Cart::new()),
-            wram: Memory::ram(WRAM_SIZE, power_state),
+            wram: Memory::ram(WRAM_SIZE, ram_state),
             halt: false,
             dummy_read: false,
             genie_codes: HashMap::new(),

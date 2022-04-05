@@ -49,7 +49,7 @@ pub struct NesBuilder {
     path: PathBuf,
     replay: Option<PathBuf>,
     fullscreen: bool,
-    power_state: Option<RamState>,
+    ram_state: Option<RamState>,
     scale: Option<f32>,
     speed: Option<f32>,
     genie_codes: Vec<String>,
@@ -63,7 +63,7 @@ impl NesBuilder {
             path: PathBuf::new(),
             replay: None,
             fullscreen: false,
-            power_state: None,
+            ram_state: None,
             scale: None,
             speed: None,
             genie_codes: vec![],
@@ -96,8 +96,8 @@ impl NesBuilder {
     }
 
     /// Sets the default power-on state for RAM values.
-    pub fn power_state(&mut self, state: Option<RamState>) -> &mut Self {
-        self.power_state = state;
+    pub fn ram_state(&mut self, state: Option<RamState>) -> &mut Self {
+        self.ram_state = state;
         self
     }
 
@@ -133,12 +133,12 @@ impl NesBuilder {
         let mut config = Config::load();
         config.rom_path = self.path.clone().canonicalize()?;
         config.fullscreen = self.fullscreen || config.fullscreen;
-        config.power_state = self.power_state.unwrap_or(config.power_state);
+        config.ram_state = self.ram_state.unwrap_or(config.ram_state);
         config.scale = self.scale.unwrap_or(config.scale);
         config.speed = self.speed.unwrap_or(config.speed);
         config.genie_codes.append(&mut self.genie_codes.clone());
 
-        let mut control_deck = ControlDeck::new(config.power_state);
+        let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_speed(config.speed);
         for (&input, &action) in config.input_map.iter() {
             if let Action::Zapper(_) = action {

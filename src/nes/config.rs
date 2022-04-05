@@ -31,7 +31,7 @@ pub(crate) struct Config {
     pub(crate) vsync: bool,
     pub(crate) filter: VideoFilter,
     pub(crate) concurrent_dpad: bool,
-    pub(crate) power_state: RamState,
+    pub(crate) ram_state: RamState,
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
     pub(crate) speed: f32,

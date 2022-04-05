@@ -6,7 +6,7 @@
   "vsync": true,
   "filter": "Ntsc",
   "concurrent_dpad": false,
-  "power_state": "Random",
+  "ram_state": "Random",
   "save_slot": 1,
   "scale": 3.0,
   "speed": 1.0,
