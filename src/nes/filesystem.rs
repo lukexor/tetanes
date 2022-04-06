@@ -1,5 +1,5 @@
 use super::{menu::Player, Menu, Mode, Nes, NesResult};
-use crate::cart::Cart;
+use crate::cart::NesHeader;
 use anyhow::{anyhow, Context};
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use pix_engine::prelude::PixState;
@@ -80,34 +80,32 @@ where
     let directory = path.parent().expect("can not save to root path");
     if !directory.exists() {
         fs::create_dir_all(directory)
-            .with_context(|| anyhow!("failed to create directory {:?}", directory.display()))?;
+            .with_context(|| anyhow!("failed to create directory {:?}", directory))?;
     }
 
     let write_data = || {
         let mut writer = BufWriter::new(
-            File::create(&path)
-                .with_context(|| anyhow!("failed to create file {:?}", path.display()))?,
+            File::create(&path).with_context(|| anyhow!("failed to create file {:?}", path))?,
         );
         write_save_header(&mut writer)
-            .with_context(|| anyhow!("failed to write header {:?}", path.display()))?;
+            .with_context(|| anyhow!("failed to write header {:?}", path))?;
         let mut encoder = DeflateEncoder::new(writer, Compression::default());
         encoder
             .write_all(data)
-            .with_context(|| anyhow!("failed to encode file {:?}", path.display()))?;
+            .with_context(|| anyhow!("failed to encode file {:?}", path))?;
         encoder
             .finish()
-            .with_context(|| anyhow!("failed to write file {:?}", path.display()))?;
+            .with_context(|| anyhow!("failed to write file {:?}", path))?;
         Ok(())
     };
 
     if path.exists() {
         // Check if exists and header is different, so we avoid overwriting
         let mut reader = BufReader::new(
-            File::open(&path)
-                .with_context(|| anyhow!("failed to open file {:?}", path.display()))?,
+            File::open(&path).with_context(|| anyhow!("failed to open file {:?}", path))?,
         );
         validate_save_header(&mut reader)
-            .with_context(|| anyhow!("failed to validate header {:?}", path.display()))
+            .with_context(|| anyhow!("failed to validate header {:?}", path))
             .and_then(|_| write_data())?;
     } else {
         write_data()?;
@@ -121,17 +119,17 @@ where
 {
     let path = path.as_ref();
     let mut reader = BufReader::new(
-        File::open(&path).with_context(|| anyhow!("Failed to open file {:?}", path.display()))?,
+        File::open(&path).with_context(|| anyhow!("Failed to open file {:?}", path))?,
     );
     let mut bytes = vec![];
     // Don't care about the size read
     let _ = validate_save_header(&mut reader)
-        .with_context(|| anyhow!("failed to validate header {:?}", path.display()))
+        .with_context(|| anyhow!("failed to validate header {:?}", path))
         .and_then(|_| {
             let mut decoder = DeflateDecoder::new(reader);
             decoder
                 .read_to_end(&mut bytes)
-                .with_context(|| anyhow!("failed to read file {:?}", path.display()))
+                .with_context(|| anyhow!("failed to read file {:?}", path))
         })?;
     Ok(bytes)
 }
@@ -140,13 +138,37 @@ pub(crate) fn is_nes_rom<P>(path: P) -> bool
 where
     P: AsRef<Path>,
 {
-    let path = path.as_ref();
-    Cart::from_path(path).is_ok()
+    NesHeader::from_path(path.as_ref()).is_ok()
 }
 
 impl Nes {
+    #[inline]
+    pub(crate) fn rom_filename(&self) -> &str {
+        self.config
+            .rom_path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or_else(|| {
+                log::warn!("invalid rom_path: {:?}", self.config.rom_path);
+                ""
+            })
+    }
+
     /// Loads a ROM cartridge into memory
     pub(crate) fn load_rom(&mut self, s: &mut PixState) {
+        if let Err(err) = NesHeader::from_path(&self.config.rom_path) {
+            log::error!("{:?}: {:?}", self.config.rom_path, err);
+            self.error = Some(format!("Invalid NES ROM {:?}", self.rom_filename()));
+            return;
+        }
+
+        if let Ok(path) = self.save_path(1) {
+            if path.exists() {
+                self.load_state(1);
+            }
+        }
+        self.load_replay();
+
         self.error = None;
         self.mode = Mode::Paused;
         s.pause_audio();
@@ -155,8 +177,9 @@ impl Nes {
         {
             Ok(rom) => rom,
             Err(err) => {
+                log::error!("{:?}: {:?}", self.config.rom_path, err);
                 self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
-                self.error = Some(err.to_string());
+                self.error = Some(format!("Failed to open ROM {:?}", self.rom_filename()));
                 return;
             }
         };
@@ -165,19 +188,25 @@ impl Nes {
             .rom_path
             .file_name()
             .map_or_else(|| "unknown".into(), OsStr::to_string_lossy);
+
+        if let Err(err) = s.set_title(name.replace(".nes", "")) {
+            log::warn!("{:?}", err);
+        }
+
         let mut rom = BufReader::new(rom);
         match self.control_deck.load_rom(&name, &mut rom) {
             Ok(()) => {
                 s.resume_audio();
                 if let Err(err) = self.load_sram() {
-                    log::error!("{:?}", err);
+                    log::error!("{:?}: {:?}", self.config.rom_path, err);
                     self.add_message("Failed to load game state");
                 }
                 self.mode = Mode::Playing;
             }
             Err(err) => {
+                log::error!("{:?}, {:?}", self.config.rom_path, err);
                 self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
-                self.error = Some(err.to_string());
+                self.error = Some(format!("Failed to load ROM {:?}", self.rom_filename()));
             }
         }
     }

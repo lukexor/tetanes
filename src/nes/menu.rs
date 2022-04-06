@@ -12,7 +12,7 @@ use crate::{
 use anyhow::anyhow;
 use pix_engine::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) enum Menu {
@@ -420,7 +420,9 @@ impl Nes {
                 read_dir
                     .filter_map(Result::ok)
                     .map(|f| f.path())
-                    .filter(|p| p.is_dir() || is_nes_rom(p))
+                    .filter(|p| {
+                        p.is_dir() || matches!(p.extension().and_then(OsStr::to_str), Some("nes"))
+                    })
                     .for_each(|p| self.paths.push(p));
                 self.paths.sort();
                 if path.parent().is_some() {
@@ -428,7 +430,8 @@ impl Nes {
                 }
             }
             Err(err) => {
-                self.error = Some(err.to_string());
+                log::error!("{:?}", err);
+                self.error = Some(format!("Failed to read {:?}", path));
             }
         }
     }

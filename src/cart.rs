@@ -103,8 +103,9 @@ impl Cart {
     #[inline]
     pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
         let path = path.as_ref();
-        let rom = File::open(path).with_context(|| format!("failed to open rom {:?}", path))?;
-        let mut rom = BufReader::new(rom);
+        let mut rom = BufReader::new(
+            File::open(path).with_context(|| format!("failed to open rom {:?}", path))?,
+        );
         Self::from_rom(&path.to_string_lossy(), &mut rom, RamState::AllZeros)
     }
 
@@ -390,6 +391,20 @@ impl NesHeader {
             tv_mode: 0x00,
             vs_data: 0x00,
         }
+    }
+
+    /// Create a `NesHeader` from a ROM path.
+    ///
+    /// # Errors
+    ///
+    /// If the ROM can not be opened, or the header is corrupted, then an error is returned.
+    #[inline]
+    pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
+        let path = path.as_ref();
+        let mut rom = BufReader::new(
+            File::open(path).with_context(|| format!("failed to open rom {:?}", path))?,
+        );
+        Self::load(&mut rom)
     }
 
     /// Parses a slice of `u8` bytes and returns a valid `NesHeader` instance

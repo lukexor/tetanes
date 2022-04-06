@@ -65,17 +65,17 @@ impl Config {
         }
 
         let mut config = File::open(&config_path)
-            .with_context(|| format!("failed to open {:?}", config_path.display()))
+            .with_context(|| format!("failed to open {:?}", config_path))
             .and_then(|file| Ok(serde_json::from_reader::<_, Config>(BufReader::new(file))?))
             .or_else(|err| {
                 log::error!(
-                    "Invalid config: {:?}, reverting to defaults. Error: {}",
-                    config_path.display(),
+                    "Invalid config: {:?}, reverting to defaults. Error: {:?}",
+                    config_path,
                     err
                 );
                 serde_json::from_reader(DEFAULT_CONFIG)
             })
-            .with_context(|| format!("failed to parse {:?}", config_path.display()))
+            .with_context(|| format!("failed to parse {:?}", config_path))
             .expect("valid configuration");
 
         for bind in &config.bindings.keys {
@@ -119,7 +119,7 @@ impl Nes {
     pub(crate) fn save_config(&mut self) {
         let path = config_path(CONFIG);
         match File::create(&path)
-            .with_context(|| format!("failed to open {:?}", path.display()))
+            .with_context(|| format!("failed to open {:?}", path))
             .map(|file| serde_json::to_writer_pretty(BufWriter::new(file), &self.config))
         {
             Ok(_) => log::info!("Saved configuration"),

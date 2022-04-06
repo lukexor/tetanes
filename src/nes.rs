@@ -15,14 +15,12 @@ use crate::{
     NesResult,
 };
 use config::Config;
-use filesystem::is_nes_rom;
 use menu::{Menu, Player};
 use pix_engine::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
     env,
     ffi::OsStr,
-    fmt::Write,
     ops::ControlFlow,
     path::PathBuf,
     time::{Duration, Instant},
@@ -263,19 +261,7 @@ impl Nes {
     ///
     /// If engine fails to build or run, then an error is returned.
     pub fn run(&mut self) -> NesResult<()> {
-        let mut title = APP_NAME.to_owned();
-        if is_nes_rom(&self.config.rom_path) {
-            if let Some(filename) = self
-                .config
-                .rom_path
-                .file_name()
-                .map(OsStr::to_string_lossy)
-                .map(|f| f.replace(".nes", ""))
-            {
-                write!(title, " - {}", filename)?;
-            }
-        }
-
+        let title = APP_NAME.to_owned();
         let width = (self.config.scale * WINDOW_WIDTH) as u32;
         let height = (self.config.scale * WINDOW_HEIGHT) as u32;
         let mut engine = PixEngine::builder();
@@ -341,15 +327,7 @@ impl AppState for Nes {
             s.window_id(),
             Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgb)?),
         ));
-        if is_nes_rom(&self.config.rom_path) {
-            self.load_rom(s);
-            if let Ok(path) = self.save_path(1) {
-                if path.exists() {
-                    self.load_state(1);
-                }
-            }
-            self.load_replay();
-        }
+        self.load_rom(s);
         if self.debug {
             self.toggle_debugger(s)?;
         }
@@ -389,8 +367,8 @@ impl AppState for Nes {
                 }
                 self.update_rewind();
                 if self.control_deck.cpu_corrupted() {
-                    self.open_menu(s, Menu::LoadRom)?;
                     self.error = Some("CPU encountered invalid opcode.".into());
+                    self.open_menu(s, Menu::LoadRom)?;
                     return Ok(());
                 }
             }
@@ -455,37 +433,40 @@ impl AppState for Nes {
             println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
         }
 
-        match self.confirm_quit {
-            None => {
-                if let Err(err) = self.save_sram() {
-                    log::error!("{}", err);
-                    self.confirm_quit = Some((
-                        "Failed to save game state. Do you still want to quit?".to_string(),
-                        false,
-                    ));
-                    self.pause_play();
+        if self.control_deck.loaded_rom().is_some() {
+            match self.confirm_quit {
+                None => {
+                    if let Err(err) = self.save_sram() {
+                        log::error!("{}", err);
+                        self.confirm_quit = Some((
+                            "Failed to save game state. Do you still want to quit?".to_string(),
+                            false,
+                        ));
+                        self.pause_play();
+                        s.abort_quit();
+                        return Ok(());
+                    }
+                }
+                Some((_, false)) => {
                     s.abort_quit();
                     return Ok(());
                 }
+                _ => (),
             }
-            Some((_, false)) => {
-                s.abort_quit();
-                return Ok(());
+            if self
+                .config
+                .rom_path
+                .iter()
+                .all(|path| path != OsStr::new("test_roms"))
+            {
+                self.save_state(1);
             }
-            _ => (),
-        }
-        if self
-            .config
-            .rom_path
-            .iter()
-            .all(|path| path != OsStr::new("test_roms"))
-        {
-            self.save_state(1);
+
+            if self.replay.mode == ReplayMode::Recording {
+                self.stop_replay();
+            }
         }
         self.save_config();
-        if self.replay.mode == ReplayMode::Recording {
-            self.stop_replay();
-        }
         self.control_deck.power_off();
         Ok(())
     }
