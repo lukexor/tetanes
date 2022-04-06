@@ -812,8 +812,8 @@ impl Cpu {
     pub(super) fn branch(&mut self) {
         // If an interrupt occurs during the final cycle of a non-pagecrossing branch
         // then it will be ignored until the next instruction completes
-        let skip_nmi = self.nmi_pending && !self.last_nmi;
-        let skip_irq = !self.irqs_pending.is_empty() && !self.last_irq;
+        let skip_nmi = self.nmi && !self.last_nmi;
+        let skip_irq = !self.irq.is_empty() && !self.last_irq;
 
         self.read(self.pc); // Dummy read
 
@@ -1061,16 +1061,16 @@ impl Cpu {
         self.push_stackb((self.status | Status::U | Status::B).bits());
         self.status.set(Status::I, true);
         if self.last_nmi {
-            self.nmi_pending = false;
+            self.nmi = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_VECTOR);
             if log_enabled!(Level::Trace) && self.debugging {
-                log::trace!("NMI: {}", self.cycle_count);
+                log::trace!("NMI: {}", self.cycle);
             }
         } else {
             self.pc = self.readw(IRQ_VECTOR);
             if log_enabled!(Level::Trace) && self.debugging {
-                log::trace!("IRQ: {}", self.cycle_count);
+                log::trace!("IRQ: {}", self.cycle);
             }
         }
         // Prevent NMI from triggering immediately after BRK

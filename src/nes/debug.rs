@@ -75,7 +75,7 @@ impl Nes {
                     }
                     s.pop();
 
-                    s.text(&format!("Cycles: {:8}", cpu.cycle_count))?;
+                    s.text(&format!("Cycle: {:8}", cpu.cycle))?;
                     // TODO: Total running time
 
                     s.spacing()?;

@@ -331,22 +331,14 @@ mod tests {
     };
 
     test_roms!("mapper/m004_txrom", {
+        (a12_clocking, 18, 3539219657249989563),
         (clocking, 18, 322938496700885059),
         (details, 23, 51582360794753888),
-        (a12_clocking, 18, 3539219657249989563),
-        (scanline_timing, 86, 5608742911791212006),
         (rev_b, 18, 1278523550437424362),
+        (scanline_timing, 86, 5608742911791212006),
     });
 
     test_roms_adv!("mapper/m004_txrom", {
-        (rev_a, 20, |frame, deck| {
-            if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
-                mapper.set_revision(Mmc3Rev::A);
-            }
-            if frame == 20 {
-                compare(12265830583915381923, deck, "mmc3_rev_a");
-            }
-        }),
         (big_chr_ram, 72, |frame, deck| match frame {
                 6 => compare(12299299979523053842, deck, "mmc3_big_chr_1"),
                 10 => deck.gamepad_mut(SLOT1).start = true,
@@ -355,5 +347,12 @@ mod tests {
                 _ => (),
             },
         ),
+        (rev_a, 20, |frame, deck| match frame {
+            0 => if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
+                mapper.set_revision(Mmc3Rev::A);
+            }
+            20 => compare(12265830583915381923, deck, "mmc3_rev_a"),
+            _ => (),
+        }),
     });
 }

@@ -547,8 +547,8 @@ impl Nes {
                 self.error = None;
                 self.control_deck.reset();
                 self.add_message("Reset");
-                if self.debugger.is_some() {
-                    self.toggle_pause(s)?;
+                if self.debugger.is_some() && self.mode != Mode::Paused {
+                    self.mode = Mode::Paused;
                 }
             }
             NesState::PowerCycle => {
@@ -556,7 +556,7 @@ impl Nes {
                 self.control_deck.power_cycle();
                 self.add_message("Power Cycled");
                 if self.debugger.is_some() {
-                    self.toggle_pause(s)?;
+                    self.mode = Mode::Paused;
                 }
             }
         }

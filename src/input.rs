@@ -421,12 +421,24 @@ impl fmt::Debug for Input {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_roms;
+    use crate::test_roms_adv;
 
-    test_roms!("input", {
-        (zapper_flip, 0, 0, "TODO"),
-        (zapper_light, 0, 0, "TODO"),
-        (zapper_stream, 0, 0, "TODO"),
-        (zapper_trigger, 0, 0, "TODO"),
+    test_roms_adv!("input", {
+        (zapper_flip, 100, |frame, _deck| match frame {
+            0 => todo!(),
+            _ => (),
+        }, "TODO"),
+        (zapper_light, 100, |frame, _deck| match frame {
+            0 => todo!(),
+            _ => (),
+        }, "TODO"),
+        (zapper_stream, 100, |frame, _deck| match frame {
+            0 => todo!(),
+            _ => (),
+        }, "TODO"),
+        (zapper_trigger, 100, |frame, _deck| match frame {
+            0 => todo!(),
+            _ => (),
+        }, "TODO"),
     });
 }

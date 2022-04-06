@@ -39,9 +39,6 @@
     html_logo_url = "https://github.com/lukexor/tetanes/blob/main/static/tetanes_icon.png?raw=true"
 )]
 
-use pretty_env_logger as _;
-use structopt as _;
-
 pub mod apu;
 pub mod bus;
 pub mod cart;

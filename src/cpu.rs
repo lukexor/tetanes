@@ -4,7 +4,7 @@
 
 use crate::{
     bus::Bus,
-    common::{Clocked, Powered},
+    common::{Clocked, NesFormat, Powered},
     mapper::Mapped,
     memory::{MemRead, MemWrite},
 };
@@ -93,21 +93,21 @@ pub const STATUS_REGS: [Status; 8] = [
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cpu {
-    pub cycle_count: usize, // total number of cycles ran
-    pub step: usize,        // total number of CPU instructions run
-    pub pc: u16,            // program counter
-    pub sp: u8,             // stack pointer - stack is at $0100-$01FF
-    pub acc: u8,            // accumulator
-    pub x: u8,              // x register
-    pub y: u8,              // y register
-    pub status: Status,     // Status Registers
+    pub cycle: usize,   // total number of cycles ran
+    pub step: usize,    // total number of CPU instructions run
+    pub pc: u16,        // program counter
+    pub sp: u8,         // stack pointer - stack is at $0100-$01FF
+    pub acc: u8,        // accumulator
+    pub x: u8,          // x register
+    pub y: u8,          // y register
+    pub status: Status, // Status Registers
     pub bus: Bus,
-    pub instr: Instr,      // The currently executing instruction
-    pub abs_addr: u16,     // Used memory addresses get set here
-    pub rel_addr: u16,     // Relative address for branch instructions
-    pub fetched_data: u8,  // Represents data fetched for the ALU
-    pub irqs_pending: Irq, // Pending interrupts
-    pub nmi_pending: bool,
+    pub instr: Instr,     // The currently executing instruction
+    pub abs_addr: u16,    // Used memory addresses get set here
+    pub rel_addr: u16,    // Relative address for branch instructions
+    pub fetched_data: u8, // Represents data fetched for the ALU
+    pub irq: Irq,         // Pending interrupts
+    pub nmi: bool,
     #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     pub last_irq: bool,
@@ -120,7 +120,7 @@ pub struct Cpu {
 impl Cpu {
     pub const fn init(bus: Bus) -> Self {
         Self {
-            cycle_count: 0,
+            cycle: 0,
             step: 0,
             pc: 0x0000,
             sp: 0x00,
@@ -133,8 +133,8 @@ impl Cpu {
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            irqs_pending: Irq::empty(),
-            nmi_pending: false,
+            irq: Irq::empty(),
+            nmi: false,
             corrupted: false,
             last_irq: false,
             last_nmi: false,
@@ -237,24 +237,6 @@ impl Cpu {
         (addr, val)
     }
 
-    /// Sends an IRQ Interrupt to the CPU
-    ///
-    /// <http://wiki.nesdev.com/w/index.php/IRQ>
-    #[inline]
-    pub fn set_irq(&mut self, irq: Irq, val: bool) {
-        if val {
-            self.irqs_pending |= irq;
-        } else {
-            self.irqs_pending &= !irq;
-        }
-    }
-
-    /// Checks if a a given IRQ is active
-    #[inline]
-    pub fn has_irq(&mut self, irq: Irq) -> bool {
-        self.irqs_pending.intersects(irq)
-    }
-
     //  #  address R/W description
     // --- ------- --- -----------------------------------------------
     //  1    PC     R  fetch PCH
@@ -264,6 +246,7 @@ impl Cpu {
     //  5  $0100,S  W  push P to stack, decrement S
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
+    // <http://wiki.nesdev.com/w/index.php/IRQ>
     #[inline]
     pub fn irq(&mut self) {
         self.read(self.pc);
@@ -273,16 +256,16 @@ impl Cpu {
         self.push_stackb(((self.status | Status::U) & !Status::B).bits());
         self.status.set(Status::I, true);
         if self.last_nmi {
-            self.nmi_pending = false;
+            self.nmi = false;
             self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_VECTOR);
             if self.debugging {
-                log::trace!("NMI: {}", self.cycle_count);
+                log::trace!("NMI: {}", self.cycle);
             }
         } else {
             self.pc = self.readw(IRQ_VECTOR);
             if self.debugging {
-                log::trace!("IRQ: {}", self.cycle_count);
+                log::trace!("IRQ: {}", self.cycle);
             }
         }
         // Prevent NMI from triggering immediately after IRQ
@@ -307,7 +290,7 @@ impl Cpu {
         self.push_stackb(((self.status | Status::U) & !Status::B).bits());
         self.status.set(Status::I, true);
         self.pc = self.readw(NMI_VECTOR);
-        self.nmi_pending = false;
+        self.nmi = false;
         self.bus.ppu.nmi_pending = false;
     }
 
@@ -320,15 +303,15 @@ impl Cpu {
 
     #[inline]
     fn end_cycle(&mut self) {
-        self.cycle_count = self.cycle_count.wrapping_add(1);
+        self.cycle = self.cycle.wrapping_add(1);
 
-        self.last_nmi = self.nmi_pending;
-        self.last_irq = !self.irqs_pending.is_empty() && !self.status.intersects(Status::I);
-        self.nmi_pending = self.bus.ppu.nmi_pending;
+        self.last_nmi = self.nmi;
+        self.last_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
+        self.nmi = self.bus.ppu.nmi_pending;
 
-        self.set_irq(Irq::MAPPER, self.bus.cart.irq_pending());
-        self.set_irq(Irq::FRAME_COUNTER, self.bus.apu.irq_pending);
-        self.set_irq(Irq::DMC, self.bus.apu.dmc.irq_pending);
+        self.irq.set(Irq::MAPPER, self.bus.cart.irq_pending());
+        self.irq.set(Irq::FRAME_COUNTER, self.bus.apu.irq_pending);
+        self.irq.set(Irq::DMC, self.bus.apu.dmc.irq_pending);
         if self.bus.apu.dmc.dma_pending {
             self.bus.apu.dmc.dma_pending = false;
             self.dmc_dma = true;
@@ -359,14 +342,17 @@ impl Cpu {
         self.end_cycle();
         self.bus.halt = false;
 
-        let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
+        // PAL is exempt from DMC DMA controller conflict
+        // https://www.nesdev.org/wiki/APU_DMC#Conflict_with_controller_and_PPU_read
+        let skip_dummy_reads =
+            self.bus.ppu.nes_format == NesFormat::Pal && (addr == 0x4016 || addr == 0x4017);
         let oam_read_addr = u16::from(self.bus.ppu.dma_offset) << 8;
         let mut oam_read_offset = 0;
         let mut oam_data = 0;
         let mut oam_dma_count = 0;
 
         while self.bus.ppu.oam_dma || self.dmc_dma {
-            if self.cycle_count & 0x01 == 0x00 {
+            if self.cycle & 0x01 == 0x00 {
                 if self.dmc_dma && !self.bus.halt && !self.bus.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
@@ -706,7 +692,7 @@ impl Cpu {
             self.sp,
             self.bus.ppu.cycle,
             self.bus.ppu.scanline,
-            self.cycle_count,
+            self.cycle,
         );
     }
 
@@ -722,7 +708,7 @@ impl Cpu {
 impl Clocked for Cpu {
     /// Runs the CPU one instruction
     fn clock(&mut self) -> usize {
-        let start_cycles = self.cycle_count;
+        let start_cycle = self.cycle;
 
         let opcode = self.read(self.pc); // Cycle 1 of instruction
         self.trace_instr();
@@ -832,7 +818,7 @@ impl Clocked for Cpu {
         }
 
         self.step += 1;
-        self.cycle_count - start_cycles
+        self.cycle - start_cycle
     }
 }
 
@@ -863,9 +849,9 @@ impl MemWrite for Cpu {
 impl Powered for Cpu {
     /// Powers on the CPU
     fn power_on(&mut self) {
-        self.cycle_count = 0;
-        self.irqs_pending = Irq::empty();
-        self.nmi_pending = false;
+        self.cycle = 0;
+        self.irq = Irq::empty();
+        self.nmi = false;
         self.corrupted = false;
         self.dmc_dma = false;
 
@@ -915,14 +901,7 @@ impl fmt::Debug for Cpu {
         write!(
             f,
             "Cpu {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} rel_addr:{} }}",
-            self.pc,
-            self.acc,
-            self.x,
-            self.y,
-            self.status,
-            self.sp,
-            self.cycle_count,
-            self.rel_addr
+            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycle, self.rel_addr
         )
     }
 }
@@ -946,7 +925,7 @@ mod tests {
         cpu.power_on();
         cpu.clock();
 
-        assert_eq!(cpu.cycle_count, 15, "cpu after power + one clock");
+        assert_eq!(cpu.cycle, 15, "cpu after power + one clock");
         assert_eq!(cpu.bus.ppu.cycle_count, 45, "ppu after power + one clock");
 
         for instr in INSTRUCTIONS.iter() {
@@ -959,7 +938,7 @@ mod tests {
                 continue;
             }
             cpu.pc = 0;
-            cpu.cycle_count = 0;
+            cpu.cycle = 0;
             cpu.bus.ppu.cycle_count = 0;
             cpu.status = POWER_ON_STATUS;
             cpu.acc = 0;
@@ -970,7 +949,7 @@ mod tests {
             let cpu_cyc = instr.cycles() + extra_cycle;
             let ppu_cyc = 3 * (instr.cycles() + extra_cycle);
             assert_eq!(
-                cpu.cycle_count,
+                cpu.cycle,
                 cpu_cyc,
                 "cpu ${:02X} {:?} #{:?}",
                 instr.opcode(),
@@ -997,32 +976,33 @@ mod tests {
         (dummy_writes_ppumem, 235, 16925061668762177335),
         (exec_space_apu, 300, 9746493037754339701),
         (exec_space_ppuio, 50, 18223146813660982201),
-        (flag_concurrency, 840, 2638664853799669848, "Need to compare output to determine successful result"),
-        (instr_abs, 111, 1020433661014349973),
-        (instr_abs_xy, 367, 18414146725849507085),
-        (instr_branches, 44, 11569134198446789786),
-        (instr_brk, 26, 6151346189217710074),
-        (instr_imm, 88, 15603678654691135356),
-        (instr_imp, 110, 3635073173910586497),
-        (instr_ind_x, 148, 2953592126388098909),
-        (instr_ind_y, 138, 3197740518018157303),
-        (instr_jmp_jsr, 17, 16184526519168544917),
+        (flag_concurrency, 840, 2638664853799669848),
+        (instr_abs, 111, 12048716406341759642),
+        (instr_abs_xy, 367, 12692215775884018089),
+        (instr_basics, 17, 1467428815858025816),
+        (instr_branches, 44, 212992572905666433),
+        (instr_brk, 26, 16973279277709091465),
+        (instr_imm, 88, 5925273358661701815),
+        (instr_imp, 110, 7177125864603875152),
+        (instr_ind_x, 148, 4226748604005841959),
+        (instr_ind_y, 138, 256824703917684375),
+        (instr_jmp_jsr, 17, 4113516875994165533),
         (instr_misc, 240, 6410133862686352196),
-        (instr_rti, 14, 18409538363051570770),
-        (instr_rts, 17, 3480626052174766819),
-        (instr_special, 11, 18220406969987149590),
-        (instr_stack, 168, 15211316055101168882),
+        (instr_rti, 14, 11716175593070244711),
+        (instr_rts, 17, 2658202673636802771),
+        (instr_special, 11, 822170693113457084),
+        (instr_stack, 168, 1612333551662937858),
         (instr_timing, 1305, 13007721788673393267),
-        (instr_zp, 119, 10087936018475398294),
-        (instr_zp_xy, 261, 8324323703779705624),
+        (instr_zp, 119, 3410467318612930860),
+        (instr_zp_xy, 261, 11500180269015527130),
         (int_branch_delays_irq, 384, 16452878842435291825),
         (int_cli_latency, 17, 6258840410173416640),
         (int_irq_and_dma, 75, 13358975779607334897),
         (int_nmi_and_brk, 114, 17633239368772221973),
         (int_nmi_and_irq, 134, 10095178669490697839),
         (overclock, 12, 8933913286013221836),
-        (sprdma_and_dmc_dma, 0, 0, "fails with black screen and beeping"),
-        (sprdma_and_dmc_dma_512, 0, 0, "fails with black screen and beeping"),
+        (sprdma_and_dmc_dma, 100, 0, "fails with black screen and beeping"),
+        (sprdma_and_dmc_dma_512, 100, 0, "fails with black screen and beeping"),
         (timing_test, 615, 1923625356858417593),
     });
 

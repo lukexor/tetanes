@@ -151,7 +151,7 @@ pub(crate) mod tests {
 
     #[macro_export]
     macro_rules! test_roms {
-        ($dir:expr, { $( ($test:ident, $run_frames:expr, $hash:expr$(, $ignore:expr)?$(,)?) ),* $(,)? }) => {$(
+        ($dir:expr, { $( ($test:ident, $run_frames:expr, $hash:expr $(, $ignore:expr)? $(,)?) ),* $(,)? }) => {$(
             $(#[ignore = $ignore])?
             #[test]
             fn $test() {
@@ -162,7 +162,8 @@ pub(crate) mod tests {
 
     #[macro_export]
     macro_rules! test_roms_adv {
-        ($dir:expr, { $( ($test:ident, $run_frames:expr, $fn:expr$(,)?) ),* $(,)? }) => {$(
+        ($dir:expr, { $( ($test:ident, $run_frames:expr, $fn:expr $(, $ignore:expr)? $(,)?) ),* $(,)? }) => {$(
+            $(#[ignore = $ignore])?
             #[test]
             fn $test() {
                 crate::common::tests::test_rom_advanced(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $fn);

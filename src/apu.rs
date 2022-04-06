@@ -595,35 +595,63 @@ impl LinearCounter {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unreadable_literal)]
-    use crate::test_roms;
+    use crate::{
+        common::{tests::compare, Powered},
+        test_roms, test_roms_adv,
+    };
 
     test_roms!("apu", {
         (clock_jitter, 15, 11142254853534581794),
         (dmc_basics, 25, 4777243056264901558),
-        (dmc_double_2007_read, 20, 10498985860445899032),
+        (dmc_dma_2007_read, 21, 17221983624275366323),
+        (dmc_dma_2007_write, 26, 6819750118289511461),
+        (dmc_dma_4016_read, 21, 17221983624275366323),
+        (dmc_dma_double_2007_read, 20, 10498985860445899032),
+        (dmc_dma_read_write_2007, 24, 17262164619652057735),
         (dmc_rates, 27, 11063982786335661106),
-        (dmc_read_write_2007, 24, 17262164619652057735),
         (dpcmletterbox, 10, 1985156316546052267),
         (irq_flag, 16, 11142254853534581794),
-        (irq_flag_timing, 0, 0, "fails $04"),
+        (irq_flag_timing, 100, 0, "fails $04"),
         (irq_timing, 15, 11142254853534581794),
+        (jitter, 18, 1036648701261398994),
         (len_ctr, 25, 11142254853534581794),
-        (len_halt_timing, 0, 0, "fails $03"),
-        (len_reload_timing, 0, 0, "fails $04"),
+        (len_halt_timing, 100, 0, "fails $03"),
+        (len_reload_timing, 100, 0, "fails $04"),
         (len_table, 10, 11142254853534581794),
-        (len_timing_mode0, 0, 0, "fails $04"),
-        (len_timing_mode1, 0, 0, "fails $05"),
-        (reset_timing, 0, 0, "fails $04"),
-        (test, 0, 0, "Channel: 0 second length of mode 0 is too soon, 5-len-timing #4 5 of 8"),
+        (len_timing, 100, 0, "Channel: 0 second length of mode 0 is too soon"),
+        (len_timing_mode0, 100, 0, "fails $04"),
+        (len_timing_mode1, 100, 0, "fails $05"),
+        (reset_4017_timing, 100, 0, "Delay after effective $4017 write: 0, Frame IRQ should be set sooner after power/reset, #3"),
+        (reset_4017_written, 100, 0, "At power, $4017 should be written with $00, #2"),
+        (reset_len_ctrs_enabled, 100, 0, "At power, length counters should be enabled, #2"),
+        (reset_timing, 100, 0, "fails $04"),
         (test_1, 10, 2319187644663237904),
-        (test_10, 0, 0, "fails"),
         (test_2, 10, 2319187644663237904),
-        (test_3, 0, 0, "fails"),
-        (test_4, 0, 0, "fails"),
+        (test_3, 100, 0, "fails"),
+        (test_4, 100, 0, "fails"),
         (test_5, 10, 2319187644663237904),
         (test_6, 10, 2319187644663237904),
-        (test_7, 0, 0, "fails"),
-        (test_8, 0, 0, "fails"),
-        (test_9, 0, 0, "fails"),
+        (test_7, 100, 0, "fails"),
+        (test_8, 100, 0, "fails"),
+        (test_9, 100, 0, "fails"),
+        (test_10, 100, 0, "fails"),
+    });
+
+    test_roms_adv!("apu", {
+        (reset_4015_cleared, 15, |frame, deck| match frame {
+            10 => deck.reset(),
+            17 => compare(116295277903678038, deck, "reset_4015_cleared"),
+            _ => (),
+        }),
+        (reset_irq_flag_cleared, 16, |frame, deck| match frame {
+            11 => deck.reset(),
+            18 => compare(13991247418321945900, deck, "reset_irq_flag_cleared"),
+            _ => (),
+        }),
+        (reset_works_immediately, 18, |frame, deck| match frame {
+            15 => deck.reset(),
+            21 => compare(1786657150847637076, deck, "reset_works_immediately"),
+            _ => (),
+        }),
     });
 }
