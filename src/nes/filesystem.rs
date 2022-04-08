@@ -162,13 +162,6 @@ impl Nes {
             return;
         }
 
-        if let Ok(path) = self.save_path(1) {
-            if path.exists() {
-                self.load_state(1);
-            }
-        }
-        self.load_replay();
-
         self.error = None;
         self.mode = Mode::Paused;
         s.pause_audio();
@@ -209,6 +202,13 @@ impl Nes {
                 self.error = Some(format!("Failed to load ROM {:?}", self.rom_filename()));
             }
         }
+
+        if let Ok(path) = self.save_path(1) {
+            if path.exists() {
+                self.load_state(1);
+            }
+        }
+        self.load_replay();
     }
 }
 
