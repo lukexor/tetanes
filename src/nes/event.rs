@@ -595,8 +595,10 @@ impl Nes {
         setting: Setting,
         pressed: bool,
     ) -> NesResult<()> {
-        if setting == Setting::FastForward && !pressed {
-            self.set_speed(1.0);
+        if !pressed {
+            if setting == Setting::FastForward {
+                self.set_speed(1.0);
+            }
             return Ok(());
         }
         match setting {
@@ -618,12 +620,11 @@ impl Nes {
                 }
             }
             Setting::ToggleNtscFilter => {
-                let enabled = self.control_deck.filter() == VideoFilter::Ntsc;
-                self.control_deck.set_filter(if enabled {
-                    VideoFilter::None
-                } else {
-                    VideoFilter::Ntsc
-                });
+                self.config.filter = match self.config.filter {
+                    VideoFilter::None => VideoFilter::Ntsc,
+                    VideoFilter::Ntsc => VideoFilter::None,
+                };
+                self.control_deck.set_filter(self.config.filter);
             }
             Setting::ToggleSound => {
                 self.config.sound = !self.config.sound;
