@@ -699,14 +699,8 @@ impl MapWrite for Exrom {
             }
             0x5015 => {
                 //  [.... ..BA]   Enable flags for Pulse 1 (A), 2 (B)  (0=disable, 1=enable)
-                self.pulse1.enabled = val & 1 == 1;
-                if !self.pulse1.enabled {
-                    self.pulse1.length.counter = 0;
-                }
-                self.pulse2.enabled = (val >> 1) & 1 == 1;
-                if !self.pulse2.enabled {
-                    self.pulse2.length.counter = 0;
-                }
+                self.pulse1.set_enabled(val & 0x01 == 0x01);
+                self.pulse2.set_enabled(val & 0x10 == 0x10);
             }
             0x5100 => {
                 // [.... ..PP] PRG Mode

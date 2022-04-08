@@ -17,13 +17,13 @@ pub enum OutputFreq {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pulse {
-    pub enabled: bool,
+    enabled: bool,
     duty_cycle: u8,        // Select row in DUTY_TABLE
     duty_counter: u8,      // Select column in DUTY_TABLE
     freq_timer: u16,       // timer freq_counter reload value
     freq_counter: u16,     // Current frequency timer value
     channel: PulseChannel, // One or Two
-    pub length: LengthCounter,
+    pub(crate) length: LengthCounter,
     envelope: Envelope,
     sweep: Sweep,
     output_freq: OutputFreq,
