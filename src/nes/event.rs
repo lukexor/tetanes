@@ -278,7 +278,6 @@ impl Nes {
         S: Into<String>,
     {
         let text = text.into();
-        log::info!("{}", text);
         self.messages.push((text, Instant::now()));
     }
 
@@ -286,7 +285,7 @@ impl Nes {
     pub(crate) fn render_messages(&mut self, s: &mut PixState) -> NesResult<()> {
         self.messages
             .retain(|(_, created)| created.elapsed() < Duration::from_secs(3));
-        self.messages.dedup();
+        self.messages.dedup_by(|a, b| a.0.eq(&b.0));
         for (message, _) in &self.messages {
             render_message(s, message, Color::WHITE)?;
         }
