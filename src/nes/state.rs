@@ -91,8 +91,13 @@ impl Nes {
             None => Err(anyhow!("no rom is loaded")),
         }
     }
+
     /// Save the current state of the console into a save file
     pub(crate) fn save_state(&mut self, slot: u8) {
+        // Avoid saving any test roms
+        if self.config.rom_path.to_string_lossy().contains("test") {
+            return;
+        }
         match self.save_path(slot).and_then(|save_path| {
             bincode::serialize(self.control_deck.cpu())
                 .context("failed to serialize save state")

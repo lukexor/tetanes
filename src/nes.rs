@@ -20,7 +20,6 @@ use pix_engine::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
     env,
-    ffi::OsStr,
     ops::ControlFlow,
     path::PathBuf,
     time::{Duration, Instant},
@@ -453,14 +452,7 @@ impl AppState for Nes {
                 }
                 _ => (),
             }
-            if self
-                .config
-                .rom_path
-                .iter()
-                .all(|path| path != OsStr::new("test_roms"))
-            {
-                self.save_state(1);
-            }
+            self.save_state(1);
 
             if self.replay.mode == ReplayMode::Recording {
                 self.stop_replay();
