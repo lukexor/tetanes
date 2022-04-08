@@ -421,6 +421,7 @@ impl fmt::Debug for Input {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::single_match)]
     use crate::test_roms_adv;
 
     test_roms_adv!("input", {

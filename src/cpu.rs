@@ -666,10 +666,6 @@ impl Cpu {
     // Print the current instruction and status
     #[inline]
     pub fn trace_instr(&self) {
-        if !self.debugging {
-            return;
-        }
-
         let mut pc = self.pc;
         let disasm = self.disassemble(&mut pc);
 
@@ -710,8 +706,11 @@ impl Clocked for Cpu {
     fn clock(&mut self) -> usize {
         let start_cycle = self.cycle;
 
+        if self.debugging {
+            self.trace_instr();
+        }
+
         let opcode = self.read(self.pc); // Cycle 1 of instruction
-        self.trace_instr();
         self.pc = self.pc.wrapping_add(1);
         self.instr = INSTRUCTIONS[opcode as usize];
 
@@ -976,7 +975,7 @@ mod tests {
         (dummy_writes_ppumem, 235, 16925061668762177335),
         (exec_space_apu, 300, 9746493037754339701),
         (exec_space_ppuio, 50, 18223146813660982201),
-        (flag_concurrency, 840, 2638664853799669848),
+        (flag_concurrency, 855, 3111294277716932226),
         (instr_abs, 111, 12048716406341759642),
         (instr_abs_xy, 367, 12692215775884018089),
         (instr_basics, 17, 1467428815858025816),

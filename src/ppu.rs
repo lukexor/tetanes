@@ -1381,8 +1381,8 @@ mod tests {
         (ntsc_torture, 11, |frame, deck| match frame {
             // TODO: Test more combinations
             0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(5237860285535505011, deck, "ntsc_torture_1"),
-            11 => compare(17400786824798675033, deck, "ntsc_torture_2"),
+            10 => compare(17400786824798675033, deck, "ntsc_torture_1"),
+            11 => compare(11536460144012955910, deck, "ntsc_torture_2"),
             _ => (),
         }),
         (tv, 15, |frame, deck| match frame {

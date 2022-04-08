@@ -11,7 +11,7 @@ use crate::{
     memory::{MemRead, MemWrite},
 };
 use dmc::Dmc;
-use frame_sequencer::{FcMode, FrameSequencer};
+use frame_counter::{FcMode, FrameCounter};
 use lazy_static::lazy_static;
 use noise::Noise;
 use pulse::{Pulse, PulseChannel};
@@ -48,7 +48,7 @@ pub mod pulse;
 pub mod triangle;
 
 mod envelope;
-mod frame_sequencer;
+mod frame_counter;
 
 /// A given APU audio channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -66,11 +66,11 @@ pub enum AudioChannel {
 #[must_use]
 pub struct Apu {
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
-    irq_enabled: bool,            // Set by $4017 D6
+    irq_disabled: bool,           // Set by $4017 D6
     clock_rate: f32,              // Same as CPU but is affected by speed changes
     cycle: usize,                 // Current APU cycle
     samples: Vec<f32>,            // Buffer of samples
-    frame_sequencer: FrameSequencer,
+    frame_counter: FrameCounter,
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
@@ -88,11 +88,11 @@ impl Apu {
     pub fn new() -> Self {
         Self {
             irq_pending: false,
-            irq_enabled: false,
+            irq_disabled: false,
             clock_rate: CPU_CLOCK_RATE,
             cycle: 0usize,
             samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
-            frame_sequencer: FrameSequencer::new(),
+            frame_counter: FrameCounter::new(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
             triangle: Triangle::new(),
@@ -134,48 +134,42 @@ impl Apu {
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
     #[inline]
-    fn clock_frame_sequencer(&mut self) {
-        let clock = self.frame_sequencer.clock();
-        match self.frame_sequencer.mode {
-            FcMode::Step4 => {
-                // mode 0: 4-step  effective rate (approx)
-                // ---------------------------------------
-                //     - - - f      60 Hz
-                //     - l - l     120 Hz
-                //     e e e e     240 Hz
-                match clock {
-                    1 | 3 => self.clock_quarter_frame(),
-                    2 => {
-                        self.clock_quarter_frame();
-                        self.clock_half_frame();
-                    }
-                    4 => {
-                        self.clock_quarter_frame();
-                        self.clock_half_frame();
-                        if self.irq_enabled {
-                            self.irq_pending = true;
-                        }
-                    }
-                    _ => (),
-                }
+    fn clock_frame_counter(&mut self) {
+        let clock = self.frame_counter.clock();
+
+        if self.frame_counter.mode == FcMode::Step4
+            && !self.irq_disabled
+            && self.frame_counter.step >= 4
+        {
+            self.irq_pending = true;
+        }
+
+        // mode 0: 4-step  effective rate (approx)
+        // ---------------------------------------
+        // - - - f f f      60 Hz
+        // - l - - l -     120 Hz
+        // e e e - e -     240 Hz
+        //
+        // mode 1: 5-step  effective rate (approx)
+        // ---------------------------------------
+        // - - - - - -     (interrupt flag never set)
+        // - l - - l -     96 Hz
+        // e e e - e -     192 Hz
+        match clock {
+            1 | 3 => {
+                self.clock_quarter_frame();
             }
-            FcMode::Step5 => {
-                // mode 1: 5-step  effective rate (approx)
-                // ---------------------------------------
-                // - - - - -   (interrupt flag never set)
-                // l - l - -    96 Hz
-                // e e e e -   192 Hz
-                match clock {
-                    1 | 3 => {
-                        self.clock_quarter_frame();
-                        self.clock_half_frame();
-                    }
-                    2 | 4 => {
-                        self.clock_quarter_frame();
-                    }
-                    _ => (),
-                }
+            2 | 5 => {
+                self.clock_quarter_frame();
+                self.clock_half_frame();
             }
+            _ => (),
+        }
+
+        // Clock Step5 immediately
+        if self.frame_counter.update() && self.frame_counter.mode == FcMode::Step5 {
+            self.clock_quarter_frame();
+            self.clock_half_frame();
         }
     }
 
@@ -223,27 +217,17 @@ impl Apu {
         } else {
             0.0
         };
-        if let Mapper::Exrom(ref exrom) = self.cart().mapper {
-            let pulse3 = if exrom.pulse1.enabled {
-                exrom.pulse1.output()
-            } else {
-                0.0
-            };
-            let pulse4 = if exrom.pulse2.enabled {
-                exrom.pulse2.output()
-            } else {
-                0.0
-            };
+        let (pulse, dmc) = if let Mapper::Exrom(ref exrom) = self.cart().mapper {
+            let pulse3 = exrom.pulse1.output();
+            let pulse4 = exrom.pulse2.output();
             let dmc2 = exrom.dmc.output();
-            let pulse_out = PULSE_TABLE[(pulse1 + pulse2 + pulse3 + pulse4) as usize % 31];
-            let tnd_out =
-                TND_TABLE[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc + dmc2) as usize % 203];
-            2.0 * (pulse_out + tnd_out)
+            (pulse1 + pulse2 + pulse3 + pulse4, dmc + dmc2)
         } else {
-            let pulse_out = PULSE_TABLE[(pulse1 + pulse2) as usize % 31];
-            let tnd_out = TND_TABLE[(3.5f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
-            2.0 * (pulse_out + tnd_out)
-        }
+            (pulse1 + pulse2, dmc)
+        };
+        let pulse_out = PULSE_TABLE[pulse as usize % 31];
+        let tnd_out = TND_TABLE[(3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
+        pulse_out + tnd_out
     }
 
     // $4015 READ
@@ -295,19 +279,9 @@ impl Apu {
     // $4017 APU frame counter
     #[inline]
     fn write_frame_counter(&mut self, val: u8) {
-        self.frame_sequencer.reload(val);
-        if self.cycle % 2 == 0 {
-            self.frame_sequencer.divider.counter += 1.0;
-        } else {
-            self.frame_sequencer.divider.counter += 2.0;
-        }
-        // Clock Step5 immediately
-        if self.frame_sequencer.mode == FcMode::Step5 {
-            self.clock_quarter_frame();
-            self.clock_half_frame();
-        }
-        self.irq_enabled = val & 0x40 == 0x00; // D6
-        if !self.irq_enabled {
+        self.frame_counter.write(val, self.cycle);
+        self.irq_disabled = val & 0x40 == 0x40; // D6
+        if self.irq_disabled {
             self.irq_pending = false;
         }
     }
@@ -340,7 +314,7 @@ impl Clocked for Apu {
         self.triangle.clock();
         // Technically only clocks every 2 CPU cycles, but due
         // to half-cycle timings, we clock every cycle
-        self.clock_frame_sequencer();
+        self.clock_frame_counter();
 
         self.sample_timer += 1.0;
         if self.sample_timer > self.sample_rate {
@@ -410,13 +384,18 @@ impl Powered for Apu {
         self.cycle = 0;
         self.samples.clear();
         self.irq_pending = false;
-        self.irq_enabled = false;
-        self.frame_sequencer = FrameSequencer::new();
+        self.irq_disabled = false;
+        self.frame_counter.reset();
         self.pulse1.reset();
         self.pulse2.reset();
         self.triangle.reset();
         self.noise.reset();
         self.dmc.reset();
+    }
+
+    fn power_cycle(&mut self) {
+        self.frame_counter.power_cycle();
+        self.reset();
     }
 }
 
@@ -430,11 +409,11 @@ impl fmt::Debug for Apu {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         f.debug_struct("Apu")
             .field("irq_pending", &self.irq_pending)
-            .field("irq_enabled", &self.irq_enabled)
+            .field("irq_disabled", &self.irq_disabled)
             .field("open_bus", &format_args!("${:02X}", &self.open_bus))
             .field("clock_rate", &self.clock_rate)
             .field("samples len", &self.samples.len())
-            .field("frame_sequencer", &self.frame_sequencer)
+            .field("frame_counter", &self.frame_counter)
             .field("pulse1", &self.pulse1)
             .field("pulse2", &self.pulse2)
             .field("triangle", &self.triangle)
@@ -442,75 +421,6 @@ impl fmt::Debug for Apu {
             .field("dmc", &self.dmc)
             .field("enabled", &self.enabled)
             .finish()
-    }
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub(crate) struct Sequencer {
-    pub(crate) step: usize,
-    pub(crate) length: usize,
-}
-
-impl Sequencer {
-    pub(crate) const fn new(length: usize) -> Self {
-        Self { step: 1, length }
-    }
-}
-
-impl Clocked for Sequencer {
-    #[inline]
-    fn clock(&mut self) -> usize {
-        let clock = self.step;
-        self.step += 1;
-        if self.step > self.length {
-            self.step = 1;
-        }
-        clock
-    }
-}
-
-impl Powered for Sequencer {
-    fn reset(&mut self) {
-        self.step = 1;
-    }
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub(crate) struct Divider {
-    pub(crate) counter: f32,
-    pub(crate) period: f32,
-}
-
-impl Divider {
-    pub(super) const fn new(period: f32) -> Self {
-        Self {
-            counter: period,
-            period,
-        }
-    }
-}
-
-impl Clocked for Divider {
-    #[must_use]
-    fn clock(&mut self) -> usize {
-        if self.counter > 0.0 {
-            self.counter -= 1.0;
-        }
-        if self.counter <= 0.0 {
-            // Reset and output a clock
-            self.counter += self.period;
-            1
-        } else {
-            0
-        }
-    }
-}
-
-impl Powered for Divider {
-    fn reset(&mut self) {
-        self.counter = self.period;
     }
 }
 
@@ -605,7 +515,7 @@ mod tests {
         (dmc_basics, 25, 4777243056264901558),
         (dmc_dma_2007_read, 21, 17221983624275366323),
         (dmc_dma_2007_write, 26, 6819750118289511461),
-        (dmc_dma_4016_read, 21, 17221983624275366323),
+        (dmc_dma_4016_read, 21, 17221983624275366323, "fails"),
         (dmc_dma_double_2007_read, 20, 10498985860445899032),
         (dmc_dma_read_write_2007, 24, 17262164619652057735),
         (dmc_rates, 27, 11063982786335661106),

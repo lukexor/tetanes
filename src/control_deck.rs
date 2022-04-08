@@ -46,11 +46,10 @@ impl ControlDeck {
     /// If there is any issue loading the ROM, then an error is returned.
     #[inline]
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: &S, rom: &mut F) -> NesResult<()> {
-        self.power_off();
         self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.ram_state)?;
         self.cpu.bus.load_cart(cart);
-        self.power_on();
+        self.power_cycle();
         Ok(())
     }
 
