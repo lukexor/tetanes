@@ -27,8 +27,6 @@ pub struct Bus {
     #[serde(skip)]
     pub input: Input,
     pub wram: Memory,
-    pub halt: bool,
-    pub dummy_read: bool,
     genie_codes: HashMap<u16, GenieCode>,
     open_bus: u8,
 }
@@ -66,8 +64,6 @@ impl Bus {
             input: Input::new(),
             cart: Box::new(Cart::new()),
             wram: Memory::ram(WRAM_SIZE, ram_state),
-            halt: false,
-            dummy_read: false,
             genie_codes: HashMap::new(),
             open_bus: 0,
         };
@@ -212,8 +208,7 @@ impl MemWrite for Bus {
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
             0x4014 => {
                 self.ppu.oam_dma = true;
-                self.ppu.dma_offset = val;
-                self.halt = true;
+                self.ppu.oam_dma_offset = val;
             }
             0x4016 => self.input.write(addr, val),
             0x4018..=0x401F => (), // APU/IO Test Mode
@@ -226,15 +221,11 @@ impl Powered for Bus {
         self.apu.reset();
         self.ppu.reset();
         self.cart.reset();
-        self.halt = false;
-        self.dummy_read = false;
     }
     fn power_cycle(&mut self) {
         self.apu.power_cycle();
         self.ppu.power_cycle();
         self.cart.power_cycle();
-        self.halt = false;
-        self.dummy_read = false;
     }
 }
 
@@ -252,8 +243,6 @@ impl fmt::Debug for Bus {
             .field("cart", &self.cart)
             .field("input", &self.input)
             .field("wram", &self.wram)
-            .field("halt", &self.halt)
-            .field("dummy_read", &self.dummy_read)
             .field("genie_codes", &self.genie_codes.values())
             .field("open_bus", &format_args!("${:02X}", &self.open_bus))
             .finish()

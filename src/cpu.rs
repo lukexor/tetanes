@@ -112,7 +112,9 @@ pub struct Cpu {
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     pub last_irq: bool,
     pub last_nmi: bool,
+    pub halt: bool,
     pub dmc_dma: bool,
+    pub dummy_read: bool,
     #[serde(skip)]
     pub debugging: bool,
 }
@@ -138,7 +140,9 @@ impl Cpu {
             corrupted: false,
             last_irq: false,
             last_nmi: false,
+            halt: false,
             dmc_dma: false,
+            dummy_read: false,
             debugging: false,
         }
     }
@@ -315,45 +319,45 @@ impl Cpu {
         if self.bus.apu.dmc.dma_pending {
             self.bus.apu.dmc.dma_pending = false;
             self.dmc_dma = true;
-            self.bus.halt = true;
-            self.bus.dummy_read = true;
+            self.halt = true;
+            self.dummy_read = true;
         }
     }
 
     #[inline]
     fn process_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
-        if self.bus.halt {
-            self.bus.halt = false;
-        } else if self.bus.dummy_read {
-            self.bus.dummy_read = false;
+        if self.halt {
+            self.halt = false;
+        } else if self.dummy_read {
+            self.dummy_read = false;
         }
         self.start_cycle();
     }
 
     #[inline]
     fn handle_dma(&mut self, addr: u16) {
-        if !self.bus.halt {
+        if !self.halt {
             return;
         }
 
         self.start_cycle();
         self.bus.read(addr);
         self.end_cycle();
-        self.bus.halt = false;
+        self.halt = false;
 
         // PAL is exempt from DMC DMA controller conflict
         // https://www.nesdev.org/wiki/APU_DMC#Conflict_with_controller_and_PPU_read
         let skip_dummy_reads =
             self.bus.ppu.nes_format == NesFormat::Pal && (addr == 0x4016 || addr == 0x4017);
-        let oam_read_addr = u16::from(self.bus.ppu.dma_offset) << 8;
+        let oam_read_addr = u16::from(self.bus.ppu.oam_dma_offset) << 8;
         let mut oam_read_offset = 0;
         let mut oam_data = 0;
         let mut oam_dma_count = 0;
 
         while self.bus.ppu.oam_dma || self.dmc_dma {
             if self.cycle & 0x01 == 0x00 {
-                if self.dmc_dma && !self.bus.halt && !self.bus.dummy_read {
+                if self.dmc_dma && !self.halt && !self.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
                     let val = self.bus.read(self.bus.apu.dmc.addr);
@@ -370,7 +374,7 @@ impl Cpu {
                 } else {
                     // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
                     // DMA isn't running
-                    debug_assert!(self.bus.halt || self.bus.dummy_read);
+                    debug_assert!(self.halt || self.dummy_read);
                     self.process_dma_cycle();
                     if !skip_dummy_reads {
                         self.bus.read(addr); // throw away
@@ -842,6 +846,9 @@ impl MemWrite for Cpu {
         self.start_cycle();
         self.bus.write(addr, val);
         self.end_cycle();
+        if addr == 0x4014 {
+            self.halt = true;
+        }
     }
 }
 
@@ -853,6 +860,8 @@ impl Powered for Cpu {
         self.nmi = false;
         self.corrupted = false;
         self.dmc_dma = false;
+        self.halt = false;
+        self.dummy_read = false;
 
         // Read directly from bus so as to not clock other components during reset
         let lo = u16::from(self.bus.read(RESET_VECTOR));
@@ -897,11 +906,30 @@ impl Powered for Cpu {
 
 impl fmt::Debug for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        write!(
-            f,
-            "Cpu {{ {:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{} rel_addr:{} }}",
-            self.pc, self.acc, self.x, self.y, self.status, self.sp, self.cycle, self.rel_addr
-        )
+        f.debug_struct("Cpu")
+            .field("cycle", &self.cycle)
+            .field("step", &self.step)
+            .field("pc", &format_args!("${:04X}", self.pc))
+            .field("sp", &format_args!("${:02X}", self.sp))
+            .field("acc", &format_args!("${:02X}", self.acc))
+            .field("x", &format_args!("${:02X}", self.x))
+            .field("y", &format_args!("${:02X}", self.y))
+            .field("status", &self.status)
+            .field("bus", &self.bus)
+            .field("instr", &self.instr)
+            .field("abs_addr", &format_args!("${:04X}", self.abs_addr))
+            .field("rel_addr", &format_args!("${:04X}", self.rel_addr))
+            .field("fetched_data", &format_args!("${:02X}", self.fetched_data))
+            .field("irq", &self.irq)
+            .field("nmi", &self.nmi)
+            .field("corrupted", &self.corrupted)
+            .field("last_irq", &self.last_irq)
+            .field("last_nmi", &self.last_nmi)
+            .field("halt", &self.halt)
+            .field("dmc_dma", &self.dmc_dma)
+            .field("dummy_read", &self.dummy_read)
+            .field("debugging", &self.debugging)
+            .finish()
     }
 }
 

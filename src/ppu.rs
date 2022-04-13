@@ -152,7 +152,7 @@ pub struct Ppu {
     pub scanline: u16,      // (0, 261) 262 total scanlines per frame
     pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
     pub oam_dma: bool,
-    pub dma_offset: u8,
+    pub oam_dma_offset: u8,
     pub vram: Vram,    // $2007 PPUDATA
     pub regs: PpuRegs, // Registers
     // Addr Low Nibble
@@ -179,7 +179,7 @@ impl Ppu {
             scanline: 0,
             nmi_pending: false,
             oam_dma: false,
-            dma_offset: 0x00,
+            oam_dma_offset: 0x00,
             regs: PpuRegs::new(),
             oamdata: Memory::ram(OAM_SIZE, RamState::AllZeros),
             vram: Vram::new(),
@@ -1144,7 +1144,7 @@ impl Powered for Ppu {
         self.scanline = 0;
         self.regs.w = false;
         self.oam_dma = false;
-        self.dma_offset = 0x00;
+        self.oam_dma_offset = 0x00;
         self.frame.reset();
         self.vram.reset();
         self.set_sprite_zero_hit(false);
@@ -1163,7 +1163,7 @@ impl Powered for Ppu {
         self.scanline = 0;
         self.regs.w = false;
         self.oam_dma = false;
-        self.dma_offset = 0x00;
+        self.oam_dma_offset = 0x00;
         self.frame.power_cycle();
         self.vram.power_cycle();
         self.set_sprite_zero_hit(false);
@@ -1192,7 +1192,7 @@ impl fmt::Debug for Ppu {
             .field("scanline", &self.scanline)
             .field("nmi_pending", &self.nmi_pending)
             .field("oam_dma", &self.oam_dma)
-            .field("dma_offset", &format_args!("${:02X}", &self.dma_offset))
+            .field("dma_offset", &format_args!("${:02X}", &self.oam_dma_offset))
             .field("vram", &self.vram)
             .field("regs", &self.regs)
             .field("oamdata", &self.oamdata)

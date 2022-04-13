@@ -311,7 +311,7 @@ When using the WASM version in the browser, also include:
 - Player Input
   - [x] 1-2 Player w/ Keyboard or Controllers
   - [ ] 3-4 Player Support w/ Controllers
-  - [ ] Zapper (Light Gun)
+  - [x] Zapper (Light Gun)
 - Cartridge
   - [x] iNES Format
   - [x] NES 2.0 Format
@@ -344,7 +344,7 @@ When using the WASM version in the browser, also include:
   - [x] Visual Rewind (Holding R will time-travel backward)
   - [x] Save/Load State
   - [X] Take Screenshots
-  - [ ] Gameplay Recording
+  - [x] Gameplay Recording
   - [ ] Sound Recording (Save those memorable tunes!)
   - [x] Toggle Fullscreen
   - [x] Toggle Sound
@@ -370,7 +370,7 @@ When using the WASM version in the browser, also include:
     - [ ] OAM Viewer (on screen sprites)
     - [ ] Palette Viewer
   - [ ] APU Viewer (Displays audio status and registers)
-  - [ ] 117/141 Rom tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
+  - [ ] 111/147 Rom tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
     - [ ] Automated (partially)
   - [ ] Detailed Documentation
   - Logging
