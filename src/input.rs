@@ -250,8 +250,8 @@ impl Zapper {
         let width = RENDER_WIDTH as i32;
         let height = RENDER_HEIGHT as i32;
         // EXPL: Light sense is 1 scanline delayed for, likely due to slightly inaccurate NMI timing
-        let scanline = i32::from(ppu.scanline) - 1;
-        let cycle = i32::from(ppu.cycle);
+        let scanline = ppu.scanline as i32 - 1;
+        let cycle = ppu.cycle as i32;
         let [x, y] = self.pos.as_array();
         if x >= 0 && y >= 0 {
             for y in (y - self.radius)..=(y + self.radius) {
@@ -260,9 +260,7 @@ impl Zapper {
                         let in_bounds = x >= 0 && x < width;
                         let behind_ppu =
                             scanline >= y && (scanline - y) <= 20 && (scanline != y || cycle > x);
-                        if in_bounds
-                            && behind_ppu
-                            && ppu.get_pixel_brightness(x as u32, y as u32) >= 85
+                        if in_bounds && behind_ppu && ppu.pixel_brightness(x as u32, y as u32) >= 85
                         {
                             return 0x00;
                         }

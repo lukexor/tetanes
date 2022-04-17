@@ -1,4 +1,4 @@
-use super::{Sprite, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH};
+use super::{RENDER_CHANNELS, RENDER_SIZE, RENDER_WIDTH};
 use crate::common::Powered;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -118,10 +118,6 @@ pub struct Frame {
     pub nametable: u16,
     pub attribute: u8,
     pub tile_data: u64,
-    // Sprite data
-    pub sprite_count: u8,
-    pub sprite_zero_on_line: bool,
-    pub sprites: [Sprite; 8], // Each frame can only hold 8 sprites at a time
     pub prev_pixel: u32,
     pub pixels: Vec<u8>,
 }
@@ -136,9 +132,6 @@ impl Frame {
             tile_lo: 0,
             tile_hi: 0,
             tile_data: 0,
-            sprite_count: 0,
-            sprite_zero_on_line: false,
-            sprites: [Sprite::new(); 8],
             prev_pixel: 0xFFFF,
             pixels: vec![0; RENDER_SIZE],
         }
@@ -150,10 +143,7 @@ impl Frame {
     }
 
     pub(super) fn put_pixel(&mut self, x: u32, y: u32, red: u8, green: u8, blue: u8) {
-        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
-            return;
-        }
-        let idx = RENDER_CHANNELS * (x + y * RENDER_WIDTH) as usize;
+        let idx = RENDER_CHANNELS * ((y << 8) + x) as usize;
         self.pixels[idx] = red;
         self.pixels[idx + 1] = green;
         self.pixels[idx + 2] = blue;
@@ -167,10 +157,7 @@ impl Frame {
     // Note: Because blending relies on previous x pixel, we shift everything to the
     // left and render an extra pixel column on the right
     pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, mut pixel: u32, ppu_cycle: u32) {
-        if x > RENDER_WIDTH || y >= RENDER_HEIGHT {
-            return;
-        }
-        if x == RENDER_WIDTH {
+        if x == RENDER_WIDTH - 1 {
             pixel = self.prev_pixel;
         }
         let color =
@@ -210,9 +197,6 @@ impl fmt::Debug for Frame {
             .field("nametable", &format_args!("${:04X}", &self.nametable))
             .field("attribute", &format_args!("${:02X}", &self.attribute))
             .field("tile_data", &format_args!("${:16X}", &self.tile_data))
-            .field("sprite_count", &self.sprite_count)
-            .field("sprite_zero_on_line", &self.sprite_zero_on_line)
-            .field("sprites", &self.sprites)
             .field("prev_pixel", &self.prev_pixel)
             .field("pixels", &self.pixels)
             .finish()

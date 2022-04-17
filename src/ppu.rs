@@ -40,28 +40,32 @@ pub const PATTERN_PIXELS: usize = (PATTERN_WIDTH * PATTERN_WIDTH) as usize;
 pub const PATTERN_SIZE: usize = RENDER_CHANNELS * PATTERN_PIXELS;
 
 // Cycles
-const IDLE_CYCLE: u16 = 0; // PPU is idle this cycle
-const VISIBLE_CYCLE_START: u16 = 1; // Tile data fetching starts
-const VISIBLE_CYCLE_END: u16 = 256; // 2 cycles each for 4 fetches = 32 tiles
-const SPRITE_PREFETCH_CYCLE_START: u16 = 257; // Sprites for next scanline fetch starts
-const SPRITE_PREFETCH_CYCLE_END: u16 = 320; // 2 cycles each for 4 fetches = 8 sprites
-const COPY_Y_CYCLE_START: u16 = 280; // Copy Y scroll start
-const COPY_Y_CYCLE_END: u16 = 304; // Copy Y scroll stop
-const INC_Y_CYCLE: u16 = 256; // Increase Y scroll when it reaches end of the screen
-const COPY_X_CYCLE: u16 = 257; // Copy X scroll when starting a new scanline
-const PREFETCH_CYCLE_START: u16 = 321; // Tile data for next scanline fetched
-const PREFETCH_CYCLE_END: u16 = 336; // 2 cycles each for 4 fetches = 2 tiles
-const DUMMY_CYCLE_START: u16 = 337; // Dummy fetches - use is unknown
-const SKIP_CYCLE: u16 = 339; // Odd frames skip the last cycle
-const CYCLE_END: u16 = 340; // 2 cycles each for 2 fetches
+const IDLE_CYCLE: u32 = 0; // PPU is idle this cycle
+const VISIBLE_CYCLE_START: u32 = 1; // Tile data fetching starts
+const VISIBLE_CYCLE_END: u32 = 256; // 2 cycles each for 4 fetches = 32 tiles
+const OAM_CLEAR_CYCLE_END: u32 = 64;
+const SPR_EVAL_CYCLE_START: u32 = 65;
+const SPR_EVAL_CYCLE_END: u32 = 256;
+const SPR_FETCH_CYCLE_START: u32 = 257; // Sprites for next scanline fetch starts
+const SPR_FETCH_CYCLE_END: u32 = 320; // 2 cycles each for 4 fetches = 8 sprites
+const COPY_Y_CYCLE_START: u32 = 280; // Copy Y scroll start
+const COPY_Y_CYCLE_END: u32 = 304; // Copy Y scroll stop
+const INC_Y_CYCLE: u32 = 256; // Increase Y scroll when it reaches end of the screen
+const COPY_X_CYCLE: u32 = 257; // Copy X scroll when starting a new scanline
+const BG_PREFETCH_CYCLE_START: u32 = 321; // Tile data for next scanline fetched
+const BG_PREFETCH_CYCLE_END: u32 = 336; // 2 cycles each for 4 fetches = 2 tiles
+const BG_DUMMY_CYCLE_START: u32 = 337; // Dummy fetches - use is unknown
+const SKIP_CYCLE: u32 = 339; // Odd frames skip the last cycle
+const CYCLE_END: u32 = 340; // 2 cycles each for 2 fetches
 const POWER_ON_CYCLES: usize = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
 
 // Scanlines
-const VISIBLE_SCANLINE_END: u16 = 239; // Rendering graphics for the screen
-const VBLANK_SCANLINE: u16 = 241; // Vblank set at tick 1 (the second tick)
-const PRERENDER_SCANLINE: u16 = 261;
+const VISIBLE_SCANLINE_END: u32 = 239; // Rendering graphics for the screen
+const VBLANK_SCANLINE: u32 = 241; // Vblank set at tick 1 (the second tick)
+const PRERENDER_SCANLINE: u32 = 261;
 
 pub const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
+pub const SECONDARY_OAM_SIZE: usize = 8 * 4; // 8 entries * 4 bytes each
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[must_use]
@@ -117,7 +121,7 @@ impl Default for Mirroring {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Viewer {
-    pub scanline: u16,
+    pub scanline: u32,
     pub nametables: Vec<Vec<u8>>,
     pub nametable_ids: Vec<u8>,
     pub pattern_tables: [Vec<u8>; 2],
@@ -146,11 +150,12 @@ impl Default for Viewer {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
-    pub cycle: u16,         // (0, 340) 341 cycles happen per scanline
+    pub cycle: u32,         // (0, 340) 341 cycles happen per scanline
     pub cycle_count: usize, // Total number of PPU cycles run
     pub frame_cycles: u32,  // Total number of PPU cycles run per frame
-    pub scanline: u16,      // (0, 261) 262 total scanlines per frame
+    pub scanline: u32,      // (0, 261) 262 total scanlines per frame
     pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
+    pub prevent_vbl: bool,
     pub oam_dma: bool,
     pub oam_dma_offset: u8,
     pub vram: Vram,    // $2007 PPUDATA
@@ -160,8 +165,15 @@ pub struct Ppu {
     // $01, $05, $09, $0D   Sprite tile #
     // $02, $06, $0A, $0E   Sprite attribute
     // $03, $07, $0B, $0F   Sprite X coord
-    pub oamdata: Memory, // $2004 OAMDATA read/write - Object Attribute Memory for Sprites
-    pub frame: Frame,    // Frame data keeps track of data and shift registers between frames
+    pub oam: Memory, // $2004 OAM data read/write - Object Attribute Memory for Sprites
+    pub secondary_oam: Memory, // Secondary OAM data for Sprites on a given scanline
+    pub oam_fetch: u8,
+    pub sprite_in_range: bool,
+    pub sprite0_in_range: bool,
+    pub sprite0_visible: bool,
+    pub sprite_count: u8,
+    pub sprites: [Sprite; 8], // Each scanline can hold 8 sprites at a time
+    pub frame: Frame,         // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub filter: VideoFilter,
     pub nes_format: NesFormat,
@@ -178,10 +190,18 @@ impl Ppu {
             frame_cycles: 0,
             scanline: 0,
             nmi_pending: false,
+            prevent_vbl: false,
             oam_dma: false,
             oam_dma_offset: 0x00,
             regs: PpuRegs::new(),
-            oamdata: Memory::ram(OAM_SIZE, RamState::AllZeros),
+            oam: Memory::ram(OAM_SIZE, RamState::AllOnes),
+            secondary_oam: Memory::ram(SECONDARY_OAM_SIZE, RamState::AllOnes),
+            oam_fetch: 0xFF,
+            sprite_in_range: false,
+            sprite0_in_range: false,
+            sprite0_visible: false,
+            sprite_count: 0,
+            sprites: [Sprite::new(); 8],
             vram: Vram::new(),
             frame: Frame::new(),
             frame_complete: false,
@@ -222,7 +242,7 @@ impl Ppu {
     }
 
     #[inline]
-    pub fn set_viewer_scanline(&mut self, scanline: u16) {
+    pub fn set_viewer_scanline(&mut self, scanline: u32) {
         if let Some(ref mut viewer) = self.viewer {
             viewer.scanline = scanline;
         }
@@ -335,25 +355,32 @@ impl Ppu {
             return;
         }
 
-        let visible_cycle = self.cycle >= VISIBLE_CYCLE_START && self.cycle <= VISIBLE_CYCLE_END;
-        let prefetch_cycle = self.cycle >= PREFETCH_CYCLE_START && self.cycle <= PREFETCH_CYCLE_END;
-        let dummy_cycle = self.cycle >= DUMMY_CYCLE_START && self.cycle <= CYCLE_END;
-        let fetch_cycle = prefetch_cycle || visible_cycle;
+        let visible_cycle = matches!(self.cycle, VISIBLE_CYCLE_START..=VISIBLE_CYCLE_END);
+        let bg_prefetch_cycle =
+            matches!(self.cycle, BG_PREFETCH_CYCLE_START..=BG_PREFETCH_CYCLE_END);
+        let bg_dummy_cycle = matches!(self.cycle, BG_DUMMY_CYCLE_START..=CYCLE_END);
+        let bg_fetch_cycle = bg_prefetch_cycle || visible_cycle;
+        let spr_eval_cycle = matches!(self.cycle, VISIBLE_CYCLE_START..=SPR_EVAL_CYCLE_END);
+        let spr_fetch_cycle = matches!(self.cycle, SPR_FETCH_CYCLE_START..=SPR_FETCH_CYCLE_END);
+        let spr_dummy_cycle = matches!(self.cycle, BG_PREFETCH_CYCLE_START..=CYCLE_END);
+
         let visible_scanline = self.scanline <= VISIBLE_SCANLINE_END;
         let prerender_scanline = self.scanline == PRERENDER_SCANLINE;
         let render_scanline = prerender_scanline || visible_scanline;
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
         // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
-        self.render_pixel();
+        if visible_cycle && visible_scanline {
+            self.render_pixel();
+        }
 
         if self.rendering_enabled() && render_scanline {
             // (1, 0) - (256, 239) - visible cycles/scanlines
             // (1, 261) - (256, 261) - prefetch scanline
             // (321, 0) - (336, 239) - next scanline fetch cycles
-            if fetch_cycle {
-                self.evaluate_background();
-            } else if dummy_cycle {
+            if bg_fetch_cycle {
+                self.fetch_background();
+            } else if bg_dummy_cycle {
                 // Dummy byte fetches
                 // (337, 0) - (337, 239)
                 self.fetch_bg_nt_byte();
@@ -368,7 +395,7 @@ impl Ppu {
             }
 
             // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-            if fetch_cycle && self.cycle % 8 == 0 {
+            if bg_fetch_cycle && self.cycle & 0x07 == 0x00 {
                 self.regs.increment_x();
             }
             // Increment Fine Y when we reach the end of the screen
@@ -381,35 +408,31 @@ impl Ppu {
                 self.regs.copy_x();
             }
 
-            // TODO - This should be split up instead of being done all at once
-            // The code block below this simulates the reads required, but
-            // its not ideal
-            if self.cycle == SPRITE_PREFETCH_CYCLE_START {
-                self.evaluate_sprites();
+            if self.cycle < 9 && prerender_scanline && self.regs.oamaddr >= 0x08 {
+                // If OAMADDR is not less than eight when rendering starts, the eight bytes
+                // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
+                let addr = self.cycle as u16 - 1;
+                let val = self.oam.read(u16::from(self.regs.oamaddr & 0xF8) + addr);
+                self.oam.write(addr, val);
             }
 
-            // HACK: This gets our IRQ timing properly for certain mappers (MMC3, MMC5)
-            // because evaluation is done all on one cycle
-            let sprite_prefetch = self.cycle >= SPRITE_PREFETCH_CYCLE_START
-                && self.cycle <= SPRITE_PREFETCH_CYCLE_END;
-            if sprite_prefetch {
-                let sprite_idx = (self.cycle - SPRITE_PREFETCH_CYCLE_START) / 8;
-                let sprite = &self.frame.sprites[sprite_idx as usize];
-                match self.cycle % 8 {
-                    1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
-                    3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
-                    5 => {
-                        let _ = self.vram.read(sprite.tile_addr);
-                    }
-                    7 => {
-                        let _ = self.vram.read(sprite.tile_addr + 8);
-                    }
-                    _ => (),
-                }
+            if prerender_scanline {
+                // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
+                // shaking in Ninja Gaiden 3 stage 1 after beating boss)
+                self.sprite_count = 0;
+            } else if spr_eval_cycle {
+                self.evaluate_sprites();
+            }
+            if spr_fetch_cycle {
+                self.fetch_sprites();
+            }
+            if spr_dummy_cycle {
+                self.oam_fetch = self.secondary_oam.read(0);
             }
         }
     }
 
+    #[inline]
     fn fetch_bg_nt_byte(&mut self) {
         // Fetch BG nametable
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
@@ -418,6 +441,7 @@ impl Ppu {
         self.frame.nametable = u16::from(self.vram.read(addr));
     }
 
+    #[inline]
     fn fetch_bg_attr_byte(&mut self) {
         // Fetch BG attribute table
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
@@ -442,11 +466,12 @@ impl Ppu {
         self.frame.attribute = (self.frame.attribute & 3) << 2;
     }
 
-    fn evaluate_background(&mut self) {
+    #[inline]
+    fn fetch_background(&mut self) {
         self.frame.tile_data <<= 4;
         // Fetch 4 tiles and write out shift registers every 8th cycle
         // Each tile fetch takes 2 cycles
-        match self.cycle % 8 {
+        match self.cycle & 0x07 {
             1 => self.fetch_bg_nt_byte(),
             3 => self.fetch_bg_attr_byte(),
             5 => {
@@ -480,86 +505,179 @@ impl Ppu {
         }
     }
 
-    fn evaluate_sprites(&mut self) {
-        self.frame.sprite_count = 0;
-        for i in 0..8 {
-            let mut sprite = Sprite::new();
-            let sprite_height = self.regs.sprite_height();
-            let sprite_table = if sprite_height == 8 {
-                self.regs.sprite_select()
+    #[inline]
+    fn load_sprites(&mut self) {
+        let idx = (self.cycle - SPR_FETCH_CYCLE_START) as usize / 8;
+        let oam_idx = idx << 2;
+
+        if let [y, tile_number, attr, x] = self.secondary_oam[oam_idx..=oam_idx + 3] {
+            let y = u32::from(y);
+            let x = u32::from(x);
+            let mut tile_number = u16::from(tile_number);
+            let palette = ((attr & 0x03) << 2) | 0x10;
+            let bg_priority = (attr & 0x20) == 0x20;
+            let flip_horizontal = (attr & 0x40) == 0x40;
+            let flip_vertical = (attr & 0x80) == 0x80;
+
+            let height = self.regs.sprite_height() as u16;
+            // Should be in the range 0..=7 or 0..=15 depending on sprite height
+            let mut line_offset = self.scanline.saturating_sub(y) as u16;
+            if flip_vertical {
+                line_offset = (height - 1).saturating_sub(line_offset);
+            }
+
+            if idx >= self.sprite_count.into() {
+                line_offset = 0;
+                tile_number = 0xFF;
+            }
+
+            let tile_addr = if height == 16 {
+                // Use bit 0 of tile index to determine pattern table
+                let sprite_select = if tile_number & 0x01 == 0x01 {
+                    0x1000
+                } else {
+                    0x0000
+                };
+                if line_offset >= 8 {
+                    line_offset += 8;
+                }
+                ((tile_number & 0xFE) << 4) | sprite_select | line_offset
             } else {
-                // use bit 1 of tile index to determine pattern table
-                0x1000 * (sprite.tile_index & 0x01)
+                (tile_number << 4) | self.regs.sprite_select() | line_offset
             };
 
-            sprite.tile_addr = sprite_table + sprite.tile_index * 16;
-            self.frame.sprites[i] = sprite;
-        }
-        let sprite_height = self.regs.sprite_height();
-        for i in 0..OAM_SIZE / 4 {
-            let sprite_y = u16::from(self.oamdata.read((i * 4) as u16));
-            let sprite_on_line = sprite_y <= self.scanline
-                && self.scanline < sprite_y + sprite_height
-                && self.scanline < 255;
-            if !sprite_on_line {
-                continue;
-            }
-            if i == 0 {
-                self.frame.sprite_zero_on_line = true;
-            }
-            if self.frame.sprite_count < 8 {
-                self.frame.sprites[self.frame.sprite_count as usize] = self.get_sprite(i * 4);
-            }
-            self.frame.sprite_count += 1;
-            if self.frame.sprite_count > 8 {
-                self.frame.sprite_count = 8;
-                self.set_sprite_overflow(true);
+            if idx < self.sprite_count.into() {
+                let mut sprite = &mut self.sprites[idx];
+                sprite.y = y;
+                sprite.tile_number = tile_number;
+                sprite.palette = palette;
+                sprite.bg_priority = bg_priority;
+                sprite.flip_horizontal = flip_horizontal;
+                sprite.flip_vertical = flip_vertical;
+                sprite.x = x;
+                sprite.tile_lo = self.vram.read(tile_addr);
+                sprite.tile_hi = self.vram.read(tile_addr + 8);
+            } else {
+                // Fetches to sprite 0xFF for remaining sprites/hidden - used by MMC3 IRQ
+                // counter
+                let _ = self.vram.read(tile_addr);
+                let _ = self.vram.read(tile_addr + 8);
             }
         }
     }
 
+    // http://wiki.nesdev.com/w/index.php/PPU_OAM
+    #[inline]
+    fn fetch_sprites(&mut self) {
+        // OAMADDR set to $00 on prerender and visible scanlines
+        self.write_oamaddr(0x00);
+
+        match self.cycle & 0x07 {
+            // Garbage NT sprite fetch (257, 265, 273, etc.) - Required for proper // MC-ACC IRQs
+            // (MMC3 clone)
+            1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
+            3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
+            // Cycle 260, 268, etc. This is an approximation (each tile is actually loaded in 8
+            // steps (e.g from 257 to 264))
+            4 => self.load_sprites(),
+            _ => (),
+        }
+    }
+
+    #[inline]
+    fn evaluate_sprites(&mut self) {
+        match self.cycle {
+            // 1. Clear Secondary OAM
+            VISIBLE_CYCLE_START..=OAM_CLEAR_CYCLE_END => {
+                self.oam_fetch = 0xFF;
+                self.secondary_oam = Memory::ram(SECONDARY_OAM_SIZE, RamState::AllOnes);
+            }
+            // 2. Read OAM to find first eight sprites on this scanline
+            // 3. With > 8 sprites, check (wrongly) for more sprites to set overflow flag
+            SPR_EVAL_CYCLE_START..=SPR_EVAL_CYCLE_END => {
+                if self.cycle == SPR_EVAL_CYCLE_START {
+                    self.sprite_in_range = false;
+                    self.sprite0_in_range = false;
+                    self.regs.secondary_oamaddr = 0x00;
+                } else if self.cycle == SPR_EVAL_CYCLE_END {
+                    self.sprite0_visible = self.sprite0_in_range;
+                    self.sprite_count = self.regs.secondary_oamaddr >> 2;
+                }
+
+                if self.cycle & 0x01 == 0x01 {
+                    // Odd cycles are reads from OAM
+                    self.oam_fetch = self.oam.read(u16::from(self.regs.oamaddr));
+                    // Rolled over, finished reading sprites
+                    if self.cycle > SPR_EVAL_CYCLE_START && self.regs.oamaddr == 0x00 {
+                        self.secondary_oam.write_protect(true);
+                    }
+                    if self.sprite_in_range {
+                        self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
+                    } else if !self.secondary_oam.writable() {
+                        self.write_oamaddr(self.regs.oamaddr.wrapping_add(4));
+                    } else {
+                        let y = u32::from(self.oam_fetch);
+                        let height = self.regs.sprite_height();
+                        self.sprite_in_range = (y..y + height).contains(&self.scanline);
+                        if self.sprite_in_range {
+                            if self.cycle == SPR_EVAL_CYCLE_START
+                                && self.regs.oamaddr == 0x00
+                                && self.secondary_oam.writable()
+                            {
+                                self.sprite0_in_range = true;
+                            }
+                            self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
+                        } else {
+                            self.write_oamaddr(self.regs.oamaddr.wrapping_add(4));
+                            if !self.secondary_oam.writable() {
+                                self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
+                            }
+                        }
+                    }
+                } else if self.secondary_oam.writable() {
+                    // Even cycles are writes to Secondary OAM
+                    self.secondary_oam
+                        .write(u16::from(self.regs.secondary_oamaddr), self.oam_fetch);
+                    if self.sprite_in_range {
+                        if self.regs.secondary_oamaddr & 0x03 == 0x03 {
+                            // We read the X value, reset in range
+                            self.sprite_in_range = false;
+                        }
+                        if self.regs.secondary_oamaddr < 0x20 {
+                            self.regs.secondary_oamaddr += 1;
+                        } else {
+                            // secondary OAM is full
+                            self.secondary_oam.write_protect(true);
+                        }
+                    }
+                } else {
+                    // Once 8 sprites are found, writes turn into reads
+                    self.oam_fetch = self
+                        .secondary_oam
+                        .read(u16::from(self.regs.secondary_oamaddr) & 0x1F);
+                    if self.sprite_in_range {
+                        if self.regs.secondary_oamaddr & 0x03 == 0x03 {
+                            self.sprite_in_range = false;
+                        }
+                        if self.regs.secondary_oamaddr < 0x20 {
+                            self.regs.secondary_oamaddr += 1;
+                        }
+                        self.regs.set_sprite_overflow(true);
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
+
+    #[inline]
     #[allow(clippy::many_single_char_names)]
     fn render_pixel(&mut self) {
         let x = self.cycle - 1;
         let y = self.scanline;
 
-        let mut bg_color = self.background_color();
-        let (i, mut sprite_color) = self.sprite_color();
+        let color = self.pixel_color();
 
-        let border_pixel = x < 8;
-        let left_clip = !self.regs.show_left_background() && border_pixel;
-        if left_clip {
-            bg_color = 0;
-        }
-        if border_pixel && !self.regs.show_left_sprites() {
-            sprite_color = 0;
-        }
-        let bg_opaque = bg_color % 4 != 0;
-        let sprite_opaque = sprite_color % 4 != 0;
-        let color = if !bg_opaque && !sprite_opaque {
-            0
-        } else if sprite_opaque && !bg_opaque {
-            sprite_color | 0x10
-        } else if bg_opaque && !sprite_opaque {
-            bg_color
-        } else {
-            if self.is_sprite_zero(i)
-                && self.frame.sprite_zero_on_line
-                && self.rendering_enabled()
-                && !self.sprite_zero_hit()
-                && x != 255
-                && y <= VISIBLE_SCANLINE_END
-                && bg_opaque
-                && sprite_opaque
-            {
-                self.set_sprite_zero_hit(true);
-            }
-            if self.frame.sprites[i].has_priority {
-                bg_color
-            } else {
-                sprite_color | 0x10
-            }
-        };
         let mut palette = self.vram.read(u16::from(color) + PALETTE_START);
         if self.regs.grayscale() {
             palette &= !0x0F; // Remove chroma
@@ -567,22 +685,18 @@ impl Ppu {
         if self.filter == VideoFilter::Ntsc {
             let format = self.nes_format;
             let pixel = (u32::from(self.regs.emphasis(format)) << 6) | u32::from(palette);
-            self.frame
-                .put_ntsc_pixel(x.into(), self.scanline.into(), pixel, self.frame_cycles);
+            self.frame.put_ntsc_pixel(x, y, pixel, self.frame_cycles);
         } else {
             let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
             let r = SYSTEM_PALETTE[color_idx];
             let g = SYSTEM_PALETTE[color_idx + 1];
             let b = SYSTEM_PALETTE[color_idx + 2];
-            self.frame.put_pixel(x.into(), y.into(), r, g, b);
+            self.frame.put_pixel(x, y, r, g, b);
         }
     }
 
     #[inline]
     fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut [u8]) {
-        if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
-            return;
-        }
         let palette_idx = (palette_idx % SYSTEM_PALETTE_SIZE) * 3;
         let red = SYSTEM_PALETTE[palette_idx];
         let green = SYSTEM_PALETTE[palette_idx + 1];
@@ -595,7 +709,7 @@ impl Ppu {
 
     #[inline]
     #[must_use]
-    pub fn get_pixel_brightness(&self, x: u32, y: u32) -> u32 {
+    pub fn pixel_brightness(&self, x: u32, y: u32) -> u32 {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
             return 0;
         }
@@ -606,15 +720,7 @@ impl Ppu {
     }
 
     #[inline]
-    const fn is_sprite_zero(&self, index: usize) -> bool {
-        self.frame.sprites[index].index == 0
-    }
-
-    #[inline]
     const fn background_color(&self) -> u8 {
-        if !self.regs.show_background() {
-            return 0;
-        }
         // 43210
         // |||||
         // |||++- Pixel value from tile data
@@ -627,23 +733,58 @@ impl Ppu {
     }
 
     #[inline]
-    fn sprite_color(&self) -> (usize, u8) {
-        if !self.regs.show_sprites() {
-            return (0, 0);
-        }
-        for i in 0..self.frame.sprite_count as usize {
-            let offset = self.cycle as i16 - 1 - self.frame.sprites[i].x as i16;
-            if !(0..=7).contains(&offset) {
-                continue;
+    fn pixel_color(&mut self) -> u8 {
+        let x = self.cycle - 1;
+
+        let left_clip_bg = x < 8 && !self.regs.show_left_background();
+        let left_clip_spr = x < 8 && !self.regs.show_left_sprites();
+        let bg_color = if self.regs.show_background() && !left_clip_bg {
+            self.background_color()
+        } else {
+            0
+        };
+        let bg_opaque = bg_color % 4 != 0;
+
+        if self.regs.show_sprites() && !left_clip_spr {
+            for (i, sprite) in self
+                .sprites
+                .iter()
+                .take(self.sprite_count as usize)
+                .enumerate()
+            {
+                let shift = self.cycle as i16 - 1 - sprite.x as i16;
+                if (0..=7).contains(&shift) {
+                    let color = if sprite.flip_horizontal {
+                        (((sprite.tile_hi >> shift) & 0x01) << 1)
+                            | ((sprite.tile_lo >> shift) & 0x01)
+                    } else {
+                        (((sprite.tile_hi << shift) & 0x80) >> 6)
+                            | ((sprite.tile_lo << shift) & 0x80) >> 7
+                    };
+                    if (color % 4) != 0 {
+                        if i == 0
+                            && bg_opaque
+                            && self.sprite0_visible
+                            && x != 255
+                            && self.rendering_enabled()
+                            && !self.regs.sprite0_hit()
+                        {
+                            self.regs.set_sprite0_hit(true);
+                        }
+
+                        if !bg_opaque || !sprite.bg_priority {
+                            return sprite.palette + color;
+                        }
+                        break;
+                    }
+                }
             }
-            let offset = 7 - offset;
-            let color = ((self.frame.sprites[i].pattern >> (offset * 4) as u8) & 0x0F) as u8;
-            if color % 4 == 0 {
-                continue;
-            }
-            return (i, color);
         }
-        (0, 0)
+        if bg_opaque {
+            bg_color
+        } else {
+            0
+        }
     }
 
     #[inline]
@@ -670,93 +811,6 @@ impl Ppu {
                 self.frame_complete = true;
             }
         }
-    }
-
-    // http://wiki.nesdev.com/w/index.php/PPU_OAM
-    fn get_sprite(&mut self, i: usize) -> Sprite {
-        // Get sprite info from OAMDATA
-        // Each sprite takes 4 bytes
-        let d = &mut self.oamdata;
-        let addr = i as u16;
-        // attribute
-        // 76543210
-        // ||||||||
-        // ||||||++- Palette (4 to 7) of sprite
-        // |||+++--- Unimplemented
-        // ||+------ Priority (0: in front of background; 1: behind background)
-        // |+------- Flip sprite horizontally
-        // +-------- Flip sprite vertically
-        let attr = d.read(addr + 2);
-        let mut sprite = Sprite {
-            index: i as u8,
-            x: d.read(addr + 3).into(),
-            y: d.read(addr).into(),
-            tile_index: d.read(addr + 1).into(),
-            tile_addr: 0u16,
-            palette: (attr & 3) + 4, // range 4 to 7
-            pattern: 0,
-            has_priority: (attr & 0x20) == 0x20,    // bit 5
-            flip_horizontal: (attr & 0x40) == 0x40, // bit 6
-            flip_vertical: (attr & 0x80) == 0x80,   // bit 7
-        };
-
-        // Now fetch sprite pattern graphics
-
-        // Dummy sprite
-        let dummy_sprite =
-            sprite.x == 0xFF && sprite.y == 0xFF && sprite.tile_index == 0xFF && attr == 0xFF;
-
-        let sprite_height = self.regs.sprite_height();
-        let mut sprite_row = self.scanline - sprite.y;
-        if sprite.flip_vertical {
-            sprite_row = sprite_height - 1 - sprite_row;
-        }
-        let sprite_table = if sprite_height == 8 {
-            self.regs.sprite_select()
-        } else {
-            // use bit 1 of tile index to determine pattern table
-            0x1000 * (sprite.tile_index & 0x01)
-        };
-        if sprite_height == 16 {
-            sprite.tile_index &= 0xFE;
-            // Finished the top half, read from adjacent tile
-            if sprite_row > 7 {
-                sprite.tile_index += 1;
-                sprite_row -= 8;
-            }
-        }
-
-        if dummy_sprite {
-            sprite_row = 0;
-        }
-
-        sprite.tile_addr = sprite_table + sprite.tile_index * 16 + sprite_row;
-
-        // Flip bits for horizontal flipping
-        let a = (sprite.palette - 4) << 2;
-        // println!(
-        //     "spr fetch ({}, {}) -> ${:04X}",
-        //     self.cycle, self.scanline, sprite.tile_addr
-        // );
-        let mut lo_tile = self.vram.read(sprite.tile_addr);
-        let mut hi_tile = self.vram.read(sprite.tile_addr + 8);
-        for _ in 0..8 {
-            let (p1, p2);
-            if sprite.flip_horizontal {
-                p1 = lo_tile & 1;
-                p2 = (hi_tile & 1) << 1;
-                lo_tile >>= 1;
-                hi_tile >>= 1;
-            } else {
-                p1 = (lo_tile & 0x80) >> 7;
-                p2 = (hi_tile & 0x80) >> 6;
-                lo_tile <<= 1;
-                hi_tile <<= 1;
-            }
-            sprite.pattern <<= 4;
-            sprite.pattern |= u32::from(a | p1 | p2);
-        }
-        sprite
     }
 
     #[must_use]
@@ -796,6 +850,11 @@ impl Ppu {
         if self.scanline == VBLANK_SCANLINE && !nmi_flag && self.cycle < 4 {
             self.nmi_pending = false;
         }
+        // if !nmi_flag {
+        //     self.nmi_pending = false;
+        // } else if self.vblank_started() {
+        //     self.nmi_pending = true;
+        // }
         self.regs.write_ctrl(val);
     }
 
@@ -827,6 +886,12 @@ impl Ppu {
                 self.nmi_pending = false;
             }
         }
+        // let status = self.regs.read_status();
+        // // Reading one PPU clock before reads it as clear and never sets the flag or generates NMI
+        // // for that frame.
+        // if self.scanline == VBLANK_SCANLINE && self.cycle == 0 {
+        //     self.prevent_vbl = true;
+        // }
         // read_status() modifies register, so make sure mapper is aware
         // of new status
         self.vram
@@ -841,26 +906,14 @@ impl Ppu {
     }
 
     #[inline]
-    fn sprite_zero_hit(&mut self) -> bool {
-        self.regs.sprite_zero_hit()
-    }
-
-    #[inline]
-    fn set_sprite_zero_hit(&mut self, val: bool) {
-        self.regs.set_sprite_zero_hit(val);
-    }
-
-    #[inline]
-    fn set_sprite_overflow(&mut self, val: bool) {
-        self.regs.set_sprite_overflow(val);
-    }
-
-    #[inline]
     fn start_vblank(&mut self) {
-        self.regs.start_vblank();
-        if self.nmi_enabled() {
-            self.nmi_pending = true;
+        if !self.prevent_vbl {
+            self.regs.start_vblank();
+            if self.nmi_enabled() {
+                self.nmi_pending = true;
+            }
         }
+        self.prevent_vbl = false;
         // Ensure our mapper knows vbl changed
         self.vram
             .cart_mut()
@@ -883,7 +936,7 @@ impl Ppu {
     }
 
     /*
-     * $2003 OAMADDR
+     * $2003 OAM addr
      */
 
     #[must_use]
@@ -898,28 +951,36 @@ impl Ppu {
     }
 
     /*
-     * $2004 OAMDATA
+     * $2004 OAM data
      */
 
     #[must_use]
     #[inline]
     fn read_oamdata(&mut self) -> u8 {
-        if self.rendering_enabled() {
-            match self.cycle {
-                0..=63 | 256..=319 => 0xFF,
-                _ => 0x00,
-            }
-        } else {
-            self.peek_oamdata()
+        // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
+        if self.scanline <= VISIBLE_SCANLINE_END
+            && self.rendering_enabled()
+            && matches!(self.cycle, SPR_FETCH_CYCLE_START..=SPR_FETCH_CYCLE_END)
+        {
+            let step = ((self.cycle - SPR_FETCH_CYCLE_START) & 0x07).min(3);
+            self.regs.secondary_oamaddr =
+                ((self.cycle - SPR_FETCH_CYCLE_START) / 8 * 4 + step) as u8;
+            self.oam_fetch = self
+                .secondary_oam
+                .read(u16::from(self.regs.secondary_oamaddr));
         }
+        self.peek_oamdata()
     }
 
     #[inline]
     fn peek_oamdata(&self) -> u8 {
-        let addr = u16::from(self.regs.oamaddr);
-        let val = self.oamdata.peek(addr);
-        // Bits 2-4 of Sprite attribute should always be 0
-        if let 0x02 | 0x06 | 0x0A | 0x0E = addr & 0x0F {
+        let val = if self.scanline <= VISIBLE_SCANLINE_END && self.rendering_enabled() {
+            self.oam_fetch
+        } else {
+            self.oam.peek(u16::from(self.regs.oamaddr))
+        };
+        // Bits 2-4 of sprite attr (byte 2) are unimplemented and return 0
+        if let 0x02 | 0x06 | 0x0A | 0x0E = self.regs.oamaddr & 0x0F {
             val & 0xE3
         } else {
             val
@@ -928,8 +989,15 @@ impl Ppu {
 
     #[inline]
     fn write_oamdata(&mut self, val: u8) {
-        self.oamdata.write(u16::from(self.regs.oamaddr), val);
-        self.regs.oamaddr = self.regs.oamaddr.wrapping_add(1);
+        // Writes to OAMDATA during rendering do not modify values, but do increment OAMADDR,
+        // bumping only the high 6 bits
+        // Accurate?? Breaks things
+        // if !self.rendering_enabled() {
+        self.oam.write(u16::from(self.regs.oamaddr), val);
+        self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
+        // } else {
+        //     self.write_oamaddr(self.regs.oamaddr.wrapping_add(4));
+        // }
     }
 
     /*
@@ -1050,9 +1118,10 @@ impl Clocked for Ppu {
             // timing and cycle 1 causes `vbl_nmi_clear_time` to fail. Changing it to 2 makes them
             // pass, but then causes `vbl_nmi_on_timing` to fail so this condition is added to correct
             // it
+            // if self.cycle == 0 && self.scanline == PRERENDER_SCANLINE {
             if self.cycle == VISIBLE_CYCLE_START + 1 && self.scanline == PRERENDER_SCANLINE {
-                self.set_sprite_zero_hit(false);
-                self.set_sprite_overflow(false);
+                self.regs.set_sprite0_hit(false);
+                self.regs.set_sprite_overflow(false);
                 self.stop_vblank();
             }
             self.update_viewer();
@@ -1066,17 +1135,17 @@ impl MemRead for Ppu {
     fn read(&mut self, addr: u16) -> u8 {
         match addr {
             0x2002 => {
-                let val = self.read_ppustatus(); // PPUSTATUS
+                let val = self.read_ppustatus();
                 self.regs.open_bus |= val & !0x1F;
                 (val & !0x1F) | (self.regs.open_bus & 0x1F)
             }
             0x2004 => {
-                let val = self.read_oamdata(); // OAMDATA
+                let val = self.read_oamdata();
                 self.regs.open_bus = val;
                 val
             }
             0x2007 => {
-                let val = self.read_ppudata(); // PPUDATA
+                let val = self.read_ppudata();
                 self.regs.open_bus = val;
                 val
             }
@@ -1092,9 +1161,9 @@ impl MemRead for Ppu {
     #[inline]
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x2002 => self.peek_ppustatus(), // PPUSTATUS
-            0x2004 => self.peek_oamdata(),   // OAMDATA
-            0x2007 => self.peek_ppudata(),   // PPUDATA
+            0x2002 => self.peek_ppustatus(),
+            0x2004 => self.peek_oamdata(),
+            0x2007 => self.peek_ppudata(),
             // 0x2000 PPUCTRL is write-only
             // 0x2001 PPUMASK is write-only
             // 0x2003 OAMADDR is write-only
@@ -1111,13 +1180,13 @@ impl MemWrite for Ppu {
         self.vram.cart_mut().ppu_write(addr, val);
         self.regs.open_bus = val;
         match addr {
-            0x2000 => self.write_ppuctrl(val),   // PPUCTRL
-            0x2001 => self.write_ppumask(val),   // PPUMASK
-            0x2003 => self.write_oamaddr(val),   // OAMADDR
-            0x2004 => self.write_oamdata(val),   // OAMDATA
-            0x2005 => self.write_ppuscroll(val), // PPUSCROLL
-            0x2006 => self.write_ppuaddr(val),   // PPUADDR
-            0x2007 => self.write_ppudata(val),   // PPUDATA
+            0x2000 => self.write_ppuctrl(val),
+            0x2001 => self.write_ppumask(val),
+            0x2003 => self.write_oamaddr(val),
+            0x2004 => self.write_oamdata(val),
+            0x2005 => self.write_ppuscroll(val),
+            0x2006 => self.write_ppuaddr(val),
+            0x2007 => self.write_ppudata(val),
             // 0x2002 PPUSTATUS is read-only
             _ => (),
         }
@@ -1129,13 +1198,22 @@ impl Powered for Ppu {
         self.cycle = 0;
         self.frame_cycles = 0;
         self.scanline = 0;
-        self.regs.w = false;
         self.oam_dma = false;
         self.oam_dma_offset = 0x00;
+        self.oam_fetch = 0xFF;
+        self.sprite_count = 0;
+        self.sprite_in_range = false;
+        self.sprite0_in_range = false;
+        self.sprite0_visible = false;
+        self.secondary_oam.write_protect(false);
+        self.prevent_vbl = false;
         self.frame.reset();
         self.vram.reset();
-        self.set_sprite_zero_hit(false);
-        self.set_sprite_overflow(false);
+        self.regs.w = false;
+        self.regs.oamaddr = 0x00;
+        self.regs.secondary_oamaddr = 0x00;
+        self.regs.set_sprite0_hit(false);
+        self.regs.set_sprite_overflow(false);
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_ppuscroll(0);
@@ -1148,13 +1226,22 @@ impl Powered for Ppu {
         self.cycle = 0;
         self.frame_cycles = 0;
         self.scanline = 0;
-        self.regs.w = false;
         self.oam_dma = false;
         self.oam_dma_offset = 0x00;
+        self.oam_fetch = 0xFF;
+        self.sprite_count = 0;
+        self.sprite_in_range = false;
+        self.sprite0_in_range = false;
+        self.sprite0_visible = false;
+        self.secondary_oam.write_protect(false);
+        self.prevent_vbl = false;
         self.frame.power_cycle();
         self.vram.power_cycle();
-        self.set_sprite_zero_hit(false);
-        self.set_sprite_overflow(false);
+        self.regs.w = false;
+        self.regs.oamaddr = 0x00;
+        self.regs.secondary_oamaddr = 0x00;
+        self.regs.set_sprite0_hit(false);
+        self.regs.set_sprite_overflow(false);
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_oamaddr(0);
@@ -1182,7 +1269,7 @@ impl fmt::Debug for Ppu {
             .field("dma_offset", &format_args!("${:02X}", &self.oam_dma_offset))
             .field("vram", &self.vram)
             .field("regs", &self.regs)
-            .field("oamdata", &self.oamdata)
+            .field("oamdata", &self.oam)
             .field("frame", &self.frame)
             .field("filter", &self.filter)
             .field("nes_format", &self.nes_format)

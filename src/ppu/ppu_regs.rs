@@ -20,10 +20,11 @@ pub(super) const Y_OVER_COL: u16 = 31; // overscan row
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuRegs {
-    ctrl: u8,         // $2000 PPUCTRL write-only
-    mask: u8,         // $2001 PPUMASK write-only
-    status: u8,       // $2002 PPUSTATUS read-only
-    pub oamaddr: u8,  // $2003 OAMADDR write-only
+    ctrl: u8,        // $2000 PPUCTRL write-only
+    mask: u8,        // $2001 PPUMASK write-only
+    status: u8,      // $2002 PPUSTATUS read-only
+    pub oamaddr: u8, // $2003 OAMADDR write-only
+    pub secondary_oamaddr: u8,
     pub v: u16,       // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
     pub t: u16,       // Temporary v - Also the addr of top-left onscreen tile
     pub x: u16,       // Fine X
@@ -38,6 +39,7 @@ impl PpuRegs {
             mask: 0x00,
             status: 0x00,
             oamaddr: 0x00,
+            secondary_oamaddr: 0x00,
             v: 0x0000,
             t: 0x0000,
             x: 0x0000,
@@ -90,7 +92,7 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn sprite_height(&self) -> u16 {
+    pub(super) const fn sprite_height(&self) -> u32 {
         if self.ctrl & 0x20 > 0 {
             16
         } else {
@@ -193,12 +195,12 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn sprite_zero_hit(&self) -> bool {
+    pub(super) const fn sprite0_hit(&self) -> bool {
         self.status & 0x40 == 0x40
     }
 
     #[inline]
-    pub(super) fn set_sprite_zero_hit(&mut self, val: bool) {
+    pub(super) fn set_sprite0_hit(&mut self, val: bool) {
         self.status = if val {
             self.status | 0x40
         } else {

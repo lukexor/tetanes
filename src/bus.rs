@@ -208,6 +208,9 @@ impl MemWrite for Bus {
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
             0x4014 => {
                 self.ppu.oam_dma = true;
+                // Only write the high bits
+                // Accurate? Breaks things
+                // self.ppu.oam_dma_offset = val & 0xFC;
                 self.ppu.oam_dma_offset = val;
             }
             0x4016 => self.input.write(addr, val),

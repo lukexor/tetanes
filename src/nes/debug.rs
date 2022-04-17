@@ -120,7 +120,7 @@ impl Nes {
                     s.text(&format!(
                         "Cycle: {:3}  Scanline: {:3}  Frame: {}",
                         ppu.cycle,
-                        i32::from(ppu.scanline) - 1,
+                        ppu.scanline as i32 - 1,
                         ppu.frame.num
                     ))?;
 
@@ -209,7 +209,7 @@ impl Nes {
                         s.texture(texture_id, nametable_src, nametable_src)?;
 
                         // Scanline
-                        let scanline = i32::from(self.scanline);
+                        let scanline = self.scanline as i32;
                         s.push();
                         s.stroke(Color::WHITE);
                         s.stroke_weight(2);

@@ -737,7 +737,7 @@ impl Nes {
             }
             DebugAction::IncScanline if self.ppu_viewer.is_some() => {
                 let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
-                self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT as u16 - 1);
+                self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT - 1);
                 self.control_deck
                     .ppu_mut()
                     .set_viewer_scanline(self.scanline);

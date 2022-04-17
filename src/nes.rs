@@ -211,7 +211,7 @@ pub struct Nes {
     record_sound: bool,
     debug: bool,
     rewind_frame: u32,
-    scanline: u16,
+    scanline: u32,
     speed_counter: f32,
     rewind_buffer: VecDeque<Vec<u8>>,
     replay: Replay,
@@ -452,7 +452,11 @@ impl AppState for Nes {
                 }
                 _ => (),
             }
-            self.save_state(1);
+            // TODO: Convert to config
+            let save_on_exit = false;
+            if save_on_exit {
+                self.save_state(1);
+            }
 
             if self.replay.mode == ReplayMode::Recording {
                 self.stop_replay();
