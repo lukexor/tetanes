@@ -20,11 +20,9 @@ pub(super) const Y_OVER_COL: u16 = 31; // overscan row
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuRegs {
-    ctrl: u8,        // $2000 PPUCTRL write-only
-    mask: u8,        // $2001 PPUMASK write-only
-    status: u8,      // $2002 PPUSTATUS read-only
-    pub oamaddr: u8, // $2003 OAMADDR write-only
-    pub secondary_oamaddr: u8,
+    ctrl: u8,         // $2000 PPUCTRL write-only
+    mask: u8,         // $2001 PPUMASK write-only
+    status: u8,       // $2002 PPUSTATUS read-only
     pub v: u16,       // $2006 PPUADDR write-only 2x 15 bits: yyy NN YYYYY XXXXX
     pub t: u16,       // Temporary v - Also the addr of top-left onscreen tile
     pub x: u16,       // Fine X
@@ -38,8 +36,6 @@ impl PpuRegs {
             ctrl: 0x00,
             mask: 0x00,
             status: 0x00,
-            oamaddr: 0x00,
-            secondary_oamaddr: 0x00,
             v: 0x0000,
             t: 0x0000,
             x: 0x0000,

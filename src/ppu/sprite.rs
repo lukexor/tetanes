@@ -6,8 +6,6 @@ use std::fmt;
 pub struct Sprite {
     pub x: u32,
     pub y: u32,
-    pub tile_number: u16,
-    pub tile_addr: u16,
     pub tile_lo: u8,
     pub tile_hi: u8,
     pub attr: u8,
@@ -22,8 +20,6 @@ impl Sprite {
         Self {
             x: 0xFF,
             y: 0xFF,
-            tile_number: 0xFF,
-            tile_addr: 0xFF,
             tile_lo: 0x00,
             tile_hi: 0x00,
             attr: 0xFF,
@@ -46,8 +42,6 @@ impl fmt::Debug for Sprite {
         f.debug_struct("Sprite")
             .field("x", &self.x)
             .field("y", &self.y)
-            .field("tile_number", &format_args!("${:04X}", &self.tile_number))
-            .field("tile_addr", &format_args!("${:04X}", &self.tile_addr))
             .field("palette", &format_args!("${:02X}", &self.palette))
             .field("has_priority", &self.bg_priority)
             .field("flip_horizontal", &self.flip_horizontal)

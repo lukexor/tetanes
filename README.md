@@ -359,6 +359,7 @@ When using the WASM version in the browser, also include:
 - Testing/Debugging/Documentation
   - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
     - [x] Step Into/Out/Over
+    - [x] Step Scanline/Frame
     - [ ] Breakpoints
     - [ ] Modify state
     - [ ] Labels
@@ -370,8 +371,7 @@ When using the WASM version in the browser, also include:
     - [ ] OAM Viewer (on screen sprites)
     - [ ] Palette Viewer
   - [ ] APU Viewer (Displays audio status and registers)
-  - [ ] 111/147 Rom tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
-    - [ ] Automated (partially)
+  - [ ] 114/139 automated ROM tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
   - [ ] Detailed Documentation
   - Logging
     - [x] Environment logging

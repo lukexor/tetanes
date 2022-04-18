@@ -13,7 +13,7 @@ use frame::Frame;
 use ppu_regs::{PpuRegs, COARSE_X_MASK, COARSE_Y_MASK, NT_X_MASK, NT_Y_MASK};
 use serde::{Deserialize, Serialize};
 use sprite::Sprite;
-use std::fmt;
+use std::{cmp::Ordering, fmt};
 use vram::{
     Vram, ATTR_START, NT_SIZE, NT_START, PALETTE_END, PALETTE_SIZE, PALETTE_START, SYSTEM_PALETTE,
     SYSTEM_PALETTE_SIZE,
@@ -165,9 +165,15 @@ pub struct Ppu {
     // $01, $05, $09, $0D   Sprite tile #
     // $02, $06, $0A, $0E   Sprite attribute
     // $03, $07, $0B, $0F   Sprite X coord
+    pub oamaddr_lo: u8,
+    pub oamaddr_hi: u8,
+    pub oamaddr: u8, // $2003 OAMADDR write-only
     pub oam: Memory, // $2004 OAM data read/write - Object Attribute Memory for Sprites
+    pub secondary_oamaddr: u8,
     pub secondary_oam: Memory, // Secondary OAM data for Sprites on a given scanline
     pub oam_fetch: u8,
+    pub oam_eval_done: bool,
+    pub overflow_count: u8,
     pub sprite_in_range: bool,
     pub sprite0_in_range: bool,
     pub sprite0_visible: bool,
@@ -194,9 +200,15 @@ impl Ppu {
             oam_dma: false,
             oam_dma_offset: 0x00,
             regs: PpuRegs::new(),
+            oamaddr_lo: 0x00,
+            oamaddr_hi: 0x00,
+            oamaddr: 0x00,
             oam: Memory::ram(OAM_SIZE, RamState::AllOnes),
+            secondary_oamaddr: 0x00,
             secondary_oam: Memory::ram(SECONDARY_OAM_SIZE, RamState::AllOnes),
             oam_fetch: 0xFF,
+            oam_eval_done: false,
+            overflow_count: 0,
             sprite_in_range: false,
             sprite0_in_range: false,
             sprite0_visible: false,
@@ -408,12 +420,11 @@ impl Ppu {
                 self.regs.copy_x();
             }
 
-            if self.cycle < 9 && prerender_scanline && self.regs.oamaddr >= 0x08 {
+            if self.cycle < 9 && prerender_scanline && self.oamaddr >= 0x08 {
                 // If OAMADDR is not less than eight when rendering starts, the eight bytes
                 // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
-                let addr = self.cycle as u16 - 1;
-                let val = self.oam.read(u16::from(self.regs.oamaddr & 0xF8) + addr);
-                self.oam.write(addr, val);
+                let addr = self.cycle as usize - 1;
+                self.oam[addr] = self.oam[(self.oamaddr as usize & 0xF8) + addr];
             }
 
             if prerender_scanline {
@@ -427,7 +438,7 @@ impl Ppu {
                 self.fetch_sprites();
             }
             if spr_dummy_cycle {
-                self.oam_fetch = self.secondary_oam.read(0);
+                self.oam_fetch = self.secondary_oam[0];
             }
         }
     }
@@ -511,19 +522,23 @@ impl Ppu {
         let oam_idx = idx << 2;
 
         if let [y, tile_number, attr, x] = self.secondary_oam[oam_idx..=oam_idx + 3] {
-            let y = u32::from(y);
             let x = u32::from(x);
+            let y = u32::from(y);
             let mut tile_number = u16::from(tile_number);
             let palette = ((attr & 0x03) << 2) | 0x10;
             let bg_priority = (attr & 0x20) == 0x20;
             let flip_horizontal = (attr & 0x40) == 0x40;
             let flip_vertical = (attr & 0x80) == 0x80;
 
-            let height = self.regs.sprite_height() as u16;
+            let height = self.regs.sprite_height();
             // Should be in the range 0..=7 or 0..=15 depending on sprite height
-            let mut line_offset = self.scanline.saturating_sub(y) as u16;
+            let mut line_offset = if (y..y + height).contains(&self.scanline) {
+                self.scanline - y
+            } else {
+                0
+            };
             if flip_vertical {
-                line_offset = (height - 1).saturating_sub(line_offset);
+                line_offset = height - 1 - line_offset;
             }
 
             if idx >= self.sprite_count.into() {
@@ -541,24 +556,23 @@ impl Ppu {
                 if line_offset >= 8 {
                     line_offset += 8;
                 }
-                ((tile_number & 0xFE) << 4) | sprite_select | line_offset
+                sprite_select | ((tile_number & 0xFE) << 4) | line_offset as u16
             } else {
-                (tile_number << 4) | self.regs.sprite_select() | line_offset
+                self.regs.sprite_select() | (tile_number << 4) | line_offset as u16
             };
 
             if idx < self.sprite_count.into() {
                 let mut sprite = &mut self.sprites[idx];
+                sprite.x = x;
                 sprite.y = y;
-                sprite.tile_number = tile_number;
+                sprite.tile_lo = self.vram.read(tile_addr);
+                sprite.tile_hi = self.vram.read(tile_addr + 8);
                 sprite.palette = palette;
                 sprite.bg_priority = bg_priority;
                 sprite.flip_horizontal = flip_horizontal;
                 sprite.flip_vertical = flip_vertical;
-                sprite.x = x;
-                sprite.tile_lo = self.vram.read(tile_addr);
-                sprite.tile_hi = self.vram.read(tile_addr + 8);
             } else {
-                // Fetches to sprite 0xFF for remaining sprites/hidden - used by MMC3 IRQ
+                // Fetches for remaining sprites/hidden fetch tile $FF - used by MMC3 IRQ
                 // counter
                 let _ = self.vram.read(tile_addr);
                 let _ = self.vram.read(tile_addr + 8);
@@ -598,72 +612,91 @@ impl Ppu {
                 if self.cycle == SPR_EVAL_CYCLE_START {
                     self.sprite_in_range = false;
                     self.sprite0_in_range = false;
-                    self.regs.secondary_oamaddr = 0x00;
+                    self.secondary_oamaddr = 0x00;
+                    self.oam_eval_done = false;
+                    self.oamaddr_hi = (self.oamaddr >> 2) & 0x3F;
+                    self.oamaddr_lo = (self.oamaddr) & 0x03;
                 } else if self.cycle == SPR_EVAL_CYCLE_END {
                     self.sprite0_visible = self.sprite0_in_range;
-                    self.sprite_count = self.regs.secondary_oamaddr >> 2;
+                    self.sprite_count = self.secondary_oamaddr >> 2;
                 }
 
                 if self.cycle & 0x01 == 0x01 {
                     // Odd cycles are reads from OAM
-                    self.oam_fetch = self.oam.read(u16::from(self.regs.oamaddr));
-                    // Rolled over, finished reading sprites
-                    if self.cycle > SPR_EVAL_CYCLE_START && self.regs.oamaddr == 0x00 {
-                        self.secondary_oam.write_protect(true);
-                    }
-                    if self.sprite_in_range {
-                        self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
-                    } else if !self.secondary_oam.writable() {
-                        self.write_oamaddr(self.regs.oamaddr.wrapping_add(4));
+                    self.oam_fetch = self.oam[self.oamaddr as usize];
+                } else {
+                    // oamaddr rolled over, so we're done reading
+                    if self.oam_eval_done {
+                        self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
+                        if self.secondary_oamaddr >= 0x20 {
+                            self.oam_fetch =
+                                self.secondary_oam[self.secondary_oamaddr as usize & 0x1F];
+                        }
                     } else {
+                        // If previously not in range, interpret this byte as y
                         let y = u32::from(self.oam_fetch);
                         let height = self.regs.sprite_height();
-                        self.sprite_in_range = (y..y + height).contains(&self.scanline);
-                        if self.sprite_in_range {
-                            if self.cycle == SPR_EVAL_CYCLE_START
-                                && self.regs.oamaddr == 0x00
-                                && self.secondary_oam.writable()
-                            {
-                                self.sprite0_in_range = true;
+                        if !self.sprite_in_range && (y..y + height).contains(&self.scanline) {
+                            self.sprite_in_range = true;
+                        }
+
+                        // Even cycles are writes to Secondary OAM
+                        if self.secondary_oamaddr < 0x20 {
+                            self.secondary_oam[self.secondary_oamaddr as usize] = self.oam_fetch;
+
+                            if self.sprite_in_range {
+                                self.oamaddr_lo += 1;
+                                self.secondary_oamaddr += 1;
+
+                                if self.oamaddr_hi == 0x00 {
+                                    self.sprite0_in_range = true;
+                                }
+                                if self.oamaddr_lo == 0x04 {
+                                    self.sprite_in_range = false;
+                                    self.oamaddr_lo = 0x00;
+                                    self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
+                                    if self.oamaddr_hi == 0x00 {
+                                        self.oam_eval_done = true;
+                                    }
+                                }
+                            } else {
+                                self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
+                                if self.oamaddr_hi == 0x00 {
+                                    self.oam_eval_done = true;
+                                }
                             }
-                            self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
                         } else {
-                            self.write_oamaddr(self.regs.oamaddr.wrapping_add(4));
-                            if !self.secondary_oam.writable() {
-                                self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
+                            self.oam_fetch =
+                                self.secondary_oam[self.secondary_oamaddr as usize & 0x1F];
+                            if self.sprite_in_range {
+                                self.regs.set_sprite_overflow(true);
+                                self.oamaddr_lo += 1;
+                                if self.oamaddr_lo == 0x04 {
+                                    self.oamaddr_lo = 0x00;
+                                    self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
+                                }
+
+                                match self.overflow_count.cmp(&0) {
+                                    Ordering::Equal => self.overflow_count = 3,
+                                    Ordering::Greater => {
+                                        self.overflow_count -= 1;
+                                        if self.overflow_count == 0 {
+                                            self.oam_eval_done = true;
+                                            self.oamaddr_lo = 0x00;
+                                        }
+                                    }
+                                    Ordering::Less => (),
+                                }
+                            } else {
+                                self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
+                                self.oamaddr_lo = (self.oamaddr_lo + 1) & 0x03;
+                                if self.oamaddr_hi == 0x00 {
+                                    self.oam_eval_done = true;
+                                }
                             }
                         }
                     }
-                } else if self.secondary_oam.writable() {
-                    // Even cycles are writes to Secondary OAM
-                    self.secondary_oam
-                        .write(u16::from(self.regs.secondary_oamaddr), self.oam_fetch);
-                    if self.sprite_in_range {
-                        if self.regs.secondary_oamaddr & 0x03 == 0x03 {
-                            // We read the X value, reset in range
-                            self.sprite_in_range = false;
-                        }
-                        if self.regs.secondary_oamaddr < 0x20 {
-                            self.regs.secondary_oamaddr += 1;
-                        } else {
-                            // secondary OAM is full
-                            self.secondary_oam.write_protect(true);
-                        }
-                    }
-                } else {
-                    // Once 8 sprites are found, writes turn into reads
-                    self.oam_fetch = self
-                        .secondary_oam
-                        .read(u16::from(self.regs.secondary_oamaddr) & 0x1F);
-                    if self.sprite_in_range {
-                        if self.regs.secondary_oamaddr & 0x03 == 0x03 {
-                            self.sprite_in_range = false;
-                        }
-                        if self.regs.secondary_oamaddr < 0x20 {
-                            self.regs.secondary_oamaddr += 1;
-                        }
-                        self.regs.set_sprite_overflow(true);
-                    }
+                    self.oamaddr = (self.oamaddr_hi << 2) | (self.oamaddr_lo & 0x03);
                 }
             }
             _ => (),
@@ -677,7 +710,6 @@ impl Ppu {
         let y = self.scanline;
 
         let color = self.pixel_color();
-
         let mut palette = self.vram.read(u16::from(color) + PALETTE_START);
         if self.regs.grayscale() {
             palette &= !0x0F; // Remove chroma
@@ -752,7 +784,7 @@ impl Ppu {
                 .take(self.sprite_count as usize)
                 .enumerate()
             {
-                let shift = self.cycle as i16 - 1 - sprite.x as i16;
+                let shift = x as i16 - sprite.x as i16;
                 if (0..=7).contains(&shift) {
                     let color = if sprite.flip_horizontal {
                         (((sprite.tile_hi >> shift) & 0x01) << 1)
@@ -761,7 +793,7 @@ impl Ppu {
                         (((sprite.tile_hi << shift) & 0x80) >> 6)
                             | ((sprite.tile_lo << shift) & 0x80) >> 7
                     };
-                    if (color % 4) != 0 {
+                    if color != 0 {
                         if i == 0
                             && bg_opaque
                             && self.sprite0_visible
@@ -942,12 +974,12 @@ impl Ppu {
     #[must_use]
     #[inline]
     pub const fn read_oamaddr(&self) -> u8 {
-        self.regs.oamaddr
+        self.oamaddr
     }
 
     #[inline]
     fn write_oamaddr(&mut self, val: u8) {
-        self.regs.oamaddr = val;
+        self.oamaddr = val;
     }
 
     /*
@@ -963,11 +995,8 @@ impl Ppu {
             && matches!(self.cycle, SPR_FETCH_CYCLE_START..=SPR_FETCH_CYCLE_END)
         {
             let step = ((self.cycle - SPR_FETCH_CYCLE_START) & 0x07).min(3);
-            self.regs.secondary_oamaddr =
-                ((self.cycle - SPR_FETCH_CYCLE_START) / 8 * 4 + step) as u8;
-            self.oam_fetch = self
-                .secondary_oam
-                .read(u16::from(self.regs.secondary_oamaddr));
+            self.secondary_oamaddr = ((self.cycle - SPR_FETCH_CYCLE_START) / 8 * 4 + step) as u8;
+            self.oam_fetch = self.secondary_oam[self.secondary_oamaddr as usize & 0x1F];
         }
         self.peek_oamdata()
     }
@@ -977,10 +1006,10 @@ impl Ppu {
         let val = if self.scanline <= VISIBLE_SCANLINE_END && self.rendering_enabled() {
             self.oam_fetch
         } else {
-            self.oam.peek(u16::from(self.regs.oamaddr))
+            self.oam[self.oamaddr as usize]
         };
         // Bits 2-4 of sprite attr (byte 2) are unimplemented and return 0
-        if let 0x02 | 0x06 | 0x0A | 0x0E = self.regs.oamaddr & 0x0F {
+        if let 0x02 | 0x06 | 0x0A | 0x0E = self.oamaddr & 0x0F {
             val & 0xE3
         } else {
             val
@@ -993,10 +1022,10 @@ impl Ppu {
         // bumping only the high 6 bits
         // Accurate?? Breaks things
         // if !self.rendering_enabled() {
-        self.oam.write(u16::from(self.regs.oamaddr), val);
-        self.write_oamaddr(self.regs.oamaddr.wrapping_add(1));
+        self.oam[self.oamaddr as usize] = val;
+        self.write_oamaddr(self.oamaddr.wrapping_add(1));
         // } else {
-        //     self.write_oamaddr(self.regs.oamaddr.wrapping_add(4));
+        //     self.write_oamaddr(self.oamaddr.wrapping_add(4));
         // }
     }
 
@@ -1198,22 +1227,26 @@ impl Powered for Ppu {
         self.cycle = 0;
         self.frame_cycles = 0;
         self.scanline = 0;
+        self.prevent_vbl = false;
         self.oam_dma = false;
         self.oam_dma_offset = 0x00;
+        self.vram.reset();
+        self.regs.w = false;
+        self.regs.set_sprite0_hit(false);
+        self.regs.set_sprite_overflow(false);
+        self.oamaddr_lo = 0x00;
+        self.oamaddr_hi = 0x00;
+        self.oamaddr = 0x00;
+        self.secondary_oamaddr = 0x00;
         self.oam_fetch = 0xFF;
-        self.sprite_count = 0;
+        self.oam_eval_done = false;
+        self.overflow_count = 0;
         self.sprite_in_range = false;
         self.sprite0_in_range = false;
         self.sprite0_visible = false;
-        self.secondary_oam.write_protect(false);
-        self.prevent_vbl = false;
+        self.sprite_count = 0;
+        self.sprites = [Sprite::new(); 8];
         self.frame.reset();
-        self.vram.reset();
-        self.regs.w = false;
-        self.regs.oamaddr = 0x00;
-        self.regs.secondary_oamaddr = 0x00;
-        self.regs.set_sprite0_hit(false);
-        self.regs.set_sprite_overflow(false);
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_ppuscroll(0);
@@ -1226,22 +1259,26 @@ impl Powered for Ppu {
         self.cycle = 0;
         self.frame_cycles = 0;
         self.scanline = 0;
+        self.prevent_vbl = false;
         self.oam_dma = false;
         self.oam_dma_offset = 0x00;
+        self.vram.power_cycle();
+        self.regs.w = false;
+        self.regs.set_sprite0_hit(false);
+        self.regs.set_sprite_overflow(false);
+        self.oamaddr_lo = 0x00;
+        self.oamaddr_hi = 0x00;
+        self.oamaddr = 0x00;
+        self.secondary_oamaddr = 0x00;
         self.oam_fetch = 0xFF;
-        self.sprite_count = 0;
+        self.oam_eval_done = false;
+        self.overflow_count = 0;
         self.sprite_in_range = false;
         self.sprite0_in_range = false;
         self.sprite0_visible = false;
-        self.secondary_oam.write_protect(false);
-        self.prevent_vbl = false;
+        self.sprite_count = 0;
+        self.sprites = [Sprite::new(); 8];
         self.frame.power_cycle();
-        self.vram.power_cycle();
-        self.regs.w = false;
-        self.regs.oamaddr = 0x00;
-        self.regs.secondary_oamaddr = 0x00;
-        self.regs.set_sprite0_hit(false);
-        self.regs.set_sprite_overflow(false);
         self.write_ppuctrl(0);
         self.write_ppumask(0);
         self.write_oamaddr(0);
@@ -1406,38 +1443,38 @@ mod tests {
             // 0    | 1     | 0
             // 1    | 0     | 0
             // 0    | 0     | 0
-            9 => compare(11108430834668125220, deck, "palette_no_filter"),
+            9 => compare(9596027790758142943, deck, "palette_no_filter"),
             10 => deck.set_filter(VideoFilter::Ntsc),
-            11 => compare(17723985691966201016, deck, "palette_ntsc_111"),
+            11 => compare(4387552714011383977, deck, "palette_ntsc_111"),
             12 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             13 => deck.gamepad_mut(SLOT1).left = false,
-            15 => compare(3201727826462108162, deck, "palette_ntsc_011"),
+            15 => compare(9537844273161972404, deck, "palette_ntsc_011"),
             16 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             17 => deck.gamepad_mut(SLOT1).left = false,
             18 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             19 => deck.gamepad_mut(SLOT1).up = false,
-            21 => compare(633603467597611924, deck, "palette_ntsc_101"),
+            21 => compare(11716719779005054431, deck, "palette_ntsc_101"),
             22 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             23 => deck.gamepad_mut(SLOT1).left = false,
-            25 => compare(9893783780938922136, deck, "palette_ntsc_001"),
+            25 => compare(6475539855739803374, deck, "palette_ntsc_001"),
             26 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             27 => deck.gamepad_mut(SLOT1).left = false,
             28 => deck.gamepad_mut(SLOT1).up = true, // Enable green emphasis
             29 => deck.gamepad_mut(SLOT1).up = false,
             30 => deck.gamepad_mut(SLOT1).right = true, // Disable red emphasis
             31 => deck.gamepad_mut(SLOT1).right = false,
-            33 => compare(8236508332727512356, deck, "palette_ntsc_110"),
+            33 => compare(17676051504629173425, deck, "palette_ntsc_110"),
             34 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             35 => deck.gamepad_mut(SLOT1).left = false,
-            37 => compare(4775773861777747224, deck, "palette_ntsc_010"),
+            37 => compare(2571053923959605246, deck, "palette_ntsc_010"),
             38 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             39 => deck.gamepad_mut(SLOT1).left = false,
             40 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             41 => deck.gamepad_mut(SLOT1).up = false,
-            43 => compare(6061785386938250131, deck, "palette_ntsc_100"),
+            43 => compare(2054842586094113364, deck, "palette_ntsc_100"),
             44 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             45 => deck.gamepad_mut(SLOT1).left = false,
-            47 => compare(12597785546661129200, deck, "palette_ntsc_000"),
+            47 => compare(12402069094353198765, deck, "palette_ntsc_000"),
             _ => (),
         }),
         (scanline, 10, |frame, deck| match frame {
@@ -1470,8 +1507,8 @@ mod tests {
         }),
         (_240pee, 32, |frame, deck| match frame {
             // TODO: Compare each test
-            30 => compare(15118928968785296178, deck, "240pee_1"),
-            32 => compare(15118928968785296178, deck, "240pee_2"),
+            30 => compare(16678219602842852704, deck, "240pee_1"),
+            32 => compare(16678219602842852704, deck, "240pee_2"),
             _ => (),
         }),
     });
