@@ -564,17 +564,18 @@ impl AppState for Nes {
     ) -> PixResult<()> {
         match event {
             WindowEvent::Close => {
-                if matches!(&self.debugger, Some(debugger) if debugger.view.window_id == window_id)
+                if matches!(&self.emulation, Some(emulation) if emulation.window_id == window_id) {
+                    self.emulation = None;
+                    s.quit();
+                } else if matches!(&self.debugger, Some(debugger) if debugger.view.window_id == window_id)
                 {
                     self.debugger = None;
                     self.control_deck.cpu_mut().debugging = false;
                     self.resume_play();
-                }
-                if matches!(self.ppu_viewer, Some(view) if view.window_id == window_id) {
+                } else if matches!(self.ppu_viewer, Some(view) if view.window_id == window_id) {
                     self.ppu_viewer = None;
                     self.control_deck.ppu_mut().open_viewer();
-                }
-                if matches!(self.apu_viewer, Some(view) if view.window_id == window_id) {
+                } else if matches!(self.apu_viewer, Some(view) if view.window_id == window_id) {
                     self.apu_viewer = None;
                 }
             }
