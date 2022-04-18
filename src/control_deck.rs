@@ -81,7 +81,7 @@ impl ControlDeck {
     /// Get the current frame number.
     #[inline]
     #[must_use]
-    pub fn frame_number(&self) -> u32 {
+    pub const fn frame_number(&self) -> u32 {
         self.cpu.bus.ppu.frame.num
     }
 

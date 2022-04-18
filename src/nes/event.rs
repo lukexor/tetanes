@@ -73,7 +73,7 @@ pub(crate) struct KeyBinding {
 }
 
 impl KeyBinding {
-    pub(crate) fn new(player: GamepadSlot, key: Key, keymod: KeyMod, action: Action) -> Self {
+    pub(crate) const fn new(player: GamepadSlot, key: Key, keymod: KeyMod, action: Action) -> Self {
         Self {
             player,
             key,
@@ -91,7 +91,7 @@ pub(crate) struct MouseBinding {
 }
 
 impl MouseBinding {
-    pub(crate) fn new(player: GamepadSlot, button: Mouse, action: Action) -> Self {
+    pub(crate) const fn new(player: GamepadSlot, button: Mouse, action: Action) -> Self {
         Self {
             player,
             button,
@@ -108,7 +108,7 @@ pub(crate) struct ControllerButtonBinding {
 }
 
 impl ControllerButtonBinding {
-    pub(crate) fn new(player: GamepadSlot, button: ControllerButton, action: Action) -> Self {
+    pub(crate) const fn new(player: GamepadSlot, button: ControllerButton, action: Action) -> Self {
         Self {
             player,
             button,
@@ -126,7 +126,7 @@ pub(crate) struct ControllerAxisBinding {
 }
 
 impl ControllerAxisBinding {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         player: GamepadSlot,
         axis: Axis,
         direction: AxisDirection,
@@ -380,12 +380,11 @@ impl Nes {
         event: ControllerEvent,
         pressed: bool,
     ) -> PixResult<bool> {
-        if let Some(slot) = self.get_controller_slot(event.controller_id) {
-            let input = Input::Button((slot, event.button));
-            self.handle_input(s, slot, input, pressed, false, None)
-        } else {
-            Ok(false)
-        }
+        self.get_controller_slot(event.controller_id)
+            .map_or(Ok(false), |slot| {
+                let input = Input::Button((slot, event.button));
+                self.handle_input(s, slot, input, pressed, false, None)
+            })
     }
 
     #[inline]
@@ -396,17 +395,16 @@ impl Nes {
         axis: Axis,
         value: i32,
     ) -> PixResult<bool> {
-        if let Some(slot) = self.get_controller_slot(controller_id) {
-            let direction = match value.cmp(&0) {
-                Ordering::Greater => AxisDirection::Positive,
-                Ordering::Less => AxisDirection::Negative,
-                Ordering::Equal => AxisDirection::None,
-            };
-            let input = Input::Axis((slot, axis, direction));
-            self.handle_input(s, slot, input, true, false, None)
-        } else {
-            Ok(false)
-        }
+        self.get_controller_slot(controller_id)
+            .map_or(Ok(false), |slot| {
+                let direction = match value.cmp(&0) {
+                    Ordering::Greater => AxisDirection::Positive,
+                    Ordering::Less => AxisDirection::Negative,
+                    Ordering::Equal => AxisDirection::None,
+                };
+                let input = Input::Axis((slot, axis, direction));
+                self.handle_input(s, slot, input, true, false, None)
+            })
     }
 
     #[inline]
