@@ -199,7 +199,7 @@ pub(crate) enum Action {
     Feature(Feature),
     Setting(Setting),
     Gamepad(GamepadBtn),
-    Zapper(Option<Point>),
+    ZapperTrigger,
     ZeroAxis([GamepadBtn; 2]),
     Debug(DebugAction),
 }
@@ -309,13 +309,12 @@ impl Nes {
         input: Input,
         pressed: bool,
         repeat: bool,
-        pos: Option<Point>,
     ) -> NesResult<bool> {
         self.config
             .input_map
             .get(&input)
             .copied()
-            .map_or(Ok(false), |mut action| {
+            .map_or(Ok(false), |action| {
                 if pressed && self.replay.mode == ReplayMode::Playback {
                     match action {
                         Action::Feature(Feature::ToggleGameplayRecording) => self.stop_replay(),
@@ -325,9 +324,6 @@ impl Nes {
                     }
                     Ok(true)
                 } else {
-                    if let Action::Zapper(ref mut p) = action {
-                        *p = pos;
-                    }
                     self.handle_action(s, slot, action, pressed, repeat)
                 }
             })
@@ -347,7 +343,7 @@ impl Nes {
             GamepadSlot::Four,
         ] {
             let input = Input::Key((slot, event.key, event.keymod));
-            if let Ok(true) = self.handle_input(s, slot, input, pressed, event.repeat, None) {
+            if let Ok(true) = self.handle_input(s, slot, input, pressed, event.repeat) {
                 return true;
             }
         }
@@ -355,22 +351,41 @@ impl Nes {
     }
 
     #[inline]
-    pub fn handle_mouse_event(
-        &mut self,
-        s: &mut PixState,
-        btn: Mouse,
-        pos: Point<i32>,
-        clicked: bool,
-    ) -> bool {
+    pub fn handle_mouse_click(&mut self, s: &mut PixState, btn: Mouse) -> bool {
+        // To avoid consuming events while in menus
         if self.mode == Mode::Playing {
             for slot in [GamepadSlot::One, GamepadSlot::Two] {
                 let input = Input::Mouse((slot, btn));
-                if let Ok(true) = self.handle_input(s, slot, input, clicked, false, Some(pos)) {
+                if let Ok(true) = self.handle_input(s, slot, input, true, false) {
                     return true;
                 }
             }
         }
         false
+    }
+
+    #[inline]
+    pub fn set_zapper_pos(&mut self, pos: Point<i32>) -> bool {
+        for slot in [GamepadSlot::One, GamepadSlot::Two] {
+            let zapper = self.control_deck.zapper_mut(slot);
+            if zapper.connected {
+                let mut pos = pos / self.config.scale as i32;
+                pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
+                zapper.pos = pos;
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline]
+    pub fn handle_mouse_motion(&mut self, pos: Point<i32>) -> bool {
+        // To avoid consuming events while in menus
+        if self.mode == Mode::Playing {
+            self.set_zapper_pos(pos)
+        } else {
+            false
+        }
     }
 
     #[inline]
@@ -383,7 +398,7 @@ impl Nes {
         self.get_controller_slot(event.controller_id)
             .map_or(Ok(false), |slot| {
                 let input = Input::Button((slot, event.button));
-                self.handle_input(s, slot, input, pressed, false, None)
+                self.handle_input(s, slot, input, pressed, false)
             })
     }
 
@@ -403,7 +418,7 @@ impl Nes {
                     Ordering::Equal => AxisDirection::None,
                 };
                 let input = Input::Axis((slot, axis, direction));
-                self.handle_input(s, slot, input, true, false, None)
+                self.handle_input(s, slot, input, true, false)
             })
     }
 
@@ -445,7 +460,7 @@ impl Nes {
                 Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
                 Action::Setting(setting) => self.handle_setting(s, setting, pressed)?,
                 Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
-                Action::Zapper(pos) => self.handle_zapper(slot, pos, pressed),
+                Action::ZapperTrigger => self.handle_zapper_trigger(slot),
                 Action::ZeroAxis(buttons) => {
                     for button in buttons {
                         self.handle_gamepad_pressed(slot, button, pressed);
@@ -676,18 +691,9 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_zapper(&mut self, slot: GamepadSlot, pos: Option<Point>, triggered: bool) {
-        if self.mode == Mode::Playing {
-            let zapper = self.control_deck.zapper_mut(slot);
-            if let Some(pos) = pos {
-                let mut pos = pos / self.config.scale as i32;
-                pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
-                zapper.pos = pos;
-            }
-            if triggered {
-                zapper.trigger();
-            }
-        }
+    fn handle_zapper_trigger(&mut self, slot: GamepadSlot) {
+        let zapper = self.control_deck.zapper_mut(slot);
+        zapper.trigger();
     }
 
     #[inline]

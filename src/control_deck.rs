@@ -122,10 +122,7 @@ impl ControlDeck {
         &mut self,
         breakpoints: &[Breakpoint],
     ) -> ControlFlow<usize, usize> {
-        for zapper in &mut self.cpu.bus.input.zappers {
-            zapper.update();
-        }
-        self.clock_turbo();
+        self.clock_input();
         let mut clocks = 0;
         while !self.frame_complete() && !self.cpu_corrupted() {
             if breakpoints.iter().any(|bp| bp.matches(&self.cpu)) {
@@ -140,6 +137,7 @@ impl ControlDeck {
     /// Steps the control deck an entire frame
     #[inline]
     pub fn clock_frame(&mut self) -> usize {
+        self.clock_input();
         let mut clocks = 0;
         while !self.frame_complete() && !self.cpu_corrupted() {
             clocks += self.clock();
@@ -304,7 +302,10 @@ impl ControlDeck {
 
 impl ControlDeck {
     #[inline]
-    fn clock_turbo(&mut self) {
+    fn clock_input(&mut self) {
+        for zapper in &mut self.cpu.bus.input.zappers {
+            zapper.update();
+        }
         self.turbo_clock += 1;
         // Every 2 frames, ~30Hz turbo
         if self.turbo_clock > 2 {

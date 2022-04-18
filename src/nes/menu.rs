@@ -73,7 +73,7 @@ impl Nes {
     }
 
     pub(crate) fn exit_menu(&mut self, s: &mut PixState) -> PixResult<()> {
-        if self.control_deck.zapper(GamepadSlot::Two).connected {
+        if self.set_zapper_pos(s.mouse_pos()) {
             s.cursor(None)?;
         }
         self.resume_play();
@@ -285,7 +285,7 @@ impl Nes {
                 .set_connected(zapper_connected);
             let input = Input::Mouse((GamepadSlot::Two, Mouse::Left));
             if zapper_connected {
-                let action = Action::Zapper(Some(s.mouse_pos()));
+                let action = Action::ZapperTrigger;
                 self.config.add_binding(input, action);
             } else {
                 self.config.remove_binding(input);

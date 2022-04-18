@@ -138,7 +138,7 @@ impl NesBuilder {
         let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_speed(config.speed);
         for (&input, &action) in config.input_map.iter() {
-            if let Action::Zapper(_) = action {
+            if let Action::ZapperTrigger = action {
                 if let Input::Mouse((slot, ..))
                 | Input::Key((slot, ..))
                 | Input::Button((slot, ..)) = input
@@ -322,6 +322,9 @@ impl Nes {
 
 impl AppState for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
+        if self.set_zapper_pos(s.mouse_pos()) {
+            s.cursor(None)?;
+        }
         self.emulation = Some(View::new(
             s.window_id(),
             Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgb)?),
@@ -485,18 +488,18 @@ impl AppState for Nes {
         &mut self,
         s: &mut PixState,
         btn: Mouse,
-        pos: Point<i32>,
+        _pos: Point<i32>,
     ) -> PixResult<bool> {
-        Ok(self.handle_mouse_event(s, btn, pos, true))
+        Ok(self.handle_mouse_click(s, btn))
     }
 
     fn on_mouse_motion(
         &mut self,
-        s: &mut PixState,
+        _s: &mut PixState,
         pos: Point<i32>,
         _rel_pos: Point<i32>,
     ) -> PixResult<bool> {
-        Ok(self.handle_mouse_event(s, Mouse::Left, pos, false))
+        Ok(self.handle_mouse_motion(pos))
     }
 
     fn on_controller_update(
