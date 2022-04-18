@@ -519,7 +519,7 @@ impl Nes {
 
 impl Nes {
     #[inline]
-    fn action_event(
+    const fn action_event(
         &self,
         slot: GamepadSlot,
         action: Action,
