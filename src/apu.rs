@@ -531,10 +531,8 @@ mod tests {
         (len_timing, 100, 0, "Channel: 0 second length of mode 0 is too soon"),
         (len_timing_mode0, 100, 0, "fails $04"),
         (len_timing_mode1, 100, 0, "fails $05"),
-        (reset_4017_timing, 100, 0, "Delay after effective $4017 write: 0, Frame IRQ should be set sooner after power/reset, #3"),
-        (reset_4017_written, 100, 0, "At power, $4017 should be written with $00, #2"),
         (reset_len_ctrs_enabled, 100, 0, "At power, length counters should be enabled, #2"),
-        (reset_timing, 100, 0, "fails $04"),
+        (reset_timing, 10, 11142254853534581794),
         (test_1, 10, 2319187644663237904),
         (test_2, 10, 2319187644663237904),
         (test_3, 100, 0, "fails"),
@@ -552,6 +550,17 @@ mod tests {
             10 => deck.reset(),
             17 => compare(116295277903678038, deck, "reset_4015_cleared"),
             _ => (),
+        }),
+        (reset_4017_timing, 37, |frame, deck| match frame {
+            18 => deck.reset(),
+            37 => compare(14926929218207596099, deck, "reset_4017_timing"),
+            _ => (),
+        }),
+        (reset_4017_written, 0, |frame, deck| match frame {
+            17 => deck.reset(),
+            32 => deck.reset(),
+            47 => compare(12593305160591345698, deck, "reset_4017_written"),
+            _ => ()
         }),
         (reset_irq_flag_cleared, 16, |frame, deck| match frame {
             11 => deck.reset(),

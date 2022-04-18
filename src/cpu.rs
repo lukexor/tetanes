@@ -659,7 +659,7 @@ impl Cpu {
         for byte in &bytes {
             disasm.push_str(&format!("${:02X} ", byte));
         }
-        for _ in 0..(bytes.len() - 3) {
+        for _ in 0..(3 - bytes.len()) {
             disasm.push_str("    ");
         }
         disasm.push_str(&format!("{:?}{}", instr, mode));
@@ -1026,7 +1026,7 @@ mod tests {
         (int_irq_and_dma, 75, 13358975779607334897),
         (int_nmi_and_brk, 114, 17633239368772221973),
         (int_nmi_and_irq, 134, 10095178669490697839),
-        (overclock, 12, 8933913286013221836),
+        (overclock, 12, 13855544627008203546),
         (sprdma_and_dmc_dma, 100, 0, "fails with black screen and beeping"),
         (sprdma_and_dmc_dma_512, 100, 0, "fails with black screen and beeping"),
         (timing_test, 615, 1923625356858417593),

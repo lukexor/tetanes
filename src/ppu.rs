@@ -1377,7 +1377,7 @@ mod tests {
         (spr_overflow_details, 24, 11524930027717629233),
         (spr_overflow_emulator, 14, 8625109434711991653),
         (spr_overflow_obscure, 100, 0, "fails #2"),
-        (spr_overflow_timing, 100, 0, "fails #5"),
+        (spr_overflow_timing, 150, 0, "fails #12"),
         (sprite_ram, 20, 11142254853534581794),
         (vbl_nmi_basics, 142, 8937881636620623435),
         (vbl_nmi_clear_timing, 120, 2291069159326703442),
@@ -1406,38 +1406,38 @@ mod tests {
             // 0    | 1     | 0
             // 1    | 0     | 0
             // 0    | 0     | 0
-            9 => compare(9596027790758142943, deck, "palette_no_filter"),
+            9 => compare(11108430834668125220, deck, "palette_no_filter"),
             10 => deck.set_filter(VideoFilter::Ntsc),
-            11 => compare(4387552714011383977, deck, "palette_ntsc_111"),
+            11 => compare(17723985691966201016, deck, "palette_ntsc_111"),
             12 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             13 => deck.gamepad_mut(SLOT1).left = false,
-            15 => compare(9537844273161972404, deck, "palette_ntsc_011"),
+            15 => compare(3201727826462108162, deck, "palette_ntsc_011"),
             16 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             17 => deck.gamepad_mut(SLOT1).left = false,
             18 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             19 => deck.gamepad_mut(SLOT1).up = false,
-            21 => compare(11716719779005054431, deck, "palette_ntsc_101"),
+            21 => compare(633603467597611924, deck, "palette_ntsc_101"),
             22 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             23 => deck.gamepad_mut(SLOT1).left = false,
-            25 => compare(6475539855739803374, deck, "palette_ntsc_001"),
+            25 => compare(9893783780938922136, deck, "palette_ntsc_001"),
             26 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             27 => deck.gamepad_mut(SLOT1).left = false,
             28 => deck.gamepad_mut(SLOT1).up = true, // Enable green emphasis
             29 => deck.gamepad_mut(SLOT1).up = false,
             30 => deck.gamepad_mut(SLOT1).right = true, // Disable red emphasis
             31 => deck.gamepad_mut(SLOT1).right = false,
-            33 => compare(17676051504629173425, deck, "palette_ntsc_110"),
+            33 => compare(8236508332727512356, deck, "palette_ntsc_110"),
             34 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             35 => deck.gamepad_mut(SLOT1).left = false,
-            37 => compare(2571053923959605246, deck, "palette_ntsc_010"),
+            37 => compare(4775773861777747224, deck, "palette_ntsc_010"),
             38 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             39 => deck.gamepad_mut(SLOT1).left = false,
             40 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             41 => deck.gamepad_mut(SLOT1).up = false,
-            43 => compare(6955900250073991544, deck, "palette_ntsc_100"),
+            43 => compare(6061785386938250131, deck, "palette_ntsc_100"),
             44 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             45 => deck.gamepad_mut(SLOT1).left = false,
-            47 => compare(12402069094353198765, deck, "palette_ntsc_000"),
+            47 => compare(12597785546661129200, deck, "palette_ntsc_000"),
             _ => (),
         }),
         (scanline, 10, |frame, deck| match frame {
@@ -1464,14 +1464,14 @@ mod tests {
             10 => compare(4783216579876513198, deck, "tv_1"),
             11 => deck.gamepad_mut(SLOT1).start = true,
             12 => deck.gamepad_mut(SLOT1).start = false,
-            14 => compare(15545778642599554983, deck, "tv_2"),
-            15 => compare(9114117571813023629, deck, "tv_3"),
+            14 => compare(6179899534662195551, deck, "tv_2"),
+            15 => compare(16005848918182601591, deck, "tv_3"),
             _ => (),
         }),
         (_240pee, 32, |frame, deck| match frame {
             // TODO: Compare each test
-            30 => compare(16678219602842852704, deck, "240pee_1"),
-            32 => compare(16678219602842852704, deck, "240pee_2"),
+            30 => compare(15118928968785296178, deck, "240pee_1"),
+            32 => compare(15118928968785296178, deck, "240pee_2"),
             _ => (),
         }),
     });

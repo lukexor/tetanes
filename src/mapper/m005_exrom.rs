@@ -936,13 +936,13 @@ mod tests {
             _ => (),
         }),
         (basics, 40, |frame, deck| match frame {
-            10 => compare(17691115586669895739, deck, "exrom_basics_1"),
+            10 => compare(1857850712256333030, deck, "exrom_basics_1"),
             11 => deck.gamepad_mut(SLOT1).a = true, // Change Obj table
             12 => deck.gamepad_mut(SLOT1).a = false,
-            14 => compare(11119197385669226295, deck, "exrom_basics_obj_table"),
+            14 => compare(723136247042182658, deck, "exrom_basics_obj_table"),
             15 => deck.gamepad_mut(SLOT1).b = true, // Change BG table
             16 => deck.gamepad_mut(SLOT1).b = false,
-            18 => compare(249922895281435000, deck, "exrom_basics_bg_table"),
+            18 => compare(6962991945581549350, deck, "exrom_basics_bg_table"),
             19 => deck.gamepad_mut(SLOT1).start = true, // Change Obj size
             20 => deck.gamepad_mut(SLOT1).start = false,
             22 => compare(17866245002922723459, deck, "exrom_basics_obj_size"),
@@ -951,7 +951,7 @@ mod tests {
             26 => compare(18138629485953179711, deck, "exrom_basics_exram"),
             27 => deck.gamepad_mut(SLOT1).up = true, // Enable fill
             28 => deck.gamepad_mut(SLOT1).up = false,
-            30 => compare(6458937386216491988, deck, "exrom_basics_fill"),
+            30 => compare(7706206738498296599, deck, "exrom_basics_fill"),
             31 => deck.gamepad_mut(SLOT1).up = true, // Disable fill
             32 => deck.gamepad_mut(SLOT1).up = false,
             33 => deck.gamepad_mut(SLOT1).left = true, // Change bank left
