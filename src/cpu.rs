@@ -656,12 +656,11 @@ impl Cpu {
             ACC | IMP => "".to_string(),
         };
         *pc = addr;
-        for i in 0..3 {
-            if i < bytes.len() {
-                disasm.push_str(&format!("${:02X} ", bytes[i]));
-            } else {
-                disasm.push_str("    ");
-            }
+        for byte in &bytes {
+            disasm.push_str(&format!("${:02X} ", byte));
+        }
+        for _ in 0..(bytes.len() - 3) {
+            disasm.push_str("    ");
         }
         disasm.push_str(&format!("{:?}{}", instr, mode));
         disasm

@@ -237,8 +237,8 @@ impl Ppu {
 
     fn load_nametables(&mut self) {
         if let Some(ref mut viewer) = self.viewer {
-            for i in 0..4 {
-                let base_addr = NT_START + i * NT_SIZE;
+            for (i, nametable) in viewer.nametables.iter_mut().enumerate() {
+                let base_addr = NT_START + (i as u16) * NT_SIZE;
                 for addr in base_addr..(base_addr + NT_SIZE - 64) {
                     let x_scroll = addr & COARSE_X_MASK;
                     let y_scroll = (addr & COARSE_Y_MASK) >> 5;
@@ -246,9 +246,8 @@ impl Ppu {
                     let nt_base_addr = NT_START + (addr & (NT_X_MASK | NT_Y_MASK));
                     let tile = self.vram.peek(addr);
                     let tile_addr = self.regs.background_select() + u16::from(tile) * 16;
-                    let supertile_num = (x_scroll / 4) + (y_scroll / 4) * 8;
-                    let attr =
-                        u16::from(self.vram.peek(nt_base_addr + ATTR_OFFSET + supertile_num));
+                    let supertile = (x_scroll / 4) + (y_scroll / 4) * 8;
+                    let attr = u16::from(self.vram.peek(nt_base_addr + ATTR_OFFSET + supertile));
                     let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
                     let mask = 0x03 << corner;
                     let palette = (attr & mask) >> corner;
@@ -265,15 +264,9 @@ impl Ppu {
                             let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
                             let palette_idx =
                                 self.vram.peek(PALETTE_START + palette * 4 + pix_type) as usize;
-                            let x = tile_x + (7 - x);
-                            let y = tile_y + y;
-                            Self::put_pixel(
-                                palette_idx,
-                                x.into(),
-                                y.into(),
-                                RENDER_WIDTH,
-                                &mut viewer.nametables[i as usize],
-                            );
+                            let x = u32::from(tile_x + (7 - x));
+                            let y = u32::from(tile_y + y);
+                            Self::put_pixel(palette_idx, x, y, RENDER_WIDTH, nametable);
                         }
                     }
                 }
@@ -284,8 +277,8 @@ impl Ppu {
     fn load_pattern_tables(&mut self) {
         if let Some(ref mut viewer) = self.viewer {
             let width = RENDER_WIDTH / 2;
-            for table in 0..2 {
-                let start = table as u16 * 0x1000;
+            for (i, pattern_table) in viewer.pattern_tables.iter_mut().enumerate() {
+                let start = (i as u16) * 0x1000;
                 let end = start + 0x1000;
                 for tile_addr in (start..end).step_by(16) {
                     let tile_x = ((tile_addr % 0x1000) % 256) / 2;
@@ -296,15 +289,9 @@ impl Ppu {
                         for x in 0..8 {
                             let pix_type = ((lo >> x) & 1) + (((hi >> x) & 1) << 1);
                             let palette_idx = self.vram.peek(PALETTE_START + pix_type) as usize;
-                            let x = tile_x + (7 - x);
-                            let y = tile_y + y;
-                            Self::put_pixel(
-                                palette_idx,
-                                x.into(),
-                                y.into(),
-                                width,
-                                &mut viewer.pattern_tables[table as usize],
-                            );
+                            let x = u32::from(tile_x + (7 - x));
+                            let y = u32::from(tile_y + y);
+                            Self::put_pixel(palette_idx, x, y, width, pattern_table);
                         }
                     }
                 }
@@ -324,14 +311,14 @@ impl Ppu {
             // 0x3F0C: 0,3  0x3F0D: 1,3  0x3F0E: 2,3  0x3F0F: 3,3  0x3F1C: 5,3  0x3F1D: 6,3  0x3F1E: 7,3  0x3F1F: 8,3
             let width = 16;
             for addr in PALETTE_START..PALETTE_END {
-                let x = (addr - PALETTE_START) % 16;
-                let y = (addr - PALETTE_START) / 16;
+                let x = u32::from((addr - PALETTE_START) % 16);
+                let y = u32::from((addr - PALETTE_START) / 16);
                 let palette_idx = self.vram.peek(addr);
                 viewer.palette_ids[y as usize * width + x as usize] = palette_idx;
                 Self::put_pixel(
                     palette_idx as usize,
-                    x.into(),
-                    y.into(),
+                    x,
+                    y,
                     width as u32,
                     &mut viewer.palette,
                 );
