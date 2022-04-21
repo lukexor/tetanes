@@ -26,6 +26,26 @@ impl Default for NesFormat {
     }
 }
 
+impl AsRef<str> for NesFormat {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Ntsc => "NTSC",
+            Self::Pal => "PAL",
+            Self::Dendy => "Dendy",
+        }
+    }
+}
+
+impl From<usize> for NesFormat {
+    fn from(value: usize) -> Self {
+        match value {
+            1 => Self::Pal,
+            2 => Self::Dendy,
+            _ => Self::Ntsc,
+        }
+    }
+}
+
 #[enum_dispatch(Mapper)]
 pub trait Powered {
     fn power_on(&mut self) {}

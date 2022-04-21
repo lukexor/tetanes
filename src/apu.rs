@@ -5,7 +5,7 @@
 use crate::{
     apu::pulse::OutputFreq,
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clocked, NesFormat, Powered},
     cpu::CPU_CLOCK_RATE,
     mapper::Mapper,
     memory::{MemRead, MemWrite},
@@ -65,10 +65,11 @@ pub enum AudioChannel {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Apu {
+    cycle: usize,    // Current APU cycle
+    clock_rate: f32, // Same as CPU but is affected by speed changes
+    nes_format: NesFormat,
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_disabled: bool,           // Set by $4017 D6
-    clock_rate: f32,              // Same as CPU but is affected by speed changes
-    cycle: usize,                 // Current APU cycle
     samples: Vec<f32>,            // Buffer of samples
     frame_counter: FrameCounter,
     pulse1: Pulse,
@@ -85,25 +86,32 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub fn new() -> Self {
+    pub fn new(nes_format: NesFormat) -> Self {
         Self {
+            cycle: 0usize,
+            clock_rate: CPU_CLOCK_RATE,
+            nes_format,
             irq_pending: false,
             irq_disabled: false,
-            clock_rate: CPU_CLOCK_RATE,
-            cycle: 0usize,
             samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
-            frame_counter: FrameCounter::new(),
+            frame_counter: FrameCounter::new(nes_format),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
             triangle: Triangle::new(),
-            noise: Noise::new(),
-            dmc: Dmc::new(),
+            noise: Noise::new(nes_format),
+            dmc: Dmc::new(nes_format),
             cart: std::ptr::null_mut(),
             enabled: [true; 5],
             sample_timer: 0.0,
             sample_rate: CPU_CLOCK_RATE / SAMPLE_RATE,
             open_bus: 0u8,
         }
+    }
+
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.nes_format = nes_format;
+        self.frame_counter.set_nes_format(nes_format);
+        self.dmc.set_nes_format(nes_format);
     }
 
     #[must_use]
@@ -403,7 +411,7 @@ impl Powered for Apu {
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::default())
     }
 }
 
@@ -508,15 +516,15 @@ impl LinearCounter {
 mod tests {
     #![allow(clippy::unreadable_literal)]
     use crate::{
-        common::{tests::compare, Powered},
+        common::{tests::compare, NesFormat, Powered},
         test_roms, test_roms_adv,
     };
 
     test_roms!("apu", {
         (clock_jitter, 15, 11142254853534581794),
         (dmc_basics, 25, 4777243056264901558),
-        (dmc_dma_2007_read, 21, 17221983624275366323),
-        (dmc_dma_2007_write, 26, 6819750118289511461),
+        (dmc_dma_2007_read, 25, 9760800171373506878),
+        (dmc_dma_2007_write, 30, 6819750118289511461),
         (dmc_dma_4016_read, 20, 17611075533891223752),
         (dmc_dma_double_2007_read, 20, 10498985860445899032),
         (dmc_dma_read_write_2007, 24, 17262164619652057735),
@@ -545,6 +553,12 @@ mod tests {
         (test_8, 100, 0, "fails"),
         (test_9, 100, 0, "fails"),
         (test_10, 100, 0, "fails"),
+        (pal_clock_jitter, 100, 0, "fails"),
+        (pal_irq_flag_timing, 100, 0, "fails"),
+        (pal_len_halt_timing, 100, 0, "fails"),
+        (pal_len_reload_timing, 100, 0, "fails"),
+        (pal_len_timing_mode0, 100, 0, "fails"),
+        (pal_len_timing_mode1, 100, 0, "fails"),
     });
 
     test_roms_adv!("apu", {
@@ -572,6 +586,26 @@ mod tests {
         (reset_works_immediately, 18, |frame, deck| match frame {
             15 => deck.reset(),
             21 => compare(1786657150847637076, deck, "reset_works_immediately"),
+            _ => (),
+        }),
+        (pal_irq_flag, 15, |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            15 => compare(1476332058693542633, deck, "pal_irq_flag"),
+            _ => (),
+        }),
+        (pal_irq_timing, 15,  |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            15 => compare(4151069387652564427, deck, "pal_irq_timing"),
+            _ => (),
+        }),
+        (pal_len_ctr, 25,  |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            25 => compare(8844976523644404419, deck, "pal_len_ctr"),
+            _ => (),
+        }),
+        (pal_len_table, 15,  |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            15 => compare(16541936846276814327, deck, "pal_len_table"),
             _ => (),
         }),
     });

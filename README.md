@@ -371,7 +371,7 @@ When using the WASM version in the browser, also include:
     - [ ] OAM Viewer (on screen sprites)
     - [ ] Palette Viewer
   - [ ] APU Viewer (Displays audio status and registers)
-  - [ ] 114/139 automated ROM tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
+  - [ ] 122/149 automated ROM tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
   - [ ] Detailed Documentation
   - Logging
     - [x] Environment logging

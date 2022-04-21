@@ -1,9 +1,10 @@
-use crate::common::{Clocked, Powered};
+use crate::common::{Clocked, NesFormat, Powered};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
+    pub nes_format: NesFormat,
     pub irq_enabled: bool,
     pub irq_pending: bool,
     pub loops: bool,
@@ -24,19 +25,24 @@ pub struct Dmc {
 }
 
 impl Dmc {
-    // NTSC
-    const NTSC_FREQ_TABLE: [u16; 16] = [
+    const FREQ_TABLE_NTSC: [u16; 16] = [
         0x1AC, 0x17C, 0x154, 0x140, 0x11E, 0x0FE, 0x0E2, 0x0D6, 0x0BE, 0x0A0, 0x08E, 0x080, 0x06A,
         0x054, 0x048, 0x036,
     ];
+    const FREQ_TABLE_PAL: [u16; 16] = [
+        0x18E, 0x162, 0x13C, 0x12A, 0x114, 0x0EC, 0x0D2, 0x0C6, 0x0B0, 0x094, 0x084, 0x076, 0x062,
+        0x04E, 0x042, 0x032,
+    ];
 
-    pub const fn new() -> Self {
+    pub fn new(nes_format: NesFormat) -> Self {
+        let freq_timer = Self::freq_timer(nes_format, 0);
         Self {
+            nes_format,
             irq_enabled: false,
             irq_pending: false,
             loops: false,
-            freq_timer: Self::NTSC_FREQ_TABLE[0] - 2,
-            freq_counter: Self::NTSC_FREQ_TABLE[0] - 2,
+            freq_timer,
+            freq_counter: freq_timer,
             addr: 0xC000,
             addr_load: 0x0000,
             length: 0x0000,
@@ -52,6 +58,20 @@ impl Dmc {
         }
     }
 
+    #[inline]
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.nes_format = nes_format;
+        self.freq_timer = Self::freq_timer(nes_format, 0);
+    }
+
+    #[inline]
+    fn freq_timer(nes_format: NesFormat, val: u8) -> u16 {
+        match nes_format {
+            NesFormat::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 2,
+            NesFormat::Pal | NesFormat::Dendy => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 2,
+        }
+    }
+
     #[must_use]
     #[inline]
     pub fn output(&self) -> f32 {
@@ -63,7 +83,7 @@ impl Dmc {
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
         self.loops = val & 0x40 == 0x40;
-        self.freq_timer = Self::NTSC_FREQ_TABLE[(val & 0x0F) as usize] - 2;
+        self.freq_timer = Self::freq_timer(self.nes_format, val);
         if !self.irq_enabled {
             self.irq_pending = false;
         }
@@ -178,8 +198,8 @@ impl Powered for Dmc {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
-        self.freq_timer = Self::NTSC_FREQ_TABLE[0] - 2;
-        self.freq_counter = Self::NTSC_FREQ_TABLE[0] - 2;
+        self.freq_timer = Self::freq_timer(self.nes_format, 0);
+        self.freq_counter = self.freq_timer;
         self.addr = 0x0000;
         self.addr_load = 0x0000;
         self.length = 0x0000;
@@ -203,6 +223,6 @@ impl Powered for Dmc {
 
 impl Default for Dmc {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::default())
     }
 }

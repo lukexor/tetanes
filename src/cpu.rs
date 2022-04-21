@@ -134,20 +134,15 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub const fn init(nes_format: NesFormat, bus: Bus) -> Self {
-        let (clock_divider, start_clocks, end_clocks) = match nes_format {
-            NesFormat::Ntsc => (12, 6, 6),
-            NesFormat::Pal => (16, 8, 8),
-            NesFormat::Dendy => (15, 7, 8),
-        };
-        Self {
+    pub fn new(nes_format: NesFormat, bus: Bus) -> Self {
+        let mut cpu = Self {
             cycle: 0,
             step: 0,
             nes_format,
             master_clock: 0,
-            clock_divider,
-            start_clocks,
-            end_clocks,
+            clock_divider: 0,
+            start_clocks: 0,
+            end_clocks: 0,
             pc: 0x0000,
             sp: 0x00,
             acc: 0x00,
@@ -170,7 +165,23 @@ impl Cpu {
             dmc_dma: false,
             dummy_read: false,
             debugging: false,
-        }
+        };
+        cpu.set_nes_format(nes_format);
+        cpu
+    }
+
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        let (clock_divider, start_clocks, end_clocks) = match nes_format {
+            NesFormat::Ntsc => (12, 6, 6),
+            NesFormat::Pal => (16, 8, 8),
+            NesFormat::Dendy => (15, 7, 8),
+        };
+        self.nes_format = nes_format;
+        self.clock_divider = clock_divider;
+        self.start_clocks = start_clocks;
+        self.end_clocks = end_clocks;
+        self.bus.ppu.set_nes_format(nes_format);
+        self.bus.apu.set_nes_format(nes_format);
     }
 
     #[inline]
@@ -385,33 +396,35 @@ impl Cpu {
 
     #[inline]
     fn handle_dma(&mut self, addr: u16) {
+        log::trace!("starting DMA: {}", self.cycle);
+        if addr & 0x2007 == 0x2007 {
+            log::trace!("swallowing $2007 read");
+        }
         self.start_cycle(Cycle::Read);
         self.bus.read(addr);
         self.end_cycle(Cycle::Read);
         self.halt = false;
 
-        // PAL is exempt from DMC DMA controller conflict
-        // https://www.nesdev.org/wiki/APU_DMC#Conflict_with_controller_and_PPU_read
-        let skip_dummy_reads =
-            self.nes_format != NesFormat::Pal && (addr == 0x4016 || addr == 0x4017);
+        let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
+
         let oam_read_addr = u16::from(self.bus.ppu.oam_dma_offset) << 8;
         let mut oam_read_offset = 0;
-        let mut oam_data = 0;
         let mut oam_dma_count = 0;
+        let mut read_val = 0;
 
         while self.bus.ppu.oam_dma || self.dmc_dma {
             if self.cycle & 0x01 == 0x00 {
                 if self.dmc_dma && !self.halt && !self.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
-                    let val = self.bus.read(self.bus.apu.dmc.addr);
+                    read_val = self.bus.read(self.bus.apu.dmc.addr);
                     self.end_cycle(Cycle::Read);
-                    self.bus.apu.dmc.set_sample_buffer(val);
+                    self.bus.apu.dmc.set_sample_buffer(read_val);
                     self.dmc_dma = false;
                 } else if self.bus.ppu.oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
                     self.process_dma_cycle();
-                    oam_data = self.bus.read(oam_read_addr + oam_read_offset);
+                    read_val = self.bus.read(oam_read_addr + oam_read_offset);
                     self.end_cycle(Cycle::Read);
                     oam_read_offset += 1;
                     oam_dma_count += 1;
@@ -421,6 +434,9 @@ impl Cpu {
                     debug_assert!(self.halt || self.dummy_read);
                     self.process_dma_cycle();
                     if !skip_dummy_reads {
+                        if addr & 0x2007 == 0x2007 {
+                            log::trace!("swallowing $2007 read");
+                        }
                         self.bus.read(addr); // throw away
                     }
                     self.end_cycle(Cycle::Read);
@@ -428,7 +444,7 @@ impl Cpu {
             } else if self.bus.ppu.oam_dma && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.process_dma_cycle();
-                self.bus.write(0x2004, oam_data);
+                self.bus.write(0x2004, read_val);
                 self.end_cycle(Cycle::Read);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
@@ -439,6 +455,9 @@ impl Cpu {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
                 self.process_dma_cycle();
                 if !skip_dummy_reads {
+                    if addr & 0x2007 == 0x2007 {
+                        log::trace!("swallowing $2007 read");
+                    }
                     self.bus.read(addr); // throw away
                 }
                 self.end_cycle(Cycle::Read);
@@ -1014,7 +1033,7 @@ mod tests {
     #[test]
     fn cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::init(NesFormat::default(), Bus::default());
+        let mut cpu = Cpu::new(NesFormat::default(), Bus::default());
         cpu.power_on();
         cpu.clock();
 

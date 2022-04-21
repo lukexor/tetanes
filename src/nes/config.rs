@@ -3,7 +3,7 @@ use crate::{
     memory::RamState,
     nes::{
         event::{Action, Input, InputBindings, InputMapping},
-        Nes,
+        Nes, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
     },
     ppu::VideoFilter,
 };
@@ -114,6 +114,16 @@ impl Config {
     pub(crate) fn remove_binding(&mut self, input: Input) {
         self.input_map.remove(&input);
         self.bindings.update_from_map(&self.input_map);
+    }
+
+    pub(crate) fn get_dimensions(&self) -> (u32, u32) {
+        let width = match self.nes_format {
+            NesFormat::Ntsc => WINDOW_WIDTH_NTSC,
+            NesFormat::Pal | NesFormat::Dendy => WINDOW_WIDTH_PAL,
+        };
+        let width = (self.scale * width) as u32;
+        let height = (self.scale * WINDOW_HEIGHT) as u32;
+        (width, height)
     }
 }
 

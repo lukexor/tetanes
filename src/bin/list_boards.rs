@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tetanes::{cart::Cart, NesResult};
+use tetanes::{cart::Cart, common::NesFormat, memory::RamState, NesResult};
 
 fn main() -> NesResult<()> {
     env::set_var("RUST_LOG", "info");
@@ -44,7 +44,7 @@ fn main() -> NesResult<()> {
 }
 
 fn get_mapper<P: AsRef<Path>>(path: P) -> NesResult<String> {
-    let cart = Cart::from_path(path)?;
+    let cart = Cart::from_path(path, NesFormat::default(), RamState::default())?;
     Ok(format!("{:<30} {:?}", cart.mapper_board(), cart.name()))
 }
 

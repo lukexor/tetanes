@@ -1,5 +1,5 @@
 use super::{envelope::Envelope, LengthCounter};
-use crate::common::{Clocked, Powered};
+use crate::common::{Clocked, NesFormat, Powered};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
@@ -11,6 +11,7 @@ enum ShiftMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Noise {
+    nes_format: NesFormat,
     pub enabled: bool,
     freq_timer: u16,       // timer freq_counter reload value
     freq_counter: u16,     // Current frequency timer value
@@ -21,13 +22,17 @@ pub struct Noise {
 }
 
 impl Noise {
-    const FREQ_TABLE: [u16; 16] = [
+    const FREQ_TABLE_NTSC: [u16; 16] = [
         4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
+    ];
+    const FREQ_TABLE_PAL: [u16; 16] = [
+        4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
     ];
     const SHIFT_BIT_15_MASK: u16 = !0x8000;
 
-    pub const fn new() -> Self {
+    pub const fn new(nes_format: NesFormat) -> Self {
         Self {
+            nes_format,
             enabled: false,
             freq_timer: 0u16,
             freq_counter: 0u16,
@@ -35,6 +40,19 @@ impl Noise {
             shift_mode: ShiftMode::Zero,
             length: LengthCounter::new(),
             envelope: Envelope::new(),
+        }
+    }
+
+    #[inline]
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.nes_format = nes_format;
+    }
+
+    #[inline]
+    fn freq_timer(nes_format: NesFormat, val: u8) -> u16 {
+        match nes_format {
+            NesFormat::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 1,
+            NesFormat::Pal | NesFormat::Dendy => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 1,
         }
     }
 
@@ -71,7 +89,7 @@ impl Noise {
     // $400E Noise timer
     #[inline]
     pub fn write_timer(&mut self, val: u8) {
-        self.freq_timer = Self::FREQ_TABLE[(val & 0x0F) as usize];
+        self.freq_timer = Self::freq_timer(self.nes_format, val);
         self.shift_mode = if (val >> 7) & 1 == 1 {
             ShiftMode::One
         } else {
@@ -119,12 +137,12 @@ impl Clocked for Noise {
 
 impl Powered for Noise {
     fn reset(&mut self) {
-        *self = Self::new();
+        *self = Self::new(NesFormat::default());
     }
 }
 
 impl Default for Noise {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::default())
     }
 }

@@ -1,18 +1,11 @@
-use crate::common::{Clocked, Powered};
+use crate::common::{Clocked, NesFormat, Powered};
 use serde::{Deserialize, Serialize};
-
-const STEP_CYCLES_NTSC: [[u16; 6]; 2] = [
-    [7457, 7456, 7458, 7457, 1, 1],
-    [7457, 7456, 7458, 7458, 7452, 1],
-];
-// const STEP_CYCLES_PAL: [[u16; 6]; 2] = [
-//     [8313, 8314, 8312, 8313, 1, 1],
-//     [8313, 8314, 8312, 8314, 8312, 1],
-// ];
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FrameCounter {
-    pub(crate) step_cycles: u16,
+    pub(crate) nes_format: NesFormat,
+    pub(crate) step_cycles: [[u16; 6]; 2],
+    pub(crate) cycles: u16,
     pub(crate) step: usize,
     pub(crate) mode: FcMode,
     pub(crate) write_buffer: Option<u8>,
@@ -32,9 +25,21 @@ impl Default for FcMode {
 }
 
 impl FrameCounter {
-    pub(crate) const fn new() -> Self {
+    const STEP_CYCLES_NTSC: [[u16; 6]; 2] = [
+        [7457, 7456, 7458, 7457, 1, 1],
+        [7457, 7456, 7458, 7458, 7452, 1],
+    ];
+    const STEP_CYCLES_PAL: [[u16; 6]; 2] = [
+        [8313, 8314, 8312, 8313, 1, 1],
+        [8313, 8314, 8312, 8314, 8312, 1],
+    ];
+
+    pub(crate) fn new(nes_format: NesFormat) -> Self {
+        let step_cycles = Self::step_cycles(nes_format);
         Self {
-            step_cycles: STEP_CYCLES_NTSC[0][0],
+            nes_format,
+            step_cycles,
+            cycles: step_cycles[0][0],
             step: 0,
             mode: FcMode::Step4,
             write_buffer: None,
@@ -42,6 +47,21 @@ impl FrameCounter {
         }
     }
 
+    #[inline]
+    pub(crate) fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.nes_format = nes_format;
+        self.step_cycles = Self::step_cycles(nes_format);
+    }
+
+    #[inline]
+    fn step_cycles(nes_format: NesFormat) -> [[u16; 6]; 2] {
+        match nes_format {
+            NesFormat::Ntsc | NesFormat::Dendy => Self::STEP_CYCLES_NTSC,
+            NesFormat::Pal => Self::STEP_CYCLES_PAL,
+        }
+    }
+
+    #[inline]
     pub(crate) fn update(&mut self) -> bool {
         if let Some(val) = self.write_buffer {
             self.write_delay -= 1;
@@ -68,7 +88,7 @@ impl FrameCounter {
             FcMode::Step4
         };
         self.step = 0;
-        self.step_cycles = STEP_CYCLES_NTSC[self.mode as usize][self.step];
+        self.cycles = self.step_cycles[self.mode as usize][self.step];
 
         // Clock Step5 immediately
         if self.mode == FcMode::Step5 {
@@ -79,16 +99,16 @@ impl FrameCounter {
 
 impl Clocked for FrameCounter {
     fn clock(&mut self) -> usize {
-        if self.step_cycles > 0 {
-            self.step_cycles -= 1;
+        if self.cycles > 0 {
+            self.cycles -= 1;
         }
-        if self.step_cycles == 0 {
+        if self.cycles == 0 {
             let clock = self.step;
             self.step += 1;
             if self.step > 5 {
                 self.step = 0;
             }
-            self.step_cycles = STEP_CYCLES_NTSC[self.mode as usize][self.step];
+            self.cycles = self.step_cycles[self.mode as usize][self.step];
             clock
         } else {
             0
@@ -99,7 +119,7 @@ impl Clocked for FrameCounter {
 impl Powered for FrameCounter {
     fn reset(&mut self) {
         self.step = 0;
-        self.step_cycles = STEP_CYCLES_NTSC[self.mode as usize][self.step];
+        self.cycles = self.step_cycles[self.mode as usize][self.step];
         // After reset, APU acts as if $4017 was written 9-12 clocks before first instruction,
         // since reset takes 7 cycles, add 3 here
         self.write_buffer = Some(match self.mode {

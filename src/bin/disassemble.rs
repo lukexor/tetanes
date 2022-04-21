@@ -2,10 +2,12 @@ use std::{env, path::PathBuf};
 use structopt::StructOpt;
 use tetanes::{
     cart::Cart,
+    common::NesFormat,
     cpu::instr::{
         AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY},
         INSTRUCTIONS,
     },
+    memory::RamState,
     NesResult,
 };
 
@@ -14,7 +16,7 @@ fn main() -> NesResult<()> {
     pretty_env_logger::init();
 
     let opt = Opt::from_args();
-    let cart = Cart::from_path(opt.path)?;
+    let cart = Cart::from_path(opt.path, NesFormat::default(), RamState::default())?;
     let mut addr = 0x0000;
     while addr <= cart.prg_rom.len() {
         log::info!("{}", disassemble(&mut addr, &cart.prg_rom));

@@ -18,6 +18,7 @@ use std::{io::Read, ops::ControlFlow};
 pub struct ControlDeck {
     running: bool,
     ram_state: RamState,
+    nes_format: NesFormat,
     loaded_rom: Option<String>,
     turbo_clock: usize,
     cycles_remaining: f32,
@@ -28,10 +29,11 @@ impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
     #[inline]
     pub fn new(nes_format: NesFormat, ram_state: RamState) -> Self {
-        let cpu = Cpu::init(nes_format, Bus::new(nes_format, ram_state));
+        let cpu = Cpu::new(nes_format, Bus::new(nes_format, ram_state));
         Self {
             running: false,
             ram_state,
+            nes_format,
             loaded_rom: None,
             turbo_clock: 0,
             cycles_remaining: 0.0,
@@ -47,7 +49,7 @@ impl ControlDeck {
     #[inline]
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: &S, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_string());
-        let cart = Cart::from_rom(name, rom, self.ram_state)?;
+        let cart = Cart::from_rom(name, rom, self.nes_format, self.ram_state)?;
         self.cpu.bus.load_cart(cart);
         self.power_cycle();
         Ok(())
@@ -302,6 +304,12 @@ impl ControlDeck {
         let zapper = &mut self.cpu.bus.input.zappers[slot as usize];
         zapper.x = x;
         zapper.y = y;
+    }
+
+    /// Set the NES format for the emulation.
+    #[inline]
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.cpu.set_nes_format(nes_format);
     }
 
     /// Get the video filter for the emulation.

@@ -1,11 +1,12 @@
-use super::{filesystem::is_nes_rom, Mode, Nes, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::{
     apu::AudioChannel,
-    common::{config_path, SAVE_DIR, SRAM_DIR},
+    common::{config_path, NesFormat, SAVE_DIR, SRAM_DIR},
     input::GamepadSlot,
     nes::{
         config::CONFIG,
         event::{Action, Input},
+        filesystem::is_nes_rom,
+        Mode, Nes,
     },
     ppu::VideoFilter,
 };
@@ -162,6 +163,19 @@ impl Nes {
         s.collapsing_header("Emulation", |s: &mut PixState| {
             s.spacing()?;
 
+            let mut nes_format = self.config.nes_format as usize;
+            s.next_width(150);
+            if s.select_box(
+                "NES Format",
+                &mut nes_format,
+                &[NesFormat::Ntsc, NesFormat::Pal, NesFormat::Dendy],
+                3,
+            )? {
+                self.config.nes_format = NesFormat::from(nes_format);
+                self.control_deck.set_nes_format(self.config.nes_format);
+                s.set_window_dimensions(self.config.get_dimensions())?;
+            }
+
             s.next_width(125);
             let mut selected = self.config.ram_state as usize;
             if s.select_box(
@@ -230,8 +244,7 @@ impl Nes {
             s.next_width(50);
             if s.select_box("Scale:", &mut scale, &["1", "2", "3", "4"], 4)? {
                 self.config.scale = scale as f32 + 1.0;
-                let width = (self.config.scale * WINDOW_WIDTH) as u32;
-                let height = (self.config.scale * WINDOW_HEIGHT) as u32;
+                let (width, height) = self.config.get_dimensions();
                 s.set_window_dimensions((width, height))?;
                 if let Some(debugger) = &self.debugger {
                     s.with_window(debugger.view.window_id, |s: &mut PixState| {

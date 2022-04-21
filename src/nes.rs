@@ -35,7 +35,8 @@ pub(crate) mod state;
 const APP_NAME: &str = "TetaNES";
 #[cfg(not(target_arch = "wasm32"))]
 const ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
-const WINDOW_WIDTH: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
+const WINDOW_WIDTH_NTSC: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
+const WINDOW_WIDTH_PAL: f32 = RENDER_WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
 const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
 // Trim top and bottom 8 scanlines
 const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
@@ -261,8 +262,7 @@ impl Nes {
     /// If engine fails to build or run, then an error is returned.
     pub fn run(&mut self) -> NesResult<()> {
         let title = APP_NAME.to_owned();
-        let width = (self.config.scale * WINDOW_WIDTH) as u32;
-        let height = (self.config.scale * WINDOW_HEIGHT) as u32;
+        let (width, height) = self.config.get_dimensions();
         let mut engine = PixEngine::builder();
         engine
             .with_dimensions(width, height)

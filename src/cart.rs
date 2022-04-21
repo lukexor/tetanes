@@ -1,7 +1,7 @@
 //! Handles reading NES Cart headers and ROMs
 
 use crate::{
-    common::{Clocked, Powered},
+    common::{Clocked, NesFormat, Powered},
     mapper::{
         m001_sxrom::Mmc1, Axrom, Bf909x, Cnrom, Empty, Exrom, Gxrom, MapRead, MapWrite, Mapped,
         MappedRead, MappedWrite, Mapper, MirroringType, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
@@ -101,12 +101,16 @@ impl Cart {
     ///
     /// If the ROM can not be opened, or the NES header is corrupted, then an error is returned.
     #[inline]
-    pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
+    pub fn from_path<P: AsRef<Path>>(
+        path: P,
+        nes_format: NesFormat,
+        ram_state: RamState,
+    ) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
             File::open(path).with_context(|| format!("failed to open rom {:?}", path))?,
         );
-        Self::from_rom(&path.to_string_lossy(), &mut rom, RamState::AllZeros)
+        Self::from_rom(&path.to_string_lossy(), &mut rom, nes_format, ram_state)
     }
 
     /// Creates a new Cart instance by reading in a `.nes` file
@@ -119,7 +123,12 @@ impl Cart {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom<S, F>(name: &S, mut rom_data: &mut F, ram_state: RamState) -> NesResult<Self>
+    pub fn from_rom<S, F>(
+        name: &S,
+        mut rom_data: &mut F,
+        nes_format: NesFormat,
+        ram_state: RamState,
+    ) -> NesResult<Self>
     where
         S: ToString,
         F: Read,
@@ -185,7 +194,7 @@ impl Cart {
             2 => Uxrom::load(&mut cart),
             3 => Cnrom::load(&mut cart),
             4 => Txrom::load(&mut cart),
-            5 => Exrom::load(&mut cart),
+            5 => Exrom::load(&mut cart, nes_format),
             7 => Axrom::load(&mut cart),
             9 => Pxrom::load(&mut cart),
             66 => Gxrom::load(&mut cart),
