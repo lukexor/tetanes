@@ -304,7 +304,9 @@ impl Apu {
 }
 
 impl Clocked for Apu {
+    #[inline]
     fn clock(&mut self) -> usize {
+        self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {
             self.pulse1.clock();
             self.pulse2.clock();
@@ -515,7 +517,7 @@ mod tests {
         (dmc_basics, 25, 4777243056264901558),
         (dmc_dma_2007_read, 21, 17221983624275366323),
         (dmc_dma_2007_write, 26, 6819750118289511461),
-        (dmc_dma_4016_read, 21, 17221983624275366323, "fails"),
+        (dmc_dma_4016_read, 20, 17611075533891223752),
         (dmc_dma_double_2007_read, 20, 10498985860445899032),
         (dmc_dma_read_write_2007, 24, 17262164619652057735),
         (dmc_rates, 27, 11063982786335661106),

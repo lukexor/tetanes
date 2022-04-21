@@ -5,7 +5,6 @@ use crate::{
     memory::MemWrite,
     ppu::{Ppu, RENDER_HEIGHT, RENDER_WIDTH},
 };
-use pix_engine::shape::Point;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -196,7 +195,8 @@ impl Powered for Signature {
 #[must_use]
 pub struct Zapper {
     pub triggered: u8,
-    pub pos: Point<i32>,
+    pub x: i32,
+    pub y: i32,
     pub radius: i32,
     pub connected: bool,
 }
@@ -224,7 +224,8 @@ impl Zapper {
     fn new() -> Self {
         Self {
             triggered: 0,
-            pos: Point::default(),
+            x: 0,
+            y: 0,
             radius: 3,
             connected: false,
         }
@@ -252,7 +253,8 @@ impl Zapper {
         // EXPL: Light sense is 1 scanline delayed for, likely due to slightly inaccurate NMI timing
         let scanline = ppu.scanline as i32 - 1;
         let cycle = ppu.cycle as i32;
-        let [x, y] = self.pos.as_array();
+        let x = self.x;
+        let y = self.y;
         if x >= 0 && y >= 0 {
             for y in (y - self.radius)..=(y + self.radius) {
                 if y >= 0 && y < height {
@@ -281,6 +283,7 @@ pub struct Input {
     // Since there are 4 gamepad slots, but NES only recognizes Zapper in the first two slots.
     pub zappers: [Zapper; 4],
     pub shift_strobe: u8,
+    pub fourscore: bool,
     pub open_bus: u8,
 }
 
@@ -294,6 +297,7 @@ impl Input {
             signatures: [Signature::new(0b0000_1000), Signature::new(0b0000_0100)],
             zappers: [Zapper::new(); 4],
             shift_strobe: 0x00,
+            fourscore: false,
             open_bus: 0x00,
         }
     }
@@ -314,10 +318,14 @@ impl Input {
                     // Read $4016 D0 8x for signature: 0b00010000
                     if self.gamepads[0].strobe < STROBE_MAX {
                         self.gamepads[0].read()
-                    } else if self.gamepads[2].strobe < STROBE_MAX {
-                        self.gamepads[2].read()
-                    } else if self.signatures[0].strobe < STROBE_MAX {
-                        self.signatures[0].read()
+                    } else if self.fourscore {
+                        if self.gamepads[2].strobe < STROBE_MAX {
+                            self.gamepads[2].read()
+                        } else if self.signatures[0].strobe < STROBE_MAX {
+                            self.signatures[0].read()
+                        } else {
+                            0x01
+                        }
                     } else {
                         0x01
                     }
@@ -335,10 +343,14 @@ impl Input {
                     // Read $4017 D0 8x for signature: 0b00100000
                     if self.gamepads[1].strobe < STROBE_MAX {
                         self.gamepads[1].read()
-                    } else if self.gamepads[3].strobe < STROBE_MAX {
-                        self.gamepads[3].read()
-                    } else if self.signatures[1].strobe < STROBE_MAX {
-                        self.signatures[1].read()
+                    } else if self.fourscore {
+                        if self.gamepads[3].strobe < STROBE_MAX {
+                            self.gamepads[3].read()
+                        } else if self.signatures[1].strobe < STROBE_MAX {
+                            self.signatures[1].read()
+                        } else {
+                            0x01
+                        }
                     } else {
                         0x01
                     }
@@ -359,10 +371,14 @@ impl Input {
                     self.zappers[0].read(ppu)
                 } else if self.gamepads[0].strobe < STROBE_MAX {
                     self.gamepads[0].peek()
-                } else if self.gamepads[2].strobe < STROBE_MAX {
-                    self.gamepads[2].peek()
-                } else if self.signatures[0].strobe < STROBE_MAX {
-                    self.signatures[0].peek()
+                } else if self.fourscore {
+                    if self.gamepads[2].strobe < STROBE_MAX {
+                        self.gamepads[2].peek()
+                    } else if self.signatures[0].strobe < STROBE_MAX {
+                        self.signatures[0].peek()
+                    } else {
+                        0x01
+                    }
                 } else {
                     0x01
                 }
@@ -372,10 +388,14 @@ impl Input {
                     self.zappers[1].read(ppu)
                 } else if self.gamepads[1].strobe < STROBE_MAX {
                     self.gamepads[1].peek()
-                } else if self.gamepads[3].strobe < STROBE_MAX {
-                    self.gamepads[3].peek()
-                } else if self.signatures[1].strobe < STROBE_MAX {
-                    self.signatures[1].peek()
+                } else if self.fourscore {
+                    if self.gamepads[3].strobe < STROBE_MAX {
+                        self.gamepads[3].peek()
+                    } else if self.signatures[1].strobe < STROBE_MAX {
+                        self.signatures[1].peek()
+                    } else {
+                        0x01
+                    }
                 } else {
                     0x01
                 }

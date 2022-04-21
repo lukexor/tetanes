@@ -393,7 +393,7 @@ impl Cpu {
         // PAL is exempt from DMC DMA controller conflict
         // https://www.nesdev.org/wiki/APU_DMC#Conflict_with_controller_and_PPU_read
         let skip_dummy_reads =
-            self.bus.ppu.nes_format == NesFormat::Pal && (addr == 0x4016 || addr == 0x4017);
+            self.nes_format != NesFormat::Pal && (addr == 0x4016 || addr == 0x4017);
         let oam_read_addr = u16::from(self.bus.ppu.oam_dma_offset) << 8;
         let mut oam_read_offset = 0;
         let mut oam_data = 0;
@@ -1094,8 +1094,8 @@ mod tests {
         (int_nmi_and_brk, 114, 17633239368772221973),
         (int_nmi_and_irq, 134, 10095178669490697839),
         (overclock, 12, 13855544627008203546),
-        (sprdma_and_dmc_dma, 100, 0, "fails with black screen and beeping"),
-        (sprdma_and_dmc_dma_512, 100, 0, "fails with black screen and beeping"),
+        (sprdma_and_dmc_dma, 145, 4947301713433265952),
+        (sprdma_and_dmc_dma_512, 145, 16131269530446620012),
         (timing_test, 615, 1923625356858417593),
     });
 

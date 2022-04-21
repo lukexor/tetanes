@@ -96,7 +96,8 @@ impl Dmc {
         } else if self.length == 0 {
             self.addr = self.addr_load;
             self.length = self.length_load;
-            self.init = if cycle & 0x01 == 0 { 2 } else { 3 };
+            // Delay a number of cycles based on even/odd cycle
+            self.init = if cycle & 0x01 == 0x00 { 2 } else { 3 };
         }
     }
 
@@ -121,18 +122,21 @@ impl Dmc {
             }
         }
     }
-}
 
-impl Clocked for Dmc {
     #[inline]
-    fn clock(&mut self) -> usize {
+    pub fn check_pending_dma(&mut self) {
         if self.init > 0 {
             self.init -= 1;
             if self.init == 0 && self.sample_buffer_empty && self.length > 0 {
                 self.dma_pending = true;
             }
         }
+    }
+}
 
+impl Clocked for Dmc {
+    #[inline]
+    fn clock(&mut self) -> usize {
         // Because APU is only clocked every other CPU cycle
         if self.freq_counter >= 2 {
             self.freq_counter -= 2;
