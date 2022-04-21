@@ -189,7 +189,7 @@ impl ControlDeck {
     #[inline]
     #[must_use]
     pub fn stack_addr(&self) -> u16 {
-        self.cpu.peek_stackw()
+        self.cpu.peek_stack_word()
     }
 
     /// Disassemble an address range of CPU instructions.

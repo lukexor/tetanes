@@ -204,7 +204,7 @@ impl Cpu {
                 (Some(y_offset.into()), Some(val.into()))
             }
             ABS => {
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 if instr.op() == JMP || instr.op() == JSR {
                     (Some(abs_addr), None)
                 } else {
@@ -213,19 +213,19 @@ impl Cpu {
                 }
             }
             ABX => {
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
                 (Some(x_offset), Some(val.into()))
             }
             ABY => {
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
                 (Some(y_offset), Some(val.into()))
             }
             IND => {
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 let val = if abs_addr & 0x00FF == 0x00FF {
                     (u16::from(self.peek(abs_addr & 0xFF00)) << 8) | u16::from(self.peek(abs_addr))
                 } else {
@@ -236,13 +236,13 @@ impl Cpu {
             IDX => {
                 let ind_addr = self.peek(addr);
                 let x_offset = ind_addr.wrapping_add(self.x);
-                let abs_addr = self.peekw_zp(x_offset);
+                let abs_addr = self.peek_word_zp(x_offset);
                 let val = self.peek(abs_addr);
                 (Some(abs_addr), Some(val.into()))
             }
             IDY => {
                 let ind_addr = self.peek(addr);
-                let abs_addr = self.peekw_zp(ind_addr);
+                let abs_addr = self.peek_word_zp(ind_addr);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
                 (Some(y_offset), Some(val.into()))
@@ -267,6 +267,7 @@ impl Cpu {
         (addr, val)
     }
 
+    // <http://wiki.nesdev.com/w/index.php/IRQ>
     //  #  address R/W description
     // --- ------- --- -----------------------------------------------
     //  1    PC     R  fetch PCH
@@ -276,23 +277,33 @@ impl Cpu {
     //  5  $0100,S  W  push P to stack, decrement S
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
-    // <http://wiki.nesdev.com/w/index.php/IRQ>
     #[inline]
     pub fn irq(&mut self) {
         self.read(self.pc);
         self.read(self.pc);
-        self.push_stackw(self.pc);
+        self.push_word(self.pc);
+
+        // Pushing status to the stack has to happen after checking NMI since it can hijack the BRK
+        // IRQ when it occurs between cycles 4 and 5.
+        // https://www.nesdev.org/wiki/CPU_interrupts#Interrupt_hijacking
+        //
         // Set U and !B during push
-        self.push_stackb(((self.status | Status::U) & !Status::B).bits());
-        self.status.set(Status::I, true);
+        let status = ((self.status | Status::U) & !Status::B).bits();
+
         if self.nmi {
             self.nmi = false;
-            self.pc = self.readw(NMI_VECTOR);
+            self.push(status);
+            self.status.set(Status::I, true);
+
+            self.pc = self.read_word(NMI_VECTOR);
             if self.debugging {
                 log::trace!("NMI: {}", self.cycle);
             }
         } else {
-            self.pc = self.readw(IRQ_VECTOR);
+            self.push(status);
+            self.status.set(Status::I, true);
+
+            self.pc = self.read_word(IRQ_VECTOR);
             if self.debugging {
                 log::trace!("IRQ: {}", self.cycle);
             }
@@ -337,6 +348,7 @@ impl Cpu {
         let nmi_pending = self.bus.ppu.nmi_pending();
         if !self.prev_nmi_pending && nmi_pending {
             self.nmi = true;
+            log::trace!("NMI Edge Detected: {}, {}", self.nmi, self.cycle);
         }
         self.prev_nmi_pending = nmi_pending;
 
@@ -348,6 +360,9 @@ impl Cpu {
         // so keep the second-to-last status.
         self.prev_run_irq = self.run_irq;
         self.run_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
+        if self.run_irq {
+            log::trace!("IRQ Level Detected: {}, {}", self.run_irq, self.cycle);
+        }
 
         if self.bus.apu.dmc.dma_pending {
             self.bus.apu.dmc.dma_pending = false;
@@ -370,10 +385,6 @@ impl Cpu {
 
     #[inline]
     fn handle_dma(&mut self, addr: u16) {
-        if !self.halt {
-            return;
-        }
-
         self.start_cycle(Cycle::Read);
         self.bus.read(addr);
         self.end_cycle(Cycle::Read);
@@ -453,7 +464,7 @@ impl Cpu {
 
     // Push a byte to the stack
     #[inline]
-    fn push_stackb(&mut self, val: u8) {
+    fn push(&mut self, val: u8) {
         self.write(SP_BASE | u16::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
     }
@@ -461,7 +472,7 @@ impl Cpu {
     // Pull a byte from the stack
     #[must_use]
     #[inline]
-    fn pop_stackb(&mut self) -> u8 {
+    fn pop(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         self.read(SP_BASE | u16::from(self.sp))
     }
@@ -469,36 +480,37 @@ impl Cpu {
     // Peek byte at the top of the stack
     #[must_use]
     #[inline]
-    pub fn peek_stackb(&self) -> u8 {
+    pub fn peek_stack(&self) -> u8 {
         self.peek(SP_BASE | u16::from(self.sp.wrapping_add(1)))
-    }
-
-    // Push a word (two bytes) to the stack
-    #[inline]
-    fn push_stackw(&mut self, val: u16) {
-        let lo = (val & 0xFF) as u8;
-        let hi = (val >> 8) as u8;
-        self.push_stackb(hi);
-        self.push_stackb(lo);
-    }
-
-    // Pull a word (two bytes) from the stack
-    #[inline]
-    fn pop_stackw(&mut self) -> u16 {
-        let lo = u16::from(self.pop_stackb());
-        let hi = u16::from(self.pop_stackb());
-        hi << 8 | lo
     }
 
     // Peek at the top of the stack
     #[must_use]
     #[inline]
-    pub fn peek_stackw(&self) -> u16 {
+    pub fn peek_stack_word(&self) -> u16 {
         let lo = u16::from(self.peek(SP_BASE | u16::from(self.sp)));
-        let sp = self.sp.wrapping_add(1);
-        let hi = u16::from(self.peek(SP_BASE | u16::from(sp)));
+        let hi = u16::from(self.peek(SP_BASE | u16::from(self.sp.wrapping_add(1))));
         hi << 8 | lo
     }
+
+    // Push a word (two bytes) to the stack
+    #[inline]
+    fn push_word(&mut self, val: u16) {
+        let lo = (val & 0xFF) as u8;
+        let hi = (val >> 8) as u8;
+        self.push(hi);
+        self.push(lo);
+    }
+
+    // Pull a word (two bytes) from the stack
+    #[inline]
+    fn pop_word(&mut self) -> u16 {
+        let lo = u16::from(self.pop());
+        let hi = u16::from(self.pop());
+        hi << 8 | lo
+    }
+
+    // Memory accesses
 
     // Source the data used by an instruction. Some instructions don't fetch data as the source
     // is implied by the instruction such as INX which increments the X register.
@@ -545,39 +557,55 @@ impl Cpu {
         }
     }
 
-    // Memory accesses
-
-    // Utility to read a full 16-bit word
+    // Reads an instruction byte and increments PC by 1.
     #[must_use]
     #[inline]
-    pub fn readw(&mut self, addr: u16) -> u16 {
+    fn read_instr_byte(&mut self) -> u8 {
+        let val = self.read(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        val
+    }
+
+    // Reads an instruction 16-bit word and increments PC by 2.
+    #[must_use]
+    #[inline]
+    fn read_instr_word(&mut self) -> u16 {
+        let lo = u16::from(self.read_instr_byte());
+        let hi = u16::from(self.read_instr_byte());
+        hi << 8 | lo
+    }
+
+    // Read a 16-bit word.
+    #[must_use]
+    #[inline]
+    pub fn read_word(&mut self, addr: u16) -> u16 {
         let lo = u16::from(self.read(addr));
         let hi = u16::from(self.read(addr.wrapping_add(1)));
         (hi << 8) | lo
     }
 
-    // readw but don't accidentally modify state
+    // Peek a 16-bit word without side effects.
     #[must_use]
     #[inline]
-    pub fn peekw(&self, addr: u16) -> u16 {
+    pub fn peek_word(&self, addr: u16) -> u16 {
         let lo = u16::from(self.peek(addr));
         let hi = u16::from(self.peek(addr.wrapping_add(1)));
         (hi << 8) | lo
     }
 
-    // Like readw, but for Zero Page which means it'll wrap around at 0xFF
+    // Like read_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
     #[inline]
-    fn readw_zp(&mut self, addr: u8) -> u16 {
+    fn read_word_zp(&mut self, addr: u8) -> u16 {
         let lo = u16::from(self.read(addr.into()));
         let hi = u16::from(self.read(addr.wrapping_add(1).into()));
         (hi << 8) | lo
     }
 
-    // Like peekw, but for Zero Page which means it'll wrap around at 0xFF
+    // Like peek_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
     #[inline]
-    fn peekw_zp(&self, addr: u8) -> u16 {
+    fn peek_word_zp(&self, addr: u8) -> u16 {
         let lo = u16::from(self.peek(addr.into()));
         let hi = u16::from(self.peek(addr.wrapping_add(1).into()));
         (hi << 8) | lo
@@ -621,7 +649,7 @@ impl Cpu {
             ABS => {
                 bytes.push(self.peek(addr));
                 bytes.push(self.peek(addr.wrapping_add(1)));
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 addr = addr.wrapping_add(2);
                 if instr.op() == JMP || instr.op() == JSR {
                     format!(" ${:04X}", abs_addr)
@@ -633,7 +661,7 @@ impl Cpu {
             ABX => {
                 bytes.push(self.peek(addr));
                 bytes.push(self.peek(addr.wrapping_add(1)));
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 addr = addr.wrapping_add(2);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
@@ -642,7 +670,7 @@ impl Cpu {
             ABY => {
                 bytes.push(self.peek(addr));
                 bytes.push(self.peek(addr.wrapping_add(1)));
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 addr = addr.wrapping_add(2);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
@@ -651,7 +679,7 @@ impl Cpu {
             IND => {
                 bytes.push(self.peek(addr));
                 bytes.push(self.peek(addr.wrapping_add(1)));
-                let abs_addr = self.peekw(addr);
+                let abs_addr = self.peek_word(addr);
                 addr = addr.wrapping_add(2);
                 let val = if abs_addr & 0x00FF == 0x00FF {
                     (u16::from(self.peek(abs_addr & 0xFF00)) << 8) | u16::from(self.peek(abs_addr))
@@ -664,14 +692,14 @@ impl Cpu {
                 bytes.push(self.peek(addr));
                 addr = addr.wrapping_add(1);
                 let x_offset = bytes[1].wrapping_add(self.x);
-                let abs_addr = self.peekw_zp(x_offset);
+                let abs_addr = self.peek_word_zp(x_offset);
                 let val = self.peek(abs_addr);
                 format!(" (${:02X},X) @ ${:04X} = ${:02X}", bytes[1], abs_addr, val)
             }
             IDY => {
                 bytes.push(self.peek(addr));
                 addr = addr.wrapping_add(1);
-                let abs_addr = self.peekw_zp(bytes[1]);
+                let abs_addr = self.peek_word_zp(bytes[1]);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
                 format!(" (${:02X}),Y @ ${:04X} = ${:02X}", bytes[1], y_offset, val)
@@ -746,8 +774,7 @@ impl Clocked for Cpu {
             self.trace_instr();
         }
 
-        let opcode = self.read(self.pc); // Cycle 1 of instruction
-        self.pc = self.pc.wrapping_add(1);
+        let opcode = self.read_instr_byte(); // Cycle 1 of instruction
         self.instr = INSTRUCTIONS[opcode as usize];
 
         match self.instr.addr_mode() {
@@ -858,7 +885,10 @@ impl Clocked for Cpu {
 impl MemRead for Cpu {
     #[inline]
     fn read(&mut self, addr: u16) -> u8 {
-        self.handle_dma(addr);
+        if self.halt {
+            self.handle_dma(addr);
+        }
+
         self.start_cycle(Cycle::Read);
         let val = self.bus.read(addr);
         self.end_cycle(Cycle::Read);
