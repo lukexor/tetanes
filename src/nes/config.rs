@@ -39,6 +39,7 @@ pub(crate) struct Config {
     pub(crate) rewind: bool,
     pub(crate) rewind_frames: u32,
     pub(crate) rewind_buffer_size: usize,
+    pub(crate) fourscore: bool,
     pub(crate) genie_codes: Vec<String>,
     pub(crate) bindings: InputBindings,
     #[serde(skip)]

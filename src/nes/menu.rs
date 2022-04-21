@@ -278,19 +278,23 @@ impl Nes {
     }
 
     fn render_keybinds(&mut self, s: &mut PixState, menu: Menu, player: Player) -> PixResult<()> {
-        let mut zapper_connected = self.control_deck.zapper(GamepadSlot::Two).connected;
-        if s.checkbox("Enable Zapper on Port #2", &mut zapper_connected)? {
-            self.control_deck
-                .zapper_mut(GamepadSlot::Two)
-                .set_connected(zapper_connected);
+        let mut zapper = self.control_deck.zapper_connected(GamepadSlot::Two);
+        if s.checkbox("Enable Zapper on Port #2", &mut zapper)? {
+            self.control_deck.connect_zapper(GamepadSlot::Two, zapper);
             let input = Input::Mouse((GamepadSlot::Two, Mouse::Left));
-            if zapper_connected {
+            if zapper {
                 let action = Action::ZapperTrigger;
                 self.config.add_binding(input, action);
             } else {
                 self.config.remove_binding(input);
             }
         }
+        let mut fourscore = self.control_deck.fourscore();
+        if s.checkbox("Enable Four Score (4-Player)", &mut fourscore)? {
+            self.control_deck.set_fourscore(fourscore);
+            self.config.fourscore = fourscore;
+        }
+
         s.spacing()?;
 
         let mut selected = player as usize;

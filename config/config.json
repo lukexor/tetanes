@@ -14,7 +14,7 @@
   "rewind": false,
   "rewind_frames": 2,
   "rewind_buffer_size": 20,
-  "four_score": false,
+  "fourscore": false,
   "genie_codes": [],
   "bindings": {
     "keymods": {

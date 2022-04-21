@@ -365,13 +365,19 @@ impl Nes {
     }
 
     #[inline]
+    fn handle_zapper_trigger(&mut self, slot: GamepadSlot) {
+        if self.control_deck.zapper_connected(slot) {
+            self.control_deck.trigger_zapper(slot);
+        }
+    }
+
+    #[inline]
     pub fn set_zapper_pos(&mut self, pos: Point<i32>) -> bool {
         for slot in [GamepadSlot::One, GamepadSlot::Two] {
-            let zapper = self.control_deck.zapper_mut(slot);
-            if zapper.connected {
+            if self.control_deck.zapper_connected(slot) {
                 let mut pos = pos / self.config.scale as i32;
                 pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
-                zapper.pos = pos;
+                self.control_deck.aim_zapper(slot, pos.x(), pos.y());
                 return true;
             }
         }
@@ -688,12 +694,6 @@ impl Nes {
             GamepadBtn::Select => gamepad.select = pressed,
             GamepadBtn::Start => gamepad.start = pressed,
         };
-    }
-
-    #[inline]
-    fn handle_zapper_trigger(&mut self, slot: GamepadSlot) {
-        let zapper = self.control_deck.zapper_mut(slot);
-        zapper.trigger();
     }
 
     #[inline]

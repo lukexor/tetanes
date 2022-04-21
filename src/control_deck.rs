@@ -5,7 +5,7 @@ use crate::{
     common::{Clocked, NesFormat, Powered},
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
     debugger::Breakpoint,
-    input::{Gamepad, GamepadSlot, Zapper},
+    input::{Gamepad, GamepadSlot},
     memory::RamState,
     ppu::{Ppu, VideoFilter},
     NesResult,
@@ -250,22 +250,58 @@ impl ControlDeck {
         self.cpu.bus.ppu.frame_complete = false;
     }
 
+    /// Returns whether Four Score is enabled.
+    #[inline]
+    #[must_use]
+    pub const fn fourscore(&self) -> bool {
+        self.cpu.bus.input.fourscore
+    }
+
+    /// Enable Four Score.
+    #[inline]
+    pub fn set_fourscore(&mut self, enabled: bool) {
+        self.cpu.bus.input.fourscore = enabled;
+    }
+
     /// Returns a mutable reference to a gamepad.
     #[inline]
     pub fn gamepad_mut(&mut self, slot: GamepadSlot) -> &mut Gamepad {
         &mut self.cpu.bus.input.gamepads[slot as usize]
     }
 
-    /// Returns a reference to the zapper.
+    /// Returns the zapper aiming position for the given controller slot.
     #[inline]
-    pub const fn zapper(&self, slot: GamepadSlot) -> &Zapper {
-        &self.cpu.bus.input.zappers[slot as usize]
+    #[must_use]
+    pub const fn zapper_pos(&self, slot: GamepadSlot) -> (i32, i32) {
+        let zapper = self.cpu.bus.input.zappers[slot as usize];
+        (zapper.x, zapper.y)
     }
 
-    /// Returns a mutable reference to the zapper.
+    /// Returns whether zapper gun is connected to a given controller slot.
     #[inline]
-    pub fn zapper_mut(&mut self, slot: GamepadSlot) -> &mut Zapper {
-        &mut self.cpu.bus.input.zappers[slot as usize]
+    #[must_use]
+    pub const fn zapper_connected(&self, slot: GamepadSlot) -> bool {
+        self.cpu.bus.input.zappers[slot as usize].connected
+    }
+
+    /// Connect Zapper gun to a given controller slot.
+    #[inline]
+    pub fn connect_zapper(&mut self, slot: GamepadSlot, connected: bool) {
+        self.cpu.bus.input.zappers[slot as usize].connected = connected;
+    }
+
+    /// Trigger Zapper gun for a given controller slot.
+    #[inline]
+    pub fn trigger_zapper(&mut self, slot: GamepadSlot) {
+        self.cpu.bus.input.zappers[slot as usize].trigger();
+    }
+
+    /// Aim Zapper gun for a given controller slot.
+    #[inline]
+    pub fn aim_zapper(&mut self, slot: GamepadSlot, x: i32, y: i32) {
+        let zapper = &mut self.cpu.bus.input.zappers[slot as usize];
+        zapper.x = x;
+        zapper.y = y;
     }
 
     /// Get the video filter for the emulation.

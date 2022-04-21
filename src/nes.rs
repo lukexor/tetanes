@@ -143,7 +143,7 @@ impl NesBuilder {
                 | Input::Key((slot, ..))
                 | Input::Button((slot, ..)) = input
                 {
-                    control_deck.zapper_mut(slot).set_connected(true);
+                    control_deck.connect_zapper(slot, true);
                 }
             }
         }
@@ -300,10 +300,9 @@ impl Nes {
                 )?;
 
                 for slot in [GamepadSlot::One, GamepadSlot::Two] {
-                    let zapper = self.control_deck.zapper(slot);
-                    if zapper.connected {
+                    if self.control_deck.zapper_connected(slot) {
                         s.with_texture(texture_id, |s: &mut PixState| {
-                            let [x, y] = zapper.pos.as_array();
+                            let (x, y) = self.control_deck.zapper_pos(slot);
                             s.stroke(Color::GRAY);
                             s.line([x - 8, y, x + 8, y])?;
                             s.line([x, y - 8, x, y + 8])?;
