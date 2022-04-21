@@ -288,6 +288,8 @@ impl ControlDeck {
 
     /// Connect Zapper gun to a given controller slot.
     #[inline]
+    // TODO: Remove once false positive is fixed
+    #[allow(clippy::only_used_in_recursion)]
     pub fn connect_zapper(&mut self, slot: GamepadSlot, connected: bool) {
         self.cpu.bus.input.zappers[slot as usize].connected = connected;
     }

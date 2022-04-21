@@ -178,7 +178,7 @@ pub(crate) mod tests {
             $(#[ignore = $ignore])?
             #[test]
             fn $test() {
-                crate::common::tests::test_rom(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $hash);
+                $crate::common::tests::test_rom(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $hash);
             }
         )*};
     }
@@ -189,7 +189,7 @@ pub(crate) mod tests {
             $(#[ignore = $ignore])?
             #[test]
             fn $test() {
-                crate::common::tests::test_rom_advanced(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $fn);
+                $crate::common::tests::test_rom_advanced(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $fn);
             }
         )*};
     }
