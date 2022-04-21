@@ -135,7 +135,7 @@ impl NesBuilder {
         config.speed = self.speed.unwrap_or(config.speed);
         config.genie_codes.append(&mut self.genie_codes.clone());
 
-        let mut control_deck = ControlDeck::new(config.ram_state);
+        let mut control_deck = ControlDeck::new(config.nes_format, config.ram_state);
         control_deck.set_speed(config.speed);
         for (&input, &action) in config.input_map.iter() {
             if action == Action::ZapperTrigger {

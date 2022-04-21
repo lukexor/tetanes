@@ -1,5 +1,5 @@
 use crate::{
-    common::{config_dir, config_path},
+    common::{config_dir, config_path, NesFormat},
     memory::RamState,
     nes::{
         event::{Action, Input, InputBindings, InputMapping},
@@ -31,6 +31,7 @@ pub(crate) struct Config {
     pub(crate) vsync: bool,
     pub(crate) filter: VideoFilter,
     pub(crate) concurrent_dpad: bool,
+    pub(crate) nes_format: NesFormat,
     pub(crate) ram_state: RamState,
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,

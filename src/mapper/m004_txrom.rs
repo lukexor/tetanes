@@ -339,10 +339,10 @@ mod tests {
     });
 
     test_roms_adv!("mapper/m004_txrom", {
-        (big_chr_ram, 72, |frame, deck| match frame {
-                6 => compare(12299299979523053842, deck, "mmc3_big_chr_1"),
-                10 => deck.gamepad_mut(SLOT1).start = true,
-                11 => deck.gamepad_mut(SLOT1).start = false,
+        (big_chr_ram, 75, |frame, deck| match frame {
+                10 => compare(12299299979523053842, deck, "mmc3_big_chr_1"),
+                11 => deck.gamepad_mut(SLOT1).start = true,
+                12 => deck.gamepad_mut(SLOT1).start = false,
                 75 => compare(13853852112044024080, deck, "mmc3_big_chr_2"),
                 _ => (),
             },

@@ -552,8 +552,8 @@ mod tests {
             _ => (),
         }),
         (reset_4017_timing, 37, |frame, deck| match frame {
-            18 => deck.reset(),
-            37 => compare(14926929218207596099, deck, "reset_4017_timing"),
+            20 => deck.reset(),
+            39 => compare(14926929218207596099, deck, "reset_4017_timing"),
             _ => (),
         }),
         (reset_4017_written, 0, |frame, deck| match frame {

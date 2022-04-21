@@ -52,7 +52,6 @@ pub enum AddrMode {
     REL, ACC, IMP,
 }
 
-use log::{log_enabled, Level};
 use AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY};
 use Operation::{
     ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
@@ -812,8 +811,9 @@ impl Cpu {
     pub(super) fn branch(&mut self) {
         // If an interrupt occurs during the final cycle of a non-pagecrossing branch
         // then it will be ignored until the next instruction completes
-        let skip_nmi = self.nmi && !self.last_nmi;
-        let skip_irq = !self.irq.is_empty() && !self.last_irq;
+        if self.run_irq && !self.prev_run_irq {
+            self.run_irq = false;
+        }
 
         self.read(self.pc); // Dummy read
 
@@ -824,13 +824,6 @@ impl Cpu {
         };
         if Self::pages_differ(self.abs_addr, self.pc) {
             self.read(self.pc); // Dummy read
-        } else {
-            if skip_nmi {
-                self.last_nmi = false;
-            }
-            if skip_irq {
-                self.last_irq = false;
-            }
         }
         self.pc = self.abs_addr;
     }
@@ -1060,21 +1053,20 @@ impl Cpu {
         // Set U and B when pushing during PHP and BRK
         self.push_stackb((self.status | Status::U | Status::B).bits());
         self.status.set(Status::I, true);
-        if self.last_nmi {
+        if self.nmi {
             self.nmi = false;
-            self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_VECTOR);
-            if log_enabled!(Level::Trace) && self.debugging {
+            if self.debugging {
                 log::trace!("NMI: {}", self.cycle);
             }
         } else {
             self.pc = self.readw(IRQ_VECTOR);
-            if log_enabled!(Level::Trace) && self.debugging {
+            if self.debugging {
                 log::trace!("IRQ: {}", self.cycle);
             }
         }
         // Prevent NMI from triggering immediately after BRK
-        self.last_nmi = false;
+        self.prev_nmi = false;
     }
     /// NOP: No Operation
     pub(super) fn nop(&mut self) {

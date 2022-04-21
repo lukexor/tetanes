@@ -20,6 +20,12 @@ pub enum NesFormat {
     Dendy,
 }
 
+impl Default for NesFormat {
+    fn default() -> Self {
+        Self::Ntsc
+    }
+}
+
 #[enum_dispatch(Mapper)]
 pub trait Powered {
     fn power_on(&mut self) {}
@@ -27,8 +33,6 @@ pub trait Powered {
     fn reset(&mut self) {}
     fn power_cycle(&mut self) {
         self.reset();
-        self.power_off();
-        self.power_on();
     }
 }
 
@@ -137,7 +141,6 @@ pub(crate) mod tests {
     use crate::{
         control_deck::ControlDeck,
         input::GamepadSlot,
-        memory::RamState,
         ppu::{VideoFilter, RENDER_HEIGHT, RENDER_WIDTH},
     };
     use pix_engine::prelude::{Image, PixelFormat};
@@ -178,7 +181,7 @@ pub(crate) mod tests {
     pub(crate) fn load<P: AsRef<Path>>(path: P) -> ControlDeck {
         let path = path.as_ref();
         let mut rom = BufReader::new(File::open(path).unwrap());
-        let mut deck = ControlDeck::new(RamState::AllZeros);
+        let mut deck = ControlDeck::default();
         deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
         deck.set_filter(VideoFilter::None);
         if std::env::var("RUST_LOG").is_ok() {
@@ -188,32 +191,36 @@ pub(crate) mod tests {
         deck
     }
 
-    pub(crate) fn compare(expected_hash: u64, deck: &ControlDeck, test: &str) {
+    pub(crate) fn compare(expected: u64, deck: &ControlDeck, test: &str) {
         let mut hasher = DefaultHasher::new();
         let frame = deck.frame_buffer();
         frame.hash(&mut hasher);
-        let actual_hash = hasher.finish();
-        let results_dir = PathBuf::from(RESULT_DIR);
-        let screenshot_path = results_dir.join(PathBuf::from(test)).with_extension("png");
-        if expected_hash != actual_hash {
-            if !results_dir.exists() {
-                fs::create_dir(&results_dir).expect("created test results dir");
-            }
-            Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, frame, PixelFormat::Rgb)
-                .expect("valid frame")
-                .save(screenshot_path)
-                .expect("failure screenshot");
-        } else if screenshot_path.exists() {
-            let _ = fs::remove_file(screenshot_path);
+        let actual = hasher.finish();
+        let pass_path = PathBuf::from(RESULT_DIR).join("pass");
+        let fail_path = PathBuf::from(RESULT_DIR).join("fail");
+
+        if !pass_path.exists() {
+            fs::create_dir_all(&pass_path).expect("created pass test results dir");
         }
-        assert_eq!(
-            expected_hash, actual_hash,
-            "mismatched {}/{}.png",
-            RESULT_DIR, test
-        );
+        if !fail_path.exists() {
+            fs::create_dir(&fail_path).expect("created fail test results dir");
+        }
+
+        let result_path = if expected == actual {
+            pass_path
+        } else {
+            fail_path
+        };
+        let screenshot_path = result_path.join(PathBuf::from(test)).with_extension("png");
+        Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, frame, PixelFormat::Rgb)
+            .expect("valid frame")
+            .save(&screenshot_path)
+            .expect("result screenshot");
+
+        assert_eq!(expected, actual, "mismatched {:?}", screenshot_path);
     }
 
-    pub(crate) fn test_rom<P: AsRef<Path>>(rom: P, run_frames: i32, expected_hash: u64) {
+    pub(crate) fn test_rom<P: AsRef<Path>>(rom: P, run_frames: i32, expected: u64) {
         let rom = rom.as_ref();
         let mut deck = load(PathBuf::from(TEST_DIR).join(rom));
         for _ in 0..=run_frames {
@@ -221,7 +228,7 @@ pub(crate) mod tests {
             deck.clear_audio_samples();
         }
         let test = rom.file_stem().expect("valid test file").to_string_lossy();
-        compare(expected_hash, &deck, &test);
+        compare(expected, &deck, &test);
     }
 
     pub(crate) fn test_rom_advanced<P, F>(rom: P, run_frames: i32, f: F)

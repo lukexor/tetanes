@@ -89,12 +89,24 @@ pub const STATUS_REGS: [Status; 8] = [
     Status::C,
 ];
 
+/// Every cycle is either a read or a write.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+enum Cycle {
+    Read,
+    Write,
+}
+
 /// The Central Processing Unit status and registers
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cpu {
-    pub cycle: usize,   // total number of cycles ran
-    pub step: usize,    // total number of CPU instructions run
+    pub cycle: usize, // total number of cycles ran
+    pub step: usize,  // total number of CPU instructions run
+    pub nes_format: NesFormat,
+    pub master_clock: u64,
+    pub clock_divider: u64,
+    pub start_clocks: u64,
+    pub end_clocks: u64,
     pub pc: u16,        // program counter
     pub sp: u8,         // stack pointer - stack is at $0100-$01FF
     pub acc: u8,        // accumulator
@@ -107,11 +119,13 @@ pub struct Cpu {
     pub rel_addr: u16,    // Relative address for branch instructions
     pub fetched_data: u8, // Represents data fetched for the ALU
     pub irq: Irq,         // Pending interrupts
+    pub run_irq: bool,
+    pub prev_run_irq: bool,
     pub nmi: bool,
+    pub prev_nmi: bool,
+    pub prev_nmi_pending: bool,
     #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
-    pub last_irq: bool,
-    pub last_nmi: bool,
     pub halt: bool,
     pub dmc_dma: bool,
     pub dummy_read: bool,
@@ -120,10 +134,20 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub const fn init(bus: Bus) -> Self {
+    pub const fn init(nes_format: NesFormat, bus: Bus) -> Self {
+        let (clock_divider, start_clocks, end_clocks) = match nes_format {
+            NesFormat::Ntsc => (12, 6, 6),
+            NesFormat::Pal => (16, 8, 8),
+            NesFormat::Dendy => (15, 7, 8),
+        };
         Self {
             cycle: 0,
             step: 0,
+            nes_format,
+            master_clock: 0,
+            clock_divider,
+            start_clocks,
+            end_clocks,
             pc: 0x0000,
             sp: 0x00,
             acc: 0x00,
@@ -136,10 +160,12 @@ impl Cpu {
             rel_addr: 0x0000,
             fetched_data: 0x00,
             irq: Irq::empty(),
+            run_irq: false,
+            prev_run_irq: false,
             nmi: false,
+            prev_nmi: false,
+            prev_nmi_pending: false,
             corrupted: false,
-            last_irq: false,
-            last_nmi: false,
             halt: false,
             dmc_dma: false,
             dummy_read: false,
@@ -259,9 +285,8 @@ impl Cpu {
         // Set U and !B during push
         self.push_stackb(((self.status | Status::U) & !Status::B).bits());
         self.status.set(Status::I, true);
-        if self.last_nmi {
+        if self.nmi {
             self.nmi = false;
-            self.bus.ppu.nmi_pending = false;
             self.pc = self.readw(NMI_VECTOR);
             if self.debugging {
                 log::trace!("NMI: {}", self.cycle);
@@ -272,50 +297,58 @@ impl Cpu {
                 log::trace!("IRQ: {}", self.cycle);
             }
         }
-        // Prevent NMI from triggering immediately after IRQ
-        self.last_nmi = false;
-    }
-
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch PCH
-    //  2    PC     R  fetch PCL
-    //  3  $0100,S  W  push PCH to stack, decrement S
-    //  4  $0100,S  W  push PCL to stack, decrement S
-    //  5  $0100,S  W  push P to stack, decrement S
-    //  6    PC     R  fetch low byte of interrupt vector
-    //  7    PC     R  fetch high byte of interrupt vector
-    #[inline]
-    fn nmi(&mut self) {
-        self.read(self.pc);
-        self.read(self.pc);
-        self.push_stackw(self.pc);
-        // Set U and !B during push
-        self.push_stackb(((self.status | Status::U) & !Status::B).bits());
-        self.status.set(Status::I, true);
-        self.pc = self.readw(NMI_VECTOR);
-        self.nmi = false;
-        self.bus.ppu.nmi_pending = false;
     }
 
     #[inline]
-    fn start_cycle(&mut self) {
-        self.bus.ppu.clock();
+    fn start_cycle(&mut self, cycle: Cycle) {
+        self.master_clock += if cycle == Cycle::Read {
+            self.start_clocks - 1
+        } else {
+            self.start_clocks + 1
+        };
+        self.cycle = self.cycle.wrapping_add(1);
+
+        self.bus.ppu.run(self.master_clock - 1);
         self.bus.cart.clock();
         self.bus.apu.clock();
     }
 
     #[inline]
-    fn end_cycle(&mut self) {
-        self.cycle = self.cycle.wrapping_add(1);
+    fn end_cycle(&mut self, cycle: Cycle) {
+        // TODO: Update to use nes_format numbers
+        self.master_clock += if cycle == Cycle::Read {
+            self.end_clocks + 1
+        } else {
+            self.end_clocks - 1
+        };
+        self.bus.ppu.run(self.master_clock - 1);
 
-        self.last_nmi = self.nmi;
-        self.last_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
-        self.nmi = self.bus.ppu.nmi_pending;
+        // https://www.nesdev.org/wiki/CPU_interrupts
+        //
+        // The internal signal goes high during φ1 of the cycle that follows the one where
+        // the edge is detected, and stays high until the NMI has been handled. NMI is handled only
+        // when `prev_nmi` is true.
+        self.prev_nmi = self.nmi;
+
+        // This edge detector polls the status of the NMI line during φ2 of each CPU cycle (i.e.,
+        // during the second half of each cycle, hence here in `end_cycle`) and raises an internal
+        // signal if the input goes from being high during one cycle to being low during the
+        // next.
+        let nmi_pending = self.bus.ppu.nmi_pending();
+        if !self.prev_nmi_pending && nmi_pending {
+            self.nmi = true;
+        }
+        self.prev_nmi_pending = nmi_pending;
 
         self.irq.set(Irq::MAPPER, self.bus.cart.irq_pending());
         self.irq.set(Irq::FRAME_COUNTER, self.bus.apu.irq_pending);
         self.irq.set(Irq::DMC, self.bus.apu.dmc.irq_pending);
+
+        // The IRQ status at the end of the second-to-last cycle is what matters,
+        // so keep the second-to-last status.
+        self.prev_run_irq = self.run_irq;
+        self.run_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
+
         if self.bus.apu.dmc.dma_pending {
             self.bus.apu.dmc.dma_pending = false;
             self.dmc_dma = true;
@@ -332,7 +365,7 @@ impl Cpu {
         } else if self.dummy_read {
             self.dummy_read = false;
         }
-        self.start_cycle();
+        self.start_cycle(Cycle::Read);
     }
 
     #[inline]
@@ -341,9 +374,9 @@ impl Cpu {
             return;
         }
 
-        self.start_cycle();
+        self.start_cycle(Cycle::Read);
         self.bus.read(addr);
-        self.end_cycle();
+        self.end_cycle(Cycle::Read);
         self.halt = false;
 
         // PAL is exempt from DMC DMA controller conflict
@@ -361,14 +394,14 @@ impl Cpu {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
                     let val = self.bus.read(self.bus.apu.dmc.addr);
-                    self.end_cycle();
+                    self.end_cycle(Cycle::Read);
                     self.bus.apu.dmc.set_sample_buffer(val);
                     self.dmc_dma = false;
                 } else if self.bus.ppu.oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
                     self.process_dma_cycle();
                     oam_data = self.bus.read(oam_read_addr + oam_read_offset);
-                    self.end_cycle();
+                    self.end_cycle(Cycle::Read);
                     oam_read_offset += 1;
                     oam_dma_count += 1;
                 } else {
@@ -379,13 +412,13 @@ impl Cpu {
                     if !skip_dummy_reads {
                         self.bus.read(addr); // throw away
                     }
-                    self.end_cycle();
+                    self.end_cycle(Cycle::Read);
                 }
             } else if self.bus.ppu.oam_dma && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.process_dma_cycle();
                 self.bus.write(0x2004, oam_data);
-                self.end_cycle();
+                self.end_cycle(Cycle::Read);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
                     // Finished OAM DMA
@@ -397,7 +430,7 @@ impl Cpu {
                 if !skip_dummy_reads {
                     self.bus.read(addr); // throw away
                 }
-                self.end_cycle();
+                self.end_cycle(Cycle::Read);
             }
         }
     }
@@ -813,9 +846,7 @@ impl Clocked for Cpu {
             XXX => self.xxx(), // Unimplemented opcode
         }
 
-        if self.last_nmi {
-            self.nmi();
-        } else if self.last_irq {
+        if self.prev_run_irq || self.prev_nmi {
             self.irq();
         }
 
@@ -828,9 +859,9 @@ impl MemRead for Cpu {
     #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         self.handle_dma(addr);
-        self.start_cycle();
+        self.start_cycle(Cycle::Read);
         let val = self.bus.read(addr);
-        self.end_cycle();
+        self.end_cycle(Cycle::Read);
         val
     }
 
@@ -842,9 +873,9 @@ impl MemRead for Cpu {
 impl MemWrite for Cpu {
     #[inline]
     fn write(&mut self, addr: u16, val: u8) {
-        self.start_cycle();
+        self.start_cycle(Cycle::Write);
         self.bus.write(addr, val);
-        self.end_cycle();
+        self.end_cycle(Cycle::Write);
         if addr == 0x4014 {
             self.halt = true;
         }
@@ -855,8 +886,13 @@ impl Powered for Cpu {
     /// Powers on the CPU
     fn power_on(&mut self) {
         self.cycle = 0;
+        self.master_clock = self.clock_divider;
         self.irq = Irq::empty();
+        self.run_irq = false;
+        self.prev_run_irq = false;
         self.nmi = false;
+        self.prev_nmi = false;
+        self.prev_nmi_pending = false;
         self.corrupted = false;
         self.dmc_dma = false;
         self.halt = false;
@@ -868,8 +904,8 @@ impl Powered for Cpu {
         self.pc = (hi << 8) | lo;
 
         for _ in 0..8 {
-            self.start_cycle();
-            self.end_cycle();
+            self.start_cycle(Cycle::Read);
+            self.end_cycle(Cycle::Read);
         }
     }
 
@@ -921,9 +957,11 @@ impl fmt::Debug for Cpu {
             .field("fetched_data", &format_args!("${:02X}", self.fetched_data))
             .field("irq", &self.irq)
             .field("nmi", &self.nmi)
+            .field("prev_nmi", &self.prev_nmi)
+            .field("prev_nmi_pending", &self.prev_nmi_pending)
             .field("corrupted", &self.corrupted)
-            .field("last_irq", &self.last_irq)
-            .field("last_nmi", &self.last_nmi)
+            .field("run_irq", &self.run_irq)
+            .field("last_run_irq", &self.prev_run_irq)
             .field("halt", &self.halt)
             .field("dmc_dma", &self.dmc_dma)
             .field("dummy_read", &self.dummy_read)
@@ -946,13 +984,12 @@ mod tests {
     #[test]
     fn cycle_timing() {
         use super::*;
-        use crate::memory::RamState;
-        let mut cpu = Cpu::init(Bus::new(RamState::AllZeros));
+        let mut cpu = Cpu::init(NesFormat::default(), Bus::default());
         cpu.power_on();
         cpu.clock();
 
         assert_eq!(cpu.cycle, 15, "cpu after power + one clock");
-        assert_eq!(cpu.bus.ppu.cycle_count, 45, "ppu after power + one clock");
+        assert_eq!(cpu.bus.ppu.cycle_count, 47, "ppu after power + one clock");
 
         for instr in INSTRUCTIONS.iter() {
             let extra_cycle = match instr.op() {
@@ -1000,7 +1037,7 @@ mod tests {
         (dummy_reads, 48, 18309258797429833529),
         (dummy_writes_oam, 330, 15348699353236208271),
         (dummy_writes_ppumem, 235, 16925061668762177335),
-        (exec_space_apu, 300, 9746493037754339701),
+        (exec_space_apu, 309, 9746493037754339701),
         (exec_space_ppuio, 50, 18223146813660982201),
         (flag_concurrency, 855, 3111294277716932226),
         (instr_abs, 111, 12048716406341759642),
@@ -1050,8 +1087,8 @@ mod tests {
             _ => (),
         }),
         (regs_after_reset, 150, |frame, deck| match frame {
-            137 => deck.reset(),
-            150 => compare(5135615513596903671, deck, "regs_after_reset"),
+            140 => deck.reset(),
+            155 => compare(5135615513596903671, deck, "regs_after_reset"),
             _ => (),
         }),
     });

@@ -171,9 +171,9 @@ impl PpuRegs {
     #[inline]
     pub(super) fn read_status(&mut self) -> u8 {
         self.reset_rw();
-        let vblank_started = self.status & 0x80;
+        let status = self.status;
         self.status &= !0x80; // Set vblank to 0
-        self.status | vblank_started // return status with original vblank
+        status // return status with original vblank
     }
 
     #[inline]
@@ -206,7 +206,7 @@ impl PpuRegs {
 
     #[inline]
     pub(super) const fn vblank_started(&self) -> bool {
-        self.status & 0x80 > 0
+        self.status & 0x80 == 0x80
     }
 
     #[inline]

@@ -2,7 +2,7 @@ use crate::{
     apu::{Apu, AudioChannel},
     bus::Bus,
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clocked, NesFormat, Powered},
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
     debugger::Breakpoint,
     input::{Gamepad, GamepadSlot, Zapper},
@@ -27,8 +27,8 @@ pub struct ControlDeck {
 impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
     #[inline]
-    pub fn new(ram_state: RamState) -> Self {
-        let cpu = Cpu::init(Bus::new(ram_state));
+    pub fn new(nes_format: NesFormat, ram_state: RamState) -> Self {
+        let cpu = Cpu::init(nes_format, Bus::new(nes_format, ram_state));
         Self {
             running: false,
             ram_state,
@@ -325,7 +325,7 @@ impl ControlDeck {
 
 impl Default for ControlDeck {
     fn default() -> Self {
-        Self::new(RamState::default())
+        Self::new(NesFormat::default(), RamState::default())
     }
 }
 
@@ -348,7 +348,6 @@ impl Powered for ControlDeck {
     /// Powers off the console
     #[inline]
     fn power_off(&mut self) {
-        self.cpu.power_cycle();
         self.cpu.power_off();
         self.running = false;
     }

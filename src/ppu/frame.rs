@@ -55,9 +55,10 @@ lazy_static! {
                             };
 
                             // Decode the color index.
-                            let chroma = pixel % 16;
-                            let luma = if chroma < 0xE { (pixel / 4) & 12 } else { 4 }; // Forces luma to 0, 4, 8, or 12 for easy lookup
-                                                                                        // NES NTSC modulator (square wave between up to four voltage levels):
+                            let chroma = pixel & 0x0F;
+                            // Forces luma to 0, 4, 8, or 12 for easy lookup
+                            let luma = if chroma < 0xE { (pixel / 4) & 12 } else { 4 };
+                            // NES NTSC modulator (square wave between up to four voltage levels):
                             let limit = if (chroma + 8 + sample) % 12 < 6 {
                                 12
                             } else {
@@ -81,7 +82,7 @@ lazy_static! {
                         let i = i as f32;
                         let q = q as f32;
                         match channel {
-                            2 => {
+                            0 => {
                                 let rgb = y + i * 0.947 / yiq_divider + q * 0.624 / yiq_divider;
                                 color1[color0_offset] +=
                                     0x10000 * clamp(255.0 * gammafix(rgb));
@@ -91,7 +92,7 @@ lazy_static! {
                                 color1[color0_offset] +=
                                     0x00100 * clamp(255.0 * gammafix(rgb));
                             }
-                            0 => {
+                            2 => {
                                 let rgb = y + i * -1.109 / yiq_divider + q * 1.709 / yiq_divider;
                                 color1[color0_offset] +=
                                     clamp(255.0 * gammafix(rgb));
@@ -110,7 +111,6 @@ lazy_static! {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Frame {
     pub num: u32,
-    pub parity: bool,
     // Shift registers
     pub tile_lo: u8,
     pub tile_hi: u8,
@@ -126,7 +126,6 @@ impl Frame {
     pub(super) fn new() -> Self {
         Self {
             num: 0,
-            parity: false,
             nametable: 0,
             attribute: 0,
             tile_lo: 0,
@@ -139,7 +138,6 @@ impl Frame {
 
     pub(super) fn increment(&mut self) {
         self.num += 1;
-        self.parity = !self.parity;
     }
 
     pub(super) fn put_pixel(&mut self, x: u32, y: u32, red: u8, green: u8, blue: u8) {
@@ -153,27 +151,26 @@ impl Frame {
     // to translate it to Rust
     // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
     // http://wiki.nesdev.com/w/index.php/NTSC_video
-    //
-    // Note: Because blending relies on previous x pixel, we shift everything to the
-    // left and render an extra pixel column on the right
-    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, mut pixel: u32, ppu_cycle: u32) {
-        if x == RENDER_WIDTH - 1 {
-            pixel = self.prev_pixel;
-        }
+    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
         let color =
-            NTSC_PALETTE[ppu_cycle as usize][(self.prev_pixel % 64) as usize][pixel as usize];
+            NTSC_PALETTE[ppu_cycle as usize][(self.prev_pixel & 0x3F) as usize][pixel as usize];
         self.prev_pixel = pixel;
         let red = (color >> 16 & 0xFF) as u8;
         let green = (color >> 8 & 0xFF) as u8;
         let blue = (color & 0xFF) as u8;
+
+        // Note: Because blending relies on previous x pixel, we shift everything to the
+        // left and render an extra pixel column on the right
         self.put_pixel(x.saturating_sub(1), y, red, green, blue);
+        if x == RENDER_WIDTH - 1 {
+            self.put_ntsc_pixel(x + 1, y, pixel, (ppu_cycle + 1) % 3);
+        }
     }
 }
 
 impl Powered for Frame {
     fn reset(&mut self) {
         self.num = 0;
-        self.parity = false;
         self.pixels.fill(0);
     }
     fn power_cycle(&mut self) {
@@ -191,7 +188,6 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Frame")
             .field("num", &self.num)
-            .field("parity", &self.parity)
             .field("tile_lo", &format_args!("${:02X}", &self.tile_lo))
             .field("tile_hi", &format_args!("${:02X}", &self.tile_hi))
             .field("nametable", &format_args!("${:04X}", &self.nametable))

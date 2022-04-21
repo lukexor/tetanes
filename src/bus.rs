@@ -1,7 +1,7 @@
 use crate::{
     apu::Apu,
     cart::Cart,
-    common::Powered,
+    common::{NesFormat, Powered},
     hashmap,
     input::Input,
     memory::{MemRead, MemWrite, Memory, RamState},
@@ -57,9 +57,9 @@ lazy_static! {
 }
 
 impl Bus {
-    pub fn new(ram_state: RamState) -> Self {
+    pub fn new(nes_format: NesFormat, ram_state: RamState) -> Self {
         let mut bus = Self {
-            ppu: Ppu::new(),
+            ppu: Ppu::new(nes_format),
             apu: Apu::new(),
             input: Input::new(),
             cart: Box::new(Cart::new()),
@@ -234,7 +234,7 @@ impl Powered for Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new(RamState::AllZeros)
+        Self::new(NesFormat::default(), RamState::default())
     }
 }
 
@@ -264,7 +264,7 @@ mod tests {
         let rom = File::open(rom_file).expect("valid file");
         let mut rom = BufReader::new(rom);
         let cart = Cart::from_rom(&rom_file, &mut rom, RamState::AllZeros).expect("loaded cart");
-        let mut mem = Bus::new(RamState::AllZeros);
+        let mut mem = Bus::default();
         mem.load_cart(cart);
         mem.write(0x0005, 0x0015);
         mem.write(0x0015, 0x0050);

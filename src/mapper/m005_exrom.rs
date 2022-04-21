@@ -901,6 +901,7 @@ mod tests {
     #![allow(clippy::unreadable_literal)]
     use crate::{
         common::tests::{compare, SLOT1},
+        ppu::VideoFilter,
         test_roms_adv,
     };
 
@@ -929,10 +930,11 @@ mod tests {
 
     test_roms_adv!("mapper/m005_exrom", {
         (exram, 100, |frame, deck| match frame {
-            6 => compare(5332254270321527531, deck, "exram_1"),
-            15 => compare(5334265946839978920, deck, "exram_2"),
-            40 => compare(7468220554807794760, deck, "exram_3"),
-            100 => compare(5437218966963449815, deck, "exram_3"),
+            0 => deck.set_filter(VideoFilter::Ntsc),
+            10 => compare(12124437627872048769, deck, "exram_1"),
+            15 => compare(13820141128274967149, deck, "exram_2"),
+            45 => compare(6512894255707217509, deck, "exram_3"),
+            100 => compare(836530965818885686, deck, "exram_3"),
             _ => (),
         }),
         (basics, 40, |frame, deck| match frame {
@@ -948,7 +950,7 @@ mod tests {
             22 => compare(17866245002922723459, deck, "exrom_basics_obj_size"),
             23 => deck.gamepad_mut(SLOT1).select = true, // Enable exram
             24 => deck.gamepad_mut(SLOT1).select = false,
-            26 => compare(18138629485953179711, deck, "exrom_basics_exram"),
+            26 => compare(7306523935600541601, deck, "exrom_basics_exram"),
             27 => deck.gamepad_mut(SLOT1).up = true, // Enable fill
             28 => deck.gamepad_mut(SLOT1).up = false,
             30 => compare(7706206738498296599, deck, "exrom_basics_fill"),

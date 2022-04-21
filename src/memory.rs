@@ -52,7 +52,7 @@ pub enum RamState {
 
 impl Default for RamState {
     fn default() -> Self {
-        Self::Random
+        Self::AllZeros
     }
 }
 

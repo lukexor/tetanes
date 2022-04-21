@@ -42,6 +42,7 @@ pub const PATTERN_SIZE: usize = RENDER_CHANNELS * PATTERN_PIXELS;
 // Cycles
 const IDLE_CYCLE: u32 = 0; // PPU is idle this cycle
 const VISIBLE_CYCLE_START: u32 = 1; // Tile data fetching starts
+const VBLANK_CYCLE: u32 = 1;
 const VISIBLE_CYCLE_END: u32 = 256; // 2 cycles each for 4 fetches = 32 tiles
 const OAM_CLEAR_CYCLE_END: u32 = 64;
 const SPR_EVAL_CYCLE_START: u32 = 65;
@@ -55,14 +56,13 @@ const COPY_X_CYCLE: u32 = 257; // Copy X scroll when starting a new scanline
 const BG_PREFETCH_CYCLE_START: u32 = 321; // Tile data for next scanline fetched
 const BG_PREFETCH_CYCLE_END: u32 = 336; // 2 cycles each for 4 fetches = 2 tiles
 const BG_DUMMY_CYCLE_START: u32 = 337; // Dummy fetches - use is unknown
-const SKIP_CYCLE: u32 = 339; // Odd frames skip the last cycle
+const CYCLE_SKIP: u32 = 339; // Odd frames skip the last cycle
 const CYCLE_END: u32 = 340; // 2 cycles each for 2 fetches
 const POWER_ON_CYCLES: usize = 29658 * 3; // https://wiki.nesdev.com/w/index.php/PPU_power_up_state
 
 // Scanlines
 const VISIBLE_SCANLINE_END: u32 = 239; // Rendering graphics for the screen
-const VBLANK_SCANLINE: u32 = 241; // Vblank set at tick 1 (the second tick)
-const PRERENDER_SCANLINE: u32 = 261;
+const PAL_SPR_EVAL_SCANLINE: u32 = 311 + 24; // PAL refreshes OAM later due to extended vblank to avoid OAM decay
 
 pub const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 pub const SECONDARY_OAM_SIZE: usize = 8 * 4; // 8 entries * 4 bytes each
@@ -152,9 +152,14 @@ impl Default for Viewer {
 pub struct Ppu {
     pub cycle: u32,         // (0, 340) 341 cycles happen per scanline
     pub cycle_count: usize, // Total number of PPU cycles run
-    pub frame_cycles: u32,  // Total number of PPU cycles run per frame
+    pub cycle_phase: u32,   // Cycle phase used for NTSC decoding
     pub scanline: u32,      // (0, 261) 262 total scanlines per frame
-    pub nmi_pending: bool,  // Whether the CPU should trigger an NMI next cycle
+    pub nes_format: NesFormat,
+    pub master_clock: u64,
+    pub clock_divider: u64,
+    pub vblank_scanline: u32,
+    pub prerender_scanline: u32,
+    pub nmi_pending: bool, // Whether the CPU should trigger an NMI next cycle
     pub prevent_vbl: bool,
     pub oam_dma: bool,
     pub oam_dma_offset: u8,
@@ -182,19 +187,27 @@ pub struct Ppu {
     pub frame: Frame,         // Frame data keeps track of data and shift registers between frames
     pub frame_complete: bool,
     pub filter: VideoFilter,
-    pub nes_format: NesFormat,
-    pub clock_remainder: u8,
     #[serde(skip)]
     pub viewer: Option<Viewer>,
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(nes_format: NesFormat) -> Self {
+        let (clock_divider, vblank_scanline, prerender_scanline) = match nes_format {
+            NesFormat::Ntsc => (4, 241, 261),
+            NesFormat::Pal => (5, 241, 312),
+            NesFormat::Dendy => (5, 291, 312),
+        };
         Self {
             cycle: 0,
             cycle_count: 0,
-            frame_cycles: 0,
+            cycle_phase: 0,
             scanline: 0,
+            nes_format,
+            master_clock: 0,
+            clock_divider,
+            vblank_scanline,
+            prerender_scanline,
             nmi_pending: false,
             prevent_vbl: false,
             oam_dma: false,
@@ -218,8 +231,6 @@ impl Ppu {
             frame: Frame::new(),
             frame_complete: false,
             filter: VideoFilter::Ntsc,
-            nes_format: NesFormat::Ntsc,
-            clock_remainder: 0,
             viewer: None,
         }
     }
@@ -360,13 +371,6 @@ impl Ppu {
 
     #[inline]
     fn run_cycle(&mut self) {
-        self.tick();
-
-        // Idle cycles/scanline
-        if self.cycle == IDLE_CYCLE {
-            return;
-        }
-
         let visible_cycle = matches!(self.cycle, VISIBLE_CYCLE_START..=VISIBLE_CYCLE_END);
         let bg_prefetch_cycle =
             matches!(self.cycle, BG_PREFETCH_CYCLE_START..=BG_PREFETCH_CYCLE_END);
@@ -377,7 +381,7 @@ impl Ppu {
         let spr_dummy_cycle = matches!(self.cycle, BG_PREFETCH_CYCLE_START..=CYCLE_END);
 
         let visible_scanline = self.scanline <= VISIBLE_SCANLINE_END;
-        let prerender_scanline = self.scanline == PRERENDER_SCANLINE;
+        let prerender_scanline = self.scanline == self.prerender_scanline;
         let render_scanline = prerender_scanline || visible_scanline;
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
@@ -386,59 +390,83 @@ impl Ppu {
             self.render_pixel();
         }
 
-        if self.rendering_enabled() && render_scanline {
-            // (1, 0) - (256, 239) - visible cycles/scanlines
-            // (1, 261) - (256, 261) - prefetch scanline
-            // (321, 0) - (336, 239) - next scanline fetch cycles
-            if bg_fetch_cycle {
-                self.fetch_background();
-            } else if bg_dummy_cycle {
-                // Dummy byte fetches
-                // (337, 0) - (337, 239)
-                self.fetch_bg_nt_byte();
+        if self.rendering_enabled() {
+            if visible_scanline
+                || (self.nes_format == NesFormat::Pal && self.scanline >= PAL_SPR_EVAL_SCANLINE)
+            {
+                if spr_eval_cycle {
+                    self.evaluate_sprites();
+                } else if spr_fetch_cycle {
+                    // OAMADDR set to $00 on prerender and visible scanlines
+                    self.write_oamaddr(0x00);
+                }
             }
 
-            // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
-            // if rendering is enabled
-            // http://wiki.nesdev.com/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
-            let copy_y = self.cycle >= COPY_Y_CYCLE_START && self.cycle <= COPY_Y_CYCLE_END;
-            if prerender_scanline && copy_y {
-                self.regs.copy_y();
-            }
+            if render_scanline {
+                // (1, 0) - (256, 239) - visible cycles/scanlines
+                // (1, 261) - (256, 261) - prefetch scanline
+                // (321, 0) - (336, 239) - next scanline fetch cycles
+                if bg_fetch_cycle {
+                    self.fetch_background();
 
-            // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-            if bg_fetch_cycle && self.cycle & 0x07 == 0x00 {
-                self.regs.increment_x();
-            }
-            // Increment Fine Y when we reach the end of the screen
-            if self.cycle == INC_Y_CYCLE {
-                self.regs.increment_y();
-            }
-            // Copy X bits at the start of a new line since we're going to start writing
-            // new x values to t
-            if self.cycle == COPY_X_CYCLE {
-                self.regs.copy_x();
-            }
+                    // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
+                    if self.cycle & 0x07 == 0x00 {
+                        self.regs.increment_x();
+                    }
+                } else if bg_dummy_cycle {
+                    // Dummy byte fetches
+                    // (337, 0) - (337, 239)
+                    self.fetch_bg_nt_byte();
+                }
 
-            if self.cycle < 9 && prerender_scanline && self.oamaddr >= 0x08 {
-                // If OAMADDR is not less than eight when rendering starts, the eight bytes
-                // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
-                let addr = self.cycle as usize - 1;
-                self.oam[addr] = self.oam[(self.oamaddr as usize & 0xF8) + addr];
-            }
+                match self.cycle {
+                    VISIBLE_CYCLE_START..=8 if prerender_scanline && self.oamaddr >= 0x08 => {
+                        // If OAMADDR is not less than eight when rendering starts, the eight bytes
+                        // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
+                        let addr = self.cycle as usize - 1;
+                        self.oam[addr] = self.oam[(self.oamaddr as usize & 0xF8) + addr];
+                    }
+                    // Increment Fine Y when we reach the end of the screen
+                    INC_Y_CYCLE => self.regs.increment_y(),
+                    // Copy X bits at the start of a new line since we're going to start writing
+                    // new x values to t
+                    COPY_X_CYCLE => self.regs.copy_x(),
+                    // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
+                    // if rendering is enabled
+                    // http://wiki.nesdev.com/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
+                    COPY_Y_CYCLE_START..=COPY_Y_CYCLE_END if prerender_scanline => {
+                        self.regs.copy_y();
+                    }
+                    _ => (),
+                }
 
-            if prerender_scanline {
-                // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
-                // shaking in Ninja Gaiden 3 stage 1 after beating boss)
-                self.sprite_count = 0;
-            } else if spr_eval_cycle {
-                self.evaluate_sprites();
-            }
-            if spr_fetch_cycle {
-                self.fetch_sprites();
-            }
-            if spr_dummy_cycle {
-                self.oam_fetch = self.secondary_oam[0];
+                if prerender_scanline {
+                    // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
+                    // shaking in Ninja Gaiden 3 stage 1 after beating boss)
+                    self.sprite_count = 0;
+                }
+                if spr_fetch_cycle {
+                    self.fetch_sprites();
+                }
+                if spr_dummy_cycle {
+                    self.oam_fetch = self.secondary_oam[0];
+                }
+
+                if self.cycle == CYCLE_SKIP
+                    && prerender_scanline
+                    && self.frame.num & 0x01 == 0x01
+                    && self.nes_format == NesFormat::Ntsc
+                {
+                    // NTSC behavior while rendering - each odd PPU frame is one clock shorter
+                    // (skipping from 339 over 340 to 0)
+                    log::debug!(
+                        "({}, {}): Skipped odd frame cycle: {}",
+                        self.cycle,
+                        self.scanline,
+                        self.frame.num
+                    );
+                    self.cycle = CYCLE_END;
+                }
             }
         }
     }
@@ -717,7 +745,7 @@ impl Ppu {
         if self.filter == VideoFilter::Ntsc {
             let format = self.nes_format;
             let pixel = (u32::from(self.regs.emphasis(format)) << 6) | u32::from(palette);
-            self.frame.put_ntsc_pixel(x, y, pixel, self.frame_cycles);
+            self.frame.put_ntsc_pixel(x, y, pixel, self.cycle_phase);
         } else {
             let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
             let r = SYSTEM_PALETTE[color_idx];
@@ -819,32 +847,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
-    fn tick(&mut self) {
-        // Clear open bus roughly once every frame
-        if self.scanline == 0 {
-            self.regs.open_bus = 0x0;
-        }
-
-        // Reached the end of a frame cycle
-        // Jump to (0, 0) (Cycles, Scanline) and start on the next frame
-        let should_skip =
-            self.scanline == PRERENDER_SCANLINE && self.rendering_enabled() && self.frame.parity;
-        let cycle_end = if should_skip { SKIP_CYCLE } else { CYCLE_END };
-        self.cycle += 1;
-        self.cycle_count = self.cycle_count.wrapping_add(1);
-        self.frame_cycles = (self.frame_cycles + 1) % 3;
-        if self.cycle > cycle_end {
-            self.cycle = 0;
-            self.scanline += 1;
-            if self.scanline > PRERENDER_SCANLINE {
-                self.scanline = 0;
-                self.frame.increment();
-                self.frame_complete = true;
-            }
-        }
-    }
-
     #[must_use]
     #[inline]
     pub const fn rendering_enabled(&self) -> bool {
@@ -855,6 +857,12 @@ impl Ppu {
     #[inline]
     pub const fn nmi_enabled(&self) -> bool {
         self.regs.nmi_enabled()
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn nmi_pending(&self) -> bool {
+        self.nmi_pending
     }
 
     // Register read/writes
@@ -868,26 +876,24 @@ impl Ppu {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
-        let nmi_flag = val & 0x80 > 0;
-        if nmi_flag && !self.nmi_enabled() && self.vblank_started()
-        // FIXME This is a bit of a hack - VBL should clear on cycle 1, but something is off with
-        // timing and cycle 1 causes `vbl_nmi_clear_time` to fail. Changing it to 2 makes them
-        // pass, but then causes `vbl_nmi_on_timing` to fail so this condition is added to correct
-        // it
-        && (self.scanline != PRERENDER_SCANLINE || self.cycle == 0)
-        {
+        self.regs.write_ctrl(val);
+
+        log::debug!(
+            "({}, {}): $2000 NMI Enabled: {}",
+            self.cycle,
+            self.scanline,
+            self.nmi_enabled()
+        );
+
+        // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
+        // multiple times, causing multiple NMIs to be generated.
+        if !self.nmi_enabled() {
+            log::debug!("({}, {}): $2000 NMI Disable", self.cycle, self.scanline);
+            self.nmi_pending = false;
+        } else if self.vblank_started() {
+            log::debug!("({}, {}): $2000 NMI During VBL", self.cycle, self.scanline);
             self.nmi_pending = true;
         }
-        // Race condition
-        if self.scanline == VBLANK_SCANLINE && !nmi_flag && self.cycle < 4 {
-            self.nmi_pending = false;
-        }
-        // if !nmi_flag {
-        //     self.nmi_pending = false;
-        // } else if self.vblank_started() {
-        //     self.nmi_pending = true;
-        // }
-        self.regs.write_ctrl(val);
     }
 
     /*
@@ -908,42 +914,45 @@ impl Ppu {
 
     #[inline]
     pub fn read_ppustatus(&mut self) -> u8 {
-        let mut status = self.regs.read_status();
-        // Race conditions
-        if self.scanline == VBLANK_SCANLINE {
-            if self.cycle == 1 {
-                status &= !0x80;
-            }
-            if self.cycle < 4 {
-                self.nmi_pending = false;
-            }
+        let status = self.regs.read_status();
+        log::debug!("({}, {}): $2002 NMI Ack", self.cycle, self.scanline);
+        self.nmi_pending = false;
+
+        if self.scanline == self.vblank_scanline && self.cycle == VBLANK_CYCLE - 1 {
+            // Reading PPUSTATUS one clock before the start of vertical blank will read as clear
+            // and never set the flag or generate an NMI for that frame
+            log::debug!("({}, {}): $2002 Prevent VBL", self.cycle, self.scanline);
+            self.prevent_vbl = true;
         }
-        // let status = self.regs.read_status();
-        // // Reading one PPU clock before reads it as clear and never sets the flag or generates NMI
-        // // for that frame.
-        // if self.scanline == VBLANK_SCANLINE && self.cycle == 0 {
-        //     self.prevent_vbl = true;
-        // }
+
         // read_status() modifies register, so make sure mapper is aware
         // of new status
         self.vram
             .cart_mut()
             .ppu_write(0x2002, self.regs.peek_status());
-        status
+
+        // Only upper 3 bits are connected for this register
+        (status & 0xE0) | (self.regs.open_bus & 0x1F)
     }
 
     #[inline]
     const fn peek_ppustatus(&self) -> u8 {
-        self.regs.peek_status()
+        // Only upper 3 bits are connected for this register
+        (self.regs.peek_status() & 0xE0) | (self.regs.open_bus & 0x1F)
     }
 
     #[inline]
     fn start_vblank(&mut self) {
+        log::debug!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.regs.start_vblank();
-            if self.nmi_enabled() {
-                self.nmi_pending = true;
-            }
+            self.nmi_pending = self.nmi_enabled();
+            log::debug!(
+                "({}, {}): VBL NMI: {}",
+                self.cycle,
+                self.scanline,
+                self.nmi_pending
+            );
         }
         self.prevent_vbl = false;
         // Ensure our mapper knows vbl changed
@@ -954,7 +963,9 @@ impl Ppu {
 
     #[inline]
     fn stop_vblank(&mut self) {
+        log::debug!("({}, {}): Clear VBL flag", self.cycle, self.scanline);
         self.regs.stop_vblank();
+        self.nmi_pending = false;
         // Ensure our mapper knows vbl changed
         self.vram
             .cart_mut()
@@ -1008,25 +1019,27 @@ impl Ppu {
         } else {
             self.oam[self.oamaddr as usize]
         };
-        // Bits 2-4 of sprite attr (byte 2) are unimplemented and return 0
-        if let 0x02 | 0x06 | 0x0A | 0x0E = self.oamaddr & 0x0F {
-            val & 0xE3
-        } else {
-            val
-        }
+        val
     }
 
     #[inline]
-    fn write_oamdata(&mut self, val: u8) {
-        // Writes to OAMDATA during rendering do not modify values, but do increment OAMADDR,
-        // bumping only the high 6 bits
-        // Accurate?? Breaks things
-        // if !self.rendering_enabled() {
-        self.oam[self.oamaddr as usize] = val;
-        self.write_oamaddr(self.oamaddr.wrapping_add(1));
-        // } else {
-        //     self.write_oamaddr(self.oamaddr.wrapping_add(4));
-        // }
+    fn write_oamdata(&mut self, mut val: u8) {
+        if (self.scanline <= VISIBLE_SCANLINE_END
+            || (self.nes_format == NesFormat::Pal && self.scanline < PAL_SPR_EVAL_SCANLINE))
+            && self.rendering_enabled()
+        {
+            // https://www.nesdev.org/wiki/PPU_registers#OAMDATA
+            // Writes to OAMDATA during rendering do not modify values, but do perform a glitch
+            // increment of OAMADDR, bumping only the high 6 bits
+            self.write_oamaddr(self.oamaddr.wrapping_add(4));
+        } else {
+            if self.oamaddr & 0x03 == 0x02 {
+                // Bits 2-4 of sprite attr (byte 2) are unimplemented and always read back as 0
+                val &= 0xE3;
+            }
+            self.oam[self.oamaddr as usize] = val;
+            self.write_oamaddr(self.oamaddr.wrapping_add(1));
+        }
     }
 
     /*
@@ -1084,7 +1097,7 @@ impl Ppu {
         };
         // During rendering, v increments coarse X and coarse Y at the simultaneously
         if self.rendering_enabled()
-            && (self.scanline == PRERENDER_SCANLINE || self.scanline <= VISIBLE_SCANLINE_END)
+            && (self.scanline == self.prerender_scanline || self.scanline <= VISIBLE_SCANLINE_END)
         {
             self.regs.increment_x();
             self.regs.increment_y();
@@ -1110,7 +1123,7 @@ impl Ppu {
         self.vram.write(self.read_ppuaddr(), val);
         // During rendering, v increments coarse X and coarse Y simultaneously
         if self.rendering_enabled()
-            && (self.scanline == PRERENDER_SCANLINE || self.scanline <= VISIBLE_SCANLINE_END)
+            && (self.scanline == self.prerender_scanline || self.scanline <= VISIBLE_SCANLINE_END)
         {
             self.regs.increment_x();
             self.regs.increment_y();
@@ -1119,72 +1132,84 @@ impl Ppu {
         }
         self.vram.cart_mut().ppu_addr(self.regs.v);
     }
+
+    #[inline]
+    pub fn run(&mut self, clock: u64) {
+        while self.master_clock + self.clock_divider <= clock {
+            self.clock();
+            self.master_clock += self.clock_divider;
+        }
+    }
 }
 
 impl Clocked for Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
     fn clock(&mut self) -> usize {
-        let clocks = match self.nes_format {
-            NesFormat::Ntsc | NesFormat::Dendy => 3,
-            NesFormat::Pal => {
-                if self.clock_remainder == 5 {
-                    self.clock_remainder = 0;
-                    4
-                } else {
-                    self.clock_remainder += 1;
-                    3
-                }
-            }
-        };
+        // Clear open bus roughly once every frame
+        if self.scanline == 0 {
+            self.regs.open_bus = 0x00;
+        }
+        self.cycle_count = self.cycle_count.wrapping_add(1);
+        self.cycle_phase += 1;
+        if self.cycle_phase == 3 {
+            self.cycle_phase = 0;
+        }
 
-        for _ in 0..clocks {
+        if self.cycle >= CYCLE_END {
+            self.cycle = 0;
+            self.scanline += 1;
+            if self.scanline > self.prerender_scanline {
+                self.scanline = 0;
+            }
+            if self.scanline == self.vblank_scanline - 1 {
+                self.frame.increment();
+                self.frame_complete = true;
+            }
+
+            self.update_viewer();
+        } else {
+            // cycle > 0
+            self.cycle += 1;
+
             self.run_cycle();
 
-            if self.cycle == VISIBLE_CYCLE_START && self.scanline == VBLANK_SCANLINE {
-                self.start_vblank();
+            if self.cycle == VBLANK_CYCLE {
+                if self.scanline == self.vblank_scanline {
+                    self.start_vblank();
+                }
+                if self.scanline == self.prerender_scanline {
+                    log::debug!(
+                        "({}, {}): Clear Sprite0 Hit, Overflow",
+                        self.cycle,
+                        self.scanline
+                    );
+                    self.regs.set_sprite0_hit(false);
+                    self.regs.set_sprite_overflow(false);
+                    self.stop_vblank();
+                }
             }
-            // FIXME This is a bit of a hack - VBL should clear on cycle 1, but something is off with
-            // timing and cycle 1 causes `vbl_nmi_clear_time` to fail. Changing it to 2 makes them
-            // pass, but then causes `vbl_nmi_on_timing` to fail so this condition is added to correct
-            // it
-            // if self.cycle == 0 && self.scanline == PRERENDER_SCANLINE {
-            if self.cycle == VISIBLE_CYCLE_START + 1 && self.scanline == PRERENDER_SCANLINE {
-                self.regs.set_sprite0_hit(false);
-                self.regs.set_sprite_overflow(false);
-                self.stop_vblank();
-            }
-            self.update_viewer();
         }
-        clocks
+
+        1
     }
 }
 
 impl MemRead for Ppu {
     #[inline]
     fn read(&mut self, addr: u16) -> u8 {
-        match addr {
-            0x2002 => {
-                let val = self.read_ppustatus();
-                self.regs.open_bus |= val & !0x1F;
-                (val & !0x1F) | (self.regs.open_bus & 0x1F)
-            }
-            0x2004 => {
-                let val = self.read_oamdata();
-                self.regs.open_bus = val;
-                val
-            }
-            0x2007 => {
-                let val = self.read_ppudata();
-                self.regs.open_bus = val;
-                val
-            }
+        let val = match addr {
+            0x2002 => self.read_ppustatus(),
+            0x2004 => self.read_oamdata(),
+            0x2007 => self.read_ppudata(),
             // 0x2000 PPUCTRL is write-only
             // 0x2001 PPUMASK is write-only
             // 0x2003 OAMADDR is write-only
             // 0x2005 PPUSCROLL is write-only
             // 0x2006 PPUADDR is write-only
             _ => self.regs.open_bus,
-        }
+        };
+        self.regs.open_bus = val;
+        val
     }
 
     #[inline]
@@ -1225,8 +1250,10 @@ impl MemWrite for Ppu {
 impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
-        self.frame_cycles = 0;
+        self.cycle_count = 0;
+        self.cycle_phase = 0;
         self.scanline = 0;
+        self.master_clock = 0;
         self.prevent_vbl = false;
         self.oam_dma = false;
         self.oam_dma_offset = 0x00;
@@ -1234,9 +1261,6 @@ impl Powered for Ppu {
         self.regs.w = false;
         self.regs.set_sprite0_hit(false);
         self.regs.set_sprite_overflow(false);
-        self.oamaddr_lo = 0x00;
-        self.oamaddr_hi = 0x00;
-        self.oamaddr = 0x00;
         self.secondary_oamaddr = 0x00;
         self.oam_fetch = 0xFF;
         self.oam_eval_done = false;
@@ -1247,50 +1271,27 @@ impl Powered for Ppu {
         self.sprite_count = 0;
         self.sprites = [Sprite::new(); 8];
         self.frame.reset();
-        self.write_ppuctrl(0);
-        self.write_ppumask(0);
-        self.write_ppuscroll(0);
+        self.regs.write_ctrl(0);
+        self.regs.write_mask(0);
+        // PPUSTATUS unchanged on reset
+        self.regs.write_scroll(0);
         // FIXME: Technically PPUADDR should remain unchanged on reset.
         // https://wiki.nesdev.org/w/index.php?title=PPU_power_up_state
         // However, it results in glitched sprites in some games
         self.write_ppuaddr(0);
     }
     fn power_cycle(&mut self) {
-        self.cycle = 0;
-        self.frame_cycles = 0;
-        self.scanline = 0;
-        self.prevent_vbl = false;
-        self.oam_dma = false;
-        self.oam_dma_offset = 0x00;
-        self.vram.power_cycle();
-        self.regs.w = false;
-        self.regs.set_sprite0_hit(false);
-        self.regs.set_sprite_overflow(false);
         self.oamaddr_lo = 0x00;
         self.oamaddr_hi = 0x00;
         self.oamaddr = 0x00;
-        self.secondary_oamaddr = 0x00;
-        self.oam_fetch = 0xFF;
-        self.oam_eval_done = false;
-        self.overflow_count = 0;
-        self.sprite_in_range = false;
-        self.sprite0_in_range = false;
-        self.sprite0_visible = false;
-        self.sprite_count = 0;
-        self.sprites = [Sprite::new(); 8];
-        self.frame.power_cycle();
-        self.write_ppuctrl(0);
-        self.write_ppumask(0);
-        self.write_oamaddr(0);
-        self.write_ppuscroll(0);
-        self.write_ppuaddr(0);
-        self.cycle_count = 0; // This has to reset after register writes due to PPU ignoring writes during power up
+        self.regs.write_addr(0);
+        self.reset();
     }
 }
 
 impl Default for Ppu {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::Ntsc)
     }
 }
 
@@ -1299,18 +1300,33 @@ impl fmt::Debug for Ppu {
         f.debug_struct("Ppu")
             .field("cycle", &self.cycle)
             .field("cycle_count", &self.cycle_count)
-            .field("frame_cycles", &self.frame_cycles)
+            .field("cycle_phase", &self.cycle_phase)
             .field("scanline", &self.scanline)
+            .field("nes_format", &self.nes_format)
+            .field("master_clock", &self.master_clock)
+            .field("clock_divider", &self.clock_divider)
+            .field("vblank_scanline", &self.vblank_scanline)
+            .field("prerender_scanline", &self.prerender_scanline)
             .field("nmi_pending", &self.nmi_pending)
+            .field("prevent_vbl", &self.prevent_vbl)
             .field("oam_dma", &self.oam_dma)
             .field("dma_offset", &format_args!("${:02X}", &self.oam_dma_offset))
             .field("vram", &self.vram)
             .field("regs", &self.regs)
-            .field("oamdata", &self.oam)
+            .field("oamaddr", &self.oamaddr)
+            .field("oam", &self.oam)
+            .field("secondary_oamaddr", &self.secondary_oamaddr)
+            .field("secondary_oam", &self.secondary_oam)
+            .field("oam_fetch", &self.oam_fetch)
+            .field("oam_eval_done", &self.oam_eval_done)
+            .field("sprite_in_range", &self.sprite_in_range)
+            .field("sprite0_in_range", &self.sprite0_in_range)
+            .field("sprite0_visible", &self.sprite0_visible)
+            .field("sprite_count", &self.sprite_count)
+            .field("sprites", &self.sprites)
             .field("frame", &self.frame)
+            .field("frame_complete", &self.frame_complete)
             .field("filter", &self.filter)
-            .field("nes_format", &self.nes_format)
-            .field("clock_remainder", &self.clock_remainder)
             .finish()
     }
 }
@@ -1327,7 +1343,7 @@ mod tests {
 
     #[test]
     fn scrolling_registers() {
-        let mut ppu = Ppu::new();
+        let mut ppu = Ppu::default();
         let mut cart = Box::new(Cart::new());
         ppu.load_cart(&mut cart);
         while ppu.cycle_count < POWER_ON_CYCLES {
@@ -1396,30 +1412,30 @@ mod tests {
 
     test_roms!("ppu", {
         (oam_read, 40, 5391082701375294984),
-        (oam_stress, 1706, 13301009503779195361),
+        (oam_stress, 1709, 13301009503779195361),
         (open_bus, 250, 11106403589362705259),
         (palette_ram, 20, 11142254853534581794),
         (read_buffer, 1350, 15036289633292458322),
         (spr_hit_alignment, 41, 17220156047486935074),
-        (spr_hit_basics, 44, 1467428815858025816),
+        (spr_hit_basics, 46, 1467428815858025816),
         (spr_hit_corners, 32, 14745742404640002538),
         (spr_hit_double_height, 25, 9807671663724507698),
         (spr_hit_flip, 22, 17928878637009813518),
         (spr_hit_left_clip, 37, 13578789643585691205),
         (spr_hit_right_edge, 28, 5173768868609846010),
         (spr_hit_screen_bottom, 33, 10661004246044495047),
-        (spr_hit_timing_basics, 64, 1036803040590208376),
-        (spr_hit_timing_order, 60, 13386401293760886147),
-        (spr_hit_edge_timing, 59, 16110537833187058560),
-        (spr_overflow_basics, 15, 10054896470839760921),
+        (spr_hit_timing_basics, 65, 1036803040590208376),
+        (spr_hit_timing_order, 68, 13386401293760886147),
+        (spr_hit_edge_timing, 80, 16110537833187058560),
+        (spr_overflow_basics, 20, 10054896470839760921),
         (spr_overflow_details, 24, 11524930027717629233),
-        (spr_overflow_emulator, 14, 8625109434711991653),
+        (spr_overflow_emulator, 20, 8625109434711991653),
         (spr_overflow_obscure, 22, 201433315841400985),
         (spr_overflow_timing, 141, 15860117727935666385),
         (sprite_ram, 20, 11142254853534581794),
         (vbl_nmi_basics, 142, 8937881636620623435),
         (vbl_nmi_clear_timing, 120, 2291069159326703442),
-        (vbl_nmi_control, 32, 4131055501321333343),
+        (vbl_nmi_control, 35, 4131055501321333343),
         (vbl_nmi_disable, 108, 14947006170784498304),
         (vbl_nmi_even_odd_frames, 100, 5875371302101286592),
         (vbl_nmi_even_odd_timing, 100, 0, "clock is skipped too late relative to enabling BG Failed #3"),
@@ -1446,42 +1462,43 @@ mod tests {
             // 0    | 0     | 0
             9 => compare(9596027790758142943, deck, "palette_no_filter"),
             10 => deck.set_filter(VideoFilter::Ntsc),
-            11 => compare(4387552714011383977, deck, "palette_ntsc_111"),
+            11 => compare(1564332524866567582, deck, "palette_ntsc_111"),
             12 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             13 => deck.gamepad_mut(SLOT1).left = false,
-            15 => compare(9537844273161972404, deck, "palette_ntsc_011"),
+            15 => compare(6191344984520130395, deck, "palette_ntsc_011"),
             16 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             17 => deck.gamepad_mut(SLOT1).left = false,
             18 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             19 => deck.gamepad_mut(SLOT1).up = false,
-            21 => compare(11716719779005054431, deck, "palette_ntsc_101"),
+            21 => compare(14227497745328126279, deck, "palette_ntsc_101"),
             22 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             23 => deck.gamepad_mut(SLOT1).left = false,
-            25 => compare(6475539855739803374, deck, "palette_ntsc_001"),
+            25 => compare(18016563265804834290, deck, "palette_ntsc_001"),
             26 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             27 => deck.gamepad_mut(SLOT1).left = false,
             28 => deck.gamepad_mut(SLOT1).up = true, // Enable green emphasis
             29 => deck.gamepad_mut(SLOT1).up = false,
             30 => deck.gamepad_mut(SLOT1).right = true, // Disable red emphasis
             31 => deck.gamepad_mut(SLOT1).right = false,
-            33 => compare(17676051504629173425, deck, "palette_ntsc_110"),
+            33 => compare(7097616531695476396, deck, "palette_ntsc_110"),
             34 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             35 => deck.gamepad_mut(SLOT1).left = false,
-            37 => compare(2571053923959605246, deck, "palette_ntsc_010"),
+            37 => compare(9732859200878901828, deck, "palette_ntsc_010"),
             38 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
             39 => deck.gamepad_mut(SLOT1).left = false,
             40 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
             41 => deck.gamepad_mut(SLOT1).up = false,
-            43 => compare(2054842586094113364, deck, "palette_ntsc_100"),
+            43 => compare(3533513838800339770, deck, "palette_ntsc_100"),
             44 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
             45 => deck.gamepad_mut(SLOT1).left = false,
-            47 => compare(12402069094353198765, deck, "palette_ntsc_000"),
+            47 => compare(16316928457651516010, deck, "palette_ntsc_000"),
             _ => (),
         }),
-        (scanline, 10, |frame, deck| match frame {
-            5 => compare(3720568469732822584, deck, "ppu_scanline_1"),
-            8 => compare(7688435326324348918, deck, "ppu_scanline_2"),
-            10 => compare(9831945725782967870, deck, "ppu_scanline_3"),
+        (scanline, 13, |frame, deck| match frame {
+            10 => compare(11173632061853945730, deck, "ppu_scanline_1"),
+            11 => compare(1807804416007383107, deck, "ppu_scanline_2"),
+            12 => compare(14469291519271800052, deck, "ppu_scanline_3"),
+            13 => compare(3136340140872979734, deck, "ppu_scanline_4"),
             _ => (),
         }),
         (color, 12, |frame, deck| match frame {
@@ -1493,17 +1510,17 @@ mod tests {
         (ntsc_torture, 11, |frame, deck| match frame {
             // TODO: Test more combinations
             0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(17400786824798675033, deck, "ntsc_torture_1"),
-            11 => compare(11536460144012955910, deck, "ntsc_torture_2"),
+            10 => compare(13166163202160505428, deck, "ntsc_torture_1"),
+            11 => compare(10700113025436682755, deck, "ntsc_torture_2"),
             _ => (),
         }),
         (tv, 15, |frame, deck| match frame {
             0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(4783216579876513198, deck, "tv_1"),
+            10 => compare(10239813475568871274, deck, "tv_1"),
             11 => deck.gamepad_mut(SLOT1).start = true,
             12 => deck.gamepad_mut(SLOT1).start = false,
-            14 => compare(6179899534662195551, deck, "tv_2"),
-            15 => compare(16005848918182601591, deck, "tv_3"),
+            14 => compare(14707170264086469936, deck, "tv_2"),
+            15 => compare(7172050916342041000, deck, "tv_3"),
             _ => (),
         }),
         (_240pee, 32, |frame, deck| match frame {
