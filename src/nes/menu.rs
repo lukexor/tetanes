@@ -187,7 +187,7 @@ impl Nes {
                 self.config.ram_state = selected.into();
             }
 
-            let mut selected = (4.0 * self.config.speed) as usize - 1;
+            let mut selected = ((4.0 * self.config.speed) as usize).saturating_sub(1);
             s.next_width(100);
             if s.select_box(
                 "Speed:",

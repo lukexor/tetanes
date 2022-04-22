@@ -82,7 +82,7 @@ lazy_static! {
                         let i = i as f32;
                         let q = q as f32;
                         match channel {
-                            2 => {
+                            0 => {
                                 let rgb = y + i * 0.947 / yiq_divider + q * 0.624 / yiq_divider;
                                 color1[color0_offset] +=
                                     0x10000 * clamp(255.0 * gammafix(rgb));
@@ -92,7 +92,7 @@ lazy_static! {
                                 color1[color0_offset] +=
                                     0x00100 * clamp(255.0 * gammafix(rgb));
                             }
-                            0 => {
+                            2 => {
                                 let rgb = y + i * -1.109 / yiq_divider + q * 1.709 / yiq_divider;
                                 color1[color0_offset] +=
                                     clamp(255.0 * gammafix(rgb));
