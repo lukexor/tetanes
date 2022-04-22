@@ -15,6 +15,8 @@
 //!     <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a recording
 //!               playback `.playback` file. [default: current directory]
 
+#![windows_subsystem = "windows"]
+
 use std::{env, path::PathBuf};
 use structopt::StructOpt;
 use tetanes::{memory::RamState, nes::NesBuilder, NesResult};
