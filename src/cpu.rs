@@ -968,7 +968,7 @@ impl Powered for Cpu {
         self.status.set(Status::I, true);
         // Reset pushes to the stack similar to IRQ, but since the read bit is set, nothing is
         // written except the SP being decremented
-        self.sp.wrapping_sub(0x03);
+        self.sp = self.sp.wrapping_sub(0x03);
         self.power_on();
     }
 
