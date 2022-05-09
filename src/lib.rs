@@ -42,6 +42,7 @@
 pub mod apu;
 pub mod bus;
 pub mod cart;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod debugger;
 #[macro_use]
 pub mod common;
@@ -50,17 +51,8 @@ pub mod cpu;
 pub mod input;
 pub mod mapper;
 pub mod memory;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod nes;
 pub mod ppu;
 
 pub type NesResult<T> = anyhow::Result<T, anyhow::Error>;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
-#[cfg(target_arch = "wasm32")]
-impl From<NesErr> for JsValue {
-    fn from(err: NesErr) -> Self {
-        JsValue::from_str(&err.to_string())
-    }
-}

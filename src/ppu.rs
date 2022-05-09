@@ -27,7 +27,10 @@ pub mod vram;
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
+#[cfg(not(target_arch = "wasm32"))]
 pub const RENDER_CHANNELS: usize = 3;
+#[cfg(target_arch = "wasm32")]
+pub const RENDER_CHANNELS: usize = 4; // Because canvas only supports RGBA
 pub const RENDER_PITCH: usize = RENDER_CHANNELS * RENDER_WIDTH as usize;
 
 const _TOTAL_CYCLES: u32 = 341;

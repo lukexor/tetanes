@@ -124,7 +124,7 @@ impl Cart {
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
     pub fn from_rom<S, F>(
-        name: &S,
+        name: S,
         mut rom_data: &mut F,
         nes_format: NesFormat,
         ram_state: RamState,

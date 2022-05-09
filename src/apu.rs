@@ -20,7 +20,7 @@ use std::fmt;
 use triangle::Triangle;
 
 pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
-const SAMPLE_BUFFER_SIZE: usize = 1024;
+const SAMPLE_BUFFER_SIZE: usize = 2048;
 
 const PULSE_TABLE_SIZE: usize = 31;
 const TND_TABLE_SIZE: usize = 203;
@@ -125,6 +125,7 @@ impl Apu {
         self.samples.clear();
     }
 
+    #[inline]
     pub fn set_speed(&mut self, speed: f32) {
         self.clock_rate = CPU_CLOCK_RATE * speed;
         self.sample_rate = self.clock_rate / SAMPLE_RATE;

@@ -145,6 +145,10 @@ impl Frame {
         self.pixels[idx] = red;
         self.pixels[idx + 1] = green;
         self.pixels[idx + 2] = blue;
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.pixels[idx + 3] = 255;
+        }
     }
 
     // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain

@@ -1,12 +1,8 @@
 //! Utils and Traits shared among modules
 
-use crate::{
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    NesResult,
-};
 use enum_dispatch::enum_dispatch;
-use pix_engine::prelude::{Image, PixelFormat};
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_DIR: &str = ".config/tetanes";
@@ -79,31 +75,16 @@ macro_rules! hashmap {
     });
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn config_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("./"))
         .join(CONFIG_DIR)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn config_path<P: AsRef<Path>>(path: P) -> PathBuf {
     config_dir().join(path)
-}
-
-/// Creates a '.png' file
-///
-/// # Arguments
-///
-/// * `png_path` - An object that implements [`AsRef<Path>`] for the location to save the `.png`
-/// file
-/// * `pixels` - An array of pixel data to save in `.png` format
-///
-/// # Errors
-///
-/// It's possible for this method to fail, but instead of erroring the program,
-/// it'll simply log the error out to STDERR
-pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<()> {
-    Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, pixels, PixelFormat::Rgb)?.save(png_path)?;
-    Ok(())
 }
 
 pub fn hexdump(data: &[u8], addr_offset: usize) {

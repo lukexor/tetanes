@@ -4,13 +4,17 @@ use crate::{
     cart::Cart,
     common::{Clocked, NesFormat, Powered},
     cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
-    debugger::Breakpoint,
     input::{Gamepad, GamepadSlot},
     memory::RamState,
     ppu::{Ppu, VideoFilter},
     NesResult,
 };
-use std::{io::Read, ops::ControlFlow};
+use std::io::Read;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::debugger::Breakpoint;
+#[cfg(not(target_arch = "wasm32"))]
+use std::ops::ControlFlow;
 
 /// Represents an NES Control Deck
 #[derive(Debug, Clone)]
@@ -47,7 +51,7 @@ impl ControlDeck {
     ///
     /// If there is any issue loading the ROM, then an error is returned.
     #[inline]
-    pub fn load_rom<S: ToString, F: Read>(&mut self, name: &S, rom: &mut F) -> NesResult<()> {
+    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.nes_format, self.ram_state)?;
         self.cpu.bus.load_cart(cart);
@@ -119,6 +123,7 @@ impl ControlDeck {
         clocks
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[inline]
     pub(crate) fn debug_clock_frame(
         &mut self,
@@ -288,8 +293,6 @@ impl ControlDeck {
 
     /// Connect Zapper gun to a given controller slot.
     #[inline]
-    // TODO: Remove once false positive is fixed
-    #[allow(clippy::only_used_in_recursion)]
     pub fn connect_zapper(&mut self, slot: GamepadSlot, connected: bool) {
         self.cpu.bus.input.zappers[slot as usize].connected = connected;
     }
