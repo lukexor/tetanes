@@ -1,11 +1,13 @@
-use super::{RENDER_CHANNELS, RENDER_SIZE, RENDER_WIDTH};
-use crate::common::Powered;
+use crate::{
+    common::Powered,
+    ppu::{RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH},
+};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::{f32::consts::PI, fmt};
+use std::{f64::consts::PI, fmt};
 
 lazy_static! {
-    static ref NTSC_PALETTE: Vec<Vec<Vec<u32>>> = {
+    pub static ref NTSC_PALETTE: Vec<Vec<Vec<u32>>> = {
         // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
         // I'm afraid to touch it now that it works
         // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
@@ -19,21 +21,15 @@ lazy_static! {
         let mut ntsc_palette = vec![vec![vec![0; 512]; 64]; 3];
 
         // Helper functions for converting YIQ to RGB
-        let gammafix = |color: f32| {
-            if color < 0.0 {
+        let gamma = 2.0; // Assumed display gamma
+        let gammafix = |color: f64| {
+            if color <= 0.0 {
                 0.0
             } else {
-                color.powf(2.2 / 1.8)
+                color.powf(2.2 / gamma)
             }
         };
-        let clamp = |color| {
-            if color > 255.0 {
-                255
-            } else {
-                color as u32
-            }
-        };
-        let yiq_divider = (9 * 10u32.pow(6)) as f32;
+        let yiq_divider = (9 * 10u32.pow(6)) as f64;
         for (palette_offset, palette) in ntsc_palette.iter_mut().enumerate() {
             for channel in 0..3 {
                 for color0_offset in 0..512 {
@@ -48,7 +44,7 @@ lazy_static! {
                             let noise = (sample + palette_offset * 4) % 12;
                             // Sample either the previous or the current pixel.
                             // Use pixel=color0 to disable artifacts.
-                            let pixel = if noise < 5 - channel * 2 {
+                            let pixel = if noise < 8 - channel * 2 {
                                 color0_offset
                             } else {
                                 color1_offset
@@ -57,7 +53,7 @@ lazy_static! {
                             // Decode the color index.
                             let chroma = pixel & 0x0F;
                             // Forces luma to 0, 4, 8, or 12 for easy lookup
-                            let luma = if chroma < 0xE { (pixel / 4) & 12 } else { 4 };
+                            let luma = if chroma < 0x0E { (pixel / 4) & 12 } else { 4 };
                             // NES NTSC modulator (square wave between up to four voltage levels):
                             let limit = if (chroma + 8 + sample) % 12 < 6 {
                                 12
@@ -72,30 +68,27 @@ lazy_static! {
                             };
                             let level = 40 + VOLTAGES[high + emp_effect + luma];
                             // Ideal TV NTSC demodulator:
-                            let (sin, cos) = (PI * sample as f32 / 6.0).sin_cos();
+                            let (sin, cos) = (PI * sample as f64 / 6.0).sin_cos();
                             y += level;
                             i += level * (cos * 5909.0) as i32;
                             q += level * (sin * 5909.0) as i32;
                         }
                         // Store color at subpixel precision
-                        let y = y as f32 / 1980.0;
-                        let i = i as f32;
-                        let q = q as f32;
+                        let y = y as f64 / 1980.0;
+                        let i = i as f64 / yiq_divider;
+                        let q = q as f64 / yiq_divider;
                         match channel {
-                            0 => {
-                                let rgb = y + i * 0.947 / yiq_divider + q * 0.624 / yiq_divider;
-                                color1[color0_offset] +=
-                                    0x10000 * clamp(255.0 * gammafix(rgb));
+                            2 => {
+                                let rgb = 255.95 * gammafix(y + i * 0.946_882 + q * 0.623_557);
+                                color1[color0_offset] += 0x10000 * rgb.clamp(0.0, 255.0) as u32;
                             }
                             1 => {
-                                let rgb = y + i * -0.275 / yiq_divider + q * -0.636 / yiq_divider;
-                                color1[color0_offset] +=
-                                    0x00100 * clamp(255.0 * gammafix(rgb));
+                                let rgb = 255.95 * gammafix(y + i * -0.274_788 + q * -0.635_691);
+                                color1[color0_offset] += 0x00100 * rgb.clamp(0.0, 255.0) as u32;
                             }
-                            2 => {
-                                let rgb = y + i * -1.109 / yiq_divider + q * 1.709 / yiq_divider;
-                                color1[color0_offset] +=
-                                    clamp(255.0 * gammafix(rgb));
+                            0 => {
+                                let rgb = 255.95 * gammafix(y + i * -1.108_545 + q * 1.709_007);
+                                color1[color0_offset] += rgb.clamp(0.0, 255.0) as u32;
                             }
                             _ => (), // invalid channel
                         }
@@ -109,6 +102,7 @@ lazy_static! {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct Frame {
     pub num: u32,
     // Shift registers
@@ -119,11 +113,17 @@ pub struct Frame {
     pub attribute: u8,
     pub tile_data: u64,
     pub prev_pixel: u32,
-    pub pixels: Vec<u8>,
+    pub last_updated_pixel: u32,
+    #[serde(skip)]
+    pub current_buffer: Vec<u16>,
+    #[serde(skip)]
+    pub back_buffer: Vec<u16>,
+    #[serde(skip)]
+    pub output_buffer: Vec<u8>,
 }
 
 impl Frame {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             num: 0,
             nametable: 0,
@@ -131,51 +131,32 @@ impl Frame {
             tile_lo: 0,
             tile_hi: 0,
             tile_data: 0,
-            prev_pixel: 0xFFFF,
-            pixels: vec![0; RENDER_SIZE],
+            prev_pixel: 0xFFFF_FFFF,
+            last_updated_pixel: 0,
+            current_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
+            back_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
+            output_buffer: vec![0; RENDER_SIZE],
         }
     }
 
-    pub(super) fn increment(&mut self) {
+    pub fn increment(&mut self) {
         self.num += 1;
     }
 
-    pub(super) fn put_pixel(&mut self, x: u32, y: u32, red: u8, green: u8, blue: u8) {
-        let idx = RENDER_CHANNELS * ((y << 8) + x) as usize;
-        self.pixels[idx] = red;
-        self.pixels[idx + 1] = green;
-        self.pixels[idx + 2] = blue;
-        #[cfg(target_arch = "wasm32")]
-        {
-            self.pixels[idx + 3] = 255;
-        }
+    pub fn swap_buffers(&mut self) {
+        std::mem::swap(&mut self.current_buffer, &mut self.back_buffer);
     }
 
-    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
-    // to translate it to Rust
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // http://wiki.nesdev.com/w/index.php/NTSC_video
-    pub(super) fn put_ntsc_pixel(&mut self, x: u32, y: u32, pixel: u32, ppu_cycle: u32) {
-        let color =
-            NTSC_PALETTE[ppu_cycle as usize][(self.prev_pixel & 0x3F) as usize][pixel as usize];
-        self.prev_pixel = pixel;
-        let red = (color >> 16 & 0xFF) as u8;
-        let green = (color >> 8 & 0xFF) as u8;
-        let blue = (color & 0xFF) as u8;
-
-        // Note: Because blending relies on previous x pixel, we shift everything to the
-        // left and render an extra pixel column on the right
-        self.put_pixel(x.saturating_sub(1), y, red, green, blue);
-        if x == RENDER_WIDTH - 1 {
-            self.put_ntsc_pixel(x + 1, y, pixel, (ppu_cycle + 1) % 3);
-        }
+    pub fn put_pixel(&mut self, x: u32, y: u32, color: u16) {
+        self.current_buffer[(x + (y << 8)) as usize] = color;
     }
 }
 
 impl Powered for Frame {
     fn reset(&mut self) {
         self.num = 0;
-        self.pixels.fill(0);
+        self.current_buffer.fill(0);
+        self.back_buffer.fill(0);
     }
     fn power_cycle(&mut self) {
         self.reset();
@@ -198,7 +179,6 @@ impl fmt::Debug for Frame {
             .field("attribute", &format_args!("${:02X}", &self.attribute))
             .field("tile_data", &format_args!("${:16X}", &self.tile_data))
             .field("prev_pixel", &self.prev_pixel)
-            .field("pixels", &self.pixels)
             .finish()
     }
 }

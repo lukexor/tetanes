@@ -8,18 +8,19 @@ use serde::{Deserialize, Serialize};
 // ||| |+------------- Nametable X offset
 // ||| +-------------- Nametable Y offset
 // +++---------------- 3 bit fine Y
-pub(super) const COARSE_X_MASK: u16 = 0x001F;
-pub(super) const COARSE_Y_MASK: u16 = 0x03E0;
-pub(super) const NT_X_MASK: u16 = 0x0400;
-pub(super) const NT_Y_MASK: u16 = 0x0800;
-pub(super) const FINE_Y_MASK: u16 = 0x7000;
-pub(super) const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width / 8 pixel wide tiles
-pub(super) const Y_MAX_COL: u16 = 29; // last row of tiles - (240 pixel height / 8 pixel tall tiles) - 1
-pub(super) const Y_OVER_COL: u16 = 31; // overscan row
+pub const COARSE_X_MASK: u16 = 0x001F;
+pub const COARSE_Y_MASK: u16 = 0x03E0;
+pub const NT_X_MASK: u16 = 0x0400;
+pub const NT_Y_MASK: u16 = 0x0800;
+pub const FINE_Y_MASK: u16 = 0x7000;
+pub const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width / 8 pixel wide tiles
+pub const Y_MAX_COL: u16 = 29; // last row of tiles - (240 pixel height / 8 pixel tall tiles) - 1
+pub const Y_OVER_COL: u16 = 31; // overscan row
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuRegs {
+    nes_format: NesFormat,
     ctrl: u8,         // $2000 PPUCTRL write-only
     mask: u8,         // $2001 PPUMASK write-only
     status: u8,       // $2002 PPUSTATUS read-only
@@ -31,8 +32,9 @@ pub struct PpuRegs {
 }
 
 impl PpuRegs {
-    pub(super) const fn new() -> Self {
+    pub const fn new(nes_format: NesFormat) -> Self {
         Self {
+            nes_format,
             ctrl: 0x00,
             mask: 0x00,
             status: 0x00,
@@ -42,6 +44,10 @@ impl PpuRegs {
             w: false,
             open_bus: 0x00,
         }
+    }
+
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.nes_format = nes_format;
     }
 
     /*
@@ -61,7 +67,7 @@ impl PpuRegs {
      * +--------- NMI Enable: NMI at next vblank: 0 = off, 1: on
      */
     #[inline]
-    pub(super) fn write_ctrl(&mut self, val: u8) {
+    pub fn write_ctrl(&mut self, val: u8) {
         let nn_mask = NT_Y_MASK | NT_X_MASK;
         // val: ......BA
         // t: ....BA.. ........
@@ -70,7 +76,8 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn sprite_select(&self) -> u16 {
+    #[must_use]
+    pub const fn sprite_select(&self) -> u16 {
         if self.ctrl & 0x08 > 0 {
             0x1000
         } else {
@@ -79,7 +86,8 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn background_select(&self) -> u16 {
+    #[must_use]
+    pub const fn background_select(&self) -> u16 {
         if self.ctrl & 0x10 > 0 {
             0x1000
         } else {
@@ -88,7 +96,8 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn sprite_height(&self) -> u32 {
+    #[must_use]
+    pub const fn sprite_height(&self) -> u32 {
         if self.ctrl & 0x20 > 0 {
             16
         } else {
@@ -97,7 +106,8 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn nmi_enabled(&self) -> bool {
+    #[must_use]
+    pub const fn nmi_enabled(&self) -> bool {
         self.ctrl & 0x80 > 0
     }
 
@@ -116,44 +126,50 @@ impl PpuRegs {
      * +--------- Emphasize blue
      */
     #[inline]
-    pub(super) fn write_mask(&mut self, val: u8) {
+    pub fn write_mask(&mut self, val: u8) {
         self.mask = val;
     }
 
     #[inline]
-    pub(super) const fn show_left_background(&self) -> bool {
+    #[must_use]
+    pub const fn show_left_background(&self) -> bool {
         self.mask & 0x02 > 0
     }
 
     #[inline]
-    pub(super) const fn show_left_sprites(&self) -> bool {
+    #[must_use]
+    pub const fn show_left_sprites(&self) -> bool {
         self.mask & 0x04 > 0
     }
 
     #[inline]
-    pub(super) const fn show_background(&self) -> bool {
+    #[must_use]
+    pub const fn show_background(&self) -> bool {
         self.mask & 0x08 > 0
     }
 
     #[inline]
-    pub(super) const fn show_sprites(&self) -> bool {
+    #[must_use]
+    pub const fn show_sprites(&self) -> bool {
         self.mask & 0x10 > 0
     }
 
     #[inline]
-    pub(super) const fn grayscale(&self) -> bool {
+    #[must_use]
+    pub const fn grayscale(&self) -> bool {
         self.mask & 0x01 > 0
     }
 
-    pub(super) const fn emphasis(&self, format: NesFormat) -> u8 {
-        match format {
-            NesFormat::Ntsc => (self.mask & 0xE0) >> 5,
+    #[must_use]
+    pub const fn emphasis(&self) -> u8 {
+        match self.nes_format {
+            NesFormat::Ntsc => self.mask & 0xE0,
             NesFormat::Pal | NesFormat::Dendy => {
                 // Red/Green are swapped for PAL/Dendy
                 let red = (self.mask & 0x20) << 1;
                 let green = (self.mask & 0x40) >> 1;
                 let blue = self.mask & 0x80;
-                (blue | red | green) >> 5
+                blue | red | green
             }
         }
     }
@@ -169,7 +185,8 @@ impl PpuRegs {
      * +--------- Vertical blank has started (0: not in vblank; 1: in vblank)
      */
     #[inline]
-    pub(super) fn read_status(&mut self) -> u8 {
+    #[must_use]
+    pub fn read_status(&mut self) -> u8 {
         self.reset_rw();
         let status = self.status;
         self.status &= !0x80; // Set vblank to 0
@@ -177,12 +194,13 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn peek_status(&self) -> u8 {
+    #[must_use]
+    pub const fn peek_status(&self) -> u8 {
         self.status
     }
 
     #[inline]
-    pub(super) fn set_sprite_overflow(&mut self, val: bool) {
+    pub fn set_sprite_overflow(&mut self, val: bool) {
         self.status = if val {
             self.status | 0x20
         } else {
@@ -191,12 +209,13 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn sprite0_hit(&self) -> bool {
+    #[must_use]
+    pub const fn sprite0_hit(&self) -> bool {
         self.status & 0x40 == 0x40
     }
 
     #[inline]
-    pub(super) fn set_sprite0_hit(&mut self, val: bool) {
+    pub fn set_sprite0_hit(&mut self, val: bool) {
         self.status = if val {
             self.status | 0x40
         } else {
@@ -205,17 +224,18 @@ impl PpuRegs {
     }
 
     #[inline]
-    pub(super) const fn vblank_started(&self) -> bool {
+    #[must_use]
+    pub const fn vblank_started(&self) -> bool {
         self.status & 0x80 == 0x80
     }
 
     #[inline]
-    pub(super) fn start_vblank(&mut self) {
+    pub fn start_vblank(&mut self) {
         self.status |= 0x80;
     }
 
     #[inline]
-    pub(super) fn stop_vblank(&mut self) {
+    pub fn stop_vblank(&mut self) {
         self.status &= !0x80;
     }
 
@@ -228,34 +248,38 @@ impl PpuRegs {
     // Returns Coarse X: XXXXX from PPUADDR v
     // yyy NN YYYYY XXXXX
     #[inline]
-    pub(super) const fn coarse_x(&self) -> u16 {
+    #[must_use]
+    pub const fn coarse_x(&self) -> u16 {
         self.v & COARSE_X_MASK
     }
 
     // Returns Fine X: xxx from x register
     #[inline]
-    pub(super) const fn fine_x(&self) -> u16 {
+    #[must_use]
+    pub const fn fine_x(&self) -> u16 {
         self.x
     }
 
     // Returns Coarse Y: YYYYY from PPUADDR v
     // yyy NN YYYYY XXXXX
     #[inline]
-    pub(super) const fn coarse_y(&self) -> u16 {
+    #[must_use]
+    pub const fn coarse_y(&self) -> u16 {
         (self.v & COARSE_Y_MASK) >> 5
     }
 
     // Returns Fine Y: yyy from PPUADDR v
     // yyy NN YYYYY XXXXX
     #[inline]
-    pub(super) const fn fine_y(&self) -> u16 {
+    #[must_use]
+    pub const fn fine_y(&self) -> u16 {
         (self.v & FINE_Y_MASK) >> 12
     }
 
     // Writes val to PPUSCROLL
     // 1st write writes X
     // 2nd write writes Y
-    pub(super) fn write_scroll(&mut self, val: u8) {
+    pub fn write_scroll(&mut self, val: u8) {
         let val = u16::from(val);
         let lo_5_bit_mask: u16 = 0x1F;
         let fine_mask: u16 = 0x07;
@@ -285,7 +309,7 @@ impl PpuRegs {
 
     // Copy Coarse X from register t and add it to PPUADDR v
     #[inline]
-    pub(super) fn copy_x(&mut self) {
+    pub fn copy_x(&mut self) {
         //    .....N.. ...XXXXX
         // t: .....F.. ...EDCBA
         // v: .....F.. ...EDCBA
@@ -295,7 +319,7 @@ impl PpuRegs {
 
     // Copy Fine y and Coarse Y from register t and add it to PPUADDR v
     #[inline]
-    pub(super) fn copy_y(&mut self) {
+    pub fn copy_y(&mut self) {
         //    .yyyN.YY YYY.....
         // t: .IHGF.ED CBA.....
         // v: .IHGF.ED CBA.....
@@ -307,7 +331,7 @@ impl PpuRegs {
     // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
     // nametable
     // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    pub(super) fn increment_x(&mut self) {
+    pub fn increment_x(&mut self) {
         // let v = self.v;
         // If we've reached the last column, toggle horizontal nametable
         if (self.v & COARSE_X_MASK) == X_MAX_COL {
@@ -321,7 +345,7 @@ impl PpuRegs {
     // Bits 12-14 are incremented for Fine Y, with overflow incrementing coarse Y in bits 5-9 with
     // overflow toggling bit 11 which switches the vertical nametable
     // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    pub(super) fn increment_y(&mut self) {
+    pub fn increment_y(&mut self) {
         if (self.v & FINE_Y_MASK) == FINE_Y_MASK {
             self.v &= !FINE_Y_MASK; // set fine y = 0 and overflow into coarse y
             let mut y = (self.v & COARSE_Y_MASK) >> 5; // Get 5 bits of coarse y
@@ -347,7 +371,7 @@ impl PpuRegs {
     // Address wraps and uses vram_increment which is either 1 (going across) or 32 (going down)
     // based on bit 7 in PPUCTRL
     #[inline]
-    pub(super) fn increment_v(&mut self) {
+    pub fn increment_v(&mut self) {
         self.v = self.v.wrapping_add(self.vram_increment());
     }
 
@@ -356,7 +380,8 @@ impl PpuRegs {
      * http://wiki.nesdev.com/w/index.php/PPU_registers#PPUADDR
      */
     #[inline]
-    pub(super) const fn read_addr(&self) -> u16 {
+    #[must_use]
+    pub const fn read_addr(&self) -> u16 {
         self.v & 0x3FFF // Bits 0-14
     }
 
@@ -364,7 +389,7 @@ impl PpuRegs {
     // 1st write writes hi 6 bits
     // 2nd write writes lo 8 bits
     // Total size is a 14 bit addr
-    pub(super) fn write_addr(&mut self, val: u8) {
+    pub fn write_addr(&mut self, val: u8) {
         if self.w {
             // Write lo address on second write
             let lo_bits_mask = 0x7F00;
@@ -387,6 +412,7 @@ impl PpuRegs {
     }
 
     #[inline]
+    #[must_use]
     const fn vram_increment(&self) -> u16 {
         if self.ctrl & 0x04 > 0 {
             32
@@ -404,6 +430,6 @@ impl PpuRegs {
 
 impl Default for PpuRegs {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::default())
     }
 }

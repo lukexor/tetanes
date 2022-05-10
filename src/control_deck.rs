@@ -80,7 +80,7 @@ impl ControlDeck {
     /// Get a frame worth of pixels.
     #[inline]
     #[must_use]
-    pub fn frame_buffer(&self) -> &[u8] {
+    pub fn frame_buffer(&mut self) -> &[u8] {
         self.cpu.bus.ppu.frame_buffer()
     }
 

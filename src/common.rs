@@ -1,5 +1,3 @@
-//! Utils and Traits shared among modules
-
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
@@ -192,7 +190,7 @@ pub(crate) mod tests {
         deck
     }
 
-    pub(crate) fn compare(expected: u64, deck: &ControlDeck, test: &str) {
+    pub(crate) fn compare(expected: u64, deck: &mut ControlDeck, test: &str) {
         let mut hasher = DefaultHasher::new();
         let frame = deck.frame_buffer();
         frame.hash(&mut hasher);
@@ -213,7 +211,7 @@ pub(crate) mod tests {
             fail_path
         };
         let screenshot_path = result_path.join(PathBuf::from(test)).with_extension("png");
-        Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, frame, PixelFormat::Rgb)
+        Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, frame, PixelFormat::Rgba)
             .expect("valid frame")
             .save(&screenshot_path)
             .expect("result screenshot");
@@ -229,7 +227,7 @@ pub(crate) mod tests {
             deck.clear_audio_samples();
         }
         let test = rom.file_stem().expect("valid test file").to_string_lossy();
-        compare(expected, &deck, &test);
+        compare(expected, &mut deck, &test);
     }
 
     pub(crate) fn test_rom_advanced<P, F>(rom: P, run_frames: i32, f: F)

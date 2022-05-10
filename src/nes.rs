@@ -326,7 +326,7 @@ impl AppState for Nes {
         }
         self.emulation = Some(View::new(
             s.window_id(),
-            Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgb)?),
+            Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?),
         ));
         self.load_rom(s);
         if self.debug {
@@ -388,10 +388,6 @@ impl AppState for Nes {
         self.render_views(s)?;
         match self.mode {
             Mode::Paused | Mode::PausedBg => {
-                let mut bg = s.theme().colors.background;
-                bg.set_alpha(225);
-                s.fill(bg);
-                s.rect([0, 0, s.width()? as i32, s.height()? as i32])?;
                 if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
                     s.stroke(None);
                     s.fill(Color::WHITE);

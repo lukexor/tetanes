@@ -7,7 +7,7 @@ use crate::{
     common::{Clocked, NesFormat, Powered},
     mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
-    ppu::vram::ATTR_OFFSET,
+    ppu::{frame::NTSC_PALETTE, vram::ATTR_OFFSET},
 };
 use frame::Frame;
 use ppu_regs::{PpuRegs, COARSE_X_MASK, COARSE_Y_MASK, NT_X_MASK, NT_Y_MASK};
@@ -27,10 +27,7 @@ pub mod vram;
 // Screen/Render
 pub const RENDER_WIDTH: u32 = 256;
 pub const RENDER_HEIGHT: u32 = 240;
-#[cfg(not(target_arch = "wasm32"))]
-pub const RENDER_CHANNELS: usize = 3;
-#[cfg(target_arch = "wasm32")]
-pub const RENDER_CHANNELS: usize = 4; // Because canvas only supports RGBA
+pub const RENDER_CHANNELS: usize = 4;
 pub const RENDER_PITCH: usize = RENDER_CHANNELS * RENDER_WIDTH as usize;
 
 const _TOTAL_CYCLES: u32 = 341;
@@ -154,7 +151,6 @@ impl Default for Viewer {
 pub struct Ppu {
     pub cycle: u32,         // (0, 340) 341 cycles happen per scanline
     pub cycle_count: usize, // Total number of PPU cycles run
-    pub cycle_phase: u32,   // Cycle phase used for NTSC decoding
     pub scanline: u32,      // (0, 261) 262 total scanlines per frame
     pub nes_format: NesFormat,
     pub master_clock: u64,
@@ -199,7 +195,6 @@ impl Ppu {
         let mut ppu = Self {
             cycle: 0,
             cycle_count: 0,
-            cycle_phase: 0,
             scanline: 0,
             nes_format,
             master_clock: 0,
@@ -211,7 +206,7 @@ impl Ppu {
             prevent_vbl: false,
             oam_dma: false,
             oam_dma_offset: 0x00,
-            regs: PpuRegs::new(),
+            regs: PpuRegs::new(nes_format),
             oamaddr_lo: 0x00,
             oamaddr_hi: 0x00,
             oamaddr: 0x00,
@@ -247,6 +242,7 @@ impl Ppu {
         self.vblank_scanline = vblank_scanline;
         self.prerender_scanline = prerender_scanline;
         self.pal_spr_eval_scanline = self.vblank_scanline + 24; // PAL refreshes OAM later due to extended vblank to avoid OAM decay
+        self.regs.set_nes_format(nes_format);
     }
 
     #[inline]
@@ -288,8 +284,78 @@ impl Ppu {
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
     #[must_use]
     #[inline]
-    pub fn frame_buffer(&self) -> &[u8] {
-        &self.frame.pixels
+    pub fn frame_buffer(&mut self) -> &[u8] {
+        self.update_grayscale_emphasis();
+        match self.filter {
+            VideoFilter::None => self.decode_buffer(),
+            VideoFilter::Ntsc => self.apply_ntsc_filter(),
+        }
+    }
+
+    fn decode_buffer(&mut self) -> &[u8] {
+        for (idx, color) in self.frame.current_buffer.iter().enumerate() {
+            let color_idx = ((*color as usize) & (SYSTEM_PALETTE_SIZE - 1)) * 3;
+            if let [red, green, blue] = SYSTEM_PALETTE[color_idx..=color_idx + 2] {
+                let idx = idx << 2;
+                self.frame.output_buffer[idx..=idx + 3].copy_from_slice(&[red, green, blue, 255]);
+            }
+        }
+        &self.frame.output_buffer
+    }
+
+    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
+    // to translate it to Rust
+    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
+    // http://wiki.nesdev.com/w/index.php/NTSC_video
+    fn apply_ntsc_filter(&mut self) -> &[u8] {
+        for (idx, pixel) in self.frame.current_buffer.iter().enumerate() {
+            let x = idx % 256;
+            let y = idx / 256;
+            let even_phase = if self.frame.num & 0x01 == 0x01 { 0 } else { 1 };
+            let phase = (2 + y * 341 + x + even_phase) % 3;
+            let color =
+                NTSC_PALETTE[phase][(self.frame.prev_pixel & 0x3F) as usize][*pixel as usize];
+            self.frame.prev_pixel = u32::from(*pixel);
+            let idx = idx << 2;
+            let red = (color >> 16 & 0xFF) as u8;
+            let green = (color >> 8 & 0xFF) as u8;
+            let blue = (color & 0xFF) as u8;
+            self.frame.output_buffer[idx..=idx + 3].copy_from_slice(&[red, green, blue, 255]);
+        }
+        &self.frame.output_buffer
+    }
+
+    fn update_grayscale_emphasis(&mut self) {
+        if self.scanline > self.vblank_scanline || self.scanline == self.prerender_scanline {
+            return;
+        }
+        let pixel = if self.scanline > RENDER_HEIGHT {
+            self.frame.current_buffer.len() as u32 - 1
+        } else if self.cycle < 3 {
+            (self.scanline << 8).saturating_sub(1)
+        } else if self.cycle <= 258 {
+            self.cycle - 3 + (self.scanline << 8)
+        } else {
+            255 + (self.scanline << 8)
+        };
+
+        if !self.regs.grayscale() && self.regs.emphasis() == 0 {
+            self.frame.last_updated_pixel = pixel;
+            return;
+        }
+
+        if self.frame.last_updated_pixel < pixel {
+            for color in self
+                .frame
+                .current_buffer
+                .iter_mut()
+                .skip(self.frame.last_updated_pixel as usize)
+                .take((pixel - self.frame.last_updated_pixel) as usize)
+            {
+                *color &= if self.regs.grayscale() { 0x30 } else { 0x3F };
+                *color |= u16::from(self.regs.emphasis()) << 1;
+            }
+        }
     }
 
     fn load_nametables(&mut self) {
@@ -747,27 +813,22 @@ impl Ppu {
     }
 
     #[inline]
-    #[allow(clippy::many_single_char_names)]
     fn render_pixel(&mut self) {
         let x = self.cycle - 1;
         let y = self.scanline;
-
-        let color = self.pixel_color();
-        let mut palette = self.vram.read(u16::from(color) + PALETTE_START);
-        if self.regs.grayscale() {
-            palette &= !0x0F; // Remove chroma
-        }
-        if self.filter == VideoFilter::Ntsc {
-            let format = self.nes_format;
-            let pixel = (u32::from(self.regs.emphasis(format)) << 6) | u32::from(palette);
-            self.frame.put_ntsc_pixel(x, y, pixel, self.cycle_phase);
-        } else {
-            let color_idx = (palette as usize % SYSTEM_PALETTE_SIZE) * 3;
-            let r = SYSTEM_PALETTE[color_idx];
-            let g = SYSTEM_PALETTE[color_idx + 1];
-            let b = SYSTEM_PALETTE[color_idx + 2];
-            self.frame.put_pixel(x, y, r, g, b);
-        }
+        let palette_addr =
+            if self.rendering_enabled() || (self.read_ppuaddr() & PALETTE_START) != PALETTE_START {
+                let color = self.pixel_color();
+                if color & 0x03 > 0 {
+                    u16::from(color)
+                } else {
+                    0
+                }
+            } else {
+                self.read_ppuaddr() & 0x1F
+            };
+        let palette = self.vram.read(PALETTE_START + palette_addr);
+        self.frame.put_pixel(x, y, u16::from(palette));
     }
 
     #[inline]
@@ -789,9 +850,13 @@ impl Ppu {
             return 0;
         }
         // Used by `Zapper`
-        let idx = RENDER_CHANNELS * (x + y * RENDER_WIDTH) as usize;
-        let pixels = &self.frame.pixels[idx..idx + 3];
-        u32::from(pixels[0]) + u32::from(pixels[1]) + u32::from(pixels[2])
+        let color = self.frame.current_buffer[(x + (y << 8)) as usize] as usize;
+        let palette_idx = (color & (SYSTEM_PALETTE_SIZE - 1)) * 3;
+        if let [red, green, blue] = SYSTEM_PALETTE[palette_idx..palette_idx + 3] {
+            u32::from(red) + u32::from(green) + u32::from(blue)
+        } else {
+            0
+        }
     }
 
     #[inline]
@@ -818,7 +883,7 @@ impl Ppu {
         } else {
             0
         };
-        let bg_opaque = bg_color % 4 != 0;
+        let bg_opaque = bg_color & 0x03 != 0;
 
         if self.regs.show_sprites() && !left_clip_spr {
             for (i, sprite) in self
@@ -920,6 +985,7 @@ impl Ppu {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
+        self.update_grayscale_emphasis();
         self.regs.write_mask(val);
     }
 
@@ -1167,28 +1233,23 @@ impl Clocked for Ppu {
             self.regs.open_bus = 0x00;
         }
         self.cycle_count = self.cycle_count.wrapping_add(1);
-        self.cycle_phase += 1;
-        if self.cycle_phase == 3 {
-            self.cycle_phase = 0;
-        }
 
         if self.cycle >= CYCLE_END {
             self.cycle = 0;
             self.scanline += 1;
-            if self.scanline > self.prerender_scanline {
-                self.scanline = 0;
-            }
             if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
                 self.frame_complete = true;
+            } else if self.scanline > self.prerender_scanline {
+                self.scanline = 0;
+                self.frame.swap_buffers();
             }
 
             self.update_viewer();
         } else {
             // cycle > 0
-            self.cycle += 1;
-
             self.run_cycle();
+            self.cycle += 1;
 
             if self.cycle == VBLANK_CYCLE {
                 if self.scanline == self.vblank_scanline {
@@ -1268,7 +1329,6 @@ impl Powered for Ppu {
     fn reset(&mut self) {
         self.cycle = 0;
         self.cycle_count = 0;
-        self.cycle_phase = 0;
         self.scanline = 0;
         self.master_clock = 0;
         self.prevent_vbl = false;
@@ -1317,7 +1377,6 @@ impl fmt::Debug for Ppu {
         f.debug_struct("Ppu")
             .field("cycle", &self.cycle)
             .field("cycle_count", &self.cycle_count)
-            .field("cycle_phase", &self.cycle_phase)
             .field("scanline", &self.scanline)
             .field("nes_format", &self.nes_format)
             .field("master_clock", &self.master_clock)

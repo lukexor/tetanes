@@ -116,7 +116,7 @@ impl MemRead for Vram {
                 }
             }
             0x3F00..=0x3FFF => {
-                let mut addr = addr % PALETTE_SIZE as u16;
+                let mut addr = addr & 0x1F;
                 if addr >= 16 && addr.trailing_zeros() >= 2 {
                     addr -= 16;
                 }
