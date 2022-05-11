@@ -72,41 +72,59 @@ class State {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     this.sampleRate = this.nes.sample_rate();
     this.audioCtx = new AudioContext({ sampleRate: this.sampleRate });
-    this.audioTime = 0;
-  }
-
-  toggleAudio() {
-    this.audioEnabled = !this.audioEnabled;
+    this.nextBufferTime = 0;
+    this.samplesQueue = [];
   }
 
   playAudio() {
-    if (!this.audioEnabled) {
-      this.nes.clear_samples();
-      return;
-    }
-
-    const samplesLen = this.nes.samples_len();
-    if (samplesLen > 0) {
-      const samplesPtr = this.nes.samples();
+    if (this.audioEnabled) {
+      const delta = 5.0;
+      let queuedSize = 0.0;
+      this.samplesQueue.forEach((sample) => {
+        queuedSize += sample.length;
+      });
+      const bufferSize = 4096;
+      let availSize = bufferSize - queuedSize;
+      if (availSize < 0) {
+        availSize = 0;
+      }
+      const sampleRatio =
+        1.0 + (delta * (bufferSize - 2.0 * availSize)) / (1000.0 * bufferSize);
+      const samplesPtr = this.nes.samples(sampleRatio);
+      const samplesLen = this.nes.samples_len();
       const samples = new Float32Array(memory.buffer, samplesPtr, samplesLen);
-      const audioBuffer = this.audioCtx.createBuffer(
+      const bufferSource = this.audioCtx.createBufferSource();
+      bufferSource.buffer = this.audioCtx.createBuffer(
         1,
         samplesLen,
         this.sampleRate
       );
-      audioBuffer.copyToChannel(samples, 0, 0);
-      const audioSource = this.audioCtx.createBufferSource();
-      audioSource.buffer = audioBuffer;
-      audioSource.connect(this.audioCtx.destination);
+      bufferSource.buffer.copyToChannel(samples, 0, 0);
+      if (this.nextBufferTime < this.audioCtx.currentTime) {
+        this.nextBufferTime =
+          this.audioCtx.currentTime + this.audioCtx.baseLatency;
+      }
+      bufferSource.start(this.nextBufferTime);
+      const duration = samplesLen / this.sampleRate;
+      this.samplesQueue.push({
+        time: this.nextBufferTime,
+        duration: this.nextBufferTime + duration,
+        length: samplesLen,
+      });
+      this.nextBufferTime += duration;
 
-      const latency = (this.audioCtx.outputLatency ||  this.audioCtx.baseLatency);
-      const buffered = this.audioTime - this.audioCtx.currentTime + latency;
-      const playTimestamp = Math.max(this.audioCtx.currentTime + latency, this.audioTime);
-      audioSource.start(playTimestamp);
-      this.audioTime = playTimestamp + samplesLen / this.sampleRate;
-
-      this.nes.clear_samples();
+      bufferSource.connect(this.audioCtx.destination);
     }
+
+    while (
+      this.samplesQueue.length &&
+      this.samplesQueue[0].time + this.samplesQueue[0].duration <
+        this.audioCtx.currentTime
+    ) {
+      this.samplesQueue.splice(0, 1);
+    }
+
+    this.nes.clear_samples();
   }
 
   addEvent(e) {
@@ -154,6 +172,7 @@ const sketch = (p5) => {
     state = new State(p5);
     p5.createCanvas(state.width, state.height);
     p5.background(33);
+    p5.frameRate(60);
     document.getElementById("load-rom").addEventListener("click", function () {
       state.nes.pause(true);
       this.blur();
@@ -199,11 +218,12 @@ const sketch = (p5) => {
     document.getElementById("toggle-audio").addEventListener(
       "click",
       function () {
-        state.toggleAudio();
         if (state.audioEnabled) {
-          document.getElementById("toggle-audio").textContent = "Mute";
-        } else {
           document.getElementById("toggle-audio").textContent = "Unmute";
+          state.audioEnabled = false;
+        } else {
+          document.getElementById("toggle-audio").textContent = "Mute";
+          state.audioEnabled = true;
         }
         this.blur();
       },
@@ -217,8 +237,8 @@ const sketch = (p5) => {
     state.handleEvents();
     if (!state.paused()) {
       state.clock();
-      state.render();
       state.playAudio();
+      state.render();
     }
   };
 

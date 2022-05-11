@@ -1,5 +1,5 @@
 use tetanes::{
-    apu::SAMPLE_RATE,
+    audio::Audio,
     common::{Clocked, NesFormat, Powered},
     control_deck::ControlDeck,
     input::GamepadSlot,
@@ -10,10 +10,13 @@ use wasm_bindgen::prelude::*;
 
 mod utils;
 
+const SAMPLE_RATE: f32 = 44_100.0;
+
 #[wasm_bindgen]
 pub struct Nes {
     paused: bool,
     control_deck: ControlDeck,
+    audio: Audio,
 }
 
 #[wasm_bindgen]
@@ -24,9 +27,12 @@ impl Nes {
     }
 
     pub fn new() -> Self {
+        let control_deck = ControlDeck::new(NesFormat::default(), RamState::default());
+        let sample_rate = control_deck.apu().sample_rate();
         Self {
             paused: true,
-            control_deck: ControlDeck::new(NesFormat::default(), RamState::default()),
+            control_deck,
+            audio: Audio::new(sample_rate, SAMPLE_RATE),
         }
     }
 
@@ -42,16 +48,18 @@ impl Nes {
         self.control_deck.power_cycle();
     }
 
-    pub fn frame(&self) -> *const u8 {
+    pub fn frame(&mut self) -> *const u8 {
         self.control_deck.frame_buffer().as_ptr()
     }
 
-    pub fn frame_len(&self) -> usize {
+    pub fn frame_len(&mut self) -> usize {
         self.control_deck.frame_buffer().len()
     }
 
-    pub fn samples(&mut self) -> *const f32 {
-        self.control_deck.audio_samples().as_ptr()
+    pub fn samples(&mut self, sample_ratio: f32) -> *const f32 {
+        let samples = self.control_deck.audio_samples();
+        let output = self.audio.output(samples, sample_ratio);
+        output.as_ptr()
     }
 
     pub fn clear_samples(&mut self) {
@@ -59,7 +67,7 @@ impl Nes {
     }
 
     pub fn samples_len(&mut self) -> usize {
-        self.control_deck.audio_samples().len()
+        self.audio.output_len()
     }
 
     pub fn width(&self) -> u32 {

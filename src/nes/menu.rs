@@ -173,6 +173,9 @@ impl Nes {
             )? {
                 self.config.nes_format = NesFormat::from(nes_format);
                 self.control_deck.set_nes_format(self.config.nes_format);
+                self.audio
+                    .set_input_rate(self.control_deck.apu().sample_rate());
+                self.update_frame_rate(s)?;
                 s.set_window_dimensions(self.config.get_dimensions())?;
             }
 

@@ -3,7 +3,7 @@ use crate::{
     bus::Bus,
     cart::Cart,
     common::{Clocked, NesFormat, Powered},
-    cpu::{instr::Instr, Cpu, CPU_CLOCK_RATE},
+    cpu::{instr::Instr, Cpu},
     input::{Gamepad, GamepadSlot},
     memory::RamState,
     ppu::{Ppu, VideoFilter},
@@ -94,7 +94,7 @@ impl ControlDeck {
     /// Get audio samples.
     #[inline]
     #[must_use]
-    pub fn audio_samples(&self) -> &[f32] {
+    pub fn audio_samples(&mut self) -> &mut [f32] {
         self.cpu.bus.apu.samples()
     }
 
@@ -104,16 +104,10 @@ impl ControlDeck {
         self.cpu.bus.apu.clear_samples();
     }
 
-    /// Set the emulation speed.
-    #[inline]
-    pub fn set_speed(&mut self, speed: f32) {
-        self.cpu.bus.apu.set_speed(speed);
-    }
-
     /// Steps the control deck the number of seconds
     #[inline]
     pub fn clock_seconds(&mut self, seconds: f32) -> usize {
-        self.cycles_remaining += CPU_CLOCK_RATE * seconds;
+        self.cycles_remaining += Cpu::clock_rate(self.nes_format) * seconds;
         let mut clocks = 0;
         while self.cycles_remaining > 0.0 && !self.cpu_corrupted() {
             let cycles = self.clock();

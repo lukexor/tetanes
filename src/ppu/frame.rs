@@ -44,7 +44,7 @@ lazy_static! {
                             let noise = (sample + palette_offset * 4) % 12;
                             // Sample either the previous or the current pixel.
                             // Use pixel=color0 to disable artifacts.
-                            let pixel = if noise < 8 - channel * 2 {
+                            let pixel = if noise < 6 - channel * 2 {
                                 color0_offset
                             } else {
                                 color1_offset
@@ -139,14 +139,17 @@ impl Frame {
         }
     }
 
+    #[inline]
     pub fn increment(&mut self) {
         self.num += 1;
     }
 
+    #[inline]
     pub fn swap_buffers(&mut self) {
         std::mem::swap(&mut self.current_buffer, &mut self.back_buffer);
     }
 
+    #[inline]
     pub fn put_pixel(&mut self, x: u32, y: u32, color: u16) {
         self.current_buffer[(x + (y << 8)) as usize] = color;
     }
@@ -157,6 +160,7 @@ impl Powered for Frame {
         self.num = 0;
         self.current_buffer.fill(0);
         self.back_buffer.fill(0);
+        self.output_buffer.fill(0);
     }
     fn power_cycle(&mut self) {
         self.reset();

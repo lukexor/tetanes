@@ -6,7 +6,7 @@ use crate::{
     apu::pulse::OutputFreq,
     cart::Cart,
     common::{Clocked, NesFormat, Powered},
-    cpu::CPU_CLOCK_RATE,
+    cpu::Cpu,
     mapper::Mapper,
     memory::{MemRead, MemWrite},
 };
@@ -18,9 +18,6 @@ use pulse::{Pulse, PulseChannel};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use triangle::Triangle;
-
-pub const SAMPLE_RATE: f32 = 44_100.0; // in Hz
-const SAMPLE_BUFFER_SIZE: usize = 2048;
 
 const PULSE_TABLE_SIZE: usize = 31;
 const TND_TABLE_SIZE: usize = 203;
@@ -65,8 +62,7 @@ pub enum AudioChannel {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Apu {
-    cycle: usize,    // Current APU cycle
-    clock_rate: f32, // Same as CPU but is affected by speed changes
+    cycle: usize, // Current APU cycle
     nes_format: NesFormat,
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_disabled: bool,           // Set by $4017 D6
@@ -80,20 +76,18 @@ pub struct Apu {
     #[serde(skip, default = "std::ptr::null_mut")]
     cart: *mut Cart,
     enabled: [bool; 5],
-    sample_timer: f32,
-    sample_rate: f32,
     pub(crate) open_bus: u8, // This open bus gets set during any write to APU registers
 }
 
 impl Apu {
     pub fn new(nes_format: NesFormat) -> Self {
         Self {
-            cycle: 0usize,
-            clock_rate: CPU_CLOCK_RATE,
+            cycle: 0,
             nes_format,
             irq_pending: false,
             irq_disabled: false,
-            samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
+            // Start with ~20ms of audio capacity
+            samples: Vec::with_capacity((Cpu::clock_rate(nes_format) * 0.02) as usize),
             frame_counter: FrameCounter::new(nes_format),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
@@ -102,9 +96,7 @@ impl Apu {
             dmc: Dmc::new(nes_format),
             cart: std::ptr::null_mut(),
             enabled: [true; 5],
-            sample_timer: 0.0,
-            sample_rate: CPU_CLOCK_RATE / SAMPLE_RATE,
-            open_bus: 0u8,
+            open_bus: 0x00,
         }
     }
 
@@ -114,10 +106,16 @@ impl Apu {
         self.dmc.set_nes_format(nes_format);
     }
 
-    #[must_use]
     #[inline]
-    pub fn samples(&self) -> &[f32] {
-        &self.samples
+    #[must_use]
+    pub fn sample_rate(&self) -> f32 {
+        Cpu::clock_rate(self.nes_format)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn samples(&mut self) -> &mut [f32] {
+        &mut self.samples
     }
 
     #[inline]
@@ -126,11 +124,6 @@ impl Apu {
     }
 
     #[inline]
-    pub fn set_speed(&mut self, speed: f32) {
-        self.clock_rate = CPU_CLOCK_RATE * speed;
-        self.sample_rate = self.clock_rate / SAMPLE_RATE;
-    }
-
     #[must_use]
     pub const fn channel_enabled(&self, channel: AudioChannel) -> bool {
         self.enabled[channel as usize]
@@ -198,9 +191,8 @@ impl Apu {
         self.noise.clock_half_frame();
     }
 
-    #[must_use]
     #[inline]
-    fn output(&mut self) -> f32 {
+    fn output(&mut self) {
         let pulse1 = if self.enabled[0] {
             self.pulse1.output()
         } else {
@@ -236,7 +228,8 @@ impl Apu {
         };
         let pulse_out = PULSE_TABLE[pulse as usize % 31];
         let tnd_out = TND_TABLE[(3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
-        pulse_out + tnd_out
+        let sample = pulse_out + tnd_out;
+        self.samples.push(sample);
     }
 
     // $4015 READ
@@ -247,8 +240,8 @@ impl Apu {
         val
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     const fn peek_status(&self) -> u8 {
         let mut status = 0;
         if self.pulse1.length.counter > 0 {
@@ -327,12 +320,7 @@ impl Clocked for Apu {
         // to half-cycle timings, we clock every cycle
         self.clock_frame_counter();
 
-        self.sample_timer += 1.0;
-        if self.sample_timer > self.sample_rate {
-            let sample = self.output();
-            self.samples.push(sample);
-            self.sample_timer -= self.sample_rate;
-        }
+        self.output();
         self.cycle += 1;
         1
     }
@@ -422,7 +410,6 @@ impl fmt::Debug for Apu {
             .field("irq_pending", &self.irq_pending)
             .field("irq_disabled", &self.irq_disabled)
             .field("open_bus", &format_args!("${:02X}", &self.open_bus))
-            .field("clock_rate", &self.clock_rate)
             .field("samples len", &self.samples.len())
             .field("frame_counter", &self.frame_counter)
             .field("pulse1", &self.pulse1)
@@ -522,38 +509,38 @@ mod tests {
     };
 
     test_roms!("apu", {
-        (clock_jitter, 15, 11142254853534581794),
-        (dmc_basics, 25, 4777243056264901558),
-        (dmc_dma_2007_read, 25, 9760800171373506878),
-        (dmc_dma_2007_write, 30, 6819750118289511461),
-        (dmc_dma_4016_read, 20, 17611075533891223752),
-        (dmc_dma_double_2007_read, 20, 10498985860445899032),
-        (dmc_dma_read_write_2007, 24, 17262164619652057735),
-        (dmc_rates, 27, 11063982786335661106),
-        (dpcmletterbox, 10, 1985156316546052267),
-        (irq_flag, 16, 11142254853534581794),
+        (clock_jitter, 20, 2490481634800449366),
+        (dmc_basics, 30, 9008018156027184411),
+        (dmc_dma_2007_read, 30, 10365401187820125146),
+        (dmc_dma_2007_write, 35, 4977565403251083090),
+        (dmc_dma_4016_read, 20, 16568721214884101462),
+        (dmc_dma_double_2007_read, 20, 8496836496606559571),
+        (dmc_dma_read_write_2007, 25, 3417829174873616470),
+        (dmc_rates, 30, 1484476788096412594),
+        (dpcmletterbox, 10, 5688337622994168598),
+        (irq_flag, 20, 2490481634800449366),
         (irq_flag_timing, 100, 0, "fails $04"),
-        (irq_timing, 15, 11142254853534581794),
-        (jitter, 18, 1036648701261398994),
-        (len_ctr, 25, 11142254853534581794),
-        (len_halt_timing, 100, 0, "fails $03"),
+        (irq_timing, 20, 2490481634800449366),
+        (jitter, 20, 10792018655464982364),
+        (len_ctr, 25, 2490481634800449366),
+        (len_halt_timing, 100, 0, "fails$03"),
         (len_reload_timing, 100, 0, "fails $04"),
-        (len_table, 10, 11142254853534581794),
+        (len_table, 20, 2490481634800449366),
         (len_timing, 100, 0, "Channel: 0 second length of mode 0 is too soon"),
         (len_timing_mode0, 100, 0, "fails $04"),
         (len_timing_mode1, 100, 0, "fails $05"),
         (reset_len_ctrs_enabled, 100, 0, "At power, length counters should be enabled, #2"),
-        (reset_timing, 10, 11142254853534581794),
-        (test_1, 10, 2319187644663237904),
-        (test_2, 10, 2319187644663237904),
-        (test_3, 100, 0, "fails"),
-        (test_4, 100, 0, "fails"),
-        (test_5, 10, 2319187644663237904),
-        (test_6, 10, 2319187644663237904),
-        (test_7, 100, 0, "fails"),
-        (test_8, 100, 0, "fails"),
-        (test_9, 100, 0, "fails"),
-        (test_10, 100, 0, "fails"),
+        (reset_timing, 20, 2490481634800449366),
+        (test_1, 20, 15209140779873873877),
+        (test_2, 20, 15209140779873873877),
+        (test_3, 20, 15209140779873873877, "fails"),
+        (test_4, 20, 15209140779873873877, "fails"),
+        (test_5, 20, 15209140779873873877),
+        (test_6, 20, 15209140779873873877),
+        (test_7, 20, 15209140779873873877, "fails"),
+        (test_8, 20, 15209140779873873877, "fails"),
+        (test_9, 20, 15209140779873873877, "fails"),
+        (test_10, 20, 15209140779873873877, "fails"),
         (pal_clock_jitter, 100, 0, "fails"),
         (pal_irq_flag_timing, 100, 0, "fails"),
         (pal_len_halt_timing, 100, 0, "fails"),
@@ -563,50 +550,50 @@ mod tests {
     });
 
     test_roms_adv!("apu", {
-        (reset_4015_cleared, 15, |frame, deck| match frame {
-            10 => deck.reset(),
-            17 => compare(116295277903678038, deck, "reset_4015_cleared"),
-            _ => (),
-        }),
-        (reset_4017_timing, 37, |frame, deck| match frame {
+        (reset_4015_cleared, 40, |frame, deck| match frame {
             20 => deck.reset(),
-            39 => compare(14926929218207596099, deck, "reset_4017_timing"),
+            40 => compare(264111498766506014, deck, "reset_4015_cleared"),
             _ => (),
         }),
-        (reset_4017_written, 0, |frame, deck| match frame {
-            17 => deck.reset(),
-            32 => deck.reset(),
-            47 => compare(12593305160591345698, deck, "reset_4017_written"),
+        (reset_4017_timing, 40, |frame, deck| match frame {
+            20 => deck.reset(),
+            40 => compare(14926929218207596099, deck, "reset_4017_timing"),
+            _ => (),
+        }),
+        (reset_4017_written, 50, |frame, deck| match frame {
+            20 => deck.reset(),
+            35 => deck.reset(),
+            50 => compare(12593305160591345698, deck, "reset_4017_written"),
             _ => ()
         }),
-        (reset_irq_flag_cleared, 16, |frame, deck| match frame {
-            11 => deck.reset(),
-            18 => compare(13991247418321945900, deck, "reset_irq_flag_cleared"),
-            _ => (),
-        }),
-        (reset_works_immediately, 18, |frame, deck| match frame {
+        (reset_irq_flag_cleared, 20, |frame, deck| match frame {
             15 => deck.reset(),
-            21 => compare(1786657150847637076, deck, "reset_works_immediately"),
+            20 => compare(13991247418321945900, deck, "reset_irq_flag_cleared"),
             _ => (),
         }),
-        (pal_irq_flag, 15, |frame, deck| match frame {
-            0 => deck.set_nes_format(NesFormat::Pal),
-            15 => compare(1476332058693542633, deck, "pal_irq_flag"),
+        (reset_works_immediately, 30, |frame, deck| match frame {
+            20 => deck.reset(),
+            30 => compare(1786657150847637076, deck, "reset_works_immediately"),
             _ => (),
         }),
-        (pal_irq_timing, 15,  |frame, deck| match frame {
+        (pal_irq_flag, 20, |frame, deck| match frame {
             0 => deck.set_nes_format(NesFormat::Pal),
-            15 => compare(4151069387652564427, deck, "pal_irq_timing"),
+            20 => compare(15517017464693650810, deck, "pal_irq_flag"),
+            _ => (),
+        }),
+        (pal_irq_timing, 20,  |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            20 => compare(1898174604279228733, deck, "pal_irq_timing"),
             _ => (),
         }),
         (pal_len_ctr, 25,  |frame, deck| match frame {
             0 => deck.set_nes_format(NesFormat::Pal),
-            25 => compare(8844976523644404419, deck, "pal_len_ctr"),
+            25 => compare(11023338900058641095, deck, "pal_len_ctr"),
             _ => (),
         }),
-        (pal_len_table, 15,  |frame, deck| match frame {
+        (pal_len_table, 20,  |frame, deck| match frame {
             0 => deck.set_nes_format(NesFormat::Pal),
-            15 => compare(16541936846276814327, deck, "pal_len_table"),
+            20 => compare(3535877006127956081, deck, "pal_len_table"),
             _ => (),
         }),
     });

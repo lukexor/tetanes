@@ -31,8 +31,11 @@ pub mod instr;
 // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
 // pub const MASTER_CLOCK_RATE: f32 = 21_441_960.0; // 21.441960 MHz Emulated clock rate
 
-pub const MASTER_CLOCK_RATE: f32 = 21_477_270.0; // 21.47727 MHz Hardware clock rate
-pub const CPU_CLOCK_RATE: f32 = MASTER_CLOCK_RATE / 12.0;
+pub const NTSC_MASTER_CLOCK_RATE: f32 = 21_477_272.0;
+pub const NTSC_CPU_CLOCK_RATE: f32 = NTSC_MASTER_CLOCK_RATE / 12.0;
+pub const PAL_MASTER_CLOCK_RATE: f32 = 26_601_712.0;
+pub const PAL_CPU_CLOCK_RATE: f32 = PAL_MASTER_CLOCK_RATE / 16.0;
+pub const DENDY_CPU_CLOCK_RATE: f32 = PAL_MASTER_CLOCK_RATE / 15.0;
 
 const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
@@ -168,6 +171,16 @@ impl Cpu {
         };
         cpu.set_nes_format(nes_format);
         cpu
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn clock_rate(nes_format: NesFormat) -> f32 {
+        match nes_format {
+            NesFormat::Ntsc => NTSC_CPU_CLOCK_RATE,
+            NesFormat::Pal => PAL_CPU_CLOCK_RATE,
+            NesFormat::Dendy => DENDY_CPU_CLOCK_RATE,
+        }
     }
 
     pub fn set_nes_format(&mut self, nes_format: NesFormat) {

@@ -3,11 +3,12 @@ use crate::{
     memory::RamState,
     nes::{
         event::{Action, Input, InputBindings, InputMapping},
-        Nes, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
+        Nes, SAMPLE_RATE, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
     },
     ppu::VideoFilter,
 };
 use anyhow::Context;
+use pix_engine::prelude::{PixResult, PixState};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
@@ -143,21 +144,35 @@ impl Nes {
     }
 
     pub(crate) fn change_speed(&mut self, delta: f32) {
+        let mut speed = self.config.speed;
         if self.config.speed % 0.25 != 0.0 {
             // Round to nearest quarter
-            self.config.speed = (self.config.speed * 4.0).floor() / 4.0;
+            speed = (self.config.speed * 4.0).floor() / 4.0;
         }
-        self.config.speed += DEFAULT_SPEED * delta;
+        speed += DEFAULT_SPEED * delta;
         if self.config.speed < MIN_SPEED {
-            self.config.speed = MIN_SPEED;
+            speed = MIN_SPEED;
         } else if self.config.speed > MAX_SPEED {
-            self.config.speed = MAX_SPEED;
+            speed = MAX_SPEED;
         }
-        self.control_deck.set_speed(self.config.speed);
+        self.set_speed(speed);
     }
 
     pub(crate) fn set_speed(&mut self, speed: f32) {
         self.config.speed = speed;
-        self.control_deck.set_speed(self.config.speed);
+        self.audio.set_output_rate(SAMPLE_RATE / self.config.speed);
+    }
+
+    pub(crate) fn update_frame_rate(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.config.nes_format {
+            NesFormat::Ntsc => s.frame_rate(60),
+            NesFormat::Pal => s.frame_rate(50),
+            NesFormat::Dendy => s.frame_rate(59),
+        }
+        if self.config.vsync && s.target_frame_rate() != Some(60) {
+            self.config.vsync = false;
+            s.toggle_vsync()?;
+        }
+        Ok(())
     }
 }

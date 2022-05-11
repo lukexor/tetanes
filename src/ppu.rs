@@ -285,7 +285,6 @@ impl Ppu {
     #[must_use]
     #[inline]
     pub fn frame_buffer(&mut self) -> &[u8] {
-        self.update_grayscale_emphasis();
         match self.filter {
             VideoFilter::None => self.decode_buffer(),
             VideoFilter::Ntsc => self.apply_ntsc_filter(),
@@ -313,8 +312,12 @@ impl Ppu {
             let y = idx / 256;
             let even_phase = if self.frame.num & 0x01 == 0x01 { 0 } else { 1 };
             let phase = (2 + y * 341 + x + even_phase) % 3;
-            let color =
-                NTSC_PALETTE[phase][(self.frame.prev_pixel & 0x3F) as usize][*pixel as usize];
+            let color = if x == 0 {
+                // Remove pixel 0 artifact from not having a valid previous pixel
+                0
+            } else {
+                NTSC_PALETTE[phase][(self.frame.prev_pixel & 0x3F) as usize][*pixel as usize]
+            };
             self.frame.prev_pixel = u32::from(*pixel);
             let idx = idx << 2;
             let red = (color >> 16 & 0xFF) as u8;
@@ -323,39 +326,6 @@ impl Ppu {
             self.frame.output_buffer[idx..=idx + 3].copy_from_slice(&[red, green, blue, 255]);
         }
         &self.frame.output_buffer
-    }
-
-    fn update_grayscale_emphasis(&mut self) {
-        if self.scanline > self.vblank_scanline || self.scanline == self.prerender_scanline {
-            return;
-        }
-        let pixel = if self.scanline > RENDER_HEIGHT {
-            self.frame.current_buffer.len() as u32 - 1
-        } else if self.cycle < 3 {
-            (self.scanline << 8).saturating_sub(1)
-        } else if self.cycle <= 258 {
-            self.cycle - 3 + (self.scanline << 8)
-        } else {
-            255 + (self.scanline << 8)
-        };
-
-        if !self.regs.grayscale() && self.regs.emphasis() == 0 {
-            self.frame.last_updated_pixel = pixel;
-            return;
-        }
-
-        if self.frame.last_updated_pixel < pixel {
-            for color in self
-                .frame
-                .current_buffer
-                .iter_mut()
-                .skip(self.frame.last_updated_pixel as usize)
-                .take((pixel - self.frame.last_updated_pixel) as usize)
-            {
-                *color &= if self.regs.grayscale() { 0x30 } else { 0x3F };
-                *color |= u16::from(self.regs.emphasis()) << 1;
-            }
-        }
     }
 
     fn load_nametables(&mut self) {
@@ -540,7 +510,7 @@ impl Ppu {
                 {
                     // NTSC behavior while rendering - each odd PPU frame is one clock shorter
                     // (skipping from 339 over 340 to 0)
-                    log::debug!(
+                    log::trace!(
                         "({}, {}): Skipped odd frame cycle: {}",
                         self.cycle,
                         self.scanline,
@@ -827,8 +797,10 @@ impl Ppu {
             } else {
                 self.read_ppuaddr() & 0x1F
             };
-        let palette = self.vram.read(PALETTE_START + palette_addr);
-        self.frame.put_pixel(x, y, u16::from(palette));
+        let mut palette = u16::from(self.vram.read(PALETTE_START + palette_addr));
+        palette &= if self.regs.grayscale() { 0x30 } else { 0x3F };
+        palette |= u16::from(self.regs.emphasis()) << 1;
+        self.frame.put_pixel(x, y, palette);
     }
 
     #[inline]
@@ -958,7 +930,7 @@ impl Ppu {
         }
         self.regs.write_ctrl(val);
 
-        log::debug!(
+        log::trace!(
             "({}, {}): $2000 NMI Enabled: {}",
             self.cycle,
             self.scanline,
@@ -968,10 +940,10 @@ impl Ppu {
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
         // multiple times, causing multiple NMIs to be generated.
         if !self.nmi_enabled() {
-            log::debug!("({}, {}): $2000 NMI Disable", self.cycle, self.scanline);
+            log::trace!("({}, {}): $2000 NMI Disable", self.cycle, self.scanline);
             self.nmi_pending = false;
         } else if self.vblank_started() {
-            log::debug!("({}, {}): $2000 NMI During VBL", self.cycle, self.scanline);
+            log::trace!("({}, {}): $2000 NMI During VBL", self.cycle, self.scanline);
             self.nmi_pending = true;
         }
     }
@@ -985,7 +957,6 @@ impl Ppu {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
         }
-        self.update_grayscale_emphasis();
         self.regs.write_mask(val);
     }
 
@@ -996,13 +967,13 @@ impl Ppu {
     #[inline]
     pub fn read_ppustatus(&mut self) -> u8 {
         let status = self.regs.read_status();
-        log::debug!("({}, {}): $2002 NMI Ack", self.cycle, self.scanline);
+        log::trace!("({}, {}): $2002 NMI Ack", self.cycle, self.scanline);
         self.nmi_pending = false;
 
         if self.scanline == self.vblank_scanline && self.cycle == VBLANK_CYCLE - 1 {
             // Reading PPUSTATUS one clock before the start of vertical blank will read as clear
             // and never set the flag or generate an NMI for that frame
-            log::debug!("({}, {}): $2002 Prevent VBL", self.cycle, self.scanline);
+            log::trace!("({}, {}): $2002 Prevent VBL", self.cycle, self.scanline);
             self.prevent_vbl = true;
         }
 
@@ -1024,11 +995,11 @@ impl Ppu {
 
     #[inline]
     fn start_vblank(&mut self) {
-        log::debug!("({}, {}): Set VBL flag", self.cycle, self.scanline);
+        log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.regs.start_vblank();
             self.nmi_pending = self.nmi_enabled();
-            log::debug!(
+            log::trace!(
                 "({}, {}): VBL NMI: {}",
                 self.cycle,
                 self.scanline,
@@ -1044,7 +1015,7 @@ impl Ppu {
 
     #[inline]
     fn stop_vblank(&mut self) {
-        log::debug!("({}, {}): Clear VBL flag", self.cycle, self.scanline);
+        log::trace!("({}, {}): Clear VBL flag", self.cycle, self.scanline);
         self.regs.stop_vblank();
         self.nmi_pending = false;
         // Ensure our mapper knows vbl changed
@@ -1240,23 +1211,23 @@ impl Clocked for Ppu {
             if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
                 self.frame_complete = true;
+                self.frame.swap_buffers();
             } else if self.scanline > self.prerender_scanline {
                 self.scanline = 0;
-                self.frame.swap_buffers();
             }
 
             self.update_viewer();
         } else {
             // cycle > 0
-            self.run_cycle();
             self.cycle += 1;
+            self.run_cycle();
 
             if self.cycle == VBLANK_CYCLE {
                 if self.scanline == self.vblank_scanline {
                     self.start_vblank();
                 }
                 if self.scanline == self.prerender_scanline {
-                    log::debug!(
+                    log::trace!(
                         "({}, {}): Clear Sprite0 Hit, Overflow",
                         self.cycle,
                         self.scanline

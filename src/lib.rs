@@ -40,6 +40,7 @@
 )]
 
 pub mod apu;
+pub mod audio;
 pub mod bus;
 pub mod cart;
 #[cfg(not(target_arch = "wasm32"))]
@@ -48,6 +49,7 @@ pub mod debugger;
 pub mod common;
 pub mod control_deck;
 pub mod cpu;
+pub mod filter;
 pub mod input;
 pub mod mapper;
 pub mod memory;

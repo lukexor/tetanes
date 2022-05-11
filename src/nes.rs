@@ -1,7 +1,7 @@
 //! User Interface representing the the NES Control Deck
 
 use crate::{
-    apu::SAMPLE_RATE,
+    audio::Audio,
     common::Powered,
     control_deck::ControlDeck,
     input::GamepadSlot,
@@ -22,7 +22,7 @@ use std::{
     env,
     ops::ControlFlow,
     path::PathBuf,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 pub(crate) mod config;
@@ -40,6 +40,7 @@ const WINDOW_WIDTH_PAL: f32 = RENDER_WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18
 const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
 // Trim top and bottom 8 scanlines
 const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
+const SAMPLE_RATE: f32 = 44_100.0;
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -137,7 +138,6 @@ impl NesBuilder {
         config.genie_codes.append(&mut self.genie_codes.clone());
 
         let mut control_deck = ControlDeck::new(config.nes_format, config.ram_state);
-        control_deck.set_speed(config.speed);
         for (&input, &action) in config.input_map.iter() {
             if action == Action::ZapperTrigger {
                 if let Input::Mouse((slot, ..))
@@ -201,6 +201,7 @@ impl View {
 #[derive(Debug)]
 pub struct Nes {
     control_deck: ControlDeck,
+    audio: Audio,
     players: HashMap<GamepadSlot, ControllerId>,
     emulation: Option<View>,
     debugger: Option<Debugger>,
@@ -221,6 +222,8 @@ pub struct Nes {
     selected_path: usize,
     error: Option<String>,
     confirm_quit: Option<(String, bool)>,
+    buffer_data: std::io::BufWriter<std::fs::File>,
+    pitch_data: std::io::BufWriter<std::fs::File>,
 }
 
 impl Nes {
@@ -230,8 +233,14 @@ impl Nes {
         replay_path: Option<PathBuf>,
         debug: bool,
     ) -> Self {
+        let sample_rate = control_deck.apu().sample_rate();
+        let buffer_data =
+            std::io::BufWriter::new(std::fs::File::create("./buffer_data.raw").unwrap());
+        let pitch_data =
+            std::io::BufWriter::new(std::fs::File::create("./pitch_data.raw").unwrap());
         Self {
             control_deck,
+            audio: Audio::new(sample_rate, SAMPLE_RATE / config.speed),
             players: HashMap::new(),
             emulation: None,
             debugger: None,
@@ -252,6 +261,8 @@ impl Nes {
             selected_path: 0,
             error: None,
             confirm_quit: None,
+            buffer_data,
+            pitch_data,
         }
     }
 
@@ -268,7 +279,7 @@ impl Nes {
             .with_dimensions(width, height)
             .with_title(title)
             .with_frame_rate()
-            .audio_sample_rate(SAMPLE_RATE.floor() as i32)
+            .audio_sample_rate(SAMPLE_RATE as i32)
             .audio_channels(1)
             .target_frame_rate(60)
             .resizable();
@@ -321,27 +332,28 @@ impl Nes {
 
 impl AppState for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
+        self.update_frame_rate(s)?;
         if self.set_zapper_pos(s.mouse_pos()) {
             s.cursor(None)?;
         }
+
         self.emulation = Some(View::new(
             s.window_id(),
             Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?),
         ));
         self.load_rom(s);
+
         if self.debug {
             self.toggle_debugger(s)?;
         }
+
         Ok(())
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
         if std::env::var("TEST").is_ok() {
             let buffer = self.control_deck.frame_buffer();
-            if self.debugger.is_none()
-                && buffer[0] == 0
-                && buffer[3 * (256 * 240) - 1] == 0
-                && buffer != &vec![0; 3 * (256 * 240)][..]
+            if self.debugger.is_none() && buffer[0] == 0 && buffer != &vec![0; 4 * (256 * 240)][..]
             {
                 self.toggle_debugger(s)?;
             }
@@ -375,12 +387,36 @@ impl AppState for Nes {
             }
 
             if self.config.sound && self.mode != Mode::Paused {
-                if s.audio_size() < 2048 {
+                // TODO add settings for dynamic rate control and delta
+                let delta = 5.0;
+                let mut queued_size = s.audio_queued_size() as f32 / 4.0;
+                let mut buffer_size = s.audio_size() as f32 / 4.0;
+                if queued_size < 512.0 {
                     self.control_deck.clock_frame();
-                } else if s.audio_size() > 8192 {
-                    std::thread::sleep(Duration::from_millis(10));
+                    queued_size = s.audio_queued_size() as f32 / 4.0;
+                    buffer_size = s.audio_size() as f32 / 4.0;
                 }
-                s.enqueue_audio(self.control_deck.audio_samples())?;
+                let sample_ratio = 1.0
+                    + (delta * (buffer_size - 2.0 * (buffer_size - queued_size)))
+                        / (1000.0 * buffer_size);
+                use std::io::Write;
+                if self.control_deck.frame_number() % 16 == 0 {
+                    writeln!(
+                        self.buffer_data,
+                        "{} {}",
+                        self.control_deck.frame_number(),
+                        queued_size
+                    )?;
+                    writeln!(
+                        self.pitch_data,
+                        "{} {}",
+                        self.control_deck.frame_number(),
+                        sample_ratio
+                    )?;
+                }
+                let samples = self.control_deck.audio_samples();
+                let output = self.audio.output(samples, sample_ratio);
+                s.enqueue_audio(output)?;
             }
             self.control_deck.clear_audio_samples();
         }
