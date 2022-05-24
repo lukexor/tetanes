@@ -22,7 +22,7 @@ const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
 const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
 const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// NES emulation configuration settings.
 pub(crate) struct Config {
     pub(crate) rom_path: PathBuf,
@@ -41,11 +41,38 @@ pub(crate) struct Config {
     pub(crate) rewind_frames: u32,
     pub(crate) rewind_buffer_size: usize,
     pub(crate) fourscore: bool,
+    pub(crate) log_level: log::LevelFilter,
     pub(crate) genie_codes: Vec<String>,
     pub(crate) bindings: InputBindings,
     #[serde(skip)]
     pub(crate) input_map: InputMapping,
-    // TODO: Runtime log level
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            rom_path: PathBuf::from("./"),
+            pause_in_bg: true,
+            sound: true,
+            fullscreen: false,
+            vsync: true,
+            filter: VideoFilter::default(),
+            concurrent_dpad: false,
+            nes_format: NesFormat::default(),
+            ram_state: RamState::default(),
+            save_slot: 1,
+            scale: 3.0,
+            speed: 1.0,
+            rewind: false,
+            rewind_frames: 2,
+            rewind_buffer_size: 20,
+            fourscore: false,
+            log_level: log::max_level(),
+            genie_codes: vec![],
+            bindings: InputBindings::default(),
+            input_map: InputMapping::default(),
+        }
+    }
 }
 
 impl Config {

@@ -22,7 +22,7 @@ chrono = "0.4.19"
 dirs = "4.0.0"
 enum_dispatch = "0.3.7"
 lazy_static = "1.4.0"
-log = "0.4.14"
+log = { version = "0.4.14", features = ["release_max_level_warn", "serde"] }
 pretty_env_logger = "0.4.0"
 rand = "0.8.4"
 structopt = "0.3.25"
@@ -60,7 +60,6 @@ opt-level = 2
 inherits = "dev-opt"
 
 [profile.release]
-strip = "symbols"
 codegen-units = 1
 lto = true
 
