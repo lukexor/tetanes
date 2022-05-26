@@ -1,182 +1,181 @@
 //! Audio Processing Unit
 //!
-//! [https://wiki.nesdev.com/w/index.php/APU]()
+//! <https://wiki.nesdev.com/w/index.php/APU>
 
 use crate::{
-    common::{Clocked, Powered},
-    cpu::CPU_CLOCK_RATE,
-    filter::{Filter, FilterType, HiPassFilter, LoPassFilter},
-    mapper::MapperType,
+    apu::pulse::OutputFreq,
+    cart::Cart,
+    common::{Clocked, NesFormat, Powered},
+    cpu::Cpu,
+    mapper::Mapper,
     memory::{MemRead, MemWrite},
-    serialization::Savable,
-    NesResult,
 };
 use dmc::Dmc;
-use frame_sequencer::{FcMode, FrameSequencer};
+use frame_counter::{FcMode, FrameCounter};
+use lazy_static::lazy_static;
 use noise::Noise;
 use pulse::{Pulse, PulseChannel};
-use std::{
-    fmt,
-    io::{Read, Write},
-};
+use serde::{Deserialize, Serialize};
+use std::fmt;
 use triangle::Triangle;
 
-pub const SAMPLE_RATE: f32 = 48_000.0; // in Hz
-const SAMPLE_BUFFER_SIZE: usize = 4096;
+const PULSE_TABLE_SIZE: usize = 31;
+const TND_TABLE_SIZE: usize = 203;
+
+lazy_static! {
+    static ref PULSE_TABLE: [f32; PULSE_TABLE_SIZE] = {
+        let mut pulse_table = [0.0; PULSE_TABLE_SIZE];
+        for (i, val) in pulse_table.iter_mut().enumerate().skip(1) {
+            *val = 95.52 / (8_128.0 / (i as f32) + 100.0);
+        }
+        pulse_table
+    };
+    static ref TND_TABLE: [f32; TND_TABLE_SIZE] = {
+        let mut tnd_table = [0.0; TND_TABLE_SIZE];
+        for (i, val) in tnd_table.iter_mut().enumerate().skip(1) {
+            *val = 163.67 / (24_329.0 / (i as f32) + 100.0);
+        }
+        tnd_table
+    };
+}
 
 pub mod dmc;
 pub mod noise;
 pub mod pulse;
 pub mod triangle;
 
-mod divider;
 mod envelope;
-mod frame_sequencer;
-mod length_counter;
-mod linear_counter;
-mod sequencer;
-mod sweep;
+mod frame_counter;
+
+/// A given APU audio channel.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub enum AudioChannel {
+    Pulse1,
+    Pulse2,
+    Triangle,
+    Noise,
+    Dmc,
+}
 
 /// Audio Processing Unit
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct Apu {
-    pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
-    irq_enabled: bool,     // Set by $4017 D6
-    pub open_bus: u8,      // This open bus gets set during any write to PPU registers
-    clock_rate: f32,       // Same as CPU but is affected by speed changes
-    cycle: usize,          // Current APU cycle
-    samples: Vec<f32>,     // Buffer of samples
-    pub frame_sequencer: FrameSequencer,
+    cycle: usize, // Current APU cycle
+    nes_format: NesFormat,
+    pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
+    irq_disabled: bool,           // Set by $4017 D6
+    samples: Vec<f32>,            // Buffer of samples
+    frame_counter: FrameCounter,
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
+    pub(crate) dmc: Dmc,
+    #[serde(skip, default = "std::ptr::null_mut")]
+    cart: *mut Cart,
     enabled: [bool; 5],
-    pub dmc: Dmc,
-    filters: [FilterType; 3],
-    pulse_table: [f32; Self::PULSE_TABLE_SIZE],
-    tnd_table: [f32; Self::TND_TABLE_SIZE],
+    pub(crate) open_bus: u8, // This open bus gets set during any write to APU registers
 }
 
 impl Apu {
-    const PULSE_TABLE_SIZE: usize = 31;
-    const TND_TABLE_SIZE: usize = 203;
-
-    pub fn new() -> Self {
-        let mut apu = Self {
+    pub fn new(nes_format: NesFormat) -> Self {
+        Self {
+            cycle: 0,
+            nes_format,
             irq_pending: false,
-            irq_enabled: false,
-            open_bus: 0u8,
-            clock_rate: CPU_CLOCK_RATE,
-            cycle: 0usize,
-            samples: Vec::with_capacity(SAMPLE_BUFFER_SIZE),
-            frame_sequencer: FrameSequencer::new(),
-            pulse1: Pulse::new(PulseChannel::One),
-            pulse2: Pulse::new(PulseChannel::Two),
+            irq_disabled: false,
+            // Start with ~20ms of audio capacity
+            samples: Vec::with_capacity((Cpu::clock_rate(nes_format) * 0.02) as usize),
+            frame_counter: FrameCounter::new(nes_format),
+            pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
+            pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
             triangle: Triangle::new(),
-            noise: Noise::new(),
-            dmc: Dmc::new(),
+            noise: Noise::new(nes_format),
+            dmc: Dmc::new(nes_format),
+            cart: std::ptr::null_mut(),
             enabled: [true; 5],
-            filters: [
-                FilterType::HiPassFilter(HiPassFilter::new(90.0, SAMPLE_RATE)),
-                FilterType::HiPassFilter(HiPassFilter::new(440.0, SAMPLE_RATE)),
-                FilterType::LoPassFilter(LoPassFilter::new(14_000.0, SAMPLE_RATE)),
-            ],
-            pulse_table: [0f32; Self::PULSE_TABLE_SIZE],
-            tnd_table: [0f32; Self::TND_TABLE_SIZE],
-        };
-        for i in 1..Self::PULSE_TABLE_SIZE {
-            apu.pulse_table[i] = 95.52 / (8_128.0 / (i as f32) + 100.0);
+            open_bus: 0x00,
         }
-        for i in 1..Self::TND_TABLE_SIZE {
-            apu.tnd_table[i] = 163.67 / (24_329.0 / (i as f32) + 100.0);
-        }
-        apu
     }
 
-    pub fn load_mapper(&mut self, mapper: &mut MapperType) {
-        self.dmc.mapper = &mut *mapper as *mut MapperType;
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.nes_format = nes_format;
+        self.frame_counter.set_nes_format(nes_format);
+        self.dmc.set_nes_format(nes_format);
     }
 
-    pub fn samples(&self) -> &[f32] {
-        &self.samples
+    #[inline]
+    #[must_use]
+    pub fn sample_rate(&self) -> f32 {
+        Cpu::clock_rate(self.nes_format)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn samples(&mut self) -> &mut [f32] {
+        &mut self.samples
+    }
+
+    #[inline]
     pub fn clear_samples(&mut self) {
         self.samples.clear();
     }
 
-    pub fn set_speed(&mut self, speed: f32) {
-        self.clock_rate = CPU_CLOCK_RATE * speed;
+    #[inline]
+    #[must_use]
+    pub const fn channel_enabled(&self, channel: AudioChannel) -> bool {
+        self.enabled[channel as usize]
     }
 
-    pub fn toggle_pulse1(&mut self) {
-        self.enabled[0] = !self.enabled[0];
-    }
-
-    pub fn toggle_pulse2(&mut self) {
-        self.enabled[1] = !self.enabled[1];
-    }
-
-    pub fn toggle_triangle(&mut self) {
-        self.enabled[2] = !self.enabled[2];
-    }
-
-    pub fn toggle_noise(&mut self) {
-        self.enabled[3] = !self.enabled[3];
-    }
-
-    pub fn toggle_dmc(&mut self) {
-        self.enabled[4] = !self.enabled[4];
+    pub fn toggle_channel(&mut self, channel: AudioChannel) {
+        self.enabled[channel as usize] = !self.enabled[channel as usize];
     }
 
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
-    fn clock_frame_sequencer(&mut self) {
-        let clock = self.frame_sequencer.clock();
-        match self.frame_sequencer.mode {
-            FcMode::Step4 => {
-                // mode 0: 4-step  effective rate (approx)
-                // ---------------------------------------
-                //     - - - f      60 Hz
-                //     - l - l     120 Hz
-                //     e e e e     240 Hz
-                match clock {
-                    1 | 3 => self.clock_quarter_frame(),
-                    2 => {
-                        self.clock_quarter_frame();
-                        self.clock_half_frame();
-                    }
-                    4 => {
-                        self.clock_quarter_frame();
-                        self.clock_half_frame();
-                        if self.irq_enabled {
-                            self.irq_pending = true;
-                        }
-                    }
-                    _ => (),
-                }
+    #[inline]
+    fn clock_frame_counter(&mut self) {
+        let clock = self.frame_counter.clock();
+
+        if self.frame_counter.mode == FcMode::Step4
+            && !self.irq_disabled
+            && self.frame_counter.step >= 4
+        {
+            self.irq_pending = true;
+        }
+
+        // mode 0: 4-step  effective rate (approx)
+        // ---------------------------------------
+        // - - - f f f      60 Hz
+        // - l - - l -     120 Hz
+        // e e e - e -     240 Hz
+        //
+        // mode 1: 5-step  effective rate (approx)
+        // ---------------------------------------
+        // - - - - - -     (interrupt flag never set)
+        // - l - - l -     96 Hz
+        // e e e - e -     192 Hz
+        match clock {
+            1 | 3 => {
+                self.clock_quarter_frame();
             }
-            FcMode::Step5 => {
-                // mode 1: 5-step  effective rate (approx)
-                // ---------------------------------------
-                // - - - - -   (interrupt flag never set)
-                // l - l - -    96 Hz
-                // e e e e -   192 Hz
-                match clock {
-                    1 | 3 => {
-                        self.clock_quarter_frame();
-                        self.clock_half_frame();
-                    }
-                    2 | 4 => {
-                        self.clock_quarter_frame();
-                    }
-                    _ => (),
-                }
+            2 | 5 => {
+                self.clock_quarter_frame();
+                self.clock_half_frame();
             }
+            _ => (),
+        }
+
+        // Clock Step5 immediately
+        if self.frame_counter.update() && self.frame_counter.mode == FcMode::Step5 {
+            self.clock_quarter_frame();
+            self.clock_half_frame();
         }
     }
 
+    #[inline]
     fn clock_quarter_frame(&mut self) {
         self.pulse1.clock_quarter_frame();
         self.pulse2.clock_quarter_frame();
@@ -184,6 +183,7 @@ impl Apu {
         self.noise.clock_quarter_frame();
     }
 
+    #[inline]
     fn clock_half_frame(&mut self) {
         self.pulse1.clock_half_frame();
         self.pulse2.clock_half_frame();
@@ -191,7 +191,8 @@ impl Apu {
         self.noise.clock_half_frame();
     }
 
-    fn output(&mut self) -> f32 {
+    #[inline]
+    fn output(&mut self) {
         let pulse1 = if self.enabled[0] {
             self.pulse1.output()
         } else {
@@ -217,20 +218,31 @@ impl Apu {
         } else {
             0.0
         };
-
-        let pulse_out = self.pulse_table[(pulse1 + pulse2) as usize % 31];
-        let tnd_out = self.tnd_table[(3.5 * triangle + 2.0 * noise + dmc) as usize % 203];
-        2.0 * (pulse_out + tnd_out)
+        let (pulse, dmc) = if let Mapper::Exrom(ref exrom) = self.cart().mapper {
+            let pulse3 = exrom.pulse1.output();
+            let pulse4 = exrom.pulse2.output();
+            let dmc2 = exrom.dmc.output();
+            (pulse1 + pulse2 + pulse3 + pulse4, dmc + dmc2)
+        } else {
+            (pulse1 + pulse2, dmc)
+        };
+        let pulse_out = PULSE_TABLE[pulse as usize % 31];
+        let tnd_out = TND_TABLE[(3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
+        let sample = pulse_out + tnd_out;
+        self.samples.push(sample);
     }
 
     // $4015 READ
+    #[inline]
     fn read_status(&mut self) -> u8 {
         let val = self.peek_status();
         self.irq_pending = false;
         val
     }
 
-    fn peek_status(&self) -> u8 {
+    #[inline]
+    #[must_use]
+    const fn peek_status(&self) -> u8 {
         let mut status = 0;
         if self.pulse1.length.counter > 0 {
             status |= 0x01;
@@ -257,58 +269,47 @@ impl Apu {
     }
 
     // $4015 WRITE
+    #[inline]
     fn write_status(&mut self, val: u8) {
-        self.pulse1.enabled = val & 1 == 1;
-        if !self.pulse1.enabled {
-            self.pulse1.length.counter = 0;
-        }
-        self.pulse2.enabled = (val >> 1) & 1 == 1;
-        if !self.pulse2.enabled {
-            self.pulse2.length.counter = 0;
-        }
-        self.triangle.enabled = (val >> 2) & 1 == 1;
-        if !self.triangle.enabled {
-            self.triangle.length.counter = 0;
-        }
-        self.noise.enabled = (val >> 3) & 1 == 1;
-        if !self.noise.enabled {
-            self.noise.length.counter = 0;
-        }
-        let dmc_enabled = (val >> 4) & 1 == 1;
-        if dmc_enabled {
-            if self.dmc.length == 0 {
-                self.dmc.length = self.dmc.length_load;
-                self.dmc.addr = self.dmc.addr_load;
-            }
-        } else {
-            self.dmc.length = 0;
-        }
-        self.dmc.irq_pending = false;
+        self.pulse1.set_enabled(val & 0x01 == 0x01);
+        self.pulse2.set_enabled(val & 0x02 == 0x02);
+        self.triangle.set_enabled(val & 0x04 == 0x04);
+        self.noise.set_enabled(val & 0x08 == 0x08);
+        self.dmc.set_enabled(val & 0x10 == 0x10, self.cycle);
     }
 
     // $4017 APU frame counter
+    #[inline]
     fn write_frame_counter(&mut self, val: u8) {
-        self.frame_sequencer.reload(val);
-        if self.cycle % 2 == 0 {
-            self.frame_sequencer.divider.counter += 1.0;
-        } else {
-            self.frame_sequencer.divider.counter += 2.0;
-        }
-        // Clock Step5 immediately
-        if self.frame_sequencer.mode == FcMode::Step5 {
-            self.clock_quarter_frame();
-            self.clock_half_frame();
-        }
-        self.irq_enabled = val & 0x40 == 0x00; // D6
-        if !self.irq_enabled {
+        self.frame_counter.write(val, self.cycle);
+        self.irq_disabled = val & 0x40 == 0x40; // D6
+        if self.irq_disabled {
             self.irq_pending = false;
         }
+    }
+
+    #[inline]
+    pub fn load_cart(&mut self, cart: &mut Cart) {
+        self.cart = cart;
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    #[inline]
+    pub fn cart(&self) -> &Cart {
+        unsafe { &*self.cart }
+    }
+
+    #[inline]
+    pub fn cart_mut(&mut self) -> &mut Cart {
+        unsafe { &mut *self.cart }
     }
 }
 
 impl Clocked for Apu {
+    #[inline]
     fn clock(&mut self) -> usize {
-        if self.cycle % 2 == 0 {
+        self.dmc.check_pending_dma();
+        if self.cycle & 0x01 == 0x00 {
             self.pulse1.clock();
             self.pulse2.clock();
             self.noise.clock();
@@ -317,21 +318,16 @@ impl Clocked for Apu {
         self.triangle.clock();
         // Technically only clocks every 2 CPU cycles, but due
         // to half-cycle timings, we clock every cycle
-        self.clock_frame_sequencer();
+        self.clock_frame_counter();
 
-        if self.cycle % (self.clock_rate / SAMPLE_RATE) as usize == 0 {
-            let mut sample = self.output();
-            for filter in self.filters.iter_mut() {
-                sample = filter.process(sample);
-            }
-            self.samples.push(sample);
-        }
+        self.output();
         self.cycle += 1;
         1
     }
 }
 
 impl MemRead for Apu {
+    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         if addr == 0x4015 {
             let val = self.read_status();
@@ -342,6 +338,7 @@ impl MemRead for Apu {
         }
     }
 
+    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         if addr == 0x4015 {
             self.peek_status()
@@ -352,6 +349,7 @@ impl MemRead for Apu {
 }
 
 impl MemWrite for Apu {
+    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         match addr {
@@ -385,64 +383,218 @@ impl Powered for Apu {
         self.cycle = 0;
         self.samples.clear();
         self.irq_pending = false;
-        self.irq_enabled = false;
-        self.frame_sequencer = FrameSequencer::new();
+        self.irq_disabled = false;
+        self.frame_counter.reset();
         self.pulse1.reset();
         self.pulse2.reset();
         self.triangle.reset();
         self.noise.reset();
         self.dmc.reset();
     }
-}
 
-impl Savable for Apu {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.irq_pending.save(fh)?;
-        self.irq_enabled.save(fh)?;
-        self.open_bus.save(fh)?;
-        // Ignore clock_rate
-        self.cycle.save(fh)?;
-        // Ignore samples
-        self.frame_sequencer.save(fh)?;
-        self.pulse1.save(fh)?;
-        self.pulse2.save(fh)?;
-        self.triangle.save(fh)?;
-        self.noise.save(fh)?;
-        self.dmc.save(fh)?;
-        // Ignore
-        // log_level
-        // hifilters
-        // lofilters
-        // pulse_table
-        // tnd_Table
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.irq_pending.load(fh)?;
-        self.irq_enabled.load(fh)?;
-        self.open_bus.load(fh)?;
-        self.cycle.load(fh)?;
-        self.frame_sequencer.load(fh)?;
-        self.pulse1.load(fh)?;
-        self.pulse2.load(fh)?;
-        self.triangle.load(fh)?;
-        self.noise.load(fh)?;
-        self.dmc.load(fh)?;
-        Ok(())
+    fn power_cycle(&mut self) {
+        self.frame_counter.power_cycle();
+        self.reset();
     }
 }
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::default())
     }
 }
 
 impl fmt::Debug for Apu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(f, "APU {{ cyc: {} }}", self.cycle)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+        f.debug_struct("Apu")
+            .field("irq_pending", &self.irq_pending)
+            .field("irq_disabled", &self.irq_disabled)
+            .field("open_bus", &format_args!("${:02X}", &self.open_bus))
+            .field("samples len", &self.samples.len())
+            .field("frame_counter", &self.frame_counter)
+            .field("pulse1", &self.pulse1)
+            .field("pulse2", &self.pulse2)
+            .field("triangle", &self.triangle)
+            .field("noise", &self.noise)
+            .field("dmc", &self.dmc)
+            .field("enabled", &self.enabled)
+            .finish()
+    }
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Sweep {
+    pub(crate) enabled: bool,
+    pub(crate) reload: bool,
+    pub(crate) negate: bool, // Treats PulseChannel 1 differently than PulseChannel 2
+    pub(crate) timer: u8,    // counter reload value
+    pub(crate) counter: u8,  // current timer value
+    pub(crate) shift: u8,
+}
+
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
+pub struct LengthCounter {
+    pub enabled: bool,
+    pub counter: u8, // Entry into LENGTH_TABLE
+}
+
+impl LengthCounter {
+    const LENGTH_TABLE: [u8; 32] = [
+        10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96,
+        22, 192, 24, 72, 26, 16, 28, 32, 30,
+    ];
+
+    pub const fn new() -> Self {
+        Self {
+            enabled: false,
+            counter: 0u8,
+        }
+    }
+
+    #[inline]
+    pub fn load_value(&mut self, val: u8) {
+        self.counter = Self::LENGTH_TABLE[(val >> 3) as usize]; // D7..D3
+    }
+
+    #[inline]
+    pub fn write_control(&mut self, val: u8) {
+        self.enabled = (val >> 5) & 1 == 0; // !D5
+    }
+}
+
+impl Clocked for LengthCounter {
+    #[inline]
+    fn clock(&mut self) -> usize {
+        if self.enabled && self.counter > 0 {
+            self.counter -= 1;
+            1
+        } else {
+            0
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub(crate) struct LinearCounter {
+    pub(crate) reload: bool,
+    pub(crate) control: bool,
+    pub(crate) load: u8,
+    pub(crate) counter: u8,
+}
+
+impl LinearCounter {
+    pub(crate) const fn new() -> Self {
+        Self {
+            reload: false,
+            control: false,
+            load: 0u8,
+            counter: 0u8,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn load_value(&mut self, val: u8) {
+        self.load = val >> 1; // D6..D0
     }
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    #![allow(clippy::unreadable_literal)]
+    use crate::{
+        common::{tests::compare, NesFormat, Powered},
+        test_roms, test_roms_adv,
+    };
+
+    test_roms!("apu", {
+        (clock_jitter, 20, 2490481634800449366),
+        (dmc_basics, 30, 9008018156027184411),
+        (dmc_dma_2007_read, 30, 10365401187820125146),
+        (dmc_dma_2007_write, 35, 4977565403251083090),
+        (dmc_dma_4016_read, 20, 16568721214884101462),
+        (dmc_dma_double_2007_read, 20, 8496836496606559571),
+        (dmc_dma_read_write_2007, 25, 3417829174873616470),
+        (dmc_rates, 30, 1484476788096412594),
+        (dpcmletterbox, 10, 5688337622994168598),
+        (irq_flag, 20, 2490481634800449366),
+        (irq_flag_timing, 100, 0, "fails $04"),
+        (irq_timing, 20, 2490481634800449366),
+        (jitter, 20, 10792018655464982364),
+        (len_ctr, 25, 2490481634800449366),
+        (len_halt_timing, 100, 0, "fails$03"),
+        (len_reload_timing, 100, 0, "fails $04"),
+        (len_table, 20, 2490481634800449366),
+        (len_timing, 100, 0, "Channel: 0 second length of mode 0 is too soon"),
+        (len_timing_mode0, 100, 0, "fails $04"),
+        (len_timing_mode1, 100, 0, "fails $05"),
+        (reset_len_ctrs_enabled, 100, 0, "At power, length counters should be enabled, #2"),
+        (reset_timing, 20, 2490481634800449366),
+        (test_1, 20, 15209140779873873877),
+        (test_2, 20, 15209140779873873877),
+        (test_3, 20, 15209140779873873877, "fails"),
+        (test_4, 20, 15209140779873873877, "fails"),
+        (test_5, 20, 15209140779873873877),
+        (test_6, 20, 15209140779873873877),
+        (test_7, 20, 15209140779873873877, "fails"),
+        (test_8, 20, 15209140779873873877, "fails"),
+        (test_9, 20, 15209140779873873877, "fails"),
+        (test_10, 20, 15209140779873873877, "fails"),
+        (pal_clock_jitter, 100, 0, "fails"),
+        (pal_irq_flag_timing, 100, 0, "fails"),
+        (pal_len_halt_timing, 100, 0, "fails"),
+        (pal_len_reload_timing, 100, 0, "fails"),
+        (pal_len_timing_mode0, 100, 0, "fails"),
+        (pal_len_timing_mode1, 100, 0, "fails"),
+    });
+
+    test_roms_adv!("apu", {
+        (reset_4015_cleared, 40, |frame, deck| match frame {
+            20 => deck.reset(),
+            40 => compare(264111498766506014, deck, "reset_4015_cleared"),
+            _ => (),
+        }),
+        (reset_4017_timing, 40, |frame, deck| match frame {
+            20 => deck.reset(),
+            40 => compare(14926929218207596099, deck, "reset_4017_timing"),
+            _ => (),
+        }),
+        (reset_4017_written, 50, |frame, deck| match frame {
+            20 => deck.reset(),
+            35 => deck.reset(),
+            50 => compare(12593305160591345698, deck, "reset_4017_written"),
+            _ => ()
+        }),
+        (reset_irq_flag_cleared, 20, |frame, deck| match frame {
+            15 => deck.reset(),
+            20 => compare(13991247418321945900, deck, "reset_irq_flag_cleared"),
+            _ => (),
+        }),
+        (reset_works_immediately, 30, |frame, deck| match frame {
+            20 => deck.reset(),
+            30 => compare(1786657150847637076, deck, "reset_works_immediately"),
+            _ => (),
+        }),
+        (pal_irq_flag, 20, |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            20 => compare(15517017464693650810, deck, "pal_irq_flag"),
+            _ => (),
+        }),
+        (pal_irq_timing, 20,  |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            20 => compare(1898174604279228733, deck, "pal_irq_timing"),
+            _ => (),
+        }),
+        (pal_len_ctr, 25,  |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            25 => compare(11023338900058641095, deck, "pal_len_ctr"),
+            _ => (),
+        }),
+        (pal_len_table, 20,  |frame, deck| match frame {
+            0 => deck.set_nes_format(NesFormat::Pal),
+            20 => compare(3535877006127956081, deck, "pal_len_table"),
+            _ => (),
+        }),
+    });
+}

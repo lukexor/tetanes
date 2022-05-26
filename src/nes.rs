@@ -1,419 +1,627 @@
 //! User Interface representing the the NES Control Deck
 
 use crate::{
-    apu::SAMPLE_RATE,
-    bus::Bus,
-    common::{Clocked, Powered},
-    cpu::{Cpu, CPU_CLOCK_RATE},
+    audio::Audio,
+    common::Powered,
+    control_deck::ControlDeck,
+    input::GamepadSlot,
+    memory::RamState,
     nes::{
-        config::{MAX_SPEED, MIN_SPEED},
-        debug::{DEBUG_WIDTH, INFO_HEIGHT, INFO_WIDTH},
-        event::FrameEvent,
-        menu::{Menu, MenuType, Message},
+        debug::Debugger,
+        event::{Action, Input},
+        state::{Replay, ReplayMode},
     },
-    nes_err,
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
+    ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
     NesResult,
 };
-use include_dir::{include_dir, Dir};
-use pix_engine::{
-    image::{Image, ImageRef},
-    PixEngine, PixEngineResult, State, StateData, WindowId,
-};
+use config::Config;
+use menu::{Menu, Player};
+use pix_engine::prelude::*;
 use std::{
-    collections::{HashMap, VecDeque},
-    fmt,
+    collections::{hash_map::Entry, HashMap, VecDeque},
+    env,
+    ops::ControlFlow,
     path::PathBuf,
+    time::Instant,
 };
 
-mod config;
-mod debug;
-mod event;
-mod event_serialization;
-mod menu;
-mod state;
-
-pub use config::NesConfig;
+pub(crate) mod config;
+pub(crate) mod debug;
+pub(crate) mod event;
+pub(crate) mod filesystem;
+pub(crate) mod menu;
+pub(crate) mod state;
 
 const APP_NAME: &str = "TetaNES";
-// This includes static assets as a binary during installation
-const _STATIC_DIR: Dir = include_dir!("./static");
-const ICON_PATH: &str = "static/tetanes_icon.png";
-const WINDOW_WIDTH: u32 = (RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5) as u32; // for 8:7 Aspect Ratio
-const WINDOW_HEIGHT: u32 = RENDER_HEIGHT;
-const REWIND_SLOT: u8 = 5;
-const REWIND_SIZE: u8 = 5;
-const REWIND_TIMER: f32 = 5.0;
+#[cfg(not(target_arch = "wasm32"))]
+const ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
+const WINDOW_WIDTH_NTSC: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
+const WINDOW_WIDTH_PAL: f32 = RENDER_WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
+const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
+// Trim top and bottom 8 scanlines
+const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
+const SAMPLE_RATE: f32 = 44_100.0;
 
-#[derive(Clone)]
-pub struct Nes {
-    roms: Vec<PathBuf>,
-    loaded_rom: PathBuf,
-    paused: bool,
-    background_pause: bool,
-    running_time: f32,
-    turbo_clock: u8,
-    cpu: Cpu,
-    cycles_remaining: f32,
-    zapper_decay: u32,
-    focused_window: Option<WindowId>,
-    menus: [Menu; 4],
-    held_keys: HashMap<u8, bool>,
-    cpu_break: bool,
-    break_instr: Option<u16>,
-    should_close: bool,
-    nes_window: WindowId,
-    ppu_viewer_window: Option<WindowId>,
-    nt_viewer_window: Option<WindowId>,
-    ppu_viewer: bool,
-    nt_viewer: bool,
-    nt_scanline: u32,
-    pat_scanline: u32,
-    debug_image: ImageRef,
-    ppu_info_image: ImageRef,
-    nt_info_image: ImageRef,
-    active_debug: bool,
-    width: u32,
-    height: u32,
-    speed_counter: i32,
-    rewind_timer: f32,
-    rewind_queue: VecDeque<u8>,
-    recording: bool,
-    playback: bool,
-    frame: usize,
-    replay_buffer: Vec<FrameEvent>,
-    messages: Vec<Message>,
-    config: NesConfig,
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct NesBuilder {
+    path: PathBuf,
+    replay: Option<PathBuf>,
+    fullscreen: bool,
+    ram_state: Option<RamState>,
+    scale: Option<f32>,
+    speed: Option<f32>,
+    genie_codes: Vec<String>,
+    debug: bool,
 }
 
-impl Nes {
-    // Create a new NES emulation with default config settings
+impl NesBuilder {
+    /// Creates a new `NesBuilder` instance.
     pub fn new() -> Self {
-        let config = NesConfig::default();
-        Self::with_config(config).unwrap()
+        Self {
+            path: PathBuf::new(),
+            replay: None,
+            fullscreen: false,
+            ram_state: None,
+            scale: None,
+            speed: None,
+            genie_codes: vec![],
+            debug: false,
+        }
     }
 
-    /// Create a new NES emulation with passed in config settings
-    pub fn with_config(config: NesConfig) -> NesResult<Self> {
-        let scale = config.scale;
-        let width = scale * WINDOW_WIDTH;
-        let height = scale * WINDOW_HEIGHT;
-        let cpu = Cpu::init(Bus::new());
-        let mut nes = Self {
-            roms: Vec::new(),
-            loaded_rom: PathBuf::new(),
-            paused: true,
-            background_pause: false,
-            running_time: 0.0,
-            turbo_clock: 0,
-            cpu,
-            cycles_remaining: 0.0,
-            zapper_decay: 0,
-            focused_window: None,
-            menus: [
-                Menu::new(MenuType::Config, width, height),
-                Menu::new(MenuType::Help, width, height),
-                Menu::new(MenuType::Keybind, width, height),
-                Menu::new(MenuType::OpenRom, width, height),
-            ],
-            held_keys: HashMap::new(),
-            cpu_break: false,
-            break_instr: None,
-            should_close: false,
-            nes_window: 0,
-            ppu_viewer_window: None,
-            nt_viewer_window: None,
-            ppu_viewer: false,
-            nt_viewer: false,
-            nt_scanline: 0,
-            pat_scanline: 0,
-            debug_image: Image::new_ref(DEBUG_WIDTH, height),
-            ppu_info_image: Image::rgb_ref(INFO_WIDTH, INFO_HEIGHT),
-            nt_info_image: Image::rgb_ref(INFO_WIDTH, INFO_HEIGHT),
-            active_debug: false,
-            width,
-            height,
-            speed_counter: 0,
-            rewind_timer: REWIND_TIMER,
-            rewind_queue: VecDeque::with_capacity(REWIND_SIZE as usize),
-            recording: config.record,
-            playback: false,
-            frame: 0,
-            replay_buffer: Vec::new(),
-            messages: Vec::new(),
+    /// The initial ROM or path to search ROMs for.
+    pub fn path<P>(&mut self, path: Option<P>) -> &mut Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.path = path.map_or_else(|| env::current_dir().unwrap_or_default(), Into::into);
+        self
+    }
+
+    /// A replay recording file.
+    pub fn replay<P>(&mut self, path: Option<P>) -> &mut Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.replay = path.map(Into::into);
+        self
+    }
+
+    /// Enables fullscreen mode.
+    pub fn fullscreen(&mut self, val: bool) -> &mut Self {
+        self.fullscreen = val;
+        self
+    }
+
+    /// Sets the default power-on state for RAM values.
+    pub fn ram_state(&mut self, state: Option<RamState>) -> &mut Self {
+        self.ram_state = state;
+        self
+    }
+
+    /// Set the window scale.
+    pub fn scale(&mut self, val: Option<f32>) -> &mut Self {
+        self.scale = val;
+        self
+    }
+
+    /// Set the emulation speed.
+    pub fn speed(&mut self, val: Option<f32>) -> &mut Self {
+        self.speed = val;
+        self
+    }
+
+    /// Set the game genie codes to use on startup.
+    pub fn genie_codes(&mut self, codes: Vec<String>) -> &mut Self {
+        self.genie_codes = codes;
+        self
+    }
+
+    pub fn debug(&mut self, debug: bool) -> &mut Self {
+        self.debug = debug;
+        self
+    }
+
+    /// Creates an Nes instance from an `NesBuilder`.
+    ///
+    /// # Errors
+    ///
+    /// If the default configuration directories and files can't be created, an error is returned.
+    pub fn build(&self) -> NesResult<Nes> {
+        let mut config = Config::load();
+        config.rom_path = self.path.clone().canonicalize()?;
+        config.fullscreen = self.fullscreen || config.fullscreen;
+        config.ram_state = self.ram_state.unwrap_or(config.ram_state);
+        config.scale = self.scale.unwrap_or(config.scale);
+        config.speed = self.speed.unwrap_or(config.speed);
+        config.genie_codes.append(&mut self.genie_codes.clone());
+
+        let mut control_deck = ControlDeck::new(config.nes_format, config.ram_state);
+        for (&input, &action) in config.input_map.iter() {
+            if action == Action::ZapperTrigger {
+                if let Input::Mouse((slot, ..))
+                | Input::Key((slot, ..))
+                | Input::Button((slot, ..)) = input
+                {
+                    control_deck.connect_zapper(slot, true);
+                }
+            }
+        }
+        control_deck.set_filter(config.filter);
+
+        Ok(Nes::new(
+            control_deck,
             config,
-        };
-        if nes.config.replay.is_some() {
-            nes.playback = true;
-            nes.replay_buffer = nes.load_replay()?;
-        }
-        Ok(nes)
-    }
-
-    /// Begins emulation by starting the game engine loop
-    pub fn run(self) -> NesResult<()> {
-        let width = self.width;
-        let height = self.height;
-        let vsync = self.config.vsync;
-
-        // Extract title from filename
-        let mut path = self.config.path.to_owned();
-        path.set_extension("");
-        let filename = path.file_name().and_then(|f| f.to_str());
-        let title = if let Some(filename) = filename {
-            format!("{} - {}", APP_NAME, filename)
-        } else {
-            APP_NAME.to_owned()
-        };
-
-        let mut engine = PixEngine::new(title, self, width, height, vsync)?;
-        engine.set_audio_sample_rate(SAMPLE_RATE as i32)?;
-        let _ = engine.set_icon(ICON_PATH);
-        engine.run()?;
-        Ok(())
-    }
-
-    /// Steps the console the number of instructions required to generate an entire frame
-    pub fn clock_frame(&mut self) {
-        while !self.cpu_break && !self.cpu.bus.ppu.frame_complete {
-            let _ = self.clock();
-        }
-        self.cpu_break = false;
-        self.cpu.bus.ppu.frame_complete = false;
-        self.turbo_clock = (self.turbo_clock + 1) % 6;
-    }
-
-    /// Steps the console the number of seconds
-    pub fn clock_seconds(&mut self, seconds: f32) {
-        self.cycles_remaining += CPU_CLOCK_RATE * seconds;
-        while !self.cpu_break && self.cycles_remaining > 0.0 {
-            self.cycles_remaining -= self.clock() as f32;
-        }
-        if self.cpu_break {
-            self.cycles_remaining = 0.0;
-        }
-        self.cpu_break = false;
-    }
-
-    /// Finds roms in the current path. If there is only one, it is started
-    fn find_or_load_roms(&mut self, data: &mut StateData) -> NesResult<bool> {
-        match self.find_roms() {
-            Ok(mut roms) => self.roms.append(&mut roms),
-            Err(e) => nes_err!("{}", e)?,
-        }
-        if self.roms.len() == 1 {
-            self.load_rom(0)?;
-            self.power_on();
-
-            if self.config.clear_save {
-                if let Ok(save_path) = state::save_path(&self.loaded_rom, self.config.save_slot) {
-                    if save_path.exists() {
-                        let _ = std::fs::remove_file(&save_path);
-                        self.add_message(&format!("Cleared Save Slot {}", self.config.save_slot));
-                    }
-                }
-            } else {
-                let rewind = false;
-                self.load_state(self.config.save_slot, rewind);
-            }
-
-            let codes = self.config.genie_codes.to_vec();
-            for code in codes {
-                if let Err(e) = self.cpu.bus.add_genie_code(&code) {
-                    self.add_message(&e.to_string());
-                }
-            }
-            self.update_title(data);
-        }
-        Ok(true)
-    }
-
-    /// Sets up the emulation based on startup configuration settings
-    fn config_setup(&mut self, data: &mut StateData) -> NesResult<bool> {
-        if self.config.debug {
-            self.config.debug = !self.config.debug;
-            self.toggle_debug(data)?;
-        }
-        if self.config.speed < MIN_SPEED {
-            self.config.speed = MIN_SPEED;
-        } else if self.config.speed > MAX_SPEED {
-            self.config.speed = MAX_SPEED;
-        } else {
-            // Round to two decimal places
-            self.config.speed = (self.config.speed * 100.0).round() / 100.0;
-        }
-        self.cpu.bus.apu.set_speed(self.config.speed);
-        if self.config.fullscreen {
-            data.fullscreen(true)?;
-        }
-        Ok(true)
-    }
-
-    /// Runs the emulation a certain amount if not paused based on settings
-    fn run_emulation(&mut self, elapsed: f32) {
-        if !self.paused {
-            self.running_time += elapsed;
-            // Frames that aren't multiples of the default render 1 more/less frames
-            // every other frame
-            let mut frames_to_run = 0;
-            self.speed_counter += (100.0 * self.config.speed) as i32;
-            while self.speed_counter > 0 {
-                self.speed_counter -= 100;
-                frames_to_run += 1;
-            }
-            // Clock NES
-            for _ in 0..frames_to_run as usize {
-                self.clock_frame();
-            }
-        }
-    }
-
-    /// Update rendering textures with emulation state
-    fn update_textures(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
-        // Update main screen
-        data.copy_texture("nes", self.cpu.bus.ppu.frame())?;
-        // Draw any open menus
-        for menu in self.menus.iter_mut() {
-            menu.draw(data)?;
-        }
-        self.draw_messages(elapsed, data)?;
-        if self.config.debug {
-            // Draw updated debug info if active_debug is set, or if the game
-            // gets paused
-            if self.active_debug || self.paused {
-                self.draw_debug(data);
-            }
-            self.copy_debug(data)?;
-        }
-        if self.ppu_viewer {
-            self.copy_ppu_viewer(data)?;
-        }
-        if self.nt_viewer {
-            self.copy_nt_viewer(data)?;
-        }
-        Ok(true)
+            self.replay.clone(),
+            self.debug,
+        ))
     }
 }
 
-impl State for Nes {
-    fn on_start(&mut self, data: &mut StateData) -> PixEngineResult<bool> {
-        self.nes_window = data.main_window_id();
-        self.focused_window = Some(self.nes_window);
-        self.create_textures(data)?;
-        self.find_or_load_roms(data)?;
-        self.config_setup(data)?;
-        Ok(true)
-    }
-
-    fn on_update(&mut self, elapsed: f32, data: &mut StateData) -> PixEngineResult<bool> {
-        self.poll_events(data)?;
-        if self.should_close {
-            return Ok(false);
-        }
-        self.update_title(data);
-        self.check_window_focus();
-        self.save_rewind(elapsed);
-        self.run_emulation(elapsed);
-        self.update_textures(elapsed, data)?;
-        // Enqueue sound
-        if self.config.sound_enabled {
-            let samples = self.cpu.bus.apu.samples();
-            data.enqueue_audio(samples);
-        }
-        self.cpu.bus.apu.clear_samples();
-        Ok(true)
-    }
-
-    fn on_stop(&mut self, _data: &mut StateData) -> PixEngineResult<bool> {
-        self.power_off();
-        Ok(true)
-    }
-}
-
-impl fmt::Debug for Nes {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
-        write!(f, "Nes {{\n  cpu: {:?}\n}} ", self.cpu)
-    }
-}
-
-impl Default for Nes {
+impl Default for NesBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::memory::MemRead;
-    use std::path::PathBuf;
+/// Represents which mode the emulator is in.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub(crate) enum Mode {
+    Playing,
+    Paused,
+    PausedBg,
+    InMenu(Menu, Player),
+    Rewinding,
+}
 
-    fn load(file: &str) -> Nes {
-        let mut nes = Nes::new();
-        nes.roms.push(PathBuf::from(file));
-        nes.load_rom(0).unwrap();
-        nes.power_on();
-        nes
+impl Default for Mode {
+    fn default() -> Self {
+        Self::InMenu(Menu::LoadRom, Player::One)
     }
+}
 
-    #[test]
-    #[cfg(feature = "no-randomize-ram")]
-    fn nestest() {
-        let rom = "tests/cpu/nestest.nes";
-        let mut nes = load(&rom);
-        nes.cpu.pc = 0xC000; // Start automated tests
-        let _ = nes.clock_seconds(1.0);
-        assert_eq!(nes.cpu.peek(0x0000), 0x00, "{}", rom);
-    }
+/// A NES window view.
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct View {
+    window_id: WindowId,
+    texture_id: Option<TextureId>,
+}
 
-    #[test]
-    fn dummy_writes_oam() {
-        let rom = "tests/cpu/dummy_writes_oam.nes";
-        let mut nes = load(&rom);
-        let _ = nes.clock_seconds(6.0);
-        assert_eq!(nes.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn dummy_writes_ppumem() {
-        let rom = "tests/cpu/dummy_writes_ppumem.nes";
-        let mut nes = load(&rom);
-        let _ = nes.clock_seconds(4.0);
-        assert_eq!(nes.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn exec_space_ppuio() {
-        let rom = "tests/cpu/exec_space_ppuio.nes";
-        let mut nes = load(&rom);
-        let _ = nes.clock_seconds(2.0);
-        assert_eq!(nes.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    #[cfg(feature = "no-randomize-ram")]
-    fn instr_timing() {
-        let rom = "tests/cpu/instr_timing.nes";
-        let mut nes = load(&rom);
-        let _ = nes.clock_seconds(23.0);
-        assert_eq!(nes.cpu.peek(0x6000), 0x00, "{}", rom);
-    }
-
-    #[test]
-    fn apu_timing() {
-        // TODO assert outputs
-        let rom = "tests/cpu/nestest.nes";
-        let mut nes = load(&rom);
-        for _ in 0..=29840 {
-            let apu = &nes.cpu.bus.apu;
-            println!(
-                "{}: counter: {}, step: {}, irq: {}",
-                nes.cpu.cycle_count,
-                apu.frame_sequencer.divider.counter,
-                apu.frame_sequencer.sequencer.step,
-                apu.irq_pending
-            );
-            nes.clock();
+impl View {
+    pub(crate) const fn new(window_id: WindowId, texture_id: Option<TextureId>) -> Self {
+        Self {
+            window_id,
+            texture_id,
         }
+    }
+}
+
+/// Represents all the NES Emulation state.
+#[derive(Debug)]
+pub struct Nes {
+    control_deck: ControlDeck,
+    audio: Audio,
+    players: HashMap<GamepadSlot, ControllerId>,
+    emulation: Option<View>,
+    debugger: Option<Debugger>,
+    ppu_viewer: Option<View>,
+    apu_viewer: Option<View>,
+    config: Config,
+    mode: Mode,
+    replay_path: Option<PathBuf>,
+    record_sound: bool,
+    debug: bool,
+    rewind_frame: u32,
+    scanline: u32,
+    speed_counter: f32,
+    rewind_buffer: VecDeque<Vec<u8>>,
+    replay: Replay,
+    messages: Vec<(String, Instant)>,
+    paths: Vec<PathBuf>,
+    selected_path: usize,
+    error: Option<String>,
+    confirm_quit: Option<(String, bool)>,
+    buffer_data: std::io::BufWriter<std::fs::File>,
+    pitch_data: std::io::BufWriter<std::fs::File>,
+}
+
+impl Nes {
+    pub(crate) fn new(
+        control_deck: ControlDeck,
+        config: Config,
+        replay_path: Option<PathBuf>,
+        debug: bool,
+    ) -> Self {
+        let sample_rate = control_deck.apu().sample_rate();
+        let buffer_data =
+            std::io::BufWriter::new(std::fs::File::create("./buffer_data.raw").unwrap());
+        let pitch_data =
+            std::io::BufWriter::new(std::fs::File::create("./pitch_data.raw").unwrap());
+        Self {
+            control_deck,
+            audio: Audio::new(sample_rate, SAMPLE_RATE / config.speed),
+            players: HashMap::new(),
+            emulation: None,
+            debugger: None,
+            ppu_viewer: None,
+            apu_viewer: None,
+            config,
+            mode: if debug { Mode::Paused } else { Mode::default() },
+            replay_path,
+            record_sound: false,
+            debug,
+            scanline: 0,
+            speed_counter: 0.0,
+            rewind_frame: 0,
+            rewind_buffer: VecDeque::new(),
+            replay: Replay::default(),
+            messages: vec![],
+            paths: vec![],
+            selected_path: 0,
+            error: None,
+            confirm_quit: None,
+            buffer_data,
+            pitch_data,
+        }
+    }
+
+    /// Begins emulation by starting the game engine loop.
+    ///
+    /// # Errors
+    ///
+    /// If engine fails to build or run, then an error is returned.
+    pub fn run(&mut self) -> NesResult<()> {
+        let title = APP_NAME.to_owned();
+        let (width, height) = self.config.get_dimensions();
+        let mut engine = PixEngine::builder();
+        engine
+            .with_dimensions(width, height)
+            .with_title(title)
+            .with_frame_rate()
+            .audio_sample_rate(SAMPLE_RATE as i32)
+            .audio_channels(1)
+            .target_frame_rate(60)
+            .resizable();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            engine.icon(Image::from_read(ICON)?);
+        }
+
+        if self.config.fullscreen {
+            engine.fullscreen();
+        }
+        if self.config.vsync {
+            engine.vsync_enabled();
+        }
+
+        engine.build()?.run(self)
+    }
+
+    /// Update rendering textures with emulation state
+    fn render_views(&mut self, s: &mut PixState) -> PixResult<()> {
+        if let Some(view) = self.emulation {
+            if let Some(texture_id) = view.texture_id {
+                s.update_texture(
+                    texture_id,
+                    None,
+                    self.control_deck.frame_buffer(),
+                    RENDER_PITCH,
+                )?;
+
+                for slot in [GamepadSlot::One, GamepadSlot::Two] {
+                    if self.control_deck.zapper_connected(slot) {
+                        s.with_texture(texture_id, |s: &mut PixState| {
+                            let (x, y) = self.control_deck.zapper_pos(slot);
+                            s.stroke(Color::GRAY);
+                            s.line([x - 8, y, x + 8, y])?;
+                            s.line([x, y - 8, x, y + 8])?;
+                            Ok(())
+                        })?;
+                    }
+                }
+                s.texture(texture_id, NES_FRAME_SRC, None)?;
+            }
+        }
+        self.render_debugger(s)?;
+        self.render_ppu_viewer(s)?;
+        Ok(())
+    }
+}
+
+impl AppState for Nes {
+    fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
+        self.update_frame_rate(s)?;
+        if self.set_zapper_pos(s.mouse_pos()) {
+            s.cursor(None)?;
+        }
+
+        self.emulation = Some(View::new(
+            s.window_id(),
+            Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?),
+        ));
+        self.load_rom(s);
+
+        if self.debug {
+            self.toggle_debugger(s)?;
+        }
+
+        Ok(())
+    }
+
+    fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
+        if std::env::var("TEST").is_ok() {
+            let buffer = self.control_deck.frame_buffer();
+            if self.debugger.is_none() && buffer[0] == 0 && buffer != &vec![0; 4 * (256 * 240)][..]
+            {
+                self.toggle_debugger(s)?;
+            }
+        }
+
+        if self.replay.mode == ReplayMode::Playback {
+            self.replay_action(s)?;
+        }
+
+        if self.mode == Mode::Playing {
+            self.speed_counter += self.config.speed;
+            'run: while self.speed_counter > 0.0 {
+                self.speed_counter -= 1.0;
+                if let Some(ref mut debugger) = self.debugger {
+                    if let ControlFlow::Break(_) =
+                        self.control_deck.debug_clock_frame(&debugger.breakpoints)
+                    {
+                        debugger.on_breakpoint = true;
+                        self.pause_play();
+                        break 'run;
+                    }
+                } else {
+                    self.control_deck.clock_frame();
+                }
+                self.update_rewind();
+                if self.control_deck.cpu_corrupted() {
+                    self.error = Some("CPU encountered invalid opcode.".into());
+                    self.open_menu(s, Menu::LoadRom)?;
+                    return Ok(());
+                }
+            }
+
+            if self.config.sound && self.mode != Mode::Paused {
+                // TODO add settings for dynamic rate control and delta
+                let delta = 5.0;
+                let mut queued_size = s.audio_queued_size() as f32 / 4.0;
+                let mut buffer_size = s.audio_size() as f32 / 4.0;
+                if queued_size < 512.0 {
+                    self.control_deck.clock_frame();
+                    queued_size = s.audio_queued_size() as f32 / 4.0;
+                    buffer_size = s.audio_size() as f32 / 4.0;
+                }
+                let sample_ratio = 1.0
+                    + (delta * (buffer_size - 2.0 * (buffer_size - queued_size)))
+                        / (1000.0 * buffer_size);
+                use std::io::Write;
+                if self.control_deck.frame_number() % 16 == 0 {
+                    writeln!(
+                        self.buffer_data,
+                        "{} {}",
+                        self.control_deck.frame_number(),
+                        queued_size
+                    )?;
+                    writeln!(
+                        self.pitch_data,
+                        "{} {}",
+                        self.control_deck.frame_number(),
+                        sample_ratio
+                    )?;
+                }
+                let samples = self.control_deck.audio_samples();
+                let output = self.audio.output(samples, sample_ratio);
+                s.enqueue_audio(output)?;
+            }
+            self.control_deck.clear_audio_samples();
+        }
+
+        self.render_views(s)?;
+        match self.mode {
+            Mode::Paused | Mode::PausedBg => {
+                if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
+                    s.stroke(None);
+                    s.fill(Color::WHITE);
+                    s.spacing()?;
+                    s.text(msg)?;
+                    s.spacing()?;
+                    if s.button("Confirm")? {
+                        *confirm = true;
+                        s.quit();
+                    }
+                    s.same_line(None);
+                    if s.button("Cancel")? {
+                        self.confirm_quit = None;
+                        self.resume_play();
+                    }
+                } else {
+                    self.render_status(s, "Paused")?;
+                }
+            }
+            Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
+            Mode::Rewinding => {
+                self.render_status(s, "Rewinding")?;
+                self.rewind();
+            }
+            Mode::Playing => match self.replay.mode {
+                ReplayMode::Recording => self.render_status(s, "Recording Replay")?,
+                ReplayMode::Playback => self.render_status(s, "Replay Playback")?,
+                ReplayMode::Off => (),
+            },
+        }
+        self.render_messages(s)?;
+        Ok(())
+    }
+
+    fn on_stop(&mut self, s: &mut PixState) -> PixResult<()> {
+        if std::env::var("TEST").is_ok() {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            self.control_deck.frame_buffer().hash(&mut hasher);
+            println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
+        }
+
+        if self.control_deck.loaded_rom().is_some() {
+            match self.confirm_quit {
+                None => {
+                    if let Err(err) = self.save_sram() {
+                        log::error!("{}", err);
+                        self.confirm_quit = Some((
+                            "Failed to save game state. Do you still want to quit?".to_string(),
+                            false,
+                        ));
+                        self.pause_play();
+                        s.abort_quit();
+                        return Ok(());
+                    }
+                }
+                Some((_, false)) => {
+                    s.abort_quit();
+                    return Ok(());
+                }
+                _ => (),
+            }
+            // TODO: Convert to config
+            let save_on_exit = false;
+            if save_on_exit {
+                self.save_state(1);
+            }
+
+            if self.replay.mode == ReplayMode::Recording {
+                self.stop_replay();
+            }
+        }
+        self.save_config();
+        self.control_deck.power_off();
+        Ok(())
+    }
+
+    fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
+        if std::env::var("TEST").is_ok() && event.key == Key::Return {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            self.control_deck.frame_buffer().hash(&mut hasher);
+            println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
+        }
+        Ok(self.handle_key_event(s, event, true))
+    }
+
+    fn on_key_released(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
+        Ok(self.handle_key_event(s, event, false))
+    }
+
+    fn on_mouse_pressed(
+        &mut self,
+        s: &mut PixState,
+        btn: Mouse,
+        _pos: Point<i32>,
+    ) -> PixResult<bool> {
+        Ok(self.handle_mouse_click(s, btn))
+    }
+
+    fn on_mouse_motion(
+        &mut self,
+        _s: &mut PixState,
+        pos: Point<i32>,
+        _rel_pos: Point<i32>,
+    ) -> PixResult<bool> {
+        Ok(self.handle_mouse_motion(pos))
+    }
+
+    fn on_controller_update(
+        &mut self,
+        _s: &mut PixState,
+        controller_id: ControllerId,
+        update: ControllerUpdate,
+    ) -> PixResult<bool> {
+        match update {
+            ControllerUpdate::Added => {
+                match self.players.entry(GamepadSlot::One) {
+                    Entry::Vacant(v) => {
+                        v.insert(controller_id);
+                    }
+                    Entry::Occupied(_) => {
+                        self.players
+                            .entry(GamepadSlot::Two)
+                            .or_insert(controller_id);
+                    }
+                }
+                Ok(true)
+            }
+            ControllerUpdate::Removed => {
+                self.players.retain(|_, &mut id| id != controller_id);
+                Ok(true)
+            }
+            ControllerUpdate::Remapped => Ok(false),
+        }
+    }
+
+    fn on_controller_pressed(
+        &mut self,
+        s: &mut PixState,
+        event: ControllerEvent,
+    ) -> PixResult<bool> {
+        self.handle_controller_event(s, event, true)
+    }
+
+    fn on_controller_released(
+        &mut self,
+        s: &mut PixState,
+        event: ControllerEvent,
+    ) -> PixResult<bool> {
+        self.handle_controller_event(s, event, false)
+    }
+
+    fn on_controller_axis_motion(
+        &mut self,
+        s: &mut PixState,
+        controller_id: ControllerId,
+        axis: Axis,
+        value: i32,
+    ) -> PixResult<bool> {
+        self.handle_controller_axis(s, controller_id, axis, value)
+    }
+
+    fn on_window_event(
+        &mut self,
+        s: &mut PixState,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) -> PixResult<()> {
+        match event {
+            WindowEvent::Close => {
+                if matches!(&self.emulation, Some(emulation) if emulation.window_id == window_id) {
+                    self.emulation = None;
+                    s.quit();
+                } else if matches!(&self.debugger, Some(debugger) if debugger.view.window_id == window_id)
+                {
+                    self.debugger = None;
+                    self.control_deck.cpu_mut().debugging = false;
+                    self.resume_play();
+                } else if matches!(self.ppu_viewer, Some(view) if view.window_id == window_id) {
+                    self.ppu_viewer = None;
+                    self.control_deck.ppu_mut().open_viewer();
+                } else if matches!(self.apu_viewer, Some(view) if view.window_id == window_id) {
+                    self.apu_viewer = None;
+                }
+            }
+            WindowEvent::Hidden | WindowEvent::FocusLost => {
+                if self.mode == Mode::Playing && self.config.pause_in_bg && !s.focused() {
+                    self.mode = Mode::PausedBg;
+                }
+            }
+            WindowEvent::Restored | WindowEvent::FocusGained => {
+                if self.mode == Mode::PausedBg {
+                    self.resume_play();
+                }
+            }
+            _ => (),
+        }
+        Ok(())
     }
 }

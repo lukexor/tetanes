@@ -1,139 +1,178 @@
-use crate::{nes::Nes, serialization::Savable, NesResult};
-use pix_engine::StateData;
+use crate::{
+    common::{config_dir, config_path, NesFormat},
+    memory::RamState,
+    nes::{
+        event::{Action, Input, InputBindings, InputMapping},
+        Nes, SAMPLE_RATE, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
+    },
+    ppu::VideoFilter,
+};
+use anyhow::Context;
+use pix_engine::prelude::{PixResult, PixState};
+use serde::{Deserialize, Serialize};
 use std::{
-    env,
-    io::{Read, Write},
+    fs::{self, File},
+    io::{BufReader, BufWriter},
     path::PathBuf,
 };
 
-pub(super) const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
-pub(super) const MIN_SPEED: f32 = 0.10; // 10%
-pub(super) const MAX_SPEED: f32 = 4.0; // 400%
+pub(crate) const CONFIG: &str = "config.json";
+const DEFAULT_CONFIG: &[u8] = include_bytes!("../../config/config.json");
+const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
+const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
+const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
 
-#[derive(Clone)]
-pub struct NesConfig {
-    pub path: PathBuf,
-    pub debug: bool,
-    pub pause_in_bg: bool,
-    pub fullscreen: bool,
-    pub vsync: bool,
-    pub sound_enabled: bool,
-    pub record: bool,
-    pub replay: Option<PathBuf>,
-    pub rewind_enabled: bool,
-    pub save_enabled: bool,
-    pub clear_save: bool,
-    pub concurrent_dpad: bool,
-    pub save_slot: u8,
-    pub scale: u32,
-    pub speed: f32,
-    pub genie_codes: Vec<String>,
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+/// NES emulation configuration settings.
+pub(crate) struct Config {
+    pub(crate) rom_path: PathBuf,
+    pub(crate) pause_in_bg: bool,
+    pub(crate) sound: bool,
+    pub(crate) fullscreen: bool,
+    pub(crate) vsync: bool,
+    pub(crate) filter: VideoFilter,
+    pub(crate) concurrent_dpad: bool,
+    pub(crate) nes_format: NesFormat,
+    pub(crate) ram_state: RamState,
+    pub(crate) save_slot: u8,
+    pub(crate) scale: f32,
+    pub(crate) speed: f32,
+    pub(crate) rewind: bool,
+    pub(crate) rewind_frames: u32,
+    pub(crate) rewind_buffer_size: usize,
+    pub(crate) fourscore: bool,
+    pub(crate) genie_codes: Vec<String>,
+    pub(crate) bindings: InputBindings,
+    #[serde(skip)]
+    pub(crate) input_map: InputMapping,
+    // TODO: Runtime log level
 }
 
-impl NesConfig {
-    pub fn new() -> Self {
-        Self {
-            path: env::current_dir().unwrap_or_default(),
-            debug: false,
-            pause_in_bg: true,
-            fullscreen: false,
-            vsync: false,
-            sound_enabled: true,
-            record: false,
-            replay: None,
-            rewind_enabled: true,
-            save_enabled: true,
-            clear_save: true,
-            concurrent_dpad: false,
-            save_slot: 1,
-            scale: 3,
-            speed: 1.0,
-            genie_codes: Vec::new(),
+impl Config {
+    pub(crate) fn load() -> Self {
+        let config_dir = config_dir();
+        if !config_dir.exists() {
+            if let Err(err) =
+                fs::create_dir_all(config_dir).context("failed to create config directory")
+            {
+                log::error!("{:?}", err);
+            }
         }
-    }
-}
+        let config_path = config_path(CONFIG);
+        if !config_path.exists() {
+            if let Err(err) =
+                fs::write(&config_path, DEFAULT_CONFIG).context("failed to create default config")
+            {
+                log::error!("{:?}", err);
+            }
+        }
 
-impl Savable for NesConfig {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        // Ignore
-        // debug
-        self.pause_in_bg.save(fh)?;
-        self.fullscreen.save(fh)?;
-        self.vsync.save(fh)?;
-        self.sound_enabled.save(fh)?;
-        // Ignore record/replay
-        self.rewind_enabled.save(fh)?;
-        self.save_enabled.save(fh)?;
-        // Ignore clear_save
-        self.concurrent_dpad.save(fh)?;
-        self.save_slot.save(fh)?;
-        self.scale.save(fh)?;
-        self.speed.save(fh)?;
-        // Ignore genie_codes
-        Ok(())
+        let mut config = File::open(&config_path)
+            .with_context(|| format!("failed to open {:?}", config_path))
+            .and_then(|file| Ok(serde_json::from_reader::<_, Config>(BufReader::new(file))?))
+            .or_else(|err| {
+                log::error!(
+                    "Invalid config: {:?}, reverting to defaults. Error: {:?}",
+                    config_path,
+                    err
+                );
+                serde_json::from_reader(DEFAULT_CONFIG)
+            })
+            .with_context(|| format!("failed to parse {:?}", config_path))
+            .expect("valid configuration");
+
+        for bind in &config.bindings.keys {
+            config.input_map.insert(
+                Input::Key((bind.player, bind.key, bind.keymod)),
+                bind.action,
+            );
+        }
+        for bind in &config.bindings.mouse {
+            config
+                .input_map
+                .insert(Input::Mouse((bind.player, bind.button)), bind.action);
+        }
+        for bind in &config.bindings.buttons {
+            config
+                .input_map
+                .insert(Input::Button((bind.player, bind.button)), bind.action);
+        }
+        for bind in &config.bindings.axes {
+            config.input_map.insert(
+                Input::Axis((bind.player, bind.axis, bind.direction)),
+                bind.action,
+            );
+        }
+
+        config
     }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.pause_in_bg.load(fh)?;
-        self.fullscreen.load(fh)?;
-        self.vsync.load(fh)?;
-        self.sound_enabled.load(fh)?;
-        self.rewind_enabled.load(fh)?;
-        self.save_enabled.load(fh)?;
-        self.concurrent_dpad.load(fh)?;
-        self.save_slot.load(fh)?;
-        self.scale.load(fh)?;
-        self.speed.load(fh)?;
-        Ok(())
+
+    pub(crate) fn add_binding(&mut self, input: Input, action: Action) {
+        self.input_map.insert(input, action);
+        self.bindings.update_from_map(&self.input_map);
+    }
+
+    pub(crate) fn remove_binding(&mut self, input: Input) {
+        self.input_map.remove(&input);
+        self.bindings.update_from_map(&self.input_map);
+    }
+
+    pub(crate) fn get_dimensions(&self) -> (u32, u32) {
+        let width = match self.nes_format {
+            NesFormat::Ntsc => WINDOW_WIDTH_NTSC,
+            NesFormat::Pal | NesFormat::Dendy => WINDOW_WIDTH_PAL,
+        };
+        let width = (self.scale * width) as u32;
+        let height = (self.scale * WINDOW_HEIGHT) as u32;
+        (width, height)
     }
 }
 
 impl Nes {
-    pub(super) fn change_speed(&mut self, delta: f32) {
-        if self.recording || self.playback {
-            self.add_message("Speed changes disabled while recording or replaying");
-        } else {
-            if self.config.speed % 0.25 != 0.0 {
-                // Round to nearest quarter
-                self.config.speed = (self.config.speed * 4.0).floor() / 4.0;
+    pub(crate) fn save_config(&mut self) {
+        let path = config_path(CONFIG);
+        match File::create(&path)
+            .with_context(|| format!("failed to open {:?}", path))
+            .map(|file| serde_json::to_writer_pretty(BufWriter::new(file), &self.config))
+        {
+            Ok(_) => log::info!("Saved configuration"),
+            Err(err) => {
+                log::error!("{:?}", err);
+                self.add_message("Failed to save configuration");
             }
-            self.config.speed += DEFAULT_SPEED * delta;
-            if self.config.speed < MIN_SPEED {
-                self.config.speed = MIN_SPEED;
-            } else if self.config.speed > MAX_SPEED {
-                self.config.speed = MAX_SPEED;
-            }
-            self.cpu.bus.apu.set_speed(self.config.speed);
         }
     }
 
-    pub(super) fn set_speed(&mut self, speed: f32) {
-        if self.recording || self.playback {
-            self.add_message("Speed changes disabled while recording or replaying");
-        } else {
-            self.config.speed = speed;
-            self.cpu.bus.apu.set_speed(self.config.speed);
+    pub(crate) fn change_speed(&mut self, delta: f32) {
+        let mut speed = self.config.speed;
+        if self.config.speed % 0.25 != 0.0 {
+            // Round to nearest quarter
+            speed = (self.config.speed * 4.0).floor() / 4.0;
         }
+        speed += DEFAULT_SPEED * delta;
+        if self.config.speed < MIN_SPEED {
+            speed = MIN_SPEED;
+        } else if self.config.speed > MAX_SPEED {
+            speed = MAX_SPEED;
+        }
+        self.set_speed(speed);
     }
 
-    pub(super) fn update_title(&mut self, data: &mut StateData) {
-        let mut title = String::new();
-        if self.paused {
-            title.push_str("Paused");
-        } else {
-            title.push_str(&format!("Save Slot: {}", self.config.save_slot));
-            if self.config.speed != DEFAULT_SPEED {
-                title.push_str(&format!(" - Speed: {:2.0}%", self.config.speed * 100.0));
-            }
-            if !self.config.sound_enabled {
-                title.push_str(" - Muted");
-            }
-        }
-        data.set_title(&title);
+    pub(crate) fn set_speed(&mut self, speed: f32) {
+        self.config.speed = speed;
+        self.audio.set_output_rate(SAMPLE_RATE / self.config.speed);
     }
-}
 
-impl Default for NesConfig {
-    fn default() -> Self {
-        Self::new()
+    pub(crate) fn update_frame_rate(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.config.nes_format {
+            NesFormat::Ntsc => s.frame_rate(60),
+            NesFormat::Pal => s.frame_rate(50),
+            NesFormat::Dendy => s.frame_rate(59),
+        }
+        if self.config.vsync && s.target_frame_rate() != Some(60) {
+            self.config.vsync = false;
+            s.toggle_vsync()?;
+        }
+        Ok(())
     }
 }

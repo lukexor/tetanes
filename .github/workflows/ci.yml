@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, next ]
+  pull_request:
+    branches: [ main, next ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:  [macos-latest, ubuntu-latest, windows-latest]
+        # MSRV 1.59.0
+        toolchain: [nightly, beta, stable, 1.59.0]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Install toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.toolchain }}
+        override: true
+        components: rustfmt, clippy
+
+    - name: Cache cargo dependencies
+      uses: Swatinem/rust-cache@v1
+
+    - name: Check format
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --all -- --check
+
+    - name: Lint
+      uses: actions-rs/cargo@v1
+      with:
+        command: clippy
+
+    - name: Install build dependencies
+      run: cargo install cargo-vcpkg
+
+    - name: Build dependencies
+      run: cargo vcpkg -v build
+
+    - name: Build source
+      run: cargo build --all-targets --features "vcpkg" --verbose
+
+    - name: Build documentation
+      run: cargo doc --features "vcpkg" --verbose
+
+    - name: Run unit tests
+      run: cargo test --features "vcpkg" --verbose

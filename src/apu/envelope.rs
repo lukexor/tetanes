@@ -1,18 +1,19 @@
-use crate::{common::Clocked, serialization::Savable, NesResult};
-use std::io::{Read, Write};
+use crate::common::Clocked;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
-pub struct Envelope {
-    pub enabled: bool,
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub(crate) struct Envelope {
+    pub(crate) enabled: bool,
     loops: bool,
-    pub reset: bool,
-    pub volume: u8,
-    pub constant_volume: u8,
+    pub(crate) reset: bool,
+    pub(crate) volume: u8,
+    pub(crate) constant_volume: u8,
     counter: u8,
 }
 
 impl Envelope {
-    pub fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             enabled: false,
             loops: false,
@@ -24,7 +25,8 @@ impl Envelope {
     }
 
     // $4000/$4004/$400C Envelope control
-    pub fn write_control(&mut self, val: u8) {
+    #[inline]
+    pub(crate) fn write_control(&mut self, val: u8) {
         self.loops = (val >> 5) & 1 == 1; // D5
         self.enabled = (val >> 4) & 1 == 0; // !D4
         self.constant_volume = val & 0x0F; // D3..D0
@@ -32,6 +34,7 @@ impl Envelope {
 }
 
 impl Clocked for Envelope {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.reset {
             self.reset = false;
@@ -48,26 +51,5 @@ impl Clocked for Envelope {
             }
         }
         1
-    }
-}
-
-impl Savable for Envelope {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.enabled.save(fh)?;
-        self.loops.save(fh)?;
-        self.reset.save(fh)?;
-        self.volume.save(fh)?;
-        self.constant_volume.save(fh)?;
-        self.counter.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.enabled.load(fh)?;
-        self.loops.load(fh)?;
-        self.reset.load(fh)?;
-        self.volume.load(fh)?;
-        self.constant_volume.load(fh)?;
-        self.counter.load(fh)?;
-        Ok(())
     }
 }

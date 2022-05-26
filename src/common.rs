@@ -1,42 +1,56 @@
-//! Utils and Traits shared among modules
-
-use crate::{
-    nes_err,
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    serialization::Savable,
-    NesResult,
-};
 use enum_dispatch::enum_dispatch;
-use std::{
-    io::{BufWriter, Read, Write},
-    path::{Path, PathBuf},
-};
+use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::{Path, PathBuf};
 
-pub type Addr = u16;
-pub type Word = usize;
-pub type Byte = u8;
-pub const CONFIG_DIR: &str = ".tetanes";
+pub const CONFIG_DIR: &str = ".config/tetanes";
+pub const SAVE_DIR: &str = "save";
+pub const SRAM_DIR: &str = "sram";
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NesFormat {
     Ntsc,
     Pal,
     Dendy,
 }
 
-#[enum_dispatch(MapperType)]
+impl Default for NesFormat {
+    fn default() -> Self {
+        Self::Ntsc
+    }
+}
+
+impl AsRef<str> for NesFormat {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Ntsc => "NTSC",
+            Self::Pal => "PAL",
+            Self::Dendy => "Dendy",
+        }
+    }
+}
+
+impl From<usize> for NesFormat {
+    fn from(value: usize) -> Self {
+        match value {
+            1 => Self::Pal,
+            2 => Self::Dendy,
+            _ => Self::Ntsc,
+        }
+    }
+}
+
+#[enum_dispatch(Mapper)]
 pub trait Powered {
     fn power_on(&mut self) {}
     fn power_off(&mut self) {}
     fn reset(&mut self) {}
     fn power_cycle(&mut self) {
         self.reset();
-        self.power_off();
-        self.power_on();
     }
 }
 
-#[enum_dispatch(MapperType)]
+#[enum_dispatch(Mapper)]
 pub trait Clocked {
     fn clock(&mut self) -> usize {
         0
@@ -45,80 +59,30 @@ pub trait Clocked {
 
 #[macro_export]
 macro_rules! hashmap {
-    { $($key:expr => $value:expr),+ } => {
-        {
-            let mut m = HashMap::new();
-            $(
-                m.insert($key, $value);
-            )+
-            m
-        }
-    };
-    ($hm:ident, { $($key:expr => $value:expr),+ } ) => (
-        {
-            $(
-                $hm.insert($key, $value);
-            )+
-        }
-    );
+    { $($key:expr => $value:expr),* $(,)? } => {{
+        let mut m = ::std::collections::HashMap::new();
+        $(
+            m.insert($key, $value);
+        )*
+        m
+    }};
+    ($hm:ident, { $($key:expr => $value:expr),* $(,)? } ) => ({
+        $(
+            $hm.insert($key, $value);
+        )*
+    });
 }
 
-impl Savable for NesFormat {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => NesFormat::Ntsc,
-            1 => NesFormat::Pal,
-            2 => NesFormat::Dendy,
-            _ => panic!("invalid NesFormat value"),
-        };
-        Ok(())
-    }
-}
-
-/// Returns the users current HOME directory (if one exists)
-pub fn home_dir() -> Option<PathBuf> {
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn config_dir() -> PathBuf {
     dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("./"))
+        .join(CONFIG_DIR)
 }
 
-/// Creates a '.png' file
-///
-/// # Arguments
-///
-/// * `png_path` - An object that implements AsRef<Path> for the location to save the `.png`
-/// file
-/// * `pixels` - An array of pixel data to save in `.png` format
-///
-/// # Errors
-///
-/// It's possible for this method to fail, but instead of erroring the program,
-/// it'll simply log the error out to STDERR
-pub fn create_png<P: AsRef<Path>>(png_path: &P, pixels: &[u8]) -> NesResult<String> {
-    let png_path = png_path.as_ref();
-    let png_file = std::fs::File::create(&png_path);
-    if png_file.is_err() {
-        return nes_err!(
-            "failed to create png file {:?}: {}",
-            png_path.display(),
-            png_file.err().unwrap(),
-        );
-    }
-    let png_file = BufWriter::new(png_file.unwrap()); // Safe to unwrap
-    let mut png = png::Encoder::new(png_file, RENDER_WIDTH, RENDER_HEIGHT);
-    png.set_color(png::ColorType::RGB);
-    let writer = png.write_header();
-    if let Err(e) = writer {
-        return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
-    }
-    let result = writer.unwrap().write_image_data(pixels);
-    if let Err(e) = result {
-        return nes_err!("failed to save screenshot {:?}: {}", png_path.display(), e);
-    }
-    Ok(format!("{}", png_path.display()))
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn config_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    config_dir().join(path)
 }
 
 pub fn hexdump(data: &[u8], addr_offset: usize) {
@@ -168,5 +132,115 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
         last_line = line;
 
         addr += 16;
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use crate::{
+        control_deck::ControlDeck,
+        input::GamepadSlot,
+        ppu::{VideoFilter, RENDER_HEIGHT, RENDER_WIDTH},
+    };
+    use pix_engine::prelude::{Image, PixelFormat};
+    use std::{
+        collections::hash_map::DefaultHasher,
+        fs::{self, File},
+        hash::{Hash, Hasher},
+        io::BufReader,
+        path::{Path, PathBuf},
+    };
+
+    #[macro_export]
+    macro_rules! test_roms {
+        ($dir:expr, { $( ($test:ident, $run_frames:expr, $hash:expr $(, $ignore:expr)? $(,)?) ),* $(,)? }) => {$(
+            $(#[ignore = $ignore])?
+            #[test]
+            fn $test() {
+                $crate::common::tests::test_rom(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $hash);
+            }
+        )*};
+    }
+
+    #[macro_export]
+    macro_rules! test_roms_adv {
+        ($dir:expr, { $( ($test:ident, $run_frames:expr, $fn:expr $(, $ignore:expr)? $(,)?) ),* $(,)? }) => {$(
+            $(#[ignore = $ignore])?
+            #[test]
+            fn $test() {
+                $crate::common::tests::test_rom_advanced(concat!($dir, "/", stringify!($test), ".nes"), $run_frames, $fn);
+            }
+        )*};
+    }
+
+    pub(crate) const SLOT1: GamepadSlot = GamepadSlot::One;
+    pub(crate) const RESULT_DIR: &str = "test_results";
+    pub(crate) const TEST_DIR: &str = "test_roms";
+
+    pub(crate) fn load<P: AsRef<Path>>(path: P) -> ControlDeck {
+        let path = path.as_ref();
+        let mut rom = BufReader::new(File::open(path).unwrap());
+        let mut deck = ControlDeck::default();
+        deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
+        deck.set_filter(VideoFilter::None);
+        if std::env::var("RUST_LOG").is_ok() {
+            pretty_env_logger::init();
+            deck.cpu_mut().debugging = true;
+        }
+        deck
+    }
+
+    pub(crate) fn compare(expected: u64, deck: &mut ControlDeck, test: &str) {
+        let mut hasher = DefaultHasher::new();
+        let frame = deck.frame_buffer();
+        frame.hash(&mut hasher);
+        let actual = hasher.finish();
+        let pass_path = PathBuf::from(RESULT_DIR).join("pass");
+        let fail_path = PathBuf::from(RESULT_DIR).join("fail");
+
+        if !pass_path.exists() {
+            fs::create_dir_all(&pass_path).expect("created pass test results dir");
+        }
+        if !fail_path.exists() {
+            fs::create_dir(&fail_path).expect("created fail test results dir");
+        }
+
+        let result_path = if expected == actual {
+            pass_path
+        } else {
+            fail_path
+        };
+        let screenshot_path = result_path.join(PathBuf::from(test)).with_extension("png");
+        Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, frame, PixelFormat::Rgba)
+            .expect("valid frame")
+            .save(&screenshot_path)
+            .expect("result screenshot");
+
+        assert_eq!(expected, actual, "mismatched {:?}", screenshot_path);
+    }
+
+    pub(crate) fn test_rom<P: AsRef<Path>>(rom: P, run_frames: i32, expected: u64) {
+        let rom = rom.as_ref();
+        let mut deck = load(PathBuf::from(TEST_DIR).join(rom));
+        for _ in 0..=run_frames {
+            deck.clock_frame();
+            deck.clear_audio_samples();
+        }
+        let test = rom.file_stem().expect("valid test file").to_string_lossy();
+        compare(expected, &mut deck, &test);
+    }
+
+    pub(crate) fn test_rom_advanced<P, F>(rom: P, run_frames: i32, f: F)
+    where
+        P: AsRef<Path>,
+        F: Fn(i32, &mut ControlDeck),
+    {
+        let rom = rom.as_ref();
+        let mut deck = load(PathBuf::from(TEST_DIR).join(rom));
+        for frame in 0..=run_frames {
+            f(frame, &mut deck);
+            deck.clock_frame();
+            deck.clear_audio_samples();
+        }
     }
 }

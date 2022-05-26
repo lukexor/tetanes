@@ -1,48 +1,52 @@
 use crate::{
     apu::Apu,
-    common::{Addr, Byte, Powered},
+    cart::Cart,
+    common::{NesFormat, Powered},
     hashmap,
     input::Input,
-    mapper::{self, Mapper, MapperType},
-    memory::{MemRead, MemWrite, Memory},
-    nes_err,
+    memory::{MemRead, MemWrite, Memory, RamState},
     ppu::Ppu,
-    serialization::Savable,
     NesResult,
 };
+use anyhow::anyhow;
 use lazy_static::lazy_static;
-use std::{
-    collections::HashMap,
-    fmt,
-    io::{Read, Write},
-};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fmt};
 
 const WRAM_SIZE: usize = 2 * 1024; // 2K NES Work Ram
 
 /// NES Bus
 ///
-/// [http://wiki.nesdev.com/w/index.php/CPU_memory_map]()
-#[derive(Clone)]
+/// <http://wiki.nesdev.com/w/index.php/CPU_memory_map>
+#[derive(Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,
-    pub mapper: Box<MapperType>,
+    pub cart: Box<Cart>,
+    #[serde(skip)]
     pub input: Input,
     pub wram: Memory,
-    genie_codes: HashMap<Addr, GenieCode>,
-    open_bus: Byte,
+    genie_codes: HashMap<u16, GenieCode>,
+    open_bus: u8,
 }
 
 /// Game Genie Code
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct GenieCode {
     code: String,
-    data: Byte,
-    compare: Option<Byte>,
+    data: u8,
+    compare: Option<u8>,
+}
+
+impl fmt::Debug for GenieCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &self.code)
+    }
 }
 
 lazy_static! {
-    static ref GENIE_MAP: HashMap<char, Byte> = {
+    static ref GENIE_MAP: HashMap<char, u8> = {
         // Game genie maps these letters to binary representations as a form of code obfuscation
         hashmap! {
             'A' => 0x0, 'P' => 0x1, 'Z' => 0x2, 'L' => 0x3, 'G' => 0x4, 'I' => 0x5, 'T' => 0x6,
@@ -53,48 +57,53 @@ lazy_static! {
 }
 
 impl Bus {
-    pub fn new() -> Self {
+    pub fn new(nes_format: NesFormat, ram_state: RamState) -> Self {
         let mut bus = Self {
-            ppu: Ppu::new(),
-            apu: Apu::new(),
+            ppu: Ppu::new(nes_format),
+            apu: Apu::new(nes_format),
             input: Input::new(),
-            mapper: Box::new(mapper::null()),
-            wram: Memory::ram(WRAM_SIZE),
+            cart: Box::new(Cart::new()),
+            wram: Memory::ram(WRAM_SIZE, ram_state),
             genie_codes: HashMap::new(),
             open_bus: 0,
         };
-        bus.ppu.load_mapper(&mut bus.mapper);
-        bus.apu.load_mapper(&mut bus.mapper);
+        bus.ppu.load_cart(&mut bus.cart);
+        bus.apu.load_cart(&mut bus.cart);
         bus
     }
 
-    pub fn load_mapper(&mut self, mapper: MapperType) {
-        let mut mapper = Box::new(mapper);
-        self.ppu.load_mapper(&mut mapper);
-        self.apu.load_mapper(&mut mapper);
-        self.mapper = mapper;
+    #[inline]
+    pub fn load_cart(&mut self, cart: Cart) {
+        self.cart = Box::new(cart);
+        self.ppu.load_cart(&mut self.cart);
+        self.apu.load_cart(&mut self.cart);
     }
 
+    /// Add a Game Genie code to override memory reads/writes.
+    ///
+    /// # Errors
+    ///
+    /// Errors if genie code is invalid.
     pub fn add_genie_code(&mut self, code: &str) -> NesResult<()> {
         if code.len() != 6 && code.len() != 8 {
-            return nes_err!("Invalid Game Genie code: {}", code);
+            return Err(anyhow!("invalid game genie code: {}", code));
         }
-        let mut hex: Vec<Byte> = Vec::with_capacity(code.len());
+        let mut hex: Vec<u8> = Vec::with_capacity(code.len());
         for s in code.chars() {
             if let Some(h) = GENIE_MAP.get(&s) {
                 hex.push(*h);
             } else {
-                return nes_err!("Invalid Game Genie code: {}", code);
+                return Err(anyhow!("invalid game genie code: {}", code));
             }
         }
         let addr = 0x8000
-            + (((Addr::from(hex[3]) & 7) << 12)
-                | ((Addr::from(hex[5]) & 7) << 8)
-                | ((Addr::from(hex[4]) & 8) << 8)
-                | ((Addr::from(hex[2]) & 7) << 4)
-                | ((Addr::from(hex[1]) & 8) << 4)
-                | (Addr::from(hex[4]) & 7)
-                | (Addr::from(hex[3]) & 8));
+            + (((u16::from(hex[3]) & 7) << 12)
+                | ((u16::from(hex[5]) & 7) << 8)
+                | ((u16::from(hex[4]) & 8) << 8)
+                | ((u16::from(hex[2]) & 7) << 4)
+                | ((u16::from(hex[1]) & 8) << 4)
+                | (u16::from(hex[4]) & 7)
+                | (u16::from(hex[3]) & 8));
         let data = if hex.len() == 6 {
             ((hex[1] & 7) << 4) | ((hex[0] & 8) << 4) | (hex[0] & 7) | (hex[5] & 8)
         } else {
@@ -116,11 +125,13 @@ impl Bus {
         Ok(())
     }
 
+    #[inline]
     pub fn remove_genie_code(&mut self, code: &str) {
         self.genie_codes.retain(|_, gc| gc.code != code);
     }
 
-    fn genie_code(&self, addr: Addr) -> Option<GenieCode> {
+    #[inline]
+    fn genie_code(&self, addr: u16) -> Option<GenieCode> {
         if self.genie_codes.is_empty() {
             None
         } else {
@@ -130,16 +141,15 @@ impl Bus {
 }
 
 impl MemRead for Bus {
-    fn read(&mut self, addr: Addr) -> Byte {
-        // Order of frequently accessed
+    fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
-            // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
+            0x2000..=0x3FFF => self.ppu.read(addr & 0x2007),  // 0x2008..=0x3FFF are mirrored
             0x4020..=0xFFFF => {
                 let gc = self.genie_code(addr);
                 if let Some(gc) = gc {
                     if let Some(compare) = gc.compare {
-                        let val = self.mapper.read(addr);
+                        let val = self.cart.read(addr);
                         if val == compare {
                             gc.data
                         } else {
@@ -149,30 +159,26 @@ impl MemRead for Bus {
                         gc.data
                     }
                 } else {
-                    self.mapper.read(addr)
+                    self.cart.read(addr)
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.read(addr),
-            0x4016..=0x4017 => self.input.read(addr),
-            0x2000..=0x3FFF => self.ppu.read(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
-            0x4014 => self.open_bus,
+            0x4016 | 0x4017 => self.input.read(addr, &self.ppu),
+            0x4014 | 0x4018..=0x401F => self.open_bus, // APU/IO Test Mode
         };
-        // Helps to sync open bus behavior
-        self.mapper.open_bus(addr, val);
+        self.cart.bus_read(val);
         self.open_bus = val;
         val
     }
 
-    fn peek(&self, addr: Addr) -> Byte {
-        // Order of frequently accessed
+    fn peek(&self, addr: u16) -> u8 {
         match addr {
-            // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
+            0x2000..=0x3FFF => self.ppu.peek(addr & 0x2007),  // 0x2008..=0x3FFF are mirrored
             0x4020..=0xFFFF => {
                 if let Some(gc) = self.genie_code(addr) {
                     if let Some(compare) = gc.compare {
-                        let val = self.mapper.peek(addr);
+                        let val = self.cart.peek(addr);
                         if val == compare {
                             gc.data
                         } else {
@@ -182,36 +188,30 @@ impl MemRead for Bus {
                         gc.data
                     }
                 } else {
-                    self.mapper.peek(addr)
+                    self.cart.peek(addr)
                 }
             }
             0x4000..=0x4013 | 0x4015 => self.apu.peek(addr),
-            0x4016..=0x4017 => self.input.peek(addr),
-            0x2000..=0x3FFF => self.ppu.peek(addr & 0x2007), // 0x2008..=0x3FFF are mirrored
-            0x4018..=0x401F => self.open_bus,                // APU/IO Test Mode
-            0x4014 => self.open_bus,
+            0x4016 | 0x4017 => self.input.peek(addr, &self.ppu),
+            0x4014 | 0x4018..=0x401F => self.open_bus, // APU/IO Test Mode
         }
     }
 }
 
 impl MemWrite for Bus {
-    fn write(&mut self, addr: Addr, val: Byte) {
-        // Some mappers monitor the bus
-        self.mapper.open_bus(addr, val);
+    fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
-        // Order of frequently accessed
         match addr {
-            // Start..End => Read memory
             0x0000..=0x1FFF => self.wram.write(addr & 0x07FF, val), // 0x0800..=0x1FFF are mirrored
-            0x4020..=0xFFFF => self.mapper.write(addr, val),
+            0x2000..=0x3FFF => self.ppu.write(addr & 0x2007, val),  // 0x2008..=0x3FFF are mirrored
+            0x4020..=0xFFFF => self.cart.write(addr, val),
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, val),
-            0x4016 => self.input.write(addr, val),
-            0x2000..=0x3FFF => {
-                self.ppu.write(addr & 0x2007, val); // 0x2008..=0x3FFF are mirrored
-                self.mapper.ppu_write(addr, val);
+            0x4014 => {
+                self.ppu.oam_dma = true;
+                self.ppu.oam_dma_offset = val;
             }
+            0x4016 => self.input.write(addr, val),
             0x4018..=0x401F => (), // APU/IO Test Mode
-            0x4014 => (),          // Handled inside the CPU
         }
     }
 }
@@ -220,65 +220,55 @@ impl Powered for Bus {
     fn reset(&mut self) {
         self.apu.reset();
         self.ppu.reset();
-        self.mapper.reset();
+        self.cart.reset();
     }
     fn power_cycle(&mut self) {
         self.apu.power_cycle();
         self.ppu.power_cycle();
-        self.mapper.power_cycle();
-    }
-}
-
-impl Savable for Bus {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.ppu.save(fh)?;
-        self.apu.save(fh)?;
-        self.mapper.save(fh)?;
-        // Ignore input
-        self.wram.save(fh)?;
-        self.open_bus.save(fh)?;
-        // Ignore genie_codes
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.ppu.load(fh)?;
-        self.apu.load(fh)?;
-        self.mapper.load(fh)?;
-        self.ppu.load_mapper(&mut self.mapper);
-        self.apu.load_mapper(&mut self.mapper);
-        self.wram.load(fh)?;
-        self.open_bus.load(fh)?;
-        Ok(())
+        self.cart.power_cycle();
     }
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::default(), RamState::default())
     }
 }
 
 impl fmt::Debug for Bus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Bus {{ }}")
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Bus")
+            .field("ppu", &self.ppu)
+            .field("apu", &self.apu)
+            .field("cart", &self.cart)
+            .field("input", &self.input)
+            .field("wram", &self.wram)
+            .field("genie_codes", &self.genie_codes.values())
+            .field("open_bus", &format_args!("${:02X}", &self.open_bus))
+            .finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(feature = "no-randomize-ram")]
     fn test_bus() {
         use super::*;
-        use crate::mapper;
+        use crate::cart::Cart;
         use std::{fs::File, io::BufReader};
 
-        let rom_file = "tests/cpu/nestest.nes";
+        let rom_file = "test_roms/cpu/nestest.nes";
         let rom = File::open(rom_file).expect("valid file");
         let mut rom = BufReader::new(rom);
-        let mapper = mapper::load_rom(&rom_file, &mut rom).expect("loaded mapper");
-        let mut mem = Bus::new();
-        mem.load_mapper(mapper);
+        let cart = Cart::from_rom(
+            &rom_file,
+            &mut rom,
+            NesFormat::default(),
+            RamState::AllZeros,
+        )
+        .expect("loaded cart");
+        let mut mem = Bus::default();
+        mem.load_cart(cart);
         mem.write(0x0005, 0x0015);
         mem.write(0x0015, 0x0050);
         mem.write(0x0016, 0x0025);

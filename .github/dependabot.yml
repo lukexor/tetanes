@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    assignees:
+      - "lukexor"
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    assignees:
+      - "lukexor"
+  - package-ecosystem: "npm"
+    directory: "/tetanes-web/www"
+    schedule:
+      interval: "daily"
+    assignees:
+      - "lukexor"

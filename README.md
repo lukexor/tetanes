@@ -1,407 +1,390 @@
-# tetanes
+# TetaNES
+
+## Table of Contents
+
+- [Summary](#summary)
+- [Screenshots](#screenshots)
+- [Getting Started](#getting-started)
+  - [Usage](#usage)
+  - [Supported Mappers](#supported-mappers)
+  - [Controls](#controls)
+  - [Directories](#directories)
+  - [Powerup State](#powerup-state)
+- [Building](#building)
+- [Debugging](#debugging)
+- [Troubleshooting](#troubleshooting)
+- [Features](#features)
+- [Known Issues](#known-issues)
+- [Documentation](#documentation)
+- [License](#license)
+- [Contribution](#contribution)
+- [Contact](#contact)
+- [Credits](#credits)
 
 ## Summary
 
-<p align="center">
-  <img src="https://github.com/lukexor/tetanes/blob/main/static/tetanes.png?raw=true" width="800">
-</p>
+<img width="100%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/tetanes.png">
 
 > photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
-`TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in 1983, written
-using [Rust][rust], [SDL2][sdl2] and [WASM][wasm].
+`TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in
+Japan in 1983 and North America in 1986, written using [Rust][], [SDL2][] and
+[WASM][].
 
-It started as a personal curiosity that turned into a passion project. It is still
-a work-in-progress, but I hope to transform it into a fully-featured NES emulator that can play most
-games as accurately as possible. It is my hope to see a Rust emulator rise in popularity and compete
-with the more popular C and C++ versions.
+It started as a personal curiosity that turned into a passion project. It is
+still a work-in-progress with new features and improvements constantly being added.
+It is already a fairly accurate emulator that can play most games with several
+debugging features.
 
-`TetaNES` is also meant to showcase how clean and readable low-level Rust programs can be in
-addition to them having the type and memory-safety guarantees that Rust is known for. Many useful
-features of Rust are leveraged in this project including traits, trait objects, generics, matching,
-and iterators.
+`TetaNES` is also meant to showcase how great Rust is in addition to having the
+type and memory-safety guarantees that Rust is known for. Many features of Rust
+are leveraged in this project including complex enums, traits, trait objects,
+generics, matching, and iterators.
 
-Try it out in your [browser](http://dev.lukeworks.tech/tetanes)!
+There are a few uses of `unsafe` for coordinating NES components to simplify
+the architecture and increase performance. The NES hardware is highly integrated
+since the address and data buses are mutable global state which is normally
+restricted in Rust, but is safe here given the synchronized nature of the
+emulation.
+
+`TetaNES` also compiles for the web! Try it out in your
+[browser](http://dev.lukeworks.tech/tetanes)!
+
+## Minimum Supported Rust Version (MSRV)
+
+The current minimum Rust version is `1.59.0`.
 
 ## Screenshots
 
-<img src="https://github.com/lukexor/tetanes/blob/main/static/donkey_kong.png?raw=true" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/tetanes/blob/main/static/super_mario_bros.png?raw=true" width="400">
-<img src="https://github.com/lukexor/tetanes/blob/main/static/legend_of_zelda.png?raw=true" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/tetanes/blob/main/static/metroid.png?raw=true" width="400">
+<img width="48%" alt="Donkey Kong" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/donkey_kong.png">&nbsp;&nbsp;<img width="48%" alt="Super Mario Bros." src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/super_mario_bros.png">
+<img width="48%" alt="The Legend of Zelda" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/legend_of_zelda.png">&nbsp;&nbsp;<img width="48%" alt="Metroid" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/metroid.png">
 
-## Mappers
+## Getting Started
+
+`TetaNES` should run on most platforms that support `Rust` and `SDL2`. Platform
+binaries will be available when `1.0.0` is released, but for the time being you
+can install with `cargo` which comes installed with [Rust][].
+
+### Installing Dependencies
+
+See [Installing Dependencies](https://github.com/lukexor/pix-engine#installing-dependencies)
+in [pix-engine][].
+
+### Install
+
+```sh
+cargo install tetanes
+```
+
+This will install the latest version of the `TetaNES` binary to your `cargo` bin
+directory located at either `$HOME/.cargo/bin/` on a Unix-like platform or
+`%USERPROFILE%\.cargo\bin` on Windows.
+
+### Usage
+
+```text
+USAGE:
+    tetanes [FLAGS] [OPTIONS] [path]
+
+FLAGS:
+        --consistent_ram    Power up with consistent ram state.
+    -f, --fullscreen        Start fullscreen.
+    -h, --help              Prints help information
+    -V, --version           Prints version information
+
+OPTIONS:
+        --speed <speed>    Emulation speed. [default: 1.0]
+    -s, --scale <scale>    Window scale. [default: 3.0]
+
+ARGS:
+    <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a recording playback `.playback`
+              file. [default: current directory]
+```
+
+[iNES][] and [NES 2.0][] formatted ROMS are supported, though some `NES 2.0`
+features may not be implemented.
+
+[iNES]: https://wiki.nesdev.com/w/index.php/INES
+[NES 2.0]: https://wiki.nesdev.com/w/index.php/NES_2.0
+
+### Supported Mappers
 
 Support for the following mappers is currently implemented or in development:
 
 | #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
 | --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
 | 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                 10.14% |
-| 001 | SxROM/MMC1             | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.91% |
-| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~269                   |                 11.04% |
+| 001 | SxROM/MMC1B/C          | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.90% |
+| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~270                   |                 11.08% |
 | 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
-| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.59% |
-| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.99% |
+| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.58% |
+| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.98% |
 | 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
-|     |                        |                                           | ~2050                   |                 84.11% |
+| 066 | GxROM                  | Super Mario Bros. + Duck Hunt             |   ~17                   |              &lt;0.01% |
+| 071 | BF9093/BF9097          | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
+| 155 | SxROM/MMC1A            | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
+|     |                        |                                           | ~2085 / 2437            |                 85.56% |
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
 
-## Dependencies
+### Controls
 
-* [Rust][rust]
-* [SDL2][sdl2]
+Keybindings can be customized in the configuration menu. Below are the defaults.
 
-## Installation
+NES gamepad:
 
-This should run on most platforms that supports Rust and SDL2, howeer, it's only being developed and
-tested on macOS at this time. So far, I've tested on macOS High Sierra, Mojave, Windows 7, Windows
-10, Linux (Fedora and Ubuntu), and Raspberry Pi 4 (though performance lacking). When 1.0.0 is
-released, I'll make binaries available for all major platforms. Until then, follow the below
-instructions to build for your platform.
+| Button     | Keyboard    | Controller       |
+| ---------- | ----------- | ---------------- |
+| A          | Z           | A                |
+| B          | X           | B                |
+| A (Turbo)  | A           | X                |
+| B (Turbo)  | S           | Y                |
+| Start      | Return      | Start            |
+| Select     | Right Shift | Back             |
+| D-Pad      | Arrow Keys  | Left Stick/D-Pad |
 
-* Install [Rust][rust] (follow the link)
-  * If Rust is already installed. Ensure it's up-to-date by running:
-
-    ```text
-    $ rustup update
-    ```
-
-* Install [SDL2](https://raw.githubusercontent.com/Rust-SDL2/rust-sdl2) development libraries (follow the link)
-  * Linux and macOS should be straightforward
-  * Windows makes this a bit more complicated. Be sure to follow the above link instructions
-    carefully. For the simple case of using `rustup`, all of the files in `lib\` from the Visual C++
-    32/64-bit development zip should go in:
-
-    ```text
-    C:\Users\{Your Username}\.rustup\toolchains\{current toolchain}\lib\rustlib\{current toolchain}\lib
-    ```
-
-    Where `{current toolchain}` will likely have `x86_64-pc-windows` in its name. then a copy of
-    `lib\SDl2.dll` needs to go in:
-
-    ```text
-    %USERPROFILE%\.cargo\bin
-    ```
-
-    Next to the `tetanes.exe` binary.
-* Download & install `TetaNES`. Stable releases can be found on the `Releases` tab at the top of
-the page. To build directly from a release tag, follow these steps:
-
-```
-$ git clone https://raw.githubusercontent.com/lukexor/tetanes.git
-$ cd tetanes/
-$ git checkout v0.6.0
-$ cargo install --path ./
-```
-
-This will install the `v0.6.0` tagged release of the `TetaNES` binary to your `cargo` bin directory
-located at either `$HOME/.cargo/bin/` on a Unix-like platform or `%USERPROFILE%\.cargo\bin` on
-Windows. Replace the release tag with the one you want to install. The latest is recommended. You
-can see which release tags are available by clicking the `Releases` tab at the top of this page or
-by running the following command from the checked out git repository:
-
-```
-$ git tag -l
-```
-
-## Usage
-
-For each platform, the first `cd` command may not be needed depending on the contents of your `$PATH`
-environment variable. `filename` should be replaced by the path to your game ROM ending in `nes`.
-At present, only the [iNES](https://wiki.nesdev.com/w/index.php/INES) format is fully supported,
-but [NES 2.0](https://wiki.nesdev.com/w/index.php/NES_2.0) support is coming.
-
-### Windows
-
-```
-$ cd %USERPROFILE%\.cargo\bin
-$ tetanes.exe {filename}
-```
-
-### macOS/Linux
-
-```
-$ cd $HOME/.cargo/bin/
-$ tetanes {filename}
-```
-
-### Additional Options
-
-```
-USAGE:
-    tetanes [FLAGS] [OPTIONS] [--] [path]
-
-FLAGS:
-    -c, --clear-savestate    Removes existing savestates for current save-slot
-        --concurrent-dpad    Enables the ability to simulate concurrent L+R and U+D on the D-Pad.
-    -d, --debug              Start with the CPU debugger enabled and emulation paused at first CPU instruction.
-    -f, --fullscreen         Start fullscreen.
-    -h, --help               Prints help information
-    -r, --record             Record gameplay to a file for later action replay.
-        --rewind             Enable savestate rewinding
-        --savestates-off     Disable savestates
-        --sound-off          Disable sound.
-    -V, --version            Prints version information
-        --vsync-off          Disable vsync.
-
-OPTIONS:
-    -g, --genie-codes <genie-codes>...    List of Game Genie Codes (space separated).
-    -p, --replay <replay>                 Replay a saved action replay file.
-        --savestate-slot <save-slot>      Set savestate slot #. [default: 1]  [possible values: 1, 2, 3, 4]
-    -s, --scale <scale>                   Window scale [default: 3]
-        --speed <speed>                   Increase/Decrease emulation speed. [default: 1.0]
-
-ARGS:
-    <path>    The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
-```
-
-## Controls
-
-| Button                | Keyboard    | Controller       |
-| --------------------- | ----------- | ---------------- |
-| A                     | Z           | A                |
-| B                     | X           | B                |
-| A (Turbo)             | A           | X                |
-| B (Turbo)             | S           | Y                |
-| Start                 | Enter       | Start            |
-| Select                | Right Shift | Back             |
-| Up, Down, Left, Right | Arrow Keys  | Left Stick/D-Pad |
-
-There are also some emulator actions:
+Emulator shortcuts:
 
 | Action                            | Keyboard         | Controller         |
 | --------------------------------- | ---------------- | ------------------ |
+| About Menu                        | Ctrl-H or F1     |                    |
+| Configuration Menu                | Ctrl-C or F2     |                    |
+| Load/Open ROM                     | Ctrl-O or F3     |                    |
 | Pause                             | Escape           | Guide Button       |
-| Help Menu<sup>\*</sup>            | F1               |                    |
-| Configuration Menu<sup>\*</sup>   | Ctrl-C           |                    |
-| Open ROM<sup>\*</sup>             | Ctrl-O           |                    |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
 | Power Cycle                       | Ctrl-P           |                    |
-| Increase Speed 25%                | Ctrl-=           | Right Shoulder     |
-| Decrease Speed 25%                | Ctrl--           | Left Shoulder      |
+| Increase Speed by 25%             | Ctrl-=           | Right Shoulder     |
+| Decrease Speed by 25%             | Ctrl--           | Left Shoulder      |
 | Fast-Forward 2x (while held)      | Space            |                    |
 | Set Save State Slot #             | Ctrl-(1-4)       |                    |
 | Save State                        | Ctrl-S           |                    |
 | Load State                        | Ctrl-L           |                    |
-| Rewind 5 Seconds                  | R                |                    |
-| Stop Action Replay Recording      | Shift-V          |                    |
+| Instant Rewind                    | R                |                    |
+| Visual Rewind (while holding)     | R                |                    |
+| Take Screenshot                   | F10              |                    |
+| Toggle Gameplay Recording         | Shift-V          |                    |
+| Toggle Music/Sound Recording      | Shift-R          |                    |
 | Toggle Music/Sound                | Ctrl-M           |                    |
-| Toggle CPU Debugger               | Ctrl-D           |                    |
+| Toggle Pulse Channel 1            | Shift-1          |                    |
+| Toggle Pulse Channel 2            | Shift-2          |                    |
+| Toggle Triangle Channel           | Shift-3          |                    |
+| Toggle Noise Channel              | Shift-4          |                    |
+| Toggle DMC Channel                | Shift-5          |                    |
 | Toggle Fullscreen                 | Ctrl-Return      |                    |
 | Toggle Vsync                      | Ctrl-V           |                    |
 | Toggle NTSC Filter                | Ctrl-N           |                    |
-| Toggle PPU Viewer                 | Shift-P          |                    |
-| Toggle Nametable Viewer           | Shift-N          |                    |
-| Take Screenshot                   | F10              |                    |
+| Toggle CPU Debugger               | Shift-D          |                    |
+| Toggle PPU Debugger               | Shift-P          |                    |
+| Toggle APU Debugger               | Shift-A          |                    |
 
 While the CPU Debugger is open (these can also be held down):
 
 | Action                            | Keyboard         |
 | --------------------------------- | ---------------- |
 | Step a single CPU instruction     | C                |
-| Step over a CPU instruction       | O                |
-| Step out of a CPU instruction     | Ctrl-O           |
-| Step a single scanline            | S                |
+| Step over a function              | O                |
+| Step out of a function            | Shift-O          |
+| Step a single scanline            | L                |
 | Step an entire frame              | F                |
-| Toggle Live CPU Debug Updating    | D                |
 
-<sup>&ast;</sup>: Not yet Implemented
+While the PPU Debugger is open (these can also be held down):
 
-### Note on Controls
+| Action                            | Keyboard         |
+| --------------------------------- | ---------------- |
+| Move debug scanline up by 1       | Ctrl-Up          |
+| Move debug scanline up by 10      | Ctrl-Shift-Up    |
+| Move debug scanline down by 1     | Ctrl-Down        |
+| Move debug scanline down by 10    | Ctrl-Shift-Down  |
 
-Ctrl-(1-4) may have conflicts in macOS with switching Desktops 1-4. You can disable this in the
-keyboard settings. I may consider changing them to something else or making macOS use the Option key
-in place of Ctrl, but I'm not bothering with OS-specific bindings just yet.
+### Directories
 
-## Directories & Screenshots
+Battery-backed game data and save states are stored in
+`$HOME/.tetanes`. Screenshots are saved to the directory where `TetaNES` was
+launched from.
 
-Battery-backed game data and save states are stored in `$HOME/.tetanes`. Screenshots are saved
-to the directory where `TetaNES` was launched from. This may change in a future release.
+### Powerup State
 
-## Powerup State
+The original NES hardware had semi-random contents located in RAM upon power-up
+and several games made use of this to seed their Random Number Generators
+(RNGs). By default, `TetaNES` honors the original hardware and emulates
+randomized powerup RAM state. This shows up in several games such as `Final
+Fantasy`, `River City Ransom`, and `Impossible Mission II`, amongst others. Not
+emulating this would make these games seem deterministic when they weren't
+intended to be.
 
-The original NES hardware had semi-random contents located in RAM upon powerup and several games
-made use of this to seed their Random Number Generators (RNGs). By default, the binaries and build
-steps for `TetaNES` emulate randomized powerup RAM state. This shows up in several games such as
-Final Fantasy, River City Ransom, and Impossible Mission II, amongst others. Not emulating this
-would make these games seem deterministic when they weren't intended to be.
+If you would like `TetaNES` to provide fully deterministic emulated power-up
+state, you'll need to change the `ram_state` setting in the configuration
+menu and trigger a power-cycle or use the `--ram_state` flag from the
+command line.
 
-If you would like `TetaNES` to provide fully deterministic emulated powerup state, you'll need to
-build the binary from source using the following command:
+## Building
 
-```
-$ cargo build --release --features no-randomize-ram
-```
+To build the project run `cargo build` or `cargo build --release` (if you want
+better framerates). There is also a optimized dev profile you can use which
+strikes a balance between build time and performance: `cargo build --profile
+dev-opt`. You may need to install SDL2 libraries, see the `Installation` section
+above for options.
 
-## Building/Testing
-
-To build the project, ensure the dependencies are installed as outlined in the `Installation`
-section and then run `cargo build` or `cargo build --release` (if you want better framerates).
-
-Unit and integration tests can be run with `cargo test --features no-randomize-ram`. RAM
-randomization is enabled by default since this more accurately reflects the original NES, but many
-tests fail under this condition so it needs to be disabled. There are also several test roms that
-can be run to test various capabilities of the emulator. They are all located in the `tests/`
-directory.
+Unit and integration tests can be run with `cargo test`. There are also several
+test roms that can be run to test various capabilities of the emulator. They are
+all located in the `tests_roms/` directory.
 
 Run them in a similar way you would run a game. e.g.
 
-```
-$ cargo run --release --features no-randomize-ram tests/cpu/nestest.nes
+```text
+$ cargo run --release test_roms/cpu/nestest.nes
 ```
 
 ## Debugging
 
-There are built-in debugging tools that allow you to monitor game state and step through CPU
-instructions manually. See the `Controls` section for more on keybindings.
+There are built-in debugging tools that allow you to monitor game state and step
+through CPU instructions manually. See the `Controls` section for more on
+keybindings.
 
-The Default debugger screen provides CPU information such as the statis of the CPU register flags,
-Program Counter, Stack, PPU information, and the previous/upcoming CPU instructions.
+The default debugger screen provides CPU information such as the status of the
+CPU register flags, Program Counter, Stack, PPU information, and the
+previous/upcoming CPU instructions.
 
-The Nametable Viewer displays the current Nametables in PPU memory and allows you to scroll up/down
-to change the scanline at which the nametable is read. Some games swap out nametables mid-frame.
+The Nametable Viewer displays the current Nametables in PPU memory and allows
+you to scroll up/down to change the scanline at which the nametable is
+read. Some games swap out nametables mid-frame.
 
-The PPU Viewer shows the current sprite and palettes loaded. You can also scroll up/down in a
-similar manner to the Nametable Viewer. Super Mario Bros 3 for example swaps out sprites mid-frame
-to render animations.
+The PPU Viewer shows the current sprite and palettes loaded. You can also scroll
+up/down in a similar manner to the Nametable Viewer. `Super Mario Bros 3` for
+example swaps out sprites mid-frame to render animations.
 
-<img src="https://github.com/lukexor/tetanes/blob/main/static/nametable_viewer.png?raw=true" width="400">&nbsp;&nbsp;<img src="https://github.com/lukexor/tetanes/blob/main/static/ppu_viewer.png?raw=true" width="400">
-<img src="https://github.com/lukexor/tetanes/blob/main/static/debugger.png?raw=true" width="808">
+<img width="48%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/nametable_viewer.png">&nbsp;&nbsp;<img width="48%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/ppu_viewer.png">
+<img width="100%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/debugger.png">
 
 Logging can be set by setting the `RUST_LOG` environment variable and setting it
-to one of `trace`, `debug`, `info`, `warn` or `error`.
+to one of `trace`, `debug`, `info`, `warn` or `error` prior to building the
+binary. e.g. `RUST_LOG=debug cargo build --release`
 
 ## Troubleshooting
 
-If you get an error running a ROM that's using the supported Mapper list above, it could be
-a corrupted or incompatible ROM format. If you're unsure which games use which mappers, see
-[here](http://bootgod.dyndns.org:7777/). Trying other versions of the same game from different
-sources sometimes resolves the issue.
+If you get an error running a ROM that's using the supported Mapper list above,
+it could be a corrupted or incompatible ROM format. If you're unsure which games
+use which mappers, see <http://bootgod.dyndns.org:7777/>. Trying other
+versions of the same game from different sources sometimes resolves the issue.
 
-If you get some sort of nasty error when trying to start a game you've played before, try passing
-the `--clear-savestate` option to ensure it's not an incompatible savestate file causing the issue.
-When 1.0 releases, I'll be much more careful about backwards breaking changes with regards to
-savestate files, but for now it's highly volatile and due to the nature of how I serialize data,
-I can only catch certain sorts of data inconsistencies.
+If you get some sort of other error when trying to start a game that previously
+worked, try removing any saved states from `$HOME/.tetanes` to ensure it's not
+an incompatible savestate file causing the issue.
 
-If you encounter any shortcuts not working, ensure your operating system does not have a binding
-for it that is overriding it. macOs specifically has many things bound to `Ctrl-*`. There are plans
-to allow keybind customization, but it's not finished yet.
+If you encounter any shortcuts not working, ensure your operating system does
+not have a binding for it that is overriding it. macOS specifically has many
+things bound to `Ctrl-*`.
 
-If an an issue is not already created, please use the github issue tracker to create it. A good
-guideline for what to include is:
+If an an issue is not already created, please use the [github issue tracker][]
+to create it. A good guideline for what to include is:
 
-- The game experiencing the issue (e.g. Super Mario Bros 3)
+- The game experiencing the issue (e.g. `Super Mario Bros 3`)
 - Operating system and version (e.g. Windows 7, macOS Mojave 10.14.6, etc)
 - What you were doing when the error happened
 - A description of the error and what happeneed
-- Any console output
+- Any screenshots or console output
 - Any related errors or logs
 
-When using the browser version (not yet available), also include:
+When using the WASM version in the browser, also include:
 - Web browser and version (e.g. Chrome 77.0.3865)
-
-### Known Issues
-
-See the github issue tracker.
 
 ## Roadmap
 
-The following is a checklist of features and their progress:
-- [x] Console
+- NES Formats & Run Modes
   - [x] NTSC
   - [ ] PAL
   - [ ] Dendy
   - [ ] Headless mode
-- [x] Central Processing Unit (CPU)
+- Central Processing Unit (CPU)
   - [x] Official Instructions
-  - [x] Unofficial Instructions (Some still incorrect)
-  - [x] Interrupts
-- [x] Picture Processing Unit (PPU)
-  - [x] VRAM
-  - [x] Background
-  - [x] Sprites
-  - [x] NTSC TV Artifact Effects
-  - [x] Emphasize RGB/Grayscale
-- [x] Audio Processing Unit (APU)
+  - [x] Unofficial Instructions
+  - [x] Cycle Accurate
+- Picture Processing Unit (PPU)
+  - [x] NTSC Filter
+- Audio Processing Unit (APU)
   - [x] Pulse Channels
-  - [x] Triangle Channels
-  - [x] Noise Channels
-  - [x] Delta Mulation Channel (DMC)
-- [x] Inputs
-  - [x] Keyboard
-  - [x] Standard Controller
-  - [x] Turbo
-  - [ ] Zapper (Light Gun)
-- [x] Memory
-- [x] Cartridge
-  - [x] Battery-backed Save RAM
+  - [x] Triangle Channel
+  - [x] Noise Channel
+  - [x] Delta Modulation Channel (DMC)
+- Player Input
+  - [x] 1-2 Player w/ Keyboard or Controllers
+  - [ ] 3-4 Player Support w/ Controllers
+  - [x] Zapper (Light Gun)
+- Cartridge
   - [x] iNES Format
-  - [x] NES 2.0 Format (Can read headers, but many features still unsupported)
-  - [x] Mappers
-    - [x] NROM (Mapper 0)
-    - [x] SxROM/MMC1 (Mapper 1)
-    - [x] UxROM (Mapper 2)
-    - [x] CNROM (Mapper 3)
-    - [x] TxROM/MMC3 (Mapper 4)
-    - [x] ExROM/MMC5 (Mapper 5) (Split screen and sound is unfinished)
-    - [x] AxROM (Mapper 7)
-    - [x] PxROM/MMC2 (Mapper 9)
+  - [x] NES 2.0 Format
+  - [ ] Complete NES 2.0 support
+  - Mappers
+    - [x] Mapper 000 - NROM
+    - [x] Mapper 001 - SxROM/MMC1
+    - [x] Mapper 002 - UxROM
+    - [x] Mapper 003 - CNROM
+    - [x] Mapper 004 - TxROM/MMC3
+    - [x] Mapper 005 - ExROM/MMC5
+    - [x] Mapper 007 - AxROM
+    - [x] Mapper 009 - PxROM/MMC2
+    - [x] Mapper 066 - GxROM
+    - [x] Mapper 071 - BF9093/BF9097
+    - [x] Mapper 155 - MMC1A
 - [x] User Interface (UI)
-  - [x] PixEngine (Custom graphics library for handling video and audio)
-  - [x] UI Notification messages
   - [x] SDL2
-  - [ ] WebAssembly (WASM) - Run TetaNES in the browser! (in progress!)
-  - [x] Window
-  - [ ] Menus
-    - [ ] Help Menu
-    - [ ] Open/Run ROM with file browser
-    - [ ] Configuration options
-    - [ ] Custom Keybinds
+  - [x] WebAssembly (WASM) - Run TetaNES in the browser!
+  - [x] Configurable keybinds and default settings
+  - Menus
+    - [x] Configuration options
+    - [ ] Customize Keybinds & Controllers
+    - [x] Load/Open ROM with file browser
     - [ ] Recent Game Selection
-  - [x] Pause
-  - [x] Toggle Fullscreen
-  - [x] Reset
-  - [x] Power Cycle
-  - [x] Increase/Decrease Speed/Fast-forward
-  - [x] Instant Rewind (5 seconds)
-  - [ ] Visual Rewind (Holding R will time-travel backward)
+    - [x] About Menu
+  - [x] Increase/Decrease Speed
+  - [x] Fast-forward
+  - [x] Instant Rewind (2 seconds)
+  - [x] Visual Rewind (Holding R will time-travel backward)
   - [x] Save/Load State
-  - [x] Take Screenshots
-  - [x] Toggle Action Recording
+  - [X] Take Screenshots
+  - [x] Gameplay Recording
   - [ ] Sound Recording (Save those memorable tunes!)
+  - [x] Toggle Fullscreen
   - [x] Toggle Sound
-  - [x] Toggle Debugger
-  - [x] Game Genie
+    - [x] Toggle individual sound channels
+  - [x] Toggle NTSC Filter
+  - Game Genie Support
+    - [x] Command-Line
+    - [ ] UI Menu
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
-  - [ ] 4-Player support
   - [ ] Network Multi-player
-  - [ ] Toggle individual sound channels
   - [ ] Self Updater
-- [x] Testing/Debugging/Documentation
-  - [x] CPU Debugger (Displays CPU status, registers, and disassembly)
-    - [X] Step Into/Out/Over
+- Testing/Debugging/Documentation
+  - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
+    - [x] Step Into/Out/Over
+    - [x] Step Scanline/Frame
     - [ ] Breakpoints
-  - [ ] Memory Hex Debugger
-  - [x] PPU Viewer (Displays PPU sprite patterns and color palettes)
-  - [x] Nametable Viewer (Displays all four PPU backgrounds)
+    - [ ] Modify state
+    - [ ] Labels
+  - [ ] Hex Memory Editor & Debugger
+  - PPU Viewer
     - [X] Scanline Hit Configuration (For debugging IRQ Nametable changes)
-    - [ ] Scroll lines (Automatically adjusts the scanline, showing live nametable changes)
-  - [x] Unit/Integration tests (run with cargo test)
-    - [x] CPU integration testing (with [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
-    - [ ] Other tests (Missing a lot here)
-  - [x] Test ROMs (most pass, many still do not)
-      - [ ] Automated rom tests (in progress now that action recording is finished)
-  - [ ] Rust Docs
-  - [ ] Logging
-      - [x] Console
-      - [ ] File
+    - [x] Nametable Viewer (background rendering)
+    - [x] CHR Viewer (sprite tiles)
+    - [ ] OAM Viewer (on screen sprites)
+    - [ ] Palette Viewer
+  - [ ] APU Viewer (Displays audio status and registers)
+  - [ ] 122/149 automated ROM tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
+  - [ ] Detailed Documentation
+  - Logging
+    - [x] Environment logging
+    - [ ] File logging
+
+### Known Issues
+
+See the [github issue tracker][].
 
 ## Documentation
 
-In addition to the wealth of information in the `docs/` directory, I also referenced these websites
-extensively during development:
+In addition to the wealth of information in the `docs/` directory, I also
+referenced these websites extensively during development:
 
 * [NES Documentation (PDF)](http://nesdev.com/NESDoc.pdf)
 * [NES Dev Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
@@ -409,47 +392,52 @@ extensively during development:
 
 ## License
 
-`TetaNES` is licensed under the GPLv3 license. See the `LICENSE.md` file in the root for a copy.
+`TetaNES` is licensed under the GPLv3 license. See the `LICENSE.md` file in the
+root for a copy.
+
+## Contribution
+
+While this is primarily a personal project, I welcome any contributions or
+suggestions. Feel free to submit a pull request if you want to help out!
 
 ### Contact
 
-For issue reporting, please use the github issue tracker. You can contact me directly
-[here](https://lukeworks.tech/contact/).
-
-## Contributing
-
-While this is primarily a personal project, I welcome any contributions or suggestions. Feel free to
-submit a pull request if you want to help out!
+For issue reporting, please use the [github issue tracker][]. You can also
+contact me directly at <https://lukeworks.tech/contact/>.
 
 ## Credits
 
-Implementation was inspiried by several amazing NES projects, without which I would not have been
-able to understand or digest all the information on the NES wiki.
+Implementation was inspiried by several amazing NES projects, without which I
+would not have been able to understand or digest all the information on the NES
+wiki.
 
-- [fogleman NES](https://raw.githubusercontent.com/fogleman/nes)
-- [sprocketnes](https://raw.githubusercontent.com/pcwalton/sprocketnes)
-- [nes-emulator](https://raw.githubusercontent.com/MichaelBurge/nes-emulator)
-- [LaiNES](https://raw.githubusercontent.com/AndreaOrru/LaiNES)
-- [ANESE](https://raw.githubusercontent.com/daniel5151/ANESE)
+- [fogleman NES](https://github.com/fogleman/nes)
+- [sprocketnes](https://github.com/pcwalton/sprocketnes)
+- [nes-emulator](https://github.com/MichaelBurge/nes-emulator)
+- [LaiNES](https://github.com/AndreaOrru/LaiNES)
+- [ANESE](https://github.com/daniel5151/ANESE)
 - [FCEUX](http://www.fceux.com/web/home.html)
 
 I also couldn't have gotten this far without the amazing people over on the
 [NES Dev Forums](http://forums.nesdev.com/):
-- [blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for all his amazing
-  [test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests)
-- [bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video implementation
+- [blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for
+  all his amazing [test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests)
+- [bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video
+  implementation
 - [Disch](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=33)
 - [Quietust](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=7)
 - [rainwarrior](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=5165)
 - And many others who helped me understand the stickier bits of emulation
 
-Also, a huge shout out to [OneLoneCoder](https://raw.githubusercontent.com/OneLoneCoder/) for his
-[NES](https://raw.githubusercontent.com/OneLoneCoder/olcNES) and
-[olcPixelGameEngine](https://raw.githubusercontent.com/OneLoneCoder/olcPixelGameEngine) series as those helped a ton
-in some recent refactorings.
+Also, a huge shout out to
+[OneLoneCoder](https://github.com/OneLoneCoder/) for his
+[NES](https://github.com/OneLoneCoder/olcNES) and
+[olcPixelGameEngine](https://github.com/OneLoneCoder/olcPixelGameEngine)
+series as those helped a ton in some recent refactorings.
 
-[rust]: https://www.rust-lang.org/tools/install
-[sdl2]: https://www.libsdl.org/
-[wasm]: https://webassembly.org/
-
-License: GPL-3.0-or-later
+[Rust]: https://www.rust-lang.org/tools/install
+[rust-sdl2]: https://github.com/Rust-SDL2/rust-sdl2#sdl20-development-libraries
+[SDL2]: https://www.libsdl.org/
+[WASM]: https://webassembly.org/
+[pix-engine]: https://github.com/lukexor/pix-engine
+[github issue tracker]: https://github.com/lukexor/tetanes/issues

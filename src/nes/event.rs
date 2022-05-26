@@ -1,625 +1,760 @@
 use crate::{
-    common::{create_png, Clocked, Powered},
-    cpu::instr::Operation::*,
-    nes::{config::DEFAULT_SPEED, Nes},
-    ppu::RENDER_WIDTH,
-    serialization::Savable,
-    NesResult,
+    apu::AudioChannel,
+    common::{Clocked, Powered},
+    cpu::instr::Operation,
+    input::{GamepadBtn, GamepadSlot},
+    nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode},
+    ppu::{VideoFilter, RENDER_HEIGHT},
 };
-use chrono::prelude::{DateTime, Local};
-use pix_engine::{
-    event::{Axis, Button, Key, Mouse, PixEvent},
-    StateData,
-};
+use pix_engine::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::{
-    io::{Read, Write},
-    path::PathBuf,
+    cmp::Ordering,
+    collections::HashMap,
+    fmt,
+    ops::{Deref, DerefMut},
+    time::{Duration, Instant},
 };
 
-const GAMEPAD_TRIGGER_PRESS: i16 = 32_700;
-const GAMEPAD_AXIS_DEADZONE: i16 = 10_000;
+/// Indicates an [Axis] direction.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub(crate) enum AxisDirection {
+    /// No direction, axis is in a deadzone/not pressed.
+    None,
+    /// Positive (Right or Down)
+    Positive,
+    /// Negative (Left or Up)
+    Negative,
+}
 
-#[derive(Clone, Debug)]
-pub(super) struct FrameEvent {
-    pub(super) frame: usize,
-    pub(super) events: Vec<PixEvent>,
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub(crate) struct ActionEvent {
+    pub(crate) frame: u32,
+    pub(crate) slot: GamepadSlot,
+    pub(crate) action: Action,
+    pub(crate) pressed: bool,
+    pub(crate) repeat: bool,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub(crate) enum Input {
+    Key((GamepadSlot, Key, KeyMod)),
+    Button((GamepadSlot, ControllerButton)),
+    Axis((GamepadSlot, Axis, AxisDirection)),
+    Mouse((GamepadSlot, Mouse)),
+}
+
+impl fmt::Display for Input {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Input::Key((_, key, keymod)) => {
+                if keymod.is_empty() {
+                    write!(f, "{:?}", key)
+                } else {
+                    write!(f, "{:?} {:?}", keymod, key)
+                }
+            }
+            Input::Button((_, btn)) => write!(f, "{:?}", btn),
+            Input::Axis((_, axis, _)) => write!(f, "{:?}", axis),
+            Input::Mouse((_, btn)) => write!(f, "{:?}", btn),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct KeyBinding {
+    pub(crate) player: GamepadSlot,
+    pub(crate) key: Key,
+    pub(crate) keymod: KeyMod,
+    pub(crate) action: Action,
+}
+
+impl KeyBinding {
+    pub(crate) const fn new(player: GamepadSlot, key: Key, keymod: KeyMod, action: Action) -> Self {
+        Self {
+            player,
+            key,
+            keymod,
+            action,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct MouseBinding {
+    pub(crate) player: GamepadSlot,
+    pub(crate) button: Mouse,
+    pub(crate) action: Action,
+}
+
+impl MouseBinding {
+    pub(crate) const fn new(player: GamepadSlot, button: Mouse, action: Action) -> Self {
+        Self {
+            player,
+            button,
+            action,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct ControllerButtonBinding {
+    pub(crate) player: GamepadSlot,
+    pub(crate) button: ControllerButton,
+    pub(crate) action: Action,
+}
+
+impl ControllerButtonBinding {
+    pub(crate) const fn new(player: GamepadSlot, button: ControllerButton, action: Action) -> Self {
+        Self {
+            player,
+            button,
+            action,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct ControllerAxisBinding {
+    pub(crate) player: GamepadSlot,
+    pub(crate) axis: Axis,
+    pub(crate) direction: AxisDirection,
+    pub(crate) action: Action,
+}
+
+impl ControllerAxisBinding {
+    pub(crate) const fn new(
+        player: GamepadSlot,
+        axis: Axis,
+        direction: AxisDirection,
+        action: Action,
+    ) -> Self {
+        Self {
+            player,
+            axis,
+            direction,
+            action,
+        }
+    }
+}
+
+/// A binding of a inputs to an [Action].
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct InputBindings {
+    pub(crate) keys: Vec<KeyBinding>,
+    pub(crate) mouse: Vec<MouseBinding>,
+    pub(crate) buttons: Vec<ControllerButtonBinding>,
+    pub(crate) axes: Vec<ControllerAxisBinding>,
+}
+
+impl InputBindings {
+    pub(crate) fn update_from_map(&mut self, input_map: &InputMapping) {
+        self.keys.clear();
+        self.mouse.clear();
+        self.buttons.clear();
+        self.axes.clear();
+        for (&input, &action) in input_map.iter() {
+            match input {
+                Input::Key((slot, key, keymod)) => {
+                    self.keys.push(KeyBinding::new(slot, key, keymod, action));
+                }
+                Input::Mouse((slot, button)) => {
+                    self.mouse.push(MouseBinding::new(slot, button, action));
+                }
+                Input::Button((slot, button)) => self
+                    .buttons
+                    .push(ControllerButtonBinding::new(slot, button, action)),
+                Input::Axis((slot, axis, direction)) => self
+                    .axes
+                    .push(ControllerAxisBinding::new(slot, axis, direction, action)),
+            }
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InputMapping(HashMap<Input, Action>);
+
+impl Deref for InputMapping {
+    type Target = HashMap<Input, Action>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for InputMapping {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[allow(variant_size_differences)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) enum Action {
+    Nes(NesState),
+    Menu(Menu),
+    Feature(Feature),
+    Setting(Setting),
+    Gamepad(GamepadBtn),
+    ZapperTrigger,
+    ZeroAxis([GamepadBtn; 2]),
+    Debug(DebugAction),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) enum NesState {
+    ToggleMenu,
+    Quit,
+    TogglePause,
+    Reset,
+    PowerCycle,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) enum Feature {
+    ToggleGameplayRecording,
+    ToggleSoundRecording,
+    Rewind,
+    TakeScreenshot,
+    SaveState,
+    LoadState,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) enum Setting {
+    SetSaveSlot(u8),
+    ToggleFullscreen,
+    ToggleVsync,
+    ToggleNtscFilter,
+    ToggleSound,
+    TogglePulse1,
+    TogglePulse2,
+    ToggleTriangle,
+    ToggleNoise,
+    ToggleDmc,
+    FastForward,
+    IncSpeed,
+    DecSpeed,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub(crate) enum DebugAction {
+    ToggleCpuDebugger,
+    TogglePpuDebugger,
+    ToggleApuDebugger,
+    StepInto,
+    StepOver,
+    StepOut,
+    StepFrame,
+    StepScanline,
+    IncScanline,
+    DecScanline,
+}
+
+fn render_message(s: &mut PixState, message: &str, color: Color) -> NesResult<()> {
+    s.push();
+    s.stroke(None);
+    s.fill(rgb!(0, 200));
+    let pady = s.theme().spacing.frame_pad.y();
+    s.rect([
+        0,
+        s.cursor_pos().y() - pady,
+        s.width()? as i32,
+        s.theme().font_size as i32 + 2 * pady,
+    ])?;
+    s.fill(color);
+    s.text(message)?;
+    s.pop();
+    Ok(())
 }
 
 impl Nes {
-    /// This is called on every update loop to check for user events like quitting
-    /// the application, pressing a button, resizing the window or clicking the mouse.
-    pub(super) fn poll_events(&mut self, data: &mut StateData) -> NesResult<()> {
-        let turbo = self.clock_turbo();
-        let events = self.get_events(data);
-        if self.recording {
-            self.replay_buffer
-                .push(FrameEvent::new(self.frame, events.clone()));
-        }
-        let mut gamepad_events = Vec::new();
-        for event in events {
-            // Process system events
-            match event {
-                PixEvent::Focus(window_id, focus) => {
-                    self.focused_window = if focus { Some(window_id) } else { None };
-                }
-                PixEvent::WinClose(window_id) => match Some(window_id) {
-                    i if i == self.ppu_viewer_window => self.toggle_ppu_viewer(data)?,
-                    i if i == self.nt_viewer_window => self.toggle_nt_viewer(data)?,
-                    _ => (),
-                },
-                _ => (),
-            }
+    #[inline]
+    pub(crate) fn add_message<S>(&mut self, text: S)
+    where
+        S: Into<String>,
+    {
+        let text = text.into();
+        self.messages.push((text, Instant::now()));
+    }
 
-            // Only process remaining events if we're focused
-            if !self.playback && self.focused_window.is_none() {
-                continue;
-            }
-            if Self::is_gamepad_event(&event) {
-                gamepad_events.push(event);
-            }
-            match event {
-                PixEvent::KeyPress(..) => self.handle_key_event(event, turbo, data)?,
-                PixEvent::MousePress(..) => self.handle_mouse_event(event)?,
-                PixEvent::GamepadBtn(..) => self.handle_gamepad_button(event, turbo)?,
-                PixEvent::GamepadAxis(..) => self.handle_gamepad_axis(event)?,
-                _ => (),
-            }
+    #[inline]
+    pub(crate) fn render_messages(&mut self, s: &mut PixState) -> NesResult<()> {
+        self.messages
+            .retain(|(_, created)| created.elapsed() < Duration::from_secs(3));
+        self.messages.dedup_by(|a, b| a.0.eq(&b.0));
+        for (message, _) in &self.messages {
+            render_message(s, message, Color::WHITE)?;
         }
-        self.frame += 1;
         Ok(())
     }
 
-    fn get_events(&mut self, data: &mut StateData) -> Vec<PixEvent> {
-        // Get the list events, either from the user or from a replay_buffer
-        let mut events: Vec<PixEvent> = Vec::new();
-        if self.playback && !self.replay_buffer.is_empty() {
-            let frame_event = self.replay_buffer.pop().unwrap();
-            if frame_event.frame == self.frame {
-                events.extend(frame_event.events);
+    #[inline]
+    pub(crate) fn render_status(&mut self, s: &mut PixState, status: &str) -> PixResult<()> {
+        render_message(s, status, Color::WHITE)?;
+        if let Some(ref err) = self.error {
+            render_message(s, err, Color::RED)?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn handle_input(
+        &mut self,
+        s: &mut PixState,
+        slot: GamepadSlot,
+        input: Input,
+        pressed: bool,
+        repeat: bool,
+    ) -> NesResult<bool> {
+        self.config
+            .input_map
+            .get(&input)
+            .copied()
+            .map_or(Ok(false), |action| {
+                if pressed && self.replay.mode == ReplayMode::Playback {
+                    match action {
+                        Action::Feature(Feature::ToggleGameplayRecording) => self.stop_replay(),
+                        Action::Nes(state) => self.handle_nes_state(s, state)?,
+                        Action::Menu(menu) => self.open_menu(s, menu)?,
+                        _ => return Ok(false),
+                    }
+                    Ok(true)
+                } else {
+                    self.handle_action(s, slot, action, pressed, repeat)
+                }
+            })
+    }
+
+    #[inline]
+    pub(crate) fn handle_key_event(
+        &mut self,
+        s: &mut PixState,
+        event: KeyEvent,
+        pressed: bool,
+    ) -> bool {
+        for slot in [
+            GamepadSlot::One,
+            GamepadSlot::Two,
+            GamepadSlot::Three,
+            GamepadSlot::Four,
+        ] {
+            let input = Input::Key((slot, event.key, event.keymod));
+            if let Ok(true) = self.handle_input(s, slot, input, pressed, event.repeat) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline]
+    pub fn handle_mouse_click(&mut self, s: &mut PixState, btn: Mouse) -> bool {
+        // To avoid consuming events while in menus
+        if self.mode == Mode::Playing {
+            for slot in [GamepadSlot::One, GamepadSlot::Two] {
+                let input = Input::Mouse((slot, btn));
+                if let Ok(true) = self.handle_input(s, slot, input, true, false) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[inline]
+    fn handle_zapper_trigger(&mut self, slot: GamepadSlot) {
+        if self.control_deck.zapper_connected(slot) {
+            self.control_deck.trigger_zapper(slot);
+        }
+    }
+
+    #[inline]
+    pub fn set_zapper_pos(&mut self, pos: Point<i32>) -> bool {
+        for slot in [GamepadSlot::One, GamepadSlot::Two] {
+            if self.control_deck.zapper_connected(slot) {
+                let mut pos = pos / self.config.scale as i32;
+                pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
+                self.control_deck.aim_zapper(slot, pos.x(), pos.y());
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline]
+    pub fn handle_mouse_motion(&mut self, pos: Point<i32>) -> bool {
+        // To avoid consuming events while in menus
+        if self.mode == Mode::Playing {
+            self.set_zapper_pos(pos)
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    pub(crate) fn handle_controller_event(
+        &mut self,
+        s: &mut PixState,
+        event: ControllerEvent,
+        pressed: bool,
+    ) -> PixResult<bool> {
+        self.get_controller_slot(event.controller_id)
+            .map_or(Ok(false), |slot| {
+                let input = Input::Button((slot, event.button));
+                self.handle_input(s, slot, input, pressed, false)
+            })
+    }
+
+    #[inline]
+    pub(crate) fn handle_controller_axis(
+        &mut self,
+        s: &mut PixState,
+        controller_id: ControllerId,
+        axis: Axis,
+        value: i32,
+    ) -> PixResult<bool> {
+        self.get_controller_slot(controller_id)
+            .map_or(Ok(false), |slot| {
+                let direction = match value.cmp(&0) {
+                    Ordering::Greater => AxisDirection::Positive,
+                    Ordering::Less => AxisDirection::Negative,
+                    Ordering::Equal => AxisDirection::None,
+                };
+                let input = Input::Axis((slot, axis, direction));
+                self.handle_input(s, slot, input, true, false)
+            })
+    }
+
+    #[inline]
+    pub(crate) fn handle_action(
+        &mut self,
+        s: &mut PixState,
+        slot: GamepadSlot,
+        action: Action,
+        pressed: bool,
+        repeat: bool,
+    ) -> PixResult<bool> {
+        if !repeat {
+            log::debug!(
+                "Input: {{ action: {:?}, slot: {:?}, pressed: {} }}",
+                action,
+                slot,
+                pressed
+            );
+        }
+
+        if repeat && pressed {
+            match action {
+                Action::Debug(action) => self.handle_debug(s, action, repeat)?,
+                Action::Feature(Feature::Rewind) => {
+                    if self.config.rewind {
+                        self.mode = Mode::Rewinding;
+                    } else {
+                        self.add_message("Rewind disabled. You can enable it in the Config menu.");
+                    }
+                }
+                _ => return Ok(false),
             }
         } else {
-            self.playback = false;
-            events.extend(data.poll());
-        };
-        events
-    }
-
-    /// Turbo clock counts up every frame from 0-5
-    /// When it's less than 3, we toggle the button currently held down
-    /// This gives the effect of pressing a button quickly every 3 frames or
-    /// every ~48 milliseconds
-    fn clock_turbo(&mut self) -> bool {
-        let turbo = self.turbo_clock < 3;
-        let mut input = &mut self.cpu.bus.input;
-        if input.gamepad1.turbo_a {
-            input.gamepad1.a = turbo;
-        }
-        if input.gamepad1.turbo_b {
-            input.gamepad1.b = turbo;
-        }
-        if input.gamepad2.turbo_a {
-            input.gamepad2.a = turbo;
-        }
-        if input.gamepad2.turbo_b {
-            input.gamepad2.b = turbo;
-        }
-        turbo
-    }
-
-    /// Handles all mouse related events
-    #[allow(clippy::many_single_char_names)]
-    fn handle_mouse_event(&mut self, event: PixEvent) -> NesResult<()> {
-        if let PixEvent::MousePress(Mouse::Left, x, y, pressed) = event {
-            self.cpu.bus.input.zapper.triggered = pressed;
-            if pressed && x > 0 && x < self.width as i32 && y > 0 && y < self.height as i32 {
-                let x = x as u32 / self.config.scale;
-                let y = y as u32 / self.config.scale;
-                let frame = &self.cpu.bus.ppu.frame();
-                // Compute average brightness
-                let mut r = 0u16;
-                let mut g = 0u16;
-                let mut b = 0u16;
-                for x in x.saturating_sub(8)..x.saturating_add(8) {
-                    for y in y.saturating_sub(8)..y.saturating_add(8) {
-                        let idx = 4 * (y * RENDER_WIDTH + x) as usize;
-                        r += u16::from(frame[idx]);
-                        g += u16::from(frame[idx + 1]);
-                        b += u16::from(frame[idx + 2]);
+            match action {
+                Action::Debug(action) if pressed => self.handle_debug(s, action, repeat)?,
+                Action::Feature(feature) => self.handle_feature(s, feature, pressed),
+                Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
+                Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
+                Action::Setting(setting) => self.handle_setting(s, setting, pressed)?,
+                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
+                Action::ZapperTrigger => self.handle_zapper_trigger(slot),
+                Action::ZeroAxis(buttons) => {
+                    for button in buttons {
+                        self.handle_gamepad_pressed(slot, button, pressed);
                     }
                 }
-                r /= 256;
-                g /= 256;
-                b /= 256;
-                let luminance = (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) as u32;
-                self.cpu.bus.input.zapper.light_sense = luminance < 84;
-                self.zapper_decay = (luminance / 10) * 113;
-                // println!(
-                //     "lum: {}, sense: {}, decay: {}",
-                //     luminance, self.cpu.bus.input.zapper.light_sense, self.zapper_decay
-                // );
+                _ => return Ok(false),
             }
+        }
+
+        if self.replay.mode == ReplayMode::Recording
+            && !matches!(
+                action,
+                Action::Feature(Feature::ToggleGameplayRecording)
+                    | Action::Nes(NesState::TogglePause | NesState::ToggleMenu),
+            )
+        {
+            self.replay
+                .buffer
+                .push(self.action_event(slot, action, pressed, repeat));
+        }
+
+        Ok(true)
+    }
+
+    pub(crate) fn replay_action(&mut self, s: &mut PixState) -> NesResult<()> {
+        let current_frame = self.control_deck.frame_number();
+        while let Some(action_event) = self.replay.buffer.last() {
+            match action_event.frame.cmp(&current_frame) {
+                Ordering::Equal => {
+                    let ActionEvent {
+                        slot,
+                        action,
+                        pressed,
+                        repeat,
+                        ..
+                    } = self.replay.buffer.pop().expect("valid action event");
+                    self.handle_action(s, slot, action, pressed, repeat)?;
+                }
+                Ordering::Less => {
+                    log::warn!(
+                        "Encountered action event out of order: {} < {}",
+                        action_event.frame,
+                        current_frame
+                    );
+                    self.replay.buffer.pop();
+                }
+                Ordering::Greater => break,
+            }
+        }
+        if self.replay.buffer.is_empty() {
+            self.stop_replay();
         }
         Ok(())
     }
+}
 
-    /// Handles all keyboard related events including keyrepeat, keydown and keyup
-    fn handle_key_event(
-        &mut self,
-        event: PixEvent,
-        turbo: bool,
-        data: &mut StateData,
-    ) -> NesResult<()> {
-        match event {
-            PixEvent::KeyPress(key, true, true) => self.handle_keyrepeat(key),
-            PixEvent::KeyPress(key, true, false) => self.handle_keydown(key, turbo, data)?,
-            PixEvent::KeyPress(key, false, ..) => self.handle_keyup(key, turbo),
-            _ => (),
-        }
-        Ok(())
-    }
-
-    /// Handles keyrepeats
-    fn handle_keyrepeat(&mut self, key: Key) {
-        self.held_keys.insert(key as u8, true);
-        let c = self.is_key_held(Key::Ctrl);
-        let d = self.config.debug;
-        match key {
-            // No modifiers
-            // Step/Step Into
-            Key::C if d => {
-                let _ = self.clock();
-            }
-            // Step Frame
-            Key::F if d => self.clock_frame(),
-            // Step Scanline
-            Key::S if d && !c => {
-                let prev_scanline = self.cpu.bus.ppu.scanline;
-                let mut scanline = prev_scanline;
-                while scanline == prev_scanline {
-                    let _ = self.clock();
-                    scanline = self.cpu.bus.ppu.scanline;
-                }
-            }
-            _ => {
-                let _ = self.handle_scanline_key(key);
-            }
+impl Nes {
+    #[inline]
+    const fn action_event(
+        &self,
+        slot: GamepadSlot,
+        action: Action,
+        pressed: bool,
+        repeat: bool,
+    ) -> ActionEvent {
+        ActionEvent {
+            frame: self.control_deck.frame_number(),
+            slot,
+            action,
+            pressed,
+            repeat,
         }
     }
 
-    /// Checks for focus in debug windows and scrolls the scanline checking indicator up or down
-    /// Returns true if key was handled, or false if it was not
-    fn handle_scanline_key(&mut self, key: Key) -> bool {
-        match key {
-            // Nametable/PPU Viewer Shortcuts
-            Key::Up => {
-                if self.focused_window.is_some() {
-                    if self.focused_window == self.nt_viewer_window {
-                        self.set_nt_scanline(self.nt_scanline.saturating_sub(1));
-                        return true;
-                    } else if self.focused_window == self.ppu_viewer_window {
-                        self.set_pat_scanline(self.pat_scanline.saturating_sub(1));
-                        return true;
-                    }
-                }
-                false
+    #[inline]
+    fn get_controller_slot(&self, controller_id: ControllerId) -> Option<GamepadSlot> {
+        self.players.iter().find_map(|(&slot, &id)| {
+            if id == controller_id {
+                Some(slot)
+            } else {
+                None
             }
-            Key::Down => {
-                if self.focused_window.is_some() {
-                    if self.focused_window == self.nt_viewer_window {
-                        self.set_nt_scanline(self.nt_scanline + 1);
-                        return true;
-                    } else if self.focused_window == self.ppu_viewer_window {
-                        self.set_pat_scanline(self.pat_scanline + 1);
-                        return true;
-                    }
-                }
-                false
-            }
-            _ => false,
-        }
+        })
     }
 
-    /// Handles keydown events
-    // TODO: This is getting to be a large function - should refactor to break it
-    // up and also restructure keybind referencing to allow customization
-    // TODO: abstract out window-specific focused keypresses
-    #[allow(clippy::cognitive_complexity)]
-    fn handle_keydown(&mut self, key: Key, turbo: bool, data: &mut StateData) -> NesResult<()> {
-        self.held_keys.insert(key as u8, true);
-        let c = self.is_key_held(Key::Ctrl);
-        let s = self.is_key_held(Key::LShift);
-        let d = self.config.debug;
-        match key {
-            // No modifiers
-            Key::Escape => {
-                // TODO close top menu
-                self.paused(!self.paused);
-            }
-            Key::Space => self.set_speed(2.0),
-            Key::R if !c => self.rewind(),
-            Key::F1 => {
-                // TODO open help menu
-                self.paused(true);
-                self.add_message("Help Menu not implemented");
-            }
-            // Step/Step Into
-            Key::C if d => {
-                if self.clock() == 0 {
-                    self.clock();
-                }
-            }
-            // Step Over
-            Key::O if !c && d => {
-                let instr = self.cpu.next_instr();
-                if self.clock() == 0 {
-                    self.clock();
-                }
-                if instr.op() == JSR {
-                    let mut op = self.cpu.instr.op();
-                    // TODO disable breakpoints here so 'step over' doesn't break?
-                    while op != RTS {
-                        let _ = self.clock();
-                        op = self.cpu.instr.op();
-                    }
-                }
-            }
-            // Step Out
-            Key::O if c && d => {
-                let mut op = self.cpu.instr.op();
-                while op != RTS {
-                    let _ = self.clock();
-                    op = self.cpu.instr.op();
-                }
-            }
-            // Toggle Active Debug
-            Key::D if d && !c => self.active_debug = !self.active_debug,
-            // Step Frame
-            Key::F if d => self.clock_frame(),
-            // Step Scanline
-            Key::S if d && !c => {
-                let prev_scanline = self.cpu.bus.ppu.scanline;
-                let mut scanline = prev_scanline;
-                while scanline == prev_scanline {
-                    let _ = self.clock();
-                    scanline = self.cpu.bus.ppu.scanline;
-                }
-            }
-            // Ctrl
-            Key::Num1 if c => self.set_save_slot(1),
-            Key::Num2 if c => self.set_save_slot(2),
-            Key::Num3 if c => self.set_save_slot(3),
-            Key::Num4 if c => self.set_save_slot(4),
-            Key::Minus if c => self.change_speed(-0.25),
-            Key::Equals if c => self.change_speed(0.25),
-            Key::Return if c => {
-                self.config.fullscreen = !self.config.fullscreen;
-                data.fullscreen(self.config.fullscreen)?;
-            }
-            Key::C if c => {
-                // TODO open config menu
-                self.paused(true);
-            }
-            Key::D if c => self.toggle_debug(data)?,
-            Key::S if c => {
-                let rewind = false;
-                self.save_state(self.config.save_slot, rewind);
-            }
-            Key::L if c => {
-                let rewind = false;
-                self.load_state(self.config.save_slot, rewind);
-            }
-            Key::M if c => {
-                self.config.sound_enabled = !self.config.sound_enabled;
-                if self.config.sound_enabled {
-                    self.add_message("Sound Enabled");
-                } else {
-                    self.add_message("Sound Disabled");
-                }
-            }
-            Key::N if c => self.cpu.bus.ppu.ntsc_video = !self.cpu.bus.ppu.ntsc_video,
-            Key::O if c => {
-                // TODO open rom menu
-                self.paused(true);
-            }
-            Key::Q if c => self.should_close = true,
-            Key::R if c => {
-                self.paused(false);
-                self.reset();
+    #[inline]
+    fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<()> {
+        if self.replay.mode == ReplayMode::Recording {
+            return Ok(());
+        }
+        match state {
+            NesState::ToggleMenu => self.toggle_menu(Menu::Config, s)?,
+            NesState::Quit => s.quit(),
+            NesState::TogglePause => self.toggle_pause(s)?,
+            NesState::Reset => {
+                self.error = None;
+                self.control_deck.reset();
                 self.add_message("Reset");
+                if self.debugger.is_some() && self.mode != Mode::Paused {
+                    self.mode = Mode::Paused;
+                }
             }
-            Key::P if c && !s => {
-                self.paused(false);
-                self.power_cycle();
+            NesState::PowerCycle => {
+                self.error = None;
+                self.control_deck.power_cycle();
                 self.add_message("Power Cycled");
+                if self.debugger.is_some() {
+                    self.mode = Mode::Paused;
+                }
             }
-            Key::V if c => {
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool) {
+        if feature == Feature::Rewind && !pressed {
+            if self.mode == Mode::Rewinding {
+                self.resume_play();
+            } else {
+                self.instant_rewind();
+            }
+            return;
+        }
+
+        match feature {
+            Feature::ToggleGameplayRecording => match self.replay.mode {
+                ReplayMode::Off => self.start_replay(),
+                ReplayMode::Recording | ReplayMode::Playback => self.stop_replay(),
+            },
+            Feature::ToggleSoundRecording => self.toggle_sound_recording(s),
+            Feature::TakeScreenshot => self.save_screenshot(s),
+            Feature::SaveState => self.save_state(self.config.save_slot),
+            Feature::LoadState => self.load_state(self.config.save_slot),
+            // Instant Rewind happens on key release
+            Feature::Rewind => (),
+        }
+    }
+
+    #[inline]
+    fn handle_setting(
+        &mut self,
+        s: &mut PixState,
+        setting: Setting,
+        pressed: bool,
+    ) -> NesResult<()> {
+        if !pressed {
+            if setting == Setting::FastForward {
+                self.set_speed(1.0);
+            }
+            return Ok(());
+        }
+        match setting {
+            Setting::SetSaveSlot(slot) => {
+                self.config.save_slot = slot;
+                self.add_message(&format!("Set Save Slot to {}", slot));
+            }
+            Setting::ToggleFullscreen => {
+                self.config.fullscreen = !self.config.fullscreen;
+                s.fullscreen(self.config.fullscreen)?;
+            }
+            Setting::ToggleVsync => {
                 self.config.vsync = !self.config.vsync;
-                data.vsync(self.config.vsync)?;
+                s.vsync(self.config.vsync)?;
                 if self.config.vsync {
                     self.add_message("Vsync Enabled");
                 } else {
                     self.add_message("Vsync Disabled");
                 }
             }
-            // Shift
-            Key::Num1 if s => self.cpu.bus.apu.toggle_pulse1(),
-            Key::Num2 if s => self.cpu.bus.apu.toggle_pulse2(),
-            Key::Num3 if s => self.cpu.bus.apu.toggle_triangle(),
-            Key::Num4 if s => self.cpu.bus.apu.toggle_noise(),
-            Key::Num5 if s => self.cpu.bus.apu.toggle_dmc(),
-            Key::N if s => self.toggle_nt_viewer(data)?,
-            Key::P if s => self.toggle_ppu_viewer(data)?,
-            Key::V if s => {
-                self.recording = !self.recording;
-                if self.recording {
-                    self.add_message("Recording Started");
+            Setting::ToggleNtscFilter => {
+                self.config.filter = match self.config.filter {
+                    VideoFilter::None => VideoFilter::Ntsc,
+                    VideoFilter::Ntsc => VideoFilter::None,
+                };
+                self.control_deck.set_filter(self.config.filter);
+            }
+            Setting::ToggleSound => {
+                self.config.sound = !self.config.sound;
+                if self.config.sound {
+                    self.add_message("Sound Enabled");
                 } else {
-                    self.add_message("Recording Stopped");
-                    self.save_replay()?;
+                    self.add_message("Sound Disabled");
                 }
             }
-            // F# Keys
-            Key::F9 => {} // TODO change log level
-            Key::F10 => match self.screenshot() {
-                Ok(s) => self.add_message(&s),
-                Err(e) => self.add_message(&e.to_string()),
-            },
-            _ => {
-                let handled = self.handle_scanline_key(key);
-                if !handled {
-                    self.handle_input_event(key, true, turbo);
-                }
-            }
+            Setting::TogglePulse1 => self.control_deck.toggle_channel(AudioChannel::Pulse1),
+            Setting::TogglePulse2 => self.control_deck.toggle_channel(AudioChannel::Pulse2),
+            Setting::ToggleTriangle => self.control_deck.toggle_channel(AudioChannel::Triangle),
+            Setting::ToggleNoise => self.control_deck.toggle_channel(AudioChannel::Noise),
+            Setting::ToggleDmc => self.control_deck.toggle_channel(AudioChannel::Dmc),
+            Setting::FastForward => self.set_speed(2.0),
+            Setting::IncSpeed => self.change_speed(0.25),
+            Setting::DecSpeed => self.change_speed(-0.25),
         }
         Ok(())
     }
 
-    /// Handles keyup events
-    fn handle_keyup(&mut self, key: Key, turbo: bool) {
-        self.held_keys.insert(key as u8, false);
-        match key {
-            Key::Space => {
-                self.config.speed = DEFAULT_SPEED;
-                self.cpu.bus.apu.set_speed(self.config.speed);
-            }
-            _ => self.handle_input_event(key, false, turbo),
-        }
-    }
-
-    /// Handles gamepad events from the keyboard.
-    // TODO: Update this to allow up to 4 players
-    fn handle_input_event(&mut self, key: Key, pressed: bool, turbo: bool) {
-        // Gamepad events only apply to the main window
-        if self.focused_window != Some(self.nes_window) {
-            return;
-        }
-        let mut input = &mut self.cpu.bus.input;
-        match key {
-            // Gamepad
-            Key::Z => input.gamepad1.a = pressed,
-            Key::X => input.gamepad1.b = pressed,
-            Key::A => {
-                input.gamepad1.turbo_a = pressed;
-                input.gamepad1.a = turbo && pressed;
-            }
-            Key::S => {
-                input.gamepad1.turbo_b = pressed;
-                input.gamepad1.b = turbo && pressed;
-            }
-            Key::RShift => input.gamepad1.select = pressed,
-            Key::Return => input.gamepad1.start = pressed,
-            Key::Up => {
-                if !self.config.concurrent_dpad && pressed {
-                    input.gamepad1.down = false;
-                }
-                input.gamepad1.up = pressed;
-            }
-            Key::Down => {
-                if !self.config.concurrent_dpad && pressed {
-                    input.gamepad1.up = false;
-                }
-                input.gamepad1.down = pressed;
-            }
-            Key::Left => {
-                if !self.config.concurrent_dpad && pressed {
-                    input.gamepad1.right = false;
-                }
-                input.gamepad1.left = pressed;
-            }
-            Key::Right => {
-                if !self.config.concurrent_dpad && pressed {
-                    input.gamepad1.left = false;
-                }
-                input.gamepad1.right = pressed;
-            }
-            _ => (),
-        }
-    }
-
-    /// Handles controller gamepad button events
-    fn handle_gamepad_button(&mut self, event: PixEvent, turbo: bool) -> NesResult<()> {
-        // Gamepad events only apply to the main window
-        if self.focused_window != Some(self.nes_window) {
-            return Ok(());
-        }
-        if let PixEvent::GamepadBtn(gamepad_id, button, pressed) = event {
-            let input = &mut self.cpu.bus.input;
-            let mut gamepad = match gamepad_id {
-                0 => &mut input.gamepad1,
-                1 => &mut input.gamepad2,
-                _ => panic!("invalid gamepad id: {}", gamepad_id),
-            };
+    #[inline]
+    fn handle_gamepad_pressed(&mut self, slot: GamepadSlot, button: GamepadBtn, pressed: bool) {
+        let mut gamepad = self.control_deck.gamepad_mut(slot);
+        if !self.config.concurrent_dpad && pressed {
             match button {
-                Button::Guide if pressed => self.paused(!self.paused),
-                Button::LeftShoulder if pressed => self.change_speed(-0.25),
-                Button::RightShoulder if pressed => self.change_speed(0.25),
-                Button::A => {
-                    gamepad.a = pressed;
-                }
-                Button::B => gamepad.b = pressed,
-                Button::X => {
-                    gamepad.turbo_a = pressed;
-                    gamepad.a = turbo && pressed;
-                }
-                Button::Y => {
-                    gamepad.turbo_b = pressed;
-                    gamepad.b = turbo && pressed;
-                }
-                Button::Back => gamepad.select = pressed,
-                Button::Start => gamepad.start = pressed,
-                Button::DPadUp => gamepad.up = pressed,
-                Button::DPadDown => gamepad.down = pressed,
-                Button::DPadLeft => gamepad.left = pressed,
-                Button::DPadRight => gamepad.right = pressed,
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
-    /// Handle controller gamepad joystick events
-    fn handle_gamepad_axis(&mut self, event: PixEvent) -> NesResult<()> {
-        // Gamepad events only apply to the main window
-        if self.focused_window != Some(self.nes_window) {
-            return Ok(());
-        }
-        if let PixEvent::GamepadAxis(gamepad_id, axis, value) = event {
-            let input = &mut self.cpu.bus.input;
-            let mut gamepad = match gamepad_id {
-                0 => &mut input.gamepad1,
-                1 => &mut input.gamepad2,
-                _ => panic!("invalid gamepad id: {}", gamepad_id),
-            };
-            match axis {
-                // Left/Right
-                Axis::LeftX => {
-                    if value < -GAMEPAD_AXIS_DEADZONE {
-                        gamepad.left = true;
-                    } else if value > GAMEPAD_AXIS_DEADZONE {
-                        gamepad.right = true;
-                    } else {
-                        gamepad.left = false;
-                        gamepad.right = false;
-                    }
-                }
-                // Down/Up
-                Axis::LeftY => {
-                    if value < -GAMEPAD_AXIS_DEADZONE {
-                        gamepad.up = true;
-                    } else if value > GAMEPAD_AXIS_DEADZONE {
-                        gamepad.down = true;
-                    } else {
-                        gamepad.up = false;
-                        gamepad.down = false;
-                    }
-                }
-                Axis::TriggerLeft if value > GAMEPAD_TRIGGER_PRESS => {
-                    let rewind = false;
-                    self.save_state(self.config.save_slot, rewind);
-                }
-                Axis::TriggerRight if value > GAMEPAD_TRIGGER_PRESS => {
-                    let rewind = false;
-                    self.load_state(self.config.save_slot, rewind);
-                }
+                GamepadBtn::Left => gamepad.right = !pressed,
+                GamepadBtn::Right => gamepad.left = !pressed,
+                GamepadBtn::Up => gamepad.down = !pressed,
+                GamepadBtn::Down => gamepad.up = !pressed,
                 _ => (),
             }
         }
-        Ok(())
+        match button {
+            GamepadBtn::Left => gamepad.left = pressed,
+            GamepadBtn::Right => gamepad.right = pressed,
+            GamepadBtn::Up => gamepad.up = pressed,
+            GamepadBtn::Down => gamepad.down = pressed,
+            GamepadBtn::A => gamepad.a = pressed,
+            GamepadBtn::B => gamepad.b = pressed,
+            GamepadBtn::TurboA => {
+                gamepad.turbo_a = pressed;
+                gamepad.a = pressed; // Ensures that primary button isn't stuck pressed
+            }
+            GamepadBtn::TurboB => {
+                gamepad.turbo_b = pressed;
+                gamepad.b = pressed; // Ensures that primary button isn't stuck pressed
+            }
+            GamepadBtn::Select => gamepad.select = pressed,
+            GamepadBtn::Start => gamepad.start = pressed,
+        };
     }
 
-    /// Takes a screenshot and saves it to the current directory as a `.png` file
-    ///
-    /// # Arguments
-    ///
-    /// * `pixels` - An array of pixel data to save in `.png` format
-    ///
-    /// # Errors
-    ///
-    /// It's possible for this method to fail, but instead of erroring the program,
-    /// it'll simply log the error out to STDERR
-    // TODO Scale screenshot to current width/height
-    // TODO Screenshot the currently focused window
-    fn screenshot(&mut self) -> NesResult<String> {
-        let datetime: DateTime<Local> = Local::now();
-        let mut png_path = PathBuf::from(
-            datetime
-                .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S")
-                .to_string(),
-        );
-        let pixels = self.cpu.bus.ppu.frame();
-        png_path.set_extension("png");
-        println!("Saved screenshot: {:?}", png_path);
-        create_png(&png_path, pixels)
-    }
-
-    /// Helper function to get held keys
-    fn is_key_held(&self, key: Key) -> bool {
-        if let Some(held) = self.held_keys.get(&(key as u8)) {
-            *held
-        } else {
-            false
+    #[inline]
+    fn handle_debug(
+        &mut self,
+        s: &mut PixState,
+        action: DebugAction,
+        repeat: bool,
+    ) -> NesResult<()> {
+        let debugging = self.debugger.is_some();
+        match action {
+            DebugAction::ToggleCpuDebugger if !repeat => self.toggle_debugger(s)?,
+            DebugAction::TogglePpuDebugger if !repeat => self.toggle_ppu_viewer(s)?,
+            DebugAction::ToggleApuDebugger if !repeat => self.toggle_apu_viewer(s)?,
+            DebugAction::StepInto if debugging => {
+                self.pause_play();
+                self.control_deck.clock();
+            }
+            DebugAction::StepOver if debugging => {
+                self.pause_play();
+                let instr = self.control_deck.next_instr();
+                self.control_deck.clock();
+                if instr.op() == Operation::JSR {
+                    let rti_addr = self.control_deck.stack_addr().wrapping_add(1);
+                    while self.control_deck.pc() != rti_addr {
+                        self.control_deck.clock();
+                    }
+                }
+            }
+            DebugAction::StepOut if debugging => {
+                let mut instr = self.control_deck.next_instr();
+                while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
+                    self.control_deck.clock();
+                    instr = self.control_deck.next_instr();
+                }
+                self.control_deck.clock();
+            }
+            DebugAction::StepFrame if debugging => {
+                self.pause_play();
+                self.control_deck.clock_frame();
+            }
+            DebugAction::StepScanline if debugging => {
+                self.pause_play();
+                self.control_deck.clock_scanline();
+            }
+            DebugAction::IncScanline if self.ppu_viewer.is_some() => {
+                let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
+                self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT - 1);
+                self.control_deck
+                    .ppu_mut()
+                    .set_viewer_scanline(self.scanline);
+            }
+            DebugAction::DecScanline if self.ppu_viewer.is_some() => {
+                let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
+                self.scanline = self.scanline.saturating_sub(decrement);
+                self.control_deck
+                    .ppu_mut()
+                    .set_viewer_scanline(self.scanline);
+            }
+            _ => (),
         }
-    }
-
-    /// Helper function to determine if a keyboard event is a gamepad event
-    // TODO: When custom keybind abstraction is complete, update this to only
-    // match bindings that are tied to gamepad inputs
-    fn is_gamepad_event(event: &PixEvent) -> bool {
-        match event {
-            PixEvent::KeyPress(key, ..) => matches!(key,
-                Key::A
-                | Key::S
-                | Key::Z
-                | Key::X
-                | Key::Return
-                | Key::RShift
-                | Key::Left
-                | Key::Right
-                | Key::Up
-                | Key::Down
-            ),
-            PixEvent::GamepadBtn(_, btn, ..) => matches!(btn,
-                Button::A
-                | Button::B
-                | Button::X
-                | Button::Y
-                | Button::Start
-                | Button::Back
-                | Button::DPadLeft
-                | Button::DPadRight
-                | Button::DPadUp
-                | Button::DPadDown
-            ),
-            PixEvent::GamepadAxis(_, axis, ..) => matches!(axis, Axis::LeftX | Axis::LeftY),
-            _ => false,
-        }
-    }
-}
-
-impl FrameEvent {
-    pub(super) fn new(frame: usize, events: Vec<PixEvent>) -> Self {
-        Self { frame, events }
-    }
-}
-
-impl Savable for FrameEvent {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.frame.save(fh)?;
-        self.events.save(fh)?;
         Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.frame.load(fh)?;
-        self.events.load(fh)?;
-        Ok(())
-    }
-}
-
-impl Default for FrameEvent {
-    fn default() -> Self {
-        Self {
-            frame: 0,
-            events: Vec::new(),
-        }
     }
 }

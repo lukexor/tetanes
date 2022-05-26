@@ -1,24 +1,10 @@
-//! Contains the Filter Trait for both High Pass and Low Pass filters
+use serde::{Deserialize, Serialize};
+pub use std::f32;
 
-use enum_dispatch::enum_dispatch;
-use std::f32::consts;
-
-#[enum_dispatch]
-#[derive(Clone)]
-pub enum FilterType {
-    HiPassFilter,
-    LoPassFilter,
-}
-
-/// Filter trait
-#[enum_dispatch(FilterType)]
-pub trait Filter {
-    fn process(&mut self, sample: f32) -> f32;
-}
-
-/// High Pass Filter
-#[derive(Clone)]
-pub struct HiPassFilter {
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
+pub struct Filter {
+    freq: f32,
     b0: f32,
     b1: f32,
     a1: f32,
@@ -26,58 +12,52 @@ pub struct HiPassFilter {
     prev_y: f32,
 }
 
-impl HiPassFilter {
-    pub fn new(freq: f32, sample_rate: f32) -> Self {
-        let c = (sample_rate / consts::PI / freq) as f32;
-        let a0i = 1.0 / (1.0 + c);
+impl Filter {
+    pub fn low_pass(freq: f32, sample_rate: f32) -> Self {
+        let cutoff = sample_rate / f32::consts::PI / freq;
+        let a0i = 1.0 / (1.0 + cutoff);
         Self {
-            b0: c * a0i,
-            b1: -c * a0i,
-            a1: (1.0 - c) * a0i,
-            prev_x: 0.0,
-            prev_y: 0.0,
-        }
-    }
-}
-
-impl Filter for HiPassFilter {
-    fn process(&mut self, sample: f32) -> f32 {
-        let y = self.b0 * sample + self.b1 * self.prev_x - self.a1 * self.prev_y;
-        self.prev_y = y;
-        self.prev_x = sample;
-        y
-    }
-}
-
-/// Low Pass Filter
-#[derive(Clone)]
-pub struct LoPassFilter {
-    b0: f32,
-    b1: f32,
-    a1: f32,
-    prev_x: f32,
-    prev_y: f32,
-}
-
-impl LoPassFilter {
-    pub fn new(freq: f32, sample_rate: f32) -> Self {
-        let c = (sample_rate / consts::PI / freq) as f32;
-        let a0i = 1.0 / (1.0 + c);
-        Self {
+            freq,
             b0: a0i,
             b1: a0i,
-            a1: (1.0 - c) * a0i,
+            a1: (1.0 - cutoff) * a0i,
             prev_x: 0.0,
             prev_y: 0.0,
         }
     }
-}
 
-impl Filter for LoPassFilter {
-    fn process(&mut self, sample: f32) -> f32 {
-        let y = self.b0 * sample + self.b1 * self.prev_x - self.a1 * self.prev_y;
-        self.prev_y = y;
-        self.prev_x = sample;
-        y
+    pub fn high_pass(freq: f32, sample_rate: f32) -> Self {
+        let cutoff = sample_rate / f32::consts::PI / freq;
+        let a0i = 1.0 / (1.0 + cutoff);
+        Self {
+            freq,
+            b0: cutoff * a0i,
+            b1: -cutoff * a0i,
+            a1: (1.0 - cutoff) * a0i,
+            prev_x: 0.0,
+            prev_y: 0.0,
+        }
+    }
+
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        let cutoff = sample_rate / f32::consts::PI / self.freq;
+        let a0i = 1.0 / (1.0 + cutoff);
+        if self.b0 == a0i {
+            self.b0 = a0i;
+            self.b1 = a0i;
+        } else {
+            self.b0 = cutoff * a0i;
+            self.b1 = -cutoff * a0i;
+        }
+        self.a1 = (1.0 - cutoff) * a0i;
+    }
+
+    pub fn apply(&mut self, samples: &mut [f32]) {
+        for sample in samples.iter_mut() {
+            let prev_x = self.prev_x;
+            self.prev_x = *sample;
+            *sample = self.b0.mul_add(*sample, self.b1 * prev_x) - self.a1 * self.prev_y;
+            self.prev_y = *sample;
+        }
     }
 }

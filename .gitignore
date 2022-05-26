@@ -1,5 +1,3 @@
-target
-**/*.rs.bk
-roms/*
-node_modules
-dist
+roms/
+tmp/
+test_results/

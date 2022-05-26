@@ -1,19 +1,17 @@
-use super::{envelope::Envelope, length_counter::LengthCounter};
-use crate::{
-    common::{Clocked, Powered},
-    serialization::Savable,
-    NesResult,
-};
-use std::io::{Read, Write};
+use super::{envelope::Envelope, LengthCounter};
+use crate::common::{Clocked, NesFormat, Powered};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 enum ShiftMode {
     Zero,
     One,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct Noise {
+    nes_format: NesFormat,
     pub enabled: bool,
     freq_timer: u16,       // timer freq_counter reload value
     freq_counter: u16,     // Current frequency timer value
@@ -24,13 +22,17 @@ pub struct Noise {
 }
 
 impl Noise {
-    const FREQ_TABLE: [u16; 16] = [
+    const FREQ_TABLE_NTSC: [u16; 16] = [
         4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
+    ];
+    const FREQ_TABLE_PAL: [u16; 16] = [
+        4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
     ];
     const SHIFT_BIT_15_MASK: u16 = !0x8000;
 
-    pub fn new() -> Self {
+    pub const fn new(nes_format: NesFormat) -> Self {
         Self {
+            nes_format,
             enabled: false,
             freq_timer: 0u16,
             freq_counter: 0u16,
@@ -41,14 +43,31 @@ impl Noise {
         }
     }
 
+    #[inline]
+    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
+        self.nes_format = nes_format;
+    }
+
+    #[inline]
+    fn freq_timer(nes_format: NesFormat, val: u8) -> u16 {
+        match nes_format {
+            NesFormat::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 1,
+            NesFormat::Pal | NesFormat::Dendy => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 1,
+        }
+    }
+
+    #[inline]
     pub fn clock_quarter_frame(&mut self) {
         self.envelope.clock();
     }
 
+    #[inline]
     pub fn clock_half_frame(&mut self) {
         self.length.clock();
     }
 
+    #[inline]
+    #[must_use]
     pub fn output(&self) -> f32 {
         if self.shift & 1 == 0 && self.length.counter != 0 {
             if self.envelope.enabled {
@@ -61,14 +80,16 @@ impl Noise {
         }
     }
 
+    #[inline]
     pub fn write_control(&mut self, val: u8) {
         self.length.write_control(val);
         self.envelope.write_control(val);
     }
 
     // $400E Noise timer
+    #[inline]
     pub fn write_timer(&mut self, val: u8) {
-        self.freq_timer = Self::FREQ_TABLE[(val & 0x0F) as usize];
+        self.freq_timer = Self::freq_timer(self.nes_format, val);
         self.shift_mode = if (val >> 7) & 1 == 1 {
             ShiftMode::One
         } else {
@@ -76,15 +97,25 @@ impl Noise {
         };
     }
 
+    #[inline]
     pub fn write_length(&mut self, val: u8) {
         if self.enabled {
             self.length.load_value(val);
         }
         self.envelope.reset = true;
     }
+
+    #[inline]
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.length.counter = 0;
+        }
+    }
 }
 
 impl Clocked for Noise {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;
@@ -106,51 +137,12 @@ impl Clocked for Noise {
 
 impl Powered for Noise {
     fn reset(&mut self) {
-        *self = Self::new();
-    }
-}
-
-impl Savable for Noise {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        self.enabled.save(fh)?;
-        self.freq_timer.save(fh)?;
-        self.freq_counter.save(fh)?;
-        self.shift.save(fh)?;
-        self.shift_mode.save(fh)?;
-        self.length.save(fh)?;
-        self.envelope.save(fh)?;
-        Ok(())
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        self.enabled.load(fh)?;
-        self.freq_timer.load(fh)?;
-        self.freq_counter.load(fh)?;
-        self.shift.load(fh)?;
-        self.shift_mode.load(fh)?;
-        self.length.load(fh)?;
-        self.envelope.load(fh)?;
-        Ok(())
-    }
-}
-
-impl Savable for ShiftMode {
-    fn save<F: Write>(&self, fh: &mut F) -> NesResult<()> {
-        (*self as u8).save(fh)
-    }
-    fn load<F: Read>(&mut self, fh: &mut F) -> NesResult<()> {
-        let mut val = 0u8;
-        val.load(fh)?;
-        *self = match val {
-            0 => ShiftMode::Zero,
-            1 => ShiftMode::One,
-            _ => panic!("invalid ShiftMode value"),
-        };
-        Ok(())
+        *self = Self::new(NesFormat::default());
     }
 }
 
 impl Default for Noise {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesFormat::default())
     }
 }

@@ -1,461 +1,356 @@
 use crate::{
-    cpu::{
-        instr::{AddrMode::*, Operation::*, INSTRUCTIONS},
-        StatusRegs,
-    },
-    mapper::Mapper,
+    cpu::STATUS_REGS,
+    debugger::Breakpoint,
     memory::MemRead,
-    nes::{Nes, WINDOW_WIDTH},
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
-    NesResult,
+    nes::{Nes, View},
+    ppu::{PATTERN_WIDTH, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_WIDTH},
 };
-use pix_engine::{
-    draw::Rect,
-    image::Image,
-    pixel::{self, ColorType},
-    StateData,
-};
+use pix_engine::prelude::*;
 
 const PALETTE_HEIGHT: u32 = 64;
-pub(super) const DEBUG_WIDTH: u32 = 350;
-pub(super) const INFO_WIDTH: u32 = 2 * RENDER_WIDTH;
-pub(super) const INFO_HEIGHT: u32 = 4 * 10;
+
+#[derive(Debug)]
+pub(crate) struct Debugger {
+    pub(crate) view: View,
+    pub(crate) breakpoints: Vec<Breakpoint>,
+    pub(crate) on_breakpoint: bool,
+}
+
+impl Debugger {
+    const fn new(view: View) -> Self {
+        Self {
+            view,
+            breakpoints: vec![],
+            on_breakpoint: false,
+        }
+    }
+}
 
 impl Nes {
-    pub(super) fn toggle_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
-        self.ppu_viewer = !self.ppu_viewer;
-        if self.ppu_viewer {
-            let info_height = 4 * 10;
-            let window = data.open_window(
-                "PPU Viewer",
-                2 * RENDER_WIDTH,
-                RENDER_HEIGHT + PALETTE_HEIGHT + info_height,
-            )?;
-            self.ppu_viewer_window = Some(window);
-
-            // Set up two side-by-side textures for each palette plane
-            let src = Rect::new(0, 0, RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
-            let left_dst = Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            let right_dst = Rect::new(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_window_texture(window, "left_pattern", ColorType::Rgba, src, left_dst)?;
-            data.create_window_texture(window, "right_pattern", ColorType::Rgba, src, right_dst)?;
-
-            // Set up palette texture
-            let src = Rect::new(0, 0, 16, 2);
-            let dst = Rect::new(0, RENDER_HEIGHT, 2 * RENDER_WIDTH, PALETTE_HEIGHT);
-            data.create_window_texture(window, "palette", ColorType::Rgba, src, dst)?;
-
-            // Set up info panel at the bottom
-            let src = Rect::new(0, 0, 2 * RENDER_WIDTH, info_height);
-            let dst = Rect::new(
-                0,
-                RENDER_HEIGHT + PALETTE_HEIGHT,
-                2 * RENDER_WIDTH,
-                info_height,
-            );
-            data.create_window_texture(window, "ppu_info", ColorType::Rgb, src, dst)?;
-
-            // Since debug may not have been enabled before, have PPU generate nametable data
-            self.cpu.bus.ppu.update_debug();
-        } else if let Some(ppu_viewer_window) = self.ppu_viewer_window {
-            data.close_window(ppu_viewer_window);
+    pub(crate) fn toggle_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.debugger {
+            None => {
+                let (w, h) = s.dimensions()?;
+                let window_id = s
+                    .window()
+                    .with_dimensions(w, h)
+                    .with_title("Debugger")
+                    .position(10, 10)
+                    .resizable()
+                    .build()?;
+                let view = View::new(window_id, None);
+                self.debugger = Some(Debugger::new(view));
+                self.control_deck.cpu_mut().debugging = true;
+                self.pause_play();
+            }
+            Some(ref debugger) => {
+                s.close_window(debugger.view.window_id)?;
+                self.control_deck.cpu_mut().debugging = false;
+                self.debugger = None;
+            }
         }
-        self.cpu
-            .bus
-            .ppu
-            .set_debug(self.nt_viewer || self.ppu_viewer);
         Ok(())
     }
 
-    pub(super) fn copy_ppu_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
-        if let Some(ppu_viewer_window) = self.ppu_viewer_window {
-            // Set up patterns
-            let pat_tables = &self.cpu.bus.ppu.pattern_tables;
-            data.copy_window_texture(ppu_viewer_window, "left_pattern", &pat_tables[0])?;
-            data.copy_window_texture(ppu_viewer_window, "right_pattern", &pat_tables[1])?;
+    pub(crate) fn render_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
+        if let Some(ref debugger) = self.debugger {
+            s.with_window(debugger.view.window_id, |s: &mut PixState| {
+                s.clear()?;
+                s.fill(Color::WHITE);
+                s.stroke(None);
 
-            // Draw Borders
-            let borders = Image::new_ref(RENDER_WIDTH / 2, RENDER_HEIGHT);
-            data.set_draw_target(borders);
-            data.draw_line(0, 0, 0, RENDER_HEIGHT, pixel::BLACK);
-            data.copy_window_draw_target(ppu_viewer_window, "right_pattern")?;
-            data.clear_draw_target();
-
-            // Set up palette
-            data.copy_window_texture(ppu_viewer_window, "palette", &self.cpu.bus.ppu.palette)?;
-
-            // Set up info
-            let wh = pixel::WHITE;
-            data.set_draw_target(self.ppu_info_image.clone());
-            let x = 5;
-            let mut y = 5;
-            let ypad = 10;
-
-            // Clear
-            let w = self.nt_info_image.borrow().width();
-            let h = self.nt_info_image.borrow().height();
-            data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
-
-            data.draw_string(x, y, &format!("Scanline: {}", self.pat_scanline), wh);
-            y += ypad;
-
-            let mx = data.get_mouse_x();
-            let my = data.get_mouse_y();
-            let (tile, palette) = if self.focused_window == Some(ppu_viewer_window)
-                && mx >= 0
-                && my >= 0
-                && mx < (2 * RENDER_WIDTH - 1) as i32
-            {
-                let tile = if my < RENDER_HEIGHT as i32 {
-                    format!("${:02X}", (my / 16) << 4 | ((mx / 16) % 16))
-                } else {
-                    String::new()
-                };
-                let palette = if my >= RENDER_HEIGHT as i32
-                    && my <= (RENDER_HEIGHT + PALETTE_HEIGHT) as i32
                 {
-                    let py = my.saturating_sub(RENDER_HEIGHT as i32 + 2) / 32;
-                    let px = mx / 32;
-                    let palette_id = self.cpu.bus.ppu.palette_ids[(py * 16 + px) as usize];
-                    format!("${:02X}", palette_id)
-                } else {
-                    String::new()
-                };
-                (tile, palette)
-            } else {
-                (String::new(), String::new())
-            };
-            data.draw_string(x, y, &format!("Tile: {}", tile), wh);
-            y += ypad;
-            data.draw_string(x, y, &format!("Palette: {}", palette), wh);
-            data.copy_window_draw_target(ppu_viewer_window, "ppu_info")?;
-            data.clear_draw_target();
-        }
-        Ok(())
-    }
+                    let cpu = self.control_deck.cpu();
 
-    pub(super) fn toggle_nt_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
-        self.nt_viewer = !self.nt_viewer;
-        if self.nt_viewer {
-            let info_height = 4 * 10;
-            let window = data.open_window(
-                "Nametable Viewer",
-                2 * RENDER_WIDTH,
-                2 * RENDER_HEIGHT + info_height,
-            )?;
-            self.nt_viewer_window = Some(window);
-
-            // Set up four NT windows
-            let src = Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            let nt1_dst = Rect::new(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            let nt2_dst = Rect::new(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT);
-            let nt3_dst = Rect::new(0, RENDER_HEIGHT, RENDER_WIDTH, RENDER_HEIGHT);
-            let nt4_dst = Rect::new(RENDER_WIDTH, RENDER_HEIGHT, RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_window_texture(window, "nametable1", ColorType::Rgba, src, nt1_dst)?;
-            data.create_window_texture(window, "nametable2", ColorType::Rgba, src, nt2_dst)?;
-            data.create_window_texture(window, "nametable3", ColorType::Rgba, src, nt3_dst)?;
-            data.create_window_texture(window, "nametable4", ColorType::Rgba, src, nt4_dst)?;
-
-            // Set up 2 horizontal lines for scanline detection
-            let src = Rect::new(0, 0, 2 * RENDER_WIDTH, RENDER_HEIGHT);
-            let top_dst = Rect::new(0, 0, 2 * RENDER_WIDTH, RENDER_HEIGHT);
-            let bot_dst = Rect::new(0, RENDER_HEIGHT, 2 * RENDER_WIDTH, RENDER_HEIGHT);
-            data.create_window_texture(window, "scanline_top", ColorType::Rgba, src, top_dst)?;
-            data.create_window_texture(window, "scanline_bot", ColorType::Rgba, src, bot_dst)?;
-
-            // Set up info panel at the bottom
-            let src = Rect::new(0, 0, 2 * RENDER_WIDTH, info_height);
-            let dst = Rect::new(0, 2 * RENDER_HEIGHT, 2 * RENDER_WIDTH, info_height);
-            data.create_window_texture(window, "nt_info", ColorType::Rgb, src, dst)?;
-
-            // Since debug may not have been enabled before, have PPU generate nametable data
-            self.cpu.bus.ppu.update_debug();
-        } else if let Some(nt_viewer_window) = self.nt_viewer_window {
-            data.close_window(nt_viewer_window);
-        }
-        self.cpu
-            .bus
-            .ppu
-            .set_debug(self.nt_viewer || self.ppu_viewer);
-        Ok(())
-    }
-
-    pub(super) fn copy_nt_viewer(&mut self, data: &mut StateData) -> NesResult<()> {
-        if let Some(nt_viewer_window) = self.nt_viewer_window {
-            let wh = pixel::WHITE;
-            let bl = pixel::BLACK;
-
-            let nametables = &self.cpu.bus.ppu.nametables;
-            data.copy_window_texture(nt_viewer_window, "nametable1", &nametables[0])?;
-            data.copy_window_texture(nt_viewer_window, "nametable2", &nametables[1])?;
-            data.copy_window_texture(nt_viewer_window, "nametable3", &nametables[2])?;
-            data.copy_window_texture(nt_viewer_window, "nametable4", &nametables[3])?;
-
-            // Draw scanlines
-            let line = Image::new_ref(2 * RENDER_WIDTH, RENDER_HEIGHT);
-            data.set_draw_target(line);
-            data.draw_line(0, self.nt_scanline, 2 * RENDER_WIDTH, self.nt_scanline, wh);
-            data.copy_window_draw_target(nt_viewer_window, "scanline_top")?;
-            data.copy_window_draw_target(nt_viewer_window, "scanline_bot")?;
-            data.clear_draw_target();
-
-            // Draw Borders
-            let borders = Image::new_ref(2 * RENDER_WIDTH, RENDER_HEIGHT);
-            data.set_draw_target(borders);
-            data.draw_line(
-                0,
-                RENDER_HEIGHT - 1,
-                2 * RENDER_WIDTH,
-                RENDER_HEIGHT - 1,
-                bl,
-            );
-            data.draw_line(RENDER_WIDTH, 0, RENDER_WIDTH, RENDER_HEIGHT, bl);
-            data.copy_window_draw_target(nt_viewer_window, "scanline_top")?;
-            data.copy_window_draw_target(nt_viewer_window, "scanline_bot")?;
-            data.clear_draw_target();
-
-            // Draw info
-            data.set_draw_target(self.nt_info_image.clone());
-            let mut x = 5;
-            let mut y = 5;
-            let ypad = 10;
-
-            let w = self.nt_info_image.borrow().width();
-            let h = self.nt_info_image.borrow().height();
-            data.fill_rect(x, y, w - x, h - y, pixel::BLACK);
-
-            data.draw_string(x, y, &format!("Scanline: {}", self.nt_scanline), wh);
-            y += ypad;
-            let mirroring = self.cpu.bus.mapper.mirroring();
-            data.draw_string(x, y, &format!("Mirroring: {:?}", mirroring), wh);
-            x = RENDER_WIDTH;
-            y = 5;
-
-            let mx = data.get_mouse_x();
-            let my = data.get_mouse_y();
-
-            if self.focused_window == Some(nt_viewer_window)
-                && mx >= 0
-                && my >= 0
-                && mx < 2 * (RENDER_WIDTH - 1) as i32
-                && my < 2 * RENDER_HEIGHT as i32
-            {
-                let nt_addr = 0x2000
-                    + (mx / RENDER_WIDTH as i32) * 0x0400
-                    + (my / RENDER_HEIGHT as i32) * 0x0800;
-                let ppu_addr = nt_addr + ((((my / 8) % 30) << 5) | ((mx / 8) % 32));
-                let tile_id = self.cpu.bus.ppu.nametable_ids[(ppu_addr - 0x2000) as usize];
-
-                data.draw_string(x, y, &format!("Tile ID: ${:02X}", tile_id), wh);
-                y += ypad;
-                data.draw_string(x, y, &format!("X, Y: {}, {}", mx, my), wh);
-                y += ypad;
-                data.draw_string(x, y, &format!("PPU Addr: ${:04X}", ppu_addr), wh);
-            } else {
-                data.draw_string(x, y, "Tile ID:", wh);
-                y += ypad;
-                data.draw_string(x, y, "X, Y:", wh);
-                y += ypad;
-                data.draw_string(x, y, "PPU Addr:", wh);
-            }
-            data.copy_window_draw_target(nt_viewer_window, "nt_info")?;
-        }
-        Ok(())
-    }
-
-    pub(super) fn set_nt_scanline(&mut self, scanline: u32) {
-        let scanline = if scanline > RENDER_HEIGHT - 1 {
-            RENDER_HEIGHT - 1
-        } else {
-            scanline
-        };
-        self.nt_scanline = scanline;
-        self.cpu.bus.ppu.set_nt_scanline(self.nt_scanline as u16);
-    }
-
-    pub(super) fn set_pat_scanline(&mut self, scanline: u32) {
-        let scanline = if scanline > RENDER_HEIGHT - 1 {
-            RENDER_HEIGHT - 1
-        } else {
-            scanline
-        };
-        self.pat_scanline = scanline;
-        self.cpu.bus.ppu.set_pat_scanline(self.pat_scanline as u16);
-    }
-
-    pub(super) fn toggle_debug(&mut self, data: &mut StateData) -> NesResult<()> {
-        self.config.debug = !self.config.debug;
-        self.paused(self.config.debug);
-        let new_width = if self.config.debug {
-            self.width + DEBUG_WIDTH
-        } else {
-            self.width
-        };
-        data.set_screen_size(new_width, self.height)?;
-        self.active_debug = true;
-        self.draw_debug(data);
-        Ok(())
-    }
-
-    pub(super) fn copy_debug(&mut self, data: &mut StateData) -> NesResult<()> {
-        let debug = self.debug_image.borrow();
-        let pixels = debug.bytes();
-        data.copy_texture("debug", pixels)?;
-        Ok(())
-    }
-
-    pub(super) fn draw_debug(&mut self, data: &mut StateData) {
-        let x = 5;
-        let mut y = 5;
-        let wh = pixel::WHITE;
-
-        data.set_draw_target(self.debug_image.clone());
-        data.fill(pixel::VERY_DARK_GRAY);
-
-        // Status Registers
-        let cpu = &self.cpu;
-        data.draw_string(x, y, "Status:", wh);
-
-        let scolor = |f| {
-            if cpu.status & f as u8 > 0 {
-                pixel::RED
-            } else {
-                pixel::GREEN
-            }
-        };
-
-        let fxpad = 8; // Font x-padding
-        let fypad = 10; // Font y-padding
-        let ox = x + 8 * fxpad; // 8 chars from "Status: " * font padding
-        data.draw_string(ox, y, "N", scolor(StatusRegs::N));
-        data.draw_string(ox + fxpad, y, "V", scolor(StatusRegs::V));
-        data.draw_string(ox + 2 * fxpad, y, "-", wh);
-        data.draw_string(ox + 3 * fxpad, y, "B", scolor(StatusRegs::B));
-        data.draw_string(ox + 4 * fxpad, y, "D", scolor(StatusRegs::D));
-        data.draw_string(ox + 5 * fxpad, y, "I", scolor(StatusRegs::I));
-        data.draw_string(ox + 6 * fxpad, y, "Z", scolor(StatusRegs::Z));
-        data.draw_string(ox + 7 * fxpad, y, "C", scolor(StatusRegs::C));
-
-        let ppu = &self.cpu.bus.ppu;
-        let cycles = format!("Cycles: {:8}", cpu.cycle_count);
-        let seconds = format!("Seconds: {:7}", self.running_time.floor());
-        let areg = format!("A: ${:02X} [{:03}]", cpu.acc, cpu.acc);
-        let pc = format!("PC: ${:04X}", cpu.pc);
-        let xreg = format!("X: ${:02X} [{:03}]", cpu.x, cpu.x);
-        let yreg = format!("Y: ${:02X} [{:03}]", cpu.y, cpu.y);
-        let stack = format!("Stack: $01{:02X}", cpu.sp);
-        let vram = format!("Vram Addr: ${:04X}", ppu.read_ppuaddr());
-        let spr = format!("Spr Addr: ${:02X}", ppu.read_oamaddr());
-        let sl = i32::from(ppu.scanline) - 1;
-        let cycsl = format!("Cycle: {:3}  Scanline: {:3}", ppu.cycle, sl);
-        let mx = data.get_mouse_x() / self.config.scale as i32;
-        let my = data.get_mouse_y() / self.config.scale as i32;
-        let mouse = if mx >= 0 && my >= 0 && mx < WINDOW_WIDTH as i32 && my < RENDER_HEIGHT as i32 {
-            let mx = (mx as f32 * 7.0 / 8.0) as u32;
-            format!("Mouse: {:3}, {:3}", mx, my)
-        } else {
-            "Mouse:".to_string()
-        };
-
-        y += fypad;
-        data.draw_string(x, y, &cycles, wh);
-        y += fypad;
-        data.draw_string(x, y, &seconds, wh);
-
-        // PC, Acc, X, Y
-        y += 2 * fypad;
-        data.draw_string(x, y, &pc, wh);
-        data.draw_string(x + 13 * fxpad, y, &areg, wh);
-        y += fypad;
-        data.draw_string(x, y, &xreg, wh);
-        data.draw_string(x + 13 * fxpad, y, &yreg, wh);
-
-        // Stack
-        y += 2 * fypad;
-        data.draw_string(x, y, &stack, wh);
-        y += fypad;
-
-        let bytes_per_row = 8;
-        let xpad = 24; // Font x-padding
-        let ypad = 10; // Font y-padding
-        for (i, offset) in (0xE0..=0xFF).rev().enumerate() {
-            let val = cpu.peek(0x0100 | offset);
-            let x = x + (xpad * i as u32) % (bytes_per_row * xpad);
-            let y = y + ypad * (i as u32 / bytes_per_row);
-            data.draw_string(x, y, &format!("{:02X} ", val), wh);
-        }
-
-        // PPU
-        y += ypad * 4 + fypad;
-        data.draw_string(x, y, &vram, wh);
-        y += fypad;
-        data.draw_string(x, y, &spr, wh);
-        y += fypad;
-        data.draw_string(x, y, &cycsl, wh);
-        y += fypad;
-        data.draw_string(x, y, &mouse, wh);
-
-        // Disassembly
-        y += 2 * fypad;
-        // Number of instructions to show
-        let instr_count = std::cmp::min(30, (self.height - y) as usize / 10);
-        let pad = 10;
-        let mut prev_count = 0;
-        let instrs = cpu.pc_log.iter().take(instr_count / 2).rev();
-        for pc in instrs {
-            let mut pc = *pc;
-            let disasm = cpu.disassemble(&mut pc);
-            data.draw_string(x, y, &disasm, wh);
-            y += pad;
-            prev_count += 1;
-        }
-        let mut pc = cpu.pc;
-        for i in 0..(instr_count - prev_count) {
-            let color = if i == 0 { pixel::CYAN } else { wh };
-            let opcode = cpu.peek(pc);
-            let instr = INSTRUCTIONS[opcode as usize];
-            let byte = cpu.peekw(pc.wrapping_add(1));
-            let disasm = cpu.disassemble(&mut pc);
-            data.draw_string(x, y, &disasm, color);
-            y += pad;
-            match instr.op() {
-                JMP => {
-                    pc = byte;
-                    if cpu.instr.addr_mode() == IND {
-                        if pc & 0x00FF == 0x00FF {
-                            // Simulate bug
-                            pc = (u16::from(cpu.peek(pc & 0xFF00)) << 8) | u16::from(cpu.peek(pc));
+                    s.text("Status: ")?;
+                    s.push();
+                    for status in STATUS_REGS {
+                        s.same_line(None);
+                        s.fill(if cpu.status.intersects(status) {
+                            Color::RED
                         } else {
-                            // Normal behavior
-                            pc = (u16::from(cpu.peek(pc + 1)) << 8) | u16::from(cpu.peek(pc));
+                            Color::GREEN
+                        });
+                        s.text(&format!("{:?}", status))?;
+                    }
+                    s.pop();
+
+                    s.text(&format!("Cycle: {:8}", cpu.cycle))?;
+                    // TODO: Total running time
+
+                    s.spacing()?;
+                    s.text(&format!(
+                        "PC: ${:04X}       A: ${:02X} [{:03}]",
+                        cpu.pc, cpu.acc, cpu.acc
+                    ))?;
+                    s.text(&format!(
+                        "X:  ${:02X} [{:03}]   Y: ${:02X} [{:03}]",
+                        cpu.x, cpu.x, cpu.y, cpu.y
+                    ))?;
+
+                    s.spacing()?;
+                    s.text(&format!("Stack: $01{:02X}", cpu.sp))?;
+                    s.push();
+                    let bytes_per_row = 8;
+                    for (i, offset) in (0xE0..=0xFF).rev().enumerate() {
+                        let val = cpu.peek(0x0100 | offset);
+                        if u16::from(cpu.sp) == offset {
+                            s.fill(Color::GREEN);
+                        } else {
+                            s.fill(Color::GRAY);
+                        }
+                        s.text(&format!("{:02X} ", val))?;
+                        if i % bytes_per_row < bytes_per_row - 1 {
+                            s.same_line(None);
+                        }
+                    }
+                    s.pop();
+                }
+
+                {
+                    let ppu = self.control_deck.ppu();
+
+                    s.spacing()?;
+                    s.text("PPU:")?;
+                    s.text(&format!(
+                        "VRAM Addr: ${:04X}  OAM Addr: ${:02X}",
+                        ppu.read_ppuaddr(),
+                        ppu.read_oamaddr()
+                    ))?;
+                    s.text(&format!(
+                        "Cycle: {:3}  Scanline: {:3}  Frame: {}",
+                        ppu.cycle,
+                        ppu.scanline as i32 - 1,
+                        ppu.frame.num
+                    ))?;
+
+                    s.spacing()?;
+                    if let Some(view) = self.emulation {
+                        if s.focused_window(view.window_id) {
+                            let m = s.mouse_pos() / self.config.scale as i32;
+                            let mx = (m.x() as f32 * 7.0 / 8.0) as i32; // Adjust ratio
+                            s.text(&format!("Mouse: {:3}, {:3}", mx, m.y()))?;
+                        } else {
+                            s.text("Mouse: 0, 0")?;
                         }
                     }
                 }
-                RTS | RTI => pc = cpu.peek_stackw().wrapping_add(1),
-                _ => (),
-            }
+
+                s.spacing()?;
+                let disasm = self.control_deck.disasm(
+                    self.control_deck.pc(),
+                    self.control_deck.pc().saturating_add(30),
+                );
+                for instr in disasm.iter().take(10) {
+                    s.text(&instr)?;
+                }
+
+                Ok(())
+            })?;
         }
-
-        // CPU Memory TODO move this to Hex window
-        // y += 2 * fypad;
-        // let addr_start: u32 = 0x6000;
-        // let addr_len: u32 = 0x00A0;
-        // for addr in addr_start..addr_start + addr_len {
-        //     let val = cpu.peek(addr as u16);
-        //     data.draw_string(
-        //         x + (xpad * (addr - addr_start)) % (bytes_per_row * xpad),
-        //         y + ypad * ((addr - addr_start) / bytes_per_row),
-        //         &format!("{:02X} ", val),
-        //         wh,
-        //     );
-        // }
-
-        data.clear_draw_target();
+        Ok(())
     }
 
-    pub(super) fn should_break(&self) -> bool {
-        // let instr = self.cpu.next_instr();
-        // TODO add breakpoint logic
-        false
+    pub(crate) fn toggle_ppu_viewer(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.ppu_viewer {
+            None => {
+                let w = 4 * RENDER_WIDTH;
+                let h = 3 * RENDER_HEIGHT;
+                let window_id = s
+                    .window()
+                    .with_dimensions(w, h)
+                    .with_title("PPU Viewer")
+                    .position(10, 10)
+                    .resizable()
+                    .build()?;
+                s.with_window(window_id, |s: &mut PixState| {
+                    let texture_id = s.create_texture(w, h, PixelFormat::Rgb)?;
+                    self.ppu_viewer = Some(View::new(window_id, Some(texture_id)));
+                    Ok(())
+                })?;
+                self.control_deck.ppu_mut().open_viewer();
+            }
+            Some(viewer) => {
+                s.close_window(viewer.window_id)?;
+                self.ppu_viewer = None;
+                self.control_deck.ppu_mut().close_viewer();
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn render_ppu_viewer(&mut self, s: &mut PixState) -> PixResult<()> {
+        if let Some(view) = self.ppu_viewer {
+            if let Some(texture_id) = view.texture_id {
+                if let Some(ref viewer) = self.control_deck.ppu().viewer {
+                    s.with_window(view.window_id, |s: &mut PixState| {
+                        s.clear()?;
+                        s.fill(Color::WHITE);
+                        s.stroke(None);
+
+                        let width = RENDER_WIDTH as i32;
+                        let height = RENDER_HEIGHT as i32;
+                        let m = s.mouse_pos();
+
+                        // Nametables
+
+                        let nametables = &viewer.nametables;
+                        let nametable1 = rect![0, 0, width, height];
+                        let nametable2 = rect![width, 0, width, height];
+                        let nametable3 = rect![0, height, width, height];
+                        let nametable4 = rect![width, height, width, height];
+                        let nametable_src = rect![0, 0, 2 * width, 2 * height];
+                        let nametable_pitch = RENDER_CHANNELS * RENDER_WIDTH as usize;
+
+                        s.update_texture(texture_id, nametable1, &nametables[0], nametable_pitch)?;
+                        s.update_texture(texture_id, nametable2, &nametables[1], nametable_pitch)?;
+                        s.update_texture(texture_id, nametable3, &nametables[2], nametable_pitch)?;
+                        s.update_texture(texture_id, nametable4, &nametables[3], nametable_pitch)?;
+                        s.texture(texture_id, nametable_src, nametable_src)?;
+
+                        // Scanline
+                        let scanline = self.scanline as i32;
+                        s.push();
+                        s.stroke(Color::WHITE);
+                        s.stroke_weight(2);
+                        s.line([0, scanline, 2 * width, scanline])?;
+                        s.line([0, scanline + height, 2 * width, scanline + height])?;
+                        s.pop();
+
+                        // Nametable Info
+
+                        s.set_cursor_pos([s.cursor_pos().x(), nametable3.bottom() + 4]);
+
+                        s.text(&format!("Scanline: {}", self.scanline))?;
+                        let mirroring = self.control_deck.cart().mirroring();
+                        s.text(&format!("Mirroring: {:?}", mirroring))?;
+
+                        if s.focused_window(view.window_id)
+                            && rect![0, 0, 2 * width, 2 * height].contains(m)
+                        {
+                            let x = m.x() - nametable_src.x();
+                            let y = m.y() - nametable_src.y();
+                            let nt_addr = (x / width) * 0x0400 + (y / height) * 0x0800;
+                            let ppu_addr = nt_addr + ((((y / 8) % 30) << 5) | ((x / 8) % 32));
+                            let tile_id =
+                                viewer.nametable_ids.get(ppu_addr as usize).unwrap_or(&0x00);
+                            s.text(&format!("Tile ID: ${:02X}", tile_id))?;
+                            s.text(&format!("(X, Y): ({}, {})", x, y))?;
+                            s.text(&format!("Nametable: ${:04X}", nt_addr))?;
+                            s.text(&format!("PPU Addr: ${:04X}", ppu_addr))?;
+                        } else {
+                            s.text("Tile ID: $00")?;
+                            s.text("(X, Y): (0, 0)")?;
+                            s.text("Nametable: $0000")?;
+                            s.text("PPU Addr: $0000")?;
+                        }
+
+                        // Pattern Tables
+
+                        let patterns = &viewer.pattern_tables;
+                        let pattern_x = nametable_src.right() + 8;
+                        let pattern_w = PATTERN_WIDTH as i32;
+                        let pattern_h = pattern_w;
+                        let pattern_left = rect![pattern_x, 0, pattern_w, pattern_h];
+                        let pattern_right = rect![pattern_x + pattern_w, 0, pattern_w, pattern_h];
+                        let pattern_src = rect![pattern_x, 0, 2 * pattern_w, pattern_h];
+                        let pattern_dst = rect![pattern_x, 0, 4 * pattern_w, 2 * pattern_h];
+                        let pattern_pitch = RENDER_CHANNELS * pattern_w as usize;
+                        s.update_texture(texture_id, pattern_left, &patterns[0], pattern_pitch)?;
+                        s.update_texture(texture_id, pattern_right, &patterns[1], pattern_pitch)?;
+                        s.texture(texture_id, pattern_src, pattern_dst)?;
+
+                        // Palette
+
+                        let palette = &viewer.palette;
+                        let palette_w = 16;
+                        let palette_h = 2;
+                        let palette_src = rect![0, pattern_src.bottom(), palette_w, palette_h];
+                        let palette_dst = rect![
+                            pattern_x,
+                            pattern_dst.bottom(),
+                            2 * width,
+                            PALETTE_HEIGHT as i32
+                        ];
+                        let palette_pitch = RENDER_CHANNELS * palette_w as usize;
+                        s.update_texture(texture_id, palette_src, &palette, palette_pitch)?;
+                        s.texture(texture_id, palette_src, palette_dst)?;
+
+                        // Borders
+
+                        s.push();
+
+                        s.stroke(Color::DIM_GRAY);
+                        s.fill(None);
+                        s.stroke_weight(2);
+
+                        s.rect(nametable1)?;
+                        s.rect(nametable2)?;
+                        s.rect(nametable3)?;
+                        s.rect(nametable4)?;
+                        s.rect(pattern_dst)?;
+                        s.line([
+                            pattern_dst.center().x(),
+                            pattern_dst.top(),
+                            pattern_dst.center().x(),
+                            pattern_dst.bottom(),
+                        ])?;
+
+                        s.pop();
+
+                        // PPU Address Info
+
+                        s.set_cursor_pos([s.cursor_pos().x(), palette_dst.bottom() + 4]);
+                        s.set_column_offset(pattern_x);
+
+                        if pattern_dst.contains(m) {
+                            let x = m.x() - pattern_dst.x();
+                            let y = m.y() - pattern_dst.y();
+                            let tile = (y / 16) << 4 | ((x / 16) % 16);
+                            s.text(&format!("Tile: ${:02X}", tile))?;
+                        } else {
+                            s.text("Tile: $00")?;
+                        }
+
+                        if palette_dst.contains(m) {
+                            let py = m.y().saturating_sub(height + 2) / 32;
+                            let px = m.x() / 32;
+                            let palette = viewer
+                                .palette_ids
+                                .get((py * 16 + px) as usize)
+                                .unwrap_or(&0x00);
+                            s.text(&format!("Palette: ${:02X}", palette))?;
+                        } else {
+                            s.text("Palette: $00")?;
+                        }
+
+                        s.reset_column_offset();
+                        Ok(())
+                    })?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn toggle_apu_viewer(&mut self, s: &mut PixState) -> PixResult<()> {
+        match self.apu_viewer {
+            None => {
+                let w = 2 * RENDER_WIDTH;
+                let h = 2 * RENDER_HEIGHT;
+                let window_id = s
+                    .window()
+                    .with_dimensions(w, h)
+                    .with_title("APU Viewer")
+                    .position(10, 10)
+                    .build()?;
+                self.apu_viewer = Some(View::new(window_id, None));
+            }
+            Some(viewer) => {
+                s.close_window(viewer.window_id)?;
+                self.apu_viewer = None;
+            }
+        }
+        Ok(())
     }
 }

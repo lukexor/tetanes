@@ -1,0 +1,34 @@
+name: Cargo Package
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  package:
+    runs-on: macos-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Install toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Cache cargo dependencies
+      uses: Swatinem/rust-cache@v1
+
+    - name: Install build dependencies
+      run: cargo install cargo-vcpkg
+
+    - name: Build dependencies
+      run: cargo vcpkg -v build
+
+    - name: Publish Crate
+      uses: katyo/publish-crates@v1
+      with:
+        registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        args: --features vcpkg
