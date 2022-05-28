@@ -52,8 +52,8 @@ impl Audio {
     /// Outputs audio using multi-rate-control re-sampling.
     ///
     /// Sources:
-    /// - https://near.sh/articles/audio/dynamic-rate-control
-    /// - https://github.com/libretro/docs/blob/master/archive/ratecontrol.pdf
+    /// - <https://near.sh/articles/audio/dynamic-rate-control>
+    /// - <https://github.com/libretro/docs/blob/master/archive/ratecontrol.pdf>
     ///
     /// # Errors
     ///
