@@ -20,9 +20,9 @@ const SINGLE_SCREEN_A: u8 = 0x10; // 0b10000
 // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
 // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-enum Variant {
+pub enum Bf909Revision {
     Bf909x,
     Bf9097,
 }
@@ -32,7 +32,7 @@ enum Variant {
 pub struct Bf909x {
     mirroring: Mirroring,
     prg_rom_banks: MemoryBanks,
-    variant: Variant,
+    variant: Bf909Revision,
 }
 
 impl Bf909x {
@@ -45,9 +45,9 @@ impl Bf909x {
             mirroring: cart.mirroring(),
             prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_ROM_WINDOW),
             variant: if cart.header.submapper_num == 1 {
-                Variant::Bf9097
+                Bf909Revision::Bf9097
             } else {
-                Variant::Bf909x
+                Bf909Revision::Bf909x
             },
         };
         bf909x.prg_rom_banks.set(1, bf909x.prg_rom_banks.last());
@@ -76,12 +76,12 @@ impl MapWrite for Bf909x {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         // Firehawk uses $9000 to change mirroring
         if addr == 0x9000 {
-            self.variant = Variant::Bf9097;
+            self.variant = Bf909Revision::Bf9097;
         }
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
             0x8000..=0xFFFF => {
-                if addr >= 0xC000 || self.variant != Variant::Bf9097 {
+                if addr >= 0xC000 || self.variant != Bf909Revision::Bf9097 {
                     self.prg_rom_banks.set(0, val as usize);
                 } else {
                     self.mirroring = if val & SINGLE_SCREEN_A == SINGLE_SCREEN_A {

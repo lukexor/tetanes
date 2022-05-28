@@ -222,8 +222,6 @@ pub struct Nes {
     selected_path: usize,
     error: Option<String>,
     confirm_quit: Option<(String, bool)>,
-    buffer_data: std::io::BufWriter<std::fs::File>,
-    pitch_data: std::io::BufWriter<std::fs::File>,
 }
 
 impl Nes {
@@ -234,10 +232,6 @@ impl Nes {
         debug: bool,
     ) -> Self {
         let sample_rate = control_deck.apu().sample_rate();
-        let buffer_data =
-            std::io::BufWriter::new(std::fs::File::create("./buffer_data.raw").unwrap());
-        let pitch_data =
-            std::io::BufWriter::new(std::fs::File::create("./pitch_data.raw").unwrap());
         Self {
             control_deck,
             audio: Audio::new(sample_rate, SAMPLE_RATE / config.speed),
@@ -261,8 +255,6 @@ impl Nes {
             selected_path: 0,
             error: None,
             confirm_quit: None,
-            buffer_data,
-            pitch_data,
         }
     }
 
@@ -399,21 +391,6 @@ impl AppState for Nes {
                 let sample_ratio = 1.0
                     + (delta * (buffer_size - 2.0 * (buffer_size - queued_size)))
                         / (1000.0 * buffer_size);
-                use std::io::Write;
-                if self.control_deck.frame_number() % 16 == 0 {
-                    writeln!(
-                        self.buffer_data,
-                        "{} {}",
-                        self.control_deck.frame_number(),
-                        queued_size
-                    )?;
-                    writeln!(
-                        self.pitch_data,
-                        "{} {}",
-                        self.control_deck.frame_number(),
-                        sample_ratio
-                    )?;
-                }
                 let samples = self.control_deck.audio_samples();
                 let output = self.audio.output(samples, sample_ratio);
                 s.enqueue_audio(output)?;

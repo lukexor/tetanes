@@ -1,8 +1,9 @@
 use crate::{
     apu::AudioChannel,
-    common::{Clocked, Powered},
+    common::{Clocked, NesFormat, Powered},
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
+    mapper::MapperRevision,
     nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode},
     ppu::{VideoFilter, RENDER_HEIGHT},
 };
@@ -192,7 +193,7 @@ impl DerefMut for InputMapping {
 }
 
 #[allow(variant_size_differences)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Action {
     Nes(NesState),
     Menu(Menu),
@@ -204,16 +205,17 @@ pub(crate) enum Action {
     Debug(DebugAction),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum NesState {
     ToggleMenu,
     Quit,
     TogglePause,
     Reset,
     PowerCycle,
+    MapperRevision(MapperRevision),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Feature {
     ToggleGameplayRecording,
     ToggleSoundRecording,
@@ -223,12 +225,14 @@ pub(crate) enum Feature {
     LoadState,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Setting {
     SetSaveSlot(u8),
     ToggleFullscreen,
     ToggleVsync,
     ToggleNtscFilter,
+    SetVideoFilter(VideoFilter),
+    SetNesFormat(NesFormat),
     ToggleSound,
     TogglePulse1,
     TogglePulse2,
@@ -240,7 +244,7 @@ pub(crate) enum Setting {
     DecSpeed,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum DebugAction {
     ToggleCpuDebugger,
     TogglePpuDebugger,
@@ -577,6 +581,7 @@ impl Nes {
                     self.mode = Mode::Paused;
                 }
             }
+            NesState::MapperRevision(_) => todo!("mapper revision"),
         }
         Ok(())
     }
@@ -660,6 +665,7 @@ impl Nes {
             Setting::FastForward => self.set_speed(2.0),
             Setting::IncSpeed => self.change_speed(0.25),
             Setting::DecSpeed => self.change_speed(-0.25),
+            _ => log::warn!("Unhandled Setting {:?}", setting),
         }
         Ok(())
     }
@@ -753,7 +759,7 @@ impl Nes {
                     .ppu_mut()
                     .set_viewer_scanline(self.scanline);
             }
-            _ => (),
+            _ => log::warn!("Unhandled DebugAction {:?}", action),
         }
         Ok(())
     }

@@ -1,0 +1,95 @@
+[
+  {
+    "name": "a12_clocking",
+    "frames": [
+      {
+        "number": 25,
+        "hash": 8662151992206870426
+      }
+    ]
+  },
+  {
+    "name": "clocking",
+    "frames": [
+      {
+        "number": 25,
+        "hash": 2655801547316424951
+      }
+    ]
+  },
+  {
+    "name": "details",
+    "frames": [
+      {
+        "number": 30,
+        "hash": 11959064923205207736
+      }
+    ]
+  },
+  {
+    "name": "scanline_timing",
+    "frames": [
+      {
+        "number": 90,
+        "hash": 8382958789747361076
+      }
+    ]
+  },
+  {
+    "name": "big_chr_ram",
+    "frames": [
+      {
+        "number": 10,
+        "hash": 739723748817018557
+      },
+      {
+        "number": 11,
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "number": 80,
+        "hash": 8636926293998839486
+      }
+    ]
+  },
+  {
+    "name": "rev_a",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "Nes": {
+            "MapperRevision": {
+              "Mmc3": "A"
+            }
+          }
+        }
+      },
+      {
+        "number": 30,
+        "hash": 10821845543621386984
+      }
+    ]
+  },
+  {
+    "name": "rev_b",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "Nes": {
+            "MapperRevision": {
+              "Mmc3": "BC"
+            }
+          }
+        }
+      },
+      {
+        "number": 30,
+        "hash": 17416842794700948043
+      }
+    ]
+  }
+]

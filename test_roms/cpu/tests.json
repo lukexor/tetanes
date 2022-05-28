@@ -1,0 +1,389 @@
+[
+  {
+    "name": "branch_backward",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 14459686734873984572
+      }
+    ]
+  },
+  {
+    "name": "nestest",
+    "frames": [
+      {
+        "number": 10,
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "number": 27,
+        "name": "valid_ops",
+        "hash": 8889158163345607795
+      },
+      {
+        "number": 28,
+        "action": {
+          "Gamepad": "Select"
+        }
+      },
+      {
+        "number": 30,
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "number": 45,
+        "name": "invalid_ops",
+        "hash": 14129133573620557375
+      }
+    ]
+  },
+  {
+    "name": "branch_basics",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 17917212846801026842
+      }
+    ]
+  },
+  {
+    "name": "branch_forward",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 7096504516833221727
+      }
+    ]
+  },
+  {
+    "name": "dummy_reads",
+    "frames": [
+      {
+        "number": 48,
+        "hash": 16441565777714452551
+      }
+    ]
+  },
+  {
+    "name": "dummy_writes_oam",
+    "frames": [
+      {
+        "number": 330,
+        "hash": 77282808295056056
+      }
+    ]
+  },
+  {
+    "name": "dummy_writes_ppumem",
+    "frames": [
+      {
+        "number": 235,
+        "hash": 10132062174160864533
+      }
+    ]
+  },
+  {
+    "name": "exec_space_apu",
+    "frames": [
+      {
+        "number": 309,
+        "hash": 18223490294404063868
+      }
+    ]
+  },
+  {
+    "name": "exec_space_ppuio",
+    "frames": [
+      {
+        "number": 50,
+        "hash": 628081058211844112
+      }
+    ]
+  },
+  {
+    "name": "flag_concurrency",
+    "frames": [
+      {
+        "number": 855,
+        "hash": 17077648596187003231
+      }
+    ]
+  },
+  {
+    "name": "instr_abs",
+    "frames": [
+      {
+        "number": 111,
+        "hash": 14005369701503322079
+      }
+    ]
+  },
+  {
+    "name": "instr_abs_xy",
+    "frames": [
+      {
+        "number": 367,
+        "hash": 13409311518856114547
+      }
+    ]
+  },
+  {
+    "name": "instr_basics",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 10449500073482085881
+      }
+    ]
+  },
+  {
+    "name": "instr_branches",
+    "frames": [
+      {
+        "number": 44,
+        "hash": 16112293881130154288
+      }
+    ]
+  },
+  {
+    "name": "instr_brk",
+    "frames": [
+      {
+        "number": 26,
+        "hash": 15255012497467692622
+      }
+    ]
+  },
+  {
+    "name": "instr_imm",
+    "frames": [
+      {
+        "number": 88,
+        "hash": 10623785026137724106
+      }
+    ]
+  },
+  {
+    "name": "instr_imp",
+    "frames": [
+      {
+        "number": 110,
+        "hash": 13600227876871586332
+      }
+    ]
+  },
+  {
+    "name": "instr_ind_x",
+    "frames": [
+      {
+        "number": 148,
+        "hash": 11602010485520535402
+      }
+    ]
+  },
+  {
+    "name": "instr_ind_y",
+    "frames": [
+      {
+        "number": 138,
+        "hash": 9299784670083616852
+      }
+    ]
+  },
+  {
+    "name": "instr_jmp_jsr",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 3268282120541506575
+      }
+    ]
+  },
+  {
+    "name": "instr_misc",
+    "frames": [
+      {
+        "number": 240,
+        "hash": 12155957966071011129
+      }
+    ]
+  },
+  {
+    "name": "instr_rti",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 8566268304369895562
+      }
+    ]
+  },
+  {
+    "name": "instr_rts",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 10946720745018104796
+      }
+    ]
+  },
+  {
+    "name": "instr_special",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 4772094017368640443
+      }
+    ]
+  },
+  {
+    "name": "instr_stack",
+    "frames": [
+      {
+        "number": 168,
+        "hash": 15075558869643868796
+      }
+    ]
+  },
+  {
+    "name": "instr_timing",
+    "frames": [
+      {
+        "number": 1305,
+        "hash": 10988993933814793657
+      }
+    ]
+  },
+  {
+    "name": "instr_zp",
+    "frames": [
+      {
+        "number": 119,
+        "hash": 16844482042710618147
+      }
+    ]
+  },
+  {
+    "name": "instr_zp_xy",
+    "frames": [
+      {
+        "number": 261,
+        "hash": 1437643794414523089
+      }
+    ]
+  },
+  {
+    "name": "int_branch_delays_irq",
+    "frames": [
+      {
+        "number": 384,
+        "hash": 16041718072793963961
+      }
+    ]
+  },
+  {
+    "name": "int_cli_latency",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 9138437368341347336
+      }
+    ]
+  },
+  {
+    "name": "int_irq_and_dma",
+    "frames": [
+      {
+        "number": 75,
+        "hash": 7914865833274646617
+      }
+    ]
+  },
+  {
+    "name": "int_nmi_and_brk",
+    "frames": [
+      {
+        "number": 114,
+        "hash": 7728136529260384052
+      }
+    ]
+  },
+  {
+    "name": "int_nmi_and_irq",
+    "frames": [
+      {
+        "number": 134,
+        "hash": 5996126497575892388
+      }
+    ]
+  },
+  {
+    "name": "overclock",
+    "frames": [
+      {
+        "number": 15,
+        "hash": 933899851946145079
+      }
+    ]
+  },
+  {
+    "name": "sprdma_and_dmc_dma",
+    "frames": [
+      {
+        "number": 145,
+        "hash": 12823609933077272645
+      }
+    ]
+  },
+  {
+    "name": "sprdma_and_dmc_dma_512",
+    "frames": [
+      {
+        "number": 145,
+        "hash": 10505902844625345473
+      }
+    ]
+  },
+  {
+    "name": "timing_test",
+    "frames": [
+      {
+        "number": 615,
+        "hash": 15433351241027701092
+      }
+    ]
+  },
+  {
+    "name": "ram_after_reset",
+    "frames": [
+      {
+        "number": 142,
+        "action": {
+          "Nes": "Reset"
+        }
+      },
+      {
+        "number": 153,
+        "hash": 6390319218429702749
+      }
+    ]
+  },
+  {
+    "name": "regs_after_reset",
+    "frames": [
+      {
+        "number": 140,
+        "action": {
+          "Nes": "Reset"
+        }
+      },
+      {
+        "number": 155,
+        "hash": 13898116474456035545
+      }
+    ]
+  }
+]

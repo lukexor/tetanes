@@ -133,8 +133,10 @@ impl Nes {
         let path = config_path(CONFIG);
         match File::create(&path)
             .with_context(|| format!("failed to open {:?}", path))
-            .map(|file| serde_json::to_writer_pretty(BufWriter::new(file), &self.config))
-        {
+            .and_then(|file| {
+                serde_json::to_writer_pretty(BufWriter::new(file), &self.config)
+                    .context("failed to serialize config")
+            }) {
             Ok(_) => log::info!("Saved configuration"),
             Err(err) => {
                 log::error!("{:?}", err);

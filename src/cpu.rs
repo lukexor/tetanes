@@ -1034,14 +1034,7 @@ impl fmt::Debug for Cpu {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unreadable_literal)]
-    use crate::{
-        common::{
-            tests::{compare, SLOT1},
-            Powered,
-        },
-        test_roms, test_roms_adv,
-    };
+    use crate::test_roms;
 
     #[test]
     fn cycle_timing() {
@@ -1092,66 +1085,46 @@ mod tests {
         }
     }
 
-    test_roms!("cpu", {
-        (branch_backward, 15, 16058243446172272683),
-        (branch_basics, 15, 6621961544636391238),
-        (branch_forward, 15, 6908221038165255313),
-        (dummy_reads, 48, 18309258797429833529),
-        (dummy_writes_oam, 330, 15348699353236208271),
-        (dummy_writes_ppumem, 235, 16925061668762177335),
-        (exec_space_apu, 309, 9746493037754339701),
-        (exec_space_ppuio, 50, 18223146813660982201),
-        (flag_concurrency, 855, 3111294277716932226),
-        (instr_abs, 111, 12048716406341759642),
-        (instr_abs_xy, 367, 12692215775884018089),
-        (instr_basics, 17, 1467428815858025816),
-        (instr_branches, 44, 212992572905666433),
-        (instr_brk, 26, 16973279277709091465),
-        (instr_imm, 88, 5925273358661701815),
-        (instr_imp, 110, 7177125864603875152),
-        (instr_ind_x, 148, 4226748604005841959),
-        (instr_ind_y, 138, 256824703917684375),
-        (instr_jmp_jsr, 17, 4113516875994165533),
-        (instr_misc, 240, 6410133862686352196),
-        (instr_rti, 14, 11716175593070244711),
-        (instr_rts, 17, 2658202673636802771),
-        (instr_special, 11, 822170693113457084),
-        (instr_stack, 168, 1612333551662937858),
-        (instr_timing, 1305, 13007721788673393267),
-        (instr_zp, 119, 3410467318612930860),
-        (instr_zp_xy, 261, 11500180269015527130),
-        (int_branch_delays_irq, 384, 16452878842435291825),
-        (int_cli_latency, 17, 6258840410173416640),
-        (int_irq_and_dma, 75, 13358975779607334897),
-        (int_nmi_and_brk, 114, 17633239368772221973),
-        (int_nmi_and_irq, 134, 10095178669490697839),
-        (overclock, 12, 13855544627008203546),
-        (sprdma_and_dmc_dma, 145, 4947301713433265952),
-        (sprdma_and_dmc_dma_512, 145, 16131269530446620012),
-        (timing_test, 615, 1923625356858417593),
-    });
-
-    test_roms_adv!("cpu", {
-        (nestest, 40, |frame, deck| match frame {
-            5 => deck.gamepad_mut(SLOT1).start = true,
-            6 => deck.gamepad_mut(SLOT1).start = false,
-            22 => compare(15753613247032665412, deck, "nestest_valid"),
-            23 => deck.gamepad_mut(SLOT1).select = true,
-            24 => deck.gamepad_mut(SLOT1).select = false,
-            25 => deck.gamepad_mut(SLOT1).start = true,
-            26 => deck.gamepad_mut(SLOT1).start = false,
-            40 => compare(9375754280498950464, deck, "nestest_invalid"),
-            _ => (),
-        }),
-        (ram_after_reset, 153, |frame, deck| match frame {
-            142 => deck.reset(),
-            153 => compare(12537292272764789395, deck, "ram_after_reset"),
-            _ => (),
-        }),
-        (regs_after_reset, 150, |frame, deck| match frame {
-            140 => deck.reset(),
-            155 => compare(5135615513596903671, deck, "regs_after_reset"),
-            _ => (),
-        }),
-    });
+    test_roms!(
+        "test_roms/cpu",
+        branch_backward,
+        nestest,
+        ram_after_reset,
+        regs_after_reset,
+        branch_basics,
+        branch_forward,
+        dummy_reads,
+        dummy_writes_oam,
+        dummy_writes_ppumem,
+        exec_space_apu,
+        exec_space_ppuio,
+        flag_concurrency,
+        instr_abs,
+        instr_abs_xy,
+        instr_basics,
+        instr_branches,
+        instr_brk,
+        instr_imm,
+        instr_imp,
+        instr_ind_x,
+        instr_ind_y,
+        instr_jmp_jsr,
+        instr_misc,
+        instr_rti,
+        instr_rts,
+        instr_special,
+        instr_stack,
+        instr_timing,
+        instr_zp,
+        instr_zp_xy,
+        int_branch_delays_irq,
+        int_cli_latency,
+        int_irq_and_dma,
+        int_nmi_and_brk,
+        int_nmi_and_irq,
+        overclock,
+        sprdma_and_dmc_dma,
+        sprdma_and_dmc_dma_512,
+        timing_test,
+    );
 }

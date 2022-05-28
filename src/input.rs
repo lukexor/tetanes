@@ -138,6 +138,18 @@ impl Gamepad {
         };
         u8::from(state)
     }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.a = false;
+        self.b = false;
+        self.select = false;
+        self.start = false;
+        self.up = false;
+        self.down = false;
+        self.left = false;
+        self.right = false;
+    }
 }
 
 impl Powered for Gamepad {
@@ -439,25 +451,17 @@ impl fmt::Debug for Input {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::single_match)]
-    use crate::test_roms_adv;
+    use crate::test_roms;
 
-    test_roms_adv!("input", {
-        (zapper_flip, 100, |frame, _deck| match frame {
-            0 => todo!(),
-            _ => (),
-        }, "TODO"),
-        (zapper_light, 100, |frame, _deck| match frame {
-            0 => todo!(),
-            _ => (),
-        }, "TODO"),
-        (zapper_stream, 100, |frame, _deck| match frame {
-            0 => todo!(),
-            _ => (),
-        }, "TODO"),
-        (zapper_trigger, 100, |frame, _deck| match frame {
-            0 => todo!(),
-            _ => (),
-        }, "TODO"),
-    });
+    test_roms!(
+        "test_roms/input",
+        #[ignore = "todo"]
+        zapper_flip,
+        #[ignore = "todo"]
+        zapper_light,
+        #[ignore = "todo"]
+        zapper_stream,
+        #[ignore = "todo"]
+        zapper_trigger,
+    );
 }

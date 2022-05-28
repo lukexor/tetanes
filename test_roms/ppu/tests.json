@@ -1,0 +1,549 @@
+[
+  {
+    "name": "ntsc_torture",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "Setting": {
+            "SetVideoFilter": "Ntsc"
+          }
+        }
+      },
+      {
+        "number": 10,
+        "hash": 1285558611931075172
+      },
+      {
+        "number": 11,
+        "hash": 3224963009118509980
+      }
+    ]
+  },
+  {
+    "name": "oam_read",
+    "frames": [
+      {
+        "number": 40,
+        "hash": 2720695952977252092
+      }
+    ]
+  },
+  {
+    "name": "oam_stress",
+    "frames": [
+      {
+        "number": 1709,
+        "hash": 2499006141529402096
+      }
+    ]
+  },
+  {
+    "name": "open_bus",
+    "frames": [
+      {
+        "number": 260,
+        "hash": 1562096601293931727
+      }
+    ]
+  },
+  {
+    "name": "palette_ram",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 2490481634800449366
+      }
+    ]
+  },
+  {
+    "name": "read_buffer",
+    "frames": [
+      {
+        "number": 1350,
+        "hash": 17355278852143148021
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_alignment",
+    "frames": [
+      {
+        "number": 50,
+        "hash": 14459269347561145863
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_basics",
+    "frames": [
+      {
+        "number": 50,
+        "hash": 10449500073482085881
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_corners",
+    "frames": [
+      {
+        "number": 35,
+        "hash": 8363927970055989087
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_double_height",
+    "frames": [
+      {
+        "number": 30,
+        "hash": 3832926969915840606
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_flip",
+    "frames": [
+      {
+        "number": 30,
+        "hash": 281436636351388395
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_left_clip",
+    "frames": [
+      {
+        "number": 50,
+        "hash": 12197295159799482315
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_right_edge",
+    "frames": [
+      {
+        "number": 40,
+        "hash": 8866820658728897540
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_screen_bottom",
+    "frames": [
+      {
+        "number": 40,
+        "hash": 1500160959973935316
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_timing_basics",
+    "frames": [
+      {
+        "number": 65,
+        "hash": 8024955460249586147
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_timing_order",
+    "frames": [
+      {
+        "number": 68,
+        "hash": 16406260595174307705
+      }
+    ]
+  },
+  {
+    "name": "spr_hit_edge_timing",
+    "frames": [
+      {
+        "number": 80,
+        "hash": 17060255025399324693
+      }
+    ]
+  },
+  {
+    "name": "spr_overflow_basics",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 12732562869384508921
+      }
+    ]
+  },
+  {
+    "name": "spr_overflow_details",
+    "frames": [
+      {
+        "number": 24,
+        "hash": 4599425601086484182
+      }
+    ]
+  },
+  {
+    "name": "spr_overflow_emulator",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 5757277873153400787
+      }
+    ]
+  },
+  {
+    "name": "spr_overflow_obscure",
+    "frames": [
+      {
+        "number": 22,
+        "hash": 4329399805636313720
+      }
+    ]
+  },
+  {
+    "name": "spr_overflow_timing",
+    "frames": [
+      {
+        "number": 141,
+        "hash": 9669176287621707311
+      }
+    ]
+  },
+  {
+    "name": "sprite_ram",
+    "frames": [
+      {
+        "number": 30,
+        "hash": 2490481634800449366
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_basics",
+    "frames": [
+      {
+        "number": 150,
+        "hash": 7516392601392578951
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_clear_timing",
+    "frames": [
+      {
+        "number": 120,
+        "hash": 1501603350308333195
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_control",
+    "frames": [
+      {
+        "number": 35,
+        "hash": 7656580197477359267
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_disable",
+    "frames": [
+      {
+        "number": 108,
+        "hash": 15279789637450022041
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_even_odd_frames",
+    "frames": [
+      {
+        "number": 100,
+        "hash": 2007754194212599441
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_even_odd_timing",
+    "frames": [
+      {
+        "number": 100,
+        "hash": 0
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_frame_basics",
+    "frames": [
+      {
+        "number": 180,
+        "hash": 905394611001961441
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_off_timing",
+    "frames": [
+      {
+        "number": 219,
+        "hash": 4692978832070624053
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_on_timing",
+    "frames": [
+      {
+        "number": 195,
+        "hash": 2636157040120255193
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_set_time",
+    "frames": [
+      {
+        "number": 179,
+        "hash": 16897601602905007386
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_suppression",
+    "frames": [
+      {
+        "number": 165,
+        "hash": 14628429714408534458
+      }
+    ]
+  },
+  {
+    "name": "vbl_nmi_timing",
+    "frames": [
+      {
+        "number": 108,
+        "hash": 3150812558993703377
+      }
+    ]
+  },
+  {
+    "name": "vbl_timing",
+    "frames": [
+      {
+        "number": 153,
+        "hash": 1664069193053051677
+      }
+    ]
+  },
+  {
+    "name": "vram_access",
+    "frames": [
+      {
+        "number": 20,
+        "hash": 2490481634800449366
+      }
+    ]
+  },
+  {
+    "name": "palette",
+    "frames": [
+      {
+        "number": 9,
+        "name": "no_filter",
+        "hash": 3273968102185341089
+      },
+      {
+        "number": 10,
+        "action": {
+          "Setting": {
+            "SetVideoFilter": "Ntsc"
+          }
+        }
+      },
+      {
+        "number": 11,
+        "name": "blue_green_red",
+        "hash": 15331071517400934373
+      },
+      {
+        "number": 12,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 15,
+        "name": "green_red",
+        "hash": 3622863794655880182
+      },
+      {
+        "number": 16,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 18,
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "number": 21,
+        "name": "blue_red",
+        "hash": 4474457751326885945
+      },
+      {
+        "number": 22,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 25,
+        "name": "red",
+        "hash": 13438403929262459203
+      },
+      {
+        "number": 26,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 28,
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "number": 30,
+        "action": {
+          "Gamepad": "Right"
+        }
+      },
+      {
+        "number": 33,
+        "name": "blue_green",
+        "hash": 11824735176668526610
+      },
+      {
+        "number": 34,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 37,
+        "name": "green",
+        "hash": 1828661687889055991
+      },
+      {
+        "number": 38,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 40,
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "number": 43,
+        "name": "blue",
+        "hash": 11530633151748213659
+      },
+      {
+        "number": 44,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 47,
+        "name": "no_emphasis",
+        "hash": 1665014319870089704
+      }
+    ]
+  },
+  {
+    "name": "scanline",
+    "frames": [
+      {
+        "number": 10,
+        "hash": 4979520270540446327
+      },
+      {
+        "number": 11,
+        "hash": 6323960558613795488
+      },
+      {
+        "number": 12,
+        "hash": 7042606630919325109
+      },
+      {
+        "number": 13,
+        "hash": 12082264090110526042
+      }
+    ]
+  },
+  {
+    "name": "color",
+    "frames": [
+      {
+        "number": 10,
+        "hash": 17942209069961941532
+      },
+      {
+        "number": 12,
+        "hash": 17942209069961941532
+      }
+    ]
+  },
+  {
+    "name": "tv",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "Setting": {
+            "SetVideoFilter": "Ntsc"
+          }
+        }
+      },
+      {
+        "number": 10,
+        "hash": 6855861434243301695
+      },
+      {
+        "number": 11,
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "number": 14,
+        "hash": 2443093118007225059
+      },
+      {
+        "number": 15,
+        "hash": 14057623862955980496
+      }
+    ]
+  },
+  {
+    "name": "_240pee",
+    "frames": [
+      {
+        "number": 30,
+        "hash": 14861962410593308495
+      },
+      {
+        "number": 32,
+        "hash": 14861962410593308495
+      }
+    ]
+  }
+]

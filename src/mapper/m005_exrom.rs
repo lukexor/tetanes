@@ -898,12 +898,7 @@ impl Powered for Exrom {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unreadable_literal)]
-    use crate::{
-        common::tests::{compare, SLOT1},
-        ppu::VideoFilter,
-        test_roms_adv,
-    };
+    use crate::test_roms;
 
     #[test]
     fn prg_ram_protect() {
@@ -928,41 +923,5 @@ mod tests {
         }
     }
 
-    test_roms_adv!("mapper/m005_exrom", {
-        (exram, 100, |frame, deck| match frame {
-            0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(14718981547902199448, deck, "exram_1"),
-            15 => compare(6870872450261902625, deck, "exram_2"),
-            45 => compare(11352636728483458582, deck, "exram_3"),
-            100 => compare(4893725367669888392, deck, "exram_3"),
-            _ => (),
-        }, "Disabled for now since it's sensitive to timing"),
-        (basics, 40, |frame, deck| match frame {
-            10 => compare(17691115586669895739, deck, "exrom_basics_1"),
-            11 => deck.gamepad_mut(SLOT1).a = true, // Change Obj table
-            12 => deck.gamepad_mut(SLOT1).a = false,
-            14 => compare(11119197385669226295, deck, "exrom_basics_obj_table"),
-            15 => deck.gamepad_mut(SLOT1).b = true, // Change BG table
-            16 => deck.gamepad_mut(SLOT1).b = false,
-            18 => compare(249922895281435000, deck, "exrom_basics_bg_table"),
-            19 => deck.gamepad_mut(SLOT1).start = true, // Change Obj size
-            20 => deck.gamepad_mut(SLOT1).start = false,
-            22 => compare(17866245002922723459, deck, "exrom_basics_obj_size"),
-            23 => deck.gamepad_mut(SLOT1).select = true, // Enable exram
-            24 => deck.gamepad_mut(SLOT1).select = false,
-            26 => compare(7306523935600541601, deck, "exrom_basics_exram"),
-            27 => deck.gamepad_mut(SLOT1).up = true, // Enable fill
-            28 => deck.gamepad_mut(SLOT1).up = false,
-            30 => compare(7706206738498296599, deck, "exrom_basics_fill"),
-            31 => deck.gamepad_mut(SLOT1).up = true, // Disable fill
-            32 => deck.gamepad_mut(SLOT1).up = false,
-            33 => deck.gamepad_mut(SLOT1).left = true, // Change bank left
-            34 => deck.gamepad_mut(SLOT1).left = false,
-            36 => compare(14482748193384078817, deck, "exrom_basics_bank_left"),
-            37 => deck.gamepad_mut(SLOT1).left = true, // Change bank left
-            38 => deck.gamepad_mut(SLOT1).left = false,
-            40 => compare(7357806387480472925, deck, "exrom_basics_bank_right"),
-            _ => (),
-        }),
-    });
+    test_roms!("test_roms/mapper/m005_exrom", exram, basics);
 }

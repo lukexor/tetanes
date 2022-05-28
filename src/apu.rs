@@ -502,99 +502,76 @@ impl LinearCounter {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unreadable_literal)]
-    use crate::{
-        common::{tests::compare, NesFormat, Powered},
-        test_roms, test_roms_adv,
-    };
+    use crate::test_roms;
 
-    test_roms!("apu", {
-        (clock_jitter, 20, 2490481634800449366),
-        (dmc_basics, 30, 9008018156027184411),
-        (dmc_dma_2007_read, 30, 10365401187820125146),
-        (dmc_dma_2007_write, 35, 4977565403251083090),
-        (dmc_dma_4016_read, 20, 16568721214884101462),
-        (dmc_dma_double_2007_read, 20, 8496836496606559571),
-        (dmc_dma_read_write_2007, 25, 3417829174873616470),
-        (dmc_rates, 30, 1484476788096412594),
-        (dpcmletterbox, 10, 5688337622994168598),
-        (irq_flag, 20, 2490481634800449366),
-        (irq_flag_timing, 100, 0, "fails $04"),
-        (irq_timing, 20, 2490481634800449366),
-        (jitter, 20, 10792018655464982364),
-        (len_ctr, 25, 2490481634800449366),
-        (len_halt_timing, 100, 0, "fails$03"),
-        (len_reload_timing, 100, 0, "fails $04"),
-        (len_table, 20, 2490481634800449366),
-        (len_timing, 100, 0, "Channel: 0 second length of mode 0 is too soon"),
-        (len_timing_mode0, 100, 0, "fails $04"),
-        (len_timing_mode1, 100, 0, "fails $05"),
-        (reset_len_ctrs_enabled, 100, 0, "At power, length counters should be enabled, #2"),
-        (reset_timing, 20, 2490481634800449366),
-        (test_1, 20, 15209140779873873877),
-        (test_2, 20, 15209140779873873877),
-        (test_3, 20, 15209140779873873877, "fails"),
-        (test_4, 20, 15209140779873873877, "fails"),
-        (test_5, 20, 15209140779873873877),
-        (test_6, 20, 15209140779873873877),
-        (test_7, 20, 15209140779873873877, "fails"),
-        (test_8, 20, 15209140779873873877, "fails"),
-        (test_9, 20, 15209140779873873877, "fails"),
-        (test_10, 20, 15209140779873873877, "fails"),
-        (pal_clock_jitter, 100, 0, "fails"),
-        (pal_irq_flag_timing, 100, 0, "fails"),
-        (pal_len_halt_timing, 100, 0, "fails"),
-        (pal_len_reload_timing, 100, 0, "fails"),
-        (pal_len_timing_mode0, 100, 0, "fails"),
-        (pal_len_timing_mode1, 100, 0, "fails"),
-    });
-
-    test_roms_adv!("apu", {
-        (reset_4015_cleared, 40, |frame, deck| match frame {
-            20 => deck.reset(),
-            40 => compare(264111498766506014, deck, "reset_4015_cleared"),
-            _ => (),
-        }),
-        (reset_4017_timing, 40, |frame, deck| match frame {
-            20 => deck.reset(),
-            40 => compare(14926929218207596099, deck, "reset_4017_timing"),
-            _ => (),
-        }),
-        (reset_4017_written, 50, |frame, deck| match frame {
-            20 => deck.reset(),
-            35 => deck.reset(),
-            50 => compare(12593305160591345698, deck, "reset_4017_written"),
-            _ => ()
-        }),
-        (reset_irq_flag_cleared, 20, |frame, deck| match frame {
-            15 => deck.reset(),
-            20 => compare(13991247418321945900, deck, "reset_irq_flag_cleared"),
-            _ => (),
-        }),
-        (reset_works_immediately, 30, |frame, deck| match frame {
-            20 => deck.reset(),
-            30 => compare(1786657150847637076, deck, "reset_works_immediately"),
-            _ => (),
-        }),
-        (pal_irq_flag, 20, |frame, deck| match frame {
-            0 => deck.set_nes_format(NesFormat::Pal),
-            20 => compare(15517017464693650810, deck, "pal_irq_flag"),
-            _ => (),
-        }),
-        (pal_irq_timing, 20,  |frame, deck| match frame {
-            0 => deck.set_nes_format(NesFormat::Pal),
-            20 => compare(1898174604279228733, deck, "pal_irq_timing"),
-            _ => (),
-        }),
-        (pal_len_ctr, 25,  |frame, deck| match frame {
-            0 => deck.set_nes_format(NesFormat::Pal),
-            25 => compare(11023338900058641095, deck, "pal_len_ctr"),
-            _ => (),
-        }),
-        (pal_len_table, 20,  |frame, deck| match frame {
-            0 => deck.set_nes_format(NesFormat::Pal),
-            20 => compare(3535877006127956081, deck, "pal_len_table"),
-            _ => (),
-        }),
-    });
+    test_roms!(
+        "test_roms/apu",
+        clock_jitter,
+        dmc_basics,
+        dmc_dma_2007_read,
+        dmc_dma_2007_write,
+        dmc_dma_4016_read,
+        dmc_dma_double_2007_read,
+        dmc_dma_read_write_2007,
+        dmc_rates,
+        dpcmletterbox,
+        irq_flag,
+        #[ignore = "fails $04"]
+        irq_flag_timing,
+        irq_timing,
+        jitter,
+        len_ctr,
+        #[ignore = "fails $03"]
+        len_halt_timing,
+        #[ignore = "fails $04"]
+        len_reload_timing,
+        len_table,
+        #[ignore = "Channel: 0 second length of mode 0 is too soon"]
+        len_timing,
+        #[ignore = "fails $04"]
+        len_timing_mode0,
+        #[ignore = "fails $05"]
+        len_timing_mode1,
+        reset_4015_cleared,
+        reset_4017_timing,
+        reset_4017_written,
+        reset_irq_flag_cleared,
+        #[ignore = "At power, length counters should be enabled, #2"]
+        reset_len_ctrs_enabled,
+        reset_timing,
+        reset_works_immediately,
+        test_1,
+        test_2,
+        #[ignore = "todo"]
+        test_3,
+        #[ignore = "todo"]
+        test_4,
+        test_5,
+        test_6,
+        #[ignore = "todo"]
+        test_7,
+        #[ignore = "todo"]
+        test_8,
+        #[ignore = "todo"]
+        test_9,
+        #[ignore = "todo"]
+        test_10,
+        #[ignore = "todo"]
+        pal_clock_jitter,
+        pal_irq_flag,
+        #[ignore = "todo"]
+        pal_irq_flag_timing,
+        #[ignore = "todo"]
+        pal_irq_timing,
+        pal_len_ctr,
+        #[ignore = "todo"]
+        pal_len_halt_timing,
+        #[ignore = "todo"]
+        pal_len_reload_timing,
+        pal_len_table,
+        #[ignore = "todo"]
+        pal_len_timing_mode0,
+        #[ignore = "todo"]
+        pal_len_timing_mode1,
+    );
 }

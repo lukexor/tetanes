@@ -49,8 +49,10 @@ const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 // Legacy of the Wizard (MMC3A 8940EP)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Mmc3Rev {
-    A, // TODO: Match games that use MMC3A
+pub enum Mmc3Revision {
+    /// MMC3 Revision A
+    A,
+    /// MMC3 Revisions B & C
     BC,
     /// Acclaims MMC3 clone - clocks on falling edge
     Acc,
@@ -74,7 +76,7 @@ pub struct Txrom {
     regs: TxRegs,
     mirroring: Mirroring,
     irq_pending: bool,
-    revision: Mmc3Rev,
+    revision: Mmc3Revision,
     four_screen_ram: Option<Memory>,
     chr_banks: MemoryBanks,
     prg_ram_banks: MemoryBanks,
@@ -106,7 +108,7 @@ impl Txrom {
             regs: TxRegs::new(),
             mirroring: cart.mirroring(),
             irq_pending: false,
-            revision: Mmc3Rev::BC, // TODO compare to known games
+            revision: Mmc3Revision::BC, // TODO compare to known games
             four_screen_ram: if cart.mirroring() == Mirroring::FourScreen {
                 Some(Memory::ram(FOUR_SCREEN_RAM_SIZE, cart.ram_state))
             } else {
@@ -123,7 +125,7 @@ impl Txrom {
     }
 
     #[inline]
-    pub fn set_revision(&mut self, revision: Mmc3Rev) {
+    pub fn set_revision(&mut self, revision: Mmc3Revision) {
         self.revision = revision;
     }
 
@@ -223,7 +225,7 @@ impl Txrom {
     fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
-            let (last, next) = if self.revision == Mmc3Rev::Acc {
+            let (last, next) = if self.revision == Mmc3Revision::Acc {
                 (1, 0)
             } else {
                 (0, 1)
@@ -235,7 +237,9 @@ impl Txrom {
                 } else {
                     self.regs.irq_counter -= 1;
                 }
-                if (counter & 0x01 == 0x01 || self.revision == Mmc3Rev::BC || self.regs.irq_reload)
+                if (counter & 0x01 == 0x01
+                    || self.revision == Mmc3Revision::BC
+                    || self.regs.irq_reload)
                     && self.regs.irq_counter == 0
                     && self.regs.irq_enabled
                 {
@@ -323,36 +327,16 @@ impl Clocked for Txrom {}
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unreadable_literal)]
-    use super::*;
-    use crate::{
-        common::tests::{compare, SLOT1},
-        test_roms, test_roms_adv,
-    };
+    use crate::test_roms;
 
-    test_roms!("mapper/m004_txrom", {
-        (a12_clocking, 18, 3539219657249989563),
-        (clocking, 18, 322938496700885059),
-        (details, 23, 51582360794753888),
-        (rev_b, 18, 1278523550437424362),
-        (scanline_timing, 86, 5608742911791212006),
-    });
-
-    test_roms_adv!("mapper/m004_txrom", {
-        (big_chr_ram, 75, |frame, deck| match frame {
-                10 => compare(12299299979523053842, deck, "mmc3_big_chr_1"),
-                11 => deck.gamepad_mut(SLOT1).start = true,
-                12 => deck.gamepad_mut(SLOT1).start = false,
-                75 => compare(13853852112044024080, deck, "mmc3_big_chr_2"),
-                _ => (),
-            },
-        ),
-        (rev_a, 20, |frame, deck| match frame {
-            0 => if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
-                mapper.set_revision(Mmc3Rev::A);
-            }
-            20 => compare(12265830583915381923, deck, "mmc3_rev_a"),
-            _ => (),
-        }),
-    });
+    test_roms!(
+        "test_roms/mapper/m004_txrom",
+        a12_clocking,
+        clocking,
+        details,
+        rev_b,
+        scanline_timing,
+        big_chr_ram,
+        rev_a,
+    );
 }

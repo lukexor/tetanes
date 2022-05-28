@@ -34,10 +34,12 @@ const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable or Fixed to First Bank
 // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed to Last Bank or Switchable
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Mmc1 {
+pub enum Mmc1Revision {
+    /// MMC1 Revision A
     A,
+    /// MMC1 Revisions B & C
     BC,
 }
 
@@ -58,7 +60,7 @@ pub struct Sxrom {
     regs: SxRegs,
     submapper_num: u8,
     mirroring: Mirroring,
-    board: Mmc1,
+    board: Mmc1Revision,
     chr_select: bool,
     chr_banks: MemoryBanks,
     prg_ram_banks: MemoryBanks,
@@ -66,7 +68,7 @@ pub struct Sxrom {
 }
 
 impl Sxrom {
-    pub fn load(cart: &mut Cart, board: Mmc1) -> Mapper {
+    pub fn load(cart: &mut Cart, board: Mmc1Revision) -> Mapper {
         if cart.prg_ram.is_empty() {
             cart.prg_ram.resize(PRG_RAM_SIZE);
         }
@@ -228,7 +230,7 @@ impl Sxrom {
 
     #[inline]
     fn prg_ram_enabled(&self) -> bool {
-        self.board == Mmc1::A || self.regs.prg & PRG_RAM_DISABLED == 0
+        self.board == Mmc1Revision::A || self.regs.prg & PRG_RAM_DISABLED == 0
     }
 }
 

@@ -10,15 +10,15 @@ use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 
 pub use m000_nrom::Nrom;
-pub use m001_sxrom::Sxrom;
+pub use m001_sxrom::{Mmc1Revision, Sxrom};
 pub use m002_uxrom::Uxrom;
 pub use m003_cnrom::Cnrom;
-pub use m004_txrom::Txrom;
+pub use m004_txrom::{Mmc3Revision, Txrom};
 pub use m005_exrom::Exrom;
 pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
 pub use m066_gxrom::Gxrom;
-pub use m071_bf909x::Bf909x;
+pub use m071_bf909x::{Bf909Revision, Bf909x};
 
 pub mod m000_nrom;
 pub mod m001_sxrom;
@@ -30,6 +30,14 @@ pub mod m007_axrom;
 pub mod m009_pxrom;
 pub mod m066_gxrom;
 pub mod m071_bf909x;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub enum MapperRevision {
+    Mmc1(Mmc1Revision),
+    Mmc3(Mmc3Revision),
+    Bf909(Bf909Revision),
+}
 
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize)]

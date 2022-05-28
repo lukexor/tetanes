@@ -3,8 +3,8 @@
 use crate::{
     common::{Clocked, NesFormat, Powered},
     mapper::{
-        m001_sxrom::Mmc1, Axrom, Bf909x, Cnrom, Empty, Exrom, Gxrom, MapRead, MapWrite, Mapped,
-        MappedRead, MappedWrite, Mapper, MirroringType, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
+        m001_sxrom::Mmc1Revision, Axrom, Bf909x, Cnrom, Empty, Exrom, Gxrom, MapRead, MapWrite,
+        Mapped, MappedRead, MappedWrite, Mapper, MirroringType, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
     },
     memory::{MemRead, MemWrite, Memory, RamState},
     ppu::Mirroring,
@@ -190,7 +190,7 @@ impl Cart {
         };
         cart.mapper = match header.mapper_num {
             0 => Nrom::load(&mut cart),
-            1 => Sxrom::load(&mut cart, Mmc1::BC),
+            1 => Sxrom::load(&mut cart, Mmc1Revision::BC),
             2 => Uxrom::load(&mut cart),
             3 => Cnrom::load(&mut cart),
             4 => Txrom::load(&mut cart),
@@ -199,7 +199,7 @@ impl Cart {
             9 => Pxrom::load(&mut cart),
             66 => Gxrom::load(&mut cart),
             71 => Bf909x::load(&mut cart),
-            155 => Sxrom::load(&mut cart, Mmc1::A),
+            155 => Sxrom::load(&mut cart, Mmc1Revision::A),
             _ => return Err(anyhow!("unsupported mapper number: {}", header.mapper_num)),
         };
 

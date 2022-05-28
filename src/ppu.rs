@@ -66,7 +66,7 @@ const VISIBLE_SCANLINE_END: u32 = 239; // Rendering graphics for the screen
 pub const OAM_SIZE: usize = 64 * 4; // 64 entries * 4 bytes each
 pub const SECONDARY_OAM_SIZE: usize = 8 * 4; // 8 entries * 4 bytes each
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum VideoFilter {
     None,
@@ -1380,13 +1380,8 @@ impl fmt::Debug for Ppu {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unreadable_literal)]
     use super::*;
-    use crate::{
-        cart::Cart,
-        common::tests::{compare, SLOT1},
-        test_roms, test_roms_adv,
-    };
+    use crate::{cart::Cart, test_roms};
 
     #[test]
     fn scrolling_registers() {
@@ -1457,124 +1452,50 @@ mod tests {
         assert_eq!(ppu.regs.v, t_result);
     }
 
-    test_roms!("ppu", {
-        (oam_read, 40, 5391082701375294984),
-        (oam_stress, 1709, 13301009503779195361),
-        (open_bus, 250, 11106403589362705259),
-        (palette_ram, 20, 11142254853534581794),
-        (read_buffer, 1350, 15036289633292458322),
-        (spr_hit_alignment, 41, 17220156047486935074),
-        (spr_hit_basics, 46, 1467428815858025816),
-        (spr_hit_corners, 32, 14745742404640002538),
-        (spr_hit_double_height, 25, 9807671663724507698),
-        (spr_hit_flip, 22, 17928878637009813518),
-        (spr_hit_left_clip, 37, 13578789643585691205),
-        (spr_hit_right_edge, 28, 5173768868609846010),
-        (spr_hit_screen_bottom, 33, 10661004246044495047),
-        (spr_hit_timing_basics, 65, 1036803040590208376),
-        (spr_hit_timing_order, 68, 13386401293760886147),
-        (spr_hit_edge_timing, 80, 16110537833187058560),
-        (spr_overflow_basics, 20, 10054896470839760921),
-        (spr_overflow_details, 24, 11524930027717629233),
-        (spr_overflow_emulator, 20, 8625109434711991653),
-        (spr_overflow_obscure, 22, 201433315841400985),
-        (spr_overflow_timing, 141, 15860117727935666385),
-        (sprite_ram, 20, 11142254853534581794),
-        (vbl_nmi_basics, 142, 8937881636620623435),
-        (vbl_nmi_clear_timing, 120, 2291069159326703442),
-        (vbl_nmi_control, 35, 4131055501321333343),
-        (vbl_nmi_disable, 108, 14947006170784498304),
-        (vbl_nmi_even_odd_frames, 100, 5875371302101286592),
-        (vbl_nmi_even_odd_timing, 100, 0, "clock is skipped too late relative to enabling BG Failed #3"),
-        (vbl_nmi_frame_basics, 176, 13634614598154212129),
-        (vbl_nmi_off_timing, 219, 18122867419946705951),
-        (vbl_nmi_on_timing, 195, 11282034744231147503),
-        (vbl_nmi_set_time, 179, 2066789294549825214),
-        (vbl_nmi_suppression, 165, 9416276197017867323),
-        (vbl_nmi_timing, 108, 9647565883026464538),
-        (vbl_timing, 153, 7155821767737052174),
-        (vram_access, 20, 11142254853534581794),
-    });
-
-    test_roms_adv!("ppu", {
-        (palette, 47, |frame, deck| match frame {
-            // blue | green | red
-            // 1    | 1     | 1
-            // 0    | 1     | 1
-            // 1    | 0     | 1
-            // 0    | 0     | 1
-            // 1    | 1     | 0
-            // 0    | 1     | 0
-            // 1    | 0     | 0
-            // 0    | 0     | 0
-            9 => compare(9596027790758142943, deck, "palette_no_filter"),
-            10 => deck.set_filter(VideoFilter::Ntsc),
-            11 => compare(1564332524866567582, deck, "palette_ntsc_111"),
-            12 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
-            13 => deck.gamepad_mut(SLOT1).left = false,
-            15 => compare(6191344984520130395, deck, "palette_ntsc_011"),
-            16 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
-            17 => deck.gamepad_mut(SLOT1).left = false,
-            18 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
-            19 => deck.gamepad_mut(SLOT1).up = false,
-            21 => compare(14227497745328126279, deck, "palette_ntsc_101"),
-            22 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
-            23 => deck.gamepad_mut(SLOT1).left = false,
-            25 => compare(18016563265804834290, deck, "palette_ntsc_001"),
-            26 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
-            27 => deck.gamepad_mut(SLOT1).left = false,
-            28 => deck.gamepad_mut(SLOT1).up = true, // Enable green emphasis
-            29 => deck.gamepad_mut(SLOT1).up = false,
-            30 => deck.gamepad_mut(SLOT1).right = true, // Disable red emphasis
-            31 => deck.gamepad_mut(SLOT1).right = false,
-            33 => compare(7097616531695476396, deck, "palette_ntsc_110"),
-            34 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
-            35 => deck.gamepad_mut(SLOT1).left = false,
-            37 => compare(9732859200878901828, deck, "palette_ntsc_010"),
-            38 => deck.gamepad_mut(SLOT1).left = true, // Enable blue emphasis
-            39 => deck.gamepad_mut(SLOT1).left = false,
-            40 => deck.gamepad_mut(SLOT1).up = true, // Disable green emphasis
-            41 => deck.gamepad_mut(SLOT1).up = false,
-            43 => compare(3533513838800339770, deck, "palette_ntsc_100"),
-            44 => deck.gamepad_mut(SLOT1).left = true, // Disable blue emphasis
-            45 => deck.gamepad_mut(SLOT1).left = false,
-            47 => compare(16316928457651516010, deck, "palette_ntsc_000"),
-            _ => (),
-        }, "Disabled for now since it's sensitive to timing"),
-        (scanline, 13, |frame, deck| match frame {
-            10 => compare(11173632061853945730, deck, "ppu_scanline_1"),
-            11 => compare(1807804416007383107, deck, "ppu_scanline_2"),
-            12 => compare(14469291519271800052, deck, "ppu_scanline_3"),
-            13 => compare(3136340140872979734, deck, "ppu_scanline_4"),
-            _ => (),
-        }),
-        (color, 12, |frame, deck| match frame {
-            // TODO: Test all color combinations
-            10 => compare(16690057311268587282, deck, "color_1"),
-            12 => compare(16690057311268587282, deck, "color_2"),
-            _ => (),
-        }),
-        (ntsc_torture, 11, |frame, deck| match frame {
-            // TODO: Test more combinations
-            0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(13166163202160505428, deck, "ntsc_torture_1"),
-            11 => compare(10700113025436682755, deck, "ntsc_torture_2"),
-            _ => (),
-        }, "Disabled for now since it's sensitive to timing"),
-        (tv, 15, |frame, deck| match frame {
-            0 => deck.set_filter(VideoFilter::Ntsc),
-            10 => compare(10239813475568871274, deck, "tv_1"),
-            11 => deck.gamepad_mut(SLOT1).start = true,
-            12 => deck.gamepad_mut(SLOT1).start = false,
-            14 => compare(14707170264086469936, deck, "tv_2"),
-            15 => compare(7172050916342041000, deck, "tv_3"),
-            _ => (),
-        }, "Disabled for now since it's sensitive to timing"),
-        (_240pee, 32, |frame, deck| match frame {
-            // TODO: Compare each test
-            30 => compare(16678219602842852704, deck, "240pee_1"),
-            32 => compare(16678219602842852704, deck, "240pee_2"),
-            _ => (),
-        }),
-    });
+    test_roms!(
+        "test_roms/ppu",
+        _240pee, // TODO: Run each test
+        color,   // TODO: Test all color combinations
+        ntsc_torture,
+        oam_read,
+        oam_stress,
+        open_bus,
+        palette,
+        palette_ram,
+        read_buffer,
+        scanline,
+        spr_hit_alignment,
+        spr_hit_basics,
+        spr_hit_corners,
+        spr_hit_double_height,
+        spr_hit_edge_timing,
+        spr_hit_flip,
+        spr_hit_left_clip,
+        spr_hit_right_edge,
+        spr_hit_screen_bottom,
+        spr_hit_timing_basics,
+        spr_hit_timing_order,
+        spr_overflow_basics,
+        spr_overflow_details,
+        spr_overflow_emulator,
+        spr_overflow_obscure,
+        spr_overflow_timing,
+        sprite_ram,
+        tv,
+        vbl_nmi_basics,
+        vbl_nmi_clear_timing,
+        vbl_nmi_control,
+        vbl_nmi_disable,
+        vbl_nmi_even_odd_frames,
+        #[ignore = "clock is skipped too late relative to enabling BG Failed #3"]
+        vbl_nmi_even_odd_timing,
+        vbl_nmi_frame_basics,
+        vbl_nmi_off_timing,
+        vbl_nmi_on_timing,
+        vbl_nmi_set_time,
+        vbl_nmi_suppression,
+        vbl_nmi_timing,
+        vbl_timing,
+        vram_access,
+    );
 }

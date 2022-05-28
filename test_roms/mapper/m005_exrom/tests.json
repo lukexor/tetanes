@@ -1,0 +1,129 @@
+[
+  {
+    "name": "exram",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "Setting": {
+            "SetVideoFilter": "Ntsc"
+          }
+        }
+      },
+      {
+        "number": 10,
+        "hash": 11363649929216311828
+      },
+      {
+        "number": 15,
+        "hash": 13908883427274188740
+      },
+      {
+        "number": 45,
+        "hash": 13567388267492063473
+      },
+      {
+        "number": 100,
+        "hash": 3283642720459978808
+      }
+    ]
+  },
+  {
+    "name": "basics",
+    "frames": [
+      {
+        "number": 10,
+        "hash": 3687401595551641949
+      },
+      {
+        "number": 11,
+        "action": {
+          "Gamepad": "A"
+        }
+      },
+      {
+        "number": 14,
+        "name": "obj_table",
+        "hash": 5988111464032397708
+      },
+      {
+        "number": 15,
+        "action": {
+          "Gamepad": "B"
+        }
+      },
+      {
+        "number": 18,
+        "name": "bg_table",
+        "hash": 16560295231565282003
+      },
+      {
+        "number": 19,
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "number": 22,
+        "name": "obj_size",
+        "hash": 9840860052528934392
+      },
+      {
+        "number": 23,
+        "action": {
+          "Gamepad": "Select"
+        }
+      },
+      {
+        "number": 26,
+        "name": "exram",
+        "hash": 13515077234295084261
+      },
+      {
+        "number": 27,
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "number": 30,
+        "name": "fill",
+        "hash": 7786801589205905248
+      },
+      {
+        "number": 31,
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "number": 33,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "number": 36,
+        "name": "bank_left",
+        "hash": 7078921677872497829
+      },
+      {
+        "number": 37,
+        "action": {
+          "Gamepad": "Right"
+        }
+      },
+      {
+        "number": 39,
+        "action": {
+          "Gamepad": "Right"
+        }
+      },
+      {
+        "number": 42,
+        "name": "bank_right",
+        "hash": 11843665565245668843
+      }
+    ]
+  }
+]
