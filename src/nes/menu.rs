@@ -135,6 +135,24 @@ impl Nes {
 
             s.checkbox("Pause in Background", &mut self.config.pause_in_bg)?;
 
+            let mut log_level = self.config.log_level as usize;
+            s.next_width(100);
+            if s.select_box(
+                "Log Level",
+                &mut log_level,
+                &["Off", "Error", "Warn", "Info", "Debug", "Trace"],
+                6,
+            )? {
+                self.config.log_level = match log_level {
+                    1 => log::LevelFilter::Error,
+                    2 => log::LevelFilter::Warn,
+                    3 => log::LevelFilter::Info,
+                    4 => log::LevelFilter::Debug,
+                    5 => log::LevelFilter::Trace,
+                    _ => log::LevelFilter::Off,
+                };
+            }
+
             let mut save_slot = self.config.save_slot as usize - 1;
             s.next_width(50);
             if s.select_box("Save Slot:", &mut save_slot, &["1", "2", "3", "4"], 4)? {
