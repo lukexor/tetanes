@@ -319,7 +319,6 @@ impl Clocked for Apu {
         // Technically only clocks every 2 CPU cycles, but due
         // to half-cycle timings, we clock every cycle
         self.clock_frame_counter();
-
         self.output();
         self.cycle += 1;
         1

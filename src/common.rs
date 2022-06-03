@@ -1,5 +1,6 @@
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
@@ -85,12 +86,14 @@ pub(crate) fn config_path<P: AsRef<Path>>(path: P) -> PathBuf {
     config_dir().join(path)
 }
 
-pub fn hexdump(data: &[u8], addr_offset: usize) {
+/// Prints a hex dump of a given byte array starting at `addr_offset`.
+pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
     use std::cmp;
 
     let mut addr = 0;
     let len = data.len();
     let mut last_line_same = false;
+    let mut output = Vec::new();
     let mut last_line = String::with_capacity(80);
     while addr <= len {
         let end = cmp::min(addr + 16, len);
@@ -99,7 +102,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
 
         let mut line = String::with_capacity(80);
         for byte in line_data.iter() {
-            line.push_str(&format!(" {:02X}", byte));
+            let _ = write!(line, " {:02X}", byte);
         }
 
         if line_len % 16 > 0 {
@@ -113,7 +116,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
             line.push_str("  |");
             for c in line_data {
                 if (*c as char).is_ascii() && !(*c as char).is_control() {
-                    line.push_str(&format!("{}", (*c as char)));
+                    let _ = write!(line, "{}", (*c as char));
                 } else {
                     line.push('.');
                 }
@@ -123,16 +126,17 @@ pub fn hexdump(data: &[u8], addr_offset: usize) {
         if last_line == line {
             if !last_line_same {
                 last_line_same = true;
-                println!("*");
+                output.push("*".to_string());
             }
         } else {
             last_line_same = false;
-            println!("{:08x} {}", addr + addr_offset, line);
+            output.push(format!("{:08x} {}", addr + addr_offset, line));
         }
         last_line = line;
 
         addr += 16;
     }
+    output
 }
 
 #[cfg(test)]
@@ -149,6 +153,7 @@ pub(crate) mod tests {
     use lazy_static::lazy_static;
     use pix_engine::prelude::{Image, PixelFormat};
     use serde::{Deserialize, Serialize};
+    use std::fmt::Write;
     use std::{
         collections::hash_map::DefaultHasher,
         env,
@@ -302,9 +307,9 @@ pub(crate) mod tests {
             };
             let mut filename = test.to_owned();
             if let Some(ref name) = test_frame.name {
-                filename.push_str(&format!("_{}", name));
+                let _ = write!(filename, "_{}", name);
             } else if count > 0 {
-                filename.push_str(&format!("_{}", count + 1));
+                let _ = write!(filename, "_{}", count + 1);
             }
             let screenshot = result_dir
                 .join(PathBuf::from(filename))

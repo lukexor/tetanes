@@ -445,7 +445,14 @@ impl Powered for Input {
 
 impl fmt::Debug for Input {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        write!(f, "Input {{ }} ")
+        f.debug_struct("Input")
+            .field("gamepads", &self.gamepads)
+            .field("signatures", &self.signatures)
+            .field("zappers", &self.zappers)
+            .field("shift_strobe", &self.shift_strobe)
+            .field("fourscore", &self.fourscore)
+            .field("open_bus", &self.open_bus)
+            .finish()
     }
 }
 

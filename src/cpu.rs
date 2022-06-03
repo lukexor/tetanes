@@ -22,14 +22,13 @@ use instr::{
     INSTRUCTIONS,
 };
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::fmt::{self, Write};
 
 pub mod instr;
 
-// TODO 1.79 MHz (~559 ns/cycle) - May want to use 1_786_830 for a stable 60 FPS
+// TODO 1789772.667 MHz (~559 ns/cycle) - May want to use 1786830 for a stable 60 FPS
 // Add Emulator setting like Mesen??
 // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
-// pub const MASTER_CLOCK_RATE: f32 = 21_441_960.0; // 21.441960 MHz Emulated clock rate
 
 pub const NTSC_MASTER_CLOCK_RATE: f32 = 21_477_272.0;
 pub const NTSC_CPU_CLOCK_RATE: f32 = NTSC_MASTER_CLOCK_RATE / 12.0;
@@ -649,7 +648,7 @@ impl Cpu {
         let instr = INSTRUCTIONS[opcode as usize];
         let mut bytes = Vec::with_capacity(3);
         let mut disasm = String::with_capacity(100);
-        disasm.push_str(&format!("${:04X} ", pc));
+        let _ = write!(disasm, "${:04X} ", pc);
         bytes.push(opcode);
         let mut addr = pc.wrapping_add(1);
         let mode = match instr.addr_mode() {
@@ -750,12 +749,12 @@ impl Cpu {
         };
         *pc = addr;
         for byte in &bytes {
-            disasm.push_str(&format!("${:02X} ", byte));
+            let _ = write!(disasm, "${:02X} ", byte);
         }
         for _ in 0..(3 - bytes.len()) {
             disasm.push_str("    ");
         }
-        disasm.push_str(&format!("{:?}{}", instr, mode));
+        let _ = write!(disasm, "{:?}{}", instr, mode);
         disasm
     }
 

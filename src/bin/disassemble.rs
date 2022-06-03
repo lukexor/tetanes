@@ -37,7 +37,7 @@ pub fn disassemble(pc: &mut usize, rom: &[u8]) -> String {
     let instr = INSTRUCTIONS[opcode as usize];
     let mut bytes = Vec::with_capacity(3);
     let mut disasm = String::with_capacity(100);
-    disasm.push_str(&format!("${:04X}:", pc));
+    let _ = write!(disasm"${:04X}:", pc);
     bytes.push(opcode);
     let mut addr = pc.wrapping_add(1);
     let mode = match instr.addr_mode() {
@@ -122,11 +122,11 @@ pub fn disassemble(pc: &mut usize, rom: &[u8]) -> String {
     *pc = addr;
     for i in 0..3 {
         if i < bytes.len() {
-            disasm.push_str(&format!("{:02X} ", bytes[i]));
+            let _ = write!(disasm, "{:02X} ", bytes[i]);
         } else {
             disasm.push_str("   ");
         }
     }
-    disasm.push_str(&format!("{:?} {}", instr, mode));
+    let _ = write!(disasm, "{:?} {}", instr, mode);
     disasm
 }
