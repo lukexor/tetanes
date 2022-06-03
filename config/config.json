@@ -26,99 +26,724 @@
       "gui": 1024
     },
     "keys": [
-      { "player": "One", "key": "Left", "keymod": 0, "action": { "Gamepad": "Left" } },
-      { "player": "One", "key": "Right", "keymod": 0, "action": { "Gamepad": "Right" } },
-      { "player": "One", "key": "Up", "keymod": 0, "action": { "Gamepad": "Up" } },
-      { "player": "One", "key": "Down", "keymod": 0, "action": { "Gamepad": "Down" } },
-      { "player": "One", "key": "Z", "keymod": 0, "action": { "Gamepad": "A" } },
-      { "player": "One", "key": "X", "keymod": 0, "action": { "Gamepad": "B" } },
-      { "player": "One", "key": "A", "keymod": 0, "action": { "Gamepad": "TurboA" } },
-      { "player": "One", "key": "S", "keymod": 0, "action": { "Gamepad": "TurboB" } },
-      { "player": "One", "key": "Return", "keymod": 0, "action": { "Gamepad": "Start" } },
-      { "player": "One", "key": "RShift", "keymod": 1, "action": { "Gamepad": "Select" } },
-      { "player": "One", "key": "RShift", "keymod": 0, "action": { "Gamepad": "Select" } },
-      { "player": "Two", "key": "J", "keymod": 0, "action": { "Gamepad": "Left" } },
-      { "player": "Two", "key": "L", "keymod": 0, "action": { "Gamepad": "Right" } },
-      { "player": "Two", "key": "I", "keymod": 0, "action": { "Gamepad": "Up" } },
-      { "player": "Two", "key": "K", "keymod": 0, "action": { "Gamepad": "Down" } },
-      { "player": "Two", "key": "N", "keymod": 0, "action": { "Gamepad": "A" } },
-      { "player": "Two", "key": "M", "keymod": 0, "action": { "Gamepad": "B" } },
-      { "player": "Two", "key": "O", "keymod": 0, "action": { "Gamepad": "Start" } },
-      { "player": "Two", "key": "P", "keymod": 1, "action": { "Gamepad": "Select" } },
-      { "player": "One", "key": "H", "keymod": 64, "action": { "Menu": "About" } },
-      { "player": "One", "key": "F1", "keymod": 0, "action": { "Menu": "About" } },
-      { "player": "One", "key": "C", "keymod": 64, "action": { "Menu": "Config" } },
-      { "player": "One", "key": "F2", "keymod": 0, "action": { "Menu": "Config" } },
-      { "player": "One", "key": "O", "keymod": 64, "action": { "Menu": "LoadRom" } },
-      { "player": "One", "key": "F3", "keymod": 0, "action": { "Menu": "LoadRom" } },
-      { "player": "One", "key": "Escape", "keymod": 0, "action": { "Nes": "TogglePause" } },
-      { "player": "One", "key": "Q", "keymod": 64, "action": { "Nes": "Quit" } },
-      { "player": "One", "key": "R", "keymod": 64, "action": { "Nes": "Reset" } },
-      { "player": "One", "key": "P", "keymod": 64, "action": { "Nes": "PowerCycle" } },
-      { "player": "One", "key": "Equals", "keymod": 64, "action": { "Setting": "IncSpeed" } },
-      { "player": "One", "key": "Minus", "keymod": 64, "action": { "Setting": "DecSpeed" } },
-      { "player": "One", "key": "Space", "keymod": 0, "action": { "Setting": "FastForward" } },
-      { "player": "One", "key": "Kp1", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 1 } } },
-      { "player": "One", "key": "Kp2", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 2 } } },
-      { "player": "One", "key": "Kp3", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 3 } } },
-      { "player": "One", "key": "Kp4", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 4 } } },
-      { "player": "One", "key": "Num1", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 1 } } },
-      { "player": "One", "key": "Num2", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 2 } } },
-      { "player": "One", "key": "Num3", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 3 } } },
-      { "player": "One", "key": "Num4", "keymod": 64, "action": { "Setting": { "SetSaveSlot": 4 } } },
-      { "player": "One", "key": "S", "keymod": 64, "action": { "Feature": "SaveState" } },
-      { "player": "One", "key": "L", "keymod": 64, "action": { "Feature": "LoadState" } },
-      { "player": "One", "key": "R", "keymod": 0, "action": { "Feature": "Rewind" } },
-      { "player": "One", "key": "F10", "keymod": 0, "action": { "Feature": "TakeScreenshot" } },
-      { "player": "One", "key": "V", "keymod": 1, "action": { "Feature": "ToggleGameplayRecording" } },
-      { "player": "One", "key": "R", "keymod": 1, "action": { "Feature": "ToggleSoundRecording" } },
-      { "player": "One", "key": "M", "keymod": 64, "action": { "Setting": "ToggleSound" } },
-      { "player": "One", "key": "Num1", "keymod": 1, "action": { "Setting": "TogglePulse1" } },
-      { "player": "One", "key": "Num2", "keymod": 1, "action": { "Setting": "TogglePulse2" } },
-      { "player": "One", "key": "Num3", "keymod": 1, "action": { "Setting": "ToggleTriangle" } },
-      { "player": "One", "key": "Num4", "keymod": 1, "action": { "Setting": "ToggleNoise" } },
-      { "player": "One", "key": "Num5", "keymod": 1, "action": { "Setting": "ToggleDmc" } },
-      { "player": "One", "key": "Return", "keymod": 64, "action": { "Setting": "ToggleFullscreen" } },
-      { "player": "One", "key": "V", "keymod": 64, "action": { "Setting": "ToggleVsync" } },
-      { "player": "One", "key": "N", "keymod": 64, "action": { "Setting": "ToggleNtscFilter" } },
-      { "player": "One", "key": "D", "keymod": 1, "action": { "Debug": "ToggleCpuDebugger" } },
-      { "player": "One", "key": "P", "keymod": 1, "action": { "Debug": "TogglePpuDebugger" } },
-      { "player": "One", "key": "A", "keymod": 1, "action": { "Debug": "ToggleApuDebugger" } },
-      { "player": "One", "key": "C", "keymod": 0, "action": { "Debug": "StepInto" } },
-      { "player": "One", "key": "O", "keymod": 0, "action": { "Debug": "StepOver" } },
-      { "player": "One", "key": "O", "keymod": 1, "action": { "Debug": "StepOut" } },
-      { "player": "One", "key": "L", "keymod": 0, "action": { "Debug": "StepScanline" } },
-      { "player": "One", "key": "F", "keymod": 0, "action": { "Debug": "StepFrame" } },
-      { "player": "One", "key": "Down", "keymod": 64, "action": { "Debug": "IncScanline" } },
-      { "player": "One", "key": "Up", "keymod": 64, "action": { "Debug": "DecScanline" } },
-      { "player": "One", "key": "Down", "keymod": 65, "action": { "Debug": "IncScanline" } },
-      { "player": "One", "key": "Up", "keymod": 65, "action": { "Debug": "DecScanline" } }
+      {
+        "player": "One",
+        "key": "Left",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Right",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Right"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Up",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Down",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Down"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Z",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "A"
+        }
+      },
+      {
+        "player": "One",
+        "key": "X",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "B"
+        }
+      },
+      {
+        "player": "One",
+        "key": "A",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "TurboA"
+        }
+      },
+      {
+        "player": "One",
+        "key": "S",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "TurboB"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Return",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "player": "One",
+        "key": "RShift",
+        "keymod": 1,
+        "action": {
+          "Gamepad": "Select"
+        }
+      },
+      {
+        "player": "One",
+        "key": "RShift",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Select"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "J",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "L",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Right"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "I",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "K",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Down"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "N",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "A"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "M",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "B"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "O",
+        "keymod": 0,
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "player": "Two",
+        "key": "P",
+        "keymod": 1,
+        "action": {
+          "Gamepad": "Select"
+        }
+      },
+      {
+        "player": "One",
+        "key": "H",
+        "keymod": 64,
+        "action": {
+          "Menu": "About"
+        }
+      },
+      {
+        "player": "One",
+        "key": "F1",
+        "keymod": 0,
+        "action": {
+          "Menu": "About"
+        }
+      },
+      {
+        "player": "One",
+        "key": "C",
+        "keymod": 64,
+        "action": {
+          "Menu": "Config"
+        }
+      },
+      {
+        "player": "One",
+        "key": "F2",
+        "keymod": 0,
+        "action": {
+          "Menu": "Config"
+        }
+      },
+      {
+        "player": "One",
+        "key": "O",
+        "keymod": 64,
+        "action": {
+          "Menu": "LoadRom"
+        }
+      },
+      {
+        "player": "One",
+        "key": "F3",
+        "keymod": 0,
+        "action": {
+          "Menu": "LoadRom"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Escape",
+        "keymod": 0,
+        "action": {
+          "Nes": "TogglePause"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Q",
+        "keymod": 64,
+        "action": {
+          "Nes": "Quit"
+        }
+      },
+      {
+        "player": "One",
+        "key": "R",
+        "keymod": 64,
+        "action": {
+          "Nes": "Reset"
+        }
+      },
+      {
+        "player": "One",
+        "key": "P",
+        "keymod": 64,
+        "action": {
+          "Nes": "PowerCycle"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Equals",
+        "keymod": 64,
+        "action": {
+          "Setting": "IncSpeed"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Minus",
+        "keymod": 64,
+        "action": {
+          "Setting": "DecSpeed"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Space",
+        "keymod": 0,
+        "action": {
+          "Setting": "FastForward"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Kp1",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 1
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "Kp2",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 2
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "Kp3",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 3
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "Kp4",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 4
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num1",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 1
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num2",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 2
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num3",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 3
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num4",
+        "keymod": 64,
+        "action": {
+          "Setting": {
+            "SetSaveSlot": 4
+          }
+        }
+      },
+      {
+        "player": "One",
+        "key": "S",
+        "keymod": 64,
+        "action": {
+          "Feature": "SaveState"
+        }
+      },
+      {
+        "player": "One",
+        "key": "L",
+        "keymod": 64,
+        "action": {
+          "Feature": "LoadState"
+        }
+      },
+      {
+        "player": "One",
+        "key": "R",
+        "keymod": 0,
+        "action": {
+          "Feature": "Rewind"
+        }
+      },
+      {
+        "player": "One",
+        "key": "F10",
+        "keymod": 0,
+        "action": {
+          "Feature": "TakeScreenshot"
+        }
+      },
+      {
+        "player": "One",
+        "key": "V",
+        "keymod": 1,
+        "action": {
+          "Feature": "ToggleGameplayRecording"
+        }
+      },
+      {
+        "player": "One",
+        "key": "R",
+        "keymod": 1,
+        "action": {
+          "Feature": "ToggleSoundRecording"
+        }
+      },
+      {
+        "player": "One",
+        "key": "M",
+        "keymod": 64,
+        "action": {
+          "Setting": "ToggleSound"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num1",
+        "keymod": 1,
+        "action": {
+          "Setting": "TogglePulse1"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num2",
+        "keymod": 1,
+        "action": {
+          "Setting": "TogglePulse2"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num3",
+        "keymod": 1,
+        "action": {
+          "Setting": "ToggleTriangle"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num4",
+        "keymod": 1,
+        "action": {
+          "Setting": "ToggleNoise"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Num5",
+        "keymod": 1,
+        "action": {
+          "Setting": "ToggleDmc"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Return",
+        "keymod": 64,
+        "action": {
+          "Setting": "ToggleFullscreen"
+        }
+      },
+      {
+        "player": "One",
+        "key": "V",
+        "keymod": 64,
+        "action": {
+          "Setting": "ToggleVsync"
+        }
+      },
+      {
+        "player": "One",
+        "key": "N",
+        "keymod": 64,
+        "action": {
+          "Setting": "ToggleNtscFilter"
+        }
+      },
+      {
+        "player": "One",
+        "key": "D",
+        "keymod": 1,
+        "action": {
+          "Debug": "ToggleCpuDebugger"
+        }
+      },
+      {
+        "player": "One",
+        "key": "P",
+        "keymod": 1,
+        "action": {
+          "Debug": "TogglePpuDebugger"
+        }
+      },
+      {
+        "player": "One",
+        "key": "A",
+        "keymod": 1,
+        "action": {
+          "Debug": "ToggleApuDebugger"
+        }
+      },
+      {
+        "player": "One",
+        "key": "C",
+        "keymod": 0,
+        "action": {
+          "Debug": "StepInto"
+        }
+      },
+      {
+        "player": "One",
+        "key": "O",
+        "keymod": 0,
+        "action": {
+          "Debug": "StepOver"
+        }
+      },
+      {
+        "player": "One",
+        "key": "O",
+        "keymod": 1,
+        "action": {
+          "Debug": "StepOut"
+        }
+      },
+      {
+        "player": "One",
+        "key": "L",
+        "keymod": 0,
+        "action": {
+          "Debug": "StepScanline"
+        }
+      },
+      {
+        "player": "One",
+        "key": "F",
+        "keymod": 0,
+        "action": {
+          "Debug": "StepFrame"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Down",
+        "keymod": 64,
+        "action": {
+          "Debug": "IncScanline"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Up",
+        "keymod": 64,
+        "action": {
+          "Debug": "DecScanline"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Down",
+        "keymod": 65,
+        "action": {
+          "Debug": "IncScanline"
+        }
+      },
+      {
+        "player": "One",
+        "key": "Up",
+        "keymod": 65,
+        "action": {
+          "Debug": "DecScanline"
+        }
+      }
     ],
     "mouse": [],
     "buttons": [
-      { "player": "One", "button": "DPadLeft", "action": { "Gamepad": "Left" } },
-      { "player": "One", "button": "DPadRight", "action": { "Gamepad": "Right" } },
-      { "player": "One", "button": "DPadUp", "action": { "Gamepad": "Up" } },
-      { "player": "One", "button": "DPadDown", "action": { "Gamepad": "Down" } },
-      { "player": "One", "button": "A", "action": { "Gamepad": "A" } },
-      { "player": "One", "button": "B", "action": { "Gamepad": "B" } },
-      { "player": "One", "button": "X", "action": { "Gamepad": "TurboA" } },
-      { "player": "One", "button": "Y", "action": { "Gamepad": "TurboB" } },
-      { "player": "One", "button": "Guide", "action": { "Nes": "TogglePause" } },
-      { "player": "One", "button": "Start", "action": { "Gamepad": "Start" } },
-      { "player": "One", "button": "Back", "action": { "Gamepad": "Select" } },
-      { "player": "One", "button": "RightShoulder", "action": { "Setting": "IncSpeed" } },
-      { "player": "One", "button": "LeftShoulder", "action": { "Setting": "DecSpeed" } }
+      {
+        "player": "One",
+        "button": "DPadLeft",
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "player": "One",
+        "button": "DPadRight",
+        "action": {
+          "Gamepad": "Right"
+        }
+      },
+      {
+        "player": "One",
+        "button": "DPadUp",
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "player": "One",
+        "button": "DPadDown",
+        "action": {
+          "Gamepad": "Down"
+        }
+      },
+      {
+        "player": "One",
+        "button": "A",
+        "action": {
+          "Gamepad": "A"
+        }
+      },
+      {
+        "player": "One",
+        "button": "B",
+        "action": {
+          "Gamepad": "B"
+        }
+      },
+      {
+        "player": "One",
+        "button": "X",
+        "action": {
+          "Gamepad": "TurboA"
+        }
+      },
+      {
+        "player": "One",
+        "button": "Y",
+        "action": {
+          "Gamepad": "TurboB"
+        }
+      },
+      {
+        "player": "One",
+        "button": "Guide",
+        "action": {
+          "Nes": "TogglePause"
+        }
+      },
+      {
+        "player": "One",
+        "button": "Start",
+        "action": {
+          "Gamepad": "Start"
+        }
+      },
+      {
+        "player": "One",
+        "button": "Back",
+        "action": {
+          "Gamepad": "Select"
+        }
+      },
+      {
+        "player": "One",
+        "button": "RightShoulder",
+        "action": {
+          "Setting": "IncSpeed"
+        }
+      },
+      {
+        "player": "One",
+        "button": "LeftShoulder",
+        "action": {
+          "Setting": "DecSpeed"
+        }
+      }
     ],
     "axes": [
-      { "player": "One", "axis": "LeftX", "direction": "None", "action": { "ZeroAxis": ["Left", "Right"] } },
-      { "player": "One", "axis": "LeftX", "direction": "Negative", "action": { "Gamepad": "Left" } },
-      { "player": "One", "axis": "LeftX", "direction": "Positive", "action": { "Gamepad": "Right" } },
-      { "player": "One", "axis": "LeftY", "direction": "None", "action": { "ZeroAxis": ["Up", "Down"] } },
-      { "player": "One", "axis": "LeftY", "direction": "Negative", "action": { "Gamepad": "Up" } },
-      { "player": "One", "axis": "LeftY", "direction": "Positive", "action": { "Gamepad": "Down" } },
-      { "player": "One", "axis": "TriggerLeft", "direction": "Positive", "action": { "Feature": "SaveState" } },
-      { "player": "One", "axis": "TriggerRight", "direction": "Positive", "action": { "Feature": "LoadState" } }
+      {
+        "player": "One",
+        "axis": "LeftX",
+        "direction": "None",
+        "action": {
+          "ZeroAxis": [
+            "Left",
+            "Right"
+          ]
+        }
+      },
+      {
+        "player": "One",
+        "axis": "LeftX",
+        "direction": "Negative",
+        "action": {
+          "Gamepad": "Left"
+        }
+      },
+      {
+        "player": "One",
+        "axis": "LeftX",
+        "direction": "Positive",
+        "action": {
+          "Gamepad": "Right"
+        }
+      },
+      {
+        "player": "One",
+        "axis": "LeftY",
+        "direction": "None",
+        "action": {
+          "ZeroAxis": [
+            "Up",
+            "Down"
+          ]
+        }
+      },
+      {
+        "player": "One",
+        "axis": "LeftY",
+        "direction": "Negative",
+        "action": {
+          "Gamepad": "Up"
+        }
+      },
+      {
+        "player": "One",
+        "axis": "LeftY",
+        "direction": "Positive",
+        "action": {
+          "Gamepad": "Down"
+        }
+      },
+      {
+        "player": "One",
+        "axis": "TriggerLeft",
+        "direction": "Positive",
+        "action": {
+          "Feature": "SaveState"
+        }
+      },
+      {
+        "player": "One",
+        "axis": "TriggerRight",
+        "direction": "Positive",
+        "action": {
+          "Feature": "LoadState"
+        }
+      }
     ]
   }
 }

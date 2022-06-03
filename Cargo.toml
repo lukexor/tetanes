@@ -31,8 +31,6 @@ serde_json = "1.0.72"
 anyhow = "1.0.53"
 bincode = "1.3.3"
 flate2 = "1.0.24"
-# Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
-getrandom = { version = "0.2.6", features = ["js"] }
 
 [dev-dependencies.cargo-husky]
 version = "1.5.0"
@@ -46,11 +44,12 @@ pix-engine = { version = "0.5.4", features = ["serde"] }
 pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
+getrandom = { version = "0.2.6", features = ["js"] }
 wasm-bindgen = "0.2.78"
 
 [features]
 default = []
-vcpkg = ["pix-engine/vcpkg"]
 
 [profile.dev-opt]
 inherits = "dev"
@@ -62,11 +61,3 @@ inherits = "dev-opt"
 [profile.release]
 codegen-units = 1
 lto = true
-
-[package.metadata.vcpkg]
-dependencies = ["sdl2", "sdl2-image[libjpeg-turbo,tiff,libwebp]", "sdl2-ttf", "sdl2-gfx", "sdl2-mixer"]
-git = "https://github.com/microsoft/vcpkg"
-rev = "261c458af6e3eed5d099144aff95d2b5035f656b"
-
-[package.metadata.vcpkg.target]
-x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md" }
