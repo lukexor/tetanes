@@ -5,7 +5,7 @@
 use crate::{
     apu::pulse::OutputFreq,
     cart::Cart,
-    common::{Clocked, NesFormat, Powered},
+    common::{Clocked, NesRegion, Powered},
     cpu::Cpu,
     mapper::Mapper,
     memory::{MemRead, MemWrite},
@@ -63,7 +63,7 @@ pub enum AudioChannel {
 #[must_use]
 pub struct Apu {
     cycle: usize, // Current APU cycle
-    nes_format: NesFormat,
+    nes_region: NesRegion,
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_disabled: bool,           // Set by $4017 D6
     samples: Vec<f32>,            // Buffer of samples
@@ -80,36 +80,39 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub fn new(nes_format: NesFormat) -> Self {
+    pub fn new(nes_region: NesRegion) -> Self {
         Self {
             cycle: 0,
-            nes_format,
+            nes_region,
             irq_pending: false,
             irq_disabled: false,
             // Start with ~20ms of audio capacity
-            samples: Vec::with_capacity((Cpu::clock_rate(nes_format) * 0.02) as usize),
-            frame_counter: FrameCounter::new(nes_format),
+            samples: Vec::with_capacity((Cpu::clock_rate(nes_region) * 0.02) as usize),
+            frame_counter: FrameCounter::new(nes_region),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
             triangle: Triangle::new(),
-            noise: Noise::new(nes_format),
-            dmc: Dmc::new(nes_format),
+            noise: Noise::new(nes_region),
+            dmc: Dmc::new(nes_region),
             cart: std::ptr::null_mut(),
             enabled: [true; 5],
             open_bus: 0x00,
         }
     }
 
-    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
-        self.nes_format = nes_format;
-        self.frame_counter.set_nes_format(nes_format);
-        self.dmc.set_nes_format(nes_format);
+    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        self.nes_region = nes_region;
+        self.frame_counter.set_nes_region(nes_region);
+        self.dmc.set_nes_region(nes_region);
+        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
+            exrom.dmc.set_nes_region(nes_region);
+        }
     }
 
     #[inline]
     #[must_use]
-    pub fn sample_rate(&self) -> f32 {
-        Cpu::clock_rate(self.nes_format)
+    pub const fn sample_rate(&self) -> f32 {
+        Cpu::clock_rate(self.nes_region)
     }
 
     #[inline]
@@ -181,6 +184,10 @@ impl Apu {
         self.pulse2.clock_quarter_frame();
         self.triangle.clock_quarter_frame();
         self.noise.clock_quarter_frame();
+        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
+            exrom.pulse1.clock_quarter_frame();
+            exrom.pulse2.clock_quarter_frame();
+        }
     }
 
     #[inline]
@@ -189,6 +196,10 @@ impl Apu {
         self.pulse2.clock_half_frame();
         self.triangle.clock_half_frame();
         self.noise.clock_half_frame();
+        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
+            exrom.pulse1.clock_half_frame();
+            exrom.pulse2.clock_half_frame();
+        }
     }
 
     #[inline]
@@ -309,11 +320,19 @@ impl Clocked for Apu {
     #[inline]
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
+        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
+            exrom.dmc.check_pending_dma();
+        }
         if self.cycle & 0x01 == 0x00 {
             self.pulse1.clock();
             self.pulse2.clock();
             self.noise.clock();
             self.dmc.clock();
+            if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
+                exrom.pulse1.clock();
+                exrom.pulse2.clock();
+                exrom.dmc.clock();
+            }
         }
         self.triangle.clock();
         // Technically only clocks every 2 CPU cycles, but due
@@ -399,7 +418,7 @@ impl Powered for Apu {
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new(NesFormat::default())
+        Self::new(NesRegion::default())
     }
 }
 

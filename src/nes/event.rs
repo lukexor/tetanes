@@ -1,6 +1,6 @@
 use crate::{
     apu::AudioChannel,
-    common::{Clocked, NesFormat, Powered},
+    common::{NesRegion, Powered},
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
     mapper::MapperRevision,
@@ -13,7 +13,7 @@ use std::{
     cmp::Ordering,
     collections::HashMap,
     fmt,
-    ops::{Deref, DerefMut},
+    ops::{ControlFlow, Deref, DerefMut},
     time::{Duration, Instant},
 };
 
@@ -232,7 +232,7 @@ pub(crate) enum Setting {
     ToggleVsync,
     ToggleNtscFilter,
     SetVideoFilter(VideoFilter),
-    SetNesFormat(NesFormat),
+    SetNesFormat(NesRegion),
     ToggleSound,
     TogglePulse1,
     TogglePulse2,
@@ -563,7 +563,10 @@ impl Nes {
         }
         match state {
             NesState::ToggleMenu => self.toggle_menu(Menu::Config, s)?,
-            NesState::Quit => s.quit(),
+            NesState::Quit => {
+                self.pause_play();
+                s.quit();
+            }
             NesState::TogglePause => self.toggle_pause(s)?,
             NesState::Reset => {
                 self.error = None;
@@ -702,7 +705,6 @@ impl Nes {
         };
     }
 
-    #[inline]
     fn handle_debug(
         &mut self,
         s: &mut PixState,
@@ -714,37 +716,11 @@ impl Nes {
             DebugAction::ToggleCpuDebugger if !repeat => self.toggle_debugger(s)?,
             DebugAction::TogglePpuDebugger if !repeat => self.toggle_ppu_viewer(s)?,
             DebugAction::ToggleApuDebugger if !repeat => self.toggle_apu_viewer(s)?,
-            DebugAction::StepInto if debugging => {
-                self.pause_play();
-                self.control_deck.clock();
-            }
-            DebugAction::StepOver if debugging => {
-                self.pause_play();
-                let instr = self.control_deck.next_instr();
-                self.control_deck.clock();
-                if instr.op() == Operation::JSR {
-                    let rti_addr = self.control_deck.stack_addr().wrapping_add(1);
-                    while self.control_deck.pc() != rti_addr {
-                        self.control_deck.clock();
-                    }
-                }
-            }
-            DebugAction::StepOut if debugging => {
-                let mut instr = self.control_deck.next_instr();
-                while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
-                    self.control_deck.clock();
-                    instr = self.control_deck.next_instr();
-                }
-                self.control_deck.clock();
-            }
-            DebugAction::StepFrame if debugging => {
-                self.pause_play();
-                self.control_deck.clock_frame();
-            }
-            DebugAction::StepScanline if debugging => {
-                self.pause_play();
-                self.control_deck.clock_scanline();
-            }
+            DebugAction::StepInto if debugging => self.debug_step_into(s)?,
+            DebugAction::StepOver if debugging => self.debug_step_over(s)?,
+            DebugAction::StepOut if debugging => self.debug_step_out(s)?,
+            DebugAction::StepFrame if debugging => self.debug_step_frame(s)?,
+            DebugAction::StepScanline if debugging => self.debug_step_scanline(s)?,
             DebugAction::IncScanline if self.ppu_viewer.is_some() => {
                 let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT - 1);
@@ -760,6 +736,85 @@ impl Nes {
                     .set_viewer_scanline(self.scanline);
             }
             _ => log::warn!("Unhandled DebugAction {:?}", action),
+        }
+        Ok(())
+    }
+
+    fn debug_step_into(&mut self, s: &mut PixState) -> NesResult<()> {
+        self.pause_play();
+        match self.control_deck.clock_debug() {
+            Ok(control) => self.handle_debugger(control),
+            Err(err) => self.handle_emulation_error(s, &err)?,
+        }
+        Ok(())
+    }
+
+    fn debug_step_over(&mut self, s: &mut PixState) -> NesResult<()> {
+        self.pause_play();
+        let instr = self.control_deck.next_instr();
+        match self.control_deck.clock_debug() {
+            Ok(control) => self.handle_debugger(control),
+            Err(err) => self.handle_emulation_error(s, &err)?,
+        }
+        if instr.op() == Operation::JSR {
+            let rti_addr = self.control_deck.stack_addr().wrapping_add(1);
+            while self.control_deck.pc() != rti_addr {
+                match self.control_deck.clock_debug() {
+                    Ok(control) => {
+                        self.handle_debugger(control);
+                        if let ControlFlow::Break(_) = control {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        self.handle_emulation_error(s, &err)?;
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn debug_step_out(&mut self, s: &mut PixState) -> NesResult<()> {
+        let mut instr = self.control_deck.next_instr();
+        while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
+            match self.control_deck.clock_debug() {
+                Ok(control) => {
+                    self.handle_debugger(control);
+                    if let ControlFlow::Break(_) = control {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    self.handle_emulation_error(s, &err)?;
+                    break;
+                }
+            }
+            instr = self.control_deck.next_instr();
+        }
+        match self.control_deck.clock_debug() {
+            Ok(control) => self.handle_debugger(control),
+            Err(err) => self.handle_emulation_error(s, &err)?,
+        }
+
+        Ok(())
+    }
+
+    fn debug_step_frame(&mut self, s: &mut PixState) -> NesResult<()> {
+        self.pause_play();
+        match self.control_deck.clock_frame() {
+            Ok(control) => self.handle_debugger(control),
+            Err(err) => self.handle_emulation_error(s, &err)?,
+        }
+        Ok(())
+    }
+
+    fn debug_step_scanline(&mut self, s: &mut PixState) -> NesResult<()> {
+        self.pause_play();
+        match self.control_deck.clock_scanline() {
+            Ok(control) => self.handle_debugger(control),
+            Err(err) => self.handle_emulation_error(s, &err)?,
         }
         Ok(())
     }

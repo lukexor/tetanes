@@ -4,13 +4,14 @@ use crate::{
     nes::{
         event::ActionEvent,
         filesystem::{decode_data, encode_data, load_data, save_data},
+        menu::Menu,
         Mode, Nes,
     },
-    NesResult,
+    NesError, NesResult,
 };
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Local};
-use pix_engine::prelude::PixState;
+use pix_engine::prelude::{PixResult, PixState};
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, path::PathBuf};
 
@@ -41,15 +42,26 @@ impl Default for Replay {
 }
 
 impl Nes {
+    pub(crate) fn handle_emulation_error(
+        &mut self,
+        s: &mut PixState,
+        err: &NesError,
+    ) -> PixResult<()> {
+        self.error = Some(err.to_string());
+        self.open_menu(s, Menu::LoadRom)
+    }
+
     pub(crate) fn resume_play(&mut self) {
         if self.control_deck.is_running() {
             self.mode = Mode::Playing;
+            self.audio.resume();
         }
     }
 
     pub(crate) fn pause_play(&mut self) {
         if self.control_deck.is_running() {
             self.mode = Mode::Paused;
+            self.audio.pause();
         }
     }
 

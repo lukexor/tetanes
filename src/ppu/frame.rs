@@ -29,7 +29,7 @@ lazy_static! {
                 color.powf(2.2 / gamma)
             }
         };
-        let yiq_divider = (9 * 10u32.pow(6)) as f64;
+        let yiq_divider = f64::from(9 * 10u32.pow(6));
         for (palette_offset, palette) in ntsc_palette.iter_mut().enumerate() {
             for channel in 0..3 {
                 for color0_offset in 0..512 {
@@ -74,20 +74,20 @@ lazy_static! {
                             q += level * (sin * 5909.0) as i32;
                         }
                         // Store color at subpixel precision
-                        let y = y as f64 / 1980.0;
-                        let i = i as f64 / yiq_divider;
-                        let q = q as f64 / yiq_divider;
+                        let y = f64::from(y) / 1980.0;
+                        let i = f64::from(i) / yiq_divider;
+                        let q = f64::from(q) / yiq_divider;
                         match channel {
                             2 => {
-                                let rgb = 255.95 * gammafix(y + i * 0.946_882 + q * 0.623_557);
+                                let rgb = 255.95 * gammafix(q.mul_add(0.623_557, i.mul_add(0.946_882, y)));
                                 color1[color0_offset] += 0x10000 * rgb.clamp(0.0, 255.0) as u32;
                             }
                             1 => {
-                                let rgb = 255.95 * gammafix(y + i * -0.274_788 + q * -0.635_691);
+                                let rgb = 255.95 * gammafix(q.mul_add(-0.635_691, i.mul_add(-0.274_788, y)));
                                 color1[color0_offset] += 0x00100 * rgb.clamp(0.0, 255.0) as u32;
                             }
                             0 => {
-                                let rgb = 255.95 * gammafix(y + i * -1.108_545 + q * 1.709_007);
+                                let rgb = 255.95 * gammafix(q.mul_add(1.709_007, i.mul_add(-1.108_545, y)));
                                 color1[color0_offset] += rgb.clamp(0.0, 255.0) as u32;
                             }
                             _ => (), // invalid channel
@@ -151,7 +151,7 @@ impl Frame {
 
     #[inline]
     pub fn put_pixel(&mut self, x: u32, y: u32, color: u16) {
-        self.current_buffer[(x + (y << 8)) as usize] = color;
+        self.back_buffer[(x + (y << 8)) as usize] = color;
     }
 }
 

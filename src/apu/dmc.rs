@@ -1,10 +1,10 @@
-use crate::common::{Clocked, NesFormat, Powered};
+use crate::common::{Clocked, NesRegion, Powered};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
-    pub nes_format: NesFormat,
+    pub nes_region: NesRegion,
     pub irq_enabled: bool,
     pub irq_pending: bool,
     pub loops: bool,
@@ -34,10 +34,10 @@ impl Dmc {
         0x04E, 0x042, 0x032,
     ];
 
-    pub fn new(nes_format: NesFormat) -> Self {
-        let freq_timer = Self::freq_timer(nes_format, 0);
+    pub const fn new(nes_region: NesRegion) -> Self {
+        let freq_timer = Self::freq_timer(nes_region, 0);
         Self {
-            nes_format,
+            nes_region,
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -59,16 +59,16 @@ impl Dmc {
     }
 
     #[inline]
-    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
-        self.nes_format = nes_format;
-        self.freq_timer = Self::freq_timer(nes_format, 0);
+    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        self.nes_region = nes_region;
+        self.freq_timer = Self::freq_timer(nes_region, 0);
     }
 
     #[inline]
-    fn freq_timer(nes_format: NesFormat, val: u8) -> u16 {
-        match nes_format {
-            NesFormat::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 2,
-            NesFormat::Pal | NesFormat::Dendy => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 2,
+    const fn freq_timer(nes_region: NesRegion, val: u8) -> u16 {
+        match nes_region {
+            NesRegion::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 2,
+            NesRegion::Pal | NesRegion::Dendy => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 2,
         }
     }
 
@@ -83,7 +83,7 @@ impl Dmc {
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
         self.loops = val & 0x40 == 0x40;
-        self.freq_timer = Self::freq_timer(self.nes_format, val);
+        self.freq_timer = Self::freq_timer(self.nes_region, val);
         if !self.irq_enabled {
             self.irq_pending = false;
         }
@@ -198,7 +198,7 @@ impl Powered for Dmc {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
-        self.freq_timer = Self::freq_timer(self.nes_format, 0);
+        self.freq_timer = Self::freq_timer(self.nes_region, 0);
         self.freq_counter = self.freq_timer;
         self.addr = 0x0000;
         self.addr_load = 0x0000;
@@ -223,6 +223,6 @@ impl Powered for Dmc {
 
 impl Default for Dmc {
     fn default() -> Self {
-        Self::new(NesFormat::default())
+        Self::new(NesRegion::default())
     }
 }

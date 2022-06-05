@@ -1,7 +1,7 @@
 //! Handles reading NES Cart headers and ROMs
 
 use crate::{
-    common::{Clocked, NesFormat, Powered},
+    common::{Clocked, NesRegion, Powered},
     mapper::{
         m001_sxrom::Mmc1Revision, Axrom, Bf909x, Cnrom, Empty, Exrom, Gxrom, MapRead, MapWrite,
         Mapped, MappedRead, MappedWrite, Mapper, MirroringType, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
@@ -10,7 +10,7 @@ use crate::{
     ppu::Mirroring,
     NesResult,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, bail, Context};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -103,14 +103,14 @@ impl Cart {
     #[inline]
     pub fn from_path<P: AsRef<Path>>(
         path: P,
-        nes_format: NesFormat,
+        nes_region: NesRegion,
         ram_state: RamState,
     ) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
             File::open(path).with_context(|| format!("failed to open rom {:?}", path))?,
         );
-        Self::from_rom(&path.to_string_lossy(), &mut rom, nes_format, ram_state)
+        Self::from_rom(&path.to_string_lossy(), &mut rom, nes_region, ram_state)
     }
 
     /// Creates a new Cart instance by reading in a `.nes` file
@@ -126,7 +126,7 @@ impl Cart {
     pub fn from_rom<S, F>(
         name: S,
         mut rom_data: &mut F,
-        nes_format: NesFormat,
+        nes_region: NesRegion,
         ram_state: RamState,
     ) -> NesResult<Self>
     where
@@ -194,13 +194,13 @@ impl Cart {
             2 => Uxrom::load(&mut cart),
             3 => Cnrom::load(&mut cart),
             4 => Txrom::load(&mut cart),
-            5 => Exrom::load(&mut cart, nes_format),
+            5 => Exrom::load(&mut cart, nes_region),
             7 => Axrom::load(&mut cart),
             9 => Pxrom::load(&mut cart),
             66 => Gxrom::load(&mut cart),
             71 => Bf909x::load(&mut cart),
             155 => Sxrom::load(&mut cart, Mmc1Revision::A),
-            _ => return Err(anyhow!("unsupported mapper number: {}", header.mapper_num)),
+            _ => bail!("unsupported mapper number: {}", header.mapper_num),
         };
 
         info!("Loaded `{}`", cart);
@@ -428,13 +428,11 @@ impl NesHeader {
 
         // Header checks
         if header[0..4] != *b"NES\x1a" {
-            return Err(anyhow!("iNES header signature not found"));
+            bail!("iNES header signature not found");
         } else if (header[7] & 0x0C) == 0x04 {
-            return Err(anyhow!(
-                "header is corrupted by `DiskDude!`. repair and try again"
-            ));
+            bail!("header is corrupted by `DiskDude!`. repair and try again");
         } else if (header[7] & 0x0C) == 0x0C {
-            return Err(anyhow!("unrecognized header format. repair and try again"));
+            bail!("unrecognized header format. repair and try again");
         }
 
         let mut prg_rom_banks = u16::from(header[4]);
@@ -468,28 +466,28 @@ impl NesHeader {
             vs_data = header[13];
 
             if prg_ram_shift & 0x0F == 0x0F || prg_ram_shift & 0xF0 == 0xF0 {
-                return Err(anyhow!("invalid prg-ram size in header"));
+                bail!("invalid prg-ram size in header");
             } else if chr_ram_shift & 0x0F == 0x0F || chr_ram_shift & 0xF0 == 0xF0 {
-                return Err(anyhow!("invalid chr-ram size in header"));
+                bail!("invalid chr-ram size in header");
             } else if chr_ram_shift & 0xF0 == 0xF0 {
-                return Err(anyhow!("battery-backed chr-ram is currently not supported"));
+                bail!("battery-backed chr-ram is currently not supported");
             } else if header[14] > 0 || header[15] > 0 {
-                return Err(anyhow!("unrecognized data found at header offsets 14-15"));
+                bail!("unrecognized data found at header offsets 14-15");
             }
         } else {
             for (i, header) in header.iter().enumerate().take(16).skip(8) {
                 if *header > 0 {
-                    return Err(anyhow!(
+                    bail!(
                         "unrecogonized data found at header offset {}. repair and try again",
                         i,
-                    ));
+                    );
                 }
             }
         }
 
         // Trainer
         if flags & 0x04 == 0x04 {
-            return Err(anyhow!("trained roms are currently not supported."));
+            bail!("trained roms are currently not supported.");
         }
         Ok(Self {
             version,

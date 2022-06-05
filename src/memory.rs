@@ -50,6 +50,12 @@ pub enum RamState {
     Random,
 }
 
+impl RamState {
+    pub const fn as_slice() -> &'static [Self] {
+        &[Self::AllZeros, Self::AllOnes, Self::Random]
+    }
+}
+
 impl Default for RamState {
     fn default() -> Self {
         Self::AllZeros
@@ -62,6 +68,16 @@ impl From<usize> for RamState {
             0 => Self::AllZeros,
             1 => Self::AllOnes,
             _ => Self::Random,
+        }
+    }
+}
+
+impl AsRef<str> for RamState {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::AllZeros => "All $00",
+            Self::AllOnes => "All $FF",
+            Self::Random => "Random",
         }
     }
 }

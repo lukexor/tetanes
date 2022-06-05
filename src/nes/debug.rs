@@ -1,6 +1,5 @@
 use crate::{
     cpu::STATUS_REGS,
-    debugger::Breakpoint,
     memory::MemRead,
     nes::{Nes, View},
     ppu::{PATTERN_WIDTH, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_WIDTH},
@@ -12,7 +11,6 @@ const PALETTE_HEIGHT: u32 = 64;
 #[derive(Debug)]
 pub(crate) struct Debugger {
     pub(crate) view: View,
-    pub(crate) breakpoints: Vec<Breakpoint>,
     pub(crate) on_breakpoint: bool,
 }
 
@@ -20,7 +18,6 @@ impl Debugger {
     const fn new(view: View) -> Self {
         Self {
             view,
-            breakpoints: vec![],
             on_breakpoint: false,
         }
     }

@@ -57,4 +57,5 @@ pub mod memory;
 pub mod nes;
 pub mod ppu;
 
-pub type NesResult<T> = anyhow::Result<T, anyhow::Error>;
+pub type NesError = anyhow::Error;
+pub type NesResult<T> = anyhow::Result<T, NesError>;

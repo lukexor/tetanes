@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, NesFormat, Powered},
+    common::{Clocked, NesRegion, Powered},
     mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
     ppu::{frame::NTSC_PALETTE, vram::ATTR_OFFSET},
@@ -33,7 +33,7 @@ pub const RENDER_PITCH: usize = RENDER_CHANNELS * RENDER_WIDTH as usize;
 const _TOTAL_CYCLES: u32 = 341;
 const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
-const RENDER_SIZE: usize = RENDER_CHANNELS * RENDER_PIXELS;
+pub const RENDER_SIZE: usize = RENDER_CHANNELS * RENDER_PIXELS;
 
 pub const PATTERN_WIDTH: u32 = RENDER_WIDTH / 2;
 pub const PATTERN_PIXELS: usize = (PATTERN_WIDTH * PATTERN_WIDTH) as usize;
@@ -71,6 +71,12 @@ pub const SECONDARY_OAM_SIZE: usize = 8 * 4; // 8 entries * 4 bytes each
 pub enum VideoFilter {
     None,
     Ntsc,
+}
+
+impl VideoFilter {
+    pub const fn as_slice() -> &'static [Self] {
+        &[Self::None, Self::Ntsc]
+    }
 }
 
 impl Default for VideoFilter {
@@ -152,7 +158,7 @@ pub struct Ppu {
     pub cycle: u32,         // (0, 340) 341 cycles happen per scanline
     pub cycle_count: usize, // Total number of PPU cycles run
     pub scanline: u32,      // (0, 261) 262 total scanlines per frame
-    pub nes_format: NesFormat,
+    pub nes_region: NesRegion,
     pub master_clock: u64,
     pub clock_divider: u64,
     pub vblank_scanline: u32,
@@ -184,19 +190,18 @@ pub struct Ppu {
     pub sprite_count: u8,
     pub sprites: [Sprite; 8], // Each scanline can hold 8 sprites at a time
     pub frame: Frame,         // Frame data keeps track of data and shift registers between frames
-    pub frame_complete: bool,
     pub filter: VideoFilter,
     #[serde(skip)]
     pub viewer: Option<Viewer>,
 }
 
 impl Ppu {
-    pub fn new(nes_format: NesFormat) -> Self {
+    pub fn new(nes_region: NesRegion) -> Self {
         let mut ppu = Self {
             cycle: 0,
             cycle_count: 0,
             scanline: 0,
-            nes_format,
+            nes_region,
             master_clock: 0,
             clock_divider: 0,
             vblank_scanline: 0,
@@ -206,7 +211,7 @@ impl Ppu {
             prevent_vbl: false,
             oam_dma: false,
             oam_dma_offset: 0x00,
-            regs: PpuRegs::new(nes_format),
+            regs: PpuRegs::new(nes_region),
             oamaddr_lo: 0x00,
             oamaddr_hi: 0x00,
             oamaddr: 0x00,
@@ -223,26 +228,25 @@ impl Ppu {
             sprites: [Sprite::new(); 8],
             vram: Vram::new(),
             frame: Frame::new(),
-            frame_complete: false,
             filter: VideoFilter::Ntsc,
             viewer: None,
         };
-        ppu.set_nes_format(nes_format);
+        ppu.set_nes_region(nes_region);
         ppu
     }
 
-    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
-        let (clock_divider, vblank_scanline, prerender_scanline) = match nes_format {
-            NesFormat::Ntsc => (4, 241, 261),
-            NesFormat::Pal => (5, 241, 311),
-            NesFormat::Dendy => (5, 291, 311),
+    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        let (clock_divider, vblank_scanline, prerender_scanline) = match nes_region {
+            NesRegion::Ntsc => (4, 241, 261),
+            NesRegion::Pal => (5, 241, 311),
+            NesRegion::Dendy => (5, 291, 311),
         };
-        self.nes_format = nes_format;
+        self.nes_region = nes_region;
         self.clock_divider = clock_divider;
         self.vblank_scanline = vblank_scanline;
         self.prerender_scanline = prerender_scanline;
         self.pal_spr_eval_scanline = self.vblank_scanline + 24; // PAL refreshes OAM later due to extended vblank to avoid OAM decay
-        self.regs.set_nes_format(nes_format);
+        self.regs.set_nes_region(nes_region);
     }
 
     #[inline]
@@ -442,7 +446,7 @@ impl Ppu {
 
         if self.rendering_enabled() {
             if visible_scanline
-                || (self.nes_format == NesFormat::Pal
+                || (self.nes_region == NesRegion::Pal
                     && self.scanline >= self.pal_spr_eval_scanline)
             {
                 if spr_eval_cycle {
@@ -506,7 +510,7 @@ impl Ppu {
                 if self.cycle == CYCLE_SKIP
                     && prerender_scanline
                     && self.frame.num & 0x01 == 0x01
-                    && self.nes_format == NesFormat::Ntsc
+                    && self.nes_region == NesRegion::Ntsc
                 {
                     // NTSC behavior while rendering - each odd PPU frame is one clock shorter
                     // (skipping from 339 over 340 to 0)
@@ -1078,7 +1082,7 @@ impl Ppu {
         if self.rendering_enabled()
             && (self.scanline <= VISIBLE_SCANLINE_END
                 || self.scanline == self.prerender_scanline
-                || (self.nes_format == NesFormat::Pal
+                || (self.nes_region == NesRegion::Pal
                     && self.scanline >= self.pal_spr_eval_scanline))
         {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDATA
@@ -1210,7 +1214,6 @@ impl Clocked for Ppu {
             self.scanline += 1;
             if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
-                self.frame_complete = true;
                 self.frame.swap_buffers();
             } else if self.scanline > self.prerender_scanline {
                 self.scanline = 0;
@@ -1339,7 +1342,7 @@ impl Powered for Ppu {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Self::new(NesFormat::Ntsc)
+        Self::new(NesRegion::Ntsc)
     }
 }
 
@@ -1349,7 +1352,7 @@ impl fmt::Debug for Ppu {
             .field("cycle", &self.cycle)
             .field("cycle_count", &self.cycle_count)
             .field("scanline", &self.scanline)
-            .field("nes_format", &self.nes_format)
+            .field("nes_region", &self.nes_region)
             .field("master_clock", &self.master_clock)
             .field("clock_divider", &self.clock_divider)
             .field("vblank_scanline", &self.vblank_scanline)
@@ -1372,7 +1375,6 @@ impl fmt::Debug for Ppu {
             .field("sprite_count", &self.sprite_count)
             .field("sprites", &self.sprites)
             .field("frame", &self.frame)
-            .field("frame_complete", &self.frame_complete)
             .field("filter", &self.filter)
             .finish()
     }

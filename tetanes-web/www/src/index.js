@@ -71,60 +71,53 @@ class State {
   setupAudio() {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     this.sampleRate = this.nes.sample_rate();
+    this.bufferSize = this.nes.buffer_capacity();
     this.audioCtx = new AudioContext({ sampleRate: this.sampleRate });
-    this.nextBufferTime = 0;
-    this.samplesQueue = [];
+    this.playTime = this.audioCtx.currentTime;
+    this.emptyBuffers = [];
   }
 
   playAudio() {
     if (this.audioEnabled) {
-      const delta = 5.0;
-      let queuedSize = 0.0;
-      this.samplesQueue.forEach((sample) => {
-        queuedSize += sample.length;
-      });
-      const bufferSize = 4096;
-      let availSize = bufferSize - queuedSize;
-      if (availSize < 0) {
-        availSize = 0;
-      }
-      const sampleRatio =
-        1.0 + (delta * (bufferSize - 2.0 * availSize)) / (1000.0 * bufferSize);
-      const samplesPtr = this.nes.samples(sampleRatio);
-      const samplesLen = this.nes.samples_len();
-      const samples = new Float32Array(memory.buffer, samplesPtr, samplesLen);
-      const bufferSource = this.audioCtx.createBufferSource();
-      bufferSource.buffer = this.audioCtx.createBuffer(
-        1,
-        samplesLen,
-        this.sampleRate
+      const samplesPtr = this.nes.samples();
+      const samples = new Float32Array(
+        memory.buffer,
+        samplesPtr,
+        this.bufferSize
       );
-      bufferSource.buffer.copyToChannel(samples, 0, 0);
-      if (this.nextBufferTime < this.audioCtx.currentTime) {
-        this.nextBufferTime =
-          this.audioCtx.currentTime + this.audioCtx.baseLatency;
+
+      let audioBuffer;
+      if (this.emptyBuffers.length === 0) {
+        audioBuffer = this.audioCtx.createBuffer(
+          1,
+          this.bufferSize,
+          this.sampleRate
+        );
+      } else {
+        audioBuffer = this.emptyBuffers.pop();
       }
-      bufferSource.start(this.nextBufferTime);
-      const duration = samplesLen / this.sampleRate;
-      this.samplesQueue.push({
-        time: this.nextBufferTime,
-        duration: this.nextBufferTime + duration,
-        length: samplesLen,
-      });
-      this.nextBufferTime += duration;
 
-      bufferSource.connect(this.audioCtx.destination);
+      audioBuffer.getChannelData(0).set(samples);
+
+      const node = this.audioCtx.createBufferSource();
+      node.connect(this.audioCtx.destination);
+      node.buffer = audioBuffer;
+      node.onended = () => {
+        this.emptyBuffers.push(audioBuffer);
+      };
+
+      const latency = 0.032;
+      let buffered = this.playTime - (this.audioCtx.currentTime + latency);
+      if (buffered > 0.2) {
+        console.log(buffered);
+      }
+      const playTime = Math.max(
+        this.audioCtx.currentTime + latency,
+        this.playTime
+      );
+      node.start(playTime);
+      this.playTime = playTime + this.bufferSize / this.sampleRate;
     }
-
-    while (
-      this.samplesQueue.length &&
-      this.samplesQueue[0].time + this.samplesQueue[0].duration <
-        this.audioCtx.currentTime
-    ) {
-      this.samplesQueue.splice(0, 1);
-    }
-
-    this.nes.clear_samples();
   }
 
   addEvent(e) {
@@ -221,14 +214,34 @@ const sketch = (p5) => {
         if (state.audioEnabled) {
           document.getElementById("toggle-audio").textContent = "Unmute";
           state.audioEnabled = false;
+          state.nes.set_sound(false);
         } else {
           document.getElementById("toggle-audio").textContent = "Mute";
+          state.nes.set_sound(true);
           state.audioEnabled = true;
         }
         this.blur();
       },
       false
     );
+
+    this.dynamicRateControl = p5.createCheckbox(
+      "Dynamic Rate Control",
+      state.nes.dynamic_rate_control()
+    );
+    this.dynamicRateControl.changed(() => {
+      state.nes.set_dynamic_rate_control(this.dynamicRateControl.checked());
+    });
+
+    this.dynamicRateDelta = p5.createSlider(
+      0.005,
+      1.0,
+      state.nes.dynamic_rate_delta(),
+      0.005
+    );
+    this.dynamicRateDelta.changed(() => {
+      state.nes.set_dynamic_rate_delta(this.dynamicRateDelta.value());
+    });
 
     p5.noLoop();
   };
@@ -257,4 +270,4 @@ const sketch = (p5) => {
   };
 };
 
-const P5 = new window.p5(sketch, container);
+new window.p5(sketch, container);

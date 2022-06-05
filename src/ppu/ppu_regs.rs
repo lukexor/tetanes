@@ -1,4 +1,4 @@
-use super::NesFormat;
+use super::NesRegion;
 use serde::{Deserialize, Serialize};
 
 // PPUSCROLL masks
@@ -20,7 +20,7 @@ pub const Y_OVER_COL: u16 = 31; // overscan row
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuRegs {
-    nes_format: NesFormat,
+    nes_region: NesRegion,
     ctrl: u8,         // $2000 PPUCTRL write-only
     mask: u8,         // $2001 PPUMASK write-only
     status: u8,       // $2002 PPUSTATUS read-only
@@ -32,9 +32,9 @@ pub struct PpuRegs {
 }
 
 impl PpuRegs {
-    pub const fn new(nes_format: NesFormat) -> Self {
+    pub const fn new(nes_region: NesRegion) -> Self {
         Self {
-            nes_format,
+            nes_region,
             ctrl: 0x00,
             mask: 0x00,
             status: 0x00,
@@ -46,8 +46,8 @@ impl PpuRegs {
         }
     }
 
-    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
-        self.nes_format = nes_format;
+    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        self.nes_region = nes_region;
     }
 
     /*
@@ -162,9 +162,9 @@ impl PpuRegs {
 
     #[must_use]
     pub const fn emphasis(&self) -> u8 {
-        match self.nes_format {
-            NesFormat::Ntsc => self.mask & 0xE0,
-            NesFormat::Pal | NesFormat::Dendy => {
+        match self.nes_region {
+            NesRegion::Ntsc => self.mask & 0xE0,
+            NesRegion::Pal | NesRegion::Dendy => {
                 // Red/Green are swapped for PAL/Dendy
                 let red = (self.mask & 0x20) << 1;
                 let green = (self.mask & 0x40) >> 1;
@@ -430,6 +430,6 @@ impl PpuRegs {
 
 impl Default for PpuRegs {
     fn default() -> Self {
-        Self::new(NesFormat::default())
+        Self::new(NesRegion::default())
     }
 }

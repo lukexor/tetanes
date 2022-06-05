@@ -18,6 +18,7 @@ console_log = "0.2.0"
 log = "0.4.17"
 tetanes = { path = "../" }
 wasm-bindgen = "0.2.80"
+ringbuf = "0.2.6"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.30"

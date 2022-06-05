@@ -233,7 +233,7 @@ impl Zapper {
 
 impl Zapper {
     #[inline]
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             triggered: 0,
             x: 0,

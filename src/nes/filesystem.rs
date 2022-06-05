@@ -54,12 +54,8 @@ pub(crate) fn validate_save_header<F: Read>(f: &mut F) -> NesResult<()> {
 pub(crate) fn encode_data(data: &[u8]) -> NesResult<Vec<u8>> {
     let mut encoded = vec![];
     let mut encoder = DeflateEncoder::new(&mut encoded, Compression::default());
-    encoder
-        .write_all(data)
-        .with_context(|| anyhow!("failed to encode data"))?;
-    encoder
-        .finish()
-        .with_context(|| anyhow!("failed to write data"))?;
+    encoder.write_all(data).context("failed to encode data")?;
+    encoder.finish().context("failed to write data")?;
     Ok(encoded)
 }
 
@@ -68,7 +64,7 @@ pub(crate) fn decode_data(data: &[u8]) -> NesResult<Vec<u8>> {
     let mut decoder = DeflateDecoder::new(BufReader::new(data));
     decoder
         .read_to_end(&mut decoded)
-        .with_context(|| anyhow!("failed to read data"))?;
+        .context("failed to read data")?;
     Ok(decoded)
 }
 
@@ -80,32 +76,32 @@ where
     let directory = path.parent().expect("can not save to root path");
     if !directory.exists() {
         fs::create_dir_all(directory)
-            .with_context(|| anyhow!("failed to create directory {:?}", directory))?;
+            .with_context(|| format!("failed to create directory {:?}", directory))?;
     }
 
     let write_data = || {
         let mut writer = BufWriter::new(
-            File::create(&path).with_context(|| anyhow!("failed to create file {:?}", path))?,
+            File::create(&path).with_context(|| format!("failed to create file {:?}", path))?,
         );
         write_save_header(&mut writer)
-            .with_context(|| anyhow!("failed to write header {:?}", path))?;
+            .with_context(|| format!("failed to write header {:?}", path))?;
         let mut encoder = DeflateEncoder::new(writer, Compression::default());
         encoder
             .write_all(data)
-            .with_context(|| anyhow!("failed to encode file {:?}", path))?;
+            .with_context(|| format!("failed to encode file {:?}", path))?;
         encoder
             .finish()
-            .with_context(|| anyhow!("failed to write file {:?}", path))?;
+            .with_context(|| format!("failed to write file {:?}", path))?;
         Ok(())
     };
 
     if path.exists() {
         // Check if exists and header is different, so we avoid overwriting
         let mut reader = BufReader::new(
-            File::open(&path).with_context(|| anyhow!("failed to open file {:?}", path))?,
+            File::open(&path).with_context(|| format!("failed to open file {:?}", path))?,
         );
         validate_save_header(&mut reader)
-            .with_context(|| anyhow!("failed to validate header {:?}", path))
+            .with_context(|| format!("failed to validate header {:?}", path))
             .and_then(|_| write_data())?;
     } else {
         write_data()?;
@@ -119,17 +115,17 @@ where
 {
     let path = path.as_ref();
     let mut reader = BufReader::new(
-        File::open(&path).with_context(|| anyhow!("Failed to open file {:?}", path))?,
+        File::open(&path).with_context(|| format!("Failed to open file {:?}", path))?,
     );
     let mut bytes = vec![];
     // Don't care about the size read
     let _ = validate_save_header(&mut reader)
-        .with_context(|| anyhow!("failed to validate header {:?}", path))
+        .with_context(|| format!("failed to validate header {:?}", path))
         .and_then(|_| {
             let mut decoder = DeflateDecoder::new(reader);
             decoder
                 .read_to_end(&mut bytes)
-                .with_context(|| anyhow!("failed to read file {:?}", path))
+                .with_context(|| format!("failed to read file {:?}", path))
         })?;
     Ok(bytes)
 }
@@ -164,7 +160,7 @@ impl Nes {
 
         self.error = None;
         self.mode = Mode::Paused;
-        s.pause_audio();
+        self.audio.pause();
         let rom = match File::open(&self.config.rom_path)
             .with_context(|| format!("failed to open rom {:?}", self.config.rom_path))
         {
@@ -189,7 +185,7 @@ impl Nes {
         let mut rom = BufReader::new(rom);
         match self.control_deck.load_rom(&name, &mut rom) {
             Ok(()) => {
-                s.resume_audio();
+                self.audio.resume();
                 if let Err(err) = self.load_sram() {
                     log::error!("{:?}: {:?}", self.config.rom_path, err);
                     self.add_message("Failed to load game state");

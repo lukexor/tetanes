@@ -4,8 +4,8 @@
 
 use crate::{
     bus::Bus,
-    common::{Clocked, NesFormat, Powered},
-    mapper::Mapped,
+    common::{Clocked, NesRegion, Powered},
+    mapper::{Mapped, Mapper},
     memory::{MemRead, MemWrite},
 };
 use bitflags::bitflags;
@@ -104,7 +104,7 @@ enum Cycle {
 pub struct Cpu {
     pub cycle: usize, // total number of cycles ran
     pub step: usize,  // total number of CPU instructions run
-    pub nes_format: NesFormat,
+    pub nes_region: NesRegion,
     pub master_clock: u64,
     pub clock_divider: u64,
     pub start_clocks: u64,
@@ -136,11 +136,11 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(nes_format: NesFormat, bus: Bus) -> Self {
+    pub fn new(nes_region: NesRegion, bus: Bus) -> Self {
         let mut cpu = Self {
             cycle: 0,
             step: 0,
-            nes_format,
+            nes_region,
             master_clock: 0,
             clock_divider: 0,
             start_clocks: 0,
@@ -168,32 +168,32 @@ impl Cpu {
             dummy_read: false,
             debugging: false,
         };
-        cpu.set_nes_format(nes_format);
+        cpu.set_nes_region(nes_region);
         cpu
     }
 
     #[inline]
     #[must_use]
-    pub fn clock_rate(nes_format: NesFormat) -> f32 {
-        match nes_format {
-            NesFormat::Ntsc => NTSC_CPU_CLOCK_RATE,
-            NesFormat::Pal => PAL_CPU_CLOCK_RATE,
-            NesFormat::Dendy => DENDY_CPU_CLOCK_RATE,
+    pub const fn clock_rate(nes_region: NesRegion) -> f32 {
+        match nes_region {
+            NesRegion::Ntsc => NTSC_CPU_CLOCK_RATE,
+            NesRegion::Pal => PAL_CPU_CLOCK_RATE,
+            NesRegion::Dendy => DENDY_CPU_CLOCK_RATE,
         }
     }
 
-    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
-        let (clock_divider, start_clocks, end_clocks) = match nes_format {
-            NesFormat::Ntsc => (12, 6, 6),
-            NesFormat::Pal => (16, 8, 8),
-            NesFormat::Dendy => (15, 7, 8),
+    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        let (clock_divider, start_clocks, end_clocks) = match nes_region {
+            NesRegion::Ntsc => (12, 6, 6),
+            NesRegion::Pal => (16, 8, 8),
+            NesRegion::Dendy => (15, 7, 8),
         };
-        self.nes_format = nes_format;
+        self.nes_region = nes_region;
         self.clock_divider = clock_divider;
         self.start_clocks = start_clocks;
         self.end_clocks = end_clocks;
-        self.bus.ppu.set_nes_format(nes_format);
-        self.bus.apu.set_nes_format(nes_format);
+        self.bus.ppu.set_nes_region(nes_region);
+        self.bus.apu.set_nes_region(nes_region);
     }
 
     #[inline]
@@ -349,7 +349,7 @@ impl Cpu {
 
     #[inline]
     fn end_cycle(&mut self, cycle: Cycle) {
-        // TODO: Update to use nes_format numbers
+        // TODO: Update to use nes_region numbers
         self.master_clock += if cycle == Cycle::Read {
             self.end_clocks + 1
         } else {
@@ -392,6 +392,14 @@ impl Cpu {
             self.dmc_dma = true;
             self.halt = true;
             self.dummy_read = true;
+        }
+        if let Mapper::Exrom(ref mut exrom) = self.bus.cart.as_mut().mapper {
+            if exrom.dmc.dma_pending {
+                exrom.dmc.dma_pending = false;
+                self.dmc_dma = true;
+                self.halt = true;
+                self.dummy_read = true;
+            }
         }
     }
 
@@ -1038,7 +1046,7 @@ mod tests {
     #[test]
     fn cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::new(NesFormat::default(), Bus::default());
+        let mut cpu = Cpu::new(NesRegion::default(), Bus::default());
         cpu.power_on();
         cpu.clock();
 

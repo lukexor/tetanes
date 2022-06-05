@@ -2,19 +2,15 @@ use crate::{
     apu::{Apu, AudioChannel},
     bus::Bus,
     cart::Cart,
-    common::{Clocked, NesFormat, Powered},
+    common::{Clocked, NesRegion, Powered},
     cpu::{instr::Instr, Cpu},
     input::{Gamepad, GamepadSlot},
     memory::RamState,
     ppu::{Ppu, VideoFilter},
     NesResult,
 };
-use std::io::Read;
-
-#[cfg(not(target_arch = "wasm32"))]
-use crate::debugger::Breakpoint;
-#[cfg(not(target_arch = "wasm32"))]
-use std::ops::ControlFlow;
+use anyhow::anyhow;
+use std::{io::Read, ops::ControlFlow};
 
 /// Represents an NES Control Deck
 #[derive(Debug, Clone)]
@@ -22,7 +18,7 @@ use std::ops::ControlFlow;
 pub struct ControlDeck {
     running: bool,
     ram_state: RamState,
-    nes_format: NesFormat,
+    nes_region: NesRegion,
     loaded_rom: Option<String>,
     turbo_clock: usize,
     cycles_remaining: f32,
@@ -32,12 +28,12 @@ pub struct ControlDeck {
 impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
     #[inline]
-    pub fn new(nes_format: NesFormat, ram_state: RamState) -> Self {
-        let cpu = Cpu::new(nes_format, Bus::new(nes_format, ram_state));
+    pub fn new(nes_region: NesRegion, ram_state: RamState) -> Self {
+        let cpu = Cpu::new(nes_region, Bus::new(nes_region, ram_state));
         Self {
             running: false,
             ram_state,
-            nes_format,
+            nes_region,
             loaded_rom: None,
             turbo_clock: 0,
             cycles_remaining: 0.0,
@@ -53,7 +49,7 @@ impl ControlDeck {
     #[inline]
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_string());
-        let cart = Cart::from_rom(name, rom, self.nes_format, self.ram_state)?;
+        let cart = Cart::from_rom(name, rom, self.nes_region, self.ram_state)?;
         self.cpu.bus.load_cart(cart);
         self.power_cycle();
         Ok(())
@@ -104,58 +100,101 @@ impl ControlDeck {
         self.cpu.bus.apu.clear_samples();
     }
 
-    /// Steps the control deck the number of seconds
     #[inline]
-    pub fn clock_seconds(&mut self, seconds: f32) -> usize {
-        self.cycles_remaining += Cpu::clock_rate(self.nes_format) * seconds;
-        let mut clocks = 0;
-        while self.cycles_remaining > 0.0 && !self.cpu_corrupted() {
-            let cycles = self.clock();
-            clocks += cycles;
-            self.cycles_remaining -= cycles as f32;
-        }
-        clocks
+    pub fn clock_rate(&mut self) -> f32 {
+        Cpu::clock_rate(self.nes_region)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[inline]
-    pub(crate) fn debug_clock_frame(
-        &mut self,
-        breakpoints: &[Breakpoint],
-    ) -> ControlFlow<usize, usize> {
-        self.clock_input();
-        let mut clocks = 0;
-        while !self.frame_complete() && !self.cpu_corrupted() {
-            if breakpoints.iter().any(|bp| bp.matches(&self.cpu)) {
-                return ControlFlow::Break(clocks);
-            }
-            clocks += self.clock();
+    /// Steps the control deck one CPU clock.
+    ///
+    /// # Errors
+    ///
+    /// If CPU encounteres an invalid opcode, an error is returned.
+    pub fn clock_debug(&mut self) -> NesResult<ControlFlow<usize, usize>> {
+        let cycles = self.clock();
+        if self.cpu_corrupted() {
+            Err(anyhow!("cpu corrupted"))
+        } else if self.should_break() {
+            Ok(ControlFlow::Break(cycles))
+        } else {
+            Ok(ControlFlow::Continue(cycles))
         }
-        self.start_new_frame();
-        ControlFlow::Continue(clocks)
+    }
+
+    /// Steps the control deck the number of seconds.
+    ///
+    /// # Errors
+    ///
+    /// If CPU encounteres an invalid opcode, an error is returned.
+    #[inline]
+    pub fn clock_seconds(&mut self, seconds: f32) -> NesResult<ControlFlow<usize, usize>> {
+        self.cycles_remaining += self.clock_rate() * seconds;
+        let mut total_cycles = 0;
+        while self.cycles_remaining > 0.0 {
+            match self.clock_debug()? {
+                ControlFlow::Break(cycles) => {
+                    total_cycles += cycles;
+                    self.cycles_remaining -= cycles as f32;
+                    return Ok(ControlFlow::Break(total_cycles));
+                }
+                ControlFlow::Continue(cycles) => {
+                    total_cycles += cycles;
+                    self.cycles_remaining -= cycles as f32;
+                }
+            }
+        }
+        Ok(ControlFlow::Continue(total_cycles))
     }
 
     /// Steps the control deck an entire frame
+    ///
+    /// # Errors
+    ///
+    /// If CPU encounteres an invalid opcode, an error is returned.
     #[inline]
-    pub fn clock_frame(&mut self) -> usize {
+    pub fn clock_frame(&mut self) -> NesResult<ControlFlow<usize, usize>> {
         self.clock_input();
-        let mut clocks = 0;
-        while !self.frame_complete() && !self.cpu_corrupted() {
-            clocks += self.clock();
+        let mut total_cycles = 0;
+        let frame = self.frame_number();
+        while frame == self.frame_number() {
+            match self.clock_debug()? {
+                ControlFlow::Break(cycles) => {
+                    total_cycles += cycles;
+                    self.cycles_remaining -= cycles as f32;
+                    return Ok(ControlFlow::Break(total_cycles));
+                }
+                ControlFlow::Continue(cycles) => {
+                    total_cycles += cycles;
+                    self.cycles_remaining -= cycles as f32;
+                }
+            }
         }
-        self.start_new_frame();
-        clocks
+        Ok(ControlFlow::Continue(total_cycles))
     }
 
     /// Steps the control deck a single scanline.
+    ///
+    /// # Errors
+    ///
+    /// If CPU encounteres an invalid opcode, an error is returned.
     #[inline]
-    pub fn clock_scanline(&mut self) -> usize {
+    pub fn clock_scanline(&mut self) -> NesResult<ControlFlow<usize, usize>> {
         let current_scanline = self.cpu.bus.ppu.scanline;
-        let mut clocks = 0;
-        while self.cpu.bus.ppu.scanline == current_scanline && !self.cpu_corrupted() {
-            clocks += self.clock();
+        let mut total_cycles = 0;
+        while current_scanline == self.cpu.bus.ppu.scanline {
+            match self.clock_debug()? {
+                ControlFlow::Break(cycles) => {
+                    total_cycles += cycles;
+                    self.cycles_remaining -= cycles as f32;
+                    return Ok(ControlFlow::Break(total_cycles));
+                }
+                ControlFlow::Continue(cycles) => {
+                    total_cycles += cycles;
+                    self.cycles_remaining -= cycles as f32;
+                }
+            }
         }
-        clocks
+        Ok(ControlFlow::Continue(total_cycles))
     }
 
     /// Returns whether the CPU is corrupted or not.
@@ -163,6 +202,14 @@ impl ControlDeck {
     #[must_use]
     pub const fn cpu_corrupted(&self) -> bool {
         self.cpu.corrupted
+    }
+
+    /// Returns whether the CPU debugger should break or not.
+    #[inline]
+    #[must_use]
+    pub const fn should_break(&self) -> bool {
+        // TODO
+        false
     }
 
     /// Returns the current CPU program counter.
@@ -240,17 +287,6 @@ impl ControlDeck {
         &mut self.cpu.bus.cart
     }
 
-    #[inline]
-    #[must_use]
-    pub const fn frame_complete(&self) -> bool {
-        self.cpu.bus.ppu.frame_complete
-    }
-
-    #[inline]
-    pub fn start_new_frame(&mut self) {
-        self.cpu.bus.ppu.frame_complete = false;
-    }
-
     /// Returns whether Four Score is enabled.
     #[inline]
     #[must_use]
@@ -307,8 +343,8 @@ impl ControlDeck {
 
     /// Set the NES format for the emulation.
     #[inline]
-    pub fn set_nes_format(&mut self, nes_format: NesFormat) {
-        self.cpu.set_nes_format(nes_format);
+    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        self.cpu.set_nes_region(nes_region);
     }
 
     /// Get the video filter for the emulation.
@@ -368,7 +404,7 @@ impl ControlDeck {
 
 impl Default for ControlDeck {
     fn default() -> Self {
-        Self::new(NesFormat::default(), RamState::default())
+        Self::new(NesRegion::default(), RamState::default())
     }
 }
 

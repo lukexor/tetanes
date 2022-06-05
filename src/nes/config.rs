@@ -1,9 +1,9 @@
 use crate::{
-    common::{config_dir, config_path, NesFormat},
+    common::{config_dir, config_path, NesRegion},
     memory::RamState,
     nes::{
         event::{Action, Input, InputBindings, InputMapping},
-        Nes, SAMPLE_RATE, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
+        Nes, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
     },
     ppu::VideoFilter,
 };
@@ -18,9 +18,8 @@ use std::{
 
 pub(crate) const CONFIG: &str = "config.json";
 const DEFAULT_CONFIG: &[u8] = include_bytes!("../../config/config.json");
-const DEFAULT_SPEED: f32 = 1.0; // 100% - 60 Hz
-const MIN_SPEED: f32 = 0.1; // 10% - 6 Hz
-const MAX_SPEED: f32 = 4.0; // 400% - 240 Hz
+const MIN_SPEED: f32 = 0.25; // 25% - 15 Hz
+const MAX_SPEED: f32 = 2.0; // 200% - 120 Hz
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// NES emulation configuration settings.
@@ -32,7 +31,7 @@ pub(crate) struct Config {
     pub(crate) vsync: bool,
     pub(crate) filter: VideoFilter,
     pub(crate) concurrent_dpad: bool,
-    pub(crate) nes_format: NesFormat,
+    pub(crate) nes_region: NesRegion,
     pub(crate) ram_state: RamState,
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
@@ -41,7 +40,10 @@ pub(crate) struct Config {
     pub(crate) rewind_frames: u32,
     pub(crate) rewind_buffer_size: usize,
     pub(crate) fourscore: bool,
-    pub(crate) log_level: log::LevelFilter,
+    pub(crate) audio_sample_rate: f32,
+    pub(crate) audio_buffer_size: usize,
+    pub(crate) dynamic_rate_control: bool,
+    pub(crate) dynamic_rate_delta: f32,
     pub(crate) genie_codes: Vec<String>,
     pub(crate) bindings: InputBindings,
     #[serde(skip)]
@@ -58,7 +60,7 @@ impl Default for Config {
             vsync: true,
             filter: VideoFilter::default(),
             concurrent_dpad: false,
-            nes_format: NesFormat::default(),
+            nes_region: NesRegion::default(),
             ram_state: RamState::default(),
             save_slot: 1,
             scale: 3.0,
@@ -67,7 +69,10 @@ impl Default for Config {
             rewind_frames: 2,
             rewind_buffer_size: 20,
             fourscore: false,
-            log_level: log::max_level(),
+            audio_sample_rate: 44_100.0,
+            audio_buffer_size: 4096,
+            dynamic_rate_control: true,
+            dynamic_rate_delta: 0.005,
             genie_codes: vec![],
             bindings: InputBindings::default(),
             input_map: InputMapping::default(),
@@ -145,9 +150,9 @@ impl Config {
     }
 
     pub(crate) fn get_dimensions(&self) -> (u32, u32) {
-        let width = match self.nes_format {
-            NesFormat::Ntsc => WINDOW_WIDTH_NTSC,
-            NesFormat::Pal | NesFormat::Dendy => WINDOW_WIDTH_PAL,
+        let width = match self.nes_region {
+            NesRegion::Ntsc => WINDOW_WIDTH_NTSC,
+            NesRegion::Pal | NesRegion::Dendy => WINDOW_WIDTH_PAL,
         };
         let width = (self.scale * width) as u32;
         let height = (self.scale * WINDOW_HEIGHT) as u32;
@@ -173,33 +178,30 @@ impl Nes {
     }
 
     pub(crate) fn change_speed(&mut self, delta: f32) {
-        let mut speed = self.config.speed;
-        if self.config.speed % 0.25 != 0.0 {
-            // Round to nearest quarter
-            speed = (self.config.speed * 4.0).floor() / 4.0;
-        }
-        speed += DEFAULT_SPEED * delta;
+        self.config.speed += delta;
         if self.config.speed < MIN_SPEED {
-            speed = MIN_SPEED;
+            self.config.speed = MIN_SPEED;
         } else if self.config.speed > MAX_SPEED {
-            speed = MAX_SPEED;
+            self.config.speed = MAX_SPEED;
         }
-        self.set_speed(speed);
+        self.set_speed(self.config.speed);
     }
 
     pub(crate) fn set_speed(&mut self, speed: f32) {
         self.config.speed = speed;
-        self.audio.set_output_rate(SAMPLE_RATE / self.config.speed);
+        self.audio
+            .set_output_frequency(self.config.audio_sample_rate / self.config.speed);
     }
 
     pub(crate) fn update_frame_rate(&mut self, s: &mut PixState) -> PixResult<()> {
-        match self.config.nes_format {
-            NesFormat::Ntsc => s.frame_rate(60),
-            NesFormat::Pal => s.frame_rate(50),
-            NesFormat::Dendy => s.frame_rate(59),
+        match self.config.nes_region {
+            NesRegion::Ntsc => s.frame_rate(60),
+            NesRegion::Pal => s.frame_rate(50),
+            NesRegion::Dendy => s.frame_rate(59),
         }
-        if self.config.vsync && s.target_frame_rate() != Some(60) {
-            self.config.vsync = false;
+        if (!self.config.vsync && self.config.nes_region == NesRegion::Ntsc)
+            || (self.config.vsync && self.config.nes_region != NesRegion::Ntsc)
+        {
             s.toggle_vsync()?;
         }
         Ok(())

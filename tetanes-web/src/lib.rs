@@ -1,22 +1,34 @@
 use tetanes::{
-    audio::Audio,
-    common::{Clocked, NesFormat, Powered},
+    audio::{Audio, NesAudioCallback},
+    common::{NesRegion, Powered},
     control_deck::ControlDeck,
     input::GamepadSlot,
     memory::RamState,
-    ppu::{RENDER_HEIGHT, RENDER_WIDTH},
+    ppu::{RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH},
 };
 use wasm_bindgen::prelude::*;
 
 mod utils;
 
 const SAMPLE_RATE: f32 = 44_100.0;
+const BUFFER_SIZE: usize = 4096;
 
 #[wasm_bindgen]
 pub struct Nes {
     paused: bool,
     control_deck: ControlDeck,
     audio: Audio,
+    buffer: Vec<f32>,
+    callback: NesAudioCallback,
+    sound: bool,
+    dynamic_rate_control: bool,
+    dynamic_rate_delta: f32,
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
 }
 
 #[wasm_bindgen]
@@ -27,12 +39,20 @@ impl Nes {
     }
 
     pub fn new() -> Self {
-        let control_deck = ControlDeck::new(NesFormat::default(), RamState::default());
+        let control_deck = ControlDeck::new(NesRegion::default(), RamState::default());
         let sample_rate = control_deck.apu().sample_rate();
+        let mut audio = Audio::new(sample_rate, SAMPLE_RATE, BUFFER_SIZE);
+        let buffer = vec![0.0; BUFFER_SIZE / 4];
+        let callback = audio.open_callback().expect("valid callback");
         Self {
             paused: true,
             control_deck,
-            audio: Audio::new(sample_rate, SAMPLE_RATE),
+            audio,
+            buffer,
+            callback,
+            sound: true,
+            dynamic_rate_control: true,
+            dynamic_rate_delta: 0.005,
         }
     }
 
@@ -40,34 +60,49 @@ impl Nes {
         self.paused = val;
     }
 
-    pub fn paused(&mut self) -> bool {
+    pub fn paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn set_sound(&mut self, enabled: bool) {
+        self.sound = enabled;
     }
 
     pub fn power_cycle(&mut self) {
         self.control_deck.power_cycle();
     }
 
+    pub fn dynamic_rate_control(&self) -> bool {
+        self.dynamic_rate_control
+    }
+
+    pub fn set_dynamic_rate_control(&mut self, val: bool) {
+        self.dynamic_rate_control = val;
+    }
+
+    pub fn dynamic_rate_delta(&self) -> f32 {
+        self.dynamic_rate_delta
+    }
+
+    pub fn set_dynamic_rate_delta(&mut self, val: f32) {
+        self.dynamic_rate_delta = val;
+    }
+
     pub fn frame(&mut self) -> *const u8 {
         self.control_deck.frame_buffer().as_ptr()
     }
 
-    pub fn frame_len(&mut self) -> usize {
-        self.control_deck.frame_buffer().len()
+    pub fn frame_len(&self) -> usize {
+        RENDER_SIZE as usize
     }
 
-    pub fn samples(&mut self, sample_ratio: f32) -> *const f32 {
-        let samples = self.control_deck.audio_samples();
-        let output = self.audio.output(samples, sample_ratio);
-        output.as_ptr()
+    pub fn samples(&mut self) -> *const f32 {
+        self.callback.read(&mut self.buffer);
+        self.buffer.as_ptr()
     }
 
-    pub fn clear_samples(&mut self) {
-        self.control_deck.clear_audio_samples();
-    }
-
-    pub fn samples_len(&mut self) -> usize {
-        self.audio.output_len()
+    pub fn buffer_capacity(&self) -> usize {
+        self.buffer.capacity()
     }
 
     pub fn width(&self) -> u32 {
@@ -83,12 +118,19 @@ impl Nes {
     }
 
     pub fn clock_frame(&mut self) {
-        if !self.paused {
-            while !self.control_deck.frame_complete() {
-                let _ = self.control_deck.clock();
-            }
-            self.control_deck.start_new_frame();
+        self.control_deck.clock_frame().expect("valid clock");
+        if self.sound {
+            let samples = self.control_deck.audio_samples();
+            self.audio
+                .output(samples, self.dynamic_rate_control, self.dynamic_rate_delta);
         }
+        self.control_deck.clear_audio_samples();
+    }
+
+    pub fn clock_seconds(&mut self, seconds: f32) {
+        self.control_deck
+            .clock_seconds(seconds)
+            .expect("valid clock");
     }
 
     pub fn load_rom(&mut self, mut bytes: &[u8]) {

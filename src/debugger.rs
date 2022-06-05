@@ -1,4 +1,4 @@
-use crate::{cpu::Cpu, memory::MemAccess};
+use crate::memory::MemAccess;
 use std::ops::RangeInclusive;
 
 // TODO: Use Address
@@ -29,11 +29,4 @@ pub(crate) struct Breakpoint {
     pub(crate) access: Vec<MemAccess>,
     pub(crate) conditions: Vec<Condition>,
     pub(crate) enabled: bool,
-}
-
-impl Breakpoint {
-    pub(crate) const fn matches(&self, _cpu: &Cpu) -> bool {
-        // TODO: Breakpoint matching
-        false
-    }
 }

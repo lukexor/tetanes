@@ -1,75 +1,29 @@
 use crate::{
     apu::AudioChannel,
-    common::{config_path, NesFormat, SAVE_DIR, SRAM_DIR},
+    audio::Audio,
+    common::{config_path, NesRegion, SAVE_DIR, SRAM_DIR},
     input::GamepadSlot,
+    memory::RamState,
     nes::{
         config::CONFIG,
         event::{Action, Input},
         filesystem::is_nes_rom,
+        menu::types::{EmuSpeed, SampleRate},
         Mode, Nes,
     },
     ppu::VideoFilter,
 };
-use anyhow::anyhow;
 use pix_engine::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub(crate) enum Menu {
-    Config,
-    Keybind,
-    LoadRom,
-    About,
-}
-
-impl AsRef<str> for Menu {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Config => "Configuration",
-            Self::Keybind => "Keybindings",
-            Self::LoadRom => "Load ROM",
-            Self::About => "About",
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) enum Player {
-    One,
-    Two,
-    Three,
-    Four,
-}
-
-impl AsRef<str> for Player {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::One => "Player One",
-            Self::Two => "Player Two",
-            Self::Three => "Player Three",
-            Self::Four => "Player Four",
-        }
-    }
-}
-
-impl TryFrom<usize> for Player {
-    type Error = PixError;
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::One),
-            1 => Ok(Self::Two),
-            2 => Ok(Self::Three),
-            3 => Ok(Self::Four),
-            _ => Err(anyhow!("invalid `Player`").into()),
-        }
-    }
-}
+pub(crate) mod types;
+pub(crate) use types::{Menu, Player};
 
 impl Nes {
     pub(crate) fn open_menu(&mut self, s: &mut PixState, menu: Menu) -> PixResult<()> {
         s.cursor(Cursor::arrow())?;
         self.mode = Mode::InMenu(menu, Player::One);
+        self.audio.pause();
         Ok(())
     }
 
@@ -131,47 +85,26 @@ impl Nes {
 impl Nes {
     fn render_config(&mut self, s: &mut PixState) -> PixResult<()> {
         s.collapsing_header("General", |s: &mut PixState| {
+            let c = &mut self.config;
+
             s.spacing()?;
 
-            s.checkbox("Pause in Background", &mut self.config.pause_in_bg)?;
+            s.checkbox("Pause in Background", &mut c.pause_in_bg)?;
 
-            let mut log_level = self.config.log_level as usize;
-            s.next_width(100);
-            if s.select_box(
-                "Log Level",
-                &mut log_level,
-                &["Off", "Error", "Warn", "Info", "Debug", "Trace"],
-                6,
-            )? {
-                self.config.log_level = match log_level {
-                    1 => log::LevelFilter::Error,
-                    2 => log::LevelFilter::Warn,
-                    3 => log::LevelFilter::Info,
-                    4 => log::LevelFilter::Debug,
-                    5 => log::LevelFilter::Trace,
-                    _ => log::LevelFilter::Off,
-                };
-            }
-
-            let mut save_slot = self.config.save_slot as usize - 1;
+            let mut save_slot = c.save_slot as usize - 1;
             s.next_width(50);
             if s.select_box("Save Slot:", &mut save_slot, &["1", "2", "3", "4"], 4)? {
-                self.config.save_slot = save_slot as u8 + 1;
+                c.save_slot = save_slot as u8 + 1;
             }
 
-            s.checkbox("Enable Rewind", &mut self.config.rewind)?;
-            if self.config.rewind {
+            s.checkbox("Enable Rewind", &mut c.rewind)?;
+            if c.rewind {
                 s.indent()?;
                 s.next_width(200);
-                s.slider("Rewind Frames", &mut self.config.rewind_frames, 1, 10)?;
+                s.slider("Rewind Frames", &mut c.rewind_frames, 1, 10)?;
                 s.indent()?;
                 s.next_width(200);
-                s.slider(
-                    "Rewind Buffer Size (MB)",
-                    &mut self.config.rewind_buffer_size,
-                    8,
-                    256,
-                )?;
+                s.slider("Rewind Buffer Size (MB)", &mut c.rewind_buffer_size, 8, 256)?;
             }
 
             s.spacing()?;
@@ -181,42 +114,36 @@ impl Nes {
         s.collapsing_header("Emulation", |s: &mut PixState| {
             s.spacing()?;
 
-            let mut nes_format = self.config.nes_format as usize;
+            let mut nes_region = self.config.nes_region as usize;
             s.next_width(150);
-            if s.select_box(
-                "NES Format",
-                &mut nes_format,
-                &[NesFormat::Ntsc, NesFormat::Pal, NesFormat::Dendy],
-                3,
-            )? {
-                self.config.nes_format = NesFormat::from(nes_format);
-                self.control_deck.set_nes_format(self.config.nes_format);
-                self.audio
-                    .set_input_rate(self.control_deck.apu().sample_rate());
-                self.update_frame_rate(s)?;
+            if s.select_box("NES Format", &mut nes_region, NesRegion::as_slice(), 3)? {
+                self.config.nes_region = NesRegion::from(nes_region);
+                self.control_deck.set_nes_region(self.config.nes_region);
                 s.set_window_dimensions(self.config.get_dimensions())?;
+                self.update_frame_rate(s)?;
+                self.audio = Audio::new(
+                    self.control_deck.apu().sample_rate(),
+                    self.config.audio_sample_rate / self.config.speed,
+                    self.config.audio_buffer_size,
+                );
+                self.audio.open_playback(s)?;
             }
 
             s.next_width(125);
-            let mut selected = self.config.ram_state as usize;
+            let mut selected_state = self.config.ram_state as usize;
             if s.select_box(
                 "Power-up RAM State:",
-                &mut selected,
-                &["All $00", "All $FF", "Random"],
+                &mut selected_state,
+                RamState::as_slice(),
                 3,
             )? {
-                self.config.ram_state = selected.into();
+                self.config.ram_state = selected_state.into();
             }
 
-            let mut selected = ((4.0 * self.config.speed) as usize).saturating_sub(1);
+            let mut selected_speed = EmuSpeed::from(self.config.speed) as usize;
             s.next_width(100);
-            if s.select_box(
-                "Speed:",
-                &mut selected,
-                &["25%", "50%", "75%", "100%", "125%", "150%", "175%", "200%"],
-                4,
-            )? {
-                self.set_speed((selected + 1) as f32 / 4.0);
+            if s.select_box("Speed:", &mut selected_speed, EmuSpeed::as_slice(), 4)? {
+                self.set_speed(EmuSpeed::from(selected_speed).as_f32());
             }
 
             s.checkbox("Concurrent D-Pad", &mut self.config.concurrent_dpad)?;
@@ -228,30 +155,58 @@ impl Nes {
         })?;
 
         s.collapsing_header("Sound", |s: &mut PixState| {
+            let c = &mut self.config;
+
             s.spacing()?;
 
-            s.checkbox("Enabled", &mut self.config.sound)?;
+            s.checkbox("Enabled", &mut c.sound)?;
+            if c.sound {
+                let audio = &mut self.audio;
 
-            s.text("Channels:")?;
-            let mut pulse1 = self.control_deck.channel_enabled(AudioChannel::Pulse1);
-            if s.checkbox("Pulse 1", &mut pulse1)? {
-                self.control_deck.toggle_channel(AudioChannel::Pulse1);
-            }
-            let mut pulse2 = self.control_deck.channel_enabled(AudioChannel::Pulse2);
-            if s.checkbox("Pulse 2", &mut pulse2)? {
-                self.control_deck.toggle_channel(AudioChannel::Pulse2);
-            }
-            let mut triangle = self.control_deck.channel_enabled(AudioChannel::Triangle);
-            if s.checkbox("Triangle", &mut triangle)? {
-                self.control_deck.toggle_channel(AudioChannel::Triangle);
-            }
-            let mut noise = self.control_deck.channel_enabled(AudioChannel::Noise);
-            if s.checkbox("Noise", &mut noise)? {
-                self.control_deck.toggle_channel(AudioChannel::Noise);
-            }
-            let mut dmc = self.control_deck.channel_enabled(AudioChannel::Dmc);
-            if s.checkbox("DMC", &mut dmc)? {
-                self.control_deck.toggle_channel(AudioChannel::Dmc);
+                let mut selected_sample_rate = SampleRate::from(c.audio_sample_rate) as usize;
+                s.next_width(200);
+                if s.select_box(
+                    "Sample Rate",
+                    &mut selected_sample_rate,
+                    SampleRate::as_slice(),
+                    4,
+                )? {
+                    c.audio_sample_rate = SampleRate::from(selected_sample_rate).as_f32();
+                    audio.set_output_frequency(c.audio_sample_rate / c.speed);
+                }
+                s.next_width(200);
+                if s.slider("Buffer Size", &mut c.audio_buffer_size, 512, 8192)? {
+                    audio.reset(c.audio_buffer_size);
+                    audio.open_playback(s)?;
+                }
+                s.checkbox("Dynamic Rate Control", &mut c.dynamic_rate_control)?;
+                if c.dynamic_rate_control {
+                    s.next_width(200);
+                    s.slider("Dynamic Rate Delta", &mut c.dynamic_rate_delta, 0.001, 0.1)?;
+                }
+
+                let deck = &mut self.control_deck;
+                s.text("Channels:")?;
+                let mut pulse1 = deck.channel_enabled(AudioChannel::Pulse1);
+                if s.checkbox("Pulse 1", &mut pulse1)? {
+                    deck.toggle_channel(AudioChannel::Pulse1);
+                }
+                let mut pulse2 = deck.channel_enabled(AudioChannel::Pulse2);
+                if s.checkbox("Pulse 2", &mut pulse2)? {
+                    deck.toggle_channel(AudioChannel::Pulse2);
+                }
+                let mut triangle = deck.channel_enabled(AudioChannel::Triangle);
+                if s.checkbox("Triangle", &mut triangle)? {
+                    deck.toggle_channel(AudioChannel::Triangle);
+                }
+                let mut noise = deck.channel_enabled(AudioChannel::Noise);
+                if s.checkbox("Noise", &mut noise)? {
+                    deck.toggle_channel(AudioChannel::Noise);
+                }
+                let mut dmc = deck.channel_enabled(AudioChannel::Dmc);
+                if s.checkbox("DMC", &mut dmc)? {
+                    deck.toggle_channel(AudioChannel::Dmc);
+                }
             }
 
             s.spacing()?;
@@ -331,15 +286,10 @@ impl Nes {
 
         s.spacing()?;
 
-        let mut selected = player as usize;
+        let mut selected_player = player as usize;
         s.next_width(200);
-        if s.select_box(
-            "",
-            &mut selected,
-            &[Player::One, Player::Two, Player::Three, Player::Four],
-            4,
-        )? {
-            self.mode = Mode::InMenu(menu, selected.try_into()?);
+        if s.select_box("", &mut selected_player, Player::as_slice(), 4)? {
+            self.mode = Mode::InMenu(menu, selected_player.try_into()?);
         }
         s.spacing()?;
 

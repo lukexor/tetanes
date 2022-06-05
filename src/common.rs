@@ -9,19 +9,26 @@ pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum NesFormat {
+pub enum NesRegion {
     Ntsc,
     Pal,
     Dendy,
 }
 
-impl Default for NesFormat {
+impl NesRegion {
+    #[must_use]
+    pub const fn as_slice() -> &'static [Self] {
+        &[NesRegion::Ntsc, NesRegion::Pal, NesRegion::Dendy]
+    }
+}
+
+impl Default for NesRegion {
     fn default() -> Self {
         Self::Ntsc
     }
 }
 
-impl AsRef<str> for NesFormat {
+impl AsRef<str> for NesRegion {
     fn as_ref(&self) -> &str {
         match self {
             Self::Ntsc => "NTSC",
@@ -31,7 +38,7 @@ impl AsRef<str> for NesFormat {
     }
 }
 
-impl From<usize> for NesFormat {
+impl From<usize> for NesRegion {
     fn from(value: usize) -> Self {
         match value {
             1 => Self::Pal,
@@ -87,6 +94,7 @@ pub(crate) fn config_path<P: AsRef<Path>>(path: P) -> PathBuf {
 }
 
 /// Prints a hex dump of a given byte array starting at `addr_offset`.
+#[must_use]
 pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
     use std::cmp;
 
@@ -142,7 +150,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::{
-        common::{NesFormat, Powered},
+        common::{NesRegion, Powered},
         control_deck::ControlDeck,
         input::{GamepadBtn, GamepadSlot},
         mapper::{Mapper, MapperRevision},
@@ -237,7 +245,7 @@ pub(crate) mod tests {
         let mut deck = ControlDeck::default();
         deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
         deck.set_filter(VideoFilter::None);
-        deck.set_nes_format(NesFormat::Ntsc);
+        deck.set_nes_region(NesRegion::Ntsc);
         deck
     }
 
@@ -260,7 +268,7 @@ pub(crate) mod tests {
                 },
                 Action::Setting(setting) => match setting {
                     Setting::SetVideoFilter(filter) => deck.set_filter(filter),
-                    Setting::SetNesFormat(format) => deck.set_nes_format(format),
+                    Setting::SetNesFormat(format) => deck.set_nes_region(format),
                     _ => panic!("unhandled Setting: {:?}", setting),
                 },
                 Action::Gamepad(button) => {
@@ -354,7 +362,7 @@ pub(crate) mod tests {
             );
 
             while deck.frame_number() < test_frame.number {
-                deck.clock_frame();
+                deck.clock_frame().expect("valid frame clock");
                 deck.clear_audio_samples();
                 deck.gamepad_mut(GamepadSlot::One).clear();
                 deck.gamepad_mut(GamepadSlot::Two).clear();

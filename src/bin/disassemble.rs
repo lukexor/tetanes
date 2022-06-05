@@ -1,8 +1,8 @@
-use std::{env, path::PathBuf};
+use std::{env, fmt::Write, path::PathBuf};
 use structopt::StructOpt;
 use tetanes::{
     cart::Cart,
-    common::NesFormat,
+    common::NesRegion,
     cpu::instr::{
         AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY},
         INSTRUCTIONS,
@@ -16,7 +16,7 @@ fn main() -> NesResult<()> {
     pretty_env_logger::init();
 
     let opt = Opt::from_args();
-    let cart = Cart::from_path(opt.path, NesFormat::default(), RamState::default())?;
+    let cart = Cart::from_path(opt.path, NesRegion::default(), RamState::default())?;
     let mut addr = 0x0000;
     while addr <= cart.prg_rom.len() {
         log::info!("{}", disassemble(&mut addr, &cart.prg_rom));
@@ -37,7 +37,7 @@ pub fn disassemble(pc: &mut usize, rom: &[u8]) -> String {
     let instr = INSTRUCTIONS[opcode as usize];
     let mut bytes = Vec::with_capacity(3);
     let mut disasm = String::with_capacity(100);
-    let _ = write!(disasm"${:04X}:", pc);
+    let _ = write!(disasm, "${:04X}:", pc);
     bytes.push(opcode);
     let mut addr = pc.wrapping_add(1);
     let mode = match instr.addr_mode() {

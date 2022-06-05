@@ -9,7 +9,7 @@ use crate::{
         pulse::{OutputFreq, Pulse, PulseChannel},
     },
     cart::Cart,
-    common::{Clocked, NesFormat, Powered},
+    common::{Clocked, NesRegion, Powered},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, MirroringType},
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
     ppu::{
@@ -236,7 +236,7 @@ impl ExRegs {
 }
 
 impl Exrom {
-    pub fn load(cart: &mut Cart, nes_format: NesFormat) -> Mapper {
+    pub fn load(cart: &mut Cart, nes_region: NesRegion) -> Mapper {
         cart.prg_ram.resize(PRG_RAM_SIZE);
 
         let mirroring = cart.mirroring();
@@ -266,7 +266,7 @@ impl Exrom {
             last_chr_write: ChrBank::Spr,
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
-            dmc: Dmc::new(nes_format),
+            dmc: Dmc::new(nes_region),
             dmc_mode: 0x01, // Default to read mode
         };
         exrom.regs.prg_banks[4] = exrom.prg_rom_banks.last() | ROM_SELECT_MASK;
@@ -907,7 +907,7 @@ mod tests {
         for a in 0..4 {
             for b in 0..4 {
                 let mut cart = Cart::new();
-                cart.mapper = Exrom::load(&mut cart, NesFormat::default());
+                cart.mapper = Exrom::load(&mut cart, NesRegion::default());
 
                 cart.write(0x5102, a);
                 cart.write(0x5103, b);

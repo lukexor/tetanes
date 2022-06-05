@@ -40,7 +40,6 @@ const WINDOW_WIDTH_PAL: f32 = RENDER_WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18
 const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
 // Trim top and bottom 8 scanlines
 const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
-const SAMPLE_RATE: f32 = 44_100.0;
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -137,7 +136,7 @@ impl NesBuilder {
         config.speed = self.speed.unwrap_or(config.speed);
         config.genie_codes.append(&mut self.genie_codes.clone());
 
-        let mut control_deck = ControlDeck::new(config.nes_format, config.ram_state);
+        let mut control_deck = ControlDeck::new(config.nes_region, config.ram_state);
         for (&input, &action) in config.input_map.iter() {
             if action == Action::ZapperTrigger {
                 if let Input::Mouse((slot, ..))
@@ -214,7 +213,6 @@ pub struct Nes {
     debug: bool,
     rewind_frame: u32,
     scanline: u32,
-    speed_counter: f32,
     rewind_buffer: VecDeque<Vec<u8>>,
     replay: Replay,
     messages: Vec<(String, Instant)>,
@@ -234,7 +232,11 @@ impl Nes {
         let sample_rate = control_deck.apu().sample_rate();
         Self {
             control_deck,
-            audio: Audio::new(sample_rate, SAMPLE_RATE / config.speed),
+            audio: Audio::new(
+                sample_rate,
+                config.audio_sample_rate / config.speed,
+                config.audio_buffer_size,
+            ),
             players: HashMap::new(),
             emulation: None,
             debugger: None,
@@ -246,7 +248,6 @@ impl Nes {
             record_sound: false,
             debug,
             scanline: 0,
-            speed_counter: 0.0,
             rewind_frame: 0,
             rewind_buffer: VecDeque::new(),
             replay: Replay::default(),
@@ -271,8 +272,6 @@ impl Nes {
             .with_dimensions(width, height)
             .with_title(title)
             .with_frame_rate()
-            .audio_sample_rate(SAMPLE_RATE as i32)
-            .audio_channels(1)
             .target_frame_rate(60)
             .resizable();
 
@@ -320,6 +319,15 @@ impl Nes {
         self.render_ppu_viewer(s)?;
         Ok(())
     }
+
+    fn handle_debugger(&mut self, control: ControlFlow<usize, usize>) {
+        if let Some(ref mut debugger) = self.debugger {
+            if let ControlFlow::Break(_) = control {
+                debugger.on_breakpoint = true;
+                self.pause_play();
+            }
+        }
+    }
 }
 
 impl AppState for Nes {
@@ -328,6 +336,7 @@ impl AppState for Nes {
         if self.set_zapper_pos(s.mouse_pos()) {
             s.cursor(None)?;
         }
+        self.audio.open_playback(s)?;
 
         self.emulation = Some(View::new(
             s.window_id(),
@@ -343,59 +352,31 @@ impl AppState for Nes {
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
-        if std::env::var("TEST").is_ok() {
-            let buffer = self.control_deck.frame_buffer();
-            if self.debugger.is_none() && buffer[0] == 0 && buffer != &vec![0; 4 * (256 * 240)][..]
-            {
-                self.toggle_debugger(s)?;
-            }
-        }
-
         if self.replay.mode == ReplayMode::Playback {
             self.replay_action(s)?;
         }
 
         if self.mode == Mode::Playing {
-            self.speed_counter += self.config.speed;
-            'run: while self.speed_counter > 0.0 {
-                self.speed_counter -= 1.0;
-                if let Some(ref mut debugger) = self.debugger {
-                    if let ControlFlow::Break(_) =
-                        self.control_deck.debug_clock_frame(&debugger.breakpoints)
-                    {
-                        debugger.on_breakpoint = true;
-                        self.pause_play();
-                        break 'run;
-                    }
-                } else {
-                    self.control_deck.clock_frame();
-                }
-                self.update_rewind();
-                if self.control_deck.cpu_corrupted() {
-                    self.error = Some("CPU encountered invalid opcode.".into());
-                    self.open_menu(s, Menu::LoadRom)?;
-                    return Ok(());
-                }
-            }
+            // Clamp prevents wide swings in emulation speed and audio clipping due to jitter
+            let seconds_to_run = (self.config.speed * s.delta_time().as_secs_f32())
+                .clamp(0.0, self.config.speed * (1.0 / 30.0));
+            match self.control_deck.clock_seconds(seconds_to_run) {
+                Ok(control) => {
+                    self.update_rewind();
 
-            if self.config.sound && self.mode != Mode::Paused {
-                // TODO add settings for dynamic rate control and delta
-                let delta = 5.0;
-                let mut queued_size = s.audio_queued_size() as f32 / 4.0;
-                let mut buffer_size = s.audio_size() as f32 / 4.0;
-                if queued_size < 512.0 {
-                    self.control_deck.clock_frame();
-                    queued_size = s.audio_queued_size() as f32 / 4.0;
-                    buffer_size = s.audio_size() as f32 / 4.0;
+                    if self.config.sound {
+                        let samples = self.control_deck.audio_samples();
+                        self.audio.output(
+                            samples,
+                            self.config.dynamic_rate_control,
+                            self.config.dynamic_rate_delta,
+                        );
+                    }
+                    self.control_deck.clear_audio_samples();
+                    self.handle_debugger(control);
                 }
-                let sample_ratio = 1.0
-                    + (delta * (buffer_size - 2.0 * (buffer_size - queued_size)))
-                        / (1000.0 * buffer_size);
-                let samples = self.control_deck.audio_samples();
-                let output = self.audio.output(samples, sample_ratio);
-                s.enqueue_audio(output)?;
+                Err(err) => return self.handle_emulation_error(s, &err),
             }
-            self.control_deck.clear_audio_samples();
         }
 
         self.render_views(s)?;
@@ -431,18 +412,14 @@ impl AppState for Nes {
                 ReplayMode::Off => (),
             },
         }
+        if (self.config.speed - 1.0).abs() > f32::EPSILON {
+            self.render_status(s, &format!("Speed {:.2}", self.config.speed))?;
+        }
         self.render_messages(s)?;
         Ok(())
     }
 
     fn on_stop(&mut self, s: &mut PixState) -> PixResult<()> {
-        if std::env::var("TEST").is_ok() {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            self.control_deck.frame_buffer().hash(&mut hasher);
-            println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
-        }
-
         if self.control_deck.loaded_rom().is_some() {
             match self.confirm_quit {
                 None => {
