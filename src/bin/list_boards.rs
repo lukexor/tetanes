@@ -1,16 +1,12 @@
-use log::info;
 use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tetanes::{cart::Cart, common::NesRegion, memory::RamState, NesResult};
+use tetanes::{cart::Cart, memory::RamState, NesResult};
 
 fn main() -> NesResult<()> {
-    env::set_var("RUST_LOG", "info");
-    pretty_env_logger::init();
-
     let opt = Opt::from_args();
     let path = opt
         .path
@@ -35,17 +31,17 @@ fn main() -> NesResult<()> {
             .collect();
         boards.sort();
         for board in &boards {
-            info!("{}", board);
+            println!("{}", board);
         }
     } else if path.is_file() {
-        info!("{}", get_mapper(&path)?);
+        println!("{}", get_mapper(&path)?);
     }
     Ok(())
 }
 
 fn get_mapper<P: AsRef<Path>>(path: P) -> NesResult<String> {
-    let cart = Cart::from_path(path, NesRegion::default(), RamState::default())?;
-    Ok(format!("{:<30} {:?}", cart.mapper_board(), cart.name()))
+    let cart = Cart::from_path(path, RamState::default())?;
+    Ok(format!("{:<50} {:?}", cart.mapper_board(), cart.name()))
 }
 
 #[derive(StructOpt, Debug)]

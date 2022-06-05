@@ -1,5 +1,5 @@
 use super::{menu::Player, Menu, Mode, Nes, NesResult};
-use crate::cart::NesHeader;
+use crate::{audio::Audio, cart::NesHeader};
 use anyhow::{anyhow, Context};
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use pix_engine::prelude::PixState;
@@ -151,11 +151,11 @@ impl Nes {
     }
 
     /// Loads a ROM cartridge into memory
-    pub(crate) fn load_rom(&mut self, s: &mut PixState) {
+    pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
         if let Err(err) = NesHeader::from_path(&self.config.rom_path) {
             log::error!("{:?}: {:?}", self.config.rom_path, err);
             self.error = Some(format!("Invalid NES ROM {:?}", self.rom_filename()));
-            return;
+            return Ok(());
         }
 
         self.error = None;
@@ -169,7 +169,7 @@ impl Nes {
                 log::error!("{:?}: {:?}", self.config.rom_path, err);
                 self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
                 self.error = Some(format!("Failed to open ROM {:?}", self.rom_filename()));
-                return;
+                return Ok(());
             }
         };
         let name = self
@@ -185,6 +185,15 @@ impl Nes {
         let mut rom = BufReader::new(rom);
         match self.control_deck.load_rom(&name, &mut rom) {
             Ok(()) => {
+                self.config.nes_region = self.control_deck.nes_region();
+                s.set_window_dimensions(self.config.get_dimensions())?;
+                self.update_frame_rate(s)?;
+                self.audio = Audio::new(
+                    self.control_deck.apu().sample_rate(),
+                    self.config.audio_sample_rate / self.config.speed,
+                    self.config.audio_buffer_size,
+                );
+                self.audio.open_playback(s)?;
                 self.audio.resume();
                 if let Err(err) = self.load_sram() {
                     log::error!("{:?}: {:?}", self.config.rom_path, err);
@@ -205,6 +214,8 @@ impl Nes {
             }
         }
         self.load_replay();
+
+        Ok(())
     }
 }
 

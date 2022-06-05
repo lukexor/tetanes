@@ -342,7 +342,7 @@ impl AppState for Nes {
             s.window_id(),
             Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?),
         ));
-        self.load_rom(s);
+        self.load_rom(s)?;
 
         if self.debug {
             self.toggle_debugger(s)?;

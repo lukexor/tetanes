@@ -260,13 +260,7 @@ mod tests {
         let rom_file = "test_roms/cpu/nestest.nes";
         let rom = File::open(rom_file).expect("valid file");
         let mut rom = BufReader::new(rom);
-        let cart = Cart::from_rom(
-            &rom_file,
-            &mut rom,
-            NesRegion::default(),
-            RamState::AllZeros,
-        )
-        .expect("loaded cart");
+        let cart = Cart::from_rom(&rom_file, &mut rom, RamState::AllZeros).expect("loaded cart");
         let mut mem = Bus::default();
         mem.load_cart(cart);
         mem.write(0x0005, 0x0015);

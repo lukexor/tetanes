@@ -389,7 +389,7 @@ impl Nes {
         if s.dbl_clicked() || s.button("Open")? {
             self.config.rom_path = path;
             self.selected_path = 0;
-            self.load_rom(s);
+            self.load_rom(s)?;
         }
         s.disable(false);
 

@@ -14,14 +14,18 @@ use anyhow::{anyhow, bail, Context};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::hash_map::DefaultHasher,
     fmt,
     fs::File,
-    io::{BufReader, Read},
+    hash::{Hash, Hasher},
+    io::{BufRead, BufReader, Read},
     path::Path,
 };
 
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
+
+const GAME_DB: &[u8] = include_bytes!("../config/game_database.txt");
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -71,6 +75,8 @@ pub struct Cart {
     #[serde(skip)]
     pub mirroring: Mirroring,
     #[serde(skip)]
+    pub nes_region: NesRegion,
+    #[serde(skip)]
     pub prg_rom: Memory, // Program ROM
     pub prg_ram: Memory, // Program RAM
     pub chr: Memory,     // Character ROM/RAM
@@ -87,6 +93,7 @@ impl Cart {
             ram_state: RamState::Random,
             header: NesHeader::new(),
             mirroring: Mirroring::default(),
+            nes_region: NesRegion::default(),
             prg_rom: Memory::new(),
             prg_ram: Memory::new(),
             chr: Memory::new(),
@@ -101,16 +108,12 @@ impl Cart {
     ///
     /// If the ROM can not be opened, or the NES header is corrupted, then an error is returned.
     #[inline]
-    pub fn from_path<P: AsRef<Path>>(
-        path: P,
-        nes_region: NesRegion,
-        ram_state: RamState,
-    ) -> NesResult<Self> {
+    pub fn from_path<P: AsRef<Path>>(path: P, ram_state: RamState) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
             File::open(path).with_context(|| format!("failed to open rom {:?}", path))?,
         );
-        Self::from_rom(&path.to_string_lossy(), &mut rom, nes_region, ram_state)
+        Self::from_rom(&path.to_string_lossy(), &mut rom, ram_state)
     }
 
     /// Creates a new Cart instance by reading in a `.nes` file
@@ -123,12 +126,7 @@ impl Cart {
     ///
     /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
     /// file, then an error is returned.
-    pub fn from_rom<S, F>(
-        name: S,
-        mut rom_data: &mut F,
-        nes_region: NesRegion,
-        ram_state: RamState,
-    ) -> NesResult<Self>
+    pub fn from_rom<S, F>(name: S, mut rom_data: &mut F, ram_state: RamState) -> NesResult<Self>
     where
         S: ToString,
         F: Read,
@@ -149,6 +147,11 @@ impl Cart {
             )
         })?;
         let prg_rom = Memory::rom(prg_data);
+
+        let mut hasher = DefaultHasher::new();
+        prg_rom.hash(&mut hasher);
+        let hash = hasher.finish();
+        let nes_region = Self::lookup_region(hash);
 
         let mut chr_data = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
         rom_data.read_exact(&mut chr_data).with_context(|| {
@@ -182,6 +185,7 @@ impl Cart {
             header,
             ram_state,
             mirroring,
+            nes_region,
             prg_rom,
             prg_ram: Memory::ram(prg_ram_size, ram_state),
             chr,
@@ -264,6 +268,26 @@ impl Cart {
         } else {
             Ok(0)
         }
+    }
+
+    #[inline]
+    fn lookup_region(lookup_hash: u64) -> NesRegion {
+        let db = BufReader::new(GAME_DB);
+        let lines: Vec<String> = db.lines().filter_map(Result::ok).collect();
+        if let Ok(line) = lines.binary_search_by(|line| {
+            let hash = line
+                .split(',')
+                .next()
+                .map(|hash| hash.parse::<u64>().unwrap_or_default())
+                .unwrap_or_default();
+            hash.cmp(&lookup_hash)
+        }) {
+            let mut fields = lines[line].split(',').skip(1);
+            if let Some(region) = fields.next() {
+                return NesRegion::try_from(region).unwrap_or_default();
+            }
+        }
+        NesRegion::default()
     }
 }
 

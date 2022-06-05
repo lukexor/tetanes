@@ -49,7 +49,8 @@ impl ControlDeck {
     #[inline]
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_string());
-        let cart = Cart::from_rom(name, rom, self.nes_region, self.ram_state)?;
+        let cart = Cart::from_rom(name, rom, self.ram_state)?;
+        self.set_nes_region(cart.nes_region);
         self.cpu.bus.load_cart(cart);
         self.power_cycle();
         Ok(())
@@ -341,9 +342,16 @@ impl ControlDeck {
         zapper.y = y;
     }
 
+    /// Get the NES format for the emulation.
+    #[inline]
+    pub fn nes_region(&mut self) -> NesRegion {
+        self.nes_region
+    }
+
     /// Set the NES format for the emulation.
     #[inline]
     pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        self.nes_region = nes_region;
         self.cpu.set_nes_region(nes_region);
     }
 

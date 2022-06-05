@@ -1,3 +1,5 @@
+use crate::{NesError, NesResult};
+use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
@@ -34,6 +36,19 @@ impl AsRef<str> for NesRegion {
             Self::Ntsc => "NTSC",
             Self::Pal => "PAL",
             Self::Dendy => "Dendy",
+        }
+    }
+}
+
+impl TryFrom<&str> for NesRegion {
+    type Error = NesError;
+
+    fn try_from(value: &str) -> NesResult<Self> {
+        match value {
+            "NTSC" => Ok(Self::Ntsc),
+            "PAL" => Ok(Self::Pal),
+            "Dendy" => Ok(Self::Dendy),
+            _ => Err(anyhow!("invalid nes region")),
         }
     }
 }
