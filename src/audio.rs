@@ -93,6 +93,8 @@ pub struct Audio {
     decim_ratio: f32,
     pitch_ratio: f32,
     fraction: f32,
+    avg: f32,
+    count: f32,
     filters: [Filter; 3],
 }
 
@@ -110,6 +112,8 @@ impl Audio {
             decim_ratio: input_frequency / output_frequency,
             pitch_ratio: 1.0,
             fraction: 0.0,
+            avg: 0.0,
+            count: 0.0,
             filters: [
                 Filter::high_pass(90.0, output_frequency),
                 Filter::high_pass(440.0, output_frequency),
@@ -243,17 +247,21 @@ impl Audio {
         self.decim_ratio = self.input_frequency / (self.pitch_ratio * self.output_frequency);
         let mut sample_count = 0;
         for sample in samples {
+            self.avg += *sample;
+            self.count += 1.0;
             while self.fraction <= 0.0 {
                 let sample = self
                     .filters
                     .iter_mut()
-                    .fold(*sample, |sample, filter| filter.apply(sample));
+                    .fold(self.avg / self.count, |sample, filter| filter.apply(sample));
                 if self.producer.push(sample).is_err() {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         std::thread::sleep(Duration::from_micros(10));
                     }
                 }
+                self.avg = 0.0;
+                self.count = 0.0;
                 sample_count += 1;
                 self.fraction += self.decim_ratio;
             }
