@@ -36,6 +36,9 @@ pub const PAL_MASTER_CLOCK_RATE: f32 = 26_601_712.0;
 pub const PAL_CPU_CLOCK_RATE: f32 = PAL_MASTER_CLOCK_RATE / 16.0;
 pub const DENDY_CPU_CLOCK_RATE: f32 = PAL_MASTER_CLOCK_RATE / 15.0;
 
+// Represents CPU/PPU alignment and would range from 0..=ppu_divider-1, if random alignment was emulated
+const PPU_OFFSET: u64 = 1;
+
 const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
 const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
 const RESET_VECTOR: u16 = 0xFFFC; // Vector address at reset
@@ -342,7 +345,7 @@ impl Cpu {
         };
         self.cycle = self.cycle.wrapping_add(1);
 
-        self.bus.ppu.run(self.master_clock - 1);
+        self.bus.ppu.run(self.master_clock - PPU_OFFSET);
         self.bus.cart.clock();
         self.bus.apu.clock();
     }
@@ -355,7 +358,7 @@ impl Cpu {
         } else {
             self.end_clocks - 1
         };
-        self.bus.ppu.run(self.master_clock - 1);
+        self.bus.ppu.run(self.master_clock - PPU_OFFSET);
 
         // https://www.nesdev.org/wiki/CPU_interrupts
         //

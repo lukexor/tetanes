@@ -1329,13 +1329,12 @@ impl Powered for Ppu {
         // FIXME: Technically PPUADDR should remain unchanged on reset.
         // https://wiki.nesdev.org/w/index.php?title=PPU_power_up_state
         // However, it results in glitched sprites in some games
-        self.write_ppuaddr(0);
+        self.regs.write_addr(0);
     }
     fn power_cycle(&mut self) {
         self.oamaddr_lo = 0x00;
         self.oamaddr_hi = 0x00;
         self.oamaddr = 0x00;
-        self.regs.write_addr(0);
         self.reset();
     }
 }
