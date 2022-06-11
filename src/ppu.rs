@@ -250,8 +250,8 @@ impl Ppu {
     }
 
     #[inline]
-    pub fn load_cart(&mut self, cart: &mut Cart) {
-        self.vram.cart = cart;
+    pub fn load_cart(&mut self, cart: &mut Box<Cart>) {
+        self.vram.cart = &mut **cart;
     }
 
     #[inline]
@@ -828,7 +828,7 @@ impl Ppu {
         // Used by `Zapper`
         let color = self.frame.current_buffer[(x + (y << 8)) as usize] as usize;
         let palette_idx = (color & (SYSTEM_PALETTE_SIZE - 1)) * 3;
-        if let [red, green, blue] = SYSTEM_PALETTE[palette_idx..palette_idx + 3] {
+        if let [red, green, blue] = SYSTEM_PALETTE[palette_idx..=palette_idx + 2] {
             u32::from(red) + u32::from(green) + u32::from(blue)
         } else {
             0

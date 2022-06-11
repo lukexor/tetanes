@@ -3,8 +3,9 @@
 use crate::{
     common::{Clocked, NesRegion, Powered},
     mapper::{
-        m001_sxrom::Mmc1Revision, Axrom, Bf909x, Cnrom, Empty, Exrom, Gxrom, MapRead, MapWrite,
-        Mapped, MappedRead, MappedWrite, Mapper, MirroringType, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
+        m001_sxrom::Mmc1Revision, m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Cnrom, Empty, Exrom,
+        Gxrom, MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Nrom, Pxrom, Sxrom,
+        Txrom, Uxrom, Vrc6,
     },
     memory::{MemRead, MemWrite, Memory, RamState},
     ppu::Mirroring,
@@ -201,6 +202,8 @@ impl Cart {
             5 => Exrom::load(&mut cart, nes_region),
             7 => Axrom::load(&mut cart),
             9 => Pxrom::load(&mut cart),
+            24 => Vrc6::load(&mut cart, Vrc6Revision::A),
+            26 => Vrc6::load(&mut cart, Vrc6Revision::B),
             66 => Gxrom::load(&mut cart),
             71 => Bf909x::load(&mut cart),
             155 => Sxrom::load(&mut cart, Mmc1Revision::A),
@@ -216,15 +219,6 @@ impl Cart {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    /// The nametable mirroring mode defined in the header
-    #[inline]
-    pub fn mirroring(&self) -> Mirroring {
-        match self.mapper.mirroring() {
-            MirroringType::Hardware => self.mirroring,
-            MirroringType::Software(mirroring) => mirroring,
-        }
     }
 
     /// Get battery-backed RAM data.
@@ -255,6 +249,21 @@ impl Cart {
     #[must_use]
     pub const fn mapper_board(&self) -> &'static str {
         self.header.mapper_board()
+    }
+
+    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
+        if let Mapper::Exrom(ref mut exrom) = self.mapper {
+            exrom.dmc.set_nes_region(nes_region);
+        }
+    }
+
+    // Swap dynamic data with another cart instance.
+    pub fn swap(&mut self, cart: &mut Self) {
+        std::mem::swap(&mut self.prg_ram, &mut cart.prg_ram);
+        if self.chr.writable() {
+            std::mem::swap(&mut self.chr, &mut cart.chr);
+        }
+        std::mem::swap(&mut self.mapper, &mut cart.mapper);
     }
 }
 
@@ -298,13 +307,26 @@ impl Mapped for Cart {
     }
 
     #[inline]
+    fn mirroring(&self) -> Option<Mirroring> {
+        self.mapper.mirroring().or(Some(self.mirroring))
+    }
+
+    #[inline]
     fn use_ciram(&self, addr: u16) -> bool {
         self.mapper.use_ciram(addr)
     }
 
     #[inline]
-    fn nametable_page(&self, addr: u16) -> u16 {
-        self.mapper.nametable_page(addr)
+    fn nametable_page(&self, addr: u16) -> Option<u16> {
+        self.mapper.nametable_page(addr).or_else(|| {
+            self.mirroring().map(|mirroring| match mirroring {
+                Mirroring::Horizontal => (addr >> 11) & 1,
+                Mirroring::Vertical => (addr >> 10) & 1,
+                Mirroring::SingleScreenA => (addr >> 14) & 1,
+                Mirroring::SingleScreenB => (addr >> 13) & 1,
+                Mirroring::FourScreen => panic!("unhandled FourScreen mirroring"),
+            })
+        })
     }
 
     #[inline]
@@ -538,6 +560,8 @@ impl NesHeader {
             5 => "Mapper 005 - ExROM/MMC5",
             7 => "Mapper 007 - AxROM",
             9 => "Mapper 009 - PxROM",
+            24 => "Mapper 024 - Vrc6a",
+            26 => "Mapper 026 - Vrc6b",
             66 => "Mapper 066 - Gxrom",
             71 => "Mapper 071 - UNROM/CAMERICA/BF909X",
             155 => "Mapper 155 - SxROM/MMC1A",

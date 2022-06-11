@@ -67,16 +67,20 @@ impl Bus {
             genie_codes: HashMap::new(),
             open_bus: 0,
         };
-        bus.ppu.load_cart(&mut bus.cart);
-        bus.apu.load_cart(&mut bus.cart);
+        bus.update_cart();
         bus
+    }
+
+    #[inline]
+    pub fn update_cart(&mut self) {
+        self.ppu.load_cart(&mut self.cart);
+        self.apu.load_cart(&mut self.cart);
     }
 
     #[inline]
     pub fn load_cart(&mut self, cart: Cart) {
         self.cart = Box::new(cart);
-        self.ppu.load_cart(&mut self.cart);
-        self.apu.load_cart(&mut self.cart);
+        self.update_cart();
     }
 
     /// Add a Game Genie code to override memory reads/writes.

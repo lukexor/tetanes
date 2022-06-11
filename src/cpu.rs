@@ -5,7 +5,7 @@
 use crate::{
     bus::Bus,
     common::{Clocked, NesRegion, Powered},
-    mapper::{Mapped, Mapper},
+    mapper::Mapped,
     memory::{MemRead, MemWrite},
 };
 use bitflags::bitflags;
@@ -197,6 +197,7 @@ impl Cpu {
         self.end_clocks = end_clocks;
         self.bus.ppu.set_nes_region(nes_region);
         self.bus.apu.set_nes_region(nes_region);
+        self.bus.cart.set_nes_region(nes_region);
     }
 
     #[inline]
@@ -396,14 +397,6 @@ impl Cpu {
             self.halt = true;
             self.dummy_read = true;
         }
-        if let Mapper::Exrom(ref mut exrom) = self.bus.cart.as_mut().mapper {
-            if exrom.dmc.dma_pending {
-                exrom.dmc.dma_pending = false;
-                self.dmc_dma = true;
-                self.halt = true;
-                self.dummy_read = true;
-            }
-        }
     }
 
     #[inline]
@@ -419,10 +412,6 @@ impl Cpu {
 
     #[inline]
     fn handle_dma(&mut self, addr: u16) {
-        log::trace!("starting DMA: {}", self.cycle);
-        if addr & 0x2007 == 0x2007 {
-            log::trace!("swallowing $2007 read");
-        }
         self.start_cycle(Cycle::Read);
         self.bus.read(addr);
         self.end_cycle(Cycle::Read);
@@ -457,9 +446,6 @@ impl Cpu {
                     debug_assert!(self.halt || self.dummy_read);
                     self.process_dma_cycle();
                     if !skip_dummy_reads {
-                        if addr & 0x2007 == 0x2007 {
-                            log::trace!("swallowing $2007 read");
-                        }
                         self.bus.read(addr); // throw away
                     }
                     self.end_cycle(Cycle::Read);
@@ -478,9 +464,6 @@ impl Cpu {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
                 self.process_dma_cycle();
                 if !skip_dummy_reads {
-                    if addr & 0x2007 == 0x2007 {
-                        log::trace!("swallowing $2007 read");
-                    }
                     self.bus.read(addr); // throw away
                 }
                 self.end_cycle(Cycle::Read);
@@ -958,7 +941,7 @@ impl Powered for Cpu {
     /// Powers on the CPU
     fn power_on(&mut self) {
         self.cycle = 0;
-        self.master_clock = self.clock_divider;
+        self.master_clock = 0;
         self.irq = Irq::empty();
         self.run_irq = false;
         self.prev_run_irq = false;

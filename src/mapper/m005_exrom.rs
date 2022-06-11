@@ -7,10 +7,12 @@ use crate::{
     apu::{
         dmc::Dmc,
         pulse::{OutputFreq, Pulse, PulseChannel},
+        PULSE_TABLE, PULSE_TABLE_SIZE,
     },
     cart::Cart,
     common::{Clocked, NesRegion, Powered},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, MirroringType},
+    cpu::Cpu,
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
     ppu::{
         vram::{ATTR_OFFSET, NT_SIZE, NT_START},
@@ -144,6 +146,43 @@ pub struct ExRegs {
     pub mult_result: u16,         // $5205: read lo, $5206: read hi
 }
 
+impl ExRegs {
+    const fn new(mirroring: Mirroring) -> Self {
+        Self {
+            prg_mode: PrgMode::Bank8k,
+            chr_mode: ChrMode::Bank1k,
+            prg_ram_protect: [0x00; 2],
+            exmode: ExMode::RamProtected,
+            nametable_mirroring: match mirroring {
+                Mirroring::Horizontal => 0x50,
+                Mirroring::Vertical => 0x44,
+                Mirroring::SingleScreenA => 0x00,
+                Mirroring::SingleScreenB => 0x55,
+                Mirroring::FourScreen => 0xFF,
+            },
+            fill: Fill {
+                tile: 0xFF,
+                attr: 0xFF,
+            },
+            prg_banks: [0x00; 5],
+            chr_banks: [0x00; 16],
+            chr_hi: 0x00,
+            vsplit: VSplit {
+                enabled: false,
+                side: SplitSide::Left,
+                tile: 0x00,
+                scroll: 0x00,
+                bank: 0x00,
+            },
+            irq_scanline: 0x00,
+            irq_enabled: false,
+            multiplicand: 0xFF,
+            multiplier: 0xFF,
+            mult_result: 0xFE01, // e.g. 0xFF * 0xFF
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuStatus {
@@ -192,57 +231,22 @@ pub struct Exrom {
     pub in_split: bool,
     pub split_tile: u16,
     pub last_chr_write: ChrBank,
+    pub nes_region: NesRegion,
     pub pulse1: Pulse,
     pub pulse2: Pulse,
     pub dmc: Dmc,
     pub dmc_mode: u8,
-}
-
-impl ExRegs {
-    const fn new(mirroring: Mirroring) -> Self {
-        Self {
-            prg_mode: PrgMode::Bank8k,
-            chr_mode: ChrMode::Bank1k,
-            prg_ram_protect: [0x00; 2],
-            exmode: ExMode::RamProtected,
-            nametable_mirroring: match mirroring {
-                Mirroring::Horizontal => 0x50,
-                Mirroring::Vertical => 0x44,
-                Mirroring::SingleScreenA => 0x00,
-                Mirroring::SingleScreenB => 0x55,
-                Mirroring::FourScreen => 0xFF,
-            },
-            fill: Fill {
-                tile: 0xFF,
-                attr: 0xFF,
-            },
-            prg_banks: [0x00; 5],
-            chr_banks: [0x00; 16],
-            chr_hi: 0x00,
-            vsplit: VSplit {
-                enabled: false,
-                side: SplitSide::Left,
-                tile: 0x00,
-                scroll: 0x00,
-                bank: 0x00,
-            },
-            irq_scanline: 0x00,
-            irq_enabled: false,
-            multiplicand: 0xFF,
-            multiplier: 0xFF,
-            mult_result: 0xFE01, // e.g. 0xFF * 0xFF
-        }
-    }
+    pub cpu_cycle: usize,
+    pub pulse_timer: f32,
 }
 
 impl Exrom {
     pub fn load(cart: &mut Cart, nes_region: NesRegion) -> Mapper {
         cart.prg_ram.resize(PRG_RAM_SIZE);
 
-        let mirroring = cart.mirroring();
         let mut exrom = Self {
-            regs: ExRegs::new(mirroring),
-            mirroring,
+            regs: ExRegs::new(cart.mirroring),
+            mirroring: cart.mirroring,
             irq_pending: false,
             ppu_status: PpuStatus {
                 fetch_count: 0x00,
@@ -264,14 +268,28 @@ impl Exrom {
             in_split: false,
             split_tile: 0x0000,
             last_chr_write: ChrBank::Spr,
+            nes_region,
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
             dmc: Dmc::new(nes_region),
             dmc_mode: 0x01, // Default to read mode
+            cpu_cycle: 0,
+            pulse_timer: 0.0,
         };
         exrom.regs.prg_banks[4] = exrom.prg_rom_banks.last() | ROM_SELECT_MASK;
         exrom.update_prg_banks();
         exrom.into()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn audio_output(&self) -> f32 {
+        let pulse1 = self.pulse1.output();
+        let pulse2 = self.pulse2.output();
+        let dmc = self.dmc.output();
+        let pulse_scale = PULSE_TABLE[PULSE_TABLE_SIZE - 1] / 15.0;
+        let out = -(pulse1 + pulse2 + dmc);
+        pulse_scale * out
     }
 
     //              $6000   $8000   $A000   $C000   $E000
@@ -419,8 +437,8 @@ impl Mapped for Exrom {
     }
 
     #[inline]
-    fn mirroring(&self) -> MirroringType {
-        self.mirroring.into()
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
     }
 
     // Used by the PPU to determine whether it should use it's own internal CIRAM for nametable
@@ -448,11 +466,12 @@ impl Mapped for Exrom {
     // Returns a nametable page based on $5105 nametable mapping
     // 0/1 use PPU CIRAM, 2/3 use EXRAM/Fill-mode
     #[inline]
-    fn nametable_page(&self, addr: u16) -> u16 {
+    fn nametable_page(&self, addr: u16) -> Option<u16> {
         let nametable = self.nametable_mapping(addr);
-        match nametable {
-            Nametable::ScreenA | Nametable::ScreenB => nametable as u16,
-            _ => 0,
+        if matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
+            Some(nametable as u16)
+        } else {
+            None
         }
     }
 
@@ -502,6 +521,7 @@ impl Mapped for Exrom {
 
 impl MapRead for Exrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
+        let val = self.map_peek(addr);
         match addr {
             0x0000..=0x1FFF => {
                 self.ppu_status.fetch_count += 1;
@@ -530,7 +550,7 @@ impl MapRead for Exrom {
             }
             _ => (),
         }
-        self.map_peek(addr)
+        val
     }
 
     fn map_peek(&self, addr: u16) -> MappedRead {
@@ -598,7 +618,7 @@ impl MapRead for Exrom {
             0x5107 => MappedRead::Data(self.regs.fill.attr),
             0x5015 => {
                 // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
-                let mut status = 0b00;
+                let mut status = 0x00;
                 if self.pulse1.length.counter > 0 {
                     status |= 0x01;
                 }
@@ -684,15 +704,16 @@ impl MapWrite for Exrom {
                 //   I = PCM IRQ enable (1 = enabled.)
                 //   M = Mode select (0 = write mode. 1 = read mode.)
                 self.dmc_mode = val & 0x01;
-                self.dmc.irq_enabled = val & 0x80 > 0;
+                self.dmc.irq_enabled = val & 0x80 == 0x80;
             }
             0x5011 => {
                 // [DDDD DDDD] PCM Data
                 if self.dmc_mode == 0 {
                     // Write mode
                     if val == 0x00 {
-                        self.dmc.irq_enabled = true;
+                        self.dmc.irq_pending = true;
                     } else {
+                        self.dmc.irq_pending = false;
                         self.dmc.output = val;
                     }
                 }
@@ -700,7 +721,7 @@ impl MapWrite for Exrom {
             0x5015 => {
                 //  [.... ..BA]   Enable flags for Pulse 1 (A), 2 (B)  (0=disable, 1=enable)
                 self.pulse1.set_enabled(val & 0x01 == 0x01);
-                self.pulse2.set_enabled(val & 0x10 == 0x10);
+                self.pulse2.set_enabled(val & 0x02 == 0x02);
             }
             0x5100 => {
                 // [.... ..PP] PRG Mode
@@ -885,6 +906,20 @@ impl Clocked for Exrom {
             }
         }
         self.ppu_status.reading = false;
+        if self.cpu_cycle & 0x01 == 0x00 {
+            self.pulse1.clock();
+            self.pulse2.clock();
+            self.dmc.clock();
+        }
+        self.pulse_timer -= 1.0;
+        if self.pulse_timer <= 0.0 {
+            self.pulse1.clock_quarter_frame();
+            self.pulse1.clock_half_frame();
+            self.pulse2.clock_quarter_frame();
+            self.pulse2.clock_half_frame();
+            self.pulse_timer = Cpu::clock_rate(self.nes_region) / 240.0;
+        }
+        self.cpu_cycle += 1;
         1
     }
 }

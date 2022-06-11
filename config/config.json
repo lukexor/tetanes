@@ -537,7 +537,7 @@
       {
         "player": "One",
         "key": "L",
-        "keymod": 0,
+        "keymod": 1,
         "action": {
           "Debug": "StepScanline"
         }
@@ -545,7 +545,7 @@
       {
         "player": "One",
         "key": "F",
-        "keymod": 0,
+        "keymod": 1,
         "action": {
           "Debug": "StepFrame"
         }

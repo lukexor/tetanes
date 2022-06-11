@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clocked, Powered},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, MirroringType},
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
     ppu::Mirroring,
 };
@@ -31,7 +31,7 @@ impl Axrom {
         cart.chr.resize(CHR_RAM_SIZE);
         cart.chr.write_protect(false);
         let axrom = Self {
-            mirroring: cart.mirroring(),
+            mirroring: cart.mirroring,
             prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_ROM_WINDOW),
         };
         axrom.into()
@@ -40,8 +40,8 @@ impl Axrom {
 
 impl Mapped for Axrom {
     #[inline]
-    fn mirroring(&self) -> MirroringType {
-        self.mirroring.into()
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
     }
 }
 

@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clocked, Powered},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, MirroringType},
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
     ppu::Mirroring,
 };
@@ -42,7 +42,7 @@ impl Bf909x {
             cart.chr.write_protect(false);
         }
         let mut bf909x = Self {
-            mirroring: cart.mirroring(),
+            mirroring: cart.mirroring,
             prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_ROM_WINDOW),
             variant: if cart.header.submapper_num == 1 {
                 Bf909Revision::Bf9097
@@ -57,8 +57,8 @@ impl Bf909x {
 
 impl Mapped for Bf909x {
     #[inline]
-    fn mirroring(&self) -> MirroringType {
-        self.mirroring.into()
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
     }
 }
 

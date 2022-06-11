@@ -17,6 +17,7 @@ pub use m004_txrom::{Mmc3Revision, Txrom};
 pub use m005_exrom::Exrom;
 pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
+pub use m024_m026_vrc6::Vrc6;
 pub use m066_gxrom::Gxrom;
 pub use m071_bf909x::{Bf909Revision, Bf909x};
 
@@ -28,8 +29,10 @@ pub mod m004_txrom;
 pub mod m005_exrom;
 pub mod m007_axrom;
 pub mod m009_pxrom;
+pub mod m024_m026_vrc6;
 pub mod m066_gxrom;
 pub mod m071_bf909x;
+pub mod vrc_irq;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -52,6 +55,7 @@ pub enum Mapper {
     Exrom,
     Axrom,
     Pxrom,
+    Vrc6,
     Gxrom,
     Bf909x,
 }
@@ -59,25 +63,6 @@ pub enum Mapper {
 impl Default for Mapper {
     fn default() -> Self {
         Empty.into()
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[must_use]
-pub enum MirroringType {
-    Hardware,
-    Software(Mirroring),
-}
-
-impl Default for MirroringType {
-    fn default() -> Self {
-        Self::Hardware
-    }
-}
-
-impl From<Mirroring> for MirroringType {
-    fn from(mirroring: Mirroring) -> Self {
-        Self::Software(mirroring)
     }
 }
 
@@ -117,26 +102,26 @@ pub trait MapWrite {
 #[enum_dispatch(Mapper)]
 pub trait Mapped {
     #[inline]
-    fn mirroring(&self) -> MirroringType {
-        MirroringType::Hardware
-    }
-
-    #[inline]
     #[must_use]
     fn irq_pending(&self) -> bool {
         false
     }
 
     #[inline]
-    #[must_use]
-    fn use_ciram(&self, _addr: u16) -> bool {
-        self.mirroring() != Mirroring::FourScreen.into()
+    fn mirroring(&self) -> Option<Mirroring> {
+        None
     }
 
     #[inline]
     #[must_use]
-    fn nametable_page(&self, _addr: u16) -> u16 {
-        0x00
+    fn use_ciram(&self, _addr: u16) -> bool {
+        self.mirroring() != Some(Mirroring::FourScreen)
+    }
+
+    #[inline]
+    #[must_use]
+    fn nametable_page(&self, _addr: u16) -> Option<u16> {
+        None
     }
 
     #[inline]

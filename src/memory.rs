@@ -179,7 +179,11 @@ impl MemRead for Memory {
     #[inline]
     fn peekw(&self, addr: usize) -> u8 {
         let len = self.data.len();
-        self.data[addr % len]
+        if len > 0 {
+            self.data[addr % len]
+        } else {
+            0
+        }
     }
 }
 
@@ -188,7 +192,9 @@ impl MemWrite for Memory {
     fn writew(&mut self, addr: usize, val: u8) {
         if self.writable {
             let len = self.data.len();
-            self.data[addr % len] = val;
+            if len > 0 {
+                self.data[addr % len] = val;
+            }
         }
     }
 }

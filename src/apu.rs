@@ -19,11 +19,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use triangle::Triangle;
 
-const PULSE_TABLE_SIZE: usize = 31;
+pub const PULSE_TABLE_SIZE: usize = 31;
 const TND_TABLE_SIZE: usize = 203;
 
 lazy_static! {
-    static ref PULSE_TABLE: [f32; PULSE_TABLE_SIZE] = {
+    pub static ref PULSE_TABLE: [f32; PULSE_TABLE_SIZE] = {
         let mut pulse_table = [0.0; PULSE_TABLE_SIZE];
         for (i, val) in pulse_table.iter_mut().enumerate().skip(1) {
             *val = 95.52 / (8_128.0 / (i as f32) + 100.0);
@@ -104,9 +104,6 @@ impl Apu {
         self.nes_region = nes_region;
         self.frame_counter.set_nes_region(nes_region);
         self.dmc.set_nes_region(nes_region);
-        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
-            exrom.dmc.set_nes_region(nes_region);
-        }
     }
 
     #[inline]
@@ -184,10 +181,6 @@ impl Apu {
         self.pulse2.clock_quarter_frame();
         self.triangle.clock_quarter_frame();
         self.noise.clock_quarter_frame();
-        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
-            exrom.pulse1.clock_quarter_frame();
-            exrom.pulse2.clock_quarter_frame();
-        }
     }
 
     #[inline]
@@ -196,10 +189,6 @@ impl Apu {
         self.pulse2.clock_half_frame();
         self.triangle.clock_half_frame();
         self.noise.clock_half_frame();
-        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
-            exrom.pulse1.clock_half_frame();
-            exrom.pulse2.clock_half_frame();
-        }
     }
 
     #[inline]
@@ -229,17 +218,16 @@ impl Apu {
         } else {
             0.0
         };
-        let (pulse, dmc) = if let Mapper::Exrom(ref exrom) = self.cart().mapper {
-            let pulse3 = exrom.pulse1.output();
-            let pulse4 = exrom.pulse2.output();
-            let dmc2 = exrom.dmc.output();
-            (pulse1 + pulse2 + pulse3 + pulse4, dmc + dmc2)
-        } else {
-            (pulse1 + pulse2, dmc)
+        let pulse_out = PULSE_TABLE[(pulse1 + pulse2) as usize % PULSE_TABLE_SIZE];
+        let tnd_out =
+            TND_TABLE[(3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % TND_TABLE_SIZE];
+        let mapper_out = match self.cart().mapper {
+            Mapper::Exrom(ref exrom) => exrom.audio_output(),
+            Mapper::Vrc6(ref vrc6) => vrc6.audio_output(),
+            _ => 0.0,
         };
-        let pulse_out = PULSE_TABLE[pulse as usize % 31];
-        let tnd_out = TND_TABLE[(3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % 203];
-        let sample = pulse_out + tnd_out;
+
+        let sample = mapper_out + pulse_out + tnd_out;
         self.samples.push(sample);
     }
 
@@ -254,7 +242,7 @@ impl Apu {
     #[inline]
     #[must_use]
     const fn peek_status(&self) -> u8 {
-        let mut status = 0;
+        let mut status = 0x00;
         if self.pulse1.length.counter > 0 {
             status |= 0x01;
         }
@@ -300,18 +288,24 @@ impl Apu {
     }
 
     #[inline]
-    pub fn load_cart(&mut self, cart: &mut Cart) {
-        self.cart = cart;
+    pub fn load_cart(&mut self, cart: &mut Box<Cart>) {
+        self.cart = &mut **cart;
     }
 
     #[allow(clippy::missing_const_for_fn)]
     #[inline]
     pub fn cart(&self) -> &Cart {
+        if self.cart.is_null() {
+            panic!("APU cart reference is null");
+        }
         unsafe { &*self.cart }
     }
 
     #[inline]
     pub fn cart_mut(&mut self) -> &mut Cart {
+        if self.cart.is_null() {
+            panic!("APU cart reference is null");
+        }
         unsafe { &mut *self.cart }
     }
 }
@@ -320,19 +314,11 @@ impl Clocked for Apu {
     #[inline]
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
-        if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
-            exrom.dmc.check_pending_dma();
-        }
         if self.cycle & 0x01 == 0x00 {
             self.pulse1.clock();
             self.pulse2.clock();
             self.noise.clock();
             self.dmc.clock();
-            if let Mapper::Exrom(ref mut exrom) = self.cart_mut().mapper {
-                exrom.pulse1.clock();
-                exrom.pulse2.clock();
-                exrom.dmc.clock();
-            }
         }
         self.triangle.clock();
         // Technically only clocks every 2 CPU cycles, but due

@@ -186,8 +186,8 @@ While the CPU Debugger is open (these can also be held down):
 | Step a single CPU instruction     | C                |
 | Step over a function              | O                |
 | Step out of a function            | Shift-O          |
-| Step a single scanline            | L                |
-| Step an entire frame              | F                |
+| Step a single scanline            | Shift-L          |
+| Step an entire frame              | Shift-F          |
 
 While the PPU Debugger is open (these can also be held down):
 

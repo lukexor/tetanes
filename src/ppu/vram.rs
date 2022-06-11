@@ -3,7 +3,6 @@ use crate::{
     common::Powered,
     mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
-    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -76,15 +75,8 @@ impl Vram {
     #[inline]
     #[must_use]
     pub fn nametable_addr(&self, addr: u16) -> u16 {
-        let mirroring = self.cart().mirroring();
         // Maps addresses to nametable pages based on mirroring mode
-        let page = match mirroring {
-            Mirroring::Horizontal => (addr >> 11) & 1,
-            Mirroring::Vertical => (addr >> 10) & 1,
-            Mirroring::SingleScreenA => (addr >> 14) & 1,
-            Mirroring::SingleScreenB => (addr >> 13) & 1,
-            Mirroring::FourScreen => self.cart().nametable_page(addr),
-        };
+        let page = self.cart().nametable_page(addr).unwrap_or(0);
         let offset = addr % NT_SIZE;
         NT_START + page * NT_SIZE + offset
     }
@@ -92,11 +84,17 @@ impl Vram {
     #[allow(clippy::missing_const_for_fn)]
     #[inline]
     pub fn cart(&self) -> &Cart {
+        if self.cart.is_null() {
+            panic!("APU cart reference is null");
+        }
         unsafe { &*self.cart }
     }
 
     #[inline]
     pub fn cart_mut(&mut self) -> &mut Cart {
+        if self.cart.is_null() {
+            panic!("APU cart reference is null");
+        }
         unsafe { &mut *self.cart }
     }
 }

@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clocked, Powered},
-    mapper::{
-        MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring, MirroringType,
-    },
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring},
     memory::MemoryBanks,
 };
 use serde::{Deserialize, Serialize};
@@ -48,7 +46,7 @@ impl Pxrom {
     pub fn load(cart: &mut Cart) -> Mapper {
         cart.prg_ram.resize(PRG_RAM_SIZE);
         let mut pxrom = Self {
-            mirroring: cart.mirroring(),
+            mirroring: cart.mirroring,
             latch: [0x00; 2],
             latch_banks: [0x00; 4],
             chr_banks: MemoryBanks::new(0x0000, 0x1FFF, cart.chr.len(), CHR_ROM_WINDOW),
@@ -72,8 +70,8 @@ impl Pxrom {
 
 impl Mapped for Pxrom {
     #[inline]
-    fn mirroring(&self) -> MirroringType {
-        self.mirroring.into()
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
     }
 }
 

@@ -58,14 +58,11 @@ impl ControlDeck {
 
     #[inline]
     pub fn load_cpu(&mut self, mut cpu: Cpu) {
-        // Swap CPU, but keep original loaded cart, except for ram and mapper
-        std::mem::swap(&mut self.cpu, &mut cpu);
+        // Swapping CPU swaps Box<Cart>, but we want to maintain the pointer to the original Cart
+        self.cpu.bus.cart.swap(&mut cpu.bus.cart);
         std::mem::swap(&mut self.cpu.bus.cart, &mut cpu.bus.cart);
-        self.cpu.bus.ppu.load_cart(&mut self.cpu.bus.cart);
-        self.cpu.bus.apu.load_cart(&mut self.cpu.bus.cart);
-        self.cpu.bus.cart.prg_ram = cpu.bus.cart.prg_ram;
-        self.cpu.bus.cart.chr = cpu.bus.cart.chr;
-        self.cpu.bus.cart.mapper = cpu.bus.cart.mapper;
+        self.cpu = cpu;
+        self.cpu.bus.update_cart();
     }
 
     #[inline]

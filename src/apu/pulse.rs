@@ -171,7 +171,7 @@ impl Clocked for Pulse {
             self.freq_counter -= 1;
         } else {
             self.freq_counter = self.freq_timer;
-            self.duty_counter = (self.duty_counter + 1) % 8;
+            self.duty_counter = (self.duty_counter + 1) & 0x07;
         }
         1
     }

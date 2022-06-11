@@ -6,9 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clocked, Powered},
-    mapper::{
-        MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring, MirroringType,
-    },
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring},
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
 };
 use serde::{Deserialize, Serialize};
@@ -106,10 +104,10 @@ impl Txrom {
         }
         let mut txrom = Self {
             regs: TxRegs::new(),
-            mirroring: cart.mirroring(),
+            mirroring: cart.mirroring,
             irq_pending: false,
             revision: Mmc3Revision::BC, // TODO compare to known games
-            four_screen_ram: if cart.mirroring() == Mirroring::FourScreen {
+            four_screen_ram: if cart.mirroring == Mirroring::FourScreen {
                 Some(Memory::ram(FOUR_SCREEN_RAM_SIZE, cart.ram_state))
             } else {
                 None
@@ -259,8 +257,8 @@ impl Mapped for Txrom {
     }
 
     #[inline]
-    fn mirroring(&self) -> MirroringType {
-        self.mirroring.into()
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
     }
 
     #[inline]

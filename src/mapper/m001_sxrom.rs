@@ -6,7 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clocked, Powered},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, MirroringType},
+    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
     ppu::Mirroring,
 };
@@ -236,8 +236,8 @@ impl Sxrom {
 
 impl Mapped for Sxrom {
     #[inline]
-    fn mirroring(&self) -> MirroringType {
-        self.mirroring.into()
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
     }
 }
 

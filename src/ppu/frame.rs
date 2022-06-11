@@ -114,11 +114,8 @@ pub struct Frame {
     pub tile_data: u64,
     pub prev_pixel: u32,
     pub last_updated_pixel: u32,
-    #[serde(skip)]
     pub current_buffer: Vec<u16>,
-    #[serde(skip)]
     pub back_buffer: Vec<u16>,
-    #[serde(skip)]
     pub output_buffer: Vec<u8>,
 }
 

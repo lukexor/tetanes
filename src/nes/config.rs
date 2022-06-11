@@ -199,10 +199,14 @@ impl Nes {
             NesRegion::Pal => s.frame_rate(50),
             NesRegion::Dendy => s.frame_rate(59),
         }
-        if (!self.config.vsync && self.config.nes_region == NesRegion::Ntsc)
-            || (self.config.vsync && self.config.nes_region != NesRegion::Ntsc)
-        {
-            s.toggle_vsync()?;
+        log::debug!(
+            "Updated NES Region and frame rate: {:?}, {:?}",
+            self.config.nes_region,
+            s.target_frame_rate()
+        );
+        // TODO: Should actually check current screen refresh rate here instead of region
+        if self.config.vsync && self.config.nes_region != NesRegion::Ntsc {
+            s.vsync(false)?;
         }
         Ok(())
     }

@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tetanes::{cart::Cart, memory::RamState, NesResult};
+use tetanes::{cart::Cart, mapper::Mapped, memory::RamState, NesResult};
 
 const GAME_DB: &str = "config/game_database.txt";
 
@@ -89,7 +89,7 @@ fn get_info<P: AsRef<Path>>(path: P) -> NesResult<(u64, String)> {
             },
             cart.prg_ram.len() / (16 * 1024),
             cart.battery_backed(),
-            cart.mirroring(),
+            cart.mirroring().unwrap_or_default(),
             cart.header.submapper_num,
             filename
         ),

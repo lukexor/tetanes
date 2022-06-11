@@ -1,5 +1,6 @@
 use crate::{
     cpu::STATUS_REGS,
+    mapper::Mapped,
     memory::MemRead,
     nes::{Nes, View},
     ppu::{PATTERN_WIDTH, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_WIDTH},
@@ -161,7 +162,7 @@ impl Nes {
                     .resizable()
                     .build()?;
                 s.with_window(window_id, |s: &mut PixState| {
-                    let texture_id = s.create_texture(w, h, PixelFormat::Rgb)?;
+                    let texture_id = s.create_texture(w, h, PixelFormat::Rgba)?;
                     self.ppu_viewer = Some(View::new(window_id, Some(texture_id)));
                     Ok(())
                 })?;
@@ -219,7 +220,7 @@ impl Nes {
                         s.set_cursor_pos([s.cursor_pos().x(), nametable3.bottom() + 4]);
 
                         s.text(&format!("Scanline: {}", self.scanline))?;
-                        let mirroring = self.control_deck.cart().mirroring();
+                        let mirroring = self.control_deck.cart().mirroring().unwrap_or_default();
                         s.text(&format!("Mirroring: {:?}", mirroring))?;
 
                         if s.focused_window(view.window_id)
