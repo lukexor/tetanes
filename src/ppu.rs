@@ -826,7 +826,7 @@ impl Ppu {
             return 0;
         }
         // Used by `Zapper`
-        let color = self.frame.current_buffer[(x + (y << 8)) as usize] as usize;
+        let color = self.frame.back_buffer[(x + (y << 8)) as usize] as usize;
         let palette_idx = (color & (SYSTEM_PALETTE_SIZE - 1)) * 3;
         if let [red, green, blue] = SYSTEM_PALETTE[palette_idx..=palette_idx + 2] {
             u32::from(red) + u32::from(green) + u32::from(blue)

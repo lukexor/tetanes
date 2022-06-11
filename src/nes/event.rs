@@ -4,7 +4,7 @@ use crate::{
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
     mapper::MapperRevision,
-    nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode},
+    nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode, NES_FRAME_SRC},
     ppu::{VideoFilter, RENDER_HEIGHT},
 };
 use pix_engine::prelude::*;
@@ -380,7 +380,12 @@ impl Nes {
         for slot in [GamepadSlot::One, GamepadSlot::Two] {
             if self.control_deck.zapper_connected(slot) {
                 let mut pos = pos / self.config.scale as i32;
-                pos.set_x((pos.x() as f32 * 7.0 / 8.0) as i32); // Adjust ratio
+                pos.set_x((pos.x() as f32 * 8.0 / 7.0 + 0.5) as i32); // Adjust ratio
+                if pos.y() < NES_FRAME_SRC.top() {
+                    pos.set_y(8);
+                } else if pos.y() >= NES_FRAME_SRC.bottom() {
+                    pos.set_y(NES_FRAME_SRC.bottom() - 1);
+                }
                 self.control_deck.aim_zapper(slot, pos.x(), pos.y());
                 return true;
             }

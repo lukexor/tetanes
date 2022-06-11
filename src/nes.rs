@@ -39,7 +39,8 @@ const WINDOW_WIDTH_NTSC: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7
 const WINDOW_WIDTH_PAL: f32 = RENDER_WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
 const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
 // Trim top and bottom 8 scanlines
-const NES_FRAME_SRC: Rect<i32> = rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
+pub(crate) const NES_FRAME_SRC: Rect<i32> =
+    rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
 
 #[derive(Debug, Clone)]
 #[must_use]

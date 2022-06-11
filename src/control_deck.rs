@@ -20,7 +20,7 @@ pub struct ControlDeck {
     ram_state: RamState,
     nes_region: NesRegion,
     loaded_rom: Option<String>,
-    turbo_clock: usize,
+    turbo_timer: f32,
     cycles_remaining: f32,
     cpu: Cpu,
 }
@@ -35,7 +35,7 @@ impl ControlDeck {
             ram_state,
             nes_region,
             loaded_rom: None,
-            turbo_clock: 0,
+            turbo_timer: 0.0,
             cycles_remaining: 0.0,
             cpu,
         }
@@ -151,7 +151,6 @@ impl ControlDeck {
     /// If CPU encounteres an invalid opcode, an error is returned.
     #[inline]
     pub fn clock_frame(&mut self) -> NesResult<ControlFlow<usize, usize>> {
-        self.clock_input();
         let mut total_cycles = 0;
         let frame = self.frame_number();
         while frame == self.frame_number() {
@@ -384,29 +383,6 @@ impl ControlDeck {
     }
 }
 
-impl ControlDeck {
-    #[inline]
-    fn clock_input(&mut self) {
-        for zapper in &mut self.cpu.bus.input.zappers {
-            zapper.update();
-        }
-        self.turbo_clock += 1;
-        // Every 2 frames, ~30Hz turbo
-        if self.turbo_clock > 2 {
-            self.turbo_clock = 0;
-        }
-        let turbo = self.turbo_clock == 0;
-        for gamepad in &mut self.cpu.bus.input.gamepads {
-            if gamepad.turbo_a {
-                gamepad.a = turbo;
-            }
-            if gamepad.turbo_b {
-                gamepad.b = turbo;
-            }
-        }
-    }
-}
-
 impl Default for ControlDeck {
     fn default() -> Self {
         Self::new(NesRegion::default(), RamState::default())
@@ -417,6 +393,21 @@ impl Clocked for ControlDeck {
     /// Steps the control deck a single clock cycle.
     #[inline]
     fn clock(&mut self) -> usize {
+        for zapper in &mut self.cpu.bus.input.zappers {
+            zapper.clock();
+        }
+        self.turbo_timer -= 1.0;
+        if self.turbo_timer <= 0.0 {
+            self.turbo_timer += self.clock_rate() / 30.0;
+            for gamepad in &mut self.cpu.bus.input.gamepads {
+                if gamepad.turbo_a {
+                    gamepad.a = !gamepad.a;
+                }
+                if gamepad.turbo_b {
+                    gamepad.b = !gamepad.b;
+                }
+            }
+        }
         self.cpu.clock()
     }
 }

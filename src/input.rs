@@ -1,7 +1,8 @@
 //! NES Controller Inputs
 
 use crate::{
-    common::Powered,
+    common::{Clocked, NesRegion, Powered},
+    cpu::Cpu,
     memory::MemWrite,
     ppu::{Ppu, RENDER_HEIGHT, RENDER_WIDTH},
 };
@@ -206,7 +207,8 @@ impl Powered for Signature {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
-    pub triggered: u8,
+    pub nes_region: NesRegion,
+    pub triggered: f32,
     pub x: i32,
     pub y: i32,
     pub radius: i32,
@@ -215,14 +217,9 @@ pub struct Zapper {
 
 impl Zapper {
     pub fn trigger(&mut self) {
-        if self.triggered == 0 {
-            self.triggered = 7;
-        }
-    }
-
-    pub fn update(&mut self) {
-        if self.triggered > 0 {
-            self.triggered -= 1;
+        if self.triggered <= 0.0 {
+            // Zapoer takes ~100ms to change to "released" after trigger is pulled
+            self.triggered = Cpu::clock_rate(self.nes_region) / 10.0;
         }
     }
 
@@ -233,9 +230,10 @@ impl Zapper {
 
 impl Zapper {
     #[inline]
-    const fn new() -> Self {
+    const fn new(nes_region: NesRegion) -> Self {
         Self {
-            triggered: 0,
+            nes_region,
+            triggered: 0.0,
             x: 0,
             y: 0,
             radius: 3,
@@ -250,8 +248,8 @@ impl Zapper {
     }
 
     #[inline]
-    const fn triggered(&self) -> u8 {
-        if self.triggered > 0 {
+    fn triggered(&self) -> u8 {
+        if self.triggered > 0.0 {
             0x10
         } else {
             0x00
@@ -262,8 +260,7 @@ impl Zapper {
     fn light_sense(&self, ppu: &Ppu) -> u8 {
         let width = RENDER_WIDTH as i32;
         let height = RENDER_HEIGHT as i32;
-        // EXPL: Light sense is 1 scanline delayed for, likely due to slightly inaccurate NMI timing
-        let scanline = ppu.scanline as i32 - 1;
+        let scanline = ppu.scanline as i32;
         let cycle = ppu.cycle as i32;
         let x = self.x;
         let y = self.y;
@@ -286,6 +283,17 @@ impl Zapper {
     }
 }
 
+impl Clocked for Zapper {
+    fn clock(&mut self) -> usize {
+        if self.triggered > 0.0 {
+            self.triggered -= 1.0;
+            1
+        } else {
+            0
+        }
+    }
+}
+
 /// Input containing gamepad input state
 #[derive(Default, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
@@ -302,12 +310,12 @@ pub struct Input {
 impl Input {
     /// Returns an empty Input instance with no event pump
     #[inline]
-    pub fn new() -> Self {
+    pub fn new(nes_region: NesRegion) -> Self {
         Self {
             gamepads: [Gamepad::default(); 4],
             // Signature bits are reversed so they can shift right
             signatures: [Signature::new(0b0000_1000), Signature::new(0b0000_0100)],
-            zappers: [Zapper::new(); 4],
+            zappers: [Zapper::new(nes_region); 4],
             shift_strobe: 0x00,
             fourscore: false,
             open_bus: 0x00,

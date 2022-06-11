@@ -61,7 +61,7 @@ impl Bus {
         let mut bus = Self {
             ppu: Ppu::new(nes_region),
             apu: Apu::new(nes_region),
-            input: Input::new(),
+            input: Input::new(nes_region),
             cart: Box::new(Cart::new()),
             wram: Memory::ram(WRAM_SIZE, ram_state),
             genie_codes: HashMap::new(),
