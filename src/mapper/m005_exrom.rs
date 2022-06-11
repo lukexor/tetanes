@@ -521,7 +521,6 @@ impl Mapped for Exrom {
 
 impl MapRead for Exrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
-        let val = self.map_peek(addr);
         match addr {
             0x0000..=0x1FFF => {
                 self.ppu_status.fetch_count += 1;
@@ -542,12 +541,16 @@ impl MapRead for Exrom {
                         | ((self.ppu_status.fetch_count / 4) & 0x1F) as u16;
                 }
             }
-            0x5204 => self.irq_pending = false, // Reading from IRQ status clears it
-            0x5010 => self.dmc.irq_pending = false,
             0xFFFA | 0xFFFB => {
                 self.ppu_status.in_frame = false; // NMI clears in_frame
                 self.ppu_status.prev_addr = 0x0000;
             }
+            _ => (),
+        }
+        let val = self.map_peek(addr);
+        match addr {
+            0x5204 => self.irq_pending = false, // Reading from IRQ status clears it
+            0x5010 => self.dmc.irq_pending = false,
             _ => (),
         }
         val
