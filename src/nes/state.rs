@@ -125,15 +125,27 @@ impl Nes {
 
     /// Load the console with data saved from a save state
     pub(crate) fn load_state(&mut self, slot: u8) {
-        match self.save_path(slot).and_then(load_data).and_then(|data| {
-            bincode::deserialize(&data)
-                .context("failed to deserialize load state")
-                .map(|cpu| self.control_deck.load_cpu(cpu))
-        }) {
-            Ok(_) => self.add_message(format!("Loaded slot {}", slot)),
+        match self.save_path(slot) {
+            Ok(path) => {
+                if path.exists() {
+                    match load_data(path).and_then(|data| {
+                        bincode::deserialize(&data)
+                            .context("failed to deserialize load state")
+                            .map(|cpu| self.control_deck.load_cpu(cpu))
+                    }) {
+                        Ok(_) => self.add_message(format!("Loaded slot {}", slot)),
+                        Err(err) => {
+                            log::error!("{:?}", err);
+                            self.add_message(format!("Failed to load slot {}", slot));
+                        }
+                    }
+                } else {
+                    self.add_message(format!("No save state found for slot {}", slot));
+                }
+            }
             Err(err) => {
                 log::error!("{:?}", err);
-                self.add_message(format!("Failed to load slot {}", slot));
+                self.add_message(format!("Failed to determine save path {}", slot));
             }
         }
     }
