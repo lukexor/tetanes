@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, next ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, next ]
+    branches: [ main ]
   workflow_dispatch:
 
 env:
@@ -17,8 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:  [macos-latest, ubuntu-latest, windows-latest]
-        # MSRV 1.59.0
+        # TODO: Add back windows-latest with SDL2 DLLS
+        os:  [macos-latest, ubuntu-latest]
         toolchain: [nightly, beta, stable, 1.59.0]
     steps:
     - name: Checkout
@@ -47,16 +47,21 @@ jobs:
         command: clippy
 
     - name: Install build dependencies
-      run: cargo install cargo-vcpkg
+      if: matrix.os == 'macos-latest'
+      run: brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
 
-    - name: Build dependencies
-      run: cargo vcpkg -v build
+    - name: Install build dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo add-apt-repository universe
+        sudo apt-get update -y -qq
+        sudo apt-get install libsdl2-dev libsdl2-gfx-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
 
     - name: Build source
-      run: cargo build --all-targets --features "vcpkg" --verbose
+      run: cargo build --all-targets --verbose
 
     - name: Build documentation
-      run: cargo doc --features "vcpkg" --verbose
+      run: cargo doc --verbose
 
     - name: Run unit tests
-      run: cargo test --features "vcpkg" --verbose
+      run: cargo test --verbose
