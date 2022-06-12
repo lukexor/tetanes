@@ -231,7 +231,7 @@ impl Cart {
     /// Load battery-backed RAM data.
     #[inline]
     pub fn load_sram(&mut self, sram: Vec<u8>) {
-        self.prg_ram = Memory::from(sram);
+        self.prg_ram.load(sram);
     }
 
     #[inline]
@@ -409,7 +409,7 @@ impl fmt::Display for Cart {
             self.chr.len() / 1024,
             self.prg_rom.len() / 1024,
             self.prg_ram.len() / 1024,
-            self.mirroring(),
+            self.mirroring().unwrap_or_default(),
             self.battery_backed(),
         )
     }

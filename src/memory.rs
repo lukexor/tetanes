@@ -131,6 +131,12 @@ impl Memory {
     }
 
     #[inline]
+    pub fn load(&mut self, mut bytes: Vec<u8>) {
+        self.data.clear();
+        self.data.append(&mut bytes);
+    }
+
+    #[inline]
     pub fn resize(&mut self, new_size: usize) {
         self.data = Self::allocate_ram(new_size, self.state);
     }
@@ -179,22 +185,18 @@ impl MemRead for Memory {
     #[inline]
     fn peekw(&self, addr: usize) -> u8 {
         let len = self.data.len();
-        if len > 0 {
-            self.data[addr % len]
-        } else {
-            0
-        }
+        debug_assert!(len > 0, "${:04X}: {:?}", addr, &self);
+        self.data[addr % len]
     }
 }
 
 impl MemWrite for Memory {
     #[inline]
     fn writew(&mut self, addr: usize, val: u8) {
+        let len = self.data.len();
+        debug_assert!(len > 0, "${:04X} -> ${:02X}: {:?}", addr, val, &self);
         if self.writable {
-            let len = self.data.len();
-            if len > 0 {
-                self.data[addr % len] = val;
-            }
+            self.data[addr % len] = val;
         }
     }
 }

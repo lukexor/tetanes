@@ -12,6 +12,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+const PRG_RAM_SIZE: usize = 8 * 1024;
 const PRG_WINDOW: usize = 8 * 1024;
 const CHR_WINDOW: usize = 1024;
 
@@ -61,6 +62,9 @@ pub struct Vrc6 {
 
 impl Vrc6 {
     pub fn load(cart: &mut Cart, revision: Vrc6Revision) -> Mapper {
+        if cart.prg_ram.is_empty() {
+            cart.prg_ram.resize(PRG_RAM_SIZE);
+        }
         let mut vrc6 = Self {
             regs: Vrc6Regs::default(),
             revision,
@@ -68,7 +72,7 @@ impl Vrc6 {
             irq: VrcIrq::default(),
             audio: Vrc6Audio::new(),
             nt_banks: [0; 4],
-            prg_ram_banks: MemoryBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), PRG_WINDOW),
+            prg_ram_banks: MemoryBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), PRG_RAM_SIZE),
             prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_WINDOW),
             chr_banks: MemoryBanks::new(0x0000, 0x1FFF, cart.chr.len(), CHR_WINDOW),
         };
@@ -169,7 +173,7 @@ impl Vrc6 {
 
         if self.regs.banking_mode & 0x10 == 0x10 {
             // CHR-ROM
-            self.mirroring = Mirroring::FourScreen;
+            self.set_mirroring(Mirroring::FourScreen);
             match self.regs.banking_mode & 0x2F {
                 0x20 | 0x27 => {
                     self.set_nametable_page(0, self.regs.chr[6] & 0xFE);
@@ -225,7 +229,7 @@ impl Vrc6 {
                 0x28 | 0x2F => self.set_mirroring(Mirroring::SingleScreenA),
                 0x2B | 0x2C => self.set_mirroring(Mirroring::SingleScreenB),
                 _ => {
-                    self.mirroring = Mirroring::FourScreen;
+                    self.set_mirroring(Mirroring::FourScreen);
                     match self.regs.banking_mode & 0x07 {
                         0 | 6 | 7 => {
                             self.set_nametable_page(0, self.regs.chr[6] & 0x01);
@@ -266,20 +270,12 @@ impl Mapped for Vrc6 {
 
     #[inline]
     fn use_ciram(&self, _addr: u16) -> bool {
-        // println!("ciram: {}", self.regs.banking_mode & 0x10 == 0x00);
         self.regs.banking_mode & 0x10 == 0x00
     }
 
     #[inline]
     fn nametable_page(&self, addr: u16) -> Option<u16> {
         let page = self.nt_banks[((addr as usize - 0x2000) >> 10) & 0x03] as u16;
-        // println!("mode: ${:02X}", self.regs.banking_mode);
-        // println!(
-        //     "read page ${:04X}: {} -> ${:02X}",
-        //     addr,
-        //     ((addr as usize - 0x2000) >> 10) & 0x03,
-        //     page
-        // );
         Some(page)
     }
 }
@@ -305,10 +301,17 @@ impl MapRead for Vrc6 {
 
 impl MapWrite for Vrc6 {
     fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
+        if self.prg_ram_enabled() {
+            if let 0x6000..=0x7FFF = addr {
+                return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
+            }
+        }
+
         if self.revision == Vrc6Revision::B {
             // Revision B swaps A0 and A1 lines
             addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
         }
+
         // Only A0, A1 and A12-15 are used for registers, remaining addresses are mirrored.
         match addr & 0xF003 {
             0x8000..=0x8003 => {
