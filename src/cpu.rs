@@ -1032,12 +1032,12 @@ mod tests {
     #[test]
     fn cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::new(NesRegion::default(), Bus::default());
+        let mut cpu = Cpu::new(NesRegion::Ntsc, Bus::default());
         cpu.power_on();
         cpu.clock();
 
         assert_eq!(cpu.cycle, 15, "cpu after power + one clock");
-        assert_eq!(cpu.bus.ppu.cycle_count, 47, "ppu after power + one clock");
+        assert_eq!(cpu.bus.ppu.cycle_count, 44, "ppu after power + one clock");
 
         for instr in INSTRUCTIONS.iter() {
             let extra_cycle = match instr.op() {
