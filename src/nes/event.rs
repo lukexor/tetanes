@@ -465,15 +465,18 @@ impl Nes {
                         self.add_message("Rewind disabled. You can enable it in the Config menu.");
                     }
                 }
+                Action::Setting(Setting::FastForward) => {
+                    self.set_speed(2.0);
+                }
                 _ => return Ok(false),
             }
         } else {
             match action {
-                Action::Debug(action) if pressed => self.handle_debug(s, action, repeat)?,
-                Action::Feature(feature) => self.handle_feature(s, feature, pressed),
-                Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
-                Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
-                Action::Setting(setting) => self.handle_setting(s, setting, pressed)?,
+                Action::Debug(action) if !pressed => self.handle_debug(s, action, repeat)?,
+                Action::Feature(feature) if !pressed => self.handle_feature(s, feature),
+                Action::Nes(state) if !pressed => self.handle_nes_state(s, state)?,
+                Action::Menu(menu) if !pressed => self.open_menu(s, menu)?,
+                Action::Setting(setting) if !pressed => self.handle_setting(s, setting)?,
                 Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
                 Action::ZapperTrigger => self.handle_zapper_trigger(slot),
                 Action::ZeroAxis(buttons) => {
@@ -595,16 +598,7 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool) {
-        if feature == Feature::Rewind && !pressed {
-            if self.mode == Mode::Rewinding {
-                self.resume_play();
-            } else {
-                self.instant_rewind();
-            }
-            return;
-        }
-
+    fn handle_feature(&mut self, s: &mut PixState, feature: Feature) {
         match feature {
             Feature::ToggleGameplayRecording => match self.replay.mode {
                 ReplayMode::Off => self.start_replay(),
@@ -614,24 +608,18 @@ impl Nes {
             Feature::TakeScreenshot => self.save_screenshot(s),
             Feature::SaveState => self.save_state(self.config.save_slot),
             Feature::LoadState => self.load_state(self.config.save_slot),
-            // Instant Rewind happens on key release
-            Feature::Rewind => (),
+            Feature::Rewind => {
+                if self.mode == Mode::Rewinding {
+                    self.resume_play();
+                } else {
+                    self.instant_rewind();
+                }
+            }
         }
     }
 
     #[inline]
-    fn handle_setting(
-        &mut self,
-        s: &mut PixState,
-        setting: Setting,
-        pressed: bool,
-    ) -> NesResult<()> {
-        if !pressed {
-            if setting == Setting::FastForward {
-                self.set_speed(1.0);
-            }
-            return Ok(());
-        }
+    fn handle_setting(&mut self, s: &mut PixState, setting: Setting) -> NesResult<()> {
         match setting {
             Setting::SetSaveSlot(slot) => {
                 self.config.save_slot = slot;
@@ -670,7 +658,7 @@ impl Nes {
             Setting::ToggleTriangle => self.control_deck.toggle_channel(AudioChannel::Triangle),
             Setting::ToggleNoise => self.control_deck.toggle_channel(AudioChannel::Noise),
             Setting::ToggleDmc => self.control_deck.toggle_channel(AudioChannel::Dmc),
-            Setting::FastForward => self.set_speed(2.0),
+            Setting::FastForward => self.set_speed(1.0),
             Setting::IncSpeed => self.change_speed(0.25),
             Setting::DecSpeed => self.change_speed(-0.25),
             _ => log::warn!("Unhandled Setting {:?}", setting),
