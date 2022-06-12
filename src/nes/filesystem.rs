@@ -152,7 +152,10 @@ impl Nes {
 
     /// Loads a ROM cartridge into memory
     pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
-        if let Err(err) = NesHeader::from_path(&self.config.rom_path) {
+        if self.config.rom_path.is_dir() {
+            self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+            return Ok(());
+        } else if let Err(err) = NesHeader::from_path(&self.config.rom_path) {
             log::error!("{:?}: {:?}", self.config.rom_path, err);
             self.error = Some(format!("Invalid NES ROM {:?}", self.rom_filename()));
             return Ok(());
