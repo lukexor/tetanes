@@ -661,7 +661,7 @@ impl Nes {
             Setting::FastForward => self.set_speed(1.0),
             Setting::IncSpeed => self.change_speed(0.25),
             Setting::DecSpeed => self.change_speed(-0.25),
-            _ => log::warn!("Unhandled Setting {:?}", setting),
+            _ => (),
         }
         Ok(())
     }
@@ -728,7 +728,7 @@ impl Nes {
                     .ppu_mut()
                     .set_viewer_scanline(self.scanline);
             }
-            _ => log::warn!("Unhandled DebugAction {:?}", action),
+            _ => (),
         }
         Ok(())
     }
