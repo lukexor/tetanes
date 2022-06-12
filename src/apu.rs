@@ -288,25 +288,15 @@ impl Apu {
     }
 
     #[inline]
-    pub fn load_cart(&mut self, cart: &mut Box<Cart>) {
+    pub(crate) fn load_cart(&mut self, cart: &mut Box<Cart>) {
         self.cart = &mut **cart;
     }
 
     #[allow(clippy::missing_const_for_fn)]
     #[inline]
-    pub fn cart(&self) -> &Cart {
-        if self.cart.is_null() {
-            panic!("APU cart reference is null");
-        }
+    pub(crate) fn cart(&self) -> &Cart {
+        assert!(!self.cart.is_null(), "APU cart reference is null");
         unsafe { &*self.cart }
-    }
-
-    #[inline]
-    pub fn cart_mut(&mut self) -> &mut Cart {
-        if self.cart.is_null() {
-            panic!("APU cart reference is null");
-        }
-        unsafe { &mut *self.cart }
     }
 }
 

@@ -74,7 +74,7 @@ impl Vram {
 
     #[inline]
     #[must_use]
-    pub fn nametable_addr(&self, addr: u16) -> u16 {
+    pub(crate) fn nametable_addr(&self, addr: u16) -> u16 {
         // Maps addresses to nametable pages based on mirroring mode
         let page = self.cart().nametable_page(addr).unwrap_or(0);
         let offset = addr % NT_SIZE;
@@ -83,18 +83,14 @@ impl Vram {
 
     #[allow(clippy::missing_const_for_fn)]
     #[inline]
-    pub fn cart(&self) -> &Cart {
-        if self.cart.is_null() {
-            panic!("APU cart reference is null");
-        }
+    pub(crate) fn cart(&self) -> &Cart {
+        assert!(!self.cart.is_null(), "VRAM cart reference is null");
         unsafe { &*self.cart }
     }
 
     #[inline]
-    pub fn cart_mut(&mut self) -> &mut Cart {
-        if self.cart.is_null() {
-            panic!("APU cart reference is null");
-        }
+    pub(crate) fn cart_mut(&mut self) -> &mut Cart {
+        assert!(!self.cart.is_null(), "VRAM cart reference is null");
         unsafe { &mut *self.cart }
     }
 }
