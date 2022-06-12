@@ -30,8 +30,6 @@ pub const RENDER_HEIGHT: u32 = 240;
 pub const RENDER_CHANNELS: usize = 4;
 pub const RENDER_PITCH: usize = RENDER_CHANNELS * RENDER_WIDTH as usize;
 
-const _TOTAL_CYCLES: u32 = 341;
-const _TOTAL_SCANLINES: u32 = 262;
 const RENDER_PIXELS: usize = (RENDER_WIDTH * RENDER_HEIGHT) as usize;
 pub const RENDER_SIZE: usize = RENDER_CHANNELS * RENDER_PIXELS;
 
@@ -1212,6 +1210,7 @@ impl Clocked for Ppu {
         if self.cycle >= CYCLE_END {
             self.cycle = 0;
             self.scanline += 1;
+            // Post-render line
             if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
                 self.frame.swap_buffers();

@@ -1,4 +1,4 @@
-use crate::{filter::Filter, NesResult};
+use crate::{audio::filter::Filter, NesResult};
 use anyhow::anyhow;
 #[cfg(not(target_arch = "wasm32"))]
 use pix_engine::prelude::*;
@@ -6,6 +6,9 @@ use ringbuf::{Consumer, Producer, RingBuffer};
 use std::fmt;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
+
+pub mod filter;
+pub mod window_sinc;
 
 pub struct NesAudioCallback {
     initialized: bool,
@@ -115,9 +118,9 @@ impl Audio {
             avg: 0.0,
             count: 0.0,
             filters: [
-                Filter::high_pass(90.0, output_frequency),
-                Filter::high_pass(440.0, output_frequency),
-                Filter::low_pass(14_000.0, output_frequency),
+                Filter::high_pass(output_frequency, 90.0, 1500.0),
+                Filter::high_pass(output_frequency, 440.0, 1500.0),
+                Filter::low_pass(output_frequency, 14_000.0, 1500.0),
             ],
         }
     }
@@ -169,11 +172,6 @@ impl Audio {
         self.decim_ratio = self.input_frequency / self.output_frequency;
         self.pitch_ratio = 1.0;
         self.fraction = 0.0;
-        self.filters = [
-            Filter::high_pass(90.0, self.output_frequency),
-            Filter::high_pass(440.0, self.output_frequency),
-            Filter::low_pass(14_000.0, self.output_frequency),
-        ];
         let buffer = RingBuffer::new(buffer_size);
         let (producer, consumer) = buffer.split();
         self.producer = producer;

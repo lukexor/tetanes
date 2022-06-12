@@ -49,7 +49,6 @@ pub mod debugger;
 pub mod common;
 pub mod control_deck;
 pub mod cpu;
-pub mod filter;
 pub mod input;
 pub mod mapper;
 pub mod memory;
