@@ -59,19 +59,7 @@ impl AudioCallback for NesAudioCallback {
 
     #[inline]
     fn callback(&mut self, out: &mut [Self::Channel]) {
-        if !self.initialized && self.buffer.len() < 2 * out.len() {
-            out.fill(Self::Channel::SILENCE);
-            return;
-        }
-        self.initialized = true;
-
-        for val in out.iter_mut() {
-            if let Some(sample) = self.buffer.pop() {
-                *val = sample;
-            } else {
-                *val = Self::Channel::SILENCE;
-            }
-        }
+        self.read(out);
     }
 }
 
