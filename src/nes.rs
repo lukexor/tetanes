@@ -360,7 +360,7 @@ impl AppState for Nes {
         if self.mode == Mode::Playing {
             // Clamp prevents wide swings in emulation speed and audio clipping due to jitter
             let seconds_to_run = (self.config.speed * s.delta_time().as_secs_f32())
-                .clamp(0.0, self.config.speed * (1.0 / 30.0));
+                .clamp(0.0, self.config.speed * (1.0 / 60.0));
             let prev_frame = self.control_deck.frame_number();
             match self.control_deck.clock_seconds(seconds_to_run) {
                 Ok(control) => {

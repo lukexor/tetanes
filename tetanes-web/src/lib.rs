@@ -10,9 +10,6 @@ use wasm_bindgen::prelude::*;
 
 mod utils;
 
-const SAMPLE_RATE: f32 = 44_100.0;
-const BUFFER_SIZE: usize = 4096;
-
 #[wasm_bindgen]
 pub struct Nes {
     paused: bool,
@@ -26,23 +23,17 @@ pub struct Nes {
 }
 
 #[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
-#[wasm_bindgen]
 impl Nes {
     pub fn init() {
         utils::set_panic_hook();
         utils::init_log();
     }
 
-    pub fn new() -> Self {
-        let control_deck = ControlDeck::new(NesRegion::default(), RamState::default());
-        let sample_rate = control_deck.apu().sample_rate();
-        let mut audio = Audio::new(sample_rate, SAMPLE_RATE, BUFFER_SIZE);
-        let buffer = vec![0.0; BUFFER_SIZE / 4];
+    pub fn new(output_sample_rate: f32, buffer_size: usize, max_delta: f32) -> Self {
+        let control_deck = ControlDeck::new(NesRegion::Ntsc, RamState::default());
+        let input_sample_rate = control_deck.apu().sample_rate();
+        let mut audio = Audio::new(input_sample_rate, output_sample_rate, 4096);
+        let buffer = vec![0.0; buffer_size];
         let callback = audio.open_callback().expect("valid callback");
         Self {
             paused: true,
@@ -52,7 +43,7 @@ impl Nes {
             callback,
             sound: true,
             dynamic_rate_control: true,
-            dynamic_rate_delta: 0.005,
+            dynamic_rate_delta: max_delta,
         }
     }
 
@@ -114,23 +105,19 @@ impl Nes {
     }
 
     pub fn sample_rate(&self) -> f32 {
-        SAMPLE_RATE
-    }
-
-    pub fn clock_frame(&mut self) {
-        self.control_deck.clock_frame().expect("valid clock");
-        if self.sound {
-            let samples = self.control_deck.audio_samples();
-            self.audio
-                .output(samples, self.dynamic_rate_control, self.dynamic_rate_delta);
-        }
-        self.control_deck.clear_audio_samples();
+        self.audio.output_frequency()
     }
 
     pub fn clock_seconds(&mut self, seconds: f32) {
         self.control_deck
             .clock_seconds(seconds)
             .expect("valid clock");
+        if self.sound {
+            let samples = self.control_deck.audio_samples();
+            self.audio
+                .output(samples, self.dynamic_rate_control, self.dynamic_rate_delta);
+        }
+        self.control_deck.clear_audio_samples();
     }
 
     pub fn load_rom(&mut self, mut bytes: &[u8]) {
@@ -166,6 +153,6 @@ impl Nes {
 
 impl Default for Nes {
     fn default() -> Self {
-        Self::new()
+        Self::new(48_000.0, 4096, 0.005)
     }
 }

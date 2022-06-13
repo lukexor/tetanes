@@ -43,7 +43,7 @@ impl NesAudioCallback {
         }
         self.initialized = true;
 
-        for val in out.iter_mut() {
+        for val in out {
             if let Some(sample) = self.buffer.pop() {
                 *val = sample;
             } else {
@@ -111,6 +111,10 @@ impl Audio {
                 Filter::low_pass(output_frequency, 14_000.0, 1500.0),
             ],
         }
+    }
+
+    pub fn output_frequency(&self) -> f32 {
+        self.output_frequency
     }
 
     /// Opens audio callback device for playback

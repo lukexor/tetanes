@@ -1,11 +1,14 @@
 import { Nes } from "tetanes-web";
 import { memory } from "tetanes-web/tetanes_web_bg.wasm";
 
+const SAMPLE_RATE = 48000;
+const BUFFER_SIZE = 800;
+const MAX_DELTA = 0.02;
 let state;
 
 class State {
   constructor(p5) {
-    this.nes = Nes.new();
+    this.nes = Nes.new(SAMPLE_RATE, BUFFER_SIZE, MAX_DELTA);
     this.p5 = p5;
     this.events = [];
     this.fps = new Fps();
@@ -45,7 +48,11 @@ class State {
 
   clock() {
     this.fps.tick();
-    this.nes.clock_frame();
+    let secondsToRun = Math.min(
+      Math.max(this.p5.deltaTime / 1000.0, 0.0),
+      1.0 / 60.0
+    );
+    this.nes.clock_seconds(secondsToRun);
   }
 
   paused() {
@@ -73,7 +80,6 @@ class State {
     this.sampleRate = this.nes.sample_rate();
     this.bufferSize = this.nes.buffer_capacity();
     this.audioCtx = new AudioContext({ sampleRate: this.sampleRate });
-    this.playTime = this.audioCtx.currentTime;
     this.emptyBuffers = [];
   }
 
@@ -106,17 +112,15 @@ class State {
         this.emptyBuffers.push(audioBuffer);
       };
 
-      const latency = 0.032;
-      let buffered = this.playTime - (this.audioCtx.currentTime + latency);
-      if (buffered > 0.2) {
-        console.log(buffered);
-      }
-      const playTime = Math.max(
-        this.audioCtx.currentTime + latency,
-        this.playTime
+      const latency = 0.032; // Two frames worth
+      this.buffered =
+        this.nextStartTime - (this.audioCtx.currentTime + latency);
+      const start = Math.max(
+        this.nextStartTime || 0,
+        this.audioCtx.currentTime + latency
       );
-      node.start(playTime);
-      this.playTime = playTime + this.bufferSize / this.sampleRate;
+      node.start(start);
+      this.nextStartTime = start + this.bufferSize / this.sampleRate;
     }
   }
 
@@ -137,12 +141,10 @@ class Fps {
     const delta = now - this.lastFrameTimeStamp;
     this.lastFrameTimeStamp = now;
     const fps = (1 / delta) * 1000;
-
     this.frames.push(fps);
     if (this.frames.length > 100) {
       this.frames.shift();
     }
-
     let min = Infinity;
     let max = Infinity;
     let sum = this.frames.reduce((acc, val) => {
@@ -152,7 +154,6 @@ class Fps {
       return acc;
     });
     let mean = sum / this.frames.length;
-
     this.fps.textContent = `FPS: ${Math.round(mean)}`.trim();
   }
 }
