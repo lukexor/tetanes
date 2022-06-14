@@ -28,6 +28,11 @@ fn blackman_window(m: usize) -> Vec<f32> {
 }
 
 impl WindowSinc {
+    /// Creates a new [`WindowSinc`] instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `cutoff` or `bandwidth` ratio to `sample_rate` is greater than `0.5`.
     pub fn new(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
         let fc = cutoff / sample_rate;
         let bw = bandwidth / sample_rate;
@@ -68,7 +73,7 @@ impl WindowSinc {
     }
 
     #[must_use]
-    pub fn taps(&self) -> &Vec<f32> {
+    pub const fn taps(&self) -> &Vec<f32> {
         &self.taps
     }
 
@@ -92,7 +97,7 @@ impl WindowSinc {
     }
 
     #[must_use]
-    pub fn latency(&self) -> usize {
+    pub const fn latency(&self) -> usize {
         self.latency
     }
 }

@@ -114,7 +114,6 @@ impl Vrc6 {
 
     #[inline]
     fn set_nametable_page(&mut self, bank: usize, page: usize) {
-        // println!("set bank page {} -> ${:02X}", bank, page);
         self.nt_banks[bank] = page;
     }
 
@@ -126,18 +125,6 @@ impl Vrc6 {
             (0xFF, 0)
         };
 
-        // println!(
-        //     "mode: ${:02X}, 0: ${:02X}, 1: ${:02X}, 2: ${:02X}, 3: ${:02X}, 4: ${:02X}, 5: ${:02X}, 6: ${:02X}, 7: ${:02X}",
-        //     self.regs.banking_mode,
-        //     self.regs.chr[0],
-        //     self.regs.chr[1],
-        //     self.regs.chr[2],
-        //     self.regs.chr[3],
-        //     self.regs.chr[4],
-        //     self.regs.chr[5],
-        //     self.regs.chr[6],
-        //     self.regs.chr[7]
-        // );
         match self.regs.banking_mode & 0x03 {
             0 => {
                 self.chr_banks.set(0, self.regs.chr[0]);

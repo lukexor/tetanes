@@ -113,7 +113,8 @@ impl Audio {
         }
     }
 
-    pub fn output_frequency(&self) -> f32 {
+    #[must_use]
+    pub const fn output_frequency(&self) -> f32 {
         self.output_frequency
     }
 
