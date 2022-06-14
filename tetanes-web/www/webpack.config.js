@@ -23,7 +23,4 @@ module.exports = {
   experiments: {
     asyncWebAssembly: true,
   },
-  performance: {
-    maxAssetSize: 512000,
-  },
 };

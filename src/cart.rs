@@ -14,12 +14,16 @@ use crate::{
 use anyhow::{anyhow, bail, Context};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
     collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    io::BufRead,
+};
+use std::{
     fmt,
     fs::File,
-    hash::{Hash, Hasher},
-    io::{BufRead, BufReader, Read},
+    io::{BufReader, Read},
     path::Path,
 };
 
@@ -150,11 +154,13 @@ impl Cart {
         })?;
         let prg_rom = Memory::rom(prg_data);
 
-        let mut hasher = DefaultHasher::new();
-        prg_rom.hash(&mut hasher);
-        let hash = hasher.finish();
         #[cfg(not(target_arch = "wasm32"))]
-        let nes_region = Self::lookup_region(hash);
+        let nes_region = {
+            let mut hasher = DefaultHasher::new();
+            prg_rom.hash(&mut hasher);
+            let hash = hasher.finish();
+            Self::lookup_region(hash)
+        };
         #[cfg(target_arch = "wasm32")]
         let nes_region = NesRegion::default();
 
