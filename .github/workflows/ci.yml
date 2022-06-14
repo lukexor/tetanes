@@ -17,7 +17,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TODO: Add back windows-latest with SDL2 DLLS
         os:  [macos-latest, ubuntu-latest]
         toolchain: [nightly, beta, stable, 1.59.0]
     steps:
@@ -46,19 +45,30 @@ jobs:
       with:
         command: clippy
 
-    - name: Install build dependencies
-      if: matrix.os == 'macos-latest'
-      run: brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
+    - name: Install Homebrew
+      if: matrix.os == 'ubuntu-latest'
+      shell: bash
+      run: |
+        set -xeuo pipefail
+        bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        test -d ~/.linuxbrew && eval "$(~/.linuxbrew/bin/brew shellenv)"
+        test -d /home/linuxbrew/.linuxbrew && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+        echo "LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
+        echo "LD_LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
+        sudo apt-get update
+        sudo apt-get install build-essential
 
     - name: Install build dependencies
-      if: matrix.os == 'ubuntu-latest'
       run: |
-        sudo add-apt-repository universe
-        sudo apt-get update -y -qq
-        sudo apt-get install libsdl2-dev libsdl2-gfx-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
+        brew update
+        brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
+        cargo install wasm-pack
 
     - name: Build source
-      run: cargo build --all-targets --verbose
+      run: |
+        cargo build --all-targets --verbose
+        cd tetanes-web
+        bash bin/build.sh --dev
 
     - name: Build documentation
       run: cargo doc --verbose
