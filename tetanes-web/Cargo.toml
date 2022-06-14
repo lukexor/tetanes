@@ -18,7 +18,6 @@ console_log = "0.2.0"
 log = "0.4.17"
 tetanes = { path = "../" }
 wasm-bindgen = "0.2.80"
-ringbuf = "0.2.6"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.30"
@@ -27,7 +26,8 @@ console_error_panic_hook = "0.1.7"
 [patch.crates-io]
 pix-engine = { path = "../../pix-engine" }
 
-[profile.dev]
+[profile.dev-opt]
+inherits = "dev"
 opt-level = 2
 
 [profile.release]

@@ -680,7 +680,6 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "log",
- "ringbuf",
  "tetanes",
  "wasm-bindgen",
  "wasm-bindgen-test",

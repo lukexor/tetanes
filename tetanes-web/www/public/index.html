@@ -2,42 +2,83 @@
 <html>
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TetaNES Web</title>
     <style>
       @font-face {
-        state.toggleSound();
-        font-family: 'Emulogic';
+        font-family: "Emulogic";
         src:
-          local('Emulogic'),
-          url('emulogic.ttf')
-          format('truetype');
+          local("Emulogic"),
+          url("emulogic.ttf")
+          format("truetype");
       }
 
       body {
-        background-color: #000;
-        position: absolute;
-        left: 0;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        color: #92340B;
-        font-family: Emulogic;
+        --color: #aaa;
+        --heading: #92340B;
+        --background: #0C141F;
+        background-color: var(--background);
+        max-width: 80%;
+        margin: auto;
+        margin-bottom: 100px;
+        color: var(--color);
+        font-family: "Courier New", Courier, monospace;
       }
 
       h1 {
         margin: 40px 0;
+      }
+
+      h1, h2 {
+        color: var(--heading);
+        font-family: Emulogic;
         text-align: center;
       }
 
+      p {
+        font-weight: 600;
+        max-width: 70ch;
+        margin: 15px 0;
+      }
 
-      #p5-container {
+      table {
+        --color: #333;
+        border-collapse: separate;
+        border-color: var(--color);
+        border-spacing: 0;
+        border: 0.5px solid var(--color);
+        text-align: left;
+        width: 100%;
+      }
+
+      th {
+        color: var(--heading);
+      }
+
+      th, td {
+        padding: 5px;
+        border: 0.5px solid var(--color);
+      }
+
+      td {
+        font-weight: bold;
+      }
+
+      a {
+        color: #FFE64D;
+        text-decoration: none;
+      }
+
+      a:hover {
+        color: #DF740C;
+        text-decoration: underline;
+      }
+
+      canvas {
+        background: rgba(0.13, 0.13, 0.13, 1.0);
         margin: 0 40px;
-        float: left;
-        width: 512px;
-        height: 480px;
+        width: fit-content;
+        height: fit-content;
       }
 
       .load-rom {
@@ -59,6 +100,7 @@
         text-decoration: none;
         font-family : inherit;
         font-size: 1em;
+        font-family: Emulogic;
       }
 
       #scale1, #scale2, #scale2 {
@@ -68,9 +110,13 @@
         margin: 10px 0;
         padding: 5px 8px;
       }
+      button:hover, label:hover {
+        background-color: #0B6992;
+      }
 
       .load-rom-label {
-        margin-top: 80px;
+        margin-top: 20px;
+        margin-bottom: 10px;
         width: 10em;
         font-size: 1em;
         padding: 10px 16px;
@@ -79,7 +125,7 @@
 
       button:focus,
       button:hover,
-      .load-rom-label:focus,
+      .load-rom-label:focu,
       .load-rom-label:hover {
         color: #000;
         background-color: #48BEF1;
@@ -93,29 +139,152 @@
       .load-rom-label * {
         pointer-events: none;
       }
+
+      #error {
+        color: red;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      #wrapper {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+
+      #content {
+        max-width: 70ch;
+        margin: auto;
+      }
+
+      #controls {
+        display: flex;
+        flex-direction: column;
+      }
+
+      #homebrew-menu {
+        top: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: var(--background);
+        position: absolute;
+        width: 50%;
+        height: 500px;
+        border: 2px solid var(--heading);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      #homebrew-list {
+        display: flex;
+        flex-direction: column;
+      }
+
+      #homebrew-close {
+        position: absolute;
+          right: 10px;
+      }
+
+      .hidden {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
     <noscript>This page contains WebAssembly and Javascript content, please enable Javascript in your browser.</noscript>
 
+    <h1>TetaNES</h1>
+
+    <div id="error"></div>
     <div id="wrapper">
-      <h1>TetaNES Web</h1>
+      <canvas id="view" width="512" height="480"></canvas>
+      <canvas id="backView" class="hidden"></canvas>
 
-      <div id="p5-container"></div>
+      <div id="controls">
+        <input type="file" id="load-rom" name="load-rom" class="load-rom" accept=".nes">
+        <label id="load-rom-label" for="load-rom" class="load-rom-label">Load ROM</label>
 
-      <input type="file" id="load-rom" name="load-rom" class="load-rom" accept=".nes">
-      <label id="load-rom-label" for="load-rom" class="load-rom-label">Load ROM</label><br>
+        <button id="load-homebrew">Homebrew ROMs</button>
 
-      <button id="scale1">1X</button>
-      <button id="scale2">2X</button>
-      <button id="scale3">3X</button>
+        <div id="scale">
+          <button id="scale1">1X</button>
+          <button id="scale2">2X</button>
+          <button id="scale3">3X</button>
+        </div>
 
-      <button id="toggle-audio">Mute</button>
+        <button id="toggle-audio">Mute</button>
+        <button id="toggle-pause">Pause</button>
 
-      <div id="fps"></div>
+        <div id="fps"></div>
+      </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.0.0/p5.min.js"></script>
+    <div id="content">
+      <p>
+        <em>TetaNES</em> is an emulator for the Nintendo Entertainment System
+        (NES) written in <a href="https://www.rust-lang.org/">Rust</a> and
+        <a href="https://webassembly.org/">WebAssembly</a>.
+        The desktop version is much more performant and fully featured, written
+        using <a href="https://www.libsdl.org/">SDL2</a>.
+      </p>
+
+      <p>
+        You can choose from a list of homebrew games, or load your own ROM which
+        uses the <a href="https://www.nesdev.org/wiki/INES">iNES</a> or <a
+        href="https://www.nesdev.org/wiki/NES_2.0">NES 2.0</a> format.
+      </p>
+
+      <p>
+        You can check out the code on
+        <a href="https://github.com/lukexor/tetanes">github</a>.
+      </p>
+
+      <h2>Controls</h2>
+      <table>
+        <tr>
+          <th>Action</th>
+          <th>Key</th>
+        </tr>
+        <tr>
+          <td>A Button</td>
+          <td>Z</td>
+        </tr>
+        <tr>
+          <td>B Button</td>
+          <td>X</td>
+        </tr>
+        <tr>
+          <td>A Button (Turbo)</td>
+          <td>A</td>
+        </tr>
+        <tr>
+          <td>B Button (Turbo)</td>
+          <td>S</td>
+        </tr>
+        <tr>
+          <td>Start Button</td>
+          <td>Return</td>
+        </tr>
+        <tr>
+          <td>Select Button</td>
+          <td>Right Shift</td>
+        </tr>
+        <tr>
+          <td>D-Pad</td>
+          <td>Arrow Keys</td>
+        </tr>
+      </table>
+    </div>
+
+    <div id="homebrew-menu" class="hidden">
+      <h2>Homebrew ROMS</h2>
+      <div id="homebrew-list"></div>
+      <button id="homebrew-close">X</button>
+    </div>
+
     <script src="bundle.js"></script>
   </body>
 </html>

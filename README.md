@@ -29,7 +29,7 @@
 
 `TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in
 Japan in 1983 and North America in 1986, written using [Rust][], [SDL2][] and
-[WASM][].
+[WebAssembly][] (WASM).
 
 It started as a personal curiosity that turned into a passion project. It is
 still a work-in-progress with new features and improvements constantly being added.
@@ -435,9 +435,9 @@ Also, a huge shout out to
 [olcPixelGameEngine](https://github.com/OneLoneCoder/olcPixelGameEngine)
 series as those helped a ton in some recent refactorings.
 
-[Rust]: https://www.rust-lang.org/tools/install
+[Rust]: https://www.rust-lang.org/
 [rust-sdl2]: https://github.com/Rust-SDL2/rust-sdl2#sdl20-development-libraries
 [SDL2]: https://www.libsdl.org/
-[WASM]: https://webassembly.org/
+[Web Assembly]: https://webassembly.org/
 [pix-engine]: https://github.com/lukexor/pix-engine
 [github issue tracker]: https://github.com/lukexor/tetanes/issues
