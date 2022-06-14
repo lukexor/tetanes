@@ -1,7 +1,7 @@
 const path = require("path");
 
 module.exports = {
-  mode: "development",
+  mode: "production",
   entry: "./src/bootstrap.ts",
   module: {
     rules: [
@@ -23,7 +23,7 @@ module.exports = {
   experiments: {
     asyncWebAssembly: true,
   },
-  stats: {
-    errorDetails: true,
+  performance: {
+    maxAssetSize: 512000,
   },
 };

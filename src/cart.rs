@@ -26,6 +26,7 @@ use std::{
 const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
 const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
 
+#[cfg(not(target_arch = "wasm32"))]
 const GAME_DB: &[u8] = include_bytes!("../config/game_database.txt");
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,7 +153,10 @@ impl Cart {
         let mut hasher = DefaultHasher::new();
         prg_rom.hash(&mut hasher);
         let hash = hasher.finish();
+        #[cfg(not(target_arch = "wasm32"))]
         let nes_region = Self::lookup_region(hash);
+        #[cfg(target_arch = "wasm32")]
+        let nes_region = NesRegion::default();
 
         let mut chr_data = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
         rom_data.read_exact(&mut chr_data).with_context(|| {
@@ -279,6 +283,7 @@ impl Cart {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[inline]
     fn lookup_region(lookup_hash: u64) -> NesRegion {
         let db = BufReader::new(GAME_DB);

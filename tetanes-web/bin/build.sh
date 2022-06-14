@@ -1,6 +1,6 @@
 #/bin/sh
 
-wasm-pack build
+wasm-pack build $*
 pushd www
 npm install
 npm run build

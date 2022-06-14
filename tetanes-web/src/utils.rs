@@ -10,5 +10,6 @@ pub fn set_panic_hook() {
 }
 
 pub fn init_log() {
+    #[cfg(debug_assertions)]
     console_log::init().expect("error initializing log");
 }
