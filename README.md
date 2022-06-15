@@ -29,7 +29,7 @@
 
 `TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in
 Japan in 1983 and North America in 1986, written using [Rust][], [SDL2][] and
-[WebAssembly][WASM].
+[WebAssembly][].
 
 It started as a personal curiosity that turned into a passion project. It is
 still a work-in-progress with new features and improvements constantly being added.
