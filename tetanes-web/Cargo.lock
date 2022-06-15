@@ -363,12 +363,13 @@ checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
 
 [[package]]
 name = "pix-engine"
-version = "0.5.5"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e9bd27816b371f9bbdc9ae3a44ea7d5cf6acdc54c7c51781aedab7a62910c31"
 dependencies = [
  "anyhow",
  "bitflags",
  "chrono",
- "getrandom",
  "lazy_static",
  "log",
  "lru",
