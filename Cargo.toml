@@ -36,7 +36,7 @@ ringbuf = "0.2.6"
 [dev-dependencies.cargo-husky]
 version = "1.5.0"
 default-features = false
-features = ["prepush-hook", "run-cargo-test", "run-cargo-clippy"]
+features = ["user-hooks"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pix-engine = { version = "0.5.4", features = ["serde"] }
