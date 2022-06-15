@@ -573,8 +573,8 @@ impl NesHeader {
             9 => "Mapper 009 - PxROM",
             24 => "Mapper 024 - Vrc6a",
             26 => "Mapper 026 - Vrc6b",
-            66 => "Mapper 066 - Gxrom",
-            71 => "Mapper 071 - UNROM/CAMERICA/BF909X",
+            66 => "Mapper 066 - GxROM/MxROM",
+            71 => "Mapper 071 - Camerica/Codemasters/BF909x",
             155 => "Mapper 155 - SxROM/MMC1A",
             _ => "Unsupported Mapper",
         }

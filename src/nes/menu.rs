@@ -244,7 +244,7 @@ impl Nes {
             if s.select_box(
                 "Filter",
                 &mut filter,
-                &[VideoFilter::None, VideoFilter::Ntsc],
+                &[VideoFilter::Pixellate, VideoFilter::Ntsc],
                 2,
             )? {
                 self.config.filter = VideoFilter::from(filter);

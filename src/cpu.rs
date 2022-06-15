@@ -338,29 +338,7 @@ impl Cpu {
     }
 
     #[inline]
-    fn start_cycle(&mut self, cycle: Cycle) {
-        self.master_clock += if cycle == Cycle::Read {
-            self.start_clocks - 1
-        } else {
-            self.start_clocks + 1
-        };
-        self.cycle = self.cycle.wrapping_add(1);
-
-        self.bus.ppu.run(self.master_clock - PPU_OFFSET);
-        self.bus.cart.clock();
-        self.bus.apu.clock();
-    }
-
-    #[inline]
-    fn end_cycle(&mut self, cycle: Cycle) {
-        // TODO: Update to use nes_region numbers
-        self.master_clock += if cycle == Cycle::Read {
-            self.end_clocks + 1
-        } else {
-            self.end_clocks - 1
-        };
-        self.bus.ppu.run(self.master_clock - PPU_OFFSET);
-
+    fn handle_interrupts(&mut self) {
         // https://www.nesdev.org/wiki/CPU_interrupts
         //
         // The internal signal goes high during φ1 of the cycle that follows the one where
@@ -397,6 +375,40 @@ impl Cpu {
             self.halt = true;
             self.dummy_read = true;
         }
+    }
+
+    #[inline]
+    fn start_cycle(&mut self, cycle: Cycle) {
+        self.master_clock += if cycle == Cycle::Read {
+            self.start_clocks - 1
+        } else {
+            self.start_clocks + 1
+        };
+        self.cycle = self.cycle.wrapping_add(1);
+
+        #[cfg(feature = "cycle-accurate")]
+        {
+            self.bus.ppu.run(self.master_clock - PPU_OFFSET);
+            self.bus.cart.clock();
+            self.bus.apu.clock();
+        }
+    }
+
+    #[inline]
+    fn end_cycle(&mut self, cycle: Cycle) {
+        // TODO: Update to use nes_region numbers
+        self.master_clock += if cycle == Cycle::Read {
+            self.end_clocks + 1
+        } else {
+            self.end_clocks - 1
+        };
+
+        #[cfg(feature = "cycle-accurate")]
+        {
+            self.bus.ppu.run(self.master_clock - PPU_OFFSET);
+        }
+
+        self.handle_interrupts();
     }
 
     #[inline]
@@ -903,6 +915,18 @@ impl Clocked for Cpu {
         }
 
         self.step += 1;
+
+        #[cfg(not(feature = "cycle-accurate"))]
+        {
+            self.bus.ppu.run(self.master_clock - PPU_OFFSET);
+            let cycles = self.cycle - start_cycle;
+            for _ in 0..cycles {
+                self.bus.cart.clock();
+                self.bus.apu.clock();
+            }
+            self.handle_interrupts();
+        }
+
         self.cycle - start_cycle
     }
 }

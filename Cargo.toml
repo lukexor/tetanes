@@ -50,7 +50,8 @@ getrandom = { version = "0.2.7", features = ["js"] }
 wasm-bindgen = "0.2.81"
 
 [features]
-default = []
+default = ["cycle-accurate"]
+cycle-accurate = []
 
 [profile.dev-opt]
 inherits = "dev"

@@ -67,13 +67,13 @@ pub const SECONDARY_OAM_SIZE: usize = 8 * 4; // 8 entries * 4 bytes each
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum VideoFilter {
-    None,
+    Pixellate,
     Ntsc,
 }
 
 impl VideoFilter {
     pub const fn as_slice() -> &'static [Self] {
-        &[Self::None, Self::Ntsc]
+        &[Self::Pixellate, Self::Ntsc]
     }
 }
 
@@ -86,7 +86,7 @@ impl Default for VideoFilter {
 impl AsRef<str> for VideoFilter {
     fn as_ref(&self) -> &str {
         match self {
-            Self::None => "None",
+            Self::Pixellate => "None",
             Self::Ntsc => "NTSC",
         }
     }
@@ -97,7 +97,7 @@ impl From<usize> for VideoFilter {
         if value == 1 {
             Self::Ntsc
         } else {
-            Self::None
+            Self::Pixellate
         }
     }
 }
@@ -288,7 +288,7 @@ impl Ppu {
     #[inline]
     pub fn frame_buffer(&mut self) -> &[u8] {
         match self.filter {
-            VideoFilter::None => self.decode_buffer(),
+            VideoFilter::Pixellate => self.decode_buffer(),
             VideoFilter::Ntsc => self.apply_ntsc_filter(),
         }
     }

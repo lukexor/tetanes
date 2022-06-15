@@ -259,7 +259,7 @@ pub(crate) mod tests {
         let mut rom = BufReader::new(File::open(path).unwrap());
         let mut deck = ControlDeck::default();
         deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
-        deck.set_filter(VideoFilter::None);
+        deck.set_filter(VideoFilter::Pixellate);
         deck.set_nes_region(NesRegion::Ntsc);
         deck
     }

@@ -640,8 +640,8 @@ impl Nes {
             }
             Setting::ToggleNtscFilter => {
                 self.config.filter = match self.config.filter {
-                    VideoFilter::None => VideoFilter::Ntsc,
-                    VideoFilter::Ntsc => VideoFilter::None,
+                    VideoFilter::Pixellate => VideoFilter::Ntsc,
+                    VideoFilter::Ntsc => VideoFilter::Pixellate,
                 };
                 self.control_deck.set_filter(self.config.filter);
             }

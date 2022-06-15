@@ -14,6 +14,7 @@
 - [Debugging](#debugging)
 - [Troubleshooting](#troubleshooting)
 - [Features](#features)
+- [Roadmap](#roadmap)
 - [Known Issues](#known-issues)
 - [Documentation](#documentation)
 - [License](#license)
@@ -113,20 +114,22 @@ Support for the following mappers is currently implemented or in development:
 
 | #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
 | --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
-| 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                 10.14% |
-| 001 | SxROM/MMC1B/C          | Metroid, Legend of Zelda, Tetris          |  ~680                   |                 27.90% |
-| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~270                   |                 11.08% |
-| 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                  6.36% |
-| 004 | TxROM/MMC3             | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                 24.58% |
-| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |                  0.98% |
-| 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                  3.08% |
+| 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                   ~10% |
+| 001 | SxROM/MMC1B/C          | Metroid, Legend of Zelda, Tetris          |  ~680                   |                   ~28% |
+| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~270                   |                   ~11% |
+| 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                    ~6% |
+| 004 | TxROM/MMC3/MMC6        | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                   ~24% |
+| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |              &lt;0.01% |
+| 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                    ~3% |
 | 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
-| 066 | GxROM                  | Super Mario Bros. + Duck Hunt             |   ~17                   |              &lt;0.01% |
-| 071 | BF9093/BF9097          | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
+| 024 | VRC6a                  | Akumajou Densetsu                         |     1                   |              &lt;0.01% |
+| 024 | VRC6b                  | Madara, Esper Dream 2                     |     2                   |              &lt;0.01% |
+| 066 | GxROM/MxROM            | Super Mario Bros. + Duck Hunt             |   ~17                   |              &lt;0.01% |
+| 071 | Camerica/Codemasters   | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
 | 155 | SxROM/MMC1A            | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
-|     |                        |                                           | ~2085 / 2437            |                 85.56% |
+|     |                        |                                           | ~2088 / 2447            |                   ~83% |
 
-1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6)
+1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6) [Mirror](https://nescartdb.com/)
 
 ### Controls
 
@@ -290,19 +293,30 @@ to create it. A good guideline for what to include is:
 When using the WASM version in the browser, also include:
 - Web browser and version (e.g. Chrome 77.0.3865)
 
-## Roadmap
+## Features
+
+### Crate Feature Flags
+
+* **cycle-accurate** -
+  Enables cycle-accurate emulation. More CPU intensive, but supports a wider range of games
+  requiring precise timing. Disabling may improve performance on lower-end machines. Enabled by
+  default.
+
+### Roadmap
 
 - NES Formats & Run Modes
   - [x] NTSC
-  - [ ] PAL
-  - [ ] Dendy
+  - [x] PAL
+  - [x] Dendy
   - [ ] Headless mode
 - Central Processing Unit (CPU)
   - [x] Official Instructions
   - [x] Unofficial Instructions
   - [x] Cycle Accurate
 - Picture Processing Unit (PPU)
+  - [x] Pixellate Filter
   - [x] NTSC Filter
+  - [ ] CRT Filter
 - Audio Processing Unit (APU)
   - [x] Pulse Channels
   - [x] Triangle Channel
@@ -318,16 +332,33 @@ When using the WASM version in the browser, also include:
   - [ ] Complete NES 2.0 support
   - Mappers
     - [x] Mapper 000 - NROM
-    - [x] Mapper 001 - SxROM/MMC1
+    - [x] Mapper 001 - SxROM/MMC1B/C
     - [x] Mapper 002 - UxROM
     - [x] Mapper 003 - CNROM
-    - [x] Mapper 004 - TxROM/MMC3
+    - [x] Mapper 004 - TxROM/MMC3/MMC6
     - [x] Mapper 005 - ExROM/MMC5
     - [x] Mapper 007 - AxROM
     - [x] Mapper 009 - PxROM/MMC2
-    - [x] Mapper 066 - GxROM
-    - [x] Mapper 071 - BF9093/BF9097
+    - [ ] Mapper 010 - FxROM/MMC4
+    - [ ] Mapper 011 - Color Dreams
+    - [ ] Mapper 019 - Namco 163
+    - [ ] Mapper 023 - VRC2b/VRC4e
+    - [ ] Mapper 025 - VRC4b/VRC4d
+    - [x] Mapper 024 - VRC6a
+    - [x] Mapper 026 - VRC6b
+    - [ ] Mapper 034 - BNROM/NINA-001
+    - [ ] Mapper 064 - RAMBO-1
+    - [x] Mapper 066 - GxROM/MxROM
+    - [ ] Mapper 068 - After Burner
+    - [ ] Mapper 069 - FME-7/Sunsoft 5B
+    - [x] Mapper 071 - Camerica/Codemasters/BF909x
+    - [ ] Mapper 079 - NINA-03/NINA-06
     - [x] Mapper 155 - MMC1A
+    - [ ] Mapper 206 - DxROM/Namco 118/MIMIC-1
+- Releases
+  - [ ] macOS Binaries
+  - [ ] Linux Binaries
+  - [ ] Windows Binaries
 - [x] User Interface (UI)
   - [x] SDL2
   - [x] WebAssembly (WASM) - Run TetaNES in the browser!
@@ -338,18 +369,23 @@ When using the WASM version in the browser, also include:
     - [x] Load/Open ROM with file browser
     - [ ] Recent Game Selection
     - [x] About Menu
+    - [ ] Config paths overrides
   - [x] Increase/Decrease Speed
   - [x] Fast-forward
   - [x] Instant Rewind (2 seconds)
   - [x] Visual Rewind (Holding R will time-travel backward)
   - [x] Save/Load State
+  - [ ] Auto-save
   - [X] Take Screenshots
   - [x] Gameplay Recording
   - [ ] Sound Recording (Save those memorable tunes!)
   - [x] Toggle Fullscreen
+  - [x] Toggle VSync
   - [x] Toggle Sound
     - [x] Toggle individual sound channels
-  - [x] Toggle NTSC Filter
+  - [ ] Toggle FPS
+  - [ ] Toggle Messages
+  - [x] Change Video Filter
   - Game Genie Support
     - [x] Command-Line
     - [ ] UI Menu
@@ -371,7 +407,7 @@ When using the WASM version in the browser, also include:
     - [ ] OAM Viewer (on screen sprites)
     - [ ] Palette Viewer
   - [ ] APU Viewer (Displays audio status and registers)
-  - [ ] 122/149 automated ROM tests passing (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
+  - [x] Automated ROM tests (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
   - [ ] Detailed Documentation
   - Logging
     - [x] Environment logging
