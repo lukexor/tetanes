@@ -670,7 +670,7 @@ const setupHomebrewRoms = (state: State) => {
     button.addEventListener("click", async (evt: MouseEvent) => {
       closeMenu(evt);
       try {
-        const res = await fetch(`/roms/${rom.filename}`);
+        const res = await fetch(`roms/${rom.filename}`);
         const data = new Uint8Array(await res.arrayBuffer());
         state.loadRom(data);
       } catch (err) {
