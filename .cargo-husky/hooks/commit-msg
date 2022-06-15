@@ -20,6 +20,10 @@ fi
 # the commit message file is the last remaining arg
 msg_file=$1
 
+if [[ "$msg_file" =~ "MERGE" ]]; then
+    exit 0;
+fi
+
 # join types with | to form regex ORs
 r_types="($(IFS='|'; echo "${types[*]}"))"
 # optional (scope)
@@ -36,7 +40,7 @@ if grep -Eq "$pattern" "$msg_file"; then
     exit 0
 fi
 
-echo "[Commit message] $msg_file"
+echo "[Commit message] $(head -1 $msg_file)"
 echo "
 Your commit message does not follow Conventional Commits formatting
 https://www.conventionalcommits.org/
