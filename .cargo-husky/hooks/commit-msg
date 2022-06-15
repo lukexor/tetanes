@@ -20,7 +20,7 @@ fi
 # the commit message file is the last remaining arg
 msg_file=$1
 
-if [[ "$msg_file" =~ "MERGE" ]]; then
+if [[ $(head -1 "$msg_file") =~ "Merge" ]]; then
     exit 0;
 fi
 
