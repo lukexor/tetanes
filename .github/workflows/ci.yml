@@ -60,12 +60,14 @@ jobs:
     - name: Install build dependencies
       if: matrix.os != 'windows-latest'
       run: |
+        set -xeuo pipefail
         brew update
         brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
         cargo install wasm-pack
 
     - name: Build source
       run: |
+        set -xeuo pipefail
         cargo build --all-targets --verbose
         cd tetanes-web
         bash bin/build.sh --dev
