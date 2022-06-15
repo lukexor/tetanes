@@ -1,0 +1,18 @@
+AO
+by Second Dimension
+
+AO is a homebrew puzzle game. Each of the 33 levels consists of a fixed, single
+screen environment where a brick needs to be guided to a goal pit (exit point)
+in a maze-like environment shown through a top-down view. The brick is
+controlled directly and the view is in 2D, but the player needs to think in 3D
+to solve the puzzle. The brick takes up two spaces when it is laying on its side
+and one space when it is standing up. To get around in the maze the brick often
+needs to be brought into a specific position so it can move without falling off
+the edge. For instance: some passages only have room for a single space and then
+the brick cannot pass unless it is in a good position. When falling off the
+ledge the level restarts right away and there are unlimited lives. Gradually
+additional elements are introduced such as switches, teleportation blocks and
+weak floors. The game contains a competitive two-player mode where two players
+move through the maze simultaneously with the goal to reach the exit first. The
+game provides 1,000 seconds to complete the game, but it is possible to continue
+playing even when time has run out.

@@ -1,0 +1,89 @@
+Development notes
+
+After completing Lawn Master, I had plan to try use C compiler to make a simple
+NES game. From my previous experience with programming in C for micros (Genesis
+and ZX Spectrum), and from things that thefox did, I knew it could be very
+worthy in terms of development speed. The plan was to check it, and, in case of
+success, prove that C is an actual option to develop NES games, not just a
+theoretical possibility.
+
+I wanted to make a project very fast, so I decided to not do an original game
+this time, because design takes most of the time, and just make a port. I've
+seen two new ZX Spectrum games by Denis Grachev, Join and Alter ego, at WoS when
+they were released, and liked the combination of simplicity, playability, and
+sort of retro appeal in them. I made a low-level library in 6502 assembly to use
+in the project first. When main features of the library were implemented, I have
+sent a mail to Denis, asking if he would allow to port Alter Ego. It took some
+time, from June 8 to 17, to get the answer. Denis gave his permission, but I
+already was busy with other project, and only has been able to start on the port
+June 25.
+
+Development process took about 10 days, the game was fully completed, but
+without music, at July 5. This includes finishing the library, writing all the
+game code from scratch, reverse-engineering levels format, and beating up both
+the original game and port few times to test everything. The most difficult part
+that was not expected by me initially was redesign of all the levels from
+scratch. Initially I thought I can just convert them, edit a bit, and draw new
+graphics, but in order to be able to use more colors and make better graphics I
+had to completely redo all the levels to the NES attribute grid, only keeping
+overall design of the original levels. In other words, none of the original data
+get into the port, and there were some changes to make it more playable as well,
+so it is actually more like a remake than a port. Levels and graphics redesign
+took most of the time. I also made 5 graphics sets instead of 3 sets from the
+original.
+
+Code part was relatively easy both in assembly (low-level libary) and C (game),
+except for few WTF bugs that took some time to figure out. There are about 1000
+lines of assembly code for library, 1000 lines of FamiTone code (has been
+adapted easiliy), and ~1500 lines of C code. Even total number of lines, 3500,
+is significally less than amount of assembly code in my previous NES games that
+were written in assembly, had ~5000 lines each (including FamiTone too), and
+were much simpler gameplay and game logic wise.
+
+As the game was a bit short on RAM, I've put FamiTone vars along with palette
+buffer into the stack page. Despite being written in C, the game uses ~20 bytes
+of the stack at most.
+
+Other part of speeding up the development process was 'outsourcing' of the
+music. I knew it is a risky decision, because any other person involved into a
+project actually increases overall time, not decreases it, but I just tired from
+making everything by myself all the time. It did increased time very
+considerably - although I've negotiated about the music with kulor even before
+starting any actual work on the game, by different reasons including personal
+busyness and some misunderstanding, he only started 15th, ten days after the
+game development itself was completed. This amount of music revealed a lot of
+bugs and problems in FamiTone, not all of which were fixed, and data of one of
+tracks was fixed by hand due to lack of time. Music was finished 22th, just in
+time for DiHalt demoparty. Initially I planned to just release game, but because
+the party date was now close, and there was a multiplatform game compo, I
+decided to release the game there to get more publicity.
+
+My conclucion regarding C usage on NES is that it is worthy indeed. It speeds up
+and simplifies development process a lot because it greatly reduces amount of
+code to be written and debugged, and the code is much more readable. However, to
+use C you just have to know the system and 6502 very well, because debugging is
+much more difficult - in case of the problems when C code does not work as
+expected, you need to figure out what to do by examining of the generated
+assembly code. So it is not easy way to program for NES, it actually requires
+more knowledge than programming in assembly. Execution speed is, of course,
+lower, but this wasn't an issue for this project, the size of the generated code
+was more important actually - it is much larger than it could be if programmed
+in assembly by hand.
+
+Please note that the game is released as freeware, not Public Domain. There are
+three authors involved. I personally grant you rights to do whatever you want
+with things I created (code, sound effects, graphics), but rights to other
+components (game concept, characters, title, music) are reserved to authors of
+these components. I.e., if you want to port it somewhere else, you need to ask
+Denis Grachev (and Kulor, if you need music) for permission.
+
+
+Software used
+
+CC65 - C compiler and assembler Notepad++ - for all the code and text works
+FamiTracker - to make all the music and sound effects UnrealSpeccy - playing and
+reversing the original version Borland Turbo Explorer - to make a level editor,
+but it was only used to view levels FCEUX, VirtuaNES (profiler mod) - to test
+everything, some others for compatibility tests NES Screen Tool - to design all
+the graphics, screens, and levels Inkscape, Blender, GIMP, CutePDF Writer - to
+make manual and label

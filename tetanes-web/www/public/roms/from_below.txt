@@ -1,0 +1,24 @@
+From Below
+by Matt Hughson
+
+FROM BELOW is a falling block puzzle game featuring:
+
+Soft Drops Hard Drops Wall Kicks T-Spins Lock Delay 3 modes of play: Kraken
+Battle Mode
+
+The signature mode of FROM BELOW. Battle the Kraken by clear lines across the
+onslaught of attacking Kraken Tentacles. The Tentacles push more blocks onto the
+screen every few seconds, forcing to act quickly, and strategize on an every
+changing board.
+
+Classic Mode
+
+The classic block falling mechanics you know and love without any new
+gimicks. Modernize for 2020, with Hard Drops, Lock Delay, and more, making this
+(hopefully) the best feeling puzzle game on the NES!
+
+Turn Based Kraken Battle Mode
+
+Similar to “Kraken Battle Mode”, but instead of the Kraken attacking every few
+seconds, it advances its tentacle every time you drop a piece. Make every move
+count, as this move favors slow, deliberate play!
