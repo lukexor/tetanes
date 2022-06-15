@@ -470,13 +470,27 @@ impl Nes {
                 }
                 _ => return Ok(false),
             }
+        } else if !pressed {
+            match action {
+                Action::Setting(Setting::FastForward) => {
+                    self.set_speed(1.0);
+                }
+                Action::Feature(Feature::Rewind) => {
+                    if self.mode == Mode::Rewinding {
+                        self.resume_play();
+                    } else {
+                        self.instant_rewind();
+                    }
+                }
+                _ => return Ok(false),
+            }
         } else {
             match action {
-                Action::Debug(action) if !pressed => self.handle_debug(s, action, repeat)?,
-                Action::Feature(feature) if !pressed => self.handle_feature(s, feature),
-                Action::Nes(state) if !pressed => self.handle_nes_state(s, state)?,
-                Action::Menu(menu) if !pressed => self.open_menu(s, menu)?,
-                Action::Setting(setting) if !pressed => self.handle_setting(s, setting)?,
+                Action::Debug(action) if pressed => self.handle_debug(s, action, repeat)?,
+                Action::Feature(feature) if pressed => self.handle_feature(s, feature),
+                Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
+                Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
+                Action::Setting(setting) if pressed => self.handle_setting(s, setting)?,
                 Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
                 Action::ZapperTrigger => self.handle_zapper_trigger(slot),
                 Action::ZeroAxis(buttons) => {
@@ -608,13 +622,7 @@ impl Nes {
             Feature::TakeScreenshot => self.save_screenshot(s),
             Feature::SaveState => self.save_state(self.config.save_slot),
             Feature::LoadState => self.load_state(self.config.save_slot),
-            Feature::Rewind => {
-                if self.mode == Mode::Rewinding {
-                    self.resume_play();
-                } else {
-                    self.instant_rewind();
-                }
-            }
+            Feature::Rewind => (), // Rewinds on key release instead
         }
     }
 
@@ -658,9 +666,9 @@ impl Nes {
             Setting::ToggleTriangle => self.control_deck.toggle_channel(AudioChannel::Triangle),
             Setting::ToggleNoise => self.control_deck.toggle_channel(AudioChannel::Noise),
             Setting::ToggleDmc => self.control_deck.toggle_channel(AudioChannel::Dmc),
-            Setting::FastForward => self.set_speed(1.0),
             Setting::IncSpeed => self.change_speed(0.25),
             Setting::DecSpeed => self.change_speed(-0.25),
+            Setting::FastForward => (), // Toggling fast forward happens on key release
             _ => (),
         }
         Ok(())

@@ -922,6 +922,8 @@ impl Clocked for Cpu {
             let cycles = self.cycle - start_cycle;
             for _ in 0..cycles {
                 self.bus.cart.clock();
+            }
+            for _ in 0..cycles {
                 self.bus.apu.clock();
             }
             self.handle_interrupts();
