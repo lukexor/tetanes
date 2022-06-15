@@ -31,7 +31,7 @@ impl Nes {
 
     pub fn new(output_sample_rate: f32, buffer_size: usize, max_delta: f32) -> Self {
         let mut control_deck = ControlDeck::new(NesRegion::Ntsc, RamState::default());
-        control_deck.set_filter(VideoFilter::None);
+        control_deck.set_filter(VideoFilter::Pixellate);
         let input_sample_rate = control_deck.apu().sample_rate();
         let mut audio = Audio::new(input_sample_rate, output_sample_rate, 4096);
         let buffer = vec![0.0; buffer_size];
