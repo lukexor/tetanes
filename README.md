@@ -1,6 +1,6 @@
 # TetaNES
 
-[![Build Status]][build] [![Latest Version]][crates.io] [![Doc Status]][docs] [![Downloads]][crates.io] ![License]
+[![Build Status]][build] [![Latest Version]][crates.io] [![Doc Status]][docs] [![Downloads]][crates.io] [![License]][license]
 
 [Build Status]: https://img.shields.io/github/workflow/status/lukexor/tetanes/CI?style=plastic
 [build]: https://github.com/lukexor/tetanes/actions/workflows/ci.yml
@@ -10,6 +10,7 @@
 [docs]: https://docs.rs/tetanes/
 [Downloads]: https://img.shields.io/crates/d/tetanes?style=plastic
 [License]: https://img.shields.io/crates/l/tetanes?style=plastic
+[license]:https://github.com/lukexor/tetanes/blob/main/LICENSE.md
 
 ## Table of Contents
 
