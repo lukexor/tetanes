@@ -86,7 +86,7 @@ impl Default for VideoFilter {
 impl AsRef<str> for VideoFilter {
     fn as_ref(&self) -> &str {
         match self {
-            Self::Pixellate => "None",
+            Self::Pixellate => "Pixellate",
             Self::Ntsc => "NTSC",
         }
     }
