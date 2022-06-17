@@ -10,7 +10,7 @@
 [docs]: https://docs.rs/tetanes/
 [Downloads]: https://img.shields.io/crates/d/tetanes?style=plastic
 [License]: https://img.shields.io/crates/l/tetanes?style=plastic
-[license]:https://github.com/lukexor/tetanes/blob/main/LICENSE.md
+[license]: https://github.com/lukexor/tetanes/blob/main/LICENSE.md
 
 ## Table of Contents
 
