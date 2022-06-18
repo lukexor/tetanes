@@ -350,7 +350,7 @@ checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
 [[package]]
 name = "pix-engine"
 version = "0.5.5"
-source = "git+https://github.com/lukexor/pix-engine.git#6fd70b063829d5fa2382b9dcc373b14ade629cfd"
+source = "git+https://github.com/lukexor/pix-engine.git#f8eb82e3d624b07deae1e18b8e9d028b50c74fca"
 dependencies = [
  "anyhow",
  "bitflags",
