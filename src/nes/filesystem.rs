@@ -1,4 +1,4 @@
-use super::{menu::Player, Menu, Mode, Nes, NesResult};
+use super::{Menu, Mode, Nes, NesResult};
 use crate::{audio::Audio, cart::NesHeader};
 use anyhow::{anyhow, Context};
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
@@ -12,8 +12,7 @@ use std::{
 
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
-// MAJOR version of SemVer. Increases when save file format isn't backwards compatible
-const VERSION: u8 = 0;
+const MAJOR_VERSION: &str = env!("CARGO_PKG_VERSION_MAJOR");
 
 /// Writes a header including a magic string and a version
 ///
@@ -22,7 +21,7 @@ const VERSION: u8 = 0;
 /// If the header fails to write to disk, then an error is returned.
 pub(crate) fn write_save_header<F: Write>(f: &mut F) -> NesResult<()> {
     f.write_all(&SAVE_FILE_MAGIC)?;
-    f.write_all(&[VERSION])?;
+    f.write_all(MAJOR_VERSION.as_bytes())?;
     Ok(())
 }
 
@@ -37,12 +36,12 @@ pub(crate) fn validate_save_header<F: Read>(f: &mut F) -> NesResult<()> {
     if magic == SAVE_FILE_MAGIC {
         let mut version = [0u8];
         f.read_exact(&mut version)?;
-        if version[0] == VERSION {
+        if version == MAJOR_VERSION.as_bytes() {
             Ok(())
         } else {
             Err(anyhow!(
                 "invalid save file version. current: {}, save file: {}",
-                VERSION,
+                MAJOR_VERSION,
                 version[0],
             ))
         }
@@ -153,7 +152,7 @@ impl Nes {
     /// Loads a ROM cartridge into memory
     pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
         if self.config.rom_path.is_dir() {
-            self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+            self.mode = Mode::InMenu(Menu::LoadRom);
             return Ok(());
         } else if let Err(err) = NesHeader::from_path(&self.config.rom_path) {
             log::error!("{:?}: {:?}", self.config.rom_path, err);
@@ -170,7 +169,7 @@ impl Nes {
             Ok(rom) => rom,
             Err(err) => {
                 log::error!("{:?}: {:?}", self.config.rom_path, err);
-                self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+                self.mode = Mode::InMenu(Menu::LoadRom);
                 self.error = Some(format!("Failed to open ROM {:?}", self.rom_filename()));
                 return Ok(());
             }
@@ -206,7 +205,7 @@ impl Nes {
             }
             Err(err) => {
                 log::error!("{:?}, {:?}", self.config.rom_path, err);
-                self.mode = Mode::InMenu(Menu::LoadRom, Player::One);
+                self.mode = Mode::InMenu(Menu::LoadRom);
                 self.error = Some(format!("Failed to load ROM {:?}", self.rom_filename()));
             }
         }

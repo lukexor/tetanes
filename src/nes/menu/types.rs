@@ -1,22 +1,39 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub(crate) enum Menu {
-    Config,
-    Keybind,
-    LoadRom,
-    About,
+pub(crate) enum ConfigSection {
+    General,
+    Emulation,
+    Audio,
+    Video,
 }
 
-impl AsRef<str> for Menu {
+impl ConfigSection {
+    #[inline]
+    #[must_use]
+    pub(crate) const fn as_slice() -> &'static [Self] {
+        &[Self::General, Self::Emulation, Self::Audio, Self::Video]
+    }
+}
+
+impl AsRef<str> for ConfigSection {
     fn as_ref(&self) -> &str {
         match self {
-            Self::Config => "Configuration",
-            Self::Keybind => "Keybindings",
-            Self::LoadRom => "Load ROM",
-            Self::About => "About",
+            Self::General => "General",
+            Self::Emulation => "Emulation",
+            Self::Audio => "Audio",
+            Self::Video => "Video",
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) enum Menu {
+    Main,
+    Config(ConfigSection),
+    Keybind(Player),
+    LoadRom,
+    About,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

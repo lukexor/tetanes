@@ -184,6 +184,14 @@
       },
       {
         "player": "One",
+        "key": "Escape",
+        "keymod": 0,
+        "action": {
+          "Menu": "Main"
+        }
+      },
+      {
+        "player": "One",
         "key": "H",
         "keymod": 64,
         "action": {
@@ -203,7 +211,9 @@
         "key": "C",
         "keymod": 64,
         "action": {
-          "Menu": "Config"
+          "Menu": {
+            "Config": "General"
+          }
         }
       },
       {
@@ -211,7 +221,9 @@
         "key": "F2",
         "keymod": 0,
         "action": {
-          "Menu": "Config"
+          "Menu": {
+            "Config": "General"
+          }
         }
       },
       {
@@ -232,10 +244,12 @@
       },
       {
         "player": "One",
-        "key": "Escape",
-        "keymod": 0,
+        "key": "K",
+        "keymod": 64,
         "action": {
-          "Nes": "TogglePause"
+          "Menu": {
+            "Keybind": "One"
+          }
         }
       },
       {
@@ -645,7 +659,7 @@
         "player": "One",
         "button": "Guide",
         "action": {
-          "Nes": "TogglePause"
+          "Menu": "Main"
         }
       },
       {

@@ -163,10 +163,10 @@ Emulator shortcuts:
 
 | Action                            | Keyboard         | Controller         |
 | --------------------------------- | ---------------- | ------------------ |
-| About Menu                        | Ctrl-H or F1     |                    |
+| Menu/Pause                        | Escape           | Guide Button       |
+| About TetaNES                     | Ctrl-H or F1     |                    |
 | Configuration Menu                | Ctrl-C or F2     |                    |
 | Load/Open ROM                     | Ctrl-O or F3     |                    |
-| Pause                             | Escape           | Guide Button       |
 | Quit                              | Ctrl-Q           |                    |
 | Reset                             | Ctrl-R           |                    |
 | Power Cycle                       | Ctrl-P           |                    |

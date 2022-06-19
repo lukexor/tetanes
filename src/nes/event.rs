@@ -4,7 +4,10 @@ use crate::{
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
     mapper::MapperRevision,
-    nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode, NES_FRAME_SRC},
+    nes::{
+        menu::{types::ConfigSection, Menu},
+        Mode, Nes, NesResult, ReplayMode, NES_FRAME_SRC,
+    },
     ppu::{VideoFilter, RENDER_HEIGHT},
 };
 use pix_engine::prelude::*;
@@ -322,7 +325,9 @@ impl Nes {
                 if pressed && self.replay.mode == ReplayMode::Playback {
                     match action {
                         Action::Feature(Feature::ToggleGameplayRecording) => self.stop_replay(),
-                        Action::Nes(state) => self.handle_nes_state(s, state)?,
+                        Action::Nes(state) => {
+                            self.handle_nes_state(s, state)?;
+                        }
                         Action::Menu(menu) => self.open_menu(s, menu)?,
                         _ => return Ok(false),
                     }
@@ -369,9 +374,12 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_zapper_trigger(&mut self, slot: GamepadSlot) {
+    fn handle_zapper_trigger(&mut self, slot: GamepadSlot) -> bool {
         if self.control_deck.zapper_connected(slot) {
             self.control_deck.trigger_zapper(slot);
+            true
+        } else {
+            false
         }
     }
 
@@ -446,60 +454,41 @@ impl Nes {
         pressed: bool,
         repeat: bool,
     ) -> PixResult<bool> {
+        let handled = match action {
+            Action::Debug(action) => self.handle_debug(s, action, repeat)?,
+            Action::Feature(feature) => {
+                self.handle_feature(s, feature, pressed, repeat);
+                true
+            }
+            Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
+            Action::Menu(menu) if pressed => {
+                self.open_menu(s, menu)?;
+                true
+            }
+            Action::Setting(setting) => self.handle_setting(s, setting, pressed, repeat)?,
+            Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
+            Action::ZapperTrigger if pressed => self.handle_zapper_trigger(slot),
+            Action::ZeroAxis(buttons) => {
+                let mut handled = false;
+                for button in buttons {
+                    if self.handle_gamepad_pressed(slot, button, pressed) {
+                        handled = true;
+                        break;
+                    }
+                }
+                handled
+            }
+            _ => false,
+        };
+
         if !repeat {
             log::debug!(
-                "Input: {{ action: {:?}, slot: {:?}, pressed: {} }}",
+                "Input: {{ action: {:?}, slot: {:?}, pressed: {}, handled: {} }}",
                 action,
                 slot,
-                pressed
+                pressed,
+                handled,
             );
-        }
-
-        if repeat && pressed {
-            match action {
-                Action::Debug(action) => self.handle_debug(s, action, repeat)?,
-                Action::Feature(Feature::Rewind) => {
-                    if self.config.rewind {
-                        self.mode = Mode::Rewinding;
-                    } else {
-                        self.add_message("Rewind disabled. You can enable it in the Config menu.");
-                    }
-                }
-                Action::Setting(Setting::FastForward) => {
-                    self.set_speed(2.0);
-                }
-                _ => return Ok(false),
-            }
-        } else if !pressed {
-            match action {
-                Action::Setting(Setting::FastForward) => {
-                    self.set_speed(1.0);
-                }
-                Action::Feature(Feature::Rewind) => {
-                    if self.mode == Mode::Rewinding {
-                        self.resume_play();
-                    } else {
-                        self.instant_rewind();
-                    }
-                }
-                _ => return Ok(false),
-            }
-        } else {
-            match action {
-                Action::Debug(action) if pressed => self.handle_debug(s, action, repeat)?,
-                Action::Feature(feature) if pressed => self.handle_feature(s, feature),
-                Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
-                Action::Menu(menu) if pressed => self.open_menu(s, menu)?,
-                Action::Setting(setting) if pressed => self.handle_setting(s, setting)?,
-                Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
-                Action::ZapperTrigger => self.handle_zapper_trigger(slot),
-                Action::ZeroAxis(buttons) => {
-                    for button in buttons {
-                        self.handle_gamepad_pressed(slot, button, pressed);
-                    }
-                }
-                _ => return Ok(false),
-            }
         }
 
         if self.replay.mode == ReplayMode::Recording
@@ -514,7 +503,7 @@ impl Nes {
                 .push(self.action_event(slot, action, pressed, repeat));
         }
 
-        Ok(true)
+        Ok(handled)
     }
 
     pub(crate) fn replay_action(&mut self, s: &mut PixState) -> NesResult<()> {
@@ -579,12 +568,12 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<()> {
+    fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<bool> {
         if self.replay.mode == ReplayMode::Recording {
-            return Ok(());
+            return Ok(false);
         }
         match state {
-            NesState::ToggleMenu => self.toggle_menu(Menu::Config, s)?,
+            NesState::ToggleMenu => self.toggle_menu(Menu::Config(ConfigSection::General), s)?,
             NesState::Quit => {
                 self.pause_play();
                 s.quit();
@@ -608,74 +597,115 @@ impl Nes {
             }
             NesState::MapperRevision(_) => todo!("mapper revision"),
         }
-        Ok(())
+        Ok(true)
     }
 
     #[inline]
-    fn handle_feature(&mut self, s: &mut PixState, feature: Feature) {
-        match feature {
-            Feature::ToggleGameplayRecording => match self.replay.mode {
-                ReplayMode::Off => self.start_replay(),
-                ReplayMode::Recording | ReplayMode::Playback => self.stop_replay(),
-            },
-            Feature::ToggleSoundRecording => self.toggle_sound_recording(s),
-            Feature::TakeScreenshot => self.save_screenshot(s),
-            Feature::SaveState => self.save_state(self.config.save_slot),
-            Feature::LoadState => self.load_state(self.config.save_slot),
-            Feature::Rewind => (), // Rewinds on key release instead
+    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool, repeat: bool) {
+        if feature == Feature::Rewind {
+            if repeat {
+                if self.config.rewind {
+                    self.mode = Mode::Rewinding;
+                } else {
+                    self.add_message("Rewind disabled. You can enable it in the Config menu.");
+                }
+            } else if !pressed {
+                if self.mode == Mode::Rewinding {
+                    self.resume_play();
+                } else {
+                    self.instant_rewind();
+                }
+            }
+        } else if pressed {
+            match feature {
+                Feature::ToggleGameplayRecording => match self.replay.mode {
+                    ReplayMode::Off => self.start_replay(),
+                    ReplayMode::Recording | ReplayMode::Playback => self.stop_replay(),
+                },
+                Feature::ToggleSoundRecording => self.toggle_sound_recording(s),
+                Feature::TakeScreenshot => self.save_screenshot(s),
+                Feature::SaveState => self.save_state(self.config.save_slot),
+                Feature::LoadState => self.load_state(self.config.save_slot),
+                Feature::Rewind => (), // Handled above
+            }
         }
     }
 
     #[inline]
-    fn handle_setting(&mut self, s: &mut PixState, setting: Setting) -> NesResult<()> {
-        match setting {
-            Setting::SetSaveSlot(slot) => {
-                self.config.save_slot = slot;
-                self.add_message(&format!("Set Save Slot to {}", slot));
+    fn handle_setting(
+        &mut self,
+        s: &mut PixState,
+        setting: Setting,
+        pressed: bool,
+        repeat: bool,
+    ) -> NesResult<bool> {
+        if setting == Setting::FastForward {
+            if repeat {
+                self.set_speed(2.0);
+            } else if !pressed {
+                self.set_speed(1.0);
             }
-            Setting::ToggleFullscreen => {
-                self.config.fullscreen = !self.config.fullscreen;
-                s.fullscreen(self.config.fullscreen)?;
-            }
-            Setting::ToggleVsync => {
-                self.config.vsync = !self.config.vsync;
-                s.vsync(self.config.vsync)?;
-                if self.config.vsync {
-                    self.add_message("Vsync Enabled");
-                } else {
-                    self.add_message("Vsync Disabled");
+            Ok(true)
+        } else if pressed {
+            match setting {
+                Setting::SetSaveSlot(slot) => {
+                    self.config.save_slot = slot;
+                    self.add_message(&format!("Set Save Slot to {}", slot));
                 }
-            }
-            Setting::ToggleNtscFilter => {
-                self.config.filter = match self.config.filter {
-                    VideoFilter::Pixellate => VideoFilter::Ntsc,
-                    VideoFilter::Ntsc => VideoFilter::Pixellate,
-                };
-                self.control_deck.set_filter(self.config.filter);
-            }
-            Setting::ToggleSound => {
-                self.config.sound = !self.config.sound;
-                if self.config.sound {
-                    self.add_message("Sound Enabled");
-                } else {
-                    self.add_message("Sound Disabled");
+                Setting::ToggleFullscreen => {
+                    self.config.fullscreen = !self.config.fullscreen;
+                    s.fullscreen(self.config.fullscreen)?;
                 }
+                Setting::ToggleVsync => {
+                    self.config.vsync = !self.config.vsync;
+                    s.vsync(self.config.vsync)?;
+                    if self.config.vsync {
+                        self.add_message("Vsync Enabled");
+                    } else {
+                        self.add_message("Vsync Disabled");
+                    }
+                }
+                Setting::ToggleNtscFilter => {
+                    self.config.filter = match self.config.filter {
+                        VideoFilter::Pixellate => VideoFilter::Ntsc,
+                        VideoFilter::Ntsc => VideoFilter::Pixellate,
+                    };
+                    self.control_deck.set_filter(self.config.filter);
+                }
+                Setting::ToggleSound => {
+                    self.config.sound = !self.config.sound;
+                    if self.config.sound {
+                        self.add_message("Sound Enabled");
+                    } else {
+                        self.add_message("Sound Disabled");
+                    }
+                }
+                Setting::TogglePulse1 => self.control_deck.toggle_channel(AudioChannel::Pulse1),
+                Setting::TogglePulse2 => self.control_deck.toggle_channel(AudioChannel::Pulse2),
+                Setting::ToggleTriangle => self.control_deck.toggle_channel(AudioChannel::Triangle),
+                Setting::ToggleNoise => self.control_deck.toggle_channel(AudioChannel::Noise),
+                Setting::ToggleDmc => self.control_deck.toggle_channel(AudioChannel::Dmc),
+                Setting::IncSpeed => self.change_speed(0.25),
+                Setting::DecSpeed => self.change_speed(-0.25),
+                // Toggling fast forward happens on key release
+                _ => return Ok(false),
             }
-            Setting::TogglePulse1 => self.control_deck.toggle_channel(AudioChannel::Pulse1),
-            Setting::TogglePulse2 => self.control_deck.toggle_channel(AudioChannel::Pulse2),
-            Setting::ToggleTriangle => self.control_deck.toggle_channel(AudioChannel::Triangle),
-            Setting::ToggleNoise => self.control_deck.toggle_channel(AudioChannel::Noise),
-            Setting::ToggleDmc => self.control_deck.toggle_channel(AudioChannel::Dmc),
-            Setting::IncSpeed => self.change_speed(0.25),
-            Setting::DecSpeed => self.change_speed(-0.25),
-            Setting::FastForward => (), // Toggling fast forward happens on key release
-            _ => (),
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     #[inline]
-    fn handle_gamepad_pressed(&mut self, slot: GamepadSlot, button: GamepadBtn, pressed: bool) {
+    fn handle_gamepad_pressed(
+        &mut self,
+        slot: GamepadSlot,
+        button: GamepadBtn,
+        pressed: bool,
+    ) -> bool {
+        if self.mode != Mode::Playing {
+            return false;
+        }
         let mut gamepad = self.control_deck.gamepad_mut(slot);
         if !self.config.concurrent_dpad && pressed {
             match button {
@@ -704,6 +734,7 @@ impl Nes {
             GamepadBtn::Select => gamepad.select = pressed,
             GamepadBtn::Start => gamepad.start = pressed,
         };
+        true
     }
 
     fn handle_debug(
@@ -711,8 +742,9 @@ impl Nes {
         s: &mut PixState,
         action: DebugAction,
         repeat: bool,
-    ) -> NesResult<()> {
+    ) -> NesResult<bool> {
         let debugging = self.debugger.is_some();
+        let ppu_viewer = self.ppu_viewer.is_some();
         match action {
             DebugAction::ToggleCpuDebugger if !repeat => self.toggle_debugger(s)?,
             DebugAction::TogglePpuDebugger if !repeat => self.toggle_ppu_viewer(s)?,
@@ -722,23 +754,23 @@ impl Nes {
             DebugAction::StepOut if debugging => self.debug_step_out(s)?,
             DebugAction::StepFrame if debugging => self.debug_step_frame(s)?,
             DebugAction::StepScanline if debugging => self.debug_step_scanline(s)?,
-            DebugAction::IncScanline if self.ppu_viewer.is_some() => {
+            DebugAction::IncScanline if ppu_viewer => {
                 let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT - 1);
                 self.control_deck
                     .ppu_mut()
                     .set_viewer_scanline(self.scanline);
             }
-            DebugAction::DecScanline if self.ppu_viewer.is_some() => {
+            DebugAction::DecScanline if ppu_viewer => {
                 let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
                 self.scanline = self.scanline.saturating_sub(decrement);
                 self.control_deck
                     .ppu_mut()
                     .set_viewer_scanline(self.scanline);
             }
-            _ => (),
+            _ => return Ok(false),
         }
-        Ok(())
+        Ok(true)
     }
 
     fn debug_step_into(&mut self, s: &mut PixState) -> NesResult<()> {

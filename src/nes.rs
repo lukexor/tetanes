@@ -15,7 +15,7 @@ use crate::{
     NesResult,
 };
 use config::Config;
-use menu::{Menu, Player};
+use menu::Menu;
 use pix_engine::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
@@ -171,13 +171,13 @@ pub(crate) enum Mode {
     Playing,
     Paused,
     PausedBg,
-    InMenu(Menu, Player),
+    InMenu(Menu),
     Rewinding,
 }
 
 impl Default for Mode {
     fn default() -> Self {
-        Self::InMenu(Menu::LoadRom, Player::One)
+        Self::InMenu(Menu::LoadRom)
     }
 }
 
@@ -338,6 +338,7 @@ impl AppState for Nes {
             s.cursor(None)?;
         }
         self.audio.open_playback(s)?;
+        self.set_scale(s, self.config.scale);
 
         self.emulation = Some(View::new(
             s.window_id(),
@@ -405,7 +406,7 @@ impl AppState for Nes {
                     self.render_status(s, "Paused")?;
                 }
             }
-            Mode::InMenu(menu, player) => self.render_menu(s, menu, player)?,
+            Mode::InMenu(menu) => self.render_menu(s, menu)?,
             Mode::Rewinding => {
                 self.render_status(s, "Rewinding")?;
                 self.rewind();
@@ -460,12 +461,6 @@ impl AppState for Nes {
     }
 
     fn on_key_pressed(&mut self, s: &mut PixState, event: KeyEvent) -> PixResult<bool> {
-        if std::env::var("TEST").is_ok() && event.key == Key::Return {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            self.control_deck.frame_buffer().hash(&mut hasher);
-            println!("{} - {}", self.control_deck.frame_number(), hasher.finish());
-        }
         Ok(self.handle_key_event(s, event, true))
     }
 

@@ -8,7 +8,10 @@ use crate::{
     ppu::VideoFilter,
 };
 use anyhow::Context;
-use pix_engine::prelude::{PixResult, PixState};
+use pix_engine::{
+    point,
+    prelude::{PixResult, PixState},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
@@ -175,6 +178,19 @@ impl Nes {
                 self.add_message("Failed to save configuration");
             }
         }
+    }
+
+    pub(crate) fn set_scale(&mut self, s: &mut PixState, scale: f32) {
+        self.config.scale = scale;
+        let (font_size, fpad, ipad) = match scale as usize {
+            1 => (6, 2, 2),
+            2 => (8, 6, 4),
+            3 => (12, 8, 6),
+            _ => (16, 10, 8),
+        };
+        s.font_size(font_size).expect("valid font size");
+        s.theme_mut().spacing.frame_pad = point!(fpad, fpad);
+        s.theme_mut().spacing.item_pad = point!(ipad, ipad);
     }
 
     pub(crate) fn change_speed(&mut self, delta: f32) {
