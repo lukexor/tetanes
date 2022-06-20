@@ -104,7 +104,7 @@ impl MemRead for Vram {
                 // Use PPU Nametables or Cartridge RAM
                 if self.cart().use_ciram(addr) {
                     let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.read(mirror_addr % VRAM_SIZE as u16)
+                    self.nametable.read(mirror_addr)
                 } else {
                     self.cart_mut().read(addr)
                 }
@@ -127,12 +127,12 @@ impl MemRead for Vram {
                 // Use PPU Nametables or Cartridge RAM
                 if self.cart().use_ciram(addr) {
                     let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.peek(mirror_addr % VRAM_SIZE as u16)
+                    self.nametable.peek(mirror_addr)
                 } else {
                     self.cart().peek(addr)
                 }
             }
-            0x3F00..=0x3FFF => self.palette.peek(addr % PALETTE_SIZE as u16),
+            0x3F00..=0x3FFF => self.palette.peek(addr),
             _ => 0x00,
         }
     }
@@ -145,7 +145,7 @@ impl MemWrite for Vram {
             0x2000..=0x3EFF => {
                 if self.cart().use_ciram(addr) {
                     let mirror_addr = self.nametable_addr(addr);
-                    self.nametable.write(mirror_addr % VRAM_SIZE as u16, val);
+                    self.nametable.write(mirror_addr, val);
                 } else {
                     self.cart_mut().write(addr, val);
                 }

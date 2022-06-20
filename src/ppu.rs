@@ -7,7 +7,7 @@ use crate::{
     common::{Clocked, NesRegion, Powered},
     mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
-    ppu::{frame::NTSC_PALETTE, vram::ATTR_OFFSET},
+    ppu::vram::ATTR_OFFSET,
 };
 use frame::Frame;
 use ppu_regs::{PpuRegs, COARSE_X_MASK, COARSE_Y_MASK, NT_X_MASK, NT_Y_MASK};
@@ -288,46 +288,9 @@ impl Ppu {
     #[inline]
     pub fn frame_buffer(&mut self) -> &[u8] {
         match self.filter {
-            VideoFilter::Pixellate => self.decode_buffer(),
-            VideoFilter::Ntsc => self.apply_ntsc_filter(),
+            VideoFilter::Pixellate => self.frame.decode_buffer(),
+            VideoFilter::Ntsc => self.frame.apply_ntsc_filter(),
         }
-    }
-
-    fn decode_buffer(&mut self) -> &[u8] {
-        for (idx, color) in self.frame.current_buffer.iter().enumerate() {
-            let color_idx = ((*color as usize) & (SYSTEM_PALETTE_SIZE - 1)) * 3;
-            if let [red, green, blue] = SYSTEM_PALETTE[color_idx..=color_idx + 2] {
-                let idx = idx << 2;
-                self.frame.output_buffer[idx..=idx + 3].copy_from_slice(&[red, green, blue, 255]);
-            }
-        }
-        &self.frame.output_buffer
-    }
-
-    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
-    // to translate it to Rust
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // http://wiki.nesdev.com/w/index.php/NTSC_video
-    fn apply_ntsc_filter(&mut self) -> &[u8] {
-        for (idx, pixel) in self.frame.current_buffer.iter().enumerate() {
-            let x = idx % 256;
-            let y = idx / 256;
-            let even_phase = if self.frame.num & 0x01 == 0x01 { 0 } else { 1 };
-            let phase = (2 + y * 341 + x + even_phase) % 3;
-            let color = if x == 0 {
-                // Remove pixel 0 artifact from not having a valid previous pixel
-                0
-            } else {
-                NTSC_PALETTE[phase][(self.frame.prev_pixel & 0x3F) as usize][*pixel as usize]
-            };
-            self.frame.prev_pixel = u32::from(*pixel);
-            let idx = idx << 2;
-            let red = (color >> 16 & 0xFF) as u8;
-            let green = (color >> 8 & 0xFF) as u8;
-            let blue = (color & 0xFF) as u8;
-            self.frame.output_buffer[idx..=idx + 3].copy_from_slice(&[red, green, blue, 255]);
-        }
-        &self.frame.output_buffer
     }
 
     fn load_nametables(&mut self) {
@@ -685,7 +648,7 @@ impl Ppu {
             // 1. Clear Secondary OAM
             VISIBLE_CYCLE_START..=OAM_CLEAR_CYCLE_END => {
                 self.oam_fetch = 0xFF;
-                self.secondary_oam = Memory::ram(SECONDARY_OAM_SIZE, RamState::AllOnes);
+                self.secondary_oam.fill(0xFF);
             }
             // 2. Read OAM to find first eight sprites on this scanline
             // 3. With > 8 sprites, check (wrongly) for more sprites to set overflow flag
@@ -824,7 +787,7 @@ impl Ppu {
             return 0;
         }
         // Used by `Zapper`
-        let color = self.frame.back_buffer[(x + (y << 8)) as usize] as usize;
+        let color = self.frame.get_color(x, y) as usize;
         let palette_idx = (color & (SYSTEM_PALETTE_SIZE - 1)) * 3;
         if let [red, green, blue] = SYSTEM_PALETTE[palette_idx..=palette_idx + 2] {
             u32::from(red) + u32::from(green) + u32::from(blue)
@@ -1200,6 +1163,7 @@ impl Ppu {
 
 impl Clocked for Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
+    #[inline]
     fn clock(&mut self) -> usize {
         // Clear open bus roughly once every frame
         if self.scanline == 0 {

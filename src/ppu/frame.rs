@@ -1,6 +1,9 @@
 use crate::{
     common::Powered,
-    ppu::{RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH},
+    ppu::{
+        vram::{SYSTEM_PALETTE, SYSTEM_PALETTE_SIZE},
+        RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH,
+    },
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -114,9 +117,9 @@ pub struct Frame {
     pub tile_data: u64,
     pub prev_pixel: u32,
     pub last_updated_pixel: u32,
-    pub current_buffer: Vec<u16>,
-    pub back_buffer: Vec<u16>,
-    pub output_buffer: Vec<u8>,
+    front_buffer: Vec<u16>,
+    back_buffer: Vec<u16>,
+    output_buffer: Vec<u8>,
 }
 
 impl Frame {
@@ -130,9 +133,9 @@ impl Frame {
             tile_data: 0,
             prev_pixel: 0xFFFF_FFFF,
             last_updated_pixel: 0,
-            current_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
+            front_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
             back_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
-            output_buffer: vec![0; RENDER_SIZE],
+            output_buffer: vec![255; RENDER_SIZE],
         }
     }
 
@@ -143,19 +146,70 @@ impl Frame {
 
     #[inline]
     pub fn swap_buffers(&mut self) {
-        std::mem::swap(&mut self.current_buffer, &mut self.back_buffer);
+        std::mem::swap(&mut self.front_buffer, &mut self.back_buffer);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn get_color(&self, x: u32, y: u32) -> u16 {
+        self.back_buffer[(x + (y << 8)) as usize]
     }
 
     #[inline]
     pub fn put_pixel(&mut self, x: u32, y: u32, color: u16) {
         self.back_buffer[(x + (y << 8)) as usize] = color;
     }
+
+    #[inline]
+    pub fn decode_buffer(&mut self) -> &[u8] {
+        for (idx, color) in self.front_buffer.iter().enumerate() {
+            let color_idx = ((*color as usize) & (SYSTEM_PALETTE_SIZE - 1)) * 3;
+            if let [red, green, blue] = SYSTEM_PALETTE[color_idx..=color_idx + 2] {
+                let idx = idx << 2;
+                self.output_buffer[idx] = red;
+                self.output_buffer[idx + 1] = green;
+                self.output_buffer[idx + 2] = blue;
+                // Alpha should always be 255
+            }
+        }
+        &self.output_buffer
+    }
+
+    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
+    // to translate it to Rust
+    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
+    // http://wiki.nesdev.com/w/index.php/NTSC_video
+    #[inline]
+    pub fn apply_ntsc_filter(&mut self) -> &[u8] {
+        for (idx, pixel) in self.front_buffer.iter().enumerate() {
+            let x = idx % 256;
+            let y = idx / 256;
+            let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
+            let phase = (2 + y * 341 + x + even_phase) % 3;
+            let color = if x == 0 {
+                // Remove pixel 0 artifact from not having a valid previous pixel
+                0
+            } else {
+                NTSC_PALETTE[phase][(self.prev_pixel & 0x3F) as usize][*pixel as usize]
+            };
+            self.prev_pixel = u32::from(*pixel);
+            let idx = idx << 2;
+            let red = (color >> 16 & 0xFF) as u8;
+            let green = (color >> 8 & 0xFF) as u8;
+            let blue = (color & 0xFF) as u8;
+            self.output_buffer[idx] = red;
+            self.output_buffer[idx + 1] = green;
+            self.output_buffer[idx + 2] = blue;
+            // Alpha should always be 255
+        }
+        &self.output_buffer
+    }
 }
 
 impl Powered for Frame {
     fn reset(&mut self) {
         self.num = 0;
-        self.current_buffer.fill(0);
+        self.front_buffer.fill(0);
         self.back_buffer.fill(0);
         self.output_buffer.fill(0);
     }
