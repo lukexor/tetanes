@@ -10,12 +10,11 @@ env:
 
 jobs:
   format:
-    name: Check Format
+    name: Check format
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Format
-      uses: actions-rs/cargo@v1
+    - uses: actions-rs/cargo@v1
       with:
         command: fmt
         args: --all -- --check
@@ -49,13 +48,21 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: clippy
-    - name: Install Homebrew
+    - name: Cache Linuxbrew
+      uses: actions/cache@v3
+      if: matrix.os == 'ubuntu-latest'
+      with:
+        path: |
+          ~/.cache/Homebrew
+          /home/linuxbrew/.linuxbrew/Cellar
+        key: ${{ runner.os }}-linuxbrew-${{ hashFiles('**/Cargo.lock') }}
+    - name: Install Linuxbrew
       if: matrix.os == 'ubuntu-latest'
       run: |
-        set -xeuo pipefail
         bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         test -d ~/.linuxbrew && eval "$(~/.linuxbrew/bin/brew shellenv)"
         test -d /home/linuxbrew/.linuxbrew && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+        set -xeuo pipefail
         echo "LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
         sudo apt-get update
@@ -66,10 +73,9 @@ jobs:
         brew update
         brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
         cargo install wasm-pack
-    - name: Build TetaNES
-      run: cargo build --all-targets --verbose
-    - name: Build TetaNES Web
+    - name: Build
       run: |
+        cargo build --all-targets --verbose
         cd tetanes-web
         bash bin/build.sh --dev
     - run: cargo doc --verbose
