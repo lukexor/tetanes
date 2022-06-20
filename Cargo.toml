@@ -39,7 +39,7 @@ default-features = false
 features = ["user-hooks"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pix-engine = { version = "0.5.4", features = ["serde"] }
+pix-engine = { version = "0.6.0", features = ["serde"] }
 
 [patch.crates-io]
 pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }

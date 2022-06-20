@@ -1,12 +1,16 @@
 name: Cargo Package
 
 on:
-  release:
-    types: [created]
+  workflow_run:
+    workflows: [ CI ]
+    types: [ completed ]
+    tags: [ v* ]
+  workflow_dispatch:
 
 jobs:
   package:
     runs-on: macos-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
     - name: Checkout
       uses: actions/checkout@v3
@@ -22,13 +26,13 @@ jobs:
       uses: Swatinem/rust-cache@v1
 
     - name: Install build dependencies
-      run: cargo install cargo-vcpkg
-
-    - name: Build dependencies
-      run: cargo vcpkg -v build
+      shell: bash
+      run: |
+        set -xeuo pipefail
+        brew update
+        brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
 
     - name: Publish Crate
       uses: katyo/publish-crates@v1
       with:
         registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        args: --features vcpkg
