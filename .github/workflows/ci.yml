@@ -2,16 +2,33 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
-  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
+  format:
+    name: Check Format
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Format
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --all -- --check
+
+  outdated:
+    name: Outdated
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_reqeust'
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/install@cargo-outdated
+    - run: cargo outdated --exit-code 1
+
   build-and-test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -20,34 +37,20 @@ jobs:
         os:  [macos-latest, ubuntu-latest, windows-latest]
         toolchain: [nightly, beta, stable, 1.59.0]
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-
-    - name: Install toolchain
-      uses: actions-rs/toolchain@v1
+    - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
         toolchain: ${{ matrix.toolchain }}
         override: true
         components: rustfmt, clippy
-
-    - name: Cache cargo dependencies
-      uses: Swatinem/rust-cache@v1
-
-    - name: Check format
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
-
+    - uses: Swatinem/rust-cache@v1
     - name: Lint
       uses: actions-rs/cargo@v1
       with:
         command: clippy
-
     - name: Install Homebrew
       if: matrix.os == 'ubuntu-latest'
-      shell: bash
       run: |
         set -xeuo pipefail
         bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -57,24 +60,17 @@ jobs:
         echo "LD_LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
         sudo apt-get update
         sudo apt-get install build-essential
-
-    - name: Install build dependencies
+    - name: Install dependencies
       if: matrix.os != 'windows-latest'
-      shell: bash
       run: |
-        set -xeuo pipefail
         brew update
         brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
         cargo install wasm-pack
-
-    - name: Build source
+    - name: Build TetaNES
+      run: cargo build --all-targets --verbose
+    - name: Build TetaNES Web
       run: |
-        cargo build --all-targets --verbose
         cd tetanes-web
         bash bin/build.sh --dev
-
-    - name: Build documentation
-      run: cargo doc --verbose
-
-    - name: Run unit tests
-      run: cargo test --verbose
+    - run: cargo doc --verbose
+    - run: cargo test --verbose

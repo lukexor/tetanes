@@ -1,0 +1,25 @@
+name: Cargo Publish
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    - uses: Swatinem/rust-cache@v1
+    - name: Install dependencies
+      run: |
+        brew update
+        brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
+    - uses: katyo/publish-crates@v1
+      with:
+        registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
