@@ -34,7 +34,7 @@ pub(crate) mod state;
 
 const APP_NAME: &str = "TetaNES";
 #[cfg(not(target_arch = "wasm32"))]
-const ICON: &[u8] = include_bytes!("../static/tetanes_icon.png");
+const ICON: &[u8] = include_bytes!("../assets/tetanes_icon.png");
 const WINDOW_WIDTH_NTSC: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
 const WINDOW_WIDTH_PAL: f32 = RENDER_WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
 const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
