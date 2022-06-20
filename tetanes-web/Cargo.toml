@@ -1,6 +1,6 @@
 [package]
 name = "tetanes-web"
-version = "0.1.2"
+version = "0.2.0"
 license = "GPL-3.0-or-later"
 description = "A NES Emulator written in Rust and WebAssembly"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
