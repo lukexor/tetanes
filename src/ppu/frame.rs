@@ -124,6 +124,11 @@ pub struct Frame {
 
 impl Frame {
     pub fn new() -> Self {
+        let mut output_buffer = vec![0; RENDER_SIZE];
+        // Force alpha to 255.
+        for p in output_buffer.iter_mut().skip(3).step_by(4) {
+            *p = 255;
+        }
         Self {
             num: 0,
             nametable: 0,
@@ -135,7 +140,7 @@ impl Frame {
             last_updated_pixel: 0,
             front_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
             back_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
-            output_buffer: vec![255; RENDER_SIZE],
+            output_buffer,
         }
     }
 
@@ -212,6 +217,10 @@ impl Powered for Frame {
         self.front_buffer.fill(0);
         self.back_buffer.fill(0);
         self.output_buffer.fill(0);
+        // Force alpha to 255.
+        for p in self.output_buffer.iter_mut().skip(3).step_by(4) {
+            *p = 255;
+        }
     }
     fn power_cycle(&mut self) {
         self.reset();
