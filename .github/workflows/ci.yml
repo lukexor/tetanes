@@ -54,7 +54,7 @@ jobs:
       with:
         path: |
           ~/.cache/Homebrew
-          /home/linuxbrew/.linuxbrew/Cellar
+          /home/linuxbrew/.linuxbrew
         key: ${{ runner.os }}-linuxbrew-${{ hashFiles('**/Cargo.lock') }}
     - name: Install Linuxbrew
       if: matrix.os == 'ubuntu-latest'
