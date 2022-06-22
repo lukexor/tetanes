@@ -35,8 +35,8 @@ impl Nes {
         Ok(())
     }
 
-    pub(crate) fn toggle_menu(&mut self, menu: Menu, s: &mut PixState) -> PixResult<()> {
-        if let Mode::InMenu(..) = self.mode {
+    pub(crate) fn toggle_menu(&mut self, s: &mut PixState, menu: Menu) -> PixResult<()> {
+        if matches!(self.mode, Mode::InMenu(current_menu) if current_menu == menu) {
             self.exit_menu(s)
         } else {
             self.open_menu(s, menu)

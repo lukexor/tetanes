@@ -4,10 +4,7 @@ use crate::{
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
     mapper::MapperRevision,
-    nes::{
-        menu::{types::ConfigSection, Menu},
-        Mode, Nes, NesResult, ReplayMode, NES_FRAME_SRC,
-    },
+    nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode, NES_FRAME_SRC},
     ppu::{VideoFilter, RENDER_HEIGHT},
 };
 use pix_engine::prelude::*;
@@ -210,7 +207,6 @@ pub(crate) enum Action {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum NesState {
-    ToggleMenu,
     Quit,
     TogglePause,
     Reset,
@@ -358,19 +354,7 @@ impl Nes {
             .get(&input)
             .copied()
             .map_or(Ok(false), |action| {
-                if pressed && self.replay.mode == ReplayMode::Playback {
-                    match action {
-                        Action::Feature(Feature::ToggleGameplayRecording) => self.stop_replay(),
-                        Action::Nes(state) => {
-                            self.handle_nes_state(s, state)?;
-                        }
-                        Action::Menu(menu) => self.open_menu(s, menu)?,
-                        _ => return Ok(false),
-                    }
-                    Ok(true)
-                } else {
-                    self.handle_action(s, slot, action, pressed, repeat)
-                }
+                self.handle_action(s, slot, action, pressed, repeat)
             })
     }
 
@@ -498,7 +482,7 @@ impl Nes {
             }
             Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
             Action::Menu(menu) if pressed => {
-                self.open_menu(s, menu)?;
+                self.toggle_menu(s, menu)?;
                 true
             }
             Action::Setting(setting) => self.handle_setting(s, setting, pressed, repeat)?,
@@ -527,13 +511,7 @@ impl Nes {
             );
         }
 
-        if self.replay.mode == ReplayMode::Recording
-            && !matches!(
-                action,
-                Action::Feature(Feature::ToggleGameplayRecording)
-                    | Action::Nes(NesState::TogglePause | NesState::ToggleMenu),
-            )
-        {
+        if self.replay.mode == ReplayMode::Recording {
             self.replay
                 .buffer
                 .push(self.action_event(slot, action, pressed, repeat));
@@ -609,7 +587,6 @@ impl Nes {
             return Ok(false);
         }
         match state {
-            NesState::ToggleMenu => self.toggle_menu(Menu::Config(ConfigSection::General), s)?,
             NesState::Quit => {
                 self.pause_play();
                 s.quit();
