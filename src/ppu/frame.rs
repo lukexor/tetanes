@@ -1,9 +1,6 @@
 use crate::{
     common::Powered,
-    ppu::{
-        vram::{SYSTEM_PALETTE, SYSTEM_PALETTE_SIZE},
-        RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH,
-    },
+    ppu::{vram::SYSTEM_PALETTE, RENDER_CHANNELS, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH},
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -124,12 +121,7 @@ pub struct Frame {
 
 impl Frame {
     pub fn new() -> Self {
-        let mut output_buffer = vec![0; RENDER_SIZE];
-        // Force alpha to 255.
-        for p in output_buffer.iter_mut().skip(3).step_by(4) {
-            *p = 255;
-        }
-        Self {
+        let mut frame = Self {
             num: 0,
             nametable: 0,
             attribute: 0,
@@ -140,8 +132,10 @@ impl Frame {
             last_updated_pixel: 0,
             front_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
             back_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
-            output_buffer,
-        }
+            output_buffer: vec![0; RENDER_SIZE],
+        };
+        frame.reset();
+        frame
     }
 
     #[inline]
@@ -167,13 +161,21 @@ impl Frame {
 
     #[inline]
     pub fn decode_buffer(&mut self) -> &[u8] {
-        for (idx, color) in self.front_buffer.iter().enumerate() {
-            let color_idx = ((*color as usize) & (SYSTEM_PALETTE_SIZE - 1)) * 3;
-            if let [red, green, blue] = SYSTEM_PALETTE[color_idx..=color_idx + 2] {
-                let idx = idx << 2;
-                self.output_buffer[idx] = red;
-                self.output_buffer[idx + 1] = green;
-                self.output_buffer[idx + 2] = blue;
+        assert!(self.front_buffer.len() * 4 == self.output_buffer.len());
+        for (pixel, colors) in self
+            .front_buffer
+            .iter()
+            .zip(self.output_buffer.chunks_exact_mut(4))
+        {
+            if let [red, green, blue, _] = colors {
+                let palette_idx = (*pixel * 3) as usize;
+                if let [red_palette, green_palette, blue_palette] =
+                    SYSTEM_PALETTE[palette_idx..=palette_idx + 2]
+                {
+                    *red = red_palette;
+                    *green = green_palette;
+                    *blue = blue_palette;
+                }
                 // Alpha should always be 255
             }
         }
@@ -186,26 +188,30 @@ impl Frame {
     // http://wiki.nesdev.com/w/index.php/NTSC_video
     #[inline]
     pub fn apply_ntsc_filter(&mut self) -> &[u8] {
-        for (idx, pixel) in self.front_buffer.iter().enumerate() {
-            let x = idx % 256;
-            let y = idx / 256;
-            let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
-            let phase = (2 + y * 341 + x + even_phase) % 3;
-            let color = if x == 0 {
-                // Remove pixel 0 artifact from not having a valid previous pixel
-                0
-            } else {
-                NTSC_PALETTE[phase][(self.prev_pixel & 0x3F) as usize][*pixel as usize]
-            };
-            self.prev_pixel = u32::from(*pixel);
-            let idx = idx << 2;
-            let red = (color >> 16 & 0xFF) as u8;
-            let green = (color >> 8 & 0xFF) as u8;
-            let blue = (color & 0xFF) as u8;
-            self.output_buffer[idx] = red;
-            self.output_buffer[idx + 1] = green;
-            self.output_buffer[idx + 2] = blue;
-            // Alpha should always be 255
+        assert!(self.front_buffer.len() * 4 == self.output_buffer.len());
+        for (idx, (pixel, colors)) in self
+            .front_buffer
+            .iter()
+            .zip(self.output_buffer.chunks_exact_mut(4))
+            .enumerate()
+        {
+            if let [red, green, blue, _] = colors {
+                let x = idx % 256;
+                let y = idx / 256;
+                let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
+                let phase = (2 + y * 341 + x + even_phase) % 3;
+                let color = if x == 0 {
+                    // Remove pixel 0 artifact from not having a valid previous pixel
+                    0
+                } else {
+                    NTSC_PALETTE[phase][(self.prev_pixel & 0x3F) as usize][*pixel as usize]
+                };
+                self.prev_pixel = u32::from(*pixel);
+                *red = (color >> 16 & 0xFF) as u8;
+                *green = (color >> 8 & 0xFF) as u8;
+                *blue = (color & 0xFF) as u8;
+                // Alpha should always be 255
+            }
         }
         &self.output_buffer
     }
@@ -217,9 +223,16 @@ impl Powered for Frame {
         self.front_buffer.fill(0);
         self.back_buffer.fill(0);
         self.output_buffer.fill(0);
-        // Force alpha to 255.
-        for p in self.output_buffer.iter_mut().skip(3).step_by(4) {
-            *p = 255;
+        if RENDER_CHANNELS == 4 {
+            // Force alpha to 255.
+            for p in self
+                .output_buffer
+                .iter_mut()
+                .skip(RENDER_CHANNELS - 1)
+                .step_by(RENDER_CHANNELS)
+            {
+                *p = 255;
+            }
         }
     }
     fn power_cycle(&mut self) {

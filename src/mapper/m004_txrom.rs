@@ -220,6 +220,7 @@ impl Txrom {
         }
     }
 
+    #[inline]
     fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;

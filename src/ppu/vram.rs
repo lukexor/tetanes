@@ -96,6 +96,7 @@ impl Vram {
 }
 
 impl MemRead for Vram {
+    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         self.cart_mut().ppu_read(addr);
         match addr {
@@ -120,6 +121,7 @@ impl MemRead for Vram {
         }
     }
 
+    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.cart().peek(addr),
@@ -139,6 +141,7 @@ impl MemRead for Vram {
 }
 
 impl MemWrite for Vram {
+    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x1FFF => self.cart_mut().write(addr, val),

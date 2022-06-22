@@ -475,6 +475,7 @@ impl Mapped for Exrom {
         }
     }
 
+    #[inline]
     fn ppu_read(&mut self, addr: u16) {
         // Ignore palette reads
         if addr > 0x3EFF {
