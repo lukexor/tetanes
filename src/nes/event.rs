@@ -266,11 +266,14 @@ fn render_message(s: &mut PixState, message: &str, color: Color) -> NesResult<()
     s.stroke(None);
     s.fill(rgb!(0, 200));
     let pady = s.theme().spacing.frame_pad.y();
+    let width = s.width()?;
+    s.wrap(width);
+    let (_, height) = s.size_of(message)?;
     s.rect([
         0,
         s.cursor_pos().y() - pady,
-        s.width()? as i32,
-        s.theme().font_size as i32 + 2 * pady,
+        width as i32,
+        height as i32 + 2 * pady,
     ])?;
     s.fill(color);
     s.text(message)?;
@@ -297,6 +300,39 @@ impl Nes {
             render_message(s, message, Color::WHITE)?;
         }
         Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn render_confirm_quit(&mut self, s: &mut PixState) -> NesResult<bool> {
+        if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
+            s.push();
+            s.stroke(None);
+            s.fill(rgb!(0, 200));
+            let pady = s.theme().spacing.frame_pad.y();
+            let width = s.width()?;
+            s.wrap(width);
+            let (_, height) = s.size_of(msg)?;
+            s.rect([
+                0,
+                s.cursor_pos().y() - pady,
+                width as i32,
+                4 * height as i32 + 2 * pady,
+            ])?;
+            s.fill(Color::WHITE);
+            s.text(msg)?;
+            if s.button("Confirm")? {
+                *confirm = true;
+                s.pop();
+                return Ok(true);
+            }
+            s.same_line(None);
+            if s.button("Cancel")? {
+                self.confirm_quit = None;
+                self.resume_play();
+            }
+            s.pop();
+        }
+        Ok(false)
     }
 
     #[inline]

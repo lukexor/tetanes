@@ -354,6 +354,8 @@ impl AppState for Nes {
     }
 
     fn on_update(&mut self, s: &mut PixState) -> PixResult<()> {
+        s.clear()?;
+
         if self.replay.mode == ReplayMode::Playback {
             self.replay_action(s)?;
         }
@@ -387,20 +389,9 @@ impl AppState for Nes {
         self.render_views(s)?;
         match self.mode {
             Mode::Paused | Mode::PausedBg => {
-                if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
-                    s.stroke(None);
-                    s.fill(Color::WHITE);
-                    s.spacing()?;
-                    s.text(msg)?;
-                    s.spacing()?;
-                    if s.button("Confirm")? {
-                        *confirm = true;
+                if self.confirm_quit.is_some() {
+                    if self.render_confirm_quit(s)? {
                         s.quit();
-                    }
-                    s.same_line(None);
-                    if s.button("Cancel")? {
-                        self.confirm_quit = None;
-                        self.resume_play();
                     }
                 } else {
                     self.render_status(s, "Paused")?;
@@ -426,24 +417,18 @@ impl AppState for Nes {
 
     fn on_stop(&mut self, s: &mut PixState) -> PixResult<()> {
         if self.control_deck.loaded_rom().is_some() {
-            match self.confirm_quit {
-                None => {
-                    if let Err(err) = self.save_sram() {
-                        log::error!("{}", err);
-                        self.confirm_quit = Some((
-                            "Failed to save game state. Do you still want to quit?".to_string(),
-                            false,
-                        ));
-                        self.pause_play();
-                        s.abort_quit();
-                        return Ok(());
-                    }
-                }
-                Some((_, false)) => {
+            if self.confirm_quit.is_none() {
+                if let Err(err) = self.save_sram() {
+                    log::error!("{}", err);
+                    self.messages.clear();
+                    self.confirm_quit = Some((
+                        "Failed to save game state. Do you still want to quit?".to_string(),
+                        false,
+                    ));
+                    self.pause_play();
                     s.abort_quit();
                     return Ok(());
                 }
-                _ => (),
             }
             // TODO: Convert to config
             let save_on_exit = false;
@@ -549,7 +534,6 @@ impl AppState for Nes {
         match event {
             WindowEvent::Close => {
                 if matches!(&self.emulation, Some(emulation) if emulation.window_id == window_id) {
-                    self.emulation = None;
                     s.quit();
                 } else if matches!(&self.debugger, Some(debugger) if debugger.view.window_id == window_id)
                 {

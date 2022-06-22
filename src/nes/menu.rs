@@ -44,6 +44,7 @@ impl Nes {
     }
 
     pub(crate) fn render_menu(&mut self, s: &mut PixState, menu: Menu) -> PixResult<()> {
+        self.messages.clear();
         let mut bg = s.theme().colors.background;
         bg.set_alpha(200);
         s.fill(bg);
