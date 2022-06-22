@@ -12,8 +12,8 @@ use crate::{
 };
 use dmc::Dmc;
 use frame_counter::{FcMode, FrameCounter};
-use lazy_static::lazy_static;
 use noise::Noise;
+use once_cell::sync::Lazy;
 use pulse::{Pulse, PulseChannel};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -22,22 +22,20 @@ use triangle::Triangle;
 pub const PULSE_TABLE_SIZE: usize = 31;
 const TND_TABLE_SIZE: usize = 203;
 
-lazy_static! {
-    pub static ref PULSE_TABLE: [f32; PULSE_TABLE_SIZE] = {
-        let mut pulse_table = [0.0; PULSE_TABLE_SIZE];
-        for (i, val) in pulse_table.iter_mut().enumerate().skip(1) {
-            *val = 95.52 / (8_128.0 / (i as f32) + 100.0);
-        }
-        pulse_table
-    };
-    static ref TND_TABLE: [f32; TND_TABLE_SIZE] = {
-        let mut tnd_table = [0.0; TND_TABLE_SIZE];
-        for (i, val) in tnd_table.iter_mut().enumerate().skip(1) {
-            *val = 163.67 / (24_329.0 / (i as f32) + 100.0);
-        }
-        tnd_table
-    };
-}
+pub static PULSE_TABLE: Lazy<[f32; PULSE_TABLE_SIZE]> = Lazy::new(|| {
+    let mut pulse_table = [0.0; PULSE_TABLE_SIZE];
+    for (i, val) in pulse_table.iter_mut().enumerate().skip(1) {
+        *val = 95.52 / (8_128.0 / (i as f32) + 100.0);
+    }
+    pulse_table
+});
+static TND_TABLE: Lazy<[f32; TND_TABLE_SIZE]> = Lazy::new(|| {
+    let mut tnd_table = [0.0; TND_TABLE_SIZE];
+    for (i, val) in tnd_table.iter_mut().enumerate().skip(1) {
+        *val = 163.67 / (24_329.0 / (i as f32) + 100.0);
+    }
+    tnd_table
+});
 
 pub mod dmc;
 pub mod noise;

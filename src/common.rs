@@ -173,7 +173,7 @@ pub(crate) mod tests {
         ppu::{VideoFilter, RENDER_HEIGHT, RENDER_WIDTH},
     };
     use anyhow::Context;
-    use lazy_static::lazy_static;
+    use once_cell::sync::Lazy;
     use pix_engine::prelude::{Image, PixelFormat};
     use serde::{Deserialize, Serialize};
     use std::fmt::Write;
@@ -188,25 +188,23 @@ pub(crate) mod tests {
 
     pub(crate) const RESULT_DIR: &str = "test_results";
 
-    lazy_static! {
-        static ref INIT_TESTS: bool = {
-            let result_dir = PathBuf::from(RESULT_DIR);
-            if result_dir.exists() {
-                fs::remove_dir_all(result_dir).expect("cleared test results dir");
-            }
-            true
-        };
-        static ref PASS_DIR: PathBuf = {
-            let directory = PathBuf::from(RESULT_DIR).join("pass");
-            fs::create_dir_all(&directory).expect("created pass test results dir");
-            directory
-        };
-        static ref FAIL_DIR: PathBuf = {
-            let directory = PathBuf::from(RESULT_DIR).join("fail");
-            fs::create_dir_all(&directory).expect("created fail test results dir");
-            directory
-        };
-    }
+    static INIT_TESTS: Lazy<bool> = Lazy::new(|| {
+        let result_dir = PathBuf::from(RESULT_DIR);
+        if result_dir.exists() {
+            fs::remove_dir_all(result_dir).expect("cleared test results dir");
+        }
+        true
+    });
+    static PASS_DIR: Lazy<PathBuf> = Lazy::new(|| {
+        let directory = PathBuf::from(RESULT_DIR).join("pass");
+        fs::create_dir_all(&directory).expect("created pass test results dir");
+        directory
+    });
+    static FAIL_DIR: Lazy<PathBuf> = Lazy::new(|| {
+        let directory = PathBuf::from(RESULT_DIR).join("fail");
+        fs::create_dir_all(&directory).expect("created fail test results dir");
+        directory
+    });
 
     #[macro_export]
     macro_rules! test_roms {

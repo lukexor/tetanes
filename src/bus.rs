@@ -9,7 +9,7 @@ use crate::{
     NesResult,
 };
 use anyhow::anyhow;
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt};
 
@@ -45,16 +45,14 @@ impl fmt::Debug for GenieCode {
     }
 }
 
-lazy_static! {
-    static ref GENIE_MAP: HashMap<char, u8> = {
-        // Game genie maps these letters to binary representations as a form of code obfuscation
-        hashmap! {
-            'A' => 0x0, 'P' => 0x1, 'Z' => 0x2, 'L' => 0x3, 'G' => 0x4, 'I' => 0x5, 'T' => 0x6,
-            'Y' => 0x7, 'E' => 0x8, 'O' => 0x9, 'X' => 0xA, 'U' => 0xB, 'K' => 0xC, 'S' => 0xD,
-            'V' => 0xE, 'N' => 0xF
-        }
-    };
-}
+static GENIE_MAP: Lazy<HashMap<char, u8>> = Lazy::new(|| {
+    // Game genie maps these letters to binary representations as a form of code obfuscation
+    hashmap! {
+        'A' => 0x0, 'P' => 0x1, 'Z' => 0x2, 'L' => 0x3, 'G' => 0x4, 'I' => 0x5, 'T' => 0x6,
+        'Y' => 0x7, 'E' => 0x8, 'O' => 0x9, 'X' => 0xA, 'U' => 0xB, 'K' => 0xC, 'S' => 0xD,
+        'V' => 0xE, 'N' => 0xF
+    }
+});
 
 impl Bus {
     pub fn new(nes_region: NesRegion, ram_state: RamState) -> Self {
