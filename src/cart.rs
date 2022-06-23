@@ -395,6 +395,7 @@ impl MemWrite for Cart {
 }
 
 impl Clocked for Cart {
+    #[inline]
     fn clock(&mut self) -> usize {
         self.mapper.clock()
     }
