@@ -13,25 +13,23 @@ pub trait MemRead {
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
-    #[inline]
-    fn peek(&self, addr: u16) -> u8 {
-        self.peekw(addr as usize)
-    }
+    fn peek(&self, addr: u16) -> u8;
+}
+
+pub trait MemReadWord {
     #[inline]
     fn readw(&mut self, addr: usize) -> u8 {
         self.peekw(addr)
     }
-    fn peekw(&self, _addr: usize) -> u8 {
-        0x00
-    }
+    fn peekw(&self, _addr: usize) -> u8;
 }
 
 pub trait MemWrite {
-    #[inline]
-    fn write(&mut self, addr: u16, val: u8) {
-        self.writew(addr as usize, val);
-    }
-    fn writew(&mut self, _addr: usize, _val: u8) {}
+    fn write(&mut self, addr: u16, val: u8);
+}
+
+pub trait MemWriteWord {
+    fn writew(&mut self, _addr: usize, _val: u8);
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,6 +181,13 @@ impl Memory {
 
 impl MemRead for Memory {
     #[inline]
+    fn peek(&self, addr: u16) -> u8 {
+        self.peekw(addr as usize)
+    }
+}
+
+impl MemReadWord for Memory {
+    #[inline]
     fn peekw(&self, addr: usize) -> u8 {
         let len = self.data.len();
         debug_assert!(len > 0, "${:04X}: {:?}", addr, &self);
@@ -191,6 +196,13 @@ impl MemRead for Memory {
 }
 
 impl MemWrite for Memory {
+    #[inline]
+    fn write(&mut self, addr: u16, val: u8) {
+        self.writew(addr as usize, val);
+    }
+}
+
+impl MemWriteWord for Memory {
     #[inline]
     fn writew(&mut self, addr: usize, val: u8) {
         let len = self.data.len();

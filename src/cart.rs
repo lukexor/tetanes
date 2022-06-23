@@ -7,7 +7,7 @@ use crate::{
         Gxrom, MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Nrom, Pxrom, Sxrom,
         Txrom, Uxrom, Vrc6,
     },
-    memory::{MemRead, MemWrite, Memory, RamState},
+    memory::{MemRead, MemReadWord, MemWrite, MemWriteWord, Memory, RamState},
     ppu::Mirroring,
     NesResult,
 };
