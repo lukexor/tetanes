@@ -475,7 +475,7 @@ impl Nes {
         repeat: bool,
     ) -> PixResult<bool> {
         let handled = match action {
-            Action::Debug(action) => self.handle_debug(s, action, repeat)?,
+            Action::Debug(action) if pressed => self.handle_debug(s, action, repeat)?,
             Action::Feature(feature) => {
                 self.handle_feature(s, feature, pressed, repeat);
                 true
