@@ -13,13 +13,16 @@ use std::{f64::consts::PI, fmt};
 #[must_use]
 pub struct Frame {
     pub num: u32,
+    pub shift_lo: u16,
+    pub shift_hi: u16,
     // Shift registers
+    // Tile data - stored in cycles 0 mod 8
+    pub tile_addr: u16,
     pub tile_lo: u8,
     pub tile_hi: u8,
-    // Tile data - stored in cycles 0 mod 8
-    pub nametable: u16,
-    pub attribute: u8,
-    pub tile_data: u64,
+    pub prev_palette: u8,
+    pub curr_palette: u8,
+    pub palette: u8,
     pub prev_pixel: u32,
     pub last_updated_pixel: u32,
     front_buffer: Vec<u16>,
@@ -31,13 +34,16 @@ impl Frame {
     pub fn new() -> Self {
         let mut frame = Self {
             num: 0,
-            nametable: 0,
-            attribute: 0,
-            tile_lo: 0,
-            tile_hi: 0,
-            tile_data: 0,
+            shift_lo: 0x0000,
+            shift_hi: 0x0000,
+            tile_addr: 0x0000,
+            tile_lo: 0x00,
+            tile_hi: 0x00,
+            prev_palette: 0x00,
+            curr_palette: 0x00,
+            palette: 0x00,
             prev_pixel: 0xFFFF_FFFF,
-            last_updated_pixel: 0,
+            last_updated_pixel: 0x0000_0000,
             front_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
             back_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
             output_buffer: vec![0; RENDER_SIZE],
@@ -158,12 +164,16 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Frame")
             .field("num", &self.num)
+            .field("shift_lo", &format_args!("${:04X}", &self.shift_lo))
+            .field("shift_hi", &format_args!("${:04X}", &self.shift_hi))
+            .field("tile_addr", &format_args!("${:04X}", &self.tile_addr))
             .field("tile_lo", &format_args!("${:02X}", &self.tile_lo))
             .field("tile_hi", &format_args!("${:02X}", &self.tile_hi))
-            .field("nametable", &format_args!("${:04X}", &self.nametable))
-            .field("attribute", &format_args!("${:02X}", &self.attribute))
-            .field("tile_data", &format_args!("${:16X}", &self.tile_data))
+            .field("prev_palette", &format_args!("${:02X}", &self.prev_palette))
+            .field("curr_palette", &format_args!("${:02X}", &self.curr_palette))
+            .field("palette", &format_args!("${:02X}", &self.palette))
             .field("prev_pixel", &self.prev_pixel)
+            .field("last_updated_pixel", &self.last_updated_pixel)
             .finish()
     }
 }

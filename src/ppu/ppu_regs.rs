@@ -273,7 +273,7 @@ impl PpuRegs {
     #[inline]
     #[must_use]
     pub const fn fine_y(&self) -> u16 {
-        (self.v & FINE_Y_MASK) >> 12
+        self.v >> 12
     }
 
     // Writes val to PPUSCROLL

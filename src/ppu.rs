@@ -187,7 +187,8 @@ pub struct Ppu {
     pub sprite0_visible: bool,
     pub sprite_count: u8,
     pub sprites: [Sprite; 8], // Each scanline can hold 8 sprites at a time
-    pub frame: Frame,         // Frame data keeps track of data and shift registers between frames
+    pub sprite_present: Vec<bool>,
+    pub frame: Frame, // Frame data keeps track of data and shift registers between frames
     pub filter: VideoFilter,
     #[serde(skip)]
     pub viewer: Option<Viewer>,
@@ -223,6 +224,7 @@ impl Ppu {
             sprite0_in_range: false,
             sprite0_visible: false,
             sprite_count: 0,
+            sprite_present: vec![false; VISIBLE_CYCLE_END as usize],
             sprites: [Sprite::new(); 8],
             vram: Vram::new(),
             frame: Frame::new(),
@@ -399,12 +401,6 @@ impl Ppu {
         let prerender_scanline = self.scanline == self.prerender_scanline;
         let render_scanline = prerender_scanline || visible_scanline;
 
-        // Pixels should be put even if rendering is disabled, as this is what blanks out the
-        // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
-        if visible_cycle && visible_scanline {
-            self.render_pixel();
-        }
-
         if self.rendering_enabled() {
             if visible_scanline
                 || (self.nes_region == NesRegion::Pal
@@ -462,6 +458,9 @@ impl Ppu {
                     self.sprite_count = 0;
                 }
                 if spr_fetch_cycle {
+                    if self.cycle == SPR_FETCH_CYCLE_START {
+                        self.sprite_present.fill(false);
+                    }
                     self.fetch_sprites();
                 }
                 if spr_dummy_cycle {
@@ -485,15 +484,34 @@ impl Ppu {
                 }
             }
         }
+
+        // Pixels should be put even if rendering is disabled, as this is what blanks out the
+        // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
+        if visible_cycle && visible_scanline {
+            self.render_pixel();
+        }
+        if bg_fetch_cycle {
+            self.frame.shift_lo <<= 1;
+            self.frame.shift_hi <<= 1;
+        }
     }
 
     #[inline]
     fn fetch_bg_nt_byte(&mut self) {
         // Fetch BG nametable
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
+
+        self.frame.prev_palette = self.frame.curr_palette;
+        self.frame.curr_palette = self.frame.palette;
+
+        self.frame.shift_lo |= u16::from(self.frame.tile_lo);
+        self.frame.shift_hi |= u16::from(self.frame.tile_hi);
+
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = NT_START | (self.regs.v & nametable_addr_mask);
-        self.frame.nametable = u16::from(self.vram.read(addr));
+        let tile_index = u16::from(self.vram.read(addr));
+        self.frame.tile_addr =
+            self.regs.background_select() | (tile_index << 4) | self.regs.fine_y();
     }
 
     #[inline]
@@ -510,52 +528,21 @@ impl Ppu {
         let y_bits = (v >> 4) & 0x38;
         let x_bits = (v >> 2) & 0x07;
         let addr = ATTR_START | nametable_select | y_bits | x_bits;
-        self.frame.attribute = self.vram.read(addr);
-        // If the top bit of the low 3 bits is set, shift to next quadrant
-        if self.regs.coarse_y() & 2 > 0 {
-            self.frame.attribute >>= 4;
-        }
-        if self.regs.coarse_x() & 2 > 0 {
-            self.frame.attribute >>= 2;
-        }
-        self.frame.attribute = (self.frame.attribute & 3) << 2;
+        let shift = (v & 0x02) | ((v >> 4) & 0x04);
+        self.frame.palette = ((self.vram.read(addr) >> shift) & 0x03) << 2;
     }
 
     #[inline]
     fn fetch_background(&mut self) {
-        self.frame.tile_data <<= 4;
         // Fetch 4 tiles and write out shift registers every 8th cycle
         // Each tile fetch takes 2 cycles
         match self.cycle & 0x07 {
             1 => self.fetch_bg_nt_byte(),
             3 => self.fetch_bg_attr_byte(),
-            5 => {
-                // Fetch BG tile lo bitmap
-                let tile_addr =
-                    self.regs.background_select() + self.frame.nametable * 16 + self.regs.fine_y();
-                self.frame.tile_lo = self.vram.read(tile_addr);
-            }
-            7 => {
-                // Fetch BG tile hi bitmap
-                let tile_addr =
-                    self.regs.background_select() + self.frame.nametable * 16 + self.regs.fine_y();
-                self.frame.tile_hi = self.vram.read(tile_addr + 8);
-            }
-            0 => {
-                // Cycles 9, 17, 25, ..., 257
-                // Store tiles
-                let mut data = 0u32;
-                let a = self.frame.attribute;
-                for _ in 0..8 {
-                    let p1 = (self.frame.tile_lo & 0x80) >> 7;
-                    let p2 = (self.frame.tile_hi & 0x80) >> 6;
-                    self.frame.tile_lo <<= 1;
-                    self.frame.tile_hi <<= 1;
-                    data <<= 4;
-                    data |= u32::from(a | p1 | p2);
-                }
-                self.frame.tile_data |= u64::from(data);
-            }
+            // Fetch BG tile lo bitmap
+            5 => self.frame.tile_lo = self.vram.read(self.frame.tile_addr),
+            // Fetch BG tile hi bitmap
+            7 => self.frame.tile_hi = self.vram.read(self.frame.tile_addr + 8),
             _ => (),
         }
     }
@@ -615,6 +602,14 @@ impl Ppu {
                 sprite.bg_priority = bg_priority;
                 sprite.flip_horizontal = flip_horizontal;
                 sprite.flip_vertical = flip_vertical;
+                for spr in self
+                    .sprite_present
+                    .iter_mut()
+                    .skip(sprite.x as usize)
+                    .take(8)
+                {
+                    *spr = true;
+                }
             } else {
                 // Fetches for remaining sprites/hidden fetch tile $FF - used by MMC3 IRQ
                 // counter
@@ -797,32 +792,20 @@ impl Ppu {
     }
 
     #[inline]
-    const fn background_color(&self) -> u8 {
-        // 43210
-        // |||||
-        // |||++- Pixel value from tile data
-        // |++--- Palette number from attribute table or OAM
-        // +----- Background/Sprite select
-
-        let tile_data = (self.frame.tile_data >> 32) as u32;
-        let data = tile_data >> ((7 - self.regs.fine_x()) * 4);
-        (data & 0x0F) as u8
-    }
-
-    #[inline]
     fn pixel_color(&mut self) -> u8 {
         let x = self.cycle - 1;
 
         let left_clip_bg = x < 8 && !self.regs.show_left_background();
-        let left_clip_spr = x < 8 && !self.regs.show_left_sprites();
         let bg_color = if self.regs.show_background() && !left_clip_bg {
-            self.background_color()
+            let offset = self.regs.fine_x();
+            ((((self.frame.shift_hi << offset) & 0x8000) >> 14)
+                | (((self.frame.shift_lo << offset) & 0x8000) >> 15)) as u8
         } else {
             0
         };
-        let bg_opaque = bg_color & 0x03 != 0;
 
-        if self.regs.show_sprites() && !left_clip_spr {
+        let left_clip_spr = x < 8 && !self.regs.show_left_sprites();
+        if self.regs.show_sprites() && !left_clip_spr && self.sprite_present[x as usize] {
             for (i, sprite) in self
                 .sprites
                 .iter()
@@ -831,16 +814,16 @@ impl Ppu {
             {
                 let shift = x as i16 - sprite.x as i16;
                 if (0..=7).contains(&shift) {
-                    let color = if sprite.flip_horizontal {
+                    let spr_color = if sprite.flip_horizontal {
                         (((sprite.tile_hi >> shift) & 0x01) << 1)
                             | ((sprite.tile_lo >> shift) & 0x01)
                     } else {
                         (((sprite.tile_hi << shift) & 0x80) >> 6)
                             | ((sprite.tile_lo << shift) & 0x80) >> 7
                     };
-                    if color != 0 {
+                    if spr_color != 0 {
                         if i == 0
-                            && bg_opaque
+                            && bg_color != 0
                             && self.sprite0_visible
                             && x != 255
                             && self.rendering_enabled()
@@ -849,19 +832,20 @@ impl Ppu {
                             self.regs.set_sprite0_hit(true);
                         }
 
-                        if !bg_opaque || !sprite.bg_priority {
-                            return sprite.palette + color;
+                        if bg_color == 0 || !sprite.bg_priority {
+                            return sprite.palette + spr_color;
                         }
                         break;
                     }
                 }
             }
         }
-        if bg_opaque {
-            bg_color
+        let palette = if (self.regs.fine_x() + ((x & 0x07) as u16)) < 8 {
+            self.frame.prev_palette
         } else {
-            0
-        }
+            self.frame.curr_palette
+        };
+        palette + bg_color
     }
 
     #[must_use]
