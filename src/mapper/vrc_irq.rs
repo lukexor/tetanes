@@ -23,7 +23,6 @@ impl VrcIrq {
         self.reload = val;
     }
 
-    #[inline]
     pub fn write_control(&mut self, val: u8) {
         self.enabled_after_ack = val & 0x01 == 0x01;
         self.enabled = val & 0x02 == 0x02;
@@ -51,7 +50,6 @@ impl VrcIrq {
 }
 
 impl Clocked for VrcIrq {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.prescalar_counter -= 3;

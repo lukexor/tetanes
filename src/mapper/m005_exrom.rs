@@ -199,7 +199,6 @@ pub struct PpuStatus {
 }
 
 impl PpuStatus {
-    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x2000 => self.sprite8x16 = val & 0x20 > 0,
@@ -281,7 +280,6 @@ impl Exrom {
         exrom.into()
     }
 
-    #[inline]
     #[must_use]
     pub fn audio_output(&self) -> f32 {
         let pulse1 = self.pulse1.output();
@@ -328,7 +326,6 @@ impl Exrom {
         };
     }
 
-    #[inline]
     fn set_prg_bank_range(&mut self, start: usize, end: usize, bank: usize) {
         let rom = bank & ROM_SELECT_MASK == ROM_SELECT_MASK;
         let bank = bank & BANK_MASK;
@@ -339,7 +336,6 @@ impl Exrom {
         }
     }
 
-    #[inline]
     fn rom_select(&self, addr: u16) -> bool {
         let mode = self.regs.prg_mode;
         if matches!(addr, 0x6000..=0x7FFF) {
@@ -416,7 +412,6 @@ impl Exrom {
     }
 
     // Determine the nametable we're trying to access
-    #[inline]
     fn nametable_mapping(&self, addr: u16) -> Nametable {
         let addr = (addr - NT_START) % (4 * NT_SIZE);
         let table = addr / NT_SIZE;
@@ -443,7 +438,6 @@ impl Mapped for Exrom {
 
     // Used by the PPU to determine whether it should use it's own internal CIRAM for nametable
     // reads or to read CIRAM instead from the mapper
-    #[inline]
     fn use_ciram(&self, addr: u16) -> bool {
         if self.in_split
             || (self.regs.exmode == ExMode::Attr
@@ -465,7 +459,6 @@ impl Mapped for Exrom {
 
     // Returns a nametable page based on $5105 nametable mapping
     // 0/1 use PPU CIRAM, 2/3 use EXRAM/Fill-mode
-    #[inline]
     fn nametable_page(&self, addr: u16) -> Option<u16> {
         let nametable = self.nametable_mapping(addr);
         if matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
@@ -475,7 +468,6 @@ impl Mapped for Exrom {
         }
     }
 
-    #[inline]
     fn ppu_read(&mut self, addr: u16) {
         // Ignore palette reads
         if addr > 0x3EFF {
@@ -896,7 +888,6 @@ impl MapWrite for Exrom {
 }
 
 impl Clocked for Exrom {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.ppu_status.reading {
             self.ppu_status.idle = 0;

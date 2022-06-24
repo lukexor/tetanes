@@ -73,7 +73,6 @@ impl Frame {
         self.back_buffer[(x + (y << 8)) as usize] = color;
     }
 
-    #[inline]
     pub fn decode_buffer(&mut self) -> &[u8] {
         assert!(self.front_buffer.len() * 4 == self.output_buffer.len());
         for (pixel, colors) in self
@@ -100,7 +99,6 @@ impl Frame {
     // to translate it to Rust
     // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
     // http://wiki.nesdev.com/w/index.php/NTSC_video
-    #[inline]
     pub fn apply_ntsc_filter(&mut self) -> &[u8] {
         assert!(self.front_buffer.len() * 4 == self.output_buffer.len());
         for (idx, (pixel, colors)) in self

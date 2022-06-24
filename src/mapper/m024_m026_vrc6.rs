@@ -100,7 +100,6 @@ impl Vrc6 {
         }
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
         match self.mirroring {
@@ -117,7 +116,6 @@ impl Vrc6 {
         self.nt_banks[bank] = page;
     }
 
-    #[inline]
     fn update_chr_banks(&mut self) {
         let (mask, or_mask) = if self.regs.banking_mode & 0x20 == 0x20 {
             (0xFE, 1)
@@ -346,7 +344,6 @@ impl MapWrite for Vrc6 {
 }
 
 impl Clocked for Vrc6 {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.irq.clock();
         self.audio.clock();
@@ -373,7 +370,6 @@ pub struct Vrc6Audio {
 }
 
 impl Vrc6Audio {
-    #[inline]
     const fn new() -> Self {
         Self {
             pulse1: Vrc6Pulse::new(),
@@ -392,7 +388,6 @@ impl Vrc6Audio {
         pulse_scale * self.out
     }
 
-    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         // Only A0, A1 and A12-15 are used for registers, remaining addresses are mirrored.
         match addr & 0xF003 {
@@ -424,7 +419,6 @@ impl Default for Vrc6Audio {
 }
 
 impl Clocked for Vrc6Audio {
-    #[inline]
     fn clock(&mut self) -> usize {
         if !self.halt {
             self.pulse1.clock();
@@ -458,7 +452,6 @@ pub struct Vrc6Pulse {
 }
 
 impl Vrc6Pulse {
-    #[inline]
     const fn new() -> Self {
         Self {
             enabled: false,
@@ -472,7 +465,6 @@ impl Vrc6Pulse {
         }
     }
 
-    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         match addr & 0x03 {
             0 => {
@@ -514,7 +506,6 @@ impl Default for Vrc6Pulse {
 }
 
 impl Clocked for Vrc6Pulse {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;
@@ -541,7 +532,6 @@ pub struct Vrc6Saw {
 }
 
 impl Vrc6Saw {
-    #[inline]
     const fn new() -> Self {
         Self {
             enabled: false,
@@ -554,7 +544,6 @@ impl Vrc6Saw {
         }
     }
 
-    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         match addr & 0x03 {
             0 => {
@@ -595,7 +584,6 @@ impl Default for Vrc6Saw {
 }
 
 impl Clocked for Vrc6Saw {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;

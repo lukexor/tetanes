@@ -92,7 +92,6 @@ pub struct Cart {
 
 impl Cart {
     /// Creates an empty cartridge not loaded with any ROM
-    #[inline]
     pub fn new() -> Self {
         Self {
             name: String::new(),
@@ -113,7 +112,6 @@ impl Cart {
     /// # Errors
     ///
     /// If the ROM can not be opened, or the NES header is corrupted, then an error is returned.
-    #[inline]
     pub fn from_path<P: AsRef<Path>>(path: P, ram_state: RamState) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
@@ -256,11 +254,13 @@ impl Cart {
         self.header.flags & 0x02 == 0x02
     }
 
+    #[inline]
     #[must_use]
     pub const fn mapper_board(&self) -> &'static str {
         self.header.mapper_board()
     }
 
+    #[inline]
     pub fn set_nes_region(&mut self, nes_region: NesRegion) {
         if let Mapper::Exrom(ref mut exrom) = self.mapper {
             exrom.dmc.set_nes_region(nes_region);
@@ -290,7 +290,6 @@ impl Cart {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    #[inline]
     fn lookup_region(lookup_hash: u64) -> NesRegion {
         let db = BufReader::new(GAME_DB);
         let lines: Vec<String> = db.lines().filter_map(Result::ok).collect();
@@ -357,7 +356,6 @@ impl Mapped for Cart {
 }
 
 impl MemRead for Cart {
-    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         match self.mapper.map_read(addr) {
             MappedRead::Chr(addr) => self.chr.readw(addr),
@@ -368,7 +366,6 @@ impl MemRead for Cart {
         }
     }
 
-    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         match self.mapper.map_peek(addr) {
             MappedRead::Chr(addr) => self.chr.peekw(addr),
@@ -381,7 +378,6 @@ impl MemRead for Cart {
 }
 
 impl MemWrite for Cart {
-    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         match self.mapper.map_write(addr, val) {
             MappedWrite::Chr(addr, val) if self.chr.writable() => self.chr.writew(addr, val),
@@ -395,7 +391,6 @@ impl MemWrite for Cart {
 }
 
 impl Clocked for Cart {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.mapper.clock()
     }
@@ -465,7 +460,6 @@ impl NesHeader {
     /// # Errors
     ///
     /// If the ROM can not be opened, or the header is corrupted, then an error is returned.
-    #[inline]
     pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(

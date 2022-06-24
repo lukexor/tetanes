@@ -27,7 +27,6 @@ pub struct ControlDeck {
 
 impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
-    #[inline]
     pub fn new(nes_region: NesRegion, ram_state: RamState) -> Self {
         let cpu = Cpu::new(nes_region, Bus::new(nes_region, ram_state));
         Self {
@@ -46,7 +45,6 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is any issue loading the ROM, then an error is returned.
-    #[inline]
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.ram_state)?;
@@ -56,7 +54,6 @@ impl ControlDeck {
         Ok(())
     }
 
-    #[inline]
     pub fn load_cpu(&mut self, mut cpu: Cpu) {
         // Swapping CPU swaps Box<Cart>, but we want to maintain the pointer to the original Cart
         self.cpu.bus.cart.swap(&mut cpu.bus.cart);
@@ -124,7 +121,6 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    #[inline]
     pub fn clock_seconds(&mut self, seconds: f32) -> NesResult<ControlFlow<usize, usize>> {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
@@ -149,7 +145,6 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    #[inline]
     pub fn clock_frame(&mut self) -> NesResult<ControlFlow<usize, usize>> {
         let mut total_cycles = 0;
         let frame = self.frame_number();
@@ -174,7 +169,6 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    #[inline]
     pub fn clock_scanline(&mut self) -> NesResult<ControlFlow<usize, usize>> {
         let current_scanline = self.cpu.bus.ppu.scanline;
         let mut total_cycles = 0;
@@ -238,7 +232,6 @@ impl ControlDeck {
     }
 
     /// Disassemble an address range of CPU instructions.
-    #[inline]
     #[must_use]
     pub fn disasm(&self, start: u16, end: u16) -> Vec<String> {
         let mut disassembly = Vec::with_capacity(256);
@@ -391,7 +384,6 @@ impl Default for ControlDeck {
 
 impl Clocked for ControlDeck {
     /// Steps the control deck a single clock cycle.
-    #[inline]
     fn clock(&mut self) -> usize {
         for zapper in &mut self.cpu.bus.input.zappers {
             zapper.clock();
@@ -414,28 +406,24 @@ impl Clocked for ControlDeck {
 
 impl Powered for ControlDeck {
     /// Powers on the console
-    #[inline]
     fn power_on(&mut self) {
         self.cpu.power_on();
         self.running = true;
     }
 
     /// Powers off the console
-    #[inline]
     fn power_off(&mut self) {
         self.cpu.power_off();
         self.running = false;
     }
 
     /// Soft-resets the console
-    #[inline]
     fn reset(&mut self) {
         self.cpu.reset();
         self.running = true;
     }
 
     /// Hard-resets the console
-    #[inline]
     fn power_cycle(&mut self) {
         self.cpu.power_cycle();
         self.running = true;

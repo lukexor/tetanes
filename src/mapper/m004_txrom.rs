@@ -220,7 +220,6 @@ impl Txrom {
         }
     }
 
-    #[inline]
     fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
@@ -269,7 +268,6 @@ impl Mapped for Txrom {
 }
 
 impl MapRead for Txrom {
-    #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.clock_irq(addr);
         self.map_peek(addr)

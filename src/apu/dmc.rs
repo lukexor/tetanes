@@ -72,14 +72,13 @@ impl Dmc {
         }
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn output(&self) -> f32 {
         f32::from(self.output)
     }
 
     // $4010 DMC timer
-    #[inline]
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
         self.loops = val & 0x40 == 0x40;
@@ -108,7 +107,6 @@ impl Dmc {
     }
 
     // $4015 WRITE
-    #[inline]
     pub fn set_enabled(&mut self, enabled: bool, cycle: usize) {
         self.irq_pending = false;
         if !enabled {
@@ -121,7 +119,6 @@ impl Dmc {
         }
     }
 
-    #[inline]
     pub fn set_sample_buffer(&mut self, val: u8) {
         self.dma_pending = false;
         if self.length > 0 {
@@ -155,7 +152,6 @@ impl Dmc {
 }
 
 impl Clocked for Dmc {
-    #[inline]
     fn clock(&mut self) -> usize {
         // Because APU is only clocked every other CPU cycle
         if self.freq_counter >= 2 {

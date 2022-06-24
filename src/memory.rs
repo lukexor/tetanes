@@ -101,7 +101,6 @@ pub struct Memory {
 }
 
 impl Memory {
-    #[inline]
     pub const fn new() -> Self {
         Self {
             data: vec![],
@@ -110,7 +109,6 @@ impl Memory {
         }
     }
 
-    #[inline]
     pub fn rom(bytes: Vec<u8>) -> Self {
         Self {
             data: bytes,
@@ -119,7 +117,6 @@ impl Memory {
         }
     }
 
-    #[inline]
     pub fn ram(capacity: usize, state: RamState) -> Self {
         Self {
             data: Self::allocate_ram(capacity, state),
@@ -162,7 +159,6 @@ impl Memory {
         self.writable = !protect;
     }
 
-    #[inline]
     fn allocate_ram(capacity: usize, state: RamState) -> Vec<u8> {
         match state {
             RamState::AllZeros => vec![0x00; capacity],
@@ -256,7 +252,6 @@ pub struct MemoryBanks {
 }
 
 impl MemoryBanks {
-    #[inline]
     pub fn new(start: usize, end: usize, capacity: usize, window: usize) -> Self {
         let bank_count = (end - start + 1) / window;
         let mut banks = Vec::with_capacity(bank_count);

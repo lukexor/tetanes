@@ -249,12 +249,10 @@ impl Ppu {
         self.regs.set_nes_region(nes_region);
     }
 
-    #[inline]
     pub fn load_cart(&mut self, cart: &mut Box<Cart>) {
         self.vram.cart = &mut **cart;
     }
 
-    #[inline]
     pub fn open_viewer(&mut self) {
         self.viewer = Some(Viewer::default());
         self.load_nametables();
@@ -262,12 +260,10 @@ impl Ppu {
         self.load_palettes();
     }
 
-    #[inline]
     pub fn close_viewer(&mut self) {
         self.viewer = None;
     }
 
-    #[inline]
     pub fn update_viewer(&mut self) {
         if let Some(ref viewer) = self.viewer {
             if self.cycle == IDLE_CYCLE && self.scanline == viewer.scanline {
@@ -278,7 +274,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     pub fn set_viewer_scanline(&mut self, scanline: u32) {
         if let Some(ref mut viewer) = self.viewer {
             viewer.scanline = scanline;
@@ -287,7 +282,6 @@ impl Ppu {
 
     // Returns a fully rendered frame of RENDER_SIZE RGB colors
     #[must_use]
-    #[inline]
     pub fn frame_buffer(&mut self) -> &[u8] {
         match self.filter {
             VideoFilter::Pixellate => self.frame.decode_buffer(),
@@ -386,7 +380,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn run_cycle(&mut self) {
         let visible_cycle = matches!(self.cycle, VISIBLE_CYCLE_START..=VISIBLE_CYCLE_END);
         let bg_prefetch_cycle =
@@ -496,7 +489,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn fetch_bg_nt_byte(&mut self) {
         // Fetch BG nametable
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
@@ -514,7 +506,6 @@ impl Ppu {
             self.regs.background_select() | (tile_index << 4) | self.regs.fine_y();
     }
 
-    #[inline]
     fn fetch_bg_attr_byte(&mut self) {
         // Fetch BG attribute table
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
@@ -532,7 +523,6 @@ impl Ppu {
         self.frame.palette = ((self.vram.read(addr) >> shift) & 0x03) << 2;
     }
 
-    #[inline]
     fn fetch_background(&mut self) {
         // Fetch 4 tiles and write out shift registers every 8th cycle
         // Each tile fetch takes 2 cycles
@@ -547,7 +537,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn load_sprites(&mut self) {
         let idx = (self.cycle - SPR_FETCH_CYCLE_START) as usize / 8;
         let oam_idx = idx << 2;
@@ -620,7 +609,6 @@ impl Ppu {
     }
 
     // http://wiki.nesdev.com/w/index.php/PPU_OAM
-    #[inline]
     fn fetch_sprites(&mut self) {
         // OAMADDR set to $00 on prerender and visible scanlines
         self.write_oamaddr(0x00);
@@ -637,7 +625,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn evaluate_sprites(&mut self) {
         match self.cycle {
             // 1. Clear Secondary OAM
@@ -742,7 +729,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn render_pixel(&mut self) {
         let x = self.cycle - 1;
         let y = self.scanline;
@@ -763,7 +749,6 @@ impl Ppu {
         self.frame.put_pixel(x, y, palette);
     }
 
-    #[inline]
     fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut [u8]) {
         let palette_idx = (palette_idx % SYSTEM_PALETTE_SIZE) * 3;
         let red = SYSTEM_PALETTE[palette_idx];
@@ -775,7 +760,6 @@ impl Ppu {
         pixels[idx + 2] = blue;
     }
 
-    #[inline]
     #[must_use]
     pub fn pixel_brightness(&self, x: u32, y: u32) -> u32 {
         if x >= RENDER_WIDTH || y >= RENDER_HEIGHT {
@@ -791,7 +775,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn pixel_color(&mut self) -> u8 {
         let x = self.cycle - 1;
 
@@ -872,7 +855,6 @@ impl Ppu {
      * $2000 PPUCTRL
      */
 
-    #[inline]
     fn write_ppuctrl(&mut self, val: u8) {
         if self.cycle_count < POWER_ON_CYCLES {
             return;
@@ -913,7 +895,6 @@ impl Ppu {
      * $2002 PPUSTATUS
      */
 
-    #[inline]
     pub fn read_ppustatus(&mut self) -> u8 {
         let status = self.regs.read_status();
         log::trace!("({}, {}): $2002 NMI Ack", self.cycle, self.scanline);
@@ -942,7 +923,6 @@ impl Ppu {
         (self.regs.peek_status() & 0xE0) | (self.regs.open_bus & 0x1F)
     }
 
-    #[inline]
     fn start_vblank(&mut self) {
         log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
@@ -962,7 +942,6 @@ impl Ppu {
             .ppu_write(0x2002, self.regs.peek_status());
     }
 
-    #[inline]
     fn stop_vblank(&mut self) {
         log::trace!("({}, {}): Clear VBL flag", self.cycle, self.scanline);
         self.regs.stop_vblank();
@@ -999,7 +978,6 @@ impl Ppu {
      */
 
     #[must_use]
-    #[inline]
     fn read_oamdata(&mut self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
         if self.scanline <= VISIBLE_SCANLINE_END
@@ -1022,7 +1000,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn write_oamdata(&mut self, mut val: u8) {
         if self.rendering_enabled()
             && (self.scanline <= VISIBLE_SCANLINE_END
@@ -1081,7 +1058,7 @@ impl Ppu {
 
     #[inline]
     fn update_vram_addr(&mut self) {
-        // During rendering, v increments coarse X and coarse Y at the simultaneously
+        // During rendering, v increments coarse X and coarse Y simultaneously
         if self.rendering_enabled()
             && (self.scanline == self.prerender_scanline || self.scanline <= VISIBLE_SCANLINE_END)
         {
@@ -1092,7 +1069,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn read_ppudata(&mut self) -> u8 {
         let val = self.vram.read(self.read_ppuaddr());
         // Buffering quirk resulting in a dummy read for the CPU
@@ -1147,7 +1123,6 @@ impl Ppu {
 
 impl Clocked for Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
-    #[inline]
     fn clock(&mut self) -> usize {
         // Clear open bus roughly once every frame
         if self.scanline == 0 {
@@ -1194,7 +1169,6 @@ impl Clocked for Ppu {
 }
 
 impl MemRead for Ppu {
-    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
             0x2002 => self.read_ppustatus(),
@@ -1211,7 +1185,6 @@ impl MemRead for Ppu {
         val
     }
 
-    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x2002 => self.peek_ppustatus(),
@@ -1228,7 +1201,6 @@ impl MemRead for Ppu {
 }
 
 impl MemWrite for Ppu {
-    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.vram.cart_mut().ppu_write(addr, val);
         self.regs.open_bus = val;

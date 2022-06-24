@@ -113,7 +113,6 @@ pub struct Gamepad {
 }
 
 impl Gamepad {
-    #[inline]
     #[must_use]
     fn read(&mut self) -> u8 {
         let state = self.peek();
@@ -123,7 +122,6 @@ impl Gamepad {
         state
     }
 
-    #[inline]
     #[must_use]
     fn peek(&self) -> u8 {
         let state = match self.strobe {
@@ -140,7 +138,6 @@ impl Gamepad {
         u8::from(state)
     }
 
-    #[inline]
     pub fn clear(&mut self) {
         self.a = false;
         self.b = false;
@@ -168,7 +165,6 @@ pub struct Signature {
 }
 
 impl Signature {
-    #[inline]
     const fn new(signature: u8) -> Self {
         Self {
             signature,
@@ -176,7 +172,6 @@ impl Signature {
         }
     }
 
-    #[inline]
     #[must_use]
     fn read(&mut self) -> u8 {
         let state = self.peek();
@@ -186,7 +181,6 @@ impl Signature {
         state
     }
 
-    #[inline]
     #[must_use]
     const fn peek(self) -> u8 {
         if self.strobe == STROBE_MAX {
@@ -229,7 +223,6 @@ impl Zapper {
 }
 
 impl Zapper {
-    #[inline]
     const fn new(nes_region: NesRegion) -> Self {
         Self {
             nes_region,
@@ -256,7 +249,6 @@ impl Zapper {
         }
     }
 
-    #[inline]
     fn light_sense(&self, ppu: &Ppu) -> u8 {
         let width = RENDER_WIDTH as i32;
         let height = RENDER_HEIGHT as i32;
@@ -309,7 +301,6 @@ pub struct Input {
 
 impl Input {
     /// Returns an empty Input instance with no event pump
-    #[inline]
     pub fn new(nes_region: NesRegion) -> Self {
         Self {
             gamepads: [Gamepad::default(); 4],
@@ -322,7 +313,6 @@ impl Input {
         }
     }
 
-    #[inline]
     #[must_use]
     pub fn read(&mut self, addr: u16, ppu: &Ppu) -> u8 {
         let val = match addr {
@@ -382,7 +372,6 @@ impl Input {
         val | 0x40
     }
 
-    #[inline]
     #[must_use]
     pub fn peek(&self, addr: u16, ppu: &Ppu) -> u8 {
         let val = match addr {
@@ -427,7 +416,6 @@ impl Input {
 }
 
 impl MemWrite for Input {
-    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         if addr == 0x4016 {

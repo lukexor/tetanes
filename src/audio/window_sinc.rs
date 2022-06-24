@@ -72,6 +72,7 @@ impl WindowSinc {
         }
     }
 
+    #[inline]
     #[must_use]
     pub const fn taps(&self) -> &Vec<f32> {
         &self.taps
@@ -86,16 +87,19 @@ impl WindowSinc {
         self.taps[self.latency] += 1.0;
     }
 
+    #[inline]
     #[must_use]
     pub fn len(&self) -> usize {
         self.taps.len()
     }
 
+    #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.taps.is_empty()
     }
 
+    #[inline]
     #[must_use]
     pub const fn latency(&self) -> usize {
         self.latency

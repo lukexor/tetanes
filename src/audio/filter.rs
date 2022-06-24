@@ -35,6 +35,7 @@ impl Filter {
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn apply(&self, sample: f32) -> f32 {
         let mut out = 0.0;

@@ -64,7 +64,6 @@ impl Pulse {
         self.envelope.clock();
     }
 
-    #[inline]
     pub fn clock_half_frame(&mut self) {
         let sweep_forcing_silence = self.sweep_forcing_silence();
         let mut swp = &mut self.sweep;
@@ -102,7 +101,6 @@ impl Pulse {
         }
     }
 
-    #[inline]
     #[must_use]
     pub fn output(&self) -> f32 {
         if Self::DUTY_TABLE[self.duty_cycle as usize][self.duty_counter as usize] != 0
@@ -120,7 +118,6 @@ impl Pulse {
     }
 
     // $4000 Pulse control
-    #[inline]
     pub fn write_control(&mut self, val: u8) {
         self.duty_cycle = (val >> 6) & 0x03; // D7..D6
         self.length.write_control(val);
@@ -128,7 +125,6 @@ impl Pulse {
     }
 
     // $4001 Pulse sweep
-    #[inline]
     pub fn write_sweep(&mut self, val: u8) {
         self.sweep.timer = (val >> 4) & 0x07; // D6..D4
         self.sweep.negate = (val >> 3) & 1 == 1; // D3
@@ -138,13 +134,11 @@ impl Pulse {
     }
 
     // $4002 Pulse timer lo
-    #[inline]
     pub fn write_timer_lo(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
     }
 
     // $4003 Pulse timer hi
-    #[inline]
     pub fn write_timer_hi(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
         self.freq_counter = self.freq_timer;
@@ -155,7 +149,6 @@ impl Pulse {
         }
     }
 
-    #[inline]
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
@@ -165,7 +158,6 @@ impl Pulse {
 }
 
 impl Clocked for Pulse {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;

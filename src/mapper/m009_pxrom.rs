@@ -59,7 +59,6 @@ impl Pxrom {
         pxrom.into()
     }
 
-    #[inline]
     fn update_banks(&mut self) {
         let bank0 = self.latch_banks[self.latch[0]] as usize;
         let bank1 = self.latch_banks[self.latch[1] + 2] as usize;

@@ -35,7 +35,6 @@ impl NesAudioCallback {
         self.buffer.is_empty()
     }
 
-    #[inline]
     pub fn read(&mut self, out: &mut [f32]) {
         if !self.initialized && self.buffer.len() < 2 * out.len() {
             out.fill(0.0);
@@ -57,7 +56,6 @@ impl NesAudioCallback {
 impl AudioCallback for NesAudioCallback {
     type Channel = f32;
 
-    #[inline]
     fn callback(&mut self, out: &mut [Self::Channel]) {
         self.read(out);
     }
@@ -124,7 +122,6 @@ impl Audio {
     ///
     /// This function will return an error if the audio device fails to be opened, or if
     /// `open_playback` is called more than once.
-    #[inline]
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_playback(&mut self, s: &mut PixState) -> NesResult<()> {
         match self.consumer.take() {
@@ -147,7 +144,6 @@ impl Audio {
     /// # Errors
     ///
     /// This function will return an error if `open_buffer` is called more than once.
-    #[inline]
     pub fn open_callback(&mut self) -> NesResult<NesAudioCallback> {
         match self.consumer.take() {
             Some(consumer) => Ok(NesAudioCallback::new(consumer)),
@@ -226,7 +222,6 @@ impl Audio {
     /// Sources:
     /// - <https://near.sh/articles/audio/dynamic-rate-control>
     /// - <https://github.com/libretro/docs/blob/master/archive/ratecontrol.pdf>
-    #[inline]
     pub fn output(&mut self, samples: &[f32], dynamic_rate_control: bool, max_delta: f32) -> usize {
         self.pitch_ratio = if dynamic_rate_control {
             let size = self.producer.len() as f32;

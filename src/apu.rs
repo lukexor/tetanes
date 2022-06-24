@@ -133,7 +133,6 @@ impl Apu {
 
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
-    #[inline]
     fn clock_frame_counter(&mut self) {
         let clock = self.frame_counter.clock();
 
@@ -173,7 +172,6 @@ impl Apu {
         }
     }
 
-    #[inline]
     fn clock_quarter_frame(&mut self) {
         self.pulse1.clock_quarter_frame();
         self.pulse2.clock_quarter_frame();
@@ -181,7 +179,6 @@ impl Apu {
         self.noise.clock_quarter_frame();
     }
 
-    #[inline]
     fn clock_half_frame(&mut self) {
         self.pulse1.clock_half_frame();
         self.pulse2.clock_half_frame();
@@ -189,7 +186,6 @@ impl Apu {
         self.noise.clock_half_frame();
     }
 
-    #[inline]
     fn output(&mut self) {
         let pulse1 = if self.enabled[0] {
             self.pulse1.output()
@@ -216,16 +212,21 @@ impl Apu {
         } else {
             0.0
         };
-        let pulse_out = PULSE_TABLE[(pulse1 + pulse2) as usize % PULSE_TABLE_SIZE];
-        let tnd_out =
-            TND_TABLE[(3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize % TND_TABLE_SIZE];
+        let mut pulse_idx = (pulse1 + pulse2) as usize;
+        if pulse_idx > PULSE_TABLE_SIZE {
+            pulse_idx %= PULSE_TABLE_SIZE;
+        }
+        let mut tnd_idx = (3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize;
+        if tnd_idx > TND_TABLE_SIZE {
+            tnd_idx %= TND_TABLE_SIZE;
+        }
         let mapper_out = match self.cart().mapper {
             Mapper::Exrom(ref exrom) => exrom.audio_output(),
             Mapper::Vrc6(ref vrc6) => vrc6.audio_output(),
             _ => 0.0,
         };
 
-        let sample = mapper_out + pulse_out + tnd_out;
+        let sample = mapper_out + PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
         self.samples.push(sample);
     }
 
@@ -237,7 +238,6 @@ impl Apu {
         val
     }
 
-    #[inline]
     #[must_use]
     const fn peek_status(&self) -> u8 {
         let mut status = 0x00;
@@ -266,7 +266,6 @@ impl Apu {
     }
 
     // $4015 WRITE
-    #[inline]
     fn write_status(&mut self, val: u8) {
         self.pulse1.set_enabled(val & 0x01 == 0x01);
         self.pulse2.set_enabled(val & 0x02 == 0x02);
@@ -276,7 +275,6 @@ impl Apu {
     }
 
     // $4017 APU frame counter
-    #[inline]
     fn write_frame_counter(&mut self, val: u8) {
         self.frame_counter.write(val, self.cycle);
         self.irq_disabled = val & 0x40 == 0x40; // D6
@@ -299,7 +297,6 @@ impl Apu {
 }
 
 impl Clocked for Apu {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {
@@ -319,7 +316,6 @@ impl Clocked for Apu {
 }
 
 impl MemRead for Apu {
-    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         if addr == 0x4015 {
             let val = self.read_status();
@@ -330,7 +326,6 @@ impl MemRead for Apu {
         }
     }
 
-    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         if addr == 0x4015 {
             self.peek_status()
@@ -341,7 +336,6 @@ impl MemRead for Apu {
 }
 
 impl MemWrite for Apu {
-    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         match addr {

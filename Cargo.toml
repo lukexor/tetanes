@@ -53,6 +53,7 @@ wasm-bindgen = "0.2.81"
 default = ["cycle-accurate"]
 cycle-accurate = []
 
+# Optimized development for playable framerates
 [profile.dev-opt]
 inherits = "dev"
 opt-level = 2

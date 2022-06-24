@@ -287,7 +287,6 @@ impl Nes {
         self.messages.push((text, Instant::now()));
     }
 
-    #[inline]
     pub(crate) fn render_messages(&mut self, s: &mut PixState) -> NesResult<()> {
         self.messages
             .retain(|(_, created)| created.elapsed() < Duration::from_secs(3));
@@ -298,7 +297,6 @@ impl Nes {
         Ok(())
     }
 
-    #[inline]
     pub(crate) fn render_confirm_quit(&mut self, s: &mut PixState) -> NesResult<bool> {
         if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
             s.push();
@@ -358,7 +356,6 @@ impl Nes {
             })
     }
 
-    #[inline]
     pub(crate) fn handle_key_event(
         &mut self,
         s: &mut PixState,
@@ -379,7 +376,6 @@ impl Nes {
         false
     }
 
-    #[inline]
     pub fn handle_mouse_click(&mut self, s: &mut PixState, btn: Mouse) -> bool {
         // To avoid consuming events while in menus
         if self.mode == Mode::Playing {
@@ -403,7 +399,6 @@ impl Nes {
         }
     }
 
-    #[inline]
     pub fn set_zapper_pos(&mut self, pos: Point<i32>) -> bool {
         for slot in [GamepadSlot::One, GamepadSlot::Two] {
             if self.control_deck.zapper_connected(slot) {
@@ -465,7 +460,6 @@ impl Nes {
             })
     }
 
-    #[inline]
     pub(crate) fn handle_action(
         &mut self,
         s: &mut PixState,
@@ -581,7 +575,6 @@ impl Nes {
         })
     }
 
-    #[inline]
     fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<bool> {
         if self.replay.mode == ReplayMode::Recording {
             return Ok(false);
@@ -613,7 +606,6 @@ impl Nes {
         Ok(true)
     }
 
-    #[inline]
     fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool, repeat: bool) {
         if feature == Feature::Rewind {
             if repeat {
@@ -644,7 +636,6 @@ impl Nes {
         }
     }
 
-    #[inline]
     fn handle_setting(
         &mut self,
         s: &mut PixState,
@@ -709,7 +700,6 @@ impl Nes {
         }
     }
 
-    #[inline]
     fn handle_gamepad_pressed(
         &mut self,
         slot: GamepadSlot,

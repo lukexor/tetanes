@@ -206,7 +206,6 @@ impl Cpu {
         INSTRUCTIONS[opcode as usize]
     }
 
-    #[inline]
     #[must_use]
     pub fn next_addr(&self) -> (Option<u16>, Option<u16>) {
         let instr = self.next_instr();
@@ -304,7 +303,6 @@ impl Cpu {
     //  5  $0100,S  W  push P to stack, decrement S
     //  6    PC     R  fetch low byte of interrupt vector
     //  7    PC     R  fetch high byte of interrupt vector
-    #[inline]
     pub fn irq(&mut self) {
         self.read(self.pc);
         self.read(self.pc);
@@ -337,7 +335,6 @@ impl Cpu {
         }
     }
 
-    #[inline]
     fn handle_interrupts(&mut self) {
         // https://www.nesdev.org/wiki/CPU_interrupts
         //
@@ -377,7 +374,6 @@ impl Cpu {
         }
     }
 
-    #[inline]
     fn start_cycle(&mut self, cycle: Cycle) {
         self.master_clock += if cycle == Cycle::Read {
             self.start_clocks - 1
@@ -394,7 +390,6 @@ impl Cpu {
         }
     }
 
-    #[inline]
     fn end_cycle(&mut self, cycle: Cycle) {
         // TODO: Update to use nes_region numbers
         self.master_clock += if cycle == Cycle::Read {
@@ -411,7 +406,6 @@ impl Cpu {
         self.handle_interrupts();
     }
 
-    #[inline]
     fn process_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
         if self.halt {
@@ -422,7 +416,6 @@ impl Cpu {
         self.start_cycle(Cycle::Read);
     }
 
-    #[inline]
     fn handle_dma(&mut self, addr: u16) {
         self.start_cycle(Cycle::Read);
         self.bus.read(addr);
@@ -765,7 +758,6 @@ impl Cpu {
     }
 
     // Print the current instruction and status
-    #[inline]
     pub fn trace_instr(&self) {
         let mut pc = self.pc;
         let disasm = self.disassemble(&mut pc);
@@ -934,7 +926,6 @@ impl Clocked for Cpu {
 }
 
 impl MemRead for Cpu {
-    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         if self.halt {
             self.handle_dma(addr);
@@ -946,13 +937,11 @@ impl MemRead for Cpu {
         val
     }
 
-    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)
     }
 }
 impl MemWrite for Cpu {
-    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.start_cycle(Cycle::Write);
         self.bus.write(addr, val);

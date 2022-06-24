@@ -143,7 +143,6 @@ impl Bus {
 }
 
 impl MemRead for Bus {
-    #[inline]
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
             0x0000..=0x1FFF => self.wram.read(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
@@ -174,7 +173,6 @@ impl MemRead for Bus {
         val
     }
 
-    #[inline]
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x1FFF => self.wram.peek(addr & 0x07FF), // 0x0800..=0x1FFF are mirrored
@@ -203,7 +201,6 @@ impl MemRead for Bus {
 }
 
 impl MemWrite for Bus {
-    #[inline]
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         match addr {
