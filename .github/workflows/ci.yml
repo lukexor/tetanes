@@ -80,3 +80,13 @@ jobs:
         bash bin/build.sh --dev
     - run: cargo doc --verbose
     - run: cargo test --verbose
+    - name: Code Coverage
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions-rs/tarpaulin@v0.1
+      with:
+        args: '--verbose --timeout 120'
+    - name: Upload Coverage
+      if: matrix.os == 'ubuntu-latest'
+      uses: codecov/codecov-action@v2
+      with:
+        fail_ci_if_error: true
