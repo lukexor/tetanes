@@ -103,14 +103,15 @@ impl Frame {
             .enumerate()
         {
             let x = idx % 256;
-            let y = idx / 256;
-            let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
-            let phase = (2 + y * 341 + x + even_phase) % 3;
             let color = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel
                 0
             } else {
-                NTSC_PALETTE[phase][(self.prev_pixel & 0x3F) as usize][*pixel as usize]
+                let y = idx / 256;
+                let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
+                let phase = (2 + y * 341 + x + even_phase) % 3;
+                NTSC_PALETTE
+                    [phase + ((self.prev_pixel & 0x3F) as usize) * 3 + (*pixel as usize) * 3 * 64]
             };
             self.prev_pixel = u32::from(*pixel);
             assert!(colors.len() > 2);
@@ -167,7 +168,7 @@ impl fmt::Debug for Frame {
     }
 }
 
-pub static NTSC_PALETTE: Lazy<Vec<Vec<Vec<u32>>>> = Lazy::new(|| {
+pub static NTSC_PALETTE: Lazy<Vec<u32>> = Lazy::new(|| {
     // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
     // I'm afraid to touch it now that it works
     // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
@@ -178,7 +179,7 @@ pub static NTSC_PALETTE: Lazy<Vec<Vec<Vec<u32>>>> = Lazy::new(|| {
         -6, -69, 26, -59, 29, -55, 73, -40, 68, -17, 125, 11, 68, 33, 125, 78,
     ];
 
-    let mut ntsc_palette = vec![vec![vec![0; 512]; 64]; 3];
+    let mut ntsc_palette = vec![0; 512 * 64 * 3];
 
     // Helper functions for converting YIQ to RGB
     let gamma = 2.0; // Assumed display gamma
@@ -190,12 +191,12 @@ pub static NTSC_PALETTE: Lazy<Vec<Vec<Vec<u32>>>> = Lazy::new(|| {
         }
     };
     let yiq_divider = f64::from(9 * 10u32.pow(6));
-    for (palette_offset, palette) in ntsc_palette.iter_mut().enumerate() {
+    for palette_offset in 0..3 {
         for channel in 0..3 {
             for color0_offset in 0..512 {
                 let emphasis = color0_offset / 64;
 
-                for (color1_offset, color1) in palette.iter_mut().enumerate() {
+                for color1_offset in 0..64 {
                     let mut y = 0;
                     let mut i = 0;
                     let mut q = 0;
@@ -237,21 +238,22 @@ pub static NTSC_PALETTE: Lazy<Vec<Vec<Vec<u32>>>> = Lazy::new(|| {
                     let y = f64::from(y) / 1980.0;
                     let i = f64::from(i) / yiq_divider;
                     let q = f64::from(q) / yiq_divider;
+                    let idx = palette_offset + color0_offset * 3 * 64 + color1_offset * 3;
                     match channel {
                         2 => {
                             let rgb =
                                 255.95 * gammafix(q.mul_add(0.623_557, i.mul_add(0.946_882, y)));
-                            color1[color0_offset] += 0x10000 * rgb.clamp(0.0, 255.0) as u32;
+                            ntsc_palette[idx] += 0x10000 * rgb.clamp(0.0, 255.0) as u32;
                         }
                         1 => {
                             let rgb =
                                 255.95 * gammafix(q.mul_add(-0.635_691, i.mul_add(-0.274_788, y)));
-                            color1[color0_offset] += 0x00100 * rgb.clamp(0.0, 255.0) as u32;
+                            ntsc_palette[idx] += 0x00100 * rgb.clamp(0.0, 255.0) as u32;
                         }
                         0 => {
                             let rgb =
                                 255.95 * gammafix(q.mul_add(1.709_007, i.mul_add(-1.108_545, y)));
-                            color1[color0_offset] += rgb.clamp(0.0, 255.0) as u32;
+                            ntsc_palette[idx] += rgb.clamp(0.0, 255.0) as u32;
                         }
                         _ => (), // invalid channel
                     }
