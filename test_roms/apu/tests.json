@@ -282,7 +282,7 @@
       {
         "number": 20,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
@@ -297,7 +297,7 @@
       {
         "number": 20,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
@@ -312,13 +312,13 @@
       {
         "number": 20,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
         "number": 35,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
@@ -333,7 +333,7 @@
       {
         "number": 15,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
@@ -348,7 +348,7 @@
       {
         "number": 20,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {

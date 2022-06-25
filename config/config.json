@@ -265,7 +265,7 @@
         "key": "R",
         "keymod": 64,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
@@ -273,7 +273,7 @@
         "key": "P",
         "keymod": 64,
         "action": {
-          "Nes": "PowerCycle"
+          "Nes": "HardReset"
         }
       },
       {

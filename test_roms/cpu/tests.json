@@ -362,7 +362,7 @@
       {
         "number": 142,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
@@ -377,7 +377,7 @@
       {
         "number": 140,
         "action": {
-          "Nes": "Reset"
+          "Nes": "SoftReset"
         }
       },
       {
