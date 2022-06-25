@@ -9,6 +9,7 @@ use crate::{
         pulse::{OutputFreq, Pulse, PulseChannel},
         PULSE_TABLE, PULSE_TABLE_SIZE,
     },
+    audio::Audio,
     cart::Cart,
     common::{Clock, Kind, NesRegion, Reset},
     cpu::Cpu,
@@ -278,16 +279,6 @@ impl Exrom {
         exrom.regs.prg_banks[4] = exrom.prg_rom_banks.last() | ROM_SELECT_MASK;
         exrom.update_prg_banks();
         exrom.into()
-    }
-
-    #[must_use]
-    pub fn audio_output(&self) -> f32 {
-        let pulse1 = self.pulse1.output();
-        let pulse2 = self.pulse2.output();
-        let dmc = self.dmc.output();
-        let pulse_scale = PULSE_TABLE[PULSE_TABLE_SIZE - 1] / 15.0;
-        let out = -(pulse1 + pulse2 + dmc);
-        pulse_scale * out
     }
 
     //              $6000   $8000   $A000   $C000   $E000
@@ -687,11 +678,11 @@ impl MapWrite for Exrom {
                     _ => (),
                 }
             }
-            0x5000 => self.pulse1.write_control(val),
+            0x5000 => self.pulse1.write_ctrl(val),
             // 0x5001 Has no effect since there is no Sweep unit
             0x5002 => self.pulse1.write_timer_lo(val),
             0x5003 => self.pulse1.write_timer_hi(val),
-            0x5004 => self.pulse2.write_control(val),
+            0x5004 => self.pulse2.write_ctrl(val),
             // 0x5005 Has no effect since there is no Sweep unit
             0x5006 => self.pulse2.write_timer_lo(val),
             0x5007 => self.pulse2.write_timer_hi(val),
@@ -884,6 +875,18 @@ impl MapWrite for Exrom {
             _ => (),
         }
         MappedWrite::None
+    }
+}
+
+impl Audio for Exrom {
+    #[must_use]
+    fn output(&self) -> f32 {
+        let pulse1 = self.pulse1.output();
+        let pulse2 = self.pulse2.output();
+        let dmc = self.dmc.output();
+        let pulse_scale = PULSE_TABLE[PULSE_TABLE_SIZE - 1] / 15.0;
+        let out = -(pulse1 + pulse2 + dmc);
+        pulse_scale * out
     }
 }
 

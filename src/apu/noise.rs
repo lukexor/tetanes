@@ -79,9 +79,9 @@ impl Noise {
         }
     }
 
-    pub fn write_control(&mut self, val: u8) {
-        self.length.write_control(val);
-        self.envelope.write_control(val);
+    pub fn write_ctrl(&mut self, val: u8) {
+        self.length.write_ctrl(val);
+        self.envelope.write_ctrl(val);
     }
 
     // $400E Noise timer

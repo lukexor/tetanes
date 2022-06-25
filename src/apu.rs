@@ -4,6 +4,7 @@
 
 use crate::{
     apu::pulse::OutputFreq,
+    audio::Audio,
     cart::Cart,
     common::{Clock, Kind, NesRegion, Reset},
     cpu::Cpu,
@@ -221,8 +222,8 @@ impl Apu {
             tnd_idx %= TND_TABLE_SIZE;
         }
         let mapper_out = match self.cart().mapper {
-            Mapper::Exrom(ref exrom) => exrom.audio_output(),
-            Mapper::Vrc6(ref vrc6) => vrc6.audio_output(),
+            Mapper::Exrom(ref exrom) => exrom.output(),
+            Mapper::Vrc6(ref vrc6) => vrc6.output(),
             _ => 0.0,
         };
 
@@ -339,18 +340,18 @@ impl MemWrite for Apu {
     fn write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         match addr {
-            0x4000 => self.pulse1.write_control(val),
+            0x4000 => self.pulse1.write_ctrl(val),
             0x4001 => self.pulse1.write_sweep(val),
             0x4002 => self.pulse1.write_timer_lo(val),
             0x4003 => self.pulse1.write_timer_hi(val),
-            0x4004 => self.pulse2.write_control(val),
+            0x4004 => self.pulse2.write_ctrl(val),
             0x4005 => self.pulse2.write_sweep(val),
             0x4006 => self.pulse2.write_timer_lo(val),
             0x4007 => self.pulse2.write_timer_hi(val),
             0x4008 => self.triangle.write_linear_counter(val),
             0x400A => self.triangle.write_timer_lo(val),
             0x400B => self.triangle.write_timer_hi(val),
-            0x400C => self.noise.write_control(val),
+            0x400C => self.noise.write_ctrl(val),
             0x400E => self.noise.write_timer(val),
             0x400F => self.noise.write_length(val),
             0x4010 => self.dmc.write_timer(val),
@@ -439,7 +440,7 @@ impl LengthCounter {
     }
 
     #[inline]
-    pub fn write_control(&mut self, val: u8) {
+    pub fn write_ctrl(&mut self, val: u8) {
         self.enabled = (val >> 5) & 1 == 0; // !D5
     }
 }

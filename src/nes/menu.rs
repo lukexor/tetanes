@@ -1,6 +1,6 @@
 use crate::{
     apu::AudioChannel,
-    audio::Audio,
+    audio::AudioMixer,
     common::{config_path, NesRegion, SAVE_DIR, SRAM_DIR},
     input::GamepadSlot,
     memory::RamState,
@@ -108,7 +108,7 @@ impl Nes {
             self.control_deck.set_nes_region(self.config.nes_region);
             s.set_window_dimensions(self.config.get_dimensions())?;
             self.update_frame_rate(s)?;
-            self.audio = Audio::new(
+            self.audio = AudioMixer::new(
                 self.control_deck.apu().sample_rate(),
                 self.config.audio_sample_rate / self.config.speed,
                 self.config.audio_buffer_size,

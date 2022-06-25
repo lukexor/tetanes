@@ -10,6 +10,10 @@ use std::time::Duration;
 pub mod filter;
 pub mod window_sinc;
 
+pub trait Audio {
+    fn output(&self) -> f32;
+}
+
 pub struct NesAudioCallback {
     initialized: bool,
     buffer: Consumer<f32>,
@@ -72,7 +76,7 @@ impl fmt::Debug for NesAudioCallback {
 }
 
 #[must_use]
-pub struct Audio {
+pub struct AudioMixer {
     #[cfg(not(target_arch = "wasm32"))]
     device: Option<AudioDevice<NesAudioCallback>>,
     producer: Producer<f32>,
@@ -87,7 +91,7 @@ pub struct Audio {
     filters: [Filter; 3],
 }
 
-impl Audio {
+impl AudioMixer {
     pub fn new(input_frequency: f32, output_frequency: f32, buffer_size: usize) -> Self {
         let buffer = RingBuffer::new(buffer_size);
         let (producer, consumer) = buffer.split();
@@ -222,7 +226,12 @@ impl Audio {
     /// Sources:
     /// - <https://near.sh/articles/audio/dynamic-rate-control>
     /// - <https://github.com/libretro/docs/blob/master/archive/ratecontrol.pdf>
-    pub fn output(&mut self, samples: &[f32], dynamic_rate_control: bool, max_delta: f32) -> usize {
+    pub fn consume(
+        &mut self,
+        samples: &[f32],
+        dynamic_rate_control: bool,
+        max_delta: f32,
+    ) -> usize {
         self.pitch_ratio = if dynamic_rate_control {
             let size = self.producer.len() as f32;
             let capacity = self.producer.capacity() as f32;
@@ -257,9 +266,9 @@ impl Audio {
     }
 }
 
-impl fmt::Debug for Audio {
+impl fmt::Debug for AudioMixer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Audio")
+        f.debug_struct("AudioMixer")
             .field("producer_len", &self.producer.len())
             .field("producer_capacity", &self.producer.capacity())
             .field("input_frequency", &self.input_frequency)

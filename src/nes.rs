@@ -1,7 +1,7 @@
 //! User Interface representing the the NES Control Deck
 
 use crate::{
-    audio::Audio,
+    audio::AudioMixer,
     control_deck::ControlDeck,
     input::GamepadSlot,
     memory::RamState,
@@ -200,7 +200,7 @@ impl View {
 #[derive(Debug)]
 pub struct Nes {
     control_deck: ControlDeck,
-    audio: Audio,
+    audio: AudioMixer,
     players: HashMap<GamepadSlot, ControllerId>,
     emulation: Option<View>,
     debugger: Option<Debugger>,
@@ -232,7 +232,7 @@ impl Nes {
         let sample_rate = control_deck.apu().sample_rate();
         Self {
             control_deck,
-            audio: Audio::new(
+            audio: AudioMixer::new(
                 sample_rate,
                 config.audio_sample_rate / config.speed,
                 config.audio_buffer_size,
@@ -369,11 +369,9 @@ impl AppState for Nes {
                     if prev_frame != self.control_deck.frame_number() {
                         self.update_rewind();
                     }
-
                     if self.config.sound {
-                        let samples = self.control_deck.audio_samples();
-                        self.audio.output(
-                            samples,
+                        self.audio.consume(
+                            self.control_deck.audio_samples(),
                             self.config.dynamic_rate_control,
                             self.config.dynamic_rate_delta,
                         );

@@ -118,10 +118,10 @@ impl Pulse {
     }
 
     // $4000 Pulse control
-    pub fn write_control(&mut self, val: u8) {
+    pub fn write_ctrl(&mut self, val: u8) {
         self.duty_cycle = (val >> 6) & 0x03; // D7..D6
-        self.length.write_control(val);
-        self.envelope.write_control(val);
+        self.length.write_ctrl(val);
+        self.envelope.write_ctrl(val);
     }
 
     // $4001 Pulse sweep

@@ -26,7 +26,7 @@ impl Envelope {
 
     // $4000/$4004/$400C Envelope control
     #[inline]
-    pub(crate) fn write_control(&mut self, val: u8) {
+    pub(crate) fn write_ctrl(&mut self, val: u8) {
         self.loops = (val >> 5) & 1 == 1; // D5
         self.enabled = (val >> 4) & 1 == 0; // !D4
         self.constant_volume = val & 0x0F; // D3..D0

@@ -4,6 +4,7 @@
 
 use crate::{
     apu::{PULSE_TABLE, PULSE_TABLE_SIZE},
+    audio::Audio,
     cart::Cart,
     common::{Clock, Kind, Reset},
     mapper::{vrc_irq::VrcIrq, MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
@@ -79,12 +80,6 @@ impl Vrc6 {
         let last_bank = vrc6.prg_rom_banks.last();
         vrc6.prg_rom_banks.set(3, last_bank);
         vrc6.into()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn audio_output(&self) -> f32 {
-        self.audio.output()
     }
 
     #[inline]
@@ -340,6 +335,14 @@ impl MapWrite for Vrc6 {
             _ => (),
         }
         MappedWrite::None
+    }
+}
+
+impl Audio for Vrc6 {
+    #[inline]
+    #[must_use]
+    fn output(&self) -> f32 {
+        self.audio.output()
     }
 }
 

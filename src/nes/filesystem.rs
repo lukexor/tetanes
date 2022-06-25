@@ -1,5 +1,5 @@
 use super::{Menu, Mode, Nes, NesResult};
-use crate::{audio::Audio, cart::NesHeader};
+use crate::{audio::AudioMixer, cart::NesHeader};
 use anyhow::{anyhow, Context};
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use pix_engine::prelude::PixState;
@@ -190,7 +190,7 @@ impl Nes {
                 self.config.nes_region = self.control_deck.nes_region();
                 s.set_window_dimensions(self.config.get_dimensions())?;
                 self.update_frame_rate(s)?;
-                self.audio = Audio::new(
+                self.audio = AudioMixer::new(
                     self.control_deck.apu().sample_rate(),
                     self.config.audio_sample_rate / self.config.speed,
                     self.config.audio_buffer_size,
