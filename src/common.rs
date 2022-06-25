@@ -63,21 +63,23 @@ impl From<usize> for NesRegion {
     }
 }
 
-#[enum_dispatch(Mapper)]
-pub trait Powered {
-    fn power_on(&mut self) {}
-    fn power_off(&mut self) {}
-    fn reset(&mut self) {}
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Kind {
+    Soft,
+    Hard,
 }
 
 #[enum_dispatch(Mapper)]
-pub trait Clocked {
+pub trait Reset {
+    fn reset(&mut self, _kind: Kind) {}
+}
+
+#[enum_dispatch(Mapper)]
+pub trait Clock {
     fn clock(&mut self) -> usize {
         0
     }
+    fn clock_to(&mut self, _clocks: u64) {}
 }
 
 #[macro_export]
@@ -165,7 +167,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::{
-        common::{NesRegion, Powered},
+        common::{Kind, NesRegion, Reset},
         control_deck::ControlDeck,
         input::{GamepadBtn, GamepadSlot},
         mapper::{Mapper, MapperRevision},
@@ -267,8 +269,8 @@ pub(crate) mod tests {
             log::debug!("{:?}", action);
             match action {
                 Action::Nes(state) => match state {
-                    NesState::Reset => deck.reset(),
-                    NesState::PowerCycle => deck.power_cycle(),
+                    NesState::SoftReset => deck.reset(Kind::Soft),
+                    NesState::HardReset => deck.reset(Kind::Hard),
                     NesState::MapperRevision(board) => match board {
                         MapperRevision::Mmc3(revision) => {
                             if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {

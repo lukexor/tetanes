@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
 };
@@ -58,5 +58,5 @@ impl MapWrite for Cnrom {
 }
 
 impl Mapped for Cnrom {}
-impl Clocked for Cnrom {}
-impl Powered for Cnrom {}
+impl Clock for Cnrom {}
+impl Reset for Cnrom {}

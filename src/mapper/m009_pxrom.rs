@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Kind, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring},
     memory::MemoryBanks,
 };
@@ -126,12 +126,12 @@ impl MapWrite for Pxrom {
     }
 }
 
-impl Powered for Pxrom {
-    fn reset(&mut self) {
+impl Reset for Pxrom {
+    fn reset(&mut self, _kind: Kind) {
         self.latch = [0x00; 2];
         self.latch_banks = [0x00; 4];
         self.update_banks();
     }
 }
 
-impl Clocked for Pxrom {}
+impl Clock for Pxrom {}

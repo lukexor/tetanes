@@ -1,5 +1,5 @@
 use super::{LengthCounter, LinearCounter};
-use crate::common::{Clocked, Powered};
+use crate::common::{Clock, Kind, Reset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +81,7 @@ impl Triangle {
     }
 }
 
-impl Clocked for Triangle {
+impl Clock for Triangle {
     fn clock(&mut self) -> usize {
         self.ultrasonic = false;
         if self.length.counter > 0 && self.freq_timer < 2 && self.freq_counter == 0 {
@@ -104,8 +104,8 @@ impl Clocked for Triangle {
     }
 }
 
-impl Powered for Triangle {
-    fn reset(&mut self) {
+impl Reset for Triangle {
+    fn reset(&mut self, _kind: Kind) {
         *self = Self::new();
     }
 }

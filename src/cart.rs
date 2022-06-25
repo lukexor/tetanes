@@ -1,7 +1,7 @@
 //! Handles reading NES Cart headers and ROMs
 
 use crate::{
-    common::{Clocked, NesRegion, Powered},
+    common::{Clock, Kind, NesRegion, Reset},
     mapper::{
         m001_sxrom::Mmc1Revision, m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Cnrom, Empty, Exrom,
         Gxrom, MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Nrom, Pxrom, Sxrom,
@@ -390,18 +390,15 @@ impl MemWrite for Cart {
     }
 }
 
-impl Clocked for Cart {
+impl Clock for Cart {
     fn clock(&mut self) -> usize {
         self.mapper.clock()
     }
 }
 
-impl Powered for Cart {
-    fn reset(&mut self) {
-        self.mapper.reset();
-    }
-    fn power_cycle(&mut self) {
-        self.mapper.power_cycle();
+impl Reset for Cart {
+    fn reset(&mut self, kind: Kind) {
+        self.mapper.reset(kind);
     }
 }
 

@@ -5,7 +5,7 @@
 use crate::{
     apu::pulse::OutputFreq,
     cart::Cart,
-    common::{Clocked, NesRegion, Powered},
+    common::{Clock, Kind, NesRegion, Reset},
     cpu::Cpu,
     mapper::Mapper,
     memory::{MemRead, MemWrite},
@@ -296,7 +296,7 @@ impl Apu {
     }
 }
 
-impl Clocked for Apu {
+impl Clock for Apu {
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {
@@ -364,23 +364,18 @@ impl MemWrite for Apu {
     }
 }
 
-impl Powered for Apu {
-    fn reset(&mut self) {
+impl Reset for Apu {
+    fn reset(&mut self, kind: Kind) {
         self.cycle = 0;
         self.samples.clear();
         self.irq_pending = false;
         self.irq_disabled = false;
-        self.frame_counter.reset();
-        self.pulse1.reset();
-        self.pulse2.reset();
-        self.triangle.reset();
-        self.noise.reset();
-        self.dmc.reset();
-    }
-
-    fn power_cycle(&mut self) {
-        self.frame_counter.power_cycle();
-        self.reset();
+        self.frame_counter.reset(kind);
+        self.pulse1.reset(kind);
+        self.pulse2.reset(kind);
+        self.triangle.reset(kind);
+        self.noise.reset(kind);
+        self.dmc.reset(kind);
     }
 }
 
@@ -449,7 +444,7 @@ impl LengthCounter {
     }
 }
 
-impl Clocked for LengthCounter {
+impl Clock for LengthCounter {
     #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled && self.counter > 0 {

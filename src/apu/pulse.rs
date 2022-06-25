@@ -1,5 +1,5 @@
 use super::{envelope::Envelope, LengthCounter, Sweep};
-use crate::common::{Clocked, Powered};
+use crate::common::{Clock, Kind, Reset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
@@ -157,7 +157,7 @@ impl Pulse {
     }
 }
 
-impl Clocked for Pulse {
+impl Clock for Pulse {
     fn clock(&mut self) -> usize {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;
@@ -169,8 +169,8 @@ impl Clocked for Pulse {
     }
 }
 
-impl Powered for Pulse {
-    fn reset(&mut self) {
+impl Reset for Pulse {
+    fn reset(&mut self, _kind: Kind) {
         *self = Self::new(self.channel, OutputFreq::Default);
     }
 }

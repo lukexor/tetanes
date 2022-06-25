@@ -2,7 +2,7 @@ use crate::{
     apu::{Apu, AudioChannel},
     bus::Bus,
     cart::Cart,
-    common::{Clocked, NesRegion, Powered},
+    common::{Clock, Kind, NesRegion, Reset},
     cpu::{instr::Instr, Cpu},
     input::{Gamepad, GamepadSlot},
     memory::RamState,
@@ -50,7 +50,7 @@ impl ControlDeck {
         let cart = Cart::from_rom(name, rom, self.ram_state)?;
         self.set_nes_region(cart.nes_region);
         self.cpu.bus.load_cart(cart);
-        self.power_cycle();
+        self.reset(Kind::Hard);
         Ok(())
     }
 
@@ -382,7 +382,7 @@ impl Default for ControlDeck {
     }
 }
 
-impl Clocked for ControlDeck {
+impl Clock for ControlDeck {
     /// Steps the control deck a single clock cycle.
     fn clock(&mut self) -> usize {
         for zapper in &mut self.cpu.bus.input.zappers {
@@ -404,28 +404,10 @@ impl Clocked for ControlDeck {
     }
 }
 
-impl Powered for ControlDeck {
-    /// Powers on the console
-    fn power_on(&mut self) {
-        self.cpu.power_on();
-        self.running = true;
-    }
-
-    /// Powers off the console
-    fn power_off(&mut self) {
-        self.cpu.power_off();
-        self.running = false;
-    }
-
-    /// Soft-resets the console
-    fn reset(&mut self) {
-        self.cpu.reset();
-        self.running = true;
-    }
-
-    /// Hard-resets the console
-    fn power_cycle(&mut self) {
-        self.cpu.power_cycle();
+impl Reset for ControlDeck {
+    /// Resets the console
+    fn reset(&mut self, kind: Kind) {
+        self.cpu.reset(kind);
         self.running = true;
     }
 }

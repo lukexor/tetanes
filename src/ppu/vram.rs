@@ -1,6 +1,6 @@
 use crate::{
     cart::Cart,
-    common::Powered,
+    common::{Kind, Reset},
     mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
 };
@@ -161,13 +161,9 @@ impl MemWrite for Vram {
     }
 }
 
-impl Powered for Vram {
-    fn reset(&mut self) {
+impl Reset for Vram {
+    fn reset(&mut self, _kind: Kind) {
         self.buffer = 0;
-    }
-
-    fn power_cycle(&mut self) {
-        self.reset();
     }
 }
 

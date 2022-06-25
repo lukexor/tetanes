@@ -1,5 +1,5 @@
 use crate::{
-    common::{config_dir, Clocked},
+    common::{config_dir, Clock},
     cpu::Cpu,
     nes::{
         event::ActionEvent,

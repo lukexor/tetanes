@@ -10,7 +10,7 @@ use crate::{
         PULSE_TABLE, PULSE_TABLE_SIZE,
     },
     cart::Cart,
-    common::{Clocked, NesRegion, Powered},
+    common::{Clock, Kind, NesRegion, Reset},
     cpu::Cpu,
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
@@ -887,7 +887,7 @@ impl MapWrite for Exrom {
     }
 }
 
-impl Clocked for Exrom {
+impl Clock for Exrom {
     fn clock(&mut self) -> usize {
         if self.ppu_status.reading {
             self.ppu_status.idle = 0;
@@ -919,8 +919,8 @@ impl Clocked for Exrom {
     }
 }
 
-impl Powered for Exrom {
-    fn reset(&mut self) {
+impl Reset for Exrom {
+    fn reset(&mut self, _kind: Kind) {
         self.regs.prg_mode = PrgMode::Bank8k;
         self.regs.chr_mode = ChrMode::Bank1k;
     }

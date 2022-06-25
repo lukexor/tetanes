@@ -1,5 +1,5 @@
 use crate::{
-    common::Powered,
+    common::{Kind, Reset},
     ppu::{
         vram::{SYSTEM_PALETTE, SYSTEM_PALETTE_SIZE},
         RENDER_CHANNELS, RENDER_HEIGHT, RENDER_SIZE, RENDER_WIDTH,
@@ -48,7 +48,7 @@ impl Frame {
             back_buffer: vec![0; (RENDER_WIDTH * RENDER_HEIGHT) as usize],
             output_buffer: vec![0; RENDER_SIZE],
         };
-        frame.reset();
+        frame.reset(Kind::Hard);
         frame
     }
 
@@ -129,8 +129,8 @@ impl Frame {
     }
 }
 
-impl Powered for Frame {
-    fn reset(&mut self) {
+impl Reset for Frame {
+    fn reset(&mut self, _kind: Kind) {
         self.num = 0;
         self.front_buffer.fill(0);
         self.back_buffer.fill(0);
@@ -146,9 +146,6 @@ impl Powered for Frame {
                 *p = 255;
             }
         }
-    }
-    fn power_cycle(&mut self) {
-        self.reset();
     }
 }
 

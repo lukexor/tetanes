@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Kind, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring},
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
 };
@@ -309,18 +309,15 @@ impl MapWrite for Txrom {
     }
 }
 
-impl Powered for Txrom {
-    fn reset(&mut self) {
+impl Reset for Txrom {
+    fn reset(&mut self, _kind: Kind) {
         self.irq_pending = false;
         self.regs = TxRegs::new();
         self.update_banks();
     }
-    fn power_cycle(&mut self) {
-        self.reset();
-    }
 }
 
-impl Clocked for Txrom {}
+impl Clock for Txrom {}
 
 #[cfg(test)]
 mod tests {

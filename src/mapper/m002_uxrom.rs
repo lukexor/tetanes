@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
 };
@@ -62,5 +62,5 @@ impl MapWrite for Uxrom {
 }
 
 impl Mapped for Uxrom {}
-impl Clocked for Uxrom {}
-impl Powered for Uxrom {}
+impl Clock for Uxrom {}
+impl Reset for Uxrom {}

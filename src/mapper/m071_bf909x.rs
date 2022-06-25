@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
     ppu::Mirroring,
@@ -97,5 +97,5 @@ impl MapWrite for Bf909x {
     }
 }
 
-impl Clocked for Bf909x {}
-impl Powered for Bf909x {}
+impl Clock for Bf909x {}
+impl Reset for Bf909x {}

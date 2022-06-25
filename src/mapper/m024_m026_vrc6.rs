@@ -5,7 +5,7 @@
 use crate::{
     apu::{PULSE_TABLE, PULSE_TABLE_SIZE},
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Kind, Reset},
     mapper::{vrc_irq::VrcIrq, MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
     ppu::Mirroring,
@@ -343,7 +343,7 @@ impl MapWrite for Vrc6 {
     }
 }
 
-impl Clocked for Vrc6 {
+impl Clock for Vrc6 {
     fn clock(&mut self) -> usize {
         self.irq.clock();
         self.audio.clock();
@@ -351,10 +351,10 @@ impl Clocked for Vrc6 {
     }
 }
 
-impl Powered for Vrc6 {
-    fn reset(&mut self) {
-        self.irq.reset();
-        self.audio.reset();
+impl Reset for Vrc6 {
+    fn reset(&mut self, kind: Kind) {
+        self.irq.reset(kind);
+        self.audio.reset(kind);
     }
 }
 
@@ -418,7 +418,7 @@ impl Default for Vrc6Audio {
     }
 }
 
-impl Clocked for Vrc6Audio {
+impl Clock for Vrc6Audio {
     fn clock(&mut self) -> usize {
         if !self.halt {
             self.pulse1.clock();
@@ -431,8 +431,8 @@ impl Clocked for Vrc6Audio {
     }
 }
 
-impl Powered for Vrc6Audio {
-    fn reset(&mut self) {
+impl Reset for Vrc6Audio {
+    fn reset(&mut self, _kind: Kind) {
         self.last_out = 0.0;
         self.halt = false;
     }
@@ -505,7 +505,7 @@ impl Default for Vrc6Pulse {
     }
 }
 
-impl Clocked for Vrc6Pulse {
+impl Clock for Vrc6Pulse {
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;
@@ -583,7 +583,7 @@ impl Default for Vrc6Saw {
     }
 }
 
-impl Clocked for Vrc6Saw {
+impl Clock for Vrc6Saw {
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;

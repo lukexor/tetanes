@@ -1,7 +1,7 @@
 //! NES Controller Inputs
 
 use crate::{
-    common::{Clocked, NesRegion, Powered},
+    common::{Clock, Kind, NesRegion, Reset},
     cpu::Cpu,
     memory::MemWrite,
     ppu::{Ppu, RENDER_HEIGHT, RENDER_WIDTH},
@@ -150,9 +150,9 @@ impl Gamepad {
     }
 }
 
-impl Powered for Gamepad {
+impl Reset for Gamepad {
     #[inline]
-    fn reset(&mut self) {
+    fn reset(&mut self, _kind: Kind) {
         self.strobe = STROBE_A;
     }
 }
@@ -191,9 +191,9 @@ impl Signature {
     }
 }
 
-impl Powered for Signature {
+impl Reset for Signature {
     #[inline]
-    fn reset(&mut self) {
+    fn reset(&mut self, _kind: Kind) {
         self.strobe = 0x00;
     }
 }
@@ -275,7 +275,7 @@ impl Zapper {
     }
 }
 
-impl Clocked for Zapper {
+impl Clock for Zapper {
     fn clock(&mut self) -> usize {
         if self.triggered > 0.0 {
             self.triggered -= 1.0;
@@ -321,7 +321,7 @@ impl Input {
                     self.zappers[0].read(ppu)
                 } else {
                     if self.shift_strobe == 0x01 {
-                        self.reset();
+                        self.reset(Kind::Soft);
                     }
                     // Read $4016 D0 8x for controller #1.
                     // Read $4016 D0 8x for controller #3.
@@ -346,7 +346,7 @@ impl Input {
                     self.zappers[1].read(ppu)
                 } else {
                     if self.shift_strobe == 0x01 {
-                        self.reset();
+                        self.reset(Kind::Soft);
                     }
                     // Read $4017 D0 8x for controller #2.
                     // Read $4017 D0 8x for controller #4.
@@ -422,19 +422,19 @@ impl MemWrite for Input {
             let prev_strobe = self.shift_strobe;
             self.shift_strobe = val & 0x01;
             if prev_strobe == 0x01 && self.shift_strobe == 0x00 {
-                self.reset();
+                self.reset(Kind::Soft);
             }
         }
     }
 }
 
-impl Powered for Input {
-    fn reset(&mut self) {
+impl Reset for Input {
+    fn reset(&mut self, kind: Kind) {
         for gamepad in &mut self.gamepads {
-            gamepad.reset();
+            gamepad.reset(kind);
         }
         for signature in &mut self.signatures {
-            signature.reset();
+            signature.reset(kind);
         }
     }
 }

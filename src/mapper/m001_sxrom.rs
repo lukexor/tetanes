@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Kind, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
     ppu::Mirroring,
@@ -270,7 +270,7 @@ impl MapWrite for Sxrom {
     }
 }
 
-impl Clocked for Sxrom {
+impl Clock for Sxrom {
     fn clock(&mut self) -> usize {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
@@ -279,16 +279,15 @@ impl Clocked for Sxrom {
     }
 }
 
-impl Powered for Sxrom {
-    fn reset(&mut self) {
+impl Reset for Sxrom {
+    fn reset(&mut self, kind: Kind) {
         self.regs.shift_register = DEFAULT_SHIFT_REGISTER;
         self.regs.control = DEFAULT_PRG_MODE;
         self.regs.prg = PRG_RAM_DISABLED;
         self.update_banks(0x0000);
-    }
-    fn power_cycle(&mut self) {
-        self.regs.write_just_occurred = 0;
-        self.reset();
+        if kind == Kind::Hard {
+            self.regs.write_just_occurred = 0;
+        }
     }
 }
 

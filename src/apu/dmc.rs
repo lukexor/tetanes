@@ -1,4 +1,4 @@
-use crate::common::{Clocked, NesRegion, Powered};
+use crate::common::{Clock, Kind, NesRegion, Reset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -151,7 +151,7 @@ impl Dmc {
     }
 }
 
-impl Clocked for Dmc {
+impl Clock for Dmc {
     fn clock(&mut self) -> usize {
         // Because APU is only clocked every other CPU cycle
         if self.freq_counter >= 2 {
@@ -189,17 +189,25 @@ impl Clocked for Dmc {
     }
 }
 
-impl Powered for Dmc {
-    fn reset(&mut self) {
+impl Reset for Dmc {
+    fn reset(&mut self, kind: Kind) {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
         self.freq_timer = Self::freq_timer(self.nes_region, 0);
         self.freq_counter = self.freq_timer;
-        self.addr = 0x0000;
+        match kind {
+            Kind::Soft => {
+                self.addr = 0x0000;
+                self.length_load = 0x0000;
+            }
+            Kind::Hard => {
+                self.addr = 0xC000;
+                self.length_load = 0x0001;
+            }
+        }
         self.addr_load = 0x0000;
         self.length = 0x0000;
-        self.length_load = 0x0000;
         self.sample_buffer = 0x00;
         self.sample_buffer_empty = true;
         self.dma_pending = false;
@@ -208,12 +216,6 @@ impl Powered for Dmc {
         self.output_bits = 0x00;
         self.output_shift = 0x00;
         self.output_silent = true;
-    }
-
-    fn power_cycle(&mut self) {
-        self.reset();
-        self.addr = 0xC000;
-        self.length_load = 0x0001;
     }
 }
 

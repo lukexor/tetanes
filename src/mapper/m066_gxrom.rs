@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
 };
@@ -62,5 +62,5 @@ impl MapWrite for Gxrom {
 }
 
 impl Mapped for Gxrom {}
-impl Clocked for Gxrom {}
-impl Powered for Gxrom {}
+impl Clock for Gxrom {}
+impl Reset for Gxrom {}

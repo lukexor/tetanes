@@ -1,6 +1,6 @@
 use crate::{
     apu::AudioChannel,
-    common::{NesRegion, Powered},
+    common::{Kind, NesRegion, Reset},
     cpu::instr::Operation,
     input::{GamepadBtn, GamepadSlot},
     mapper::MapperRevision,
@@ -209,8 +209,8 @@ pub(crate) enum Action {
 pub(crate) enum NesState {
     Quit,
     TogglePause,
-    Reset,
-    PowerCycle,
+    SoftReset,
+    HardReset,
     MapperRevision(MapperRevision),
 }
 
@@ -585,17 +585,17 @@ impl Nes {
                 s.quit();
             }
             NesState::TogglePause => self.toggle_pause(s)?,
-            NesState::Reset => {
+            NesState::SoftReset => {
                 self.error = None;
-                self.control_deck.reset();
+                self.control_deck.reset(Kind::Soft);
                 self.add_message("Reset");
                 if self.debugger.is_some() && self.mode != Mode::Paused {
                     self.mode = Mode::Paused;
                 }
             }
-            NesState::PowerCycle => {
+            NesState::HardReset => {
                 self.error = None;
-                self.control_deck.power_cycle();
+                self.control_deck.reset(Kind::Hard);
                 self.add_message("Power Cycled");
                 if self.debugger.is_some() {
                     self.mode = Mode::Paused;

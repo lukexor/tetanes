@@ -1,7 +1,7 @@
 use crate::{
     apu::Apu,
     cart::Cart,
-    common::{NesRegion, Powered},
+    common::{Kind, NesRegion, Reset},
     hashmap,
     input::Input,
     memory::{MemRead, MemWrite, Memory, RamState},
@@ -218,16 +218,11 @@ impl MemWrite for Bus {
     }
 }
 
-impl Powered for Bus {
-    fn reset(&mut self) {
-        self.apu.reset();
-        self.ppu.reset();
-        self.cart.reset();
-    }
-    fn power_cycle(&mut self) {
-        self.apu.power_cycle();
-        self.ppu.power_cycle();
-        self.cart.power_cycle();
+impl Reset for Bus {
+    fn reset(&mut self, kind: Kind) {
+        self.apu.reset(kind);
+        self.ppu.reset(kind);
+        self.cart.reset(kind);
     }
 }
 

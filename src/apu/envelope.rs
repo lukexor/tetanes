@@ -1,4 +1,4 @@
-use crate::common::Clocked;
+use crate::common::Clock;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +33,7 @@ impl Envelope {
     }
 }
 
-impl Clocked for Envelope {
+impl Clock for Envelope {
     #[inline]
     fn clock(&mut self) -> usize {
         if self.reset {

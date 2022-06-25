@@ -1,5 +1,5 @@
 use super::{envelope::Envelope, LengthCounter};
-use crate::common::{Clocked, NesRegion, Powered};
+use crate::common::{Clock, Kind, NesRegion, Reset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
@@ -109,7 +109,7 @@ impl Noise {
     }
 }
 
-impl Clocked for Noise {
+impl Clock for Noise {
     fn clock(&mut self) -> usize {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;
@@ -129,8 +129,8 @@ impl Clocked for Noise {
     }
 }
 
-impl Powered for Noise {
-    fn reset(&mut self) {
+impl Reset for Noise {
+    fn reset(&mut self, _kind: Kind) {
         *self = Self::new(NesRegion::default());
     }
 }

@@ -47,14 +47,17 @@ pub mod cart;
 pub mod debugger;
 #[macro_use]
 pub mod common;
+pub mod bus2;
 pub mod control_deck;
 pub mod cpu;
+pub mod genie;
 pub mod input;
 pub mod mapper;
 pub mod memory;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod nes;
 pub mod ppu;
+pub mod ppu2;
 
 pub type NesError = anyhow::Error;
 pub type NesResult<T> = anyhow::Result<T, NesError>;

@@ -2,7 +2,6 @@
 
 use crate::{
     audio::Audio,
-    common::Powered,
     control_deck::ControlDeck,
     input::GamepadSlot,
     memory::RamState,
@@ -441,7 +440,6 @@ impl AppState for Nes {
             }
         }
         self.save_config();
-        self.control_deck.power_off();
         Ok(())
     }
 

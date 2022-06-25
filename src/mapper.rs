@@ -3,7 +3,7 @@
 //! <http://wiki.nesdev.com/w/index.php/Mapper>
 
 use crate::{
-    common::{Clocked, Powered},
+    common::{Clock, Kind, Reset},
     ppu::Mirroring,
 };
 use enum_dispatch::enum_dispatch;
@@ -151,5 +151,5 @@ impl MapWrite for Empty {
 }
 
 impl Mapped for Empty {}
-impl Clocked for Empty {}
-impl Powered for Empty {}
+impl Clock for Empty {}
+impl Reset for Empty {}

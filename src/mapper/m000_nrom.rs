@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
 };
 use serde::{Deserialize, Serialize};
@@ -66,5 +66,5 @@ impl MapWrite for Nrom {
 }
 
 impl Mapped for Nrom {}
-impl Clocked for Nrom {}
-impl Powered for Nrom {}
+impl Clock for Nrom {}
+impl Reset for Nrom {}

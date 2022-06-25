@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, NesRegion, Powered},
+    common::{Clock, Kind, NesRegion, Reset},
     mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
     ppu::vram::ATTR_OFFSET,
@@ -1111,17 +1111,9 @@ impl Ppu {
         // Clocks when A12 changes to 1 via $2007 read/write
         self.vram.cart_mut().ppu_addr(self.regs.v);
     }
-
-    #[inline]
-    pub fn run(&mut self, clock: u64) {
-        while self.master_clock + self.clock_divider <= clock {
-            self.clock();
-            self.master_clock += self.clock_divider;
-        }
-    }
 }
 
-impl Clocked for Ppu {
+impl Clock for Ppu {
     // http://wiki.nesdev.com/w/index.php/PPU_rendering
     fn clock(&mut self) -> usize {
         // Clear open bus roughly once every frame
@@ -1165,6 +1157,14 @@ impl Clocked for Ppu {
         }
 
         1
+    }
+
+    #[inline]
+    pub fn clock_to(&mut self, clock: u64) {
+        while self.master_clock + self.clock_divider <= clock {
+            self.clock();
+            self.master_clock += self.clock_divider;
+        }
     }
 }
 
@@ -1218,8 +1218,8 @@ impl MemWrite for Ppu {
     }
 }
 
-impl Powered for Ppu {
-    fn reset(&mut self) {
+impl Reset for Ppu {
+    fn reset(&mut self, kind: Kind) {
         self.cycle = 0;
         self.cycle_count = 0;
         self.scanline = 0;
@@ -1227,10 +1227,15 @@ impl Powered for Ppu {
         self.prevent_vbl = false;
         self.oam_dma = false;
         self.oam_dma_offset = 0x00;
-        self.vram.reset();
+        self.vram.reset(kind);
         self.regs.w = false;
         self.regs.set_sprite0_hit(false);
         self.regs.set_sprite_overflow(false);
+        if kind == Kind::Hard {
+            self.oamaddr_lo = 0x00;
+            self.oamaddr_hi = 0x00;
+            self.oamaddr = 0x00;
+        }
         self.secondary_oamaddr = 0x00;
         self.oam_fetch = 0xFF;
         self.oam_eval_done = false;
@@ -1240,7 +1245,7 @@ impl Powered for Ppu {
         self.sprite0_visible = false;
         self.sprite_count = 0;
         self.sprites = [Sprite::new(); 8];
-        self.frame.reset();
+        self.frame.reset(kind);
         self.regs.write_ctrl(0);
         self.regs.write_mask(0);
         // PPUSTATUS unchanged on reset
@@ -1249,12 +1254,6 @@ impl Powered for Ppu {
         // https://wiki.nesdev.org/w/index.php?title=PPU_power_up_state
         // However, it results in glitched sprites in some games
         self.regs.write_addr(0);
-    }
-    fn power_cycle(&mut self) {
-        self.oamaddr_lo = 0x00;
-        self.oamaddr_hi = 0x00;
-        self.oamaddr = 0x00;
-        self.reset();
     }
 }
 

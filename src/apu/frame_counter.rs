@@ -1,4 +1,4 @@
-use crate::common::{Clocked, NesRegion, Powered};
+use crate::common::{Clock, Kind, NesRegion, Reset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +97,7 @@ impl FrameCounter {
     }
 }
 
-impl Clocked for FrameCounter {
+impl Clock for FrameCounter {
     fn clock(&mut self) -> usize {
         if self.cycles > 0 {
             self.cycles -= 1;
@@ -116,8 +116,11 @@ impl Clocked for FrameCounter {
     }
 }
 
-impl Powered for FrameCounter {
-    fn reset(&mut self) {
+impl Reset for FrameCounter {
+    fn reset(&mut self, kind: Kind) {
+        if kind == Kind::Hard {
+            self.mode = FcMode::Step4;
+        }
         self.step = 0;
         self.cycles = self.step_cycles[self.mode as usize][self.step];
         // After reset, APU acts as if $4017 was written 9-12 clocks before first instruction,
@@ -127,10 +130,5 @@ impl Powered for FrameCounter {
             FcMode::Step5 => 0x80,
         });
         self.write_delay = 3;
-    }
-
-    fn power_cycle(&mut self) {
-        self.mode = FcMode::Step4;
-        self.reset();
     }
 }

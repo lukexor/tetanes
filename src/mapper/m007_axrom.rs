@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clocked, Powered},
+    common::{Clock, Reset},
     mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
     memory::MemoryBanks,
     ppu::Mirroring,
@@ -73,5 +73,5 @@ impl MapWrite for Axrom {
     }
 }
 
-impl Clocked for Axrom {}
-impl Powered for Axrom {}
+impl Clock for Axrom {}
+impl Reset for Axrom {}

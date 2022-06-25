@@ -4,7 +4,7 @@
 
 use crate::{
     bus::Bus,
-    common::{Clocked, NesRegion, Powered},
+    common::{Clock, Kind, NesRegion, Reset},
     mapper::Mapped,
     memory::{MemRead, MemWrite},
 };
@@ -172,6 +172,7 @@ impl Cpu {
             debugging: false,
         };
         cpu.set_nes_region(nes_region);
+        cpu.reset(Kind::Hard);
         cpu
     }
 
@@ -384,7 +385,7 @@ impl Cpu {
 
         #[cfg(feature = "cycle-accurate")]
         {
-            self.bus.ppu.run(self.master_clock - PPU_OFFSET);
+            self.bus.ppu.clock_to(self.master_clock - PPU_OFFSET);
             self.bus.cart.clock();
             self.bus.apu.clock();
         }
@@ -794,7 +795,7 @@ impl Cpu {
     }
 }
 
-impl Clocked for Cpu {
+impl Clock for Cpu {
     /// Runs the CPU one instruction
     fn clock(&mut self) -> usize {
         let start_cycle = self.cycle;
@@ -952,9 +953,30 @@ impl MemWrite for Cpu {
     }
 }
 
-impl Powered for Cpu {
-    /// Powers on the CPU
-    fn power_on(&mut self) {
+impl Reset for Cpu {
+    /// Resets the CPU
+    ///
+    /// Updates the PC, SP, and Status values to defined constants.
+    ///
+    /// These operations take the CPU 7 cycles.
+    fn reset(&mut self, kind: Kind) {
+        match kind {
+            Kind::Soft => {
+                self.status.set(Status::I, true);
+                // Reset pushes to the stack similar to IRQ, but since the read bit is set, nothing is
+                // written except the SP being decremented
+                self.sp = self.sp.wrapping_sub(0x03);
+            }
+            Kind::Hard => {
+                self.acc = 0x00;
+                self.x = 0x00;
+                self.y = 0x00;
+                self.status = POWER_ON_STATUS;
+                self.sp = POWER_ON_SP;
+            }
+        }
+
+        self.bus.reset(kind);
         self.cycle = 0;
         self.master_clock = 0;
         self.irq = Irq::empty();
@@ -977,35 +999,6 @@ impl Powered for Cpu {
             self.start_cycle(Cycle::Read);
             self.end_cycle(Cycle::Read);
         }
-    }
-
-    /// Resets the CPU
-    ///
-    /// Updates the PC, SP, and Status values to defined constants.
-    ///
-    /// These operations take the CPU 7 cycles.
-    fn reset(&mut self) {
-        self.bus.reset();
-        self.status.set(Status::I, true);
-        // Reset pushes to the stack similar to IRQ, but since the read bit is set, nothing is
-        // written except the SP being decremented
-        self.sp = self.sp.wrapping_sub(0x03);
-        self.power_on();
-    }
-
-    /// Power cycle the CPU
-    ///
-    /// Updates all status as if powered on for the first time
-    ///
-    /// These operations take the CPU 7 cycles.
-    fn power_cycle(&mut self) {
-        self.bus.power_cycle();
-        self.acc = 0x00;
-        self.x = 0x00;
-        self.y = 0x00;
-        self.status = POWER_ON_STATUS;
-        self.sp = POWER_ON_SP;
-        self.power_on();
     }
 }
 
@@ -1048,7 +1041,6 @@ mod tests {
     fn cycle_timing() {
         use super::*;
         let mut cpu = Cpu::new(NesRegion::Ntsc, Bus::default());
-        cpu.power_on();
         cpu.clock();
 
         assert_eq!(cpu.cycle, 15, "cpu after power + one clock");
