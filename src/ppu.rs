@@ -1160,7 +1160,7 @@ impl Clock for Ppu {
     }
 
     #[inline]
-    pub fn clock_to(&mut self, clock: u64) {
+    fn clock_to(&mut self, clock: u64) {
         while self.master_clock + self.clock_divider <= clock {
             self.clock();
             self.master_clock += self.clock_divider;

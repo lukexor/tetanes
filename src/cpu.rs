@@ -401,7 +401,7 @@ impl Cpu {
 
         #[cfg(feature = "cycle-accurate")]
         {
-            self.bus.ppu.run(self.master_clock - PPU_OFFSET);
+            self.bus.ppu.clock_to(self.master_clock - PPU_OFFSET);
         }
 
         self.handle_interrupts();
