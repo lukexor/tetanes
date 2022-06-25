@@ -253,11 +253,13 @@ impl Cpu {
             }
             IND => {
                 let abs_addr = self.peek_word(addr);
-                let val = if abs_addr & 0x00FF == 0x00FF {
-                    (u16::from(self.peek(abs_addr & 0xFF00)) << 8) | u16::from(self.peek(abs_addr))
+                let lo = self.peek(abs_addr);
+                let hi = if abs_addr & 0x00FF == 0x00FF {
+                    self.peek(abs_addr & 0xFF00)
                 } else {
-                    (u16::from(self.peek(abs_addr + 1)) << 8) | u16::from(self.peek(abs_addr))
+                    self.peek(abs_addr + 1)
                 };
+                let val = u16::from_le_bytes([lo, hi]);
                 (Some(abs_addr), Some(val))
             }
             IDX => {
@@ -519,16 +521,15 @@ impl Cpu {
     #[must_use]
     #[inline]
     pub fn peek_stack_word(&self) -> u16 {
-        let lo = u16::from(self.peek(SP_BASE | u16::from(self.sp)));
-        let hi = u16::from(self.peek(SP_BASE | u16::from(self.sp.wrapping_add(1))));
-        hi << 8 | lo
+        let lo = self.peek(SP_BASE | u16::from(self.sp));
+        let hi = self.peek(SP_BASE | u16::from(self.sp.wrapping_add(1)));
+        u16::from_le_bytes([lo, hi])
     }
 
     // Push a word (two bytes) to the stack
     #[inline]
     fn push_word(&mut self, val: u16) {
-        let lo = (val & 0xFF) as u8;
-        let hi = (val >> 8) as u8;
+        let [lo, hi] = val.to_le_bytes();
         self.push(hi);
         self.push(lo);
     }
@@ -536,9 +537,9 @@ impl Cpu {
     // Pull a word (two bytes) from the stack
     #[inline]
     fn pop_word(&mut self) -> u16 {
-        let lo = u16::from(self.pop());
-        let hi = u16::from(self.pop());
-        hi << 8 | lo
+        let lo = self.pop();
+        let hi = self.pop();
+        u16::from_le_bytes([lo, hi])
     }
 
     // Memory accesses
@@ -601,45 +602,45 @@ impl Cpu {
     #[must_use]
     #[inline]
     fn read_instr_word(&mut self) -> u16 {
-        let lo = u16::from(self.read_instr_byte());
-        let hi = u16::from(self.read_instr_byte());
-        hi << 8 | lo
+        let lo = self.read_instr_byte();
+        let hi = self.read_instr_byte();
+        u16::from_le_bytes([lo, hi])
     }
 
     // Read a 16-bit word.
     #[must_use]
     #[inline]
     pub fn read_word(&mut self, addr: u16) -> u16 {
-        let lo = u16::from(self.read(addr));
-        let hi = u16::from(self.read(addr.wrapping_add(1)));
-        (hi << 8) | lo
+        let lo = self.read(addr);
+        let hi = self.read(addr.wrapping_add(1));
+        u16::from_le_bytes([lo, hi])
     }
 
     // Peek a 16-bit word without side effects.
     #[must_use]
     #[inline]
     pub fn peek_word(&self, addr: u16) -> u16 {
-        let lo = u16::from(self.peek(addr));
-        let hi = u16::from(self.peek(addr.wrapping_add(1)));
-        (hi << 8) | lo
+        let lo = self.peek(addr);
+        let hi = self.peek(addr.wrapping_add(1));
+        u16::from_le_bytes([lo, hi])
     }
 
     // Like read_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
     #[inline]
     fn read_word_zp(&mut self, addr: u8) -> u16 {
-        let lo = u16::from(self.read(addr.into()));
-        let hi = u16::from(self.read(addr.wrapping_add(1).into()));
-        (hi << 8) | lo
+        let lo = self.read(addr.into());
+        let hi = self.read(addr.wrapping_add(1).into());
+        u16::from_le_bytes([lo, hi])
     }
 
     // Like peek_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
     #[inline]
     fn peek_word_zp(&self, addr: u8) -> u16 {
-        let lo = u16::from(self.peek(addr.into()));
-        let hi = u16::from(self.peek(addr.wrapping_add(1).into()));
-        (hi << 8) | lo
+        let lo = self.peek(addr.into());
+        let hi = self.peek(addr.wrapping_add(1).into());
+        u16::from_le_bytes([lo, hi])
     }
 
     #[must_use]
@@ -712,11 +713,13 @@ impl Cpu {
                 bytes.push(self.peek(addr.wrapping_add(1)));
                 let abs_addr = self.peek_word(addr);
                 addr = addr.wrapping_add(2);
-                let val = if abs_addr & 0x00FF == 0x00FF {
-                    (u16::from(self.peek(abs_addr & 0xFF00)) << 8) | u16::from(self.peek(abs_addr))
+                let lo = self.peek(abs_addr);
+                let hi = if abs_addr & 0x00FF == 0x00FF {
+                    self.peek(abs_addr & 0xFF00)
                 } else {
-                    (u16::from(self.peek(abs_addr + 1)) << 8) | u16::from(self.peek(abs_addr))
+                    self.peek(abs_addr + 1)
                 };
+                let val = u16::from_le_bytes([lo, hi]);
                 format!(" (${:04X}) = ${:04X}", abs_addr, val)
             }
             IDX => {
@@ -991,9 +994,9 @@ impl Reset for Cpu {
         self.dummy_read = false;
 
         // Read directly from bus so as to not clock other components during reset
-        let lo = u16::from(self.bus.read(RESET_VECTOR));
-        let hi = u16::from(self.bus.read(RESET_VECTOR + 1));
-        self.pc = (hi << 8) | lo;
+        let lo = self.bus.read(RESET_VECTOR);
+        let hi = self.bus.read(RESET_VECTOR + 1);
+        self.pc = u16::from_le_bytes([lo, hi]);
 
         for _ in 0..8 {
             self.start_cycle(Cycle::Read);

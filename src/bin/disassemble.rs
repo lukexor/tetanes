@@ -63,36 +63,36 @@ pub fn disassemble(pc: &mut usize, rom: &[u8]) -> String {
         ABS => {
             bytes.push(rom[addr]);
             bytes.push(rom[addr.wrapping_add(1)]);
-            let lo = rom[addr] as usize;
-            let hi = rom[addr.wrapping_add(1)] as usize;
-            let abs_addr = (hi << 8) | lo;
+            let lo = rom[addr];
+            let hi = rom[addr.wrapping_add(1)];
+            let abs_addr = u16::from_le_bytes([lo, hi]);
             addr = addr.wrapping_add(2);
             format!("${:04X}", abs_addr)
         }
         ABX => {
             bytes.push(rom[addr]);
             bytes.push(rom[addr.wrapping_add(1)]);
-            let lo = rom[addr] as usize;
-            let hi = rom[addr.wrapping_add(1)] as usize;
-            let abs_addr = (hi << 8) | lo;
+            let lo = rom[addr];
+            let hi = rom[addr.wrapping_add(1)];
+            let abs_addr = u16::from_le_bytes([lo, hi]);
             addr = addr.wrapping_add(2);
             format!("${:04X},X", abs_addr)
         }
         ABY => {
             bytes.push(rom[addr]);
             bytes.push(rom[addr.wrapping_add(1)]);
-            let lo = rom[addr] as usize;
-            let hi = rom[addr.wrapping_add(1)] as usize;
-            let abs_addr = (hi << 8) | lo;
+            let lo = rom[addr];
+            let hi = rom[addr.wrapping_add(1)];
+            let abs_addr = u16::from_le_bytes([lo, hi]);
             addr = addr.wrapping_add(2);
             format!("${:04X},Y", abs_addr)
         }
         IND => {
             bytes.push(rom[addr]);
             bytes.push(rom[addr.wrapping_add(1)]);
-            let lo = rom[addr] as usize;
-            let hi = rom[addr.wrapping_add(1)] as usize;
-            let abs_addr = (hi << 8) | lo;
+            let lo = rom[addr];
+            let hi = rom[addr.wrapping_add(1)];
+            let abs_addr = u16::from_le_bytes([lo, hi]);
             addr = addr.wrapping_add(2);
             format!("(${:04X})", abs_addr)
         }

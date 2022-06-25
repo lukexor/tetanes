@@ -473,7 +473,9 @@ impl Cpu {
         let addr = self.read_instr_word();
         if addr & 0xFF == 0xFF {
             // Simulate bug
-            self.abs_addr = (u16::from(self.read(addr & 0xFF00)) << 8) | u16::from(self.read(addr));
+            let lo = self.read(addr);
+            let hi = self.read(addr & 0xFF00);
+            self.abs_addr = u16::from_le_bytes([lo, hi]);
         } else {
             // Normal behavior
             self.abs_addr = self.read_word(addr);
@@ -1269,7 +1271,7 @@ impl Cpu {
         let hi = (self.abs_addr >> 8) as u8;
         let lo = (self.abs_addr & 0xFF) as u8;
         let val = self.x & hi.wrapping_add(1);
-        self.abs_addr = ((u16::from(self.x) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
+        self.abs_addr = u16::from_le_bytes([lo, self.x & hi.wrapping_add(1)]);
         self.write_fetched(val);
     }
     /// SYA/SHY/SAY: AND Y with the high byte of the target address + 1
@@ -1278,7 +1280,7 @@ impl Cpu {
         let hi = (self.abs_addr >> 8) as u8;
         let lo = (self.abs_addr & 0xFF) as u8;
         let val = self.y & hi.wrapping_add(1);
-        self.abs_addr = ((u16::from(self.y) & u16::from(hi.wrapping_add(1))) << 8) | u16::from(lo);
+        self.abs_addr = u16::from_le_bytes([lo, self.y & hi.wrapping_add(1)]);
         self.write_fetched(val);
     }
     /// RRA: Shortcut for ROR then ADC
