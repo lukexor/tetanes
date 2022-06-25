@@ -231,7 +231,7 @@ pub struct Exrom {
     pub in_split: bool,
     pub split_tile: u16,
     pub last_chr_write: ChrBank,
-    pub nes_region: NesRegion,
+    pub region: NesRegion,
     pub pulse1: Pulse,
     pub pulse2: Pulse,
     pub dmc: Dmc,
@@ -241,7 +241,7 @@ pub struct Exrom {
 }
 
 impl Exrom {
-    pub fn load(cart: &mut Cart, nes_region: NesRegion) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Mapper {
         cart.prg_ram.resize(PRG_RAM_SIZE);
 
         let mut exrom = Self {
@@ -268,10 +268,10 @@ impl Exrom {
             in_split: false,
             split_tile: 0x0000,
             last_chr_write: ChrBank::Spr,
-            nes_region,
+            region: NesRegion::default(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
-            dmc: Dmc::new(nes_region),
+            dmc: Dmc::new(),
             dmc_mode: 0x01, // Default to read mode
             cpu_cycle: 0,
             pulse_timer: 0.0,
@@ -500,6 +500,11 @@ impl Mapped for Exrom {
     #[inline]
     fn ppu_write(&mut self, addr: u16, val: u8) {
         self.ppu_status.write(addr, val);
+    }
+
+    #[inline]
+    fn set_region(&mut self, region: NesRegion) {
+        self.dmc.set_region(region);
     }
 }
 
@@ -913,7 +918,7 @@ impl Clock for Exrom {
             self.pulse1.clock_half_frame();
             self.pulse2.clock_quarter_frame();
             self.pulse2.clock_half_frame();
-            self.pulse_timer = Cpu::clock_rate(self.nes_region) / 240.0;
+            self.pulse_timer = Cpu::region_clock_rate(self.region) / 240.0;
         }
         self.cpu_cycle += 1;
         1
@@ -938,7 +943,7 @@ mod tests {
         for a in 0..4 {
             for b in 0..4 {
                 let mut cart = Cart::new();
-                cart.mapper = Exrom::load(&mut cart, NesRegion::default());
+                cart.mapper = Exrom::load(&mut cart);
 
                 cart.write(0x5102, a);
                 cart.write(0x5103, b);

@@ -20,7 +20,7 @@ const CHR_RAM_SIZE: usize = 8 * 1024;
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Nrom {
-    mirror_prg: bool,
+    mirror_prg_rom: bool,
 }
 
 impl Nrom {
@@ -30,9 +30,8 @@ impl Nrom {
             cart.chr.resize(CHR_RAM_SIZE);
             cart.chr.write_protect(false);
         }
-
         let nrom = Self {
-            mirror_prg: cart.prg_rom.len() <= 0x4000,
+            mirror_prg_rom: cart.prg_rom.len() <= 0x4000,
         };
         nrom.into()
     }
@@ -44,7 +43,7 @@ impl MemMap for Nrom {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr),
             0x6000..=0x7FFF => MappedRead::PrgRam(addr & 0x1FFF),
-            0x8000..=0xFFFF => MappedRead::PrgRom(if self.mirror_prg {
+            0x8000..=0xFFFF => MappedRead::PrgRom(if self.mirror_prg_rom {
                 addr & 0x3FFF
             } else {
                 addr & 0x7FFF

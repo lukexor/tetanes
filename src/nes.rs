@@ -136,7 +136,8 @@ impl NesBuilder {
         config.speed = self.speed.unwrap_or(config.speed);
         config.genie_codes.append(&mut self.genie_codes.clone());
 
-        let mut control_deck = ControlDeck::new(config.nes_region, config.ram_state);
+        let mut control_deck = ControlDeck::new(config.ram_state);
+        control_deck.set_region(config.region);
         for (&input, &action) in config.input_map.iter() {
             if action == Action::ZapperTrigger {
                 if let Input::Mouse((slot, ..))
@@ -229,14 +230,14 @@ impl Nes {
         replay_path: Option<PathBuf>,
         debug: bool,
     ) -> Self {
-        let sample_rate = control_deck.apu().sample_rate();
+        let audio = AudioMixer::new(
+            control_deck.sample_rate(),
+            config.audio_sample_rate / config.speed,
+            config.audio_buffer_size,
+        );
         Self {
             control_deck,
-            audio: AudioMixer::new(
-                sample_rate,
-                config.audio_sample_rate / config.speed,
-                config.audio_buffer_size,
-            ),
+            audio,
             players: HashMap::new(),
             emulation: None,
             debugger: None,

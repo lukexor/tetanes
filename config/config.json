@@ -6,7 +6,7 @@
   "vsync": true,
   "filter": "Ntsc",
   "concurrent_dpad": false,
-  "nes_region": "Ntsc",
+  "region": "Ntsc",
   "ram_state": "Random",
   "save_slot": 1,
   "scale": 3.0,

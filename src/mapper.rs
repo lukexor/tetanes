@@ -3,7 +3,7 @@
 //! <http://wiki.nesdev.com/w/index.php/Mapper>
 
 use crate::{
-    common::{Clock, Kind, Reset},
+    common::{Clock, Kind, NesRegion, Reset},
     ppu::Mirroring,
 };
 use enum_dispatch::enum_dispatch;
@@ -139,6 +139,9 @@ pub trait Mapped {
 
     #[inline]
     fn ppu_write(&mut self, _addr: u16, _val: u8) {}
+
+    #[inline]
+    fn set_region(&mut self, _region: NesRegion) {}
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]

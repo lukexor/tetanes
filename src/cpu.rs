@@ -107,7 +107,7 @@ enum Cycle {
 pub struct Cpu {
     pub cycle: usize, // total number of cycles ran
     pub step: usize,  // total number of CPU instructions run
-    pub nes_region: NesRegion,
+    pub region: NesRegion,
     pub master_clock: u64,
     pub clock_divider: u64,
     pub start_clocks: u64,
@@ -139,11 +139,11 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(nes_region: NesRegion, bus: Bus) -> Self {
+    pub fn new(bus: Bus) -> Self {
         let mut cpu = Self {
             cycle: 0,
             step: 0,
-            nes_region,
+            region: NesRegion::default(),
             master_clock: 0,
             clock_divider: 0,
             start_clocks: 0,
@@ -171,34 +171,38 @@ impl Cpu {
             dummy_read: false,
             debugging: false,
         };
-        cpu.set_nes_region(nes_region);
+        cpu.set_region(cpu.region);
         cpu.reset(Kind::Hard);
         cpu
     }
 
     #[inline]
     #[must_use]
-    pub const fn clock_rate(nes_region: NesRegion) -> f32 {
-        match nes_region {
+    pub const fn region_clock_rate(region: NesRegion) -> f32 {
+        match region {
             NesRegion::Ntsc => NTSC_CPU_CLOCK_RATE,
             NesRegion::Pal => PAL_CPU_CLOCK_RATE,
             NesRegion::Dendy => DENDY_CPU_CLOCK_RATE,
         }
     }
 
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        let (clock_divider, start_clocks, end_clocks) = match nes_region {
+    #[inline]
+    #[must_use]
+    pub const fn clock_rate(&self) -> f32 {
+        Self::region_clock_rate(self.region)
+    }
+
+    pub fn set_region(&mut self, region: NesRegion) {
+        let (clock_divider, start_clocks, end_clocks) = match region {
             NesRegion::Ntsc => (12, 6, 6),
             NesRegion::Pal => (16, 8, 8),
             NesRegion::Dendy => (15, 7, 8),
         };
-        self.nes_region = nes_region;
+        self.region = region;
         self.clock_divider = clock_divider;
         self.start_clocks = start_clocks;
         self.end_clocks = end_clocks;
-        self.bus.ppu.set_nes_region(nes_region);
-        self.bus.apu.set_nes_region(nes_region);
-        self.bus.cart.set_nes_region(nes_region);
+        self.bus.set_region(region);
     }
 
     #[inline]
@@ -394,7 +398,6 @@ impl Cpu {
     }
 
     fn end_cycle(&mut self, cycle: Cycle) {
-        // TODO: Update to use nes_region numbers
         self.master_clock += if cycle == Cycle::Read {
             self.end_clocks + 1
         } else {
@@ -1043,7 +1046,7 @@ mod tests {
     #[test]
     fn cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::new(NesRegion::Ntsc, Bus::default());
+        let mut cpu = Cpu::new(Bus::default());
         cpu.clock();
 
         assert_eq!(cpu.cycle, 15, "cpu after power + one clock");

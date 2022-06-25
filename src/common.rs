@@ -260,7 +260,7 @@ pub(crate) mod tests {
         let mut deck = ControlDeck::default();
         deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
         deck.set_filter(VideoFilter::Pixellate);
-        deck.set_nes_region(NesRegion::Ntsc);
+        deck.set_region(NesRegion::Ntsc);
         deck
     }
 
@@ -283,7 +283,7 @@ pub(crate) mod tests {
                 },
                 Action::Setting(setting) => match setting {
                     Setting::SetVideoFilter(filter) => deck.set_filter(filter),
-                    Setting::SetNesFormat(format) => deck.set_nes_region(format),
+                    Setting::SetNesFormat(format) => deck.set_region(format),
                     _ => panic!("unhandled Setting: {:?}", setting),
                 },
                 Action::Gamepad(button) => {

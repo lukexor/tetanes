@@ -156,7 +156,7 @@ pub struct Ppu {
     pub cycle: u32,         // (0, 340) 341 cycles happen per scanline
     pub cycle_count: usize, // Total number of PPU cycles run
     pub scanline: u32,      // (0, 261) 262 total scanlines per frame
-    pub nes_region: NesRegion,
+    pub region: NesRegion,
     pub master_clock: u64,
     pub clock_divider: u64,
     pub vblank_scanline: u32,
@@ -195,12 +195,12 @@ pub struct Ppu {
 }
 
 impl Ppu {
-    pub fn new(nes_region: NesRegion) -> Self {
+    pub fn new() -> Self {
         let mut ppu = Self {
             cycle: 0,
             cycle_count: 0,
             scanline: 0,
-            nes_region,
+            region: NesRegion::default(),
             master_clock: 0,
             clock_divider: 0,
             vblank_scanline: 0,
@@ -210,7 +210,7 @@ impl Ppu {
             prevent_vbl: false,
             oam_dma: false,
             oam_dma_offset: 0x00,
-            regs: PpuRegs::new(nes_region),
+            regs: PpuRegs::new(),
             oamaddr_lo: 0x00,
             oamaddr_hi: 0x00,
             oamaddr: 0x00,
@@ -231,22 +231,22 @@ impl Ppu {
             filter: VideoFilter::Ntsc,
             viewer: None,
         };
-        ppu.set_nes_region(nes_region);
+        ppu.set_region(ppu.region);
         ppu
     }
 
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        let (clock_divider, vblank_scanline, prerender_scanline) = match nes_region {
+    pub fn set_region(&mut self, region: NesRegion) {
+        let (clock_divider, vblank_scanline, prerender_scanline) = match region {
             NesRegion::Ntsc => (4, 241, 261),
             NesRegion::Pal => (5, 241, 311),
             NesRegion::Dendy => (5, 291, 311),
         };
-        self.nes_region = nes_region;
+        self.region = region;
         self.clock_divider = clock_divider;
         self.vblank_scanline = vblank_scanline;
         self.prerender_scanline = prerender_scanline;
         self.pal_spr_eval_scanline = self.vblank_scanline + 24; // PAL refreshes OAM later due to extended vblank to avoid OAM decay
-        self.regs.set_nes_region(nes_region);
+        self.regs.set_region(region);
     }
 
     pub fn load_cart(&mut self, cart: &mut Box<Cart>) {
@@ -396,8 +396,7 @@ impl Ppu {
 
         if self.rendering_enabled() {
             if visible_scanline
-                || (self.nes_region == NesRegion::Pal
-                    && self.scanline >= self.pal_spr_eval_scanline)
+                || (self.region == NesRegion::Pal && self.scanline >= self.pal_spr_eval_scanline)
             {
                 if spr_eval_cycle {
                     self.evaluate_sprites();
@@ -463,7 +462,7 @@ impl Ppu {
                 if self.cycle == CYCLE_SKIP
                     && prerender_scanline
                     && self.frame.num & 0x01 == 0x01
-                    && self.nes_region == NesRegion::Ntsc
+                    && self.region == NesRegion::Ntsc
                 {
                     // NTSC behavior while rendering - each odd PPU frame is one clock shorter
                     // (skipping from 339 over 340 to 0)
@@ -998,8 +997,7 @@ impl Ppu {
         if self.rendering_enabled()
             && (self.scanline <= VISIBLE_SCANLINE_END
                 || self.scanline == self.prerender_scanline
-                || (self.nes_region == NesRegion::Pal
-                    && self.scanline >= self.pal_spr_eval_scanline))
+                || (self.region == NesRegion::Pal && self.scanline >= self.pal_spr_eval_scanline))
         {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDATA
             // Writes to OAMDATA during rendering do not modify values, but do perform a glitch
@@ -1254,7 +1252,7 @@ impl Reset for Ppu {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Self::new(NesRegion::Ntsc)
+        Self::new()
     }
 }
 
@@ -1264,7 +1262,7 @@ impl fmt::Debug for Ppu {
             .field("cycle", &self.cycle)
             .field("cycle_count", &self.cycle_count)
             .field("scanline", &self.scanline)
-            .field("nes_region", &self.nes_region)
+            .field("region", &self.region)
             .field("master_clock", &self.master_clock)
             .field("clock_divider", &self.clock_divider)
             .field("vblank_scanline", &self.vblank_scanline)

@@ -11,7 +11,7 @@ enum ShiftMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Noise {
-    nes_region: NesRegion,
+    region: NesRegion,
     pub enabled: bool,
     freq_timer: u16,       // timer freq_counter reload value
     freq_counter: u16,     // Current frequency timer value
@@ -30,9 +30,9 @@ impl Noise {
     ];
     const SHIFT_BIT_15_MASK: u16 = !0x8000;
 
-    pub const fn new(nes_region: NesRegion) -> Self {
+    pub fn new() -> Self {
         Self {
-            nes_region,
+            region: NesRegion::default(),
             enabled: false,
             freq_timer: 0u16,
             freq_counter: 0u16,
@@ -44,13 +44,13 @@ impl Noise {
     }
 
     #[inline]
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        self.nes_region = nes_region;
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
     }
 
     #[inline]
-    const fn freq_timer(nes_region: NesRegion, val: u8) -> u16 {
-        match nes_region {
+    const fn freq_timer(region: NesRegion, val: u8) -> u16 {
+        match region {
             NesRegion::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 1,
             NesRegion::Pal | NesRegion::Dendy => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 1,
         }
@@ -86,7 +86,7 @@ impl Noise {
 
     // $400E Noise timer
     pub fn write_timer(&mut self, val: u8) {
-        self.freq_timer = Self::freq_timer(self.nes_region, val);
+        self.freq_timer = Self::freq_timer(self.region, val);
         self.shift_mode = if (val >> 7) & 1 == 1 {
             ShiftMode::One
         } else {
@@ -131,12 +131,12 @@ impl Clock for Noise {
 
 impl Reset for Noise {
     fn reset(&mut self, _kind: Kind) {
-        *self = Self::new(NesRegion::default());
+        *self = Self::new();
     }
 }
 
 impl Default for Noise {
     fn default() -> Self {
-        Self::new(NesRegion::default())
+        Self::new()
     }
 }

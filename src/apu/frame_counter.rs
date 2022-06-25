@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FrameCounter {
-    pub(crate) nes_region: NesRegion,
+    pub(crate) region: NesRegion,
     pub(crate) step_cycles: [[u16; 6]; 2],
     pub(crate) cycles: u16,
     pub(crate) step: usize,
@@ -34,10 +34,11 @@ impl FrameCounter {
         [8313, 8314, 8312, 8314, 8312, 1],
     ];
 
-    pub(crate) const fn new(nes_region: NesRegion) -> Self {
-        let step_cycles = Self::step_cycles(nes_region);
+    pub(crate) fn new() -> Self {
+        let region = NesRegion::default();
+        let step_cycles = Self::step_cycles(region);
         Self {
-            nes_region,
+            region,
             step_cycles,
             cycles: step_cycles[0][0],
             step: 0,
@@ -48,14 +49,14 @@ impl FrameCounter {
     }
 
     #[inline]
-    pub(crate) fn set_nes_region(&mut self, nes_region: NesRegion) {
-        self.nes_region = nes_region;
-        self.step_cycles = Self::step_cycles(nes_region);
+    pub(crate) fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
+        self.step_cycles = Self::step_cycles(region);
     }
 
     #[inline]
-    const fn step_cycles(nes_region: NesRegion) -> [[u16; 6]; 2] {
-        match nes_region {
+    const fn step_cycles(region: NesRegion) -> [[u16; 6]; 2] {
+        match region {
             NesRegion::Ntsc | NesRegion::Dendy => Self::STEP_CYCLES_NTSC,
             NesRegion::Pal => Self::STEP_CYCLES_PAL,
         }

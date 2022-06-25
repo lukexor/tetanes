@@ -20,7 +20,7 @@ pub const Y_OVER_COL: u16 = 31; // overscan row
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuRegs {
-    nes_region: NesRegion,
+    region: NesRegion,
     ctrl: u8,         // $2000 PPUCTRL write-only
     mask: u8,         // $2001 PPUMASK write-only
     status: u8,       // $2002 PPUSTATUS read-only
@@ -32,9 +32,9 @@ pub struct PpuRegs {
 }
 
 impl PpuRegs {
-    pub const fn new(nes_region: NesRegion) -> Self {
+    pub fn new() -> Self {
         Self {
-            nes_region,
+            region: NesRegion::default(),
             ctrl: 0x00,
             mask: 0x00,
             status: 0x00,
@@ -46,8 +46,9 @@ impl PpuRegs {
         }
     }
 
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        self.nes_region = nes_region;
+    #[inline]
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
     }
 
     /*
@@ -162,7 +163,7 @@ impl PpuRegs {
 
     #[must_use]
     pub const fn emphasis(&self) -> u8 {
-        match self.nes_region {
+        match self.region {
             NesRegion::Ntsc => self.mask & 0xE0,
             NesRegion::Pal | NesRegion::Dendy => {
                 // Red/Green are swapped for PAL/Dendy
@@ -430,6 +431,6 @@ impl PpuRegs {
 
 impl Default for PpuRegs {
     fn default() -> Self {
-        Self::new(NesRegion::default())
+        Self::new()
     }
 }

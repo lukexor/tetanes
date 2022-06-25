@@ -101,15 +101,15 @@ impl Nes {
     }
 
     fn render_config_emulation(&mut self, s: &mut PixState) -> PixResult<()> {
-        let mut nes_region = self.config.nes_region as usize;
+        let mut region = self.config.region as usize;
         s.next_width(150);
-        if s.select_box("NES Format", &mut nes_region, NesRegion::as_slice(), 3)? {
-            self.config.nes_region = NesRegion::from(nes_region);
-            self.control_deck.set_nes_region(self.config.nes_region);
+        if s.select_box("NES Region", &mut region, NesRegion::as_slice(), 3)? {
+            self.config.region = NesRegion::from(region);
+            self.control_deck.set_region(self.config.region);
             s.set_window_dimensions(self.config.get_dimensions())?;
             self.update_frame_rate(s)?;
             self.audio = AudioMixer::new(
-                self.control_deck.apu().sample_rate(),
+                self.control_deck.sample_rate(),
                 self.config.audio_sample_rate / self.config.speed,
                 self.config.audio_buffer_size,
             );

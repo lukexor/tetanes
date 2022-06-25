@@ -18,7 +18,7 @@ use std::{io::Read, ops::ControlFlow};
 pub struct ControlDeck {
     running: bool,
     ram_state: RamState,
-    nes_region: NesRegion,
+    region: NesRegion,
     loaded_rom: Option<String>,
     turbo_timer: f32,
     cycles_remaining: f32,
@@ -27,12 +27,12 @@ pub struct ControlDeck {
 
 impl ControlDeck {
     /// Creates a new `ControlDeck` instance.
-    pub fn new(nes_region: NesRegion, ram_state: RamState) -> Self {
-        let cpu = Cpu::new(nes_region, Bus::new(nes_region, ram_state));
+    pub fn new(ram_state: RamState) -> Self {
+        let cpu = Cpu::new(Bus::new(ram_state));
         Self {
             running: false,
             ram_state,
-            nes_region,
+            region: NesRegion::default(),
             loaded_rom: None,
             turbo_timer: 0.0,
             cycles_remaining: 0.0,
@@ -48,7 +48,7 @@ impl ControlDeck {
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.ram_state)?;
-        self.set_nes_region(cart.nes_region);
+        self.set_region(cart.region);
         self.cpu.bus.load_cart(cart);
         self.reset(Kind::Hard);
         Ok(())
@@ -82,6 +82,13 @@ impl ControlDeck {
         self.cpu.bus.ppu.frame.num
     }
 
+    /// Audio sample rate.
+    #[inline]
+    #[must_use]
+    pub const fn sample_rate(&self) -> f32 {
+        self.cpu.clock_rate()
+    }
+
     /// Get audio samples.
     #[inline]
     #[must_use]
@@ -97,7 +104,7 @@ impl ControlDeck {
 
     #[inline]
     pub fn clock_rate(&mut self) -> f32 {
-        Cpu::clock_rate(self.nes_region)
+        self.cpu.clock_rate()
     }
 
     /// Steps the control deck one CPU clock.
@@ -333,15 +340,15 @@ impl ControlDeck {
 
     /// Get the NES format for the emulation.
     #[inline]
-    pub fn nes_region(&mut self) -> NesRegion {
-        self.nes_region
+    pub fn region(&mut self) -> NesRegion {
+        self.region
     }
 
     /// Set the NES format for the emulation.
     #[inline]
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        self.nes_region = nes_region;
-        self.cpu.set_nes_region(nes_region);
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
+        self.cpu.set_region(region);
     }
 
     /// Get the video filter for the emulation.
@@ -378,7 +385,7 @@ impl ControlDeck {
 
 impl Default for ControlDeck {
     fn default() -> Self {
-        Self::new(NesRegion::default(), RamState::default())
+        Self::new(RamState::default())
     }
 }
 

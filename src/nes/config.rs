@@ -34,7 +34,7 @@ pub(crate) struct Config {
     pub(crate) vsync: bool,
     pub(crate) filter: VideoFilter,
     pub(crate) concurrent_dpad: bool,
-    pub(crate) nes_region: NesRegion,
+    pub(crate) region: NesRegion,
     pub(crate) ram_state: RamState,
     pub(crate) save_slot: u8,
     pub(crate) scale: f32,
@@ -63,7 +63,7 @@ impl Default for Config {
             vsync: true,
             filter: VideoFilter::default(),
             concurrent_dpad: false,
-            nes_region: NesRegion::default(),
+            region: NesRegion::default(),
             ram_state: RamState::default(),
             save_slot: 1,
             scale: 3.0,
@@ -153,7 +153,7 @@ impl Config {
     }
 
     pub(crate) fn get_dimensions(&self) -> (u32, u32) {
-        let width = match self.nes_region {
+        let width = match self.region {
             NesRegion::Ntsc => WINDOW_WIDTH_NTSC,
             NesRegion::Pal | NesRegion::Dendy => WINDOW_WIDTH_PAL,
         };
@@ -210,18 +210,18 @@ impl Nes {
     }
 
     pub(crate) fn update_frame_rate(&mut self, s: &mut PixState) -> PixResult<()> {
-        match self.config.nes_region {
+        match self.config.region {
             NesRegion::Ntsc => s.frame_rate(60),
             NesRegion::Pal => s.frame_rate(50),
             NesRegion::Dendy => s.frame_rate(59),
         }
         log::debug!(
             "Updated NES Region and frame rate: {:?}, {:?}",
-            self.config.nes_region,
+            self.config.region,
             s.target_frame_rate()
         );
         // TODO: Should actually check current screen refresh rate here instead of region
-        if self.config.vsync && self.config.nes_region != NesRegion::Ntsc {
+        if self.config.vsync && self.config.region != NesRegion::Ntsc {
             s.vsync(false)?;
         }
         Ok(())

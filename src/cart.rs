@@ -81,7 +81,7 @@ pub struct Cart {
     #[serde(skip)]
     pub mirroring: Mirroring,
     #[serde(skip)]
-    pub nes_region: NesRegion,
+    pub region: NesRegion,
     #[serde(skip)]
     pub prg_rom: Memory, // Program ROM
     pub prg_ram: Memory, // Program RAM
@@ -98,7 +98,7 @@ impl Cart {
             ram_state: RamState::Random,
             header: NesHeader::new(),
             mirroring: Mirroring::default(),
-            nes_region: NesRegion::default(),
+            region: NesRegion::default(),
             prg_rom: Memory::new(),
             prg_ram: Memory::new(),
             chr: Memory::new(),
@@ -153,14 +153,14 @@ impl Cart {
         let prg_rom = Memory::rom(prg_data);
 
         #[cfg(not(target_arch = "wasm32"))]
-        let nes_region = {
+        let region = {
             let mut hasher = DefaultHasher::new();
             prg_rom.hash(&mut hasher);
             let hash = hasher.finish();
             Self::lookup_region(hash)
         };
         #[cfg(target_arch = "wasm32")]
-        let nes_region = NesRegion::default();
+        let region = NesRegion::default();
 
         let mut chr_data = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
         rom_data.read_exact(&mut chr_data).with_context(|| {
@@ -194,7 +194,7 @@ impl Cart {
             header,
             ram_state,
             mirroring,
-            nes_region,
+            region,
             prg_rom,
             prg_ram: Memory::ram(prg_ram_size, ram_state),
             chr,
@@ -207,7 +207,7 @@ impl Cart {
             2 => Uxrom::load(&mut cart),
             3 => Cnrom::load(&mut cart),
             4 => Txrom::load(&mut cart),
-            5 => Exrom::load(&mut cart, nes_region),
+            5 => Exrom::load(&mut cart),
             7 => Axrom::load(&mut cart),
             9 => Pxrom::load(&mut cart),
             24 => Vrc6::load(&mut cart, Vrc6Revision::A),
@@ -258,13 +258,6 @@ impl Cart {
     #[must_use]
     pub const fn mapper_board(&self) -> &'static str {
         self.header.mapper_board()
-    }
-
-    #[inline]
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        if let Mapper::Exrom(ref mut exrom) = self.mapper {
-            exrom.dmc.set_nes_region(nes_region);
-        }
     }
 
     // Swap dynamic data with another cart instance.
@@ -352,6 +345,13 @@ impl Mapped for Cart {
     #[inline]
     fn ppu_write(&mut self, addr: u16, val: u8) {
         self.mapper.ppu_write(addr, val);
+    }
+
+    #[inline]
+    fn set_region(&mut self, region: NesRegion) {
+        if let Mapper::Exrom(ref mut exrom) = self.mapper {
+            exrom.dmc.set_region(region);
+        }
     }
 }
 

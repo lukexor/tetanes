@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
-    pub nes_region: NesRegion,
+    pub region: NesRegion,
     pub irq_enabled: bool,
     pub irq_pending: bool,
     pub loops: bool,
@@ -34,10 +34,11 @@ impl Dmc {
         0x04E, 0x042, 0x032,
     ];
 
-    pub const fn new(nes_region: NesRegion) -> Self {
-        let freq_timer = Self::freq_timer(nes_region, 0);
+    pub fn new() -> Self {
+        let region = NesRegion::default();
+        let freq_timer = Self::freq_timer(region, 0);
         Self {
-            nes_region,
+            region,
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -59,14 +60,14 @@ impl Dmc {
     }
 
     #[inline]
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        self.nes_region = nes_region;
-        self.freq_timer = Self::freq_timer(nes_region, 0);
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
+        self.freq_timer = Self::freq_timer(region, 0);
     }
 
     #[inline]
-    const fn freq_timer(nes_region: NesRegion, val: u8) -> u16 {
-        match nes_region {
+    const fn freq_timer(region: NesRegion, val: u8) -> u16 {
+        match region {
             NesRegion::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 2,
             NesRegion::Pal | NesRegion::Dendy => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 2,
         }
@@ -82,7 +83,7 @@ impl Dmc {
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
         self.loops = val & 0x40 == 0x40;
-        self.freq_timer = Self::freq_timer(self.nes_region, val);
+        self.freq_timer = Self::freq_timer(self.region, val);
         if !self.irq_enabled {
             self.irq_pending = false;
         }
@@ -194,7 +195,7 @@ impl Reset for Dmc {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
-        self.freq_timer = Self::freq_timer(self.nes_region, 0);
+        self.freq_timer = Self::freq_timer(self.region, 0);
         self.freq_counter = self.freq_timer;
         match kind {
             Kind::Soft => {
@@ -221,6 +222,6 @@ impl Reset for Dmc {
 
 impl Default for Dmc {
     fn default() -> Self {
-        Self::new(NesRegion::default())
+        Self::new()
     }
 }

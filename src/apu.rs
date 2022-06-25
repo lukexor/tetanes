@@ -43,8 +43,8 @@ pub mod noise;
 pub mod pulse;
 pub mod triangle;
 
-mod envelope;
-mod frame_counter;
+pub mod envelope;
+pub mod frame_counter;
 
 /// A given APU audio channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ pub enum AudioChannel {
 #[must_use]
 pub struct Apu {
     cycle: usize, // Current APU cycle
-    nes_region: NesRegion,
+    region: NesRegion,
     pub(crate) irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_disabled: bool,           // Set by $4017 D6
     samples: Vec<f32>,            // Buffer of samples
@@ -79,36 +79,33 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub fn new(nes_region: NesRegion) -> Self {
+    pub fn new() -> Self {
+        let region = NesRegion::default();
         Self {
             cycle: 0,
-            nes_region,
+            region,
             irq_pending: false,
             irq_disabled: false,
-            // Start with ~20ms of audio capacity
-            samples: Vec::with_capacity((Cpu::clock_rate(nes_region) * 0.02) as usize),
-            frame_counter: FrameCounter::new(nes_region),
+            samples: vec![],
+            frame_counter: FrameCounter::new(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
             triangle: Triangle::new(),
-            noise: Noise::new(nes_region),
-            dmc: Dmc::new(nes_region),
+            noise: Noise::new(),
+            dmc: Dmc::new(),
             cart: std::ptr::null_mut(),
             enabled: [true; 5],
             open_bus: 0x00,
         }
     }
 
-    pub fn set_nes_region(&mut self, nes_region: NesRegion) {
-        self.nes_region = nes_region;
-        self.frame_counter.set_nes_region(nes_region);
-        self.dmc.set_nes_region(nes_region);
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn sample_rate(&self) -> f32 {
-        Cpu::clock_rate(self.nes_region)
+    pub fn set_region(&mut self, region: NesRegion) {
+        // Start with ~20ms of audio capacity
+        self.samples
+            .resize((Cpu::region_clock_rate(region) * 0.02) as usize, 0.0);
+        self.region = region;
+        self.frame_counter.set_region(region);
+        self.dmc.set_region(region);
     }
 
     #[inline]
@@ -382,7 +379,7 @@ impl Reset for Apu {
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new(NesRegion::default())
+        Self::new()
     }
 }
 

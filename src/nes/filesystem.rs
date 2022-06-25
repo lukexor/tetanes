@@ -187,11 +187,11 @@ impl Nes {
         let mut rom = BufReader::new(rom);
         match self.control_deck.load_rom(&name, &mut rom) {
             Ok(()) => {
-                self.config.nes_region = self.control_deck.nes_region();
+                self.config.region = self.control_deck.region();
                 s.set_window_dimensions(self.config.get_dimensions())?;
                 self.update_frame_rate(s)?;
                 self.audio = AudioMixer::new(
-                    self.control_deck.apu().sample_rate(),
+                    self.control_deck.sample_rate(),
                     self.config.audio_sample_rate / self.config.speed,
                     self.config.audio_buffer_size,
                 );

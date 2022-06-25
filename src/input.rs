@@ -201,7 +201,7 @@ impl Reset for Signature {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
-    pub nes_region: NesRegion,
+    pub region: NesRegion,
     pub triggered: f32,
     pub x: i32,
     pub y: i32,
@@ -213,7 +213,7 @@ impl Zapper {
     pub fn trigger(&mut self) {
         if self.triggered <= 0.0 {
             // Zapoer takes ~100ms to change to "released" after trigger is pulled
-            self.triggered = Cpu::clock_rate(self.nes_region) / 10.0;
+            self.triggered = Cpu::region_clock_rate(self.region) / 10.0;
         }
     }
 
@@ -223,15 +223,20 @@ impl Zapper {
 }
 
 impl Zapper {
-    const fn new(nes_region: NesRegion) -> Self {
+    fn new() -> Self {
         Self {
-            nes_region,
+            region: NesRegion::default(),
             triggered: 0.0,
             x: 0,
             y: 0,
             radius: 3,
             connected: false,
         }
+    }
+
+    #[inline]
+    fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
     }
 
     #[inline]
@@ -301,15 +306,21 @@ pub struct Input {
 
 impl Input {
     /// Returns an empty Input instance with no event pump
-    pub fn new(nes_region: NesRegion) -> Self {
+    pub fn new() -> Self {
         Self {
             gamepads: [Gamepad::default(); 4],
             // Signature bits are reversed so they can shift right
             signatures: [Signature::new(0b0000_1000), Signature::new(0b0000_0100)],
-            zappers: [Zapper::new(nes_region); 4],
+            zappers: [Zapper::new(); 4],
             shift_strobe: 0x00,
             fourscore: false,
             open_bus: 0x00,
+        }
+    }
+
+    pub fn set_region(&mut self, region: NesRegion) {
+        for zapper in &mut self.zappers {
+            zapper.set_region(region);
         }
     }
 

@@ -4,6 +4,7 @@ use crate::{
     common::{Kind, NesRegion, Reset},
     genie::GenieCode,
     input::Input,
+    mapper::Mapped,
     memory::{MemRead, MemWrite, Memory, RamState},
     ppu::Ppu,
     NesResult,
@@ -30,11 +31,11 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn new(nes_region: NesRegion, ram_state: RamState) -> Self {
+    pub fn new(ram_state: RamState) -> Self {
         let mut bus = Self {
-            ppu: Ppu::new(nes_region),
-            apu: Apu::new(nes_region),
-            input: Input::new(nes_region),
+            ppu: Ppu::new(),
+            apu: Apu::new(),
+            input: Input::new(),
             cart: Box::new(Cart::new()),
             wram: Memory::ram(WRAM_SIZE, ram_state),
             genie_codes: HashMap::new(),
@@ -44,10 +45,20 @@ impl Bus {
         bus
     }
 
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.ppu.set_region(region);
+        self.apu.set_region(region);
+        self.input.set_region(region);
+        self.cart.set_region(region);
+    }
+
     #[inline]
     pub fn update_cart(&mut self) {
         self.ppu.load_cart(&mut self.cart);
         self.apu.load_cart(&mut self.cart);
+        self.ppu.set_region(self.cart.region);
+        self.apu.set_region(self.cart.region);
+        self.input.set_region(self.cart.region);
     }
 
     #[inline]
@@ -150,7 +161,7 @@ impl Reset for Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new(NesRegion::default(), RamState::default())
+        Self::new(RamState::default())
     }
 }
 
