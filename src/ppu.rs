@@ -1245,6 +1245,7 @@ impl Reset for Ppu {
         self.sprite0_visible = false;
         self.sprite_count = 0;
         self.sprites = [Sprite::new(); 8];
+        self.sprite_present.fill(false);
         self.frame.reset(kind);
         self.regs.write_ctrl(0);
         self.regs.write_mask(0);
