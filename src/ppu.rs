@@ -743,18 +743,16 @@ impl Ppu {
             } else {
                 self.read_ppuaddr() & 0x1F
             };
-        let mut palette = u16::from(self.vram.read(PALETTE_START + palette_addr));
-        palette &= if self.regs.grayscale() { 0x30 } else { 0x3F };
-        palette |= u16::from(self.regs.emphasis()) << 1;
-        self.frame.put_pixel(x, y, palette);
+        let mut color = u16::from(self.vram.read(PALETTE_START + palette_addr));
+        color &= if self.regs.grayscale() { 0x30 } else { 0x3F };
+        color |= u16::from(self.regs.emphasis()) << 1;
+        self.frame.put_pixel(x, y, color);
     }
 
-    fn put_pixel(palette_idx: usize, x: u32, y: u32, width: u32, pixels: &mut [u8]) {
-        let palette_idx = (palette_idx % SYSTEM_PALETTE_SIZE) * 3;
-        let red = SYSTEM_PALETTE[palette_idx];
-        let green = SYSTEM_PALETTE[palette_idx + 1];
-        let blue = SYSTEM_PALETTE[palette_idx + 2];
+    fn put_pixel(color: usize, x: u32, y: u32, width: u32, pixels: &mut [u8]) {
+        let (red, green, blue) = SYSTEM_PALETTE[color & (SYSTEM_PALETTE_SIZE - 1)];
         let idx = RENDER_CHANNELS * (x + y * width) as usize;
+        assert!(idx + 2 < pixels.len());
         pixels[idx] = red;
         pixels[idx + 1] = green;
         pixels[idx + 2] = blue;
@@ -767,12 +765,8 @@ impl Ppu {
         }
         // Used by `Zapper`
         let color = self.frame.get_color(x, y) as usize;
-        let palette_idx = (color & (SYSTEM_PALETTE_SIZE - 1)) * 3;
-        if let [red, green, blue] = SYSTEM_PALETTE[palette_idx..=palette_idx + 2] {
-            u32::from(red) + u32::from(green) + u32::from(blue)
-        } else {
-            0
-        }
+        let (red, green, blue) = SYSTEM_PALETTE[color & (SYSTEM_PALETTE_SIZE - 1)];
+        u32::from(red) + u32::from(green) + u32::from(blue)
     }
 
     fn pixel_color(&mut self) -> u8 {

@@ -80,17 +80,12 @@ impl Frame {
             .iter()
             .zip(self.output_buffer.chunks_exact_mut(4))
         {
-            if let [red, green, blue, _] = colors {
-                let palette_idx = ((*pixel as usize) & (SYSTEM_PALETTE_SIZE - 1)) * 3;
-                if let [red_palette, green_palette, blue_palette] =
-                    SYSTEM_PALETTE[palette_idx..=palette_idx + 2]
-                {
-                    *red = red_palette;
-                    *green = green_palette;
-                    *blue = blue_palette;
-                }
-                // Alpha should always be 255
-            }
+            assert!(colors.len() > 2);
+            let (red, green, blue) = SYSTEM_PALETTE[(*pixel as usize) & (SYSTEM_PALETTE_SIZE - 1)];
+            colors[0] = red;
+            colors[1] = green;
+            colors[2] = blue;
+            // Alpha should always be 255
         }
         &self.output_buffer
     }
@@ -107,23 +102,22 @@ impl Frame {
             .zip(self.output_buffer.chunks_exact_mut(4))
             .enumerate()
         {
-            if let [red, green, blue, _] = colors {
-                let x = idx % 256;
-                let y = idx / 256;
-                let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
-                let phase = (2 + y * 341 + x + even_phase) % 3;
-                let color = if x == 0 {
-                    // Remove pixel 0 artifact from not having a valid previous pixel
-                    0
-                } else {
-                    NTSC_PALETTE[phase][(self.prev_pixel & 0x3F) as usize][*pixel as usize]
-                };
-                self.prev_pixel = u32::from(*pixel);
-                *red = (color >> 16 & 0xFF) as u8;
-                *green = (color >> 8 & 0xFF) as u8;
-                *blue = (color & 0xFF) as u8;
-                // Alpha should always be 255
-            }
+            let x = idx % 256;
+            let y = idx / 256;
+            let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
+            let phase = (2 + y * 341 + x + even_phase) % 3;
+            let color = if x == 0 {
+                // Remove pixel 0 artifact from not having a valid previous pixel
+                0
+            } else {
+                NTSC_PALETTE[phase][(self.prev_pixel & 0x3F) as usize][*pixel as usize]
+            };
+            self.prev_pixel = u32::from(*pixel);
+            assert!(colors.len() > 2);
+            colors[0] = (color >> 16 & 0xFF) as u8;
+            colors[1] = (color >> 8 & 0xFF) as u8;
+            colors[2] = (color & 0xFF) as u8;
+            // Alpha should always be 255
         }
         &self.output_buffer
     }
