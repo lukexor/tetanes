@@ -4,8 +4,8 @@ use crate::{
     common::{Clock, Kind, NesRegion, Reset},
     mapper::{
         m001_sxrom::Mmc1Revision, m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Cnrom, Empty, Exrom,
-        Gxrom, MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Nrom, Pxrom, Sxrom,
-        Txrom, Uxrom, Vrc6,
+        Gxrom, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
+        Vrc6,
     },
     memory::{MemRead, MemReadWord, MemWrite, MemWriteWord, Memory, RamState},
     ppu::Mirroring,

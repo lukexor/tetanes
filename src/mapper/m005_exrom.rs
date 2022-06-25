@@ -13,7 +13,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Kind, NesRegion, Reset},
     cpu::Cpu,
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
     ppu::{
         vram::{ATTR_OFFSET, NT_SIZE, NT_START},
@@ -503,7 +503,7 @@ impl Mapped for Exrom {
     }
 }
 
-impl MapRead for Exrom {
+impl MemMap for Exrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
@@ -664,9 +664,7 @@ impl MapRead for Exrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Exrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x2000..=0x3EFF => {

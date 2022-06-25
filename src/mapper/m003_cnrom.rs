@@ -6,7 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     memory::MemoryBanks,
 };
 use serde::{Deserialize, Serialize};
@@ -34,7 +34,7 @@ impl Cnrom {
     }
 }
 
-impl MapRead for Cnrom {
+impl MemMap for Cnrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -46,9 +46,7 @@ impl MapRead for Cnrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Cnrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, (val & 0x03) as usize);

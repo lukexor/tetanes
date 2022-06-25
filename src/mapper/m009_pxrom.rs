@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Kind, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
     memory::MemoryBanks,
 };
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,7 @@ impl Mapped for Pxrom {
     }
 }
 
-impl MapRead for Pxrom {
+impl MemMap for Pxrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         let val = self.map_peek(addr);
         // Update latch after read
@@ -97,9 +97,7 @@ impl MapRead for Pxrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Pxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => MappedWrite::PrgRam(addr.into(), val),

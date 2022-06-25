@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     memory::MemoryBanks,
 };
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ impl Uxrom {
     }
 }
 
-impl MapRead for Uxrom {
+impl MemMap for Uxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
@@ -46,9 +46,7 @@ impl MapRead for Uxrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Uxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),

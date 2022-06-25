@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
 };
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ impl Nrom {
     }
 }
 
-impl MapRead for Nrom {
+impl MemMap for Nrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         let addr = addr as usize;
         match addr {
@@ -52,9 +52,7 @@ impl MapRead for Nrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Nrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         let addr = addr as usize;
         match addr {

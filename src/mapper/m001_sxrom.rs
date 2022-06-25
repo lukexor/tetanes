@@ -6,7 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Kind, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     memory::MemoryBanks,
     ppu::Mirroring,
 };
@@ -241,7 +241,7 @@ impl Mapped for Sxrom {
     }
 }
 
-impl MapRead for Sxrom {
+impl MemMap for Sxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -252,9 +252,7 @@ impl MapRead for Sxrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Sxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),

@@ -93,17 +93,17 @@ pub enum MappedWrite {
 }
 
 #[enum_dispatch(Mapper)]
-pub trait MapRead {
+pub trait MemMap {
     #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.map_peek(addr)
     }
-    fn map_peek(&self, addr: u16) -> MappedRead;
-}
-
-#[enum_dispatch(Mapper)]
-pub trait MapWrite {
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite;
+    fn map_peek(&self, _addr: u16) -> MappedRead {
+        MappedRead::None
+    }
+    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
+        MappedWrite::None
+    }
 }
 
 #[enum_dispatch(Mapper)]
@@ -145,18 +145,7 @@ pub trait Mapped {
 #[must_use]
 pub struct Empty;
 
-impl MapRead for Empty {
-    fn map_peek(&self, _addr: u16) -> MappedRead {
-        MappedRead::None
-    }
-}
-
-impl MapWrite for Empty {
-    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
-        MappedWrite::None
-    }
-}
-
+impl MemMap for Empty {}
 impl Mapped for Empty {}
 impl Clock for Empty {}
 impl Reset for Empty {}

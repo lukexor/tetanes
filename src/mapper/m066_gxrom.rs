@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     memory::MemoryBanks,
 };
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ impl Gxrom {
     }
 }
 
-impl MapRead for Gxrom {
+impl MemMap for Gxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -44,9 +44,7 @@ impl MapRead for Gxrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Gxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),

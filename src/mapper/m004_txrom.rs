@@ -6,7 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Kind, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper, Mirroring},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
     memory::{MemRead, MemWrite, Memory, MemoryBanks},
 };
 use serde::{Deserialize, Serialize};
@@ -267,7 +267,7 @@ impl Mapped for Txrom {
     }
 }
 
-impl MapRead for Txrom {
+impl MemMap for Txrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.clock_irq(addr);
         self.map_peek(addr)
@@ -287,9 +287,7 @@ impl MapRead for Txrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Txrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),

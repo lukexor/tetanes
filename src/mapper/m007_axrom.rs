@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Reset},
-    mapper::{MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     memory::MemoryBanks,
     ppu::Mirroring,
 };
@@ -45,7 +45,7 @@ impl Mapped for Axrom {
     }
 }
 
-impl MapRead for Axrom {
+impl MemMap for Axrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
@@ -53,9 +53,7 @@ impl MapRead for Axrom {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Axrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),

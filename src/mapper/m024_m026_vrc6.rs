@@ -7,7 +7,7 @@ use crate::{
     audio::Audio,
     cart::Cart,
     common::{Clock, Kind, Reset},
-    mapper::{vrc_irq::VrcIrq, MapRead, MapWrite, Mapped, MappedRead, MappedWrite, Mapper},
+    mapper::{vrc_irq::VrcIrq, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     memory::MemoryBanks,
     ppu::Mirroring,
 };
@@ -260,7 +260,7 @@ impl Mapped for Vrc6 {
     }
 }
 
-impl MapRead for Vrc6 {
+impl MemMap for Vrc6 {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -277,9 +277,7 @@ impl MapRead for Vrc6 {
             _ => MappedRead::None,
         }
     }
-}
 
-impl MapWrite for Vrc6 {
     fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
         if self.prg_ram_enabled() {
             if let 0x6000..=0x7FFF = addr {
