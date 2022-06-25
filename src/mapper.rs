@@ -45,6 +45,7 @@ pub enum MapperRevision {
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)]
+#[must_use]
 pub enum Mapper {
     Empty,
     Nrom,
@@ -60,9 +61,15 @@ pub enum Mapper {
     Bf909x,
 }
 
+impl Mapper {
+    pub fn none() -> Self {
+        Empty.into()
+    }
+}
+
 impl Default for Mapper {
     fn default() -> Self {
-        Empty.into()
+        Self::none()
     }
 }
 
