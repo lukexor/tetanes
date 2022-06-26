@@ -351,6 +351,12 @@ impl ControlDeck {
         self.cpu.set_region(region);
     }
 
+    /// Add NES Game Genie codes.
+    #[inline]
+    pub fn add_genie_code(&mut self, genie_code: String) -> NesResult<()> {
+        self.cpu.bus.add_genie_code(genie_code)
+    }
+
     /// Get the video filter for the emulation.
     #[inline]
     pub const fn filter(&self) -> VideoFilter {

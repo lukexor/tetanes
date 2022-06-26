@@ -339,6 +339,13 @@ impl AppState for Nes {
         }
         self.audio.open_playback(s)?;
         self.set_scale(s, self.config.scale);
+        for code in self.config.genie_codes.clone() {
+            if let Err(err) = self.control_deck.add_genie_code(code.clone()) {
+                log::warn!("{}", err);
+                self.add_message(format!("Invalid Genie Code: '{}'", code));
+                break;
+            }
+        }
 
         self.emulation = Some(View::new(
             s.window_id(),
