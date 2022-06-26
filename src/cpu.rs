@@ -26,16 +26,6 @@ use std::fmt::{self, Write};
 
 pub mod instr;
 
-// TODO 1789772.667 MHz (~559 ns/cycle) - May want to use 1786830 for a stable 60 FPS
-// Add Emulator setting like Mesen??
-// http://forums.nesdev.com/viewtopic.php?p=223679#p223679
-
-pub const NTSC_MASTER_CLOCK_RATE: f32 = 21_477_272.0;
-pub const NTSC_CPU_CLOCK_RATE: f32 = NTSC_MASTER_CLOCK_RATE / 12.0;
-pub const PAL_MASTER_CLOCK_RATE: f32 = 26_601_712.0;
-pub const PAL_CPU_CLOCK_RATE: f32 = PAL_MASTER_CLOCK_RATE / 16.0;
-pub const DENDY_CPU_CLOCK_RATE: f32 = PAL_MASTER_CLOCK_RATE / 15.0;
-
 // Represents CPU/PPU alignment and would range from 0..=ppu_divider-1, if random alignment was emulated
 const PPU_OFFSET: u64 = 1;
 
@@ -139,6 +129,15 @@ pub struct Cpu {
 }
 
 impl Cpu {
+    // TODO 1789772.667 MHz (~559 ns/cycle) - May want to use 1786830 for a stable 60 FPS
+    // Add Emulator setting like Mesen??
+    // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
+    const NTSC_MASTER_CLOCK_RATE: f32 = 21_477_272.0;
+    const NTSC_CPU_CLOCK_RATE: f32 = Self::NTSC_MASTER_CLOCK_RATE / 12.0;
+    const PAL_MASTER_CLOCK_RATE: f32 = 26_601_712.0;
+    const PAL_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 16.0;
+    const DENDY_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 15.0;
+
     pub fn new(bus: Bus) -> Self {
         let mut cpu = Self {
             cycle: 0,
@@ -180,9 +179,9 @@ impl Cpu {
     #[must_use]
     pub const fn region_clock_rate(region: NesRegion) -> f32 {
         match region {
-            NesRegion::Ntsc => NTSC_CPU_CLOCK_RATE,
-            NesRegion::Pal => PAL_CPU_CLOCK_RATE,
-            NesRegion::Dendy => DENDY_CPU_CLOCK_RATE,
+            NesRegion::Ntsc => Self::NTSC_CPU_CLOCK_RATE,
+            NesRegion::Pal => Self::PAL_CPU_CLOCK_RATE,
+            NesRegion::Dendy => Self::DENDY_CPU_CLOCK_RATE,
         }
     }
 
@@ -190,6 +189,11 @@ impl Cpu {
     #[must_use]
     pub const fn clock_rate(&self) -> f32 {
         Self::region_clock_rate(self.region)
+    }
+
+    #[inline]
+    pub fn region(&self) -> NesRegion {
+        self.region
     }
 
     pub fn set_region(&mut self, region: NesRegion) {

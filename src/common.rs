@@ -11,6 +11,7 @@ pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
 pub enum NesRegion {
     Ntsc,
     Pal,
@@ -18,7 +19,6 @@ pub enum NesRegion {
 }
 
 impl NesRegion {
-    #[must_use]
     pub const fn as_slice() -> &'static [Self] {
         &[NesRegion::Ntsc, NesRegion::Pal, NesRegion::Dendy]
     }
@@ -64,6 +64,7 @@ impl From<usize> for NesRegion {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
 pub enum Kind {
     Soft,
     Hard,

@@ -60,6 +60,11 @@ impl Dmc {
     }
 
     #[inline]
+    pub fn region(&self) -> NesRegion {
+        self.region
+    }
+
+    #[inline]
     pub fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.freq_timer = Self::freq_timer(region, 0);

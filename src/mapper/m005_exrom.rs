@@ -503,6 +503,11 @@ impl Mapped for Exrom {
     }
 
     #[inline]
+    fn region(&self) -> NesRegion {
+        self.dmc.region()
+    }
+
+    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         self.dmc.set_region(region);
     }

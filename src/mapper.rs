@@ -141,6 +141,11 @@ pub trait Mapped {
     fn ppu_write(&mut self, _addr: u16, _val: u8) {}
 
     #[inline]
+    fn region(&self) -> NesRegion {
+        NesRegion::default()
+    }
+
+    #[inline]
     fn set_region(&mut self, _region: NesRegion) {}
 }
 
