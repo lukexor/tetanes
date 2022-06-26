@@ -805,14 +805,17 @@ impl Cpu {
     }
 }
 
-impl Clock for Cpu {
-    /// Runs the CPU one instruction
-    fn clock(&mut self) -> usize {
+impl Cpu {
+    pub fn clock_inspect<F>(&mut self, mut inspect: F) -> usize
+    where
+        F: FnMut(&mut Cpu),
+    {
         let start_cycle = self.cycle;
 
         if self.debugging {
             self.trace_instr();
         }
+        inspect(self);
 
         let opcode = self.read_instr_byte(); // Cycle 1 of instruction
         self.instr = INSTRUCTIONS[opcode as usize];
@@ -933,6 +936,13 @@ impl Clock for Cpu {
         }
 
         self.cycle - start_cycle
+    }
+}
+
+impl Clock for Cpu {
+    /// Runs the CPU one instruction
+    fn clock(&mut self) -> usize {
+        self.clock_inspect(|_| {})
     }
 }
 
