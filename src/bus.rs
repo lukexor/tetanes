@@ -88,7 +88,7 @@ impl Bus {
     fn genie_match(&self, addr: u16, val: u8) -> Option<u8> {
         self.genie_codes
             .get(&addr)
-            .map(|genie_code| genie_code.matches(val))
+            .map(|genie_code| genie_code.read(val))
     }
 }
 
@@ -227,7 +227,7 @@ mod tests {
             0x15,
         );
         // The following are test mode addresses, Not mapped
-        assert_eq!(mem.read(0x0418), 0x00, "read unmapped byte: 0x00");
-        assert_eq!(mem.read(0x0418), 0x00, "write unmapped byte: 0x00");
+        assert_eq!(mem.read(0x4018), 0x00, "read unmapped byte: 0x00");
+        assert_eq!(mem.read(0x4018), 0x00, "write unmapped byte: 0x00");
     }
 }

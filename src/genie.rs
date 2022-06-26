@@ -14,7 +14,7 @@ static GENIE_MAP: Lazy<HashMap<char, u8>> = Lazy::new(|| {
 });
 
 /// Game Genie Code
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenieCode {
     code: String,
     addr: u16,
@@ -80,7 +80,7 @@ impl GenieCode {
 
     #[inline]
     #[must_use]
-    pub fn matches(&self, val: u8) -> u8 {
+    pub fn read(&self, val: u8) -> u8 {
         if let Some(compare) = self.compare {
             if val == compare {
                 self.data
@@ -93,7 +93,7 @@ impl GenieCode {
     }
 }
 
-impl std::fmt::Debug for GenieCode {
+impl std::fmt::Display for GenieCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.code)
     }
