@@ -23,10 +23,16 @@ pub struct Pulse {
     freq_timer: u16,       // timer freq_counter reload value
     freq_counter: u16,     // Current frequency timer value
     channel: PulseChannel, // One or Two
-    pub(crate) length: LengthCounter,
+    length: LengthCounter,
     envelope: Envelope,
     sweep: Sweep,
     output_freq: OutputFreq,
+}
+
+impl Default for Pulse {
+    fn default() -> Self {
+        Self::new(PulseChannel::One, OutputFreq::Default)
+    }
 }
 
 impl Pulse {
@@ -57,6 +63,12 @@ impl Pulse {
             },
             output_freq,
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn length_counter(&self) -> u8 {
+        self.length.counter()
     }
 
     #[inline]
@@ -172,11 +184,5 @@ impl Clock for Pulse {
 impl Reset for Pulse {
     fn reset(&mut self, _kind: Kind) {
         *self = Self::new(self.channel, OutputFreq::Default);
-    }
-}
-
-impl Default for Pulse {
-    fn default() -> Self {
-        Self::new(PulseChannel::One, OutputFreq::Default)
     }
 }

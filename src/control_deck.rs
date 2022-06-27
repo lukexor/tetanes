@@ -92,7 +92,7 @@ impl ControlDeck {
     /// Get audio samples.
     #[inline]
     #[must_use]
-    pub fn audio_samples(&mut self) -> &mut [f32] {
+    pub fn audio_samples(&self) -> &[f32] {
         self.cpu.bus.apu.samples()
     }
 
@@ -103,7 +103,8 @@ impl ControlDeck {
     }
 
     #[inline]
-    pub fn clock_rate(&mut self) -> f32 {
+    #[must_use]
+    pub fn clock_rate(&self) -> f32 {
         self.cpu.clock_rate()
     }
 
@@ -352,6 +353,10 @@ impl ControlDeck {
     }
 
     /// Add NES Game Genie codes.
+    ///
+    /// # Errors
+    ///
+    /// If genie code is invalid, an error is returned.
     #[inline]
     pub fn add_genie_code(&mut self, genie_code: String) -> NesResult<()> {
         self.cpu.bus.add_genie_code(genie_code)

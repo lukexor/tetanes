@@ -192,7 +192,6 @@ pub struct PpuStatus {
     pub prev_match: u8,
     pub reading: bool,
     pub idle: u8,
-    pub in_vblank: bool,
     pub sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
     pub rendering: bool,
     pub scanline: u16,
@@ -210,7 +209,6 @@ impl PpuStatus {
                     self.prev_addr = 0x0000;
                 }
             }
-            0x2002 => self.in_vblank = val & 0x80 > 0,
             _ => (),
         }
     }
@@ -254,7 +252,6 @@ impl Exrom {
                 prev_match: 0x0000,
                 reading: false,
                 idle: 0x00,
-                in_vblank: false,
                 sprite8x16: false,
                 rendering: false,
                 scanline: 0x0000,
@@ -544,7 +541,7 @@ impl MemMap for Exrom {
         let val = self.map_peek(addr);
         match addr {
             0x5204 => self.irq_pending = false, // Reading from IRQ status clears it
-            0x5010 => self.dmc.irq_pending = false,
+            0x5010 => self.dmc.acknowledge_irq(),
             _ => (),
         }
         val
@@ -604,7 +601,7 @@ impl MemMap for Exrom {
                 // [I... ...M] DMC
                 //   I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 //   M = Mode select (0 = write mode. 1 = read mode.)
-                let irq = self.dmc.irq_pending && self.dmc.irq_enabled;
+                let irq = self.dmc.irq_pending() && self.dmc.irq_enabled();
                 MappedRead::Data(u8::from(irq) << 7 | self.dmc_mode)
             }
             0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
@@ -616,10 +613,10 @@ impl MemMap for Exrom {
             0x5015 => {
                 // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
                 let mut status = 0x00;
-                if self.pulse1.length.counter > 0 {
+                if self.pulse1.length_counter() > 0 {
                     status |= 0x01;
                 }
-                if self.pulse2.length.counter > 0 {
+                if self.pulse2.length_counter() > 0 {
                     status |= 0x02;
                 }
                 MappedRead::Data(status)
@@ -699,18 +696,13 @@ impl MemMap for Exrom {
                 //   I = PCM IRQ enable (1 = enabled.)
                 //   M = Mode select (0 = write mode. 1 = read mode.)
                 self.dmc_mode = val & 0x01;
-                self.dmc.irq_enabled = val & 0x80 == 0x80;
+                self.dmc.set_enabled(val & 0x80 == 0x80, self.cpu_cycle);
             }
             0x5011 => {
                 // [DDDD DDDD] PCM Data
-                if self.dmc_mode == 0 {
-                    // Write mode
-                    if val == 0x00 {
-                        self.dmc.irq_pending = true;
-                    } else {
-                        self.dmc.irq_pending = false;
-                        self.dmc.output = val;
-                    }
+                // Write mode - writing $00 has no effect
+                if self.dmc_mode == 0 && val != 0x00 {
+                    self.dmc.write_output(val);
                 }
             }
             0x5015 => {

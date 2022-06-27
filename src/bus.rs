@@ -226,8 +226,5 @@ mod tests {
             "read initialized mirror2 byte: 0x{:02X}",
             0x15,
         );
-        // The following are test mode addresses, Not mapped
-        assert_eq!(mem.read(0x4018), 0x00, "read unmapped byte: 0x00");
-        assert_eq!(mem.read(0x4018), 0x00, "write unmapped byte: 0x00");
     }
 }

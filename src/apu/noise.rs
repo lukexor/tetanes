@@ -17,8 +17,14 @@ pub struct Noise {
     freq_counter: u16,     // Current frequency timer value
     shift: u16,            // Must never be 0
     shift_mode: ShiftMode, // Zero (XOR bits 0 and 1) or One (XOR bits 0 and 6)
-    pub length: LengthCounter,
+    length: LengthCounter,
     envelope: Envelope,
+}
+
+impl Default for Noise {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Noise {
@@ -41,6 +47,12 @@ impl Noise {
             length: LengthCounter::new(),
             envelope: Envelope::new(),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn length_counter(&self) -> u8 {
+        self.length.counter()
     }
 
     #[inline]
@@ -132,11 +144,5 @@ impl Clock for Noise {
 impl Reset for Noise {
     fn reset(&mut self, _kind: Kind) {
         *self = Self::new();
-    }
-}
-
-impl Default for Noise {
-    fn default() -> Self {
-        Self::new()
     }
 }

@@ -13,7 +13,7 @@ use std::{
     cmp::Ordering,
     collections::HashMap,
     fmt,
-    ops::{ControlFlow, Deref, DerefMut},
+    ops::{Deref, DerefMut},
     time::{Duration, Instant},
 };
 
@@ -778,9 +778,8 @@ impl Nes {
 
     fn debug_step_into(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
-        match self.control_deck.clock_debug() {
-            Ok(control) => self.handle_debugger(control),
-            Err(err) => self.handle_emulation_error(s, &err)?,
+        if let Err(err) = self.control_deck.clock_debug() {
+            self.handle_emulation_error(s, &err)?;
         }
         Ok(())
     }
@@ -788,24 +787,15 @@ impl Nes {
     fn debug_step_over(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
         let instr = self.control_deck.next_instr();
-        match self.control_deck.clock_debug() {
-            Ok(control) => self.handle_debugger(control),
-            Err(err) => self.handle_emulation_error(s, &err)?,
+        if let Err(err) = self.control_deck.clock_debug() {
+            self.handle_emulation_error(s, &err)?;
         }
         if instr.op() == Operation::JSR {
             let rti_addr = self.control_deck.stack_addr().wrapping_add(1);
             while self.control_deck.pc() != rti_addr {
-                match self.control_deck.clock_debug() {
-                    Ok(control) => {
-                        self.handle_debugger(control);
-                        if let ControlFlow::Break(_) = control {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        self.handle_emulation_error(s, &err)?;
-                        break;
-                    }
+                if let Err(err) = self.control_deck.clock_debug() {
+                    self.handle_emulation_error(s, &err)?;
+                    break;
                 }
             }
         }
@@ -815,23 +805,14 @@ impl Nes {
     fn debug_step_out(&mut self, s: &mut PixState) -> NesResult<()> {
         let mut instr = self.control_deck.next_instr();
         while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
-            match self.control_deck.clock_debug() {
-                Ok(control) => {
-                    self.handle_debugger(control);
-                    if let ControlFlow::Break(_) = control {
-                        break;
-                    }
-                }
-                Err(err) => {
-                    self.handle_emulation_error(s, &err)?;
-                    break;
-                }
+            if let Err(err) = self.control_deck.clock_debug() {
+                self.handle_emulation_error(s, &err)?;
+                break;
             }
             instr = self.control_deck.next_instr();
         }
-        match self.control_deck.clock_debug() {
-            Ok(control) => self.handle_debugger(control),
-            Err(err) => self.handle_emulation_error(s, &err)?,
+        if let Err(err) = self.control_deck.clock_debug() {
+            self.handle_emulation_error(s, &err)?;
         }
 
         Ok(())
@@ -839,18 +820,16 @@ impl Nes {
 
     fn debug_step_frame(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
-        match self.control_deck.clock_frame() {
-            Ok(control) => self.handle_debugger(control),
-            Err(err) => self.handle_emulation_error(s, &err)?,
+        if let Err(err) = self.control_deck.clock_debug() {
+            self.handle_emulation_error(s, &err)?;
         }
         Ok(())
     }
 
     fn debug_step_scanline(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
-        match self.control_deck.clock_scanline() {
-            Ok(control) => self.handle_debugger(control),
-            Err(err) => self.handle_emulation_error(s, &err)?,
+        if let Err(err) = self.control_deck.clock_debug() {
+            self.handle_emulation_error(s, &err)?;
         }
         Ok(())
     }

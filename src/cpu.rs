@@ -367,7 +367,7 @@ impl Cpu {
 
         self.irq.set(Irq::MAPPER, self.bus.cart.irq_pending());
         self.irq.set(Irq::FRAME_COUNTER, self.bus.apu.irq_pending);
-        self.irq.set(Irq::DMC, self.bus.apu.dmc.irq_pending);
+        self.irq.set(Irq::DMC, self.bus.apu.dmc.irq_pending());
 
         // The IRQ status at the end of the second-to-last cycle is what matters,
         // so keep the second-to-last status.
@@ -377,8 +377,7 @@ impl Cpu {
             log::trace!("IRQ Level Detected: {}, {}", self.run_irq, self.cycle);
         }
 
-        if self.bus.apu.dmc.dma_pending {
-            self.bus.apu.dmc.dma_pending = false;
+        if self.bus.apu.dmc.dma() {
             self.dmc_dma = true;
             self.halt = true;
             self.dummy_read = true;
@@ -444,9 +443,10 @@ impl Cpu {
                 if self.dmc_dma && !self.halt && !self.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
-                    read_val = self.bus.read(self.bus.apu.dmc.addr);
+                    let dma_addr = self.bus.apu.dmc.dma_addr();
+                    read_val = self.bus.read(dma_addr);
                     self.end_cycle(Cycle::Read);
-                    self.bus.apu.dmc.set_sample_buffer(read_val);
+                    self.bus.apu.dmc.load_buffer(read_val);
                     self.dmc_dma = false;
                 } else if self.bus.ppu.oam_dma {
                     // DMC DMA not running or ready, run OAM DMA

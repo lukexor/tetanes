@@ -19,7 +19,6 @@ use pix_engine::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
     env,
-    ops::ControlFlow,
     path::PathBuf,
     time::Instant,
 };
@@ -320,15 +319,6 @@ impl Nes {
         self.render_ppu_viewer(s)?;
         Ok(())
     }
-
-    fn handle_debugger(&mut self, control: ControlFlow<usize, usize>) {
-        if let Some(ref mut debugger) = self.debugger {
-            if let ControlFlow::Break(_) = control {
-                debugger.on_breakpoint = true;
-                self.pause_play();
-            }
-        }
-    }
 }
 
 impl AppState for Nes {
@@ -373,7 +363,7 @@ impl AppState for Nes {
                 .clamp(0.0, self.config.speed * (1.0 / 20.0));
             let prev_frame = self.control_deck.frame_number();
             match self.control_deck.clock_seconds(seconds_to_run) {
-                Ok(control) => {
+                Ok(_) => {
                     if prev_frame != self.control_deck.frame_number() {
                         self.update_rewind();
                     }
@@ -385,7 +375,6 @@ impl AppState for Nes {
                         );
                     }
                     self.control_deck.clear_audio_samples();
-                    self.handle_debugger(control);
                 }
                 Err(err) => return self.handle_emulation_error(s, &err),
             }

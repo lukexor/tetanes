@@ -4,24 +4,30 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
-    pub region: NesRegion,
-    pub irq_enabled: bool,
-    pub irq_pending: bool,
-    pub loops: bool,
-    pub freq_timer: u16,
-    pub freq_counter: u16,
-    pub addr: u16,
-    pub addr_load: u16,
-    pub length: u16,
-    pub length_load: u16,
-    pub sample_buffer: u8,
-    pub sample_buffer_empty: bool,
-    pub dma_pending: bool,
-    pub init: u8,
-    pub output: u8,
-    pub output_bits: u8,
-    pub output_shift: u8,
-    pub output_silent: bool,
+    region: NesRegion,
+    irq_enabled: bool,
+    irq_pending: bool,
+    loops: bool,
+    freq_timer: u16,
+    freq_counter: u16,
+    addr: u16,
+    addr_load: u16,
+    length: u16,
+    length_load: u16,
+    sample_buffer: u8,
+    sample_buffer_empty: bool,
+    dma_pending: bool,
+    init: u8,
+    output: u8,
+    output_bits: u8,
+    output_shift: u8,
+    output_silent: bool,
+}
+
+impl Default for Dmc {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Dmc {
@@ -71,6 +77,65 @@ impl Dmc {
     }
 
     #[inline]
+    #[must_use]
+    pub const fn length(&self) -> u16 {
+        self.length
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn irq_enabled(&self) -> bool {
+        self.irq_enabled
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+
+    #[inline]
+    pub fn acknowledge_irq(&mut self) {
+        self.irq_pending = false;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn dma(&mut self) -> bool {
+        let pending = self.dma_pending;
+        self.dma_pending = false;
+        pending
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn dma_addr(&self) -> u16 {
+        self.addr
+    }
+
+    #[inline]
+    pub fn load_buffer(&mut self, val: u8) {
+        self.dma_pending = false;
+        if self.length > 0 {
+            self.sample_buffer = val;
+            self.sample_buffer_empty = false;
+            self.addr = self.addr.wrapping_add(1);
+            if self.addr == 0 {
+                self.addr = 0x8000;
+            }
+            self.length -= 1;
+            if self.length == 0 {
+                if self.loops {
+                    self.length = self.length_load;
+                    self.addr = self.addr_load;
+                } else if self.irq_enabled {
+                    self.irq_pending = true;
+                }
+            }
+        }
+    }
+
+    #[inline]
     const fn freq_timer(region: NesRegion, val: u8) -> u16 {
         match region {
             NesRegion::Ntsc => Self::FREQ_TABLE_NTSC[(val & 0x0F) as usize] - 2,
@@ -97,7 +162,7 @@ impl Dmc {
     // $4011 DMC output
     #[inline]
     pub fn write_output(&mut self, val: u8) {
-        self.output = val >> 1;
+        self.output = val;
     }
 
     // $4012 DMC addr load
@@ -122,27 +187,6 @@ impl Dmc {
             self.length = self.length_load;
             // Delay a number of cycles based on even/odd cycle
             self.init = if cycle & 0x01 == 0x00 { 2 } else { 3 };
-        }
-    }
-
-    pub fn set_sample_buffer(&mut self, val: u8) {
-        self.dma_pending = false;
-        if self.length > 0 {
-            self.sample_buffer = val;
-            self.sample_buffer_empty = false;
-            self.addr = self.addr.wrapping_add(1);
-            if self.addr == 0 {
-                self.addr = 0x8000;
-            }
-            self.length -= 1;
-            if self.length == 0 {
-                if self.loops {
-                    self.length = self.length_load;
-                    self.addr = self.addr_load;
-                } else if self.irq_enabled {
-                    self.irq_pending = true;
-                }
-            }
         }
     }
 
@@ -222,11 +266,5 @@ impl Reset for Dmc {
         self.output_bits = 0x00;
         self.output_shift = 0x00;
         self.output_silent = true;
-    }
-}
-
-impl Default for Dmc {
-    fn default() -> Self {
-        Self::new()
     }
 }

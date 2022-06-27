@@ -20,6 +20,14 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use triangle::Triangle;
 
+pub mod dmc;
+pub mod noise;
+pub mod pulse;
+pub mod triangle;
+
+pub mod envelope;
+pub mod frame_counter;
+
 pub const PULSE_TABLE_SIZE: usize = 31;
 const TND_TABLE_SIZE: usize = 203;
 
@@ -37,14 +45,6 @@ static TND_TABLE: Lazy<[f32; TND_TABLE_SIZE]> = Lazy::new(|| {
     }
     tnd_table
 });
-
-pub mod dmc;
-pub mod noise;
-pub mod pulse;
-pub mod triangle;
-
-pub mod envelope;
-pub mod frame_counter;
 
 /// A given APU audio channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -76,6 +76,12 @@ pub struct Apu {
     cart: *mut Cart,
     enabled: [bool; 5],
     pub(crate) open_bus: u8, // This open bus gets set during any write to APU registers
+}
+
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Apu {
@@ -110,8 +116,8 @@ impl Apu {
 
     #[inline]
     #[must_use]
-    pub fn samples(&mut self) -> &mut [f32] {
-        &mut self.samples
+    pub fn samples(&self) -> &[f32] {
+        &self.samples
     }
 
     #[inline]
@@ -239,25 +245,25 @@ impl Apu {
     #[must_use]
     const fn peek_status(&self) -> u8 {
         let mut status = 0x00;
-        if self.pulse1.length.counter > 0 {
+        if self.pulse1.length_counter() > 0 {
             status |= 0x01;
         }
-        if self.pulse2.length.counter > 0 {
+        if self.pulse2.length_counter() > 0 {
             status |= 0x02;
         }
-        if self.triangle.length.counter > 0 {
+        if self.triangle.length_counter() > 0 {
             status |= 0x04;
         }
-        if self.noise.length.counter > 0 {
+        if self.noise.length_counter() > 0 {
             status |= 0x08;
         }
-        if self.dmc.length > 0 {
+        if self.dmc.length() > 0 {
             status |= 0x10;
         }
         if self.irq_pending {
             status |= 0x40;
         }
-        if self.dmc.irq_pending {
+        if self.dmc.irq_pending() {
             status |= 0x80;
         }
         status
@@ -352,7 +358,7 @@ impl MemWrite for Apu {
             0x400E => self.noise.write_timer(val),
             0x400F => self.noise.write_length(val),
             0x4010 => self.dmc.write_timer(val),
-            0x4011 => self.dmc.write_output(val),
+            0x4011 => self.dmc.write_output(val & 0x7F), // Only 7-bits are used
             0x4012 => self.dmc.write_addr_load(val),
             0x4013 => self.dmc.write_length(val),
             0x4015 => self.write_status(val),
@@ -374,12 +380,6 @@ impl Reset for Apu {
         self.triangle.reset(kind);
         self.noise.reset(kind);
         self.dmc.reset(kind);
-    }
-}
-
-impl Default for Apu {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -432,6 +432,12 @@ impl LengthCounter {
     }
 
     #[inline]
+    #[must_use]
+    pub const fn counter(&self) -> u8 {
+        self.counter
+    }
+
+    #[inline]
     pub fn load_value(&mut self, val: u8) {
         self.counter = Self::LENGTH_TABLE[(val >> 3) as usize]; // D7..D3
     }
@@ -451,31 +457,6 @@ impl Clock for LengthCounter {
         } else {
             0
         }
-    }
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub(crate) struct LinearCounter {
-    pub(crate) reload: bool,
-    pub(crate) control: bool,
-    pub(crate) load: u8,
-    pub(crate) counter: u8,
-}
-
-impl LinearCounter {
-    pub(crate) const fn new() -> Self {
-        Self {
-            reload: false,
-            control: false,
-            load: 0u8,
-            counter: 0u8,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn load_value(&mut self, val: u8) {
-        self.load = val >> 1; // D6..D0
     }
 }
 
