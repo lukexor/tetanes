@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub struct WindowSinc {
     m: usize,
@@ -9,22 +9,6 @@ pub struct WindowSinc {
     bw: f32,
     taps: Vec<f32>,
     latency: usize,
-}
-
-fn blackman_window(m: usize) -> Vec<f32> {
-    let p1 = 2.0 * PI / m as f32;
-    let p2 = 4.0 * PI / m as f32;
-
-    // Force N to be symmetrical
-    let n = if m % 2 == 0 { m + 1 } else { m };
-    let mut h = vec![0.0; n];
-
-    for (i, h) in h.iter_mut().enumerate() {
-        let i = i as f32;
-        *h = 0.42 - 0.5 * (p1 * i).cos() + 0.8 * (p2 * i).cos();
-    }
-
-    h
 }
 
 impl WindowSinc {
@@ -48,7 +32,7 @@ impl WindowSinc {
         let m = (4.0 / bw) as usize; // Approximation
         let latency = m / 2; // Middle sample of FIR
 
-        let mut h = blackman_window(m);
+        let mut h = Self::blackman_window(m);
 
         // Apply window sinc filter
         let p = 2.0 * PI * fc;
@@ -70,6 +54,22 @@ impl WindowSinc {
             taps: h,
             latency,
         }
+    }
+
+    fn blackman_window(m: usize) -> Vec<f32> {
+        let p1 = 2.0 * PI / m as f32;
+        let p2 = 4.0 * PI / m as f32;
+
+        // Force N to be symmetrical
+        let n = if m % 2 == 0 { m + 1 } else { m };
+        let mut h = vec![0.0; n];
+
+        for (i, h) in h.iter_mut().enumerate() {
+            let i = i as f32;
+            *h = 0.42 - 0.5 * (p1 * i).cos() + 0.8 * (p2 * i).cos();
+        }
+
+        h
     }
 
     #[inline]
@@ -103,5 +103,17 @@ impl WindowSinc {
     #[must_use]
     pub const fn latency(&self) -> usize {
         self.latency
+    }
+}
+
+impl std::fmt::Debug for WindowSinc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WindowSinc")
+            .field("m", &self.m)
+            .field("fc", &self.fc)
+            .field("bw", &self.bw)
+            .field("taps_len", &self.taps.len())
+            .field("latency", &self.latency)
+            .finish()
     }
 }
