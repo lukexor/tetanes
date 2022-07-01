@@ -1070,6 +1070,8 @@ impl Reset for Cpu {
     ///
     /// These operations take the CPU 7 cycles.
     fn reset(&mut self, kind: Kind) {
+        log::trace!("{:?} RESET", kind);
+
         match kind {
             Kind::Soft => {
                 self.status.set(Status::I, true);

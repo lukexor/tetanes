@@ -851,7 +851,9 @@ impl PpuRegisters for Ppu {
     #[inline]
     fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
-        log::trace!("({}, {}): $2002 NMI Ack", self.cycle, self.scanline);
+        if self.nmi_pending() {
+            log::trace!("({}, {}): $2002 NMI Ack", self.cycle, self.scanline);
+        }
         self.nmi_pending = false;
         self.status.reset_in_vblank();
         self.scroll.reset_latch();
