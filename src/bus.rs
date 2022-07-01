@@ -360,6 +360,7 @@ impl Mem for CpuBus {
             0x4017 => self.input.read(Slot::Two, &self.ppu),
             0x4020..=0xFFFF => {
                 let val = match self.mapper_mut().map_read(addr) {
+                    MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
                     MappedRead::Default => match addr {
@@ -393,6 +394,7 @@ impl Mem for CpuBus {
             0x4017 => self.input.peek(Slot::Two, &self.ppu),
             0x4020..=0xFFFF => {
                 let val = match self.mapper().map_peek(addr) {
+                    MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
                     MappedRead::Default => match addr {
@@ -453,7 +455,7 @@ impl Mem for CpuBus {
                 match self.mapper_mut().map_write(addr, val) {
                     MappedWrite::PrgRam(addr, val) if prg_ram_enabled => self.prg_ram[addr] = val,
                     MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
-                    MappedWrite::Default if prg_ram_enabled => {
+                    MappedWrite::Default if matches!(addr, 0x6000..=0x7FFF) && prg_ram_enabled => {
                         self.prg_ram[(addr & 0x1FFF) as usize] = val;
                     }
                     _ => (),
@@ -577,6 +579,7 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = CpuBus::default();
         let mut cart = Cart::empty();
+        cart.chr_rom = vec![];
         cart.chr_ram = vec![0x66; 0x2000];
         bus.load_cart(cart);
 
