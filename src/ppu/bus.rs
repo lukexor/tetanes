@@ -134,7 +134,7 @@ impl Mem for PpuBus {
                 }
             }
             0x2000..=0x3EFF => match self.mapper.map_read(addr) {
-                MappedRead::CIRam(addr) => self.vram[self.vram_mirror(addr)],
+                MappedRead::CIRam(addr) => self.vram[addr],
                 MappedRead::ExRam(addr) => self.ex_ram[addr],
                 MappedRead::Data(data) => data,
                 MappedRead::Default => self.vram[self.vram_mirror(addr.into())],
@@ -191,10 +191,7 @@ impl Mem for PpuBus {
                 }
             }
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
-                MappedWrite::CIRam(addr, val) => {
-                    let addr = self.vram_mirror(addr);
-                    self.vram[addr] = val;
-                }
+                MappedWrite::CIRam(addr, val) => self.vram[addr] = val,
                 MappedWrite::ExRam(addr, val) => self.ex_ram[addr] = val,
                 MappedWrite::Default => {
                     let addr = self.vram_mirror(addr.into());
