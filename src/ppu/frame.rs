@@ -29,7 +29,7 @@ impl Frame {
 
     #[inline]
     pub fn increment(&mut self) {
-        self.count += 1;
+        self.count = self.count.wrapping_add(1);
         std::mem::swap(&mut self.front_buffer, &mut self.back_buffer);
     }
 

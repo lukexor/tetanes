@@ -90,7 +90,6 @@ enum Cycle {
 #[must_use]
 pub struct Cpu {
     cycle: usize, // total number of cycles ran
-    step: usize,  // total number of CPU instructions run
     region: NesRegion,
     master_clock: u64,
     clock_divider: u64,
@@ -144,7 +143,6 @@ impl Cpu {
     pub fn new(bus: CpuBus) -> Self {
         let mut cpu = Self {
             cycle: 0,
-            step: 0,
             region: NesRegion::default(),
             master_clock: 0,
             clock_divider: 0,
@@ -998,8 +996,6 @@ impl Cpu {
             self.irq();
         }
 
-        self.step += 1;
-
         if !self.cycle_accurate {
             self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
             let cycles = self.cycle - start_cycle;
@@ -1117,7 +1113,6 @@ impl fmt::Debug for Cpu {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         f.debug_struct("Cpu")
             .field("cycle", &self.cycle)
-            .field("step", &self.step)
             .field("pc", &format_args!("${:04X}", self.pc))
             .field("sp", &format_args!("${:02X}", self.sp))
             .field("acc", &format_args!("${:02X}", self.acc))

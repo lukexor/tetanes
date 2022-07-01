@@ -1114,7 +1114,7 @@ impl Clock for Ppu {
             }
         }
 
-        self.cycle_count += 1;
+        self.cycle_count = self.cycle_count.wrapping_add(1);
         1
     }
 

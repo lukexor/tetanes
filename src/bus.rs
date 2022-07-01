@@ -327,7 +327,7 @@ impl CpuBus {
 
 impl Clock for CpuBus {
     fn clock(&mut self) -> usize {
-        self.cycle += 1;
+        self.cycle = self.cycle.wrapping_add(1);
         self.apu.clock();
         self.mapper_mut().clock();
         self.input.clock();

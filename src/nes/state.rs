@@ -167,7 +167,7 @@ impl Nes {
         if !self.config.rewind {
             return;
         }
-        self.rewind_frame += 1;
+        self.rewind_frame = self.rewind_frame.wrapping_add(1);
         if self.rewind_frame >= self.config.rewind_frames {
             self.rewind_frame = 0;
             if let Err(err) = bincode::serialize(self.control_deck.cpu())

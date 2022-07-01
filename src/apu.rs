@@ -374,7 +374,7 @@ impl Clock for Apu {
         // Technically only clocks every 2 CPU cycles, but due
         // to half-cycle timings, we clock every cycle
         self.clock_frame_counter();
-        self.cycle += 1;
+        self.cycle = self.cycle.wrapping_add(1);
         1
     }
 }
