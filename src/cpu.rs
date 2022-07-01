@@ -115,6 +115,7 @@ pub struct Cpu {
     prev_nmi_pending: bool,
     #[serde(skip)]
     corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
+    dmc_dma: bool,
     halt: bool,
     dummy_read: bool,
     cycle_accurate: bool,
@@ -167,6 +168,7 @@ impl Cpu {
             prev_nmi: false,
             prev_nmi_pending: false,
             corrupted: false,
+            dmc_dma: false,
             halt: false,
             dummy_read: false,
             cycle_accurate: true,
@@ -455,6 +457,7 @@ impl Cpu {
         }
 
         if self.bus.dmc_dma() {
+            self.dmc_dma = true;
             self.halt = true;
             self.dummy_read = true;
         }
@@ -511,14 +514,15 @@ impl Cpu {
         let mut oam_dma_count = 0;
         let mut read_val = 0;
 
-        while self.bus.oam_dma() || self.bus.dmc_dma() {
+        while self.bus.oam_dma() || self.dmc_dma {
             if self.cycle & 0x01 == 0x00 {
-                if self.bus.dmc_dma() && !self.halt && !self.dummy_read {
+                if self.dmc_dma && !self.halt && !self.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
                     read_val = self.bus.read(self.bus.dmc_dma_addr(), Access::Dummy);
                     self.end_cycle(Cycle::Read);
                     self.bus.load_dmc_buffer(read_val);
+                    self.dmc_dma = false;
                 } else if self.bus.oam_dma() {
                     // DMC DMA not running or ready, run OAM DMA
                     self.process_dma_cycle();
@@ -1018,7 +1022,7 @@ impl Clock for Cpu {
 
 impl Mem for Cpu {
     fn read(&mut self, addr: u16, access: Access) -> u8 {
-        if self.halt {
+        if self.halt || self.bus.oam_dma() {
             self.handle_dma(addr);
         }
 
@@ -1036,9 +1040,6 @@ impl Mem for Cpu {
         self.start_cycle(Cycle::Write);
         self.bus.write(addr, val, access);
         self.end_cycle(Cycle::Write);
-        if addr == 0x4014 {
-            self.halt = true;
-        }
     }
 }
 
@@ -1103,7 +1104,7 @@ impl Reset for Cpu {
         let hi = self.bus.read(Self::RESET_VECTOR + 1, Access::Read);
         self.pc = u16::from_le_bytes([lo, hi]);
 
-        for _ in 0..8 {
+        for _ in 0..7 {
             self.start_cycle(Cycle::Read);
             self.end_cycle(Cycle::Read);
         }
@@ -1147,10 +1148,12 @@ mod tests {
     fn cycle_timing() {
         use super::*;
         let mut cpu = Cpu::new(CpuBus::default());
+        let cart = Cart::empty();
+        cpu.load_cart(cart);
         cpu.reset(Kind::Hard);
         cpu.clock();
 
-        assert_eq!(cpu.cycle, 15, "cpu after power + one clock");
+        assert_eq!(cpu.cycle, 14, "cpu after power + one clock");
 
         for instr in Cpu::INSTRUCTIONS.iter() {
             let extra_cycle = match instr.op() {
@@ -1164,7 +1167,7 @@ mod tests {
             cpu.reset(Kind::Hard);
             cpu.bus.write(0x0000, instr.opcode(), Access::Write);
             cpu.clock();
-            let cpu_cyc = instr.cycles() + extra_cycle;
+            let cpu_cyc = 7 + instr.cycles() + extra_cycle;
             assert_eq!(
                 cpu.cycle,
                 cpu_cyc,

@@ -441,7 +441,7 @@ impl Mapped for Exrom {
         self.mirroring = mirroring;
     }
 
-    fn bus_read(&mut self, addr: u16, _val: u8) {
+    fn ppu_bus_read(&mut self, addr: u16) {
         // Ignore palette reads
         if addr > 0x3EFF {
             return;
@@ -480,7 +480,7 @@ impl Mapped for Exrom {
     }
 
     #[inline]
-    fn bus_write(&mut self, addr: u16, val: u8) {
+    fn ppu_bus_write(&mut self, addr: u16, val: u8) {
         self.ppu_status.write(addr, val);
     }
 }

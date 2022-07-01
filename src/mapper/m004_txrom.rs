@@ -100,18 +100,15 @@ impl Txrom {
         if cart.mirroring() == Mirroring::FourScreen {
             cart.add_ex_ram(Self::FOUR_SCREEN_RAM_SIZE);
         }
-        let chr_len = if cart.has_chr_rom() {
-            cart.chr_rom.len()
-        } else {
+        if !cart.has_chr() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
-            cart.chr_ram.len()
         };
         let mut txrom = Self {
             regs: TxRegs::new(),
             mirroring: cart.mirroring(),
             irq_pending: false,
             revision: Mmc3Revision::BC, // TODO compare to known games
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_len(), Self::CHR_WINDOW),
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
         };
@@ -206,9 +203,15 @@ impl Mapped for Txrom {
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }
+
+    #[inline]
+    fn ppu_bus_read(&mut self, addr: u16) {
+        self.clock_irq(addr);
+    }
 }
 
 impl MemMap for Txrom {
+    #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.clock_irq(addr);
         self.map_peek(addr)

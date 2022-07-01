@@ -36,7 +36,7 @@ impl Bf909x {
     const SINGLE_SCREEN_A: u8 = 0x10; // 0b10000
 
     pub fn load(cart: &mut Cart) -> Mapper {
-        if !cart.has_chr_rom() {
+        if !cart.has_chr() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         };
         let mut bf909x = Self {

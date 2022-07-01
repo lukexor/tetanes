@@ -26,7 +26,9 @@ impl Axrom {
     const SINGLE_SCREEN_B: u8 = 0x10; // 0b10000
 
     pub fn load(cart: &mut Cart) -> Mapper {
-        cart.add_chr_ram(Self::CHR_RAM_SIZE);
+        if !cart.has_chr() {
+            cart.add_chr_ram(Self::CHR_RAM_SIZE);
+        }
         let axrom = Self {
             mirroring: cart.mirroring(),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),

@@ -141,17 +141,13 @@ impl Mem for PpuBus {
                 MappedRead::Default => self.vram[self.vram_mirror(addr.into())],
                 _ => self.open_bus,
             },
-            0x3F00..=0x3FFF => {
-                // Hi 2 bits of palette should be open bus
-                (self.palette[self.palette_mirror(addr as usize)] & 0x3F) | (self.open_bus & 0xC0)
-            }
+            0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
                 log::error!("unexpected PPU memory access at ${:04X}", addr);
                 0x00
             }
         };
         self.open_bus = val;
-        self.mapper.bus_read(addr, val);
         val
     }
 
@@ -176,10 +172,7 @@ impl Mem for PpuBus {
                 MappedRead::Default => self.vram[self.vram_mirror(addr.into())],
                 _ => self.open_bus,
             },
-            0x3F00..=0x3FFF => {
-                // Hi 2 bits of palette should be open bus
-                (self.palette[self.palette_mirror(addr as usize)] & 0x3F) | (self.open_bus & 0xC0)
-            }
+            0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
                 log::error!("unexpected PPU memory access at ${:04X}", addr);
                 0x00
@@ -210,7 +203,6 @@ impl Mem for PpuBus {
             _ => log::error!("unexpected PPU memory access at ${:04X}", addr),
         }
         self.open_bus = val;
-        self.mapper.bus_write(addr, val);
     }
 }
 

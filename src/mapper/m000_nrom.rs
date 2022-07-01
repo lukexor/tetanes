@@ -31,7 +31,7 @@ impl Nrom {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         // NROM doesn't have CHR-RAM - but a lot of homebrew games use Mapper 000 with CHR-RAM, so
         // we'll provide some.
-        if !cart.has_chr_rom() {
+        if !cart.has_chr() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         };
         let nrom = Self {

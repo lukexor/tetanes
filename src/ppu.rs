@@ -1,6 +1,6 @@
 use crate::{
     common::{Clock, Kind, NesRegion, Regional, Reset},
-    mapper::Mapper,
+    mapper::{Mapped, Mapper},
     mem::{Access, Mem},
     ppu::{bus::PpuBus, frame::Frame},
 };
@@ -45,14 +45,15 @@ pub trait PpuRegisters {
     fn write_mask(&mut self, val: u8); // $2001 PPUMASK
     fn read_status(&mut self) -> u8; // $2002 PPUSTATUS
     fn peek_status(&self) -> u8; // $2002 PPUSTATUS
-    fn write_oamaddr(&mut self, val: u8); // $2003 OAM addr
-    fn read_oamdata(&self) -> u8; // $2004 OAM data read
-    fn write_oamdata(&mut self, val: u8); // $2004 OAM data write
+    fn write_oamaddr(&mut self, val: u8); // $2003 OAMADDR
+    fn read_oamdata(&mut self) -> u8; // $2004 OAMDATA
+    fn peek_oamdata(&self) -> u8; // $2004 OAMDATA
+    fn write_oamdata(&mut self, val: u8); // $2004 OAMDATA
     fn write_scroll(&mut self, val: u8); // $2005 PPUSCROLL
     fn write_addr(&mut self, val: u8); // $2006 PPUADDR
-    fn read_data(&mut self) -> u8; // $2007 PPUDATA read
-    fn peek_data(&self) -> u8; // $2007 PPUDATA read
-    fn write_data(&mut self, val: u8); // $2007 PPUDATA write
+    fn read_data(&mut self) -> u8; // $2007 PPUDATA
+    fn peek_data(&self) -> u8; // $2007 PPUDATA
+    fn write_data(&mut self, val: u8); // $2007 PPUDATA
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -335,6 +336,17 @@ impl Ppu {
     #[must_use]
     pub const fn oamaddr(&self) -> u8 {
         self.oamaddr
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn open_bus(&self) -> u8 {
+        self.open_bus
+    }
+
+    #[inline]
+    pub fn set_open_bus(&mut self, val: u8) {
+        self.open_bus = val;
     }
 }
 
@@ -853,6 +865,7 @@ impl PpuRegisters for Ppu {
             log::trace!("({}, {}): $2002 Prevent VBL", self.cycle, self.scanline);
             self.prevent_vbl = true;
         }
+        self.open_bus |= status & 0xE0;
         status
     }
 
@@ -881,14 +894,28 @@ impl PpuRegisters for Ppu {
         self.oamaddr = val;
     }
 
-    #[inline]
-    #[must_use]
     // $2004 | RW  | OAMDATA
     //       |     | Used to read the Sprite Memory. The address is set via
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
-    fn read_oamdata(&self) -> u8 {
+    #[inline]
+    #[must_use]
+    fn read_oamdata(&mut self) -> u8 {
+        let val = self.peek_oamdata();
+        self.open_bus = val;
+        val
+    }
+
+    // $2004 | RW  | OAMDATA
+    //       |     | Used to read the Sprite Memory. The address is set via
+    //       |     | $2003 and increments after each access. The Sprite Memory
+    //       |     | contains coordinates, colors, and other attributes of the
+    //       |     | sprites.
+    // Non-mutating version of `read_oamdata`.
+    #[inline]
+    #[must_use]
+    fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
         if self.scanline <= Self::VISIBLE_SCANLINE_END
             && self.rendering_enabled()
@@ -900,12 +927,12 @@ impl PpuRegisters for Ppu {
         }
     }
 
-    #[inline]
     // $2004 | RW  | OAMDATA
     //       |     | Used to write the Sprite Memory. The address is set via
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
+    #[inline]
     fn write_oamdata(&mut self, mut val: u8) {
         self.open_bus = val;
         if self.rendering_enabled()
@@ -961,6 +988,9 @@ impl PpuRegisters for Ppu {
             return;
         }
         self.scroll.write_addr(val);
+        // MMC3 clocks using A12
+        let addr = self.scroll.read_addr();
+        self.mapper_mut().ppu_bus_read(addr);
     }
 
     // $2007 | RW  | PPUDATA
@@ -971,46 +1001,55 @@ impl PpuRegisters for Ppu {
         self.increment_vram_addr();
 
         // Buffering quirk resulting in a dummy read for the CPU
-        // for reading pre-palette data in 0 - $3EFF
-        // Keep addr within 15 bits
+        // for reading pre-palette data in $0000 - $3EFF
         let val = self.bus.read(addr, Access::Read);
-        let val = if self.addr() < Self::PALETTE_START {
+        let val = if addr < Self::PALETTE_START {
             let buffer = self.vram_buffer;
             self.vram_buffer = val;
             buffer
         } else {
             // Set internal buffer with mirrors of nametable when reading palettes
-            // Since we're reading from > 0x3EFF subtract 0x1000 to fill
+            // Since we're reading from > $3EFF subtract $1000 to fill
             // buffer with nametable mirror data
             self.vram_buffer = self.bus.read(addr - 0x1000, Access::Dummy);
-            val
+            // Hi 2 bits of palette should be open bus
+            val | (self.open_bus & 0xC0)
         };
 
         self.open_bus = val;
+        // MMC3 clocks using A12
+        let addr = self.scroll.read_addr();
+        self.mapper_mut().ppu_bus_read(addr);
+
         val
     }
 
-    #[inline]
-    #[must_use]
     // $2007 | RW  | PPUDATA
     //
     // Non-mutating version of `read_data`.
+    #[inline]
+    #[must_use]
     fn peek_data(&self) -> u8 {
         let addr = self.scroll.read_addr();
         if addr < Self::PALETTE_START {
             self.vram_buffer
         } else {
-            self.bus.peek(addr, Access::Dummy)
+            // Hi 2 bits of palette should be open bus
+            self.bus.peek(addr, Access::Dummy) | (self.open_bus & 0xC0)
         }
     }
 
-    #[inline]
     // $2007 | RW  | PPUDATA
+    #[inline]
     fn write_data(&mut self, val: u8) {
+        self.open_bus = val;
         let addr = self.scroll.read_addr();
         self.increment_vram_addr();
-        self.open_bus = val;
         self.bus.write(addr, val, Access::Write);
+
+        // MMC3 clocks using A12
+        let addr = self.scroll.read_addr();
+        self.mapper_mut().ppu_bus_read(addr);
     }
 }
 

@@ -377,11 +377,11 @@ impl Mem for CpuBus {
                 self.genie_read(addr, val)
             }
             0x0800..=0x1FFF => self.read(addr & 0x07FF, access), // WRAM Mirrors
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
             0x2008..=0x3FFF => self.read(addr & 0x2007, access), // Ppu Mirrors
             _ => self.open_bus,
         };
         self.open_bus = val;
-        self.mapper_mut().bus_read(addr, val);
         val
     }
 
@@ -389,7 +389,7 @@ impl Mem for CpuBus {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
             0x2002 => self.ppu.peek_status(),
-            0x2004 => self.ppu.read_oamdata(),
+            0x2004 => self.ppu.peek_oamdata(),
             0x2007 => self.ppu.peek_data(),
             0x4015 => self.apu.peek_status(),
             0x4016 => self.input.peek(Slot::One, &self.ppu),
@@ -411,6 +411,7 @@ impl Mem for CpuBus {
                 self.genie_read(addr, val)
             }
             0x0800..=0x1FFF => self.peek(addr & 0x07FF, access), // WRAM Mirrors
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
             0x2008..=0x3FFF => self.peek(addr & 0x2007, access), // Ppu Mirrors
             _ => self.open_bus,
         }
@@ -466,11 +467,11 @@ impl Mem for CpuBus {
                 self.ppu.update_mirroring();
             }
             0x0800..=0x1FFF => self.write(addr & 0x07FF, val, access), // WRAM Mirrors
+            0x2002 => self.ppu.set_open_bus(val),
             0x2008..=0x3FFF => self.write(addr & 0x2007, val, access), // Ppu Mirrors
             _ => (),
         }
         self.open_bus = val;
-        self.mapper_mut().bus_write(addr, val);
     }
 }
 
@@ -502,16 +503,20 @@ impl std::fmt::Debug for CpuBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bus")
             .field("wram_len", &self.wram.len())
+            .field("region", &self.region)
             .field("ram_state", &self.ram_state)
-            .field("prg_rom_len", &self.prg_rom.len())
+            .field("battery_backed", &self.battery_backed)
             .field("prg_ram_len", &self.prg_ram.len())
+            .field("prg_ram_protect", &self.prg_ram_protect)
+            .field("prg_rom_len", &self.prg_rom.len())
             .field("ppu", &self.ppu)
             .field("apu", &self.apu)
             .field("input", &self.input)
             .field("oam_dma", &self.oam_dma)
             .field("oam_dma_addr", &self.oam_dma_addr)
-            .field("audio_len", &self.audio_samples.len())
+            .field("audio_samples_len", &self.audio_samples.len())
             .field("genie_codes", &self.genie_codes.values())
+            .field("cycle", &self.cycle)
             .field("open_bus", &format_args!("${:02X}", &self.open_bus))
             .finish()
     }
@@ -520,7 +525,7 @@ impl std::fmt::Debug for CpuBus {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{cart::Cart, mapper::Nrom};
+    use crate::cart::Cart;
 
     #[test]
     fn load_cart_values() {
@@ -550,9 +555,8 @@ mod test {
     #[test]
     fn load_cart_chr_rom() {
         let mut bus = CpuBus::default();
-        let mut cart = Cart::default();
+        let mut cart = Cart::empty();
         cart.chr_rom = vec![0x66; 0x2000];
-
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00, Access::Write);
@@ -578,9 +582,8 @@ mod test {
     #[test]
     fn load_cart_chr_ram() {
         let mut bus = CpuBus::default();
-        let mut cart = Cart::default();
+        let mut cart = Cart::empty();
         cart.chr_ram = vec![0x66; 0x2000];
-
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00, Access::Write);
@@ -606,15 +609,13 @@ mod test {
     #[test]
     fn genie_codes() {
         let mut bus = CpuBus::default();
-        let mut cart = Cart::default();
-        cart.prg_rom = vec![0x66; 0x4000];
+        let mut cart = Cart::empty();
 
         let code = "YYKPOYZZ"; // The Legend of Zelda: New character with 8 Hearts
         let addr = 0x9F41;
         let orig_value = 0x22; // 3 Hearts
         let new_value = 0x77; // 8 Hearts
         cart.prg_rom[(addr - 0x8000) as usize] = orig_value;
-        cart.mapper = Nrom::load(&mut cart);
 
         bus.load_cart(cart);
         bus.add_genie_code(code.to_string())

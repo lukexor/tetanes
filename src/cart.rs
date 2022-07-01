@@ -43,6 +43,23 @@ pub struct Cart {
 }
 
 impl Cart {
+    pub fn empty() -> Self {
+        let mut empty = Self {
+            name: "Empty Cart".to_string(),
+            header: NesHeader::default(),
+            region: NesRegion::default(),
+            ram_state: RamState::default(),
+            mapper: Mapper::none(),
+            chr_rom: vec![0x00; CHR_ROM_BANK_SIZE],
+            chr_ram: vec![],
+            ex_ram: vec![],
+            prg_rom: vec![0x00; PRG_ROM_BANK_SIZE],
+            prg_ram: vec![],
+        };
+        empty.mapper = Nrom::load(&mut empty);
+        empty
+    }
+
     /// Load `Cart` from a ROM path.
     ///
     /// # Errors
@@ -165,8 +182,20 @@ impl Cart {
 
     #[inline]
     #[must_use]
-    pub fn has_chr_rom(&self) -> bool {
-        !self.chr_rom.is_empty()
+    pub fn has_chr(&self) -> bool {
+        !self.chr_rom.is_empty() || !self.chr_ram.is_empty()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn chr_len(&self) -> usize {
+        if !self.chr_rom.is_empty() {
+            self.chr_rom.len()
+        } else if !self.chr_ram.is_empty() {
+            self.chr_ram.len()
+        } else {
+            0
+        }
     }
 
     #[inline]
