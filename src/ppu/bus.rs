@@ -146,6 +146,7 @@ impl Mem for PpuBus {
             }
         };
         self.open_bus = val;
+        self.mapper.ppu_bus_read(addr);
         val
     }
 
@@ -206,6 +207,7 @@ impl Mem for PpuBus {
             }
             _ => log::error!("unexpected PPU memory access at ${:04X}", addr),
         }
+        self.mapper.ppu_bus_write(addr, val);
         self.open_bus = val;
     }
 }

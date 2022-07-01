@@ -440,7 +440,7 @@ impl Cpu {
         let nmi_pending = self.bus.nmi_pending();
         if !self.prev_nmi_pending && nmi_pending {
             self.nmi = true;
-            log::trace!("NMI Edge Detected: {}, {}", self.nmi, self.cycle);
+            log::trace!("NMI Edge Detected: {}", self.cycle);
         }
         self.prev_nmi_pending = nmi_pending;
 
@@ -451,7 +451,7 @@ impl Cpu {
         self.prev_run_irq = self.run_irq;
         self.run_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
         if self.run_irq {
-            log::trace!("IRQ Level Detected: {}, {}", self.run_irq, self.cycle);
+            log::trace!("IRQ Level Detected: {}: {:?}", self.cycle, self.irq);
         }
 
         if self.bus.dmc_dma() {

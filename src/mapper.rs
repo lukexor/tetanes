@@ -134,6 +134,8 @@ pub trait Mapped {
     fn set_mirroring(&mut self, _mirroring: Mirroring) {}
     fn ppu_bus_read(&mut self, _addr: u16) {}
     fn ppu_bus_write(&mut self, _addr: u16, _val: u8) {}
+    fn cpu_bus_read(&mut self, _addr: u16) {}
+    fn cpu_bus_write(&mut self, _addr: u16, _val: u8) {}
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]

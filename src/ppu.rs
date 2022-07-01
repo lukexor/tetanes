@@ -368,6 +368,39 @@ impl Ppu {
         }
     }
 
+    fn start_vblank(&mut self) {
+        log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
+        if !self.prevent_vbl {
+            self.status.set_in_vblank(true);
+            self.nmi_pending = self.ctrl.nmi_enabled();
+            log::trace!(
+                "({}, {}): VBL NMI: {}",
+                self.cycle,
+                self.scanline,
+                self.nmi_pending
+            );
+        }
+        self.prevent_vbl = false;
+        let val = self.peek_status();
+        self.mapper_mut().ppu_bus_write(0x2002, val);
+    }
+
+    fn stop_vblank(&mut self) {
+        log::trace!(
+            "({}, {}): Clear Sprite0 Hit, Overflow",
+            self.cycle,
+            self.scanline
+        );
+        log::trace!("({}, {}): Clear VBL flag", self.cycle, self.scanline);
+        self.status.set_spr_zero_hit(false);
+        self.status.set_spr_overflow(false);
+        self.status.reset_in_vblank();
+        self.nmi_pending = false;
+        self.reset_signal = false;
+        let val = self.peek_status();
+        self.mapper_mut().ppu_bus_write(0x2002, val);
+    }
+
     fn fetch_bg_nt_byte(&mut self) {
         // Fetch BG nametable
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
@@ -865,6 +898,7 @@ impl PpuRegisters for Ppu {
             self.prevent_vbl = true;
         }
         self.open_bus |= status & 0xE0;
+        self.mapper_mut().ppu_bus_write(0x2002, status);
         status
     }
 
@@ -989,7 +1023,7 @@ impl PpuRegisters for Ppu {
         self.scroll.write_addr(val);
         // MMC3 clocks using A12
         let addr = self.scroll.read_addr();
-        self.mapper_mut().ppu_bus_read(addr);
+        self.mapper_mut().ppu_bus_write(addr, val);
     }
 
     // $2007 | RW  | PPUDATA
@@ -1048,7 +1082,7 @@ impl PpuRegisters for Ppu {
 
         // MMC3 clocks using A12
         let addr = self.scroll.read_addr();
-        self.mapper_mut().ppu_bus_read(addr);
+        self.mapper_mut().ppu_bus_write(addr, val);
     }
 }
 
@@ -1085,31 +1119,10 @@ impl Clock for Ppu {
 
             if self.cycle == Self::VBLANK {
                 if self.scanline == self.vblank_scanline {
-                    log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
-                    if !self.prevent_vbl {
-                        self.status.set_in_vblank(true);
-                        self.nmi_pending = self.ctrl.nmi_enabled();
-                        log::trace!(
-                            "({}, {}): VBL NMI: {}",
-                            self.cycle,
-                            self.scanline,
-                            self.nmi_pending
-                        );
-                    }
-                    self.prevent_vbl = false;
+                    self.start_vblank();
                 }
                 if self.scanline == self.prerender_scanline {
-                    log::trace!(
-                        "({}, {}): Clear Sprite0 Hit, Overflow",
-                        self.cycle,
-                        self.scanline
-                    );
-                    log::trace!("({}, {}): Clear VBL flag", self.cycle, self.scanline);
-                    self.status.set_spr_zero_hit(false);
-                    self.status.set_spr_overflow(false);
-                    self.status.reset_in_vblank();
-                    self.reset_signal = false;
-                    self.nmi_pending = false;
+                    self.stop_vblank();
                 }
             }
         }

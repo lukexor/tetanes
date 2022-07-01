@@ -380,6 +380,7 @@ impl Mem for CpuBus {
             _ => self.open_bus,
         };
         self.open_bus = val;
+        self.mapper_mut().cpu_bus_read(addr);
         val
     }
 
@@ -419,6 +420,7 @@ impl Mem for CpuBus {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize] = val,
             0x2000 => self.ppu.write_ctrl(val),
+
             0x2001 => self.ppu.write_mask(val),
             0x2003 => self.ppu.write_oamaddr(val),
             0x2004 => self.ppu.write_oamdata(val),
@@ -463,11 +465,12 @@ impl Mem for CpuBus {
                 self.ppu.update_mirroring();
             }
             0x2002 => self.ppu.set_open_bus(val),
-            0x0800..=0x1FFF => self.write(addr & 0x07FF, val, access), // WRAM Mirrors
-            0x2008..=0x3FFF => self.write(addr & 0x2007, val, access), // Ppu Mirrors
+            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val, access), // WRAM Mirrors
+            0x2008..=0x3FFF => return self.write(addr & 0x2007, val, access), // Ppu Mirrors
             _ => (),
         }
         self.open_bus = val;
+        self.mapper_mut().cpu_bus_write(addr, val);
     }
 }
 

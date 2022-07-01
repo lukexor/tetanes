@@ -429,25 +429,8 @@ impl Exrom {
     fn spr_fetch(&self) -> bool {
         (Self::SPR_FETCH_START..Self::SPR_FETCH_END).contains(&self.fetch_count())
     }
-}
 
-impl Mapped for Exrom {
-    #[inline]
-    fn irq_pending(&self) -> bool {
-        self.regs.irq_enabled && self.irq_pending
-    }
-
-    #[inline]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    #[inline]
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-
-    fn ppu_bus_read(&mut self, addr: u16) {
+    fn handle_bus_addr(&mut self, addr: u16) {
         // Ignore palette reads
         if addr > 0x3EFF {
             return;
@@ -483,9 +466,36 @@ impl Mapped for Exrom {
         status.prev_addr = addr;
         status.reading = true;
     }
+}
+
+impl Mapped for Exrom {
+    #[inline]
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_enabled && self.irq_pending
+    }
 
     #[inline]
-    fn ppu_bus_write(&mut self, addr: u16, val: u8) {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    #[inline]
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
+
+    #[inline]
+    fn ppu_bus_read(&mut self, addr: u16) {
+        self.handle_bus_addr(addr);
+    }
+
+    #[inline]
+    fn ppu_bus_write(&mut self, addr: u16, _val: u8) {
+        self.handle_bus_addr(addr);
+    }
+
+    #[inline]
+    fn cpu_bus_write(&mut self, addr: u16, val: u8) {
         self.ppu_status.write(addr, val);
     }
 }
