@@ -1,9 +1,9 @@
 use crate::{
-    apu::AudioChannel,
+    apu::Channel,
     audio::AudioMixer,
-    common::{config_path, NesRegion, SAVE_DIR, SRAM_DIR},
-    input::GamepadSlot,
-    memory::RamState,
+    common::{config_path, NesRegion, Regional, SAVE_DIR, SRAM_DIR},
+    input::Slot,
+    mem::RamState,
     nes::{
         config::CONFIG,
         event::{Action, Input},
@@ -11,7 +11,7 @@ use crate::{
         menu::types::{ConfigSection, EmuSpeed, SampleRate},
         Mode, Nes,
     },
-    ppu::VideoFilter,
+    video::VideoFilter,
 };
 use pix_engine::prelude::*;
 use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
@@ -179,29 +179,29 @@ impl Nes {
 
             let deck = &mut self.control_deck;
             s.collapsing_tree("Channels", |s: &mut PixState| {
-                let mut pulse1 = deck.channel_enabled(AudioChannel::Pulse1);
+                let mut pulse1 = deck.channel_enabled(Channel::Pulse1);
                 if s.checkbox("Pulse 1", &mut pulse1)? {
-                    deck.toggle_channel(AudioChannel::Pulse1);
+                    deck.toggle_channel(Channel::Pulse1);
                 }
 
-                let mut pulse2 = deck.channel_enabled(AudioChannel::Pulse2);
+                let mut pulse2 = deck.channel_enabled(Channel::Pulse2);
                 if s.checkbox("Pulse 2", &mut pulse2)? {
-                    deck.toggle_channel(AudioChannel::Pulse2);
+                    deck.toggle_channel(Channel::Pulse2);
                 }
 
-                let mut triangle = deck.channel_enabled(AudioChannel::Triangle);
+                let mut triangle = deck.channel_enabled(Channel::Triangle);
                 if s.checkbox("Triangle", &mut triangle)? {
-                    deck.toggle_channel(AudioChannel::Triangle);
+                    deck.toggle_channel(Channel::Triangle);
                 }
 
-                let mut noise = deck.channel_enabled(AudioChannel::Noise);
+                let mut noise = deck.channel_enabled(Channel::Noise);
                 if s.checkbox("Noise", &mut noise)? {
-                    deck.toggle_channel(AudioChannel::Noise);
+                    deck.toggle_channel(Channel::Noise);
                 }
 
-                let mut dmc = deck.channel_enabled(AudioChannel::Dmc);
+                let mut dmc = deck.channel_enabled(Channel::Dmc);
                 if s.checkbox("DMC", &mut dmc)? {
-                    deck.toggle_channel(AudioChannel::Dmc);
+                    deck.toggle_channel(Channel::Dmc);
                 }
                 Ok(())
             })?;
@@ -217,7 +217,7 @@ impl Nes {
             let (width, height) = self.config.get_dimensions();
             s.set_window_dimensions((width, height))?;
             if let Some(debugger) = &self.debugger {
-                s.with_window(debugger.view.window_id, |s: &mut PixState| {
+                s.with_window(debugger.window_id(), |s: &mut PixState| {
                     s.set_window_dimensions((width, height))
                 })?;
             }
@@ -288,10 +288,10 @@ impl Nes {
     fn render_keybinds(&mut self, s: &mut PixState, mut player: Player) -> PixResult<()> {
         self.render_heading(s, "Keybindings")?;
 
-        let mut zapper = self.control_deck.zapper_connected(GamepadSlot::Two);
+        let mut zapper = self.control_deck.zapper_connected(Slot::Two);
         if s.checkbox("Enable Zapper on Port #2", &mut zapper)? {
-            self.control_deck.connect_zapper(GamepadSlot::Two, zapper);
-            let input = Input::Mouse((GamepadSlot::Two, Mouse::Left));
+            self.control_deck.connect_zapper(Slot::Two, zapper);
+            let input = Input::Mouse((Slot::Two, Mouse::Left));
             if zapper {
                 let action = Action::ZapperTrigger;
                 self.config.add_binding(input, action);

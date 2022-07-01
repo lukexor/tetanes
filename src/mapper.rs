@@ -3,7 +3,7 @@
 //! <http://wiki.nesdev.com/w/index.php/Mapper>
 
 use crate::{
-    common::{Clock, Kind, NesRegion, Reset},
+    common::{Clock, Kind, NesRegion, Regional, Reset},
     ppu::Mirroring,
 };
 use enum_dispatch::enum_dispatch;
@@ -76,8 +76,10 @@ impl Default for Mapper {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedRead {
-    None,
+    Default,
     Chr(usize),
+    CIRam(usize),
+    ExRam(usize),
     PrgRom(usize),
     PrgRam(usize),
     Data(u8),
@@ -86,67 +88,52 @@ pub enum MappedRead {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedWrite {
-    None,
+    Default,
     Chr(usize, u8),
+    CIRam(usize, u8),
+    ExRam(usize, u8),
     PrgRam(usize, u8),
     PrgRamProtect(bool),
 }
 
 #[enum_dispatch(Mapper)]
 pub trait MemMap {
-    #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.map_peek(addr)
     }
-    fn map_peek(&self, _addr: u16) -> MappedRead {
-        MappedRead::None
+
+    fn map_peek(&self, addr: u16) -> MappedRead {
+        match addr {
+            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
+            0x2000..=0x3EFF => MappedRead::CIRam(addr.into()),
+            0x6000..=0x7FFF => MappedRead::PrgRam((addr & 0x1FFF).into()),
+            0x8000..=0xFFFF => MappedRead::PrgRom((addr & 0x7FFF).into()),
+            _ => MappedRead::Default,
+        }
     }
-    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
-        MappedWrite::None
+
+    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+        match addr {
+            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x2000..=0x3EFF => MappedWrite::CIRam(addr.into(), val),
+            0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
+            _ => MappedWrite::Default,
+        }
     }
 }
 
 #[enum_dispatch(Mapper)]
 pub trait Mapped {
-    #[inline]
     #[must_use]
     fn irq_pending(&self) -> bool {
         false
     }
-
-    #[inline]
-    fn mirroring(&self) -> Option<Mirroring> {
-        None
+    fn mirroring(&self) -> Mirroring {
+        Mirroring::default()
     }
-
-    #[inline]
-    #[must_use]
-    fn use_ciram(&self, _addr: u16) -> bool {
-        self.mirroring() != Some(Mirroring::FourScreen)
-    }
-
-    #[inline]
-    #[must_use]
-    fn nametable_page(&self, _addr: u16) -> Option<u16> {
-        None
-    }
-
-    #[inline]
-    fn ppu_addr(&mut self, _addr: u16) {}
-
-    #[inline]
-    fn ppu_read(&mut self, _addr: u16) {}
-
-    #[inline]
-    fn ppu_write(&mut self, _addr: u16, _val: u8) {}
-
-    #[inline]
-    fn region(&self) -> NesRegion {
-        NesRegion::default()
-    }
-
-    #[inline]
-    fn set_region(&mut self, _region: NesRegion) {}
+    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
+    fn bus_read(&mut self, _addr: u16, _val: u8) {}
+    fn bus_write(&mut self, _addr: u16, _val: u8) {}
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -156,4 +143,5 @@ pub struct Empty;
 impl MemMap for Empty {}
 impl Mapped for Empty {}
 impl Clock for Empty {}
+impl Regional for Empty {}
 impl Reset for Empty {}

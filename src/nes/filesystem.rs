@@ -1,5 +1,5 @@
 use super::{Menu, Mode, Nes, NesResult};
-use crate::{audio::AudioMixer, cart::NesHeader};
+use crate::{audio::AudioMixer, cart::NesHeader, common::Regional};
 use anyhow::{anyhow, Context};
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use pix_engine::prelude::PixState;

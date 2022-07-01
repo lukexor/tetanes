@@ -4,33 +4,35 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Reset},
+    common::{Clock, Regional, Reset},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    memory::MemoryBanks,
+    mem::MemBanks,
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
-
-const PRG_ROM_WINDOW: usize = 32 * 1024;
-const CHR_WINDOW: usize = 8 * 1024;
-
-const CHR_BANK_MASK: u8 = 0x0F; // 0b1111
-const PRG_BANK_MASK: u8 = 0x30; // 0b110000
-
-// PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
-// CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Gxrom {
-    chr_banks: MemoryBanks,
-    prg_rom_banks: MemoryBanks,
+    mirroring: Mirroring,
+    // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
+    chr_banks: MemBanks,
+    // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
+    prg_rom_banks: MemBanks,
 }
 
 impl Gxrom {
+    const PRG_ROM_WINDOW: usize = 32 * 1024;
+    const CHR_WINDOW: usize = 8 * 1024;
+
+    const CHR_BANK_MASK: u8 = 0x0F; // 0b1111
+    const PRG_BANK_MASK: u8 = 0x30; // 0b110000
+
     pub fn load(cart: &mut Cart) -> Mapper {
         let gxrom = Self {
-            chr_banks: MemoryBanks::new(0x0000, 0x1FFF, cart.chr.len(), CHR_WINDOW),
-            prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_ROM_WINDOW),
+            mirroring: cart.mirroring(),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
+            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
         };
         gxrom.into()
     }
@@ -41,24 +43,32 @@ impl MemMap for Gxrom {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+            _ => MappedRead::Default,
         }
     }
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
-            0x8000..=0xFFFF => {
-                self.chr_banks.set(0, (val & CHR_BANK_MASK) as usize);
-                self.prg_rom_banks
-                    .set(0, ((val & PRG_BANK_MASK) >> 4) as usize);
-                MappedWrite::None
-            }
-            _ => MappedWrite::None,
+        if matches!(addr, 0x8000..=0xFFFF) {
+            self.chr_banks.set(0, (val & Self::CHR_BANK_MASK).into());
+            self.prg_rom_banks
+                .set(0, ((val & Self::PRG_BANK_MASK) >> 4).into());
         }
+        MappedWrite::Default
     }
 }
 
-impl Mapped for Gxrom {}
+impl Mapped for Gxrom {
+    #[inline]
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    #[inline]
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
+}
+
 impl Clock for Gxrom {}
+impl Regional for Gxrom {}
 impl Reset for Gxrom {}

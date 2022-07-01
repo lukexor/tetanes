@@ -1,11 +1,15 @@
 use crate::{
-    apu::AudioChannel,
+    apu::Channel,
     common::{Kind, NesRegion, Reset},
-    cpu::instr::Operation,
-    input::{GamepadBtn, GamepadSlot},
+    cpu::{
+        instr::{Instr, Operation},
+        Cpu,
+    },
+    input::{JoypadBtn, JoypadBtnState, Slot},
     mapper::MapperRevision,
+    mem::{Access, Mem},
     nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode, NES_FRAME_SRC},
-    ppu::{VideoFilter, RENDER_HEIGHT},
+    video::VideoFilter,
 };
 use pix_engine::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -33,7 +37,7 @@ pub(crate) enum AxisDirection {
 #[must_use]
 pub(crate) struct ActionEvent {
     pub(crate) frame: u32,
-    pub(crate) slot: GamepadSlot,
+    pub(crate) slot: Slot,
     pub(crate) action: Action,
     pub(crate) pressed: bool,
     pub(crate) repeat: bool,
@@ -42,10 +46,10 @@ pub(crate) struct ActionEvent {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub(crate) enum Input {
-    Key((GamepadSlot, Key, KeyMod)),
-    Button((GamepadSlot, ControllerButton)),
-    Axis((GamepadSlot, Axis, AxisDirection)),
-    Mouse((GamepadSlot, Mouse)),
+    Key((Slot, Key, KeyMod)),
+    Button((Slot, ControllerButton)),
+    Axis((Slot, Axis, AxisDirection)),
+    Mouse((Slot, Mouse)),
 }
 
 impl fmt::Display for Input {
@@ -67,14 +71,14 @@ impl fmt::Display for Input {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct KeyBinding {
-    pub(crate) player: GamepadSlot,
+    pub(crate) player: Slot,
     pub(crate) key: Key,
     pub(crate) keymod: KeyMod,
     pub(crate) action: Action,
 }
 
 impl KeyBinding {
-    pub(crate) const fn new(player: GamepadSlot, key: Key, keymod: KeyMod, action: Action) -> Self {
+    pub(crate) const fn new(player: Slot, key: Key, keymod: KeyMod, action: Action) -> Self {
         Self {
             player,
             key,
@@ -86,13 +90,13 @@ impl KeyBinding {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct MouseBinding {
-    pub(crate) player: GamepadSlot,
+    pub(crate) player: Slot,
     pub(crate) button: Mouse,
     pub(crate) action: Action,
 }
 
 impl MouseBinding {
-    pub(crate) const fn new(player: GamepadSlot, button: Mouse, action: Action) -> Self {
+    pub(crate) const fn new(player: Slot, button: Mouse, action: Action) -> Self {
         Self {
             player,
             button,
@@ -103,13 +107,13 @@ impl MouseBinding {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerButtonBinding {
-    pub(crate) player: GamepadSlot,
+    pub(crate) player: Slot,
     pub(crate) button: ControllerButton,
     pub(crate) action: Action,
 }
 
 impl ControllerButtonBinding {
-    pub(crate) const fn new(player: GamepadSlot, button: ControllerButton, action: Action) -> Self {
+    pub(crate) const fn new(player: Slot, button: ControllerButton, action: Action) -> Self {
         Self {
             player,
             button,
@@ -120,7 +124,7 @@ impl ControllerButtonBinding {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerAxisBinding {
-    pub(crate) player: GamepadSlot,
+    pub(crate) player: Slot,
     pub(crate) axis: Axis,
     pub(crate) direction: AxisDirection,
     pub(crate) action: Action,
@@ -128,7 +132,7 @@ pub(crate) struct ControllerAxisBinding {
 
 impl ControllerAxisBinding {
     pub(crate) const fn new(
-        player: GamepadSlot,
+        player: Slot,
         axis: Axis,
         direction: AxisDirection,
         action: Action,
@@ -199,9 +203,9 @@ pub(crate) enum Action {
     Menu(Menu),
     Feature(Feature),
     Setting(Setting),
-    Gamepad(GamepadBtn),
+    Joypad(JoypadBtn),
     ZapperTrigger,
-    ZeroAxis([GamepadBtn; 2]),
+    ZeroAxis([JoypadBtn; 2]),
     Debug(DebugAction),
 }
 
@@ -342,7 +346,7 @@ impl Nes {
     pub(crate) fn handle_input(
         &mut self,
         s: &mut PixState,
-        slot: GamepadSlot,
+        slot: Slot,
         input: Input,
         pressed: bool,
         repeat: bool,
@@ -362,12 +366,7 @@ impl Nes {
         event: KeyEvent,
         pressed: bool,
     ) -> bool {
-        for slot in [
-            GamepadSlot::One,
-            GamepadSlot::Two,
-            GamepadSlot::Three,
-            GamepadSlot::Four,
-        ] {
+        for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
             let input = Input::Key((slot, event.key, event.keymod));
             if let Ok(true) = self.handle_input(s, slot, input, pressed, event.repeat) {
                 return true;
@@ -379,7 +378,7 @@ impl Nes {
     pub fn handle_mouse_click(&mut self, s: &mut PixState, btn: Mouse) -> bool {
         // To avoid consuming events while in menus
         if self.mode == Mode::Playing {
-            for slot in [GamepadSlot::One, GamepadSlot::Two] {
+            for slot in [Slot::One, Slot::Two] {
                 let input = Input::Mouse((slot, btn));
                 if let Ok(true) = self.handle_input(s, slot, input, true, false) {
                     return true;
@@ -390,7 +389,7 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_zapper_trigger(&mut self, slot: GamepadSlot) -> bool {
+    fn handle_zapper_trigger(&mut self, slot: Slot) -> bool {
         if self.control_deck.zapper_connected(slot) {
             self.control_deck.trigger_zapper(slot);
             true
@@ -400,7 +399,7 @@ impl Nes {
     }
 
     pub fn set_zapper_pos(&mut self, pos: Point<i32>) -> bool {
-        for slot in [GamepadSlot::One, GamepadSlot::Two] {
+        for slot in [Slot::One, Slot::Two] {
             if self.control_deck.zapper_connected(slot) {
                 let mut pos = pos / self.config.scale as i32;
                 pos.set_x((pos.x() as f32 * 8.0 / 7.0 + 0.5) as i32); // Adjust ratio
@@ -463,7 +462,7 @@ impl Nes {
     pub(crate) fn handle_action(
         &mut self,
         s: &mut PixState,
-        slot: GamepadSlot,
+        slot: Slot,
         action: Action,
         pressed: bool,
         repeat: bool,
@@ -480,12 +479,12 @@ impl Nes {
                 true
             }
             Action::Setting(setting) => self.handle_setting(s, setting, pressed, repeat)?,
-            Action::Gamepad(button) => self.handle_gamepad_pressed(slot, button, pressed),
+            Action::Joypad(button) => self.handle_joypad_pressed(slot, button, pressed),
             Action::ZapperTrigger if pressed => self.handle_zapper_trigger(slot),
             Action::ZeroAxis(buttons) => {
                 let mut handled = false;
                 for button in buttons {
-                    if self.handle_gamepad_pressed(slot, button, pressed) {
+                    if self.handle_joypad_pressed(slot, button, pressed) {
                         handled = true;
                         break;
                     }
@@ -550,7 +549,7 @@ impl Nes {
     #[inline]
     const fn action_event(
         &self,
-        slot: GamepadSlot,
+        slot: Slot,
         action: Action,
         pressed: bool,
         repeat: bool,
@@ -565,7 +564,7 @@ impl Nes {
     }
 
     #[inline]
-    fn get_controller_slot(&self, controller_id: ControllerId) -> Option<GamepadSlot> {
+    fn get_controller_slot(&self, controller_id: ControllerId) -> Option<Slot> {
         self.players.iter().find_map(|(&slot, &id)| {
             if id == controller_id {
                 Some(slot)
@@ -684,11 +683,11 @@ impl Nes {
                         self.add_message("Sound Disabled");
                     }
                 }
-                Setting::TogglePulse1 => self.control_deck.toggle_channel(AudioChannel::Pulse1),
-                Setting::TogglePulse2 => self.control_deck.toggle_channel(AudioChannel::Pulse2),
-                Setting::ToggleTriangle => self.control_deck.toggle_channel(AudioChannel::Triangle),
-                Setting::ToggleNoise => self.control_deck.toggle_channel(AudioChannel::Noise),
-                Setting::ToggleDmc => self.control_deck.toggle_channel(AudioChannel::Dmc),
+                Setting::TogglePulse1 => self.control_deck.toggle_channel(Channel::Pulse1),
+                Setting::TogglePulse2 => self.control_deck.toggle_channel(Channel::Pulse2),
+                Setting::ToggleTriangle => self.control_deck.toggle_channel(Channel::Triangle),
+                Setting::ToggleNoise => self.control_deck.toggle_channel(Channel::Noise),
+                Setting::ToggleDmc => self.control_deck.toggle_channel(Channel::Dmc),
                 Setting::IncSpeed => self.change_speed(0.25),
                 Setting::DecSpeed => self.change_speed(-0.25),
                 // Toggling fast forward happens on key release
@@ -700,42 +699,27 @@ impl Nes {
         }
     }
 
-    fn handle_gamepad_pressed(
-        &mut self,
-        slot: GamepadSlot,
-        button: GamepadBtn,
-        pressed: bool,
-    ) -> bool {
+    fn handle_joypad_pressed(&mut self, slot: Slot, button: JoypadBtn, pressed: bool) -> bool {
         if self.mode != Mode::Playing {
             return false;
         }
-        let mut gamepad = self.control_deck.gamepad_mut(slot);
+        let joypad = self.control_deck.joypad_mut(slot);
         if !self.config.concurrent_dpad && pressed {
             match button {
-                GamepadBtn::Left => gamepad.right = !pressed,
-                GamepadBtn::Right => gamepad.left = !pressed,
-                GamepadBtn::Up => gamepad.down = !pressed,
-                GamepadBtn::Down => gamepad.up = !pressed,
+                JoypadBtn::Left => joypad.set_button(JoypadBtnState::RIGHT, false),
+                JoypadBtn::Right => joypad.set_button(JoypadBtnState::LEFT, false),
+                JoypadBtn::Up => joypad.set_button(JoypadBtnState::DOWN, false),
+                JoypadBtn::Down => joypad.set_button(JoypadBtnState::UP, false),
                 _ => (),
             }
         }
+        joypad.set_button(button.into(), pressed);
+
+        // Ensure that primary button isn't stuck pressed
         match button {
-            GamepadBtn::Left => gamepad.left = pressed,
-            GamepadBtn::Right => gamepad.right = pressed,
-            GamepadBtn::Up => gamepad.up = pressed,
-            GamepadBtn::Down => gamepad.down = pressed,
-            GamepadBtn::A => gamepad.a = pressed,
-            GamepadBtn::B => gamepad.b = pressed,
-            GamepadBtn::TurboA => {
-                gamepad.turbo_a = pressed;
-                gamepad.a = pressed; // Ensures that primary button isn't stuck pressed
-            }
-            GamepadBtn::TurboB => {
-                gamepad.turbo_b = pressed;
-                gamepad.b = pressed; // Ensures that primary button isn't stuck pressed
-            }
-            GamepadBtn::Select => gamepad.select = pressed,
-            GamepadBtn::Start => gamepad.start = pressed,
+            JoypadBtn::TurboA => joypad.set_button(JoypadBtnState::A, pressed),
+            JoypadBtn::TurboB => joypad.set_button(JoypadBtnState::B, pressed),
+            _ => (),
         };
         true
     }
@@ -747,7 +731,6 @@ impl Nes {
         repeat: bool,
     ) -> NesResult<bool> {
         let debugging = self.debugger.is_some();
-        let ppu_viewer = self.ppu_viewer.is_some();
         match action {
             DebugAction::ToggleCpuDebugger if !repeat => self.toggle_debugger(s)?,
             DebugAction::TogglePpuDebugger if !repeat => self.toggle_ppu_viewer(s)?,
@@ -757,19 +740,17 @@ impl Nes {
             DebugAction::StepOut if debugging => self.debug_step_out(s)?,
             DebugAction::StepFrame if debugging => self.debug_step_frame(s)?,
             DebugAction::StepScanline if debugging => self.debug_step_scanline(s)?,
-            DebugAction::IncScanline if ppu_viewer => {
-                let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
-                self.scanline = (self.scanline + increment).clamp(0, RENDER_HEIGHT - 1);
-                self.control_deck
-                    .ppu_mut()
-                    .set_viewer_scanline(self.scanline);
+            DebugAction::IncScanline => {
+                if let Some(ref mut viewer) = self.ppu_viewer {
+                    let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
+                    viewer.inc_scanline(increment);
+                }
             }
-            DebugAction::DecScanline if ppu_viewer => {
-                let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
-                self.scanline = self.scanline.saturating_sub(decrement);
-                self.control_deck
-                    .ppu_mut()
-                    .set_viewer_scanline(self.scanline);
+            DebugAction::DecScanline => {
+                if let Some(ref mut viewer) = self.ppu_viewer {
+                    let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
+                    viewer.dec_scanline(decrement);
+                }
             }
             _ => return Ok(false),
         }
@@ -778,22 +759,28 @@ impl Nes {
 
     fn debug_step_into(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
-        if let Err(err) = self.control_deck.clock_debug() {
+        if let Err(err) = self.control_deck.clock_instr() {
             self.handle_emulation_error(s, &err)?;
         }
         Ok(())
     }
 
+    fn next_instr(&mut self) -> Instr {
+        let pc = self.control_deck.cpu().pc();
+        let opcode = self.control_deck.cpu().peek(pc, Access::Dummy);
+        Cpu::INSTRUCTIONS[opcode as usize]
+    }
+
     fn debug_step_over(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
-        let instr = self.control_deck.next_instr();
-        if let Err(err) = self.control_deck.clock_debug() {
+        let instr = self.next_instr();
+        if let Err(err) = self.control_deck.clock_instr() {
             self.handle_emulation_error(s, &err)?;
         }
         if instr.op() == Operation::JSR {
-            let rti_addr = self.control_deck.stack_addr().wrapping_add(1);
-            while self.control_deck.pc() != rti_addr {
-                if let Err(err) = self.control_deck.clock_debug() {
+            let rti_addr = self.control_deck.cpu().peek_stack_u16().wrapping_add(1);
+            while self.control_deck.cpu().pc() != rti_addr {
+                if let Err(err) = self.control_deck.clock_instr() {
                     self.handle_emulation_error(s, &err)?;
                     break;
                 }
@@ -803,15 +790,15 @@ impl Nes {
     }
 
     fn debug_step_out(&mut self, s: &mut PixState) -> NesResult<()> {
-        let mut instr = self.control_deck.next_instr();
+        let mut instr = self.next_instr();
         while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
-            if let Err(err) = self.control_deck.clock_debug() {
+            if let Err(err) = self.control_deck.clock_instr() {
                 self.handle_emulation_error(s, &err)?;
                 break;
             }
-            instr = self.control_deck.next_instr();
+            instr = self.next_instr();
         }
-        if let Err(err) = self.control_deck.clock_debug() {
+        if let Err(err) = self.control_deck.clock_instr() {
             self.handle_emulation_error(s, &err)?;
         }
 
@@ -820,7 +807,7 @@ impl Nes {
 
     fn debug_step_frame(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
-        if let Err(err) = self.control_deck.clock_debug() {
+        if let Err(err) = self.control_deck.clock_frame() {
             self.handle_emulation_error(s, &err)?;
         }
         Ok(())
@@ -828,7 +815,7 @@ impl Nes {
 
     fn debug_step_scanline(&mut self, s: &mut PixState) -> NesResult<()> {
         self.pause_play();
-        if let Err(err) = self.control_deck.clock_debug() {
+        if let Err(err) = self.control_deck.clock_scanline() {
             self.handle_emulation_error(s, &err)?;
         }
         Ok(())

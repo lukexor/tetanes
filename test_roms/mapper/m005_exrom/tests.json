@@ -38,7 +38,7 @@
       {
         "number": 11,
         "action": {
-          "Gamepad": "A"
+          "Joypad": "A"
         }
       },
       {
@@ -49,7 +49,7 @@
       {
         "number": 15,
         "action": {
-          "Gamepad": "B"
+          "Joypad": "B"
         }
       },
       {
@@ -60,7 +60,7 @@
       {
         "number": 19,
         "action": {
-          "Gamepad": "Start"
+          "Joypad": "Start"
         }
       },
       {
@@ -71,7 +71,7 @@
       {
         "number": 23,
         "action": {
-          "Gamepad": "Select"
+          "Joypad": "Select"
         }
       },
       {
@@ -82,7 +82,7 @@
       {
         "number": 27,
         "action": {
-          "Gamepad": "Up"
+          "Joypad": "Up"
         }
       },
       {
@@ -93,13 +93,13 @@
       {
         "number": 31,
         "action": {
-          "Gamepad": "Up"
+          "Joypad": "Up"
         }
       },
       {
         "number": 33,
         "action": {
-          "Gamepad": "Left"
+          "Joypad": "Left"
         }
       },
       {
@@ -110,13 +110,13 @@
       {
         "number": 37,
         "action": {
-          "Gamepad": "Right"
+          "Joypad": "Right"
         }
       },
       {
         "number": 39,
         "action": {
-          "Gamepad": "Right"
+          "Joypad": "Right"
         }
       },
       {

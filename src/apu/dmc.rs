@@ -1,10 +1,11 @@
-use crate::common::{Clock, Kind, NesRegion, Reset};
+use crate::common::{Clock, Kind, NesRegion, Regional, Reset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
     region: NesRegion,
+    force_silent: bool,
     irq_enabled: bool,
     irq_pending: bool,
     loops: bool,
@@ -45,6 +46,7 @@ impl Dmc {
         let freq_timer = Self::freq_timer(region, 0);
         Self {
             region,
+            force_silent: false,
             irq_enabled: false,
             irq_pending: false,
             loops: false,
@@ -66,14 +68,14 @@ impl Dmc {
     }
 
     #[inline]
-    pub fn region(&self) -> NesRegion {
-        self.region
+    #[must_use]
+    pub const fn silent(&self) -> bool {
+        self.force_silent
     }
 
     #[inline]
-    pub fn set_region(&mut self, region: NesRegion) {
-        self.region = region;
-        self.freq_timer = Self::freq_timer(region, 0);
+    pub fn toggle_silent(&mut self) {
+        self.force_silent = !self.force_silent;
     }
 
     #[inline]
@@ -146,7 +148,11 @@ impl Dmc {
     #[inline]
     #[must_use]
     pub fn output(&self) -> f32 {
-        f32::from(self.output)
+        if self.force_silent {
+            0.0
+        } else {
+            f32::from(self.output)
+        }
     }
 
     // $4010 DMC timer
@@ -236,6 +242,19 @@ impl Clock for Dmc {
             }
         }
         1
+    }
+}
+
+impl Regional for Dmc {
+    #[inline]
+    fn region(&self) -> NesRegion {
+        self.region
+    }
+
+    #[inline]
+    fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
+        self.freq_timer = Self::freq_timer(region, 0);
     }
 }
 

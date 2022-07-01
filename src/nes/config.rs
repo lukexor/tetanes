@@ -1,11 +1,11 @@
 use crate::{
     common::{config_dir, config_path, NesRegion},
-    memory::RamState,
+    mem::RamState,
     nes::{
         event::{Action, Input, InputBindings, InputMapping},
         Nes, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
     },
-    ppu::VideoFilter,
+    video::VideoFilter,
 };
 use anyhow::Context;
 use pix_engine::{

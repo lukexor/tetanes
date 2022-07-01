@@ -1,49 +1,203 @@
-//! NES Controller Inputs
-
 use crate::{
     common::{Clock, Kind, NesRegion, Reset},
     cpu::Cpu,
-    memory::MemWrite,
-    ppu::{Ppu, RENDER_HEIGHT, RENDER_WIDTH},
+    ppu::Ppu,
 };
+use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
-// The "strobe state": the order in which the NES reads the buttons.
-const STROBE_A: u8 = 0;
-const STROBE_B: u8 = 1;
-const STROBE_SELECT: u8 = 2;
-const STROBE_START: u8 = 3;
-const STROBE_UP: u8 = 4;
-const STROBE_DOWN: u8 = 5;
-const STROBE_LEFT: u8 = 6;
-const STROBE_RIGHT: u8 = 7;
-const STROBE_MAX: u8 = 8;
-
-/// A NES Gamepad slot.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum GamepadSlot {
-    /// Player one
+pub enum Slot {
     One,
-    /// Player two
     Two,
-    /// Player three
     Three,
-    /// Player four
     Four,
 }
 
-impl Default for GamepadSlot {
+impl Default for Slot {
     fn default() -> Self {
         Self::One
     }
 }
 
-/// A NES Gamepad.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub trait InputRegisters {
+    fn read(&mut self, slot: Slot, ppu: &Ppu) -> u8;
+    fn peek(&self, slot: Slot, ppu: &Ppu) -> u8;
+    fn write(&mut self, val: u8);
+}
+
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub enum GamepadBtn {
+pub struct Input {
+    joypads: [Joypad; 4],
+    signatures: [Joypad; 2],
+    zappers: [Zapper; 2],
+    turbo_timer: u8,
+    fourscore: bool,
+}
+
+impl Input {
+    pub const fn new() -> Self {
+        Self {
+            joypads: [Joypad::new(); 4],
+            // Signature bits are reversed so they can shift right
+            signatures: [
+                Joypad::signature(0b0000_1000),
+                Joypad::signature(0b0000_0100),
+            ],
+            zappers: [Zapper::new(); 2],
+            turbo_timer: 30,
+            fourscore: false,
+        }
+    }
+
+    #[inline]
+    pub const fn joypad(&self, slot: Slot) -> &Joypad {
+        &self.joypads[slot as usize]
+    }
+
+    #[inline]
+    pub fn joypad_mut(&mut self, slot: Slot) -> &mut Joypad {
+        &mut self.joypads[slot as usize]
+    }
+
+    #[inline]
+    pub const fn zapper(&self, slot: Slot) -> &Zapper {
+        &self.zappers[slot as usize]
+    }
+
+    #[inline]
+    pub fn zapper_mut(&mut self, slot: Slot) -> &mut Zapper {
+        &mut self.zappers[slot as usize]
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn fourscore(&self) -> bool {
+        self.fourscore
+    }
+
+    #[inline]
+    pub fn set_fourscore(&mut self, enabled: bool) {
+        self.fourscore = enabled;
+    }
+}
+
+impl Input {
+    fn read_slots(&mut self, a: usize, b: usize, ppu: &Ppu) -> u8 {
+        if self.zappers[a].connected {
+            self.zappers[a].read(ppu)
+        } else {
+            // Read $4016/$4017 D0 8x for controller #1/#2.
+            // Read $4016/$4017 D0 8x for controller #3/#4.
+            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+            if self.joypads[a].index() < 8 {
+                self.joypads[a].read()
+            } else if self.fourscore {
+                if self.joypads[b].index() < 8 {
+                    self.joypads[b].read()
+                } else if self.signatures[a].index() < 8 {
+                    self.signatures[a].read()
+                } else {
+                    0x01
+                }
+            } else {
+                0x01
+            }
+        }
+    }
+
+    fn peek_slots(&self, a: usize, b: usize, ppu: &Ppu) -> u8 {
+        if self.zappers[a].connected {
+            self.zappers[a].read(ppu)
+        } else {
+            // Read $4016/$4017 D0 8x for controller #1/#2.
+            // Read $4016/$4017 D0 8x for controller #3/#4.
+            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+            if self.joypads[a].index() < 8 {
+                self.joypads[a].peek()
+            } else if self.fourscore {
+                if self.joypads[b].index() < 8 {
+                    self.joypads[b].peek()
+                } else if self.signatures[a].index() < 8 {
+                    self.signatures[a].peek()
+                } else {
+                    0x01
+                }
+            } else {
+                0x01
+            }
+        }
+    }
+}
+
+impl InputRegisters for Input {
+    fn read(&mut self, slot: Slot, ppu: &Ppu) -> u8 {
+        match slot {
+            Slot::One => self.read_slots(0, 2, ppu) | 0x40,
+            Slot::Two => self.read_slots(1, 3, ppu) | 0x40,
+            _ => panic!("invalid input slot for read"),
+        }
+    }
+
+    fn peek(&self, slot: Slot, ppu: &Ppu) -> u8 {
+        match slot {
+            Slot::One => self.peek_slots(0, 2, ppu) | 0x40,
+            Slot::Two => self.peek_slots(1, 3, ppu) | 0x40,
+            _ => panic!("invalid input slot for peek"),
+        }
+    }
+
+    fn write(&mut self, val: u8) {
+        for pad in &mut self.joypads {
+            pad.write(val);
+        }
+        for sig in &mut self.signatures {
+            sig.write(val);
+        }
+    }
+}
+
+impl Clock for Input {
+    fn clock(&mut self) -> usize {
+        for zapper in &mut self.zappers {
+            zapper.clock();
+        }
+        self.turbo_timer -= 1;
+        if self.turbo_timer == 0 {
+            self.turbo_timer += 30;
+            for pad in &mut self.joypads {
+                if pad.button(JoypadBtnState::TURBO_A) {
+                    let pressed = pad.button(JoypadBtnState::A);
+                    pad.set_button(JoypadBtnState::A, !pressed);
+                }
+                if pad.button(JoypadBtnState::TURBO_B) {
+                    let pressed = pad.button(JoypadBtnState::B);
+                    pad.set_button(JoypadBtnState::B, !pressed);
+                }
+            }
+        }
+        1
+    }
+}
+
+impl Reset for Input {
+    fn reset(&mut self, kind: Kind) {
+        for pad in &mut self.joypads {
+            pad.reset(kind);
+        }
+        for sig in &mut self.signatures {
+            sig.reset(kind);
+        }
+        for zapper in &mut self.zappers {
+            zapper.reset(kind);
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum JoypadBtn {
     /// Left D-Pad.
     Left,
     /// Right D-Pad.
@@ -66,142 +220,138 @@ pub enum GamepadBtn {
     Start,
 }
 
-impl AsRef<str> for GamepadBtn {
+impl AsRef<str> for JoypadBtn {
     fn as_ref(&self) -> &str {
-        match self {
-            GamepadBtn::Left => "Left",
-            GamepadBtn::Right => "Right",
-            GamepadBtn::Up => "Up",
-            GamepadBtn::Down => "Down",
-            GamepadBtn::A => "A",
-            GamepadBtn::TurboA => "A (Turbo)",
-            GamepadBtn::B => "B",
-            GamepadBtn::TurboB => "B (Turbo)",
-            GamepadBtn::Select => "Select",
-            GamepadBtn::Start => "Start",
+        match *self {
+            JoypadBtn::A => "A",
+            JoypadBtn::B => "B",
+            JoypadBtn::Select => "Select",
+            JoypadBtn::Start => "Start",
+            JoypadBtn::Up => "Up",
+            JoypadBtn::Down => "Down",
+            JoypadBtn::Left => "Left",
+            JoypadBtn::Right => "Right",
+            JoypadBtn::TurboA => "A (Turbo)",
+            JoypadBtn::TurboB => "B (Turbo)",
         }
     }
 }
 
-/// Represents an NES Joypad
-#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct Gamepad {
-    /// Left D-Pad pressed or not.
-    pub left: bool,
-    /// Right D-Pad pressed or not.
-    pub right: bool,
-    /// Up D-Pad pressed or not.
-    pub up: bool,
-    /// Down D-Pad pressed or not.
-    pub down: bool,
-    /// A Button pressed or not.
-    pub a: bool,
-    /// B Button pressed or not.
-    pub b: bool,
-    /// A Button (Turbo) pressed or not.
-    pub turbo_a: bool,
-    /// B Button (Turbo) pressed or not.
-    pub turbo_b: bool,
-    /// Select Button pressed or not.
-    pub select: bool,
-    /// Start Button pressed or not.
-    pub start: bool,
-    /// Current strobe state. This is the shift register position for which gamepad button to read
-    /// this tick.
-    pub strobe: u8,
+bitflags! {
+    #[derive(Default, Serialize, Deserialize)]
+    #[must_use]
+    pub struct JoypadBtnState: u16 {
+        const A = 0x01;
+        const B = 0x02;
+        const SELECT = 0x04;
+        const START = 0x08;
+        const UP = 0x10;
+        const DOWN = 0x20;
+        const LEFT = 0x40;
+        const RIGHT = 0x80;
+        const TURBO_A = 0x100;
+        const TURBO_B = 0x200;
+        const DPAD = Self::UP.bits | Self::DOWN.bits | Self::LEFT.bits | Self::RIGHT.bits;
+    }
 }
 
-impl Gamepad {
-    #[must_use]
-    fn read(&mut self) -> u8 {
-        let state = self.peek();
-        if self.strobe <= 7 {
-            self.strobe += 1;
+impl From<JoypadBtn> for JoypadBtnState {
+    fn from(button: JoypadBtn) -> Self {
+        match button {
+            JoypadBtn::A => Self::A,
+            JoypadBtn::B => Self::B,
+            JoypadBtn::Select => Self::SELECT,
+            JoypadBtn::Start => Self::START,
+            JoypadBtn::Up => Self::UP,
+            JoypadBtn::Down => Self::DOWN,
+            JoypadBtn::Left => Self::LEFT,
+            JoypadBtn::Right => Self::RIGHT,
+            JoypadBtn::TurboA => Self::TURBO_A,
+            JoypadBtn::TurboB => Self::TURBO_B,
         }
-        state
-    }
-
-    #[must_use]
-    fn peek(&self) -> u8 {
-        let state = match self.strobe {
-            STROBE_A => self.a,
-            STROBE_B => self.b,
-            STROBE_SELECT => self.select,
-            STROBE_START => self.start,
-            STROBE_UP => self.up,
-            STROBE_DOWN => self.down,
-            STROBE_LEFT => self.left,
-            STROBE_RIGHT => self.right,
-            _ => true,
-        };
-        u8::from(state)
-    }
-
-    pub fn clear(&mut self) {
-        self.a = false;
-        self.b = false;
-        self.select = false;
-        self.start = false;
-        self.up = false;
-        self.down = false;
-        self.left = false;
-        self.right = false;
-    }
-}
-
-impl Reset for Gamepad {
-    #[inline]
-    fn reset(&mut self, _kind: Kind) {
-        self.strobe = STROBE_A;
     }
 }
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Signature {
-    signature: u8,
-    strobe: u8,
+pub struct Joypad {
+    buttons: JoypadBtnState,
+    index: u8,
+    strobe: bool,
 }
 
-impl Signature {
-    const fn new(signature: u8) -> Self {
+impl Joypad {
+    pub const fn new() -> Self {
         Self {
-            signature,
-            strobe: 0x00,
+            buttons: JoypadBtnState::from_bits_truncate(0),
+            index: 0,
+            strobe: false,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn button(&self, button: JoypadBtnState) -> bool {
+        self.buttons.contains(button)
+    }
+
+    #[inline]
+    pub fn set_button(&mut self, button: JoypadBtnState, pressed: bool) {
+        self.buttons.set(button, pressed);
+    }
+
+    pub const fn signature(val: u16) -> Self {
+        Self {
+            buttons: JoypadBtnState::from_bits_truncate(val),
+            index: 0,
+            strobe: false,
         }
     }
 
     #[must_use]
-    fn read(&mut self) -> u8 {
-        let state = self.peek();
-        if self.strobe <= 7 {
-            self.strobe += 1;
+    pub fn read(&mut self) -> u8 {
+        let val = self.peek();
+        if !self.strobe && self.index <= 7 {
+            self.index += 1;
         }
-        state
+        val
     }
 
     #[must_use]
-    const fn peek(self) -> u8 {
-        if self.strobe == STROBE_MAX {
+    pub const fn peek(&self) -> u8 {
+        if self.index > 7 {
             0x01
         } else {
-            (self.signature >> self.strobe) & 0x01
+            ((self.buttons.bits as u8) & (1 << self.index)) >> self.index
         }
+    }
+
+    pub fn write(&mut self, val: u8) {
+        let prev_strobe = self.strobe;
+        self.strobe = val & 0x01 == 0x01;
+        if prev_strobe && !self.strobe {
+            self.index = 0;
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn index(&self) -> u8 {
+        self.index
     }
 }
 
-impl Reset for Signature {
-    #[inline]
+impl Reset for Joypad {
     fn reset(&mut self, _kind: Kind) {
-        self.strobe = 0x00;
+        self.buttons.bits = 0;
+        self.index = 0;
+        self.strobe = false;
     }
 }
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
-    pub region: NesRegion,
     pub triggered: f32,
     pub x: i32,
     pub y: i32,
@@ -210,33 +360,53 @@ pub struct Zapper {
 }
 
 impl Zapper {
+    #[inline]
+    #[must_use]
+    pub const fn x(&self) -> i32 {
+        self.x
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn y(&self) -> i32 {
+        self.y
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn connected(&self) -> bool {
+        self.connected
+    }
+
+    #[inline]
+    pub fn set_connected(&mut self, connected: bool) {
+        self.connected = connected;
+    }
+
+    #[inline]
     pub fn trigger(&mut self) {
         if self.triggered <= 0.0 {
-            // Zapoer takes ~100ms to change to "released" after trigger is pulled
-            self.triggered = Cpu::region_clock_rate(self.region) / 10.0;
+            // Zapper takes ~100ms to change to "released" after trigger is pulled
+            self.triggered = Cpu::region_clock_rate(NesRegion::default()) / 10.0;
         }
     }
 
-    pub fn set_connected(&mut self, connected: bool) {
-        self.connected = connected;
+    #[inline]
+    pub fn aim(&mut self, x: i32, y: i32) {
+        self.x = x;
+        self.y = y;
     }
 }
 
 impl Zapper {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
-            region: NesRegion::default(),
             triggered: 0.0,
             x: 0,
             y: 0,
             radius: 3,
             connected: false,
         }
-    }
-
-    #[inline]
-    fn set_region(&mut self, region: NesRegion) {
-        self.region = region;
     }
 
     #[inline]
@@ -255,10 +425,10 @@ impl Zapper {
     }
 
     fn light_sense(&self, ppu: &Ppu) -> u8 {
-        let width = RENDER_WIDTH as i32;
-        let height = RENDER_HEIGHT as i32;
-        let scanline = ppu.scanline as i32;
-        let cycle = ppu.cycle as i32;
+        let width = Ppu::WIDTH as i32;
+        let height = Ppu::HEIGHT as i32;
+        let scanline = ppu.scanline() as i32;
+        let cycle = ppu.cycle() as i32;
         let x = self.x;
         let y = self.y;
         if x >= 0 && y >= 0 {
@@ -291,175 +461,9 @@ impl Clock for Zapper {
     }
 }
 
-/// Input containing gamepad input state
-#[derive(Default, Copy, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct Input {
-    pub gamepads: [Gamepad; 4],
-    pub signatures: [Signature; 2],
-    // Since there are 4 gamepad slots, but NES only recognizes Zapper in the first two slots.
-    pub zappers: [Zapper; 4],
-    pub shift_strobe: u8,
-    pub fourscore: bool,
-    pub open_bus: u8,
-}
-
-impl Input {
-    /// Returns an empty Input instance with no event pump
-    pub fn new() -> Self {
-        Self {
-            gamepads: [Gamepad::default(); 4],
-            // Signature bits are reversed so they can shift right
-            signatures: [Signature::new(0b0000_1000), Signature::new(0b0000_0100)],
-            zappers: [Zapper::new(); 4],
-            shift_strobe: 0x00,
-            fourscore: false,
-            open_bus: 0x00,
-        }
-    }
-
-    pub fn set_region(&mut self, region: NesRegion) {
-        for zapper in &mut self.zappers {
-            zapper.set_region(region);
-        }
-    }
-
-    #[must_use]
-    pub fn read(&mut self, addr: u16, ppu: &Ppu) -> u8 {
-        let val = match addr {
-            0x4016 => {
-                if self.zappers[0].connected {
-                    self.zappers[0].read(ppu)
-                } else {
-                    if self.shift_strobe == 0x01 {
-                        self.reset(Kind::Soft);
-                    }
-                    // Read $4016 D0 8x for controller #1.
-                    // Read $4016 D0 8x for controller #3.
-                    // Read $4016 D0 8x for signature: 0b00010000
-                    if self.gamepads[0].strobe < STROBE_MAX {
-                        self.gamepads[0].read()
-                    } else if self.fourscore {
-                        if self.gamepads[2].strobe < STROBE_MAX {
-                            self.gamepads[2].read()
-                        } else if self.signatures[0].strobe < STROBE_MAX {
-                            self.signatures[0].read()
-                        } else {
-                            0x01
-                        }
-                    } else {
-                        0x01
-                    }
-                }
-            }
-            0x4017 => {
-                if self.zappers[1].connected {
-                    self.zappers[1].read(ppu)
-                } else {
-                    if self.shift_strobe == 0x01 {
-                        self.reset(Kind::Soft);
-                    }
-                    // Read $4017 D0 8x for controller #2.
-                    // Read $4017 D0 8x for controller #4.
-                    // Read $4017 D0 8x for signature: 0b00100000
-                    if self.gamepads[1].strobe < STROBE_MAX {
-                        self.gamepads[1].read()
-                    } else if self.fourscore {
-                        if self.gamepads[3].strobe < STROBE_MAX {
-                            self.gamepads[3].read()
-                        } else if self.signatures[1].strobe < STROBE_MAX {
-                            self.signatures[1].read()
-                        } else {
-                            0x01
-                        }
-                    } else {
-                        0x01
-                    }
-                }
-            }
-            _ => self.open_bus,
-        };
-        self.open_bus = val;
-        val | 0x40
-    }
-
-    #[must_use]
-    pub fn peek(&self, addr: u16, ppu: &Ppu) -> u8 {
-        let val = match addr {
-            0x4016 => {
-                if self.zappers[0].connected {
-                    self.zappers[0].read(ppu)
-                } else if self.gamepads[0].strobe < STROBE_MAX {
-                    self.gamepads[0].peek()
-                } else if self.fourscore {
-                    if self.gamepads[2].strobe < STROBE_MAX {
-                        self.gamepads[2].peek()
-                    } else if self.signatures[0].strobe < STROBE_MAX {
-                        self.signatures[0].peek()
-                    } else {
-                        0x01
-                    }
-                } else {
-                    0x01
-                }
-            }
-            0x4017 => {
-                if self.zappers[1].connected {
-                    self.zappers[1].read(ppu)
-                } else if self.gamepads[1].strobe < STROBE_MAX {
-                    self.gamepads[1].peek()
-                } else if self.fourscore {
-                    if self.gamepads[3].strobe < STROBE_MAX {
-                        self.gamepads[3].peek()
-                    } else if self.signatures[1].strobe < STROBE_MAX {
-                        self.signatures[1].peek()
-                    } else {
-                        0x01
-                    }
-                } else {
-                    0x01
-                }
-            }
-            _ => self.open_bus,
-        };
-        val | 0x40
-    }
-}
-
-impl MemWrite for Input {
-    fn write(&mut self, addr: u16, val: u8) {
-        self.open_bus = val;
-        if addr == 0x4016 {
-            let prev_strobe = self.shift_strobe;
-            self.shift_strobe = val & 0x01;
-            if prev_strobe == 0x01 && self.shift_strobe == 0x00 {
-                self.reset(Kind::Soft);
-            }
-        }
-    }
-}
-
-impl Reset for Input {
-    fn reset(&mut self, kind: Kind) {
-        for gamepad in &mut self.gamepads {
-            gamepad.reset(kind);
-        }
-        for signature in &mut self.signatures {
-            signature.reset(kind);
-        }
-    }
-}
-
-impl fmt::Debug for Input {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
-        f.debug_struct("Input")
-            .field("gamepads", &self.gamepads)
-            .field("signatures", &self.signatures)
-            .field("zappers", &self.zappers)
-            .field("shift_strobe", &self.shift_strobe)
-            .field("fourscore", &self.fourscore)
-            .field("open_bus", &self.open_bus)
-            .finish()
+impl Reset for Zapper {
+    fn reset(&mut self, _kind: Kind) {
+        self.triggered = 0.0;
     }
 }
 

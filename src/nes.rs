@@ -2,15 +2,18 @@
 
 use crate::{
     audio::AudioMixer,
+    common::Regional,
     control_deck::ControlDeck,
-    input::GamepadSlot,
-    memory::RamState,
+    input::Slot,
+    mem::RamState,
     nes::{
+        apu_viewer::ApuViewer,
         debug::Debugger,
         event::{Action, Input},
+        ppu_viewer::PpuViewer,
         state::{Replay, ReplayMode},
     },
-    ppu::{RENDER_HEIGHT, RENDER_PITCH, RENDER_WIDTH},
+    ppu::Ppu,
     NesResult,
 };
 use config::Config;
@@ -23,22 +26,23 @@ use std::{
     time::Instant,
 };
 
+pub(crate) mod apu_viewer;
 pub(crate) mod config;
 pub(crate) mod debug;
 pub(crate) mod event;
 pub(crate) mod filesystem;
 pub(crate) mod menu;
+pub(crate) mod ppu_viewer;
 pub(crate) mod state;
 
 const APP_NAME: &str = "TetaNES";
 #[cfg(not(target_arch = "wasm32"))]
 const ICON: &[u8] = include_bytes!("../assets/tetanes_icon.png");
-const WINDOW_WIDTH_NTSC: f32 = RENDER_WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
-const WINDOW_WIDTH_PAL: f32 = RENDER_WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
-const WINDOW_HEIGHT: f32 = RENDER_HEIGHT as f32;
+const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
+const WINDOW_WIDTH_PAL: f32 = Ppu::WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
+const WINDOW_HEIGHT: f32 = Ppu::HEIGHT as f32;
 // Trim top and bottom 8 scanlines
-pub(crate) const NES_FRAME_SRC: Rect<i32> =
-    rect![0, 8, RENDER_WIDTH as i32, RENDER_HEIGHT as i32 - 16];
+pub(crate) const NES_FRAME_SRC: Rect<i32> = rect![0, 8, Ppu::WIDTH as i32, Ppu::HEIGHT as i32 - 16];
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -147,7 +151,6 @@ impl NesBuilder {
                 }
             }
         }
-        control_deck.set_filter(config.filter);
 
         Ok(Nes::new(
             control_deck,
@@ -180,39 +183,22 @@ impl Default for Mode {
     }
 }
 
-/// A NES window view.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct View {
-    window_id: WindowId,
-    texture_id: Option<TextureId>,
-}
-
-impl View {
-    pub(crate) const fn new(window_id: WindowId, texture_id: Option<TextureId>) -> Self {
-        Self {
-            window_id,
-            texture_id,
-        }
-    }
-}
-
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
 pub struct Nes {
     control_deck: ControlDeck,
     audio: AudioMixer,
-    players: HashMap<GamepadSlot, ControllerId>,
-    emulation: Option<View>,
+    players: HashMap<Slot, ControllerId>,
+    emulation: Option<(WindowId, TextureId)>,
     debugger: Option<Debugger>,
-    ppu_viewer: Option<View>,
-    apu_viewer: Option<View>,
+    ppu_viewer: Option<PpuViewer>,
+    apu_viewer: Option<ApuViewer>,
     config: Config,
     mode: Mode,
     replay_path: Option<PathBuf>,
     record_sound: bool,
     debug: bool,
     rewind_frame: u32,
-    scanline: u32,
     rewind_buffer: VecDeque<Vec<u8>>,
     replay: Replay,
     messages: Vec<(String, Instant)>,
@@ -247,7 +233,6 @@ impl Nes {
             replay_path,
             record_sound: false,
             debug,
-            scanline: 0,
             rewind_frame: 0,
             rewind_buffer: VecDeque::new(),
             replay: Replay::default(),
@@ -292,28 +277,26 @@ impl Nes {
 
     /// Update rendering textures with emulation state
     fn render_views(&mut self, s: &mut PixState) -> PixResult<()> {
-        if let Some(view) = self.emulation {
-            if let Some(texture_id) = view.texture_id {
-                s.update_texture(
-                    texture_id,
-                    None,
-                    self.control_deck.frame_buffer(),
-                    RENDER_PITCH,
-                )?;
+        if let Some((_, texture_id)) = self.emulation {
+            s.update_texture(
+                texture_id,
+                None,
+                self.control_deck.frame_buffer(),
+                4 * Ppu::WIDTH as usize,
+            )?;
 
-                for slot in [GamepadSlot::One, GamepadSlot::Two] {
-                    if self.control_deck.zapper_connected(slot) {
-                        s.with_texture(texture_id, |s: &mut PixState| {
-                            let (x, y) = self.control_deck.zapper_pos(slot);
-                            s.stroke(Color::GRAY);
-                            s.line([x - 8, y, x + 8, y])?;
-                            s.line([x, y - 8, x, y + 8])?;
-                            Ok(())
-                        })?;
-                    }
+            for slot in [Slot::One, Slot::Two] {
+                if self.control_deck.zapper_connected(slot) {
+                    s.with_texture(texture_id, |s: &mut PixState| {
+                        let (x, y) = self.control_deck.zapper_pos(slot);
+                        s.stroke(Color::GRAY);
+                        s.line([x - 8, y, x + 8, y])?;
+                        s.line([x, y - 8, x, y + 8])?;
+                        Ok(())
+                    })?;
                 }
-                s.texture(texture_id, NES_FRAME_SRC, None)?;
             }
+            s.texture(texture_id, NES_FRAME_SRC, None)?;
         }
         self.render_debugger(s)?;
         self.render_ppu_viewer(s)?;
@@ -337,9 +320,9 @@ impl AppState for Nes {
             }
         }
 
-        self.emulation = Some(View::new(
+        self.emulation = Some((
             s.window_id(),
-            Some(s.create_texture(RENDER_WIDTH, RENDER_HEIGHT, PixelFormat::Rgba)?),
+            s.create_texture(Ppu::WIDTH, Ppu::HEIGHT, PixelFormat::Rgba)?,
         ));
         self.load_rom(s)?;
 
@@ -362,7 +345,17 @@ impl AppState for Nes {
             let seconds_to_run = (self.config.speed * s.delta_time().as_secs_f32())
                 .clamp(0.0, self.config.speed * (1.0 / 20.0));
             let prev_frame = self.control_deck.frame_number();
-            match self.control_deck.clock_seconds(seconds_to_run) {
+            match self
+                .control_deck
+                .clock_seconds_inspect(seconds_to_run, |cpu| {
+                    if let Some(ref mut viewer) = self.ppu_viewer {
+                        if cpu.ppu().cycle() <= 3 && cpu.ppu().scanline() == viewer.scanline() {
+                            viewer.load_nametables(cpu.ppu());
+                            viewer.load_pattern_tables(cpu.ppu());
+                            viewer.load_palettes(cpu.ppu());
+                        }
+                    }
+                }) {
                 Ok(_) => {
                     if prev_frame != self.control_deck.frame_number() {
                         self.update_rewind();
@@ -425,7 +418,7 @@ impl AppState for Nes {
                 }
             }
             // TODO: Convert to config
-            let save_on_exit = false;
+            let save_on_exit = true;
             if save_on_exit {
                 self.save_state(1);
             }
@@ -472,14 +465,12 @@ impl AppState for Nes {
     ) -> PixResult<bool> {
         match update {
             ControllerUpdate::Added => {
-                match self.players.entry(GamepadSlot::One) {
+                match self.players.entry(Slot::One) {
                     Entry::Vacant(v) => {
                         v.insert(controller_id);
                     }
                     Entry::Occupied(_) => {
-                        self.players
-                            .entry(GamepadSlot::Two)
-                            .or_insert(controller_id);
+                        self.players.entry(Slot::Two).or_insert(controller_id);
                     }
                 }
                 Ok(true)
@@ -526,17 +517,16 @@ impl AppState for Nes {
     ) -> PixResult<()> {
         match event {
             WindowEvent::Close => {
-                if matches!(&self.emulation, Some(emulation) if emulation.window_id == window_id) {
+                if matches!(&self.emulation, Some((id, _)) if *id == window_id) {
                     s.quit();
-                } else if matches!(&self.debugger, Some(debugger) if debugger.view.window_id == window_id)
+                } else if matches!(&self.debugger, Some(ref debugger) if debugger.window_id() == window_id)
                 {
                     self.debugger = None;
-                    self.control_deck.cpu_mut().debugging = false;
-                    self.resume_play();
-                } else if matches!(self.ppu_viewer, Some(view) if view.window_id == window_id) {
+                } else if matches!(self.ppu_viewer, Some(ref viewer) if viewer.window_id() == window_id)
+                {
                     self.ppu_viewer = None;
-                    self.control_deck.ppu_mut().open_viewer();
-                } else if matches!(self.apu_viewer, Some(view) if view.window_id == window_id) {
+                } else if matches!(self.apu_viewer, Some(ref view) if view.window_id() == window_id)
+                {
                     self.apu_viewer = None;
                 }
             }

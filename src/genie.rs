@@ -74,13 +74,13 @@ impl GenieCode {
 
     #[inline]
     #[must_use]
-    pub fn addr(&self) -> u16 {
+    pub const fn addr(&self) -> u16 {
         self.addr
     }
 
     #[inline]
     #[must_use]
-    pub fn read(&self, val: u8) -> u8 {
+    pub const fn read(&self, val: u8) -> u8 {
         if let Some(compare) = self.compare {
             if val == compare {
                 self.data

@@ -45,7 +45,7 @@
       {
         "number": 11,
         "action": {
-          "Gamepad": "Start"
+          "Joypad": "Start"
         }
       },
       {

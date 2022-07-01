@@ -4,33 +4,34 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Reset},
+    common::{Clock, Regional, Reset},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    memory::MemoryBanks,
+    mem::MemBanks,
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
-
-const PRG_ROM_WINDOW: usize = 16 * 1024;
-const CHR_RAM_SIZE: usize = 8 * 1024;
-
-// PPU $0000..=$1FFF 8K Fixed CHR-ROM Bank
-// CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
-// CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Uxrom {
-    prg_rom_banks: MemoryBanks,
+    mirroring: Mirroring,
+    // PPU $0000..=$1FFF 8K Fixed CHR-ROM Bank
+    // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
+    // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
+    prg_rom_banks: MemBanks,
 }
 
 impl Uxrom {
+    const PRG_ROM_WINDOW: usize = 16 * 1024;
+    const CHR_RAM_SIZE: usize = 8 * 1024;
+
     pub fn load(cart: &mut Cart) -> Mapper {
-        if cart.chr.is_empty() {
-            cart.chr.resize(CHR_RAM_SIZE);
-            cart.chr.write_protect(false);
-        }
+        if !cart.has_chr_rom() {
+            cart.add_chr_ram(Self::CHR_RAM_SIZE);
+        };
         let mut uxrom = Self {
-            prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_ROM_WINDOW),
+            mirroring: cart.mirroring(),
+            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
         };
         let last_bank = uxrom.prg_rom_banks.last();
         uxrom.prg_rom_banks.set(1, last_bank);
@@ -40,25 +41,33 @@ impl Uxrom {
 
 impl MemMap for Uxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
-        match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+        if matches!(addr, 0x8000..=0xFFFF) {
+            MappedRead::PrgRom(self.prg_rom_banks.translate(addr))
+        } else {
+            MappedRead::Default
         }
     }
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
-            0x8000..=0xFFFF => {
-                self.prg_rom_banks.set(0, val as usize);
-                MappedWrite::None
-            }
-            _ => MappedWrite::None,
+        if matches!(addr, 0x8000..=0xFFFF) {
+            self.prg_rom_banks.set(0, val.into());
         }
+        MappedWrite::Default
     }
 }
 
-impl Mapped for Uxrom {}
+impl Mapped for Uxrom {
+    #[inline]
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    #[inline]
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
+}
+
 impl Clock for Uxrom {}
+impl Regional for Uxrom {}
 impl Reset for Uxrom {}

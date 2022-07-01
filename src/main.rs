@@ -19,7 +19,7 @@
 
 use std::{env, path::PathBuf};
 use structopt::StructOpt;
-use tetanes::{memory::RamState, nes::NesBuilder, NesResult};
+use tetanes::{mem::RamState, nes::NesBuilder, NesResult};
 
 fn main() -> NesResult<()> {
     if env::var("RUST_LOG").is_err() {

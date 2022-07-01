@@ -22,7 +22,7 @@ A `keys` array with the following values:
   - `ALT`: `256`,
   - `GUI`: `1024`,
 - `action`: An object that maps to an `nes::Action` variant. e.g.
-  `{ "Gamepad": "Left" } }`
+  `{ "Joypad": "Left" } }`
 
 ### Mouse Mappings
 

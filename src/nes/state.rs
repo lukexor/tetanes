@@ -1,5 +1,5 @@
 use crate::{
-    common::{config_dir, Clock},
+    common::config_dir,
     cpu::Cpu,
     nes::{
         event::ActionEvent,
@@ -232,10 +232,9 @@ impl Nes {
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
     pub(crate) fn save_sram(&self) -> NesResult<()> {
-        let cart = &self.control_deck.cart();
-        if cart.battery_backed() {
+        if self.control_deck.cart_battery_backed() {
             let sram_path = self.sram_path()?;
-            save_data(sram_path, cart.sram())?;
+            save_data(sram_path, self.control_deck.sram())?;
         }
         Ok(())
     }
@@ -243,9 +242,8 @@ impl Nes {
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
     pub(crate) fn load_sram(&mut self) -> NesResult<()> {
         let sram_path = self.sram_path()?;
-        let cart = self.control_deck.cart_mut();
-        if cart.battery_backed() && sram_path.exists() {
-            load_data(&sram_path).map(|data| cart.load_sram(data))?;
+        if self.control_deck.cart_battery_backed() && sram_path.exists() {
+            load_data(&sram_path).map(|data| self.control_deck.load_sram(data))?;
         }
         Ok(())
     }
@@ -316,11 +314,6 @@ impl Nes {
                 self.mode = Mode::Paused;
             }
             Mode::Paused | Mode::PausedBg => {
-                if let Some(ref debugger) = self.debugger {
-                    if debugger.on_breakpoint {
-                        self.control_deck.clock();
-                    }
-                }
                 self.resume_play();
             }
             Mode::InMenu(..) => self.exit_menu(s)?,

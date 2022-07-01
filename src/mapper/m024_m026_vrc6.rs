@@ -3,32 +3,15 @@
 //! <https://www.nesdev.org/wiki/VRC6>
 
 use crate::{
-    apu::{PULSE_TABLE, PULSE_TABLE_SIZE},
+    apu::PULSE_TABLE,
     audio::Audio,
     cart::Cart,
-    common::{Clock, Kind, Reset},
+    common::{Clock, Kind, Regional, Reset},
     mapper::{vrc_irq::VrcIrq, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    memory::MemoryBanks,
+    mem::MemBanks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
-
-const PRG_RAM_SIZE: usize = 8 * 1024;
-const PRG_WINDOW: usize = 8 * 1024;
-const CHR_WINDOW: usize = 1024;
-
-// PPU $0000-$03FF: 1 KB switchable CHR ROM bank
-// PPU $0400-$07FF: 1 KB switchable CHR ROM bank
-// PPU $0800-$0BFF: 1 KB switchable CHR ROM bank
-// PPU $0C00-$0FFF: 1 KB switchable CHR ROM bank
-// PPU $1000-$13FF: 1 KB switchable CHR ROM bank
-// PPU $1400-$17FF: 1 KB switchable CHR ROM bank
-// PPU $1800-$1BFF: 1 KB switchable CHR ROM bank
-// PPU $1C00-$1FFF: 1 KB switchable CHR ROM bank
-// CPU $6000-$7FFF: 8 KB PRG-RAM bank, fixed
-// CPU $8000-$BFFF: 16 KB switchable PRG ROM bank
-// CPU $C000-$DFFF: 8 KB switchable PRG ROM bank
-// CPU $E000-$FFFF: 8 KB PRG ROM bank, fixed to the last bank
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -56,26 +39,42 @@ pub struct Vrc6 {
     irq: VrcIrq,
     audio: Vrc6Audio,
     nt_banks: [usize; 4],
-    prg_ram_banks: MemoryBanks,
-    prg_rom_banks: MemoryBanks,
-    chr_banks: MemoryBanks,
+    // PPU $0000-$03FF: 1 KB switchable CHR-ROM bank
+    // PPU $0400-$07FF: 1 KB switchable CHR-ROM bank
+    // PPU $0800-$0BFF: 1 KB switchable CHR-ROM bank
+    // PPU $0C00-$0FFF: 1 KB switchable CHR-ROM bank
+    // PPU $1000-$13FF: 1 KB switchable CHR-ROM bank
+    // PPU $1400-$17FF: 1 KB switchable CHR-ROM bank
+    // PPU $1800-$1BFF: 1 KB switchable CHR-ROM bank
+    // PPU $1C00-$1FFF: 1 KB switchable CHR-ROM bank
+    chr_banks: MemBanks,
+    // CPU $6000-$7FFF: 8 KB PRG-RAM bank, fixed
+    prg_ram_banks: MemBanks,
+    // CPU $8000-$BFFF: 16 KB switchable PRG-ROM bank
+    // CPU $C000-$DFFF: 8 KB switchable PRG-ROM bank
+    // CPU $E000-$FFFF: 8 KB PRG-ROM bank, fixed to the last bank
+    prg_rom_banks: MemBanks,
 }
 
 impl Vrc6 {
+    const PRG_RAM_SIZE: usize = 8 * 1024;
+    const PRG_WINDOW: usize = 8 * 1024;
+    const CHR_WINDOW: usize = 1024;
+
     pub fn load(cart: &mut Cart, revision: Vrc6Revision) -> Mapper {
-        if cart.prg_ram.is_empty() {
-            cart.prg_ram.resize(PRG_RAM_SIZE);
+        if !cart.has_prg_ram() {
+            cart.add_prg_ram(Self::PRG_RAM_SIZE);
         }
         let mut vrc6 = Self {
             regs: Vrc6Regs::default(),
             revision,
-            mirroring: cart.mirroring,
+            mirroring: cart.mirroring(),
             irq: VrcIrq::default(),
             audio: Vrc6Audio::new(),
             nt_banks: [0; 4],
-            prg_ram_banks: MemoryBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), PRG_RAM_SIZE),
-            prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_WINDOW),
-            chr_banks: MemoryBanks::new(0x0000, 0x1FFF, cart.chr.len(), CHR_WINDOW),
+            prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_SIZE),
+            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
         };
         let last_bank = vrc6.prg_rom_banks.last();
         vrc6.prg_rom_banks.set(3, last_bank);
@@ -244,19 +243,13 @@ impl Mapped for Vrc6 {
     }
 
     #[inline]
-    fn mirroring(&self) -> Option<Mirroring> {
-        Some(self.mirroring)
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 
     #[inline]
-    fn use_ciram(&self, _addr: u16) -> bool {
-        self.regs.banking_mode & 0x10 == 0x00
-    }
-
-    #[inline]
-    fn nametable_page(&self, addr: u16) -> Option<u16> {
-        let page = self.nt_banks[((addr as usize - 0x2000) >> 10) & 0x03] as u16;
-        Some(page)
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
     }
 }
 
@@ -264,25 +257,26 @@ impl MemMap for Vrc6 {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
-            0x2000..=0x3FFF => {
-                let page = self.nametable_page(addr).unwrap_or(0);
-                let offset = addr % 0x0400;
-                let addr = 0x2000 + page * 0x0400 + offset;
-                MappedRead::Chr(self.chr_banks.translate(addr))
+            0x2000..=0x2FFF => {
+                let a10 = (self.nt_banks[(((addr - 0x2000) >> 10) & 0x03) as usize] << 10) as u16;
+                let addr = a10 | (!a10 & addr);
+                if self.regs.banking_mode & 0x10 == 0x00 {
+                    MappedRead::CIRam(addr.into())
+                } else {
+                    MappedRead::Chr(self.chr_banks.translate(addr))
+                }
             }
             0x6000..=0x7FFF if self.prg_ram_enabled() => {
                 MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
             }
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+            _ => MappedRead::Default,
         }
     }
 
     fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
-        if self.prg_ram_enabled() {
-            if let 0x6000..=0x7FFF = addr {
-                return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
-            }
+        if self.prg_ram_enabled() && matches!(addr, 0x6000..=0x7FFF) {
+            return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
         }
 
         if self.revision == Vrc6Revision::B {
@@ -295,9 +289,9 @@ impl MemMap for Vrc6 {
             0x8000..=0x8003 => {
                 // [.... PPPP]
                 //       ||||
-                //       ++++- Select 16 KB PRG ROM bank at $8000-$BFFF
+                //       ++++- Select 16 KB PRG-ROM bank at $8000-$BFFF
                 self.prg_rom_banks
-                    .set_range(0, 1, (val as usize & 0x0F) << 1);
+                    .set_range(0, 1, ((val & 0x0F) << 1).into());
             }
             0x9000..=0x9003 | 0xA000..=0xA002 | 0xB000..=0xB002 => {
                 self.audio.write_register(addr, val);
@@ -316,15 +310,15 @@ impl MemMap for Vrc6 {
             0xC000..=0xC003 => {
                 // [...P PPPP]
                 //     | ||||
-                //     +-++++- Select 8 KB PRG ROM bank at $C000-$DFFF
-                self.prg_rom_banks.set(2, val as usize & 0x1F);
+                //     +-++++- Select 8 KB PRG-ROM bank at $C000-$DFFF
+                self.prg_rom_banks.set(2, (val & 0x1F).into());
             }
             0xD000..=0xD003 => {
-                self.regs.chr[addr as usize & 0x03] = val as usize;
+                self.regs.chr[(addr & 0x03) as usize] = val.into();
                 self.update_chr_banks();
             }
             0xE000..=0xE003 => {
-                self.regs.chr[4 + (addr as usize & 0x03)] = val as usize;
+                self.regs.chr[(4 + (addr & 0x03)) as usize] = val.into();
                 self.update_chr_banks();
             }
             0xF000 => self.irq.write_reload(val),
@@ -332,7 +326,7 @@ impl MemMap for Vrc6 {
             0xF002 => self.irq.acknowledge(),
             _ => (),
         }
-        MappedWrite::None
+        MappedWrite::Default
     }
 }
 
@@ -359,6 +353,8 @@ impl Reset for Vrc6 {
     }
 }
 
+impl Regional for Vrc6 {}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6Audio {
@@ -368,6 +364,12 @@ pub struct Vrc6Audio {
     halt: bool,
     out: f32,
     last_out: f32,
+}
+
+impl Default for Vrc6Audio {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Vrc6Audio {
@@ -385,7 +387,7 @@ impl Vrc6Audio {
     #[inline]
     #[must_use]
     fn output(&self) -> f32 {
-        let pulse_scale = PULSE_TABLE[PULSE_TABLE_SIZE - 1] / 15.0;
+        let pulse_scale = PULSE_TABLE[PULSE_TABLE.len() - 1] / 15.0;
         pulse_scale * self.out
     }
 
@@ -410,12 +412,6 @@ impl Vrc6Audio {
             0xB000..=0xB002 => self.saw.write_register(addr, val),
             _ => unreachable!("impossible Vrc6Audio register: {}", addr),
         }
-    }
-}
-
-impl Default for Vrc6Audio {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -450,6 +446,12 @@ pub struct Vrc6Pulse {
     timer: u16,
     step: u8,
     freq_shift: u8,
+}
+
+impl Default for Vrc6Pulse {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Vrc6Pulse {
@@ -500,12 +502,6 @@ impl Vrc6Pulse {
     }
 }
 
-impl Default for Vrc6Pulse {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Clock for Vrc6Pulse {
     fn clock(&mut self) -> usize {
         if self.enabled {
@@ -530,6 +526,12 @@ pub struct Vrc6Saw {
     timer: u16,
     step: u8,
     freq_shift: u8,
+}
+
+impl Default for Vrc6Saw {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Vrc6Saw {
@@ -575,12 +577,6 @@ impl Vrc6Saw {
         } else {
             0.0
         }
-    }
-}
-
-impl Default for Vrc6Saw {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

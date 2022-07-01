@@ -14,7 +14,7 @@
       {
         "number": 10,
         "action": {
-          "Gamepad": "Start"
+          "Joypad": "Start"
         }
       },
       {
@@ -25,13 +25,13 @@
       {
         "number": 28,
         "action": {
-          "Gamepad": "Select"
+          "Joypad": "Select"
         }
       },
       {
         "number": 30,
         "action": {
-          "Gamepad": "Start"
+          "Joypad": "Start"
         }
       },
       {

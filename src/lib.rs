@@ -5,7 +5,7 @@
     clippy::branches_sharing_code,
     clippy::map_unwrap_or,
     clippy::match_wildcard_for_single_variants,
-    // clippy::missing_const_for_fn,
+    clippy::missing_const_for_fn,
     clippy::missing_errors_doc,
     clippy::must_use_candidate,
     clippy::needless_for_each,
@@ -39,23 +39,25 @@
     html_logo_url = "https://github.com/lukexor/tetanes/blob/main/static/tetanes_icon.png?raw=true"
 )]
 
-pub mod apu;
 pub mod audio;
+pub mod genie;
+
+pub mod apu;
 pub mod bus;
 pub mod cart;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod debugger;
 #[macro_use]
 pub mod common;
 pub mod control_deck;
 pub mod cpu;
-pub mod genie;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod debugger;
 pub mod input;
 pub mod mapper;
-pub mod memory;
+pub mod mem;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod nes;
 pub mod ppu;
+pub mod video;
 
 pub type NesError = anyhow::Error;
 pub type NesResult<T> = anyhow::Result<T, NesError>;

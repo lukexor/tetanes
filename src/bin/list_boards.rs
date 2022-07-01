@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tetanes::{cart::Cart, memory::RamState, NesResult};
+use tetanes::{cart::Cart, mem::RamState, NesResult};
 
 fn main() -> NesResult<()> {
     let opt = Opt::from_args();

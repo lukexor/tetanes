@@ -1,28 +1,8 @@
-use super::{Cpu, Status, IRQ_VECTOR, NMI_VECTOR, SP_BASE};
-use crate::memory::{MemRead, MemWrite};
+use crate::{
+    cpu::{Cpu, Status},
+    mem::{Access, Mem},
+};
 use serde::{Deserialize, Serialize};
-use std::fmt;
-
-// 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
-#[rustfmt::skip]
-pub const INSTRUCTIONS: [Instr; 256] = [
-    Instr(0x00, IMM, BRK, 7), Instr(0x01, IDX, ORA, 6), Instr(0x02, IMP, XXX, 2), Instr(0x03, IDX, SLO, 8), Instr(0x04, ZP0, NOP, 3), Instr(0x05, ZP0, ORA, 3), Instr(0x06, ZP0, ASL, 5), Instr(0x07, ZP0, SLO, 5), Instr(0x08, IMP, PHP, 3), Instr(0x09, IMM, ORA, 2), Instr(0x0A, ACC, ASL, 2), Instr(0x0B, IMM, ANC, 2), Instr(0x0C, ABS, NOP, 4), Instr(0x0D, ABS, ORA, 4), Instr(0x0E, ABS, ASL, 6), Instr(0x0F, ABS, SLO, 6),
-    Instr(0x10, REL, BPL, 2), Instr(0x11, IDY, ORA, 5), Instr(0x12, IMP, XXX, 2), Instr(0x13, IDY, SLO, 8), Instr(0x14, ZPX, NOP, 4), Instr(0x15, ZPX, ORA, 4), Instr(0x16, ZPX, ASL, 6), Instr(0x17, ZPX, SLO, 6), Instr(0x18, IMP, CLC, 2), Instr(0x19, ABY, ORA, 4), Instr(0x1A, IMP, NOP, 2), Instr(0x1B, ABY, SLO, 7), Instr(0x1C, ABX, IGN, 4), Instr(0x1D, ABX, ORA, 4), Instr(0x1E, ABX, ASL, 7), Instr(0x1F, ABX, SLO, 7),
-    Instr(0x20, ABS, JSR, 6), Instr(0x21, IDX, AND, 6), Instr(0x22, IMP, XXX, 2), Instr(0x23, IDX, RLA, 8), Instr(0x24, ZP0, BIT, 3), Instr(0x25, ZP0, AND, 3), Instr(0x26, ZP0, ROL, 5), Instr(0x27, ZP0, RLA, 5), Instr(0x28, IMP, PLP, 4), Instr(0x29, IMM, AND, 2), Instr(0x2A, ACC, ROL, 2), Instr(0x2B, IMM, ANC, 2), Instr(0x2C, ABS, BIT, 4), Instr(0x2D, ABS, AND, 4), Instr(0x2E, ABS, ROL, 6), Instr(0x2F, ABS, RLA, 6),
-    Instr(0x30, REL, BMI, 2), Instr(0x31, IDY, AND, 5), Instr(0x32, IMP, XXX, 2), Instr(0x33, IDY, RLA, 8), Instr(0x34, ZPX, NOP, 4), Instr(0x35, ZPX, AND, 4), Instr(0x36, ZPX, ROL, 6), Instr(0x37, ZPX, RLA, 6), Instr(0x38, IMP, SEC, 2), Instr(0x39, ABY, AND, 4), Instr(0x3A, IMP, NOP, 2), Instr(0x3B, ABY, RLA, 7), Instr(0x3C, ABX, IGN, 4), Instr(0x3D, ABX, AND, 4), Instr(0x3E, ABX, ROL, 7), Instr(0x3F, ABX, RLA, 7),
-    Instr(0x40, IMP, RTI, 6), Instr(0x41, IDX, EOR, 6), Instr(0x42, IMP, XXX, 2), Instr(0x43, IDX, SRE, 8), Instr(0x44, ZP0, NOP, 3), Instr(0x45, ZP0, EOR, 3), Instr(0x46, ZP0, LSR, 5), Instr(0x47, ZP0, SRE, 5), Instr(0x48, IMP, PHA, 3), Instr(0x49, IMM, EOR, 2), Instr(0x4A, ACC, LSR, 2), Instr(0x4B, IMM, ALR, 2), Instr(0x4C, ABS, JMP, 3), Instr(0x4D, ABS, EOR, 4), Instr(0x4E, ABS, LSR, 6), Instr(0x4F, ABS, SRE, 6),
-    Instr(0x50, REL, BVC, 2), Instr(0x51, IDY, EOR, 5), Instr(0x52, IMP, XXX, 2), Instr(0x53, IDY, SRE, 8), Instr(0x54, ZPX, NOP, 4), Instr(0x55, ZPX, EOR, 4), Instr(0x56, ZPX, LSR, 6), Instr(0x57, ZPX, SRE, 6), Instr(0x58, IMP, CLI, 2), Instr(0x59, ABY, EOR, 4), Instr(0x5A, IMP, NOP, 2), Instr(0x5B, ABY, SRE, 7), Instr(0x5C, ABX, IGN, 4), Instr(0x5D, ABX, EOR, 4), Instr(0x5E, ABX, LSR, 7), Instr(0x5F, ABX, SRE, 7),
-    Instr(0x60, IMP, RTS, 6), Instr(0x61, IDX, ADC, 6), Instr(0x62, IMP, XXX, 2), Instr(0x63, IDX, RRA, 8), Instr(0x64, ZP0, NOP, 3), Instr(0x65, ZP0, ADC, 3), Instr(0x66, ZP0, ROR, 5), Instr(0x67, ZP0, RRA, 5), Instr(0x68, IMP, PLA, 4), Instr(0x69, IMM, ADC, 2), Instr(0x6A, ACC, ROR, 2), Instr(0x6B, IMM, ARR, 2), Instr(0x6C, IND, JMP, 5), Instr(0x6D, ABS, ADC, 4), Instr(0x6E, ABS, ROR, 6), Instr(0x6F, ABS, RRA, 6),
-    Instr(0x70, REL, BVS, 2), Instr(0x71, IDY, ADC, 5), Instr(0x72, IMP, XXX, 2), Instr(0x73, IDY, RRA, 8), Instr(0x74, ZPX, NOP, 4), Instr(0x75, ZPX, ADC, 4), Instr(0x76, ZPX, ROR, 6), Instr(0x77, ZPX, RRA, 6), Instr(0x78, IMP, SEI, 2), Instr(0x79, ABY, ADC, 4), Instr(0x7A, IMP, NOP, 2), Instr(0x7B, ABY, RRA, 7), Instr(0x7C, ABX, IGN, 4), Instr(0x7D, ABX, ADC, 4), Instr(0x7E, ABX, ROR, 7), Instr(0x7F, ABX, RRA, 7),
-    Instr(0x80, IMM, SKB, 2), Instr(0x81, IDX, STA, 6), Instr(0x82, IMM, SKB, 2), Instr(0x83, IDX, SAX, 6), Instr(0x84, ZP0, STY, 3), Instr(0x85, ZP0, STA, 3), Instr(0x86, ZP0, STX, 3), Instr(0x87, ZP0, SAX, 3), Instr(0x88, IMP, DEY, 2), Instr(0x89, IMM, SKB, 2), Instr(0x8A, IMP, TXA, 2), Instr(0x8B, IMM, XAA, 2), Instr(0x8C, ABS, STY, 4), Instr(0x8D, ABS, STA, 4), Instr(0x8E, ABS, STX, 4), Instr(0x8F, ABS, SAX, 4),
-    Instr(0x90, REL, BCC, 2), Instr(0x91, IDY, STA, 6), Instr(0x92, IMP, XXX, 2), Instr(0x93, IDY, AHX, 6), Instr(0x94, ZPX, STY, 4), Instr(0x95, ZPX, STA, 4), Instr(0x96, ZPY, STX, 4), Instr(0x97, ZPY, SAX, 4), Instr(0x98, IMP, TYA, 2), Instr(0x99, ABY, STA, 5), Instr(0x9A, IMP, TXS, 2), Instr(0x9B, ABY, TAS, 5), Instr(0x9C, ABX, SYA, 5), Instr(0x9D, ABX, STA, 5), Instr(0x9E, ABY, SXA, 5), Instr(0x9F, ABY, AHX, 5),
-    Instr(0xA0, IMM, LDY, 2), Instr(0xA1, IDX, LDA, 6), Instr(0xA2, IMM, LDX, 2), Instr(0xA3, IDX, LAX, 6), Instr(0xA4, ZP0, LDY, 3), Instr(0xA5, ZP0, LDA, 3), Instr(0xA6, ZP0, LDX, 3), Instr(0xA7, ZP0, LAX, 3), Instr(0xA8, IMP, TAY, 2), Instr(0xA9, IMM, LDA, 2), Instr(0xAA, IMP, TAX, 2), Instr(0xAB, IMM, LAX, 2), Instr(0xAC, ABS, LDY, 4), Instr(0xAD, ABS, LDA, 4), Instr(0xAE, ABS, LDX, 4), Instr(0xAF, ABS, LAX, 4),
-    Instr(0xB0, REL, BCS, 2), Instr(0xB1, IDY, LDA, 5), Instr(0xB2, IMP, XXX, 2), Instr(0xB3, IDY, LAX, 5), Instr(0xB4, ZPX, LDY, 4), Instr(0xB5, ZPX, LDA, 4), Instr(0xB6, ZPY, LDX, 4), Instr(0xB7, ZPY, LAX, 4), Instr(0xB8, IMP, CLV, 2), Instr(0xB9, ABY, LDA, 4), Instr(0xBA, IMP, TSX, 2), Instr(0xBB, ABY, LAS, 4), Instr(0xBC, ABX, LDY, 4), Instr(0xBD, ABX, LDA, 4), Instr(0xBE, ABY, LDX, 4), Instr(0xBF, ABY, LAX, 4),
-    Instr(0xC0, IMM, CPY, 2), Instr(0xC1, IDX, CMP, 6), Instr(0xC2, IMM, SKB, 2), Instr(0xC3, IDX, DCP, 8), Instr(0xC4, ZP0, CPY, 3), Instr(0xC5, ZP0, CMP, 3), Instr(0xC6, ZP0, DEC, 5), Instr(0xC7, ZP0, DCP, 5), Instr(0xC8, IMP, INY, 2), Instr(0xC9, IMM, CMP, 2), Instr(0xCA, IMP, DEX, 2), Instr(0xCB, IMM, AXS, 2), Instr(0xCC, ABS, CPY, 4), Instr(0xCD, ABS, CMP, 4), Instr(0xCE, ABS, DEC, 6), Instr(0xCF, ABS, DCP, 6),
-    Instr(0xD0, REL, BNE, 2), Instr(0xD1, IDY, CMP, 5), Instr(0xD2, IMP, XXX, 2), Instr(0xD3, IDY, DCP, 8), Instr(0xD4, ZPX, NOP, 4), Instr(0xD5, ZPX, CMP, 4), Instr(0xD6, ZPX, DEC, 6), Instr(0xD7, ZPX, DCP, 6), Instr(0xD8, IMP, CLD, 2), Instr(0xD9, ABY, CMP, 4), Instr(0xDA, IMP, NOP, 2), Instr(0xDB, ABY, DCP, 7), Instr(0xDC, ABX, IGN, 4), Instr(0xDD, ABX, CMP, 4), Instr(0xDE, ABX, DEC, 7), Instr(0xDF, ABX, DCP, 7),
-    Instr(0xE0, IMM, CPX, 2), Instr(0xE1, IDX, SBC, 6), Instr(0xE2, IMM, SKB, 2), Instr(0xE3, IDX, ISB, 8), Instr(0xE4, ZP0, CPX, 3), Instr(0xE5, ZP0, SBC, 3), Instr(0xE6, ZP0, INC, 5), Instr(0xE7, ZP0, ISB, 5), Instr(0xE8, IMP, INX, 2), Instr(0xE9, IMM, SBC, 2), Instr(0xEA, IMP, NOP, 2), Instr(0xEB, IMM, SBC, 2), Instr(0xEC, ABS, CPX, 4), Instr(0xED, ABS, SBC, 4), Instr(0xEE, ABS, INC, 6), Instr(0xEF, ABS, ISB, 6),
-    Instr(0xF0, REL, BEQ, 2), Instr(0xF1, IDY, SBC, 5), Instr(0xF2, IMP, XXX, 2), Instr(0xF3, IDY, ISB, 8), Instr(0xF4, ZPX, NOP, 4), Instr(0xF5, ZPX, SBC, 4), Instr(0xF6, ZPX, INC, 6), Instr(0xF7, ZPX, ISB, 6), Instr(0xF8, IMP, SED, 2), Instr(0xF9, ABY, SBC, 4), Instr(0xFA, IMP, NOP, 2), Instr(0xFB, ABY, ISB, 7), Instr(0xFC, ABX, IGN, 4), Instr(0xFD, ABX, SBC, 4), Instr(0xFE, ABX, INC, 7), Instr(0xFF, ABX, ISB, 7),
-];
 
 #[rustfmt::skip]
 #[allow(clippy::upper_case_acronyms)]
@@ -92,6 +72,27 @@ impl Instr {
 /// The 6502 can address 64KB from 0x0000 - 0xFFFF. The high byte is usually the page and the
 /// low byte the offset into the page. There are 256 total pages of 256 bytes.
 impl Cpu {
+    // 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
+    #[rustfmt::skip]
+    pub const INSTRUCTIONS: [Instr; 256] = [
+        Instr(0x00, IMM, BRK, 7), Instr(0x01, IDX, ORA, 6), Instr(0x02, IMP, XXX, 2), Instr(0x03, IDX, SLO, 8), Instr(0x04, ZP0, NOP, 3), Instr(0x05, ZP0, ORA, 3), Instr(0x06, ZP0, ASL, 5), Instr(0x07, ZP0, SLO, 5), Instr(0x08, IMP, PHP, 3), Instr(0x09, IMM, ORA, 2), Instr(0x0A, ACC, ASL, 2), Instr(0x0B, IMM, ANC, 2), Instr(0x0C, ABS, NOP, 4), Instr(0x0D, ABS, ORA, 4), Instr(0x0E, ABS, ASL, 6), Instr(0x0F, ABS, SLO, 6),
+        Instr(0x10, REL, BPL, 2), Instr(0x11, IDY, ORA, 5), Instr(0x12, IMP, XXX, 2), Instr(0x13, IDY, SLO, 8), Instr(0x14, ZPX, NOP, 4), Instr(0x15, ZPX, ORA, 4), Instr(0x16, ZPX, ASL, 6), Instr(0x17, ZPX, SLO, 6), Instr(0x18, IMP, CLC, 2), Instr(0x19, ABY, ORA, 4), Instr(0x1A, IMP, NOP, 2), Instr(0x1B, ABY, SLO, 7), Instr(0x1C, ABX, IGN, 4), Instr(0x1D, ABX, ORA, 4), Instr(0x1E, ABX, ASL, 7), Instr(0x1F, ABX, SLO, 7),
+        Instr(0x20, ABS, JSR, 6), Instr(0x21, IDX, AND, 6), Instr(0x22, IMP, XXX, 2), Instr(0x23, IDX, RLA, 8), Instr(0x24, ZP0, BIT, 3), Instr(0x25, ZP0, AND, 3), Instr(0x26, ZP0, ROL, 5), Instr(0x27, ZP0, RLA, 5), Instr(0x28, IMP, PLP, 4), Instr(0x29, IMM, AND, 2), Instr(0x2A, ACC, ROL, 2), Instr(0x2B, IMM, ANC, 2), Instr(0x2C, ABS, BIT, 4), Instr(0x2D, ABS, AND, 4), Instr(0x2E, ABS, ROL, 6), Instr(0x2F, ABS, RLA, 6),
+        Instr(0x30, REL, BMI, 2), Instr(0x31, IDY, AND, 5), Instr(0x32, IMP, XXX, 2), Instr(0x33, IDY, RLA, 8), Instr(0x34, ZPX, NOP, 4), Instr(0x35, ZPX, AND, 4), Instr(0x36, ZPX, ROL, 6), Instr(0x37, ZPX, RLA, 6), Instr(0x38, IMP, SEC, 2), Instr(0x39, ABY, AND, 4), Instr(0x3A, IMP, NOP, 2), Instr(0x3B, ABY, RLA, 7), Instr(0x3C, ABX, IGN, 4), Instr(0x3D, ABX, AND, 4), Instr(0x3E, ABX, ROL, 7), Instr(0x3F, ABX, RLA, 7),
+        Instr(0x40, IMP, RTI, 6), Instr(0x41, IDX, EOR, 6), Instr(0x42, IMP, XXX, 2), Instr(0x43, IDX, SRE, 8), Instr(0x44, ZP0, NOP, 3), Instr(0x45, ZP0, EOR, 3), Instr(0x46, ZP0, LSR, 5), Instr(0x47, ZP0, SRE, 5), Instr(0x48, IMP, PHA, 3), Instr(0x49, IMM, EOR, 2), Instr(0x4A, ACC, LSR, 2), Instr(0x4B, IMM, ALR, 2), Instr(0x4C, ABS, JMP, 3), Instr(0x4D, ABS, EOR, 4), Instr(0x4E, ABS, LSR, 6), Instr(0x4F, ABS, SRE, 6),
+        Instr(0x50, REL, BVC, 2), Instr(0x51, IDY, EOR, 5), Instr(0x52, IMP, XXX, 2), Instr(0x53, IDY, SRE, 8), Instr(0x54, ZPX, NOP, 4), Instr(0x55, ZPX, EOR, 4), Instr(0x56, ZPX, LSR, 6), Instr(0x57, ZPX, SRE, 6), Instr(0x58, IMP, CLI, 2), Instr(0x59, ABY, EOR, 4), Instr(0x5A, IMP, NOP, 2), Instr(0x5B, ABY, SRE, 7), Instr(0x5C, ABX, IGN, 4), Instr(0x5D, ABX, EOR, 4), Instr(0x5E, ABX, LSR, 7), Instr(0x5F, ABX, SRE, 7),
+        Instr(0x60, IMP, RTS, 6), Instr(0x61, IDX, ADC, 6), Instr(0x62, IMP, XXX, 2), Instr(0x63, IDX, RRA, 8), Instr(0x64, ZP0, NOP, 3), Instr(0x65, ZP0, ADC, 3), Instr(0x66, ZP0, ROR, 5), Instr(0x67, ZP0, RRA, 5), Instr(0x68, IMP, PLA, 4), Instr(0x69, IMM, ADC, 2), Instr(0x6A, ACC, ROR, 2), Instr(0x6B, IMM, ARR, 2), Instr(0x6C, IND, JMP, 5), Instr(0x6D, ABS, ADC, 4), Instr(0x6E, ABS, ROR, 6), Instr(0x6F, ABS, RRA, 6),
+        Instr(0x70, REL, BVS, 2), Instr(0x71, IDY, ADC, 5), Instr(0x72, IMP, XXX, 2), Instr(0x73, IDY, RRA, 8), Instr(0x74, ZPX, NOP, 4), Instr(0x75, ZPX, ADC, 4), Instr(0x76, ZPX, ROR, 6), Instr(0x77, ZPX, RRA, 6), Instr(0x78, IMP, SEI, 2), Instr(0x79, ABY, ADC, 4), Instr(0x7A, IMP, NOP, 2), Instr(0x7B, ABY, RRA, 7), Instr(0x7C, ABX, IGN, 4), Instr(0x7D, ABX, ADC, 4), Instr(0x7E, ABX, ROR, 7), Instr(0x7F, ABX, RRA, 7),
+        Instr(0x80, IMM, SKB, 2), Instr(0x81, IDX, STA, 6), Instr(0x82, IMM, SKB, 2), Instr(0x83, IDX, SAX, 6), Instr(0x84, ZP0, STY, 3), Instr(0x85, ZP0, STA, 3), Instr(0x86, ZP0, STX, 3), Instr(0x87, ZP0, SAX, 3), Instr(0x88, IMP, DEY, 2), Instr(0x89, IMM, SKB, 2), Instr(0x8A, IMP, TXA, 2), Instr(0x8B, IMM, XAA, 2), Instr(0x8C, ABS, STY, 4), Instr(0x8D, ABS, STA, 4), Instr(0x8E, ABS, STX, 4), Instr(0x8F, ABS, SAX, 4),
+        Instr(0x90, REL, BCC, 2), Instr(0x91, IDY, STA, 6), Instr(0x92, IMP, XXX, 2), Instr(0x93, IDY, AHX, 6), Instr(0x94, ZPX, STY, 4), Instr(0x95, ZPX, STA, 4), Instr(0x96, ZPY, STX, 4), Instr(0x97, ZPY, SAX, 4), Instr(0x98, IMP, TYA, 2), Instr(0x99, ABY, STA, 5), Instr(0x9A, IMP, TXS, 2), Instr(0x9B, ABY, TAS, 5), Instr(0x9C, ABX, SYA, 5), Instr(0x9D, ABX, STA, 5), Instr(0x9E, ABY, SXA, 5), Instr(0x9F, ABY, AHX, 5),
+        Instr(0xA0, IMM, LDY, 2), Instr(0xA1, IDX, LDA, 6), Instr(0xA2, IMM, LDX, 2), Instr(0xA3, IDX, LAX, 6), Instr(0xA4, ZP0, LDY, 3), Instr(0xA5, ZP0, LDA, 3), Instr(0xA6, ZP0, LDX, 3), Instr(0xA7, ZP0, LAX, 3), Instr(0xA8, IMP, TAY, 2), Instr(0xA9, IMM, LDA, 2), Instr(0xAA, IMP, TAX, 2), Instr(0xAB, IMM, LAX, 2), Instr(0xAC, ABS, LDY, 4), Instr(0xAD, ABS, LDA, 4), Instr(0xAE, ABS, LDX, 4), Instr(0xAF, ABS, LAX, 4),
+        Instr(0xB0, REL, BCS, 2), Instr(0xB1, IDY, LDA, 5), Instr(0xB2, IMP, XXX, 2), Instr(0xB3, IDY, LAX, 5), Instr(0xB4, ZPX, LDY, 4), Instr(0xB5, ZPX, LDA, 4), Instr(0xB6, ZPY, LDX, 4), Instr(0xB7, ZPY, LAX, 4), Instr(0xB8, IMP, CLV, 2), Instr(0xB9, ABY, LDA, 4), Instr(0xBA, IMP, TSX, 2), Instr(0xBB, ABY, LAS, 4), Instr(0xBC, ABX, LDY, 4), Instr(0xBD, ABX, LDA, 4), Instr(0xBE, ABY, LDX, 4), Instr(0xBF, ABY, LAX, 4),
+        Instr(0xC0, IMM, CPY, 2), Instr(0xC1, IDX, CMP, 6), Instr(0xC2, IMM, SKB, 2), Instr(0xC3, IDX, DCP, 8), Instr(0xC4, ZP0, CPY, 3), Instr(0xC5, ZP0, CMP, 3), Instr(0xC6, ZP0, DEC, 5), Instr(0xC7, ZP0, DCP, 5), Instr(0xC8, IMP, INY, 2), Instr(0xC9, IMM, CMP, 2), Instr(0xCA, IMP, DEX, 2), Instr(0xCB, IMM, AXS, 2), Instr(0xCC, ABS, CPY, 4), Instr(0xCD, ABS, CMP, 4), Instr(0xCE, ABS, DEC, 6), Instr(0xCF, ABS, DCP, 6),
+        Instr(0xD0, REL, BNE, 2), Instr(0xD1, IDY, CMP, 5), Instr(0xD2, IMP, XXX, 2), Instr(0xD3, IDY, DCP, 8), Instr(0xD4, ZPX, NOP, 4), Instr(0xD5, ZPX, CMP, 4), Instr(0xD6, ZPX, DEC, 6), Instr(0xD7, ZPX, DCP, 6), Instr(0xD8, IMP, CLD, 2), Instr(0xD9, ABY, CMP, 4), Instr(0xDA, IMP, NOP, 2), Instr(0xDB, ABY, DCP, 7), Instr(0xDC, ABX, IGN, 4), Instr(0xDD, ABX, CMP, 4), Instr(0xDE, ABX, DEC, 7), Instr(0xDF, ABX, DCP, 7),
+        Instr(0xE0, IMM, CPX, 2), Instr(0xE1, IDX, SBC, 6), Instr(0xE2, IMM, SKB, 2), Instr(0xE3, IDX, ISB, 8), Instr(0xE4, ZP0, CPX, 3), Instr(0xE5, ZP0, SBC, 3), Instr(0xE6, ZP0, INC, 5), Instr(0xE7, ZP0, ISB, 5), Instr(0xE8, IMP, INX, 2), Instr(0xE9, IMM, SBC, 2), Instr(0xEA, IMP, NOP, 2), Instr(0xEB, IMM, SBC, 2), Instr(0xEC, ABS, CPX, 4), Instr(0xED, ABS, SBC, 4), Instr(0xEE, ABS, INC, 6), Instr(0xEF, ABS, ISB, 6),
+        Instr(0xF0, REL, BEQ, 2), Instr(0xF1, IDY, SBC, 5), Instr(0xF2, IMP, XXX, 2), Instr(0xF3, IDY, ISB, 8), Instr(0xF4, ZPX, NOP, 4), Instr(0xF5, ZPX, SBC, 4), Instr(0xF6, ZPX, INC, 6), Instr(0xF7, ZPX, ISB, 6), Instr(0xF8, IMP, SED, 2), Instr(0xF9, ABY, SBC, 4), Instr(0xFA, IMP, NOP, 2), Instr(0xFB, ABY, ISB, 7), Instr(0xFC, ABX, IGN, 4), Instr(0xFD, ABX, SBC, 4), Instr(0xFE, ABX, INC, 7), Instr(0xFF, ABX, ISB, 7),
+    ];
+
     /// Accumulator
     /// No additional data is required, but the default target will be the accumulator.
     //  ASL, ROL, LSR, ROR
@@ -101,7 +102,7 @@ impl Cpu {
     //  2    PC     R  read next instruction byte (and throw it away)
     #[inline]
     pub(super) fn acc(&mut self) {
-        let _ = self.read(self.pc); // Cycle 2, Read and throw away
+        let _ = self.read(self.pc, Access::Read); // Cycle 2, Read and throw away
     }
 
     /// Implied
@@ -112,7 +113,7 @@ impl Cpu {
     //    2    PC     R  read next instruction byte (and throw it away)
     #[inline]
     pub(super) fn imp(&mut self) {
-        let _ = self.read(self.pc); // Cycle 2, Read and throw away
+        let _ = self.read(self.pc, Access::Read); // Cycle 2, Read and throw away
     }
 
     /// Immediate
@@ -160,7 +161,7 @@ impl Cpu {
     //     3  address  W  write register to effective address
     #[inline]
     pub(super) fn zp0(&mut self) {
-        self.abs_addr = u16::from(self.read_instr_byte()); // Cycle 2
+        self.abs_addr = u16::from(self.read_instr()); // Cycle 2
     }
 
     /// Zero Page w/ X offset
@@ -207,8 +208,8 @@ impl Cpu {
     //             i.e. page boundary crossings are not handled.
     #[inline]
     pub(super) fn zpx(&mut self) {
-        let addr = u16::from(self.read_instr_byte()); // Cycle 2
-        let _ = self.read(addr); // Cycle 3
+        let addr = u16::from(self.read_instr()); // Cycle 2
+        let _ = self.read(addr, Access::Read); // Cycle 3
         self.abs_addr = addr.wrapping_add(self.x.into()) & 0x00FF;
     }
 
@@ -239,8 +240,8 @@ impl Cpu {
     //             i.e. page boundary crossings are not handled.
     #[inline]
     pub(super) fn zpy(&mut self) {
-        let addr = u16::from(self.read_instr_byte()); // Cycle 2
-        let _ = self.read(addr); // Cycle 3
+        let addr = u16::from(self.read_instr()); // Cycle 2
+        let _ = self.read(addr, Access::Read); // Cycle 3
         self.abs_addr = addr.wrapping_add(self.y.into()) & 0x00FF;
     }
 
@@ -274,7 +275,7 @@ impl Cpu {
     //            executed.
     #[inline]
     pub(super) fn rel(&mut self) {
-        self.rel_addr = u16::from(self.read_instr_byte()); // Cycle 2
+        self.rel_addr = u16::from(self.read_instr()); // Cycle 2
     }
 
     /// Absolute
@@ -312,7 +313,7 @@ impl Cpu {
     //     4  address  W  write register to effective address
     #[inline]
     pub(super) fn abs(&mut self) {
-        self.abs_addr = self.read_instr_word(); // Cycle 2 & 3
+        self.abs_addr = self.read_instr_u16(); // Cycle 2 & 3
     }
 
     /// Absolute w/ X offset
@@ -377,10 +378,10 @@ impl Cpu {
     //            address, it always reads from the address first.
     #[inline]
     pub(super) fn abx(&mut self) {
-        let addr = self.read_instr_word(); // Cycle 2 & 3
+        let addr = self.read_instr_u16(); // Cycle 2 & 3
         self.abs_addr = addr.wrapping_add(self.x.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
     }
 
     /// Absolute w/ Y offset
@@ -445,10 +446,10 @@ impl Cpu {
     //            address, it always reads from the address first.
     #[inline]
     pub(super) fn aby(&mut self) {
-        let addr = self.read_instr_word(); // Cycles 2 & 3
+        let addr = self.read_instr_u16(); // Cycles 2 & 3
         self.abs_addr = addr.wrapping_add(self.y.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
     }
 
     /// Indirect (JMP)
@@ -470,15 +471,15 @@ impl Cpu {
     //            How Real Programmers Acknowledge Interrupts
     #[inline]
     pub(super) fn ind(&mut self) {
-        let addr = self.read_instr_word();
+        let addr = self.read_instr_u16();
         if addr & 0xFF == 0xFF {
             // Simulate bug
-            let lo = self.read(addr);
-            let hi = self.read(addr & 0xFF00);
+            let lo = self.read(addr, Access::Read);
+            let hi = self.read(addr & 0xFF00, Access::Read);
             self.abs_addr = u16::from_le_bytes([lo, hi]);
         } else {
             // Normal behavior
-            self.abs_addr = self.read_word(addr);
+            self.abs_addr = self.read_u16(addr);
         }
     }
 
@@ -531,10 +532,10 @@ impl Cpu {
     //         i.e. the zero page boundary crossing is not handled.
     #[inline]
     pub(super) fn idx(&mut self) {
-        let addr = self.read_instr_byte(); // Cycle 2
-        let _ = self.read(u16::from(addr)); // Cycle 3
+        let addr = self.read_instr(); // Cycle 2
+        let _ = self.read(u16::from(addr), Access::Read); // Cycle 3
         let addr = addr.wrapping_add(self.x);
-        self.abs_addr = self.read_word_zp(addr); // Cycles 4 & 5
+        self.abs_addr = self.read_zp_u16(addr); // Cycles 4 & 5
     }
 
     /// Indirect Y
@@ -604,11 +605,11 @@ impl Cpu {
     //            at this time, i.e. it may be smaller by $100.
     #[inline]
     pub(super) fn idy(&mut self) {
-        let addr = self.read_instr_byte(); // Cycle 2
-        let addr = self.read_word_zp(addr); // Cycles 3 & 4
+        let addr = self.read_instr(); // Cycle 2
+        let addr = self.read_zp_u16(addr); // Cycles 3 & 4
         self.abs_addr = addr.wrapping_add(self.y.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
     }
 }
 
@@ -640,17 +641,17 @@ impl Cpu {
     /// STA: Store A into M
     #[inline]
     pub(super) fn sta(&mut self) {
-        self.write(self.abs_addr, self.acc);
+        self.write(self.abs_addr, self.acc, Access::Write);
     }
     /// STX: Store X into M
     #[inline]
     pub(super) fn stx(&mut self) {
-        self.write(self.abs_addr, self.x);
+        self.write(self.abs_addr, self.x, Access::Write);
     }
     /// STY: Store Y into M
     #[inline]
     pub(super) fn sty(&mut self) {
-        self.write(self.abs_addr, self.y);
+        self.write(self.abs_addr, self.y, Access::Write);
     }
     /// TAX: Transfer A to X
     #[inline]
@@ -853,7 +854,7 @@ impl Cpu {
             self.run_irq = false;
         }
 
-        self.read(self.pc); // Dummy read
+        self.read(self.pc, Access::Read); // Dummy read
 
         self.abs_addr = if self.rel_addr & 0x80 == 0x80 {
             self.pc.wrapping_add(self.rel_addr | 0xFF00)
@@ -861,7 +862,7 @@ impl Cpu {
             self.pc.wrapping_add(self.rel_addr)
         };
         if Self::pages_differ(self.abs_addr, self.pc) {
-            self.read(self.pc); // Dummy read
+            self.read(self.pc, Access::Read); // Dummy read
         }
         self.pc = self.abs_addr;
     }
@@ -947,8 +948,8 @@ impl Cpu {
     //                 byte to PCH
     #[inline]
     pub(super) fn jsr(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
-        self.push_word(self.pc.wrapping_sub(1));
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        self.push_u16(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
     }
     /// RTI: Return from Interrupt
@@ -962,11 +963,11 @@ impl Cpu {
     //  6  $0100,S  R  pull PCH from stack
     #[inline]
     pub(super) fn rti(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
         self.status = Status::from_bits_truncate(self.pop()); // Cycle 4
         self.status &= !Status::U;
         self.status &= !Status::B;
-        self.pc = self.pop_word(); // Cycles 5 & 6
+        self.pc = self.pop_u16(); // Cycles 5 & 6
     }
     /// RTS: Return from Subroutine
     //  #  address R/W description
@@ -979,9 +980,9 @@ impl Cpu {
     //  6    PC     R  increment PC
     #[inline]
     pub(super) fn rts(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
-        self.pc = self.pop_word().wrapping_add(1); // Cycles 4 & 5
-        let _ = self.read(self.pc); // Cycle 6
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        self.pc = self.pop_u16().wrapping_add(1); // Cycles 4 & 5
+        let _ = self.read(self.pc, Access::Read); // Cycle 6
     }
 
     ///  Register opcodes
@@ -1072,7 +1073,7 @@ impl Cpu {
     //  4  $0100,S  R  pull register from stack
     #[inline]
     pub(super) fn plp(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
         self.status = Status::from_bits_truncate(self.pop());
     }
     /// PHA: Push A on Stack
@@ -1094,7 +1095,7 @@ impl Cpu {
     //  4  $0100,S  R  pull register from stack
     #[inline]
     pub(super) fn pla(&mut self) {
-        let _ = self.read(SP_BASE | u16::from(self.sp)); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
         self.acc = self.pop();
         self.set_zn_status(self.acc);
     }
@@ -1115,7 +1116,7 @@ impl Cpu {
     #[inline]
     pub(super) fn brk(&mut self) {
         self.fetch_data(); // throw away
-        self.push_word(self.pc);
+        self.push_u16(self.pc);
 
         // Pushing status to the stack has to happen after checking NMI since it can hijack the BRK
         // IRQ when it occurs between cycles 4 and 5.
@@ -1129,18 +1130,14 @@ impl Cpu {
             self.push(status);
             self.status.set(Status::I, true);
 
-            self.pc = self.read_word(NMI_VECTOR);
-            if self.debugging {
-                log::trace!("NMI: {}", self.cycle);
-            }
+            self.pc = self.read_u16(Self::NMI_VECTOR);
+            log::trace!("NMI: {}", self.cycle);
         } else {
             self.push(status);
             self.status.set(Status::I, true);
 
-            self.pc = self.read_word(IRQ_VECTOR);
-            if self.debugging {
-                log::trace!("IRQ: {}", self.cycle);
-            }
+            self.pc = self.read_u16(Self::IRQ_VECTOR);
+            log::trace!("IRQ: {}", self.cycle);
         }
         // Prevent NMI from triggering immediately after BRK
         log::trace!(
@@ -1313,7 +1310,7 @@ impl Cpu {
     #[inline]
     pub(super) fn tas(&mut self) {
         // STA
-        self.write(self.abs_addr, self.acc);
+        self.write(self.abs_addr, self.acc, Access::Write);
         // TXS
         self.sp = self.x;
     }
@@ -1396,8 +1393,8 @@ impl Cpu {
     }
 }
 
-impl fmt::Debug for Instr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+impl std::fmt::Debug for Instr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         let mut op = self.op();
         let unofficial = match self.op() {
             XXX | ISB | DCP | AXS | LAS | LAX | AHX | SAX | XAA | SXA | RRA | TAS | SYA | ARR

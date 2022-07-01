@@ -1,11 +1,14 @@
-use super::LengthCounter;
-use crate::common::{Clock, Kind, Reset};
+use crate::{
+    apu::{length_counter::LengthCounter, linear_counter::LinearCounter},
+    common::{Clock, Kind, Reset},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Triangle {
-    pub enabled: bool,
+    enabled: bool,
+    force_silent: bool,
     ultrasonic: bool,
     step: u8,
     freq_timer: u16,
@@ -24,6 +27,7 @@ impl Triangle {
     pub const fn new() -> Self {
         Self {
             enabled: false,
+            force_silent: false,
             ultrasonic: false,
             step: 0u8,
             freq_timer: 0u16,
@@ -31,6 +35,17 @@ impl Triangle {
             length: LengthCounter::new(),
             linear: LinearCounter::new(),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn silent(&self) -> bool {
+        self.force_silent
+    }
+
+    #[inline]
+    pub fn toggle_silent(&mut self) {
+        self.force_silent = !self.force_silent;
     }
 
     #[inline]
@@ -57,7 +72,9 @@ impl Triangle {
 
     #[must_use]
     pub fn output(&self) -> f32 {
-        if self.ultrasonic {
+        if self.force_silent {
+            0.0
+        } else if self.ultrasonic {
             7.5
         } else if self.step & 0x10 == 0x10 {
             f32::from(self.step ^ 0x1F)
@@ -119,30 +136,5 @@ impl Clock for Triangle {
 impl Reset for Triangle {
     fn reset(&mut self, _kind: Kind) {
         *self = Self::new();
-    }
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub(crate) struct LinearCounter {
-    pub(crate) reload: bool,
-    pub(crate) control: bool,
-    pub(crate) load: u8,
-    pub(crate) counter: u8,
-}
-
-impl LinearCounter {
-    pub(crate) const fn new() -> Self {
-        Self {
-            reload: false,
-            control: false,
-            load: 0u8,
-            counter: 0u8,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn load_value(&mut self, val: u8) {
-        self.load = val >> 1; // D6..D0
     }
 }

@@ -1,117 +1,54 @@
-//! Handles reading NES Cart headers and ROMs
-
 use crate::{
-    common::{Clock, Kind, NesRegion, Reset},
+    common::{NesRegion, Regional},
     mapper::{
-        m001_sxrom::Mmc1Revision, m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Cnrom, Empty, Exrom,
-        Gxrom, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
-        Vrc6,
+        m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision,
+        Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
     },
-    memory::{MemRead, MemReadWord, MemWrite, MemWriteWord, Memory, RamState},
+    mem::RamState,
     ppu::Mirroring,
     NesResult,
 };
 use anyhow::{anyhow, bail, Context};
-use log::{debug, info};
-use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    io::BufRead,
 };
 use std::{
-    fmt,
     fs::File,
     io::{BufReader, Read},
     path::Path,
 };
 
-const PRG_ROM_BANK_SIZE: usize = 16 * 1024;
-const CHR_ROM_BANK_SIZE: usize = 8 * 1024;
+const PRG_ROM_BANK_SIZE: usize = 0x4000;
+const CHR_ROM_BANK_SIZE: usize = 0x2000;
 
 #[cfg(not(target_arch = "wasm32"))]
 const GAME_DB: &[u8] = include_bytes!("../config/game_database.txt");
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[must_use]
-pub enum RomSize {
-    S128, // 128 kilobits - not kilobytes
-    S256,
-    S512,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[must_use]
-pub enum ChrMode {
-    Rom,
-    Ram,
-}
-
-/// Represents an `iNES` or `NES 2.0` header
-///
-/// <http://wiki.nesdev.com/w/index.php/INES>
-/// <http://wiki.nesdev.com/w/index.php/NES_2.0>
-/// <http://nesdev.com/NESDoc.pdf> (page 28)
-#[derive(Default, Copy, Clone, PartialEq, Eq)]
-#[must_use]
-pub struct NesHeader {
-    pub version: u8,        // 1 for iNES or 2 for NES 2.0
-    pub mapper_num: u16,    // The primary mapper number
-    pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
-    pub flags: u8,          // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
-    pub prg_rom_banks: u16, // Number of 16 KB PRG-ROM banks (Program ROM)
-    pub chr_rom_banks: u16, // Number of 8 KB CHR-ROM banks (Character ROM)
-    pub prg_ram_shift: u8,  // NES 2.0 PRG-RAM
-    pub chr_ram_shift: u8,  // NES 2.0 CHR-RAM
-    pub tv_mode: u8,        // NES 2.0 NTSC/PAL indicator
-    pub vs_data: u8,        // NES 2.0 VS System data
-}
-
-/// Represents an NES Cart
-#[derive(Default, Clone, Serialize, Deserialize)]
+/// An NES cartridge.
+#[derive(Default, Clone)]
 #[must_use]
 pub struct Cart {
-    #[serde(skip)]
-    pub name: String,
-    #[serde(skip)]
-    pub header: NesHeader,
-    #[serde(skip)]
-    pub ram_state: RamState,
-    #[serde(skip)]
-    pub mirroring: Mirroring,
-    #[serde(skip)]
-    pub region: NesRegion,
-    #[serde(skip)]
-    pub prg_rom: Memory, // Program ROM
-    pub prg_ram: Memory, // Program RAM
-    pub chr: Memory,     // Character ROM/RAM
-    pub mapper: Mapper,
-    pub open_bus: u8,
+    name: String,
+    header: NesHeader,
+    region: NesRegion,
+    ram_state: RamState,
+    pub(crate) mapper: Mapper,
+    pub(crate) chr_rom: Vec<u8>, // Character ROM
+    pub(crate) chr_ram: Vec<u8>, // Character RAM
+    pub(crate) ex_ram: Vec<u8>,  // Internal Extra RAM
+    pub(crate) prg_rom: Vec<u8>, // Program ROM
+    pub(crate) prg_ram: Vec<u8>, // Program RAM
 }
 
 impl Cart {
-    /// Creates an empty cartridge not loaded with any ROM
-    pub fn new() -> Self {
-        Self {
-            name: String::new(),
-            ram_state: RamState::Random,
-            header: NesHeader::new(),
-            mirroring: Mirroring::default(),
-            region: NesRegion::default(),
-            prg_rom: Memory::new(),
-            prg_ram: Memory::new(),
-            chr: Memory::new(),
-            mapper: Empty.into(),
-            open_bus: 0x00,
-        }
-    }
-
-    /// Create a `Cart` from a ROM path.
+    /// Load `Cart` from a ROM path.
     ///
     /// # Errors
     ///
-    /// If the ROM can not be opened, or the NES header is corrupted, then an error is returned.
+    /// If the NES header is corrupted, the ROM file cannot be read, or the data does not match
+    /// the header, then an error is returned.
     pub fn from_path<P: AsRef<Path>>(path: P, ram_state: RamState) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
@@ -120,16 +57,12 @@ impl Cart {
         Self::from_rom(&path.to_string_lossy(), &mut rom, ram_state)
     }
 
-    /// Creates a new Cart instance by reading in a `.nes` file
-    ///
-    /// # Arguments
-    ///
-    /// * `rom` - A String that that holds the path to a valid '.nes' file
+    /// Load `Cart` from ROM data.
     ///
     /// # Errors
     ///
-    /// If the file is not a valid '.nes' file, or there are insufficient permissions to read the
-    /// file, then an error is returned.
+    /// If the NES header is invalid, or the ROM data does not match the header, then an error is
+    /// returned.
     pub fn from_rom<S, F>(name: S, mut rom_data: &mut F, ram_state: RamState) -> NesResult<Self>
     where
         S: ToString,
@@ -137,20 +70,39 @@ impl Cart {
     {
         let name = name.to_string();
         let header = NesHeader::load(&mut rom_data)?;
-        let prg_ram_size = Self::calculate_ram_size("prg", header.prg_ram_shift)?;
-        let chr_ram_size = Self::calculate_ram_size("chr", header.chr_ram_shift)?;
 
-        let mut prg_data = vec![0x00; (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut prg_data).with_context(|| {
+        let mut prg_rom = vec![0x00; (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE];
+        rom_data.read_exact(&mut prg_rom).with_context(|| {
             let bytes_rem = rom_data
-                .read_to_end(&mut prg_data)
+                .read_to_end(&mut prg_rom)
                 .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
             format!(
-                "invalid rom header \"{}\". prg-rom banks: {}. bytes remaining: {}",
+                "invalid rom header '{}'. prg-rom banks: {}. bytes remaining: {}",
                 name, header.prg_rom_banks, bytes_rem
             )
         })?;
-        let prg_rom = Memory::rom(prg_data);
+
+        let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift).context("prg_ram")?;
+        let mut prg_ram = vec![0x00; prg_ram_size];
+        RamState::fill(&mut prg_ram, ram_state);
+
+        let mut chr_rom = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
+        rom_data.read_exact(&mut chr_rom).with_context(|| {
+            let bytes_rem = rom_data
+                .read_to_end(&mut chr_rom)
+                .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
+            format!(
+                "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
+                name, header.chr_rom_banks, bytes_rem,
+            )
+        })?;
+
+        let mut chr_ram = vec![];
+        if chr_rom.is_empty() {
+            let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift).context("chr_ram")?;
+            chr_ram.resize(chr_ram_size, 0x00);
+            RamState::fill(&mut chr_ram, ram_state);
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         let region = {
@@ -162,64 +114,22 @@ impl Cart {
         #[cfg(target_arch = "wasm32")]
         let region = NesRegion::default();
 
-        let mut chr_data = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut chr_data).with_context(|| {
-            let bytes_rem = rom_data
-                .read_to_end(&mut chr_data)
-                .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
-            format!(
-                "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
-                name, header.chr_rom_banks, bytes_rem,
-            )
-        })?;
-
-        let chr = if chr_data.is_empty() {
-            Memory::ram(chr_ram_size, ram_state)
-        } else {
-            Memory::rom(chr_data)
-        };
-
-        let mirroring = if header.flags & 0x08 == 0x08 {
-            Mirroring::FourScreen
-        } else {
-            match header.flags & 0x01 {
-                0 => Mirroring::Horizontal,
-                1 => Mirroring::Vertical,
-                _ => unreachable!("impossible mirroring"),
-            }
-        };
-
         let mut cart = Self {
             name,
             header,
-            ram_state,
-            mirroring,
             region,
+            ram_state,
+            mapper: Mapper::none(),
+            chr_rom,
+            chr_ram,
+            ex_ram: vec![],
             prg_rom,
-            prg_ram: Memory::ram(prg_ram_size, ram_state),
-            chr,
-            mapper: Mapper::default(),
-            open_bus: 0x00,
+            prg_ram,
         };
-        cart.mapper = match header.mapper_num {
-            0 => Nrom::load(&mut cart),
-            1 => Sxrom::load(&mut cart, Mmc1Revision::BC),
-            2 => Uxrom::load(&mut cart),
-            3 => Cnrom::load(&mut cart),
-            4 => Txrom::load(&mut cart),
-            5 => Exrom::load(&mut cart),
-            7 => Axrom::load(&mut cart),
-            9 => Pxrom::load(&mut cart),
-            24 => Vrc6::load(&mut cart, Vrc6Revision::A),
-            26 => Vrc6::load(&mut cart, Vrc6Revision::B),
-            66 => Gxrom::load(&mut cart),
-            71 => Bf909x::load(&mut cart),
-            155 => Sxrom::load(&mut cart, Mmc1Revision::A),
-            _ => bail!("unsupported mapper number: {}", header.mapper_num),
-        };
+        cart.load_mapper()?;
 
-        info!("Loaded `{}`", cart);
-        debug!("{:?}", cart);
+        log::info!("Loaded `{}`", cart);
+        log::debug!("{:?}", cart);
         Ok(cart)
     }
 
@@ -229,54 +139,133 @@ impl Cart {
         &self.name
     }
 
-    /// Get battery-backed RAM data.
     #[inline]
     #[must_use]
-    pub fn sram(&self) -> &[u8] {
+    pub fn chr_rom(&self) -> &[u8] {
+        &self.chr_rom
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn chr_ram(&self) -> &[u8] {
+        &self.chr_ram
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn prg_rom(&self) -> &[u8] {
+        &self.prg_rom
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn prg_ram(&self) -> &[u8] {
         &self.prg_ram
     }
 
-    /// Load battery-backed RAM data.
     #[inline]
-    pub fn load_sram(&mut self, sram: Vec<u8>) {
-        self.prg_ram.load(sram);
+    #[must_use]
+    pub fn has_chr_rom(&self) -> bool {
+        !self.chr_rom.is_empty()
     }
 
     #[inline]
-    pub fn bus_read(&mut self, val: u8) {
-        self.open_bus = val;
+    #[must_use]
+    pub fn has_prg_ram(&self) -> bool {
+        !self.prg_ram.is_empty()
     }
 
-    /// Returns whether this cartridge has battery-backed Save RAM
+    /// Returns whether this cartridge has battery-backed Save RAM.
     #[inline]
     #[must_use]
     pub const fn battery_backed(&self) -> bool {
         self.header.flags & 0x02 == 0x02
     }
 
+    /// Returns `RamState`.
+    #[inline]
+    pub const fn ram_state(&self) -> RamState {
+        self.ram_state
+    }
+
+    /// Returns hardware configured `Mirroring`.
+    #[inline]
+    pub fn mirroring(&self) -> Mirroring {
+        if self.header.flags & 0x08 == 0x08 {
+            Mirroring::FourScreen
+        } else {
+            match self.header.flags & 0x01 {
+                0 => Mirroring::Horizontal,
+                1 => Mirroring::Vertical,
+                _ => unreachable!("impossible mirroring"),
+            }
+        }
+    }
+
+    /// Returns the Mapper number for this Cart.
+    #[inline]
+    #[must_use]
+    pub const fn mapper_num(&self) -> u16 {
+        self.header.mapper_num
+    }
+
+    /// Returns the Sub-Mapper number for this Cart.
+    #[inline]
+    #[must_use]
+    pub const fn submapper_num(&self) -> u8 {
+        self.header.submapper_num
+    }
+
+    /// Returns the Mapper and Board name for this Cart.
     #[inline]
     #[must_use]
     pub const fn mapper_board(&self) -> &'static str {
         self.header.mapper_board()
     }
 
-    // Swap dynamic data with another cart instance.
-    pub fn swap(&mut self, cart: &mut Self) {
-        std::mem::swap(&mut self.prg_ram, &mut cart.prg_ram);
-        if self.chr.writable() {
-            std::mem::swap(&mut self.chr, &mut cart.chr);
-        }
-        std::mem::swap(&mut self.mapper, &mut cart.mapper);
+    /// Allows mappers to add PRG-RAM.
+    pub(crate) fn add_prg_ram(&mut self, capacity: usize) {
+        self.prg_ram.resize(capacity, 0x00);
+        RamState::fill(&mut self.prg_ram, self.ram_state);
     }
-}
 
-impl Cart {
-    #[inline]
-    fn calculate_ram_size(ram_type: &str, value: u8) -> NesResult<usize> {
+    /// Allows mappers to add CHR-RAM.
+    pub(crate) fn add_chr_ram(&mut self, capacity: usize) {
+        self.chr_ram.resize(capacity, 0x00);
+        RamState::fill(&mut self.chr_ram, self.ram_state);
+    }
+
+    /// Allows mappers to add EX-RAM.
+    pub(crate) fn add_ex_ram(&mut self, capacity: usize) {
+        self.ex_ram.resize(capacity, 0x00);
+        RamState::fill(&mut self.ex_ram, self.ram_state);
+    }
+
+    fn load_mapper(&mut self) -> NesResult<()> {
+        self.mapper = match self.header.mapper_num {
+            0 => Nrom::load(self),
+            1 => Sxrom::load(self, Mmc1Revision::BC),
+            2 => Uxrom::load(self),
+            3 => Cnrom::load(self),
+            4 => Txrom::load(self),
+            5 => Exrom::load(self),
+            7 => Axrom::load(self),
+            9 => Pxrom::load(self),
+            24 => Vrc6::load(self, Vrc6Revision::A),
+            26 => Vrc6::load(self, Vrc6Revision::B),
+            66 => Gxrom::load(self),
+            71 => Bf909x::load(self),
+            155 => Sxrom::load(self, Mmc1Revision::A),
+            _ => bail!("unimplemented mapper: {}", self.header.mapper_num),
+        };
+        Ok(())
+    }
+
+    fn calculate_ram_size(value: u8) -> NesResult<usize> {
         if value > 0 {
             64usize
                 .checked_shl(value.into())
-                .ok_or_else(|| anyhow!("invalid header {}-ram size: ${:02X}", ram_type, value))
+                .ok_or_else(|| anyhow!("invalid header ram size: ${:02X}", value))
         } else {
             Ok(0)
         }
@@ -284,6 +273,8 @@ impl Cart {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn lookup_region(lookup_hash: u64) -> NesRegion {
+        use std::io::BufRead;
+
         let db = BufReader::new(GAME_DB);
         let lines: Vec<String> = db.lines().filter_map(Result::ok).collect();
         if let Ok(line) = lines.binary_search_by(|line| {
@@ -303,160 +294,81 @@ impl Cart {
     }
 }
 
-impl Mapped for Cart {
+impl Regional for Cart {
     #[inline]
-    fn irq_pending(&self) -> bool {
-        self.mapper.irq_pending()
-    }
-
-    #[inline]
-    fn mirroring(&self) -> Option<Mirroring> {
-        self.mapper.mirroring().or(Some(self.mirroring))
-    }
-
-    #[inline]
-    fn use_ciram(&self, addr: u16) -> bool {
-        self.mapper.use_ciram(addr)
-    }
-
-    #[inline]
-    fn nametable_page(&self, addr: u16) -> Option<u16> {
-        self.mapper.nametable_page(addr).or_else(|| {
-            self.mirroring().map(|mirroring| match mirroring {
-                Mirroring::Horizontal => (addr >> 11) & 1,
-                Mirroring::Vertical => (addr >> 10) & 1,
-                Mirroring::SingleScreenA => (addr >> 14) & 1,
-                Mirroring::SingleScreenB => (addr >> 13) & 1,
-                Mirroring::FourScreen => panic!("unhandled FourScreen mirroring"),
-            })
-        })
-    }
-
-    #[inline]
-    fn ppu_addr(&mut self, addr: u16) {
-        self.mapper.ppu_addr(addr);
-    }
-
-    #[inline]
-    fn ppu_read(&mut self, addr: u16) {
-        self.mapper.ppu_read(addr);
-    }
-
-    #[inline]
-    fn ppu_write(&mut self, addr: u16, val: u8) {
-        self.mapper.ppu_write(addr, val);
+    fn region(&self) -> NesRegion {
+        self.region
     }
 
     #[inline]
     fn set_region(&mut self, region: NesRegion) {
-        if let Mapper::Exrom(ref mut exrom) = self.mapper {
-            exrom.dmc.set_region(region);
-        }
+        self.region = region;
     }
 }
 
-impl MemRead for Cart {
-    fn read(&mut self, addr: u16) -> u8 {
-        match self.mapper.map_read(addr) {
-            MappedRead::Chr(addr) => self.chr.readw(addr),
-            MappedRead::PrgRam(addr) => self.prg_ram.readw(addr),
-            MappedRead::PrgRom(addr) => self.prg_rom.readw(addr),
-            MappedRead::Data(data) => data,
-            MappedRead::None => self.open_bus,
-        }
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
-        match self.mapper.map_peek(addr) {
-            MappedRead::Chr(addr) => self.chr.peekw(addr),
-            MappedRead::PrgRam(addr) => self.prg_ram.peekw(addr),
-            MappedRead::PrgRom(addr) => self.prg_rom.peekw(addr),
-            MappedRead::Data(data) => data,
-            MappedRead::None => self.open_bus,
-        }
-    }
-}
-
-impl MemWrite for Cart {
-    fn write(&mut self, addr: u16, val: u8) {
-        match self.mapper.map_write(addr, val) {
-            MappedWrite::Chr(addr, val) if self.chr.writable() => self.chr.writew(addr, val),
-            MappedWrite::PrgRam(addr, val) if self.prg_ram.writable() => {
-                self.prg_ram.writew(addr, val);
-            }
-            MappedWrite::PrgRamProtect(protect) => self.prg_ram.write_protect(protect),
-            _ => (),
-        }
-    }
-}
-
-impl Clock for Cart {
-    fn clock(&mut self) -> usize {
-        self.mapper.clock()
-    }
-}
-
-impl Reset for Cart {
-    fn reset(&mut self, kind: Kind) {
-        self.mapper.reset(kind);
-    }
-}
-
-impl fmt::Display for Cart {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+impl std::fmt::Display for Cart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(
             f,
-            "{} - {}, CHR-{}: {}K, PRG-ROM: {}K, PRG-RAM: {}K, Mirroring: {:?}, Battery: {}",
+            "{} - {}, CHR-ROM: {}K, CHR-RAM: {}K, PRG-ROM: {}K, PRG-RAM: {}K, Mirroring: {:?}, Battery: {}",
             self.name,
             self.mapper_board(),
-            if self.chr.writable() { "RAM" } else { "ROM" },
-            self.chr.len() / 1024,
-            self.prg_rom.len() / 1024,
-            self.prg_ram.len() / 1024,
-            self.mirroring().unwrap_or_default(),
+            self.chr_rom.len() / 0x0400,
+            self.chr_ram.len() / 0x0400,
+            self.prg_rom.len() / 0x0400,
+            self.prg_ram.len() / 0x0400,
+            self.mirroring(),
             self.battery_backed(),
         )
     }
 }
 
-impl fmt::Debug for Cart {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+impl std::fmt::Debug for Cart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("Cart")
             .field("name", &self.name)
             .field("header", &self.header)
+            .field("region", &self.region)
+            .field("ram_state", &self.ram_state)
+            .field("mapper", &self.mapper)
             .field("mirroring", &self.mirroring())
             .field("battery_backed", &self.battery_backed())
-            .field("chr", &self.chr)
-            .field("prg_rom", &self.prg_rom)
-            .field("prg_ram", &self.prg_ram)
-            .field("mapper", &self.mapper)
-            .field("open_bus", &format_args!("${:02X}", &self.open_bus))
+            .field("chr_rom_len", &self.chr_rom.len())
+            .field("chr_ram_len", &self.chr_ram.len())
+            .field("ex_ram_len", &self.ex_ram.len())
+            .field("prg_rom_len", &self.prg_rom.len())
+            .field("prg_ram_len", &self.prg_ram.len())
             .finish()
     }
 }
 
-impl NesHeader {
-    /// Returns an empty `NesHeader` not loaded with any data
-    const fn new() -> Self {
-        Self {
-            version: 0x01,
-            mapper_num: 0x0000,
-            submapper_num: 0x00,
-            flags: 0x00,
-            prg_rom_banks: 0x0000,
-            chr_rom_banks: 0x0000,
-            prg_ram_shift: 0x00,
-            chr_ram_shift: 0x00,
-            tv_mode: 0x00,
-            vs_data: 0x00,
-        }
-    }
+/// An `iNES` or `NES 2.0` formatted header representing hardware specs of a given NES cartridge.
+///
+/// <http://wiki.nesdev.com/w/index.php/INES>
+/// <http://wiki.nesdev.com/w/index.php/NES_2.0>
+/// <http://nesdev.com/NESDoc.pdf> (page 28)
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct NesHeader {
+    pub version: u8,        // 1 for iNES or 2 for NES 2.0
+    pub mapper_num: u16,    // The primary mapper number
+    pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
+    pub flags: u8,          // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
+    pub prg_rom_banks: u16, // Number of 16KB PRG-ROM banks (Program ROM)
+    pub chr_rom_banks: u16, // Number of 8KB CHR-ROM banks (Character ROM)
+    pub prg_ram_shift: u8,  // NES 2.0 PRG-RAM
+    pub chr_ram_shift: u8,  // NES 2.0 CHR-RAM
+    pub tv_mode: u8,        // NES 2.0 NTSC/PAL indicator
+    pub vs_data: u8,        // NES 2.0 VS System data
+}
 
-    /// Create a `NesHeader` from a ROM path.
+impl NesHeader {
+    /// Load `NesHeader` from a ROM path.
     ///
     /// # Errors
     ///
-    /// If the ROM can not be opened, or the header is corrupted, then an error is returned.
+    /// If the NES header is corrupted, the ROM file cannot be read, or the data does not match
+    /// the header, then an error is returned.
     pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
@@ -465,19 +377,18 @@ impl NesHeader {
         Self::load(&mut rom)
     }
 
-    /// Parses a slice of `u8` bytes and returns a valid `NesHeader` instance
+    /// Load `NesHeader` from ROM data.
     ///
     /// # Errors
     ///
-    /// If any header values are invalid, or if cart data doesn't match the header, then an error
-    /// is returned.
+    /// If the NES header is invalid, then an error is returned.
     pub fn load<F: Read>(rom_data: &mut F) -> NesResult<Self> {
         let mut header = [0u8; 16];
         rom_data.read_exact(&mut header)?;
 
         // Header checks
         if header[0..4] != *b"NES\x1a" {
-            bail!("iNES header signature not found");
+            bail!("nes header signature not found");
         } else if (header[7] & 0x0C) == 0x04 {
             bail!("header is corrupted by `DiskDude!`. repair and try again");
         } else if (header[7] & 0x0C) == 0x0C {
@@ -492,7 +403,7 @@ impl NesHeader {
         let flags = (header[6] & 0x0F) | ((header[7] & 0x0F) << 4);
 
         // NES 2.0 Format
-        let mut version = 1; // Start off checking for iNES format v1
+        let mut version = 1; // Start off checking for iNES format
         let mut submapper_num = 0;
         let mut prg_ram_shift = 0;
         let mut chr_ram_shift = 0;
@@ -538,6 +449,7 @@ impl NesHeader {
         if flags & 0x04 == 0x04 {
             bail!("trained roms are currently not supported.");
         }
+
         Ok(Self {
             version,
             mapper_num,
@@ -568,13 +480,13 @@ impl NesHeader {
             66 => "Mapper 066 - GxROM/MxROM",
             71 => "Mapper 071 - Camerica/Codemasters/BF909x",
             155 => "Mapper 155 - SxROM/MMC1A",
-            _ => "Unsupported Mapper",
+            _ => "Unimplemented Mapper",
         }
     }
 }
 
-impl fmt::Debug for NesHeader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+impl std::fmt::Debug for NesHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("NesHeader")
             .field("version", &self.version)
             .field("mapper_num", &format_args!("{:03}", &self.mapper_num))

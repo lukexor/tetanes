@@ -7,58 +7,18 @@ use crate::{
     apu::{
         dmc::Dmc,
         pulse::{OutputFreq, Pulse, PulseChannel},
-        PULSE_TABLE, PULSE_TABLE_SIZE,
+        PULSE_TABLE,
     },
     audio::Audio,
     cart::Cart,
-    common::{Clock, Kind, NesRegion, Reset},
+    common::{Clock, Kind, NesRegion, Regional, Reset},
     cpu::Cpu,
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    memory::{MemRead, MemWrite, Memory, MemoryBanks},
-    ppu::{
-        vram::{ATTR_OFFSET, NT_SIZE, NT_START},
-        Mirroring,
-    },
+    mem::MemBanks,
+    ppu::{Mirroring, Ppu},
 };
 use serde::{Deserialize, Serialize};
-
-const PRG_WINDOW: usize = 8 * 1024;
-const PRG_RAM_SIZE: usize = 64 * 1024; // Provide 64K since mappers don't always specify
-const EXRAM_SIZE: usize = 1024;
-const CHR_ROM_WINDOW: usize = 1024;
-
-const ROM_SELECT_MASK: usize = 0x80; // High bit targets ROM bank switching
-const BANK_MASK: usize = 0x7F; // Ignore high bit for ROM select
-
-const START_SPR_FETCH: u32 = 64;
-const END_SPR_FETCH: u32 = 81;
-
-const ATTR_BITS: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
-// TODO: See about generating these using oncecell
-const ATTR_LOC: [u8; 256] = [
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-    0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-    0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-    0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
-    0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
-    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
-    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
-    0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
-    0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
-    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-    0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-    0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-];
-const ATTR_SHIFT: [u8; 128] = [
-    0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
-    0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
-    4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
-    4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
-];
+use serde_big_array::BigArray;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -106,8 +66,8 @@ pub enum Nametable {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fill {
-    pub tile: u8, // $5106
-    pub attr: u8, // $5107
+    tile: u8, // $5106
+    attr: u8, // $5107
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,31 +80,31 @@ pub enum SplitSide {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct VSplit {
-    pub enabled: bool,   // $5200 [E... ....]
-    pub side: SplitSide, // $5200 [.S.. ....]
-    pub tile: u8,        // $5200 [...T TTTT]
-    pub scroll: u8,      // $5201
-    pub bank: u8,        // $5202
+    enabled: bool,   // $5200 [E... ....]
+    side: SplitSide, // $5200 [.S.. ....]
+    tile: u8,        // $5200 [...T TTTT]
+    scroll: u8,      // $5201
+    bank: u8,        // $5202
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct ExRegs {
-    pub prg_mode: PrgMode,        // $5100
-    pub chr_mode: ChrMode,        // $5101
-    pub prg_ram_protect: [u8; 2], // $5102 - $5103
-    pub exmode: ExMode,           // $5104
-    pub nametable_mirroring: u8,  // $5105
-    pub fill: Fill,               // $5106 - $5107
-    pub prg_banks: [usize; 5],    // $5113 - $5117
-    pub chr_banks: [usize; 16],   // $5120 - $512B
-    pub chr_hi: usize,            // $5130
-    pub vsplit: VSplit,           // $5200 - $5202
-    pub irq_scanline: u16,        // $5203: Write $00 to disable IRQs
-    pub irq_enabled: bool,        // $5204
-    pub multiplicand: u8,         // $5205: write
-    pub multiplier: u8,           // $5206: write
-    pub mult_result: u16,         // $5205: read lo, $5206: read hi
+    prg_mode: PrgMode,        // $5100
+    chr_mode: ChrMode,        // $5101
+    prg_ram_protect: [u8; 2], // $5102 - $5103
+    exmode: ExMode,           // $5104
+    nametable_mirroring: u8,  // $5105
+    fill: Fill,               // $5106 - $5107
+    prg_banks: [usize; 5],    // $5113 - $5117
+    chr_banks: [usize; 16],   // $5120 - $512B
+    chr_hi: usize,            // $5130
+    vsplit: VSplit,           // $5200 - $5202
+    irq_scanline: u16,        // $5203: Write $00 to disable IRQs
+    irq_enabled: bool,        // $5204
+    multiplicand: u8,         // $5205: write
+    multiplier: u8,           // $5206: write
+    mult_result: u16,         // $5205: read lo, $5206: read hi
 }
 
 impl ExRegs {
@@ -187,15 +147,15 @@ impl ExRegs {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuStatus {
-    pub fetch_count: u32,
-    pub prev_addr: u16,
-    pub prev_match: u8,
-    pub reading: bool,
-    pub idle: u8,
-    pub sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
-    pub rendering: bool,
-    pub scanline: u16,
-    pub in_frame: bool,
+    fetch_count: u32,
+    prev_addr: u16,
+    prev_match: u8,
+    reading: bool,
+    idle: u8,
+    sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
+    rendering: bool,
+    scanline: u16,
+    in_frame: bool,
 }
 
 impl PpuStatus {
@@ -214,37 +174,78 @@ impl PpuStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Exrom {
-    pub regs: ExRegs,
-    pub mirroring: Mirroring,
-    pub irq_pending: bool,
-    pub ppu_status: PpuStatus,
-    pub exram: Memory,
-    pub prg_ram_banks: MemoryBanks,
-    pub prg_rom_banks: MemoryBanks,
-    pub chr_banks: MemoryBanks,
-    pub tile_cache: u16,
-    pub in_split: bool,
-    pub split_tile: u16,
-    pub last_chr_write: ChrBank,
-    pub region: NesRegion,
-    pub pulse1: Pulse,
-    pub pulse2: Pulse,
-    pub dmc: Dmc,
-    pub dmc_mode: u8,
-    pub cpu_cycle: usize,
-    pub pulse_timer: f32,
+    regs: ExRegs,
+    mirroring: Mirroring,
+    irq_pending: bool,
+    ppu_status: PpuStatus,
+    #[serde(with = "BigArray")]
+    exram: [u8; Self::EXRAM_SIZE],
+    prg_ram_banks: MemBanks,
+    prg_rom_banks: MemBanks,
+    chr_banks: MemBanks,
+    tile_cache: usize,
+    in_split: bool,
+    split_tile: usize,
+    last_chr_write: ChrBank,
+    region: NesRegion,
+    pulse1: Pulse,
+    pulse2: Pulse,
+    dmc: Dmc,
+    dmc_mode: u8,
+    cpu_cycle: usize,
+    pulse_timer: f32,
 }
 
 impl Exrom {
+    const PRG_WINDOW: usize = 8 * 1024;
+    const PRG_RAM_SIZE: usize = 64 * 1024; // Provide 64K since mappers don't always specify
+    const EXRAM_SIZE: usize = 1024;
+    const CHR_WINDOW: usize = 1024;
+
+    const ROM_SELECT_MASK: usize = 0x80; // High bit targets ROM bank switching
+    const BANK_MASK: usize = 0x7F; // Ignore high bit for ROM select
+
+    const START_SPR_FETCH: u32 = 64;
+    const END_SPR_FETCH: u32 = 81;
+
+    const ATTR_BITS: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
+    // TODO: See about generating these using oncecell
+    const ATTR_LOC: [u8; 256] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+        0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+        0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+        0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B,
+        0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12,
+        0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11,
+        0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18,
+        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
+        0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25,
+        0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C,
+        0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B,
+        0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32,
+        0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31,
+        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+        0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+        0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+        0x3F,
+    ];
+    const ATTR_SHIFT: [u8; 128] = [
+        0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0,
+        2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
+        0, 0, 2, 2, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4,
+        6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
+        4, 4, 6, 6, 4, 4, 6, 6,
+    ];
     pub fn load(cart: &mut Cart) -> Mapper {
-        cart.prg_ram.resize(PRG_RAM_SIZE);
+        cart.add_prg_ram(Self::PRG_RAM_SIZE);
 
         let mut exrom = Self {
-            regs: ExRegs::new(cart.mirroring),
-            mirroring: cart.mirroring,
+            regs: ExRegs::new(cart.mirroring()),
+            mirroring: cart.mirroring(),
             irq_pending: false,
             ppu_status: PpuStatus {
                 fetch_count: 0x00,
@@ -257,13 +258,13 @@ impl Exrom {
                 scanline: 0x0000,
                 in_frame: false,
             },
-            exram: Memory::ram(EXRAM_SIZE, cart.ram_state),
-            prg_ram_banks: MemoryBanks::new(0x6000, 0xFFFF, cart.prg_ram.len(), PRG_WINDOW),
-            prg_rom_banks: MemoryBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), PRG_WINDOW),
-            chr_banks: MemoryBanks::new(0x0000, 0x1FFF, cart.chr.len(), CHR_ROM_WINDOW),
-            tile_cache: 0x0000,
+            exram: [0x00; Self::EXRAM_SIZE],
+            prg_ram_banks: MemBanks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW),
+            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
+            tile_cache: 0,
             in_split: false,
-            split_tile: 0x0000,
+            split_tile: 0,
             last_chr_write: ChrBank::Spr,
             region: NesRegion::default(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
@@ -273,7 +274,7 @@ impl Exrom {
             cpu_cycle: 0,
             pulse_timer: 0.0,
         };
-        exrom.regs.prg_banks[4] = exrom.prg_rom_banks.last() | ROM_SELECT_MASK;
+        exrom.regs.prg_banks[4] = exrom.prg_rom_banks.last() | Self::ROM_SELECT_MASK;
         exrom.update_prg_banks();
         exrom.into()
     }
@@ -298,25 +299,26 @@ impl Exrom {
             PrgMode::Bank32k => self.prg_rom_banks.set_range(0, 3, banks[4]),
             PrgMode::Bank16k => {
                 self.set_prg_bank_range(0, 1, banks[2]);
-                self.prg_rom_banks.set_range(2, 3, banks[4] & BANK_MASK);
+                self.prg_rom_banks
+                    .set_range(2, 3, banks[4] & Self::BANK_MASK);
             }
             PrgMode::Bank16_8k => {
                 self.set_prg_bank_range(0, 1, banks[2]);
                 self.set_prg_bank_range(2, 2, banks[3]);
-                self.prg_rom_banks.set(3, banks[4] & BANK_MASK);
+                self.prg_rom_banks.set(3, banks[4] & Self::BANK_MASK);
             }
             PrgMode::Bank8k => {
                 self.set_prg_bank_range(0, 0, banks[1]);
                 self.set_prg_bank_range(1, 1, banks[2]);
                 self.set_prg_bank_range(2, 2, banks[3]);
-                self.prg_rom_banks.set(3, banks[4] & BANK_MASK);
+                self.prg_rom_banks.set(3, banks[4] & Self::BANK_MASK);
             }
         };
     }
 
     fn set_prg_bank_range(&mut self, start: usize, end: usize, bank: usize) {
-        let rom = bank & ROM_SELECT_MASK == ROM_SELECT_MASK;
-        let bank = bank & BANK_MASK;
+        let rom = bank & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK;
+        let bank = bank & Self::BANK_MASK;
         if rom {
             self.prg_rom_banks.set_range(start, end, bank);
         } else {
@@ -340,7 +342,7 @@ impl Exrom {
                 (0xC000..=0xDFFF, Bank16k) => banks[4],
                 _ => 0x00,
             };
-            bank & ROM_SELECT_MASK == ROM_SELECT_MASK
+            bank & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK
         }
     }
 
@@ -401,8 +403,8 @@ impl Exrom {
 
     // Determine the nametable we're trying to access
     fn nametable_mapping(&self, addr: u16) -> Nametable {
-        let addr = (addr - NT_START) % (4 * NT_SIZE);
-        let table = addr / NT_SIZE;
+        let addr = (addr - Ppu::NT_START) % (4 * Ppu::NT_SIZE);
+        let table = addr / Ppu::NT_SIZE;
         match (self.regs.nametable_mirroring >> (2 * table)) & 0x03 {
             0 => Nametable::ScreenA,
             1 => Nametable::ScreenB,
@@ -410,6 +412,16 @@ impl Exrom {
             3 => Nametable::Fill,
             _ => unreachable!("invalid mirroring"),
         }
+    }
+
+    #[inline]
+    const fn read_exram(&self, addr: u16) -> u8 {
+        self.exram[(addr as usize) & (Self::EXRAM_SIZE - 1)]
+    }
+
+    #[inline]
+    fn write_exram(&mut self, addr: u16, val: u8) {
+        self.exram[(addr as usize) & (Self::EXRAM_SIZE - 1)] = val;
     }
 }
 
@@ -420,43 +432,16 @@ impl Mapped for Exrom {
     }
 
     #[inline]
-    fn mirroring(&self) -> Option<Mirroring> {
-        Some(self.mirroring)
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 
-    // Used by the PPU to determine whether it should use it's own internal CIRAM for nametable
-    // reads or to read CIRAM instead from the mapper
-    fn use_ciram(&self, addr: u16) -> bool {
-        if self.in_split
-            || (self.regs.exmode == ExMode::Attr
-                && (addr & 0x03FF) >= ATTR_OFFSET
-                && (self.ppu_status.fetch_count < START_SPR_FETCH
-                    || self.ppu_status.fetch_count >= END_SPR_FETCH))
-        {
-            // If we're in Extended Attribute mode and reading BG attributes,
-            // yield to mapper for Attribute data instead of PPU
-            false
-        } else {
-            // 0 and 1 mean NametableA and NametableB
-            // 2 means internal EXRAM
-            // 3 means Fill-mode
-            let nametable = self.nametable_mapping(addr);
-            matches!(nametable, Nametable::ScreenA | Nametable::ScreenB)
-        }
+    #[inline]
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
     }
 
-    // Returns a nametable page based on $5105 nametable mapping
-    // 0/1 use PPU CIRAM, 2/3 use EXRAM/Fill-mode
-    fn nametable_page(&self, addr: u16) -> Option<u16> {
-        let nametable = self.nametable_mapping(addr);
-        if matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
-            Some(nametable as u16)
-        } else {
-            None
-        }
-    }
-
-    fn ppu_read(&mut self, addr: u16) {
+    fn bus_read(&mut self, addr: u16, _val: u8) {
         // Ignore palette reads
         if addr > 0x3EFF {
             return;
@@ -464,16 +449,16 @@ impl Mapped for Exrom {
 
         if matches!(addr, 0x2000..=0x3EFF)
             && self.regs.exmode == ExMode::Attr
-            && (addr & 0x03FF) < ATTR_OFFSET
-            && (self.ppu_status.fetch_count < START_SPR_FETCH
-                || self.ppu_status.fetch_count >= END_SPR_FETCH)
+            && (addr & 0x03FF) < Ppu::ATTR_OFFSET
+            && (self.ppu_status.fetch_count < Self::START_SPR_FETCH
+                || self.ppu_status.fetch_count >= Self::END_SPR_FETCH)
         {
-            self.tile_cache = addr & 0x03FF;
+            self.tile_cache = (addr & 0x03FF).into();
         }
 
         // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
         let status = &mut self.ppu_status;
-        if matches!(addr, 0x2000..=0x2FFF) && addr == status.prev_addr {
+        if matches!(addr, 0x2000..=0x3EFF) && addr == status.prev_addr {
             status.prev_match += 1;
             if status.prev_match == 2 {
                 if status.in_frame {
@@ -495,18 +480,8 @@ impl Mapped for Exrom {
     }
 
     #[inline]
-    fn ppu_write(&mut self, addr: u16, val: u8) {
+    fn bus_write(&mut self, addr: u16, val: u8) {
         self.ppu_status.write(addr, val);
-    }
-
-    #[inline]
-    fn region(&self) -> NesRegion {
-        self.dmc.region()
-    }
-
-    #[inline]
-    fn set_region(&mut self, region: NesRegion) {
-        self.dmc.set_region(region);
     }
 }
 
@@ -515,21 +490,20 @@ impl MemMap for Exrom {
         match addr {
             0x0000..=0x1FFF => {
                 self.ppu_status.fetch_count += 1;
-
                 if self.ppu_status.sprite8x16 {
                     match self.ppu_status.fetch_count {
-                        START_SPR_FETCH => self.update_chr_banks(ChrBank::Spr),
-                        END_SPR_FETCH => self.update_chr_banks(ChrBank::Bg),
+                        Self::START_SPR_FETCH => self.update_chr_banks(ChrBank::Spr),
+                        Self::END_SPR_FETCH => self.update_chr_banks(ChrBank::Bg),
                         _ => (),
                     }
                 }
             }
             0x2000..=0x3EFF => {
                 // Detect split
-                let offset = addr % NT_SIZE;
-                if self.in_split && offset < ATTR_OFFSET {
-                    self.split_tile = (u16::from(self.regs.vsplit.scroll & 0xF8) << 2)
-                        | ((self.ppu_status.fetch_count / 4) & 0x1F) as u16;
+                let offset = addr % Ppu::NT_SIZE;
+                if self.in_split && offset < Ppu::ATTR_OFFSET {
+                    self.split_tile = (((self.regs.vsplit.scroll & 0xF8) as usize) << 2)
+                        | ((self.ppu_status.fetch_count / 4) & 0x1F) as usize;
                 }
             }
             0xFFFA | 0xFFFB => {
@@ -551,11 +525,11 @@ impl MemMap for Exrom {
         match addr {
             0x0000..=0x1FFF => {
                 if self.regs.exmode == ExMode::Attr
-                    && (self.ppu_status.fetch_count < START_SPR_FETCH
-                        || self.ppu_status.fetch_count >= END_SPR_FETCH)
+                    && (self.ppu_status.fetch_count < Self::START_SPR_FETCH
+                        || self.ppu_status.fetch_count >= Self::END_SPR_FETCH)
                 {
                     let hibits = self.regs.chr_hi << 10;
-                    let exbits = (self.exram.peek(self.tile_cache) as usize & 0x3F) << 12;
+                    let exbits = ((self.exram[self.tile_cache] & 0x3F) as usize) << 12;
                     let addr = hibits | exbits | (addr as usize) & 0x0FFF;
                     MappedRead::Chr(addr)
                 } else {
@@ -563,37 +537,56 @@ impl MemMap for Exrom {
                 }
             }
             0x2000..=0x3EFF => {
-                let offset = addr % NT_SIZE;
-                if self.in_split {
-                    if offset < ATTR_OFFSET {
-                        MappedRead::Data(self.exram.peek(self.split_tile))
-                    } else {
-                        let addr =
-                            ATTR_OFFSET | u16::from(ATTR_LOC[(self.split_tile as usize) >> 2]);
-                        let attr = self.exram.peek(addr - 0x2000) as usize;
-                        let shift = ATTR_SHIFT[(self.split_tile as usize) & 0x7F] as usize;
-                        MappedRead::Data(ATTR_BITS[(attr >> shift) & 0x03])
-                    }
+                let nametable = self.nametable_mapping(addr);
+                if matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
+                    // 0 and 1 mean NametableA and NametableB
+                    // 2 means internal EXRAM
+                    // 3 means Fill-mode
+                    MappedRead::CIRam(nametable as usize)
                 } else {
-                    match self.regs.exmode {
-                        ExMode::Attr if offset >= ATTR_OFFSET => {
-                            let attr = self.exram.peek(self.tile_cache) as usize;
-                            MappedRead::Data(ATTR_BITS[(attr >> 6) & 0x03])
+                    let offset = addr & 0x03FF;
+                    if self.in_split {
+                        if offset < Ppu::ATTR_OFFSET {
+                            MappedRead::Data(self.exram[self.split_tile])
+                        } else {
+                            let addr = Ppu::ATTR_OFFSET
+                                | u16::from(Self::ATTR_LOC[(self.split_tile) >> 2]);
+                            let attr = self.read_exram(addr - 0x2000);
+                            let shift = Self::ATTR_SHIFT[(self.split_tile) & 0x7F];
+                            MappedRead::Data(Self::ATTR_BITS[((attr >> shift) & 0x03) as usize])
                         }
-                        ExMode::Nametable | ExMode::Attr => match self.nametable_mapping(addr) {
-                            Nametable::ExRAM => MappedRead::Data(self.exram.peek(addr - 0x2000)),
-                            Nametable::Fill => {
-                                if offset < ATTR_OFFSET {
-                                    MappedRead::Data(self.regs.fill.tile)
-                                } else {
-                                    MappedRead::Data(
-                                        ATTR_BITS[(self.regs.fill.attr as usize) & 0x03],
-                                    )
+                    } else {
+                        match self.regs.exmode {
+                            ExMode::Attr
+                                if offset >= Ppu::ATTR_OFFSET
+                                    && (self.ppu_status.fetch_count < Self::START_SPR_FETCH
+                                        || self.ppu_status.fetch_count >= Self::END_SPR_FETCH) =>
+                            {
+                                // If we're in Extended Attribute mode and reading BG attributes,
+                                // return Attribute data instead of relying on CIRAM
+                                let attr = self.exram[self.tile_cache];
+                                MappedRead::Data(Self::ATTR_BITS[((attr >> 6) & 0x03) as usize])
+                            }
+                            ExMode::Nametable | ExMode::Attr => {
+                                match self.nametable_mapping(addr) {
+                                    Nametable::ExRAM => {
+                                        MappedRead::Data(self.read_exram(addr - 0x2000))
+                                    }
+                                    Nametable::Fill => {
+                                        if offset < Ppu::ATTR_OFFSET {
+                                            MappedRead::Data(self.regs.fill.tile)
+                                        } else {
+                                            MappedRead::Data(
+                                                Self::ATTR_BITS
+                                                    [(self.regs.fill.attr & 0x03) as usize],
+                                            )
+                                        }
+                                    }
+                                    _ => MappedRead::CIRam(addr.into()),
                                 }
                             }
-                            _ => MappedRead::None,
-                        },
-                        _ => MappedRead::None,
+                            _ => MappedRead::CIRam(addr.into()),
+                        }
                     }
                 }
             }
@@ -622,12 +615,10 @@ impl MemMap for Exrom {
                 MappedRead::Data(status)
             }
             0x5113..=0x5117 => {
-                let bank = (addr - 0x5113) as usize;
-                MappedRead::Data(self.regs.prg_banks[bank] as u8)
+                MappedRead::Data(self.regs.prg_banks[(addr - 0x5113) as usize] as u8)
             }
             0x5120..=0x512B => {
-                let bank = (addr - 0x5120) as usize;
-                MappedRead::Data(self.regs.chr_banks[bank] as u8)
+                MappedRead::Data(self.regs.chr_banks[(addr - 0x5120) as usize] as u8)
             }
             0x5130 => MappedRead::Data(self.regs.chr_hi as u8),
             0x5200 => MappedRead::Data(
@@ -653,7 +644,7 @@ impl MemMap for Exrom {
             0x5206 => MappedRead::Data(((self.regs.mult_result >> 8) & 0xFF) as u8),
             0x5C00..=0x5FFF if !matches!(self.regs.exmode, ExMode::Nametable | ExMode::Attr) => {
                 // Nametable/Attr modes are not used for RAM, thus are not readable
-                MappedRead::Data(self.exram.peek(addr - 0x5C00))
+                MappedRead::Data(self.read_exram(addr - 0x5C00))
             }
             0x6000..=0xDFFF => {
                 if self.rom_select(addr) {
@@ -668,19 +659,18 @@ impl MemMap for Exrom {
             // TODO MMC5A only 6-bit Hardware Timer with IRQ
             0x5207 | 0x5208 | 0x5209 => MappedRead::Data(0),
             // 0x5800..=0x5BFF - MMC5A unknown - reads open_bus
-            _ => MappedRead::None,
+            _ => MappedRead::Default,
         }
     }
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x2000..=0x3EFF => {
+            0x2000..=0x2FFF => {
                 let nametable = self.nametable_mapping(addr);
-                match self.regs.exmode {
-                    ExMode::Nametable | ExMode::Attr if nametable == Nametable::ExRAM => {
-                        self.exram.write(addr - 0x2000, val);
-                    }
-                    _ => (),
+                if nametable == Nametable::ExRAM
+                    && matches!(self.regs.exmode, ExMode::Nametable | ExMode::Attr)
+                {
+                    self.write_exram(addr - 0x2000, val);
                 }
             }
             0x5000 => self.pulse1.write_ctrl(val),
@@ -852,20 +842,16 @@ impl MemMap for Exrom {
             // TODO MMC5A only CL3 / SL3 Status
             // TODO MMC5A only 6-bit Hardware Timer with IRQ
             0x5207 | 0x5208 | 0x5209 => {}
-            0x5C00..=0x5FFF => {
-                let addr = addr - 0x5C00;
-                match self.regs.exmode {
-                    ExMode::Nametable | ExMode::Attr => {
-                        if self.ppu_status.rendering {
-                            self.exram.write(addr, val);
-                        } else {
-                            self.exram.write(addr, 0x00);
-                        }
-                    }
-                    ExMode::Ram => self.exram.write(addr, val),
-                    ExMode::RamProtected => (),
+            0x5C00..=0x5FFF => match self.regs.exmode {
+                ExMode::Nametable | ExMode::Attr => {
+                    self.write_exram(
+                        addr - 0x5C00,
+                        if self.ppu_status.rendering { val } else { 0x00 },
+                    );
                 }
-            }
+                ExMode::Ram => self.write_exram(addr - 0x5C00, val),
+                ExMode::RamProtected => (),
+            },
             0x6000..=0xDFFF if !self.rom_select(addr) => {
                 return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
             }
@@ -874,7 +860,7 @@ impl MemMap for Exrom {
             // 0xE000..=0xFFFF ROM is write-only
             _ => (),
         }
-        MappedWrite::None
+        MappedWrite::Default
     }
 }
 
@@ -884,7 +870,7 @@ impl Audio for Exrom {
         let pulse1 = self.pulse1.output();
         let pulse2 = self.pulse2.output();
         let dmc = self.dmc.output();
-        let pulse_scale = PULSE_TABLE[PULSE_TABLE_SIZE - 1] / 15.0;
+        let pulse_scale = PULSE_TABLE[PULSE_TABLE.len() - 1] / 15.0;
         let out = -(pulse1 + pulse2 + dmc);
         pulse_scale * out
     }
@@ -922,6 +908,18 @@ impl Clock for Exrom {
     }
 }
 
+impl Regional for Exrom {
+    #[inline]
+    fn region(&self) -> NesRegion {
+        self.dmc.region()
+    }
+
+    #[inline]
+    fn set_region(&mut self, region: NesRegion) {
+        self.dmc.set_region(region);
+    }
+}
+
 impl Reset for Exrom {
     fn reset(&mut self, _kind: Kind) {
         self.regs.prg_mode = PrgMode::Bank8k;
@@ -929,32 +927,35 @@ impl Reset for Exrom {
     }
 }
 
+impl std::fmt::Debug for Exrom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Exrom")
+            .field("regs", &self.regs)
+            .field("mirroring", &self.mirroring)
+            .field("irq_pending", &self.irq_pending)
+            .field("ppu_status", &self.ppu_status)
+            .field("exram_len", &self.exram.len())
+            .field("prg_ram_banks", &self.prg_ram_banks)
+            .field("prg_rom_banks", &self.prg_rom_banks)
+            .field("chr_banks", &self.chr_banks)
+            .field("tile_cache", &self.tile_cache)
+            .field("in_split", &self.in_split)
+            .field("split_tile", &self.split_tile)
+            .field("last_chr_write", &self.last_chr_write)
+            .field("region", &self.region)
+            .field("pulse1", &self.pulse1)
+            .field("pulse2", &self.pulse2)
+            .field("dmc", &self.dmc)
+            .field("dmc_mode", &self.dmc_mode)
+            .field("cpu_cycle", &self.cpu_cycle)
+            .field("pulse_timer", &self.pulse_timer)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_roms;
-
-    #[test]
-    fn prg_ram_protect() {
-        use super::*;
-        use crate::cart::Cart;
-        for a in 0..4 {
-            for b in 0..4 {
-                let mut cart = Cart::new();
-                cart.mapper = Exrom::load(&mut cart);
-
-                cart.write(0x5102, a);
-                cart.write(0x5103, b);
-                cart.write(0x5114, 0);
-                cart.write(0x6000, 0xFF);
-                let val = cart.read(0x6000);
-                if a == 0b10 && b == 0b01 {
-                    assert_eq!(val, 0xFF, "RAM protect disabled: %{:02b}, %{:02b}", a, b);
-                } else {
-                    assert_eq!(val, 0x00, "RAM protect enabled: %{:02b}, %{:02b}", a, b);
-                }
-            }
-        }
-    }
 
     test_roms!("test_roms/mapper/m005_exrom", exram, basics);
 }

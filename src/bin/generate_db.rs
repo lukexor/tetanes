@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use tetanes::{cart::Cart, mapper::Mapped, memory::RamState, NesResult};
+use tetanes::{cart::Cart, mem::RamState, NesResult};
 
 const GAME_DB: &str = "config/game_database.txt";
 
@@ -50,7 +50,7 @@ fn get_info<P: AsRef<Path>>(path: P) -> NesResult<(u64, String)> {
     let path = path.as_ref();
     let cart = Cart::from_path(path, RamState::default())?;
     let mut hasher = DefaultHasher::new();
-    cart.prg_rom.hash(&mut hasher);
+    cart.prg_rom().hash(&mut hasher);
     let filename = path.file_name().unwrap_or_default();
     let hash = hasher.finish();
     let region = match filename.to_str() {
@@ -66,6 +66,13 @@ fn get_info<P: AsRef<Path>>(path: P) -> NesResult<(u64, String)> {
     let board = "";
     let pcb = "";
     let chip = "";
+
+    let chr_rom_banks = cart.chr_rom().len() / (8 * 1024);
+    let chr_ram_banks = cart.chr_ram().len() / (8 * 1024);
+    let prg_rom_banks = cart.prg_ram().len() / (16 * 1024);
+    let prg_ram_banks = cart.prg_ram().len() / (16 * 1024);
+    let mirroring = cart.mirroring();
+
     Ok((
         hash,
         format!(
@@ -75,22 +82,14 @@ fn get_info<P: AsRef<Path>>(path: P) -> NesResult<(u64, String)> {
             board,
             pcb,
             chip,
-            cart.header.mapper_num,
-            cart.header.prg_rom_banks,
-            if cart.chr.writable() {
-                0
-            } else {
-                cart.header.chr_rom_banks
-            },
-            if cart.chr.writable() {
-                cart.chr.len() / (8 * 1024)
-            } else {
-                0
-            },
-            cart.prg_ram.len() / (16 * 1024),
+            cart.mapper_num(),
+            prg_rom_banks,
+            chr_rom_banks,
+            chr_ram_banks,
+            prg_ram_banks,
             cart.battery_backed(),
-            cart.mirroring().unwrap_or_default(),
-            cart.header.submapper_num,
+            mirroring,
+            cart.submapper_num(),
             filename
         ),
     ))

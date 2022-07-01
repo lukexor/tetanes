@@ -1,5 +1,7 @@
-use super::{envelope::Envelope, LengthCounter, Sweep};
-use crate::common::{Clock, Kind, Reset};
+use crate::{
+    apu::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep},
+    common::{Clock, Kind, Reset},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
@@ -18,6 +20,7 @@ pub enum OutputFreq {
 #[must_use]
 pub struct Pulse {
     enabled: bool,
+    force_silent: bool,
     duty_cycle: u8,        // Select row in DUTY_TABLE
     duty_counter: u8,      // Select column in DUTY_TABLE
     freq_timer: u16,       // timer freq_counter reload value
@@ -46,6 +49,7 @@ impl Pulse {
     pub const fn new(channel: PulseChannel, output_freq: OutputFreq) -> Self {
         Self {
             enabled: false,
+            force_silent: false,
             duty_cycle: 0u8,
             duty_counter: 0u8,
             freq_timer: 0u16,
@@ -63,6 +67,17 @@ impl Pulse {
             },
             output_freq,
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn silent(&self) -> bool {
+        self.force_silent
+    }
+
+    #[inline]
+    pub fn toggle_silent(&mut self) {
+        self.force_silent = !self.force_silent;
     }
 
     #[inline]
@@ -118,6 +133,7 @@ impl Pulse {
         if Self::DUTY_TABLE[self.duty_cycle as usize][self.duty_counter as usize] != 0
             && self.length.counter != 0
             && !self.sweep_forcing_silence()
+            && !self.force_silent
         {
             if self.envelope.enabled {
                 f32::from(self.envelope.volume)

@@ -63,6 +63,14 @@ impl From<usize> for NesRegion {
     }
 }
 
+#[enum_dispatch(Mapper)]
+pub trait Regional {
+    fn region(&self) -> NesRegion {
+        NesRegion::default()
+    }
+    fn set_region(&mut self, _region: NesRegion) {}
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Kind {
@@ -167,13 +175,14 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::*;
     use crate::{
-        common::{Kind, NesRegion, Reset},
         control_deck::ControlDeck,
-        input::{GamepadBtn, GamepadSlot},
+        input::Slot,
         mapper::{Mapper, MapperRevision},
         nes::event::{Action, NesState, Setting},
-        ppu::{VideoFilter, RENDER_HEIGHT, RENDER_WIDTH},
+        ppu::Ppu,
+        video::VideoFilter,
     };
     use anyhow::Context;
     use once_cell::sync::Lazy;
@@ -229,7 +238,7 @@ pub(crate) mod tests {
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        slot: Option<GamepadSlot>,
+        slot: Option<Slot>,
         #[serde(skip_serializing_if = "Option::is_none")]
         action: Option<Action>,
     }
@@ -274,7 +283,7 @@ pub(crate) mod tests {
                     NesState::HardReset => deck.reset(Kind::Hard),
                     NesState::MapperRevision(board) => match board {
                         MapperRevision::Mmc3(revision) => {
-                            if let Mapper::Txrom(ref mut mapper) = deck.cart_mut().mapper {
+                            if let Mapper::Txrom(ref mut mapper) = deck.mapper_mut() {
                                 mapper.set_revision(revision);
                             }
                         }
@@ -287,20 +296,10 @@ pub(crate) mod tests {
                     Setting::SetNesFormat(format) => deck.set_region(format),
                     _ => panic!("unhandled Setting: {:?}", setting),
                 },
-                Action::Gamepad(button) => {
-                    let slot = test_frame.slot.unwrap_or(GamepadSlot::One);
-                    let mut gamepad = deck.gamepad_mut(slot);
-                    match button {
-                        GamepadBtn::Left => gamepad.left = true,
-                        GamepadBtn::Right => gamepad.right = true,
-                        GamepadBtn::Up => gamepad.up = true,
-                        GamepadBtn::Down => gamepad.down = true,
-                        GamepadBtn::A => gamepad.a = true,
-                        GamepadBtn::B => gamepad.b = true,
-                        GamepadBtn::Select => gamepad.select = true,
-                        GamepadBtn::Start => gamepad.start = true,
-                        _ => panic!("unhandled Gamepad button: {:?}", button),
-                    };
+                Action::Joypad(button) => {
+                    let slot = test_frame.slot.unwrap_or(Slot::One);
+                    let joypad = deck.joypad_mut(slot);
+                    joypad.set_button(button.into(), true);
                 }
                 _ => (),
             }
@@ -339,7 +338,7 @@ pub(crate) mod tests {
                 .join(PathBuf::from(filename))
                 .with_extension("png");
 
-            Image::from_bytes(RENDER_WIDTH, RENDER_HEIGHT, frame, PixelFormat::Rgba)
+            Image::from_bytes(Ppu::WIDTH, Ppu::HEIGHT, frame, PixelFormat::Rgba)
                 .expect("valid frame")
                 .save(&screenshot)
                 .expect("result screenshot");
@@ -366,22 +365,17 @@ pub(crate) mod tests {
         let mut deck = load_control_deck(&rom);
         if env::var("RUST_LOG").is_ok() {
             let _ = pretty_env_logger::try_init();
-            deck.cpu_mut().debugging = true;
         }
 
         let mut results = Vec::new();
         for test_frame in test.frames.iter() {
-            log::debug!(
-                "{} - {:?}",
-                test_frame.number,
-                deck.gamepad_mut(GamepadSlot::One)
-            );
+            log::debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Slot::One));
 
             while deck.frame_number() < test_frame.number {
                 deck.clock_frame().expect("valid frame clock");
                 deck.clear_audio_samples();
-                deck.gamepad_mut(GamepadSlot::One).clear();
-                deck.gamepad_mut(GamepadSlot::Two).clear();
+                deck.joypad_mut(Slot::One).reset(Kind::Soft);
+                deck.joypad_mut(Slot::Two).reset(Kind::Soft);
             }
 
             handle_frame_action(test_frame, &mut deck);

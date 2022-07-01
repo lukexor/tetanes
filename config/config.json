@@ -35,7 +35,7 @@
         "key": "Left",
         "keymod": 0,
         "action": {
-          "Gamepad": "Left"
+          "Joypad": "Left"
         }
       },
       {
@@ -43,7 +43,7 @@
         "key": "Right",
         "keymod": 0,
         "action": {
-          "Gamepad": "Right"
+          "Joypad": "Right"
         }
       },
       {
@@ -51,7 +51,7 @@
         "key": "Up",
         "keymod": 0,
         "action": {
-          "Gamepad": "Up"
+          "Joypad": "Up"
         }
       },
       {
@@ -59,7 +59,7 @@
         "key": "Down",
         "keymod": 0,
         "action": {
-          "Gamepad": "Down"
+          "Joypad": "Down"
         }
       },
       {
@@ -67,7 +67,7 @@
         "key": "Z",
         "keymod": 0,
         "action": {
-          "Gamepad": "A"
+          "Joypad": "A"
         }
       },
       {
@@ -75,7 +75,7 @@
         "key": "X",
         "keymod": 0,
         "action": {
-          "Gamepad": "B"
+          "Joypad": "B"
         }
       },
       {
@@ -83,7 +83,7 @@
         "key": "A",
         "keymod": 0,
         "action": {
-          "Gamepad": "TurboA"
+          "Joypad": "TurboA"
         }
       },
       {
@@ -91,7 +91,7 @@
         "key": "S",
         "keymod": 0,
         "action": {
-          "Gamepad": "TurboB"
+          "Joypad": "TurboB"
         }
       },
       {
@@ -99,7 +99,7 @@
         "key": "Return",
         "keymod": 0,
         "action": {
-          "Gamepad": "Start"
+          "Joypad": "Start"
         }
       },
       {
@@ -107,7 +107,7 @@
         "key": "RShift",
         "keymod": 1,
         "action": {
-          "Gamepad": "Select"
+          "Joypad": "Select"
         }
       },
       {
@@ -115,7 +115,7 @@
         "key": "RShift",
         "keymod": 0,
         "action": {
-          "Gamepad": "Select"
+          "Joypad": "Select"
         }
       },
       {
@@ -123,7 +123,7 @@
         "key": "J",
         "keymod": 0,
         "action": {
-          "Gamepad": "Left"
+          "Joypad": "Left"
         }
       },
       {
@@ -131,7 +131,7 @@
         "key": "L",
         "keymod": 0,
         "action": {
-          "Gamepad": "Right"
+          "Joypad": "Right"
         }
       },
       {
@@ -139,7 +139,7 @@
         "key": "I",
         "keymod": 0,
         "action": {
-          "Gamepad": "Up"
+          "Joypad": "Up"
         }
       },
       {
@@ -147,7 +147,7 @@
         "key": "K",
         "keymod": 0,
         "action": {
-          "Gamepad": "Down"
+          "Joypad": "Down"
         }
       },
       {
@@ -155,7 +155,7 @@
         "key": "N",
         "keymod": 0,
         "action": {
-          "Gamepad": "A"
+          "Joypad": "A"
         }
       },
       {
@@ -163,7 +163,7 @@
         "key": "M",
         "keymod": 0,
         "action": {
-          "Gamepad": "B"
+          "Joypad": "B"
         }
       },
       {
@@ -171,7 +171,7 @@
         "key": "O",
         "keymod": 0,
         "action": {
-          "Gamepad": "Start"
+          "Joypad": "Start"
         }
       },
       {
@@ -179,7 +179,7 @@
         "key": "P",
         "keymod": 1,
         "action": {
-          "Gamepad": "Select"
+          "Joypad": "Select"
         }
       },
       {
@@ -603,56 +603,56 @@
         "player": "One",
         "button": "DPadLeft",
         "action": {
-          "Gamepad": "Left"
+          "Joypad": "Left"
         }
       },
       {
         "player": "One",
         "button": "DPadRight",
         "action": {
-          "Gamepad": "Right"
+          "Joypad": "Right"
         }
       },
       {
         "player": "One",
         "button": "DPadUp",
         "action": {
-          "Gamepad": "Up"
+          "Joypad": "Up"
         }
       },
       {
         "player": "One",
         "button": "DPadDown",
         "action": {
-          "Gamepad": "Down"
+          "Joypad": "Down"
         }
       },
       {
         "player": "One",
         "button": "A",
         "action": {
-          "Gamepad": "A"
+          "Joypad": "A"
         }
       },
       {
         "player": "One",
         "button": "B",
         "action": {
-          "Gamepad": "B"
+          "Joypad": "B"
         }
       },
       {
         "player": "One",
         "button": "X",
         "action": {
-          "Gamepad": "TurboA"
+          "Joypad": "TurboA"
         }
       },
       {
         "player": "One",
         "button": "Y",
         "action": {
-          "Gamepad": "TurboB"
+          "Joypad": "TurboB"
         }
       },
       {
@@ -666,14 +666,14 @@
         "player": "One",
         "button": "Start",
         "action": {
-          "Gamepad": "Start"
+          "Joypad": "Start"
         }
       },
       {
         "player": "One",
         "button": "Back",
         "action": {
-          "Gamepad": "Select"
+          "Joypad": "Select"
         }
       },
       {
@@ -708,7 +708,7 @@
         "axis": "LeftX",
         "direction": "Negative",
         "action": {
-          "Gamepad": "Left"
+          "Joypad": "Left"
         }
       },
       {
@@ -716,7 +716,7 @@
         "axis": "LeftX",
         "direction": "Positive",
         "action": {
-          "Gamepad": "Right"
+          "Joypad": "Right"
         }
       },
       {
@@ -735,7 +735,7 @@
         "axis": "LeftY",
         "direction": "Negative",
         "action": {
-          "Gamepad": "Up"
+          "Joypad": "Up"
         }
       },
       {
@@ -743,7 +743,7 @@
         "axis": "LeftY",
         "direction": "Positive",
         "action": {
-          "Gamepad": "Down"
+          "Joypad": "Down"
         }
       },
       {

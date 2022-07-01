@@ -1,5 +1,7 @@
-use super::{envelope::Envelope, LengthCounter};
-use crate::common::{Clock, Kind, NesRegion, Reset};
+use crate::{
+    apu::{envelope::Envelope, length_counter::LengthCounter},
+    common::{Clock, Kind, NesRegion, Regional, Reset},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
@@ -12,7 +14,8 @@ enum ShiftMode {
 #[must_use]
 pub struct Noise {
     region: NesRegion,
-    pub enabled: bool,
+    force_silent: bool,
+    enabled: bool,
     freq_timer: u16,       // timer freq_counter reload value
     freq_counter: u16,     // Current frequency timer value
     shift: u16,            // Must never be 0
@@ -40,6 +43,7 @@ impl Noise {
         Self {
             region: NesRegion::default(),
             enabled: false,
+            force_silent: false,
             freq_timer: 0u16,
             freq_counter: 0u16,
             shift: 1u16, // Must never be 0
@@ -51,13 +55,19 @@ impl Noise {
 
     #[inline]
     #[must_use]
-    pub const fn length_counter(&self) -> u8 {
-        self.length.counter()
+    pub const fn silent(&self) -> bool {
+        self.force_silent
     }
 
     #[inline]
-    pub fn set_region(&mut self, region: NesRegion) {
-        self.region = region;
+    pub fn toggle_silent(&mut self) {
+        self.force_silent = !self.force_silent;
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn length_counter(&self) -> u8 {
+        self.length.counter()
     }
 
     #[inline]
@@ -80,7 +90,7 @@ impl Noise {
 
     #[must_use]
     pub fn output(&self) -> f32 {
-        if self.shift & 1 == 0 && self.length.counter != 0 {
+        if self.shift & 1 == 0 && self.length.counter != 0 && !self.force_silent {
             if self.envelope.enabled {
                 f32::from(self.envelope.volume)
             } else {
@@ -138,6 +148,18 @@ impl Clock for Noise {
             self.shift >>= 1;
         }
         1
+    }
+}
+
+impl Regional for Noise {
+    #[inline]
+    fn region(&self) -> NesRegion {
+        self.region
+    }
+
+    #[inline]
+    fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
     }
 }
 
