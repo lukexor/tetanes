@@ -67,16 +67,6 @@ bitflags! {
         const N = 1 << 7; // Negative
     }
 }
-pub const STATUS_REGS: [Status; 8] = [
-    Status::N,
-    Status::V,
-    Status::U,
-    Status::B,
-    Status::D,
-    Status::I,
-    Status::Z,
-    Status::C,
-];
 
 /// Every cycle is either a read or a write.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -118,6 +108,7 @@ pub struct Cpu {
     halt: bool,
     dummy_read: bool,
     cycle_accurate: bool,
+    disasm: String,
 }
 
 impl Cpu {
@@ -170,6 +161,7 @@ impl Cpu {
             halt: false,
             dummy_read: false,
             cycle_accurate: true,
+            disasm: String::with_capacity(100),
         };
         cpu.set_region(cpu.region);
         cpu
@@ -728,13 +720,12 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
-    #[must_use]
-    pub fn disassemble(&self, pc: &mut u16) -> String {
+    pub fn disassemble(&mut self, pc: &mut u16) {
         let opcode = self.peek(*pc, Access::Dummy);
         let instr = Cpu::INSTRUCTIONS[opcode as usize];
         let mut bytes = Vec::with_capacity(3);
-        let mut disasm = String::with_capacity(100);
-        let _ = write!(disasm, "{:04X} ", pc);
+        self.disasm.clear();
+        let _ = write!(self.disasm, "{:04X} ", pc);
         bytes.push(opcode);
         let mut addr = pc.wrapping_add(1);
         let mode = match instr.addr_mode() {
@@ -837,36 +828,39 @@ impl Cpu {
         };
         *pc = addr;
         for byte in &bytes {
-            let _ = write!(disasm, "{:02X} ", byte);
+            let _ = write!(self.disasm, "{:02X} ", byte);
         }
         for _ in 0..(3 - bytes.len()) {
-            disasm.push_str("   ");
+            self.disasm.push_str("   ");
         }
-        let _ = write!(disasm, "{:?}{}", instr, mode);
-        disasm
+        let _ = write!(self.disasm, "{:?}{}", instr, mode);
     }
 
     // Print the current instruction and status
-    pub fn trace_instr(&self) {
+    pub fn trace_instr(&mut self) {
         let mut pc = self.pc;
-        let disasm = self.disassemble(&mut pc);
+        self.disassemble(&mut pc);
 
-        let flags = ['n', 'v', '-', '-', 'd', 'i', 'z', 'c'];
-        let mut status_str = String::with_capacity(8);
-        for (flag, status) in flags.iter().zip(STATUS_REGS.iter()) {
-            if self.status.intersects(*status) {
-                status_str.push(flag.to_ascii_uppercase());
+        let status_str = |status: Status, set: char, clear: char| {
+            if self.status.contains(status) {
+                set
             } else {
-                status_str.push(*flag);
+                clear
             }
-        }
+        };
+
         log::trace!(
-            "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{} SP:{:02X} PPU:{:3},{:3} CYC:{}",
-            disasm,
+            "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{}{}--{}{}{}{} SP:{:02X} PPU:{:3},{:3} CYC:{}",
+            self.disasm,
             self.acc,
             self.x,
             self.y,
-            status_str,
+            status_str(Status::N, 'N', 'n'),
+            status_str(Status::V, 'V', 'v'),
+            status_str(Status::D, 'd', 'd'),
+            status_str(Status::I, 'I', 'i'),
+            status_str(Status::Z, 'Z', 'z'),
+            status_str(Status::C, 'C', 'c'),
             self.sp,
             self.bus.ppu_cycle(),
             self.bus.ppu_scanline(),
@@ -890,7 +884,9 @@ impl Cpu {
     {
         let start_cycle = self.cycle;
 
-        self.trace_instr();
+        if log::log_enabled!(log::Level::Trace) {
+            self.trace_instr();
+        }
         inspect(self);
 
         let opcode = self.read_instr(); // Cycle 1 of instruction

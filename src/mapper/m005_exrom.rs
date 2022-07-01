@@ -550,7 +550,11 @@ impl MemMap for Exrom {
             }
             0x2000..=0x3EFF => {
                 let nametable = self.nametable_mirroring();
-                if !matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
+                if matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
+                    let a10 = nametable as u16;
+                    let addr = a10 | (!a10 & addr);
+                    MappedRead::CIRam(addr.into())
+                } else {
                     let offset = addr & 0x03FF;
                     if self.in_split {
                         let val = if offset < Ppu::ATTR_OFFSET {
@@ -588,8 +592,8 @@ impl MemMap for Exrom {
                             _ => (),
                         }
                     }
+                    MappedRead::Default
                 }
-                MappedRead::Default
             }
             0x5010 => {
                 // [I... ...M] DMC
@@ -667,8 +671,7 @@ impl MemMap for Exrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x2000..=0x3EFF => {
-                let nametable = self.nametable_mirroring();
-                if nametable == Nametable::ExRam
+                if self.nametable_mirroring() == Nametable::ExRam
                     && matches!(self.regs.exmode, ExMode::Nametable | ExMode::Attr)
                 {
                     self.write_exram(addr - 0x2000, val);

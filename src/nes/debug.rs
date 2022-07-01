@@ -1,5 +1,5 @@
 use crate::{
-    cpu::STATUS_REGS,
+    cpu::Status,
     mem::{Access, Mem},
     nes::Nes,
 };
@@ -55,19 +55,31 @@ impl Nes {
 
                     s.text("Status: ")?;
                     s.push();
-                    for status in STATUS_REGS {
-                        s.same_line(None);
-                        s.fill(if cpu.status().intersects(status) {
-                            Color::RED
-                        } else {
-                            Color::GREEN
-                        });
-                        s.text(&format!("{:?}", status))?;
-                    }
+
+                    let mut draw_status =
+                        |status: Status, set: char, clear: char| -> PixResult<()> {
+                            s.same_line(None);
+                            let mut buf = [0; 4];
+                            if cpu.status().contains(status) {
+                                s.fill(Color::RED);
+                                s.text(set.encode_utf8(&mut buf))?;
+                            } else {
+                                s.fill(Color::GREEN);
+                                s.text(clear.encode_utf8(&mut buf))?;
+                            }
+                            Ok(())
+                        };
+                    draw_status(Status::N, 'N', 'n')?;
+                    draw_status(Status::V, 'V', 'v')?;
+                    draw_status(Status::D, 'd', 'd')?;
+                    draw_status(Status::I, 'I', 'i')?;
+                    draw_status(Status::Z, 'Z', 'z')?;
+                    draw_status(Status::C, 'C', 'c')?;
+
                     s.pop();
 
                     s.text(&format!("Cycle: {:8}", cpu.cycle()))?;
-                    // TODO: Total running time
+                    s.text(&format!("Running Time: {}", s.elapsed().as_secs_f32()))?;
 
                     s.spacing()?;
                     s.text(&format!(
