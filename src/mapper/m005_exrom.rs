@@ -18,7 +18,6 @@ use crate::{
     ppu::{Mirroring, Ppu},
 };
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -57,9 +56,10 @@ pub enum ChrBank {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum Nametable {
+    Default,
     ScreenA,
     ScreenB,
-    ExRAM,
+    ExRam,
     Fill,
 }
 
@@ -108,19 +108,13 @@ pub struct ExRegs {
 }
 
 impl ExRegs {
-    const fn new(mirroring: Mirroring) -> Self {
+    const fn new() -> Self {
         Self {
             prg_mode: PrgMode::Bank8k,
             chr_mode: ChrMode::Bank1k,
             prg_ram_protect: [0x00; 2],
             exmode: ExMode::RamProtected,
-            nametable_mirroring: match mirroring {
-                Mirroring::Horizontal => 0x50,
-                Mirroring::Vertical => 0x44,
-                Mirroring::SingleScreenA => 0x00,
-                Mirroring::SingleScreenB => 0x55,
-                Mirroring::FourScreen => 0xFF,
-            },
+            nametable_mirroring: 0x00,
             fill: Fill {
                 tile: 0xFF,
                 attr: 0xFF,
@@ -181,8 +175,7 @@ pub struct Exrom {
     mirroring: Mirroring,
     irq_pending: bool,
     ppu_status: PpuStatus,
-    #[serde(with = "BigArray")]
-    exram: [u8; Self::EXRAM_SIZE],
+    exram: Vec<u8>,
     prg_ram_banks: MemBanks,
     prg_rom_banks: MemBanks,
     chr_banks: MemBanks,
@@ -200,16 +193,16 @@ pub struct Exrom {
 }
 
 impl Exrom {
-    const PRG_WINDOW: usize = 8 * 1024;
-    const PRG_RAM_SIZE: usize = 64 * 1024; // Provide 64K since mappers don't always specify
-    const EXRAM_SIZE: usize = 1024;
-    const CHR_WINDOW: usize = 1024;
+    const PRG_WINDOW: usize = 0x2000;
+    const PRG_RAM_SIZE: usize = 0x10000; // Provide 64K since mappers don't always specify
+    const EXRAM_SIZE: usize = 0x0400;
+    const CHR_WINDOW: usize = 0x0400;
 
     const ROM_SELECT_MASK: usize = 0x80; // High bit targets ROM bank switching
     const BANK_MASK: usize = 0x7F; // Ignore high bit for ROM select
 
-    const START_SPR_FETCH: u32 = 64;
-    const END_SPR_FETCH: u32 = 81;
+    const SPR_FETCH_START: u32 = 64;
+    const SPR_FETCH_END: u32 = 81;
 
     const ATTR_BITS: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
     // TODO: See about generating these using oncecell
@@ -240,11 +233,12 @@ impl Exrom {
         6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
         4, 4, 6, 6, 4, 4, 6, 6,
     ];
+
     pub fn load(cart: &mut Cart) -> Mapper {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
 
         let mut exrom = Self {
-            regs: ExRegs::new(cart.mirroring()),
+            regs: ExRegs::new(),
             mirroring: cart.mirroring(),
             irq_pending: false,
             ppu_status: PpuStatus {
@@ -258,7 +252,7 @@ impl Exrom {
                 scanline: 0x0000,
                 in_frame: false,
             },
-            exram: [0x00; Self::EXRAM_SIZE],
+            exram: vec![0x00; Self::EXRAM_SIZE],
             prg_ram_banks: MemBanks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
             chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
@@ -401,27 +395,39 @@ impl Exrom {
         };
     }
 
-    // Determine the nametable we're trying to access
-    fn nametable_mapping(&self, addr: u16) -> Nametable {
-        let addr = (addr - Ppu::NT_START) % (4 * Ppu::NT_SIZE);
-        let table = addr / Ppu::NT_SIZE;
-        match (self.regs.nametable_mirroring >> (2 * table)) & 0x03 {
-            0 => Nametable::ScreenA,
-            1 => Nametable::ScreenB,
-            2 => Nametable::ExRAM,
-            3 => Nametable::Fill,
-            _ => unreachable!("invalid mirroring"),
+    const fn nametable_mirroring(&self) -> Nametable {
+        match self.regs.nametable_mirroring {
+            0x00 => Nametable::ScreenA,
+            0x55 => Nametable::ScreenB,
+            0xAA => Nametable::ExRam,
+            0xFF => Nametable::Fill,
+            _ => Nametable::Default,
         }
     }
 
     #[inline]
-    const fn read_exram(&self, addr: u16) -> u8 {
-        self.exram[(addr as usize) & (Self::EXRAM_SIZE - 1)]
+    fn read_exram(&self, addr: u16) -> u8 {
+        self.exram[(addr & 0x03FF) as usize]
     }
 
     #[inline]
     fn write_exram(&mut self, addr: u16, val: u8) {
-        self.exram[(addr as usize) & (Self::EXRAM_SIZE - 1)] = val;
+        self.exram[(addr & 0x03FF) as usize] = val;
+    }
+
+    #[inline]
+    fn inc_fetch_count(&mut self) {
+        self.ppu_status.fetch_count += 1;
+    }
+
+    #[inline]
+    const fn fetch_count(&self) -> u32 {
+        self.ppu_status.fetch_count
+    }
+
+    #[inline]
+    fn spr_fetch(&self) -> bool {
+        (Self::SPR_FETCH_START..Self::SPR_FETCH_END).contains(&self.fetch_count())
     }
 }
 
@@ -450,15 +456,14 @@ impl Mapped for Exrom {
         if matches!(addr, 0x2000..=0x3EFF)
             && self.regs.exmode == ExMode::Attr
             && (addr & 0x03FF) < Ppu::ATTR_OFFSET
-            && (self.ppu_status.fetch_count < Self::START_SPR_FETCH
-                || self.ppu_status.fetch_count >= Self::END_SPR_FETCH)
+            && !self.spr_fetch()
         {
             self.tile_cache = (addr & 0x03FF).into();
         }
 
         // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
         let status = &mut self.ppu_status;
-        if matches!(addr, 0x2000..=0x3EFF) && addr == status.prev_addr {
+        if matches!(addr, 0x2000..=0x2FFF) && addr == status.prev_addr {
             status.prev_match += 1;
             if status.prev_match == 2 {
                 if status.in_frame {
@@ -489,21 +494,21 @@ impl MemMap for Exrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
-                self.ppu_status.fetch_count += 1;
+                self.inc_fetch_count();
                 if self.ppu_status.sprite8x16 {
-                    match self.ppu_status.fetch_count {
-                        Self::START_SPR_FETCH => self.update_chr_banks(ChrBank::Spr),
-                        Self::END_SPR_FETCH => self.update_chr_banks(ChrBank::Bg),
+                    match self.fetch_count() {
+                        Self::SPR_FETCH_START => self.update_chr_banks(ChrBank::Spr),
+                        Self::SPR_FETCH_END => self.update_chr_banks(ChrBank::Bg),
                         _ => (),
                     }
                 }
             }
             0x2000..=0x3EFF => {
                 // Detect split
-                let offset = addr % Ppu::NT_SIZE;
+                let offset = addr & 0x03FF;
                 if self.in_split && offset < Ppu::ATTR_OFFSET {
                     self.split_tile = (((self.regs.vsplit.scroll & 0xF8) as usize) << 2)
-                        | ((self.ppu_status.fetch_count / 4) & 0x1F) as usize;
+                        | ((self.fetch_count() / 4) & 0x1F) as usize;
                 }
             }
             0xFFFA | 0xFFFB => {
@@ -524,10 +529,7 @@ impl MemMap for Exrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
-                if self.regs.exmode == ExMode::Attr
-                    && (self.ppu_status.fetch_count < Self::START_SPR_FETCH
-                        || self.ppu_status.fetch_count >= Self::END_SPR_FETCH)
-                {
+                if self.regs.exmode == ExMode::Attr {
                     let hibits = self.regs.chr_hi << 10;
                     let exbits = ((self.exram[self.tile_cache] & 0x3F) as usize) << 12;
                     let addr = hibits | exbits | (addr as usize) & 0x0FFF;
@@ -537,58 +539,47 @@ impl MemMap for Exrom {
                 }
             }
             0x2000..=0x3EFF => {
-                let nametable = self.nametable_mapping(addr);
-                if matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
-                    // 0 and 1 mean NametableA and NametableB
-                    // 2 means internal EXRAM
-                    // 3 means Fill-mode
-                    MappedRead::CIRam(nametable as usize)
-                } else {
+                let nametable = self.nametable_mirroring();
+                if !matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
                     let offset = addr & 0x03FF;
                     if self.in_split {
-                        if offset < Ppu::ATTR_OFFSET {
-                            MappedRead::Data(self.exram[self.split_tile])
+                        let val = if offset < Ppu::ATTR_OFFSET {
+                            self.exram[self.split_tile]
                         } else {
                             let addr = Ppu::ATTR_OFFSET
                                 | u16::from(Self::ATTR_LOC[(self.split_tile) >> 2]);
                             let attr = self.read_exram(addr - 0x2000);
                             let shift = Self::ATTR_SHIFT[(self.split_tile) & 0x7F];
-                            MappedRead::Data(Self::ATTR_BITS[((attr >> shift) & 0x03) as usize])
-                        }
+                            Self::ATTR_BITS[((attr >> shift) & 0x03) as usize]
+                        };
+                        return MappedRead::Data(val);
                     } else {
-                        match self.regs.exmode {
-                            ExMode::Attr
-                                if offset >= Ppu::ATTR_OFFSET
-                                    && (self.ppu_status.fetch_count < Self::START_SPR_FETCH
-                                        || self.ppu_status.fetch_count >= Self::END_SPR_FETCH) =>
-                            {
+                        let attr_fetch = offset >= Ppu::ATTR_OFFSET;
+                        match (self.regs.exmode, nametable) {
+                            (ExMode::Attr, _) if attr_fetch => {
                                 // If we're in Extended Attribute mode and reading BG attributes,
                                 // return Attribute data instead of relying on CIRAM
                                 let attr = self.exram[self.tile_cache];
-                                MappedRead::Data(Self::ATTR_BITS[((attr >> 6) & 0x03) as usize])
+                                return MappedRead::Data(
+                                    Self::ATTR_BITS[((attr >> 6) & 0x03) as usize],
+                                );
                             }
-                            ExMode::Nametable | ExMode::Attr => {
-                                match self.nametable_mapping(addr) {
-                                    Nametable::ExRAM => {
-                                        MappedRead::Data(self.read_exram(addr - 0x2000))
-                                    }
-                                    Nametable::Fill => {
-                                        if offset < Ppu::ATTR_OFFSET {
-                                            MappedRead::Data(self.regs.fill.tile)
-                                        } else {
-                                            MappedRead::Data(
-                                                Self::ATTR_BITS
-                                                    [(self.regs.fill.attr & 0x03) as usize],
-                                            )
-                                        }
-                                    }
-                                    _ => MappedRead::CIRam(addr.into()),
-                                }
+                            (ExMode::Nametable | ExMode::Attr, Nametable::ExRam) => {
+                                return MappedRead::Data(self.read_exram(addr - 0x2000));
                             }
-                            _ => MappedRead::CIRam(addr.into()),
+                            (ExMode::Nametable | ExMode::Attr, Nametable::Fill) => {
+                                let val = if attr_fetch {
+                                    Self::ATTR_BITS[(self.regs.fill.attr & 0x03) as usize]
+                                } else {
+                                    self.regs.fill.tile
+                                };
+                                return MappedRead::Data(val);
+                            }
+                            _ => (),
                         }
                     }
                 }
+                MappedRead::Default
             }
             0x5010 => {
                 // [I... ...M] DMC
@@ -665,9 +656,9 @@ impl MemMap for Exrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x2000..=0x2FFF => {
-                let nametable = self.nametable_mapping(addr);
-                if nametable == Nametable::ExRAM
+            0x2000..=0x3EFF => {
+                let nametable = self.nametable_mirroring();
+                if nametable == Nametable::ExRam
                     && matches!(self.regs.exmode, ExMode::Nametable | ExMode::Attr)
                 {
                     self.write_exram(addr - 0x2000, val);
@@ -741,7 +732,7 @@ impl MemMap for Exrom {
                 return MappedWrite::PrgRamProtect(!writable);
             }
             0x5104 => {
-                // [.... ..XX] ExRAM mode
+                // [.... ..XX] ExRam mode
                 self.regs.exmode = match val {
                     0 => ExMode::Nametable,
                     1 => ExMode::Attr,
@@ -751,7 +742,7 @@ impl MemMap for Exrom {
                         log::warn!("invalid ExMode value: ${:02X}", val);
                         self.regs.exmode
                     }
-                }
+                };
             }
             0x5105 => {
                 // [.... ..HH]
@@ -764,7 +755,7 @@ impl MemMap for Exrom {
                 // Values can be the following:
                 //   %00 = NES internal NTA
                 //   %01 = NES internal NTB
-                //   %10 = use ExRAM as NT
+                //   %10 = use ExRam as NT
                 //   %11 = Fill Mode
                 //
                 // For example... some typical mirroring setups would be:
@@ -780,9 +771,7 @@ impl MemMap for Exrom {
                     0x44 => Mirroring::Vertical,
                     0x00 => Mirroring::SingleScreenA,
                     0x55 => Mirroring::SingleScreenB,
-                    // While the below technically isn't true - it forces my implementation to
-                    // rely on the Mapper for reading Nametables in any other mode for the missing
-                    // two nametables
+                    // Any other combination means Mapper provides nametables
                     _ => Mirroring::FourScreen,
                 };
             }

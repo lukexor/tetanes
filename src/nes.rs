@@ -141,6 +141,7 @@ impl NesBuilder {
 
         let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_region(config.region);
+        control_deck.set_filter(config.filter);
         for (&input, &action) in config.input_map.iter() {
             if action == Action::ZapperTrigger {
                 if let Input::Mouse((slot, ..))

@@ -5,15 +5,13 @@ use crate::{
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuBus {
     mapper: Mapper,
     mirror_shift: usize,
-    #[serde(with = "BigArray")]
-    vram: [u8; Self::VRAM_SIZE], // $2007 PPUDATA
+    vram: Vec<u8>, // $2007 PPUDATA
     palette: [u8; Self::PALETTE_SIZE],
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
@@ -35,7 +33,7 @@ impl PpuBus {
         Self {
             mapper: Mapper::none(),
             mirror_shift: Mirroring::default() as usize,
-            vram: [0x00; Self::VRAM_SIZE],
+            vram: vec![0x00; Self::VRAM_SIZE],
             palette: [0x00; Self::PALETTE_SIZE],
             chr_rom: vec![],
             chr_ram: vec![],
@@ -192,9 +190,15 @@ impl Mem for PpuBus {
                 }
             }
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
-                MappedWrite::CIRam(addr, val) => self.vram[self.vram_mirror(addr)] = val,
+                MappedWrite::CIRam(addr, val) => {
+                    let addr = self.vram_mirror(addr);
+                    self.vram[addr] = val;
+                }
                 MappedWrite::ExRam(addr, val) => self.ex_ram[addr] = val,
-                MappedWrite::Default => self.vram[self.vram_mirror(addr.into())] = val,
+                MappedWrite::Default => {
+                    let addr = self.vram_mirror(addr.into());
+                    self.vram[addr] = val;
+                }
                 _ => (),
             },
             0x3F00..=0x3FFF => {

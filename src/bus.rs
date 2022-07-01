@@ -12,7 +12,6 @@ use crate::{
     NesResult,
 };
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 use std::collections::HashMap;
 
 /// NES Bus
@@ -47,8 +46,7 @@ use std::collections::HashMap;
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct CpuBus {
-    #[serde(with = "BigArray")]
-    wram: [u8; Self::WRAM_SIZE],
+    wram: Vec<u8>,
     region: NesRegion,
     ram_state: RamState,
     battery_backed: bool,
@@ -76,7 +74,7 @@ impl CpuBus {
     const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
 
     pub fn new(ram_state: RamState) -> Self {
-        let mut wram = [0; Self::WRAM_SIZE];
+        let mut wram = vec![0x00; Self::WRAM_SIZE];
         RamState::fill(&mut wram, ram_state);
         Self {
             wram,
@@ -360,24 +358,23 @@ impl Mem for CpuBus {
             0x4015 => self.apu.read_status(),
             0x4016 => self.input.read(Slot::One, &self.ppu),
             0x4017 => self.input.read(Slot::Two, &self.ppu),
-            0x6000..=0x7FFF if !self.prg_ram.is_empty() => {
+            0x4020..=0xFFFF => {
                 let val = match self.mapper_mut().map_read(addr) {
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::Default => self.prg_ram[(addr & 0x1FFF) as usize],
-                    _ => self.open_bus,
-                };
-                self.genie_read(addr, val)
-            }
-            0x8000..=0xFFFF => {
-                let val = match self.mapper_mut().map_read(addr) {
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    MappedRead::Default => self.prg_rom[(addr - 0x8000) as usize],
+                    MappedRead::Default => match addr {
+                        0x6000..=0x7FFF if !self.prg_ram.is_empty() => {
+                            self.prg_ram[(addr & 0x1FFF) as usize]
+                        }
+                        0x8000..=0xFFFF => self.prg_rom[(addr & 0x7FFF) as usize],
+                        _ => self.open_bus,
+                    },
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
             }
-            0x0800..=0x1FFF => self.read(addr & 0x07FF, access), // WRAM Mirrors
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
+            0x0800..=0x1FFF => self.read(addr & 0x07FF, access), // WRAM Mirrors
             0x2008..=0x3FFF => self.read(addr & 0x2007, access), // Ppu Mirrors
             _ => self.open_bus,
         };
@@ -394,24 +391,23 @@ impl Mem for CpuBus {
             0x4015 => self.apu.peek_status(),
             0x4016 => self.input.peek(Slot::One, &self.ppu),
             0x4017 => self.input.peek(Slot::Two, &self.ppu),
-            0x6000..=0x7FFF if !self.prg_ram.is_empty() => {
+            0x4020..=0xFFFF => {
                 let val = match self.mapper().map_peek(addr) {
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::Default => self.prg_ram[(addr & 0x1FFF) as usize],
-                    _ => self.open_bus,
-                };
-                self.genie_read(addr, val)
-            }
-            0x8000..=0xFFFF => {
-                let val = match self.mapper().map_peek(addr) {
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    MappedRead::Default => self.prg_rom[(addr - 0x8000) as usize],
+                    MappedRead::Default => match addr {
+                        0x6000..=0x7FFF if !self.prg_ram.is_empty() => {
+                            self.prg_ram[(addr & 0x1FFF) as usize]
+                        }
+                        0x8000..=0xFFFF => self.prg_rom[(addr & 0x7FFF) as usize],
+                        _ => self.open_bus,
+                    },
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
             }
-            0x0800..=0x1FFF => self.peek(addr & 0x07FF, access), // WRAM Mirrors
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
+            0x0800..=0x1FFF => self.peek(addr & 0x07FF, access), // WRAM Mirrors
             0x2008..=0x3FFF => self.peek(addr & 0x2007, access), // Ppu Mirrors
             _ => self.open_bus,
         }
@@ -452,22 +448,20 @@ impl Mem for CpuBus {
             0x4015 => self.apu.write_status(val),
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
-            0x6000..=0x7FFF if !self.prg_ram.is_empty() && !self.prg_ram_protect => {
+            0x4020..=0xFFFF => {
+                let prg_ram_enabled = !self.prg_ram.is_empty() && !self.prg_ram_protect;
                 match self.mapper_mut().map_write(addr, val) {
-                    MappedWrite::PrgRam(addr, val) => self.prg_ram[addr] = val,
-                    MappedWrite::Default => self.prg_ram[(addr & 0x1FFF) as usize] = val,
+                    MappedWrite::PrgRam(addr, val) if prg_ram_enabled => self.prg_ram[addr] = val,
+                    MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
+                    MappedWrite::Default if prg_ram_enabled => {
+                        self.prg_ram[(addr & 0x1FFF) as usize] = val;
+                    }
                     _ => (),
-                }
-            }
-            0x8000..=0xFFFF => {
-                if let MappedWrite::PrgRamProtect(protect) = self.mapper_mut().map_write(addr, val)
-                {
-                    self.prg_ram_protect = protect;
                 }
                 self.ppu.update_mirroring();
             }
-            0x0800..=0x1FFF => self.write(addr & 0x07FF, val, access), // WRAM Mirrors
             0x2002 => self.ppu.set_open_bus(val),
+            0x0800..=0x1FFF => self.write(addr & 0x07FF, val, access), // WRAM Mirrors
             0x2008..=0x3FFF => self.write(addr & 0x2007, val, access), // Ppu Mirrors
             _ => (),
         }
@@ -615,7 +609,7 @@ mod test {
         let addr = 0x9F41;
         let orig_value = 0x22; // 3 Hearts
         let new_value = 0x77; // 8 Hearts
-        cart.prg_rom[(addr - 0x8000) as usize] = orig_value;
+        cart.prg_rom[(addr & 0x7FFF) as usize] = orig_value;
 
         bus.load_cart(cart);
         bus.add_genie_code(code.to_string())

@@ -8,7 +8,6 @@ use ctrl::PpuCtrl;
 use mask::PpuMask;
 use scroll::PpuScroll;
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 use sprite::Sprite;
 use status::PpuStatus;
 use std::cmp::Ordering;
@@ -72,8 +71,7 @@ pub struct Ppu {
     oamaddr: u8,       // $2003 OAM addr write-only
     oamaddr_lo: u8,
     oamaddr_hi: u8,
-    #[serde(with = "BigArray")]
-    oamdata: [u8; Self::OAM_SIZE], // $2004 OAM data read/write - Object Attribute Memory for Sprites
+    oamdata: Vec<u8>, // $2004 OAM data read/write - Object Attribute Memory for Sprites
     secondary_oamaddr: u8,
     secondary_oamdata: [u8; Self::SECONDARY_OAM_SIZE], // Secondary OAM data for Sprites on a given scanline
     scroll: PpuScroll, // $2005 PPUSCROLL and $2006 PPUADDR write-only
@@ -108,8 +106,7 @@ pub struct Ppu {
     spr_zero_visible: bool,
     spr_count: usize,
     sprites: [Sprite; 8], // Each scanline can hold 8 sprites at a time
-    #[serde(with = "BigArray")]
-    spr_present: [bool; Self::VISIBLE_END as usize],
+    spr_present: Vec<bool>,
 
     open_bus: u8,
 }
@@ -196,7 +193,7 @@ impl Ppu {
             oamaddr: 0x0000,
             oamaddr_lo: 0x00,
             oamaddr_hi: 0x00,
-            oamdata: [0xFF; Self::OAM_SIZE],
+            oamdata: vec![0xFF; Self::OAM_SIZE],
             secondary_oamaddr: 0x0000,
             secondary_oamdata: [0xFF; Self::SECONDARY_OAM_SIZE],
             scroll: PpuScroll::new(),
@@ -231,7 +228,7 @@ impl Ppu {
             spr_zero_visible: false,
             spr_count: 0,
             sprites: [Sprite::new(); 8],
-            spr_present: [false; Self::VISIBLE_END as usize],
+            spr_present: vec![false; Self::VISIBLE_END as usize],
 
             open_bus: 0x00,
         };
