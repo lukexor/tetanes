@@ -208,6 +208,11 @@ impl Mapped for Txrom {
     fn ppu_bus_read(&mut self, addr: u16) {
         self.clock_irq(addr);
     }
+
+    #[inline]
+    fn ppu_bus_write(&mut self, addr: u16, _val: u8) {
+        self.clock_irq(addr);
+    }
 }
 
 impl MemMap for Txrom {
