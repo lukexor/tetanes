@@ -216,7 +216,7 @@ impl std::fmt::Debug for MemBanks {
         f.debug_struct("Bank")
             .field("start", &format_args!("0x{:04X}", self.start))
             .field("end", &format_args!("0x{:04X}", self.end))
-            .field("size", &format_args!("0x{:04X}", self.end))
+            .field("size", &format_args!("0x{:04X}", self.size))
             .field("window", &format_args!("0x{:04X}", self.window))
             .field("shift", &self.shift)
             .field("mask", &self.shift)

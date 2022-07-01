@@ -1052,7 +1052,7 @@ impl PpuRegisters for Ppu {
         self.open_bus = val;
         // MMC3 clocks using A12
         let addr = self.scroll.read_addr();
-        self.mapper_mut().ppu_bus_read(addr);
+        self.mapper_mut().ppu_bus_write(addr, val);
 
         val
     }

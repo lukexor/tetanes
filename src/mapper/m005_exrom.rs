@@ -56,11 +56,11 @@ pub enum ChrBank {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum Nametable {
-    Default,
     ScreenA,
     ScreenB,
     ExRam,
     Fill,
+    Default,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -490,11 +490,6 @@ impl Mapped for Exrom {
     }
 
     #[inline]
-    fn ppu_bus_write(&mut self, addr: u16, _val: u8) {
-        self.handle_bus_addr(addr);
-    }
-
-    #[inline]
     fn cpu_bus_write(&mut self, addr: u16, val: u8) {
         self.ppu_status.write(addr, val);
     }
@@ -663,7 +658,7 @@ impl MemMap for Exrom {
             // TODO MMC5A only CL3 / SL3 Status
             // TODO MMC5A only 6-bit Hardware Timer with IRQ
             0x5207 | 0x5208 | 0x5209 => MappedRead::Data(0),
-            // 0x5800..=0x5BFF - MMC5A unknown - reads open_bus
+            // 0x5800..=0x5BFF - MMC5A unknown
             _ => MappedRead::Default,
         }
     }

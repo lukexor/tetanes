@@ -119,6 +119,7 @@ impl PpuBus {
 
 impl Mem for PpuBus {
     fn read(&mut self, addr: u16, _access: Access) -> u8 {
+        self.mapper.ppu_bus_read(addr);
         let val = match addr {
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
@@ -146,7 +147,6 @@ impl Mem for PpuBus {
             }
         };
         self.open_bus = val;
-        self.mapper.ppu_bus_read(addr);
         val
     }
 

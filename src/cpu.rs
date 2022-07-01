@@ -231,6 +231,12 @@ impl Cpu {
     }
 
     #[inline]
+    #[must_use]
+    pub fn disasm(&self) -> &str {
+        &self.disasm
+    }
+
+    #[inline]
     pub const fn ppu(&self) -> &Ppu {
         self.bus.ppu()
     }

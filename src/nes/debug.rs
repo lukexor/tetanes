@@ -128,7 +128,7 @@ impl Nes {
                     s.text(&format!(
                         "Cycle: {:3}  Scanline: {:3}  Frame: {}",
                         ppu.cycle(),
-                        ppu.scanline() as i32 - 1,
+                        ppu.scanline(),
                         ppu.frame_number()
                     ))?;
 
@@ -144,15 +144,16 @@ impl Nes {
                     }
                 }
 
-                //                 {
-                //                     let cpu = self.control_deck.cpu();
+                {
+                    let cpu = self.control_deck.cpu_mut();
 
-                //                     s.spacing()?;
-                //                     let disasm = disasm(cpu.pc(), cpu.pc().saturating_add(30));
-                //                     for instr in disasm.iter().take(10) {
-                //                         s.text(&instr)?;
-                //                     }
-                //                 }
+                    s.spacing()?;
+                    let mut pc = cpu.pc();
+                    for _ in 0..10 {
+                        cpu.disassemble(&mut pc);
+                        s.text(cpu.disasm())?;
+                    }
+                }
 
                 Ok(())
             })?;
