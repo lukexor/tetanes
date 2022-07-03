@@ -15,13 +15,14 @@ use crate::{
     cpu::Cpu,
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
-    ppu::{Mirroring, Ppu},
+    ppu::{bus::PpuAddr, Mirroring},
 };
+use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-pub enum PrgMode {
+enum PrgMode {
     Bank32k,
     Bank16k,
     Bank16_8k,
@@ -30,7 +31,7 @@ pub enum PrgMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-pub enum ChrMode {
+enum ChrMode {
     Bank8k,
     Bank4k,
     Bank2k,
@@ -39,72 +40,163 @@ pub enum ChrMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-pub enum ExMode {
-    Nametable,
-    Attr,
-    Ram,
-    RamProtected,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[must_use]
-pub enum ChrBank {
+enum ChrBank {
     Spr,
     Bg,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[must_use]
-pub enum Nametable {
-    ScreenA,
-    ScreenB,
-    ExRam,
-    Fill,
-    Default,
+bitflags! {
+#[derive(Default, Serialize, Deserialize)]
+    #[must_use]
+    struct ExRamRW: u8 {
+        const W = 0x01;
+        const R = 0x02;
+        const RW = Self::R.bits | Self::W.bits;
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Fill {
-    tile: u8, // $5106
-    attr: u8, // $5107
+struct ExRamMode {
+    bits: u8,
+    nametable: bool,
+    attr: bool,
+    rw: ExRamRW,
+}
+
+impl ExRamMode {
+    const fn new() -> Self {
+        Self {
+            bits: 0x00,
+            nametable: false,
+            attr: false,
+            rw: ExRamRW::W,
+        }
+    }
+
+    fn set(&mut self, val: u8) {
+        let val = val & 0x03;
+        self.bits = val;
+        self.nametable = matches!(val, 0b00 | 0b11);
+        self.attr = val == 0b01;
+        self.rw = match val {
+            0b00 | 0b01 => ExRamRW::W,
+            0b10 => ExRamRW::RW,
+            0b11 => ExRamRW::R,
+            _ => unreachable!("invalid exram_mode"),
+        };
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-pub enum SplitSide {
+enum Nametable {
+    ScreenA,
+    ScreenB,
+    ExRam,
+    Fill,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
+struct NametableMapping {
+    mode: u8,
+    select: [Nametable; 4],
+}
+
+impl NametableMapping {
+    const fn new() -> Self {
+        Self {
+            mode: 0x00,
+            select: [Nametable::ScreenA; 4],
+        }
+    }
+
+    fn set(&mut self, val: u8) {
+        let nametable = |val: u8| match val & 0x03 {
+            0 => Nametable::ScreenA,
+            1 => Nametable::ScreenB,
+            2 => Nametable::ExRam,
+            3 => Nametable::Fill,
+            _ => unreachable!("invalid Nametable value"),
+        };
+        self.mode = val;
+        self.select = [
+            nametable(val),
+            nametable(val >> 2),
+            nametable(val >> 4),
+            nametable(val >> 6),
+        ];
+    }
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
+struct Fill {
+    tile: u8,    // $5106
+    attr: usize, // $5107
+}
+
+impl Fill {
+    const fn new() -> Self {
+        Self {
+            attr: 0xFF,
+            tile: 0xFF,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[must_use]
+enum Side {
     Left,
     Right,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct VSplit {
-    enabled: bool,   // $5200 [E... ....]
-    side: SplitSide, // $5200 [.S.. ....]
-    tile: u8,        // $5200 [...T TTTT]
-    scroll: u8,      // $5201
-    bank: u8,        // $5202
+struct VSplit {
+    mode: u8,      // $5200 [ES.T TTTT]
+    enabled: bool, // $5200 [E... ....]
+    side: Side,    // $5200 [.S.. ....]
+    tile: u8,      // $5200 [...T TTTT]
+    scroll: u8,    // $5201
+    bank: u8,      // $5202
+    in_region: bool,
+}
+
+impl VSplit {
+    const fn new() -> Self {
+        Self {
+            mode: 0x00,
+            enabled: false,
+            side: Side::Left,
+            tile: 0x00,
+            scroll: 0x00,
+            bank: 0x00,
+            in_region: false,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct ExRegs {
-    prg_mode: PrgMode,        // $5100
-    chr_mode: ChrMode,        // $5101
-    prg_ram_protect: [u8; 2], // $5102 - $5103
-    exmode: ExMode,           // $5104
-    nametable_mirroring: u8,  // $5105
-    fill: Fill,               // $5106 - $5107
-    prg_banks: [usize; 5],    // $5113 - $5117
-    chr_banks: [usize; 16],   // $5120 - $512B
-    chr_hi: usize,            // $5130
-    vsplit: VSplit,           // $5200 - $5202
-    irq_scanline: u16,        // $5203: Write $00 to disable IRQs
-    irq_enabled: bool,        // $5204
-    multiplicand: u8,         // $5205: write
-    multiplier: u8,           // $5206: write
-    mult_result: u16,         // $5205: read lo, $5206: read hi
+struct ExRegs {
+    prg_mode: PrgMode,                   // $5100
+    chr_mode: ChrMode,                   // $5101
+    prg_ram_protect: [u8; 2],            // $5102 - $5103
+    exram_mode: ExRamMode,               // $5104
+    nametable_mapping: NametableMapping, // $5105
+    fill: Fill,                          // $5106 - $5107
+    prg_banks: [usize; 5],               // $5113 - $5117
+    chr_banks: [usize; 16],              // $5120 - $512B
+    chr_hi: usize,                       // $5130
+    vsplit: VSplit,                      // $5200 - $5202
+    irq_scanline: u16,                   // $5203: Write $00 to disable IRQs
+    irq_enabled: bool,                   // $5204
+    multiplicand: u8,                    // $5205: write
+    multiplier: u8,                      // $5206: write
+    mult_result: u16,                    // $5205: read lo, $5206: read hi
 }
 
 impl ExRegs {
@@ -113,22 +205,13 @@ impl ExRegs {
             prg_mode: PrgMode::Bank8k,
             chr_mode: ChrMode::Bank1k,
             prg_ram_protect: [0x00; 2],
-            exmode: ExMode::RamProtected,
-            nametable_mirroring: 0x00,
-            fill: Fill {
-                tile: 0xFF,
-                attr: 0xFF,
-            },
+            exram_mode: ExRamMode::new(),
+            nametable_mapping: NametableMapping::new(),
+            fill: Fill::new(),
             prg_banks: [0x00; 5],
             chr_banks: [0x00; 16],
             chr_hi: 0x00,
-            vsplit: VSplit {
-                enabled: false,
-                side: SplitSide::Left,
-                tile: 0x00,
-                scroll: 0x00,
-                bank: 0x00,
-            },
+            vsplit: VSplit::new(),
             irq_scanline: 0x00,
             irq_enabled: false,
             multiplicand: 0xFF,
@@ -180,8 +263,6 @@ pub struct Exrom {
     prg_rom_banks: MemBanks,
     chr_banks: MemBanks,
     tile_cache: usize,
-    in_split: bool,
-    split_tile: usize,
     last_chr_write: ChrBank,
     region: NesRegion,
     pulse1: Pulse,
@@ -204,35 +285,38 @@ impl Exrom {
     const SPR_FETCH_START: u32 = 64;
     const SPR_FETCH_END: u32 = 81;
 
-    const ATTR_BITS: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
-    // TODO: See about generating these using oncecell
-    const ATTR_LOC: [u8; 256] = [
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
-        0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
-        0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
-        0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B,
-        0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12,
-        0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11,
-        0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18,
-        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
-        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
-        0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25,
-        0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C,
-        0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B,
-        0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32,
-        0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31,
-        0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
-        0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-        0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
-        0x3F,
-    ];
-    const ATTR_SHIFT: [u8; 128] = [
-        0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0,
-        2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
-        0, 0, 2, 2, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4,
-        6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
-        4, 4, 6, 6, 4, 4, 6, 6,
-    ];
+    // This conveniently mirrors a 2-bit palette attribute to all four indexes
+    // https://www.nesdev.org/wiki/MMC5#Fill-mode_color_($5107)
+    const ATTR_MIRROR: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
+
+    // // TODO: See about generating these using oncecell
+    // const ATTR_LOC: [u8; 256] = [
+    //     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+    //     0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+    //     0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+    //     0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B,
+    //     0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12,
+    //     0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11,
+    //     0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18,
+    //     0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+    //     0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
+    //     0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25,
+    //     0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C,
+    //     0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B,
+    //     0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32,
+    //     0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31,
+    //     0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+    //     0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+    //     0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+    //     0x3F,
+    // ];
+    // const ATTR_SHIFT: [u8; 128] = [
+    //     0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0,
+    //     2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
+    //     0, 0, 2, 2, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4,
+    //     6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
+    //     4, 4, 6, 6, 4, 4, 6, 6,
+    // ];
 
     pub fn load(cart: &mut Cart) -> Mapper {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
@@ -257,8 +341,6 @@ impl Exrom {
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
             chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
             tile_cache: 0,
-            in_split: false,
-            split_tile: 0,
             last_chr_write: ChrBank::Spr,
             region: NesRegion::default(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
@@ -395,16 +477,6 @@ impl Exrom {
         };
     }
 
-    const fn nametable_mirroring(&self) -> Nametable {
-        match self.regs.nametable_mirroring {
-            0x00 => Nametable::ScreenA,
-            0x55 => Nametable::ScreenB,
-            0xAA => Nametable::ExRam,
-            0xFF => Nametable::Fill,
-            _ => Nametable::Default,
-        }
-    }
-
     #[inline]
     fn read_exram(&self, addr: u16) -> u8 {
         self.exram[(addr & 0x03FF) as usize]
@@ -430,41 +502,14 @@ impl Exrom {
         (Self::SPR_FETCH_START..Self::SPR_FETCH_END).contains(&self.fetch_count())
     }
 
-    fn handle_bus_addr(&mut self, addr: u16) {
-        // Ignore palette reads
-        if addr > 0x3EFF {
-            return;
-        }
+    #[inline]
+    fn bg_attr_fetch(&self, addr: u16) -> bool {
+        addr.is_attr() && !self.spr_fetch()
+    }
 
-        if matches!(addr, 0x2000..=0x3EFF)
-            && self.regs.exmode == ExMode::Attr
-            && (addr & 0x03FF) < Ppu::ATTR_OFFSET
-            && !self.spr_fetch()
-        {
-            self.tile_cache = (addr & 0x03FF).into();
-        }
-
-        // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
-        let status = &mut self.ppu_status;
-        if matches!(addr, 0x2000..=0x2FFF) && addr == status.prev_addr {
-            status.prev_match += 1;
-            if status.prev_match == 2 {
-                if status.in_frame {
-                    status.scanline = status.scanline.wrapping_add(1);
-                    if status.scanline == self.regs.irq_scanline {
-                        self.irq_pending = true;
-                    }
-                } else {
-                    status.in_frame = true;
-                    status.scanline = 0;
-                }
-                status.fetch_count = 0;
-            }
-        } else {
-            status.prev_match = 0;
-        }
-        status.prev_addr = addr;
-        status.reading = true;
+    #[inline]
+    const fn nametable_select(&self, addr: u16) -> Nametable {
+        self.regs.nametable_mapping.select[((addr >> 10) & 0x03) as usize]
     }
 }
 
@@ -482,11 +527,6 @@ impl Mapped for Exrom {
     #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
-    }
-
-    #[inline]
-    fn ppu_bus_read(&mut self, addr: u16) {
-        self.handle_bus_addr(addr);
     }
 
     #[inline]
@@ -509,12 +549,41 @@ impl MemMap for Exrom {
                 }
             }
             0x2000..=0x3EFF => {
-                // Detect split
-                let offset = addr & 0x03FF;
-                if self.in_split && offset < Ppu::ATTR_OFFSET {
-                    self.split_tile = (((self.regs.vsplit.scroll & 0xF8) as usize) << 2)
-                        | ((self.fetch_count() / 4) & 0x1F) as usize;
+                let is_attr = addr.is_attr();
+                // Cache BG tile fetch for later attribute byte fetch
+                if is_attr && self.regs.exram_mode.attr && !self.spr_fetch() {
+                    self.tile_cache = (addr & 0x03FF).into();
                 }
+
+                // Detect split
+                // if self.vsplit.in_region && !addr.is_attr() {
+                //     self.vsplit.split_tile = (((self.regs.vsplit.scroll & 0xF8) as usize) << 2)
+                //         | ((self.fetch_count() / 4) & 0x1F) as usize;
+                // }
+                //
+
+                // Monitor tile fetches to trigger IRQs
+                // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
+                let status = &mut self.ppu_status;
+                if !is_attr && addr == status.prev_addr {
+                    status.prev_match += 1;
+                    if status.prev_match == 2 {
+                        if status.in_frame {
+                            status.scanline = status.scanline.wrapping_add(1);
+                            if status.scanline == self.regs.irq_scanline {
+                                self.irq_pending = true;
+                            }
+                        } else {
+                            status.in_frame = true;
+                            status.scanline = 0;
+                        }
+                        status.fetch_count = 0;
+                    }
+                } else {
+                    status.prev_match = 0;
+                }
+                status.prev_addr = addr;
+                status.reading = true;
             }
             0xFFFA | 0xFFFB => {
                 self.ppu_status.in_frame = false; // NMI clears in_frame
@@ -534,7 +603,7 @@ impl MemMap for Exrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
-                if self.regs.exmode == ExMode::Attr {
+                if self.regs.exram_mode.attr {
                     let hibits = self.regs.chr_hi << 10;
                     let exbits = ((self.exram[self.tile_cache] & 0x3F) as usize) << 12;
                     let addr = hibits | exbits | (addr as usize) & 0x0FFF;
@@ -544,50 +613,39 @@ impl MemMap for Exrom {
                 }
             }
             0x2000..=0x3EFF => {
-                let nametable = self.nametable_mirroring();
-                if matches!(nametable, Nametable::ScreenA | Nametable::ScreenB) {
-                    let a10 = nametable as u16;
-                    let addr = a10 | (!a10 & addr);
-                    MappedRead::CIRam(addr.into())
+                if self.regs.vsplit.in_region {
+                    todo!()
+                } else if self.regs.exram_mode.attr && self.bg_attr_fetch(addr) {
+                    let attr = (self.exram[self.tile_cache] >> 6) & 0x03;
+                    MappedRead::Data(Self::ATTR_MIRROR[attr as usize])
                 } else {
-                    let offset = addr & 0x03FF;
-                    if self.in_split {
-                        let val = if offset < Ppu::ATTR_OFFSET {
-                            self.exram[self.split_tile]
-                        } else {
-                            let addr = Ppu::ATTR_OFFSET
-                                | u16::from(Self::ATTR_LOC[(self.split_tile) >> 2]);
-                            let attr = self.read_exram(addr - 0x2000);
-                            let shift = Self::ATTR_SHIFT[(self.split_tile) & 0x7F];
-                            Self::ATTR_BITS[((attr >> shift) & 0x03) as usize]
-                        };
-                        return MappedRead::Data(val);
+                    let is_attr = addr.is_attr();
+                    // ExAttr mode returns attr bits for all nametables, regardless of mapping
+                    if is_attr && self.regs.exram_mode.attr {
+                        let attr = (self.read_exram(addr) >> 6) & 0x03;
+                        MappedRead::Data(Self::ATTR_MIRROR[attr as usize])
                     } else {
-                        let attr_fetch = offset >= Ppu::ATTR_OFFSET;
-                        match (self.regs.exmode, nametable) {
-                            (ExMode::Attr, _) if attr_fetch => {
-                                // If we're in Extended Attribute mode and reading BG attributes,
-                                // return Attribute data instead of relying on CIRAM
-                                let attr = self.exram[self.tile_cache];
-                                return MappedRead::Data(
-                                    Self::ATTR_BITS[((attr >> 6) & 0x03) as usize],
-                                );
+                        let exram_nametable = self.regs.exram_mode.nametable;
+                        match self.nametable_select(addr) {
+                            Nametable::ScreenA => MappedRead::CIRam((addr & 0x03FF).into()),
+                            Nametable::ScreenB => {
+                                MappedRead::CIRam(0x0400 | (addr & 0x03FF) as usize)
                             }
-                            (ExMode::Nametable | ExMode::Attr, Nametable::ExRam) => {
-                                return MappedRead::Data(self.read_exram(addr - 0x2000));
+                            Nametable::ExRam if exram_nametable => {
+                                MappedRead::Data(self.read_exram(addr))
                             }
-                            (ExMode::Nametable | ExMode::Attr, Nametable::Fill) => {
-                                let val = if attr_fetch {
-                                    Self::ATTR_BITS[(self.regs.fill.attr & 0x03) as usize]
+                            Nametable::Fill if exram_nametable => {
+                                let val = if is_attr {
+                                    Self::ATTR_MIRROR[self.regs.fill.attr]
                                 } else {
                                     self.regs.fill.tile
                                 };
-                                return MappedRead::Data(val);
+                                MappedRead::Data(val)
                             }
-                            _ => (),
+                            // If nametable mode is not set, zero is read back
+                            _ => MappedRead::Data(0x00),
                         }
                     }
-                    MappedRead::Default
                 }
             }
             0x5010 => {
@@ -599,10 +657,10 @@ impl MemMap for Exrom {
             }
             0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
             0x5101 => MappedRead::Data(self.regs.chr_mode as u8),
-            0x5104 => MappedRead::Data(self.regs.exmode as u8),
-            0x5105 => MappedRead::Data(self.regs.nametable_mirroring),
+            0x5104 => MappedRead::Data(self.regs.exram_mode.bits),
+            0x5105 => MappedRead::Data(self.regs.nametable_mapping.mode),
             0x5106 => MappedRead::Data(self.regs.fill.tile),
-            0x5107 => MappedRead::Data(self.regs.fill.attr),
+            0x5107 => MappedRead::Data(self.regs.fill.attr as u8),
             0x5015 => {
                 // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
                 let mut status = 0x00;
@@ -621,11 +679,7 @@ impl MemMap for Exrom {
                 MappedRead::Data(self.regs.chr_banks[(addr - 0x5120) as usize] as u8)
             }
             0x5130 => MappedRead::Data(self.regs.chr_hi as u8),
-            0x5200 => MappedRead::Data(
-                u8::from(self.regs.vsplit.enabled) << 7
-                    | (self.regs.vsplit.side as u8) << 6
-                    | self.regs.vsplit.tile,
-            ),
+            0x5200 => MappedRead::Data(self.regs.vsplit.mode),
             0x5201 => MappedRead::Data(self.regs.vsplit.scroll),
             0x5202 => MappedRead::Data(self.regs.vsplit.bank),
             0x5203 => MappedRead::Data(self.regs.irq_scanline as u8),
@@ -642,9 +696,9 @@ impl MemMap for Exrom {
             }
             0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),
             0x5206 => MappedRead::Data(((self.regs.mult_result >> 8) & 0xFF) as u8),
-            0x5C00..=0x5FFF if !matches!(self.regs.exmode, ExMode::Nametable | ExMode::Attr) => {
+            0x5C00..=0x5FFF if matches!(self.regs.exram_mode.rw, ExRamRW::R | ExRamRW::RW) => {
                 // Nametable/Attr modes are not used for RAM, thus are not readable
-                MappedRead::Data(self.read_exram(addr - 0x5C00))
+                MappedRead::Data(self.read_exram(addr))
             }
             0x6000..=0xDFFF => {
                 if self.rom_select(addr) {
@@ -654,24 +708,23 @@ impl MemMap for Exrom {
                 }
             }
             0xE000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
-            // TODO MMC5A only CL3 / SL3 Status
-            // TODO MMC5A only 6-bit Hardware Timer with IRQ
             0x5207 | 0x5208 | 0x5209 => MappedRead::Data(0),
-            // 0x5800..=0x5BFF - MMC5A unknown
-            _ => MappedRead::Default,
+            _ => MappedRead::None,
         }
     }
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x2000..=0x3EFF => {
-                if self.nametable_mirroring() == Nametable::ExRam
-                    && matches!(self.regs.exmode, ExMode::Nametable | ExMode::Attr)
-                {
-                    self.write_exram(addr - 0x2000, val);
+            0x2000..=0x3EFF => match self.nametable_select(addr) {
+                Nametable::ScreenA => return MappedWrite::CIRam((addr & 0x03FF).into(), val),
+                Nametable::ScreenB => {
+                    return MappedWrite::CIRam(0x0400 | (addr & 0x03FF) as usize, val)
                 }
-            }
+                Nametable::ExRam if self.regs.exram_mode.nametable => {
+                    self.write_exram(addr, val);
+                }
+                _ => (),
+            },
             0x5000 => self.pulse1.write_ctrl(val),
             // 0x5001 Has no effect since there is no Sweep unit
             0x5002 => self.pulse1.write_timer_lo(val),
@@ -741,16 +794,12 @@ impl MemMap for Exrom {
             }
             0x5104 => {
                 // [.... ..XX] ExRam mode
-                self.regs.exmode = match val {
-                    0 => ExMode::Nametable,
-                    1 => ExMode::Attr,
-                    2 => ExMode::Ram,
-                    3 => ExMode::RamProtected,
-                    _ => {
-                        log::warn!("invalid ExMode value: ${:02X}", val);
-                        self.regs.exmode
-                    }
-                };
+                //   Value  RAM $5C00-$5FFF  RAM Nametable  Extended Attr
+                //   %00    Write Only       Yes            No
+                //   %01    Write Only       Yes            Yes
+                //   %10    Read/Write       No             No
+                //   %11    Read Only        No             No
+                self.regs.exram_mode.set(val);
             }
             0x5105 => {
                 // [.... ..HH]
@@ -765,15 +814,16 @@ impl MemMap for Exrom {
                 //   %01 = NES internal NTB
                 //   %10 = use ExRam as NT
                 //   %11 = Fill Mode
-                //
-                // For example... some typical mirroring setups would be:
-                //                        (  D  C  B  A)
-                //   Horizontal:     $50  (%01 01 00 00)
-                //   Vertical:       $44  (%01 00 01 00)
-                //   SingleScreenA:  $00  (%00 00 00 00)
-                //   SingleScreenB:  $55  (%01 01 01 01)
-                //   Fill:           $ff  (%11 11 11 11)
-                self.regs.nametable_mirroring = val;
+                self.regs.nametable_mapping.set(val);
+
+                // Typical mirroring setups would be:
+                //                          D  C  B  A
+                //   Horizontal:     $50    01 01 00 00
+                //   Vertical:       $44    01 00 01 00
+                //   SingleScreenA:  $00    00 00 00 00
+                //   SingleScreenB:  $55    01 01 01 01
+                //   SingleScreen ExRAM:   $AA    10 10 10 10
+                //   SingleScreen Fill:    $FF    11 11 11 11
                 self.mirroring = match val {
                     0x50 => Mirroring::Horizontal,
                     0x44 => Mirroring::Vertical,
@@ -784,7 +834,7 @@ impl MemMap for Exrom {
                 };
             }
             0x5106 => self.regs.fill.tile = val, // [TTTT TTTT] Fill Tile
-            0x5107 => self.regs.fill.attr = val & 0x03, // [.... ..AA] Fill Attribute bits
+            0x5107 => self.regs.fill.attr = (val & 0x03).into(), // [.... ..AA] Fill Attribute bits
             0x5113..=0x5117 => {
                 // PRG Bank Switching
                 // $5113: [.... .PPP]
@@ -815,9 +865,9 @@ impl MemMap for Exrom {
                 //   T = tile number to split at
                 self.regs.vsplit.enabled = val & 0x80 == 0x80;
                 self.regs.vsplit.side = if val & 0x40 == 0x40 {
-                    SplitSide::Right
+                    Side::Right
                 } else {
-                    SplitSide::Left
+                    Side::Left
                 };
                 self.regs.vsplit.tile = val & 0x1F;
             }
@@ -835,29 +885,21 @@ impl MemMap for Exrom {
                 self.regs.mult_result =
                     u16::from(self.regs.multiplicand) * u16::from(self.regs.multiplier);
             }
-            // TODO MMC5A only CL3 / SL3 Data Direction and Output Data Source
-            // TODO MMC5A only CL3 / SL3 Status
-            // TODO MMC5A only 6-bit Hardware Timer with IRQ
             0x5207 | 0x5208 | 0x5209 => {}
-            0x5C00..=0x5FFF => match self.regs.exmode {
-                ExMode::Nametable | ExMode::Attr => {
-                    self.write_exram(
-                        addr - 0x5C00,
-                        if self.ppu_status.rendering { val } else { 0x00 },
-                    );
+            0x5C00..=0x5FFF => match self.regs.exram_mode.rw {
+                ExRamRW::W => {
+                    let val = if self.ppu_status.rendering { val } else { 0x00 };
+                    self.write_exram(addr, val);
                 }
-                ExMode::Ram => self.write_exram(addr - 0x5C00, val),
-                ExMode::RamProtected => (),
+                ExRamRW::RW => self.write_exram(addr, val),
+                _ => (),
             },
             0x6000..=0xDFFF if !self.rom_select(addr) => {
                 return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
             }
-            // 0x0000..=0x1FFF CHR-ROM is read-only
-            // 0x5800..=0x5BFF MMC5A unknown
-            // 0xE000..=0xFFFF ROM is write-only
             _ => (),
         }
-        MappedWrite::Default
+        MappedWrite::None
     }
 }
 
@@ -936,8 +978,6 @@ impl std::fmt::Debug for Exrom {
             .field("prg_rom_banks", &self.prg_rom_banks)
             .field("chr_banks", &self.chr_banks)
             .field("tile_cache", &self.tile_cache)
-            .field("in_split", &self.in_split)
-            .field("split_tile", &self.split_tile)
             .field("last_chr_write", &self.last_chr_write)
             .field("region", &self.region)
             .field("pulse1", &self.pulse1)

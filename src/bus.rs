@@ -363,13 +363,6 @@ impl Mem for CpuBus {
                     MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    MappedRead::Default => match addr {
-                        0x6000..=0x7FFF if !self.prg_ram.is_empty() => {
-                            self.prg_ram[(addr & 0x1FFF) as usize]
-                        }
-                        0x8000..=0xFFFF => self.prg_rom[(addr & 0x7FFF) as usize],
-                        _ => self.open_bus,
-                    },
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -398,13 +391,6 @@ impl Mem for CpuBus {
                     MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    MappedRead::Default => match addr {
-                        0x6000..=0x7FFF if !self.prg_ram.is_empty() => {
-                            self.prg_ram[(addr & 0x1FFF) as usize]
-                        }
-                        0x8000..=0xFFFF => self.prg_rom[(addr & 0x7FFF) as usize],
-                        _ => self.open_bus,
-                    },
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -457,9 +443,6 @@ impl Mem for CpuBus {
                 match self.mapper_mut().map_write(addr, val) {
                     MappedWrite::PrgRam(addr, val) if prg_ram_enabled => self.prg_ram[addr] = val,
                     MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
-                    MappedWrite::Default if matches!(addr, 0x6000..=0x7FFF) && prg_ram_enabled => {
-                        self.prg_ram[(addr & 0x1FFF) as usize] = val;
-                    }
                     _ => (),
                 }
                 self.ppu.update_mirroring();

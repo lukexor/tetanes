@@ -76,7 +76,7 @@ impl Default for Mapper {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedRead {
-    Default,
+    None,
     Chr(usize),
     CIRam(usize),
     ExRam(usize),
@@ -88,7 +88,7 @@ pub enum MappedRead {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedWrite {
-    Default,
+    None,
     Chr(usize, u8),
     CIRam(usize, u8),
     ExRam(usize, u8),
@@ -108,7 +108,7 @@ pub trait MemMap {
             0x2000..=0x3EFF => MappedRead::CIRam(addr.into()),
             0x6000..=0x7FFF => MappedRead::PrgRam((addr & 0x1FFF).into()),
             0x8000..=0xFFFF => MappedRead::PrgRom((addr & 0x7FFF).into()),
-            _ => MappedRead::Default,
+            _ => MappedRead::None,
         }
     }
 
@@ -117,7 +117,7 @@ pub trait MemMap {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
             0x2000..=0x3EFF => MappedWrite::CIRam(addr.into(), val),
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
-            _ => MappedWrite::Default,
+            _ => MappedWrite::None,
         }
     }
 }

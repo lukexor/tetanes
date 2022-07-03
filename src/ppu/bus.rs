@@ -6,6 +6,23 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+pub trait PpuAddr {
+    /// Returns whether this value can be used to fetch a nametable attribute byte.
+    fn is_attr(&self) -> bool;
+    fn is_palette(&self) -> bool;
+}
+
+impl PpuAddr for u16 {
+    #[inline]
+    fn is_attr(&self) -> bool {
+        (*self & 0x03FF) >= 0x03C0
+    }
+    #[inline]
+    fn is_palette(&self) -> bool {
+        *self >= 0x3F00
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuBus {
@@ -98,8 +115,7 @@ impl PpuBus {
     // Single Screen B: [ b ] [ B ]
     //                  [ b ] [ b ]
     //
-    // Fourscreen:      [ A ] [ B ]
-    //                  [ C ] [ D ]
+    // Fourscreen should not use this method and instead should rely on mapper translation.
     #[inline]
     const fn vram_mirror(&self, addr: usize) -> usize {
         let nametable = (addr >> self.mirror_shift) & 0x0400;
@@ -119,7 +135,6 @@ impl PpuBus {
 
 impl Mem for PpuBus {
     fn read(&mut self, addr: u16, _access: Access) -> u8 {
-        self.mapper.ppu_bus_read(addr);
         let val = match addr {
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
@@ -137,7 +152,6 @@ impl Mem for PpuBus {
                 MappedRead::CIRam(addr) => self.vram[addr],
                 MappedRead::ExRam(addr) => self.ex_ram[addr],
                 MappedRead::Data(data) => data,
-                MappedRead::Default => self.vram[self.vram_mirror(addr.into())],
                 _ => self.open_bus,
             },
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
@@ -168,7 +182,6 @@ impl Mem for PpuBus {
                 MappedRead::CIRam(addr) => self.vram[self.vram_mirror(addr)],
                 MappedRead::ExRam(addr) => self.ex_ram[addr],
                 MappedRead::Data(data) => data,
-                MappedRead::Default => self.vram[self.vram_mirror(addr.into())],
                 _ => self.open_bus,
             },
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
@@ -183,20 +196,14 @@ impl Mem for PpuBus {
         match addr {
             0x0000..=0x1FFF => {
                 if !self.chr_ram.is_empty() {
-                    match self.mapper.map_write(addr, val) {
-                        MappedWrite::Chr(addr, val) => self.chr_ram[addr] = val,
-                        MappedWrite::Default => self.chr_ram[addr as usize] = val,
-                        _ => (),
+                    if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
+                        self.chr_ram[addr] = val;
                     }
                 }
             }
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
                 MappedWrite::CIRam(addr, val) => self.vram[addr] = val,
                 MappedWrite::ExRam(addr, val) => self.ex_ram[addr] = val,
-                MappedWrite::Default => {
-                    let addr = self.vram_mirror(addr.into());
-                    self.vram[addr] = val;
-                }
                 _ => (),
             },
             0x3F00..=0x3FFF => {

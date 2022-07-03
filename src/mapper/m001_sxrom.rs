@@ -251,7 +251,7 @@ impl MemMap for Sxrom {
                 MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
             }
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Default,
+            _ => MappedRead::None,
         }
     }
 
@@ -263,9 +263,9 @@ impl MemMap for Sxrom {
             }
             0x8000..=0xFFFF => {
                 self.write_registers(addr, val);
-                MappedWrite::Default
+                MappedWrite::None
             }
-            _ => MappedWrite::Default,
+            _ => MappedWrite::None,
         }
     }
 }

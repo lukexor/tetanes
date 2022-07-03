@@ -124,7 +124,6 @@ impl Ppu {
 
     pub(crate) const NT_START: u16 = 0x2000;
     pub(crate) const NT_SIZE: u16 = 0x0400;
-    pub(crate) const ATTR_OFFSET: u16 = 0x03C0;
     pub(crate) const PALETTE_START: u16 = 0x3F00;
     pub(crate) const PALETTE_END: u16 = 0x3F20;
 

@@ -41,10 +41,10 @@ impl Uxrom {
 
 impl MemMap for Uxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
-        if matches!(addr, 0x8000..=0xFFFF) {
-            MappedRead::PrgRom(self.prg_rom_banks.translate(addr))
-        } else {
-            MappedRead::Default
+        match addr {
+            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
+            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
+            _ => MappedRead::None,
         }
     }
 
@@ -52,7 +52,7 @@ impl MemMap for Uxrom {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.prg_rom_banks.set(0, val.into());
         }
-        MappedWrite::Default
+        MappedWrite::None
     }
 }
 

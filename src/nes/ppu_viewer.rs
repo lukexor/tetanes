@@ -72,8 +72,7 @@ impl PpuViewer {
                 let tile = ppu.peek(addr, Access::Dummy);
                 let tile_addr = ppu.ctrl().bg_select() + u16::from(tile) * 16;
                 let supertile = (x_scroll / 4) + (y_scroll / 4) * 8;
-                let attr =
-                    u16::from(ppu.peek(nt_base_addr + Ppu::ATTR_OFFSET + supertile, Access::Dummy));
+                let attr = u16::from(ppu.peek(nt_base_addr + 0x03C0 + supertile, Access::Dummy));
                 let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
                 let mask = 0x03 << corner;
                 let palette = (attr & mask) >> corner;

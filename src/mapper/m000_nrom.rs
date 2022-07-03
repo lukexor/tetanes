@@ -44,11 +44,13 @@ impl Nrom {
 
 impl MemMap for Nrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
-        if matches!(addr, 0x8000..=0xFFFF) {
-            let mirror = if self.mirror_prg_rom { 0x3FFF } else { 0x7FFF };
-            MappedRead::PrgRom((addr & mirror).into())
-        } else {
-            MappedRead::Default
+        match addr {
+            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
+            0x8000..=0xFFFF => {
+                let mirror = if self.mirror_prg_rom { 0x3FFF } else { 0x7FFF };
+                MappedRead::PrgRom((addr & mirror).into())
+            }
+            _ => MappedRead::None,
         }
     }
 }

@@ -97,7 +97,7 @@ impl MemMap for Pxrom {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Default,
+            _ => MappedRead::None,
         }
     }
 
@@ -119,7 +119,7 @@ impl MemMap for Pxrom {
             }
             _ => (),
         }
-        MappedWrite::Default
+        MappedWrite::None
     }
 }
 
