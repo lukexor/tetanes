@@ -110,7 +110,8 @@ impl AudioMixer {
             filters: [
                 Filter::high_pass(output_frequency, 90.0, 1500.0),
                 Filter::high_pass(output_frequency, 440.0, 1500.0),
-                Filter::low_pass(output_frequency, 14_000.0, 1500.0),
+                // Should be 14k, but this allows 2X speed within the Nyquist limit
+                Filter::low_pass(output_frequency, 12_000.0, 1500.0),
             ],
         }
     }

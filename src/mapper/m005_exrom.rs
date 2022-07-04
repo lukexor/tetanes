@@ -503,11 +503,6 @@ impl Exrom {
     }
 
     #[inline]
-    fn bg_attr_fetch(&self, addr: u16) -> bool {
-        addr.is_attr() && !self.spr_fetch()
-    }
-
-    #[inline]
     const fn nametable_select(&self, addr: u16) -> Nametable {
         self.regs.nametable_mapping.select[((addr >> 10) & 0x03) as usize]
     }
@@ -551,7 +546,7 @@ impl MemMap for Exrom {
             0x2000..=0x3EFF => {
                 let is_attr = addr.is_attr();
                 // Cache BG tile fetch for later attribute byte fetch
-                if is_attr && self.regs.exram_mode.attr && !self.spr_fetch() {
+                if self.regs.exram_mode.attr && !is_attr && !self.spr_fetch() {
                     self.tile_cache = (addr & 0x03FF).into();
                 }
 
@@ -604,47 +599,42 @@ impl MemMap for Exrom {
         match addr {
             0x0000..=0x1FFF => {
                 if self.regs.exram_mode.attr {
-                    let hibits = self.regs.chr_hi << 10;
-                    let exbits = ((self.exram[self.tile_cache] & 0x3F) as usize) << 12;
-                    let addr = hibits | exbits | (addr as usize) & 0x0FFF;
+                    // Bits 6-7 of 4K CHR bank. Already shifted left by 8
+                    let bank_hi = self.regs.chr_hi << 10;
+                    // Bits 0-5 of 4k CHR bank
+                    let bank_lo = ((self.exram[self.tile_cache] & 0x3F) as usize) << 12;
+                    let addr = bank_hi | bank_lo | (addr as usize) & 0x0FFF;
                     MappedRead::Chr(addr)
                 } else {
                     MappedRead::Chr(self.chr_banks.translate(addr))
                 }
             }
             0x2000..=0x3EFF => {
+                let is_attr = addr.is_attr();
                 if self.regs.vsplit.in_region {
                     todo!()
-                } else if self.regs.exram_mode.attr && self.bg_attr_fetch(addr) {
+                } else if is_attr && self.regs.exram_mode.attr && !self.spr_fetch() {
+                    // ExAttr mode returns attr bits for all nametables, regardless of mapping
                     let attr = (self.exram[self.tile_cache] >> 6) & 0x03;
                     MappedRead::Data(Self::ATTR_MIRROR[attr as usize])
                 } else {
-                    let is_attr = addr.is_attr();
-                    // ExAttr mode returns attr bits for all nametables, regardless of mapping
-                    if is_attr && self.regs.exram_mode.attr {
-                        let attr = (self.read_exram(addr) >> 6) & 0x03;
-                        MappedRead::Data(Self::ATTR_MIRROR[attr as usize])
-                    } else {
-                        let exram_nametable = self.regs.exram_mode.nametable;
-                        match self.nametable_select(addr) {
-                            Nametable::ScreenA => MappedRead::CIRam((addr & 0x03FF).into()),
-                            Nametable::ScreenB => {
-                                MappedRead::CIRam(0x0400 | (addr & 0x03FF) as usize)
-                            }
-                            Nametable::ExRam if exram_nametable => {
-                                MappedRead::Data(self.read_exram(addr))
-                            }
-                            Nametable::Fill if exram_nametable => {
-                                let val = if is_attr {
-                                    Self::ATTR_MIRROR[self.regs.fill.attr]
-                                } else {
-                                    self.regs.fill.tile
-                                };
-                                MappedRead::Data(val)
-                            }
-                            // If nametable mode is not set, zero is read back
-                            _ => MappedRead::Data(0x00),
+                    let nametable_mode = self.regs.exram_mode.nametable;
+                    match self.nametable_select(addr) {
+                        Nametable::ScreenA => MappedRead::CIRam((addr & 0x03FF).into()),
+                        Nametable::ScreenB => MappedRead::CIRam(0x0400 | (addr & 0x03FF) as usize),
+                        Nametable::ExRam if nametable_mode => {
+                            MappedRead::Data(self.read_exram(addr))
                         }
+                        Nametable::Fill if nametable_mode => {
+                            let val = if is_attr {
+                                Self::ATTR_MIRROR[self.regs.fill.attr]
+                            } else {
+                                self.regs.fill.tile
+                            };
+                            MappedRead::Data(val)
+                        }
+                        // If nametable mode is not set, zero is read back
+                        _ => MappedRead::Data(0x00),
                     }
                 }
             }
@@ -768,16 +758,21 @@ impl MemMap for Exrom {
             }
             0x5101 => {
                 // [.... ..CC] CHR Mode
-                self.regs.chr_mode = match val & 0x03 {
-                    0 => ChrMode::Bank8k,
-                    1 => ChrMode::Bank4k,
-                    2 => ChrMode::Bank2k,
-                    3 => ChrMode::Bank1k,
-                    _ => {
-                        log::warn!("invalid ChrMode value: ${:02X}", val);
-                        self.regs.chr_mode
-                    }
-                };
+                if self.regs.exram_mode.attr {
+                    // Bank switching is ignored in extended attribute mode, banks are always 4K
+                    self.regs.chr_mode = ChrMode::Bank4k;
+                } else {
+                    self.regs.chr_mode = match val & 0x03 {
+                        0 => ChrMode::Bank8k,
+                        1 => ChrMode::Bank4k,
+                        2 => ChrMode::Bank2k,
+                        3 => ChrMode::Bank1k,
+                        _ => {
+                            log::warn!("invalid ChrMode value: ${:02X}", val);
+                            self.regs.chr_mode
+                        }
+                    };
+                }
                 self.update_chr_banks(self.last_chr_write);
             }
             0x5102 | 0x5103 => {
