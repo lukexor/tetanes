@@ -28,6 +28,11 @@ impl NesAudioCallback {
     }
 
     #[inline]
+    pub fn clear(&mut self) {
+        self.buffer.discard(self.len());
+    }
+
+    #[inline]
     #[must_use]
     pub fn len(&self) -> usize {
         self.buffer.len()
@@ -40,7 +45,7 @@ impl NesAudioCallback {
     }
 
     pub fn read(&mut self, out: &mut [f32]) {
-        if !self.initialized && self.buffer.len() < 2 * out.len() {
+        if !self.initialized && self.buffer.len() < out.len() {
             out.fill(0.0);
             return;
         }
@@ -133,7 +138,7 @@ impl AudioMixer {
                 let spec = AudioSpecDesired {
                     freq: Some(self.output_frequency as i32),
                     channels: Some(1),
-                    samples: Some((self.capacity() / 4) as u16),
+                    samples: Some((self.capacity() / 2) as u16),
                 };
                 self.device =
                     Some(s.open_playback(None, &spec, |_| NesAudioCallback::new(consumer))?);
@@ -239,7 +244,7 @@ impl AudioMixer {
         } else {
             1.0
         };
-        self.decim_ratio = self.input_frequency / (self.pitch_ratio * self.output_frequency);
+        self.decim_ratio = self.input_frequency / (self.output_frequency * self.pitch_ratio);
         let mut sample_count = 0;
         for sample in samples {
             self.avg += *sample;

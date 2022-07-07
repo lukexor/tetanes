@@ -924,7 +924,7 @@ impl Cpu {
 
         #[cfg(not(feature = "cycle-accurate"))]
         {
-            self.bus.ppu.run(self.master_clock - PPU_OFFSET);
+            self.bus.ppu.clock_to(self.master_clock - PPU_OFFSET);
             let cycles = self.cycle - start_cycle;
             for _ in 0..cycles {
                 self.bus.cart.clock();

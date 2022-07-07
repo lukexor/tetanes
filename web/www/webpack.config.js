@@ -1,7 +1,7 @@
 const path = require("path");
 
 module.exports = {
-  mode: "production",
+  mode: "development",
   entry: "./src/bootstrap.ts",
   module: {
     rules: [
@@ -18,6 +18,10 @@ module.exports = {
   output: {
     filename: "bundle.js",
     path: path.resolve(__dirname, "public/dist"),
+  },
+  devServer: {
+    static: "./dist",
+    hot: false,
   },
   experiments: {
     asyncWebAssembly: true,

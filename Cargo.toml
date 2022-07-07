@@ -52,6 +52,7 @@ wasm-bindgen = "0.2.81"
 [features]
 default = ["cycle-accurate"]
 cycle-accurate = []
+profile-rate-control = []
 
 # Optimized development for playable framerates
 [profile.dev-opt]

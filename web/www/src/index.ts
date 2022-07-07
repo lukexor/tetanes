@@ -1,5 +1,4 @@
 import { Nes } from "tetanes-web";
-import { memory } from "tetanes-web/tetanes_web_bg.wasm";
 
 const WIDTH = 256;
 const HEIGHT = 240;
@@ -7,6 +6,7 @@ const CLIP_TOP = 8;
 const CLIP_BOTTOM = 8;
 const CANVAS_ID = "view";
 const BACK_CANVAS_ID = "backView";
+const TARGET_FPS = 1000 / 60;
 
 type Rom = {
   name: string;
@@ -313,20 +313,21 @@ class State {
   width = this.scale * WIDTH;
   height = this.scale * HEIGHT;
   imageData: null | ImageData = null;
-  imageBuffer: null | Uint8Array = null;
-  deltaTime = 0;
-  lastFrameTime = 0;
+  imageBuffer: Uint8Array = new Uint8Array(4 * 256 * 240);
 
-  sampleRate = 48000;
-  bufferSize = 800;
+  sampleRate = 44100;
+  bufferSize = 735;
   maxDelta = 0.02;
   audioCtx: null | AudioContext = null;
+  gainNode: null | GainNode = null;
   emptyBuffers: AudioBuffer[] = [];
-  buffered = 0.0;
   nextStartTime = 0.0;
 
+  lastFrameTime = 0;
+  animationId = 0;
+
   constructor() {
-    this.nes = Nes.new(this.sampleRate, this.bufferSize, this.maxDelta);
+    this.nes = Nes.new(this.sampleRate, this.maxDelta);
     this.fps = new Fps();
     this.audioEnabled = true;
     this.keybinds = [
@@ -342,9 +343,6 @@ class State {
       "ArrowLeft",
       "ArrowRight",
     ];
-    this.sampleRate = this.nes.sample_rate();
-    this.bufferSize = this.nes.buffer_capacity();
-    this.emptyBuffers = [];
 
     this.webgl = setupWebgl(WIDTH, HEIGHT, this.scale);
     if (!this.webgl) {
@@ -353,7 +351,7 @@ class State {
       const web2d = setupWeb2d(WIDTH, HEIGHT, this.scale);
       if (!web2d) {
         console.error("Web2d creation failed");
-        handleError("Failed to setup canvas");
+        handleError("Rendering not supported in this browser");
         return;
       }
       this.canvasCtx = web2d.canvasCtx;
@@ -363,32 +361,79 @@ class State {
     }
   }
 
+  run() {
+    if (!this.paused) {
+      this.animationId = requestAnimationFrame(() => {
+        this.run();
+      });
+
+      const now = performance.now();
+      const elapsed = now - this.lastFrameTime;
+      if (elapsed >= TARGET_FPS) {
+        this.lastFrameTime = now - (elapsed % TARGET_FPS);
+        this.fps.tick();
+
+        this.nes.clock_frame();
+        this.queueAudio();
+        this.render();
+      }
+    }
+  }
+
   loadRom(data: Uint8Array) {
     this.nes.load_rom(data);
-    this.pause(false);
 
-    if (!this.loaded) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      this.audioCtx = new AudioContext({ sampleRate: this.sampleRate });
-      this.emptyBuffers = [];
-    }
+    this.fps = new Fps();
+    this.setupAudio();
     this.loaded = true;
+    this.pause(false);
 
     const loadRomLabel = getElement("load-rom-label");
     if (loadRomLabel) {
       loadRomLabel.textContent = "Change ROM";
     }
     clearError();
+    this.run();
+  }
+
+  setupAudio() {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) {
+      console.error("Browser does not support audio");
+      const toggleAudio = getElement("toggle-audio");
+      if (toggleAudio) {
+        toggleAudio.textContent = "Sound Not Supported";
+        (toggleAudio as HTMLButtonElement).disabled = true;
+      }
+      return;
+    }
+    this.audioCtx = new AudioContext();
+    this.gainNode = this.audioCtx.createGain();
+    this.gainNode.gain.setValueAtTime(1, 0);
   }
 
   setSound(enabled: boolean) {
     this.audioEnabled = enabled;
     this.nes.set_sound(enabled);
+    this.silenceSound(!enabled);
+
+    const toggleAudio = getElement("toggle-audio");
+    if (toggleAudio) {
+      if (this.audioEnabled) {
+        toggleAudio.textContent = "Mute";
+      } else {
+        toggleAudio.textContent = "Unmute";
+      }
+    }
   }
 
   handleEvent(key: string, pressed: boolean, repeat: boolean) {
     if (this.loaded && this.keybinds.includes(key)) {
-      this.nes.handle_event(key, pressed, repeat);
+      if (key === "Escape" && pressed) {
+        this.pause(!this.paused);
+      } else {
+        this.nes.handle_event(key, pressed, repeat);
+      }
       return true;
     }
     return false;
@@ -417,27 +462,87 @@ class State {
     }
   }
 
-  clock() {
-    const now = performance.now();
-    this.deltaTime = now - this.lastFrameTime;
-    this.lastFrameTime = now;
-    this.fps.tick();
-    let secondsToRun = Math.min(
-      Math.max(this.deltaTime / 1000.0, 0.0),
-      1.0 / 60.0
-    );
-    this.nes.clock_seconds(secondsToRun);
-  }
-
   pause(paused: boolean) {
+    if (!this.loaded) {
+      return;
+    }
     this.paused = paused;
     this.nes.pause(paused);
+
+    if (this.loaded) {
+      if (paused) {
+        cancelAnimationFrame(this.animationId);
+        this.silenceSound(true);
+      } else {
+        this.silenceSound(false);
+        this.run();
+      }
+    }
+
+    const togglePause = getElement("toggle-pause");
+    if (togglePause) {
+      if (this.paused) {
+        togglePause.textContent = "Unpause";
+      } else {
+        togglePause.textContent = "Pause";
+      }
+    }
+  }
+
+  silenceSound(silenced: boolean) {
+    if (this.audioCtx && this.gainNode) {
+      if (silenced) {
+        this.gainNode.gain.exponentialRampToValueAtTime(
+          0.001,
+          this.audioCtx.currentTime + 0.3
+        );
+      } else {
+        this.gainNode.gain.exponentialRampToValueAtTime(
+          1,
+          this.audioCtx.currentTime + 0.3
+        );
+      }
+    }
+  }
+
+  getAudioBuffer() {
+    if (!this.audioCtx) {
+      throw new Error("AudioContext not created");
+    }
+
+    if (this.emptyBuffers.length) {
+      return this.emptyBuffers.pop()!;
+    } else {
+      return this.audioCtx.createBuffer(1, this.bufferSize, this.sampleRate);
+    }
+  }
+
+  queueAudio() {
+    if (!this.audioEnabled) {
+      return;
+    } else if (!this.audioCtx || !this.gainNode) {
+      throw new Error("Audio not set up correctly");
+    }
+
+    this.gainNode.gain.setValueAtTime(1, this.audioCtx.currentTime);
+
+    const audioBuffer = this.getAudioBuffer();
+    this.nes.audio_callback(audioBuffer.getChannelData(0));
+    const source = this.audioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(this.gainNode).connect(this.audioCtx.destination);
+    source.onended = () => {
+      this.emptyBuffers.push(audioBuffer);
+    };
+    const latency = 0.032;
+    const audioCtxTime = this.audioCtx.currentTime + latency;
+    const start = Math.max(this.nextStartTime, audioCtxTime);
+    source.start(start);
+    this.nextStartTime = start + this.bufferSize / this.sampleRate;
   }
 
   render() {
-    const frameLen = this.nes.frame_len();
-    const framePtr = this.nes.frame();
-    const buffer = new Uint8Array(memory.buffer, framePtr, frameLen);
+    this.nes.copy_frame(this.imageBuffer);
     if (this.webgl) {
       this.webgl.texSubImage2D(
         this.webgl.TEXTURE_2D,
@@ -448,7 +553,7 @@ class State {
         HEIGHT,
         this.webgl.RGBA,
         this.webgl.UNSIGNED_BYTE,
-        buffer
+        this.imageBuffer
       );
       this.webgl.drawElements(
         this.webgl.TRIANGLES,
@@ -456,90 +561,41 @@ class State {
         this.webgl.UNSIGNED_SHORT,
         0
       );
-    } else if (this.canvasCtx && this.imageBuffer && this.imageData) {
-      this.imageBuffer.set(buffer);
+    } else if (this.canvasCtx && this.imageData) {
       this.backCanvasCtx!.putImageData(this.imageData, 0, 0);
       this.canvasCtx.drawImage(backCanvas, 0, 0);
     } else {
       console.error("WebGL and Web2D failed to render");
     }
   }
-
-  playAudio() {
-    if (this.audioEnabled && this.audioCtx) {
-      const samplesPtr = this.nes.samples();
-      const samples = new Float32Array(
-        memory.buffer,
-        samplesPtr,
-        this.bufferSize
-      );
-
-      let audioBuffer: AudioBuffer;
-      if (this.emptyBuffers.length) {
-        audioBuffer = this.emptyBuffers.pop()!;
-      } else {
-        audioBuffer = this.audioCtx.createBuffer(
-          1,
-          this.bufferSize,
-          this.sampleRate
-        );
-      }
-
-      audioBuffer.getChannelData(0).set(samples);
-
-      const node = this.audioCtx.createBufferSource();
-      node.connect(this.audioCtx.destination);
-      node.buffer = audioBuffer;
-      node.onended = () => {
-        this.emptyBuffers.push(audioBuffer);
-      };
-
-      const latency = 0.032; // Two frames worth
-      this.buffered =
-        this.nextStartTime - (this.audioCtx.currentTime + latency);
-      const start = Math.max(
-        this.nextStartTime || 0,
-        this.audioCtx.currentTime + latency
-      );
-      node.start(start);
-      this.nextStartTime = start + this.bufferSize / this.sampleRate;
-    }
-  }
 }
 
 class Fps {
   fpsCounter: HTMLElement;
-  frames: number[] = [];
-  lastFrameTime: number = 0.0;
+  frameCount = 0;
+  elapsed = 0.0;
+  lastFrameTime = 0.0;
+  history: number[] = Array.from({ length: 30 }, () => 60);
+  historyWrite: number = 0;
 
   constructor() {
     this.fpsCounter = getElement("fps")!;
-    this.frames = [];
-    this.lastFrameTime = performance.now();
   }
 
   tick() {
+    this.frameCount += 1;
     const now = performance.now();
     const delta = now - this.lastFrameTime;
+    this.elapsed += delta;
     this.lastFrameTime = now;
 
-    const fps = (1 / delta) * 1000;
-    this.frames.push(fps);
-    if (this.frames.length > 100) {
-      this.frames.shift();
+    if (this.frameCount % 60 === 0) {
+      const avg = 1000.0 / (this.elapsed / 60);
+      this.fpsCounter.textContent = `FPS: ${avg.toFixed(2)}`;
+      this.elapsed = 0.0;
+      this.history[this.historyWrite] = avg;
+      this.historyWrite = (this.historyWrite + 1) % this.history.length;
     }
-
-    let min = Infinity;
-    let max = Infinity;
-    const sum = this.frames.reduce((acc, val) => {
-      acc += val;
-      min = Math.min(val, min);
-      max = Math.max(val, max);
-      return acc;
-    });
-    const mean = sum / this.frames.length;
-
-    this.fpsCounter.textContent = `FPS: ${Math.round(mean)}`.trim();
   }
 }
 
@@ -567,6 +623,9 @@ const setupRomLoading = (state: State) => {
         };
       } else {
         console.error("failed to load rom");
+        if (state.loaded) {
+          state.pause(false);
+        }
       }
     },
     false
@@ -593,13 +652,7 @@ const setupEventHandling = (state: State) => {
     toggleAudio.addEventListener(
       "click",
       (evt: MouseEvent) => {
-        if (state.audioEnabled) {
-          toggleAudio.textContent = "Unmute";
-          state.setSound(false);
-        } else {
-          toggleAudio.textContent = "Mute";
-          state.setSound(true);
-        }
+        state.setSound(!state.audioEnabled);
         (<HTMLElement>evt.currentTarget).blur();
       },
       false
@@ -611,13 +664,7 @@ const setupEventHandling = (state: State) => {
     togglePause.addEventListener(
       "click",
       (evt: MouseEvent) => {
-        if (state.paused && state.loaded) {
-          togglePause.textContent = "Pause";
-          state.pause(false);
-        } else {
-          togglePause.textContent = "UnPause";
-          state.pause(true);
-        }
+        state.pause(!state.paused);
         (<HTMLElement>evt.currentTarget).blur();
       },
       false
@@ -654,9 +701,7 @@ const setupHomebrewRoms = (state: State) => {
     (<HTMLElement>evt.currentTarget).blur();
   };
   const closeMenu = (evt: MouseEvent) => {
-    if (state.loaded) {
-      state.pause(false);
-    }
+    state.pause(false);
     homebrewMenu.classList.add("hidden");
     (<HTMLElement>evt.currentTarget).blur();
   };
@@ -685,17 +730,6 @@ const setupHomebrewRoms = (state: State) => {
   }
 };
 
-const mainLoop = (state: State) => {
-  if (!state.paused) {
-    state.clock();
-    state.playAudio();
-    state.render();
-  }
-  window.requestAnimationFrame(() => {
-    mainLoop(state);
-  });
-};
-
 const clearError = () => handleError("");
 
 const handleError = (error: string) => {
@@ -712,10 +746,6 @@ const initialize = () => {
   setupRomLoading(state);
   setupEventHandling(state);
   setupHomebrewRoms(state);
-
-  window.requestAnimationFrame(() => {
-    mainLoop(state);
-  });
 };
 
 initialize();
