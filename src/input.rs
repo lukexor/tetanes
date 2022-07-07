@@ -338,7 +338,7 @@ impl Input {
                     // Read $4016 D0 8x for controller #3.
                     // Read $4016 D0 8x for signature: 0b00010000
                     if self.gamepads[0].strobe < STROBE_MAX {
-                        self.gamepads[0].read()
+                        self.gamepads[0].read() | (self.gamepads[2].read() << 1)
                     } else if self.fourscore {
                         if self.gamepads[2].strobe < STROBE_MAX {
                             self.gamepads[2].read()
@@ -363,7 +363,7 @@ impl Input {
                     // Read $4017 D0 8x for controller #4.
                     // Read $4017 D0 8x for signature: 0b00100000
                     if self.gamepads[1].strobe < STROBE_MAX {
-                        self.gamepads[1].read()
+                        self.gamepads[1].read() | (self.gamepads[3].read() << 1)
                     } else if self.fourscore {
                         if self.gamepads[3].strobe < STROBE_MAX {
                             self.gamepads[3].read()
