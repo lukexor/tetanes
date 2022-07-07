@@ -76,7 +76,7 @@ jobs:
     - name: Build
       run: |
         cargo build --all-targets --verbose
-        cd tetanes-web
+        cd web
         bash bin/build.sh --dev
     - run: cargo doc --verbose
     - run: cargo test --verbose
