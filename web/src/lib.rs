@@ -52,8 +52,8 @@ impl Nes {
         self.sound = enabled;
     }
 
-    pub fn copy_frame(&mut self, frame: &mut [u8]) {
-        frame.copy_from_slice(self.control_deck.frame_buffer());
+    pub fn frame(&mut self) -> *const u8 {
+        self.control_deck.frame_buffer().as_ptr()
     }
 
     pub fn audio_callback(&mut self, out: &mut [f32]) {

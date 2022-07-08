@@ -1,4 +1,5 @@
 import { Nes } from "tetanes-web";
+import { memory } from "tetanes-web/tetanes_web_bg.wasm";
 
 const WIDTH = 256;
 const HEIGHT = 240;
@@ -542,7 +543,11 @@ class State {
   }
 
   render() {
-    this.nes.copy_frame(this.imageBuffer);
+    this.imageBuffer = new Uint8Array(
+      memory.buffer,
+      this.nes.frame(),
+      4 * 256 * 240
+    );
     if (this.webgl) {
       this.webgl.texSubImage2D(
         this.webgl.TEXTURE_2D,
