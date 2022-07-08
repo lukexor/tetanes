@@ -385,7 +385,9 @@ class State {
     this.nes.load_rom(data);
 
     this.fps = new Fps();
-    this.setupAudio();
+    if (!this.loaded) {
+      this.setupAudio();
+    }
     this.loaded = true;
     this.pause(false);
 
