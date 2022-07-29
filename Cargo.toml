@@ -47,7 +47,7 @@ pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.2.7", features = ["js"] }
-wasm-bindgen = "0.2.81"
+wasm-bindgen = "0.2.82"
 
 [features]
 default = ["cycle-accurate"]
