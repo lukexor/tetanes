@@ -20,5 +20,5 @@ jobs:
       - name: auto-assign
         uses: pozil/auto-assign-issue@v1
         with:
-          assignees: lukeor
+          assignees: lukexor
           numOfAssignee: 1
