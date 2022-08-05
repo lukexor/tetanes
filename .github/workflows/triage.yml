@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: add needs-triage label
-        uses: andymckay/labeler@v1.0.4
+        uses: andymckay/labeler@master
         with:
           add-labels: "needs-triage"
           ignore-if-labeled: true
       - name: auto-assign
-        uses: pozil/auto-assign-issue@v1.9.0
+        uses: pozil/auto-assign-issue@v1
         with:
           assignees: lukeor
           numOfAssignee: 1
