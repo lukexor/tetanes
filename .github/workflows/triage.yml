@@ -1,0 +1,24 @@
+---
+name: Triage
+
+# yamllint disable-line rule:truthy
+on:
+  issues:
+    types: [opened, reopened]
+  pull_request:
+    types: [opened, reopened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: add needs-triage label
+        uses: andymckay/labeler@v1
+        with:
+          add-labels: "needs-triage"
+          ignore-if-labeled: true
+      - name: auto-assign
+        uses: pozil/auto-assign-issue@v1
+        with:
+          assignees: lukeor
+          numOfAssignee: 1
