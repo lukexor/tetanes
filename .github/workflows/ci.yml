@@ -43,34 +43,16 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-      - name: Cache Linuxbrew
-        uses: actions/cache@v3
+      - uses: ./.github/actions/install-linuxbrew
         if: matrix.os == 'ubuntu-latest'
-        with:
-          path: |
-            ~/.cache/Homebrew
-            /home/linuxbrew/.linuxbrew
-          key: ${{ runner.os }}-linuxbrew-${{ hashFiles('**/Cargo.lock') }}
-      - name: Install Linuxbrew
-        if: matrix.os == 'ubuntu-latest'
-        # yamllint disable rule:line-length
-        run: |
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          test -d ~/.linuxbrew && eval "$(~/.linuxbrew/bin/brew shellenv)"
-          test -d /home/linuxbrew/.linuxbrew && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          set -xeuo pipefail
-          echo "LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
-          sudo apt-get update
-          sudo apt-get install build-essential
-      # yamllint enable rule:line-length
-      - name: Install dependencies
+      - uses: ./.github/actions/install-sdl2
         if: matrix.os != 'windows-latest'
-        run: |
-          brew update
-          brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
-          cargo install wasm-pack
+      - name: Install wasm-pack
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: cargo install wasm-pack
       - name: Build
+        shell: bash
         run: |
           cargo build --all-targets --verbose
           cd web
@@ -81,7 +63,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: "--verbose --timeout 120"
+          args: "--exclude-files tests"
       - name: Upload Coverage
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v3

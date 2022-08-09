@@ -1,16 +1,19 @@
 # TetaNES
 
-[![Build Status]][build] [![Latest Version]][crates.io] [![Doc Status]][docs] [![Downloads]][crates.io] [![License]][license]
+[![Build Status]][build] [![Doc Status]][docs] [![codecov]][coverage] [![Latest Version]][crates.io]
+[![Downloads]][crates.io] [![License]][gnu]
 
-[Build Status]: https://img.shields.io/github/workflow/status/lukexor/tetanes/CI?style=plastic
+[build status]: https://img.shields.io/github/workflow/status/lukexor/tetanes/CI?style=plastic
 [build]: https://github.com/lukexor/tetanes/actions/workflows/ci.yml
-[Latest Version]: https://img.shields.io/crates/v/tetanes?style=plastic
-[crates.io]: https://crates.io/crates/tetanes
-[Doc Status]: https://img.shields.io/docsrs/tetanes?style=plastic
+[doc status]: https://img.shields.io/docsrs/tetanes?style=plastic
 [docs]: https://docs.rs/tetanes/
-[Downloads]: https://img.shields.io/crates/d/tetanes?style=plastic
-[License]: https://img.shields.io/crates/l/tetanes?style=plastic
-[license]: https://github.com/lukexor/tetanes/blob/main/LICENSE.md
+[codecov]: https://codecov.io/gh/lukexor/tetanes/branch/main/graph/badge.svg?token=AMQJJ7B0LS
+[coverage]: https://codecov.io/gh/lukexor/tetanes
+[latest version]: https://img.shields.io/crates/v/tetanes?style=plastic
+[crates.io]: https://crates.io/crates/tetanes
+[downloads]: https://img.shields.io/crates/d/tetanes?style=plastic
+[license]: https://img.shields.io/crates/l/tetanes?style=plastic
+[gnu]: https://github.com/lukexor/tetanes/blob/main/LICENSE.md
 
 ## Table of Contents
 
@@ -36,9 +39,11 @@
 
 ## Summary
 
-<img width="100%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/tetanes.png">
+<img width="100%"
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/tetanes.png">
 
-> photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap) on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
+> photo credit for background: [Zsolt Palatinus](https://unsplash.com/@sunitalap)
+> on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
 `TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in
 Japan in 1983 and North America in 1986, written using [Rust][], [SDL2][] and
@@ -69,8 +74,14 @@ The current minimum Rust version is `1.59.0`.
 
 ## Screenshots
 
-<img width="48%" alt="Donkey Kong" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/donkey_kong.png">&nbsp;&nbsp;<img width="48%" alt="Super Mario Bros." src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/super_mario_bros.png">
-<img width="48%" alt="The Legend of Zelda" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/legend_of_zelda.png">&nbsp;&nbsp;<img width="48%" alt="Metroid" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/metroid.png">
+<img width="48%" alt="Donkey Kong"
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/donkey_kong.png">&nbsp;&nbsp;<img
+width="48%" alt="Super Mario Bros."
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/super_mario_bros.png">
+<img width="48%" alt="The Legend of Zelda"
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/legend_of_zelda.png">&nbsp;&nbsp;<img
+width="48%" alt="Metroid"
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/metroid.png">
 
 ## Getting Started
 
@@ -110,36 +121,40 @@ OPTIONS:
     -s, --scale <scale>    Window scale. [default: 3.0]
 
 ARGS:
-    <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a recording playback `.playback`
-              file. [default: current directory]
+    <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a
+              recording playback `.playback` file. [default: current directory]
 ```
 
 [iNES][] and [NES 2.0][] formatted ROMS are supported, though some `NES 2.0`
 features may not be implemented.
 
-[iNES]: https://wiki.nesdev.com/w/index.php/INES
-[NES 2.0]: https://wiki.nesdev.com/w/index.php/NES_2.0
+[ines]: https://wiki.nesdev.com/w/index.php/INES
+[nes 2.0]: https://wiki.nesdev.com/w/index.php/NES_2.0
 
 ### Supported Mappers
 
 Support for the following mappers is currently implemented or in development:
 
-| #   | Name                   | Example Games                             | # of Games<sup>1</sup>  | % of Games<sup>1</sup> |
-| --- | ---------------------- | ----------------------------------------- | ----------------------- | ---------------------- |
-| 000 | NROM                   | Bomberman, Donkey Kong, Super Mario Bros. |  ~247                   |                   ~10% |
-| 001 | SxROM/MMC1B/C          | Metroid, Legend of Zelda, Tetris          |  ~680                   |                   ~28% |
-| 002 | UxROM                  | Castlevania, Contra, Mega Man             |  ~270                   |                   ~11% |
-| 003 | CNROM                  | Arkanoid, Paperboy, Pipe Dream            |  ~155                   |                    ~6% |
-| 004 | TxROM/MMC3/MMC6        | Kirby's Adventure, Super Mario Bros. 2/3  |  ~599                   |                   ~24% |
-| 005 | ExROM/MMC5             | Castlevania 3, Laser Invasion             |   ~24                   |              &lt;0.01% |
-| 007 | AxROM                  | Battletoads, Marble Madness               |   ~75                   |                    ~3% |
-| 009 | PxROM/MMC2             | Punch Out!!                               |     1                   |              &lt;0.01% |
-| 024 | VRC6a                  | Akumajou Densetsu                         |     1                   |              &lt;0.01% |
-| 024 | VRC6b                  | Madara, Esper Dream 2                     |     2                   |              &lt;0.01% |
-| 066 | GxROM/MxROM            | Super Mario Bros. + Duck Hunt             |   ~17                   |              &lt;0.01% |
-| 071 | Camerica/Codemasters   | Firehawk, Bee 52, MiG 29 - Soviet Fighter |   ~15                   |              &lt;0.01% |
-| 155 | SxROM/MMC1A            | Tatakae!! Ramen Man: Sakuretsu Choujin    |     2                   |              &lt;0.01% |
-|     |                        |                                           | ~2088 / 2447            |                   ~83% |
+<!-- markdownlint-disable line-length no-inline-html -->
+
+| #   | Name                 | Example Games                             | # of Games<sup>1</sup> | % of Games<sup>1</sup> |
+| --- | -------------------- | ----------------------------------------- | ---------------------- | ---------------------- |
+| 000 | NROM                 | Bomberman, Donkey Kong, Super Mario Bros. | ~247                   | ~10%                   |
+| 001 | SxROM/MMC1B/C        | Metroid, Legend of Zelda, Tetris          | ~680                   | ~28%                   |
+| 002 | UxROM                | Castlevania, Contra, Mega Man             | ~270                   | ~11%                   |
+| 003 | CNROM                | Arkanoid, Paperboy, Pipe Dream            | ~155                   | ~6%                    |
+| 004 | TxROM/MMC3/MMC6      | Kirby's Adventure, Super Mario Bros. 2/3  | ~599                   | ~24%                   |
+| 005 | ExROM/MMC5           | Castlevania 3, Laser Invasion             | ~24                    | &lt;0.01%              |
+| 007 | AxROM                | Battletoads, Marble Madness               | ~75                    | ~3%                    |
+| 009 | PxROM/MMC2           | Punch Out!!                               | 1                      | &lt;0.01%              |
+| 024 | VRC6a                | Akumajou Densetsu                         | 1                      | &lt;0.01%              |
+| 024 | VRC6b                | Madara, Esper Dream 2                     | 2                      | &lt;0.01%              |
+| 066 | GxROM/MxROM          | Super Mario Bros. + Duck Hunt             | ~17                    | &lt;0.01%              |
+| 071 | Camerica/Codemasters | Firehawk, Bee 52, MiG 29 - Soviet Fighter | ~15                    | &lt;0.01%              |
+| 155 | SxROM/MMC1A          | Tatakae!! Ramen Man: Sakuretsu Choujin    | 2                      | &lt;0.01%              |
+|     |                      |                                           | ~2088 / 2447           | ~83%                   |
+
+<!-- markdownlint-enable line-length no-inline-html -->
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6) [Mirror](https://nescartdb.com/)
 
@@ -149,69 +164,69 @@ Keybindings can be customized in the configuration menu. Below are the defaults.
 
 NES gamepad:
 
-| Button     | Keyboard    | Controller       |
-| ---------- | ----------- | ---------------- |
-| A          | Z           | A                |
-| B          | X           | B                |
-| A (Turbo)  | A           | X                |
-| B (Turbo)  | S           | Y                |
-| Start      | Return      | Start            |
-| Select     | Right Shift | Back             |
-| D-Pad      | Arrow Keys  | Left Stick/D-Pad |
+| Button    | Keyboard    | Controller       |
+| --------- | ----------- | ---------------- |
+| A         | Z           | A                |
+| B         | X           | B                |
+| A (Turbo) | A           | X                |
+| B (Turbo) | S           | Y                |
+| Start     | Return      | Start            |
+| Select    | Right Shift | Back             |
+| D-Pad     | Arrow Keys  | Left Stick/D-Pad |
 
 Emulator shortcuts:
 
-| Action                            | Keyboard         | Controller         |
-| --------------------------------- | ---------------- | ------------------ |
-| Menu/Pause                        | Escape           | Guide Button       |
-| About TetaNES                     | Ctrl-H or F1     |                    |
-| Configuration Menu                | Ctrl-C or F2     |                    |
-| Load/Open ROM                     | Ctrl-O or F3     |                    |
-| Quit                              | Ctrl-Q           |                    |
-| Reset                             | Ctrl-R           |                    |
-| Power Cycle                       | Ctrl-P           |                    |
-| Increase Speed by 25%             | Ctrl-=           | Right Shoulder     |
-| Decrease Speed by 25%             | Ctrl--           | Left Shoulder      |
-| Fast-Forward 2x (while held)      | Space            |                    |
-| Set Save State Slot #             | Ctrl-(1-4)       |                    |
-| Save State                        | Ctrl-S           |                    |
-| Load State                        | Ctrl-L           |                    |
-| Instant Rewind                    | R                |                    |
-| Visual Rewind (while holding)     | R                |                    |
-| Take Screenshot                   | F10              |                    |
-| Toggle Gameplay Recording         | Shift-V          |                    |
-| Toggle Music/Sound Recording      | Shift-R          |                    |
-| Toggle Music/Sound                | Ctrl-M           |                    |
-| Toggle Pulse Channel 1            | Shift-1          |                    |
-| Toggle Pulse Channel 2            | Shift-2          |                    |
-| Toggle Triangle Channel           | Shift-3          |                    |
-| Toggle Noise Channel              | Shift-4          |                    |
-| Toggle DMC Channel                | Shift-5          |                    |
-| Toggle Fullscreen                 | Ctrl-Return      |                    |
-| Toggle Vsync                      | Ctrl-V           |                    |
-| Toggle NTSC Filter                | Ctrl-N           |                    |
-| Toggle CPU Debugger               | Shift-D          |                    |
-| Toggle PPU Debugger               | Shift-P          |                    |
-| Toggle APU Debugger               | Shift-A          |                    |
+| Action                        | Keyboard     | Controller     |
+| ----------------------------- | ------------ | -------------- |
+| Menu/Pause                    | Escape       | Guide Button   |
+| About TetaNES                 | Ctrl-H or F1 |                |
+| Configuration Menu            | Ctrl-C or F2 |                |
+| Load/Open ROM                 | Ctrl-O or F3 |                |
+| Quit                          | Ctrl-Q       |                |
+| Reset                         | Ctrl-R       |                |
+| Power Cycle                   | Ctrl-P       |                |
+| Increase Speed by 25%         | Ctrl-=       | Right Shoulder |
+| Decrease Speed by 25%         | Ctrl--       | Left Shoulder  |
+| Fast-Forward 2x (while held)  | Space        |                |
+| Set Save State Slot #         | Ctrl-(1-4)   |                |
+| Save State                    | Ctrl-S       |                |
+| Load State                    | Ctrl-L       |                |
+| Instant Rewind                | R            |                |
+| Visual Rewind (while holding) | R            |                |
+| Take Screenshot               | F10          |                |
+| Toggle Gameplay Recording     | Shift-V      |                |
+| Toggle Music/Sound Recording  | Shift-R      |                |
+| Toggle Music/Sound            | Ctrl-M       |                |
+| Toggle Pulse Channel 1        | Shift-1      |                |
+| Toggle Pulse Channel 2        | Shift-2      |                |
+| Toggle Triangle Channel       | Shift-3      |                |
+| Toggle Noise Channel          | Shift-4      |                |
+| Toggle DMC Channel            | Shift-5      |                |
+| Toggle Fullscreen             | Ctrl-Return  |                |
+| Toggle Vsync                  | Ctrl-V       |                |
+| Toggle NTSC Filter            | Ctrl-N       |                |
+| Toggle CPU Debugger           | Shift-D      |                |
+| Toggle PPU Debugger           | Shift-P      |                |
+| Toggle APU Debugger           | Shift-A      |                |
 
 While the CPU Debugger is open (these can also be held down):
 
-| Action                            | Keyboard         |
-| --------------------------------- | ---------------- |
-| Step a single CPU instruction     | C                |
-| Step over a function              | O                |
-| Step out of a function            | Shift-O          |
-| Step a single scanline            | Shift-L          |
-| Step an entire frame              | Shift-F          |
+| Action                        | Keyboard |
+| ----------------------------- | -------- |
+| Step a single CPU instruction | C        |
+| Step over a function          | O        |
+| Step out of a function        | Shift-O  |
+| Step a single scanline        | Shift-L  |
+| Step an entire frame          | Shift-F  |
 
 While the PPU Debugger is open (these can also be held down):
 
-| Action                            | Keyboard         |
-| --------------------------------- | ---------------- |
-| Move debug scanline up by 1       | Ctrl-Up          |
-| Move debug scanline up by 10      | Ctrl-Shift-Up    |
-| Move debug scanline down by 1     | Ctrl-Down        |
-| Move debug scanline down by 10    | Ctrl-Shift-Down  |
+| Action                         | Keyboard        |
+| ------------------------------ | --------------- |
+| Move debug scanline up by 1    | Ctrl-Up         |
+| Move debug scanline up by 10   | Ctrl-Shift-Up   |
+| Move debug scanline down by 1  | Ctrl-Down       |
+| Move debug scanline down by 10 | Ctrl-Shift-Down |
 
 ### Directories
 
@@ -224,8 +239,8 @@ launched from.
 The original NES hardware had semi-random contents located in RAM upon power-up
 and several games made use of this to seed their Random Number Generators
 (RNGs). By default, `TetaNES` honors the original hardware and emulates
-randomized powerup RAM state. This shows up in several games such as `Final
-Fantasy`, `River City Ransom`, and `Impossible Mission II`, amongst others. Not
+randomized powerup RAM state. This shows up in several games such as `Final Fantasy`,
+`River City Ransom`, and `Impossible Mission II`, amongst others. Not
 emulating this would make these games seem deterministic when they weren't
 intended to be.
 
@@ -238,9 +253,9 @@ command line.
 
 To build the project run `cargo build` or `cargo build --release` (if you want
 better framerates). There is also a optimized dev profile you can use which
-strikes a balance between build time and performance: `cargo build --profile
-dev-opt`. You may need to install SDL2 libraries, see the `Installation` section
-above for options.
+strikes a balance between build time and performance:
+`cargo build --profile dev-opt`. You may need to install SDL2 libraries, see the
+`Installation` section above for options.
 
 Unit and integration tests can be run with `cargo test`. There are also several
 test roms that can be run to test various capabilities of the emulator. They are
@@ -249,7 +264,7 @@ all located in the `tests_roms/` directory.
 Run them in a similar way you would run a game. e.g.
 
 ```text
-$ cargo run --release test_roms/cpu/nestest.nes
+cargo run --release test_roms/cpu/nestest.nes
 ```
 
 ## Debugging
@@ -270,8 +285,12 @@ The PPU Viewer shows the current sprite and palettes loaded. You can also scroll
 up/down in a similar manner to the Nametable Viewer. `Super Mario Bros 3` for
 example swaps out sprites mid-frame to render animations.
 
-<img width="48%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/nametable_viewer.png">&nbsp;&nbsp;<img width="48%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/ppu_viewer.png">
-<img width="100%" src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/debugger.png">
+<img width="48%"
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/nametable_viewer.png">&nbsp;&nbsp;<img
+width="48%"
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/ppu_viewer.png">
+<img width="100%"
+src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/debugger.png">
 
 Logging can be set by setting the `RUST_LOG` environment variable and setting it
 to one of `trace`, `debug`, `info`, `warn` or `error` prior to building the
@@ -303,16 +322,17 @@ to create it. A good guideline for what to include is:
 - Any related errors or logs
 
 When using the WASM version in the browser, also include:
+
 - Web browser and version (e.g. Chrome 77.0.3865)
 
 ## Features
 
 ### Crate Feature Flags
 
-* **cycle-accurate** -
-  Enables cycle-accurate emulation. More CPU intensive, but supports a wider range of games
-  requiring precise timing. Disabling may improve performance on lower-end machines. Enabled by
-  default.
+- **cycle-accurate** -
+  Enables cycle-accurate emulation. More CPU intensive, but supports a wider
+  range of games requiring precise timing. Disabling may improve performance on
+  lower-end machines. Enabled by default.
 
 ### Roadmap
 
@@ -388,7 +408,7 @@ When using the WASM version in the browser, also include:
   - [x] Visual Rewind (Holding R will time-travel backward)
   - [x] Save/Load State
   - [ ] Auto-save
-  - [X] Take Screenshots
+  - [x] Take Screenshots
   - [x] Gameplay Recording
   - [ ] Sound Recording (Save those memorable tunes!)
   - [x] Toggle Fullscreen
@@ -413,7 +433,7 @@ When using the WASM version in the browser, also include:
     - [ ] Labels
   - [ ] Hex Memory Editor & Debugger
   - PPU Viewer
-    - [X] Scanline Hit Configuration (For debugging IRQ Nametable changes)
+    - [x] Scanline Hit Configuration (For debugging IRQ Nametable changes)
     - [x] Nametable Viewer (background rendering)
     - [x] CHR Viewer (sprite tiles)
     - [ ] OAM Viewer (on screen sprites)
@@ -434,9 +454,9 @@ See the [github issue tracker][].
 In addition to the wealth of information in the `docs/` directory, I also
 referenced these websites extensively during development:
 
-* [NES Documentation (PDF)](http://nesdev.com/NESDoc.pdf)
-* [NES Dev Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
-* [6502 Datasheet](http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf)
+- [NES Documentation (PDF)](http://nesdev.com/NESDoc.pdf)
+- [NES Dev Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
+- [6502 Datasheet](http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf)
 
 ## License
 
@@ -468,6 +488,7 @@ wiki.
 
 I also couldn't have gotten this far without the amazing people over on the
 [NES Dev Forums](http://forums.nesdev.com/):
+
 - [blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for
   all his amazing [test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests)
 - [bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video
@@ -483,9 +504,8 @@ Also, a huge shout out to
 [olcPixelGameEngine](https://github.com/OneLoneCoder/olcPixelGameEngine)
 series as those helped a ton in some recent refactorings.
 
-[Rust]: https://www.rust-lang.org/
-[rust-sdl2]: https://github.com/Rust-SDL2/rust-sdl2#sdl20-development-libraries
-[SDL2]: https://www.libsdl.org/
-[Web Assembly]: https://webassembly.org/
+[rust]: https://www.rust-lang.org/
+[sdl2]: https://www.libsdl.org/
+[web assembly]: https://webassembly.org/
 [pix-engine]: https://github.com/lukexor/pix-engine
 [github issue tracker]: https://github.com/lukexor/tetanes/issues

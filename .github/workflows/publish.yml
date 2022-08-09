@@ -1,6 +1,7 @@
 ---
 name: Cargo Publish
 
+# yamllint disable-line rule:truthy
 on:
   push:
     tags:
@@ -17,10 +18,7 @@ jobs:
           toolchain: stable
           override: true
       - uses: Swatinem/rust-cache@v1
-      - name: Install dependencies
-        run: |
-          brew update
-          brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
+      - uses: ./.github/actions/install-sdl2
       - uses: katyo/publish-crates@v1
         with:
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
