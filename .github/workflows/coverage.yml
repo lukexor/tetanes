@@ -40,7 +40,7 @@ jobs:
         run: rust-profdata merge -sparse profile-*.profraw -o coverage.profdata
       - name: Collect Coverage
         run: |
-          rust-cov show \
+          rust-cov export \
             $( \
               for file in \
                 $( \
@@ -53,6 +53,7 @@ jobs:
                 [[ -x $file ]] && printf "%s %s " -object "$file"; \
               done \
             ) \
+            --format lcov \
             --Xdemangler=rustfilt \
             --ignore-filename-regex=/.cargo/registry \
             --ignore-filename-regex=/target/debug \
