@@ -85,20 +85,20 @@ impl Input {
 }
 
 impl Input {
-    fn read_slots(&mut self, a: usize, b: usize, ppu: &Ppu) -> u8 {
-        if self.zappers[a].connected {
-            self.zappers[a].read(ppu)
+    fn read_slots(&mut self, slot: usize, ppu: &Ppu) -> u8 {
+        if self.zappers[slot].connected {
+            self.zappers[slot].read(ppu)
         } else {
             // Read $4016/$4017 D0 8x for controller #1/#2.
             // Read $4016/$4017 D0 8x for controller #3/#4.
             // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-            if self.joypads[a].index() < 8 {
-                self.joypads[a].read()
+            if self.joypads[slot].index() < 8 {
+                self.joypads[slot].read() | (self.joypads[slot + 2].read() << 1)
             } else if self.fourscore {
-                if self.joypads[b].index() < 8 {
-                    self.joypads[b].read()
-                } else if self.signatures[a].index() < 8 {
-                    self.signatures[a].read()
+                if self.joypads[slot + 2].index() < 8 {
+                    self.joypads[slot + 2].read()
+                } else if self.signatures[slot].index() < 8 {
+                    self.signatures[slot].read()
                 } else {
                     0x01
                 }
@@ -108,20 +108,20 @@ impl Input {
         }
     }
 
-    fn peek_slots(&self, a: usize, b: usize, ppu: &Ppu) -> u8 {
-        if self.zappers[a].connected {
-            self.zappers[a].read(ppu)
+    fn peek_slots(&self, slot: usize, ppu: &Ppu) -> u8 {
+        if self.zappers[slot].connected {
+            self.zappers[slot].read(ppu)
         } else {
             // Read $4016/$4017 D0 8x for controller #1/#2.
             // Read $4016/$4017 D0 8x for controller #3/#4.
             // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-            if self.joypads[a].index() < 8 {
-                self.joypads[a].peek()
+            if self.joypads[slot].index() < 8 {
+                self.joypads[slot].peek() | (self.joypads[slot + 2].peek() << 1)
             } else if self.fourscore {
-                if self.joypads[b].index() < 8 {
-                    self.joypads[b].peek()
-                } else if self.signatures[a].index() < 8 {
-                    self.signatures[a].peek()
+                if self.joypads[slot + 2].index() < 8 {
+                    self.joypads[slot + 2].peek()
+                } else if self.signatures[slot].index() < 8 {
+                    self.signatures[slot].peek()
                 } else {
                     0x01
                 }
@@ -135,16 +135,16 @@ impl Input {
 impl InputRegisters for Input {
     fn read(&mut self, slot: Slot, ppu: &Ppu) -> u8 {
         match slot {
-            Slot::One => self.read_slots(0, 2, ppu) | 0x40,
-            Slot::Two => self.read_slots(1, 3, ppu) | 0x40,
+            Slot::One => self.read_slots(0, ppu) | 0x40,
+            Slot::Two => self.read_slots(1, ppu) | 0x40,
             _ => panic!("invalid input slot for read"),
         }
     }
 
     fn peek(&self, slot: Slot, ppu: &Ppu) -> u8 {
         match slot {
-            Slot::One => self.peek_slots(0, 2, ppu) | 0x40,
-            Slot::Two => self.peek_slots(1, 3, ppu) | 0x40,
+            Slot::One => self.peek_slots(0, ppu) | 0x40,
+            Slot::Two => self.peek_slots(1, ppu) | 0x40,
             _ => panic!("invalid input slot for peek"),
         }
     }

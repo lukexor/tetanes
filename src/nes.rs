@@ -207,6 +207,8 @@ pub struct Nes {
     selected_path: usize,
     error: Option<String>,
     confirm_quit: Option<(String, bool)>,
+    #[cfg(feature = "profile-rate-control")]
+    stats: std::io::BufWriter<std::fs::File>,
 }
 
 impl Nes {
@@ -221,6 +223,8 @@ impl Nes {
             config.audio_sample_rate / config.speed,
             config.audio_buffer_size,
         );
+        #[cfg(feature = "profile-rate-control")]
+        let stats = std::io::BufWriter::new(std::fs::File::create("./stats.dat").unwrap());
         Self {
             control_deck,
             audio,
@@ -242,6 +246,8 @@ impl Nes {
             selected_path: 0,
             error: None,
             confirm_quit: None,
+            #[cfg(feature = "profile-rate-control")]
+            stats,
         }
     }
 
@@ -360,15 +366,27 @@ impl AppState for Nes {
                 Ok(_) => {
                     if prev_frame != self.control_deck.frame_number() {
                         self.update_rewind();
+                        if self.config.sound {
+                            #[cfg(feature = "profile-rate-control")]
+                            {
+                                use std::io::Write;
+                                let frame = self.control_deck.frame_number();
+                                writeln!(
+                                    self.stats,
+                                    "{} {} {}",
+                                    frame,
+                                    self.audio.len(),
+                                    self.audio.pitch_ratio()
+                                )?;
+                            }
+                            self.audio.consume(
+                                self.control_deck.audio_samples(),
+                                self.config.dynamic_rate_control,
+                                self.config.dynamic_rate_delta,
+                            );
+                        }
+                        self.control_deck.clear_audio_samples();
                     }
-                    if self.config.sound {
-                        self.audio.consume(
-                            self.control_deck.audio_samples(),
-                            self.config.dynamic_rate_control,
-                            self.config.dynamic_rate_delta,
-                        );
-                    }
-                    self.control_deck.clear_audio_samples();
                 }
                 Err(err) => return self.handle_emulation_error(s, &err),
             }

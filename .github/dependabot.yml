@@ -1,3 +1,4 @@
+---
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -13,7 +14,7 @@ updates:
     assignees:
       - "lukexor"
   - package-ecosystem: "npm"
-    directory: "/tetanes-web/www"
+    directory: "/web/www"
     schedule:
       interval: "daily"
     assignees:

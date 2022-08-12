@@ -1,4 +1,7 @@
+<!-- markdownlint-disable-file no-duplicate-heading -->
+
 # Changelog
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -7,7 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [0.8.0] - 2022-06-20
+
 ### Added
+
 - Added `Mapper 024` and `Mapper 026` support.
 - Added `Mapper 071` support.
 - Added `Mapper 066` support.
@@ -24,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Cycle Accurate` feature.
 
 ### Changed
+
 - Various `README` improvements.
 - Default `VSync` to `true`.
 - Default `MMC1` to PRG RAM enable.
@@ -31,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Redesigned `TetaNES Web` UI and improved performance.
 
 ### Fixed
+
 - Fixed Power Cycle/Reset affecting `ppuaddr`.
 - Fixed reset causing
   segfault. [#50](https://github.com/lukexor/tetanes/issues/50)
@@ -42,12 +49,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `IRQ` and `NMI` emulation.
 
 ### Removed
+
 - Removed `vcpkg` feature support due to flaky failures.
 
 ### Breaking
+
 - Major refactor of all features, affecting save and replay files.
 - Removed several command-line flags in favor of `config.json` and `Config`
   menu.
 
-[Unreleased]: https://github.com/lukexor/tetanes/compare/v0.8.0...HEAD
+[unreleased]: https://github.com/lukexor/tetanes/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/lukexor/tetanes/compare/v0.7.0...v0.8.0

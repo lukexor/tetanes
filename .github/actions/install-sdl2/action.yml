@@ -1,0 +1,12 @@
+---
+name: Install SDL2
+description: Installs SDL2 and updates homebrew
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install SDL2
+      shell: bash
+      run: |
+        brew update
+        brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
