@@ -102,23 +102,12 @@ pub trait MemMap {
         self.map_peek(addr)
     }
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
-        match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
-            0x2000..=0x3EFF => MappedRead::CIRam(addr.into()),
-            0x6000..=0x7FFF => MappedRead::PrgRam((addr & 0x1FFF).into()),
-            0x8000..=0xFFFF => MappedRead::PrgRom((addr & 0x7FFF).into()),
-            _ => MappedRead::None,
-        }
+    fn map_peek(&self, _addr: u16) -> MappedRead {
+        MappedRead::None
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
-            0x2000..=0x3EFF => MappedWrite::CIRam(addr.into(), val),
-            0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
-            _ => MappedWrite::None,
-        }
+    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
+        MappedWrite::None
     }
 }
 

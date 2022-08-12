@@ -46,7 +46,7 @@ enum ChrBank {
 }
 
 bitflags! {
-#[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     #[must_use]
     struct ExRamRW: u8 {
         const W = 0x01;
@@ -223,7 +223,7 @@ impl ExRegs {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct PpuStatus {
+struct PpuStatus {
     fetch_count: u32,
     prev_addr: u16,
     prev_match: u8,
@@ -530,11 +530,24 @@ impl Mapped for Exrom {
     }
 }
 
+impl Regional for Exrom {
+    #[inline]
+    fn region(&self) -> NesRegion {
+        self.dmc.region()
+    }
+
+    #[inline]
+    fn set_region(&mut self, region: NesRegion) {
+        self.dmc.set_region(region);
+    }
+}
+
 impl MemMap for Exrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
                 self.inc_fetch_count();
+
                 if self.ppu_status.sprite8x16 {
                     match self.fetch_count() {
                         Self::SPR_FETCH_START => self.update_chr_banks(ChrBank::Spr),
@@ -807,7 +820,7 @@ impl MemMap for Exrom {
                 // Values can be the following:
                 //   %00 = NES internal NTA
                 //   %01 = NES internal NTB
-                //   %10 = use ExRam as NT
+                //   %10 = use ExRAM as NT
                 //   %11 = Fill Mode
                 self.regs.nametable_mapping.set(val);
 
@@ -942,18 +955,6 @@ impl Clock for Exrom {
     }
 }
 
-impl Regional for Exrom {
-    #[inline]
-    fn region(&self) -> NesRegion {
-        self.dmc.region()
-    }
-
-    #[inline]
-    fn set_region(&mut self, region: NesRegion) {
-        self.dmc.set_region(region);
-    }
-}
-
 impl Reset for Exrom {
     fn reset(&mut self, _kind: Kind) {
         self.regs.prg_mode = PrgMode::Bank8k;
@@ -988,6 +989,29 @@ impl std::fmt::Debug for Exrom {
 #[cfg(test)]
 mod tests {
     use crate::test_roms;
+
+    // #[test]
+    // fn prg_ram_protect() {
+    //     use super::*;
+    //     use crate::cart::Cart;
+    //     for a in 0..4 {
+    //         for b in 0..4 {
+    //             let mut cart = Cart::default();
+    //             cart.mapper = Exrom::load(&mut cart);
+
+    //             cart.write(0x5102, a);
+    //             cart.write(0x5103, b);
+    //             cart.write(0x5114, 0);
+    //             cart.write(0x6000, 0xFF);
+    //             let val = cart.read(0x6000);
+    //             if a == 0b10 && b == 0b01 {
+    //                 assert_eq!(val, 0xFF, "RAM protect disabled: %{:02b}, %{:02b}", a, b);
+    //             } else {
+    //                 assert_eq!(val, 0x00, "RAM protect enabled: %{:02b}, %{:02b}", a, b);
+    //             }
+    //         }
+    //     }
+    // }
 
     test_roms!("test_roms/mapper/m005_exrom", exram, basics);
 }
