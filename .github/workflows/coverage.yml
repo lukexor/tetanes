@@ -1,0 +1,67 @@
+---
+name: Coverage
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C instrument-coverage"
+  # yamllint disable-line rule:line-length
+  RUSTDOCFLAGS: "-C instrument-coverage -Z unstable-options --persist-doctests target/debug/doctestbins"
+  LLVM_PROFILE_FILE: "profile-%m.profraw"
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v1
+      - uses: ./.github/actions/install-linuxbrew
+      - uses: ./.github/actions/install-sdl2
+      - name: Install Coverage Tools
+        run: |
+          cargo install rustfilt cargo-binutils
+          brew install jq
+      - name: Run Tests
+        run: cargo test
+        # source: https://doc.rust-lang.org/rustc/instrument-coverage.html
+      - name: Merge Coverage
+        run: rust-profdata merge -sparse profile-*.profraw -o coverage.profdata
+      - name: Collect Coverage
+        run: |
+          rust-cov export \
+            $( \
+              for file in \
+                $( \
+                  cargo test --no-run --message-format=json \
+                    | jq -r "select(.profile.test == true) | .filenames[]" \
+                    | grep -v dsym - \
+                ) \
+                target/debug/doctestbins/*/rust_out; \
+              do \
+                [[ -x $file ]] && printf "%s %s " -object "$file"; \
+              done \
+            ) \
+            --format lcov \
+            --Xdemangler=rustfilt \
+            --ignore-filename-regex=/.cargo/registry \
+            --ignore-filename-regex=/target/debug \
+            --ignore-filename-regex=/tests \
+            --instr-profile=coverage.profdata > coverage.txt
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.txt
+          verbose: true
+          fail_ci_if_error: true
