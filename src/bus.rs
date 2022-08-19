@@ -137,13 +137,13 @@ impl CpuBus {
     }
 
     #[inline]
-    pub const fn zapper(&self, slot: Slot) -> &Zapper {
-        self.input.zapper(slot)
+    pub const fn zapper(&self) -> &Zapper {
+        self.input.zapper()
     }
 
     #[inline]
-    pub fn zapper_mut(&mut self, slot: Slot) -> &mut Zapper {
-        self.input.zapper_mut(slot)
+    pub fn zapper_mut(&mut self) -> &mut Zapper {
+        self.input.zapper_mut()
     }
 
     #[inline]

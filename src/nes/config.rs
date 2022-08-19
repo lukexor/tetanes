@@ -43,6 +43,7 @@ pub(crate) struct Config {
     pub(crate) rewind_frames: u32,
     pub(crate) rewind_buffer_size: usize,
     pub(crate) fourscore: bool,
+    pub(crate) crosshair: bool,
     pub(crate) audio_sample_rate: f32,
     pub(crate) audio_buffer_size: usize,
     pub(crate) dynamic_rate_control: bool,
@@ -72,6 +73,7 @@ impl Default for Config {
             rewind_frames: 2,
             rewind_buffer_size: 20,
             fourscore: false,
+            crosshair: false,
             audio_sample_rate: 44_100.0,
             audio_buffer_size: 4096,
             dynamic_rate_control: true,
@@ -142,15 +144,15 @@ impl Config {
         config
     }
 
-    pub(crate) fn add_binding(&mut self, input: Input, action: Action) {
-        self.input_map.insert(input, action);
-        self.bindings.update_from_map(&self.input_map);
-    }
+    // pub(crate) fn add_binding(&mut self, input: Input, action: Action) {
+    //     self.input_map.insert(input, action);
+    //     self.bindings.update_from_map(&self.input_map);
+    // }
 
-    pub(crate) fn remove_binding(&mut self, input: Input) {
-        self.input_map.remove(&input);
-        self.bindings.update_from_map(&self.input_map);
-    }
+    // pub(crate) fn remove_binding(&mut self, input: Input) {
+    //     self.input_map.remove(&input);
+    //     self.bindings.update_from_map(&self.input_map);
+    // }
 
     pub(crate) fn get_dimensions(&self) -> (u32, u32) {
         let width = match self.region {

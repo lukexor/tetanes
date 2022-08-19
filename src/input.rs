@@ -32,7 +32,7 @@ pub trait InputRegisters {
 pub struct Input {
     joypads: [Joypad; 4],
     signatures: [Joypad; 2],
-    zappers: [Zapper; 2],
+    zapper: Zapper,
     turbo_timer: u8,
     fourscore: bool,
 }
@@ -46,7 +46,7 @@ impl Input {
                 Joypad::signature(0b0000_1000),
                 Joypad::signature(0b0000_0100),
             ],
-            zappers: [Zapper::new(); 2],
+            zapper: Zapper::new(),
             turbo_timer: 30,
             fourscore: false,
         }
@@ -63,13 +63,13 @@ impl Input {
     }
 
     #[inline]
-    pub const fn zapper(&self, slot: Slot) -> &Zapper {
-        &self.zappers[slot as usize]
+    pub const fn zapper(&self) -> &Zapper {
+        &self.zapper
     }
 
     #[inline]
-    pub fn zapper_mut(&mut self, slot: Slot) -> &mut Zapper {
-        &mut self.zappers[slot as usize]
+    pub fn zapper_mut(&mut self) -> &mut Zapper {
+        &mut self.zapper
     }
 
     #[inline]
@@ -86,48 +86,50 @@ impl Input {
 
 impl Input {
     fn read_slots(&mut self, slot: usize, ppu: &Ppu) -> u8 {
-        if self.zappers[slot].connected {
-            self.zappers[slot].read(ppu)
+        // Read $4016/$4017 D0 8x for controller #1/#2.
+        // Read $4016/$4017 D0 8x for controller #3/#4.
+        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+        let zapper = if slot == 1 {
+            self.zapper.read(ppu)
         } else {
-            // Read $4016/$4017 D0 8x for controller #1/#2.
-            // Read $4016/$4017 D0 8x for controller #3/#4.
-            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-            if self.joypads[slot].index() < 8 {
-                self.joypads[slot].read() | (self.joypads[slot + 2].read() << 1)
-            } else if self.fourscore {
-                if self.joypads[slot + 2].index() < 8 {
-                    self.joypads[slot + 2].read()
-                } else if self.signatures[slot].index() < 8 {
-                    self.signatures[slot].read()
-                } else {
-                    0x01
-                }
+            0x00
+        };
+        if self.joypads[slot].index() < 8 {
+            zapper | self.joypads[slot].read() | (self.joypads[slot + 2].read() << 1)
+        } else if self.fourscore {
+            if self.joypads[slot + 2].index() < 8 {
+                self.joypads[slot + 2].read()
+            } else if self.signatures[slot].index() < 8 {
+                self.signatures[slot].read()
             } else {
-                0x01
+                zapper | 0x01
             }
+        } else {
+            zapper | 0x01
         }
     }
 
     fn peek_slots(&self, slot: usize, ppu: &Ppu) -> u8 {
-        if self.zappers[slot].connected {
-            self.zappers[slot].read(ppu)
+        // Read $4016/$4017 D0 8x for controller #1/#2.
+        // Read $4016/$4017 D0 8x for controller #3/#4.
+        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+        let zapper = if slot == 1 {
+            self.zapper.read(ppu)
         } else {
-            // Read $4016/$4017 D0 8x for controller #1/#2.
-            // Read $4016/$4017 D0 8x for controller #3/#4.
-            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-            if self.joypads[slot].index() < 8 {
-                self.joypads[slot].peek() | (self.joypads[slot + 2].peek() << 1)
-            } else if self.fourscore {
-                if self.joypads[slot + 2].index() < 8 {
-                    self.joypads[slot + 2].peek()
-                } else if self.signatures[slot].index() < 8 {
-                    self.signatures[slot].peek()
-                } else {
-                    0x01
-                }
+            0x00
+        };
+        if self.joypads[slot].index() < 8 {
+            zapper | self.joypads[slot].peek() | (self.joypads[slot + 2].peek() << 1)
+        } else if self.fourscore {
+            if self.joypads[slot + 2].index() < 8 {
+                self.joypads[slot + 2].peek()
+            } else if self.signatures[slot].index() < 8 {
+                self.signatures[slot].peek()
             } else {
-                0x01
+                zapper | 0x01
             }
+        } else {
+            zapper | 0x01
         }
     }
 }
@@ -161,9 +163,7 @@ impl InputRegisters for Input {
 
 impl Clock for Input {
     fn clock(&mut self) -> usize {
-        for zapper in &mut self.zappers {
-            zapper.clock();
-        }
+        self.zapper.clock();
         self.turbo_timer -= 1;
         if self.turbo_timer == 0 {
             self.turbo_timer += 30;
@@ -190,9 +190,7 @@ impl Reset for Input {
         for sig in &mut self.signatures {
             sig.reset(kind);
         }
-        for zapper in &mut self.zappers {
-            zapper.reset(kind);
-        }
+        self.zapper.reset(kind);
     }
 }
 
@@ -356,7 +354,6 @@ pub struct Zapper {
     pub x: i32,
     pub y: i32,
     pub radius: i32,
-    pub connected: bool,
 }
 
 impl Zapper {
@@ -370,17 +367,6 @@ impl Zapper {
     #[must_use]
     pub const fn y(&self) -> i32 {
         self.y
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn connected(&self) -> bool {
-        self.connected
-    }
-
-    #[inline]
-    pub fn set_connected(&mut self, connected: bool) {
-        self.connected = connected;
     }
 
     #[inline]
@@ -405,7 +391,6 @@ impl Zapper {
             x: 0,
             y: 0,
             radius: 3,
-            connected: false,
         }
     }
 

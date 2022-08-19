@@ -307,34 +307,21 @@ impl ControlDeck {
     /// Returns the zapper aiming position for the given controller slot.
     #[inline]
     #[must_use]
-    pub const fn zapper_pos(&self, slot: Slot) -> (i32, i32) {
-        let zapper = self.cpu.zapper(slot);
+    pub const fn zapper_pos(&self) -> (i32, i32) {
+        let zapper = self.cpu.zapper();
         (zapper.x(), zapper.y())
-    }
-
-    /// Returns whether zapper gun is connected to a given controller slot.
-    #[inline]
-    #[must_use]
-    pub const fn zapper_connected(&self, slot: Slot) -> bool {
-        self.cpu.zapper(slot).connected()
-    }
-
-    /// Connect Zapper gun to a given controller slot.
-    #[inline]
-    pub fn connect_zapper(&mut self, slot: Slot, connected: bool) {
-        self.cpu.zapper_mut(slot).set_connected(connected);
     }
 
     /// Trigger Zapper gun for a given controller slot.
     #[inline]
-    pub fn trigger_zapper(&mut self, slot: Slot) {
-        self.cpu.zapper_mut(slot).trigger();
+    pub fn trigger_zapper(&mut self) {
+        self.cpu.zapper_mut().trigger();
     }
 
     /// Aim Zapper gun for a given controller slot.
     #[inline]
-    pub fn aim_zapper(&mut self, slot: Slot, x: i32, y: i32) {
-        self.cpu.zapper_mut(slot).aim(x, y);
+    pub fn aim_zapper(&mut self, x: i32, y: i32) {
+        self.cpu.zapper_mut().aim(x, y);
     }
 
     /// Set the image filter for video output.

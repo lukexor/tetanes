@@ -2,11 +2,9 @@ use crate::{
     apu::Channel,
     audio::AudioMixer,
     common::{config_path, NesRegion, Regional, SAVE_DIR, SRAM_DIR},
-    input::Slot,
     mem::RamState,
     nes::{
         config::CONFIG,
-        event::{Action, Input},
         filesystem::is_nes_rom,
         menu::types::{ConfigSection, EmuSpeed, SampleRate},
         Mode, Nes,
@@ -288,17 +286,8 @@ impl Nes {
     fn render_keybinds(&mut self, s: &mut PixState, mut player: Player) -> PixResult<()> {
         self.render_heading(s, "Keybindings")?;
 
-        let mut zapper = self.control_deck.zapper_connected(Slot::Two);
-        if s.checkbox("Enable Zapper on Port #2", &mut zapper)? {
-            self.control_deck.connect_zapper(Slot::Two, zapper);
-            let input = Input::Mouse((Slot::Two, Mouse::Left));
-            if zapper {
-                let action = Action::ZapperTrigger;
-                self.config.add_binding(input, action);
-            } else {
-                self.config.remove_binding(input);
-            }
-        }
+        s.checkbox("Enable Zapper Crosshair", &mut self.config.crosshair)?;
+
         let mut fourscore = self.control_deck.fourscore();
         if s.checkbox("Enable Four Score (4-Player)", &mut fourscore)? {
             self.control_deck.set_fourscore(fourscore);

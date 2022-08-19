@@ -77,16 +77,16 @@ pub(crate) struct KeyBinding {
     pub(crate) action: Action,
 }
 
-impl KeyBinding {
-    pub(crate) const fn new(player: Slot, key: Key, keymod: KeyMod, action: Action) -> Self {
-        Self {
-            player,
-            key,
-            keymod,
-            action,
-        }
-    }
-}
+// impl KeyBinding {
+//     pub(crate) const fn new(player: Slot, key: Key, keymod: KeyMod, action: Action) -> Self {
+//         Self {
+//             player,
+//             key,
+//             keymod,
+//             action,
+//         }
+//     }
+// }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct MouseBinding {
@@ -95,15 +95,15 @@ pub(crate) struct MouseBinding {
     pub(crate) action: Action,
 }
 
-impl MouseBinding {
-    pub(crate) const fn new(player: Slot, button: Mouse, action: Action) -> Self {
-        Self {
-            player,
-            button,
-            action,
-        }
-    }
-}
+// impl MouseBinding {
+//     pub(crate) const fn new(player: Slot, button: Mouse, action: Action) -> Self {
+//         Self {
+//             player,
+//             button,
+//             action,
+//         }
+//     }
+// }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerButtonBinding {
@@ -112,15 +112,15 @@ pub(crate) struct ControllerButtonBinding {
     pub(crate) action: Action,
 }
 
-impl ControllerButtonBinding {
-    pub(crate) const fn new(player: Slot, button: ControllerButton, action: Action) -> Self {
-        Self {
-            player,
-            button,
-            action,
-        }
-    }
-}
+// impl ControllerButtonBinding {
+//     pub(crate) const fn new(player: Slot, button: ControllerButton, action: Action) -> Self {
+//         Self {
+//             player,
+//             button,
+//             action,
+//         }
+//     }
+// }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerAxisBinding {
@@ -130,21 +130,21 @@ pub(crate) struct ControllerAxisBinding {
     pub(crate) action: Action,
 }
 
-impl ControllerAxisBinding {
-    pub(crate) const fn new(
-        player: Slot,
-        axis: Axis,
-        direction: AxisDirection,
-        action: Action,
-    ) -> Self {
-        Self {
-            player,
-            axis,
-            direction,
-            action,
-        }
-    }
-}
+// impl ControllerAxisBinding {
+//     pub(crate) const fn new(
+//         player: Slot,
+//         axis: Axis,
+//         direction: AxisDirection,
+//         action: Action,
+//     ) -> Self {
+//         Self {
+//             player,
+//             axis,
+//             direction,
+//             action,
+//         }
+//     }
+// }
 
 /// A binding of a inputs to an [Action].
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -155,30 +155,30 @@ pub(crate) struct InputBindings {
     pub(crate) axes: Vec<ControllerAxisBinding>,
 }
 
-impl InputBindings {
-    pub(crate) fn update_from_map(&mut self, input_map: &InputMapping) {
-        self.keys.clear();
-        self.mouse.clear();
-        self.buttons.clear();
-        self.axes.clear();
-        for (&input, &action) in input_map.iter() {
-            match input {
-                Input::Key((slot, key, keymod)) => {
-                    self.keys.push(KeyBinding::new(slot, key, keymod, action));
-                }
-                Input::Mouse((slot, button)) => {
-                    self.mouse.push(MouseBinding::new(slot, button, action));
-                }
-                Input::Button((slot, button)) => self
-                    .buttons
-                    .push(ControllerButtonBinding::new(slot, button, action)),
-                Input::Axis((slot, axis, direction)) => self
-                    .axes
-                    .push(ControllerAxisBinding::new(slot, axis, direction, action)),
-            }
-        }
-    }
-}
+// impl InputBindings {
+//     pub(crate) fn update_from_map(&mut self, input_map: &InputMapping) {
+//         self.keys.clear();
+//         self.mouse.clear();
+//         self.buttons.clear();
+//         self.axes.clear();
+//         for (&input, &action) in input_map.iter() {
+//             match input {
+//                 Input::Key((slot, key, keymod)) => {
+//                     self.keys.push(KeyBinding::new(slot, key, keymod, action));
+//                 }
+//                 Input::Mouse((slot, button)) => {
+//                     self.mouse.push(MouseBinding::new(slot, button, action));
+//                 }
+//                 Input::Button((slot, button)) => self
+//                     .buttons
+//                     .push(ControllerButtonBinding::new(slot, button, action)),
+//                 Input::Axis((slot, axis, direction)) => self
+//                     .axes
+//                     .push(ControllerAxisBinding::new(slot, axis, direction, action)),
+//             }
+//         }
+//     }
+// }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InputMapping(HashMap<Input, Action>);
@@ -389,30 +389,21 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_zapper_trigger(&mut self, slot: Slot) -> bool {
-        if self.control_deck.zapper_connected(slot) {
-            self.control_deck.trigger_zapper(slot);
-            true
-        } else {
-            false
-        }
+    fn handle_zapper_trigger(&mut self) -> bool {
+        self.control_deck.trigger_zapper();
+        true
     }
 
     pub fn set_zapper_pos(&mut self, pos: Point<i32>) -> bool {
-        for slot in [Slot::One, Slot::Two] {
-            if self.control_deck.zapper_connected(slot) {
-                let mut pos = pos / self.config.scale as i32;
-                pos.set_x((pos.x() as f32 * 8.0 / 7.0 + 0.5) as i32); // Adjust ratio
-                if pos.y() < NES_FRAME_SRC.top() {
-                    pos.set_y(8);
-                } else if pos.y() >= NES_FRAME_SRC.bottom() {
-                    pos.set_y(NES_FRAME_SRC.bottom() - 1);
-                }
-                self.control_deck.aim_zapper(slot, pos.x(), pos.y());
-                return true;
-            }
+        let mut pos = pos / self.config.scale as i32;
+        pos.set_x((pos.x() as f32 * 8.0 / 7.0 + 0.5) as i32); // Adjust ratio
+        if pos.y() < NES_FRAME_SRC.top() {
+            pos.set_y(8);
+        } else if pos.y() >= NES_FRAME_SRC.bottom() {
+            pos.set_y(NES_FRAME_SRC.bottom() - 1);
         }
-        false
+        self.control_deck.aim_zapper(pos.x(), pos.y());
+        return true;
     }
 
     #[inline]
@@ -480,7 +471,7 @@ impl Nes {
             }
             Action::Setting(setting) => self.handle_setting(s, setting, pressed, repeat)?,
             Action::Joypad(button) => self.handle_joypad_pressed(slot, button, pressed),
-            Action::ZapperTrigger if pressed => self.handle_zapper_trigger(slot),
+            Action::ZapperTrigger if pressed => self.handle_zapper_trigger(),
             Action::ZeroAxis(buttons) => {
                 let mut handled = false;
                 for button in buttons {

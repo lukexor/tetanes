@@ -9,7 +9,6 @@ use crate::{
     nes::{
         apu_viewer::ApuViewer,
         debug::Debugger,
-        event::{Action, Input},
         ppu_viewer::PpuViewer,
         state::{Replay, ReplayMode},
     },
@@ -142,16 +141,6 @@ impl NesBuilder {
         let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_region(config.region);
         control_deck.set_filter(config.filter);
-        for (&input, &action) in config.input_map.iter() {
-            if action == Action::ZapperTrigger {
-                if let Input::Mouse((slot, ..))
-                | Input::Key((slot, ..))
-                | Input::Button((slot, ..)) = input
-                {
-                    control_deck.connect_zapper(slot, true);
-                }
-            }
-        }
 
         Ok(Nes::new(
             control_deck,
@@ -292,16 +281,14 @@ impl Nes {
                 4 * Ppu::WIDTH as usize,
             )?;
 
-            for slot in [Slot::One, Slot::Two] {
-                if self.control_deck.zapper_connected(slot) {
-                    s.with_texture(texture_id, |s: &mut PixState| {
-                        let (x, y) = self.control_deck.zapper_pos(slot);
-                        s.stroke(Color::GRAY);
-                        s.line([x - 8, y, x + 8, y])?;
-                        s.line([x, y - 8, x, y + 8])?;
-                        Ok(())
-                    })?;
-                }
+            if self.config.crosshair {
+                s.with_texture(texture_id, |s: &mut PixState| {
+                    let (x, y) = self.control_deck.zapper_pos();
+                    s.stroke(Color::GRAY);
+                    s.line([x - 8, y, x + 8, y])?;
+                    s.line([x, y - 8, x, y + 8])?;
+                    Ok(())
+                })?;
             }
             s.texture(texture_id, NES_FRAME_SRC, None)?;
         }

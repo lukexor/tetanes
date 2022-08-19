@@ -15,6 +15,7 @@
   "rewind_frames": 2,
   "rewind_buffer_size": 20,
   "fourscore": false,
+  "crosshair": false,
   "audio_sample_rate": 44100.0,
   "audio_buffer_size": 4096,
   "dynamic_rate_control": true,
@@ -597,7 +598,13 @@
         }
       }
     ],
-    "mouse": [],
+    "mouse": [
+      {
+        "player": "Two",
+        "button": "Left",
+        "action": "ZapperTrigger"
+      }
+    ],
     "buttons": [
       {
         "player": "One",
@@ -697,10 +704,7 @@
         "axis": "LeftX",
         "direction": "None",
         "action": {
-          "ZeroAxis": [
-            "Left",
-            "Right"
-          ]
+          "ZeroAxis": ["Left", "Right"]
         }
       },
       {
@@ -724,10 +728,7 @@
         "axis": "LeftY",
         "direction": "None",
         "action": {
-          "ZeroAxis": [
-            "Up",
-            "Down"
-          ]
+          "ZeroAxis": ["Up", "Down"]
         }
       },
       {
