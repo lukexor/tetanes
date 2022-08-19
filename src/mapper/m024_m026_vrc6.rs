@@ -39,20 +39,8 @@ pub struct Vrc6 {
     irq: VrcIrq,
     audio: Vrc6Audio,
     nt_banks: [usize; 4],
-    // PPU $0000-$03FF: 1 KB switchable CHR-ROM bank
-    // PPU $0400-$07FF: 1 KB switchable CHR-ROM bank
-    // PPU $0800-$0BFF: 1 KB switchable CHR-ROM bank
-    // PPU $0C00-$0FFF: 1 KB switchable CHR-ROM bank
-    // PPU $1000-$13FF: 1 KB switchable CHR-ROM bank
-    // PPU $1400-$17FF: 1 KB switchable CHR-ROM bank
-    // PPU $1800-$1BFF: 1 KB switchable CHR-ROM bank
-    // PPU $1C00-$1FFF: 1 KB switchable CHR-ROM bank
     chr_banks: MemBanks,
-    // CPU $6000-$7FFF: 8 KB PRG-RAM bank, fixed
     prg_ram_banks: MemBanks,
-    // CPU $8000-$BFFF: 16 KB switchable PRG-ROM bank
-    // CPU $C000-$DFFF: 8 KB switchable PRG-ROM bank
-    // CPU $E000-$FFFF: 8 KB PRG-ROM bank, fixed to the last bank
     prg_rom_banks: MemBanks,
 }
 
@@ -254,6 +242,21 @@ impl Mapped for Vrc6 {
 }
 
 impl MemMap for Vrc6 {
+    // PPU $0000..=$03FF 1K switchable CHR-ROM bank
+    // PPU $0400..=$07FF 1K switchable CHR-ROM bank
+    // PPU $0800..=$0BFF 1K switchable CHR-ROM bank
+    // PPU $0C00..=$0FFF 1K switchable CHR-ROM bank
+    // PPU $1000..=$13FF 1K switchable CHR-ROM bank
+    // PPU $1400..=$17FF 1K switchable CHR-ROM bank
+    // PPU $1800..=$1BFF 1K switchable CHR-ROM bank
+    // PPU $1C00..=$1FFF 1K switchable CHR-ROM bank
+    // PPU $2000..=$3EFF Switchable Nametables
+    //
+    // CPU $6000..=$7FFF 8K PRG-RAM bank, fixed
+    // CPU $8000..=$BFFF 16K switchable PRG-ROM bank
+    // CPU $C000..=$DFFF 8K switchable PRG-ROM bank
+    // CPU $E000..=$FFFF 8K PRG-ROM bank, fixed to the last bank
+
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),

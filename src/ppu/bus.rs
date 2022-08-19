@@ -152,7 +152,7 @@ impl Mem for PpuBus {
                 MappedRead::CIRam(addr) => self.vram[addr],
                 MappedRead::ExRam(addr) => self.ex_ram[addr],
                 MappedRead::Data(data) => data,
-                _ => self.open_bus,
+                _ => self.vram[self.vram_mirror(addr as usize)],
             },
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
@@ -166,6 +166,12 @@ impl Mem for PpuBus {
 
     fn peek(&self, addr: u16, _access: Access) -> u8 {
         match addr {
+            0x2000..=0x3EFF => match self.mapper.map_peek(addr) {
+                MappedRead::CIRam(addr) => self.vram[addr],
+                MappedRead::ExRam(addr) => self.ex_ram[addr],
+                MappedRead::Data(data) => data,
+                _ => self.vram[self.vram_mirror(addr as usize)],
+            },
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_peek(addr) {
                     addr
@@ -178,12 +184,6 @@ impl Mem for PpuBus {
                     self.chr_rom[addr]
                 }
             }
-            0x2000..=0x3EFF => match self.mapper.map_peek(addr) {
-                MappedRead::CIRam(addr) => self.vram[self.vram_mirror(addr)],
-                MappedRead::ExRam(addr) => self.ex_ram[addr],
-                MappedRead::Data(data) => data,
-                _ => self.open_bus,
-            },
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
                 log::error!("unexpected PPU memory access at ${:04X}", addr);
@@ -194,6 +194,14 @@ impl Mem for PpuBus {
 
     fn write(&mut self, addr: u16, val: u8, _access: Access) {
         match addr {
+            0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
+                MappedWrite::CIRam(addr, val) => self.vram[addr] = val,
+                MappedWrite::ExRam(addr, val) => self.ex_ram[addr] = val,
+                _ => {
+                    let addr = self.vram_mirror(addr as usize);
+                    self.vram[addr] = val;
+                }
+            },
             0x0000..=0x1FFF => {
                 if !self.chr_ram.is_empty() {
                     if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
@@ -201,11 +209,6 @@ impl Mem for PpuBus {
                     }
                 }
             }
-            0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
-                MappedWrite::CIRam(addr, val) => self.vram[addr] = val,
-                MappedWrite::ExRam(addr, val) => self.ex_ram[addr] = val,
-                _ => (),
-            },
             0x3F00..=0x3FFF => {
                 self.palette[self.palette_mirror(addr as usize)] = val;
             }

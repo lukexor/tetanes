@@ -15,9 +15,7 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct Gxrom {
     mirroring: Mirroring,
-    // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
     chr_banks: MemBanks,
-    // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
     prg_rom_banks: MemBanks,
 }
 
@@ -39,6 +37,9 @@ impl Gxrom {
 }
 
 impl MemMap for Gxrom {
+    // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
+    // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
+
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),

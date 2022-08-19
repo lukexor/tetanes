@@ -16,9 +16,6 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct Cnrom {
     mirroring: Mirroring,
-    // PPU $0000..=$1FFF 8K CHR-ROM Banks Switchable
-    // CPU $8000..=$FFFF 16K PRG-ROM Bank Fixed
-    // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed or Bank 1 Mirror if only 16 KB PRG-ROM
     chr_banks: MemBanks,
     mirror_prg_rom: bool,
 }
@@ -37,10 +34,15 @@ impl Cnrom {
 }
 
 impl MemMap for Cnrom {
+    // PPU $0000..=$1FFF 8K CHR-ROM Banks Switchable
+    // CPU $8000..=$BFFF 16K PRG-ROM Bank Fixed
+    // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed or Bank 1 Mirror if only 16 KB PRG-ROM
+
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
-            0x8000..=0xFFFF => {
+            0x8000..=0xBFFF => MappedRead::PrgRom((addr & 0x3FFF).into()),
+            0xC000..=0xFFFF => {
                 let mirror = if self.mirror_prg_rom { 0x3FFF } else { 0x7FFF };
                 MappedRead::PrgRom((addr & mirror).into())
             }

@@ -26,12 +26,7 @@ pub struct Pxrom {
     //            used when latch 0/1 = $FD/$FE
     latch: [usize; 2],
     latch_banks: [u8; 4],
-    // PPU $0000..=$0FFF Two 4K switchable CHR-ROM banks
-    // PPU $1000..=$1FFF Two 4K switchable CHR-ROM banks
     chr_banks: MemBanks,
-    // CPU $6000..=$7FFF 8K PRG-RAM bank (PlayChoice version only)
-    // CPU $8000..=$9FFF 8K switchable PRG-ROM bank
-    // CPU $A000..=$FFFF Three 8K PRG-ROM banks, fixed to the last three banks
     prg_rom_banks: MemBanks,
 }
 
@@ -79,6 +74,12 @@ impl Mapped for Pxrom {
 }
 
 impl MemMap for Pxrom {
+    // PPU $0000..=$0FFF Two 4K switchable CHR-ROM banks
+    // PPU $1000..=$1FFF Two 4K switchable CHR-ROM banks
+    // CPU $6000..=$7FFF 8K PRG-RAM bank (PlayChoice version only)
+    // CPU $8000..=$9FFF 8K switchable PRG-ROM bank
+    // CPU $A000..=$FFFF Three 8K PRG-ROM banks, fixed to the last three banks
+
     fn map_read(&mut self, addr: u16) -> MappedRead {
         let val = self.map_peek(addr);
         // Update latch after read
@@ -96,6 +97,7 @@ impl MemMap for Pxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
+            0x6000..=0x7FFF => MappedRead::PrgRam((addr & 0x1FFF).into()),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
             _ => MappedRead::None,
         }
@@ -103,12 +105,15 @@ impl MemMap for Pxrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
+            0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
             0xA000..=0xAFFF => {
                 self.prg_rom_banks.set(0, (val & 0x0F).into());
+                MappedWrite::None
             }
             0xB000..=0xEFFF => {
                 self.latch_banks[((addr - 0xB000) >> 12) as usize] = val & 0x1F;
                 self.update_banks();
+                MappedWrite::None
             }
             0xF000..=0xFFFF => {
                 self.mirroring = match val & Self::MIRRORING_MASK {
@@ -116,10 +121,10 @@ impl MemMap for Pxrom {
                     1 => Mirroring::Horizontal,
                     _ => unreachable!("impossible mirroring mode"),
                 };
+                MappedWrite::None
             }
-            _ => (),
+            _ => MappedWrite::None,
         }
-        MappedWrite::None
     }
 }
 

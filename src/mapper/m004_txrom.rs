@@ -68,19 +68,8 @@ pub struct Txrom {
     mirroring: Mirroring,
     irq_pending: bool,
     revision: Mmc3Revision,
-    // PPU $0000..=$07FF (or $1000..=$17FF) 2K CHR-ROM/RAM Bank 1 Switchable --+
-    // PPU $0800..=$0FFF (or $1800..=$1FFF) 2K CHR-ROM/RAM Bank 2 Switchable --|-+
-    // PPU $1000..=$13FF (or $0000..=$03FF) 1K CHR-ROM/RAM Bank 3 Switchable --+ |
-    // PPU $1400..=$17FF (or $0400..=$07FF) 1K CHR-ROM/RAM Bank 4 Switchable --+ |
-    // PPU $1800..=$1BFF (or $0800..=$0BFF) 1K CHR-ROM/RAM Bank 5 Switchable ----+
-    // PPU $1C00..=$1FFF (or $0C00..=$0FFF) 1K CHR-ROM/RAM Bank 6 Switchable ----+
     chr_banks: MemBanks,
-    // CPU $6000..=$7FFF 8K PRG-RAM Bank (optional)
     prg_ram_banks: MemBanks,
-    // CPU $8000..=$9FFF (or $C000..=$DFFF) 8K PRG-ROM Bank 1 Switchable
-    // CPU $A000..=$BFFF 8K PRG-ROM Bank 2 Switchable
-    // CPU $C000..=$DFFF (or $8000..=$9FFF) 8K PRG-ROM Bank 3 Fixed to second-to-last Bank
-    // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
     prg_rom_banks: MemBanks,
 }
 
@@ -216,6 +205,20 @@ impl Mapped for Txrom {
 }
 
 impl MemMap for Txrom {
+    // PPU $0000..=$07FF (or $1000..=$17FF) 2K CHR-ROM/RAM Bank 1 Switchable --+
+    // PPU $0800..=$0FFF (or $1800..=$1FFF) 2K CHR-ROM/RAM Bank 2 Switchable --|-+
+    // PPU $1000..=$13FF (or $0000..=$03FF) 1K CHR-ROM/RAM Bank 3 Switchable --+ |
+    // PPU $1400..=$17FF (or $0400..=$07FF) 1K CHR-ROM/RAM Bank 4 Switchable --+ |
+    // PPU $1800..=$1BFF (or $0800..=$0BFF) 1K CHR-ROM/RAM Bank 5 Switchable ----+
+    // PPU $1C00..=$1FFF (or $0C00..=$0FFF) 1K CHR-ROM/RAM Bank 6 Switchable ----+
+    // PPU $2000..=$3EFF FourScreen Mirroring (optional)
+
+    // CPU $6000..=$7FFF 8K PRG-RAM Bank (optional)
+    // CPU $8000..=$9FFF (or $C000..=$DFFF) 8K PRG-ROM Bank 1 Switchable
+    // CPU $A000..=$BFFF 8K PRG-ROM Bank 2 Switchable
+    // CPU $C000..=$DFFF (or $8000..=$9FFF) 8K PRG-ROM Bank 3 Fixed to second-to-last Bank
+    // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
+
     #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.clock_irq(addr);
@@ -241,27 +244,28 @@ impl MemMap for Txrom {
                 MappedWrite::ExRam((addr & 0x1FFF) as usize, val)
             }
             0x6000..=0x7FFF => MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val),
-            //  7654 3210
-            // `CPMx xRRR`
-            //  |||   +++- Specify which bank register to update on next write to Bank Data register
-            //  |||        0: Select 2K CHR bank at PPU $0000-$07FF (or $1000-$17FF);
-            //  |||        1: Select 2K CHR bank at PPU $0800-$0FFF (or $1800-$1FFF);
-            //  |||        2: Select 1K CHR bank at PPU $1000-$13FF (or $0000-$03FF);
-            //  |||        3: Select 1K CHR bank at PPU $1400-$17FF (or $0400-$07FF);
-            //  |||        4: Select 1K CHR bank at PPU $1800-$1BFF (or $0800-$0BFF);
-            //  |||        5: Select 1K CHR bank at PPU $1C00-$1FFF (or $0C00-$0FFF);
-            //  |||        6: Select 8K PRG-ROM bank at $8000-$9FFF (or $C000-$DFFF);
-            //  |||        7: Select 8K PRG-ROM bank at $A000-$BFFF
-            //  ||+------- Nothing on the MMC3, see MMC6
-            //  |+-------- PRG-ROM bank mode (0: $8000-$9FFF swappable,
-            //  |                                $C000-$DFFF fixed to second-last bank;
-            //  |                             1: $C000-$DFFF swappable,
-            //  |                                $8000-$9FFF fixed to second-last bank)
-            //  +--------- CHR A12 inversion (0: two 2K banks at $0000-$0FFF,
-            //                                   four 1K banks at $1000-$1FFF;
-            //                                1: two 2K banks at $1000-$1FFF,
-            //                                   four 1K banks at $0000-$0FFF)
             0x8000..=0xFFFF => {
+                //  7654 3210
+                // `CPMx xRRR`
+                //  |||   +++- Specify which bank register to update on next write to Bank Data register
+                //  |||        0: Select 2K CHR bank at PPU $0000-$07FF (or $1000-$17FF);
+                //  |||        1: Select 2K CHR bank at PPU $0800-$0FFF (or $1800-$1FFF);
+                //  |||        2: Select 1K CHR bank at PPU $1000-$13FF (or $0000-$03FF);
+                //  |||        3: Select 1K CHR bank at PPU $1400-$17FF (or $0400-$07FF);
+                //  |||        4: Select 1K CHR bank at PPU $1800-$1BFF (or $0800-$0BFF);
+                //  |||        5: Select 1K CHR bank at PPU $1C00-$1FFF (or $0C00-$0FFF);
+                //  |||        6: Select 8K PRG-ROM bank at $8000-$9FFF (or $C000-$DFFF);
+                //  |||        7: Select 8K PRG-ROM bank at $A000-$BFFF
+                //  ||+------- Nothing on the MMC3, see MMC6
+                //  |+-------- PRG-ROM bank mode (0: $8000-$9FFF swappable,
+                //  |                                $C000-$DFFF fixed to second-last bank;
+                //  |                             1: $C000-$DFFF swappable,
+                //  |                                $8000-$9FFF fixed to second-last bank)
+                //  +--------- CHR A12 inversion (0: two 2K banks at $0000-$0FFF,
+                //                                   four 1K banks at $1000-$1FFF;
+                //                                1: two 2K banks at $1000-$1FFF,
+                //                                   four 1K banks at $0000-$0FFF)
+                //
                 // Match only $8000/1, $A000/1, $C000/1, and $E000/1
                 match addr & 0xE001 {
                     0x8000 => {

@@ -488,11 +488,6 @@ impl Exrom {
     }
 
     #[inline]
-    fn inc_fetch_count(&mut self) {
-        self.ppu_status.fetch_count += 1;
-    }
-
-    #[inline]
     const fn fetch_count(&self) -> u32 {
         self.ppu_status.fetch_count
     }
@@ -543,10 +538,57 @@ impl Regional for Exrom {
 }
 
 impl MemMap for Exrom {
+    // CHR mode 0
+    // PPU $0000..=$1FFF 8K switchable CHR bank
+    //
+    // CHR mode 1
+    // PPU $0000..=$0FFF 4K switchable CHR bank
+    // PPU $1000..=$1FFF 4K switchable CHR bank
+    //
+    // CHR mode 2
+    // PPU $0000..=$07FF 2K switchable CHR bank
+    // PPU $0800..=$0FFF 2K switchable CHR bank
+    // PPU $1000..=$17FF 2K switchable CHR bank
+    // PPU $1800..=$1FFF 2K switchable CHR bank
+    //
+    // CHR mode 3
+    // PPU $0000..=$03FF 1K switchable CHR bank
+    // PPU $0400..=$07FF 1K switchable CHR bank
+    // PPU $0800..=$0BFF 1K switchable CHR bank
+    // PPU $0C00..=$0FFF 1K switchable CHR bank
+    // PPU $1000..=$13FF 1K switchable CHR bank
+    // PPU $1400..=$17FF 1K switchable CHR bank
+    // PPU $1800..=$1BFF 1K switchable CHR bank
+    // PPU $1C00..=$1FFF 1K switchable CHR bank
+    //
+    // PPU $2000..=$3EFF Up to 3 Nametables + Fill mode
+    //
+    // PRG mode 0
+    // CPU $6000..=$7FFF 8K switchable PRG RAM bank
+    // CPU $8000..=$FFFF 32K switchable PRG ROM bank
+    //
+    // PRG mode 1
+    // CPU $6000..=$7FFF 8K switchable PRG RAM bank
+    // CPU $8000..=$BFFF 16K switchable PRG ROM/RAM bank
+    // CPU $C000..=$FFFF 16K switchable PRG ROM bank
+    //
+    // PRG mode 2
+    // CPU $6000..=$7FFF 8K switchable PRG RAM bank
+    // CPU $8000..=$BFFF 16K switchable PRG ROM/RAM bank
+    // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
+    // CPU $E000..=$FFFF 8K switchable PRG ROM bank
+    //
+    // PRG mode 3
+    // CPU $6000..=$7FFF 8K switchable PRG RAM bank
+    // CPU $8000..=$9FFF 8K switchable PRG ROM/RAM bank
+    // CPU $A000..=$BFFF 8K switchable PRG ROM/RAM bank
+    // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
+    // CPU $E000..=$FFFF 8K switchable PRG ROM bank
+
     fn map_read(&mut self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
-                self.inc_fetch_count();
+                self.ppu_status.fetch_count += 1;
 
                 if self.ppu_status.sprite8x16 {
                     match self.fetch_count() {

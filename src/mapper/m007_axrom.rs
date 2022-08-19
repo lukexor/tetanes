@@ -15,8 +15,6 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct Axrom {
     mirroring: Mirroring,
-    // PPU $0000..=$1FFF 8K CHR-RAM Bank Fixed
-    // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
     prg_rom_banks: MemBanks,
 }
 
@@ -50,6 +48,9 @@ impl Mapped for Axrom {
 }
 
 impl MemMap for Axrom {
+    // PPU $0000..=$1FFF 8K CHR-RAM Bank Fixed
+    // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
+
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),

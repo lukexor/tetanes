@@ -212,8 +212,6 @@ impl Nes {
             config.audio_sample_rate / config.speed,
             config.audio_buffer_size,
         );
-        #[cfg(feature = "profile-rate-control")]
-        let stats = std::io::BufWriter::new(std::fs::File::create("./stats.dat").unwrap());
         Self {
             control_deck,
             audio,
@@ -236,7 +234,7 @@ impl Nes {
             error: None,
             confirm_quit: None,
             #[cfg(feature = "profile-rate-control")]
-            stats,
+            stats: std::io::BufWriter::new(std::fs::File::create("./stats.dat").unwrap()),
         }
     }
 

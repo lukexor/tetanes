@@ -23,9 +23,6 @@ pub enum Bf909Revision {
 pub struct Bf909x {
     variant: Bf909Revision,
     mirroring: Mirroring,
-    // PPU $0000..=$1FFF 8K Fixed CHR-ROM Banks
-    // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
-    // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
     prg_rom_banks: MemBanks,
 }
 
@@ -66,6 +63,10 @@ impl Mapped for Bf909x {
 }
 
 impl MemMap for Bf909x {
+    // PPU $0000..=$1FFF 8K Fixed CHR-ROM Banks
+    // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
+    // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
+
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),

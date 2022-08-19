@@ -352,12 +352,6 @@ impl Mem for CpuBus {
     fn read(&mut self, addr: u16, access: Access) -> u8 {
         let val = match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
-            0x2002 => self.ppu.read_status(),
-            0x2004 => self.ppu.read_oamdata(),
-            0x2007 => self.ppu.read_data(),
-            0x4015 => self.apu.read_status(),
-            0x4016 => self.input.read(Slot::One, &self.ppu),
-            0x4017 => self.input.read(Slot::Two, &self.ppu),
             0x4020..=0xFFFF => {
                 let val = match self.mapper_mut().map_read(addr) {
                     MappedRead::Data(val) => val,
@@ -367,6 +361,12 @@ impl Mem for CpuBus {
                 };
                 self.genie_read(addr, val)
             }
+            0x2002 => self.ppu.read_status(),
+            0x2004 => self.ppu.read_oamdata(),
+            0x2007 => self.ppu.read_data(),
+            0x4015 => self.apu.read_status(),
+            0x4016 => self.input.read(Slot::One, &self.ppu),
+            0x4017 => self.input.read(Slot::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
             0x0800..=0x1FFF => self.read(addr & 0x07FF, access), // WRAM Mirrors
             0x2008..=0x3FFF => self.read(addr & 0x2007, access), // Ppu Mirrors
@@ -380,12 +380,6 @@ impl Mem for CpuBus {
     fn peek(&self, addr: u16, access: Access) -> u8 {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
-            0x2002 => self.ppu.peek_status(),
-            0x2004 => self.ppu.peek_oamdata(),
-            0x2007 => self.ppu.peek_data(),
-            0x4015 => self.apu.peek_status(),
-            0x4016 => self.input.peek(Slot::One, &self.ppu),
-            0x4017 => self.input.peek(Slot::Two, &self.ppu),
             0x4020..=0xFFFF => {
                 let val = match self.mapper().map_peek(addr) {
                     MappedRead::Data(val) => val,
@@ -395,6 +389,12 @@ impl Mem for CpuBus {
                 };
                 self.genie_read(addr, val)
             }
+            0x2002 => self.ppu.peek_status(),
+            0x2004 => self.ppu.peek_oamdata(),
+            0x2007 => self.ppu.peek_data(),
+            0x4015 => self.apu.peek_status(),
+            0x4016 => self.input.peek(Slot::One, &self.ppu),
+            0x4017 => self.input.peek(Slot::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
             0x0800..=0x1FFF => self.peek(addr & 0x07FF, access), // WRAM Mirrors
             0x2008..=0x3FFF => self.peek(addr & 0x2007, access), // Ppu Mirrors
@@ -405,8 +405,16 @@ impl Mem for CpuBus {
     fn write(&mut self, addr: u16, val: u8, access: Access) {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize] = val,
+            0x4020..=0xFFFF => {
+                let prg_ram_enabled = !self.prg_ram.is_empty() && !self.prg_ram_protect;
+                match self.mapper_mut().map_write(addr, val) {
+                    MappedWrite::PrgRam(addr, val) if prg_ram_enabled => self.prg_ram[addr] = val,
+                    MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
+                    _ => (),
+                }
+                self.ppu.update_mirroring();
+            }
             0x2000 => self.ppu.write_ctrl(val),
-
             0x2001 => self.ppu.write_mask(val),
             0x2003 => self.ppu.write_oamaddr(val),
             0x2004 => self.ppu.write_oamdata(val),
@@ -438,15 +446,6 @@ impl Mem for CpuBus {
             0x4015 => self.apu.write_status(val),
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
-            0x4020..=0xFFFF => {
-                let prg_ram_enabled = !self.prg_ram.is_empty() && !self.prg_ram_protect;
-                match self.mapper_mut().map_write(addr, val) {
-                    MappedWrite::PrgRam(addr, val) if prg_ram_enabled => self.prg_ram[addr] = val,
-                    MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
-                    _ => (),
-                }
-                self.ppu.update_mirroring();
-            }
             0x2002 => self.ppu.set_open_bus(val),
             0x0800..=0x1FFF => return self.write(addr & 0x07FF, val, access), // WRAM Mirrors
             0x2008..=0x3FFF => return self.write(addr & 0x2007, val, access), // Ppu Mirrors
@@ -644,6 +643,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "todo"]
     fn read_write_ppu() {
         // read: PPUSTATUS, OAMDATA, PPUDATA + Mirrors
         // peek: PPUSTATUS, OAMDATA, PPUDATA + Mirrors
@@ -652,6 +652,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "todo"]
     fn read_write_apu() {
         // read: APU_STATUS
         // write: APU_STATUS, APU_FRAME_COUNTER
@@ -659,6 +660,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "todo"]
     fn write_apu_pulse() {
         // write: APU_CTRL_PULSE1, APU_SWEEP_PULSE1, APU_TIMER_LO_PULSE1, APU_TIMER_HI_PULSE1
         // write: APU_CTRL_PULSE2, APU_SWEEP_PULSE2, APU_TIMER_LO_PULSE2, APU_TIMER_HI_PULSE2
@@ -666,34 +668,40 @@ mod test {
     }
 
     #[test]
+    #[ignore = "todo"]
     fn write_apu_triangle() {
         // write: APU_LIN_CTR_TRIANGLE, APU_TIMER_LO_TRIANGLE, APU_TIMER_HI_TRIANGLE
         todo!();
     }
 
     #[test]
+    #[ignore = "todo"]
     fn write_apu_noise() {
         // write: APU_CTRL_NOISE, APU_TIMER_NOISE, APU_LENGTH_NOISE
         todo!()
     }
 
     #[test]
+    #[ignore = "todo"]
     fn write_dmc() {
         // write: APU_TIMER_DMC, APU_OUTPUT_DMC, APU_ADDR_LOAD_DMC, APU_LENGTH_DMC
         todo!()
     }
 
     #[test]
+    #[ignore = "todo"]
     fn read_write_input() {
         todo!()
     }
 
     #[test]
+    #[ignore = "todo"]
     fn read_write_mapper() {
         todo!()
     }
 
     #[test]
+    #[ignore = "todo"]
     fn reset() {
         todo!()
     }
