@@ -26,7 +26,7 @@ impl Nes {
     }
 
     pub(crate) fn exit_menu(&mut self, s: &mut PixState) -> PixResult<()> {
-        if self.set_zapper_pos(s.mouse_pos()) {
+        if self.config.crosshair {
             s.cursor(None)?;
         }
         self.resume_play();

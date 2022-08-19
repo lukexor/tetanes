@@ -389,12 +389,11 @@ impl Nes {
     }
 
     #[inline]
-    fn handle_zapper_trigger(&mut self) -> bool {
+    fn handle_zapper_trigger(&mut self) {
         self.control_deck.trigger_zapper();
-        true
     }
 
-    pub fn set_zapper_pos(&mut self, pos: Point<i32>) -> bool {
+    pub fn set_zapper_pos(&mut self, pos: Point<i32>) {
         let mut pos = pos / self.config.scale as i32;
         pos.set_x((pos.x() as f32 * 8.0 / 7.0 + 0.5) as i32); // Adjust ratio
         if pos.y() < NES_FRAME_SRC.top() {
@@ -403,14 +402,14 @@ impl Nes {
             pos.set_y(NES_FRAME_SRC.bottom() - 1);
         }
         self.control_deck.aim_zapper(pos.x(), pos.y());
-        return true;
     }
 
     #[inline]
     pub fn handle_mouse_motion(&mut self, pos: Point<i32>) -> bool {
         // To avoid consuming events while in menus
         if self.mode == Mode::Playing {
-            self.set_zapper_pos(pos)
+            self.set_zapper_pos(pos);
+            true
         } else {
             false
         }
@@ -471,7 +470,10 @@ impl Nes {
             }
             Action::Setting(setting) => self.handle_setting(s, setting, pressed, repeat)?,
             Action::Joypad(button) => self.handle_joypad_pressed(slot, button, pressed),
-            Action::ZapperTrigger if pressed => self.handle_zapper_trigger(),
+            Action::ZapperTrigger if pressed => {
+                self.handle_zapper_trigger();
+                true
+            }
             Action::ZeroAxis(buttons) => {
                 let mut handled = false;
                 for button in buttons {

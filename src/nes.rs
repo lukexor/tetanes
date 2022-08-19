@@ -299,7 +299,7 @@ impl Nes {
 impl AppState for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
         self.update_frame_rate(s)?;
-        if self.set_zapper_pos(s.mouse_pos()) {
+        if self.config.crosshair {
             s.cursor(None)?;
         }
         self.audio.open_playback(s)?;

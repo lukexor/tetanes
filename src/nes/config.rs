@@ -2,7 +2,7 @@ use crate::{
     common::{config_dir, config_path, NesRegion},
     mem::RamState,
     nes::{
-        event::{Action, Input, InputBindings, InputMapping},
+        event::{Input, InputBindings, InputMapping},
         Nes, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
     },
     video::VideoFilter,
