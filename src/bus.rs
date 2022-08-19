@@ -514,7 +514,7 @@ mod test {
         #[rustfmt::skip]
         let rom: [u8; 16] = [
             0x4E, 0x45, 0x53, 0x1A,
-            0x00, 0x00, 0x12, 0x00,
+            0x00, 0x00, 0x02, 0x00,
             0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
         ];
@@ -528,7 +528,11 @@ mod test {
 
         assert_eq!(bus.ppu.region(), expected_region, "ppu region");
         assert_eq!(bus.apu.region(), expected_region, "apu region");
-        assert!(matches!(bus.mapper(), &Mapper::Nrom(_)), "mapper");
+        assert!(
+            matches!(bus.mapper(), &Mapper::Nrom(_)),
+            "mapper is Nrom: {:?}",
+            bus.mapper()
+        );
         assert_eq!(bus.ppu.mirroring(), expected_mirroring, "mirroring");
         assert_eq!(bus.cart_battery_backed(), expected_battery, "battery");
     }

@@ -143,7 +143,22 @@ impl Cart {
             prg_rom,
             prg_ram,
         };
-        cart.load_mapper()?;
+        cart.mapper = match cart.header.mapper_num {
+            0 => Nrom::load(&mut cart),
+            1 => Sxrom::load(&mut cart, Mmc1Revision::BC),
+            2 => Uxrom::load(&mut cart),
+            3 => Cnrom::load(&mut cart),
+            4 => Txrom::load(&mut cart),
+            5 => Exrom::load(&mut cart),
+            7 => Axrom::load(&mut cart),
+            9 => Pxrom::load(&mut cart),
+            24 => Vrc6::load(&mut cart, Vrc6Revision::A),
+            26 => Vrc6::load(&mut cart, Vrc6Revision::B),
+            66 => Gxrom::load(&mut cart),
+            71 => Bf909x::load(&mut cart),
+            155 => Sxrom::load(&mut cart, Mmc1Revision::A),
+            _ => bail!("unimplemented mapper: {}", cart.header.mapper_num),
+        };
 
         log::info!("Loaded `{}`", cart);
         log::debug!("{:?}", cart);
@@ -268,26 +283,6 @@ impl Cart {
     pub(crate) fn add_ex_ram(&mut self, capacity: usize) {
         self.ex_ram.resize(capacity, 0x00);
         RamState::fill(&mut self.ex_ram, self.ram_state);
-    }
-
-    fn load_mapper(&mut self) -> NesResult<()> {
-        self.mapper = match self.header.mapper_num {
-            0 => Nrom::load(self),
-            1 => Sxrom::load(self, Mmc1Revision::BC),
-            2 => Uxrom::load(self),
-            3 => Cnrom::load(self),
-            4 => Txrom::load(self),
-            5 => Exrom::load(self),
-            7 => Axrom::load(self),
-            9 => Pxrom::load(self),
-            24 => Vrc6::load(self, Vrc6Revision::A),
-            26 => Vrc6::load(self, Vrc6Revision::B),
-            66 => Gxrom::load(self),
-            71 => Bf909x::load(self),
-            155 => Sxrom::load(self, Mmc1Revision::A),
-            _ => bail!("unimplemented mapper: {}", self.header.mapper_num),
-        };
-        Ok(())
     }
 
     fn calculate_ram_size(value: u8) -> NesResult<usize> {

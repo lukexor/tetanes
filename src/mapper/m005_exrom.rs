@@ -77,7 +77,7 @@ impl ExRamMode {
     fn set(&mut self, val: u8) {
         let val = val & 0x03;
         self.bits = val;
-        self.nametable = matches!(val, 0b00 | 0b11);
+        self.nametable = matches!(val, 0b00 | 0b01);
         self.attr = val == 0b01;
         self.rw = match val {
             0b00 | 0b01 => ExRamRW::W,
@@ -589,7 +589,6 @@ impl MemMap for Exrom {
         match addr {
             0x0000..=0x1FFF => {
                 self.ppu_status.fetch_count += 1;
-
                 if self.ppu_status.sprite8x16 {
                     match self.fetch_count() {
                         Self::SPR_FETCH_START => self.update_chr_banks(ChrBank::Spr),
@@ -606,11 +605,10 @@ impl MemMap for Exrom {
                 }
 
                 // Detect split
-                // if self.vsplit.in_region && !addr.is_attr() {
-                //     self.vsplit.split_tile = (((self.regs.vsplit.scroll & 0xF8) as usize) << 2)
+                // if self.regs.vsplit.in_region && !addr.is_attr() {
+                //     self.regs.vsplit.tile = (((self.regs.vsplit.scroll & 0xF8)) << 2)
                 //         | ((self.fetch_count() / 4) & 0x1F) as usize;
                 // }
-                //
 
                 // Monitor tile fetches to trigger IRQs
                 // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
@@ -653,7 +651,7 @@ impl MemMap for Exrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
-                if self.regs.exram_mode.attr {
+                if self.regs.exram_mode.attr && !self.spr_fetch() {
                     // Bits 6-7 of 4K CHR bank. Already shifted left by 8
                     let bank_hi = self.regs.chr_hi << 10;
                     // Bits 0-5 of 4k CHR bank
@@ -667,8 +665,17 @@ impl MemMap for Exrom {
             0x2000..=0x3EFF => {
                 let is_attr = addr.is_attr();
                 if self.regs.vsplit.in_region {
-                    todo!()
-                } else if is_attr && self.regs.exram_mode.attr && !self.spr_fetch() {
+                    if is_attr {
+                        todo!()
+                        // let addr =
+                        //     Self::ATTR_OFFSET | u16::from(ATTR_LOC[(self.regs.vsplit.tile as usize) >> 2]);
+                        // let attr = self.read_exram(addr - 0x2000) as usize;
+                        // let shift = ATTR_SHIFT[(self.regs.vsplit.tile as usize) & 0x7F] as usize;
+                        // MappedRead::Data(ATTR_BITS[(attr >> shift) & 0x03])
+                    } else {
+                        MappedRead::Data(self.read_exram(self.regs.vsplit.tile.into()))
+                    }
+                } else if self.regs.exram_mode.attr && is_attr && !self.spr_fetch() {
                     // ExAttr mode returns attr bits for all nametables, regardless of mapping
                     let attr = (self.exram[self.tile_cache] >> 6) & 0x03;
                     MappedRead::Data(Self::ATTR_MIRROR[attr as usize])
@@ -676,7 +683,7 @@ impl MemMap for Exrom {
                     let nametable_mode = self.regs.exram_mode.nametable;
                     match self.nametable_select(addr) {
                         Nametable::ScreenA => MappedRead::CIRam((addr & 0x03FF).into()),
-                        Nametable::ScreenB => MappedRead::CIRam(0x0400 | (addr & 0x03FF) as usize),
+                        Nametable::ScreenB => MappedRead::CIRam((0x0400 | (addr & 0x03FF)).into()),
                         Nametable::ExRam if nametable_mode => {
                             MappedRead::Data(self.read_exram(addr))
                         }
@@ -695,8 +702,8 @@ impl MemMap for Exrom {
             }
             0x5010 => {
                 // [I... ...M] DMC
-                //   I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
-                //   M = Mode select (0 = write mode. 1 = read mode.)
+                // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
+                // M = Mode select (0 = write mode. 1 = read mode.)
                 let irq = self.dmc.irq_pending() && self.dmc.irq_enabled();
                 MappedRead::Data(u8::from(irq) << 7 | self.dmc_mode)
             }
@@ -763,7 +770,7 @@ impl MemMap for Exrom {
             0x2000..=0x3EFF => match self.nametable_select(addr) {
                 Nametable::ScreenA => return MappedWrite::CIRam((addr & 0x03FF).into(), val),
                 Nametable::ScreenB => {
-                    return MappedWrite::CIRam(0x0400 | (addr & 0x03FF) as usize, val)
+                    return MappedWrite::CIRam((0x0400 | (addr & 0x03FF)).into(), val)
                 }
                 Nametable::ExRam if self.regs.exram_mode.nametable => {
                     self.write_exram(addr, val);
