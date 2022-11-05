@@ -108,7 +108,7 @@ impl Frame {
                 0
             } else {
                 let y = idx / 256;
-                let even_phase = if self.num & 0x01 == 0x01 { 0 } else { 1 };
+                let even_phase = usize::from(self.num & 0x01 != 0x01);
                 let phase = (2 + y * 341 + x + even_phase) % 3;
                 NTSC_PALETTE
                     [phase + ((self.prev_pixel & 0x3F) as usize) * 3 + (*pixel as usize) * 3 * 64]

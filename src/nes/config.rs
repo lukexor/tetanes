@@ -194,12 +194,7 @@ impl Nes {
     }
 
     pub(crate) fn change_speed(&mut self, delta: f32) {
-        self.config.speed += delta;
-        if self.config.speed < MIN_SPEED {
-            self.config.speed = MIN_SPEED;
-        } else if self.config.speed > MAX_SPEED {
-            self.config.speed = MAX_SPEED;
-        }
+        self.config.speed = (self.config.speed + delta).clamp(MIN_SPEED, MAX_SPEED);
         self.set_speed(self.config.speed);
     }
 
