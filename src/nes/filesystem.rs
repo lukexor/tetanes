@@ -80,7 +80,7 @@ where
 
     let write_data = || {
         let mut writer = BufWriter::new(
-            File::create(&path).with_context(|| format!("failed to create file {:?}", path))?,
+            File::create(path).with_context(|| format!("failed to create file {:?}", path))?,
         );
         write_save_header(&mut writer)
             .with_context(|| format!("failed to write header {:?}", path))?;
@@ -97,7 +97,7 @@ where
     if path.exists() {
         // Check if exists and header is different, so we avoid overwriting
         let mut reader = BufReader::new(
-            File::open(&path).with_context(|| format!("failed to open file {:?}", path))?,
+            File::open(path).with_context(|| format!("failed to open file {:?}", path))?,
         );
         validate_save_header(&mut reader)
             .with_context(|| format!("failed to validate header {:?}", path))
@@ -114,7 +114,7 @@ where
 {
     let path = path.as_ref();
     let mut reader = BufReader::new(
-        File::open(&path).with_context(|| format!("Failed to open file {:?}", path))?,
+        File::open(path).with_context(|| format!("Failed to open file {:?}", path))?,
     );
     let mut bytes = vec![];
     // Don't care about the size read

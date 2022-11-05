@@ -140,7 +140,7 @@ impl Nes {
                     self.control_deck.pc().saturating_add(30),
                 );
                 for instr in disasm.iter().take(10) {
-                    s.text(&instr)?;
+                    s.text(instr)?;
                 }
 
                 Ok(())
@@ -271,7 +271,7 @@ impl Nes {
                             PALETTE_HEIGHT as i32
                         ];
                         let palette_pitch = RENDER_CHANNELS * palette_w as usize;
-                        s.update_texture(texture_id, palette_src, &palette, palette_pitch)?;
+                        s.update_texture(texture_id, palette_src, palette, palette_pitch)?;
                         s.texture(texture_id, palette_src, palette_dst)?;
 
                         // Borders

@@ -351,7 +351,7 @@ impl Nes {
         if let Some(ref error) = self.error {
             s.fill(colors.error);
             s.wrap(s.width()? - 2 * spacing.frame_pad.x() as u32);
-            s.text(&error)?;
+            s.text(error)?;
             s.spacing()?;
         }
 
@@ -366,7 +366,7 @@ impl Nes {
         let path_list: Vec<Cow<'_, str>> = self
             .paths
             .iter()
-            .map(|p| p.strip_prefix(&rom_dir).unwrap_or(p).to_string_lossy())
+            .map(|p| p.strip_prefix(rom_dir).unwrap_or(p).to_string_lossy())
             .collect();
 
         s.fill(colors.secondary);

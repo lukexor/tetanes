@@ -221,7 +221,7 @@ pub static NTSC_PALETTE: Lazy<Vec<u32>> = Lazy::new(|| {
                         } else {
                             0
                         };
-                        let high = if chroma > limit { 1 } else { 0 };
+                        let high = usize::from(chroma > limit);
                         let emp_effect = if (152_278 >> (sample / 2 * 3)) & emphasis > 0 {
                             0
                         } else {
