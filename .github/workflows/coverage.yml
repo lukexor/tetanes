@@ -30,7 +30,7 @@ jobs:
       - name: Install Coverage Tools
         run: |
           cargo install rustfilt cargo-binutils
-          brew install jq
+          sudo apt install jq
       - name: Run Tests
         run: cargo test
         # source: https://doc.rust-lang.org/rustc/instrument-coverage.html
