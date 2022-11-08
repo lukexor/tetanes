@@ -20,9 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
           targets: wasm32-unknown-unknown
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v1
