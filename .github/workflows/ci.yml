@@ -18,10 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - run: cargo fmt --all --check
 
   build-and-test:
     runs-on: ${{ matrix.os }}
@@ -39,9 +36,8 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v1
       - name: Lint
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
+        run: |
+          cargo clippy
       - uses: ./.github/actions/install-sdl2
       - name: Install wasm-pack
         if: matrix.os != 'windows-latest'
