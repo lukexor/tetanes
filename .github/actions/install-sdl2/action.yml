@@ -11,11 +11,11 @@ runs:
         sudo add-apt-repository ppa:savoury1/multimedia
         sudo apt update
         sudo apt install \
-          libsdl2-dev \
-          libsdl2-gfx-dev \
-          libsdl2-image-dev \
-          libsdl2-mixer-dev \
-          libsdl2-ttf-dev
+          libsdl2 \
+          libsdl2-gfx \
+          libsdl2-image \
+          libsdl2-mixer \
+          libsdl2-ttf
     - if: matrix.os == 'macos-latest'
       shell: bash
       run: |

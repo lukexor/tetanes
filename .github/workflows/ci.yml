@@ -34,7 +34,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Lint
         run: |
           cargo clippy
@@ -50,6 +50,6 @@ jobs:
           cd web
           bash bin/build.sh --dev
       - run: cargo doc --verbose
-        # TODO: Remove when nightly doc is working
-        if: matrix.toolchain != 'nightly'
+        # TODO: Remove when beta/nightly docs are working
+        if: matrix.toolchain == 'stable'
       - run: cargo test --verbose
