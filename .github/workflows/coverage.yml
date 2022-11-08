@@ -27,7 +27,6 @@ jobs:
           override: true
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v1
-      - uses: ./.github/actions/install-linuxbrew
       - uses: ./.github/actions/install-sdl2
       - name: Install Coverage Tools
         run: |

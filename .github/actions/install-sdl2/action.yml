@@ -5,8 +5,23 @@ description: Installs SDL2 and updates homebrew
 runs:
   using: "composite"
   steps:
-    - name: Install SDL2
+    - if: matrix.os == 'ubuntu-latest'
+      shell: bash
+      run: |
+        apt-get update
+        apt-get install \
+          libsdl2-dev \
+          libsdl2-gfx-dev \
+          libsdl2-image-dev \
+          libsdl2-mixer-dev \
+          libsdl2-ttf-dev
+    - if: matrix.os == 'macos'
       shell: bash
       run: |
         brew update
-        brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf
+        brew install \
+          sdl2 \
+          sdl2_gfx \
+          sdl2_image \
+          sdl2_mixer \
+          sdl2_ttf

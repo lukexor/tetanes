@@ -43,10 +43,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-      - uses: ./.github/actions/install-linuxbrew
-        if: matrix.os == 'ubuntu-latest'
       - uses: ./.github/actions/install-sdl2
-        if: matrix.os != 'windows-latest'
       - name: Install wasm-pack
         if: matrix.os != 'windows-latest'
         shell: bash
