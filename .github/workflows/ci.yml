@@ -32,11 +32,10 @@ jobs:
         toolchain: [nightly, beta, stable, 1.60.0]
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain
         with:
-          profile: minimal
           toolchain: ${{ matrix.toolchain }}
-          override: true
+          targets: wasm32-unknown-unknown
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v1
       - name: Lint
@@ -55,4 +54,6 @@ jobs:
           cd web
           bash bin/build.sh --dev
       - run: cargo doc --verbose
+        # TODO: Remove when nightly doc is working
+        if: matrix.toolchain != 'nightly'
       - run: cargo test --verbose
