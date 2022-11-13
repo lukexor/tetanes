@@ -20,19 +20,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: nightly
-          override: true
+          targets: wasm32-unknown-unknown
           components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@v1
-      - uses: ./.github/actions/install-linuxbrew
+      - uses: Swatinem/rust-cache@v2
       - uses: ./.github/actions/install-sdl2
       - name: Install Coverage Tools
         run: |
           cargo install rustfilt cargo-binutils
-          brew install jq
+          sudo apt install jq
       - name: Run Tests
         run: cargo test
         # source: https://doc.rust-lang.org/rustc/instrument-coverage.html

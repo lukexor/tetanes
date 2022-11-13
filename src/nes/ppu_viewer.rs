@@ -200,10 +200,10 @@ impl Nes {
                 let nametable_pitch = 4 * Ppu::WIDTH as usize;
 
                 let texture_id = viewer.texture_id();
-                s.update_texture(texture_id, nametable1, &nametables[0], nametable_pitch)?;
-                s.update_texture(texture_id, nametable2, &nametables[1], nametable_pitch)?;
-                s.update_texture(texture_id, nametable3, &nametables[2], nametable_pitch)?;
-                s.update_texture(texture_id, nametable4, &nametables[3], nametable_pitch)?;
+                s.update_texture(texture_id, nametable1, nametables[0], nametable_pitch)?;
+                s.update_texture(texture_id, nametable2, nametables[1], nametable_pitch)?;
+                s.update_texture(texture_id, nametable3, nametables[2], nametable_pitch)?;
+                s.update_texture(texture_id, nametable4, nametables[3], nametable_pitch)?;
                 s.texture(texture_id, nametable_src, nametable_dst)?;
 
                 // Scanline
@@ -257,8 +257,8 @@ impl Nes {
                 let pattern_src = rect![pattern_x, 0, 2 * pattern_w, pattern_h];
                 let pattern_dst = rect![pattern_x, 10, 4 * pattern_w, 2 * pattern_h];
                 let pattern_pitch = 4 * pattern_w as usize;
-                s.update_texture(texture_id, pattern_left, &patterns[0], pattern_pitch)?;
-                s.update_texture(texture_id, pattern_right, &patterns[1], pattern_pitch)?;
+                s.update_texture(texture_id, pattern_left, patterns[0], pattern_pitch)?;
+                s.update_texture(texture_id, pattern_right, patterns[1], pattern_pitch)?;
                 s.texture(texture_id, pattern_src, pattern_dst)?;
 
                 // Palette
@@ -274,7 +274,7 @@ impl Nes {
                     PpuViewer::PALETTE_HEIGHT
                 ];
                 let palette_pitch = 4 * palette_w as usize;
-                s.update_texture(texture_id, palette_src, &palette, palette_pitch)?;
+                s.update_texture(texture_id, palette_src, palette, palette_pitch)?;
                 s.texture(texture_id, palette_src, palette_dst)?;
 
                 // Borders

@@ -18,10 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - run: cargo fmt --all --check
 
   build-and-test:
     runs-on: ${{ matrix.os }}
@@ -29,24 +26,19 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        toolchain: [nightly, beta, stable, 1.59.0]
+        toolchain: [nightly, beta, stable, 1.60.0]
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.toolchain }}
-          override: true
+          targets: wasm32-unknown-unknown
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Lint
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-      - uses: ./.github/actions/install-linuxbrew
-        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cargo clippy
       - uses: ./.github/actions/install-sdl2
-        if: matrix.os != 'windows-latest'
       - name: Install wasm-pack
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -58,4 +50,6 @@ jobs:
           cd web
           bash bin/build.sh --dev
       - run: cargo doc --verbose
+        # TODO: Remove when beta/nightly docs are working
+        if: matrix.toolchain == 'stable'
       - run: cargo test --verbose

@@ -2,13 +2,15 @@ use crate::{audio::filter::Filter, NesResult};
 use anyhow::anyhow;
 #[cfg(not(target_arch = "wasm32"))]
 use pix_engine::prelude::*;
-use ringbuf::{Consumer, Producer, RingBuffer};
-use std::fmt;
+use ringbuf::{Consumer, HeapRb, Producer, SharedRb};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
+use std::{fmt, mem::MaybeUninit, sync::Arc};
 
 pub mod filter;
 pub mod window_sinc;
+
+type RbRef = Arc<SharedRb<f32, Vec<MaybeUninit<f32>>>>;
 
 pub trait Audio {
     fn output(&self) -> f32;
@@ -16,11 +18,11 @@ pub trait Audio {
 
 pub struct NesAudioCallback {
     initialized: bool,
-    buffer: Consumer<f32>,
+    buffer: Consumer<f32, RbRef>,
 }
 
 impl NesAudioCallback {
-    const fn new(buffer: Consumer<f32>) -> Self {
+    const fn new(buffer: Consumer<f32, RbRef>) -> Self {
         Self {
             initialized: false,
             buffer,
@@ -29,7 +31,7 @@ impl NesAudioCallback {
 
     #[inline]
     pub fn clear(&mut self) {
-        self.buffer.discard(self.len());
+        self.buffer.clear();
     }
 
     #[inline]
@@ -84,8 +86,8 @@ impl fmt::Debug for NesAudioCallback {
 pub struct AudioMixer {
     #[cfg(not(target_arch = "wasm32"))]
     device: Option<AudioDevice<NesAudioCallback>>,
-    producer: Producer<f32>,
-    consumer: Option<Consumer<f32>>,
+    producer: Producer<f32, RbRef>,
+    consumer: Option<Consumer<f32, RbRef>>,
     input_frequency: f32,
     output_frequency: f32,
     decim_ratio: f32,
@@ -98,7 +100,7 @@ pub struct AudioMixer {
 
 impl AudioMixer {
     pub fn new(input_frequency: f32, output_frequency: f32, buffer_size: usize) -> Self {
-        let buffer = RingBuffer::new(buffer_size);
+        let buffer = HeapRb::<f32>::new(buffer_size);
         let (producer, consumer) = buffer.split();
         Self {
             #[cfg(not(target_arch = "wasm32"))]
@@ -171,7 +173,7 @@ impl AudioMixer {
         self.decim_ratio = self.input_frequency / self.output_frequency;
         self.pitch_ratio = 1.0;
         self.fraction = 0.0;
-        let buffer = RingBuffer::new(buffer_size);
+        let buffer = HeapRb::<f32>::new(buffer_size);
         let (producer, consumer) = buffer.split();
         self.producer = producer;
         self.consumer = Some(consumer);

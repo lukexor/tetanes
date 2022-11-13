@@ -349,7 +349,7 @@ impl Clock for CpuBus {
 }
 
 impl Mem for CpuBus {
-    fn read(&mut self, addr: u16, access: Access) -> u8 {
+    fn read(&mut self, addr: u16, _access: Access) -> u8 {
         let val = match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
@@ -368,8 +368,8 @@ impl Mem for CpuBus {
             0x4016 => self.input.read(Slot::One, &self.ppu),
             0x4017 => self.input.read(Slot::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
-            0x0800..=0x1FFF => self.read(addr & 0x07FF, access), // WRAM Mirrors
-            0x2008..=0x3FFF => self.read(addr & 0x2007, access), // Ppu Mirrors
+            0x0800..=0x1FFF => self.read(addr & 0x07FF, _access), // WRAM Mirrors
+            0x2008..=0x3FFF => self.read(addr & 0x2007, _access), // Ppu Mirrors
             _ => self.open_bus,
         };
         self.open_bus = val;
@@ -377,7 +377,7 @@ impl Mem for CpuBus {
         val
     }
 
-    fn peek(&self, addr: u16, access: Access) -> u8 {
+    fn peek(&self, addr: u16, _access: Access) -> u8 {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
@@ -396,13 +396,13 @@ impl Mem for CpuBus {
             0x4016 => self.input.peek(Slot::One, &self.ppu),
             0x4017 => self.input.peek(Slot::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
-            0x0800..=0x1FFF => self.peek(addr & 0x07FF, access), // WRAM Mirrors
-            0x2008..=0x3FFF => self.peek(addr & 0x2007, access), // Ppu Mirrors
+            0x0800..=0x1FFF => self.peek(addr & 0x07FF, _access), // WRAM Mirrors
+            0x2008..=0x3FFF => self.peek(addr & 0x2007, _access), // Ppu Mirrors
             _ => self.open_bus,
         }
     }
 
-    fn write(&mut self, addr: u16, val: u8, access: Access) {
+    fn write(&mut self, addr: u16, val: u8, _access: Access) {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize] = val,
             0x4020..=0xFFFF => {
@@ -447,8 +447,8 @@ impl Mem for CpuBus {
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
             0x2002 => self.ppu.set_open_bus(val),
-            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val, access), // WRAM Mirrors
-            0x2008..=0x3FFF => return self.write(addr & 0x2007, val, access), // Ppu Mirrors
+            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val, _access), // WRAM Mirrors
+            0x2008..=0x3FFF => return self.write(addr & 0x2007, val, _access), // Ppu Mirrors
             _ => (),
         }
         self.open_bus = val;

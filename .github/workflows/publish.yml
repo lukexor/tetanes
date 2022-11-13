@@ -12,12 +12,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: Swatinem/rust-cache@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: ./.github/actions/install-sdl2
       - uses: katyo/publish-crates@v1
         with:
