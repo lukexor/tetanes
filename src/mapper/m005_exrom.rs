@@ -140,7 +140,7 @@ struct Fill {
 impl Fill {
     const fn new() -> Self {
         Self {
-            attr: 0xFF,
+            attr: 0x03,
             tile: 0xFF,
         }
     }
