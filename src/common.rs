@@ -128,6 +128,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
     let len = data.len();
     let mut last_line_same = false;
     let mut output = Vec::new();
+
     let mut last_line = String::with_capacity(80);
     while addr <= len {
         let end = cmp::min(addr + 16, len);

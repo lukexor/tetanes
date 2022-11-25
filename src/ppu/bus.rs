@@ -28,11 +28,11 @@ impl PpuAddr for u16 {
 pub struct PpuBus {
     mapper: Mapper,
     mirror_shift: usize,
-    vram: Vec<u8>, // $2007 PPUDATA
+    ciram: Vec<u8>, // $2007 PPUDATA
     palette: [u8; Self::PALETTE_SIZE],
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
-    ex_ram: Vec<u8>,
+    exram: Vec<u8>,
     open_bus: u8,
 }
 
@@ -50,11 +50,11 @@ impl PpuBus {
         Self {
             mapper: Mapper::none(),
             mirror_shift: Mirroring::default() as usize,
-            vram: vec![0x00; Self::VRAM_SIZE],
+            ciram: vec![0x00; Self::VRAM_SIZE],
             palette: [0x00; Self::PALETTE_SIZE],
             chr_rom: vec![],
             chr_ram: vec![],
-            ex_ram: vec![],
+            exram: vec![],
             open_bus: 0x00,
         }
     }
@@ -81,7 +81,7 @@ impl PpuBus {
 
     #[inline]
     pub fn load_ex_ram(&mut self, ex_ram: Vec<u8>) {
-        self.ex_ram = ex_ram;
+        self.exram = ex_ram;
     }
 
     #[inline]
@@ -117,7 +117,7 @@ impl PpuBus {
     //
     // Fourscreen should not use this method and instead should rely on mapper translation.
     #[inline]
-    const fn vram_mirror(&self, addr: usize) -> usize {
+    const fn ciram_mirror(&self, addr: usize) -> usize {
         let nametable = (addr >> self.mirror_shift) & 0x0400;
         (nametable) | (!nametable & addr & 0x03FF)
     }
@@ -149,10 +149,16 @@ impl Mem for PpuBus {
                 }
             }
             0x2000..=0x3EFF => match self.mapper.map_read(addr) {
-                MappedRead::CIRam(addr) => self.vram[addr],
-                MappedRead::ExRam(addr) => self.ex_ram[addr],
+                MappedRead::CIRam(addr) => self.ciram[addr],
+                MappedRead::ExRam(addr) => self.exram[addr],
                 MappedRead::Data(data) => data,
-                _ => self.vram[self.vram_mirror(addr as usize)],
+                _ => {
+                    if self.mirroring() == Mirroring::FourScreen {
+                        0x00
+                    } else {
+                        self.ciram[self.ciram_mirror(addr as usize)]
+                    }
+                }
             },
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
@@ -167,10 +173,16 @@ impl Mem for PpuBus {
     fn peek(&self, addr: u16, _access: Access) -> u8 {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_peek(addr) {
-                MappedRead::CIRam(addr) => self.vram[addr],
-                MappedRead::ExRam(addr) => self.ex_ram[addr],
+                MappedRead::CIRam(addr) => self.ciram[addr],
+                MappedRead::ExRam(addr) => self.exram[addr],
                 MappedRead::Data(data) => data,
-                _ => self.vram[self.vram_mirror(addr as usize)],
+                _ => {
+                    if self.mirroring() == Mirroring::FourScreen {
+                        0x00
+                    } else {
+                        self.ciram[self.ciram_mirror(addr as usize)]
+                    }
+                }
             },
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_peek(addr) {
@@ -195,11 +207,13 @@ impl Mem for PpuBus {
     fn write(&mut self, addr: u16, val: u8, _access: Access) {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
-                MappedWrite::CIRam(addr, val) => self.vram[addr] = val,
-                MappedWrite::ExRam(addr, val) => self.ex_ram[addr] = val,
+                MappedWrite::CIRam(addr, val) => self.ciram[addr] = val,
+                MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
                 _ => {
-                    let addr = self.vram_mirror(addr as usize);
-                    self.vram[addr] = val;
+                    if self.mirroring() != Mirroring::FourScreen {
+                        let addr = self.ciram_mirror(addr as usize);
+                        self.ciram[addr] = val;
+                    }
                 }
             },
             0x0000..=0x1FFF => {
@@ -241,11 +255,11 @@ impl std::fmt::Debug for PpuBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpuBus")
             .field("mapper", &self.mapper)
-            .field("vram_len", &self.vram.len())
+            .field("ciram_len", &self.ciram.len())
             .field("palette_len", &self.palette.len())
             .field("chr_rom_len", &self.chr_rom.len())
             .field("chr_ram_len", &self.chr_ram.len())
-            .field("ex_ram_len", &self.ex_ram.len())
+            .field("ex_ram_len", &self.exram.len())
             .field("open_bus", &self.open_bus)
             .finish()
     }
@@ -256,80 +270,80 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vram_mirror_horizontal() {
+    fn ciram_mirror_horizontal() {
         let mut ppu_bus = PpuBus::new();
         ppu_bus.mirror_shift = Mirroring::Horizontal as usize;
 
-        assert_eq!(ppu_bus.vram_mirror(0x2000), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2005), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x23FF), 0x03FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2400), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2405), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x27FF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2005), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x23FF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2400), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2405), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x27FF), 0x03FF);
 
-        assert_eq!(ppu_bus.vram_mirror(0x2800), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2805), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x2BFF), 0x07FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2C00), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2C05), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x2FFF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2800), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2805), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x2BFF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C00), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C05), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x2FFF), 0x07FF);
     }
 
     #[test]
-    fn vram_mirror_vertical() {
+    fn ciram_mirror_vertical() {
         let mut ppu_bus = PpuBus::new();
         ppu_bus.mirror_shift = Mirroring::Vertical as usize;
 
-        assert_eq!(ppu_bus.vram_mirror(0x2000), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2005), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x23FF), 0x03FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2800), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2805), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x2BFF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2005), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x23FF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2800), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2805), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x2BFF), 0x03FF);
 
-        assert_eq!(ppu_bus.vram_mirror(0x2400), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2405), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x27FF), 0x07FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2C00), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2C05), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x2FFF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2400), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2405), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x27FF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C00), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C05), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x2FFF), 0x07FF);
     }
 
     #[test]
-    fn vram_mirror_single_screen_a() {
+    fn ciram_mirror_single_screen_a() {
         let mut ppu_bus = PpuBus::new();
         ppu_bus.mirror_shift = Mirroring::SingleScreenA as usize;
 
-        assert_eq!(ppu_bus.vram_mirror(0x2000), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2005), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x23FF), 0x03FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2800), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2805), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x2BFF), 0x03FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2400), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2405), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x27FF), 0x03FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2C00), 0x0000);
-        assert_eq!(ppu_bus.vram_mirror(0x2C05), 0x0005);
-        assert_eq!(ppu_bus.vram_mirror(0x2FFF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2005), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x23FF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2800), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2805), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x2BFF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2400), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2405), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x27FF), 0x03FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C00), 0x0000);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C05), 0x0005);
+        assert_eq!(ppu_bus.ciram_mirror(0x2FFF), 0x03FF);
     }
 
     #[test]
-    fn vram_mirror_single_screen_b() {
+    fn ciram_mirror_single_screen_b() {
         let mut ppu_bus = PpuBus::new();
         ppu_bus.mirror_shift = Mirroring::SingleScreenB as usize;
 
-        assert_eq!(ppu_bus.vram_mirror(0x2000), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2005), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x23FF), 0x07FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2800), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2805), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x2BFF), 0x07FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2400), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2405), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x27FF), 0x07FF);
-        assert_eq!(ppu_bus.vram_mirror(0x2C00), 0x0400);
-        assert_eq!(ppu_bus.vram_mirror(0x2C05), 0x0405);
-        assert_eq!(ppu_bus.vram_mirror(0x2FFF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2005), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x23FF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2800), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2805), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x2BFF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2400), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2405), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x27FF), 0x07FF);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C00), 0x0400);
+        assert_eq!(ppu_bus.ciram_mirror(0x2C05), 0x0405);
+        assert_eq!(ppu_bus.ciram_mirror(0x2FFF), 0x07FF);
     }
 }

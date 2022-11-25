@@ -488,8 +488,18 @@ impl Exrom {
     }
 
     #[inline]
+    fn inc_fetch_count(&mut self) {
+        self.ppu_status.fetch_count += 1;
+    }
+
+    #[inline]
     const fn fetch_count(&self) -> u32 {
         self.ppu_status.fetch_count
+    }
+
+    #[inline]
+    const fn sprite8x16(&self) -> bool {
+        self.ppu_status.sprite8x16
     }
 
     #[inline]
@@ -588,8 +598,8 @@ impl MemMap for Exrom {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
-                self.ppu_status.fetch_count += 1;
-                if self.ppu_status.sprite8x16 {
+                self.inc_fetch_count();
+                if self.sprite8x16() {
                     match self.fetch_count() {
                         Self::SPR_FETCH_START => self.update_chr_banks(ChrBank::Spr),
                         Self::SPR_FETCH_END => self.update_chr_banks(ChrBank::Bg),
@@ -687,14 +697,11 @@ impl MemMap for Exrom {
                         Nametable::ExRam if nametable_mode => {
                             MappedRead::Data(self.read_exram(addr))
                         }
-                        Nametable::Fill if nametable_mode => {
-                            let val = if is_attr {
-                                Self::ATTR_MIRROR[self.regs.fill.attr]
-                            } else {
-                                self.regs.fill.tile
-                            };
-                            MappedRead::Data(val)
-                        }
+                        Nametable::Fill if nametable_mode => MappedRead::Data(if is_attr {
+                            Self::ATTR_MIRROR[self.regs.fill.attr]
+                        } else {
+                            self.regs.fill.tile
+                        }),
                         // If nametable mode is not set, zero is read back
                         _ => MappedRead::Data(0x00),
                     }
