@@ -77,17 +77,6 @@ pub(crate) struct KeyBinding {
     pub(crate) action: Action,
 }
 
-// impl KeyBinding {
-//     pub(crate) const fn new(player: Slot, key: Key, keymod: KeyMod, action: Action) -> Self {
-//         Self {
-//             player,
-//             key,
-//             keymod,
-//             action,
-//         }
-//     }
-// }
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct MouseBinding {
     pub(crate) player: Slot,
@@ -95,32 +84,12 @@ pub(crate) struct MouseBinding {
     pub(crate) action: Action,
 }
 
-// impl MouseBinding {
-//     pub(crate) const fn new(player: Slot, button: Mouse, action: Action) -> Self {
-//         Self {
-//             player,
-//             button,
-//             action,
-//         }
-//     }
-// }
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerButtonBinding {
     pub(crate) player: Slot,
     pub(crate) button: ControllerButton,
     pub(crate) action: Action,
 }
-
-// impl ControllerButtonBinding {
-//     pub(crate) const fn new(player: Slot, button: ControllerButton, action: Action) -> Self {
-//         Self {
-//             player,
-//             button,
-//             action,
-//         }
-//     }
-// }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerAxisBinding {
@@ -130,22 +99,6 @@ pub(crate) struct ControllerAxisBinding {
     pub(crate) action: Action,
 }
 
-// impl ControllerAxisBinding {
-//     pub(crate) const fn new(
-//         player: Slot,
-//         axis: Axis,
-//         direction: AxisDirection,
-//         action: Action,
-//     ) -> Self {
-//         Self {
-//             player,
-//             axis,
-//             direction,
-//             action,
-//         }
-//     }
-// }
-
 /// A binding of a inputs to an [Action].
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct InputBindings {
@@ -154,31 +107,6 @@ pub(crate) struct InputBindings {
     pub(crate) buttons: Vec<ControllerButtonBinding>,
     pub(crate) axes: Vec<ControllerAxisBinding>,
 }
-
-// impl InputBindings {
-//     pub(crate) fn update_from_map(&mut self, input_map: &InputMapping) {
-//         self.keys.clear();
-//         self.mouse.clear();
-//         self.buttons.clear();
-//         self.axes.clear();
-//         for (&input, &action) in input_map.iter() {
-//             match input {
-//                 Input::Key((slot, key, keymod)) => {
-//                     self.keys.push(KeyBinding::new(slot, key, keymod, action));
-//                 }
-//                 Input::Mouse((slot, button)) => {
-//                     self.mouse.push(MouseBinding::new(slot, button, action));
-//                 }
-//                 Input::Button((slot, button)) => self
-//                     .buttons
-//                     .push(ControllerButtonBinding::new(slot, button, action)),
-//                 Input::Axis((slot, axis, direction)) => self
-//                     .axes
-//                     .push(ControllerAxisBinding::new(slot, axis, direction, action)),
-//             }
-//         }
-//     }
-// }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InputMapping(HashMap<Input, Action>);

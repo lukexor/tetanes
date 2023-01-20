@@ -63,6 +63,11 @@ impl Input {
     }
 
     #[inline]
+    pub fn connect_zapper(&mut self, connected: bool) {
+        self.zapper.connected = connected;
+    }
+
+    #[inline]
     pub const fn zapper(&self) -> &Zapper {
         &self.zapper
     }
@@ -84,74 +89,69 @@ impl Input {
     }
 }
 
-impl Input {
-    fn read_slots(&mut self, slot: usize, ppu: &Ppu) -> u8 {
-        // Read $4016/$4017 D0 8x for controller #1/#2.
-        // Read $4016/$4017 D0 8x for controller #3/#4.
-        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-        let zapper = if slot == 1 {
-            self.zapper.read(ppu)
-        } else {
-            0x00
-        };
-        if self.joypads[slot].index() < 8 {
-            zapper | self.joypads[slot].read() | (self.joypads[slot + 2].read() << 1)
-        } else if self.fourscore {
-            if self.joypads[slot + 2].index() < 8 {
-                self.joypads[slot + 2].read()
-            } else if self.signatures[slot].index() < 8 {
-                self.signatures[slot].read()
-            } else {
-                zapper | 0x01
-            }
-        } else {
-            zapper | 0x01
-        }
-    }
-
-    fn peek_slots(&self, slot: usize, ppu: &Ppu) -> u8 {
-        // Read $4016/$4017 D0 8x for controller #1/#2.
-        // Read $4016/$4017 D0 8x for controller #3/#4.
-        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-        let zapper = if slot == 1 {
-            self.zapper.read(ppu)
-        } else {
-            0x00
-        };
-        if self.joypads[slot].index() < 8 {
-            zapper | self.joypads[slot].peek() | (self.joypads[slot + 2].peek() << 1)
-        } else if self.fourscore {
-            if self.joypads[slot + 2].index() < 8 {
-                self.joypads[slot + 2].peek()
-            } else if self.signatures[slot].index() < 8 {
-                self.signatures[slot].peek()
-            } else {
-                zapper | 0x01
-            }
-        } else {
-            zapper | 0x01
-        }
-    }
-}
-
 impl InputRegisters for Input {
     fn read(&mut self, slot: Slot, ppu: &Ppu) -> u8 {
-        match slot {
-            Slot::One => self.read_slots(0, ppu) | 0x40,
-            Slot::Two => self.read_slots(1, ppu) | 0x40,
-            _ => panic!("invalid input slot for read"),
-        }
+        let val = {
+            // Read $4016/$4017 D0 8x for controller #1/#2.
+            // Read $4016/$4017 D0 8x for controller #3/#4.
+            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+            let zapper = if slot == Slot::One {
+                self.zapper.read(ppu)
+            } else {
+                0x00
+            };
+            log::debug!("zapper {:02X}", zapper);
+
+            let slot = slot as usize;
+            if self.joypads[slot].index() < 8 {
+                zapper | self.joypads[slot].read() | (self.joypads[slot + 2].read() << 1)
+            } else if self.fourscore {
+                if self.joypads[slot + 2].index() < 8 {
+                    self.joypads[slot + 2].read()
+                } else if self.signatures[slot].index() < 8 {
+                    self.signatures[slot].read()
+                } else {
+                    zapper | 0x01
+                }
+            } else {
+                zapper | 0x01
+            }
+        };
+        log::debug!("{:?} {:02X}", slot, val | 0x40);
+        val | 0x40
     }
 
     fn peek(&self, slot: Slot, ppu: &Ppu) -> u8 {
-        match slot {
-            Slot::One => self.peek_slots(0, ppu) | 0x40,
-            Slot::Two => self.peek_slots(1, ppu) | 0x40,
-            _ => panic!("invalid input slot for peek"),
-        }
+        let val = {
+            // Read $4016/$4017 D0 8x for controller #1/#2.
+            // Read $4016/$4017 D0 8x for controller #3/#4.
+            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+            let zapper = if slot == Slot::One {
+                self.zapper.read(ppu)
+            } else {
+                0x00
+            };
+
+            let slot = slot as usize;
+            if self.joypads[slot].index() < 8 {
+                zapper | self.joypads[slot].peek() | (self.joypads[slot + 2].peek() << 1)
+            } else if self.fourscore {
+                if self.joypads[slot + 2].index() < 8 {
+                    self.joypads[slot + 2].peek()
+                } else if self.signatures[slot].index() < 8 {
+                    self.signatures[slot].peek()
+                } else {
+                    zapper | 0x01
+                }
+            } else {
+                zapper | 0x01
+            }
+        };
+        val | 0x40
     }
 
     fn write(&mut self, val: u8) {
+        log::debug!("{:02X}", val);
         for pad in &mut self.joypads {
             pad.write(val);
         }
@@ -354,6 +354,7 @@ pub struct Zapper {
     pub x: i32,
     pub y: i32,
     pub radius: i32,
+    pub connected: bool,
 }
 
 impl Zapper {
@@ -391,13 +392,18 @@ impl Zapper {
             x: 0,
             y: 0,
             radius: 3,
+            connected: false,
         }
     }
 
     #[inline]
     #[must_use]
     fn read(&self, ppu: &Ppu) -> u8 {
-        self.triggered() | self.light_sense(ppu) | 0x40
+        if self.connected {
+            self.triggered() | self.light_sense(ppu) | 0x40
+        } else {
+            0x00
+        }
     }
 
     #[inline]

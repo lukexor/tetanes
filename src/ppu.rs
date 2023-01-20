@@ -23,20 +23,15 @@ pub mod status;
 /// Nametable Mirroring Mode
 ///
 /// <http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring>
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum Mirroring {
     Vertical = 0,
+    #[default]
     Horizontal = 1,
     SingleScreenA = 2,
     SingleScreenB = 3,
     FourScreen = 4,
-}
-
-impl Default for Mirroring {
-    fn default() -> Self {
-        Mirroring::Horizontal
-    }
 }
 
 pub trait PpuRegisters {

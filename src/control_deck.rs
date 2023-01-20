@@ -330,6 +330,12 @@ impl ControlDeck {
         self.video.set_filter(filter);
     }
 
+    /// Enable Zapper gun.
+    #[inline]
+    pub fn connect_zapper(&mut self, enabled: bool) {
+        self.cpu.connect_zapper(enabled);
+    }
+
     /// Add NES Game Genie codes.
     ///
     /// # Errors

@@ -267,9 +267,10 @@ pub(crate) mod tests {
 
     fn load_control_deck<P: AsRef<Path>>(path: P) -> ControlDeck {
         let path = path.as_ref();
-        let mut rom = BufReader::new(File::open(path).unwrap());
+        let mut rom = BufReader::new(File::open(path).expect("failed to open path"));
         let mut deck = ControlDeck::default();
-        deck.load_rom(&path.to_string_lossy(), &mut rom).unwrap();
+        deck.load_rom(&path.to_string_lossy(), &mut rom)
+            .expect("failed to load rom");
         deck.set_filter(VideoFilter::Pixellate);
         deck.set_region(NesRegion::Ntsc);
         deck
@@ -356,7 +357,7 @@ pub(crate) mod tests {
         let (test_file, mut tests) = get_rom_tests(directory);
         let mut test = tests.iter_mut().find(|test| test.name.eq(test_name));
         assert!(test.is_some(), "No test found matching {:?}", test_name);
-        let test = test.as_mut().unwrap();
+        let test = test.as_mut().expect("definitely has a test");
 
         let rom = PathBuf::from(directory)
             .join(PathBuf::from(&test.name))
@@ -405,7 +406,7 @@ pub(crate) mod tests {
             );
         }
         if update_required {
-            File::create(&test_file)
+            File::create(test_file)
                 .context("failed to open rom test file")
                 .and_then(|file| {
                     serde_json::to_writer_pretty(BufWriter::new(file), &tests)

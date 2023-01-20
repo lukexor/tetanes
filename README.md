@@ -15,27 +15,9 @@
 [license]: https://img.shields.io/crates/l/tetanes?style=plastic
 [gnu]: https://github.com/lukexor/tetanes/blob/main/LICENSE.md
 
-## Table of Contents
-
-- [Summary](#summary)
-- [Screenshots](#screenshots)
-- [Getting Started](#getting-started)
-  - [Usage](#usage)
-  - [Supported Mappers](#supported-mappers)
-  - [Controls](#controls)
-  - [Directories](#directories)
-  - [Powerup State](#powerup-state)
-- [Building](#building)
-- [Debugging](#debugging)
-- [Troubleshooting](#troubleshooting)
-- [Features](#features)
-- [Roadmap](#roadmap)
-- [Known Issues](#known-issues)
-- [Documentation](#documentation)
-- [License](#license)
-- [Contribution](#contribution)
-- [Contact](#contact)
-- [Credits](#credits)
+📖 [Summary](#summary) - 🌆 [Screenshots](#screenshots) - 🚀 [Getting
+Started](#getting-started) - 🛠️ [Features](#features) - ⚠️ [Known
+Issues](#known-issues) - 💬 [Contact](#contact)
 
 ## Summary
 
@@ -70,7 +52,7 @@ emulation.
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current minimum Rust version is `1.60.0`.
+The current minimum Rust version is `1.62.0`.
 
 ## Screenshots
 
@@ -249,7 +231,7 @@ state, you'll need to change the `ram_state` setting in the configuration
 menu and trigger a power-cycle or use the `--ram_state` flag from the
 command line.
 
-## Building
+### Building
 
 To build the project run `cargo build` or `cargo build --release` (if you want
 better framerates). There is also a optimized dev profile you can use which
@@ -267,7 +249,7 @@ Run them in a similar way you would run a game. e.g.
 cargo run --release test_roms/cpu/nestest.nes
 ```
 
-## Debugging
+### Debugging
 
 There are built-in debugging tools that allow you to monitor game state and step
 through CPU instructions manually. See the `Controls` section for more on
@@ -296,7 +278,7 @@ Logging can be set by setting the `RUST_LOG` environment variable and setting it
 to one of `trace`, `debug`, `info`, `warn` or `error` prior to building the
 binary. e.g. `RUST_LOG=debug cargo build --release`
 
-## Troubleshooting
+### Troubleshooting
 
 If you get an error running a ROM that's using the supported Mapper list above,
 it could be a corrupted or incompatible ROM format. If you're unsure which games
@@ -445,7 +427,7 @@ When using the WASM version in the browser, also include:
     - [x] Environment logging
     - [ ] File logging
 
-### Known Issues
+## Known Issues
 
 See the [github issue tracker][].
 

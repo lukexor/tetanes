@@ -215,9 +215,9 @@ impl Nes {
             let (width, height) = self.config.get_dimensions();
             s.set_window_dimensions((width, height))?;
             if let Some(debugger) = &self.debugger {
-                s.with_window(debugger.window_id(), |s: &mut PixState| {
-                    s.set_window_dimensions((width, height))
-                })?;
+                s.set_window_target(debugger.window_id())?;
+                s.set_window_dimensions((width, height))?;
+                s.reset_window_target();
             }
         }
 
@@ -348,7 +348,10 @@ impl Nes {
         let displayed_count =
             (s.height()? as usize - s.cursor_pos().y() as usize) / line_height as usize;
         let rom_dir = if self.config.rom_path.is_file() {
-            self.config.rom_path.parent().unwrap()
+            self.config
+                .rom_path
+                .parent()
+                .expect("ifiles should always have a parent")
         } else {
             self.config.rom_path.as_path()
         };

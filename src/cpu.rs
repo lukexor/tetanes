@@ -277,6 +277,11 @@ impl Cpu {
     }
 
     #[inline]
+    pub fn connect_zapper(&mut self, enabled: bool) {
+        self.bus.connect_zapper(enabled);
+    }
+
+    #[inline]
     pub const fn zapper(&self) -> &Zapper {
         self.bus.zapper()
     }

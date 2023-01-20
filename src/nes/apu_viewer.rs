@@ -24,8 +24,8 @@ impl Nes {
                 let h = s.height()?;
                 let window_id = s
                     .window()
-                    .with_dimensions(w, h)
-                    .with_title("APU Viewer")
+                    .dimensions(w, h)
+                    .title("APU Viewer")
                     .position(10, 10)
                     .build()?;
                 self.apu_viewer = Some(ApuViewer::new(window_id));

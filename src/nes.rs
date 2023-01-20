@@ -141,6 +141,7 @@ impl NesBuilder {
         let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_region(config.region);
         control_deck.set_filter(config.filter);
+        control_deck.connect_zapper(true);
 
         Ok(Nes::new(
             control_deck,
@@ -246,11 +247,11 @@ impl Nes {
     pub fn run(&mut self) -> NesResult<()> {
         let title = APP_NAME.to_owned();
         let (width, height) = self.config.get_dimensions();
-        let mut engine = PixEngine::builder();
+        let mut engine = Engine::builder();
         engine
-            .with_dimensions(width, height)
-            .with_title(title)
-            .with_frame_rate()
+            .dimensions(width, height)
+            .title(title)
+            .show_frame_rate()
             .target_frame_rate(60)
             .resizable();
 
@@ -280,13 +281,12 @@ impl Nes {
             )?;
 
             if self.config.crosshair {
-                s.with_texture(texture_id, |s: &mut PixState| {
-                    let (x, y) = self.control_deck.zapper_pos();
-                    s.stroke(Color::GRAY);
-                    s.line([x - 8, y, x + 8, y])?;
-                    s.line([x, y - 8, x, y + 8])?;
-                    Ok(())
-                })?;
+                s.set_texture_target(texture_id)?;
+                let (x, y) = self.control_deck.zapper_pos();
+                s.stroke(Color::GRAY);
+                s.line([x - 8, y, x + 8, y])?;
+                s.line([x, y - 8, x, y + 8])?;
+                s.clear_texture_target();
             }
             s.texture(texture_id, NES_FRAME_SRC, None)?;
         }
@@ -296,7 +296,7 @@ impl Nes {
     }
 }
 
-impl AppState for Nes {
+impl PixEngine for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
         self.update_frame_rate(s)?;
         if self.config.crosshair {

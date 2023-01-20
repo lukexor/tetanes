@@ -13,6 +13,7 @@
     clippy::redundant_closure_for_method_calls,
     clippy::semicolon_if_nothing_returned,
     clippy::unreadable_literal,
+    clippy::unwrap_used,
     deprecated_in_future,
     ellipsis_inclusive_range_patterns,
     future_incompatible,

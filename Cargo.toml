@@ -14,7 +14,7 @@ default-run = "tetanes"
 exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
 
 [package.metadata]
-msrv = "1.60.0"
+msrv = "1.62.0"
 
 [dependencies]
 anyhow = "1.0.66"
@@ -39,10 +39,11 @@ default-features = false
 features = ["user-hooks"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pix-engine = { version = "0.6.0", features = ["serde"] }
+pix-engine = { version = "0.7.0", features = ["serde"] }
 
 [patch.crates-io]
-pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
+# pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
+pix-engine = { path = "../pix-engine" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
