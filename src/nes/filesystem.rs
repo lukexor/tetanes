@@ -75,32 +75,32 @@ where
     let directory = path.parent().expect("can not save to root path");
     if !directory.exists() {
         fs::create_dir_all(directory)
-            .with_context(|| format!("failed to create directory {:?}", directory))?;
+            .with_context(|| format!("failed to create directory {directory:?}"))?;
     }
 
     let write_data = || {
         let mut writer = BufWriter::new(
-            File::create(path).with_context(|| format!("failed to create file {:?}", path))?,
+            File::create(path).with_context(|| format!("failed to create file {path:?}"))?,
         );
         write_save_header(&mut writer)
-            .with_context(|| format!("failed to write header {:?}", path))?;
+            .with_context(|| format!("failed to write header {path:?}"))?;
         let mut encoder = DeflateEncoder::new(writer, Compression::default());
         encoder
             .write_all(data)
-            .with_context(|| format!("failed to encode file {:?}", path))?;
+            .with_context(|| format!("failed to encode file {path:?}"))?;
         encoder
             .finish()
-            .with_context(|| format!("failed to write file {:?}", path))?;
+            .with_context(|| format!("failed to write file {path:?}"))?;
         Ok(())
     };
 
     if path.exists() {
         // Check if exists and header is different, so we avoid overwriting
         let mut reader = BufReader::new(
-            File::open(path).with_context(|| format!("failed to open file {:?}", path))?,
+            File::open(path).with_context(|| format!("failed to open file {path:?}"))?,
         );
         validate_save_header(&mut reader)
-            .with_context(|| format!("failed to validate header {:?}", path))
+            .with_context(|| format!("failed to validate header {path:?}"))
             .and_then(|_| write_data())?;
     } else {
         write_data()?;
@@ -113,18 +113,17 @@ where
     P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let mut reader = BufReader::new(
-        File::open(path).with_context(|| format!("Failed to open file {:?}", path))?,
-    );
+    let mut reader =
+        BufReader::new(File::open(path).with_context(|| format!("Failed to open file {path:?}"))?);
     let mut bytes = vec![];
     // Don't care about the size read
     let _ = validate_save_header(&mut reader)
-        .with_context(|| format!("failed to validate header {:?}", path))
+        .with_context(|| format!("failed to validate header {path:?}"))
         .and_then(|_| {
             let mut decoder = DeflateDecoder::new(reader);
             decoder
                 .read_to_end(&mut bytes)
-                .with_context(|| format!("failed to read file {:?}", path))
+                .with_context(|| format!("failed to read file {path:?}"))
         })?;
     Ok(bytes)
 }

@@ -197,7 +197,7 @@ impl ApuRegisters for Apu {
             Channel::Pulse1 => self.pulse1.write_ctrl(val),
             Channel::Pulse2 => self.pulse2.write_ctrl(val),
             Channel::Noise => self.noise.write_ctrl(val),
-            _ => panic!("{:?} does not have a control register", channel),
+            _ => panic!("{channel:?} does not have a control register"),
         }
     }
 
@@ -206,7 +206,7 @@ impl ApuRegisters for Apu {
         match channel {
             Channel::Pulse1 => self.pulse1.write_sweep(val),
             Channel::Pulse2 => self.pulse2.write_sweep(val),
-            _ => panic!("{:?} does not have a sweep register", channel),
+            _ => panic!("{channel:?} does not have a sweep register"),
         }
     }
 
@@ -227,7 +227,7 @@ impl ApuRegisters for Apu {
             Channel::Pulse1 => self.pulse1.write_timer_hi(val),
             Channel::Pulse2 => self.pulse2.write_timer_hi(val),
             Channel::Triangle => self.triangle.write_timer_hi(val),
-            _ => panic!("{:?} does not have a timer_hi register", channel),
+            _ => panic!("{channel:?} does not have a timer_hi register"),
         }
     }
 
@@ -236,7 +236,7 @@ impl ApuRegisters for Apu {
         if channel == Channel::Triangle {
             self.triangle.write_linear_counter(val);
         } else {
-            panic!("{:?} does not have a linear_counter register", channel);
+            panic!("{channel:?} does not have a linear_counter register");
         }
     }
 
@@ -245,7 +245,7 @@ impl ApuRegisters for Apu {
         match channel {
             Channel::Noise => self.noise.write_length(val),
             Channel::Dmc => self.dmc.write_length(val),
-            _ => panic!("{:?} does not have a length register", channel),
+            _ => panic!("{channel:?} does not have a length register"),
         }
     }
 
@@ -255,7 +255,7 @@ impl ApuRegisters for Apu {
             // Only 7-bits are used
             self.dmc.write_output(val & 0x7F);
         } else {
-            panic!("{:?} does not have output register", channel);
+            panic!("{channel:?} does not have output register");
         }
     }
 
@@ -264,7 +264,7 @@ impl ApuRegisters for Apu {
         if channel == Channel::Dmc {
             self.dmc.write_addr_load(val);
         } else {
-            panic!("{:?} does not have addr_load register", channel);
+            panic!("{channel:?} does not have addr_load register");
         }
     }
 

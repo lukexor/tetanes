@@ -72,7 +72,7 @@ impl Nes {
                 .file_stem()
                 .and_then(OsStr::to_str)
                 .map_or_else(
-                    || Err(anyhow!("failed to create sram path for `{:?}`", rom)),
+                    || Err(anyhow!("failed to create sram path for `{rom:?}`")),
                     |save_name| {
                         Ok(config_dir()
                             .join("sram")
@@ -91,7 +91,7 @@ impl Nes {
                 .file_stem()
                 .and_then(OsStr::to_str)
                 .map_or_else(
-                    || Err(anyhow!("failed to create save path for `{:?}`", rom)),
+                    || Err(anyhow!("failed to create save path for `{rom:?}`")),
                     |save_name| {
                         Ok(config_dir()
                             .join("save")
@@ -115,10 +115,10 @@ impl Nes {
                 .context("failed to serialize save state")
                 .map(|data| save_data(save_path, &data))
         }) {
-            Ok(_) => self.add_message(format!("Saved slot {}", slot)),
+            Ok(_) => self.add_message(format!("Saved slot {slot}")),
             Err(err) => {
                 log::error!("{:?}", err);
-                self.add_message(format!("Failed to save slot {}", slot));
+                self.add_message(format!("Failed to save slot {slot}"));
             }
         }
     }
@@ -133,19 +133,19 @@ impl Nes {
                             .context("failed to deserialize load state")
                             .map(|cpu| self.control_deck.load_cpu(cpu))
                     }) {
-                        Ok(_) => self.add_message(format!("Loaded slot {}", slot)),
+                        Ok(_) => self.add_message(format!("Loaded slot {slot}")),
                         Err(err) => {
                             log::error!("{:?}", err);
-                            self.add_message(format!("Failed to load slot {}", slot));
+                            self.add_message(format!("Failed to load slot {slot}"));
                         }
                     }
                 } else {
-                    self.add_message(format!("No save state found for slot {}", slot));
+                    self.add_message(format!("No save state found for slot {slot}"));
                 }
             }
             Err(err) => {
                 log::error!("{:?}", err);
-                self.add_message(format!("Failed to determine save path {}", slot));
+                self.add_message(format!("Failed to determine save path {slot}"));
             }
         }
     }
@@ -157,7 +157,7 @@ impl Nes {
         match s.save_canvas(None, &filename) {
             Ok(()) => self.add_message(filename),
             Err(err) => {
-                log::error!("{:?}", err);
+                log::error!("{err:?}");
                 self.add_message("Failed to save screenshot");
             }
         }
@@ -175,7 +175,7 @@ impl Nes {
                 .and_then(|data| encode_data(&data))
                 .map(|data| self.rewind_buffer.push_front(data))
             {
-                log::error!("{:?}", err);
+                log::error!("{err:?}");
                 self.config.rewind = false;
                 self.rewind_buffer.clear();
                 return;
@@ -197,7 +197,7 @@ impl Nes {
                     .context("failed to deserialize rewind state")
                     .map(|cpu| self.control_deck.load_cpu(cpu))
             }) {
-                log::error!("{:?}", err);
+                log::error!("{err:?}");
                 self.config.rewind = false;
                 self.rewind_buffer.clear();
             }
@@ -220,7 +220,7 @@ impl Nes {
                         .context("failed to deserialize rewind state")
                         .map(|cpu| self.control_deck.load_cpu(cpu))
                 }) {
-                    log::error!("{:?}", err);
+                    log::error!("{err:?}");
                     self.config.rewind = false;
                     self.rewind_buffer.clear();
                 }
@@ -280,7 +280,7 @@ impl Nes {
                 self.add_message("Saved replay recording");
             }
             Err(err) => {
-                log::error!("{:?}", err);
+                log::error!("{err:?}");
                 self.add_message("Failed to save replay recording");
             }
         }
@@ -301,7 +301,7 @@ impl Nes {
             }) {
                 Ok(_) => self.add_message("Loaded replay recording"),
                 Err(err) => {
-                    log::error!("{:?}", err);
+                    log::error!("{err:?}");
                     self.add_message("Failed to load replay recording");
                 }
             }

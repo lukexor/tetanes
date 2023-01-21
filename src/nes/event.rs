@@ -57,14 +57,14 @@ impl fmt::Display for Input {
         match self {
             Input::Key((_, key, keymod)) => {
                 if keymod.is_empty() {
-                    write!(f, "{:?}", key)
+                    write!(f, "{key:?}")
                 } else {
-                    write!(f, "{:?} {:?}", keymod, key)
+                    write!(f, "{keymod:?} {key:?}")
                 }
             }
-            Input::Button((_, btn)) => write!(f, "{:?}", btn),
-            Input::Axis((_, axis, _)) => write!(f, "{:?}", axis),
-            Input::Mouse((_, btn)) => write!(f, "{:?}", btn),
+            Input::Button((_, btn)) => write!(f, "{btn:?}"),
+            Input::Axis((_, axis, _)) => write!(f, "{axis:?}"),
+            Input::Mouse((_, btn)) => write!(f, "{btn:?}"),
         }
     }
 }
@@ -574,7 +574,7 @@ impl Nes {
             match setting {
                 Setting::SetSaveSlot(slot) => {
                     self.config.save_slot = slot;
-                    self.add_message(&format!("Set Save Slot to {}", slot));
+                    self.add_message(&format!("Set Save Slot to {slot}"));
                 }
                 Setting::ToggleFullscreen => {
                     self.config.fullscreen = !self.config.fullscreen;

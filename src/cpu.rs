@@ -736,7 +736,7 @@ impl Cpu {
         let instr = Cpu::INSTRUCTIONS[opcode as usize];
         let mut bytes = Vec::with_capacity(3);
         self.disasm.clear();
-        let _ = write!(self.disasm, "{:04X} ", pc);
+        let _ = write!(self.disasm, "{pc:04X} ");
         bytes.push(opcode);
         let mut addr = pc.wrapping_add(1);
         let mode = match instr.addr_mode() {
@@ -749,21 +749,21 @@ impl Cpu {
                 bytes.push(self.peek(addr, Access::Dummy));
                 addr = addr.wrapping_add(1);
                 let val = self.peek(bytes[1].into(), Access::Dummy);
-                format!(" ${:02X} = #${:02X}", bytes[1], val)
+                format!(" ${:02X} = #${val:02X}", bytes[1])
             }
             ZPX => {
                 bytes.push(self.peek(addr, Access::Dummy));
                 addr = addr.wrapping_add(1);
                 let x_offset = bytes[1].wrapping_add(self.x);
                 let val = self.peek(x_offset.into(), Access::Dummy);
-                format!(" ${:02X},X @ ${:02X} = #${:02X}", bytes[1], x_offset, val)
+                format!(" ${:02X},X @ ${x_offset:02X} = #${val:02X}", bytes[1])
             }
             ZPY => {
                 bytes.push(self.peek(addr, Access::Dummy));
                 addr = addr.wrapping_add(1);
                 let y_offset = bytes[1].wrapping_add(self.y);
                 let val = self.peek(y_offset.into(), Access::Dummy);
-                format!(" ${:02X},Y @ ${:02X} = #${:02X}", bytes[1], y_offset, val)
+                format!(" ${:02X},Y @ ${y_offset:02X} = #${val:02X}", bytes[1])
             }
             ABS => {
                 bytes.push(self.peek(addr, Access::Dummy));
@@ -771,10 +771,10 @@ impl Cpu {
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 if instr.op() == JMP || instr.op() == JSR {
-                    format!(" ${:04X}", abs_addr)
+                    format!(" ${abs_addr:04X}")
                 } else {
                     let val = self.peek(abs_addr, Access::Dummy);
-                    format!(" ${:04X} = #${:02X}", abs_addr, val)
+                    format!(" ${abs_addr:04X} = #${val:02X}")
                 }
             }
             ABX => {
@@ -784,7 +784,7 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset, Access::Dummy);
-                format!(" ${:04X},X @ ${:04X} = #${:02X}", abs_addr, x_offset, val)
+                format!(" ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}")
             }
             ABY => {
                 bytes.push(self.peek(addr, Access::Dummy));
@@ -793,7 +793,7 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset, Access::Dummy);
-                format!(" ${:04X},Y @ ${:04X} = #${:02X}", abs_addr, y_offset, val)
+                format!(" ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}")
             }
             IND => {
                 bytes.push(self.peek(addr, Access::Dummy));
@@ -807,7 +807,7 @@ impl Cpu {
                     self.peek(abs_addr + 1, Access::Dummy)
                 };
                 let val = u16::from_le_bytes([lo, hi]);
-                format!(" (${:04X}) = ${:04X}", abs_addr, val)
+                format!(" (${abs_addr:04X}) = ${val:04X}")
             }
             IDX => {
                 bytes.push(self.peek(addr, Access::Dummy));
@@ -815,7 +815,7 @@ impl Cpu {
                 let x_offset = bytes[1].wrapping_add(self.x);
                 let abs_addr = self.peek_zp_u16(x_offset);
                 let val = self.peek(abs_addr, Access::Dummy);
-                format!(" (${:02X},X) @ ${:04X} = #${:02X}", bytes[1], abs_addr, val)
+                format!(" (${:02X},X) @ ${abs_addr:04X} = #${val:02X}", bytes[1])
             }
             IDY => {
                 bytes.push(self.peek(addr, Access::Dummy));
@@ -823,7 +823,7 @@ impl Cpu {
                 let abs_addr = self.peek_zp_u16(bytes[1]);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset, Access::Dummy);
-                format!(" (${:02X}),Y @ ${:04X} = #${:02X}", bytes[1], y_offset, val)
+                format!(" (${:02X}),Y @ ${y_offset:04X} = #${val:02X}", bytes[1])
             }
             REL => {
                 bytes.push(self.peek(addr, Access::Dummy));
@@ -839,12 +839,12 @@ impl Cpu {
         };
         *pc = addr;
         for byte in &bytes {
-            let _ = write!(self.disasm, "{:02X} ", byte);
+            let _ = write!(self.disasm, "{byte:02X} ");
         }
         for _ in 0..(3 - bytes.len()) {
             self.disasm.push_str("   ");
         }
-        let _ = write!(self.disasm, "{:?}{}", instr, mode);
+        let _ = write!(self.disasm, "{instr:?}{mode}");
     }
 
     // Print the current instruction and status

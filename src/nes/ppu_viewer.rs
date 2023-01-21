@@ -242,10 +242,10 @@ impl Nes {
                 let nt_addr = (x / width) * 0x0400 + (y / height) * 0x0800;
                 let ppu_addr = nt_addr + ((((y / 8) % 30) << 5) | ((x / 8) % 32));
                 let tile_id = viewer.nametable_ids.get(ppu_addr as usize).unwrap_or(&0x00);
-                s.text(&format!("Tile ID: ${:02X}", tile_id))?;
-                s.text(&format!("(X, Y): ({}, {})", x, y))?;
-                s.text(&format!("Nametable: ${:04X}", nt_addr))?;
-                s.text(&format!("PPU Addr: ${:04X}", ppu_addr))?;
+                s.text(&format!("Tile ID: ${tile_id:02X}"))?;
+                s.text(&format!("(X, Y): ({x}, {y})"))?;
+                s.text(&format!("Nametable: ${nt_addr:04X}"))?;
+                s.text(&format!("PPU Addr: ${ppu_addr:04X}"))?;
             } else {
                 s.text("Tile ID: $00")?;
                 s.text("(X, Y): (0, 0)")?;
@@ -315,7 +315,7 @@ impl Nes {
                 let x = m.x() - pattern_dst.x();
                 let y = m.y() - pattern_dst.y();
                 let tile = (y / 16) << 4 | ((x / 16) % 16);
-                s.text(&format!("Tile: ${:02X}", tile))?;
+                s.text(&format!("Tile: ${tile:02X}"))?;
             } else {
                 s.text("Tile: $00")?;
             }
@@ -327,7 +327,7 @@ impl Nes {
                     .palette_ids
                     .get((py * 16 + px) as usize)
                     .unwrap_or(&0x00);
-                s.text(&format!("Palette: ${:02X}", palette))?;
+                s.text(&format!("Palette: ${palette:02X}"))?;
             } else {
                 s.text("Palette: $00")?;
             }

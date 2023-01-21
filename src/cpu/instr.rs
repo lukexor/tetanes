@@ -1407,6 +1407,6 @@ impl std::fmt::Debug for Instr {
             SBC if self.opcode() == 0xEB => "*",
             _ => "",
         };
-        write!(f, "{:1}{:?}", unofficial, op)
+        write!(f, "{unofficial:1}{op:?}")
     }
 }

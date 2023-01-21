@@ -307,7 +307,7 @@ impl PixEngine for Nes {
         for code in self.config.genie_codes.clone() {
             if let Err(err) = self.control_deck.add_genie_code(code.clone()) {
                 log::warn!("{}", err);
-                self.add_message(format!("Invalid Genie Code: '{}'", code));
+                self.add_message(format!("Invalid Genie Code: '{code}'"));
                 break;
             }
         }

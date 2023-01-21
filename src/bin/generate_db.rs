@@ -24,7 +24,7 @@ fn main() -> NesResult<()> {
             BufWriter::new(File::create(GAME_DB).context("failed to open game_database.txt")?);
         let paths: Vec<PathBuf> = path
             .read_dir()
-            .unwrap_or_else(|e| panic!("unable read directory {:?}: {}", path, e))
+            .unwrap_or_else(|err| panic!("unable read directory {path:?}: {err}"))
             .filter_map(Result::ok)
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .map(|f| f.path())
@@ -32,7 +32,7 @@ fn main() -> NesResult<()> {
         let mut boards: Vec<(u64, String)> =
             paths.iter().map(get_info).filter_map(Result::ok).collect();
         boards.sort_by_key(|board| board.0);
-        writeln!(db_file, "{}", header)?;
+        writeln!(db_file, "{header}")?;
         let mut last_hash = 0;
         for board in &boards {
             if board.0 != last_hash {

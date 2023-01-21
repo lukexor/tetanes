@@ -417,7 +417,7 @@ impl Nes {
             }
             Err(err) => {
                 log::error!("{:?}", err);
-                self.error = Some(format!("Failed to read {:?}", path));
+                self.error = Some(format!("Failed to read {path:?}"));
             }
         }
     }

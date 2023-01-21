@@ -137,7 +137,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 
         let mut line = String::with_capacity(80);
         for byte in line_data.iter() {
-            let _ = write!(line, " {:02X}", byte);
+            let _ = write!(line, " {byte:02X}");
         }
 
         if line_len % 16 > 0 {
@@ -289,14 +289,14 @@ pub(crate) mod tests {
                                 mapper.set_revision(revision);
                             }
                         }
-                        _ => panic!("unhandled MapperRevision {:?}", board),
+                        _ => panic!("unhandled MapperRevision {board:?}"),
                     },
-                    _ => panic!("unhandled Nes state: {:?}", state),
+                    _ => panic!("unhandled Nes state: {state:?}"),
                 },
                 Action::Setting(setting) => match setting {
                     Setting::SetVideoFilter(filter) => deck.set_filter(filter),
                     Setting::SetNesFormat(format) => deck.set_region(format),
-                    _ => panic!("unhandled Setting: {:?}", setting),
+                    _ => panic!("unhandled Setting: {setting:?}"),
                 },
                 Action::Joypad(button) => {
                     let slot = test_frame.slot.unwrap_or(Slot::One);
@@ -332,7 +332,7 @@ pub(crate) mod tests {
             };
             let mut filename = test.to_owned();
             if let Some(ref name) = test_frame.name {
-                let _ = write!(filename, "_{}", name);
+                let _ = write!(filename, "_{name}");
             } else if count > 0 {
                 let _ = write!(filename, "_{}", count + 1);
             }
@@ -356,13 +356,13 @@ pub(crate) mod tests {
 
         let (test_file, mut tests) = get_rom_tests(directory);
         let mut test = tests.iter_mut().find(|test| test.name.eq(test_name));
-        assert!(test.is_some(), "No test found matching {:?}", test_name);
+        assert!(test.is_some(), "No test found matching {test_name:?}");
         let test = test.as_mut().expect("definitely has a test");
 
         let rom = PathBuf::from(directory)
             .join(PathBuf::from(&test.name))
             .with_extension("nes");
-        assert!(rom.exists(), "No test rom found for {:?}", rom);
+        assert!(rom.exists(), "No test rom found for {rom:?}");
 
         let mut deck = load_control_deck(&rom);
         if env::var("RUST_LOG").is_ok() {
@@ -401,8 +401,7 @@ pub(crate) mod tests {
             }
             assert_eq!(
                 expected, actual,
-                "mismatched snapshot for {:?} -> {:?}",
-                rom, screenshot
+                "mismatched snapshot for {rom:?} -> {screenshot:?}",
             );
         }
         if update_required {

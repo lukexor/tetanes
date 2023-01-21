@@ -69,7 +69,7 @@ impl Cart {
     pub fn from_path<P: AsRef<Path>>(path: P, ram_state: RamState) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
-            File::open(path).with_context(|| format!("failed to open rom {:?}", path))?,
+            File::open(path).with_context(|| format!("failed to open rom {path:?}"))?,
         );
         Self::from_rom(&path.to_string_lossy(), &mut rom, ram_state)
     }
@@ -396,7 +396,7 @@ impl NesHeader {
     pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
-            File::open(path).with_context(|| format!("failed to open rom {:?}", path))?,
+            File::open(path).with_context(|| format!("failed to open rom {path:?}"))?,
         );
         Self::load(&mut rom)
     }

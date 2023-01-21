@@ -106,7 +106,7 @@ impl Nes {
                     } else {
                         s.fill(Color::GRAY);
                     }
-                    s.text(&format!("{:02X} ", val))?;
+                    s.text(&format!("{val:02X} "))?;
                     if i % bytes_per_row < bytes_per_row - 1 {
                         s.same_line(None);
                     }

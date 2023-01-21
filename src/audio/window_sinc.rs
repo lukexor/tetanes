@@ -22,15 +22,11 @@ impl WindowSinc {
         let bw = bandwidth / sample_rate;
         assert!(
             (0.0..=0.5).contains(&fc),
-            "cutoff frequency can not be greater than 1/2 the sampling rate: {} / {}",
-            cutoff,
-            sample_rate,
+            "cutoff frequency can not be greater than 1/2 the sampling rate: {cutoff} / {sample_rate}",
         );
         assert!(
             (0.0..=0.5).contains(&bw),
-            "transition bandwidth can not be greater than 1/2 the sampling rate: {} / {}",
-            bandwidth,
-            sample_rate,
+            "transition bandwidth can not be greater than 1/2 the sampling rate: {bandwidth} / {sample_rate}",
         );
 
         let m = (4.0 / bw) as usize; // Approximation
