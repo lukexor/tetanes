@@ -4,7 +4,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Kind, NesRegion, Regional, Reset},
     cpu::Cpu,
-    input::{Joypad, Slot},
+    input::{FourPlayer, Joypad, Slot},
     mapper::Mapper,
     mem::RamState,
     ppu::Ppu,
@@ -282,14 +282,14 @@ impl ControlDeck {
     /// Returns whether Four Score is enabled.
     #[inline]
     #[must_use]
-    pub const fn fourscore(&self) -> bool {
-        self.cpu.fourscore()
+    pub const fn four_player(&self) -> FourPlayer {
+        self.cpu.four_player()
     }
 
     /// Enable/Disable Four Score for 4-player controllers.
     #[inline]
-    pub fn set_fourscore(&mut self, enabled: bool) {
-        self.cpu.set_fourscore(enabled);
+    pub fn set_four_player(&mut self, four_player: FourPlayer) {
+        self.cpu.set_four_player(four_player);
     }
 
     /// Enable/Disable cycle accurate mode

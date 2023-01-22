@@ -7,7 +7,7 @@ use crate::{
     bus::CpuBus,
     cart::Cart,
     common::{Clock, Kind, NesRegion, Regional, Reset},
-    input::{Joypad, Slot, Zapper},
+    input::{FourPlayer, Joypad, Slot, Zapper},
     mapper::Mapper,
     mem::{Access, Mem},
     ppu::Ppu,
@@ -376,13 +376,13 @@ impl Cpu {
 
     #[inline]
     #[must_use]
-    pub const fn fourscore(&self) -> bool {
-        self.bus.fourscore()
+    pub const fn four_player(&self) -> FourPlayer {
+        self.bus.four_player()
     }
 
     #[inline]
-    pub fn set_fourscore(&mut self, enabled: bool) {
-        self.bus.set_fourscore(enabled);
+    pub fn set_four_player(&mut self, four_player: FourPlayer) {
+        self.bus.set_four_player(four_player);
     }
 
     #[inline]

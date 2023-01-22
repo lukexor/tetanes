@@ -104,15 +104,17 @@ impl Cart {
         RamState::fill(&mut prg_ram, ram_state);
 
         let mut chr_rom = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut chr_rom).with_context(|| {
-            let bytes_rem = rom_data
-                .read_to_end(&mut chr_rom)
-                .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
-            format!(
-                "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
-                name, header.chr_rom_banks, bytes_rem,
-            )
-        })?;
+        if header.chr_rom_banks > 0 {
+            rom_data.read_exact(&mut chr_rom).with_context(|| {
+                let bytes_rem = rom_data
+                    .read_to_end(&mut chr_rom)
+                    .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
+                format!(
+                    "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
+                    name, header.chr_rom_banks, bytes_rem,
+                )
+            })?;
+        }
 
         let mut chr_ram = vec![];
         if chr_rom.is_empty() {

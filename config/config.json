@@ -14,8 +14,8 @@
   "rewind": false,
   "rewind_frames": 2,
   "rewind_buffer_size": 20,
-  "fourscore": false,
-  "crosshair": false,
+  "four_player": "Disabled",
+  "zapper": false,
   "audio_sample_rate": 44100.0,
   "audio_buffer_size": 4096,
   "dynamic_rate_control": true,
@@ -169,7 +169,7 @@
       },
       {
         "player": "Two",
-        "key": "O",
+        "key": "Num8",
         "keymod": 0,
         "action": {
           "Joypad": "Start"
@@ -177,7 +177,71 @@
       },
       {
         "player": "Two",
-        "key": "P",
+        "key": "Num9",
+        "keymod": 1,
+        "action": {
+          "Joypad": "Select"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "F",
+        "keymod": 0,
+        "action": {
+          "Joypad": "Left"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "H",
+        "keymod": 0,
+        "action": {
+          "Joypad": "Right"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "T",
+        "keymod": 0,
+        "action": {
+          "Joypad": "Up"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "G",
+        "keymod": 0,
+        "action": {
+          "Joypad": "Down"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "V",
+        "keymod": 0,
+        "action": {
+          "Joypad": "A"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "B",
+        "keymod": 0,
+        "action": {
+          "Joypad": "B"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "Num5",
+        "keymod": 0,
+        "action": {
+          "Joypad": "Start"
+        }
+      },
+      {
+        "player": "Three",
+        "key": "Num6",
         "keymod": 1,
         "action": {
           "Joypad": "Select"

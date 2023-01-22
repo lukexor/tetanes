@@ -3,22 +3,17 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum VideoFilter {
     Pixellate,
+    #[default]
     Ntsc,
 }
 
 impl VideoFilter {
     pub const fn as_slice() -> &'static [Self] {
         &[Self::Pixellate, Self::Ntsc]
-    }
-}
-
-impl Default for VideoFilter {
-    fn default() -> Self {
-        Self::Ntsc
     }
 }
 

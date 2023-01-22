@@ -15,7 +15,7 @@ use crate::{
     cpu::Cpu,
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
-    ppu::{bus::PpuAddr, Mirroring},
+    ppu::{bus::PpuAddr, Mirroring, Ppu},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -693,7 +693,9 @@ impl MemMap for Exrom {
                     let nametable_mode = self.regs.exram_mode.nametable;
                     match self.nametable_select(addr) {
                         Nametable::ScreenA => MappedRead::CIRam((addr & 0x03FF).into()),
-                        Nametable::ScreenB => MappedRead::CIRam((0x0400 | (addr & 0x03FF)).into()),
+                        Nametable::ScreenB => {
+                            MappedRead::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into())
+                        }
                         Nametable::ExRam if nametable_mode => {
                             MappedRead::Data(self.read_exram(addr))
                         }
@@ -777,7 +779,7 @@ impl MemMap for Exrom {
             0x2000..=0x3EFF => match self.nametable_select(addr) {
                 Nametable::ScreenA => return MappedWrite::CIRam((addr & 0x03FF).into(), val),
                 Nametable::ScreenB => {
-                    return MappedWrite::CIRam((0x0400 | (addr & 0x03FF)).into(), val)
+                    return MappedWrite::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into(), val)
                 }
                 Nametable::ExRam if self.regs.exram_mode.nametable => {
                     self.write_exram(addr, val);

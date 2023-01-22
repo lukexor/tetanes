@@ -296,6 +296,9 @@ impl Nes {
     ) -> bool {
         for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
             let input = Input::Key((slot, event.key, event.keymod));
+            if slot == Slot::Three {
+                println!("{input:?}");
+            }
             if let Ok(true) = self.handle_input(s, slot, input, pressed, event.repeat) {
                 return true;
             }
@@ -416,7 +419,7 @@ impl Nes {
         };
 
         if !repeat {
-            log::debug!(
+            log::trace!(
                 "Input: {{ action: {:?}, slot: {:?}, pressed: {}, handled: {} }}",
                 action,
                 slot,

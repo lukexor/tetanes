@@ -1,5 +1,6 @@
 use crate::{
     common::{config_dir, config_path, NesRegion},
+    input::FourPlayer,
     mem::RamState,
     nes::{
         event::{Input, InputBindings, InputMapping},
@@ -42,8 +43,8 @@ pub(crate) struct Config {
     pub(crate) rewind: bool,
     pub(crate) rewind_frames: u32,
     pub(crate) rewind_buffer_size: usize,
-    pub(crate) fourscore: bool,
-    pub(crate) crosshair: bool,
+    pub(crate) four_player: FourPlayer,
+    pub(crate) zapper: bool,
     pub(crate) audio_sample_rate: f32,
     pub(crate) audio_buffer_size: usize,
     pub(crate) dynamic_rate_control: bool,
@@ -72,8 +73,8 @@ impl Default for Config {
             rewind: false,
             rewind_frames: 2,
             rewind_buffer_size: 20,
-            fourscore: false,
-            crosshair: false,
+            four_player: FourPlayer::default(),
+            zapper: false,
             audio_sample_rate: 44_100.0,
             audio_buffer_size: 4096,
             dynamic_rate_control: true,

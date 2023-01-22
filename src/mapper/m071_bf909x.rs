@@ -80,18 +80,22 @@ impl MemMap for Bf909x {
         if addr == 0x9000 {
             self.variant = Bf909Revision::Bf9097;
         }
-        if matches!(addr, 0x8000..=0xFFFF) {
-            if addr >= 0xC000 || self.variant != Bf909Revision::Bf9097 {
-                self.prg_rom_banks.set(0, val.into());
-            } else {
-                self.mirroring = if val & Self::SINGLE_SCREEN_A == Self::SINGLE_SCREEN_A {
-                    Mirroring::SingleScreenA
+        match addr {
+            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x8000..=0xFFFF => {
+                if addr >= 0xC000 || self.variant != Bf909Revision::Bf9097 {
+                    self.prg_rom_banks.set(0, val.into());
                 } else {
-                    Mirroring::SingleScreenB
-                };
+                    self.mirroring = if val & Self::SINGLE_SCREEN_A == Self::SINGLE_SCREEN_A {
+                        Mirroring::SingleScreenA
+                    } else {
+                        Mirroring::SingleScreenB
+                    };
+                }
+                MappedWrite::None
             }
+            _ => MappedWrite::None,
         }
-        MappedWrite::None
     }
 }
 

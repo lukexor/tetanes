@@ -141,7 +141,8 @@ impl NesBuilder {
         let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_region(config.region);
         control_deck.set_filter(config.filter);
-        control_deck.connect_zapper(true);
+        control_deck.set_four_player(config.four_player);
+        control_deck.connect_zapper(config.zapper);
 
         Ok(Nes::new(
             control_deck,
@@ -280,7 +281,7 @@ impl Nes {
                 4 * Ppu::WIDTH as usize,
             )?;
 
-            if self.config.crosshair {
+            if self.config.zapper {
                 s.set_texture_target(texture_id)?;
                 let (x, y) = self.control_deck.zapper_pos();
                 s.stroke(Color::GRAY);
@@ -299,7 +300,7 @@ impl Nes {
 impl PixEngine for Nes {
     fn on_start(&mut self, s: &mut PixState) -> PixResult<()> {
         self.update_frame_rate(s)?;
-        if self.config.crosshair {
+        if self.config.zapper {
             s.cursor(None)?;
         }
         self.audio.open_playback(s)?;
@@ -422,7 +423,7 @@ impl PixEngine for Nes {
                 }
             }
             // TODO: Convert to config
-            let save_on_exit = true;
+            let save_on_exit = false;
             if save_on_exit {
                 self.save_state(1);
             }

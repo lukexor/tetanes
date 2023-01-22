@@ -261,7 +261,8 @@ impl MemMap for Vrc6 {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
             0x2000..=0x3EFF => {
-                let a10 = (self.nt_banks[(((addr - 0x2000) >> 10) & 0x03) as usize] << 10) as u16;
+                let addr = addr - 0x2000;
+                let a10 = (self.nt_banks[((addr >> 10) & 0x03) as usize] << 10) as u16;
                 let addr = a10 | (!a10 & addr);
                 if self.regs.banking_mode & 0x10 == 0x00 {
                     MappedRead::CIRam(addr.into())

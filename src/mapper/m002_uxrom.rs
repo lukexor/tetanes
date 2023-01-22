@@ -37,7 +37,7 @@ impl Uxrom {
 }
 
 impl MemMap for Uxrom {
-    // PPU $0000..=$1FFF 8K Fixed CHR-ROM Bank
+    // PPU $0000..=$1FFF 8K Fixed CHR-ROM/CHR-RAM Bank
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
     // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
 
@@ -50,10 +50,14 @@ impl MemMap for Uxrom {
     }
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        if matches!(addr, 0x8000..=0xFFFF) {
-            self.prg_rom_banks.set(0, val.into());
+        match addr {
+            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x8000..=0xFFFF => {
+                self.prg_rom_banks.set(0, val.into());
+                MappedWrite::None
+            }
+            _ => MappedWrite::None,
         }
-        MappedWrite::None
     }
 }
 

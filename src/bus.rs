@@ -5,7 +5,7 @@ use crate::{
     common::{Clock, Kind, NesRegion, Regional, Reset},
     cpu::{Cpu, Irq},
     genie::GenieCode,
-    input::{Input, InputRegisters, Joypad, Slot, Zapper},
+    input::{FourPlayer, Input, InputRegisters, Joypad, Slot, Zapper},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::{Access, Mem, RamState},
     ppu::{Ppu, PpuRegisters},
@@ -320,13 +320,13 @@ impl CpuBus {
 
     #[inline]
     #[must_use]
-    pub const fn fourscore(&self) -> bool {
-        self.input.fourscore()
+    pub const fn four_player(&self) -> FourPlayer {
+        self.input.four_player()
     }
 
     #[inline]
-    pub fn set_fourscore(&mut self, enabled: bool) {
-        self.input.set_fourscore(enabled);
+    pub fn set_four_player(&mut self, four_player: FourPlayer) {
+        self.input.set_four_player(four_player);
     }
 }
 

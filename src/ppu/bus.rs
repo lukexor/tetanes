@@ -1,3 +1,4 @@
+use super::Ppu;
 use crate::{
     common::{Kind, NesRegion, Regional, Reset},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
@@ -118,7 +119,7 @@ impl PpuBus {
     // Fourscreen should not use this method and instead should rely on mapper translation.
     #[inline]
     const fn ciram_mirror(&self, addr: usize) -> usize {
-        let nametable = (addr >> self.mirror_shift) & 0x0400;
+        let nametable = (addr >> self.mirror_shift) & (Ppu::NT_SIZE as usize);
         (nametable) | (!nametable & addr & 0x03FF)
     }
 
@@ -149,8 +150,8 @@ impl Mem for PpuBus {
                 }
             }
             0x2000..=0x3EFF => match self.mapper.map_read(addr) {
-                MappedRead::CIRam(addr) => self.ciram[addr],
-                MappedRead::ExRam(addr) => self.exram[addr],
+                MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
+                MappedRead::ExRam(addr) => self.exram[addr & 0x03FF],
                 MappedRead::Data(data) => data,
                 _ => {
                     if self.mirroring() == Mirroring::FourScreen {
@@ -173,8 +174,8 @@ impl Mem for PpuBus {
     fn peek(&self, addr: u16, _access: Access) -> u8 {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_peek(addr) {
-                MappedRead::CIRam(addr) => self.ciram[addr],
-                MappedRead::ExRam(addr) => self.exram[addr],
+                MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
+                MappedRead::ExRam(addr) => self.exram[addr & 0x03FF],
                 MappedRead::Data(data) => data,
                 _ => {
                     if self.mirroring() == Mirroring::FourScreen {

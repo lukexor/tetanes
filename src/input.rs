@@ -5,6 +5,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -29,16 +30,65 @@ pub trait InputRegisters {
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
+pub enum FourPlayer {
+    #[default]
+    Disabled,
+    FourScore,
+    Satellite,
+}
+
+impl FourPlayer {
+    pub const fn as_slice() -> &'static [Self] {
+        &[Self::Disabled, Self::FourScore, Self::Satellite]
+    }
+}
+
+impl From<usize> for FourPlayer {
+    fn from(value: usize) -> Self {
+        match value {
+            1 => Self::FourScore,
+            2 => Self::Satellite,
+            _ => Self::Disabled,
+        }
+    }
+}
+
+impl AsRef<str> for FourPlayer {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Disabled => "Disabled",
+            Self::FourScore => "FourScore",
+            Self::Satellite => "Satellite",
+        }
+    }
+}
+
+impl FromStr for FourPlayer {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "disabled" => Ok(Self::Disabled),
+            "fourscore" => Ok(Self::FourScore),
+            "satellite" => Ok(Self::Satellite),
+            _ => Err(
+                "invalid FourScore value. valid options: `disabled`, `fourscore`, or `satellite`",
+            ),
+        }
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
 pub struct Input {
     joypads: [Joypad; 4],
     signatures: [Joypad; 2],
     zapper: Zapper,
-    turbo_timer: u8,
-    fourscore: bool,
+    turbo_timer: u32,
+    four_player: FourPlayer,
 }
 
 impl Input {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             joypads: [Joypad::new(); 4],
             // Signature bits are reversed so they can shift right
@@ -48,7 +98,7 @@ impl Input {
             ],
             zapper: Zapper::new(),
             turbo_timer: 30,
-            fourscore: false,
+            four_player: FourPlayer::default(),
         }
     }
 
@@ -79,79 +129,83 @@ impl Input {
 
     #[inline]
     #[must_use]
-    pub const fn fourscore(&self) -> bool {
-        self.fourscore
+    pub const fn four_player(&self) -> FourPlayer {
+        self.four_player
     }
 
     #[inline]
-    pub fn set_fourscore(&mut self, enabled: bool) {
-        self.fourscore = enabled;
+    pub fn set_four_player(&mut self, four_player: FourPlayer) {
+        self.four_player = four_player;
+        self.reset(Kind::Hard);
     }
 }
 
 impl InputRegisters for Input {
     fn read(&mut self, slot: Slot, ppu: &Ppu) -> u8 {
-        let val = {
-            // Read $4016/$4017 D0 8x for controller #1/#2.
-            // Read $4016/$4017 D0 8x for controller #3/#4.
-            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-            let zapper = if slot == Slot::One {
-                self.zapper.read(ppu)
-            } else {
-                0x00
-            };
-            log::debug!("zapper {:02X}", zapper);
+        // Read $4016/$4017 D0 8x for controller #1/#2.
+        // Read $4016/$4017 D0 8x for controller #3/#4.
+        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+        let zapper = if slot == Slot::Two {
+            self.zapper.read(ppu)
+        } else {
+            0x00
+        };
 
-            let slot = slot as usize;
-            if self.joypads[slot].index() < 8 {
-                zapper | self.joypads[slot].read() | (self.joypads[slot + 2].read() << 1)
-            } else if self.fourscore {
-                if self.joypads[slot + 2].index() < 8 {
+        let slot = slot as usize;
+        let val = match self.four_player {
+            FourPlayer::Disabled => self.joypads[slot].read(),
+            FourPlayer::FourScore => {
+                if self.joypads[slot].index() < 8 {
+                    self.joypads[slot].read()
+                } else if self.joypads[slot + 2].index() < 8 {
                     self.joypads[slot + 2].read()
                 } else if self.signatures[slot].index() < 8 {
                     self.signatures[slot].read()
                 } else {
-                    zapper | 0x01
+                    0x01
                 }
-            } else {
-                zapper | 0x01
+            }
+            FourPlayer::Satellite => {
+                self.joypads[slot].read() | (self.joypads[slot + 2].read() << 1)
             }
         };
-        log::debug!("{:?} {:02X}", slot, val | 0x40);
-        val | 0x40
+
+        zapper | val | 0x40
     }
 
     fn peek(&self, slot: Slot, ppu: &Ppu) -> u8 {
-        let val = {
-            // Read $4016/$4017 D0 8x for controller #1/#2.
-            // Read $4016/$4017 D0 8x for controller #3/#4.
-            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-            let zapper = if slot == Slot::One {
-                self.zapper.read(ppu)
-            } else {
-                0x00
-            };
+        // Read $4016/$4017 D0 8x for controller #1/#2.
+        // Read $4016/$4017 D0 8x for controller #3/#4.
+        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+        let zapper = if slot == Slot::Two {
+            self.zapper.read(ppu)
+        } else {
+            0x00
+        };
 
-            let slot = slot as usize;
-            if self.joypads[slot].index() < 8 {
-                zapper | self.joypads[slot].peek() | (self.joypads[slot + 2].peek() << 1)
-            } else if self.fourscore {
-                if self.joypads[slot + 2].index() < 8 {
+        let slot = slot as usize;
+        let val = match self.four_player {
+            FourPlayer::Disabled => self.joypads[slot].peek(),
+            FourPlayer::FourScore => {
+                if self.joypads[slot].index() < 8 {
+                    self.joypads[slot].peek()
+                } else if self.joypads[slot + 2].index() < 8 {
                     self.joypads[slot + 2].peek()
                 } else if self.signatures[slot].index() < 8 {
                     self.signatures[slot].peek()
                 } else {
-                    zapper | 0x01
+                    0x01
                 }
-            } else {
-                zapper | 0x01
+            }
+            FourPlayer::Satellite => {
+                self.joypads[slot].peek() | (self.joypads[slot + 2].peek() << 1)
             }
         };
-        val | 0x40
+
+        zapper | val | 0x40
     }
 
     fn write(&mut self, val: u8) {
-        log::debug!("{:02X}", val);
         for pad in &mut self.joypads {
             pad.write(val);
         }
@@ -166,7 +220,8 @@ impl Clock for Input {
         self.zapper.clock();
         self.turbo_timer -= 1;
         if self.turbo_timer == 0 {
-            self.turbo_timer += 30;
+            // Roughly 20Hz
+            self.turbo_timer += 89500;
             for pad in &mut self.joypads {
                 if pad.button(JoypadBtnState::TURBO_A) {
                     let pressed = pad.button(JoypadBtnState::A);
@@ -309,7 +364,7 @@ impl Joypad {
     #[must_use]
     pub fn read(&mut self) -> u8 {
         let val = self.peek();
-        if !self.strobe && self.index <= 7 {
+        if !self.strobe && self.index < 8 {
             self.index += 1;
         }
         val
@@ -317,10 +372,10 @@ impl Joypad {
 
     #[must_use]
     pub const fn peek(&self) -> u8 {
-        if self.index > 7 {
-            0x01
-        } else {
+        if self.index < 8 {
             ((self.buttons.bits as u8) & (1 << self.index)) >> self.index
+        } else {
+            0x01
         }
     }
 
@@ -400,7 +455,7 @@ impl Zapper {
     #[must_use]
     fn read(&self, ppu: &Ppu) -> u8 {
         if self.connected {
-            self.triggered() | self.light_sense(ppu) | 0x40
+            self.triggered() | self.light_sense(ppu)
         } else {
             0x00
         }

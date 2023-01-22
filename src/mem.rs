@@ -43,9 +43,10 @@ pub trait Mem {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum RamState {
+    #[default]
     AllZeros,
     AllOnes,
     Random,
@@ -74,12 +75,6 @@ impl RamState {
                 }
             }
         }
-    }
-}
-
-impl Default for RamState {
-    fn default() -> Self {
-        Self::AllZeros
     }
 }
 

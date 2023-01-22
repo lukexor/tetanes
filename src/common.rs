@@ -10,9 +10,10 @@ pub const CONFIG_DIR: &str = ".config/tetanes";
 pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum NesRegion {
+    #[default]
     Ntsc,
     Pal,
     Dendy,
@@ -21,12 +22,6 @@ pub enum NesRegion {
 impl NesRegion {
     pub const fn as_slice() -> &'static [Self] {
         &[NesRegion::Ntsc, NesRegion::Pal, NesRegion::Dendy]
-    }
-}
-
-impl Default for NesRegion {
-    fn default() -> Self {
-        Self::Ntsc
     }
 }
 

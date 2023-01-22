@@ -2,6 +2,7 @@ use crate::{
     apu::Channel,
     audio::AudioMixer,
     common::{config_path, NesRegion, Regional, SAVE_DIR, SRAM_DIR},
+    input::FourPlayer,
     mem::RamState,
     nes::{
         config::CONFIG,
@@ -26,7 +27,7 @@ impl Nes {
     }
 
     pub(crate) fn exit_menu(&mut self, s: &mut PixState) -> PixResult<()> {
-        if self.config.crosshair {
+        if self.config.zapper {
             s.cursor(None)?;
         }
         self.resume_play();
@@ -95,6 +96,21 @@ impl Nes {
                 256,
             )?;
         }
+
+        s.checkbox("Enable Zapper", &mut self.config.zapper)?;
+
+        let mut four_player = self.config.four_player as usize;
+        s.next_width(150);
+        if s.select_box(
+            "Four Player Mode",
+            &mut four_player,
+            FourPlayer::as_slice(),
+            3,
+        )? {
+            self.config.four_player = FourPlayer::from(four_player);
+            self.control_deck.set_four_player(self.config.four_player);
+        }
+
         Ok(())
     }
 
@@ -285,16 +301,6 @@ impl Nes {
 
     fn render_keybinds(&mut self, s: &mut PixState, mut player: Player) -> PixResult<()> {
         self.render_heading(s, "Keybindings")?;
-
-        s.checkbox("Enable Zapper Crosshair", &mut self.config.crosshair)?;
-
-        let mut fourscore = self.control_deck.fourscore();
-        if s.checkbox("Enable Four Score (4-Player)", &mut fourscore)? {
-            self.control_deck.set_fourscore(fourscore);
-            self.config.fourscore = fourscore;
-        }
-
-        s.spacing()?;
 
         if s.tab_bar(
             "Sections",
