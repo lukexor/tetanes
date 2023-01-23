@@ -3,7 +3,7 @@
 [![Build Status]][build] [![Doc Status]][docs] [![codecov]][coverage] [![Latest Version]][crates.io]
 [![Downloads]][crates.io] [![License]][gnu]
 
-[build status]: https://img.shields.io/github/workflow/status/lukexor/tetanes/CI?style=plastic
+[build status]: https://img.shields.io/github/actions/workflow/status/lukexor/tetanes/ci.yml?branch=main
 [build]: https://github.com/lukexor/tetanes/actions/workflows/ci.yml
 [doc status]: https://img.shields.io/docsrs/tetanes?style=plastic
 [docs]: https://docs.rs/tetanes/
