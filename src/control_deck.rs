@@ -90,6 +90,12 @@ impl ControlDeck {
         self.cpu.load_sram(sram);
     }
 
+    #[inline]
+    #[must_use]
+    pub fn wram(&self) -> &[u8] {
+        self.cpu.wram()
+    }
+
     /// Get a frame worth of pixels.
     #[inline]
     #[must_use]
