@@ -313,6 +313,12 @@ impl Cpu {
         self.bus.load_sram(sram);
     }
 
+    #[inline]
+    #[must_use]
+    pub fn wram(&self) -> &[u8] {
+        self.bus.wram()
+    }
+
     /// Add a Game Genie code to override memory reads/writes.
     ///
     /// # Errors

@@ -195,6 +195,12 @@ impl CpuBus {
         }
     }
 
+    #[inline]
+    #[must_use]
+    pub fn wram(&self) -> &[u8] {
+        &self.wram
+    }
+
     /// Add a Game Genie code to override memory reads/writes.
     ///
     /// # Errors
