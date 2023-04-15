@@ -42,8 +42,7 @@ features = ["user-hooks"]
 pix-engine = { version = "0.7.0", features = ["serde"] }
 
 [patch.crates-io]
-# pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
-pix-engine = { path = "../pix-engine" }
+pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
