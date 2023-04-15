@@ -128,7 +128,6 @@ impl Input {
     }
 
     #[inline]
-    #[must_use]
     pub const fn four_player(&self) -> FourPlayer {
         self.four_player
     }

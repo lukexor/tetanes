@@ -325,7 +325,6 @@ impl CpuBus {
     }
 
     #[inline]
-    #[must_use]
     pub const fn four_player(&self) -> FourPlayer {
         self.input.four_player()
     }

@@ -1,5 +1,4 @@
 #![doc = include_str!("../README.md")]
-#![allow(clippy::bool_to_int_with_if)]
 #![warn(
     anonymous_parameters,
     bare_trait_objects,

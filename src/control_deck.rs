@@ -287,7 +287,6 @@ impl ControlDeck {
 
     /// Returns whether Four Score is enabled.
     #[inline]
-    #[must_use]
     pub const fn four_player(&self) -> FourPlayer {
         self.cpu.four_player()
     }
