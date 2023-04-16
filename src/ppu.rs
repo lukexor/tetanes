@@ -117,10 +117,10 @@ impl Ppu {
     pub const HEIGHT: u32 = 240;
     pub const SIZE: usize = (Self::WIDTH * Self::HEIGHT) as usize;
 
-    pub(crate) const NT_START: u16 = 0x2000;
-    pub(crate) const NT_SIZE: u16 = 0x0400;
-    pub(crate) const PALETTE_START: u16 = 0x3F00;
-    pub(crate) const PALETTE_END: u16 = 0x3F20;
+    pub const NT_START: u16 = 0x2000;
+    pub const NT_SIZE: u16 = 0x0400;
+    pub const PALETTE_START: u16 = 0x3F00;
+    pub const PALETTE_END: u16 = 0x3F20;
 
     const OAM_SIZE: usize = 256; // 64 4-byte sprites per frame
     const SECONDARY_OAM_SIZE: usize = 32; // 8 4-byte sprites per scanline

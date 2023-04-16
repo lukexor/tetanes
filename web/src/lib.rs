@@ -1,9 +1,10 @@
 use tetanes::{
     audio::{AudioMixer, NesAudioCallback},
     control_deck::ControlDeck,
-    input::GamepadSlot,
-    memory::RamState,
-    ppu::{VideoFilter, RENDER_HEIGHT, RENDER_WIDTH},
+    input::{JoypadBtnState, Slot},
+    mem::RamState,
+    ppu::Ppu,
+    video::VideoFilter,
 };
 use wasm_bindgen::prelude::*;
 
@@ -61,11 +62,11 @@ impl Nes {
     }
 
     pub fn width(&self) -> u32 {
-        RENDER_WIDTH
+        Ppu::WIDTH
     }
 
     pub fn height(&self) -> u32 {
-        RENDER_HEIGHT
+        Ppu::HEIGHT
     }
 
     pub fn sample_rate(&self) -> f32 {
@@ -93,23 +94,28 @@ impl Nes {
         if repeat {
             return false;
         }
-        let gamepad = &mut self.control_deck.gamepad_mut(GamepadSlot::One);
+        let joypad = &mut self.control_deck.joypad_mut(Slot::One);
         let mut matched = true;
         match key {
-            "Enter" => gamepad.start = pressed,
-            "Shift" => gamepad.select = pressed,
-            "a" => gamepad.turbo_a = pressed,
-            "s" => gamepad.turbo_b = pressed,
-            "z" => gamepad.a = pressed,
-            "x" => gamepad.b = pressed,
-            "ArrowUp" => gamepad.up = pressed,
-            "ArrowDown" => gamepad.down = pressed,
-            "ArrowLeft" => gamepad.left = pressed,
-            "ArrowRight" => gamepad.right = pressed,
+            "Enter" => joypad.set_button(JoypadBtnState::START, pressed),
+            "Shift" => joypad.set_button(JoypadBtnState::SELECT, pressed),
+            "a" => joypad.set_button(JoypadBtnState::TURBO_A, pressed),
+            "s" => joypad.set_button(JoypadBtnState::TURBO_B, pressed),
+            "z" => joypad.set_button(JoypadBtnState::A, pressed),
+            "x" => joypad.set_button(JoypadBtnState::B, pressed),
+            "ArrowUp" => joypad.set_button(JoypadBtnState::UP, pressed),
+            "ArrowDown" => joypad.set_button(JoypadBtnState::DOWN, pressed),
+            "ArrowLeft" => joypad.set_button(JoypadBtnState::LEFT, pressed),
+            "ArrowRight" => joypad.set_button(JoypadBtnState::RIGHT, pressed),
             _ => matched = false,
         }
         matched
     }
+}
+
+#[wasm_bindgen]
+pub fn wasm_memory() -> JsValue {
+    wasm_bindgen::memory()
 }
 
 impl Default for Nes {

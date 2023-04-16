@@ -302,7 +302,7 @@ impl Cart {
         use std::io::BufRead;
 
         let db = BufReader::new(GAME_DB);
-        let lines: Vec<String> = db.lines().filter_map(Result::ok).collect();
+        let lines: Vec<String> = db.lines().map_while(Result::ok).collect();
         if let Ok(line) = lines.binary_search_by(|line| {
             let hash = line
                 .split(',')

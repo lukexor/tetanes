@@ -1,5 +1,4 @@
-import { Nes } from "tetanes-web";
-import { memory } from "tetanes-web/tetanes_web_bg.wasm";
+import { Nes, wasm_memory } from "tetanes-web";
 
 const WIDTH = 256;
 const HEIGHT = 240;
@@ -546,7 +545,7 @@ class State {
 
   render() {
     this.imageBuffer = new Uint8Array(
-      memory.buffer,
+      wasm_memory().buffer,
       this.nes.frame(),
       4 * 256 * 240
     );
