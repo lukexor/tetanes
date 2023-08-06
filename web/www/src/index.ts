@@ -329,7 +329,7 @@ class State {
   constructor() {
     this.nes = Nes.new(this.sampleRate, this.maxDelta);
     this.fps = new Fps();
-    this.audioEnabled = true;
+    this.audioEnabled = false; // TODO: Disable by default until audio popping is resolved
     this.keybinds = [
       "Escape",
       "Enter",

@@ -1,22 +1,19 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TetaNES Web</title>
     <style>
       @font-face {
         font-family: "Emulogic";
-        src:
-          local("Emulogic"),
-          url("emulogic.ttf")
-          format("truetype");
+        src: local("Emulogic"), url("emulogic.ttf") format("truetype");
       }
 
       body {
         --color: #aaa;
-        --heading: #92340B;
-        --background: #0C141F;
+        --heading: #92340b;
+        --background: #0c141f;
         background-color: var(--background);
         max-width: 80%;
         margin: auto;
@@ -29,7 +26,8 @@
         margin: 40px 0;
       }
 
-      h1, h2 {
+      h1,
+      h2 {
         color: var(--heading);
         font-family: Emulogic;
         text-align: center;
@@ -55,7 +53,8 @@
         color: var(--heading);
       }
 
-      th, td {
+      th,
+      td {
         padding: 5px;
         border: 0.5px solid var(--color);
       }
@@ -65,17 +64,17 @@
       }
 
       a {
-        color: #FFE64D;
+        color: #ffe64d;
         text-decoration: none;
       }
 
       a:hover {
-        color: #DF740C;
+        color: #df740c;
         text-decoration: underline;
       }
 
       canvas {
-        background: rgba(0.13, 0.13, 0.13, 1.0);
+        background: rgba(0.13, 0.13, 0.13, 1);
         margin: 0 40px;
         width: fit-content;
         height: fit-content;
@@ -92,26 +91,29 @@
 
       button,
       .load-rom-label {
-        background-color: #92340B; /* Rust color */
+        background-color: #92340b; /* Rust color */
         border: none;
         color: white;
         cursor: pointer;
         display: inline-block;
         text-decoration: none;
-        font-family : inherit;
+        font-family: inherit;
         font-size: 1em;
         font-family: Emulogic;
       }
 
-      #scale1, #scale2, #scale2 {
+      #scale1,
+      #scale2,
+      #scale2 {
         width: 3.5em;
       }
       button {
         margin: 10px 0;
         padding: 5px 8px;
       }
-      button:hover, label:hover {
-        background-color: #0B6992;
+      button:hover,
+      label:hover {
+        background-color: #0b6992;
       }
 
       .load-rom-label {
@@ -128,7 +130,7 @@
       .load-rom-label:focu,
       .load-rom-label:hover {
         color: #000;
-        background-color: #48BEF1;
+        background-color: #48bef1;
       }
 
       .load-rom-label:focus {
@@ -185,7 +187,7 @@
 
       #homebrew-close {
         position: absolute;
-          right: 10px;
+        right: 10px;
       }
 
       .hidden {
@@ -194,7 +196,10 @@
     </style>
   </head>
   <body>
-    <noscript>This page contains WebAssembly and Javascript content, please enable Javascript in your browser.</noscript>
+    <noscript
+      >This page contains WebAssembly and Javascript content, please enable
+      Javascript in your browser.</noscript
+    >
 
     <h1>TetaNES</h1>
 
@@ -204,8 +209,16 @@
       <canvas id="backView" class="hidden"></canvas>
 
       <div id="controls">
-        <input type="file" id="load-rom" name="load-rom" class="load-rom" accept=".nes">
-        <label id="load-rom-label" for="load-rom" class="load-rom-label">Load ROM</label>
+        <input
+          type="file"
+          id="load-rom"
+          name="load-rom"
+          class="load-rom"
+          accept=".nes"
+        />
+        <label id="load-rom-label" for="load-rom" class="load-rom-label"
+          >Load ROM</label
+        >
 
         <button id="load-homebrew">Homebrew ROMs</button>
 
@@ -215,7 +228,7 @@
           <button id="scale3">3X</button>
         </div>
 
-        <button id="toggle-audio">Mute</button>
+        <button id="toggle-audio">Unmute</button>
         <button id="toggle-pause">Pause</button>
 
         <div id="fps"></div>
@@ -226,15 +239,15 @@
       <p>
         <em>TetaNES</em> is an emulator for the Nintendo Entertainment System
         (NES) written in <a href="https://www.rust-lang.org/">Rust</a> and
-        <a href="https://webassembly.org/">WebAssembly</a>.
-        The desktop version is much more performant and fully featured, written
-        using <a href="https://www.libsdl.org/">SDL2</a>.
+        <a href="https://webassembly.org/">WebAssembly</a>. The desktop version
+        is much more performant and fully featured, written using
+        <a href="https://www.libsdl.org/">SDL2</a>.
       </p>
 
       <p>
         You can choose from a list of homebrew games, or load your own ROM which
-        uses the <a href="https://www.nesdev.org/wiki/INES">iNES</a> or <a
-        href="https://www.nesdev.org/wiki/NES_2.0">NES 2.0</a> format.
+        uses the <a href="https://www.nesdev.org/wiki/INES">iNES</a> or
+        <a href="https://www.nesdev.org/wiki/NES_2.0">NES 2.0</a> format.
       </p>
 
       <p>
