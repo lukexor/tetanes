@@ -27,6 +27,7 @@ jobs:
           targets: wasm32-unknown-unknown
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/install-linuxbrew
       - uses: ./.github/actions/install-sdl2
       - name: Install Coverage Tools
         run: |
