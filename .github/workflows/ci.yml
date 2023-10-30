@@ -16,7 +16,7 @@ jobs:
     name: Check format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: cargo fmt --all --check
 
   build-and-test:
@@ -27,7 +27,7 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
         toolchain: [stable, 1.70.0]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -35,9 +35,15 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Lint
-        run: |
-          cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+      - uses: ./.github/actions/install-linuxbrew
+        if: matrix.os == 'ubuntu-latest'
+        name: Install Homebrew for Linux
       - uses: ./.github/actions/install-sdl2
+        if: matrix.os != 'windows-latest'
+        name: Install SDL2
       - name: Install wasm-pack
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -49,6 +55,4 @@ jobs:
           cd web
           bash bin/build.sh --dev
       - run: cargo doc --verbose
-        # TODO: Remove when beta/nightly docs are working
-        if: matrix.toolchain == 'stable'
       - run: cargo test --verbose

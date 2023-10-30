@@ -1,28 +1,12 @@
 ---
 name: Install SDL2
-description: Installs SDL2
+description: Installs SDL2 and updates homebrew
 
 runs:
   using: "composite"
   steps:
-    - if: matrix.os == 'ubuntu-latest'
-      shell: bash
-      run: |
-        sudo add-apt-repository ppa:savoury1/multimedia
-        sudo apt update
-        sudo apt install \
-          libsdl2 \
-          libsdl2-gfx \
-          libsdl2-image \
-          libsdl2-mixer \
-          libsdl2-ttf
-    - if: matrix.os == 'macos-latest'
+    - name: Install SDL2
       shell: bash
       run: |
         brew update
-        brew install \
-          sdl2 \
-          sdl2_gfx \
-          sdl2_image \
-          sdl2_mixer \
-          sdl2_ttf
+        brew install sdl2 sdl2_gfx sdl2_image sdl2_mixer sdl2_ttf

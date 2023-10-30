@@ -11,8 +11,8 @@ jobs:
   publish:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: ./.github/actions/install-sdl2
       - uses: katyo/publish-crates@v2
