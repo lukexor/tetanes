@@ -15,7 +15,7 @@ bitflags! {
     // ||+------- Emphasize red
     // |+-------- Emphasize green
     // +--------- Emphasize blue
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct PpuMask: u8 {
         const GRAYSCALE = 0x01;
@@ -36,7 +36,7 @@ impl PpuMask {
 
     #[inline]
     pub fn write(&mut self, val: u8) {
-        self.bits = val;
+        *self = Self::from_bits_truncate(val);
     }
 
     #[inline]
@@ -83,13 +83,13 @@ impl PpuMask {
                 emphasis
             }
         };
-        emphasis.bits
+        emphasis.bits()
     }
 }
 
 impl Reset for PpuMask {
     // https://www.nesdev.org/wiki/PPU_power_up_state
     fn reset(&mut self, _kind: Kind) {
-        self.bits = 0x00;
+        *self = Self::empty();
     }
 }

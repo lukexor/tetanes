@@ -46,12 +46,12 @@ enum ChrBank {
 }
 
 bitflags! {
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
     #[must_use]
     struct ExRamRW: u8 {
         const W = 0x01;
         const R = 0x02;
-        const RW = Self::R.bits | Self::W.bits;
+        const RW = Self::R.bits() | Self::W.bits();
     }
 }
 
@@ -769,7 +769,7 @@ impl MemMap for Exrom {
                 }
             }
             0xE000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            0x5207 | 0x5208 | 0x5209 => MappedRead::Data(0),
+            0x5207..=0x5209 => MappedRead::Data(0),
             _ => MappedRead::None,
         }
     }
@@ -951,7 +951,7 @@ impl MemMap for Exrom {
                 self.regs.mult_result =
                     u16::from(self.regs.multiplicand) * u16::from(self.regs.multiplier);
             }
-            0x5207 | 0x5208 | 0x5209 => {}
+            0x5207..=0x5209 => {}
             0x5C00..=0x5FFF => match self.regs.exram_mode.rw {
                 ExRamRW::W => {
                     let val = if self.ppu_status.rendering { val } else { 0x00 };

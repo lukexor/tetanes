@@ -580,7 +580,7 @@ impl Ppu {
             };
 
             if idx < self.spr_count {
-                let mut sprite = &mut self.sprites[idx];
+                let sprite = &mut self.sprites[idx];
                 sprite.x = x;
                 sprite.y = y;
                 sprite.tile_lo = self.bus.read(tile_addr, Access::Read);

@@ -93,7 +93,7 @@ impl Pulse {
 
     pub fn clock_half_frame(&mut self) {
         let sweep_forcing_silence = self.sweep_forcing_silence();
-        let mut swp = &mut self.sweep;
+        let swp = &mut self.sweep;
         if swp.reload {
             swp.counter = swp.timer;
             swp.reload = false;

@@ -34,7 +34,7 @@
       {
         "player": "One",
         "key": "Left",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Left"
         }
@@ -42,7 +42,7 @@
       {
         "player": "One",
         "key": "Right",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Right"
         }
@@ -50,7 +50,7 @@
       {
         "player": "One",
         "key": "Up",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Up"
         }
@@ -58,7 +58,7 @@
       {
         "player": "One",
         "key": "Down",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Down"
         }
@@ -66,7 +66,7 @@
       {
         "player": "One",
         "key": "Z",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "A"
         }
@@ -74,7 +74,7 @@
       {
         "player": "One",
         "key": "X",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "B"
         }
@@ -82,7 +82,7 @@
       {
         "player": "One",
         "key": "A",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "TurboA"
         }
@@ -90,7 +90,7 @@
       {
         "player": "One",
         "key": "S",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "TurboB"
         }
@@ -98,7 +98,7 @@
       {
         "player": "One",
         "key": "Return",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Start"
         }
@@ -106,7 +106,7 @@
       {
         "player": "One",
         "key": "RShift",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Joypad": "Select"
         }
@@ -114,7 +114,7 @@
       {
         "player": "One",
         "key": "RShift",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Select"
         }
@@ -122,7 +122,7 @@
       {
         "player": "Two",
         "key": "J",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Left"
         }
@@ -130,7 +130,7 @@
       {
         "player": "Two",
         "key": "L",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Right"
         }
@@ -138,7 +138,7 @@
       {
         "player": "Two",
         "key": "I",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Up"
         }
@@ -146,7 +146,7 @@
       {
         "player": "Two",
         "key": "K",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Down"
         }
@@ -154,7 +154,7 @@
       {
         "player": "Two",
         "key": "N",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "A"
         }
@@ -162,7 +162,7 @@
       {
         "player": "Two",
         "key": "M",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "B"
         }
@@ -170,7 +170,7 @@
       {
         "player": "Two",
         "key": "Num8",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Start"
         }
@@ -178,7 +178,7 @@
       {
         "player": "Two",
         "key": "Num9",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Joypad": "Select"
         }
@@ -186,7 +186,7 @@
       {
         "player": "Three",
         "key": "F",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Left"
         }
@@ -194,7 +194,7 @@
       {
         "player": "Three",
         "key": "H",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Right"
         }
@@ -202,7 +202,7 @@
       {
         "player": "Three",
         "key": "T",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Up"
         }
@@ -210,7 +210,7 @@
       {
         "player": "Three",
         "key": "G",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Down"
         }
@@ -218,7 +218,7 @@
       {
         "player": "Three",
         "key": "V",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "A"
         }
@@ -226,7 +226,7 @@
       {
         "player": "Three",
         "key": "B",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "B"
         }
@@ -234,7 +234,7 @@
       {
         "player": "Three",
         "key": "Num5",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Joypad": "Start"
         }
@@ -242,7 +242,7 @@
       {
         "player": "Three",
         "key": "Num6",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Joypad": "Select"
         }
@@ -250,7 +250,7 @@
       {
         "player": "One",
         "key": "Escape",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Menu": "Main"
         }
@@ -258,7 +258,7 @@
       {
         "player": "One",
         "key": "H",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Menu": "About"
         }
@@ -266,7 +266,7 @@
       {
         "player": "One",
         "key": "F1",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Menu": "About"
         }
@@ -274,7 +274,7 @@
       {
         "player": "One",
         "key": "C",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Menu": {
             "Config": "General"
@@ -284,7 +284,7 @@
       {
         "player": "One",
         "key": "F2",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Menu": {
             "Config": "General"
@@ -294,7 +294,7 @@
       {
         "player": "One",
         "key": "O",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Menu": "LoadRom"
         }
@@ -302,7 +302,7 @@
       {
         "player": "One",
         "key": "F3",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Menu": "LoadRom"
         }
@@ -310,7 +310,7 @@
       {
         "player": "One",
         "key": "K",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Menu": {
             "Keybind": "One"
@@ -320,7 +320,7 @@
       {
         "player": "One",
         "key": "Q",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Nes": "Quit"
         }
@@ -328,7 +328,7 @@
       {
         "player": "One",
         "key": "R",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Nes": "SoftReset"
         }
@@ -336,7 +336,7 @@
       {
         "player": "One",
         "key": "P",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Nes": "HardReset"
         }
@@ -344,7 +344,7 @@
       {
         "player": "One",
         "key": "Equals",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": "IncSpeed"
         }
@@ -352,7 +352,7 @@
       {
         "player": "One",
         "key": "Minus",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": "DecSpeed"
         }
@@ -360,7 +360,7 @@
       {
         "player": "One",
         "key": "Space",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Setting": "FastForward"
         }
@@ -368,7 +368,7 @@
       {
         "player": "One",
         "key": "Kp1",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 1
@@ -378,7 +378,7 @@
       {
         "player": "One",
         "key": "Kp2",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 2
@@ -388,7 +388,7 @@
       {
         "player": "One",
         "key": "Kp3",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 3
@@ -398,7 +398,7 @@
       {
         "player": "One",
         "key": "Kp4",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 4
@@ -408,7 +408,7 @@
       {
         "player": "One",
         "key": "Num1",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 1
@@ -418,7 +418,7 @@
       {
         "player": "One",
         "key": "Num2",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 2
@@ -428,7 +428,7 @@
       {
         "player": "One",
         "key": "Num3",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 3
@@ -438,7 +438,7 @@
       {
         "player": "One",
         "key": "Num4",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": {
             "SetSaveSlot": 4
@@ -448,7 +448,7 @@
       {
         "player": "One",
         "key": "S",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Feature": "SaveState"
         }
@@ -456,7 +456,7 @@
       {
         "player": "One",
         "key": "L",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Feature": "LoadState"
         }
@@ -464,7 +464,7 @@
       {
         "player": "One",
         "key": "R",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Feature": "Rewind"
         }
@@ -472,7 +472,7 @@
       {
         "player": "One",
         "key": "F10",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Feature": "TakeScreenshot"
         }
@@ -480,7 +480,7 @@
       {
         "player": "One",
         "key": "V",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Feature": "ToggleGameplayRecording"
         }
@@ -488,7 +488,7 @@
       {
         "player": "One",
         "key": "R",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Feature": "ToggleSoundRecording"
         }
@@ -496,7 +496,7 @@
       {
         "player": "One",
         "key": "M",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": "ToggleSound"
         }
@@ -504,7 +504,7 @@
       {
         "player": "One",
         "key": "Num1",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Setting": "TogglePulse1"
         }
@@ -512,7 +512,7 @@
       {
         "player": "One",
         "key": "Num2",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Setting": "TogglePulse2"
         }
@@ -520,7 +520,7 @@
       {
         "player": "One",
         "key": "Num3",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Setting": "ToggleTriangle"
         }
@@ -528,7 +528,7 @@
       {
         "player": "One",
         "key": "Num4",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Setting": "ToggleNoise"
         }
@@ -536,7 +536,7 @@
       {
         "player": "One",
         "key": "Num5",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Setting": "ToggleDmc"
         }
@@ -544,7 +544,7 @@
       {
         "player": "One",
         "key": "Return",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": "ToggleFullscreen"
         }
@@ -552,7 +552,7 @@
       {
         "player": "One",
         "key": "V",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": "ToggleVsync"
         }
@@ -560,7 +560,7 @@
       {
         "player": "One",
         "key": "N",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Setting": "ToggleNtscFilter"
         }
@@ -568,7 +568,7 @@
       {
         "player": "One",
         "key": "D",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Debug": "ToggleCpuDebugger"
         }
@@ -576,7 +576,7 @@
       {
         "player": "One",
         "key": "P",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Debug": "TogglePpuDebugger"
         }
@@ -584,7 +584,7 @@
       {
         "player": "One",
         "key": "A",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Debug": "ToggleApuDebugger"
         }
@@ -592,7 +592,7 @@
       {
         "player": "One",
         "key": "C",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Debug": "StepInto"
         }
@@ -600,7 +600,7 @@
       {
         "player": "One",
         "key": "O",
-        "keymod": 0,
+        "keymod": "NONE",
         "action": {
           "Debug": "StepOver"
         }
@@ -608,7 +608,7 @@
       {
         "player": "One",
         "key": "O",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Debug": "StepOut"
         }
@@ -616,7 +616,7 @@
       {
         "player": "One",
         "key": "L",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Debug": "StepScanline"
         }
@@ -624,7 +624,7 @@
       {
         "player": "One",
         "key": "F",
-        "keymod": 1,
+        "keymod": "SHIFT",
         "action": {
           "Debug": "StepFrame"
         }
@@ -632,7 +632,7 @@
       {
         "player": "One",
         "key": "Down",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Debug": "IncScanline"
         }
@@ -640,7 +640,7 @@
       {
         "player": "One",
         "key": "Up",
-        "keymod": 64,
+        "keymod": "CTRL",
         "action": {
           "Debug": "DecScanline"
         }
@@ -648,7 +648,7 @@
       {
         "player": "One",
         "key": "Down",
-        "keymod": 65,
+        "keymod": "SHIFT | CTRL",
         "action": {
           "Debug": "IncScanline"
         }
@@ -656,7 +656,7 @@
       {
         "player": "One",
         "key": "Up",
-        "keymod": 65,
+        "keymod": "SHIFT | CTRL",
         "action": {
           "Debug": "DecScanline"
         }

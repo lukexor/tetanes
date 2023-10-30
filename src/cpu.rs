@@ -31,7 +31,7 @@ use std::fmt::{self, Write};
 pub mod instr;
 
 bitflags! {
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct Irq: u8 {
         const MAPPER = 1 << 1;
@@ -54,7 +54,7 @@ bitflags! {
 // |+-------- Overflow
 // +--------- Negative
 bitflags! {
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct Status: u8 {
         const C = 1;      // Carry

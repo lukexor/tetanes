@@ -236,7 +236,9 @@ impl Nes {
             error: None,
             confirm_quit: None,
             #[cfg(feature = "profile-rate-control")]
-            stats: std::io::BufWriter::new(std::fs::File::create("./stats.dat").unwrap()),
+            stats: std::io::BufWriter::new(
+                std::fs::File::create("./stats.dat").expect("created stats.dat"),
+            ),
         }
     }
 

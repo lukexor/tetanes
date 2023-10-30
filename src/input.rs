@@ -290,7 +290,7 @@ impl AsRef<str> for JoypadBtn {
 }
 
 bitflags! {
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct JoypadBtnState: u16 {
         const A = 0x01;
@@ -303,7 +303,7 @@ bitflags! {
         const RIGHT = 0x80;
         const TURBO_A = 0x100;
         const TURBO_B = 0x200;
-        const DPAD = Self::UP.bits | Self::DOWN.bits | Self::LEFT.bits | Self::RIGHT.bits;
+        const DPAD = Self::UP.bits() | Self::DOWN.bits() | Self::LEFT.bits() | Self::RIGHT.bits();
     }
 }
 
@@ -372,7 +372,7 @@ impl Joypad {
     #[must_use]
     pub const fn peek(&self) -> u8 {
         if self.index < 8 {
-            ((self.buttons.bits as u8) & (1 << self.index)) >> self.index
+            ((self.buttons.bits() as u8) & (1 << self.index)) >> self.index
         } else {
             0x01
         }
@@ -395,7 +395,7 @@ impl Joypad {
 
 impl Reset for Joypad {
     fn reset(&mut self, _kind: Kind) {
-        self.buttons.bits = 0;
+        self.buttons = JoypadBtnState::empty();
         self.index = 0;
         self.strobe = false;
     }

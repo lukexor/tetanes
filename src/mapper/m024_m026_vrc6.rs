@@ -179,7 +179,7 @@ impl Vrc6 {
                         self.set_nametable_page(2, self.regs.chr[6]);
                         self.set_nametable_page(3, self.regs.chr[7]);
                     }
-                    2 | 3 | 4 => {
+                    2..=4 => {
                         self.set_nametable_page(0, self.regs.chr[6]);
                         self.set_nametable_page(1, self.regs.chr[7]);
                         self.set_nametable_page(2, self.regs.chr[6]);
@@ -210,7 +210,7 @@ impl Vrc6 {
                             self.set_nametable_page(2, self.regs.chr[6] & 0x01);
                             self.set_nametable_page(3, self.regs.chr[7] & 0x01);
                         }
-                        2 | 3 | 4 => {
+                        2..=4 => {
                             self.set_nametable_page(0, self.regs.chr[6] & 0x01);
                             self.set_nametable_page(1, self.regs.chr[7] & 0x01);
                             self.set_nametable_page(2, self.regs.chr[6] & 0x01);

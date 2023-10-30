@@ -22,7 +22,7 @@ bitflags! {
     // ||+------- Sprite Height: 0 = 8x8, 1 = 8x16
     // |+-------- PPU Master/Slave: 0 = read from EXT, 1 = write to EXT
     // +--------- NMI Enable: NMI at next vblank: 0 = off, 1: on
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct PpuCtrl: u8 {
         const NAMETABLE1 = 0x01;
@@ -43,13 +43,13 @@ impl PpuCtrl {
 
     #[inline]
     pub fn write(&mut self, val: u8) {
-        self.bits = val;
+        *self = Self::from_bits_truncate(val);
     }
 
     #[inline]
     #[must_use]
     pub fn nametable_addr(&self) -> u16 {
-        match self.bits & 0b11 {
+        match self.bits() & 0b11 {
             0b00 => NAMETABLE1,
             0b01 => NAMETABLE2,
             0b10 => NAMETABLE3,
@@ -118,6 +118,6 @@ impl PpuCtrl {
 impl Reset for PpuCtrl {
     // https://www.nesdev.org/wiki/PPU_power_up_state
     fn reset(&mut self, _kind: Kind) {
-        self.bits = 0x00;
+        *self = Self::empty();
     }
 }

@@ -22,7 +22,7 @@ bitflags! {
     //            Set at dot 1 of line 241 (the line *after* the post-render
     //            line); cleared after reading $2002 and at dot 1 of the
     //            pre-render line.
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct PpuStatus: u8 {
         const UNUSED1 = 0x01;
@@ -43,13 +43,13 @@ impl PpuStatus {
 
     #[inline]
     pub fn write(&mut self, val: u8) {
-        self.bits = val;
+        *self = Self::from_bits_truncate(val);
     }
 
     #[inline]
     #[must_use]
     pub const fn read(&self) -> u8 {
-        self.bits
+        self.bits()
     }
 
     #[inline]
