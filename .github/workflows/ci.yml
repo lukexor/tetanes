@@ -28,16 +28,15 @@ jobs:
         toolchain: [stable, 1.70.0]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Lint
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
+      - run: cargo clippy
       - uses: ./.github/actions/install-linuxbrew
         if: matrix.os == 'ubuntu-latest'
         name: Install Homebrew for Linux

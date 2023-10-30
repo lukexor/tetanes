@@ -5,7 +5,7 @@ description: Installs Linuxbrew and updates apt-get with build-essentials
 runs:
   using: "composite"
   steps:
-    - uses: Swatinem/rust-cache@v1
+    - uses: Swatinem/rust-cache@v2
     - name: Cache Linuxbrew
       uses: actions/cache@v3
       with:

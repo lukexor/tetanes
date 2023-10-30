@@ -5,7 +5,7 @@ description = "A NES Emulator written in Rust with SDL2 and WebAssembly support"
 documentation = "https://docs.rs/tetanes"
 edition = "2021"
 keywords = ["nes", "emulator", "wasm"]
-license = "GPL-3.0"
+license = "MIT"
 name = "tetanes"
 repository = "https://github.com/lukexor/tetanes.git"
 resolver = "2"
@@ -15,6 +15,10 @@ exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
 
 [package.metadata]
 msrv = "1.70.0"
+
+[package.metadata.wix]
+upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
+path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
 
 [dependencies]
 anyhow = "1.0"
@@ -39,10 +43,7 @@ default-features = false
 features = ["user-hooks"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pix-engine = { version = "0.7", features = ["serde"] }
-
-[patch.crates-io]
-pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
+pix-engine = { version = "0.8", features = ["serde"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
@@ -64,4 +65,24 @@ inherits = "dev-opt"
 
 [profile.release]
 codegen-units = 1
-lto = true
+
+# The profile that 'cargo dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[workspace]
+
+members = ["web"]
+
+[workspace.metadata.dist]
+cargo-dist-version = "0.4.0"
+ci = ["github"]
+installers = ["shell", "powershell", "msi"]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+pr-run-mode = "upload"

@@ -1,0 +1,16 @@
+---
+pull_request_rules:
+  - name: Merge Dependabot PRs
+    conditions:
+      - author=dependabot[bot]
+    actions:
+      merge:
+        method: squash
+  - name: Update PRs to latest main
+    conditions:
+      - -conflict
+      - -draft
+      - -author=dependabot[bot]
+      - -head~=release-plz-*
+    actions:
+      update:

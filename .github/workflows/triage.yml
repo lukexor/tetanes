@@ -19,4 +19,4 @@ jobs:
         uses: pozil/auto-assign-issue@v1
         with:
           assignees: lukexor
-          numOfAssignee: 1
+          numOfAssignee.github/workflows/ci.yml: 1

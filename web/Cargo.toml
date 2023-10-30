@@ -22,14 +22,3 @@ console_error_panic_hook = "0.1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
-
-[patch.crates-io]
-pix-engine = { git = "https://github.com/lukexor/pix-engine.git" }
-
-[profile.dev-opt]
-inherits = "dev"
-opt-level = 2
-
-[profile.release]
-codegen-units = 1
-lto = true
