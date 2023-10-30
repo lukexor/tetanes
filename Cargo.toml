@@ -14,7 +14,7 @@ default-run = "tetanes"
 exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
 
 [package.metadata]
-msrv = "1.67.0"
+msrv = "1.70.0"
 
 [dependencies]
 anyhow = "1.0"
