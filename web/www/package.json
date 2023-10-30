@@ -31,13 +31,13 @@
     "tetanes-web": "file:../pkg"
   },
   "devDependencies": {
-    "clean-webpack-plugin": "^4.0.0",
-    "html-webpack-plugin": "^5.5.0",
-    "ts-loader": "^9.4.2",
-    "typescript": "^5.0.4",
-    "webpack": "^5.79.0",
-    "webpack-cli": "^5.0.1",
-    "webpack-dev-server": "^4.13.2",
-    "webpack-merge": "^5.8.0"
+    "clean-webpack-plugin": "4.0",
+    "html-webpack-plugin": "5.5",
+    "ts-loader": "9.5",
+    "typescript": "5.2",
+    "webpack": "5.89",
+    "webpack-cli": "5.1",
+    "webpack-dev-server": "4.15",
+    "webpack-merge": "5.10"
   }
 }

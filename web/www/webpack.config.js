@@ -20,7 +20,7 @@ module.exports = {
     path: path.resolve(__dirname, "public/dist"),
   },
   devServer: {
-    static: "./dist",
+    static: "./public",
     hot: false,
   },
   experiments: {
