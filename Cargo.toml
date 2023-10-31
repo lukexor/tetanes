@@ -90,7 +90,7 @@ pr-run-mode = "plan"
 tap = "lukexor/formulae"
 # Publish jobs to run in CI
 publish-jobs = ["homebrew"]
-allow-dirty = ["wix"]
+allow-dirty = ["msi"]
 
 [workspace.metadata.dist.dependencies.homebrew]
 sdl2 = { stage = ["build", "run"] }
