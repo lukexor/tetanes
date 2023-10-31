@@ -1,0 +1,59 @@
+---
+name: Package macOS
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: macos-latest
+    env:
+      PLAN: ${{ inputs.plan }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch local artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: artifacts
+          path: artifacts
+      - name: Create Package
+        id: package
+        run: |
+          bin_name=tetanes
+          app_name="TetaNES"
+          app_dir="$app_name.app"
+
+          # Create app dir
+          mkdir -p "$app_dir/Contents/MacOS"
+
+          # Copy binary
+          app_bin="$app_dir/Contents/MacOS/$bin_name"
+          archive=$(echo "$PLAN" | jq --raw-output '.artifacts[]?.path | select( . | match(".tar.xz$") )')
+          target=$(echo "$PLAN" | jq --raw-output '.artifacts[]? | select( .path | match(".tar.xz$") ) | .target_triples[0]')
+          tar xvf "$archive"
+          cp "$bin_name-$target/$bin_name" "$app_bin"
+
+          # Copy icon
+          mkdir -p "$app_dir/Contents/Resources"
+          cp assets/Info.plist "$app_dir/Contents"
+          cp assets/logo.icns "$app_dir/Contents/Resources"
+
+          # Create dmg
+          hdiutil create "$app_name.dmg" -srcfolder "$app_dir" -ov
+
+          echo "file=$app_name.dmg" >> "$GITHUB_OUTPUT"
+      - name: Update Release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: ${{ steps.package.outputs.file }}
