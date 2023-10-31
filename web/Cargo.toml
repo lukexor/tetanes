@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 console_log = "1.0"
 log = "0.4"
-tetanes = { path = "../", default_features = false }
+tetanes = { version = "0.9", default_features = false }
 wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 
