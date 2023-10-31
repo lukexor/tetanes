@@ -9,7 +9,7 @@ license = "MIT"
 name = "tetanes"
 repository = "https://github.com/lukexor/tetanes.git"
 resolver = "2"
-version = "0.8.0"
+version = "0.9.0"
 default-run = "tetanes"
 exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
 
@@ -72,7 +72,6 @@ inherits = "release"
 lto = "thin"
 
 [workspace]
-
 members = ["web"]
 
 [workspace.metadata.dist]
