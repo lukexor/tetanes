@@ -1,0 +1,12 @@
+[package]
+authors = ["Luke Petherbridge <me@lukeworks.tech>"]
+edition = "2021"
+name = "utils"
+resolver = "2"
+version = "0.1.0"
+publish = false
+
+[dependencies]
+anyhow = "1.0.75"
+structopt = "0.3.26"
+tetanes = { path = "../" }

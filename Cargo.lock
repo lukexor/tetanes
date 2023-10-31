@@ -119,12 +119,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdd7a427adc0135366d99db65b36dae9237130997e560ed61118041fb72be6e8"
 
 [[package]]
-name = "cargo-husky"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b02b629252fe8ef6460461409564e2c21d0c8e77e0944f3d189ff06c4e932ad"
-
-[[package]]
 name = "cc"
 version = "1.0.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -820,7 +814,32 @@ dependencies = [
  "anyhow",
  "bincode",
  "bitflags 2.4.1",
- "cargo-husky",
+ "chrono",
+ "dirs",
+ "enum_dispatch",
+ "flate2",
+ "getrandom",
+ "log",
+ "once_cell",
+ "pix-engine",
+ "pretty_env_logger",
+ "rand",
+ "ringbuf",
+ "serde",
+ "serde_json",
+ "structopt",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "tetanes"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbefeb53f2f2df167df662367ba80eab41d866ca6f0935fe2041c99da4ca86f4"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "bitflags 2.4.1",
  "chrono",
  "dirs",
  "enum_dispatch",
@@ -845,7 +864,7 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "log",
- "tetanes",
+ "tetanes 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]
@@ -916,6 +935,15 @@ name = "unicode-width"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51733f11c9c4f72aa0c160008246859e340b00807569a0da0e7a1079b27ba85"
+
+[[package]]
+name = "utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "structopt",
+ "tetanes 0.9.0",
+]
 
 [[package]]
 name = "vec_map"

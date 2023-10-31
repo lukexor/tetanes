@@ -88,21 +88,27 @@
         <Directory Id='TARGETDIR' Name='SourceDir'>
             <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
                 <Directory Id='APPLICATIONFOLDER' Name='tetanes'>
-                    <!--
-                      Disabling the license sidecar file in the installer is a two step process:
-
-                      1. Comment out or remove the `Component` tag along with its contents.
-                      2. Comment out or remove the `ComponentRef` tag with the "License" Id
-                         attribute value further down in this file.
-                    -->
-                    <Component Id='License' Guid='*'>
-                        <File Id='LicenseFile'
-                            Name='License'
-                            DiskId='1'
-                            Source='License.rtf'
-                            KeyPath='yes'/>
-                    </Component>
                     
+                    <!--
+                      Enabling the license sidecar file in the installer is a four step process:
+
+                      1. Uncomment the `Component` tag and its contents.
+                      2. Change the value for the `Source` attribute in the `File` tag to a path
+                         to the file that should be included as the license sidecar file. The path
+                         can, and probably should be, relative to this file.
+                      3. Change the value for the `Name` attribute in the `File` tag to the
+                         desired name for the file when it is installed alongside the `bin` folder
+                         in the installation directory. This can be omitted if the desired name is
+                         the same as the file name.
+                      4. Uncomment the `ComponentRef` tag with the Id attribute value of "License"
+                         further down in this file.
+                    -->
+                    <!--
+                    <Component Id='License' Guid='*'>
+                        <File Id='LicenseFile' Name='ChangeMe' DiskId='1' Source='C:\Path\To\File' KeyPath='yes'/>
+                    </Component>
+                    -->
+
                     <Directory Id='Bin' Name='bin'>
                         <Component Id='Path' Guid='5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B' KeyPath='yes'>
                             <Environment
@@ -117,26 +123,82 @@
                         <Component Id='binary0' Guid='*'>
                             <File
                                 Id='exe0'
-                                Name='generate_db.exe'
-                                DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\generate_db.exe'
-                                KeyPath='yes'/>
-                        </Component>
-                        <Component Id='binary1' Guid='*'>
-                            <File
-                                Id='exe1'
-                                Name='list_boards.exe'
-                                DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\list_boards.exe'
-                                KeyPath='yes'/>
-                        </Component>
-                        <Component Id='binary2' Guid='*'>
-                            <File
-                                Id='exe2'
                                 Name='tetanes.exe'
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\tetanes.exe'
                                 KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libFLAC-8.dll' Guid='D6099F00-ED16-40C0-8455-68B54102D2DB'>
+                            <File Id='libFLAC-8.dll' Source='$(var.CargoTargetBinDir)\libFLAC-8.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2.lib' Guid='38db74ed-4c97-4026-a4a2-ed27bccef1c7'>
+                            <File Id='SDL2.lib' Source='$(var.CargoTargetBinDir)\SDL2.lib' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_gfx.lib' Guid='1e3671f8-5778-432e-99a9-118274d8ac45'>
+                            <File Id='SDL2_gfx.lib' Source='$(var.CargoTargetBinDir)\SDL2_gfx.lib' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_image.lib' Guid='d7b48cab-5525-4658-984e-fb006bc791ce'>
+                            <File Id='SDL2_image.lib' Source='$(var.CargoTargetBinDir)\SDL2_image.lib' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_mixer.lib' Guid='1679090d-d4a6-46f3-82ff-0668533a641d'>
+                            <File Id='SDL2_mixer.lib' Source='$(var.CargoTargetBinDir)\SDL2_mixer.lib' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_ttf.lib' Guid='1bf78686-e158-4e9a-a97e-6f3777f24b2d'>
+                            <File Id='SDL2_ttf.lib' Source='$(var.CargoTargetBinDir)\SDL2_ttf.lib' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2main.lib' Guid='f18008a5-e614-4e16-abe7-7e1aa5b109c6'>
+                            <File Id='SDL2main.lib' Source='$(var.CargoTargetBinDir)\SDL2main.lib' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2test.lib' Guid='13077e63-978c-419f-823b-bb51c8a19d89'>
+                            <File Id='SDL2test.lib' Source='$(var.CargoTargetBinDir)\SDL2test.lib' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libjpeg-9.dll' Guid='9ff0ea62-9db4-4948-a3f1-44f59d32b89d'>
+                            <File Id='libjpeg-9.dll' Source='$(var.CargoTargetBinDir)\libjpeg-9.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libmodplug-1.dll' Guid='35650f65-65af-4335-abd9-dea6d9d7247a'>
+                            <File Id='libmodplug-1.dll' Source='$(var.CargoTargetBinDir)\libmodplug-1.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libmpg123-0.dll' Guid='3fa05141-ad15-445c-80c3-359b7bd44e97'>
+                            <File Id='libmpg123-0.dll' Source='$(var.CargoTargetBinDir)\libmpg123-0.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libogg-0.dll' Guid='20bcf2e3-2e52-4a09-a15c-17f5b1d8ded7'>
+                            <File Id='libogg-0.dll' Source='$(var.CargoTargetBinDir)\libogg-0.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libopus-0.dll' Guid=e66a9db4-1e34-4160-9f75-31209cccc922>
+                            <File Id='libopus-0.dll' Source='$(var.CargoTargetBinDir)\libopus-0.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libopusfile-0.dll' Guid='cc57ebdc-0662-449f-9ff0-3412b564375e'>
+                            <File Id='libopusfile-0.dll' Source='$(var.CargoTargetBinDir)\libopusfile-0.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libpng16-16.dll' Guid='363d6c90-d1a4-4a3b-8792-0de6625b7369'>
+                            <File Id='libpng16-16.dll' Source='$(var.CargoTargetBinDir)\libpng16-16.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libtiff-5.dll' Guid='df506b22-3de3-431e-953f-84557b019a83'>
+                            <File Id='libtiff-5.dll' Source='$(var.CargoTargetBinDir)\libtiff-5.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libvorbis-0.dll' Guid='2c0bef62-1998-4864-96ba-049e096b0658'>
+                            <File Id='libvorbis-0.dll' Source='$(var.CargoTargetBinDir)\libvorbis-0.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libvorbisfile-3.dll' Guid=a18d5d80-d51b-4a6a-a5a7-ade41f8d57d8>
+                            <File Id='libvorbisfile-3.dll' Source='$(var.CargoTargetBinDir)\libvorbisfile-3.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='libwebp-7.dll' Guid='2b78de86-61b2-4ed9-a4ed-5d0a1a895fa6'>
+                            <File Id='libwebp-7.dll' Source='$(var.CargoTargetBinDir)\libwebp-7.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2.dll' Guid=ac2a23f5-a17b-4ec7-ae3c-98b079d665b5>
+                            <File Id='SDL2.dll' Source='$(var.CargoTargetBinDir)\SDL2.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_gfx.dll' Guid='5cc85256-0b03-4ae8-92ad-8442ad36485b'>
+                            <File Id='SDL2_gfx.dll' Source='$(var.CargoTargetBinDir)\SDL2_gfx.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_image.dll' Guid='20dc9c0b-5767-4548-9bf6-096f921e45f6'>
+                            <File Id='SDL2_image.dll' Source='$(var.CargoTargetBinDir)\SDL2_image.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_mixer.dll' Guid='61cff165-790d-4084-9db6-99a5ec5a8930'>
+                            <File Id='SDL2_mixer.dll' Source='$(var.CargoTargetBinDir)\SDL2_mixer.dll' KeyPath='yes'/>
+                        </Component>
+                        <Component Id='SDL2_ttf.d' Guid='871F2130-A8B3-4B28-9C5B-3D35174EF913'>
+                            <File Id='SDL2_ttf.d' Source='$(var.CargoTargetBinDir)\SDL2_ttf.d' KeyPath='yes'/>
                         </Component>
                     </Directory>
                 </Directory>
@@ -152,15 +214,14 @@
             AllowAdvertise='no'
             Display='expand'
             Absent='disallow'>
-            <!--
-              Comment out or remove the following `ComponentRef` tag to remove
-              the license sidecar file from the installer.
-            -->
-            <ComponentRef Id='License'/>
             
+            <!--
+              Uncomment the following `ComponentRef` tag to add the license
+              sidecar file to the installer.
+            -->
+            <!--<ComponentRef Id='License'/>-->
+
             <ComponentRef Id='binary0'/>
-            <ComponentRef Id='binary1'/>
-            <ComponentRef Id='binary2'/>
 
             <Feature
                 Id='Environment'
@@ -188,24 +249,30 @@
         
         <UI>
             <UIRef Id='WixUI_FeatureTree'/>
-            <!--
-              Disabling the EULA dialog in the installer is a two step process:
-
-                 1. Uncomment the following two `Publish` tags
-                 2. Comment out or remove the `<WiXVariable Id='WixUILicenseRtf'...` tag further down
-
-            -->
-            <!--<Publish Dialog='WelcomeDlg' Control='Next' Event='NewDialog' Value='CustomizeDlg' Order='99'>1</Publish>-->
-            <!--<Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>-->
             
+            <!--
+              Enabling the EULA dialog in the installer is a three step process:
+
+                1. Comment out or remove the two `Publish` tags that follow the
+                   `WixVariable` tag.
+                2. Uncomment the `<WixVariable Id='WixUILicenseRtf' Value='Path\to\Eula.rft'>` tag futher down
+                3. Replace the `Value` attribute of the `WixVariable` tag with
+                   the path to a RTF file that will be used as the EULA and
+                   displayed in the license agreement dialog.
+            -->
+            <Publish Dialog='WelcomeDlg' Control='Next' Event='NewDialog' Value='CustomizeDlg' Order='99'>1</Publish>
+            <Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>
+
         </UI>
 
-        <!--
-          Disabling the EULA dialog in the installer requires commenting out
-          or removing the following `WixVariable` tag
-        -->
-        <WixVariable Id='WixUILicenseRtf' Value='License.rtf'/>
         
+        <!--
+          Enabling the EULA dialog in the installer requires uncommenting
+          the following `WixUILicenseRTF` tag and changing the `Value`
+          attribute.
+        -->
+        <!-- <WixVariable Id='WixUILicenseRtf' Value='Relative\Path\to\Eula.rtf'/> -->
+
         
         <!--
           Uncomment the next `WixVariable` tag to customize the installer's
