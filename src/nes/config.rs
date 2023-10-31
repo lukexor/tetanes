@@ -26,9 +26,11 @@ const MIN_SPEED: f32 = 0.25; // 25% - 15 Hz
 const MAX_SPEED: f32 = 2.0; // 200% - 120 Hz
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)] // Ensures new fields don't break existing configurations
 /// NES emulation configuration settings.
 pub(crate) struct Config {
     pub(crate) rom_path: PathBuf,
+    pub(crate) show_hidden_files: bool,
     pub(crate) pause_in_bg: bool,
     pub(crate) sound: bool,
     pub(crate) fullscreen: bool,
@@ -59,6 +61,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rom_path: PathBuf::from("./"),
+            show_hidden_files: false,
             pause_in_bg: true,
             sound: true,
             fullscreen: false,

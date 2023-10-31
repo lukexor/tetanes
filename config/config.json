@@ -1,5 +1,6 @@
 {
   "rom_path": "./",
+  "show_hidden_files": false,
   "pause_in_bg": true,
   "sound": true,
   "fullscreen": false,

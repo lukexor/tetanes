@@ -13,7 +13,11 @@ use crate::{
     video::VideoFilter,
 };
 use pix_engine::prelude::*;
-use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
+use std::{
+    borrow::Cow,
+    ffi::OsStr,
+    path::{Component, PathBuf},
+};
 
 pub(crate) mod types;
 pub(crate) use types::{Menu, Player};
@@ -370,7 +374,11 @@ impl Nes {
         s.fill(colors.secondary);
         s.next_width((s.ui_width()? - spacing.scroll_size) as u32);
         s.select_list(
-            format!("{}", rom_dir.to_string_lossy()),
+            format!(
+                "{}##{}",
+                rom_dir.to_string_lossy(),
+                self.config.show_hidden_files
+            ),
             &mut self.selected_path,
             &path_list,
             displayed_count,
@@ -396,6 +404,9 @@ impl Nes {
             self.load_rom(s)?;
         }
         s.disable(false);
+        if s.checkbox("Show hidden files", &mut self.config.show_hidden_files)? {
+            self.update_paths();
+        }
 
         Ok(())
     }
@@ -407,13 +418,18 @@ impl Nes {
         if path.is_file() {
             path = path.parent().expect("file should have a parent folder");
         }
+        let hidden_file = |path: &PathBuf| match path.components().next_back() {
+            Some(Component::Normal(tail)) => tail.to_str().map_or(false, |p| p.starts_with('.')),
+            _ => false,
+        };
         match path.read_dir() {
             Ok(read_dir) => {
                 read_dir
                     .filter_map(Result::ok)
                     .map(|f| f.path())
                     .filter(|p| {
-                        p.is_dir() || matches!(p.extension().and_then(OsStr::to_str), Some("nes"))
+                        (p.is_dir() || matches!(p.extension().and_then(OsStr::to_str), Some("nes")))
+                            && (self.config.show_hidden_files || !hidden_file(p))
                     })
                     .for_each(|p| self.paths.push(p));
                 self.paths.sort();

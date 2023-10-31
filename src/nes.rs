@@ -76,7 +76,13 @@ impl NesBuilder {
     where
         P: Into<PathBuf>,
     {
-        self.path = path.map_or_else(|| env::current_dir().unwrap_or_default(), Into::into);
+        self.path = path.map_or_else(
+            || {
+                dirs::home_dir()
+                    .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from("/")))
+            },
+            Into::into,
+        );
         self
     }
 
