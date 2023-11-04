@@ -48,7 +48,7 @@ restricted in Rust, but is safe here given the synchronized nature of the
 emulation.
 
 `TetaNES` also compiles for the web! Try it out in your
-[browser](http://dev.lukeworks.tech/tetanes)!
+[browser](http://lukeworks.tech/tetanes-web)!
 
 ## Minimum Supported Rust Version (MSRV)
 
