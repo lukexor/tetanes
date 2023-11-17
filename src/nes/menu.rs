@@ -22,6 +22,23 @@ use std::{
 pub(crate) mod types;
 pub(crate) use types::{Menu, Player};
 
+#[cfg(not(target_os = "windows"))]
+const PARENT_DIR: &str = "../";
+
+#[cfg(target_os = "windows")]
+const PARENT_DIR: &str = "..\\";
+
+#[cfg(not(target_os = "windows"))]
+const fn friendly_path(p: &str) -> &str {
+    p
+}
+
+#[cfg(target_os = "windows")]
+fn friendly_path(p: &str) -> &str {
+    const VERBATIM_PREFIX: &str = r#"\\?\"#;
+    p.strip_prefix(VERBATIM_PREFIX).unwrap_or(p)
+}
+
 impl Nes {
     pub(crate) fn open_menu(&mut self, s: &mut PixState, menu: Menu) -> PixResult<()> {
         s.cursor(Cursor::arrow())?;
@@ -376,7 +393,7 @@ impl Nes {
         s.select_list(
             format!(
                 "{}##{}",
-                rom_dir.to_string_lossy(),
+                friendly_path(&rom_dir.to_string_lossy()),
                 self.config.show_hidden_files
             ),
             &mut self.selected_path,
@@ -434,7 +451,7 @@ impl Nes {
                     .for_each(|p| self.paths.push(p));
                 self.paths.sort();
                 if path.parent().is_some() {
-                    self.paths.insert(0, PathBuf::from("../"));
+                    self.paths.insert(0, PathBuf::from(PARENT_DIR));
                 }
             }
             Err(err) => {
