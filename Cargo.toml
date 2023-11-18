@@ -96,8 +96,8 @@ sdl2_mixer = { stage = ["build", "run"] }
 sdl2_ttf = { stage = ["build", "run"] }
 
 [workspace.metadata.dist.dependencies.apt]
-sdl2 = { stage = ["build", "run"] }
-sdl2_gfx = { stage = ["build", "run"] }
-sdl2_image = { stage = ["build", "run"] }
-sdl2_mixer = { stage = ["build", "run"] }
-sdl2_ttf = { stage = ["build", "run"] }
+libsdl2-dev = { stage = ["build", "run"] }
+libsdl2-gfx = { stage = ["build", "run"] }
+libsdl2-image = { stage = ["build", "run"] }
+libsdl2-mixer = { stage = ["build", "run"] }
+libsdl2-ttf = { stage = ["build", "run"] }
