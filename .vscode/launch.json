@@ -1,0 +1,195 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'generate_db'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=generate_db",
+                    "--package=utils"
+                ],
+                "filter": {
+                    "name": "generate_db",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'generate_db'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=generate_db",
+                    "--package=utils"
+                ],
+                "filter": {
+                    "name": "generate_db",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'list_boards'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=list_boards",
+                    "--package=utils"
+                ],
+                "filter": {
+                    "name": "list_boards",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'list_boards'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=list_boards",
+                    "--package=utils"
+                ],
+                "filter": {
+                    "name": "list_boards",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'tetanes'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=tetanes"
+                ],
+                "filter": {
+                    "name": "tetanes",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'tetanes'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=tetanes",
+                    "--package=tetanes"
+                ],
+                "filter": {
+                    "name": "tetanes",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'tetanes'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=tetanes",
+                    "--package=tetanes"
+                ],
+                "filter": {
+                    "name": "tetanes",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'apu'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=apu",
+                    "--package=tetanes"
+                ],
+                "filter": {
+                    "name": "apu",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'tetanes-web'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=tetanes-web"
+                ],
+                "filter": {
+                    "name": "tetanes-web",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'web'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=web",
+                    "--package=tetanes-web"
+                ],
+                "filter": {
+                    "name": "web",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
