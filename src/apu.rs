@@ -84,11 +84,11 @@ impl Apu {
     #[must_use]
     pub const fn channel_enabled(&self, channel: Channel) -> bool {
         match channel {
-            Channel::Pulse1 => self.pulse1.silent(),
-            Channel::Pulse2 => self.pulse1.silent(),
-            Channel::Triangle => self.triangle.silent(),
-            Channel::Noise => self.noise.silent(),
-            Channel::Dmc => self.dmc.silent(),
+            Channel::Pulse1 => !self.pulse1.silent(),
+            Channel::Pulse2 => !self.pulse2.silent(),
+            Channel::Triangle => !self.triangle.silent(),
+            Channel::Noise => !self.noise.silent(),
+            Channel::Dmc => !self.dmc.silent(),
         }
     }
 
@@ -96,7 +96,7 @@ impl Apu {
     pub fn toggle_channel(&mut self, channel: Channel) {
         match channel {
             Channel::Pulse1 => self.pulse1.toggle_silent(),
-            Channel::Pulse2 => self.pulse1.toggle_silent(),
+            Channel::Pulse2 => self.pulse2.toggle_silent(),
             Channel::Triangle => self.triangle.toggle_silent(),
             Channel::Noise => self.noise.toggle_silent(),
             Channel::Dmc => self.dmc.toggle_silent(),
