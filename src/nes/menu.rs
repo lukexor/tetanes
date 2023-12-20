@@ -28,16 +28,8 @@ const PARENT_DIR: &str = "../";
 #[cfg(target_os = "windows")]
 const PARENT_DIR: &str = "..\\";
 
-#[cfg(not(target_os = "windows"))]
-const fn friendly_path(p: &str) -> &str {
-    p
-}
-
 #[cfg(target_os = "windows")]
-fn friendly_path(p: &str) -> &str {
-    const VERBATIM_PREFIX: &str = r#"\\?\"#;
-    p.strip_prefix(VERBATIM_PREFIX).unwrap_or(p)
-}
+const VERBATIM_PREFIX: &str = r#"\\?\"#;
 
 impl Nes {
     pub(crate) fn open_menu(&mut self, s: &mut PixState, menu: Menu) -> PixResult<()> {
@@ -390,12 +382,11 @@ impl Nes {
 
         s.fill(colors.secondary);
         s.next_width((s.ui_width()? - spacing.scroll_size) as u32);
+        let path = rom_dir.to_string_lossy();
+        #[cfg(target_os = "windows")]
+        let path = path.strip_prefix(VERBATIM_PREFIX).unwrap_or(path);
         s.select_list(
-            format!(
-                "{}##{}",
-                friendly_path(&rom_dir.to_string_lossy()),
-                self.config.show_hidden_files
-            ),
+            format!("{path}##{}", self.config.show_hidden_files),
             &mut self.selected_path,
             &path_list,
             displayed_count,
