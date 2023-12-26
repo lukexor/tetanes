@@ -8,10 +8,10 @@ use crate::{
     input::{JoypadBtn, JoypadBtnState, Slot},
     mapper::MapperRevision,
     mem::{Access, Mem},
-    nes::{menu::Menu, Mode, Nes, NesResult, ReplayMode, NES_FRAME_SRC},
+    nes::{menu::Menu, state::ReplayMode, Mode, Nes},
     video::VideoFilter,
 };
-use pix_engine::prelude::*;
+use pixels::wgpu::Color;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
@@ -20,6 +20,48 @@ use std::{
     ops::{Deref, DerefMut},
     time::{Duration, Instant},
 };
+use winit::{
+    dpi::PhysicalPosition,
+    event::{AxisId, ButtonId, DeviceId, ElementState, KeyEvent, MouseButton},
+    keyboard::{KeyCode, ModifiersState, PhysicalKey},
+};
+
+// #[derive(Debug, Copy, Clone, PartialEq)]
+// #[must_use]
+// pub(crate) struct DeviceId(usize);
+
+// #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+// #[must_use]
+// pub(crate) enum ControllerButton {
+//     Todo,
+// }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub(crate) enum ControllerUpdate {
+    Added,
+    Removed,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[must_use]
+pub(crate) enum CustomEvent {
+    // TODO: Verify if DeviceEvent is sufficient or if manual handling is needed
+    //     ControllerAxisMotion {
+    //         device_id: DeviceId,
+    //         axis: AxisId,
+    //         value: f64,
+    //     },
+    //     ControllerInput {
+    //         device_id: DeviceId,
+    //         button: ControllerButton,
+    //         state: ElementState,
+    //     },
+    //     ControllerUpdate {
+    //         device_id: DeviceId,
+    //         update: ControllerUpdate,
+    //     },
+}
 
 /// Indicates an [Axis] direction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -46,10 +88,10 @@ pub(crate) struct ActionEvent {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub(crate) enum Input {
-    Key((Slot, Key, KeyMod)),
-    Button((Slot, ControllerButton)),
-    Axis((Slot, Axis, AxisDirection)),
-    Mouse((Slot, Mouse)),
+    Key((Slot, KeyCode, ModifiersState)),
+    Button((Slot, ButtonId)),
+    Axis((Slot, AxisId, AxisDirection)),
+    Mouse((Slot, MouseButton)),
 }
 
 impl fmt::Display for Input {
@@ -71,30 +113,31 @@ impl fmt::Display for Input {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct KeyBinding {
-    pub(crate) player: Slot,
-    pub(crate) key: Key,
-    pub(crate) keymod: KeyMod,
+    pub(crate) controller: Slot,
+    pub(crate) key: KeyCode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) modifiers: Option<ModifiersState>,
     pub(crate) action: Action,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct MouseBinding {
-    pub(crate) player: Slot,
-    pub(crate) button: Mouse,
+    pub(crate) controller: Slot,
+    pub(crate) button: MouseButton,
     pub(crate) action: Action,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerButtonBinding {
-    pub(crate) player: Slot,
-    pub(crate) button: ControllerButton,
+    pub(crate) controller: Slot,
+    pub(crate) button_id: ButtonId,
     pub(crate) action: Action,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct ControllerAxisBinding {
-    pub(crate) player: Slot,
-    pub(crate) axis: Axis,
+    pub(crate) controller: Slot,
+    pub(crate) axis_id: AxisId,
     pub(crate) direction: AxisDirection,
     pub(crate) action: Action,
 }
@@ -133,7 +176,6 @@ pub(crate) enum Action {
     Setting(Setting),
     Joypad(JoypadBtn),
     ZapperTrigger,
-    ZeroAxis([JoypadBtn; 2]),
     Debug(DebugAction),
 }
 
@@ -189,24 +231,24 @@ pub(crate) enum DebugAction {
     DecScanline,
 }
 
-fn render_message(s: &mut PixState, message: &str, color: Color) -> NesResult<()> {
-    s.push();
-    s.stroke(None);
-    s.fill(rgb!(0, 200));
-    let pady = s.theme().spacing.frame_pad.y();
-    let width = s.width()?;
-    s.wrap(width);
-    let (_, height) = s.size_of(message)?;
-    s.rect([
-        0,
-        s.cursor_pos().y() - pady,
-        width as i32,
-        height as i32 + 2 * pady,
-    ])?;
-    s.fill(color);
-    s.text(message)?;
-    s.pop();
-    Ok(())
+fn render_message(message: &str, color: Color) {
+    // TODO: switch to egui
+    // s.push();
+    // s.stroke(None);
+    // s.fill(rgb!(0, 200));
+    // let pady = s.theme().spacing.frame_pad.y();
+    // let width = s.width()?;
+    // s.wrap(width);
+    // let (_, height) = s.size_of(message)?;
+    // s.rect([
+    //     0,
+    //     s.cursor_pos().y() - pady,
+    //     width as i32,
+    //     height as i32 + 2 * pady,
+    // ])?;
+    // s.fill(color);
+    // s.text(message)?;
+    // s.pop();
 }
 
 impl Nes {
@@ -219,98 +261,80 @@ impl Nes {
         self.messages.push((text, Instant::now()));
     }
 
-    pub(crate) fn render_messages(&mut self, s: &mut PixState) -> NesResult<()> {
+    pub(crate) fn render_messages(&mut self) {
         self.messages
             .retain(|(_, created)| created.elapsed() < Duration::from_secs(3));
         self.messages.dedup_by(|a, b| a.0.eq(&b.0));
         for (message, _) in &self.messages {
-            render_message(s, message, Color::WHITE)?;
+            render_message(message, Color::WHITE);
         }
-        Ok(())
     }
 
-    pub(crate) fn render_confirm_quit(&mut self, s: &mut PixState) -> NesResult<bool> {
-        if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
-            s.push();
-            s.stroke(None);
-            s.fill(rgb!(0, 200));
-            let pady = s.theme().spacing.frame_pad.y();
-            let width = s.width()?;
-            s.wrap(width);
-            let (_, height) = s.size_of(msg)?;
-            s.rect([
-                0,
-                s.cursor_pos().y() - pady,
-                width as i32,
-                4 * height as i32 + 2 * pady,
-            ])?;
-            s.fill(Color::WHITE);
-            s.text(msg)?;
-            if s.button("Confirm")? {
-                *confirm = true;
-                s.pop();
-                return Ok(true);
-            }
-            s.same_line(None);
-            if s.button("Cancel")? {
-                self.confirm_quit = None;
-                self.resume_play();
-            }
-            s.pop();
-        }
-        Ok(false)
+    pub(crate) fn render_confirm_quit(&mut self) {
+        // TODO switch to egui
+        // if let Some((ref msg, ref mut confirm)) = self.confirm_quit {
+        //     s.push();
+        //     s.stroke(None);
+        //     s.fill(rgb!(0, 200));
+        //     let pady = s.theme().spacing.frame_pad.y();
+        //     let width = s.width()?;
+        //     s.wrap(width);
+        //     let (_, height) = s.size_of(msg)?;
+        //     s.rect([
+        //         0,
+        //         s.cursor_pos().y() - pady,
+        //         width as i32,
+        //         4 * height as i32 + 2 * pady,
+        //     ])?;
+        //     s.fill(Color::WHITE);
+        //     s.text(msg)?;
+        //     if s.button("Confirm")? {
+        //         *confirm = true;
+        //         s.pop();
+        //         return Ok(true);
+        //     }
+        //     s.same_line(None);
+        //     if s.button("Cancel")? {
+        //         self.confirm_quit = None;
+        //         self.resume_play();
+        //     }
+        //     s.pop();
+        // }
     }
 
     #[inline]
-    pub(crate) fn render_status(&mut self, s: &mut PixState, status: &str) -> PixResult<()> {
-        render_message(s, status, Color::WHITE)?;
+    pub(crate) fn render_status(&mut self, status: &str) {
+        render_message(status, Color::WHITE);
         if let Some(ref err) = self.error {
-            render_message(s, err, Color::RED)?;
+            render_message(err, Color::RED);
         }
-        Ok(())
     }
 
     #[inline]
-    pub(crate) fn handle_input(
-        &mut self,
-        s: &mut PixState,
-        slot: Slot,
-        input: Input,
-        pressed: bool,
-        repeat: bool,
-    ) -> NesResult<bool> {
-        self.config
-            .input_map
-            .get(&input)
-            .copied()
-            .map_or(Ok(false), |action| {
-                self.handle_action(s, slot, action, pressed, repeat)
-            })
+    pub(crate) fn handle_input(&mut self, slot: Slot, input: Input, pressed: bool, repeat: bool) {
+        if let Some(action) = self.config.input_map.get(&input).copied() {
+            self.handle_action(slot, action, pressed, repeat);
+        }
     }
 
-    pub(crate) fn handle_key_event(
-        &mut self,
-        s: &mut PixState,
-        event: KeyEvent,
-        pressed: bool,
-    ) -> bool {
-        for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
-            let input = Input::Key((slot, event.key, event.keymod));
-            if let Ok(true) = self.handle_input(s, slot, input, pressed, event.repeat) {
-                return true;
+    pub(crate) fn handle_key_event(&mut self, event: KeyEvent) {
+        if let PhysicalKey::Code(key) = event.physical_key {
+            for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
+                self.handle_input(
+                    slot,
+                    Input::Key((slot, key, self.modifiers.state())),
+                    event.state.is_pressed(),
+                    event.repeat,
+                );
             }
         }
-        false
     }
 
-    pub fn handle_mouse_click(&mut self, s: &mut PixState, btn: Mouse) -> bool {
+    pub fn handle_mouse_event(&mut self, btn: MouseButton, state: ElementState) -> bool {
         // To avoid consuming events while in menus
         if self.mode == Mode::Playing {
             for slot in [Slot::One, Slot::Two] {
-                let input = Input::Mouse((slot, btn));
-                if let Ok(true) = self.handle_input(s, slot, input, true, false) {
-                    return true;
-                }
+                self.handle_input(slot, Input::Mouse((slot, btn)), state.is_pressed(), false);
             }
         }
         false
@@ -321,19 +345,19 @@ impl Nes {
         self.control_deck.trigger_zapper();
     }
 
-    pub fn set_zapper_pos(&mut self, pos: Point<i32>) {
-        let mut pos = pos / self.config.scale as i32;
-        pos.set_x((pos.x() as f32 * 8.0 / 7.0 + 0.5) as i32); // Adjust ratio
-        if pos.y() < NES_FRAME_SRC.top() {
-            pos.set_y(8);
-        } else if pos.y() >= NES_FRAME_SRC.bottom() {
-            pos.set_y(NES_FRAME_SRC.bottom() - 1);
-        }
-        self.control_deck.aim_zapper(pos.x(), pos.y());
+    pub fn set_zapper_pos(&mut self, pos: PhysicalPosition<f64>) {
+        let x = (pos.x / self.config.scale as f64) * 8.0 / 7.0 + 0.5; // Adjust ratio
+        let mut y = pos.y / self.config.scale as f64;
+        // Account for trimming top 8 scanlines
+        if self.config.region == NesRegion::Ntsc {
+            y += 8.0;
+        };
+        self.control_deck
+            .aim_zapper(x.round() as i32, y.round() as i32);
     }
 
     #[inline]
-    pub fn handle_mouse_motion(&mut self, pos: Point<i32>) -> bool {
+    pub fn handle_mouse_motion(&mut self, pos: PhysicalPosition<f64>) -> bool {
         // To avoid consuming events while in menus
         if self.mode == Mode::Playing {
             self.set_zapper_pos(pos);
@@ -344,85 +368,88 @@ impl Nes {
     }
 
     #[inline]
-    pub(crate) fn handle_controller_event(
+    pub(crate) fn handle_controller_update(
         &mut self,
-        s: &mut PixState,
-        event: ControllerEvent,
-        pressed: bool,
-    ) -> PixResult<bool> {
-        self.get_controller_slot(event.controller_id)
-            .map_or(Ok(false), |slot| {
-                let input = Input::Button((slot, event.button));
-                self.handle_input(s, slot, input, pressed, false)
-            })
+        device_id: DeviceId,
+        update: ControllerUpdate,
+    ) {
+        match update {
+            ControllerUpdate::Added => {
+                for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
+                    let slot_idx = slot as usize;
+                    if self.controllers[slot_idx].is_none() {
+                        self.add_message(format!("Controller {} connected.", slot_idx + 1));
+                        self.controllers[slot_idx] = Some(device_id);
+                    }
+                }
+            }
+            ControllerUpdate::Removed => {
+                if let Some(slot) = self.get_controller_slot(device_id) {
+                    let slot_idx = slot as usize;
+                    self.controllers[slot_idx] = None;
+                    self.add_message(format!("Controller {} disconnected.", slot_idx + 1));
+                }
+            }
+        }
     }
 
     #[inline]
-    pub(crate) fn handle_controller_axis(
+    pub(crate) fn handle_controller_event(
         &mut self,
-        s: &mut PixState,
-        controller_id: ControllerId,
-        axis: Axis,
-        value: i32,
-    ) -> PixResult<bool> {
-        self.get_controller_slot(controller_id)
-            .map_or(Ok(false), |slot| {
-                let direction = match value.cmp(&0) {
-                    Ordering::Greater => AxisDirection::Positive,
-                    Ordering::Less => AxisDirection::Negative,
-                    Ordering::Equal => AxisDirection::None,
-                };
-                let input = Input::Axis((slot, axis, direction));
-                self.handle_input(s, slot, input, true, false)
-            })
+        device_id: DeviceId,
+        button_id: ButtonId,
+        pressed: bool,
+    ) {
+        if let Some(slot) = self.get_controller_slot(device_id) {
+            self.handle_input(slot, Input::Button((slot, button_id)), pressed, false);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn handle_controller_axis_motion(
+        &mut self,
+        device_id: DeviceId,
+        axis: AxisId,
+        value: f64,
+    ) {
+        if let Some(slot) = self.get_controller_slot(device_id) {
+            let direction = if value < self.config.controller_deadzone {
+                AxisDirection::Negative
+            } else if value > self.config.controller_deadzone {
+                AxisDirection::Positive
+            } else {
+                // TODO: verify if this is correct
+                for button in [
+                    JoypadBtn::Left,
+                    JoypadBtn::Right,
+                    JoypadBtn::Up,
+                    JoypadBtn::Down,
+                ] {
+                    self.handle_joypad_pressed(slot, button, false);
+                }
+                return;
+            };
+            let input = Input::Axis((slot, axis, direction));
+            self.handle_input(slot, input, true, false);
+        }
     }
 
     pub(crate) fn handle_action(
         &mut self,
-        s: &mut PixState,
         slot: Slot,
         action: Action,
         pressed: bool,
         repeat: bool,
-    ) -> PixResult<bool> {
-        let handled = match action {
-            Action::Debug(action) if pressed => self.handle_debug(s, action, repeat)?,
-            Action::Feature(feature) => {
-                self.handle_feature(s, feature, pressed, repeat);
-                true
-            }
-            Action::Nes(state) if pressed => self.handle_nes_state(s, state)?,
-            Action::Menu(menu) if pressed => {
-                self.toggle_menu(s, menu)?;
-                true
-            }
-            Action::Setting(setting) => self.handle_setting(s, setting, pressed, repeat)?,
+    ) {
+        match action {
+            Action::Debug(action) if pressed => self.handle_debug(action, repeat),
+            Action::Feature(feature) => self.handle_feature(feature, pressed, repeat),
+            Action::Nes(state) if pressed => self.handle_nes_state(state),
+            Action::Menu(menu) if pressed => self.toggle_menu(menu),
+            Action::Setting(setting) => self.handle_setting(setting, pressed, repeat),
             Action::Joypad(button) => self.handle_joypad_pressed(slot, button, pressed),
-            Action::ZapperTrigger if pressed => {
-                self.handle_zapper_trigger();
-                true
-            }
-            Action::ZeroAxis(buttons) => {
-                let mut handled = false;
-                for button in buttons {
-                    if self.handle_joypad_pressed(slot, button, pressed) {
-                        handled = true;
-                        break;
-                    }
-                }
-                handled
-            }
-            _ => false,
-        };
-
-        if !repeat {
-            log::trace!(
-                "Input: {{ action: {:?}, slot: {:?}, pressed: {}, handled: {} }}",
-                action,
-                slot,
-                pressed,
-                handled,
-            );
+            Action::ZapperTrigger if pressed => self.handle_zapper_trigger(),
+            _ => (),
         }
 
         if self.replay.mode == ReplayMode::Recording {
@@ -430,11 +457,9 @@ impl Nes {
                 .buffer
                 .push(self.action_event(slot, action, pressed, repeat));
         }
-
-        Ok(handled)
     }
 
-    pub(crate) fn replay_action(&mut self, s: &mut PixState) -> NesResult<()> {
+    pub(crate) fn replay_action(&mut self) {
         let current_frame = self.control_deck.frame_number();
         while let Some(action_event) = self.replay.buffer.last() {
             match action_event.frame.cmp(&current_frame) {
@@ -446,7 +471,7 @@ impl Nes {
                         repeat,
                         ..
                     } = self.replay.buffer.pop().expect("valid action event");
-                    self.handle_action(s, slot, action, pressed, repeat)?;
+                    self.handle_action(slot, action, pressed, repeat);
                 }
                 Ordering::Less => {
                     log::warn!(
@@ -462,7 +487,6 @@ impl Nes {
         if self.replay.buffer.is_empty() {
             self.stop_replay();
         }
-        Ok(())
     }
 }
 
@@ -485,48 +509,45 @@ impl Nes {
     }
 
     #[inline]
-    fn get_controller_slot(&self, controller_id: ControllerId) -> Option<Slot> {
-        self.players.iter().find_map(|(&slot, &id)| {
-            if id == controller_id {
-                Some(slot)
-            } else {
-                None
-            }
+    fn get_controller_slot(&self, device_id: DeviceId) -> Option<Slot> {
+        self.controllers.iter().enumerate().find_map(|(slot, id)| {
+            (*id == Some(device_id)).then_some(Slot::try_from(slot).expect("valid slot index"))
         })
     }
 
-    fn handle_nes_state(&mut self, s: &mut PixState, state: NesState) -> NesResult<bool> {
+    fn handle_nes_state(&mut self, state: NesState) {
         if self.replay.mode == ReplayMode::Recording {
-            return Ok(false);
+            return;
         }
         match state {
             NesState::Quit => {
                 self.pause_play();
-                s.quit();
+                self.quitting = true;
             }
-            NesState::TogglePause => self.toggle_pause(s)?,
+            NesState::TogglePause => self.toggle_pause(),
             NesState::SoftReset => {
                 self.error = None;
                 self.control_deck.reset(Kind::Soft);
                 self.add_message("Reset");
-                if self.debugger.is_some() && self.mode != Mode::Paused {
-                    self.mode = Mode::Paused;
-                }
+                // TODO: add debugger
+                // if self.debugger.is_some() && self.mode != Mode::Paused {
+                //     self.mode = Mode::Paused;
+                // }
             }
             NesState::HardReset => {
                 self.error = None;
                 self.control_deck.reset(Kind::Hard);
                 self.add_message("Power Cycled");
-                if self.debugger.is_some() {
-                    self.mode = Mode::Paused;
-                }
+                // TODO: add debugger
+                // if self.debugger.is_some() {
+                //     self.mode = Mode::Paused;
+                // }
             }
             NesState::MapperRevision(_) => todo!("mapper revision"),
         }
-        Ok(true)
     }
 
-    fn handle_feature(&mut self, s: &mut PixState, feature: Feature, pressed: bool, repeat: bool) {
+    fn handle_feature(&mut self, feature: Feature, pressed: bool, repeat: bool) {
         if feature == Feature::Rewind {
             if repeat {
                 if self.config.rewind {
@@ -547,8 +568,8 @@ impl Nes {
                     ReplayMode::Off => self.start_replay(),
                     ReplayMode::Recording | ReplayMode::Playback => self.stop_replay(),
                 },
-                Feature::ToggleSoundRecording => self.toggle_sound_recording(s),
-                Feature::TakeScreenshot => self.save_screenshot(s),
+                Feature::ToggleSoundRecording => self.toggle_sound_recording(),
+                Feature::TakeScreenshot => self.save_screenshot(),
                 Feature::SaveState => self.save_state(self.config.save_slot),
                 Feature::LoadState => self.load_state(self.config.save_slot),
                 Feature::Rewind => (), // Handled above
@@ -556,20 +577,13 @@ impl Nes {
         }
     }
 
-    fn handle_setting(
-        &mut self,
-        s: &mut PixState,
-        setting: Setting,
-        pressed: bool,
-        repeat: bool,
-    ) -> NesResult<bool> {
+    fn handle_setting(&mut self, setting: Setting, pressed: bool, _repeat: bool) {
         if setting == Setting::FastForward {
-            if repeat {
+            if pressed {
                 self.set_speed(2.0);
             } else if !pressed {
                 self.set_speed(1.0);
             }
-            Ok(true)
         } else if pressed {
             match setting {
                 Setting::SetSaveSlot(slot) => {
@@ -578,16 +592,16 @@ impl Nes {
                 }
                 Setting::ToggleFullscreen => {
                     self.config.fullscreen = !self.config.fullscreen;
-                    s.fullscreen(self.config.fullscreen)?;
+                    // TODO: toggle winit fullscreen
                 }
                 Setting::ToggleVsync => {
-                    self.config.vsync = !self.config.vsync;
-                    s.vsync(self.config.vsync)?;
-                    if self.config.vsync {
-                        self.add_message("Vsync Enabled");
-                    } else {
-                        self.add_message("Vsync Disabled");
-                    }
+                    // TODO: send toggle vsync message to render thread
+                    // self.config.vsync = !self.config.vsync;
+                    // if self.config.vsync {
+                    //     self.add_message("Vsync Enabled");
+                    // } else {
+                    //     self.add_message("Vsync Disabled");
+                    // }
                 }
                 Setting::ToggleNtscFilter => {
                     self.config.filter = match self.config.filter {
@@ -612,17 +626,14 @@ impl Nes {
                 Setting::IncSpeed => self.change_speed(0.25),
                 Setting::DecSpeed => self.change_speed(-0.25),
                 // Toggling fast forward happens on key release
-                _ => return Ok(false),
+                _ => (),
             }
-            Ok(true)
-        } else {
-            Ok(false)
         }
     }
 
-    fn handle_joypad_pressed(&mut self, slot: Slot, button: JoypadBtn, pressed: bool) -> bool {
+    fn handle_joypad_pressed(&mut self, slot: Slot, button: JoypadBtn, pressed: bool) {
         if self.mode != Mode::Playing {
-            return false;
+            return;
         }
         let joypad = self.control_deck.joypad_mut(slot);
         if !self.config.concurrent_dpad && pressed {
@@ -642,48 +653,43 @@ impl Nes {
             JoypadBtn::TurboB => joypad.set_button(JoypadBtnState::B, pressed),
             _ => (),
         };
-        true
     }
 
-    fn handle_debug(
-        &mut self,
-        s: &mut PixState,
-        action: DebugAction,
-        repeat: bool,
-    ) -> NesResult<bool> {
-        let debugging = self.debugger.is_some();
+    fn handle_debug(&mut self, action: DebugAction, repeat: bool) {
+        // TODO: add debugger
+        // let debugging = self.debugger.is_some();
         match action {
-            DebugAction::ToggleCpuDebugger if !repeat => self.toggle_debugger(s)?,
-            DebugAction::TogglePpuDebugger if !repeat => self.toggle_ppu_viewer(s)?,
-            DebugAction::ToggleApuDebugger if !repeat => self.toggle_apu_viewer(s)?,
-            DebugAction::StepInto if debugging => self.debug_step_into(s)?,
-            DebugAction::StepOver if debugging => self.debug_step_over(s)?,
-            DebugAction::StepOut if debugging => self.debug_step_out(s)?,
-            DebugAction::StepFrame if debugging => self.debug_step_frame(s)?,
-            DebugAction::StepScanline if debugging => self.debug_step_scanline(s)?,
+            // DebugAction::ToggleCpuDebugger if !repeat => self.toggle_debugger()?,
+            // DebugAction::TogglePpuDebugger if !repeat => self.toggle_ppu_viewer()?,
+            // DebugAction::ToggleApuDebugger if !repeat => self.toggle_apu_viewer()?,
+            // DebugAction::StepInto if debugging => self.debug_step_into()?,
+            // DebugAction::StepOver if debugging => self.debug_step_over()?,
+            // DebugAction::StepOut if debugging => self.debug_step_out()?,
+            // DebugAction::StepFrame if debugging => self.debug_step_frame()?,
+            // DebugAction::StepScanline if debugging => self.debug_step_scanline()?,
             DebugAction::IncScanline => {
-                if let Some(ref mut viewer) = self.ppu_viewer {
-                    let increment = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
-                    viewer.inc_scanline(increment);
-                }
+                // TODO: add ppu viewer
+                // if let Some(ref mut viewer) = self.ppu_viewer {
+                // TODO: check keydown
+                // let increment = if s.keymod_down(ModifiersState::SHIFT) { 10 } else { 1 };
+                // viewer.inc_scanline(increment);
             }
             DebugAction::DecScanline => {
-                if let Some(ref mut viewer) = self.ppu_viewer {
-                    let decrement = if s.keymod_down(KeyMod::SHIFT) { 10 } else { 1 };
-                    viewer.dec_scanline(decrement);
-                }
+                // TODO: add ppu viewer
+                // if let Some(ref mut viewer) = self.ppu_viewer {
+                // TODO: check keydown
+                // let decrement = if s.keymod_down(ModifiersState::SHIFT) { 10 } else { 1 };
+                // viewer.dec_scanline(decrement);
             }
-            _ => return Ok(false),
+            _ => (),
         }
-        Ok(true)
     }
 
-    fn debug_step_into(&mut self, s: &mut PixState) -> NesResult<()> {
+    fn debug_step_into(&mut self) {
         self.pause_play();
         if let Err(err) = self.control_deck.clock_instr() {
-            self.handle_emulation_error(s, &err)?;
+            self.handle_emulation_error(&err);
         }
-        Ok(())
     }
 
     fn next_instr(&mut self) -> Instr {
@@ -692,53 +698,48 @@ impl Nes {
         Cpu::INSTRUCTIONS[opcode as usize]
     }
 
-    fn debug_step_over(&mut self, s: &mut PixState) -> NesResult<()> {
+    fn debug_step_over(&mut self) {
         self.pause_play();
         let instr = self.next_instr();
         if let Err(err) = self.control_deck.clock_instr() {
-            self.handle_emulation_error(s, &err)?;
+            self.handle_emulation_error(&err);
         }
         if instr.op() == Operation::JSR {
             let rti_addr = self.control_deck.cpu().peek_stack_u16().wrapping_add(1);
             while self.control_deck.cpu().pc() != rti_addr {
                 if let Err(err) = self.control_deck.clock_instr() {
-                    self.handle_emulation_error(s, &err)?;
+                    self.handle_emulation_error(&err);
                     break;
                 }
             }
         }
-        Ok(())
     }
 
-    fn debug_step_out(&mut self, s: &mut PixState) -> NesResult<()> {
+    fn debug_step_out(&mut self) {
         let mut instr = self.next_instr();
         while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
             if let Err(err) = self.control_deck.clock_instr() {
-                self.handle_emulation_error(s, &err)?;
+                self.handle_emulation_error(&err);
                 break;
             }
             instr = self.next_instr();
         }
         if let Err(err) = self.control_deck.clock_instr() {
-            self.handle_emulation_error(s, &err)?;
+            self.handle_emulation_error(&err);
         }
-
-        Ok(())
     }
 
-    fn debug_step_frame(&mut self, s: &mut PixState) -> NesResult<()> {
+    fn debug_step_frame(&mut self) {
         self.pause_play();
         if let Err(err) = self.control_deck.clock_frame() {
-            self.handle_emulation_error(s, &err)?;
+            self.handle_emulation_error(&err);
         }
-        Ok(())
     }
 
-    fn debug_step_scanline(&mut self, s: &mut PixState) -> NesResult<()> {
+    fn debug_step_scanline(&mut self) {
         self.pause_play();
         if let Err(err) = self.control_deck.clock_scanline() {
-            self.handle_emulation_error(s, &err)?;
+            self.handle_emulation_error(&err);
         }
-        Ok(())
     }
 }

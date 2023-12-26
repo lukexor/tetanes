@@ -88,6 +88,7 @@ impl Noise {
         self.length.clock();
     }
 
+    #[inline]
     #[must_use]
     pub fn output(&self) -> f32 {
         if self.shift & 1 == 0 && self.length.counter != 0 && !self.force_silent {
@@ -101,12 +102,14 @@ impl Noise {
         }
     }
 
+    #[inline]
     pub fn write_ctrl(&mut self, val: u8) {
         self.length.write_ctrl(val);
         self.envelope.write_ctrl(val);
     }
 
     // $400E Noise timer
+    #[inline]
     pub fn write_timer(&mut self, val: u8) {
         self.freq_timer = Self::freq_timer(self.region, val);
         self.shift_mode = if (val >> 7) & 1 == 1 {
@@ -116,6 +119,7 @@ impl Noise {
         };
     }
 
+    #[inline]
     pub fn write_length(&mut self, val: u8) {
         if self.enabled {
             self.length.load_value(val);
@@ -123,6 +127,7 @@ impl Noise {
         self.envelope.reset = true;
     }
 
+    #[inline]
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
@@ -132,6 +137,7 @@ impl Noise {
 }
 
 impl Clock for Noise {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.freq_counter > 0 {
             self.freq_counter -= 1;

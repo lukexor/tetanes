@@ -27,11 +27,12 @@ impl AsRef<str> for ConfigSection {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Menu {
     Main,
     Config(ConfigSection),
     Keybind(Player),
+    #[default]
     LoadRom,
     About,
 }

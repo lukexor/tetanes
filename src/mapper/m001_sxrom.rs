@@ -170,6 +170,7 @@ impl MemMap for Sxrom {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable or Fixed to First Bank
     // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed to Last Bank or Switchable
 
+    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -181,6 +182,7 @@ impl MemMap for Sxrom {
         }
     }
 
+    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
@@ -269,6 +271,7 @@ impl MemMap for Sxrom {
 }
 
 impl Clock for Sxrom {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;

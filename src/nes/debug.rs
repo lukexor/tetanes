@@ -2,6 +2,7 @@ use crate::{
     cpu::Status,
     mem::{Access, Mem},
     nes::Nes,
+    profile,
 };
 use pix_engine::prelude::*;
 
@@ -45,6 +46,8 @@ impl Nes {
 
     pub(crate) fn render_debugger(&mut self, s: &mut PixState) -> PixResult<()> {
         if let Some(ref debugger) = self.debugger {
+            profile!();
+
             s.set_window_target(debugger.window_id())?;
             s.clear()?;
             s.fill(Color::WHITE);
@@ -156,6 +159,7 @@ impl Nes {
 
             s.reset_window_target();
         }
+
         Ok(())
     }
 }

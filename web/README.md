@@ -14,9 +14,8 @@ a modern web browser. See the main `TetaNES` [README][readme] for more details.
 
 ## Dependencies
 
-* [Rust][rust]
-* [SDL2][sdl2]
-* [Wasm][wasm]
+- [Rust][rust]
+- [Wasm][wasm]
 
 ## Building
 

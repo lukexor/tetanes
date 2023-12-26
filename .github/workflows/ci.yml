@@ -37,12 +37,6 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy
-      - uses: ./.github/actions/install-linuxbrew
-        if: matrix.os == 'ubuntu-latest'
-        name: Install Homebrew for Linux
-      - uses: ./.github/actions/install-sdl2
-        if: matrix.os != 'windows-latest'
-        name: Install SDL2
       - name: Install wasm-pack
         if: matrix.os != 'windows-latest'
         shell: bash

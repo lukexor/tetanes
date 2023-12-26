@@ -80,6 +80,7 @@ impl MemMap for Pxrom {
     // CPU $8000..=$9FFF 8K switchable PRG-ROM bank
     // CPU $A000..=$FFFF Three 8K PRG-ROM banks, fixed to the last three banks
 
+    #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         let val = self.map_peek(addr);
         // Update latch after read
@@ -94,6 +95,7 @@ impl MemMap for Pxrom {
         val
     }
 
+    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -103,6 +105,7 @@ impl MemMap for Pxrom {
         }
     }
 
+    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),

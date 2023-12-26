@@ -208,6 +208,7 @@ impl Dmc {
 }
 
 impl Clock for Dmc {
+    #[inline]
     fn clock(&mut self) -> usize {
         // Because APU is only clocked every other CPU cycle
         if self.freq_counter >= 2 {

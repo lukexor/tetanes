@@ -257,6 +257,7 @@ impl MemMap for Vrc6 {
     // CPU $C000..=$DFFF 8K switchable PRG-ROM bank
     // CPU $E000..=$FFFF 8K PRG-ROM bank, fixed to the last bank
 
+    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -278,6 +279,7 @@ impl MemMap for Vrc6 {
         }
     }
 
+    #[inline]
     fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
         if self.prg_ram_enabled() && matches!(addr, 0x6000..=0x7FFF) {
             return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
@@ -343,6 +345,7 @@ impl Audio for Vrc6 {
 }
 
 impl Clock for Vrc6 {
+    #[inline]
     fn clock(&mut self) -> usize {
         self.irq.clock();
         self.audio.clock();
@@ -395,6 +398,7 @@ impl Vrc6Audio {
         pulse_scale * self.out
     }
 
+    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         // Only A0, A1 and A12-15 are used for registers, remaining addresses are mirrored.
         match addr & 0xF003 {
@@ -420,6 +424,7 @@ impl Vrc6Audio {
 }
 
 impl Clock for Vrc6Audio {
+    #[inline]
     fn clock(&mut self) -> usize {
         if !self.halt {
             self.pulse1.clock();
@@ -472,6 +477,7 @@ impl Vrc6Pulse {
         }
     }
 
+    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         match addr & 0x03 {
             0 => {
@@ -507,6 +513,7 @@ impl Vrc6Pulse {
 }
 
 impl Clock for Vrc6Pulse {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;
@@ -551,6 +558,7 @@ impl Vrc6Saw {
         }
     }
 
+    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         match addr & 0x03 {
             0 => {
@@ -585,6 +593,7 @@ impl Vrc6Saw {
 }
 
 impl Clock for Vrc6Saw {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;

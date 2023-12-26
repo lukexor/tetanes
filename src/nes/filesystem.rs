@@ -1,14 +1,14 @@
-use super::{Menu, Mode, Nes, NesResult};
-use crate::{audio::AudioMixer, cart::NesHeader, common::Regional};
+use super::{Nes, NesResult};
+use crate::{audio::Mixer, cart::NesHeader, common::Regional, nes::Mode};
 use anyhow::{anyhow, Context};
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
-use pix_engine::prelude::PixState;
 use std::{
     ffi::OsStr,
     fs::{self, File},
     io::{BufReader, BufWriter, Read, Write},
     path::Path,
 };
+use winit::window::Window;
 
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
@@ -128,10 +128,7 @@ where
     Ok(bytes)
 }
 
-pub(crate) fn is_nes_rom<P>(path: P) -> bool
-where
-    P: AsRef<Path>,
-{
+pub(crate) fn is_nes_rom(path: impl AsRef<Path>) -> bool {
     NesHeader::from_path(path.as_ref()).is_ok()
 }
 
@@ -149,9 +146,9 @@ impl Nes {
     }
 
     /// Loads a ROM cartridge into memory
-    pub(crate) fn load_rom(&mut self, s: &mut PixState) -> NesResult<()> {
+    pub(crate) fn load_rom(&mut self, w: &mut Window) -> NesResult<()> {
         if self.config.rom_path.is_dir() {
-            self.mode = Mode::InMenu(Menu::LoadRom);
+            // self.mode = Mode::InMenu(Menu::LoadRom);
             return Ok(());
         } else if let Err(err) = NesHeader::from_path(&self.config.rom_path) {
             log::error!("{:?}: {:?}", self.config.rom_path, err);
@@ -168,7 +165,7 @@ impl Nes {
             Ok(rom) => rom,
             Err(err) => {
                 log::error!("{:?}: {:?}", self.config.rom_path, err);
-                self.mode = Mode::InMenu(Menu::LoadRom);
+                // self.mode = Mode::InMenu(Menu::LoadRom);
                 self.error = Some(format!("Failed to open ROM {:?}", self.rom_filename()));
                 return Ok(());
             }
@@ -179,23 +176,21 @@ impl Nes {
             .file_name()
             .map_or_else(|| "unknown".into(), OsStr::to_string_lossy);
 
-        if let Err(err) = s.set_title(name.replace(".nes", "")) {
-            log::warn!("{:?}", err);
-        }
+        w.set_title(&name.replace(".nes", ""));
 
         let mut rom = BufReader::new(rom);
         match self.control_deck.load_rom(&name, &mut rom) {
             Ok(()) => {
                 self.config.region = self.control_deck.region();
-                s.set_window_dimensions(self.config.get_dimensions())?;
-                self.update_frame_rate(s)?;
-                self.audio = AudioMixer::new(
+                self.audio = Mixer::new(
                     self.control_deck.sample_rate(),
                     self.config.audio_sample_rate / self.config.speed,
                     self.config.audio_buffer_size,
+                    self.config
+                        .dynamic_rate_control
+                        .then_some(self.config.dynamic_rate_delta),
                 );
-                self.audio.open_playback(s)?;
-                self.audio.resume();
+                self.audio.play();
                 if let Err(err) = self.load_sram() {
                     log::error!("{:?}: {:?}", self.config.rom_path, err);
                     self.add_message("Failed to load game state");
@@ -204,7 +199,7 @@ impl Nes {
             }
             Err(err) => {
                 log::error!("{:?}, {:?}", self.config.rom_path, err);
-                self.mode = Mode::InMenu(Menu::LoadRom);
+                // self.mode = Mode::InMenu(Menu::LoadRom);
                 self.error = Some(format!("Failed to load ROM {:?}", self.rom_filename()));
             }
         }

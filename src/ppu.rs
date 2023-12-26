@@ -362,6 +362,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn start_vblank(&mut self) {
         log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
@@ -379,6 +380,7 @@ impl Ppu {
         self.mapper_mut().ppu_bus_write(0x2002, val);
     }
 
+    #[inline]
     fn stop_vblank(&mut self) {
         log::trace!(
             "({}, {}): Clear Sprite0 Hit, Overflow",
@@ -395,6 +397,7 @@ impl Ppu {
         self.mapper_mut().ppu_bus_write(0x2002, val);
     }
 
+    #[inline]
     fn fetch_bg_nt_byte(&mut self) {
         // Fetch BG nametable
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
@@ -418,6 +421,7 @@ impl Ppu {
         self.next_palette = ((self.bus.read(addr, Access::Read) >> shift) & 0x03) << 2;
     }
 
+    #[inline]
     fn fetch_background(&mut self) {
         // Fetch 4 tiles and write out shift registers every 8th cycle
         // Each tile fetch takes 2 cycles
@@ -430,6 +434,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn evaluate_sprites(&mut self) {
         match self.cycle {
             // 1. Clear Secondary OAM
@@ -693,6 +698,7 @@ impl Ppu {
         self.frame.set_pixel(x, y, color);
     }
 
+    #[inline]
     fn tick(&mut self) {
         let visible_cycle = matches!(self.cycle, Self::VISIBLE_START..=Self::VISIBLE_END);
         let bg_prefetch_cycle =
@@ -1091,6 +1097,7 @@ impl Mem for Ppu {
 }
 
 impl Clock for Ppu {
+    #[inline]
     fn clock(&mut self) -> usize {
         // Clear open bus roughly once every frame
         if self.scanline == 0 {
@@ -1125,6 +1132,7 @@ impl Clock for Ppu {
         1
     }
 
+    #[inline]
     fn clock_to(&mut self, clock: u64) {
         while self.master_clock + self.clock_divider <= clock {
             self.clock();

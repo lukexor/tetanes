@@ -189,6 +189,7 @@ impl PpuScroll {
     // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
     // nametable
     // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
+    #[inline]
     pub fn increment_x(&mut self) {
         // let v = self.v;
         // If we've reached the last column, toggle horizontal nametable

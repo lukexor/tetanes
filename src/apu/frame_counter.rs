@@ -99,6 +99,7 @@ impl FrameCounter {
 }
 
 impl Clock for FrameCounter {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.cycles > 0 {
             self.cycles -= 1;

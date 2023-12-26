@@ -22,6 +22,19 @@ impl Default for Slot {
     }
 }
 
+impl TryFrom<usize> for Slot {
+    type Error = &'static str;
+    fn try_from(slot: usize) -> std::result::Result<Self, Self::Error> {
+        match slot {
+            0 => Ok(Self::One),
+            1 => Ok(Self::Two),
+            2 => Ok(Self::Three),
+            3 => Ok(Self::Four),
+            _ => Err("invalid slot number: {slot}"),
+        }
+    }
+}
+
 pub trait InputRegisters {
     fn read(&mut self, slot: Slot, ppu: &Ppu) -> u8;
     fn peek(&self, slot: Slot, ppu: &Ppu) -> u8;
@@ -140,6 +153,7 @@ impl Input {
 }
 
 impl InputRegisters for Input {
+    #[inline]
     fn read(&mut self, slot: Slot, ppu: &Ppu) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
@@ -172,6 +186,7 @@ impl InputRegisters for Input {
         zapper | val | 0x40
     }
 
+    #[inline]
     fn peek(&self, slot: Slot, ppu: &Ppu) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
@@ -204,6 +219,7 @@ impl InputRegisters for Input {
         zapper | val | 0x40
     }
 
+    #[inline]
     fn write(&mut self, val: u8) {
         for pad in &mut self.joypads {
             pad.write(val);
@@ -215,6 +231,7 @@ impl InputRegisters for Input {
 }
 
 impl Clock for Input {
+    #[inline]
     fn clock(&mut self) -> usize {
         self.zapper.clock();
         self.turbo_timer -= 1;
@@ -352,6 +369,7 @@ impl Joypad {
         self.buttons.set(button, pressed);
     }
 
+    #[inline]
     pub const fn signature(val: u16) -> Self {
         Self {
             buttons: JoypadBtnState::from_bits_truncate(val),
@@ -360,6 +378,7 @@ impl Joypad {
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn read(&mut self) -> u8 {
         let val = self.peek();
@@ -369,6 +388,7 @@ impl Joypad {
         val
     }
 
+    #[inline]
     #[must_use]
     pub const fn peek(&self) -> u8 {
         if self.index < 8 {
@@ -378,6 +398,7 @@ impl Joypad {
         }
     }
 
+    #[inline]
     pub fn write(&mut self, val: u8) {
         let prev_strobe = self.strobe;
         self.strobe = val & 0x01 == 0x01;
@@ -469,6 +490,7 @@ impl Zapper {
         }
     }
 
+    #[inline]
     fn light_sense(&self, ppu: &Ppu) -> u8 {
         let width = Ppu::WIDTH as i32;
         let height = Ppu::HEIGHT as i32;
@@ -496,6 +518,7 @@ impl Zapper {
 }
 
 impl Clock for Zapper {
+    #[inline]
     fn clock(&mut self) -> usize {
         if self.triggered > 0.0 {
             self.triggered -= 1.0;

@@ -78,6 +78,7 @@ impl WindowSinc {
         &self.taps
     }
 
+    #[inline]
     pub fn spectral_invert(&mut self) {
         let mut i = 1.0;
         for h in &mut self.taps {

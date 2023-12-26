@@ -178,11 +178,11 @@ pub(crate) mod tests {
         mapper::{Mapper, MapperRevision},
         nes::event::{Action, NesState, Setting},
         ppu::Ppu,
-        video::VideoFilter,
+        video::{Video, VideoFilter},
     };
     use anyhow::Context;
+    use image::{ImageBuffer, Rgba};
     use once_cell::sync::Lazy;
-    use pix_engine::prelude::{Image, PixelFormat};
     use serde::{Deserialize, Serialize};
     use std::fmt::Write;
     use std::{
@@ -307,12 +307,13 @@ pub(crate) mod tests {
         test: &str,
         test_frame: &TestFrame,
         deck: &mut ControlDeck,
+        frame_buffer: &mut Vec<u8>,
         count: usize,
     ) -> Option<(u64, u64, u32, PathBuf)> {
         test_frame.hash.map(|expected| {
             let mut hasher = DefaultHasher::new();
-            let frame = deck.frame_buffer();
-            frame.hash(&mut hasher);
+            deck.frame_buffer(frame_buffer);
+            frame_buffer.hash(&mut hasher);
             let actual = hasher.finish();
             log::debug!(
                 "frame : {}, matched: {}",
@@ -335,7 +336,7 @@ pub(crate) mod tests {
                 .join(PathBuf::from(filename))
                 .with_extension("png");
 
-            Image::from_bytes(Ppu::WIDTH, Ppu::HEIGHT, frame, PixelFormat::Rgba)
+            ImageBuffer::<Rgba<u8>, &[u8]>::from_raw(Ppu::WIDTH, Ppu::HEIGHT, &frame_buffer[..])
                 .expect("valid frame")
                 .save(&screenshot)
                 .expect("result screenshot");
@@ -359,6 +360,7 @@ pub(crate) mod tests {
             .with_extension("nes");
         assert!(rom.exists(), "No test rom found for {rom:?}");
 
+        let mut frame_buffer = Video::new_frame_buffer();
         let mut deck = load_control_deck(&rom);
         if env::var("RUST_LOG").is_ok() {
             let _ = pretty_env_logger::try_init();
@@ -376,8 +378,13 @@ pub(crate) mod tests {
             }
 
             handle_frame_action(test_frame, &mut deck);
-            if let Some(result) = handle_snapshot(&test.name, test_frame, &mut deck, results.len())
-            {
+            if let Some(result) = handle_snapshot(
+                &test.name,
+                test_frame,
+                &mut deck,
+                &mut frame_buffer,
+                results.len(),
+            ) {
                 results.push(result);
             }
         }

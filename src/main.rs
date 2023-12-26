@@ -1,4 +1,4 @@
-//! A NES Emulator written in Rust with `SDL2` and `WebAssembly` support
+//! A NES Emulator written in Rust with `WebAssembly` support
 //!
 //! USAGE:
 //!     tetanes [FLAGS] [OPTIONS] [path]
@@ -22,6 +22,8 @@ use structopt::StructOpt;
 use tetanes::{mem::RamState, nes::NesBuilder, NesResult};
 
 fn main() -> NesResult<()> {
+    let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+    let _puffin_server = puffin_http::Server::new(&server_addr).unwrap();
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "info");
     }
@@ -45,7 +47,7 @@ fn main() -> NesResult<()> {
 #[must_use]
 #[structopt(
     name = "tetanes",
-    about = "A NES Emulator written in Rust with SDL2 and WebAssembly support",
+    about = "A NES Emulator written in Rust with WebAssembly support",
     version = "0.6.1",
     author = "Luke Petherbridge <me@lukeworks.tech>"
 )]

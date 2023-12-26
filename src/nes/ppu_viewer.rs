@@ -2,6 +2,7 @@ use crate::{
     mem::{Access, Mem},
     nes::Nes,
     ppu::{scroll::PpuScroll, Mirroring, Ppu},
+    profile,
 };
 use pix_engine::prelude::*;
 
@@ -186,6 +187,8 @@ impl Nes {
 
     pub(crate) fn render_ppu_viewer(&mut self, s: &mut PixState) -> PixResult<()> {
         if let Some(ref viewer) = self.ppu_viewer {
+            profile!();
+
             s.set_window_target(viewer.window_id())?;
             s.clear()?;
             s.fill(Color::WHITE);
@@ -335,6 +338,7 @@ impl Nes {
             s.reset_column_offset();
             s.reset_window_target();
         }
+
         Ok(())
     }
 }

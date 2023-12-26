@@ -8,6 +8,7 @@ use crate::{
     mapper::Mapper,
     mem::RamState,
     ppu::Ppu,
+    profile,
     video::{Video, VideoFilter},
     NesResult,
 };
@@ -96,13 +97,11 @@ impl ControlDeck {
         self.cpu.wram()
     }
 
-    /// Get a frame worth of pixels.
+    /// Load a frame worth of pixels.
     #[inline]
-    #[must_use]
-    pub fn frame_buffer(&mut self) -> &[u8] {
+    pub fn frame_buffer(&mut self, output: &mut [u8]) {
         self.video
-            .apply_filter(self.cpu.frame_buffer(), self.cpu.frame_number());
-        self.video.output()
+            .apply_filter(self.cpu.frame_buffer(), output, self.cpu.frame_number());
     }
 
     /// Get the current frame number.
@@ -156,69 +155,41 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_seconds(&mut self, seconds: f32) -> NesResult<ControlFlow<usize, usize>> {
-        self.cycles_remaining += self.clock_rate() * seconds;
-        let mut total_cycles = 0;
-        while self.cycles_remaining > 0.0 {
-            match self.clock_instr()? {
-                ControlFlow::Break(cycles) => {
-                    total_cycles += cycles;
-                    self.cycles_remaining -= cycles as f32;
-                    return Ok(ControlFlow::Break(total_cycles));
-                }
-                ControlFlow::Continue(cycles) => {
-                    total_cycles += cycles;
-                    self.cycles_remaining -= cycles as f32;
-                }
-            }
-        }
-        Ok(ControlFlow::Continue(total_cycles))
-    }
+    pub fn clock_seconds(&mut self, seconds: f32) -> NesResult<usize> {
+        profile!();
 
-    /// Steps the control deck the number of seconds with an inspection function, executed on every
-    /// CPU clock.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if .
-    pub fn clock_seconds_inspect<F>(
-        &mut self,
-        seconds: f32,
-        mut inspect: F,
-    ) -> NesResult<ControlFlow<usize, usize>>
-    where
-        F: FnMut(&mut Cpu),
-    {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
-            let cycles = self.cpu.clock_inspect(&mut inspect);
+            let cycles = self.cpu.clock();
+            if self.cpu_corrupted() {
+                return Err(anyhow!("cpu corrupted"));
+            }
             total_cycles += cycles;
             self.cycles_remaining -= cycles as f32;
         }
-        Ok(ControlFlow::Continue(total_cycles))
+        Ok(total_cycles)
     }
 
-    /// Steps the control deck an entire frame
+    /// Steps the control deck an entire frame.
     ///
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_frame(&mut self) -> NesResult<ControlFlow<usize, usize>> {
+    #[inline]
+    pub fn clock_frame(&mut self) -> NesResult<usize> {
+        profile!();
+
         let mut total_cycles = 0;
         let frame = self.frame_number();
         while frame == self.frame_number() {
-            match self.clock_instr()? {
-                ControlFlow::Break(cycles) => {
-                    total_cycles += cycles;
-                    return Ok(ControlFlow::Break(total_cycles));
-                }
-                ControlFlow::Continue(cycles) => {
-                    total_cycles += cycles;
-                }
+            let cycles = self.cpu.clock();
+            if self.cpu_corrupted() {
+                return Err(anyhow!("cpu corrupted"));
             }
+            total_cycles += cycles;
         }
-        Ok(ControlFlow::Continue(total_cycles))
+        Ok(total_cycles)
     }
 
     /// Steps the control deck a single scanline.
@@ -227,6 +198,8 @@ impl ControlDeck {
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
     pub fn clock_scanline(&mut self) -> NesResult<ControlFlow<usize, usize>> {
+        profile!();
+
         let current_scanline = self.cpu.ppu_scanline();
         let mut total_cycles = 0;
         while current_scanline == self.cpu.ppu_scanline() {
@@ -243,7 +216,8 @@ impl ControlDeck {
         Ok(ControlFlow::Continue(total_cycles))
     }
 
-    /// Returns whether the CPU is corrupted or not.
+    /// Returns whether the CPU is corrupted or not which means it encounted an invalid/unhandled
+    /// opcode and can't proceed executing the current ROM.
     #[inline]
     #[must_use]
     pub const fn cpu_corrupted(&self) -> bool {

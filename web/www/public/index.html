@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -7,7 +7,9 @@
     <style>
       @font-face {
         font-family: "Emulogic";
-        src: local("Emulogic"), url("emulogic.ttf") format("truetype");
+        src:
+          local("Emulogic"),
+          url("emulogic.ttf") format("truetype");
       }
 
       body {
@@ -216,9 +218,9 @@
           class="load-rom"
           accept=".nes"
         />
-        <label id="load-rom-label" for="load-rom" class="load-rom-label"
-          >Load ROM</label
-        >
+        <label id="load-rom-label" for="load-rom" class="load-rom-label">
+          Load ROM
+        </label>
 
         <button id="load-homebrew">Homebrew ROMs</button>
 
@@ -240,8 +242,7 @@
         <em>TetaNES</em> is an emulator for the Nintendo Entertainment System
         (NES) written in <a href="https://www.rust-lang.org/">Rust</a> and
         <a href="https://webassembly.org/">WebAssembly</a>. The desktop version
-        is much more performant and fully featured, written using
-        <a href="https://www.libsdl.org/">SDL2</a>.
+        is much more performant and fully featured.
       </p>
 
       <p>

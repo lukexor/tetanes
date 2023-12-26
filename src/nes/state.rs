@@ -1,17 +1,18 @@
 use crate::{
     common::config_dir,
-    cpu::Cpu,
+    cpu::{Cpu, Ppu},
     nes::{
         event::ActionEvent,
         filesystem::{decode_data, encode_data, load_data, save_data},
         menu::Menu,
         Mode, Nes,
     },
+    video::Video,
     NesError, NesResult,
 };
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, Local};
-use pix_engine::prelude::{PixResult, PixState};
+use chrono::Local;
+use image::{ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, path::PathBuf};
 
@@ -42,19 +43,15 @@ impl Default for Replay {
 }
 
 impl Nes {
-    pub(crate) fn handle_emulation_error(
-        &mut self,
-        s: &mut PixState,
-        err: &NesError,
-    ) -> PixResult<()> {
+    pub(crate) fn handle_emulation_error(&mut self, err: &NesError) {
         self.error = Some(err.to_string());
-        self.open_menu(s, Menu::LoadRom)
+        self.open_menu(Menu::LoadRom);
     }
 
     pub(crate) fn resume_play(&mut self) {
         if self.control_deck.is_running() {
             self.mode = Mode::Playing;
-            self.audio.resume();
+            self.audio.play();
         }
     }
 
@@ -150,11 +147,16 @@ impl Nes {
         }
     }
 
-    pub(crate) fn save_screenshot(&mut self, s: &mut PixState) {
+    pub(crate) fn save_screenshot(&mut self) {
         let filename = Local::now()
             .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S.png")
             .to_string();
-        match s.save_canvas(None, &filename) {
+        let mut frame_buffer = Video::new_frame_buffer();
+        self.control_deck.frame_buffer(&mut frame_buffer);
+        let image =
+            ImageBuffer::<Rgba<u8>, &[u8]>::from_raw(Ppu::WIDTH, Ppu::HEIGHT, &frame_buffer[..])
+                .expect("valid frame buffer");
+        match image.save(&filename) {
             Ok(()) => self.add_message(filename),
             Err(err) => {
                 log::error!("{err:?}");
@@ -266,10 +268,12 @@ impl Nes {
 
     /// Saves the replay buffer out to a file
     pub(crate) fn save_replay(&mut self) {
-        let datetime: DateTime<Local> = Local::now();
-        let replay_path =
-            PathBuf::from(datetime.format("tetanes_%Y-%m-%d_at_%H.%M.%S").to_string())
-                .with_extension("replay");
+        let replay_path = PathBuf::from(
+            Local::now()
+                .format("tetanes_%Y-%m-%d_at_%H.%M.%S")
+                .to_string(),
+        )
+        .with_extension("replay");
         self.replay.buffer.reverse();
         match bincode::serialize(&self.replay)
             .context("failed to serialize replay recording")
@@ -308,7 +312,7 @@ impl Nes {
         }
     }
 
-    pub(crate) fn toggle_pause(&mut self, s: &mut PixState) -> NesResult<()> {
+    pub(crate) fn toggle_pause(&mut self) {
         match self.mode {
             Mode::Playing | Mode::Rewinding => {
                 self.mode = Mode::Paused;
@@ -316,14 +320,23 @@ impl Nes {
             Mode::Paused | Mode::PausedBg => {
                 self.resume_play();
             }
-            Mode::InMenu(..) => self.exit_menu(s)?,
+            Mode::InMenu(..) => self.exit_menu(),
         }
-        Ok(())
     }
 
-    pub(crate) fn toggle_sound_recording(&mut self, _s: &mut PixState) {
+    pub(crate) fn toggle_sound_recording(&mut self) {
         self.record_sound = !self.record_sound;
-        // TODO
-        self.add_message("Toggle sound recording not implemented yet");
+        if self.record_sound {
+            match self.audio.start_recording() {
+                Ok(_) => self.add_message("Recording audio..."),
+                Err(err) => {
+                    log::error!("{err:?}");
+                    self.add_message("Failed to start recording audio");
+                }
+            }
+        } else {
+            self.audio.stop_recording();
+            self.add_message("Recording audio stopped.");
+        }
     }
 }

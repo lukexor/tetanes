@@ -4,15 +4,13 @@ use crate::{
     mem::RamState,
     nes::{
         event::{Input, InputBindings, InputMapping},
-        Nes, WINDOW_HEIGHT, WINDOW_WIDTH_NTSC, WINDOW_WIDTH_PAL,
+        Nes,
     },
+    ppu::Ppu,
     video::VideoFilter,
+    NesResult,
 };
 use anyhow::Context;
-use pix_engine::{
-    point,
-    prelude::{PixResult, PixState},
-};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
@@ -24,6 +22,10 @@ pub(crate) const CONFIG: &str = "config.json";
 const DEFAULT_CONFIG: &[u8] = include_bytes!("../../config/config.json");
 const MIN_SPEED: f32 = 0.25; // 25% - 15 Hz
 const MAX_SPEED: f32 = 2.0; // 200% - 120 Hz
+const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
+const WINDOW_WIDTH_PAL: f32 = Ppu::WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
+const WINDOW_HEIGHT_NTSC: f32 = Ppu::HEIGHT as f32 - 16.0; // NTSC trims top bottom and 8 scanlines
+const WINDOW_HEIGHT_PAL: f32 = Ppu::HEIGHT as f32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)] // Ensures new fields don't break existing configurations
@@ -33,6 +35,8 @@ pub(crate) struct Config {
     pub(crate) show_hidden_files: bool,
     pub(crate) pause_in_bg: bool,
     pub(crate) sound: bool,
+    pub(crate) debug: bool,
+    pub(crate) save_on_exit: bool,
     pub(crate) fullscreen: bool,
     pub(crate) vsync: bool,
     pub(crate) filter: VideoFilter,
@@ -47,6 +51,7 @@ pub(crate) struct Config {
     pub(crate) rewind_buffer_size: usize,
     pub(crate) four_player: FourPlayer,
     pub(crate) zapper: bool,
+    pub(crate) controller_deadzone: f64,
     pub(crate) audio_sample_rate: f32,
     pub(crate) audio_buffer_size: usize,
     pub(crate) dynamic_rate_control: bool,
@@ -64,6 +69,8 @@ impl Default for Config {
             show_hidden_files: false,
             pause_in_bg: true,
             sound: true,
+            debug: false,
+            save_on_exit: true,
             fullscreen: false,
             vsync: true,
             filter: VideoFilter::default(),
@@ -78,6 +85,7 @@ impl Default for Config {
             rewind_buffer_size: 20,
             four_player: FourPlayer::default(),
             zapper: false,
+            controller_deadzone: 0.5,
             audio_sample_rate: 44_100.0,
             audio_buffer_size: 4096,
             dynamic_rate_control: true,
@@ -122,48 +130,53 @@ impl Config {
 
         for bind in &config.bindings.keys {
             config.input_map.insert(
-                Input::Key((bind.player, bind.key, bind.keymod)),
+                Input::Key((
+                    bind.controller,
+                    bind.key,
+                    bind.modifiers.unwrap_or_default(),
+                )),
                 bind.action,
             );
         }
         for bind in &config.bindings.mouse {
             config
                 .input_map
-                .insert(Input::Mouse((bind.player, bind.button)), bind.action);
+                .insert(Input::Mouse((bind.controller, bind.button)), bind.action);
         }
-        for bind in &config.bindings.buttons {
-            config
-                .input_map
-                .insert(Input::Button((bind.player, bind.button)), bind.action);
-        }
-        for bind in &config.bindings.axes {
-            config.input_map.insert(
-                Input::Axis((bind.player, bind.axis, bind.direction)),
-                bind.action,
-            );
-        }
+        // TODO: controller support
+        // for bind in &config.bindings.buttons {
+        //     config
+        //         .input_map
+        //         .insert(Input::Button((bind.controller, bind.button)), bind.action);
+        // }
+        // for bind in &config.bindings.axes {
+        //     config.input_map.insert(
+        //         Input::Axis((bind.controller, bind.axis, bind.direction)),
+        //         bind.action,
+        //     );
+        // }
 
         config
     }
 
+    // TODO: add binding
     // pub(crate) fn add_binding(&mut self, input: Input, action: Action) {
     //     self.input_map.insert(input, action);
     //     self.bindings.update_from_map(&self.input_map);
     // }
 
+    // TODO: remove binding
     // pub(crate) fn remove_binding(&mut self, input: Input) {
     //     self.input_map.remove(&input);
     //     self.bindings.update_from_map(&self.input_map);
     // }
 
     pub(crate) fn get_dimensions(&self) -> (u32, u32) {
-        let width = match self.region {
-            NesRegion::Ntsc => WINDOW_WIDTH_NTSC,
-            NesRegion::Pal | NesRegion::Dendy => WINDOW_WIDTH_PAL,
+        let (width, height) = match self.region {
+            NesRegion::Ntsc => (WINDOW_WIDTH_NTSC, WINDOW_HEIGHT_NTSC),
+            NesRegion::Pal | NesRegion::Dendy => (WINDOW_WIDTH_PAL, WINDOW_HEIGHT_PAL),
         };
-        let width = (self.scale * width) as u32;
-        let height = (self.scale * WINDOW_HEIGHT) as u32;
-        (width, height)
+        ((self.scale * width) as u32, (self.scale * height) as u32)
     }
 }
 
@@ -184,17 +197,18 @@ impl Nes {
         }
     }
 
-    pub(crate) fn set_scale(&mut self, s: &mut PixState, scale: f32) {
+    pub(crate) fn set_scale(&mut self, scale: f32) {
         self.config.scale = scale;
-        let (font_size, fpad, ipad) = match scale as usize {
-            1 => (6, 2, 2),
-            2 => (8, 6, 4),
-            3 => (12, 8, 6),
-            _ => (16, 10, 8),
-        };
-        s.font_size(font_size).expect("valid font size");
-        s.theme_mut().spacing.frame_pad = point!(fpad, fpad);
-        s.theme_mut().spacing.item_pad = point!(ipad, ipad);
+        // TODO: switch to egui
+        // let (font_size, fpad, ipad) = match scale as usize {
+        //     1 => (6, 2, 2),
+        //     2 => (8, 6, 4),
+        //     3 => (12, 8, 6),
+        //     _ => (16, 10, 8),
+        // };
+        // s.font_size(font_size).expect("valid font size");
+        // s.theme_mut().spacing.frame_pad = point!(fpad, fpad);
+        // s.theme_mut().spacing.item_pad = point!(ipad, ipad);
     }
 
     pub(crate) fn change_speed(&mut self, delta: f32) {
@@ -208,20 +222,22 @@ impl Nes {
             .set_output_frequency(self.config.audio_sample_rate / self.config.speed);
     }
 
-    pub(crate) fn update_frame_rate(&mut self, s: &mut PixState) -> PixResult<()> {
-        match self.config.region {
-            NesRegion::Ntsc => s.frame_rate(60),
-            NesRegion::Pal => s.frame_rate(50),
-            NesRegion::Dendy => s.frame_rate(59),
-        }
-        log::debug!(
-            "Updated NES Region and frame rate: {:?}, {:?}",
-            self.config.region,
-            s.target_frame_rate()
-        );
+    pub(crate) fn update_frame_rate(&mut self) -> NesResult<()> {
+        // TODO: switch frame_rate
+        // match self.config.region {
+        //     NesRegion::Ntsc => s.frame_rate(60),
+        //     NesRegion::Pal => s.frame_rate(50),
+        //     NesRegion::Dendy => s.frame_rate(59),
+        // }
+        // log::debug!(
+        //     "Updated NES Region and frame rate: {:?}, {:?}",
+        //     self.config.region,
+        //     s.target_frame_rate()
+        // );
         // TODO: Should actually check current screen refresh rate here instead of region
         if self.config.vsync && self.config.region != NesRegion::Ntsc {
-            s.vsync(false)?;
+            // TODO: switch vsync
+            // s.vsync(false)?;
         }
         Ok(())
     }

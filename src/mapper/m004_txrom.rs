@@ -147,6 +147,7 @@ impl Txrom {
         }
     }
 
+    #[inline]
     fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
@@ -225,6 +226,7 @@ impl MemMap for Txrom {
         self.map_peek(addr)
     }
 
+    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -237,6 +239,7 @@ impl MemMap for Txrom {
         }
     }
 
+    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),

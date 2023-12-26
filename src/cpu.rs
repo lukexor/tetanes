@@ -2,7 +2,7 @@
 //!
 //! <http://wiki.nesdev.com/w/index.php/CPU>
 
-use crate::{
+pub(crate) use crate::{
     apu::{Apu, Channel},
     bus::CpuBus,
     cart::Cart,
@@ -11,7 +11,7 @@ use crate::{
     mapper::Mapper,
     mem::{Access, Mem},
     ppu::Ppu,
-    NesResult,
+    profile, NesResult,
 };
 use bitflags::bitflags;
 use instr::{
@@ -25,6 +25,7 @@ use instr::{
         TXA, TXS, TYA, XAA, XXX,
     },
 };
+use log::{log_enabled, Level};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Write};
 
@@ -433,6 +434,7 @@ impl Cpu {
         }
     }
 
+    #[inline]
     fn handle_interrupts(&mut self) {
         // https://www.nesdev.org/wiki/CPU_interrupts
         //
@@ -469,6 +471,7 @@ impl Cpu {
         }
     }
 
+    #[inline]
     fn start_cycle(&mut self, cycle: Cycle) {
         self.master_clock += if cycle == Cycle::Read {
             self.start_clocks - 1
@@ -483,6 +486,7 @@ impl Cpu {
         }
     }
 
+    #[inline]
     fn end_cycle(&mut self, cycle: Cycle) {
         self.master_clock += if cycle == Cycle::Read {
             self.end_clocks + 1
@@ -497,6 +501,7 @@ impl Cpu {
         self.handle_interrupts();
     }
 
+    #[inline]
     fn process_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
         if self.halt {
@@ -507,7 +512,10 @@ impl Cpu {
         self.start_cycle(Cycle::Read);
     }
 
+    #[inline]
     fn handle_dma(&mut self, addr: u16) {
+        profile!();
+
         self.start_cycle(Cycle::Read);
         self.bus.read(addr, Access::Dummy);
         self.end_cycle(Cycle::Read);
@@ -853,6 +861,7 @@ impl Cpu {
     }
 
     // Print the current instruction and status
+    #[inline]
     pub fn trace_instr(&mut self) {
         let mut pc = self.pc;
         self.disassemble(&mut pc);
@@ -893,17 +902,20 @@ impl Cpu {
     }
 }
 
-impl Cpu {
-    pub fn clock_inspect<F>(&mut self, mut inspect: F) -> usize
-    where
-        F: FnMut(&mut Cpu),
-    {
+impl Clock for Cpu {
+    /// Runs the CPU one instruction
+    #[inline]
+    fn clock(&mut self) -> usize {
+        profile!();
+
         let start_cycle = self.cycle;
 
-        if log::log_enabled!(log::Level::Trace) {
+        if log_enabled!(Level::Trace) {
             self.trace_instr();
         }
-        inspect(self);
+        // if let ControlFlow::Break(_) = inspect(self) {
+        //     return ControlFlow::Break(self.cycle - start_cycle);
+        // };
 
         let opcode = self.read_instr(); // Cycle 1 of instruction
         self.instr = Cpu::INSTRUCTIONS[opcode as usize];
@@ -1018,13 +1030,6 @@ impl Cpu {
         }
 
         self.cycle - start_cycle
-    }
-}
-
-impl Clock for Cpu {
-    /// Runs the CPU one instruction
-    fn clock(&mut self) -> usize {
-        self.clock_inspect(|_| {})
     }
 }
 

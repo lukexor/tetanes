@@ -3,8 +3,10 @@
   "show_hidden_files": false,
   "pause_in_bg": true,
   "sound": true,
+  "debug": false,
+  "save_on_exit": true,
   "fullscreen": false,
-  "vsync": true,
+  "vsync": false,
   "filter": "Ntsc",
   "concurrent_dpad": false,
   "region": "Ntsc",
@@ -17,6 +19,7 @@
   "rewind_buffer_size": 20,
   "four_player": "Disabled",
   "zapper": false,
+  "controller_deadzone": 0.5,
   "audio_sample_rate": 44100.0,
   "audio_buffer_size": 4096,
   "dynamic_rate_control": true,
@@ -24,258 +27,224 @@
   "log_level": "Info",
   "genie_codes": [],
   "bindings": {
-    "keymods": {
-      "none": 0,
-      "shift": 1,
-      "ctrl": 64,
-      "alt": 256,
-      "gui": 1024
-    },
     "keys": [
       {
-        "player": "One",
-        "key": "Left",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "ArrowLeft",
         "action": {
           "Joypad": "Left"
         }
       },
       {
-        "player": "One",
-        "key": "Right",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "ArrowRight",
         "action": {
           "Joypad": "Right"
         }
       },
       {
-        "player": "One",
-        "key": "Up",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "ArrowUp",
         "action": {
           "Joypad": "Up"
         }
       },
       {
-        "player": "One",
-        "key": "Down",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "ArrowDown",
         "action": {
           "Joypad": "Down"
         }
       },
       {
-        "player": "One",
-        "key": "Z",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "KeyZ",
         "action": {
           "Joypad": "A"
         }
       },
       {
-        "player": "One",
-        "key": "X",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "KeyX",
         "action": {
           "Joypad": "B"
         }
       },
       {
-        "player": "One",
-        "key": "A",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "KeyA",
         "action": {
           "Joypad": "TurboA"
         }
       },
       {
-        "player": "One",
-        "key": "S",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "KeyS",
         "action": {
           "Joypad": "TurboB"
         }
       },
       {
-        "player": "One",
-        "key": "Return",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "Enter",
         "action": {
           "Joypad": "Start"
         }
       },
       {
-        "player": "One",
-        "key": "RShift",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "ShiftRight",
         "action": {
           "Joypad": "Select"
         }
       },
       {
-        "player": "One",
-        "key": "RShift",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "ShiftLeft",
         "action": {
           "Joypad": "Select"
         }
       },
       {
-        "player": "Two",
-        "key": "J",
-        "keymod": "NONE",
+        "controller": "Two",
+        "key": "KeyJ",
         "action": {
           "Joypad": "Left"
         }
       },
       {
-        "player": "Two",
-        "key": "L",
-        "keymod": "NONE",
+        "controller": "Two",
+        "key": "KeyL",
         "action": {
           "Joypad": "Right"
         }
       },
       {
-        "player": "Two",
-        "key": "I",
-        "keymod": "NONE",
+        "controller": "Two",
+        "key": "KeyI",
         "action": {
           "Joypad": "Up"
         }
       },
       {
-        "player": "Two",
-        "key": "K",
-        "keymod": "NONE",
+        "controller": "Two",
+        "key": "KeyK",
         "action": {
           "Joypad": "Down"
         }
       },
       {
-        "player": "Two",
-        "key": "N",
-        "keymod": "NONE",
+        "controller": "Two",
+        "key": "KeyN",
         "action": {
           "Joypad": "A"
         }
       },
       {
-        "player": "Two",
-        "key": "M",
-        "keymod": "NONE",
+        "controller": "Two",
+        "key": "KeyM",
         "action": {
           "Joypad": "B"
         }
       },
       {
-        "player": "Two",
-        "key": "Num8",
-        "keymod": "NONE",
+        "controller": "Two",
+        "key": "Numpad8",
         "action": {
           "Joypad": "Start"
         }
       },
       {
-        "player": "Two",
-        "key": "Num9",
-        "keymod": "SHIFT",
+        "controller": "Two",
+        "key": "Numpad9",
+        "modifiers": { "shift_key": true },
         "action": {
           "Joypad": "Select"
         }
       },
       {
-        "player": "Three",
-        "key": "F",
-        "keymod": "NONE",
+        "controller": "Three",
+        "key": "KeyF",
         "action": {
           "Joypad": "Left"
         }
       },
       {
-        "player": "Three",
-        "key": "H",
-        "keymod": "NONE",
+        "controller": "Three",
+        "key": "KeyH",
         "action": {
           "Joypad": "Right"
         }
       },
       {
-        "player": "Three",
-        "key": "T",
-        "keymod": "NONE",
+        "controller": "Three",
+        "key": "KeyT",
         "action": {
           "Joypad": "Up"
         }
       },
       {
-        "player": "Three",
-        "key": "G",
-        "keymod": "NONE",
+        "controller": "Three",
+        "key": "KeyG",
         "action": {
           "Joypad": "Down"
         }
       },
       {
-        "player": "Three",
-        "key": "V",
-        "keymod": "NONE",
+        "controller": "Three",
+        "key": "KeyV",
         "action": {
           "Joypad": "A"
         }
       },
       {
-        "player": "Three",
-        "key": "B",
-        "keymod": "NONE",
+        "controller": "Three",
+        "key": "KeyB",
         "action": {
           "Joypad": "B"
         }
       },
       {
-        "player": "Three",
-        "key": "Num5",
-        "keymod": "NONE",
+        "controller": "Three",
+        "key": "Numpad5",
         "action": {
           "Joypad": "Start"
         }
       },
       {
-        "player": "Three",
-        "key": "Num6",
-        "keymod": "SHIFT",
+        "controller": "Three",
+        "key": "Numpad6",
+        "modifiers": { "shift_key": true },
         "action": {
           "Joypad": "Select"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "key": "Escape",
-        "keymod": "NONE",
         "action": {
           "Menu": "Main"
         }
       },
       {
-        "player": "One",
-        "key": "H",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyH",
+        "modifiers": { "control_key": true },
         "action": {
           "Menu": "About"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "key": "F1",
-        "keymod": "NONE",
         "action": {
           "Menu": "About"
         }
       },
       {
-        "player": "One",
-        "key": "C",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyC",
+        "modifiers": { "control_key": true },
         "action": {
           "Menu": {
             "Config": "General"
@@ -283,9 +252,8 @@
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "key": "F2",
-        "keymod": "NONE",
         "action": {
           "Menu": {
             "Config": "General"
@@ -293,25 +261,24 @@
         }
       },
       {
-        "player": "One",
-        "key": "O",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyO",
+        "modifiers": { "control_key": true },
         "action": {
           "Menu": "LoadRom"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "key": "F3",
-        "keymod": "NONE",
         "action": {
           "Menu": "LoadRom"
         }
       },
       {
-        "player": "One",
-        "key": "K",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyK",
+        "modifiers": { "control_key": true },
         "action": {
           "Menu": {
             "Keybind": "One"
@@ -319,57 +286,56 @@
         }
       },
       {
-        "player": "One",
-        "key": "Q",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyQ",
+        "modifiers": { "control_key": true },
         "action": {
           "Nes": "Quit"
         }
       },
       {
-        "player": "One",
-        "key": "R",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyR",
+        "modifiers": { "control_key": true },
         "action": {
           "Nes": "SoftReset"
         }
       },
       {
-        "player": "One",
-        "key": "P",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyP",
+        "modifiers": { "control_key": true },
         "action": {
           "Nes": "HardReset"
         }
       },
       {
-        "player": "One",
-        "key": "Equals",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Equal",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": "IncSpeed"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "key": "Minus",
-        "keymod": "CTRL",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": "DecSpeed"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "key": "Space",
-        "keymod": "NONE",
         "action": {
           "Setting": "FastForward"
         }
       },
       {
-        "player": "One",
-        "key": "Kp1",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Digit1",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 1
@@ -377,9 +343,9 @@
         }
       },
       {
-        "player": "One",
-        "key": "Kp2",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Digit2",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 2
@@ -387,9 +353,9 @@
         }
       },
       {
-        "player": "One",
-        "key": "Kp3",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Digit3",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 3
@@ -397,9 +363,9 @@
         }
       },
       {
-        "player": "One",
-        "key": "Kp4",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Digit4",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 4
@@ -407,9 +373,9 @@
         }
       },
       {
-        "player": "One",
-        "key": "Num1",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Numpad1",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 1
@@ -417,9 +383,9 @@
         }
       },
       {
-        "player": "One",
-        "key": "Num2",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Numpad2",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 2
@@ -427,9 +393,9 @@
         }
       },
       {
-        "player": "One",
-        "key": "Num3",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Numpad3",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 3
@@ -437,9 +403,9 @@
         }
       },
       {
-        "player": "One",
-        "key": "Num4",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Numpad4",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": {
             "SetSaveSlot": 4
@@ -447,217 +413,213 @@
         }
       },
       {
-        "player": "One",
-        "key": "S",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyS",
+        "modifiers": { "control_key": true },
         "action": {
           "Feature": "SaveState"
         }
       },
       {
-        "player": "One",
-        "key": "L",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyL",
+        "modifiers": { "control_key": true },
         "action": {
           "Feature": "LoadState"
         }
       },
       {
-        "player": "One",
-        "key": "R",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "KeyR",
         "action": {
           "Feature": "Rewind"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "key": "F10",
-        "keymod": "NONE",
         "action": {
           "Feature": "TakeScreenshot"
         }
       },
       {
-        "player": "One",
-        "key": "V",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyV",
+        "modifiers": { "shift_key": true },
         "action": {
           "Feature": "ToggleGameplayRecording"
         }
       },
       {
-        "player": "One",
-        "key": "R",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyR",
+        "modifiers": { "shift_key": true },
         "action": {
           "Feature": "ToggleSoundRecording"
         }
       },
       {
-        "player": "One",
-        "key": "M",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyM",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": "ToggleSound"
         }
       },
       {
-        "player": "One",
-        "key": "Num1",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "Numpad1",
+        "modifiers": { "shift_key": true },
         "action": {
           "Setting": "TogglePulse1"
         }
       },
       {
-        "player": "One",
-        "key": "Num2",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "Numpad2",
+        "modifiers": { "shift_key": true },
         "action": {
           "Setting": "TogglePulse2"
         }
       },
       {
-        "player": "One",
-        "key": "Num3",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "Numpad3",
+        "modifiers": { "shift_key": true },
         "action": {
           "Setting": "ToggleTriangle"
         }
       },
       {
-        "player": "One",
-        "key": "Num4",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "Numpad4",
+        "modifiers": { "shift_key": true },
         "action": {
           "Setting": "ToggleNoise"
         }
       },
       {
-        "player": "One",
-        "key": "Num5",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "Numpad5",
+        "modifiers": { "shift_key": true },
         "action": {
           "Setting": "ToggleDmc"
         }
       },
       {
-        "player": "One",
-        "key": "Return",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "Enter",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": "ToggleFullscreen"
         }
       },
       {
-        "player": "One",
-        "key": "V",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyV",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": "ToggleVsync"
         }
       },
       {
-        "player": "One",
-        "key": "N",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "KeyN",
+        "modifiers": { "control_key": true },
         "action": {
           "Setting": "ToggleNtscFilter"
         }
       },
       {
-        "player": "One",
-        "key": "D",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyD",
+        "modifiers": { "shift_key": true },
         "action": {
           "Debug": "ToggleCpuDebugger"
         }
       },
       {
-        "player": "One",
-        "key": "P",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyP",
+        "modifiers": { "shift_key": true },
         "action": {
           "Debug": "TogglePpuDebugger"
         }
       },
       {
-        "player": "One",
-        "key": "A",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyA",
+        "modifiers": { "shift_key": true },
         "action": {
           "Debug": "ToggleApuDebugger"
         }
       },
       {
-        "player": "One",
-        "key": "C",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "KeyC",
         "action": {
           "Debug": "StepInto"
         }
       },
       {
-        "player": "One",
-        "key": "O",
-        "keymod": "NONE",
+        "controller": "One",
+        "key": "KeyO",
         "action": {
           "Debug": "StepOver"
         }
       },
       {
-        "player": "One",
-        "key": "O",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyO",
+        "modifiers": { "shift_key": true },
         "action": {
           "Debug": "StepOut"
         }
       },
       {
-        "player": "One",
-        "key": "L",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyL",
+        "modifiers": { "shift_key": true },
         "action": {
           "Debug": "StepScanline"
         }
       },
       {
-        "player": "One",
-        "key": "F",
-        "keymod": "SHIFT",
+        "controller": "One",
+        "key": "KeyF",
+        "modifiers": { "shift_key": true },
         "action": {
           "Debug": "StepFrame"
         }
       },
       {
-        "player": "One",
-        "key": "Down",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "ArrowDown",
+        "modifiers": { "control_key": true },
         "action": {
           "Debug": "IncScanline"
         }
       },
       {
-        "player": "One",
-        "key": "Up",
-        "keymod": "CTRL",
+        "controller": "One",
+        "key": "ArrowUp",
+        "modifiers": { "control_key": true },
         "action": {
           "Debug": "DecScanline"
         }
       },
       {
-        "player": "One",
-        "key": "Down",
-        "keymod": "SHIFT | CTRL",
+        "controller": "One",
+        "key": "ArrowDown",
+        "modifiers": { "shift_key": true, "control_key": true },
         "action": {
           "Debug": "IncScanline"
         }
       },
       {
-        "player": "One",
-        "key": "Up",
-        "keymod": "SHIFT | CTRL",
+        "controller": "One",
+        "key": "ArrowUp",
+        "modifiers": { "shift_key": true, "control_key": true },
         "action": {
           "Debug": "DecScanline"
         }
@@ -665,115 +627,109 @@
     ],
     "mouse": [
       {
-        "player": "Two",
+        "controller": "Two",
         "button": "Left",
         "action": "ZapperTrigger"
       }
     ],
-    "buttons": [
+    "buttons": [],
+    "_buttons": [
       {
-        "player": "One",
+        "controller": "One",
         "button": "DPadLeft",
         "action": {
           "Joypad": "Left"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "DPadRight",
         "action": {
           "Joypad": "Right"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "DPadUp",
         "action": {
           "Joypad": "Up"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "DPadDown",
         "action": {
           "Joypad": "Down"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "A",
         "action": {
           "Joypad": "A"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "B",
         "action": {
           "Joypad": "B"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "X",
         "action": {
           "Joypad": "TurboA"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "Y",
         "action": {
           "Joypad": "TurboB"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "Guide",
         "action": {
           "Menu": "Main"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "Start",
         "action": {
           "Joypad": "Start"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "Back",
         "action": {
           "Joypad": "Select"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "RightShoulder",
         "action": {
           "Setting": "IncSpeed"
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "button": "LeftShoulder",
         "action": {
           "Setting": "DecSpeed"
         }
       }
     ],
-    "axes": [
+    "axes": [],
+    "_axes": [
       {
-        "player": "One",
-        "axis": "LeftX",
-        "direction": "None",
-        "action": {
-          "ZeroAxis": ["Left", "Right"]
-        }
-      },
-      {
-        "player": "One",
+        "controller": "One",
         "axis": "LeftX",
         "direction": "Negative",
         "action": {
@@ -781,7 +737,7 @@
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "axis": "LeftX",
         "direction": "Positive",
         "action": {
@@ -789,15 +745,7 @@
         }
       },
       {
-        "player": "One",
-        "axis": "LeftY",
-        "direction": "None",
-        "action": {
-          "ZeroAxis": ["Up", "Down"]
-        }
-      },
-      {
-        "player": "One",
+        "controller": "One",
         "axis": "LeftY",
         "direction": "Negative",
         "action": {
@@ -805,7 +753,7 @@
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "axis": "LeftY",
         "direction": "Positive",
         "action": {
@@ -813,7 +761,7 @@
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "axis": "TriggerLeft",
         "direction": "Positive",
         "action": {
@@ -821,7 +769,7 @@
         }
       },
       {
-        "player": "One",
+        "controller": "One",
         "axis": "TriggerRight",
         "direction": "Positive",
         "action": {

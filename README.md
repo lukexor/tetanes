@@ -28,8 +28,8 @@ src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/tetanes.png">
 > on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
 `TetaNES` is an emulator for the Nintendo Entertainment System (NES) released in
-Japan in 1983 and North America in 1986, written using [Rust][], [SDL2][] and
-[Web Assembly][].
+Japan in 1983 and North America in 1986, written using [Rust][] with
+[Web Assembly][] support.
 
 It started as a personal curiosity that turned into a passion project. It is
 still a work-in-progress with new features and improvements constantly being added.
@@ -67,7 +67,7 @@ src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/metroid.png">
 
 ## Getting Started
 
-`TetaNES` should run on most platforms that support `Rust` and `SDL2`. Platform
+`TetaNES` should run on most platforms that support `Rust`. Platform
 binaries will be available when `1.0.0` is released, but for the time being you
 can install with `cargo` which comes installed with [Rust][].
 
@@ -236,8 +236,7 @@ command line.
 To build the project run `cargo build` or `cargo build --release` (if you want
 better framerates). There is also a optimized dev profile you can use which
 strikes a balance between build time and performance:
-`cargo build --profile dev-opt`. You may need to install SDL2 libraries, see the
-`Installation` section above for options.
+`cargo build --profile dev-opt`.
 
 Unit and integration tests can be run with `cargo test`. There are also several
 test roms that can be run to test various capabilities of the emulator. They are
@@ -374,7 +373,6 @@ When using the WASM version in the browser, also include:
   - [ ] Linux Binaries
   - [ ] Windows Binaries
 - [x] User Interface (UI)
-  - [x] SDL2
   - [x] WebAssembly (WASM) - Run TetaNES in the browser!
   - [x] Configurable keybinds and default settings
   - Menus
@@ -487,7 +485,6 @@ Also, a huge shout out to
 series as those helped a ton in some recent refactorings.
 
 [rust]: https://www.rust-lang.org/
-[sdl2]: https://www.libsdl.org/
 [web assembly]: https://webassembly.org/
 [pix-engine]: https://github.com/lukexor/pix-engine
 [github issue tracker]: https://github.com/lukexor/tetanes/issues

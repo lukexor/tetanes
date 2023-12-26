@@ -20,8 +20,6 @@ jobs:
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: ./.github/actions/install-linuxbrew
-      - uses: ./.github/actions/install-sdl2
       - name: Run release
         uses: MarcoIeni/release-plz-action@v0.5
         env:

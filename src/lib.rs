@@ -32,7 +32,7 @@
     trivial_casts,
     trivial_numeric_casts,
     unreachable_pub,
-    unused,
+    // unused,
     variant_size_differences
 )]
 #![doc(
@@ -58,6 +58,7 @@ pub mod mem;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod nes;
 pub mod ppu;
+pub mod profiling;
 pub mod video;
 
 pub type NesError = anyhow::Error;

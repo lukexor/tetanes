@@ -1,232 +1,213 @@
-use crate::{audio::filter::Filter, NesResult};
-use anyhow::anyhow;
-#[cfg(not(target_arch = "wasm32"))]
-use pix_engine::prelude::*;
-use ringbuf::{Consumer, HeapRb, Producer, SharedRb};
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::Duration;
-use std::{fmt, mem::MaybeUninit, sync::Arc};
+use crate::{audio::filter::Filter, profile, NesResult};
+use anyhow::Context;
+use chrono::Local;
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    BufferSize, SampleRate, Stream, StreamConfig,
+};
+use ringbuf::{HeapRb, Producer, SharedRb};
+use std::{
+    collections::VecDeque,
+    fmt,
+    fs::File,
+    io::{BufWriter, Write},
+    mem::MaybeUninit,
+    path::PathBuf,
+    sync::Arc,
+    thread,
+    time::Duration,
+};
 
 pub mod filter;
 pub mod window_sinc;
-
-type RbRef = Arc<SharedRb<f32, Vec<MaybeUninit<f32>>>>;
 
 pub trait Audio {
     fn output(&self) -> f32;
 }
 
-pub struct NesAudioCallback {
-    initialized: bool,
-    buffer: Consumer<f32, RbRef>,
+type AudioBuf = Arc<SharedRb<f32, Vec<MaybeUninit<f32>>>>;
+
+/// A moving average buffer.
+#[must_use]
+struct MovingAverage {
+    sum: usize,
+    values: VecDeque<usize>,
 }
 
-impl NesAudioCallback {
-    const fn new(buffer: Consumer<f32, RbRef>) -> Self {
-        Self {
-            initialized: false,
-            buffer,
+impl MovingAverage {
+    fn new(window_size: usize) -> Self {
+        MovingAverage {
+            sum: 0,
+            values: VecDeque::with_capacity(window_size),
         }
     }
 
-    #[inline]
-    pub fn clear(&mut self) {
-        self.buffer.clear();
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    pub fn read(&mut self, out: &mut [f32]) {
-        if !self.initialized && self.buffer.len() < out.len() {
-            out.fill(0.0);
-            return;
-        }
-        self.initialized = true;
-
-        for val in out {
-            if let Some(sample) = self.buffer.pop() {
-                *val = sample;
-            } else {
-                *val = 0.0;
+    fn push(&mut self, sample: usize) {
+        if self.values.len() == self.values.capacity() {
+            if let Some(old_sample) = self.values.pop_front() {
+                self.sum -= old_sample;
             }
         }
+        self.values.push_back(sample);
+        self.sum += sample;
+    }
+
+    fn average(&self) -> f32 {
+        let len = self.values.len();
+        if len == 0 {
+            0.0
+        } else {
+            self.sum as f32 / len as f32
+        }
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-impl AudioCallback for NesAudioCallback {
-    type Channel = f32;
-
-    fn callback(&mut self, out: &mut [Self::Channel]) {
-        self.read(out);
-    }
-}
-
-impl fmt::Debug for NesAudioCallback {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NesAudioCallback")
-            .field("initialized", &self.initialized)
-            .field("buffer_len", &self.buffer.len())
-            .field("buffer_capacity", &self.buffer.capacity())
-            .finish()
-    }
+#[test]
+fn moving_average() {
+    let mut average = MovingAverage::new(5);
+    average.push(1);
+    assert!(average.average() == 1.0);
+    average.push(7);
+    assert!(average.average() == 4.0);
+    average.push(7);
+    assert!(average.average() == 5.0);
+    average.push(4);
+    assert!(average.average() == 4.75);
+    average.push(10);
+    assert!(average.average() == 5.8);
+    average.push(10);
+    assert!(average.average() == 7.6);
+    average.push(10);
+    assert!(average.average() == 8.2);
 }
 
 #[must_use]
-pub struct AudioMixer {
-    #[cfg(not(target_arch = "wasm32"))]
-    device: Option<AudioDevice<NesAudioCallback>>,
-    producer: Producer<f32, RbRef>,
-    consumer: Option<Consumer<f32, RbRef>>,
+pub struct Mixer {
+    stream: Option<Stream>,
+    producer: Producer<f32, AudioBuf>,
+    // resampler: SincFixedIn<f32>,
+    // output_buffer: Vec<Vec<f32>>,
+    buffer_len_average: MovingAverage,
     input_frequency: f32,
     output_frequency: f32,
-    decim_ratio: f32,
-    pitch_ratio: f32,
+    resample_ratio: f32,
+    dynamic_rate_control_delta: Option<f32>,
+    pitch_modulation: f32,
     fraction: f32,
     avg: f32,
     count: f32,
     filters: [Filter; 3],
+    recording_file: Option<BufWriter<File>>,
 }
 
-impl AudioMixer {
-    pub fn new(input_frequency: f32, output_frequency: f32, buffer_size: usize) -> Self {
+impl Mixer {
+    /// Creates a new audio mixer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the audio device fails to be opened.
+    pub fn new(
+        input_frequency: f32,
+        output_frequency: f32,
+        buffer_size: usize,
+        dynamic_rate_control_delta: Option<f32>,
+    ) -> Self {
         let buffer = HeapRb::<f32>::new(buffer_size);
-        let (producer, consumer) = buffer.split();
+        let (producer, mut consumer) = buffer.split();
+
+        let stream = cpal::default_host()
+            .default_output_device()
+            .expect("audio device")
+            .build_output_stream(
+                &StreamConfig {
+                    channels: 1,
+                    sample_rate: SampleRate(output_frequency as u32),
+                    buffer_size: BufferSize::Fixed((buffer_size / 2) as u32),
+                },
+                move |output: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    consumer.pop_slice(output);
+                },
+                |err| eprintln!("an error occurred on stream: {err}"),
+                None,
+            );
+        if let Ok(ref stream) = stream {
+            let _ = stream.play();
+        }
+
+        let resample_ratio = input_frequency / output_frequency;
+
         Self {
-            #[cfg(not(target_arch = "wasm32"))]
-            device: None,
+            stream: stream.ok(),
             producer,
-            consumer: Some(consumer),
+            // resampler,
+            // output_buffer,
+            buffer_len_average: MovingAverage::new(32),
             input_frequency,
             output_frequency,
-            decim_ratio: input_frequency / output_frequency,
-            pitch_ratio: 1.0,
-            fraction: 0.0,
+            resample_ratio,
+            dynamic_rate_control_delta,
+            pitch_modulation: 1.0,
+            fraction: resample_ratio,
             avg: 0.0,
             count: 0.0,
             filters: [
                 Filter::high_pass(output_frequency, 90.0, 1500.0),
                 Filter::high_pass(output_frequency, 440.0, 1500.0),
-                // Should be 14k, but this allows 2X speed within the Nyquist limit
+                // NOTE: Should be 14k, but this allows 2X speed within the Nyquist limit
                 Filter::low_pass(output_frequency, 12_000.0, 1500.0),
             ],
+            recording_file: None,
         }
     }
 
-    #[must_use]
-    pub const fn output_frequency(&self) -> f32 {
-        self.output_frequency
-    }
-
-    /// Opens audio callback device for playback
+    /// Pause the audio output stream.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the audio device fails to be opened, or if
-    /// `open_playback` is called more than once.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn open_playback(&mut self, s: &mut PixState) -> NesResult<()> {
-        match self.consumer.take() {
-            Some(consumer) => {
-                let spec = AudioSpecDesired {
-                    freq: Some(self.output_frequency as i32),
-                    channels: Some(1),
-                    samples: Some((self.capacity() / 2) as u16),
-                };
-                self.device =
-                    Some(s.open_playback(None, &spec, |_| NesAudioCallback::new(consumer))?);
-                Ok(())
-            }
-            None => Err(anyhow!("can only open_playback once")),
-        }
-    }
-
-    /// Returns audio buffer device for consuming audio samples.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if `open_buffer` is called more than once.
-    pub fn open_callback(&mut self) -> NesResult<NesAudioCallback> {
-        match self.consumer.take() {
-            Some(consumer) => Ok(NesAudioCallback::new(consumer)),
-            None => Err(anyhow!("can only open_buffer exactly once")),
-        }
-    }
-
-    /// Resets the audio callback device.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the audio device fails to be opened.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn reset(&mut self, buffer_size: usize) {
-        self.decim_ratio = self.input_frequency / self.output_frequency;
-        self.pitch_ratio = 1.0;
-        self.fraction = 0.0;
-        let buffer = HeapRb::<f32>::new(buffer_size);
-        let (producer, consumer) = buffer.split();
-        self.producer = producer;
-        self.consumer = Some(consumer);
-    }
-
+    /// Returns an error if the audio device does not support pausing.
     #[inline]
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn resume(&mut self) {
-        if let Some(ref mut device) = self.device {
-            device.resume();
-        }
-    }
-
-    #[inline]
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn pause(&mut self) {
-        if let Some(ref mut device) = self.device {
-            device.pause();
-        }
+        self.stream.as_ref().map(StreamTrait::pause);
     }
 
+    /// Resume the audio output stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if audio can not be resumed.
     #[inline]
-    pub fn set_input_frequency(&mut self, input_frequency: f32) {
-        self.input_frequency = input_frequency;
+    pub fn play(&mut self) -> Option<NesResult<()>> {
+        self.stream.as_ref().map(|stream| Ok(stream.play()?))
     }
 
-    #[inline]
+    /// Change the audio output frequency. This changes the sampling ratio used during
+    /// [`Audio::process`].
     pub fn set_output_frequency(&mut self, output_frequency: f32) {
         self.output_frequency = output_frequency;
     }
 
-    #[inline]
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.producer.len()
+    /// Start recording audio to a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file can not be created.
+    pub fn start_recording(&mut self) -> NesResult<()> {
+        // TODO: Add wav format
+        let filename = PathBuf::from(
+            Local::now()
+                .format("Screen_Shot_%Y-%m-%d_at_%H_%M_%S.png")
+                .to_string(),
+        )
+        .with_extension("raw");
+        self.recording_file = Some(BufWriter::new(
+            File::create(filename).with_context(|| "failed to create audio recording")?,
+        ));
+        Ok(())
     }
 
-    #[inline]
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.producer.is_empty()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn capacity(&self) -> usize {
-        self.producer.capacity()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn pitch_ratio(&self) -> f32 {
-        self.pitch_ratio
+    /// Stop recording audio to a file.
+    pub fn stop_recording(&mut self) {
+        self.recording_file = None;
     }
 
     /// Outputs audio using multi-rate-control re-sampling.
@@ -234,21 +215,27 @@ impl AudioMixer {
     /// Sources:
     /// - <https://near.sh/articles/audio/dynamic-rate-control>
     /// - <https://github.com/libretro/docs/blob/master/archive/ratecontrol.pdf>
-    pub fn consume(
-        &mut self,
-        samples: &[f32],
-        dynamic_rate_control: bool,
-        max_delta: f32,
-    ) -> usize {
-        self.pitch_ratio = if dynamic_rate_control {
-            let size = self.producer.len() as f32;
+    pub fn process(&mut self, samples: &[f32]) {
+        profile!("audio::process");
+
+        if self.stream.is_none() {
+            return;
+        }
+
+        self.pitch_modulation = if let Some(delta) = self.dynamic_rate_control_delta {
+            self.buffer_len_average.push(self.producer.len());
             let capacity = self.producer.capacity() as f32;
-            ((capacity - 2.0 * size) / capacity).mul_add(max_delta, 1.0)
+            let average = self.buffer_len_average.average();
+            // AB / ((1 + d)AB - 2dAbc)
+            // AB: buffer capacity
+            // d: delta
+            // Abc: average buffer size which should converge to 1/2 AB
+            capacity / ((1.0 + delta) * capacity - 2.0 * delta * average)
         } else {
             1.0
         };
-        self.decim_ratio = self.input_frequency / (self.output_frequency * self.pitch_ratio);
-        let mut sample_count = 0;
+        self.resample_ratio = self.input_frequency / self.output_frequency * self.pitch_modulation;
+
         for sample in samples {
             self.avg += *sample;
             self.count += 1.0;
@@ -257,34 +244,49 @@ impl AudioMixer {
                     .filters
                     .iter_mut()
                     .fold(self.avg / self.count, |sample, filter| filter.apply(sample));
-                if self.producer.push(sample).is_err() {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        std::thread::sleep(Duration::from_micros(10));
+                loop {
+                    profile!("audio sync");
+
+                    let queued = self.producer.push(sample);
+                    match queued {
+                        Ok(()) => {
+                            if let Some(recording_file) = &mut self.recording_file {
+                                let _ = recording_file.write_all(&sample.to_le_bytes());
+                            }
+                            break;
+                        }
+                        Err(_) => {
+                            // wait for ~2 samples to be consumed
+                            thread::sleep(Duration::from_micros(50));
+                        }
                     }
                 }
                 self.avg = 0.0;
                 self.count = 0.0;
-                sample_count += 1;
-                self.fraction += self.decim_ratio;
+                self.fraction += self.resample_ratio;
             }
             self.fraction -= 1.0;
         }
-        sample_count
     }
 }
 
-impl fmt::Debug for AudioMixer {
+impl fmt::Debug for Mixer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AudioMixer")
             .field("producer_len", &self.producer.len())
             .field("producer_capacity", &self.producer.capacity())
+            .field("buffer_len_average", &self.buffer_len_average.average())
             .field("input_frequency", &self.input_frequency)
             .field("output_frequency", &self.output_frequency)
-            .field("decim_ratio", &self.decim_ratio)
-            .field("pitch_ratio", &self.pitch_ratio)
+            .field("resample_ratio", &self.resample_ratio)
+            .field(
+                "dynamic_rate_control_delta",
+                &self.dynamic_rate_control_delta,
+            )
+            .field("pitch_modulation", &self.pitch_modulation)
             .field("fraction", &self.fraction)
-            .field("filters", &self.filters)
+            // .field("filters", &self.filters)
+            .field("recording_file", &self.recording_file)
             .finish()
     }
 }

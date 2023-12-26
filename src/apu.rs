@@ -130,6 +130,7 @@ impl Apu {
 
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
+    #[inline]
     fn clock_frame_counter(&mut self) {
         let clock = self.frame_counter.clock();
 
@@ -169,6 +170,7 @@ impl Apu {
         }
     }
 
+    #[inline]
     fn clock_quarter_frame(&mut self) {
         self.pulse1.clock_quarter_frame();
         self.pulse2.clock_quarter_frame();
@@ -176,6 +178,7 @@ impl Apu {
         self.noise.clock_quarter_frame();
     }
 
+    #[inline]
     fn clock_half_frame(&mut self) {
         self.pulse1.clock_half_frame();
         self.pulse2.clock_half_frame();
@@ -342,6 +345,7 @@ impl ApuRegisters for Apu {
 }
 
 impl Audio for Apu {
+    #[inline]
     #[must_use]
     fn output(&self) -> f32 {
         let pulse1 = self.pulse1.output();
@@ -362,6 +366,7 @@ impl Audio for Apu {
 }
 
 impl Clock for Apu {
+    #[inline]
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {

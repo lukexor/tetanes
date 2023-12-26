@@ -67,6 +67,7 @@ impl MemMap for Bf909x {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
     // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
 
+    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
@@ -75,6 +76,7 @@ impl MemMap for Bf909x {
         }
     }
 
+    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         // Firehawk uses $9000 to change mirroring
         if addr == 0x9000 {
