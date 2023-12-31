@@ -8,7 +8,6 @@ use crate::{
         state::{Mode, ReplayMode},
         Nes, PauseMode,
     },
-    platform,
     video::VideoFilter,
 };
 use pixels::wgpu::Color;

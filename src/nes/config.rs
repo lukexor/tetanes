@@ -264,7 +264,7 @@ impl Default for Config {
             audio_delay_time: Duration::from_millis(if cfg!(target_arch = "wasm32") {
                 60
             } else {
-                20
+                30
             }),
             genie_codes: vec![],
             bindings,

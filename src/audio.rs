@@ -7,11 +7,14 @@ use cpal::{
 };
 use crossbeam::channel::{self, Sender, TrySendError};
 use std::{
-    collections::VecDeque,
     fmt,
     fs::File,
-    io::{BufWriter, Write},
+    io::BufWriter,
     path::PathBuf,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 use web_time::Duration;
 
@@ -22,69 +25,16 @@ pub trait Audio {
     fn output(&self) -> f32;
 }
 
-/// A moving average buffer.
-#[must_use]
-struct MovingAverage {
-    sum: usize,
-    values: VecDeque<usize>,
-}
-
-impl MovingAverage {
-    fn new(window_size: usize) -> Self {
-        MovingAverage {
-            sum: 0,
-            values: VecDeque::with_capacity(window_size),
-        }
-    }
-
-    fn push(&mut self, sample: usize) {
-        if self.values.len() == self.values.capacity() {
-            if let Some(old_sample) = self.values.pop_front() {
-                self.sum -= old_sample;
-            }
-        }
-        self.values.push_back(sample);
-        self.sum += sample;
-    }
-
-    fn average(&self) -> f32 {
-        let len = self.values.len();
-        if len == 0 {
-            0.0
-        } else {
-            self.sum as f32 / len as f32
-        }
-    }
-}
-
-#[test]
-fn moving_average() {
-    let mut average = MovingAverage::new(5);
-    average.push(1);
-    assert!(average.average() == 1.0);
-    average.push(7);
-    assert!(average.average() == 4.0);
-    average.push(7);
-    assert!(average.average() == 5.0);
-    average.push(4);
-    assert!(average.average() == 4.75);
-    average.push(10);
-    assert!(average.average() == 5.8);
-    average.push(10);
-    assert!(average.average() == 7.6);
-    average.push(10);
-    assert!(average.average() == 8.2);
-}
-
 #[must_use]
 pub struct Playback {
     stream: Stream,
-    sample_tx: Sender<f32>,
+    samples_tx: Sender<Vec<f32>>,
+    buffer_len: Arc<AtomicUsize>,
 }
 
 impl Playback {
-    pub fn new(output_frequency: f32, buffer_size: usize) -> NesResult<Self> {
-        let (sample_tx, sample_rx) = channel::bounded(buffer_size);
+    pub fn new(input_frequency: f32, output_frequency: f32, buffer_size: usize) -> NesResult<Self> {
+        let (samples_tx, samples_rx) = channel::bounded::<Vec<f32>>(100);
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -105,25 +55,72 @@ impl Playback {
             buffer_size: BufferSize::Fixed(buffer_size as u32 / 4),
         };
         log::info!("audio config: {config:?}");
+
+        let resample_ratio = input_frequency / output_frequency;
+        let mut filters = [
+            Filter::high_pass(output_frequency, 90.0, 1500.0),
+            Filter::high_pass(output_frequency, 440.0, 1500.0),
+            // NOTE: Should be 14k, but this allows 2X speed within the Nyquist limit
+            Filter::low_pass(output_frequency, 11_000.0, 1500.0),
+        ];
+        let mut avg = 0.0;
+        let mut count = 0.0;
+        let mut fraction = 0.0;
+        let buffer_len = Arc::new(AtomicUsize::new(0));
+        let mut processed_samples = Vec::with_capacity(buffer_size);
+        let stream_buffer_len = Arc::clone(&buffer_len);
         let stream = device.build_output_stream(
             &config,
             move |output: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                while let Ok(samples) = samples_rx.try_recv() {
+                    // let mut sample_count = 0;
+                    // log::info!(
+                    //     "DEBUG {:.0?}, generated samples: {}",
+                    //     web_time::Instant::now(),
+                    //     samples.len()
+                    // );
+                    for sample in &samples {
+                        avg += sample;
+                        count += 1.0;
+                        fraction -= 1.0;
+                        while fraction < 1.0 {
+                            let sample = filters
+                                .iter_mut()
+                                .fold(avg / count, |sample, filter| filter.apply(sample));
+
+                            processed_samples.push(sample);
+                            // sample_count += 1;
+                            avg = 0.0;
+                            count = 0.0;
+                            fraction += resample_ratio;
+                        }
+                    }
+                    // log::info!(
+                    //     "DEBUG {:.0?}, pushed samples: {sample_count}",
+                    //     web_time::Instant::now()
+                    // );
+                }
+
                 // log::info!(
-                //     "DEBUG {:.0}, requested samples: {}, available: {}",
-                //     platform::ms_since_epoch(),
+                //     "DEBUG {:.0?}, requested samples: {}, available: {}",
+                //     web_time::Instant::now(),
                 //     output.len(),
-                //     sample_rx.len(),
+                //     processed_samples.len(),
                 // );
-                // if let Ok(chunk) = sample_rx.try_recv() {
-                for (out, sample) in output.iter_mut().zip(sample_rx.try_iter()) {
+                let len = output.len().min(processed_samples.len());
+                for (out, sample) in output.iter_mut().zip(processed_samples.drain(..len)) {
                     *out = sample;
                 }
-                // }
+                stream_buffer_len.store(processed_samples.len(), Ordering::Release);
             },
             |err| eprintln!("an error occurred on stream: {err}"),
             None,
         )?;
-        Ok(Self { stream, sample_tx })
+        Ok(Self {
+            stream,
+            samples_tx,
+            buffer_len,
+        })
     }
 
     #[inline]
@@ -139,21 +136,19 @@ impl Playback {
     #[inline(always)]
     #[must_use]
     pub fn buffer_len(&self) -> usize {
-        self.sample_tx.len()
+        self.buffer_len.load(Ordering::Acquire)
     }
 
     #[inline(always)]
-    // pub fn push(&mut self, samples: Vec<f32>) -> Result<(), TrySendError<Vec<f32>>> {
-    pub fn push(&mut self, sample: f32) -> Result<(), TrySendError<f32>> {
-        // self.sample_tx.try_send(samples)
-        self.sample_tx.try_send(sample)
+    pub fn push(&mut self, samples: Vec<f32>) -> Result<(), TrySendError<Vec<f32>>> {
+        self.samples_tx.try_send(samples)
     }
 }
 
 impl fmt::Debug for Playback {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Playback")
-            .field("buffer_len", &self.sample_tx.len())
+            .field("buffer_len", &self.samples_tx.len())
             .finish_non_exhaustive()
     }
 }
@@ -162,16 +157,11 @@ impl fmt::Debug for Playback {
 pub struct Mixer {
     playback: Option<Playback>,
     buffer_size: usize,
-    buffer_len_average: MovingAverage,
     max_queued_time: Duration,
     input_frequency: f32,
     output_frequency: f32,
     resample_ratio: f32,
     fraction: f32,
-    avg: f32,
-    count: f32,
-    filters: [Filter; 3],
-    sample_buffer: Vec<f32>,
     recording_file: Option<BufWriter<File>>,
 }
 
@@ -186,21 +176,11 @@ impl Mixer {
         Self {
             playback: None,
             buffer_size,
-            buffer_len_average: MovingAverage::new(32),
             max_queued_time: Duration::from_secs_f64(buffer_size as f64 / output_frequency as f64),
             input_frequency,
             output_frequency,
             resample_ratio,
             fraction: resample_ratio,
-            avg: 0.0,
-            count: 0.0,
-            filters: [
-                Filter::high_pass(output_frequency, 90.0, 1500.0),
-                Filter::high_pass(output_frequency, 440.0, 1500.0),
-                // NOTE: Should be 14k, but this allows 2X speed within the Nyquist limit
-                Filter::low_pass(output_frequency, 10_000.0, 1500.0),
-            ],
-            sample_buffer: Vec::with_capacity(output_frequency as usize / 60),
             recording_file: None,
         }
     }
@@ -241,7 +221,11 @@ impl Mixer {
         match self.playback {
             Some(ref playback) => playback.play(),
             None => {
-                let playback = Playback::new(self.output_frequency, self.buffer_size)?;
+                let playback = Playback::new(
+                    self.input_frequency,
+                    self.output_frequency,
+                    self.buffer_size,
+                )?;
                 let play_result = playback.play();
                 self.playback = Some(playback);
                 play_result
@@ -254,15 +238,13 @@ impl Mixer {
     pub fn set_output_frequency(&mut self, output_frequency: f32) -> NesResult<()> {
         self.output_frequency = output_frequency;
         self.resample_ratio = self.input_frequency / output_frequency;
-        // TODO: update audio filters
-        // self.filters = [
-        //     Filter::high_pass(output_frequency, 90.0, 1500.0),
-        //     Filter::high_pass(output_frequency, 440.0, 1500.0),
-        //     Filter::low_pass(output_frequency, 10_000.0, 1500.0),
-        // ];
         // TODO: Handle changing output frequency while playing
         if self.playback.is_some() {
-            let playback = Playback::new(self.output_frequency, self.buffer_size)?;
+            let playback = Playback::new(
+                self.input_frequency,
+                self.output_frequency,
+                self.buffer_size,
+            )?;
             playback.play()?;
             self.playback = Some(playback);
         }
@@ -297,70 +279,22 @@ impl Mixer {
     pub fn process(&mut self, samples: &[f32]) {
         profile!("audio::process");
 
-        let Some(ref mut playback) = self.playback else {
-            return;
-        };
-
-        let mut sample_count = 0;
-        // log::info!(
-        //     "DEBUG {:.0}, generated samples: {}",
-        //     Instant::now(),
-        //     samples.len()
-        // );
-        for sample in samples {
-            self.avg += *sample;
-            self.count += 1.0;
-            self.fraction -= 1.0;
-            // log::info!(
-            //     "DEBUG avg: {}, count: {}, fraction: {}",
-            //     self.avg,
-            //     self.count,
-            //     self.fraction
-            // );
-            while self.fraction < 1.0 {
-                let sample = self
-                    .filters
-                    .iter_mut()
-                    .fold(self.avg / self.count, |sample, filter| filter.apply(sample));
-                // log::info!("DEBUG filtered sample: {sample}, sample_count: {sample_count}");
-
-                // self.sample_buffer.push(sample);
-                let queued = playback.push(sample);
-                match queued {
-                    Ok(()) => {
-                        sample_count += 1;
-                        // log::info!(
-                        //     "DEBUG audio queued: {}, sample_count: {sample_count}",
-                        //     playback.buffer_len()
-                        // );
-                        if let Some(recording_file) = &mut self.recording_file {
-                            let _ = recording_file.write_all(&sample.to_le_bytes());
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("failed to send audio sample: {err:?}");
-                    }
+        if let Some(ref mut playback) = self.playback {
+            // TODO: create a shared circular buffer of Vecs to avoid allocations
+            let queued = playback.push(samples.to_vec());
+            match queued {
+                Ok(()) => {
+                    // if let Some(recording_file) = &mut self.recording_file {
+                    //     for sample in &self.sample_buffer {
+                    //         let _ = recording_file.write_all(&sample.to_le_bytes());
+                    //     }
+                    // }
                 }
-                self.avg = 0.0;
-                self.count = 0.0;
-                self.fraction += self.resample_ratio;
+                Err(err) => {
+                    log::error!("failed to send audio samples: {err:?}");
+                }
             }
-        }
-        // log::info!( "DEBUG {:.0}, pushed samples: {sample_count}", Instant::now());
-        // let queued = playback.push(self.sample_buffer.clone());
-        // match queued {
-        //     Ok(()) => {
-        //         if let Some(recording_file) = &mut self.recording_file {
-        //             for sample in &self.sample_buffer {
-        //                 let _ = recording_file.write_all(&sample.to_le_bytes());
-        //             }
-        //         }
-        //         self.sample_buffer.clear();
-        //     }
-        //     Err(err) => {
-        //         log::error!("failed to send audio sample: {err:?}");
-        //     }
-        // }
+        };
     }
 }
 
@@ -369,12 +303,10 @@ impl fmt::Debug for Mixer {
         f.debug_struct("Mixer")
             .field("playback", &self.playback)
             .field("buffer_size", &self.buffer_size)
-            .field("buffer_len_average", &self.buffer_len_average.average())
             .field("input_frequency", &self.input_frequency)
             .field("output_frequency", &self.output_frequency)
             .field("resample_ratio", &self.resample_ratio)
             .field("fraction", &self.fraction)
-            // .field("filters", &self.filters)
             .field("recording_file", &self.recording_file)
             .finish()
     }
