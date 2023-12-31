@@ -1,4 +1,4 @@
-use crate::ppu::Ppu;
+use crate::{ppu::Ppu, profile};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -60,10 +60,19 @@ impl Video {
     #[must_use]
     pub fn new_frame_buffer() -> Vec<u8> {
         // Force alpha to 255.
-        [[0, 0, 0, 255]; Ppu::SIZE]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
+        let mut buffer = vec![0; Ppu::SIZE * 4];
+        buffer
+            .iter_mut()
+            .skip(3)
+            .step_by(4)
+            .for_each(|alpha| *alpha = 255);
+        buffer
+
+        // TODO: This panics in wasm with stack overflow - why? file issue
+        // [[0, 0, 0, 255]; Ppu::SIZE]
+        //     .into_iter()
+        //     .flatten()
+        //     .collect::<Vec<_>>()
     }
 
     #[inline]
@@ -87,6 +96,8 @@ impl Video {
 
     #[inline]
     pub fn decode_buffer(&mut self, buffer: &[u16], output: &mut [u8]) {
+        profile!();
+
         assert!(buffer.len() * 4 == output.len());
         for (pixel, colors) in buffer.iter().zip(output.chunks_exact_mut(4)) {
             assert!(colors.len() > 2);
@@ -104,6 +115,8 @@ impl Video {
     // http://wiki.nesdev.com/w/index.php/NTSC_video
     #[inline]
     pub fn apply_ntsc_filter(&mut self, buffer: &[u16], output: &mut [u8], frame_number: u32) {
+        profile!();
+
         assert!(buffer.len() * 4 == output.len());
         let mut prev_pixel = 0;
         for (idx, (pixel, colors)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {

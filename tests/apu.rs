@@ -1,17 +1,18 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use std::path::{Path, PathBuf};
-use tetanes::nes::NesBuilder;
+use tetanes::nes::{config::Config, Nes};
 
 const TEST_DIR: &str = "test_roms";
 
 fn test_rom_sound<P: AsRef<Path>>(rom: P, _run_frames: i32, _expected_hash: u64) {
     let rom = rom.as_ref();
+    let config = Config {
+        rom_path: PathBuf::from(TEST_DIR).join(rom),
+        ..Default::default()
+    };
     // TODO: Run control_deck and test sound output
-    NesBuilder::new()
-        .path(Some(PathBuf::from(TEST_DIR).join(rom)))
-        .build()
-        .expect("valid rom")
-        .run()
-        .expect("valid run");
+    pollster::block_on(async { Nes::run(config).await.expect("valid run") })
 }
 
 macro_rules! test_rom {

@@ -17,33 +17,68 @@
 
 #![windows_subsystem = "windows"]
 
-use std::{env, path::PathBuf};
-use structopt::StructOpt;
-use tetanes::{mem::RamState, nes::NesBuilder, NesResult};
+use tetanes::{
+    nes::{config::Config, Nes},
+    NesResult,
+};
 
 fn main() -> NesResult<()> {
-    let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
-    let _puffin_server = puffin_http::Server::new(&server_addr).unwrap();
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "info");
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        #[cfg(feature = "console_log")]
+        {
+            console_log::init_with_level(log::Level::Info).expect("error initializing logger");
+        }
+        let config = Config::load();
+        wasm_bindgen_futures::spawn_local(async { Nes::run(config).await.expect("valid run") });
     }
-    pretty_env_logger::init();
 
-    let opt = Opt::from_args();
-    NesBuilder::new()
-        .path(opt.path)
-        .replay(opt.replay)
-        .fullscreen(opt.fullscreen)
-        .ram_state(opt.ram_state)
-        .scale(opt.scale)
-        .speed(opt.speed)
-        .genie_codes(opt.genie_codes)
-        .debug(opt.debug)
-        .build()?
-        .run()
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::{env, path::PathBuf};
+        use structopt::StructOpt;
+
+        if env::var("RUST_LOG").is_err() {
+            env::set_var("RUST_LOG", "info,tetanes=debug");
+        }
+
+        pretty_env_logger::init();
+        let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+        let _puffin_server = puffin_http::Server::new(&server_addr)?;
+
+        let opt = Opt::from_args();
+        let base_config = Config::load();
+        let mut config = Config {
+            rom_path: opt
+                .path
+                .map_or_else(
+                    || {
+                        dirs::home_dir()
+                            .or_else(|| env::current_dir().ok())
+                            .unwrap_or_else(|| PathBuf::from("/"))
+                    },
+                    Into::into,
+                )
+                .canonicalize()?,
+            replay_path: opt.replay,
+            fullscreen: opt.fullscreen || base_config.fullscreen,
+            ram_state: opt.ram_state.unwrap_or(base_config.ram_state),
+            scale: opt.scale.unwrap_or(base_config.scale),
+            speed: opt.speed.unwrap_or(base_config.speed),
+            debug: opt.debug,
+            ..base_config
+        };
+        config.genie_codes.extend(opt.genie_codes);
+
+        pollster::block_on(async { Nes::run(config).await.expect("valid run") });
+    }
+
+    Ok(())
 }
 
-#[derive(StructOpt, Debug)]
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(structopt::StructOpt, Debug)]
 #[must_use]
 #[structopt(
     name = "tetanes",
@@ -56,20 +91,20 @@ struct Opt {
     #[structopt(
         help = "The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]"
     )]
-    path: Option<PathBuf>,
+    path: Option<std::path::PathBuf>,
     #[structopt(
         short = "r",
         long = "replay",
         help = "A `.replay` recording file for gameplay recording and playback."
     )]
-    replay: Option<PathBuf>,
+    replay: Option<std::path::PathBuf>,
     #[structopt(short = "f", long = "fullscreen", help = "Start fullscreen.")]
     fullscreen: bool,
     #[structopt(
         long = "ram_state",
         help = "Choose power-up RAM state: 'all_zeros', `all_ones`, `random` (default)."
     )]
-    ram_state: Option<RamState>,
+    ram_state: Option<tetanes::mem::RamState>,
     #[structopt(short = "s", long = "scale", help = "Window scale, defaults to 3.0.")]
     scale: Option<f32>,
     #[structopt(long = "speed", help = "Emulation speed, defaults to 1.0.")]

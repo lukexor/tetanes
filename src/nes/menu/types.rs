@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub(crate) enum ConfigSection {
+pub enum ConfigSection {
     General,
     Emulation,
     Audio,
@@ -11,7 +11,7 @@ pub(crate) enum ConfigSection {
 impl ConfigSection {
     #[inline]
     #[must_use]
-    pub(crate) const fn as_slice() -> &'static [Self] {
+    pub const fn as_slice() -> &'static [Self] {
         &[Self::General, Self::Emulation, Self::Audio, Self::Video]
     }
 }
@@ -28,7 +28,7 @@ impl AsRef<str> for ConfigSection {
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) enum Menu {
+pub enum Menu {
     Main,
     Config(ConfigSection),
     Keybind(Player),
@@ -38,7 +38,7 @@ pub(crate) enum Menu {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) enum Player {
+pub enum Player {
     One,
     Two,
     Three,
@@ -48,7 +48,7 @@ pub(crate) enum Player {
 impl Player {
     #[inline]
     #[must_use]
-    pub(crate) const fn as_slice() -> &'static [Self] {
+    pub const fn as_slice() -> &'static [Self] {
         &[Self::One, Self::Two, Self::Three, Self::Four]
     }
 }
@@ -76,7 +76,7 @@ impl From<usize> for Player {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) enum SampleRate {
+pub enum SampleRate {
     S32,
     S44,
     S48,
@@ -86,13 +86,13 @@ pub(crate) enum SampleRate {
 impl SampleRate {
     #[inline]
     #[must_use]
-    pub(crate) const fn as_slice() -> &'static [Self] {
+    pub const fn as_slice() -> &'static [Self] {
         &[Self::S32, Self::S44, Self::S48, Self::S96]
     }
 
     #[inline]
     #[must_use]
-    pub(crate) const fn as_f32(self) -> f32 {
+    pub const fn as_f32(self) -> f32 {
         match self {
             Self::S32 => 32000.0,
             Self::S44 => 44100.0,
@@ -136,7 +136,7 @@ impl From<f32> for SampleRate {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) enum EmuSpeed {
+pub enum EmuSpeed {
     S25,
     S50,
     S75,
@@ -150,7 +150,7 @@ pub(crate) enum EmuSpeed {
 impl EmuSpeed {
     #[inline]
     #[must_use]
-    pub(crate) const fn as_slice() -> &'static [Self] {
+    pub const fn as_slice() -> &'static [Self] {
         &[
             Self::S25,
             Self::S50,
@@ -165,7 +165,7 @@ impl EmuSpeed {
 
     #[inline]
     #[must_use]
-    pub(crate) const fn as_f32(self) -> f32 {
+    pub const fn as_f32(self) -> f32 {
         match self {
             Self::S25 => 0.25,
             Self::S50 => 0.50,

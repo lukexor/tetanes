@@ -2,9 +2,7 @@ use crate::{NesError, NesResult};
 use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
-use std::fmt::Write;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::{Path, PathBuf};
+use std::{fmt::Write, path::PathBuf};
 
 pub const CONFIG_DIR: &str = ".config/tetanes";
 pub const SAVE_DIR: &str = "save";
@@ -20,8 +18,27 @@ pub enum NesRegion {
 }
 
 impl NesRegion {
+    #[inline]
     pub const fn as_slice() -> &'static [Self] {
         &[NesRegion::Ntsc, NesRegion::Pal, NesRegion::Dendy]
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn is_ntsc(&self) -> bool {
+        matches!(self, Self::Ntsc)
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn is_pal(&self) -> bool {
+        matches!(self, Self::Pal)
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn is_dendy(&self) -> bool {
+        matches!(self, Self::Dendy)
     }
 }
 
@@ -102,6 +119,11 @@ macro_rules! hashmap {
     });
 }
 
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn config_dir() -> PathBuf {
+    PathBuf::from("./")
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn config_dir() -> PathBuf {
     dirs::home_dir()
@@ -110,7 +132,7 @@ pub(crate) fn config_dir() -> PathBuf {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn config_path<P: AsRef<Path>>(path: P) -> PathBuf {
+pub(crate) fn config_path<P: AsRef<std::path::Path>>(path: P) -> PathBuf {
     config_dir().join(path)
 }
 
@@ -169,7 +191,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
     output
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     use super::*;
     use crate::{

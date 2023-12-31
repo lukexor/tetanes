@@ -1,6 +1,6 @@
+#![allow(dead_code, unused)]
 use crate::{
     nes::{
-        filesystem::is_nes_rom,
         menu::types::{ConfigSection, EmuSpeed, SampleRate},
         Mode, Nes,
     },
@@ -12,8 +12,8 @@ use std::{
     path::{Component, PathBuf},
 };
 
-pub(crate) mod types;
-pub(crate) use types::{Menu, Player};
+pub mod types;
+pub use types::{Menu, Player};
 
 #[cfg(not(target_os = "windows"))]
 const PARENT_DIR: &str = "../";
@@ -187,20 +187,6 @@ impl Nes {
             //     audio.reset(self.config.audio_buffer_size);
             //     audio.open_playback(s)?;
             // }
-
-            // s.checkbox(
-            //     "Dynamic Rate Control",
-            //     &mut self.config.dynamic_rate_control,
-            // )?;
-            if self.config.dynamic_rate_control {
-                // s.next_width(200);
-                // s.slider(
-                //     "Dynamic Rate Delta",
-                //     &mut self.config.dynamic_rate_delta,
-                //     0.001,
-                //     0.1,
-                // )?;
-            }
 
             let deck = &mut self.control_deck;
             // s.collapsing_tree("Channels", |s: &mut PixState| {
@@ -410,9 +396,9 @@ impl Nes {
         //         self.update_paths();
         //     }
         // }
-        if !is_nes_rom(path) {
-            // s.disable(true);
-        }
+        // if !filesystem::is_nes_rom(path) {
+        // s.disable(true);
+        // }
         // if s.dbl_clicked() || s.button("Open")? {
         //     self.config.rom_path = path;
         //     self.selected_path = 0;

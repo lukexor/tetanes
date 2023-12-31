@@ -1,0 +1,84 @@
+[env]
+VERSION = { script = [
+  "awk -F ' = ' '$1 ~ /version/ { gsub(/[\\\"]/, \"\", $2); printf(\"%s\",$2) }' Cargo.toml",
+] }
+
+[env.development]
+RUST_LOG = "info,tetanes=debug"
+
+[env.production]
+RUST_LOG = "info"
+
+[tasks.default]
+alias = "run"
+
+[tasks.version]
+description = "Print the crate version"
+category = "Tools"
+workspace = false
+script = ["echo Version: ${VERSION}"]
+
+[tasks.clean]
+description = "Clean up build artifacts"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["clean"]
+
+[tasks.lint]
+description = "Lint with clippy"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["clippy"]
+
+[tasks.build]
+description = "Build TetaNES"
+category = "Build"
+workspace = false
+command = "cargo"
+args = ["build", "--release", "-p", "tetanes"]
+
+[tasks.run]
+description = "Run TetaNES in release mode"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["run", "--release", "-p", "tetanes"]
+
+[tasks.dev]
+description = "Run TetaNES in development mode"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["run", "--profile", "dev-opt", "-p", "tetanes"]
+
+[tasks.install-web-deps]
+description = "Install wasm target"
+workspace = false
+command = "rustup"
+args = ["target", "add", "wasm32-unknown-unknown"]
+
+[tasks.build-web]
+description = "Build TetaNES Web"
+category = "Build"
+workspace = false
+command = "cargo"
+args = ["run-wasm", "--release", "--build-only", "--profile", "web", "-p", "tetanes", "--no-default-features"]
+dependencies = ["install-web-deps"]
+
+[tasks.run-web]
+description = "Run TetaNES Web in release mode"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["watch", "-s", "cargo run-wasm --profile web -p tetanes --no-default-features"]
+dependencies = ["install-web-deps"]
+
+[tasks.dev-web]
+description = "Run TetaNES Web in development mode"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["watch", "-s", "cargo run-wasm --profile dev-opt -p tetanes --features console_log"]
+dependencies = ["install-web-deps"]

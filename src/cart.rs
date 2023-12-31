@@ -162,8 +162,8 @@ impl Cart {
             _ => bail!("unimplemented mapper: {}", cart.header.mapper_num),
         };
 
-        log::info!("Loaded `{}`", cart);
-        log::debug!("{:?}", cart);
+        log::info!("loaded ROM `{cart}`");
+        log::debug!("{cart:?}");
         Ok(cart)
     }
 

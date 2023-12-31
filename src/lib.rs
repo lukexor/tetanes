@@ -6,7 +6,7 @@
     clippy::map_unwrap_or,
     clippy::match_wildcard_for_single_variants,
     clippy::missing_const_for_fn,
-    clippy::missing_errors_doc,
+    // clippy::missing_errors_doc,
     clippy::must_use_candidate,
     clippy::needless_for_each,
     clippy::redundant_closure_for_method_calls,
@@ -40,23 +40,21 @@
     html_logo_url = "https://github.com/lukexor/tetanes/blob/main/static/tetanes_icon.png?raw=true"
 )]
 
-pub mod audio;
-pub mod genie;
-
 pub mod apu;
+pub mod audio;
 pub mod bus;
 pub mod cart;
 #[macro_use]
 pub mod common;
 pub mod control_deck;
 pub mod cpu;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod debugger;
+pub mod genie;
 pub mod input;
 pub mod mapper;
 pub mod mem;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod nes;
+pub mod platform;
 pub mod ppu;
 pub mod profiling;
 pub mod video;

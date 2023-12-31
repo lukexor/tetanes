@@ -1,7 +1,7 @@
 # Config JSON
 
-Configuration for `TetaNES` is stored in `config.json` with defaults that can be
-customized in the `TetaNES` config menu.
+Configuration for `TetaNES` is stored in `~/.config/tetanes/config.json` with
+defaults that can be customized in the `TetaNES` config menu.
 
 ## Bindings
 
@@ -13,11 +13,11 @@ A `keys` array with the following values:
   `Three`, or `Four`).
 - `key`: A string that maps to a `pix_engine::prelude::Key` variant.
 - `keymod`: A number that maps to a `pix_engine::prelude::KeyMod` constant:
-  - `NONE`: `0`
-  - `SHIFT`: `1`,
-  - `CTRL`: `64`,
-  - `ALT`: `256`,
-  - `GUI`: `1024`,
+  - `NONE`: `-1`
+  - `SHIFT`: `0`,
+  - `CTRL`: `63`,
+  - `ALT`: `255`,
+  - `GUI`: `1023`,
 - `action`: An object that maps to an `nes::Action` variant. e.g.
   `{ "Joypad": "Left" } }`
 

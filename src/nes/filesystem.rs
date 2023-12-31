@@ -1,17 +1,23 @@
 use super::{Nes, NesResult};
-use crate::{audio::Mixer, cart::NesHeader, common::Regional, nes::Mode};
-use anyhow::{anyhow, Context};
+use crate::{
+    audio::Mixer,
+    common::Regional,
+    nes::{menu::Menu, state::Mode, PauseMode},
+};
+use anyhow::Context;
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use std::{
     ffi::OsStr,
-    fs::{self, File},
-    io::{BufReader, BufWriter, Read, Write},
+    fs::File,
+    io::{BufReader, Read, Write},
     path::Path,
 };
-use winit::window::Window;
 
+#[cfg(not(target_arch = "wasm32"))]
 const SAVE_FILE_MAGIC_LEN: usize = 8;
+#[cfg(not(target_arch = "wasm32"))]
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
+#[cfg(not(target_arch = "wasm32"))]
 const MAJOR_VERSION: &str = env!("CARGO_PKG_VERSION_MAJOR");
 
 /// Writes a header including a magic string and a version
@@ -19,6 +25,7 @@ const MAJOR_VERSION: &str = env!("CARGO_PKG_VERSION_MAJOR");
 /// # Errors
 ///
 /// If the header fails to write to disk, then an error is returned.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn write_save_header<F: Write>(f: &mut F) -> NesResult<()> {
     f.write_all(&SAVE_FILE_MAGIC)?;
     f.write_all(MAJOR_VERSION.as_bytes())?;
@@ -30,7 +37,10 @@ pub(crate) fn write_save_header<F: Write>(f: &mut F) -> NesResult<()> {
 /// # Errors
 ///
 /// If the header fails to validate, then an error is returned.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn validate_save_header<F: Read>(f: &mut F) -> NesResult<()> {
+    use anyhow::anyhow;
+
     let mut magic = [0u8; SAVE_FILE_MAGIC_LEN];
     f.read_exact(&mut magic)?;
     if magic == SAVE_FILE_MAGIC {
@@ -67,14 +77,26 @@ pub(crate) fn decode_data(data: &[u8]) -> NesResult<Vec<u8>> {
     Ok(decoded)
 }
 
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn save_data<P>(_path: P, _data: &[u8]) -> NesResult<()>
+where
+    P: AsRef<Path>,
+{
+    // TODO: provide file download?
+    anyhow::bail!("not implemented")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn save_data<P>(path: P, data: &[u8]) -> NesResult<()>
 where
     P: AsRef<Path>,
 {
+    use std::io::BufWriter;
+
     let path = path.as_ref();
     let directory = path.parent().expect("can not save to root path");
     if !directory.exists() {
-        fs::create_dir_all(directory)
+        std::fs::create_dir_all(directory)
             .with_context(|| format!("failed to create directory {directory:?}"))?;
     }
 
@@ -108,6 +130,16 @@ where
     Ok(())
 }
 
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn load_data<P>(_path: P) -> NesResult<Vec<u8>>
+where
+    P: AsRef<Path>,
+{
+    // TODO: provide file upload?
+    anyhow::bail!("not implemented")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn load_data<P>(path: P) -> NesResult<Vec<u8>>
 where
     P: AsRef<Path>,
@@ -128,93 +160,145 @@ where
     Ok(bytes)
 }
 
-pub(crate) fn is_nes_rom(path: impl AsRef<Path>) -> bool {
-    NesHeader::from_path(path.as_ref()).is_ok()
+#[inline]
+pub(crate) fn filename(path: &Path) -> &str {
+    path.file_name().and_then(OsStr::to_str).unwrap_or_else(|| {
+        log::warn!("invalid rom_path: {path:?}");
+        "??"
+    })
 }
 
 impl Nes {
-    #[inline]
-    pub(crate) fn rom_filename(&self) -> &str {
-        self.config
-            .rom_path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or_else(|| {
-                log::warn!("invalid rom_path: {:?}", self.config.rom_path);
-                ""
-            })
-    }
+    pub fn initialize(
+        &mut self,
+        #[cfg(target_arch = "wasm32")] event_loop_tx: crossbeam::channel::Sender<
+            super::EventLoopMsg,
+        >,
+    ) {
+        // Configure emulation based on config
+        self.update_frame_rate();
 
-    /// Loads a ROM cartridge into memory
-    pub(crate) fn load_rom(&mut self, w: &mut Window) -> NesResult<()> {
-        if self.config.rom_path.is_dir() {
-            // self.mode = Mode::InMenu(Menu::LoadRom);
-            return Ok(());
-        } else if let Err(err) = NesHeader::from_path(&self.config.rom_path) {
-            log::error!("{:?}: {:?}", self.config.rom_path, err);
-            self.error = Some(format!("Invalid NES ROM {:?}", self.rom_filename()));
-            return Ok(());
+        if self.config.zapper {
+            self.window.set_cursor_visible(false);
         }
 
-        self.error = None;
-        self.mode = Mode::Paused;
-        self.audio.pause();
-        let rom = match File::open(&self.config.rom_path)
-            .with_context(|| format!("failed to open rom {:?}", self.config.rom_path))
-        {
-            Ok(rom) => rom,
-            Err(err) => {
-                log::error!("{:?}: {:?}", self.config.rom_path, err);
-                // self.mode = Mode::InMenu(Menu::LoadRom);
-                self.error = Some(format!("Failed to open ROM {:?}", self.rom_filename()));
-                return Ok(());
+        for code in self.config.genie_codes.clone() {
+            if let Err(err) = self.control_deck.add_genie_code(code.clone()) {
+                log::warn!("{}", err);
+                self.add_message(format!("Invalid Genie Code: '{code}'"));
             }
-        };
-        let name = self
-            .config
-            .rom_path
-            .file_name()
-            .map_or_else(|| "unknown".into(), OsStr::to_string_lossy);
+        }
 
-        w.set_title(&name.replace(".nes", ""));
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.config.rom_path.is_dir() {
+            self.mode = Mode::InMenu(Menu::LoadRom);
+        } else {
+            self.load_rom_path(self.config.rom_path.clone());
+        }
 
-        let mut rom = BufReader::new(rom);
-        match self.control_deck.load_rom(&name, &mut rom) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use super::EventLoopMsg;
+            use wasm_bindgen::{closure::Closure, JsCast};
+
+            web_sys::window()
+                .and_then(|win| win.document())
+                .and_then(|doc| doc.body().map(|body| (doc, body)))
+                .map(|(doc, body)| {
+                    let load_rom_tx = event_loop_tx.clone();
+                    let handle_load_rom = Closure::<dyn Fn()>::new(move || {
+                        if let Err(err) = load_rom_tx.send(EventLoopMsg::LoadRom) {
+                            log::error!("failed to send load rom message to event_loop: {err:?}");
+                        }
+                    });
+
+                    let load_rom_btn = doc.create_element("button").expect("created button");
+                    load_rom_btn.set_text_content(Some("Load ROM"));
+                    load_rom_btn
+                        .add_event_listener_with_callback(
+                            "click",
+                            handle_load_rom.as_ref().unchecked_ref(),
+                        )
+                        .expect("added event listener");
+                    body.append_child(&load_rom_btn).ok();
+                    handle_load_rom.forget();
+
+                    let pause_tx = event_loop_tx.clone();
+                    let handle_pause = Closure::<dyn Fn()>::new(move || {
+                        if let Err(err) = pause_tx.send(EventLoopMsg::Pause) {
+                            log::error!("failed to send pause message to event_loop: {err:?}");
+                        }
+                    });
+
+                    let pause_btn = doc.create_element("button").expect("created button");
+                    pause_btn.set_text_content(Some("Pause"));
+                    pause_btn
+                        .add_event_listener_with_callback(
+                            "click",
+                            handle_pause.as_ref().unchecked_ref(),
+                        )
+                        .expect("added event listener");
+                    body.append_child(&pause_btn).ok();
+                    handle_pause.forget();
+                })
+                .expect("couldn't append canvas to document body");
+        }
+    }
+
+    /// Loads a ROM cartridge into memory from a path.
+    pub fn load_rom_path(&mut self, path: impl AsRef<Path>) {
+        let path = path.as_ref();
+        let filename = filename(path);
+        match File::open(path).with_context(|| format!("failed to open rom {path:?}")) {
+            Ok(mut rom) => self.load_rom(filename, &mut rom),
+            Err(err) => {
+                log::error!("{path:?}: {err:?}");
+                self.mode = Mode::InMenu(Menu::LoadRom);
+                self.error = Some(format!("Failed to open ROM {filename:?}"));
+            }
+        }
+    }
+
+    /// Loads a ROM cartridge into memory from a reader.
+    #[inline]
+    pub fn load_rom(&mut self, filename: &str, rom: &mut impl Read) {
+        self.pause_play(PauseMode::Manual);
+        match self.control_deck.load_rom(filename, rom) {
             Ok(()) => {
+                self.error = None;
+                self.window.set_title(&filename.replace(".nes", ""));
                 self.config.region = self.control_deck.region();
                 self.audio = Mixer::new(
                     self.control_deck.sample_rate(),
                     self.config.audio_sample_rate / self.config.speed,
                     self.config.audio_buffer_size,
-                    self.config
-                        .dynamic_rate_control
-                        .then_some(self.config.dynamic_rate_delta),
                 );
-                self.audio.play();
                 if let Err(err) = self.load_sram() {
                     log::error!("{:?}: {:?}", self.config.rom_path, err);
                     self.add_message("Failed to load game state");
                 }
-                self.mode = Mode::Playing;
+                self.resume_play();
             }
             Err(err) => {
                 log::error!("{:?}, {:?}", self.config.rom_path, err);
-                // self.mode = Mode::InMenu(Menu::LoadRom);
-                self.error = Some(format!("Failed to load ROM {:?}", self.rom_filename()));
+                self.mode = Mode::InMenu(Menu::LoadRom);
+                self.error = Some(format!("Failed to load ROM {filename:?}"));
             }
         }
 
-        if let Ok(path) = self.save_path(1) {
-            if path.exists() {
-                self.load_state(1);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Ok(path) = self.save_path(1) {
+                if path.exists() {
+                    self.load_state(1);
+                }
             }
+            self.load_replay();
         }
-        self.load_replay();
-
-        Ok(())
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests {
     use super::*;

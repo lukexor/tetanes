@@ -41,45 +41,45 @@ impl PpuStatus {
         Self::from_bits_truncate(0x00)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn write(&mut self, val: u8) {
         *self = Self::from_bits_truncate(val);
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn read(&self) -> u8 {
         self.bits()
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn set_spr_overflow(&mut self, val: bool) {
         self.set(Self::SPR_OVERFLOW, val);
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn spr_zero_hit(&self) -> bool {
         self.contains(Self::SPR_ZERO_HIT)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn set_spr_zero_hit(&mut self, val: bool) {
         self.set(Self::SPR_ZERO_HIT, val);
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn in_vblank(&self) -> bool {
         self.contains(Self::VBLANK_STARTED)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn set_in_vblank(&mut self, val: bool) {
         self.set(Self::VBLANK_STARTED, val);
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn reset_in_vblank(&mut self) {
         self.remove(Self::VBLANK_STARTED);
     }

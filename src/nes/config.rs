@@ -1,104 +1,81 @@
 use crate::{
-    common::{config_dir, config_path, NesRegion},
+    common::NesRegion,
     input::FourPlayer,
     mem::RamState,
     nes::{
-        event::{Input, InputBindings, InputMapping},
+        event::{Action, Input, InputBindings, InputMapping},
         Nes,
     },
     ppu::Ppu,
     video::VideoFilter,
-    NesResult,
 };
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::{self, File},
-    io::{BufReader, BufWriter},
-    path::PathBuf,
-};
+use std::{path::PathBuf, time::Duration};
 
-pub(crate) const CONFIG: &str = "config.json";
-const DEFAULT_CONFIG: &[u8] = include_bytes!("../../config/config.json");
+pub const WINDOW_TITLE: &str = "TetaNES";
 const MIN_SPEED: f32 = 0.25; // 25% - 15 Hz
 const MAX_SPEED: f32 = 2.0; // 200% - 120 Hz
 const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
 const WINDOW_WIDTH_PAL: f32 = Ppu::WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
 const WINDOW_HEIGHT_NTSC: f32 = Ppu::HEIGHT as f32 - 16.0; // NTSC trims top bottom and 8 scanlines
 const WINDOW_HEIGHT_PAL: f32 = Ppu::HEIGHT as f32;
+pub const FRAME_TRIM_PITCH: usize = (4 * Ppu::WIDTH * 8) as usize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 /// NES emulation configuration settings.
-pub(crate) struct Config {
-    pub(crate) rom_path: PathBuf,
-    pub(crate) show_hidden_files: bool,
-    pub(crate) pause_in_bg: bool,
-    pub(crate) sound: bool,
-    pub(crate) debug: bool,
-    pub(crate) save_on_exit: bool,
-    pub(crate) fullscreen: bool,
-    pub(crate) vsync: bool,
-    pub(crate) filter: VideoFilter,
-    pub(crate) concurrent_dpad: bool,
-    pub(crate) region: NesRegion,
-    pub(crate) ram_state: RamState,
-    pub(crate) save_slot: u8,
-    pub(crate) scale: f32,
-    pub(crate) speed: f32,
-    pub(crate) rewind: bool,
-    pub(crate) rewind_frames: u32,
-    pub(crate) rewind_buffer_size: usize,
-    pub(crate) four_player: FourPlayer,
-    pub(crate) zapper: bool,
-    pub(crate) controller_deadzone: f64,
-    pub(crate) audio_sample_rate: f32,
-    pub(crate) audio_buffer_size: usize,
-    pub(crate) dynamic_rate_control: bool,
-    pub(crate) dynamic_rate_delta: f32,
-    pub(crate) genie_codes: Vec<String>,
-    pub(crate) bindings: InputBindings,
+pub struct Config {
+    pub rom_path: PathBuf,
+    pub show_hidden_files: bool,
+    pub pause_in_bg: bool,
+    pub sound: bool,
+    pub debug: bool,
+    pub save_on_exit: bool,
+    pub fullscreen: bool,
+    pub vsync: bool,
+    pub filter: VideoFilter,
+    pub concurrent_dpad: bool,
+    pub region: NesRegion,
+    pub frame_rate: f64,
     #[serde(skip)]
-    pub(crate) input_map: InputMapping,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            rom_path: PathBuf::from("./"),
-            show_hidden_files: false,
-            pause_in_bg: true,
-            sound: true,
-            debug: false,
-            save_on_exit: true,
-            fullscreen: false,
-            vsync: true,
-            filter: VideoFilter::default(),
-            concurrent_dpad: false,
-            region: NesRegion::default(),
-            ram_state: RamState::default(),
-            save_slot: 1,
-            scale: 3.0,
-            speed: 1.0,
-            rewind: false,
-            rewind_frames: 2,
-            rewind_buffer_size: 20,
-            four_player: FourPlayer::default(),
-            zapper: false,
-            controller_deadzone: 0.5,
-            audio_sample_rate: 44_100.0,
-            audio_buffer_size: 4096,
-            dynamic_rate_control: true,
-            dynamic_rate_delta: 0.005,
-            genie_codes: vec![],
-            bindings: InputBindings::default(),
-            input_map: InputMapping::default(),
-        }
-    }
+    pub frame_time: Duration,
+    pub ram_state: RamState,
+    pub save_slot: u8,
+    pub scale: f32,
+    pub speed: f32,
+    pub replay_path: Option<PathBuf>,
+    pub rewind: bool,
+    pub rewind_frames: u32,
+    pub rewind_buffer_size: usize,
+    pub four_player: FourPlayer,
+    pub zapper: bool,
+    pub controller_deadzone: f64,
+    pub audio_sample_rate: f32,
+    pub audio_buffer_size: usize,
+    pub audio_delay_time: Duration,
+    pub genie_codes: Vec<String>,
+    pub bindings: InputBindings,
+    #[serde(skip)]
+    pub input_map: InputMapping,
 }
 
 impl Config {
-    pub(crate) fn load() -> Self {
+    #[cfg(not(target_arch = "wasm32"))]
+    const FILENAME: &'static str = "config.json";
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load() -> Self {
+        // TODO: Load from local storage?
+        Self::default()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load() -> Self {
+        use crate::common::{config_dir, config_path};
+        use anyhow::Context;
+        use std::fs::{self, File};
+
         let config_dir = config_dir();
         if !config_dir.exists() {
             if let Err(err) =
@@ -107,71 +84,46 @@ impl Config {
                 log::error!("{:?}", err);
             }
         }
-        let config_path = config_path(CONFIG);
+        let config_path = config_path(Self::FILENAME);
         if !config_path.exists() {
-            if let Err(err) =
-                fs::write(&config_path, DEFAULT_CONFIG).context("failed to create default config")
+            if let Err(err) = fs::write(
+                &config_path,
+                serde_json::to_string(&Self::default()).expect("valid default config"),
+            )
+            .context("failed to create default config")
             {
                 log::error!("{:?}", err);
             }
         }
-
         let mut config = File::open(&config_path)
             .with_context(|| format!("failed to open {config_path:?}"))
-            .and_then(|file| Ok(serde_json::from_reader::<_, Config>(BufReader::new(file))?))
-            .or_else(|err| {
+            .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
+            .with_context(|| format!("failed to parse {config_path:?}"))
+            .unwrap_or_else(|err| {
                 log::error!(
                     "Invalid config: {config_path:?}, reverting to defaults. Error: {err:?}",
                 );
-                serde_json::from_reader(DEFAULT_CONFIG)
-            })
-            .with_context(|| format!("failed to parse {config_path:?}"))
-            .expect("valid configuration");
+                Self::default()
+            });
 
-        for bind in &config.bindings.keys {
-            config.input_map.insert(
-                Input::Key((
-                    bind.controller,
-                    bind.key,
-                    bind.modifiers.unwrap_or_default(),
-                )),
-                bind.action,
-            );
-        }
-        for bind in &config.bindings.mouse {
-            config
-                .input_map
-                .insert(Input::Mouse((bind.controller, bind.button)), bind.action);
-        }
-        // TODO: controller support
-        // for bind in &config.bindings.buttons {
-        //     config
-        //         .input_map
-        //         .insert(Input::Button((bind.controller, bind.button)), bind.action);
-        // }
-        // for bind in &config.bindings.axes {
-        //     config.input_map.insert(
-        //         Input::Axis((bind.controller, bind.axis, bind.direction)),
-        //         bind.action,
-        //     );
-        // }
+        config.input_map = InputMapping::from_bindings(&config.bindings);
 
         config
     }
 
-    // TODO: add binding
-    // pub(crate) fn add_binding(&mut self, input: Input, action: Action) {
-    //     self.input_map.insert(input, action);
-    //     self.bindings.update_from_map(&self.input_map);
-    // }
+    pub fn set_binding(&mut self, input: Input, action: Action) {
+        self.input_map.insert(input, action);
+        self.bindings.set(input, action);
+    }
 
-    // TODO: remove binding
-    // pub(crate) fn remove_binding(&mut self, input: Input) {
-    //     self.input_map.remove(&input);
-    //     self.bindings.update_from_map(&self.input_map);
-    // }
+    pub fn unset_binding(&mut self, input: Input) {
+        self.input_map.remove(&input);
+        self.bindings.unset(input);
+    }
 
-    pub(crate) fn get_dimensions(&self) -> (u32, u32) {
+    #[inline]
+    #[must_use]
+    pub fn get_dimensions(&self) -> (u32, u32) {
         let (width, height) = match self.region {
             NesRegion::Ntsc => (WINDOW_WIDTH_NTSC, WINDOW_HEIGHT_NTSC),
             NesRegion::Pal | NesRegion::Dendy => (WINDOW_WIDTH_PAL, WINDOW_HEIGHT_PAL),
@@ -181,12 +133,22 @@ impl Config {
 }
 
 impl Nes {
-    pub(crate) fn save_config(&mut self) {
-        let path = config_path(CONFIG);
+    #[cfg(target_arch = "wasm32")]
+    pub fn save_config(&mut self) {
+        // TODO: Save to local storage
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save_config(&mut self) {
+        use crate::common::config_path;
+        use anyhow::Context;
+        use std::fs::File;
+
+        let path = config_path(Config::FILENAME);
         match File::create(&path)
             .with_context(|| format!("failed to open {path:?}"))
             .and_then(|file| {
-                serde_json::to_writer_pretty(BufWriter::new(file), &self.config)
+                serde_json::to_writer_pretty(file, &self.config)
                     .context("failed to serialize config")
             }) {
             Ok(_) => log::info!("Saved configuration"),
@@ -197,7 +159,7 @@ impl Nes {
         }
     }
 
-    pub(crate) fn set_scale(&mut self, scale: f32) {
+    pub fn set_scale(&mut self, scale: f32) {
         self.config.scale = scale;
         // TODO: switch to egui
         // let (font_size, fpad, ipad) = match scale as usize {
@@ -211,34 +173,102 @@ impl Nes {
         // s.theme_mut().spacing.item_pad = point!(ipad, ipad);
     }
 
-    pub(crate) fn change_speed(&mut self, delta: f32) {
+    pub fn change_speed(&mut self, delta: f32) {
         self.config.speed = (self.config.speed + delta).clamp(MIN_SPEED, MAX_SPEED);
         self.set_speed(self.config.speed);
     }
 
-    pub(crate) fn set_speed(&mut self, speed: f32) {
+    pub fn set_speed(&mut self, speed: f32) {
         self.config.speed = speed;
-        self.audio
-            .set_output_frequency(self.config.audio_sample_rate / self.config.speed);
+        if let Err(err) = self
+            .audio
+            .set_output_frequency(self.config.audio_sample_rate / speed)
+        {
+            log::error!("failed to set speed to {speed}: {err:?}");
+        }
     }
 
-    pub(crate) fn update_frame_rate(&mut self) -> NesResult<()> {
-        // TODO: switch frame_rate
-        // match self.config.region {
-        //     NesRegion::Ntsc => s.frame_rate(60),
-        //     NesRegion::Pal => s.frame_rate(50),
-        //     NesRegion::Dendy => s.frame_rate(59),
-        // }
-        // log::debug!(
-        //     "Updated NES Region and frame rate: {:?}, {:?}",
-        //     self.config.region,
-        //     s.target_frame_rate()
-        // );
-        // TODO: Should actually check current screen refresh rate here instead of region
-        if self.config.vsync && self.config.region != NesRegion::Ntsc {
-            // TODO: switch vsync
-            // s.vsync(false)?;
+    /// Updates the frame rate and vsync settings based on NES region.
+    pub fn update_frame_rate(&mut self) {
+        match self.config.region {
+            NesRegion::Ntsc => self.config.frame_rate = 60.0,
+            NesRegion::Pal => self.config.frame_rate = 50.0,
+            NesRegion::Dendy => self.config.frame_rate = 59.0,
         }
-        Ok(())
+        self.config.frame_time = Duration::from_secs_f64(self.config.frame_rate.recip());
+        log::debug!(
+            "Updated NES Region and emulated frame rate: {:?} ({:?}Hz)",
+            self.config.region,
+            self.config.frame_rate,
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_vsync(&mut self, _enabled: bool) {
+        // TODO: feature not released yet: https://github.com/parasyte/pixels/pull/373
+        self.add_message("Vsync toggling currently not supported");
+        // self.config.vsync = enabled;
+        // if self.config.vsync {
+        //     use crate::nes::RenderMainMsg;
+        //     if let Err(err) = self
+        //         .render_main_tx
+        //         .send(RenderMainMsg::SetVsync(self.config.vsync))
+        //     {
+        //         log::error!("failed to send vsync message to render_main: {err:?}");
+        //     }
+        //     self.add_message("Vsync Enabled");
+        // } else {
+        //     self.add_message("Vsync Disabled");
+        // }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let frame_rate = 60.0;
+        let bindings = InputBindings::default();
+        let input_map = InputMapping::from_bindings(&bindings);
+        Self {
+            rom_path: PathBuf::from("./"),
+            show_hidden_files: false,
+            pause_in_bg: true,
+            sound: true,
+            debug: false,
+            save_on_exit: false, // FIXME: only for debugging
+            fullscreen: false,
+            vsync: true,
+            filter: VideoFilter::default(),
+            concurrent_dpad: false,
+            region: NesRegion::default(),
+            frame_rate,
+            frame_time: Duration::from_secs_f64(frame_rate.recip()),
+            ram_state: RamState::Random,
+            save_slot: 1,
+            scale: 3.0,
+            speed: 1.0,
+            replay_path: None,
+            rewind: false,
+            rewind_frames: 2,
+            rewind_buffer_size: 20,
+            four_player: FourPlayer::default(),
+            zapper: false,
+            controller_deadzone: 0.5,
+            // 44100 is less CPU intensive than 48000 and not noticeably different, but still let
+            // the user configure it
+            audio_sample_rate: 44_100.0,
+            audio_buffer_size: if cfg!(target_arch = "wasm32") {
+                8192
+            } else {
+                4096
+            },
+            audio_delay_time: Duration::from_millis(if cfg!(target_arch = "wasm32") {
+                60
+            } else {
+                20
+            }),
+            genie_codes: vec![],
+            bindings,
+            input_map,
+        }
     }
 }

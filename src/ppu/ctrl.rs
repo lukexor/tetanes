@@ -41,12 +41,12 @@ impl PpuCtrl {
         Self::from_bits_truncate(0x00)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn write(&mut self, val: u8) {
         *self = Self::from_bits_truncate(val);
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub fn nametable_addr(&self) -> u16 {
         match self.bits() & 0b11 {
@@ -58,7 +58,7 @@ impl PpuCtrl {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn vram_increment(&self) -> u16 {
         if self.contains(Self::VRAM_INCREMENT) {
@@ -68,7 +68,7 @@ impl PpuCtrl {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn spr_select(&self) -> u16 {
         if self.contains(Self::SPR_SELECT) {
@@ -78,7 +78,7 @@ impl PpuCtrl {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn bg_select(&self) -> u16 {
         if self.contains(Self::BG_SELECT) {
@@ -88,7 +88,7 @@ impl PpuCtrl {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn spr_height(&self) -> u32 {
         if self.contains(Self::SPR_HEIGHT) {
@@ -98,7 +98,7 @@ impl PpuCtrl {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn master_slave(&self) -> u8 {
         if self.contains(Self::MASTER_SLAVE) {
@@ -108,7 +108,7 @@ impl PpuCtrl {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn nmi_enabled(&self) -> bool {
         self.contains(Self::NMI_ENABLE)

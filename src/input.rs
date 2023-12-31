@@ -535,7 +535,7 @@ impl Reset for Zapper {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::test_roms;
 

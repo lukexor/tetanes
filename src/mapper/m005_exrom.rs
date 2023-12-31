@@ -1049,32 +1049,9 @@ impl std::fmt::Debug for Exrom {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::test_roms;
-
-    // #[test]
-    // fn prg_ram_protect() {
-    //     use super::*;
-    //     use crate::cart::Cart;
-    //     for a in 0..4 {
-    //         for b in 0..4 {
-    //             let mut cart = Cart::default();
-    //             cart.mapper = Exrom::load(&mut cart);
-
-    //             cart.write(0x5102, a);
-    //             cart.write(0x5103, b);
-    //             cart.write(0x5114, 0);
-    //             cart.write(0x6000, 0xFF);
-    //             let val = cart.read(0x6000);
-    //             if a == 0b10 && b == 0b01 {
-    //                 assert_eq!(val, 0xFF, "RAM protect disabled: %{:02b}, %{:02b}", a, b);
-    //             } else {
-    //                 assert_eq!(val, 0x00, "RAM protect enabled: %{:02b}, %{:02b}", a, b);
-    //             }
-    //         }
-    //     }
-    // }
 
     test_roms!("test_roms/mapper/m005_exrom", exram, basics);
 }

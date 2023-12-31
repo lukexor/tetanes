@@ -321,7 +321,7 @@ impl Reset for Txrom {
 impl Clock for Txrom {}
 impl Regional for Txrom {}
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::test_roms;
 

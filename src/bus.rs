@@ -117,6 +117,11 @@ impl CpuBus {
     }
 
     #[inline]
+    pub fn input_mut(&mut self) -> &mut Input {
+        &mut self.input
+    }
+
+    #[inline]
     pub const fn mapper(&self) -> &Mapper {
         self.ppu.mapper()
     }
@@ -154,8 +159,11 @@ impl CpuBus {
     #[inline]
     pub fn load_cart(&mut self, cart: Cart) {
         // Start with ~20ms of audio capacity
-        self.audio_samples
-            .resize((Cpu::region_clock_rate(cart.region()) * 0.02) as usize, 0.0);
+        let audio_capacity = (Cpu::region_clock_rate(cart.region()) * 0.02) as usize;
+        if audio_capacity > self.audio_samples.capacity() {
+            self.audio_samples
+                .reserve(audio_capacity - self.audio_samples.capacity());
+        }
         self.battery_backed = cart.battery_backed();
         self.set_region(cart.region());
         self.load_prg_rom(cart.prg_rom);
@@ -336,7 +344,7 @@ impl CpuBus {
 }
 
 impl Clock for CpuBus {
-    #[inline]
+    #[inline(always)]
     fn clock(&mut self) -> usize {
         self.cycle = self.cycle.wrapping_add(1);
         self.apu.clock();
@@ -354,7 +362,7 @@ impl Clock for CpuBus {
         1
     }
 
-    #[inline]
+    #[inline(always)]
     fn clock_to(&mut self, clock: u64) {
         self.ppu.clock_to(clock);
     }
