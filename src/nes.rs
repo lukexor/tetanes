@@ -1,4 +1,4 @@
-//! User Interfa    ce representing the the NES Control Deck
+//! User Interface representing the the NES Control Deck
 
 use crate::{
     audio::Mixer,
@@ -16,12 +16,12 @@ use crate::{
     NesResult,
 };
 use config::Config;
-use crossbeam::channel;
+use crossbeam::channel::{self, Receiver, Sender};
 use pixels::{
-    wgpu::{PowerPreference, RequestAdapterOptions},
+    wgpu::{PowerPreference, PresentMode, RequestAdapterOptions},
     Pixels, PixelsBuilder, SurfaceTexture,
 };
-use std::{collections::VecDeque, path::PathBuf, sync::Arc};
+use std::{collections::VecDeque, path::PathBuf, sync::Arc, thread};
 use web_time::Instant;
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
@@ -53,7 +53,7 @@ pub enum EventMsg {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 #[must_use]
-pub enum RenderMainMsg {
+pub enum RenderMsg {
     NewFrame(Vec<u8>),
     SetVsync(bool),
     Resize(u32, u32),
@@ -67,7 +67,6 @@ pub struct Nes {
     window: Arc<Window>,
     control_deck: ControlDeck,
     audio: Mixer,
-    renderer: Pixels,
     frame_buffer: Vec<u8>,
     controllers: [Option<DeviceId>; 4],
     // debugger: Option<Debugger>,
@@ -87,11 +86,17 @@ pub struct Nes {
     prev_frame_time: Instant,
     speed_counter: f32,
     previously_focused: bool,
-    event_rx: channel::Receiver<EventMsg>,
+    event_rx: Receiver<EventMsg>,
+    render_tx: Option<Sender<RenderMsg>>,
 }
 
 impl Nes {
-    pub async fn new(window: Window, config: Config) -> NesResult<Self> {
+    pub async fn new(
+        window: Window,
+        config: Config,
+        event_tx: Sender<EventMsg>,
+        event_rx: Receiver<EventMsg>,
+    ) -> NesResult<Self> {
         let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_region(config.region);
         control_deck.set_filter(config.filter);
@@ -111,13 +116,10 @@ impl Nes {
             Mode::default()
         };
 
-        let renderer = Self::initialize_renderer(&window, &config).await?;
-        let (event_tx, event_rx) = channel::bounded::<EventMsg>(8);
         let mut nes = Self {
             window,
             control_deck,
             audio,
-            renderer,
             frame_buffer: Video::new_frame_buffer(),
             controllers: [None; 4],
             // players: HashMap::new(),
@@ -146,6 +148,7 @@ impl Nes {
             // user. Winit sometimes sends a Focused(false) on initial startup before Focused(true).
             previously_focused: false,
             event_rx,
+            render_tx: None,
         };
 
         nes.initialize(event_tx);
@@ -168,7 +171,58 @@ impl Nes {
         // Set up window, events and NES state
         let event_loop = EventLoopBuilder::<CustomEvent>::with_user_event().build()?;
         let window = Self::initialize_window(&event_loop, &config)?;
-        let mut nes = Self::new(window, config).await?;
+        let mut renderer = Self::initialize_renderer(&window, &config).await?;
+
+        let (event_tx, event_rx) = channel::bounded::<EventMsg>(8);
+        let mut nes = if thread::available_parallelism().map_or(false, |count| count.get() > 1) {
+            let (render_tx, render_rx) = channel::bounded::<RenderMsg>(8);
+            thread::spawn({
+                let target_frame_time = config.target_frame_time;
+                let event_tx = event_tx.clone();
+                move || {
+                    let mut is_paused = false;
+                    loop {
+                        profile!("render main");
+
+                        while let Ok(msg) = render_rx.try_recv() {
+                            match msg {
+                                RenderMsg::NewFrame(frame_buffer) => {
+                                    if let Err(err) =
+                                        Self::render_frame(&mut renderer, &frame_buffer)
+                                    {
+                                        log::error!("error rending frame: {err:?}");
+                                        if let Err(err) = event_tx.try_send(EventMsg::Terminate) {
+                                            log::error!("failed to send terminate message to event_loop: {err:?}");
+                                        }
+                                        break;
+                                    }
+                                }
+                                RenderMsg::SetVsync(_enabled) => {
+                                    // TODO: feature not released yet: https://github.com/parasyte/pixels/pull/373
+                                    // pixels.enable_vsync(enabled),
+                                }
+                                RenderMsg::Resize(width, height) => {
+                                    if let Err(err) = renderer.resize_surface(width, height) {
+                                        log::error!("failed to resize render surface: {err:?}");
+                                    }
+                                }
+                                RenderMsg::Pause(paused) => is_paused = paused,
+                                RenderMsg::Terminate => break,
+                            }
+                        }
+
+                        if is_paused {
+                            thread::sleep(target_frame_time);
+                        }
+                    }
+                }
+            });
+            let mut nes = Self::new(window, config, event_tx, event_rx).await?;
+            nes.render_tx = Some(render_tx);
+            nes
+        } else {
+            Self::new(window, config, event_tx, event_rx).await?
+        };
 
         // Start event loop
         event_loop.set_control_flow(ControlFlow::Wait);
@@ -221,7 +275,11 @@ impl Nes {
                     power_preference: PowerPreference::HighPerformance,
                     ..Default::default()
                 })
-                .enable_vsync(config.vsync)
+                .present_mode(if config.vsync {
+                    PresentMode::Mailbox
+                } else {
+                    PresentMode::AutoNoVsync
+                })
                 .build_async()
                 .await?,
         )
@@ -244,6 +302,9 @@ impl Nes {
             window_target.exit();
             return;
         }
+        if self.mode.move_pause_expired() {
+            self.resume_play();
+        }
 
         match event {
             Event::WindowEvent {
@@ -258,6 +319,7 @@ impl Nes {
                         self.previously_focused = true;
                     }
                 }
+                WindowEvent::Moved(_) => self.pause_play(PauseMode::Moved(Instant::now())),
                 WindowEvent::Occluded(occluded) => self.pause_in_bg(occluded),
                 WindowEvent::KeyboardInput { event, .. } => {
                     self.handle_key_event(window_id, event);
@@ -272,10 +334,9 @@ impl Nes {
                 WindowEvent::DroppedFile(_path) => {
                     // TODO: load rom
                 }
-                WindowEvent::Moved(_position) => {
-                    // TODO: Handle scale/fullscreen mode changes
+                _ => {
+                    dbg!(event);
                 }
-                _ => (),
             },
             Event::AboutToWait => self.handle_update(window_target),
             // TODO: Controller support
@@ -311,7 +372,7 @@ impl Nes {
             //     }
             // },
             Event::LoopExiting => self.handle_exit(),
-            _ => (),
+            _ => {}
         }
     }
 
@@ -346,8 +407,8 @@ impl Nes {
             }
 
             let queued_audio_time = self.audio.queued_time();
-            // log::info!(
-            //     "DEBUG {:.0}, queued_ms: {:.4}, last_frame: {:.4}",
+            // log::debug!(
+            //     "{:.0}, queued_ms: {:.4}, last_frame: {:.4}",
             //     web_time::SystemTime::now()
             //         .duration_since(web_time::UNIX_EPOCH)
             //         .expect("valid unix time")
@@ -393,20 +454,23 @@ impl Nes {
     }
 
     fn handle_redraw(&mut self, window_target: &EventLoopWindowTarget<CustomEvent>) {
-        if let Err(err) = self.render_frame() {
-            log::error!("error rending frame: {err:?}");
-            window_target.exit();
+        if let Some(ref mut render_tx) = self.render_tx {
+            render_tx.try_send(RenderMsg::NewFrame(self.frame_buffer.to_vec()));
         }
+        // if let Err(err) = Self.render_frame() {
+        //     log::error!("error rending frame: {err:?}");
+        //     window_target.exit();
+        // }
     }
 
-    fn render_frame(&mut self) -> NesResult<()> {
+    fn render_frame(renderer: &mut Pixels, frame_buffer: &[u8]) -> NesResult<()> {
         profile!();
 
         // Copy NES frame buffer
-        let frame_buffer_len = self.frame_buffer.len();
-        self.renderer.frame_mut().copy_from_slice(
-            &self.frame_buffer[FRAME_TRIM_PITCH..frame_buffer_len - FRAME_TRIM_PITCH],
-        );
+        let frame_buffer_len = frame_buffer.len();
+        renderer
+            .frame_mut()
+            .copy_from_slice(&frame_buffer[FRAME_TRIM_PITCH..frame_buffer_len - FRAME_TRIM_PITCH]);
 
         // TODO: Render framerate
         // TODO: Draw zapper crosshair
@@ -449,7 +513,7 @@ impl Nes {
         //         self.render_messages(s)?;
 
         profile!("video sync");
-        Ok(self.renderer.render()?)
+        Ok(renderer.render()?)
     }
 
     fn handle_exit(&mut self) {
@@ -551,38 +615,4 @@ impl Nes {
 //     event_loop_tx: channel::Sender<EventMsg>,
 // ) {
 //     use std::thread;
-
-//     let mut is_paused = false;
-//     loop {
-//         profile!("render main");
-
-//         while let Ok(msg) = render_main_rx.try_recv() {
-//             match msg {
-//                 RenderMainMsg::NewFrame(frame_buffer) => {
-//                     if let Err(err) = render_frame(&mut pixels, &frame_buffer) {
-//                         log::error!("error rending frame: {err:?}");
-//                         if let Err(err) = event_loop_tx.try_send(EventMsg::Terminate) {
-//                             log::error!("failed to send terminate message to event_loop: {err:?}");
-//                         }
-//                         break;
-//                     }
-//                 }
-//                 RenderMainMsg::SetVsync(_enabled) => {
-//                     // TODO: feature not released yet: https://github.com/parasyte/pixels/pull/373
-//                     // pixels.enable_vsync(enabled),
-//                 }
-//                 RenderMainMsg::Resize(width, height) => {
-//                     if let Err(err) = pixels.resize_surface(width, height) {
-//                         log::error!("failed to resize render surface: {err:?}");
-//                     }
-//                 }
-//                 RenderMainMsg::Pause(paused) => is_paused = paused,
-//                 RenderMainMsg::Terminate => break,
-//             }
-//         }
-
-//         if is_paused {
-//             thread::sleep(frame_time);
-//         }
-//     }
 // }

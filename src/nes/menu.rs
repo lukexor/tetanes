@@ -377,7 +377,7 @@ impl Nes {
         // s.next_width((s.ui_width()? - spacing.scroll_size) as u32);
         let path = rom_dir.to_string_lossy();
         #[cfg(target_os = "windows")]
-        let path = path.strip_prefix(VERBATIM_PREFIX).unwrap_or(path);
+        let path = path.strip_prefix(VERBATIM_PREFIX).unwrap_or(&path);
         // s.select_list(
         //     format!("{path}##{}", self.config.show_hidden_files),
         //     &mut self.selected_path,

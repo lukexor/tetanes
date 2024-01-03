@@ -15,7 +15,7 @@
 //!     <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a recording
 //!               playback `.playback` file. [default: current directory]
 
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
 
 use tetanes::{
     nes::{config::Config, Nes},

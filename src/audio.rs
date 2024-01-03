@@ -142,9 +142,18 @@ impl Callback {
         //     out.len(),
         //     self.processed_samples.len(),
         // );
-        let len = out.len().min(self.processed_samples.len());
-        for (out, sample) in out.iter_mut().zip(self.processed_samples.drain(..len)) {
-            *out = sample;
+        let channels = 2;
+        let len = (out.len() / channels).min(self.processed_samples.len());
+        if len < out.len() / channels {
+            log::warn!("underun: {len} < {}", out.len() / channels);
+        }
+        for (frame, sample) in out
+            .chunks_mut(channels)
+            .zip(self.processed_samples.drain(..len))
+        {
+            for out in frame.iter_mut() {
+                *out = sample;
+            }
         }
         self.buffer_len
             .store(self.processed_samples.len(), Ordering::Relaxed);
@@ -196,10 +205,10 @@ impl Mixer {
         Duration::from_secs_f64(self.buffer_len() as f64 / self.output_frequency as f64)
     }
 
-    fn get_closest_audio_config(device: &Device, sample_rate: f32) -> NesResult<StreamConfig> {
+    fn choose_audio_config(device: &Device, sample_rate: f32) -> NesResult<StreamConfig> {
         let mut supported_configs = device.supported_output_configs()?;
         let desired_sample_rate = SampleRate(sample_rate as u32);
-        let closest_config = supported_configs
+        let chosen_config = supported_configs
             .find(|config| config.max_sample_rate() >= desired_sample_rate)
             .or_else(|| {
                 device
@@ -208,14 +217,17 @@ impl Mixer {
                     .and_then(|mut c| c.next())
             })
             .map(|config| {
-                let sample_rate = config.max_sample_rate();
-                config.with_sample_rate(desired_sample_rate.min(sample_rate))
+                log::debug!("desired_sample_rate: {desired_sample_rate:?}, config: {config:?}");
+                let min_sample_rate = config.min_sample_rate();
+                let max_sample_rate = config.max_sample_rate();
+                config.with_sample_rate(desired_sample_rate.clamp(min_sample_rate, max_sample_rate))
             })
             .ok_or_else(|| anyhow!("no supported audio configurations found"))?;
+        log::info!("chosen audio config: {chosen_config:?}");
 
         Ok(StreamConfig {
-            channels: 1,
-            sample_rate: closest_config.sample_rate(),
+            channels: chosen_config.channels(),
+            sample_rate: chosen_config.sample_rate(),
             buffer_size: BufferSize::Fixed(256),
         })
     }
@@ -244,8 +256,16 @@ impl Mixer {
                 let device = host
                     .default_output_device()
                     .ok_or_else(|| anyhow!("no available audio devices found"))?;
-                let config = Self::get_closest_audio_config(&device, self.output_frequency)?;
-                log::info!("audio config: {config:?}");
+                log::debug!(
+                    "device name: {}",
+                    device
+                        .name()
+                        .as_ref()
+                        .map(String::as_str)
+                        .unwrap_or("unknown")
+                );
+                // TODO: update output_frequency if choose_audio_config doesnt support it
+                let config = Self::choose_audio_config(&device, self.output_frequency)?;
 
                 let (callback_tx, callback_rx) = channel::bounded::<CallbackMsg>(32);
                 let mut callback = Callback::new(

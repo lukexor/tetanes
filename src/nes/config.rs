@@ -71,39 +71,25 @@ impl Config {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load() -> Self {
-        use crate::common::{config_dir, config_path};
+        use crate::common::config_path;
         use anyhow::Context;
-        use std::fs::{self, File};
+        use std::fs::File;
 
-        let config_dir = config_dir();
-        if !config_dir.exists() {
-            if let Err(err) =
-                fs::create_dir_all(config_dir).context("failed to create config directory")
-            {
-                log::error!("{:?}", err);
-            }
-        }
         let config_path = config_path(Self::FILENAME);
-        if !config_path.exists() {
-            if let Err(err) = fs::write(
-                &config_path,
-                serde_json::to_string(&Self::default()).expect("valid default config"),
-            )
-            .context("failed to create default config")
-            {
-                log::error!("{:?}", err);
-            }
-        }
-        let mut config = File::open(&config_path)
-            .with_context(|| format!("failed to open {config_path:?}"))
-            .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
-            .with_context(|| format!("failed to parse {config_path:?}"))
-            .unwrap_or_else(|err| {
-                log::error!(
-                    "Invalid config: {config_path:?}, reverting to defaults. Error: {err:?}",
-                );
-                Self::default()
-            });
+        let mut config = if config_path.exists() {
+            File::open(&config_path)
+                .with_context(|| format!("failed to open {config_path:?}"))
+                .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
+                .with_context(|| format!("failed to parse {config_path:?}"))
+                .unwrap_or_else(|err| {
+                    log::error!(
+                        "Invalid config: {config_path:?}, reverting to defaults. Error: {err:?}",
+                    );
+                    Self::default()
+                })
+        } else {
+            Self::default()
+        };
 
         config.input_map = InputMapping::from_bindings(&config.bindings);
 
@@ -139,9 +125,18 @@ impl Nes {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save_config(&mut self) {
-        use crate::common::config_path;
+        use crate::common::{config_dir, config_path};
         use anyhow::Context;
-        use std::fs::File;
+        use std::fs::{self, File};
+
+        let config_dir = config_dir();
+        if !config_dir.exists() {
+            if let Err(err) =
+                fs::create_dir_all(config_dir).context("failed to create config directory")
+            {
+                log::error!("{:?}", err);
+            }
+        }
 
         let path = config_path(Config::FILENAME);
         match File::create(&path)
@@ -232,7 +227,7 @@ impl Default for Config {
             show_hidden_files: false,
             // Only pause in bg by default in release builds
             pause_in_bg: !cfg!(debug_assertions),
-            audio_enabled: false,
+            audio_enabled: true,
             debug: false,
             // Only save by default in release builds
             save_on_exit: !cfg!(debug_assertions),
@@ -254,13 +249,11 @@ impl Default for Config {
             four_player: FourPlayer::default(),
             zapper: false,
             controller_deadzone: 0.5,
-            // 44100 is less CPU intensive than 48000 and not noticeably different, but still let
-            // the user configure it
-            audio_sample_rate: 44_100.0,
+            audio_sample_rate: 48_000.0,
             audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
                 60
             } else {
-                20
+                30
             }),
             genie_codes: vec![],
             bindings,
