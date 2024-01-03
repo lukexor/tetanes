@@ -113,9 +113,6 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    // TODO 1789772.667 MHz (~559 ns/cycle) - May want to use 1786830 for a stable 60 FPS
-    // Add Emulator setting like Mesen??
-    // http://forums.nesdev.com/viewtopic.php?p=223679#p223679
     const NTSC_MASTER_CLOCK_RATE: f32 = 21_477_272.0;
     const NTSC_CPU_CLOCK_RATE: f32 = Self::NTSC_MASTER_CLOCK_RATE / 12.0;
     const PAL_MASTER_CLOCK_RATE: f32 = 26_601_712.0;

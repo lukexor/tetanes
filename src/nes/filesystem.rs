@@ -1,6 +1,5 @@
 use super::{Nes, NesResult};
 use crate::{
-    audio::Mixer,
     common::Regional,
     nes::{menu::Menu, state::Mode, PauseMode},
 };
@@ -169,12 +168,7 @@ pub(crate) fn filename(path: &Path) -> &str {
 }
 
 impl Nes {
-    pub fn initialize(
-        &mut self,
-        #[cfg(target_arch = "wasm32")] event_loop_tx: crossbeam::channel::Sender<
-            super::EventLoopMsg,
-        >,
-    ) {
+    pub fn initialize(&mut self, event_tx: crossbeam::channel::Sender<super::EventMsg>) {
         // Configure emulation based on config
         self.update_frame_rate();
 
@@ -198,16 +192,16 @@ impl Nes {
 
         #[cfg(target_arch = "wasm32")]
         {
-            use super::EventLoopMsg;
+            use super::EventMsg;
             use wasm_bindgen::{closure::Closure, JsCast};
 
             web_sys::window()
                 .and_then(|win| win.document())
                 .and_then(|doc| doc.body().map(|body| (doc, body)))
                 .map(|(doc, body)| {
-                    let load_rom_tx = event_loop_tx.clone();
+                    let load_rom_tx = event_tx.clone();
                     let handle_load_rom = Closure::<dyn Fn()>::new(move || {
-                        if let Err(err) = load_rom_tx.send(EventLoopMsg::LoadRom) {
+                        if let Err(err) = load_rom_tx.send(EventMsg::LoadRom) {
                             log::error!("failed to send load rom message to event_loop: {err:?}");
                         }
                     });
@@ -223,9 +217,9 @@ impl Nes {
                     body.append_child(&load_rom_btn).ok();
                     handle_load_rom.forget();
 
-                    let pause_tx = event_loop_tx.clone();
+                    let pause_tx = event_tx.clone();
                     let handle_pause = Closure::<dyn Fn()>::new(move || {
-                        if let Err(err) = pause_tx.send(EventLoopMsg::Pause) {
+                        if let Err(err) = pause_tx.send(EventMsg::Pause) {
                             log::error!("failed to send pause message to event_loop: {err:?}");
                         }
                     });
@@ -268,11 +262,6 @@ impl Nes {
                 self.error = None;
                 self.window.set_title(&filename.replace(".nes", ""));
                 self.config.region = self.control_deck.region();
-                self.audio = Mixer::new(
-                    self.control_deck.sample_rate(),
-                    self.config.audio_sample_rate / self.config.speed,
-                    self.config.audio_buffer_size,
-                );
                 if let Err(err) = self.load_sram() {
                     log::error!("{:?}: {:?}", self.config.rom_path, err);
                     self.add_message("Failed to load game state");

@@ -67,12 +67,6 @@ impl Video {
             .step_by(4)
             .for_each(|alpha| *alpha = 255);
         buffer
-
-        // TODO: This panics in wasm with stack overflow - why? file issue
-        // [[0, 0, 0, 255]; Ppu::SIZE]
-        //     .into_iter()
-        //     .flatten()
-        //     .collect::<Vec<_>>()
     }
 
     #[inline]

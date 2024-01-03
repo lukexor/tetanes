@@ -1,0 +1,2 @@
+*.wxs
+.github/workflows/release.yml

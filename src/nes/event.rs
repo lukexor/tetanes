@@ -24,7 +24,7 @@ use winit::{
     dpi::PhysicalPosition,
     event::{AxisId, ButtonId, DeviceId, ElementState, KeyEvent, MouseButton},
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
-    window::Fullscreen,
+    window::{Fullscreen, WindowId},
 };
 
 // #[derive(Debug, Copy, Clone, PartialEq)]
@@ -681,7 +681,7 @@ impl Nes {
         }
     }
 
-    pub fn handle_key_event(&mut self, event: KeyEvent) {
+    pub fn handle_key_event(&mut self, window_id: WindowId, event: KeyEvent) {
         if let PhysicalKey::Code(key) = event.physical_key {
             for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
                 self.handle_input(
@@ -691,10 +691,35 @@ impl Nes {
                     event.repeat,
                 );
             }
+            // FIXME: DEBUG
+            if self.modifiers.lshift_state() == winit::keyboard::ModifiersKeyState::Pressed {
+                match key {
+                    KeyCode::ArrowUp if !event.state.is_pressed() => {
+                        if self.config.audio_latency <= Duration::from_millis(90) {
+                            self.config.audio_latency += Duration::from_millis(10);
+                            log::info!("Audio delay time: {:?}", self.config.audio_latency);
+                            let _ = self.audio.set_audio_latency(self.config.audio_latency);
+                        }
+                    }
+                    KeyCode::ArrowDown if !event.state.is_pressed() => {
+                        if self.config.audio_latency >= Duration::from_millis(20) {
+                            self.config.audio_latency -= Duration::from_millis(10);
+                            log::info!("Audio delay time: {:?}", self.config.audio_latency);
+                            let _ = self.audio.set_audio_latency(self.config.audio_latency);
+                        }
+                    }
+                    _ => (),
+                }
+            }
         }
     }
 
-    pub fn handle_mouse_event(&mut self, btn: MouseButton, state: ElementState) -> bool {
+    pub fn handle_mouse_event(
+        &mut self,
+        window_id: WindowId,
+        btn: MouseButton,
+        state: ElementState,
+    ) -> bool {
         // To avoid consuming events while in menus
         if self.mode.is_playing() {
             for slot in [Slot::One, Slot::Two] {
@@ -726,7 +751,7 @@ impl Nes {
     }
 
     #[inline]
-    pub fn handle_mouse_motion(&mut self, pos: PhysicalPosition<f64>) -> bool {
+    pub fn handle_mouse_motion(&mut self, window_id: WindowId, pos: PhysicalPosition<f64>) -> bool {
         // To avoid consuming events while in menus
         if self.mode.is_playing() {
             self.set_zapper_pos(pos);
@@ -974,8 +999,9 @@ impl Nes {
                     self.control_deck.set_filter(self.config.filter);
                 }
                 Setting::ToggleSound => {
-                    self.config.sound = !self.config.sound;
-                    if self.config.sound {
+                    self.config.audio_enabled = !self.config.audio_enabled;
+                    self.audio.set_enabled(self.config.audio_enabled);
+                    if self.config.audio_enabled {
                         self.add_message("Sound Enabled");
                     } else {
                         self.add_message("Sound Disabled");

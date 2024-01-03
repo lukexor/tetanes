@@ -167,7 +167,7 @@ impl Nes {
     fn render_config_audio(&mut self) -> NesResult<()> {
         // TODO: switch to egui
         // s.checkbox("Enabled", &mut self.config.sound)?;
-        if self.config.sound {
+        if self.config.audio_enabled {
             let audio = &mut self.audio;
 
             let mut selected_sample_rate = SampleRate::from(self.config.audio_sample_rate) as usize;

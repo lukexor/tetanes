@@ -144,14 +144,7 @@ impl Nes {
         };
         if self.control_deck.is_running() {
             if let Err(err) = self.audio.play() {
-                log::error!("failed to start audio: {err:?}");
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Err(err) = self
-                .render_main_tx
-                .send(crate::nes::RenderMainMsg::Pause(false))
-            {
-                log::error!("failed to send pause message: {err:?}");
+                self.add_message(format!("failed to start audio: {err:?}"));
             }
         }
     }
@@ -166,13 +159,6 @@ impl Nes {
 
             if self.mode.is_recording_playback() {
                 self.stop_replay();
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Err(err) = self
-                .render_main_tx
-                .send(crate::nes::RenderMainMsg::Pause(true))
-            {
-                log::error!("failed to send pause message: {err:?}");
             }
         }
     }

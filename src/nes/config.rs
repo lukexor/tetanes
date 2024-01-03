@@ -29,7 +29,7 @@ pub struct Config {
     pub rom_path: PathBuf,
     pub show_hidden_files: bool,
     pub pause_in_bg: bool,
-    pub sound: bool,
+    pub audio_enabled: bool,
     pub debug: bool,
     pub save_on_exit: bool,
     pub fullscreen: bool,
@@ -39,7 +39,7 @@ pub struct Config {
     pub region: NesRegion,
     pub frame_rate: f64,
     #[serde(skip)]
-    pub frame_time: Duration,
+    pub target_frame_time: Duration,
     pub ram_state: RamState,
     pub save_slot: u8,
     pub scale: f32,
@@ -52,8 +52,7 @@ pub struct Config {
     pub zapper: bool,
     pub controller_deadzone: f64,
     pub audio_sample_rate: f32,
-    pub audio_buffer_size: usize,
-    pub audio_delay_time: Duration,
+    pub audio_latency: Duration,
     pub genie_codes: Vec<String>,
     pub bindings: InputBindings,
     #[serde(skip)]
@@ -195,7 +194,7 @@ impl Nes {
             NesRegion::Pal => self.config.frame_rate = 50.0,
             NesRegion::Dendy => self.config.frame_rate = 59.0,
         }
-        self.config.frame_time = Duration::from_secs_f64(self.config.frame_rate.recip());
+        self.config.target_frame_time = Duration::from_secs_f64(self.config.frame_rate.recip());
         log::debug!(
             "Updated NES Region and emulated frame rate: {:?} ({:?}Hz)",
             self.config.region,
@@ -231,17 +230,19 @@ impl Default for Config {
         Self {
             rom_path: PathBuf::from("./"),
             show_hidden_files: false,
-            pause_in_bg: true,
-            sound: true,
+            // Only pause in bg by default in release builds
+            pause_in_bg: !cfg!(debug_assertions),
+            audio_enabled: false,
             debug: false,
-            save_on_exit: false, // FIXME: only for debugging
+            // Only save by default in release builds
+            save_on_exit: !cfg!(debug_assertions),
             fullscreen: false,
             vsync: true,
             filter: VideoFilter::default(),
             concurrent_dpad: false,
             region: NesRegion::default(),
             frame_rate,
-            frame_time: Duration::from_secs_f64(frame_rate.recip()),
+            target_frame_time: Duration::from_secs_f64(frame_rate.recip()),
             ram_state: RamState::Random,
             save_slot: 1,
             scale: 3.0,
@@ -256,15 +257,10 @@ impl Default for Config {
             // 44100 is less CPU intensive than 48000 and not noticeably different, but still let
             // the user configure it
             audio_sample_rate: 44_100.0,
-            audio_buffer_size: if cfg!(target_arch = "wasm32") {
-                8192
-            } else {
-                4096
-            },
-            audio_delay_time: Duration::from_millis(if cfg!(target_arch = "wasm32") {
+            audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
                 60
             } else {
-                30
+                20
             }),
             genie_codes: vec![],
             bindings,
