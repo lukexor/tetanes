@@ -26,27 +26,27 @@ path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
 anyhow = "1.0"
 bincode = "1.3"
 bitflags = { version = "2.4", features = ["serde"] }
-cfg-if = "1.0.0"
+cfg-if = "1.0"
 chrono = "0.4"
-cpal = "0.15.2"
-crossbeam = "0.8.3"
+cpal = "0.15"
+crossbeam = "0.8"
 dirs = "5.0"
-eframe = { version = "0.24.1", features = ["puffin", "persistence"] }
-egui = "0.24.1"
+eframe = { version = "0.24", features = ["puffin", "persistence"] }
+# egui = "0.24"
 enum_dispatch = "0.3"
 flate2 = "1.0"
-image = { version = "0.24.7", default-features = false, features = ["png"] }
+image = { version = "0.24", default-features = false, features = ["png"] }
 log = { version = "0.4", features = ["release_max_level_warn"] }
 once_cell = "1.19"
-pixels = "0.13.0"
-puffin = "0.18.1"
+pixels = "0.13"
+puffin = "0.18"
 rand = "0.8"
 # rubato = "0.14.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 structopt = "0.3"
-web-time = "0.2.4"
-winit = { version = "0.29.5", default-features = false, features = [
+web-time = "0.2"
+winit = { version = "0.29", default-features = false, features = [
   "rwh_05",
   "x11",
   "wayland",
@@ -56,19 +56,23 @@ winit = { version = "0.29.5", default-features = false, features = [
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pollster = "0.3.0"
+pollster = "0.3"
 pretty_env_logger = "0.5"
-puffin_http = "0.15.0"
+puffin_http = "0.15"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+puffin_http = "0.15"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"
 console_log = { version = "1.0", features = ["color"], optional = true }
-cpal = { version = "0.15.2", features = ["wasm-bindgen"] }
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.2", features = ["js"] }
-puffin = { version = "0.18.1", features = ["web"] }
+puffin = { version = "0.18", features = ["web"] }
 web-sys = { version = "0.3", features = [
   "GpuTextureFormat",
+  "GpuComputePassTimestampWrite",
   "Window",
   "Document",
   "HtmlElement",

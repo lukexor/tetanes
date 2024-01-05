@@ -12,14 +12,12 @@ use anyhow::{anyhow, Context};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, path::PathBuf};
-use web_time::{Duration, Instant};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[must_use]
 pub enum PauseMode {
     Manual,
     Unfocused,
-    Moved(Instant),
 }
 
 /// Represents which mode the emulator is in.
@@ -85,12 +83,6 @@ impl Mode {
     #[must_use]
     pub const fn is_paused_unfocused(&self) -> bool {
         matches!(self, Self::Paused(PauseMode::Unfocused))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn move_pause_expired(&self) -> bool {
-        matches!(self,  Self::Paused(PauseMode::Moved(last_moved)) if last_moved.elapsed() > Duration::from_millis(100))
     }
 
     #[inline]

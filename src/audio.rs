@@ -9,6 +9,7 @@ use std::{
     fmt,
     fs::File,
     io::BufWriter,
+    iter,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -143,13 +144,14 @@ impl Callback {
         //     self.processed_samples.len(),
         // );
         let channels = 2;
-        let len = (out.len() / channels).min(self.processed_samples.len());
-        if len < out.len() / channels {
-            log::warn!("underun: {len} < {}", out.len() / channels);
-        }
+        let num_samples = out.len() / channels;
+        let len = num_samples.min(self.processed_samples.len());
+        // if len < num_samples {
+        //     log::warn!("underun: {len} < {num_samples}");
+        // }
         for (frame, sample) in out
             .chunks_mut(channels)
-            .zip(self.processed_samples.drain(..len))
+            .zip(self.processed_samples.drain(..len).chain(iter::repeat(0.0)))
         {
             for out in frame.iter_mut() {
                 *out = sample;

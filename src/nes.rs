@@ -25,7 +25,7 @@ use std::{collections::VecDeque, path::PathBuf, sync::Arc, thread};
 use web_time::Instant;
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
-    event::{DeviceId, Event, Modifiers, WindowEvent},
+    event::{DeviceId, Event, Modifiers, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopWindowTarget},
     window::{Fullscreen, Icon, Window, WindowBuilder, WindowId},
 };
@@ -225,7 +225,6 @@ impl Nes {
         };
 
         // Start event loop
-        event_loop.set_control_flow(ControlFlow::Wait);
         #[cfg(target_arch = "wasm32")]
         {
             use winit::platform::web::EventLoopExtWebSys;
@@ -302,9 +301,6 @@ impl Nes {
             window_target.exit();
             return;
         }
-        if self.mode.move_pause_expired() {
-            self.resume_play();
-        }
 
         match event {
             Event::WindowEvent {
@@ -319,7 +315,6 @@ impl Nes {
                         self.previously_focused = true;
                     }
                 }
-                WindowEvent::Moved(_) => self.pause_play(PauseMode::Moved(Instant::now())),
                 WindowEvent::Occluded(occluded) => self.pause_in_bg(occluded),
                 WindowEvent::KeyboardInput { event, .. } => {
                     self.handle_key_event(window_id, event);
@@ -334,20 +329,10 @@ impl Nes {
                 WindowEvent::DroppedFile(_path) => {
                     // TODO: load rom
                 }
-                _ => {
-                    dbg!(event);
-                }
+                _ => {}
             },
             Event::AboutToWait => self.handle_update(window_target),
             // TODO: Controller support
-            // Event::DeviceEvent { device_id, event } => {
-            //     if matches!(
-            //         event,
-            //         DeviceEvent::Added | DeviceEvent::Removed | DeviceEvent::Button { .. }
-            //     ) {
-            //         log::debug!("device event: {device_id:?}, {event:?}");
-            //     }
-            // }
             // Event::UserEvent(event) => match event {
             //     CustomEvent::ControllerAxisMotion {
             //         device_id,

@@ -15,7 +15,7 @@
 //!     <path>    The NES ROM to load, a directory containing `.nes` ROM files, or a recording
 //!               playback `.playback` file. [default: current directory]
 
-// #![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tetanes::{
     nes::{config::Config, Nes},
@@ -44,8 +44,11 @@ fn main() -> NesResult<()> {
         }
 
         pretty_env_logger::init();
-        let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
-        let _puffin_server = puffin_http::Server::new(&server_addr)?;
+        #[cfg(debug_assertions)]
+        let _puffin_server = {
+            let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+            puffin_http::Server::new(&server_addr)?
+        };
 
         let opt = Opt::from_args();
         let base_config = Config::load();
