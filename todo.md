@@ -1,13 +1,13 @@
 # TODO
 
 - [x] Extract TODO comments
-- [ ] Merge GitHub todos
+- [x] Merge GitHub todos
+- [ ] archive Github project todos
 - [ ] Rank and point TODOs
 
 ## General
 
 - [x] Verify cpu load on native - add sleeps if necessary (but not for wasm)
-- [ ] Run hyperfine on unit tests to benchmark inlining and perf changes
 - [ ] Remove long chain of getters/setters - control_deck is the outer boundary
       of the lib
 - [ ] Fix fast-forward
@@ -21,14 +21,18 @@
 - [ ] Clone and run winit, pixels, cpa, and egui examples
 - [x] Fix frame timing/cpu usage
 - [ ] Ensure spawn closures use an extra block scope to clone values to retain
-  variable names
+      variable names
 - [ ] Try integrating bytes crate for frames or samples
 - [ ] Add back `ringbuf` crate and use `pop_slice` and `push_slice`
 - [ ] Handle when `vsync` is enabled and `Mailbox` is not
 - [ ] Track all video/audio timing and try to visualize graph of torn/dropped
-  frames and audio under/overruns
+      frames and audio under/overruns
 - [ ] Change CI to just check and test
 - [ ] Remove -D warnings from CI and just keep for PRs
+- [ ] self update installer
+- [ ] headless mode
+- [ ] CRT and other filters (via shaders)
+- [ ] More mappers
 
 ## Audio
 
@@ -49,7 +53,7 @@
 - [ ] Create shared circular buffer of Vecs to avoid allocations
 - [x] Experiment requesting redraw from audio thread
 - [ ] Pause when title receives mouse down
-  <https://github.com/rust-windowing/winit/issues/1885>
+      <https://github.com/rust-windowing/winit/issues/1885>
 - [ ] Add debug keybindings for incrementing/decrementing buffer size and audio delay
 - [ ] Fix audio latency to match expectation
 - [ ] Add `make_stream` fn generic over sample type, remove `Callback` struct
@@ -78,6 +82,7 @@
 ## UI
 
 - [ ] Add egui
+- [ ] Keybindings menu
 - [x] Pause/resume when window is moved to avoid stutter
 - [ ] Add `strum` crate for menus and enum iteration/stringifing of options
 - [ ] Add `MessageType` enum for displaying Info, Debug, Warn, and Error
@@ -92,6 +97,18 @@
 - [ ] Add fullscreen mode configuration - Windowed Borderless/Fullscreen
 - [ ] Add always on top configuration
 - [ ] Update available video modes and window scale when window moved for fullscreen
+- [ ] Toggle MMC3 IRQ setting
+- [ ] Light mode/dark mode
+- [ ] NTSC overscan toggle
+- [ ] Add clear savestate buttons
+- [ ] Add game genie menu with save
+- [ ] wideNES feature
+- [ ] network multiplay
+- [ ] recent game selection
+- [ ] config path overrides
+- [ ] auto save
+- [ ] toggle fPS
+- [ ] toggle messages
 
 ## Input
 
@@ -105,8 +122,26 @@
 - [ ] Add thread name to threads
 - [ ] Add custom profiling tracking/visualizations similar to puffin
 - [ ] Add CPU debugger
+  - [ ] instr/memory read/write breakpoints
+  - [ ] Modify registers/memory
+  - [ ] enable Label regions/addresses
+  - [ ] Show irq/nmi status
+  - [ ] Modify input state for 4 controllers
+  - [ ] step in, out, over, scanline, frame
 - [ ] Add PPU debugger
+  - [ ] Nametable/Chr/Sprite/OAM views
+  - [ ] Palette viewer
+  - [ ] Palette select
+  - [ ] Modify registers
+  - [ ] Toggle grid lines
+  - [ ] scanline/cycle slider
+  - [ ] Tile select with preview
+  - [ ] last known palette
 - [ ] Add APU debugger
+- [ ] performance benchmark suite
+- [ ] Run hyperfine on unit tests to benchmark inlining and perf changes
+- [ ] Update debug impls with hex values
+- [ ] Add file logging
 
 ## CPU
 
@@ -120,8 +155,32 @@
 ## PPU
 
 - [ ] Ppu::tick() very hot - optimize
+- [ ] fix failing rom tests
+
+## APU
+
+- [ ] fix failing rom tests
 
 ## Docs
 
+- [ ] Update readme
 - [ ] Review all methods, internal and external for learning documentation with
       links and references
+
+## Release test plan
+
+- [ ] Macos/linux/windows binary releases
+- [ ] unit tests (duh)
+- [ ] Test several roms per mapper
+- [ ] Ensure CPU usage is low while playing and in BG
+- [ ] Test 2, 3 and 4 player
+- [ ] Verify wasm performance
+- [ ] Save/load states
+- [ ] Save/load sram
+- [ ] Controller for 1 and 2 players
+- [ ] Zapper
+- [ ] Rewind
+- [ ] Record/playback
+- [ ] Audio recording
+- [ ] non cycle-accurate
+- [ ] Toggle audio channels

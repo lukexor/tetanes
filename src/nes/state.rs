@@ -4,9 +4,9 @@ use crate::{
         event::ActionEvent,
         filesystem::{decode_data, encode_data, load_data, save_data},
         menu::Menu,
-        Nes,
+        Nes, RenderMsg,
     },
-    profile, NesError, NesResult,
+    NesError, NesResult,
 };
 use anyhow::{anyhow, Context};
 use chrono::Local;
@@ -143,6 +143,9 @@ impl Nes {
             recording_audio: false,
         };
         if self.control_deck.is_running() {
+            if let Some(ref render_thread) = self.render_thread {
+                render_thread.thread().unpark();
+            }
             if let Err(err) = self.audio.play() {
                 self.add_message(format!("failed to start audio: {err:?}"));
             }
@@ -152,14 +155,18 @@ impl Nes {
     pub fn pause_play(&mut self, mode: PauseMode) {
         self.mode = Mode::Paused(mode);
         if self.control_deck.is_running() {
+            if let Some(ref mut render_tx) = self.render_tx {
+                if let Err(err) = render_tx.send(RenderMsg::Pause(true)) {
+                    log::error!("failed to send pause message {err:?}");
+                }
+            }
+            if self.mode.is_recording_playback() {
+                self.stop_replay();
+            }
             if self.mode.is_recording_audio() {
                 self.audio.stop_recording();
             }
             self.audio.pause();
-
-            if self.mode.is_recording_playback() {
-                self.stop_replay();
-            }
         }
     }
 
@@ -301,8 +308,6 @@ impl Nes {
     }
 
     pub fn update_rewind(&mut self) {
-        profile!();
-
         if !self.config.rewind {
             return;
         }

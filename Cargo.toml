@@ -31,7 +31,7 @@ chrono = "0.4"
 cpal = "0.15"
 crossbeam = "0.8"
 dirs = "5.0"
-eframe = { version = "0.24", features = ["puffin", "persistence"] }
+# eframe = { version = "0.24", features = ["puffin", "persistence"] }
 # egui = "0.24"
 enum_dispatch = "0.3"
 flate2 = "1.0"
@@ -86,12 +86,12 @@ console_log = ["dep:console_log"]
 cycle-accurate = []
 
 # Optimized development for playable framerates
-[profile.dev-opt]
+[profile.devo]
 inherits = "dev"
 opt-level = 1
 
 [profile.test]
-inherits = "dev-opt"
+inherits = "devo"
 
 [profile.profiling]
 inherits = "release"

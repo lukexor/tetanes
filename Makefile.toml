@@ -4,10 +4,10 @@ VERSION = { script = [
 ] }
 
 [env.development]
-RUST_LOG = "info,tetanes=debug"
+RUST_LOG = { value = "info,tetanes=debug", condition = { env_not_set = ["RUST_LOG"] } }
 
 [env.production]
-RUST_LOG = "info"
+RUST_LOG = { value = "info", condition = { env_not_set = ["RUST_LOG"] } }
 
 [tasks.default]
 alias = "run"
@@ -44,14 +44,14 @@ description = "Run TetaNES in release mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["run", "--release", "-p", "tetanes"]
+args = ["run", "--release", "-p", "tetanes", "${@}"]
 
 [tasks.dev]
 description = "Run TetaNES in development mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["run", "--profile", "dev-opt", "-p", "tetanes"]
+args = ["run", "--profile", "devo", "-p", "tetanes", "${@}"]
 
 [tasks.install-web-deps]
 description = "Install wasm target"
@@ -80,5 +80,5 @@ description = "Run TetaNES Web in development mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["watch", "-s", "cargo run-wasm --profile dev-opt -p tetanes --features console_log"]
+args = ["watch", "-s", "cargo run-wasm --profile devo -p tetanes --features console_log"]
 dependencies = ["install-web-deps"]

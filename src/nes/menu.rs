@@ -179,7 +179,7 @@ impl Nes {
             //     4,
             // )? {
             //     self.config.audio_sample_rate = SampleRate::from(selected_sample_rate).as_f32();
-            //     audio.set_output_frequency(self.config.audio_sample_rate / self.config.speed);
+            //     audio.set_sample_rate(self.config.audio_sample_rate / self.config.speed);
             // }
 
             // s.next_width(200);

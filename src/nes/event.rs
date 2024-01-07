@@ -364,7 +364,7 @@ impl Default for InputBindings {
                 key_bind!(Three, KeyB, JoypadBtn::B),
                 key_bind!(Three, Numpad5, JoypadBtn::Start),
                 key_bind!(Three, Numpad6, SHIFT, JoypadBtn::Select),
-                key_bind!(One, Escape, Menu::Main),
+                key_bind!(One, Escape, NesState::TogglePause),
                 key_bind!(One, KeyH, CONTROL, Menu::About),
                 key_bind!(One, F1, Menu::About),
                 key_bind!(One, KeyC, CONTROL, Menu::Config(General)),

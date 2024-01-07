@@ -176,7 +176,7 @@ impl Nes {
         self.config.speed = speed;
         if let Err(err) = self
             .audio
-            .set_output_frequency(self.config.audio_sample_rate / speed)
+            .set_sample_rate(self.config.audio_sample_rate / speed)
         {
             log::error!("failed to set speed to {speed}: {err:?}");
         }
@@ -249,7 +249,7 @@ impl Default for Config {
             four_player: FourPlayer::default(),
             zapper: false,
             controller_deadzone: 0.5,
-            audio_sample_rate: 48_000.0,
+            audio_sample_rate: 44_100.0,
             audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
                 60
             } else {

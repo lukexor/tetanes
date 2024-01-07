@@ -11,7 +11,7 @@ use crate::{
     mapper::Mapper,
     mem::{Access, Mem},
     ppu::Ppu,
-    profile, NesResult,
+    NesResult,
 };
 use bitflags::bitflags;
 use instr::{
@@ -515,8 +515,6 @@ impl Cpu {
     }
 
     fn handle_dma(&mut self, addr: u16) {
-        profile!();
-
         self.start_cycle(Cycle::Read);
         self.bus.read(addr, Access::Dummy);
         self.end_cycle(Cycle::Read);
@@ -907,8 +905,6 @@ impl Clock for Cpu {
     /// Runs the CPU one instruction
     #[inline]
     fn clock(&mut self) -> usize {
-        profile!();
-
         let start_cycle = self.cycle;
 
         if log_enabled!(Level::Trace) {

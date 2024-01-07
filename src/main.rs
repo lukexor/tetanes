@@ -43,7 +43,7 @@ fn main() -> NesResult<()> {
             env::set_var("RUST_LOG", "info,tetanes=debug");
         }
 
-        pretty_env_logger::init();
+        pretty_env_logger::init_timed();
         #[cfg(debug_assertions)]
         let _puffin_server = {
             let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);

@@ -111,13 +111,6 @@ impl ControlDeck {
         self.cpu.frame_number()
     }
 
-    /// Audio sample rate.
-    #[inline]
-    #[must_use]
-    pub const fn sample_rate(&self) -> f32 {
-        self.cpu.clock_rate()
-    }
-
     /// Get audio samples.
     #[inline]
     #[must_use]
@@ -131,6 +124,7 @@ impl ControlDeck {
         self.cpu.clear_audio_samples();
     }
 
+    /// CPU clock rate based on currently configured NES region.
     #[inline]
     pub fn clock_rate(&mut self) -> f32 {
         self.cpu.clock_rate()

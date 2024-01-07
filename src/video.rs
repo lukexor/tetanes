@@ -1,4 +1,4 @@
-use crate::{ppu::Ppu, profile};
+use crate::ppu::Ppu;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -90,8 +90,6 @@ impl Video {
 
     #[inline]
     pub fn decode_buffer(&mut self, buffer: &[u16], output: &mut [u8]) {
-        profile!();
-
         assert!(buffer.len() * 4 == output.len());
         for (pixel, colors) in buffer.iter().zip(output.chunks_exact_mut(4)) {
             assert!(colors.len() > 2);
@@ -109,8 +107,6 @@ impl Video {
     // http://wiki.nesdev.com/w/index.php/NTSC_video
     #[inline]
     pub fn apply_ntsc_filter(&mut self, buffer: &[u16], output: &mut [u8], frame_number: u32) {
-        profile!();
-
         assert!(buffer.len() * 4 == output.len());
         let mut prev_pixel = 0;
         for (idx, (pixel, colors)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {

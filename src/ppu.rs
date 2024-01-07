@@ -3,7 +3,6 @@ use crate::{
     mapper::{Mapped, Mapper},
     mem::{Access, Mem},
     ppu::{bus::PpuBus, frame::Frame},
-    profile,
 };
 use ctrl::PpuCtrl;
 use mask::PpuMask;
@@ -1106,8 +1105,6 @@ impl Mem for Ppu {
 impl Clock for Ppu {
     #[inline(always)]
     fn clock(&mut self) -> usize {
-        profile!();
-
         // Clear open bus roughly once every frame
         if self.scanline == 0 {
             self.open_bus = 0x00;
