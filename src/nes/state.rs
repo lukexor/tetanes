@@ -156,7 +156,7 @@ impl Nes {
         self.mode = Mode::Paused(mode);
         if self.control_deck.is_running() {
             if let Some(ref mut render_tx) = self.render_tx {
-                if let Err(err) = render_tx.send(RenderMsg::Pause(true)) {
+                if let Err(err) = render_tx.try_send(RenderMsg::Pause(true)) {
                     log::error!("failed to send pause message {err:?}");
                 }
             }

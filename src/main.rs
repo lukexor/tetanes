@@ -28,7 +28,12 @@ fn main() -> NesResult<()> {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         #[cfg(feature = "console_log")]
         {
-            console_log::init_with_level(log::Level::Info).expect("error initializing logger");
+            console_log::init_with_level(if cfg!(debug_assertions) {
+                log::Level::Info
+            } else {
+                log::Level::Warn
+            })
+            .expect("error initializing logger");
         }
         let config = Config::load();
         wasm_bindgen_futures::spawn_local(async { Nes::run(config).await.expect("valid run") });
@@ -40,7 +45,14 @@ fn main() -> NesResult<()> {
         use structopt::StructOpt;
 
         if env::var("RUST_LOG").is_err() {
-            env::set_var("RUST_LOG", "info,tetanes=debug");
+            env::set_var(
+                "RUST_LOG",
+                if cfg!(debug_assertions) {
+                    "tetanes=info"
+                } else {
+                    "tetanes=warn"
+                },
+            );
         }
 
         pretty_env_logger::init_timed();

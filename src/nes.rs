@@ -21,7 +21,12 @@ use pixels::{
     wgpu::{PowerPreference, RequestAdapterOptions},
     Pixels, PixelsBuilder, SurfaceTexture,
 };
-use std::{collections::VecDeque, path::PathBuf, sync::Arc, thread};
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    sync::Arc,
+    thread::{self, JoinHandle},
+};
 use web_time::Instant;
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
@@ -87,15 +92,18 @@ pub struct Nes {
     previously_focused: bool,
     event_rx: Receiver<EventMsg>,
     render_tx: Option<Sender<RenderMsg>>,
-    render_thread: Option<thread::JoinHandle<()>>,
+    render_thread: Option<JoinHandle<()>>,
+    renderer: Option<Pixels>,
 }
 
 impl Nes {
-    pub async fn new(
+    pub async fn with_render_thread(
         window: Window,
         config: Config,
         event_tx: Sender<EventMsg>,
         event_rx: Receiver<EventMsg>,
+        render_tx: Sender<RenderMsg>,
+        render_thread: JoinHandle<()>,
     ) -> NesResult<Self> {
         let mut control_deck = ControlDeck::new(config.ram_state);
         control_deck.set_region(config.region);
@@ -122,11 +130,73 @@ impl Nes {
             audio,
             frame_buffer: Video::new_frame_buffer(),
             controllers: [None; 4],
-            // players: HashMap::new(),
-            // emulation: None,
-            // debugger: None,
-            // ppu_viewer: None,
-            // apu_viewer: None,
+            config,
+            mode,
+            modifiers: Modifiers::default(),
+            rewind_frame: 0,
+            rewind_buffer: VecDeque::new(),
+            replay: Replay::default(),
+            messages: vec![],
+            paths: vec![],
+            selected_path: 0,
+            error: None,
+            quitting: false,
+            // Keep track of last frame time so we can predict audio sync requirements for the next
+            // frame.
+            prev_frame_time: Instant::now(),
+            // Keep a speed counter to accumulate partial frames for non-integer speed changes like
+            // 1.5x.
+            speed_counter: 0.0,
+            // NOTE: Only pause in the background if the app has received focus at least once by the
+            // user. Winit sometimes sends a Focused(false) on initial startup before Focused(true).
+            previously_focused: false,
+            event_rx,
+            render_tx: Some(render_tx),
+            render_thread: Some(render_thread),
+            renderer: None,
+        };
+
+        nes.initialize(event_tx);
+        if nes.config.debug {
+            // TODO: debugger
+            // nes.toggle_debugger(s)?;
+        }
+
+        Ok(nes)
+    }
+
+    pub async fn with_renderer(
+        window: Window,
+        config: Config,
+        event_tx: Sender<EventMsg>,
+        event_rx: Receiver<EventMsg>,
+        renderer: Pixels,
+    ) -> NesResult<Self> {
+        let mut control_deck = ControlDeck::new(config.ram_state);
+        control_deck.set_region(config.region);
+        control_deck.set_filter(config.filter);
+        control_deck.set_four_player(config.four_player);
+        control_deck.connect_zapper(config.zapper);
+
+        let window = Arc::new(window);
+        let audio = Mixer::new(
+            control_deck.clock_rate(),
+            config.audio_sample_rate / config.speed,
+            config.audio_latency,
+            config.audio_enabled,
+        );
+        let mode = if config.debug {
+            Mode::Paused(PauseMode::Manual)
+        } else {
+            Mode::default()
+        };
+
+        let mut nes = Self {
+            window,
+            control_deck,
+            audio,
+            frame_buffer: Video::new_frame_buffer(),
+            controllers: [None; 4],
             config,
             mode,
             modifiers: Modifiers::default(),
@@ -150,6 +220,7 @@ impl Nes {
             event_rx,
             render_tx: None,
             render_thread: None,
+            renderer: Some(renderer),
         };
 
         nes.initialize(event_tx);
@@ -181,12 +252,10 @@ impl Nes {
                 let event_tx = event_tx.clone();
                 move || Self::render_thread(renderer, render_rx, event_tx)
             })?;
-            let mut nes = Self::new(window, config, event_tx, event_rx).await?;
-            nes.render_tx = Some(render_tx);
-            nes.render_thread = Some(render_thread);
-            nes
+            Self::with_render_thread(window, config, event_tx, event_rx, render_tx, render_thread)
+                .await?
         } else {
-            Self::new(window, config, event_tx, event_rx).await?
+            Self::with_renderer(window, config, event_tx, event_rx, renderer).await?
         };
 
         // Start event loop
@@ -403,10 +472,11 @@ impl Nes {
             if let Err(err) = render_tx.try_send(RenderMsg::NewFrame(self.frame_buffer.to_vec())) {
                 log::error!("error rendering frame: {err:?}");
             }
+        } else if let Some(ref mut renderer) = self.renderer {
+            if let Err(err) = Self::render_frame(renderer, &self.frame_buffer) {
+                log::error!("error rendering frame: {err:?}");
+            }
         }
-        // else if let Err(err) = Self::render_frame() {
-        //     log::error!("error rendering frame: {err:?}");
-        // }
     }
 
     fn render_thread(

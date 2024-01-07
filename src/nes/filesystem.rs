@@ -201,7 +201,7 @@ impl Nes {
                 .map(|(doc, body)| {
                     let load_rom_tx = event_tx.clone();
                     let handle_load_rom = Closure::<dyn Fn()>::new(move || {
-                        if let Err(err) = load_rom_tx.send(EventMsg::LoadRom) {
+                        if let Err(err) = load_rom_tx.try_send(EventMsg::LoadRom) {
                             log::error!("failed to send load rom message to event_loop: {err:?}");
                         }
                     });
@@ -219,7 +219,7 @@ impl Nes {
 
                     let pause_tx = event_tx.clone();
                     let handle_pause = Closure::<dyn Fn()>::new(move || {
-                        if let Err(err) = pause_tx.send(EventMsg::Pause) {
+                        if let Err(err) = pause_tx.try_send(EventMsg::Pause) {
                             log::error!("failed to send pause message to event_loop: {err:?}");
                         }
                     });

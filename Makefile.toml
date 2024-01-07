@@ -4,10 +4,10 @@ VERSION = { script = [
 ] }
 
 [env.development]
-RUST_LOG = { value = "info,tetanes=debug", condition = { env_not_set = ["RUST_LOG"] } }
+RUST_LOG = { value = "tetanes=debug", condition = { env_not_set = ["RUST_LOG"] } }
 
 [env.production]
-RUST_LOG = { value = "info", condition = { env_not_set = ["RUST_LOG"] } }
+RUST_LOG = { value = "tetanes=info", condition = { env_not_set = ["RUST_LOG"] } }
 
 [tasks.default]
 alias = "run"
