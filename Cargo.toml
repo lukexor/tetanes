@@ -109,7 +109,7 @@ strip = true
 
 [profile.web]
 inherits = "dist"
-opt-level = 'z'
+opt-level = "s"
 panic = "abort"
 
 [workspace]

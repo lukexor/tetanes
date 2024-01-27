@@ -473,7 +473,7 @@ impl Cpu {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn start_cycle(&mut self, cycle: Cycle) {
         self.master_clock += if cycle == Cycle::Read {
             self.start_clocks - 1
@@ -488,7 +488,7 @@ impl Cpu {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn end_cycle(&mut self, cycle: Cycle) {
         self.master_clock += if cycle == Cycle::Read {
             self.end_clocks + 1
@@ -503,7 +503,7 @@ impl Cpu {
         self.handle_interrupts();
     }
 
-    #[inline(always)]
+    #[inline]
     fn process_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
         if self.halt {
@@ -1028,6 +1028,7 @@ impl Clock for Cpu {
 }
 
 impl Mem for Cpu {
+    #[inline]
     fn read(&mut self, addr: u16, access: Access) -> u8 {
         if self.halt || self.bus.oam_dma() {
             self.handle_dma(addr);
@@ -1044,6 +1045,7 @@ impl Mem for Cpu {
         self.bus.peek(addr, access)
     }
 
+    #[inline]
     fn write(&mut self, addr: u16, val: u8, access: Access) {
         self.start_cycle(Cycle::Write);
         self.bus.write(addr, val, access);

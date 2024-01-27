@@ -204,7 +204,7 @@ impl Mixer {
         log::info!("creating audio stream with config: {config:?}");
 
         self.sample_rate = config.sample_rate.0 as f32;
-        let (callback_tx, callback_rx) = channel::bounded::<CallbackMsg>(32);
+        let (callback_tx, callback_rx) = channel::bounded::<CallbackMsg>(8);
         self.callback_tx = Some(callback_tx);
         let num_channels = config.channels as usize;
         let mut sample_avg = 0.0;
