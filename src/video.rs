@@ -36,10 +36,11 @@ impl From<usize> for VideoFilter {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 #[must_use]
 pub struct Video {
     filter: VideoFilter,
+    frame_buffer: Vec<u8>,
 }
 
 impl Default for Video {
@@ -49,24 +50,33 @@ impl Default for Video {
 }
 
 impl Video {
+    /// Create a new Video encoder with the default filter.
+    #[inline]
     pub fn new() -> Self {
+        Self::with_filter(VideoFilter::default())
+    }
+
+    /// Create a new Video encoder with a filter.
+    #[inline]
+    pub fn with_filter(filter: VideoFilter) -> Self {
         Self {
-            filter: VideoFilter::default(),
+            filter,
+            frame_buffer: Self::new_frame_buffer(),
         }
     }
 
-    /// Allocate a new frame buffer for processing a frame of video output with 255 alpha.
+    /// Allocate a new frame buffer for decoding a frame of video output with full alpha.
     #[inline]
     #[must_use]
     pub fn new_frame_buffer() -> Vec<u8> {
         // Force alpha to 255.
-        let mut buffer = vec![0; Ppu::SIZE * 4];
-        buffer
+        let mut frame_buffer = vec![0; Ppu::SIZE * 4];
+        frame_buffer
             .iter_mut()
             .skip(3)
             .step_by(4)
             .for_each(|alpha| *alpha = 255);
-        buffer
+        frame_buffer
     }
 
     #[inline]
@@ -81,19 +91,19 @@ impl Video {
 
     /// Fills a fully rendered frame of RENDER_SIZE RGB colors.
     #[inline]
-    pub fn apply_filter(&mut self, buffer: &[u16], output: &mut [u8], frame_number: u32) {
+    pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
         match self.filter {
-            VideoFilter::Pixellate => self.decode_buffer(buffer, output),
-            VideoFilter::Ntsc => self.apply_ntsc_filter(buffer, output, frame_number),
+            VideoFilter::Pixellate => self.decode_buffer(buffer),
+            VideoFilter::Ntsc => self.apply_ntsc_filter(buffer, frame_number),
         }
+        &self.frame_buffer
     }
 
     #[inline]
-    pub fn decode_buffer(&mut self, buffer: &[u16], output: &mut [u8]) {
-        assert!(buffer.len() * 4 == output.len());
-        for (pixel, colors) in buffer.iter().zip(output.chunks_exact_mut(4)) {
-            assert!(colors.len() > 2);
+    pub fn decode_buffer(&mut self, buffer: &[u16]) {
+        for (pixel, colors) in buffer.iter().zip(self.frame_buffer.chunks_exact_mut(4)) {
             let (red, green, blue) = Ppu::system_palette(*pixel);
+            assert!(colors.len() > 2);
             colors[0] = red;
             colors[1] = green;
             colors[2] = blue;
@@ -106,10 +116,13 @@ impl Video {
     // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
     // http://wiki.nesdev.com/w/index.php/NTSC_video
     #[inline]
-    pub fn apply_ntsc_filter(&mut self, buffer: &[u16], output: &mut [u8], frame_number: u32) {
-        assert!(buffer.len() * 4 == output.len());
+    pub fn apply_ntsc_filter(&mut self, buffer: &[u16], frame_number: u32) {
         let mut prev_pixel = 0;
-        for (idx, (pixel, colors)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
+        for (idx, (pixel, colors)) in buffer
+            .iter()
+            .zip(self.frame_buffer.chunks_exact_mut(4))
+            .enumerate()
+        {
             let x = idx % 256;
             let color = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel

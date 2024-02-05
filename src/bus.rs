@@ -344,7 +344,7 @@ impl CpuBus {
 }
 
 impl Clock for CpuBus {
-    #[inline(always)]
+    #[inline]
     fn clock(&mut self) -> usize {
         self.cycle = self.cycle.wrapping_add(1);
         self.apu.clock();
@@ -362,7 +362,7 @@ impl Clock for CpuBus {
         1
     }
 
-    #[inline(always)]
+    #[inline]
     fn clock_to(&mut self, clock: u64) {
         self.ppu.clock_to(clock);
     }

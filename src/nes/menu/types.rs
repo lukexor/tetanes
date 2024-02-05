@@ -29,10 +29,10 @@ impl AsRef<str> for ConfigSection {
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Menu {
+    #[default]
     Main,
     Config(ConfigSection),
     Keybind(Player),
-    #[default]
     LoadRom,
     About,
 }

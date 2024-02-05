@@ -3,6 +3,29 @@
 // static EVENT_LOG_INDEX: AtomicU64 = AtomicU64::new(0);
 // static TIMER_FREQ: Lazy<f64> = Lazy::new(|| estimated_cpu_timer_freq() as f64);
 
+#[inline]
+#[cfg(feature = "profiling")]
+pub fn enable() {
+    puffin::set_scopes_on(true);
+}
+
+#[inline]
+#[cfg(feature = "profiling")]
+pub fn disable() {
+    puffin::set_scopes_on(false);
+}
+
+#[allow(missing_debug_implementations)]
+#[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
+pub struct Server(puffin_http::Server);
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
+#[inline]
+pub fn start_server() -> anyhow::Result<Server> {
+    let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+    Ok(Server(puffin_http::Server::new(&server_addr)?))
+}
+
 /// Profile a given function or block of code. This macro will automatically use the fully
 /// qualified function name when used without arguments. You can also optionally pass a custom name
 /// for a given block scope.
@@ -29,6 +52,7 @@ macro_rules! profile {
         profile!("");
     };
     ($data:expr) => {
+        #[cfg(feature = "profiling")]
         puffin::profile_function!($data);
         // const fn __f() {}
         // profile!($crate::profiling::function_name(__f));
@@ -37,6 +61,7 @@ macro_rules! profile {
         profile!($name, "");
     };
     ($name:expr, $data:expr) => {
+        #[cfg(feature = "profiling")]
         puffin::profile_scope!($name, $data);
         // TODO: fix possible name collision
         // #[cfg(feature = "profiling")]
@@ -80,6 +105,7 @@ macro_rules! profile_end {
 #[macro_export]
 macro_rules! frame_begin {
     () => {
+        #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
         // TODO: Add seconds elapsed since game start
         // #[cfg(feature = "profiling")]

@@ -60,42 +60,42 @@ impl PpuBus {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn mirroring(&self) -> Mirroring {
         self.mapper.mirroring()
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn update_mirroring(&mut self) {
         self.mirror_shift = self.mirroring() as usize;
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn load_chr_rom(&mut self, chr_rom: Vec<u8>) {
         self.chr_rom = chr_rom;
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn load_chr_ram(&mut self, chr_ram: Vec<u8>) {
         self.chr_ram = chr_ram;
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn load_ex_ram(&mut self, ex_ram: Vec<u8>) {
         self.exram = ex_ram;
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.mapper = mapper;
     }
 
-    #[inline(always)]
+    #[inline]
     pub const fn mapper(&self) -> &Mapper {
         &self.mapper
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn mapper_mut(&mut self) -> &mut Mapper {
         &mut self.mapper
     }
@@ -117,13 +117,13 @@ impl PpuBus {
     //                  [ b ] [ b ]
     //
     // Fourscreen should not use this method and instead should rely on mapper translation.
-    #[inline(always)]
+    #[inline]
     const fn ciram_mirror(&self, addr: usize) -> usize {
         let nametable = (addr >> self.mirror_shift) & (Ppu::NT_SIZE as usize);
         (nametable) | (!nametable & addr & 0x03FF)
     }
 
-    #[inline(always)]
+    #[inline]
     const fn palette_mirror(&self, addr: usize) -> usize {
         let addr = addr & 0x001F;
         if addr >= 16 && addr.trailing_zeros() >= 2 {

@@ -37,14 +37,14 @@ description = "Build TetaNES"
 category = "Build"
 workspace = false
 command = "cargo"
-args = ["build", "--release", "-p", "tetanes"]
+args = ["build", "--profile", "dist", "-p", "tetanes"]
 
 [tasks.run]
 description = "Run TetaNES in release mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["run", "--release", "-p", "tetanes", "${@}"]
+args = ["run", "--profile", "dist", "-p", "tetanes", "${@}"]
 
 [tasks.dev]
 description = "Run TetaNES in development mode"
@@ -52,6 +52,26 @@ category = "Development"
 workspace = false
 command = "cargo"
 args = ["run", "--profile", "devo", "-p", "tetanes", "${@}"]
+
+[tasks.dev-profiling]
+description = "Run TetaNES in development mode with profiling enabled"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["run", "--profile", "devo", "-p", "tetanes", "--features", "profiling", "${@}"]
+
+[tasks.profiling_viewer]
+description = "Run profiling viewer"
+category = "Development"
+workspace = false
+command = "puffin_viewer"
+args = ["--url", "127.0.0.1:8585"]
+
+[tasks.profiling]
+description = "Run TetaNES in development mode with profiling viewer"
+category = "Development"
+workspace = false
+run_task = { name = ["dev-profiling", "profiling_viewer"], fork = true, parallel = true }
 
 [tasks.install-web-deps]
 description = "Install wasm target"
@@ -64,7 +84,7 @@ description = "Build TetaNES Web"
 category = "Build"
 workspace = false
 command = "cargo"
-args = ["run-wasm", "--release", "--build-only", "--profile", "web", "-p", "tetanes", "--no-default-features"]
+args = ["run-wasm", "--release", "--build-only", "--profile", "dist", "-p", "tetanes", "--no-default-features"]
 dependencies = ["install-web-deps"]
 
 [tasks.run-web]
@@ -72,7 +92,7 @@ description = "Run TetaNES Web in release mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["watch", "-s", "cargo run-wasm --profile web -p tetanes --no-default-features"]
+args = ["watch", "-s", "cargo run-wasm --profile dist -p tetanes --no-default-features"]
 dependencies = ["install-web-deps"]
 
 [tasks.dev-web]

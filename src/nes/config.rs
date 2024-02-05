@@ -1,5 +1,6 @@
 use crate::{
     common::NesRegion,
+    control_deck,
     input::FourPlayer,
     mem::RamState,
     nes::{
@@ -39,7 +40,7 @@ pub struct Config {
     pub region: NesRegion,
     pub frame_rate: f64,
     #[serde(skip)]
-    pub target_frame_time: Duration,
+    pub target_frame_duration: Duration,
     pub ram_state: RamState,
     pub save_slot: u8,
     pub scale: f32,
@@ -59,9 +60,22 @@ pub struct Config {
     pub input_map: InputMapping,
 }
 
+impl From<Config> for control_deck::Config {
+    fn from(config: Config) -> Self {
+        Self {
+            filter: config.filter,
+            region: config.region,
+            ram_state: config.ram_state,
+            four_player: config.four_player,
+            zapper: config.zapper,
+            genie_codes: vec![],
+        }
+    }
+}
+
 impl Config {
-    #[cfg(not(target_arch = "wasm32"))]
-    const FILENAME: &'static str = "config.json";
+    pub const DIRECTORY: &'static str = ".config/tetanes";
+    pub const FILENAME: &'static str = "config.json";
 
     #[cfg(target_arch = "wasm32")]
     pub fn load() -> Self {
@@ -71,20 +85,17 @@ impl Config {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load() -> Self {
-        use crate::common::config_path;
         use anyhow::Context;
         use std::fs::File;
 
-        let config_path = config_path(Self::FILENAME);
-        let mut config = if config_path.exists() {
-            File::open(&config_path)
-                .with_context(|| format!("failed to open {config_path:?}"))
+        let path = Self::path(Self::FILENAME);
+        let mut config = if path.exists() {
+            File::open(&path)
+                .with_context(|| format!("failed to open {path:?}"))
                 .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
-                .with_context(|| format!("failed to parse {config_path:?}"))
+                .with_context(|| format!("failed to parse {path:?}"))
                 .unwrap_or_else(|err| {
-                    log::error!(
-                        "Invalid config: {config_path:?}, reverting to defaults. Error: {err:?}",
-                    );
+                    log::error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
                     Self::default()
                 })
         } else {
@@ -92,6 +103,8 @@ impl Config {
         };
 
         config.input_map = InputMapping::from_bindings(&config.bindings);
+        let region = config.region;
+        Self::set_region(&mut config, region);
 
         config
     }
@@ -106,6 +119,19 @@ impl Config {
         self.bindings.unset(input);
     }
 
+    pub fn set_region(&mut self, region: NesRegion) {
+        match region {
+            NesRegion::Ntsc => self.frame_rate = 60.0,
+            NesRegion::Pal => self.frame_rate = 50.0,
+            NesRegion::Dendy => self.frame_rate = 59.0,
+        }
+        self.target_frame_duration = Duration::from_secs_f64(self.frame_rate.recip());
+        log::debug!(
+            "Updated NES Region emulated frame rate: {region:?} ({:?}Hz)",
+            self.frame_rate,
+        );
+    }
+
     #[inline]
     #[must_use]
     pub fn get_dimensions(&self) -> (u32, u32) {
@@ -115,21 +141,35 @@ impl Config {
         };
         ((self.scale * width) as u32, (self.scale * height) as u32)
     }
-}
 
-impl Nes {
-    #[cfg(target_arch = "wasm32")]
-    pub fn save_config(&mut self) {
-        // TODO: Save to local storage
+    #[must_use]
+    pub fn directory() -> PathBuf {
+        #[cfg(target_arch = "wasm32")]
+        {
+            PathBuf::from("./")
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("./"))
+            .join(Self::DIRECTORY)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn save_config(&mut self) {
-        use crate::common::{config_dir, config_path};
+    #[must_use]
+    pub(crate) fn path<P: AsRef<std::path::Path>>(path: P) -> PathBuf {
+        Self::directory().join(path)
+    }
+
+    pub fn save(&self) {
         use anyhow::Context;
         use std::fs::{self, File};
 
-        let config_dir = config_dir();
+        // TOOD: Only save if config has changed
+        if cfg!(any(debug_assertions, target_arch = "wasm32")) {
+            return;
+        }
+
+        let config_dir = Self::directory();
         if !config_dir.exists() {
             if let Err(err) =
                 fs::create_dir_all(config_dir).context("failed to create config directory")
@@ -138,19 +178,24 @@ impl Nes {
             }
         }
 
-        let path = config_path(Config::FILENAME);
+        let path = Self::path(Self::FILENAME);
         match File::create(&path)
             .with_context(|| format!("failed to open {path:?}"))
             .and_then(|file| {
-                serde_json::to_writer_pretty(file, &self.config)
-                    .context("failed to serialize config")
+                serde_json::to_writer_pretty(file, &self).context("failed to serialize config")
             }) {
             Ok(_) => log::info!("Saved configuration"),
             Err(err) => {
                 log::error!("{:?}", err);
-                self.add_message("Failed to save configuration");
             }
         }
+    }
+}
+
+impl Nes {
+    #[cfg(target_arch = "wasm32")]
+    pub fn save_config(&mut self) {
+        // TODO: Save to local storage
     }
 
     pub fn set_scale(&mut self, scale: f32) {
@@ -180,21 +225,6 @@ impl Nes {
         {
             log::error!("failed to set speed to {speed}: {err:?}");
         }
-    }
-
-    /// Updates the frame rate and vsync settings based on NES region.
-    pub fn update_frame_rate(&mut self) {
-        match self.config.region {
-            NesRegion::Ntsc => self.config.frame_rate = 60.0,
-            NesRegion::Pal => self.config.frame_rate = 50.0,
-            NesRegion::Dendy => self.config.frame_rate = 59.0,
-        }
-        self.config.target_frame_time = Duration::from_secs_f64(self.config.frame_rate.recip());
-        log::debug!(
-            "Updated NES Region and emulated frame rate: {:?} ({:?}Hz)",
-            self.config.region,
-            self.config.frame_rate,
-        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -237,7 +267,7 @@ impl Default for Config {
             concurrent_dpad: false,
             region: NesRegion::default(),
             frame_rate,
-            target_frame_time: Duration::from_secs_f64(frame_rate.recip()),
+            target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
             ram_state: RamState::Random,
             save_slot: 1,
             scale: 3.0,

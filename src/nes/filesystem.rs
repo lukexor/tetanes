@@ -6,8 +6,6 @@ use crate::{
 use anyhow::Context;
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use std::{
-    ffi::OsStr,
-    fs::File,
     io::{BufReader, Read, Write},
     path::Path,
 };
@@ -101,7 +99,8 @@ where
 
     let write_data = || {
         let mut writer = BufWriter::new(
-            File::create(path).with_context(|| format!("failed to create file {path:?}"))?,
+            std::fs::File::create(path)
+                .with_context(|| format!("failed to create file {path:?}"))?,
         );
         write_save_header(&mut writer)
             .with_context(|| format!("failed to write header {path:?}"))?;
@@ -118,7 +117,7 @@ where
     if path.exists() {
         // Check if exists and header is different, so we avoid overwriting
         let mut reader = BufReader::new(
-            File::open(path).with_context(|| format!("failed to open file {path:?}"))?,
+            std::fs::File::open(path).with_context(|| format!("failed to open file {path:?}"))?,
         );
         validate_save_header(&mut reader)
             .with_context(|| format!("failed to validate header {path:?}"))
@@ -144,8 +143,9 @@ where
     P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let mut reader =
-        BufReader::new(File::open(path).with_context(|| format!("Failed to open file {path:?}"))?);
+    let mut reader = BufReader::new(
+        std::fs::File::open(path).with_context(|| format!("Failed to open file {path:?}"))?,
+    );
     let mut bytes = vec![];
     // Don't care about the size read
     let _ = validate_save_header(&mut reader)
@@ -159,91 +159,24 @@ where
     Ok(bytes)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[inline]
 pub(crate) fn filename(path: &Path) -> &str {
-    path.file_name().and_then(OsStr::to_str).unwrap_or_else(|| {
-        log::warn!("invalid rom_path: {path:?}");
-        "??"
-    })
+    path.file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or_else(|| {
+            log::warn!("invalid rom_path: {path:?}");
+            "??"
+        })
 }
 
 impl Nes {
-    pub fn initialize(&mut self, event_tx: crossbeam::channel::Sender<super::EventMsg>) {
-        // Configure emulation based on config
-        self.update_frame_rate();
-
-        if self.config.zapper {
-            self.window.set_cursor_visible(false);
-        }
-
-        for code in self.config.genie_codes.clone() {
-            if let Err(err) = self.control_deck.add_genie_code(code.clone()) {
-                log::warn!("{}", err);
-                self.add_message(format!("Invalid Genie Code: '{code}'"));
-            }
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        if self.config.rom_path.is_dir() {
-            self.mode = Mode::InMenu(Menu::LoadRom);
-        } else {
-            self.load_rom_path(self.config.rom_path.clone());
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            use super::EventMsg;
-            use wasm_bindgen::{closure::Closure, JsCast};
-
-            web_sys::window()
-                .and_then(|win| win.document())
-                .and_then(|doc| doc.body().map(|body| (doc, body)))
-                .map(|(doc, body)| {
-                    let load_rom_tx = event_tx.clone();
-                    let handle_load_rom = Closure::<dyn Fn()>::new(move || {
-                        if let Err(err) = load_rom_tx.try_send(EventMsg::LoadRom) {
-                            log::error!("failed to send load rom message to event_loop: {err:?}");
-                        }
-                    });
-
-                    let load_rom_btn = doc.create_element("button").expect("created button");
-                    load_rom_btn.set_text_content(Some("Load ROM"));
-                    load_rom_btn
-                        .add_event_listener_with_callback(
-                            "click",
-                            handle_load_rom.as_ref().unchecked_ref(),
-                        )
-                        .expect("added event listener");
-                    body.append_child(&load_rom_btn).ok();
-                    handle_load_rom.forget();
-
-                    let pause_tx = event_tx.clone();
-                    let handle_pause = Closure::<dyn Fn()>::new(move || {
-                        if let Err(err) = pause_tx.try_send(EventMsg::Pause) {
-                            log::error!("failed to send pause message to event_loop: {err:?}");
-                        }
-                    });
-
-                    let pause_btn = doc.create_element("button").expect("created button");
-                    pause_btn.set_text_content(Some("Pause"));
-                    pause_btn
-                        .add_event_listener_with_callback(
-                            "click",
-                            handle_pause.as_ref().unchecked_ref(),
-                        )
-                        .expect("added event listener");
-                    body.append_child(&pause_btn).ok();
-                    handle_pause.forget();
-                })
-                .expect("couldn't append canvas to document body");
-        }
-    }
-
     /// Loads a ROM cartridge into memory from a path.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load_rom_path(&mut self, path: impl AsRef<Path>) {
         let path = path.as_ref();
         let filename = filename(path);
-        match File::open(path).with_context(|| format!("failed to open rom {path:?}")) {
+        match std::fs::File::open(path).with_context(|| format!("failed to open rom {path:?}")) {
             Ok(mut rom) => self.load_rom(filename, &mut rom),
             Err(err) => {
                 log::error!("{path:?}: {err:?}");

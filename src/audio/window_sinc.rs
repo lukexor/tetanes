@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub struct WindowSinc {
     m: usize,

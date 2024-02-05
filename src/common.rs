@@ -2,9 +2,8 @@ use crate::{NesError, NesResult};
 use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Write, path::PathBuf};
+use std::fmt::Write;
 
-pub const CONFIG_DIR: &str = ".config/tetanes";
 pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
 
@@ -119,23 +118,6 @@ macro_rules! hashmap {
     });
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn config_dir() -> PathBuf {
-    PathBuf::from("./")
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn config_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("./"))
-        .join(CONFIG_DIR)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn config_path<P: AsRef<std::path::Path>>(path: P) -> PathBuf {
-    config_dir().join(path)
-}
-
 /// Prints a hex dump of a given byte array starting at `addr_offset`.
 #[must_use]
 pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
@@ -200,7 +182,7 @@ pub(crate) mod tests {
         mapper::{Mapper, MapperRevision},
         nes::event::{Action, NesState, Setting},
         ppu::Ppu,
-        video::{Video, VideoFilter},
+        video::VideoFilter,
     };
     use anyhow::Context;
     use image::{ImageBuffer, Rgba};
@@ -329,12 +311,11 @@ pub(crate) mod tests {
         test: &str,
         test_frame: &TestFrame,
         deck: &mut ControlDeck,
-        frame_buffer: &mut Vec<u8>,
         count: usize,
     ) -> Option<(u64, u64, u32, PathBuf)> {
         test_frame.hash.map(|expected| {
             let mut hasher = DefaultHasher::new();
-            deck.frame_buffer(frame_buffer);
+            let frame_buffer = deck.frame_buffer();
             frame_buffer.hash(&mut hasher);
             let actual = hasher.finish();
             log::debug!(
@@ -358,7 +339,7 @@ pub(crate) mod tests {
                 .join(PathBuf::from(filename))
                 .with_extension("png");
 
-            ImageBuffer::<Rgba<u8>, &[u8]>::from_raw(Ppu::WIDTH, Ppu::HEIGHT, &frame_buffer[..])
+            ImageBuffer::<Rgba<u8>, &[u8]>::from_raw(Ppu::WIDTH, Ppu::HEIGHT, frame_buffer)
                 .expect("valid frame")
                 .save(&screenshot)
                 .expect("result screenshot");
@@ -382,7 +363,6 @@ pub(crate) mod tests {
             .with_extension("nes");
         assert!(rom.exists(), "No test rom found for {rom:?}");
 
-        let mut frame_buffer = Video::new_frame_buffer();
         let mut deck = load_control_deck(&rom);
         if env::var("RUST_LOG").is_ok() {
             let _ = pretty_env_logger::try_init();
@@ -400,13 +380,8 @@ pub(crate) mod tests {
             }
 
             handle_frame_action(test_frame, &mut deck);
-            if let Some(result) = handle_snapshot(
-                &test.name,
-                test_frame,
-                &mut deck,
-                &mut frame_buffer,
-                results.len(),
-            ) {
+            if let Some(result) = handle_snapshot(&test.name, test_frame, &mut deck, results.len())
+            {
                 results.push(result);
             }
         }

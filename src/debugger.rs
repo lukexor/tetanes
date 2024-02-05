@@ -1,8 +1,8 @@
+#![allow(unused)]
 use crate::mem::Access;
 use std::ops::RangeInclusive;
 
 // TODO: Use Address
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Address {
     Addr(u16),
@@ -20,10 +20,10 @@ pub(crate) enum Address {
 // - IRQ/NMI
 // - Spr0 Hit/Spr Overflow
 // - VBlank
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) struct Condition {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) struct Breakpoint {
     pub(crate) addr: Address,
     pub(crate) access: Vec<Access>,

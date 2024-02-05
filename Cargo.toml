@@ -12,7 +12,6 @@ categories = ["emulators", "wasm"]
 keywords = ["nes", "emulator", "wasm"]
 default-run = "tetanes"
 exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
-resolver = "2"
 edition = "2021"
 
 [package.metadata]
@@ -22,32 +21,33 @@ msrv = "1.70.0"
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
 path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
+# [lib]
+# crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["cycle-accurate"]
+profiling = ["dep:puffin", "dep:puffin_http"]
+console_log = ["dep:console_log", "dep:console_error_panic_hook"]
+cycle-accurate = []
 
 [dependencies]
 anyhow = "1.0"
 bincode = "1.3"
 bitflags = { version = "2.4", features = ["serde"] }
-cfg-if = "1.0"
 chrono = "0.4"
-cpal = "0.15"
 crossbeam = "0.8"
 dirs = "5.0"
-# eframe = { version = "0.24", features = ["puffin", "persistence"] }
-# egui = "0.24"
 enum_dispatch = "0.3"
 flate2 = "1.0"
 image = { version = "0.24", default-features = false, features = ["png"] }
 log = { version = "0.4", features = ["release_max_level_warn"] }
 once_cell = "1.19"
 pixels = "0.13"
-puffin = "0.18"
+puffin = { version = "0.18", optional = true }
 rand = "0.8"
 # rubato = "0.14.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-structopt = "0.3"
 web-time = "0.2"
 winit = { version = "0.29", default-features = false, features = [
   "rwh_05",
@@ -59,36 +59,24 @@ winit = { version = "0.29", default-features = false, features = [
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = "0.15"
 pollster = "0.3"
 pretty_env_logger = "0.5"
-puffin_http = "0.15"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-puffin_http = "0.15"
+puffin_http = { version = "0.15", optional = true }
+structopt = "0.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1"
+console_error_panic_hook = { version = "0.1", optional = true }
 console_log = { version = "1.0", features = ["color"], optional = true }
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.2", features = ["js"] }
-puffin = { version = "0.18", features = ["web"] }
-web-sys = { version = "0.3", features = [
-  "GpuTextureFormat",
-  "GpuComputePassTimestampWrite",
-  "Window",
-  "Document",
-  "HtmlElement",
-] }
+puffin = { version = "0.18", features = ["web"], optional = true }
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 
-[features]
-default = ["cycle-accurate"]
-console_log = ["dep:console_log"]
-cycle-accurate = []
-
-# Optimized development for playable framerates
+# Playable framerates in development
 [profile.devo]
 inherits = "dev"
 opt-level = 1
@@ -96,21 +84,19 @@ opt-level = 1
 [profile.test]
 inherits = "devo"
 
-[profile.profiling]
-inherits = "release"
-debug = true
+[profile.release]
+strip = true
 
-# The profile that 'cargo dist' will build with
+# Profile used by 'cargo dist'
 [profile.dist]
 inherits = "release"
 codegen-units = 1
 lto = "thin"
-strip = true
-
-[profile.web]
-inherits = "dist"
-opt-level = "s"
 panic = "abort"
+
+[profile.profiling]
+inherits = "dist"
+debug = true
 
 [workspace]
 members = ["utils", "run-wasm"]
@@ -118,16 +104,16 @@ members = ["utils", "run-wasm"]
 # Config for 'cargo dist'
 [workspace.metadata.dist]
 # The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.4.3"
+cargo-dist-version = "0.9.0"
 # CI backends to support
 ci = ["github"]
 # The installers to generate for each app
 installers = ["shell", "homebrew", "msi"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
-  "x86_64-unknown-linux-gnu",
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
   "x86_64-pc-windows-msvc",
 ]
 # Publish jobs to run in CI

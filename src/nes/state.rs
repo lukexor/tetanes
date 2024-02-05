@@ -4,14 +4,14 @@ use crate::{
         event::ActionEvent,
         filesystem::{decode_data, encode_data, load_data, save_data},
         menu::Menu,
-        Nes, RenderMsg,
+        Nes,
     },
     NesError, NesResult,
 };
 use anyhow::{anyhow, Context};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::{ffi::OsStr, path::PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[must_use]
@@ -135,7 +135,7 @@ impl Default for Replay {
 impl Nes {
     pub fn handle_emulation_error(&mut self, err: &NesError) {
         self.error = Some(err.to_string());
-        self.open_menu(Menu::LoadRom);
+        self.mode = Mode::Paused(PauseMode::Manual);
     }
 
     pub fn resume_play(&mut self) {
@@ -143,9 +143,7 @@ impl Nes {
             recording_audio: false,
         };
         if self.control_deck.is_running() {
-            if let Some(ref render_thread) = self.render_thread {
-                render_thread.thread().unpark();
-            }
+            self.renderer.resume();
             if let Err(err) = self.audio.play() {
                 self.add_message(format!("failed to start audio: {err:?}"));
             }
@@ -155,11 +153,7 @@ impl Nes {
     pub fn pause_play(&mut self, mode: PauseMode) {
         self.mode = Mode::Paused(mode);
         if self.control_deck.is_running() {
-            if let Some(ref mut render_tx) = self.render_tx {
-                if let Err(err) = render_tx.try_send(RenderMsg::Pause(true)) {
-                    log::error!("failed to send pause message {err:?}");
-                }
-            }
+            self.renderer.pause();
             if self.mode.is_recording_playback() {
                 self.stop_replay();
             }
@@ -172,16 +166,14 @@ impl Nes {
 
     /// Returns the path where battery-backed Save RAM files are stored
     pub(crate) fn sram_path(&self) -> NesResult<PathBuf> {
-        use crate::common::config_dir;
-
         match self.control_deck.loaded_rom() {
             Some(ref rom) => PathBuf::from(rom)
                 .file_stem()
-                .and_then(OsStr::to_str)
+                .and_then(std::ffi::OsStr::to_str)
                 .map_or_else(
                     || Err(anyhow!("failed to create sram path for `{rom:?}`")),
                     |save_name| {
-                        Ok(config_dir()
+                        Ok(super::config::Config::directory()
                             .join("sram")
                             .join(save_name)
                             .with_extension("sram"))
@@ -193,16 +185,14 @@ impl Nes {
 
     /// Returns the path where Save states are stored
     pub fn save_path(&self, slot: u8) -> NesResult<PathBuf> {
-        use crate::common::config_dir;
-
         match self.control_deck.loaded_rom() {
             Some(ref rom) => PathBuf::from(rom)
                 .file_stem()
-                .and_then(OsStr::to_str)
+                .and_then(std::ffi::OsStr::to_str)
                 .map_or_else(
                     || Err(anyhow!("failed to create save path for `{rom:?}`")),
                     |save_name| {
-                        Ok(config_dir()
+                        Ok(super::config::Config::directory()
                             .join("save")
                             .join(save_name)
                             .join(slot.to_string())
@@ -288,12 +278,10 @@ impl Nes {
                     .to_string(),
             )
             .with_extension("png");
-            let mut frame_buffer = crate::video::Video::new_frame_buffer();
-            self.control_deck.frame_buffer(&mut frame_buffer);
             let image = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
                 Ppu::WIDTH,
                 Ppu::HEIGHT,
-                &frame_buffer[..],
+                self.control_deck.frame_buffer(),
             )
             .expect("valid frame buffer");
 

@@ -15,6 +15,24 @@ use crate::{
 use anyhow::anyhow;
 use std::{io::Read, ops::ControlFlow};
 
+#[derive(Default, Debug, Clone)]
+#[must_use]
+/// Control deck configuration settings.
+pub struct Config {
+    /// Video filter.
+    pub filter: VideoFilter,
+    /// NES region.
+    pub region: NesRegion,
+    /// RAM initialization state.
+    pub ram_state: RamState,
+    /// Four player adapter.
+    pub four_player: FourPlayer,
+    /// Enable zapper gun.
+    pub zapper: bool,
+    /// Game Genie codes.
+    pub genie_codes: Vec<String>,
+}
+
 /// Represents an NES Control Deck
 #[derive(Debug, Clone)]
 #[must_use]
@@ -30,19 +48,32 @@ pub struct ControlDeck {
 
 impl Default for ControlDeck {
     fn default() -> Self {
-        Self::new(RamState::default())
+        Self::new()
     }
 }
 
 impl ControlDeck {
-    /// Create a NES `ControlDeck`.
-    pub fn new(ram_state: RamState) -> Self {
-        let cpu = Cpu::new(CpuBus::new(ram_state));
+    /// Create a NES `ControlDeck` with the default configuration.
+    pub fn new() -> Self {
+        Self::with_config(Config::default())
+    }
+
+    /// Create a NES `ControlDeck` with a configuration.
+    pub fn with_config(config: Config) -> Self {
+        let mut cpu = Cpu::new(CpuBus::new(config.ram_state));
+        cpu.set_region(config.region);
+        cpu.set_four_player(config.four_player);
+        cpu.connect_zapper(config.zapper);
+        for code in config.genie_codes.clone() {
+            if let Err(err) = cpu.add_genie_code(code.clone()) {
+                log::warn!("{}", err);
+            }
+        }
         Self {
             running: false,
-            ram_state,
-            region: NesRegion::default(),
-            video: Video::default(),
+            ram_state: config.ram_state,
+            region: config.region,
+            video: Video::with_filter(config.filter),
             loaded_rom: None,
             cycles_remaining: 0.0,
             cpu,
@@ -99,9 +130,9 @@ impl ControlDeck {
 
     /// Load a frame worth of pixels.
     #[inline]
-    pub fn frame_buffer(&mut self, output: &mut [u8]) {
+    pub fn frame_buffer(&mut self) -> &[u8] {
         self.video
-            .apply_filter(self.cpu.frame_buffer(), output, self.cpu.frame_number());
+            .apply_filter(self.cpu.frame_buffer(), self.cpu.frame_number())
     }
 
     /// Get the current frame number.
@@ -126,7 +157,8 @@ impl ControlDeck {
 
     /// CPU clock rate based on currently configured NES region.
     #[inline]
-    pub fn clock_rate(&mut self) -> f32 {
+    #[must_use]
+    pub const fn clock_rate(&self) -> f32 {
         self.cpu.clock_rate()
     }
 

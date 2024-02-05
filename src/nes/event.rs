@@ -681,7 +681,7 @@ impl Nes {
         }
     }
 
-    pub fn handle_key_event(&mut self, window_id: WindowId, event: KeyEvent) {
+    pub fn handle_key_event(&mut self, _window_id: WindowId, event: KeyEvent) {
         if let PhysicalKey::Code(key) = event.physical_key {
             for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
                 self.handle_input(
@@ -716,7 +716,7 @@ impl Nes {
 
     pub fn handle_mouse_event(
         &mut self,
-        window_id: WindowId,
+        _window_id: WindowId,
         btn: MouseButton,
         state: ElementState,
     ) -> bool {
@@ -751,7 +751,11 @@ impl Nes {
     }
 
     #[inline]
-    pub fn handle_mouse_motion(&mut self, window_id: WindowId, pos: PhysicalPosition<f64>) -> bool {
+    pub fn handle_mouse_motion(
+        &mut self,
+        _window_id: WindowId,
+        pos: PhysicalPosition<f64>,
+    ) -> bool {
         // To avoid consuming events while in menus
         if self.mode.is_playing() {
             self.set_zapper_pos(pos);

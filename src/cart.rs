@@ -27,7 +27,7 @@ const CHR_ROM_BANK_SIZE: usize = 0x2000;
 const GAME_DB: &[u8] = include_bytes!("../config/game_database.txt");
 
 /// An NES cartridge.
-#[derive(Default, Clone)]
+#[derive(Default)]
 #[must_use]
 pub struct Cart {
     name: String,
