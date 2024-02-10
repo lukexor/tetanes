@@ -98,7 +98,7 @@ impl PpuBus {
     #[inline]
     const fn ciram_mirror(&self, addr: usize) -> usize {
         let nametable = (addr >> self.mirror_shift) & (Ppu::NT_SIZE as usize);
-        (nametable) | (!nametable & addr & 0x03FF)
+        nametable | (!nametable & addr & 0x03FF)
     }
 
     #[inline]
@@ -112,7 +112,7 @@ impl Mem for PpuBus {
         let val = match addr {
             0x2000..=0x3EFF => match self.mapper.map_read(addr) {
                 MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
-                MappedRead::ExRam(addr) => self.exram[addr & 0x03FF],
+                MappedRead::ExRam(addr) => self.exram[addr],
                 MappedRead::Data(data) => data,
                 // NOTE: Mappers that support FourScreen should return MappedRead::ExRam or
                 // MappedRead::Data
@@ -142,7 +142,7 @@ impl Mem for PpuBus {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_peek(addr) {
                 MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
-                MappedRead::ExRam(addr) => self.exram[addr & 0x03FF],
+                MappedRead::ExRam(addr) => self.exram[addr],
                 MappedRead::Data(data) => data,
                 // NOTE: Mappers that support FourScreen should return MappedRead::ExRam or
                 // MappedRead::Data
@@ -167,7 +167,7 @@ impl Mem for PpuBus {
     fn write(&mut self, addr: u16, val: u8, _access: Access) {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
-                MappedWrite::CIRam(addr, val) => self.ciram[addr] = val,
+                MappedWrite::CIRam(addr, val) => self.ciram[addr & 0x07FF] = val,
                 MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
                 // NOTE: Mappers that support FourScreen should return MappedRead::ExRam
                 _ => {
