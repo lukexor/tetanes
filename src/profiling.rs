@@ -1,17 +1,19 @@
+pub fn init() {
+    enable();
+}
+
 // TODO: Add custom profiling similar to puffin
 // pub static mut EVENT_LOG: EventLog = EventLog::new();
 // static EVENT_LOG_INDEX: AtomicU64 = AtomicU64::new(0);
 // static TIMER_FREQ: Lazy<f64> = Lazy::new(|| estimated_cpu_timer_freq() as f64);
 
-#[inline]
-#[cfg(feature = "profiling")]
 pub fn enable() {
+    #[cfg(feature = "profiling")]
     puffin::set_scopes_on(true);
 }
 
-#[inline]
-#[cfg(feature = "profiling")]
 pub fn disable() {
+    #[cfg(feature = "profiling")]
     puffin::set_scopes_on(false);
 }
 
@@ -24,6 +26,38 @@ pub struct Server(puffin_http::Server);
 pub fn start_server() -> anyhow::Result<Server> {
     let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
     Ok(Server(puffin_http::Server::new(&server_addr)?))
+}
+
+/// Begin profiling an arbitrary range of lines not inside a block, tagging it with a given name. For
+/// profiling a block of code, see [`profile!`].
+#[macro_export]
+macro_rules! profile_start {
+    ($name:expr) => {
+        // #[cfg(feature = "profiling")]
+        // $crate::profiling::record_event(
+        //     $crate::profiling::EventType::BeginBlock,
+        //     $name,
+        //     file!(),
+        //     module_path!(),
+        //     line!(),
+        // );
+    };
+}
+
+/// End profiling an arbitrary range of lines not inside a block started with [`profile_start!`]
+/// with a given name. For profiling a block of code, see [`profile!`].
+#[macro_export]
+macro_rules! profile_end {
+    ($name:expr) => {
+        // #[cfg(feature = "profiling")]
+        // $crate::profiling::record_event(
+        //     $crate::profiling::EventType::EndBlock,
+        //     $name,
+        //     file!(),
+        //     module_path!(),
+        //     line!(),
+        // );
+    };
 }
 
 /// Profile a given function or block of code. This macro will automatically use the fully
@@ -66,38 +100,6 @@ macro_rules! profile {
         // TODO: fix possible name collision
         // #[cfg(feature = "profiling")]
         // let __block = $crate::profiling::TimedBlock::new($name, file!(), module_path!(), line!());
-    };
-}
-
-/// Begin profiling an arbitrary range of lines not inside a block, tagging it with a given name. For
-/// profiling a block of code, see [`profile!`].
-#[macro_export]
-macro_rules! profile_start {
-    ($name:expr) => {
-        // #[cfg(feature = "profiling")]
-        // $crate::profiling::record_event(
-        //     $crate::profiling::EventType::BeginBlock,
-        //     $name,
-        //     file!(),
-        //     module_path!(),
-        //     line!(),
-        // );
-    };
-}
-
-/// End profiling an arbitrary range of lines not inside a block started with [`profile_start!`]
-/// with a given name. For profiling a block of code, see [`profile!`].
-#[macro_export]
-macro_rules! profile_end {
-    ($name:expr) => {
-        // #[cfg(feature = "profiling")]
-        // $crate::profiling::record_event(
-        //     $crate::profiling::EventType::EndBlock,
-        //     $name,
-        //     file!(),
-        //     module_path!(),
-        //     line!(),
-        // );
     };
 }
 

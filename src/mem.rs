@@ -145,6 +145,7 @@ impl MemBanks {
 
     #[inline]
     pub fn set(&mut self, slot: usize, bank: usize) {
+        assert!(slot < self.banks.len());
         self.banks[slot] = (bank & self.mask) << self.shift;
         debug_assert!(self.banks[slot] < self.page_count * self.window);
     }
@@ -153,6 +154,7 @@ impl MemBanks {
     pub fn set_range(&mut self, start: usize, end: usize, bank: usize) {
         let mut new_addr = (bank & self.mask) << self.shift;
         for slot in start..=end {
+            assert!(slot < self.banks.len());
             self.banks[slot] = new_addr;
             debug_assert!(self.banks[slot] < self.page_count * self.window);
             new_addr += self.window;
@@ -167,7 +169,7 @@ impl MemBanks {
 
     #[inline]
     #[must_use]
-    pub const fn get_bank(&self, addr: u16) -> usize {
+    pub const fn get(&self, addr: u16) -> usize {
         // 0x6005    - 0b0110000000000101 -> bank 0
         //  (0x2000)   0b0010000000000000
         //
@@ -201,7 +203,9 @@ impl MemBanks {
         // 0xC005    - 0b1100000000000101 -> bank 2
         // 0xE005    - 0b1110000000000101 -> bank 3
         //   (0x2000)  0b0010000000000000
-        let page = self.banks[self.get_bank(addr)];
+        let slot = self.get(addr);
+        assert!(slot < self.banks.len());
+        let page = self.banks[slot];
         page | (addr as usize) & (self.window - 1)
     }
 }
@@ -229,14 +233,14 @@ mod tests {
     fn get_bank() {
         let size = 128 * 1024;
         let banks = MemBanks::new(0x8000, 0xFFFF, size, 0x4000);
-        assert_eq!(banks.get_bank(0x8000), 0);
-        assert_eq!(banks.get_bank(0x9FFF), 0);
-        assert_eq!(banks.get_bank(0xA000), 0);
-        assert_eq!(banks.get_bank(0xBFFF), 0);
-        assert_eq!(banks.get_bank(0xC000), 1);
-        assert_eq!(banks.get_bank(0xDFFF), 1);
-        assert_eq!(banks.get_bank(0xE000), 1);
-        assert_eq!(banks.get_bank(0xFFFF), 1);
+        assert_eq!(banks.get(0x8000), 0);
+        assert_eq!(banks.get(0x9FFF), 0);
+        assert_eq!(banks.get(0xA000), 0);
+        assert_eq!(banks.get(0xBFFF), 0);
+        assert_eq!(banks.get(0xC000), 1);
+        assert_eq!(banks.get(0xDFFF), 1);
+        assert_eq!(banks.get(0xE000), 1);
+        assert_eq!(banks.get(0xFFFF), 1);
     }
 
     #[test]

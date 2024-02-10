@@ -1,4 +1,4 @@
-use crate::common::{Clock, Kind, NesRegion, Regional, Reset};
+use crate::common::{Clock, NesRegion, Regional, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -156,6 +156,7 @@ impl Dmc {
     }
 
     // $4010 DMC timer
+    #[inline]
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
         self.loops = val & 0x40 == 0x40;
@@ -260,18 +261,18 @@ impl Regional for Dmc {
 }
 
 impl Reset for Dmc {
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
         self.freq_timer = Self::freq_timer(self.region, 0);
         self.freq_counter = self.freq_timer;
         match kind {
-            Kind::Soft => {
+            ResetKind::Soft => {
                 self.addr = 0x0000;
                 self.length_load = 0x0000;
             }
-            Kind::Hard => {
+            ResetKind::Hard => {
                 self.addr = 0xC000;
                 self.length_load = 0x0001;
             }

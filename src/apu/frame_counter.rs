@@ -1,4 +1,4 @@
-use crate::common::{Clock, Kind, NesRegion, Reset};
+use crate::common::{Clock, NesRegion, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -119,8 +119,8 @@ impl Clock for FrameCounter {
 }
 
 impl Reset for FrameCounter {
-    fn reset(&mut self, kind: Kind) {
-        if kind == Kind::Hard {
+    fn reset(&mut self, kind: ResetKind) {
+        if kind == ResetKind::Hard {
             self.mode = FcMode::Step4;
         }
         self.step = 0;

@@ -27,7 +27,6 @@ pub mod input;
 pub mod mapper;
 pub mod mem;
 pub mod nes;
-pub mod platform;
 pub mod ppu;
 pub mod profiling;
 pub mod video;

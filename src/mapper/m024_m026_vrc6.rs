@@ -6,7 +6,7 @@ use crate::{
     apu::PULSE_TABLE,
     audio::Audio,
     cart::Cart,
-    common::{Clock, Kind, Regional, Reset},
+    common::{Clock, Regional, Reset, ResetKind},
     mapper::{vrc_irq::VrcIrq, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -354,7 +354,7 @@ impl Clock for Vrc6 {
 }
 
 impl Reset for Vrc6 {
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         self.irq.reset(kind);
         self.audio.reset(kind);
     }
@@ -438,7 +438,7 @@ impl Clock for Vrc6Audio {
 }
 
 impl Reset for Vrc6Audio {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         self.last_out = 0.0;
         self.halt = false;
     }

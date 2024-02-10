@@ -76,6 +76,7 @@ impl From<usize> for NesRegion {
 
 #[enum_dispatch(Mapper)]
 pub trait Regional {
+    #[inline]
     fn region(&self) -> NesRegion {
         NesRegion::default()
     }
@@ -84,14 +85,14 @@ pub trait Regional {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Kind {
+pub enum ResetKind {
     Soft,
     Hard,
 }
 
 #[enum_dispatch(Mapper)]
 pub trait Reset {
-    fn reset(&mut self, _kind: Kind) {}
+    fn reset(&mut self, _kind: ResetKind) {}
 }
 
 #[enum_dispatch(Mapper)]
@@ -178,7 +179,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         control_deck::ControlDeck,
-        input::Slot,
+        input::Player,
         mapper::{Mapper, MapperRevision},
         nes::event::{Action, NesState, Setting},
         ppu::Ppu,
@@ -238,7 +239,7 @@ pub(crate) mod tests {
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        slot: Option<Slot>,
+        slot: Option<Player>,
         #[serde(skip_serializing_if = "Option::is_none")]
         action: Option<Action>,
     }
@@ -280,8 +281,8 @@ pub(crate) mod tests {
             log::debug!("{:?}", action);
             match action {
                 Action::Nes(state) => match state {
-                    NesState::SoftReset => deck.reset(Kind::Soft),
-                    NesState::HardReset => deck.reset(Kind::Hard),
+                    NesState::SoftReset => deck.reset(ResetKind::Soft),
+                    NesState::HardReset => deck.reset(ResetKind::Hard),
                     NesState::MapperRevision(board) => match board {
                         MapperRevision::Mmc3(revision) => {
                             if let Mapper::Txrom(ref mut mapper) = deck.mapper_mut() {
@@ -298,7 +299,7 @@ pub(crate) mod tests {
                     _ => panic!("unhandled Setting: {setting:?}"),
                 },
                 Action::Joypad(button) => {
-                    let slot = test_frame.slot.unwrap_or(Slot::One);
+                    let slot = test_frame.slot.unwrap_or(Player::One);
                     let joypad = deck.joypad_mut(slot);
                     joypad.set_button(button.into(), true);
                 }
@@ -370,13 +371,13 @@ pub(crate) mod tests {
 
         let mut results = Vec::new();
         for test_frame in test.frames.iter() {
-            log::debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Slot::One));
+            log::debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Player::One));
 
             while deck.frame_number() < test_frame.number {
                 deck.clock_frame().expect("valid frame clock");
                 deck.clear_audio_samples();
-                deck.joypad_mut(Slot::One).reset(Kind::Soft);
-                deck.joypad_mut(Slot::Two).reset(Kind::Soft);
+                deck.joypad_mut(Player::One).reset(ResetKind::Soft);
+                deck.joypad_mut(Player::Two).reset(ResetKind::Soft);
             }
 
             handle_frame_action(test_frame, &mut deck);

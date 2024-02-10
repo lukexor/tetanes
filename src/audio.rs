@@ -13,6 +13,7 @@ use std::{
         Arc,
     },
 };
+use thingbuf::{recycling::WithCapacity, ThingBuf};
 use web_time::Duration;
 
 pub mod filter;
@@ -25,8 +26,8 @@ pub trait Audio {
 #[derive(Debug)]
 #[must_use]
 pub enum CallbackMsg {
-    FrameSamples(Vec<f32>),
-    UpdateSampleRate((f32, Duration)),
+    NewSamples,
+    UpdateResampleRatio(f32),
     Enable(bool),
     Record(bool),
 }
@@ -34,21 +35,21 @@ pub enum CallbackMsg {
 #[must_use]
 pub struct Mixer {
     stream: Option<Stream>,
-    clock_rate: f32,
+    resample_ratio: f32,
     sample_rate: f32,
-    audio_latency: Duration,
     buffer_len: Arc<AtomicUsize>,
-    callback_tx: Option<Sender<CallbackMsg>>,
+    buffer_pool: Arc<ThingBuf<Vec<f32>, WithCapacity>>,
+    tx: Option<Sender<CallbackMsg>>,
     enabled: bool,
+    recording: bool,
 }
 
 impl fmt::Debug for Mixer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Mixer")
             .field("playing", &self.stream.is_some())
-            .field("input_frequency", &self.clock_rate)
+            .field("resample_ratio", &self.resample_ratio)
             .field("sample_rate", &self.sample_rate)
-            .field("audio_latency", &self.audio_latency)
             .field("buffer_len", &self.buffer_len)
             .field("enabled", &self.enabled)
             .finish()
@@ -61,15 +62,21 @@ impl Mixer {
     /// # Errors
     ///
     /// Returns an error if the audio device fails to be opened.
-    pub fn new(clock_rate: f32, sample_rate: f32, audio_latency: Duration, enabled: bool) -> Self {
+    pub fn new(resample_ratio: f32, sample_rate: f32, enabled: bool) -> Self {
         Self {
             stream: None,
-            clock_rate,
+            resample_ratio,
             sample_rate,
-            audio_latency,
             buffer_len: Arc::new(AtomicUsize::new(0)),
-            callback_tx: None,
+            buffer_pool: Arc::new(ThingBuf::with_recycle(
+                16,
+                // 0x8000 = 32768, which is the next power of two greater than a single frame of CPU-generated
+                // audio samples.
+                WithCapacity::new().with_min_capacity(0x8000),
+            )),
+            tx: None,
             enabled,
+            recording: false,
         }
     }
 
@@ -79,24 +86,35 @@ impl Mixer {
         self.buffer_len.load(Ordering::Relaxed)
     }
 
+    /// Returns the `Duration` of audio queued for playback.
     #[must_use]
     pub fn queued_time(&self) -> Duration {
-        Duration::from_secs_f64(self.buffer_len() as f64 / self.sample_rate as f64)
+        let queued_time = self.buffer_len() as f32 / self.sample_rate;
+        log::trace!("queued_audio_time: {:.2}ms", 1000.0 * queued_time);
+        Duration::from_secs_f32(queued_time)
     }
 
+    /// Choose the best audio configuration for the given device and sample_rate.
     fn choose_audio_config(device: &Device, sample_rate: f32) -> NesResult<SupportedStreamConfig> {
         let mut supported_configs = device.supported_output_configs()?;
         let desired_sample_rate = SampleRate(sample_rate as u32);
         let chosen_config = supported_configs
-            .find(|config| config.max_sample_rate() >= desired_sample_rate)
+            .find(|config| {
+                log::debug!("supported config: {config:?}");
+                config.max_sample_rate() >= desired_sample_rate
+                    && config.sample_format() == SampleFormat::F32
+            })
             .or_else(|| {
+                log::debug!("falling back to first supported output");
                 device
                     .supported_output_configs()
                     .ok()
                     .and_then(|mut c| c.next())
             })
             .map(|config| {
-                log::debug!("desired_sample_rate: {desired_sample_rate:?}, config: {config:?}");
+                log::debug!(
+                    "desired sample rate: {desired_sample_rate:?}, chosen config: {config:?}"
+                );
                 let min_sample_rate = config.min_sample_rate();
                 let max_sample_rate = config.max_sample_rate();
                 config.with_sample_rate(desired_sample_rate.clamp(min_sample_rate, max_sample_rate))
@@ -110,8 +128,10 @@ impl Mixer {
     /// # Errors
     ///
     /// Returns an error if the audio device does not support pausing.
-    #[inline]
     pub fn pause(&mut self) {
+        if self.recording {
+            self.stop_recording();
+        }
         self.stream.as_ref().map(Stream::pause);
     }
 
@@ -120,7 +140,6 @@ impl Mixer {
     /// # Errors
     ///
     /// Returns an error if audio can not be resumed.
-    #[inline]
     pub fn play(&mut self) -> NesResult<()> {
         match self.stream {
             Some(ref stream) => stream.play()?,
@@ -158,13 +177,12 @@ impl Mixer {
         Ok(())
     }
 
-    #[inline]
-    fn allocate_buffer(sample_rate: f32, latency: Duration) -> Vec<f32> {
+    fn allocate_buffer(sample_rate: f32) -> Vec<f32> {
         const BYTES_PER_SAMPLE: f32 = 4.0;
-
-        let buffer_size =
-            ((sample_rate * latency.as_secs_f32() * BYTES_PER_SAMPLE) as usize).next_power_of_two();
-        Vec::with_capacity(buffer_size)
+        const DEFAULT_LATENCY: f32 = 30.0;
+        Vec::with_capacity(
+            ((sample_rate * DEFAULT_LATENCY * BYTES_PER_SAMPLE) as usize).next_power_of_two(),
+        )
     }
 
     #[inline]
@@ -204,14 +222,13 @@ impl Mixer {
         log::info!("creating audio stream with config: {config:?}");
 
         self.sample_rate = config.sample_rate.0 as f32;
-        let (callback_tx, callback_rx) = channel::bounded::<CallbackMsg>(8);
-        self.callback_tx = Some(callback_tx);
+        let (callback_tx, callback_rx) = channel::bounded::<CallbackMsg>(64);
+        self.tx = Some(callback_tx);
         let num_channels = config.channels as usize;
         let mut sample_avg = 0.0;
         let mut sample_count = 0.0;
         let mut decim_fraction = 0.0;
-        let clock_rate = self.clock_rate;
-        let mut resample_ratio = self.clock_rate / self.sample_rate;
+        let mut resample_ratio = self.resample_ratio;
         let mut filters = [
             Filter::high_pass(self.sample_rate, 90.0, 1500.0),
             Filter::high_pass(self.sample_rate, 440.0, 1500.0),
@@ -219,8 +236,10 @@ impl Mixer {
             Filter::low_pass(self.sample_rate, 11_000.0, 1500.0),
         ];
         let buffer_len = Arc::clone(&self.buffer_len);
-        let mut processed_samples = Self::allocate_buffer(self.sample_rate, self.audio_latency);
+        let buffer_pool = Arc::clone(&self.buffer_pool);
+        let mut processed_samples = Self::allocate_buffer(self.sample_rate);
         let mut enabled = self.enabled;
+        let mut recording = self.recording;
         let stream = device.build_output_stream(
             &config,
             move |out: &mut [T], _info| {
@@ -228,27 +247,30 @@ impl Mixer {
 
                 while let Ok(msg) = callback_rx.try_recv() {
                     match msg {
-                        CallbackMsg::UpdateSampleRate((sample_rate, audio_latency)) => {
-                            processed_samples = Mixer::allocate_buffer(sample_rate, audio_latency);
-                            resample_ratio = clock_rate / sample_rate;
+                        CallbackMsg::UpdateResampleRatio(new_resample_ratio) => {
+                            resample_ratio = new_resample_ratio
                         }
-                        // TODO: Pass off to thread worker to write to file
-                        // if let Some(recording_file) = &mut recording_file {
-                        //     for sample in &sample_buffer {
-                        //         let _ = recording_file.write_all(&sample.to_le_bytes());
-                        //     }
-                        // }
-                        CallbackMsg::Record(_recording) => todo!(),
+                        CallbackMsg::Record(new_recording) => recording = new_recording,
                         CallbackMsg::Enable(e) => enabled = e,
-                        CallbackMsg::FrameSamples(samples) => Self::process_samples(
-                            &samples,
-                            &mut processed_samples,
-                            &mut filters,
-                            resample_ratio,
-                            &mut sample_avg,
-                            &mut sample_count,
-                            &mut decim_fraction,
-                        ),
+                        CallbackMsg::NewSamples => {
+                            if let Some(samples) = buffer_pool.pop_ref() {
+                                Self::process_samples(
+                                    &samples,
+                                    &mut processed_samples,
+                                    &mut filters,
+                                    resample_ratio,
+                                    &mut sample_avg,
+                                    &mut sample_count,
+                                    &mut decim_fraction,
+                                );
+                            }
+                            if recording {
+                                // TODO: Pass off to thread worker to write to file
+                                // for sample in &sample_buffer {
+                                //     let _ = recording_file.write_all(&sample.to_le_bytes());
+                                // }
+                            }
+                        }
                     }
                 }
 
@@ -279,35 +301,25 @@ impl Mixer {
         Ok(stream)
     }
 
-    /// Change the audio sample rate. This alsp changes the sampling ratio.
-    pub fn set_sample_rate(&mut self, sample_rate: f32) -> NesResult<()> {
-        self.sample_rate = sample_rate;
-        if let Some(ref mut callback_tx) = self.callback_tx {
-            callback_tx.try_send(CallbackMsg::UpdateSampleRate((
-                self.sample_rate,
-                self.audio_latency,
-            )))?;
+    /// Change the audio resample ratio.
+    pub fn set_resample_ratio(&mut self, resample_ratio: f32) -> NesResult<()> {
+        self.resample_ratio = resample_ratio;
+        if let Some(ref mut callback_tx) = self.tx {
+            callback_tx.try_send(CallbackMsg::UpdateResampleRatio(self.resample_ratio))?;
         }
         Ok(())
     }
-
-    /// Change the audio latency. This changes the buffer size.
-    pub fn set_audio_latency(&mut self, audio_latency: Duration) -> NesResult<()> {
-        self.audio_latency = audio_latency;
-        if let Some(ref mut callback_tx) = self.callback_tx {
-            callback_tx.try_send(CallbackMsg::UpdateSampleRate((
-                self.sample_rate,
-                self.audio_latency,
-            )))?;
-        }
-        Ok(())
-    }
+    // TODO: add set_sample_rate
 
     /// Set whether audio is enabled.
     pub fn set_enabled(&mut self, enabled: bool) {
-        if let Some(ref mut callback_tx) = self.callback_tx {
+        if let Some(ref mut callback_tx) = self.tx {
             let _ = callback_tx.try_send(CallbackMsg::Enable(enabled));
         }
+    }
+
+    pub fn is_recording(&self) -> bool {
+        self.recording
     }
 
     /// Start recording audio to a file.
@@ -316,24 +328,28 @@ impl Mixer {
     ///
     /// Returns an error if the file can not be created.
     pub fn start_recording(&mut self) -> NesResult<()> {
-        if let Some(ref mut callback_tx) = self.callback_tx {
+        if let Some(ref mut callback_tx) = self.tx {
             callback_tx.try_send(CallbackMsg::Record(true))?;
+            self.recording = true;
         }
         Ok(())
     }
 
     /// Stop recording audio to a file.
     pub fn stop_recording(&mut self) {
-        if let Some(ref mut callback_tx) = self.callback_tx {
+        if let Some(ref mut callback_tx) = self.tx {
             let _ = callback_tx.try_send(CallbackMsg::Record(false));
+            self.recording = false;
         }
     }
 
     /// Processes and filters generated audio samples.
     pub fn process(&mut self, samples: &[f32]) -> NesResult<()> {
-        if let Some(ref mut callback_tx) = self.callback_tx {
-            // TODO: create a shared circular buffer of Vecs to avoid allocations
-            callback_tx.try_send(CallbackMsg::FrameSamples(samples.to_vec()))?;
+        if let Some(ref mut callback_tx) = self.tx {
+            if let Ok(mut buffer_slot) = self.buffer_pool.push_ref() {
+                buffer_slot.extend_from_slice(samples);
+                callback_tx.try_send(CallbackMsg::NewSamples)?;
+            }
         }
         Ok(())
     }

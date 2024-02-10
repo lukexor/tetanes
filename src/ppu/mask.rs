@@ -1,4 +1,4 @@
-use crate::common::{Kind, NesRegion, Reset};
+use crate::common::{NesRegion, Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
@@ -89,7 +89,7 @@ impl PpuMask {
 
 impl Reset for PpuMask {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         *self = Self::empty();
     }
 }

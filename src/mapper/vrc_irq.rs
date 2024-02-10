@@ -2,7 +2,7 @@
 //!
 //! <https://www.nesdev.org/wiki/VRC_IRQ>
 
-use crate::common::{Clock, Kind, Reset};
+use crate::common::{Clock, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
@@ -71,7 +71,7 @@ impl Clock for VrcIrq {
 }
 
 impl Reset for VrcIrq {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         self.reload = 0;
         self.counter = 0;
         self.prescalar_counter = 0;

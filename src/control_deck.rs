@@ -1,10 +1,10 @@
 use crate::{
     apu::{Apu, Channel},
-    bus::CpuBus,
+    bus::Bus,
     cart::Cart,
-    common::{Clock, Kind, NesRegion, Regional, Reset},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
-    input::{FourPlayer, Joypad, Slot},
+    input::{FourPlayer, Joypad, Player},
     mapper::Mapper,
     mem::RamState,
     ppu::Ppu,
@@ -42,6 +42,7 @@ pub struct ControlDeck {
     region: NesRegion,
     video: Video,
     loaded_rom: Option<String>,
+    cart_battery_backed: bool,
     cycles_remaining: f32,
     cpu: Cpu,
 }
@@ -60,12 +61,12 @@ impl ControlDeck {
 
     /// Create a NES `ControlDeck` with a configuration.
     pub fn with_config(config: Config) -> Self {
-        let mut cpu = Cpu::new(CpuBus::new(config.ram_state));
+        let mut cpu = Cpu::new(Bus::new(config.ram_state));
         cpu.set_region(config.region);
-        cpu.set_four_player(config.four_player);
-        cpu.connect_zapper(config.zapper);
+        cpu.bus.input.set_four_player(config.four_player);
+        cpu.bus.input.connect_zapper(config.zapper);
         for code in config.genie_codes.clone() {
-            if let Err(err) = cpu.add_genie_code(code.clone()) {
+            if let Err(err) = cpu.bus.add_genie_code(code.clone()) {
                 log::warn!("{}", err);
             }
         }
@@ -75,6 +76,7 @@ impl ControlDeck {
             region: config.region,
             video: Video::with_filter(config.filter),
             loaded_rom: None,
+            cart_battery_backed: false,
             cycles_remaining: 0.0,
             cpu,
         }
@@ -88,10 +90,18 @@ impl ControlDeck {
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
         self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.ram_state)?;
+        self.cart_battery_backed = cart.battery_backed();
         self.set_region(cart.region());
-        self.cpu.load_cart(cart);
-        self.reset(Kind::Hard);
+        self.cpu.bus.load_cart(cart);
+        self.reset(ResetKind::Hard);
+        self.running = true;
         Ok(())
+    }
+
+    pub fn unload_rom(&mut self) {
+        self.loaded_rom = None;
+        self.cpu.bus.unload_cart();
+        self.running = false;
     }
 
     #[inline]
@@ -108,51 +118,53 @@ impl ControlDeck {
     #[inline]
     #[must_use]
     pub const fn cart_battery_backed(&self) -> bool {
-        self.cpu.cart_battery_backed()
+        self.cart_battery_backed
     }
 
     #[inline]
     #[must_use]
     pub fn sram(&self) -> &[u8] {
-        self.cpu.sram()
+        self.cpu.bus.sram()
     }
 
     #[inline]
     pub fn load_sram(&mut self, sram: Vec<u8>) {
-        self.cpu.load_sram(sram);
+        self.cpu.bus.load_sram(sram);
     }
 
     #[inline]
     #[must_use]
     pub fn wram(&self) -> &[u8] {
-        self.cpu.wram()
+        self.cpu.bus.wram()
     }
 
     /// Load a frame worth of pixels.
     #[inline]
     pub fn frame_buffer(&mut self) -> &[u8] {
-        self.video
-            .apply_filter(self.cpu.frame_buffer(), self.cpu.frame_number())
+        self.video.apply_filter(
+            self.cpu.bus.ppu.frame_buffer(),
+            self.cpu.bus.ppu.frame_number(),
+        )
     }
 
     /// Get the current frame number.
     #[inline]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
-        self.cpu.frame_number()
+        self.cpu.bus.ppu.frame_number()
     }
 
     /// Get audio samples.
     #[inline]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
-        self.cpu.audio_samples()
+        self.cpu.bus.audio_samples()
     }
 
     /// Clear audio samples.
     #[inline]
     pub fn clear_audio_samples(&mut self) {
-        self.cpu.clear_audio_samples();
+        self.cpu.bus.clear_audio_samples();
     }
 
     /// CPU clock rate based on currently configured NES region.
@@ -226,9 +238,9 @@ impl ControlDeck {
     pub fn clock_scanline(&mut self) -> NesResult<ControlFlow<usize, usize>> {
         profile!();
 
-        let current_scanline = self.cpu.ppu_scanline();
+        let current_scanline = self.cpu.bus.ppu.scanline();
         let mut total_cycles = 0;
-        while current_scanline == self.cpu.ppu_scanline() {
+        while current_scanline == self.cpu.bus.ppu.scanline() {
             match self.clock_instr()? {
                 ControlFlow::Break(cycles) => {
                     total_cycles += cycles;
@@ -247,7 +259,7 @@ impl ControlDeck {
     #[inline]
     #[must_use]
     pub const fn cpu_corrupted(&self) -> bool {
-        self.cpu.corrupted()
+        self.cpu.corrupted
     }
 
     #[inline]
@@ -262,83 +274,77 @@ impl ControlDeck {
 
     #[inline]
     pub const fn ppu(&self) -> &Ppu {
-        self.cpu.ppu()
+        &self.cpu.bus.ppu
     }
 
     #[inline]
     pub fn ppu_mut(&mut self) -> &mut Ppu {
-        self.cpu.ppu_mut()
+        &mut self.cpu.bus.ppu
     }
 
     #[inline]
     pub const fn apu(&self) -> &Apu {
-        self.cpu.apu()
+        &self.cpu.bus.apu
     }
 
     #[inline]
     pub const fn mapper(&self) -> &Mapper {
-        self.cpu.mapper()
+        &self.cpu.bus.ppu.bus.mapper
     }
 
     #[inline]
     pub fn mapper_mut(&mut self) -> &mut Mapper {
-        self.cpu.mapper_mut()
+        &mut self.cpu.bus.ppu.bus.mapper
     }
 
     /// Returns whether Four Score is enabled.
     #[inline]
     pub const fn four_player(&self) -> FourPlayer {
-        self.cpu.four_player()
+        self.cpu.bus.input.four_player
     }
 
     /// Enable/Disable Four Score for 4-player controllers.
     #[inline]
     pub fn set_four_player(&mut self, four_player: FourPlayer) {
-        self.cpu.set_four_player(four_player);
-    }
-
-    /// Enable/Disable cycle accurate mode
-    #[inline]
-    pub fn set_cycle_accurate(&mut self, enabled: bool) {
-        self.cpu.set_cycle_accurate(enabled);
+        self.cpu.bus.input.set_four_player(four_player);
     }
 
     /// Returns a mutable reference to a joypad.
     #[inline]
-    pub fn joypad_mut(&mut self, slot: Slot) -> &mut Joypad {
-        self.cpu.joypad_mut(slot)
+    pub fn joypad_mut(&mut self, slot: Player) -> &mut Joypad {
+        self.cpu.bus.input.joypad_mut(slot)
     }
 
     /// Returns the zapper aiming position for the given controller slot.
     #[inline]
     #[must_use]
     pub const fn zapper_pos(&self) -> (i32, i32) {
-        let zapper = self.cpu.zapper();
+        let zapper = self.cpu.bus.input.zapper;
         (zapper.x(), zapper.y())
     }
 
     /// Trigger Zapper gun for a given controller slot.
     #[inline]
     pub fn trigger_zapper(&mut self) {
-        self.cpu.zapper_mut().trigger();
+        self.cpu.bus.input.zapper.trigger();
     }
 
     /// Aim Zapper gun for a given controller slot.
     #[inline]
     pub fn aim_zapper(&mut self, x: i32, y: i32) {
-        self.cpu.zapper_mut().aim(x, y);
+        self.cpu.bus.input.zapper.aim(x, y);
     }
 
     /// Set the image filter for video output.
     #[inline]
     pub fn set_filter(&mut self, filter: VideoFilter) {
-        self.video.set_filter(filter);
+        self.video.filter = filter;
     }
 
     /// Enable Zapper gun.
     #[inline]
     pub fn connect_zapper(&mut self, enabled: bool) {
-        self.cpu.connect_zapper(enabled);
+        self.cpu.bus.input.connect_zapper(enabled);
     }
 
     /// Add NES Game Genie codes.
@@ -348,25 +354,25 @@ impl ControlDeck {
     /// If genie code is invalid, an error is returned.
     #[inline]
     pub fn add_genie_code(&mut self, genie_code: String) -> NesResult<()> {
-        self.cpu.add_genie_code(genie_code)
+        self.cpu.bus.add_genie_code(genie_code)
     }
 
     #[inline]
     pub fn remove_genie_code(&mut self, genie_code: &str) {
-        self.cpu.remove_genie_code(genie_code);
+        self.cpu.bus.remove_genie_code(genie_code);
     }
 
     /// Returns whether a given API audio channel is enabled.
     #[inline]
     #[must_use]
     pub const fn channel_enabled(&self, channel: Channel) -> bool {
-        self.cpu.audio_channel_enabled(channel)
+        self.cpu.bus.apu.channel_enabled(channel)
     }
 
     /// Toggle one of the APU audio channels.
     #[inline]
     pub fn toggle_channel(&mut self, channel: Channel) {
-        self.cpu.toggle_audio_channel(channel);
+        self.cpu.bus.apu.toggle_channel(channel);
     }
 
     /// Is control deck running.
@@ -401,8 +407,7 @@ impl Regional for ControlDeck {
 
 impl Reset for ControlDeck {
     /// Resets the console.
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         self.cpu.reset(kind);
-        self.running = true;
     }
 }

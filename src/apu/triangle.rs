@@ -1,6 +1,6 @@
 use crate::{
     apu::{length_counter::LengthCounter, linear_counter::LinearCounter},
-    common::{Clock, Kind, Reset},
+    common::{Clock, Reset, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 
@@ -141,7 +141,7 @@ impl Clock for Triangle {
 }
 
 impl Reset for Triangle {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         *self = Self::new();
     }
 }

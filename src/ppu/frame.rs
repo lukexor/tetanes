@@ -1,5 +1,5 @@
 use crate::{
-    common::{Kind, Reset},
+    common::{Reset, ResetKind},
     ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
@@ -66,7 +66,7 @@ impl Frame {
 }
 
 impl Reset for Frame {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         self.count = 0;
         self.front_buffer.fill(0);
         self.back_buffer.fill(0);

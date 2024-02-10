@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Kind, Regional, Reset},
+    common::{Clock, Regional, Reset, ResetKind},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
     mem::MemBanks,
 };
@@ -132,7 +132,7 @@ impl MemMap for Pxrom {
 }
 
 impl Reset for Pxrom {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         self.latch = [0x00; 2];
         self.latch_banks = [0x00; 4];
         self.update_banks();

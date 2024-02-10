@@ -1,4 +1,4 @@
-use crate::common::{Kind, Reset};
+use crate::common::{Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
@@ -244,8 +244,8 @@ impl PpuScroll {
 
 impl Reset for PpuScroll {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, kind: Kind) {
-        if kind == Kind::Hard {
+    fn reset(&mut self, kind: ResetKind) {
+        if kind == ResetKind::Hard {
             // v is not cleared on a a soft reset
             self.v = 0x0000;
         }

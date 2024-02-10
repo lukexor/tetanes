@@ -7,7 +7,7 @@ use crate::{
         triangle::Triangle,
     },
     audio::Audio,
-    common::{Clock, Kind, NesRegion, Regional, Reset},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Irq,
 };
 use serde::{Deserialize, Serialize};
@@ -91,7 +91,6 @@ impl Apu {
         }
     }
 
-    #[inline]
     pub fn toggle_channel(&mut self, channel: Channel) {
         match channel {
             Channel::Pulse1 => self.pulse1.toggle_silent(),
@@ -129,7 +128,6 @@ impl Apu {
 
     // Counts CPU clocks and determines when to clock quarter/half frames
     // counter is in CPU clocks to avoid APU half-frames
-    #[inline]
     fn clock_frame_counter(&mut self) {
         let clock = self.frame_counter.clock();
 
@@ -365,7 +363,6 @@ impl Audio for Apu {
 }
 
 impl Clock for Apu {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {
@@ -389,6 +386,7 @@ impl Regional for Apu {
         self.region
     }
 
+    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.frame_counter.set_region(region);
@@ -398,7 +396,7 @@ impl Regional for Apu {
 }
 
 impl Reset for Apu {
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         self.cycle = 0;
         self.irq_pending = false;
         self.irq_disabled = false;

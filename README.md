@@ -366,12 +366,12 @@ When using the WASM version in the browser, also include:
     - [ ] Mapper 069 - FME-7/Sunsoft 5B
     - [x] Mapper 071 - Camerica/Codemasters/BF909x
     - [ ] Mapper 079 - NINA-03/NINA-06
-    - [x] Mapper 155 - MMC1A
+    - [x] Mapper 155 - SxROM/MMC1A
     - [ ] Mapper 206 - DxROM/Namco 118/MIMIC-1
 - Releases
-  - [ ] macOS Binaries
-  - [ ] Linux Binaries
-  - [ ] Windows Binaries
+  - [x] macOS Binaries
+  - [x] Linux Binaries
+  - [x] Windows Binaries
 - [x] User Interface (UI)
   - [x] WebAssembly (WASM) - Run TetaNES in the browser!
   - [x] Configurable keybinds and default settings

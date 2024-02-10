@@ -1,6 +1,6 @@
 use crate::{
     apu::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep},
-    common::{Clock, Kind, Reset},
+    common::{Clock, Reset, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 
@@ -207,7 +207,7 @@ impl Clock for Pulse {
 }
 
 impl Reset for Pulse {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         *self = Self::new(self.channel, OutputFreq::Default);
     }
 }

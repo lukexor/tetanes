@@ -1,4 +1,4 @@
-use crate::common::{Kind, Reset};
+use crate::common::{Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
@@ -117,7 +117,7 @@ impl PpuCtrl {
 
 impl Reset for PpuCtrl {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         *self = Self::empty();
     }
 }

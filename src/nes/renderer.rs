@@ -1,47 +1,99 @@
 use crate::{
-    nes::{
-        self,
-        config::{Config, FRAME_TRIM_PITCH},
-    },
+    nes::config::{Config, FRAME_TRIM_PITCH},
     ppu::Ppu,
-    profile, NesResult,
+    profile,
+    video::Video,
+    NesResult,
 };
-use anyhow::Context;
 use crossbeam::channel::{self, Sender};
 use pixels::{
     wgpu::{PowerPreference, RequestAdapterOptions},
     Pixels, PixelsBuilder, SurfaceTexture,
 };
-use std::thread::{self, JoinHandle};
+use std::{
+    sync::Arc,
+    thread::{self, JoinHandle},
+};
+use thingbuf::{recycling::WithCapacity, ThingBuf};
 use winit::{dpi::PhysicalSize, window::Window};
 
 #[derive(Debug)]
 #[must_use]
 pub enum Message {
-    NewFrame(Vec<u8>),
+    NewFrame,
     SetVsync(bool),
     Resize(u32, u32),
-    Pause(bool),
     Terminate,
 }
 
 #[derive(Debug)]
 #[must_use]
-pub enum Renderer {
+struct MultiThreaded {
+    tx: Sender<Message>,
+    handle: JoinHandle<NesResult<()>>,
+}
+
+impl MultiThreaded {
+    fn spawn(pixels: Pixels, buffer_pool: BufferPool) -> NesResult<Self> {
+        let (tx, rx) = channel::bounded::<Message>(64);
+        Ok(Self {
+            tx,
+            handle: thread::Builder::new()
+                .name("renderer".into())
+                .spawn(move || Self::main(pixels, buffer_pool, rx))?,
+        })
+    }
+
+    fn main(
+        mut renderer: Pixels,
+        buffer_pool: BufferPool,
+        rx: channel::Receiver<Message>,
+    ) -> NesResult<()> {
+        let mut latest_frame = None;
+        loop {
+            while let Ok(msg) = rx.try_recv() {
+                profile!();
+                match msg {
+                    // Only render the latest frame
+                    Message::NewFrame => {
+                        if let Some(frame) = buffer_pool.pop_ref() {
+                            latest_frame = Some(frame);
+                        }
+                    }
+                    Message::SetVsync(_enabled) => {
+                        // TODO: feature not released yet: https://github.com/parasyte/pixels/pull/373
+                        // pixels.enable_vsync(enabled),
+                    }
+                    Message::Resize(width, height) => renderer.resize_surface(width, height)?,
+                    Message::Terminate => break,
+                }
+            }
+            if let Some(ref frame) = latest_frame {
+                Renderer::render_frame(&mut renderer, frame)?;
+            }
+        }
+    }
+}
+
+type BufferPool = Arc<ThingBuf<Vec<u8>, WithCapacity>>;
+
+#[derive(Debug)]
+#[must_use]
+enum Backend {
     SingleThreaded(Pixels),
-    MultiThreaded {
-        tx: Sender<Message>,
-        handle: JoinHandle<()>,
-    },
+    MultiThreaded(MultiThreaded),
+}
+
+#[derive(Debug)]
+#[must_use]
+pub struct Renderer {
+    buffer_pool: BufferPool,
+    backend: Backend,
 }
 
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
-    pub async fn initialize(
-        window: &Window,
-        config: &Config,
-        nes_tx: Sender<nes::Message>,
-    ) -> NesResult<Self> {
+    pub async fn initialize(window: &Window, config: &Config) -> NesResult<Self> {
         let mut window_size = window.inner_size();
         if window_size.width == 0 {
             let (width, height) = config.get_dimensions();
@@ -57,43 +109,33 @@ impl Renderer {
             .build_async()
             .await?;
 
-        if thread::available_parallelism().map_or(false, |count| count.get() > 1) {
-            let (tx, rx) = channel::bounded::<Message>(64);
-            Ok(Self::MultiThreaded {
-                tx,
-                handle: thread::Builder::new()
-                    .name("renderer".into())
-                    .spawn(move || Self::thread_main(pixels, rx, nes_tx))?,
-            })
+        let buffer_pool = Arc::new(ThingBuf::with_recycle(
+            16,
+            WithCapacity::new().with_min_capacity(Video::FRAME_SIZE),
+        ));
+        let backend = if thread::available_parallelism().map_or(false, |count| count.get() > 1) {
+            Backend::MultiThreaded(MultiThreaded::spawn(pixels, Arc::clone(&buffer_pool))?)
         } else {
-            Ok(Self::SingleThreaded(pixels))
-        }
+            Backend::SingleThreaded(pixels)
+        };
+
+        Ok(Self {
+            buffer_pool,
+            backend,
+        })
     }
 
-    pub fn redraw(&mut self, frame_buffer: &[u8]) {
-        profile!();
-        if let Err(err) = match self {
-            Self::SingleThreaded(ref mut pixels) => Self::render_frame(pixels, frame_buffer),
+    pub fn draw_frame(&mut self, frame_buffer: &[u8]) -> NesResult<()> {
+        match self.backend {
+            Backend::SingleThreaded(ref mut pixels) => Self::render_frame(pixels, frame_buffer),
             // TODO: re-use allocations
-            Self::MultiThreaded { tx, .. } => tx
-                .try_send(Message::NewFrame(frame_buffer.to_vec()))
-                .context("failed to send new frame"),
-        } {
-            log::error!("error rendering frame: {err:?}");
-        }
-    }
-
-    pub fn pause(&self) {
-        if let Self::MultiThreaded { tx, .. } = self {
-            if let Err(err) = tx.try_send(Message::Pause(true)) {
-                log::error!("failed to send pause message {err:?}");
+            Backend::MultiThreaded(MultiThreaded { ref tx, .. }) => {
+                if let Ok(mut buffer_slot) = self.buffer_pool.push_ref() {
+                    buffer_slot.extend_from_slice(frame_buffer);
+                    tx.try_send(Message::NewFrame)?;
+                }
+                Ok(())
             }
-        }
-    }
-
-    pub fn resume(&self) {
-        if let Self::MultiThreaded { handle, .. } = self {
-            handle.thread().unpark();
         }
     }
 
@@ -147,38 +189,5 @@ impl Renderer {
         //         self.render_messages(s)?;
 
         Ok(renderer.render()?)
-    }
-
-    fn thread_main(
-        mut renderer: Pixels,
-        render_rx: channel::Receiver<Message>,
-        event_tx: channel::Sender<nes::Message>,
-    ) {
-        while let Ok(msg) = render_rx.recv() {
-            profile!();
-            match msg {
-                Message::NewFrame(frame_buffer) => {
-                    if let Err(err) = Self::render_frame(&mut renderer, &frame_buffer) {
-                        log::error!("error rendering frame: {err:?}");
-                        if let Err(err) = event_tx.try_send(nes::Message::Terminate) {
-                            log::error!("failed to send terminate message to event_loop: {err:?}");
-                        }
-                        break;
-                    }
-                }
-                Message::SetVsync(_enabled) => {
-                    // TODO: feature not released yet: https://github.com/parasyte/pixels/pull/373
-                    // pixels.enable_vsync(enabled),
-                }
-                Message::Resize(width, height) => {
-                    if let Err(err) = renderer.resize_surface(width, height) {
-                        log::error!("failed to resize render surface: {err:?}");
-                    }
-                }
-                Message::Terminate => break,
-                Message::Pause(true) => thread::park(),
-                Message::Pause(false) => (),
-            }
-        }
     }
 }

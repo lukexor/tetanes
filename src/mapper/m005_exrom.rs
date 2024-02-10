@@ -11,7 +11,7 @@ use crate::{
     },
     audio::Audio,
     cart::Cart,
-    common::{Clock, Kind, NesRegion, Regional, Reset},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
@@ -1019,7 +1019,7 @@ impl Clock for Exrom {
 }
 
 impl Reset for Exrom {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         self.regs.prg_mode = PrgMode::Bank8k;
         self.regs.chr_mode = ChrMode::Bank1k;
     }

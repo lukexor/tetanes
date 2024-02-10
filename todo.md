@@ -1,32 +1,47 @@
 # TODO
 
-- [x] Extract TODO comments
-- [x] Merge GitHub todos
-- [ ] archive Github project todos
-- [ ] Rank and point TODOs
-- [ ] Clone and run winit, pixels, cpa, and egui examples
+## High-level Priorities
+
+- [ ] Get basic WASM framerate/audio timing working
+- [ ] Add puffin-like profiling metrics
+- [ ] Add `pix-gui` crate for rendering text and rects to tart
+- [ ] Draw profiling metrics via rects for last 60 frames with 30ms scale for window
+      width
+- [ ] Render last frame duration text
 
 ## Notes
 
 - Ensure spawn closures use an extra block scope to clone values to retain
   variable names
 
+## API Design Reference
+
+- `get(s: &Self) -> T` and `get(s: &mut Self) -> T` instead of `get(&self)` or
+  `get(&mut self)` if that Self implements `Deref`/`DerefMut`
+- if/when using `thread::park` - ensure it's used in a loop to avoid spurious wakeups
+
 ## General
 
-- [ ] Fix recursively dropped wasm error and perf/audio quality
-- [ ] Try integrating bytes crate for frames or samples
-- [ ] Create shared circular buffer of Vecs to avoid allocations
-- [ ] Add back `ringbuf` crate and use `pop_slice` and `push_slice`
-- [ ] Fix fast-forward
-- [ ] Track all video/audio timing and try to visualize graph of torn/dropped
-      frames and audio under/overruns
-- [ ] Only save configs if changed (or only save diffs?)
-- [ ] Remove long chain of getters/setters - control_deck is the outer boundary
+- [ ] archive Github project todos
+- [ ] Rank and point TODOs
+- [ ] Clone and run winit, pixels, cpa, and egui examples
+- [ ] ref: compile api design cheatsheet
+- [ ] use fetch add atomic for generating unique IDs for profiling
+
+  ```rust
+  NEXT_ID.fetch_update(Relaxed, Relaxed, |n| n.checked_add(1)).expect("too many IDs!")
+  ```
+
+- [ ] research: Explore more traits/new type wrappers to break up functionality
+      in `nes` modules
+- [-] Add Storage trait to reduce memory for saves/rewinds/replays
+  (After review, not necessary as serialize does it pretty well and I can
+  skip any fields not required for restoring state)
+- [x] Remove long chain of getters/setters - control_deck is the outer boundary
       of the lib
-- [ ] Create send and recv util methods that logs, handle errors and don't block
-- [ ] Experiment with `ControlDeck` being clocked on another thread
-- [ ] Fix toggling Vsync - needs to create pixels instance
-- [ ] Auto save
+- [x] Extract TODO comments
+- [x] Merge GitHub todos
+- [x] Fix fast-forward
 - [x] Verify cpu load on native - add sleeps if necessary (but not for wasm)
 - [x] Fix frame timing/cpu usage
 - [x] Move `event_loop` body to a dedicated function so it can be shared between
@@ -35,13 +50,37 @@
 - [x] Handle when `vsync` is enabled and `Mailbox` is not - hard to support
       falling back if Mailbox isn't available, not that important
 
+## Performance Tuning
+
+- [ ] Run cachegrind on Linux - Maybe build an internal Cpu/Ppu cache
+- [ ] Blackbox benchmark Cpu/Ppu to tweak performance changes
+- [ ] Improve cache locality/function size - remove branches in hot loops
+- [ ] Try integrating bytes crate for frames or samples
+- [ ] Create shared circular buffer of Vecs to avoid allocations
+- [ ] Add back `ringbuf` crate and use `pop_slice` and `push_slice`
+- [ ] Track all video/audio timing and try to visualize graph of torn/dropped
+      frames and audio under/overruns
+- [ ] Experiment: jemalloc
+- [ ] Experiment: `ControlDeck` being clocked on another thread
+- [x] Remove `inline` from non-trivial functions, break up generics with
+      concrete impls
+
+## Renderer
+
+- [ ] Provide way for Video decode to write directly to buffer to avoid extra
+      copying
+- [ ] Fix toggling Vsync - needs to re-create pixels instance
+
 ## Audio
 
+- [ ] Prefer desired sample rate as f32
+- [ ] Update Mixer `play` to return available sample rates to constrain `Config`
+- [ ] Update filters to be in frequency domain - fft, filter, reverse fft
 - [ ] Verify filters with visualizations/unit tests
 - [ ] Show error and disable audio if no valid device/config can be found
 - [ ] Add `rubato` crate for down-sampling
 - [ ] Allow selecting output device from config menu
-- [ ] Experiment clocking partial frames (buffer size worth) from audio thread
+- [ ] Experiment: clocking partial frames (buffer size worth) from audio thread
 - [ ] Debug visualizations of pulse, triangle, sawtooth, noise, and dcm channels
       during play as well as combined waveform
 - [ ] tests/apu.rs APU integration tests
@@ -51,7 +90,7 @@
       <https://github.com/rust-windowing/winit/issues/1885>
 - [ ] Add debug keybindings for incrementing/decrementing buffer size and audio delay
 - [ ] Fix audio latency to match expectation
-- [ ] Add `make_stream` fn generic over sample type, remove `Callback` struct
+- [x] Add `make_stream` fn generic over sample type, remove `Callback` struct
 - [x] Explore circular buffer that overwrites oldest samples when full Try
       inserting all 29k samples per frame and processing them in audio callback
   - [x] Chunk audio samples when pushing for audio callback
@@ -59,14 +98,19 @@
       is set to 512 but internally 8 blocks are kept)
 - [x] Experiment requesting redraw from audio thread
 
+## New Features
+
+- [ ] Auto save every X seconds (configurable)
+
 ## WASM
 
 - Ensure no blocking operations in wasm code paths
 
+- [ ] Fix recursively dropped wasm error and perf/audio quality
 - [ ] Add trait for abstracting render work/threading/web workers/etc
-- [ ] Explore web workers for control_deck clocking
-- [ ] Explore audio worklets
-- [ ] Experiment with `wasm-threads` crate
+- [ ] Experiment: web workers for control_deck clocking
+- [ ] Experiment: audio worklets
+- [ ] Experiment: with `wasm-threads` crate
 - [ ] Figure out how to give time back on wasm instead of looping?
 - [ ] Add lib methods that take wasm output and performs what run-wasm does
   - [ ] Add bin method that utilizies lib same as run-wasm
@@ -87,6 +131,7 @@
 
 ## UI
 
+- [ ] fix monitor dpi resize when moving across monitors
 - [ ] Add egui
 - [ ] Fix window icon on macos - winit lacks support
 - [ ] Support window resizing, pause emulation while doing so
@@ -110,9 +155,14 @@
 - [ ] Toggle MMC3 IRQ setting
 - [x] Pause/resume when window is moved to avoid stutter
 
+## Configuration
+
+- [ ] Only save if changed (or only save diffs?)
+- [ ] Change save dir on Windows to AppData
+
 ## Input
 
-- [ ] Fix controller support
+- [ ] Fix controller support for 4 players
 - [ ] Add shortcut for `<C-+>` and `<C-->` to change window scale
 - [ ] Rename events module to keybinds?
 
@@ -172,26 +222,7 @@
 - [ ] Self update installer
 - [ ] Headless mode
 - [ ] CRT and other filters (via shaders)
+- [ ] Complete NES 2.0 support
 - [ ] More mappers
 - [ ] wideNES feature
-- [ ] Network multiplay
-- [ ] Light mode/dark mode
-
-## Release test plan
-
-- [ ] Macos/linux/windows binary releases
-- [ ] Run `twiggy` to analyze wasm bundle size
-- [ ] unit tests (duh)
-- [ ] Test several roms per mapper
-- [ ] Ensure CPU usage is low while playing and in BG
-- [ ] Test 2, 3 and 4 player
-- [ ] Verify wasm performance
-- [ ] Save/load states
-- [ ] Save/load sram
-- [ ] Controller for 1 and 2 players
-- [ ] Zapper
-- [ ] Rewind
-- [ ] Record/playback
-- [ ] Audio recording
-- [ ] non cycle-accurate
-- [ ] Toggle audio channels
+- [ ] Network

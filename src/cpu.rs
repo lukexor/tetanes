@@ -3,15 +3,9 @@
 //! <http://wiki.nesdev.com/w/index.php/CPU>
 
 use crate::{
-    apu::{Apu, Channel},
-    bus::CpuBus,
-    cart::Cart,
-    common::{Clock, Kind, NesRegion, Regional, Reset},
-    input::{FourPlayer, Input, Joypad, Slot, Zapper},
-    mapper::Mapper,
+    bus::Bus,
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     mem::{Access, Mem},
-    ppu::Ppu,
-    NesResult,
 };
 use bitflags::bitflags;
 use instr::{
@@ -80,36 +74,35 @@ enum Cycle {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cpu {
-    cycle: usize, // total number of cycles ran
-    region: NesRegion,
-    master_clock: u64,
-    clock_divider: u64,
-    start_clocks: u64,
-    end_clocks: u64,
-    pc: u16,        // program counter
-    sp: u8,         // stack pointer - stack is at $0100-$01FF
-    acc: u8,        // accumulator
-    x: u8,          // x register
-    y: u8,          // y register
-    status: Status, // Status Registers
-    bus: CpuBus,
-    instr: Instr,     // The currently executing instruction
-    abs_addr: u16,    // Used memory addresses get set here
-    rel_addr: u16,    // Relative address for branch instructions
-    fetched_data: u8, // Represents data fetched for the ALU
-    irq: Irq,         // Pending interrupts
-    run_irq: bool,
-    prev_run_irq: bool,
-    nmi: bool,
-    prev_nmi: bool,
-    prev_nmi_pending: bool,
+    pub cycle: usize, // total number of cycles ran
+    pub region: NesRegion,
+    pub master_clock: u64,
+    pub start_clocks: u64,
+    pub end_clocks: u64,
+    pub pc: u16,        // program counter
+    pub sp: u8,         // stack pointer - stack is at $0100-$01FF
+    pub acc: u8,        // accumulator
+    pub x: u8,          // x register
+    pub y: u8,          // y register
+    pub status: Status, // Status Registers
+    pub bus: Bus,
+    pub instr: Instr,     // The currently executing instruction
+    pub abs_addr: u16,    // Used memory addresses get set here
+    pub rel_addr: u16,    // Relative address for branch instructions
+    pub fetched_data: u8, // Represents data fetched for the ALU
+    pub irq: Irq,         // Pending interrupts
+    pub run_irq: bool,
+    pub prev_run_irq: bool,
+    pub nmi: bool,
+    pub prev_nmi: bool,
+    pub prev_nmi_pending: bool,
     #[serde(skip)]
-    corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
-    dmc_dma: bool,
-    halt: bool,
-    dummy_read: bool,
-    cycle_accurate: bool,
-    disasm: String,
+    pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
+    pub dmc_dma: bool,
+    pub dma_halt: bool,
+    pub dummy_read: bool,
+    #[serde(skip)]
+    pub disasm: String,
 }
 
 impl Cpu {
@@ -129,12 +122,11 @@ impl Cpu {
     const POWER_ON_SP: u8 = 0xFD;
     const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
-    pub fn new(bus: CpuBus) -> Self {
+    pub fn new(bus: Bus) -> Self {
         let mut cpu = Self {
             cycle: 0,
             region: NesRegion::default(),
             master_clock: 0,
-            clock_divider: 0,
             start_clocks: 0,
             end_clocks: 0,
             pc: 0x0000,
@@ -156,9 +148,8 @@ impl Cpu {
             prev_nmi_pending: false,
             corrupted: false,
             dmc_dma: false,
-            halt: false,
+            dma_halt: false,
             dummy_read: false,
-            cycle_accurate: true,
             disasm: String::with_capacity(100),
         };
         cpu.set_region(cpu.region);
@@ -179,223 +170,6 @@ impl Cpu {
     #[must_use]
     pub const fn clock_rate(&self) -> f32 {
         Self::region_clock_rate(self.region)
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn cycle(&self) -> usize {
-        self.cycle
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn pc(&self) -> u16 {
-        self.pc
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn sp(&self) -> u8 {
-        self.sp
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn a(&self) -> u8 {
-        self.acc
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn x(&self) -> u8 {
-        self.x
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn y(&self) -> u8 {
-        self.y
-    }
-
-    #[inline]
-    pub const fn status(&self) -> Status {
-        self.status
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn corrupted(&self) -> bool {
-        self.corrupted
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn disasm(&self) -> &str {
-        &self.disasm
-    }
-
-    #[inline]
-    pub const fn ppu(&self) -> &Ppu {
-        self.bus.ppu()
-    }
-
-    #[inline]
-    pub fn ppu_mut(&mut self) -> &mut Ppu {
-        self.bus.ppu_mut()
-    }
-
-    #[inline]
-    pub const fn apu(&self) -> &Apu {
-        self.bus.apu()
-    }
-
-    #[inline]
-    pub fn apu_mut(&mut self) -> &mut Apu {
-        self.bus.apu_mut()
-    }
-
-    #[inline]
-    pub fn input_mut(&mut self) -> &mut Input {
-        self.bus.input_mut()
-    }
-
-    #[inline]
-    pub const fn mapper(&self) -> &Mapper {
-        self.bus.mapper()
-    }
-
-    #[inline]
-    pub fn mapper_mut(&mut self) -> &mut Mapper {
-        self.bus.mapper_mut()
-    }
-
-    #[inline]
-    pub const fn joypad(&self, slot: Slot) -> &Joypad {
-        self.bus.joypad(slot)
-    }
-
-    #[inline]
-    pub fn joypad_mut(&mut self, slot: Slot) -> &mut Joypad {
-        self.bus.joypad_mut(slot)
-    }
-
-    #[inline]
-    pub fn connect_zapper(&mut self, enabled: bool) {
-        self.bus.connect_zapper(enabled);
-    }
-
-    #[inline]
-    pub const fn zapper(&self) -> &Zapper {
-        self.bus.zapper()
-    }
-
-    #[inline]
-    pub fn zapper_mut(&mut self) -> &mut Zapper {
-        self.bus.zapper_mut()
-    }
-
-    #[inline]
-    pub fn load_cart(&mut self, cart: Cart) {
-        self.bus.load_cart(cart);
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn cart_battery_backed(&self) -> bool {
-        self.bus.cart_battery_backed()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sram(&self) -> &[u8] {
-        self.bus.sram()
-    }
-
-    #[inline]
-    pub fn load_sram(&mut self, sram: Vec<u8>) {
-        self.bus.load_sram(sram);
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn wram(&self) -> &[u8] {
-        self.bus.wram()
-    }
-
-    /// Add a Game Genie code to override memory reads/writes.
-    ///
-    /// # Errors
-    ///
-    /// Errors if genie code is invalid.
-    #[inline]
-    pub fn add_genie_code(&mut self, genie_code: String) -> NesResult<()> {
-        self.bus.add_genie_code(genie_code)
-    }
-
-    #[inline]
-    pub fn remove_genie_code(&mut self, genie_code: &str) {
-        self.bus.remove_genie_code(genie_code);
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn ppu_cycle(&self) -> u32 {
-        self.bus.ppu_cycle()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn ppu_scanline(&self) -> u32 {
-        self.bus.ppu_scanline()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn frame_buffer(&self) -> &[u16] {
-        self.bus.frame_buffer()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn frame_number(&self) -> u32 {
-        self.bus.frame_number()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn audio_channel_enabled(&self, channel: Channel) -> bool {
-        self.bus.audio_channel_enabled(channel)
-    }
-
-    #[inline]
-    pub fn toggle_audio_channel(&mut self, channel: Channel) {
-        self.bus.toggle_audio_channel(channel);
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn audio_samples(&self) -> &[f32] {
-        self.bus.audio_samples()
-    }
-
-    #[inline]
-    pub fn clear_audio_samples(&mut self) {
-        self.bus.clear_audio_samples();
-    }
-
-    #[inline]
-    pub const fn four_player(&self) -> FourPlayer {
-        self.bus.four_player()
-    }
-
-    #[inline]
-    pub fn set_four_player(&mut self, four_player: FourPlayer) {
-        self.bus.set_four_player(four_player);
-    }
-
-    #[inline]
-    pub fn set_cycle_accurate(&mut self, enabled: bool) {
-        self.cycle_accurate = enabled;
     }
 
     // <http://wiki.nesdev.com/w/index.php/IRQ>
@@ -436,7 +210,6 @@ impl Cpu {
         }
     }
 
-    #[inline]
     fn handle_interrupts(&mut self) {
         // https://www.nesdev.org/wiki/CPU_interrupts
         //
@@ -449,7 +222,7 @@ impl Cpu {
         // during the second half of each cycle, hence here in `end_cycle`) and raises an internal
         // signal if the input goes from being high during one cycle to being low during the
         // next.
-        let nmi_pending = self.bus.nmi_pending();
+        let nmi_pending = self.bus.ppu.nmi_pending();
         if !self.prev_nmi_pending && nmi_pending {
             self.nmi = true;
             log::trace!("NMI Edge Detected: {}", self.cycle);
@@ -466,14 +239,13 @@ impl Cpu {
             log::trace!("IRQ Level Detected: {}: {:?}", self.cycle, self.irq);
         }
 
-        if self.bus.dmc_dma() {
+        if self.bus.apu.dmc_dma() {
             self.dmc_dma = true;
-            self.halt = true;
+            self.dma_halt = true;
             self.dummy_read = true;
         }
     }
 
-    #[inline]
     fn start_cycle(&mut self, cycle: Cycle) {
         self.master_clock += if cycle == Cycle::Read {
             self.start_clocks - 1
@@ -482,13 +254,13 @@ impl Cpu {
         };
         self.cycle = self.cycle.wrapping_add(1);
 
-        if self.cycle_accurate {
+        #[cfg(feature = "cycle-accurate")]
+        {
             self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
             self.bus.clock();
         }
     }
 
-    #[inline]
     fn end_cycle(&mut self, cycle: Cycle) {
         self.master_clock += if cycle == Cycle::Read {
             self.end_clocks + 1
@@ -496,9 +268,8 @@ impl Cpu {
             self.end_clocks - 1
         };
 
-        if self.cycle_accurate {
-            self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
-        }
+        #[cfg(feature = "cycle-accurate")]
+        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
 
         self.handle_interrupts();
     }
@@ -506,8 +277,8 @@ impl Cpu {
     #[inline]
     fn process_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
-        if self.halt {
-            self.halt = false;
+        if self.dma_halt {
+            self.dma_halt = false;
         } else if self.dummy_read {
             self.dummy_read = false;
         }
@@ -518,7 +289,7 @@ impl Cpu {
         self.start_cycle(Cycle::Read);
         self.bus.read(addr, Access::Dummy);
         self.end_cycle(Cycle::Read);
-        self.halt = false;
+        self.dma_halt = false;
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
 
@@ -529,12 +300,12 @@ impl Cpu {
 
         while self.bus.oam_dma() || self.dmc_dma {
             if self.cycle & 0x01 == 0x00 {
-                if self.dmc_dma && !self.halt && !self.dummy_read {
+                if self.dmc_dma && !self.dma_halt && !self.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
-                    read_val = self.bus.read(self.bus.dmc_dma_addr(), Access::Dummy);
+                    read_val = self.bus.read(self.bus.apu.dmc_dma_addr(), Access::Dummy);
                     self.end_cycle(Cycle::Read);
-                    self.bus.load_dmc_buffer(read_val);
+                    self.bus.apu.load_dmc_buffer(read_val);
                     self.dmc_dma = false;
                 } else if self.bus.oam_dma() {
                     // DMC DMA not running or ready, run OAM DMA
@@ -546,7 +317,7 @@ impl Cpu {
                 } else {
                     // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
                     // DMA isn't running
-                    debug_assert!(self.halt || self.dummy_read);
+                    debug_assert!(self.dma_halt || self.dummy_read);
                     self.process_dma_cycle();
                     if !skip_dummy_reads {
                         self.bus.read(addr, Access::Dummy); // throw away
@@ -652,26 +423,39 @@ impl Cpu {
             IMP | ACC => self.acc,
             ABX | ABY | IDY => {
                 // Read instructions may have crossed a page boundary and need to be re-read
-                match self.instr.op() {
-                    LDA | LDX | LDY | EOR | AND | ORA | ADC | SBC | CMP | BIT | LAX | NOP | IGN
-                    | LAS => {
-                        let reg = match mode {
-                            ABX => self.x,
-                            ABY | IDY => self.y,
-                            _ => unreachable!("not possible"),
-                        };
-                        // Read if we crossed, otherwise use what was already set in cycle 4 from
-                        // addressing mode
-                        //
-                        // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
-                        // around to 0.
-                        if (self.abs_addr & 0x00FF) < u16::from(reg) {
-                            self.read(self.abs_addr, Access::Read)
-                        } else {
-                            self.fetched_data
-                        }
+                if matches!(
+                    self.instr.op(),
+                    LDA | LDX
+                        | LDY
+                        | EOR
+                        | AND
+                        | ORA
+                        | ADC
+                        | SBC
+                        | CMP
+                        | BIT
+                        | LAX
+                        | NOP
+                        | IGN
+                        | LAS
+                ) {
+                    let reg = match mode {
+                        ABX => self.x,
+                        ABY | IDY => self.y,
+                        _ => unreachable!("not possible"),
+                    };
+                    // Read if we crossed, otherwise use what was already set in cycle 4 from
+                    // addressing mode
+                    //
+                    // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
+                    // around to 0.
+                    if (self.abs_addr & 0x00FF) < u16::from(reg) {
+                        self.read(self.abs_addr, Access::Read)
+                    } else {
+                        self.fetched_data
                     }
-                    _ => self.read(self.abs_addr, Access::Read), // Cycle 2/4/5 read
+                } else {
+                    self.read(self.abs_addr, Access::Read) // Cycle 2/4/5 read
                 }
             }
             _ => self.read(self.abs_addr, Access::Read), // Cycle 2/4/5 read
@@ -860,7 +644,6 @@ impl Cpu {
     }
 
     // Print the current instruction and status
-    #[inline]
     pub fn trace_instr(&mut self) {
         let mut pc = self.pc;
         self.disassemble(&mut pc);
@@ -886,8 +669,8 @@ impl Cpu {
             status_str(Status::Z, 'Z', 'z'),
             status_str(Status::C, 'C', 'c'),
             self.sp,
-            self.bus.ppu_cycle(),
-            self.bus.ppu_scanline(),
+            self.bus.ppu.cycle(),
+            self.bus.ppu.scanline(),
             self.cycle,
         );
     }
@@ -1014,7 +797,8 @@ impl Clock for Cpu {
             self.irq();
         }
 
-        if !self.cycle_accurate {
+        #[cfg(not(feature = "cycle-accurate"))]
+        {
             self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
             let cycles = self.cycle - start_cycle;
             for _ in 0..cycles {
@@ -1030,7 +814,7 @@ impl Clock for Cpu {
 impl Mem for Cpu {
     #[inline]
     fn read(&mut self, addr: u16, access: Access) -> u8 {
-        if self.halt || self.bus.oam_dma() {
+        if self.dma_halt || self.bus.oam_dma() {
             self.handle_dma(addr);
         }
 
@@ -1060,13 +844,12 @@ impl Regional for Cpu {
     }
 
     fn set_region(&mut self, region: NesRegion) {
-        let (clock_divider, start_clocks, end_clocks) = match region {
-            NesRegion::Ntsc => (12, 6, 6),
-            NesRegion::Pal => (16, 8, 8),
-            NesRegion::Dendy => (15, 7, 8),
+        let (start_clocks, end_clocks) = match region {
+            NesRegion::Ntsc => (6, 6),
+            NesRegion::Pal => (8, 8),
+            NesRegion::Dendy => (7, 8),
         };
         self.region = region;
-        self.clock_divider = clock_divider;
         self.start_clocks = start_clocks;
         self.end_clocks = end_clocks;
         self.bus.set_region(region);
@@ -1079,17 +862,17 @@ impl Reset for Cpu {
     /// Updates the PC, SP, and Status values to defined constants.
     ///
     /// These operations take the CPU 7 cycles.
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         log::trace!("{:?} RESET", kind);
 
         match kind {
-            Kind::Soft => {
+            ResetKind::Soft => {
                 self.status.set(Status::I, true);
                 // Reset pushes to the stack similar to IRQ, but since the read bit is set, nothing is
                 // written except the SP being decremented
                 self.sp = self.sp.wrapping_sub(0x03);
             }
-            Kind::Hard => {
+            ResetKind::Hard => {
                 self.acc = 0x00;
                 self.x = 0x00;
                 self.y = 0x00;
@@ -1108,7 +891,7 @@ impl Reset for Cpu {
         self.prev_nmi = false;
         self.prev_nmi_pending = false;
         self.corrupted = false;
-        self.halt = false;
+        self.dma_halt = false;
         self.dummy_read = false;
 
         // Read directly from bus so as to not clock other components during reset
@@ -1145,7 +928,7 @@ impl fmt::Debug for Cpu {
             .field("corrupted", &self.corrupted)
             .field("run_irq", &self.run_irq)
             .field("last_run_irq", &self.prev_run_irq)
-            .field("halt", &self.halt)
+            .field("halt", &self.dma_halt)
             .field("dummy_read", &self.dummy_read)
             .finish()
     }
@@ -1153,15 +936,15 @@ impl fmt::Debug for Cpu {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use crate::test_roms;
+    use crate::{cart::Cart, test_roms};
 
     #[test]
     fn cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::new(CpuBus::default());
+        let mut cpu = Cpu::new(Bus::default());
         let cart = Cart::empty();
-        cpu.load_cart(cart);
-        cpu.reset(Kind::Hard);
+        cpu.bus.load_cart(cart);
+        cpu.reset(ResetKind::Hard);
         cpu.clock();
 
         assert_eq!(cpu.cycle, 14, "cpu after power + one clock");
@@ -1175,7 +958,7 @@ mod tests {
             if instr.op() == XXX {
                 continue;
             }
-            cpu.reset(Kind::Hard);
+            cpu.reset(ResetKind::Hard);
             cpu.bus.write(0x0000, instr.opcode(), Access::Write);
             cpu.clock();
             let cpu_cyc = 7 + instr.cycles() + extra_cycle;

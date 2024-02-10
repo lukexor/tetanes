@@ -1,6 +1,6 @@
 use super::Ppu;
 use crate::{
-    common::{Kind, NesRegion, Regional, Reset},
+    common::{NesRegion, Regional, Reset, ResetKind},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::{Access, Mem},
     ppu::Mirroring,
@@ -27,7 +27,7 @@ impl PpuAddr for u16 {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuBus {
-    mapper: Mapper,
+    pub mapper: Mapper,
     mirror_shift: usize,
     ciram: Vec<u8>, // $2007 PPUDATA
     palette: [u8; Self::PALETTE_SIZE],
@@ -67,7 +67,7 @@ impl PpuBus {
 
     #[inline]
     pub fn update_mirroring(&mut self) {
-        self.mirror_shift = self.mirroring() as usize;
+        self.mirror_shift = self.mapper.mirroring() as usize;
     }
 
     #[inline]
@@ -83,21 +83,6 @@ impl PpuBus {
     #[inline]
     pub fn load_ex_ram(&mut self, ex_ram: Vec<u8>) {
         self.exram = ex_ram;
-    }
-
-    #[inline]
-    pub fn load_mapper(&mut self, mapper: Mapper) {
-        self.mapper = mapper;
-    }
-
-    #[inline]
-    pub const fn mapper(&self) -> &Mapper {
-        &self.mapper
-    }
-
-    #[inline]
-    pub fn mapper_mut(&mut self) -> &mut Mapper {
-        &mut self.mapper
     }
 
     // Maps addresses to nametable pages based on mirroring mode
@@ -246,7 +231,7 @@ impl Regional for PpuBus {
 }
 
 impl Reset for PpuBus {
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         self.open_bus = 0x00;
         self.mapper.reset(kind);
     }

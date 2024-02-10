@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Kind, Regional, Reset},
+    common::{Clock, Regional, Reset, ResetKind},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -311,7 +311,7 @@ impl MemMap for Txrom {
 }
 
 impl Reset for Txrom {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         self.irq_pending = false;
         self.regs = TxRegs::new();
         self.update_banks();

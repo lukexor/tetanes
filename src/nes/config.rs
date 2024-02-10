@@ -1,10 +1,10 @@
 use crate::{
     common::NesRegion,
     control_deck,
-    input::FourPlayer,
+    input::{FourPlayer, Player},
     mem::RamState,
     nes::{
-        event::{Action, Input, InputBindings, InputMapping},
+        event::{Action, Input, InputMap},
         Nes,
     },
     ppu::Ppu,
@@ -13,7 +13,6 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 
-pub const WINDOW_TITLE: &str = "TetaNES";
 const MIN_SPEED: f32 = 0.25; // 25% - 15 Hz
 const MAX_SPEED: f32 = 2.0; // 200% - 120 Hz
 const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
@@ -55,9 +54,7 @@ pub struct Config {
     pub audio_sample_rate: f32,
     pub audio_latency: Duration,
     pub genie_codes: Vec<String>,
-    pub bindings: InputBindings,
-    #[serde(skip)]
-    pub input_map: InputMapping,
+    pub input_map: InputMap,
 }
 
 impl From<Config> for control_deck::Config {
@@ -74,6 +71,7 @@ impl From<Config> for control_deck::Config {
 }
 
 impl Config {
+    pub const WINDOW_TITLE: &'static str = "TetaNES";
     pub const DIRECTORY: &'static str = ".config/tetanes";
     pub const FILENAME: &'static str = "config.json";
 
@@ -102,21 +100,18 @@ impl Config {
             Self::default()
         };
 
-        config.input_map = InputMapping::from_bindings(&config.bindings);
         let region = config.region;
         Self::set_region(&mut config, region);
 
         config
     }
 
-    pub fn set_binding(&mut self, input: Input, action: Action) {
-        self.input_map.insert(input, action);
-        self.bindings.set(input, action);
+    pub fn set_binding(&mut self, input: Input, slot: Player, action: Action) {
+        self.input_map.insert(input, (slot, action));
     }
 
     pub fn unset_binding(&mut self, input: Input) {
         self.input_map.remove(&input);
-        self.bindings.unset(input);
     }
 
     pub fn set_region(&mut self, region: NesRegion) {
@@ -219,9 +214,10 @@ impl Nes {
 
     pub fn set_speed(&mut self, speed: f32) {
         self.config.speed = speed;
+        let sample_rate = self.config.audio_sample_rate / self.config.speed;
         if let Err(err) = self
-            .audio
-            .set_sample_rate(self.config.audio_sample_rate / speed)
+            .mixer
+            .set_resample_ratio(self.control_deck.clock_rate() / sample_rate)
         {
             log::error!("failed to set speed to {speed}: {err:?}");
         }
@@ -230,7 +226,7 @@ impl Nes {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_vsync(&mut self, _enabled: bool) {
         // TODO: feature not released yet: https://github.com/parasyte/pixels/pull/373
-        self.add_message("Vsync toggling currently not supported");
+        // self.add_message("Vsync toggling currently not supported");
         // self.config.vsync = enabled;
         // if self.config.vsync {
         //     use crate::nes::RenderMainMsg;
@@ -250,8 +246,6 @@ impl Nes {
 impl Default for Config {
     fn default() -> Self {
         let frame_rate = 60.0;
-        let bindings = InputBindings::default();
-        let input_map = InputMapping::from_bindings(&bindings);
         Self {
             rom_path: PathBuf::from("./"),
             show_hidden_files: false,
@@ -286,8 +280,7 @@ impl Default for Config {
                 30
             }),
             genie_codes: vec![],
-            bindings,
-            input_map,
+            input_map: InputMap::default(),
         }
     }
 }

@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Kind, Regional, Reset},
+    common::{Clock, Regional, Reset, ResetKind},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -281,12 +281,12 @@ impl Clock for Sxrom {
 }
 
 impl Reset for Sxrom {
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         self.regs.shift_register = Self::DEFAULT_SHIFT_REGISTER;
         self.regs.control = Self::DEFAULT_PRG_MODE;
         self.regs.prg = Self::PRG_RAM_DISABLED;
         self.update_banks(0x0000);
-        if kind == Kind::Hard {
+        if kind == ResetKind::Hard {
             self.regs.write_just_occurred = 0;
         }
     }

@@ -2,10 +2,10 @@ use crate::{
     apu::{Apu, ApuRegisters, Channel},
     audio::Audio,
     cart::Cart,
-    common::{Clock, Kind, NesRegion, Regional, Reset},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::{Cpu, Irq},
     genie::GenieCode,
-    input::{FourPlayer, Input, InputRegisters, Joypad, Slot, Zapper},
+    input::{Input, InputRegisters, Player},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::{Access, Mem, RamState},
     ppu::{Ppu, PpuRegisters},
@@ -45,17 +45,17 @@ use std::collections::HashMap;
 /// |-----------------| $0000 |-----------------|
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct CpuBus {
+pub struct Bus {
     wram: Vec<u8>,
     region: NesRegion,
     ram_state: RamState,
-    battery_backed: bool,
     prg_ram: Vec<u8>,
     prg_ram_protect: bool,
     prg_rom: Vec<u8>,
-    ppu: Ppu,
-    apu: Apu,
-    input: Input,
+    pub ppu: Ppu,
+    pub apu: Apu,
+    #[serde(skip)]
+    pub input: Input,
     oam_dma: bool,
     oam_dma_addr: u16,
     audio_samples: Vec<f32>,
@@ -64,13 +64,13 @@ pub struct CpuBus {
     open_bus: u8,
 }
 
-impl Default for CpuBus {
+impl Default for Bus {
     fn default() -> Self {
         Self::new(RamState::default())
     }
 }
 
-impl CpuBus {
+impl Bus {
     const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
 
     pub fn new(ram_state: RamState) -> Self {
@@ -80,7 +80,6 @@ impl CpuBus {
             wram,
             region: NesRegion::default(),
             ram_state,
-            battery_backed: false,
             prg_ram: vec![],
             prg_ram_protect: false,
             prg_rom: vec![],
@@ -96,67 +95,6 @@ impl CpuBus {
         }
     }
 
-    #[inline]
-    pub const fn ppu(&self) -> &Ppu {
-        &self.ppu
-    }
-
-    #[inline]
-    pub fn ppu_mut(&mut self) -> &mut Ppu {
-        &mut self.ppu
-    }
-
-    #[inline]
-    pub const fn apu(&self) -> &Apu {
-        &self.apu
-    }
-
-    #[inline]
-    pub fn apu_mut(&mut self) -> &mut Apu {
-        &mut self.apu
-    }
-
-    #[inline]
-    pub fn input_mut(&mut self) -> &mut Input {
-        &mut self.input
-    }
-
-    #[inline]
-    pub const fn mapper(&self) -> &Mapper {
-        self.ppu.mapper()
-    }
-
-    #[inline]
-    pub fn mapper_mut(&mut self) -> &mut Mapper {
-        self.ppu.mapper_mut()
-    }
-
-    #[inline]
-    pub const fn joypad(&self, slot: Slot) -> &Joypad {
-        self.input.joypad(slot)
-    }
-
-    #[inline]
-    pub fn joypad_mut(&mut self, slot: Slot) -> &mut Joypad {
-        self.input.joypad_mut(slot)
-    }
-
-    #[inline]
-    pub fn connect_zapper(&mut self, enabled: bool) {
-        self.input.connect_zapper(enabled);
-    }
-
-    #[inline]
-    pub const fn zapper(&self) -> &Zapper {
-        self.input.zapper()
-    }
-
-    #[inline]
-    pub fn zapper_mut(&mut self) -> &mut Zapper {
-        self.input.zapper_mut()
-    }
-
-    #[inline]
     pub fn load_cart(&mut self, cart: Cart) {
         // Start with ~20ms of audio capacity
         let audio_capacity = (Cpu::region_clock_rate(cart.region()) * 0.02) as usize;
@@ -164,30 +102,22 @@ impl CpuBus {
             self.audio_samples
                 .reserve(audio_capacity - self.audio_samples.capacity());
         }
-        self.battery_backed = cart.battery_backed();
         self.set_region(cart.region());
-        self.load_prg_rom(cart.prg_rom);
-        self.load_prg_ram(cart.prg_ram);
-        self.ppu.load_chr_rom(cart.chr_rom);
-        self.ppu.load_chr_ram(cart.chr_ram);
-        self.ppu.load_ex_ram(cart.ex_ram);
+        self.prg_rom = cart.prg_rom;
+        self.load_sram(cart.prg_ram);
+        self.ppu.bus.load_chr_rom(cart.chr_rom);
+        self.ppu.bus.load_chr_ram(cart.chr_ram);
+        self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
     }
 
-    #[inline]
-    pub fn load_prg_rom(&mut self, prg_rom: Vec<u8>) {
-        self.prg_rom = prg_rom;
-    }
-
-    #[inline]
-    pub fn load_prg_ram(&mut self, prg_ram: Vec<u8>) {
-        self.prg_ram = prg_ram;
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn cart_battery_backed(&self) -> bool {
-        self.battery_backed
+    pub fn unload_cart(&mut self) {
+        self.prg_rom.clear();
+        self.load_sram(vec![]);
+        self.ppu.bus.load_chr_rom(vec![]);
+        self.ppu.bus.load_chr_ram(vec![]);
+        self.ppu.bus.load_ex_ram(vec![]);
+        self.ppu.load_mapper(Mapper::default());
     }
 
     #[inline]
@@ -198,9 +128,7 @@ impl CpuBus {
 
     #[inline]
     pub fn load_sram(&mut self, sram: Vec<u8>) {
-        if self.cart_battery_backed() {
-            self.prg_ram = sram;
-        }
+        self.prg_ram = sram;
     }
 
     #[inline]
@@ -250,34 +178,11 @@ impl CpuBus {
     }
 
     #[inline]
-    #[must_use]
-    pub const fn nmi_pending(&self) -> bool {
-        self.ppu.nmi_pending()
-    }
-
-    #[inline]
     pub fn irqs_pending(&self) -> Irq {
         let mut irq = Irq::empty();
-        irq.set(Irq::MAPPER, self.mapper().irq_pending());
+        irq.set(Irq::MAPPER, self.ppu.bus.mapper.irq_pending());
         irq |= self.apu.irqs_pending();
         irq
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn dmc_dma(&mut self) -> bool {
-        self.apu.dmc_dma()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn dmc_dma_addr(&self) -> u16 {
-        self.apu.dmc_dma_addr()
-    }
-
-    #[inline]
-    pub fn load_dmc_buffer(&mut self, val: u8) {
-        self.apu.load_dmc_buffer(val);
     }
 
     #[inline]
@@ -296,63 +201,17 @@ impl CpuBus {
     pub fn oam_dma_finish(&mut self) {
         self.oam_dma = false;
     }
-
-    #[inline]
-    #[must_use]
-    pub const fn ppu_cycle(&self) -> u32 {
-        self.ppu.cycle()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn ppu_scanline(&self) -> u32 {
-        self.ppu.scanline()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn frame_buffer(&self) -> &[u16] {
-        self.ppu.frame_buffer()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn frame_number(&self) -> u32 {
-        self.ppu.frame_number()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn audio_channel_enabled(&self, channel: Channel) -> bool {
-        self.apu.channel_enabled(channel)
-    }
-
-    #[inline]
-    pub fn toggle_audio_channel(&mut self, channel: Channel) {
-        self.apu.toggle_channel(channel);
-    }
-
-    #[inline]
-    pub const fn four_player(&self) -> FourPlayer {
-        self.input.four_player()
-    }
-
-    #[inline]
-    pub fn set_four_player(&mut self, four_player: FourPlayer) {
-        self.input.set_four_player(four_player);
-    }
 }
 
-impl Clock for CpuBus {
-    #[inline]
+impl Clock for Bus {
     fn clock(&mut self) -> usize {
         self.cycle = self.cycle.wrapping_add(1);
         self.apu.clock();
-        self.mapper_mut().clock();
+        self.ppu.bus.mapper.clock();
         self.input.clock();
 
         let apu_output = self.apu.output();
-        let mapper_output = match self.mapper() {
+        let mapper_output = match self.ppu.bus.mapper {
             Mapper::Exrom(ref exrom) => exrom.output(),
             Mapper::Vrc6(ref vrc6) => vrc6.output(),
             _ => 0.0,
@@ -368,12 +227,12 @@ impl Clock for CpuBus {
     }
 }
 
-impl Mem for CpuBus {
+impl Mem for Bus {
     fn read(&mut self, addr: u16, _access: Access) -> u8 {
         let val = match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
-                let val = match self.mapper_mut().map_read(addr) {
+                let val = match self.ppu.bus.mapper.map_read(addr) {
                     MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
@@ -385,15 +244,15 @@ impl Mem for CpuBus {
             0x2004 => self.ppu.read_oamdata(),
             0x2007 => self.ppu.read_data(),
             0x4015 => self.apu.read_status(),
-            0x4016 => self.input.read(Slot::One, &self.ppu),
-            0x4017 => self.input.read(Slot::Two, &self.ppu),
+            0x4016 => self.input.read(Player::One, &self.ppu),
+            0x4017 => self.input.read(Player::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
             0x0800..=0x1FFF => self.read(addr & 0x07FF, _access), // WRAM Mirrors
             0x2008..=0x3FFF => self.read(addr & 0x2007, _access), // Ppu Mirrors
             _ => self.open_bus,
         };
         self.open_bus = val;
-        self.mapper_mut().cpu_bus_read(addr);
+        self.ppu.bus.mapper.cpu_bus_read(addr);
         val
     }
 
@@ -401,7 +260,7 @@ impl Mem for CpuBus {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
-                let val = match self.mapper().map_peek(addr) {
+                let val = match self.ppu.bus.mapper.map_peek(addr) {
                     MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
@@ -413,8 +272,8 @@ impl Mem for CpuBus {
             0x2004 => self.ppu.peek_oamdata(),
             0x2007 => self.ppu.peek_data(),
             0x4015 => self.apu.peek_status(),
-            0x4016 => self.input.peek(Slot::One, &self.ppu),
-            0x4017 => self.input.peek(Slot::Two, &self.ppu),
+            0x4016 => self.input.peek(Player::One, &self.ppu),
+            0x4017 => self.input.peek(Player::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
             0x0800..=0x1FFF => self.peek(addr & 0x07FF, _access), // WRAM Mirrors
             0x2008..=0x3FFF => self.peek(addr & 0x2007, _access), // Ppu Mirrors
@@ -427,12 +286,12 @@ impl Mem for CpuBus {
             0x0000..=0x07FF => self.wram[addr as usize] = val,
             0x4020..=0xFFFF => {
                 let prg_ram_enabled = !self.prg_ram.is_empty() && !self.prg_ram_protect;
-                match self.mapper_mut().map_write(addr, val) {
+                match self.ppu.bus.mapper.map_write(addr, val) {
                     MappedWrite::PrgRam(addr, val) if prg_ram_enabled => self.prg_ram[addr] = val,
                     MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
                     _ => (),
                 }
-                self.ppu.update_mirroring();
+                self.ppu.bus.update_mirroring();
             }
             0x2000 => self.ppu.write_ctrl(val),
             0x2001 => self.ppu.write_mask(val),
@@ -472,11 +331,11 @@ impl Mem for CpuBus {
             _ => (),
         }
         self.open_bus = val;
-        self.mapper_mut().cpu_bus_write(addr, val);
+        self.ppu.bus.mapper.cpu_bus_write(addr, val);
     }
 }
 
-impl Regional for CpuBus {
+impl Regional for Bus {
     #[inline]
     fn region(&self) -> NesRegion {
         self.region
@@ -490,9 +349,9 @@ impl Regional for CpuBus {
     }
 }
 
-impl Reset for CpuBus {
-    fn reset(&mut self, kind: Kind) {
-        if kind == Kind::Hard {
+impl Reset for Bus {
+    fn reset(&mut self, kind: ResetKind) {
+        if kind == ResetKind::Hard {
             RamState::fill(&mut self.wram, self.ram_state);
         }
         self.ppu.reset(kind);
@@ -500,13 +359,12 @@ impl Reset for CpuBus {
     }
 }
 
-impl std::fmt::Debug for CpuBus {
+impl std::fmt::Debug for Bus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bus")
             .field("wram_len", &self.wram.len())
             .field("region", &self.region)
             .field("ram_state", &self.ram_state)
-            .field("battery_backed", &self.battery_backed)
             .field("prg_ram_len", &self.prg_ram.len())
             .field("prg_ram_protect", &self.prg_ram_protect)
             .field("prg_rom_len", &self.prg_rom.len())
@@ -530,7 +388,7 @@ mod test {
 
     #[test]
     fn load_cart_values() {
-        let mut bus = CpuBus::default();
+        let mut bus = Bus::default();
         #[rustfmt::skip]
         let rom: [u8; 16] = [
             0x4E, 0x45, 0x53, 0x1A,
@@ -543,23 +401,21 @@ mod test {
 
         let expected_mirroring = cart.mirroring();
         let expected_region = cart.region();
-        let expected_battery = cart.battery_backed();
         bus.load_cart(cart);
 
         assert_eq!(bus.ppu.region(), expected_region, "ppu region");
         assert_eq!(bus.apu.region(), expected_region, "apu region");
         assert!(
-            matches!(bus.mapper(), &Mapper::Nrom(_)),
+            matches!(bus.ppu.bus.mapper, Mapper::Nrom(_)),
             "mapper is Nrom: {:?}",
-            bus.mapper()
+            bus.ppu.bus.mapper
         );
-        assert_eq!(bus.ppu.mirroring(), expected_mirroring, "mirroring");
-        assert_eq!(bus.cart_battery_backed(), expected_battery, "battery");
+        assert_eq!(bus.ppu.bus.mirroring(), expected_mirroring, "mirroring");
     }
 
     #[test]
     fn load_cart_chr_rom() {
-        let mut bus = CpuBus::default();
+        let mut bus = Bus::default();
         let mut cart = Cart::empty();
         cart.chr_rom = vec![0x66; 0x2000];
         bus.load_cart(cart);
@@ -586,7 +442,7 @@ mod test {
 
     #[test]
     fn load_cart_chr_ram() {
-        let mut bus = CpuBus::default();
+        let mut bus = Bus::default();
         let mut cart = Cart::empty();
         cart.chr_rom = vec![];
         cart.chr_ram = vec![0x66; 0x2000];
@@ -614,7 +470,7 @@ mod test {
 
     #[test]
     fn genie_codes() {
-        let mut bus = CpuBus::default();
+        let mut bus = Bus::default();
         let mut cart = Cart::empty();
 
         let code = "YYKPOYZZ"; // The Legend of Zelda: New character with 8 Hearts
@@ -636,7 +492,7 @@ mod test {
 
     #[test]
     fn clock() {
-        let mut bus = CpuBus::default();
+        let mut bus = Bus::default();
 
         bus.clock_to(12);
         assert_eq!(bus.ppu.master_clock(), 12, "ppu clock");
@@ -646,7 +502,7 @@ mod test {
 
     #[test]
     fn read_write_ram() {
-        let mut bus = CpuBus::default();
+        let mut bus = Bus::default();
 
         bus.write(0x0001, 0x66, Access::Write);
         assert_eq!(bus.peek(0x0001, Access::Read), 0x66, "peek ram");

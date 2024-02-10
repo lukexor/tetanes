@@ -39,7 +39,7 @@ impl From<usize> for VideoFilter {
 #[derive(Clone)]
 #[must_use]
 pub struct Video {
-    filter: VideoFilter,
+    pub filter: VideoFilter,
     frame_buffer: Vec<u8>,
 }
 
@@ -50,14 +50,14 @@ impl Default for Video {
 }
 
 impl Video {
+    pub const FRAME_SIZE: usize = Ppu::SIZE * 4;
+
     /// Create a new Video encoder with the default filter.
-    #[inline]
     pub fn new() -> Self {
         Self::with_filter(VideoFilter::default())
     }
 
     /// Create a new Video encoder with a filter.
-    #[inline]
     pub fn with_filter(filter: VideoFilter) -> Self {
         Self {
             filter,
@@ -66,27 +66,16 @@ impl Video {
     }
 
     /// Allocate a new frame buffer for decoding a frame of video output with full alpha.
-    #[inline]
     #[must_use]
     pub fn new_frame_buffer() -> Vec<u8> {
         // Force alpha to 255.
-        let mut frame_buffer = vec![0; Ppu::SIZE * 4];
+        let mut frame_buffer = vec![0; Self::FRAME_SIZE];
         frame_buffer
             .iter_mut()
             .skip(3)
             .step_by(4)
             .for_each(|alpha| *alpha = 255);
         frame_buffer
-    }
-
-    #[inline]
-    pub const fn filter(&self) -> VideoFilter {
-        self.filter
-    }
-
-    #[inline]
-    pub fn set_filter(&mut self, filter: VideoFilter) {
-        self.filter = filter;
     }
 
     /// Fills a fully rendered frame of RENDER_SIZE RGB colors.

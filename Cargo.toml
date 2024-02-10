@@ -21,9 +21,6 @@ msrv = "1.70.0"
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
 path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
 
-# [lib]
-# crate-type = ["cdylib", "rlib"]
-
 [features]
 default = ["cycle-accurate"]
 profiling = ["dep:puffin", "dep:puffin_http"]
@@ -48,6 +45,7 @@ rand = "0.8"
 # rubato = "0.14.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+thingbuf = "0.1"
 web-time = "0.2"
 winit = { version = "0.29", default-features = false, features = [
   "rwh_05",
@@ -110,12 +108,7 @@ ci = ["github"]
 # The installers to generate for each app
 installers = ["shell", "homebrew", "msi"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = [
-  "aarch64-apple-darwin",
-  "x86_64-apple-darwin",
-  "x86_64-unknown-linux-gnu",
-  "x86_64-pc-windows-msvc",
-]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Publish jobs to run in CI
 pr-run-mode = "plan"
 # A GitHub repo to push Homebrew formulas to

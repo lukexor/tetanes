@@ -1,5 +1,5 @@
 use crate::{
-    common::{Clock, Kind, NesRegion, Regional, Reset},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     mapper::{Mapped, Mapper},
     mem::{Access, Mem},
     ppu::{bus::PpuBus, frame::Frame},
@@ -58,7 +58,7 @@ pub struct Ppu {
     // Internal signal that clears status registers and prevents writes and cleared at the end of VBlank
     // https://www.nesdev.org/wiki/PPU_power_up_state
     reset_signal: bool,
-    bus: PpuBus,
+    pub bus: PpuBus,
 
     ctrl: PpuCtrl,     // $2000 PPUCTRL write-only
     mask: PpuMask,     // $2001 PPUMASK write-only
@@ -271,44 +271,9 @@ impl Ppu {
     }
 
     #[inline]
-    pub fn mirroring(&self) -> Mirroring {
-        self.bus.mirroring()
-    }
-
-    #[inline]
-    pub fn update_mirroring(&mut self) {
-        self.bus.update_mirroring();
-    }
-
-    #[inline]
-    pub fn load_chr_rom(&mut self, chr_rom: Vec<u8>) {
-        self.bus.load_chr_rom(chr_rom);
-    }
-
-    #[inline]
-    pub fn load_chr_ram(&mut self, chr_ram: Vec<u8>) {
-        self.bus.load_chr_ram(chr_ram);
-    }
-
-    #[inline]
-    pub fn load_ex_ram(&mut self, ex_ram: Vec<u8>) {
-        self.bus.load_ex_ram(ex_ram);
-    }
-
-    #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
-        self.bus.load_mapper(mapper);
-        self.update_mirroring();
-    }
-
-    #[inline]
-    pub const fn mapper(&self) -> &Mapper {
-        self.bus.mapper()
-    }
-
-    #[inline]
-    pub fn mapper_mut(&mut self) -> &mut Mapper {
-        self.bus.mapper_mut()
+        self.bus.mapper = mapper;
+        self.bus.update_mirroring();
     }
 
     #[must_use]
@@ -362,7 +327,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn start_vblank(&mut self) {
         log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
@@ -377,10 +341,9 @@ impl Ppu {
         }
         self.prevent_vbl = false;
         let val = self.peek_status();
-        self.mapper_mut().ppu_bus_write(0x2002, val);
+        self.bus.mapper.ppu_bus_write(0x2002, val);
     }
 
-    #[inline]
     fn stop_vblank(&mut self) {
         log::trace!(
             "({}, {}): Clear Sprite0 Hit, Overflow",
@@ -394,7 +357,7 @@ impl Ppu {
         self.nmi_pending = false;
         self.reset_signal = false;
         let val = self.peek_status();
-        self.mapper_mut().ppu_bus_write(0x2002, val);
+        self.bus.mapper.ppu_bus_write(0x2002, val);
     }
 
     #[inline]
@@ -434,7 +397,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn evaluate_sprites(&mut self) {
         match self.cycle {
             // 1. Clear Secondary OAM
@@ -540,7 +502,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn load_sprites(&mut self) {
         let idx = (self.cycle - Self::SPR_FETCH_START) as usize / 8;
         let oam_idx = idx << 2;
@@ -625,7 +586,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn pixel_color(&mut self) -> u8 {
         let x = self.cycle - 1;
 
@@ -652,11 +612,11 @@ impl Ppu {
                     };
                     if spr_color != 0 {
                         if i == 0
-                            && bg_color != 0
-                            && self.spr_zero_visible
-                            && x != 255
                             && self.rendering_enabled()
                             && !self.status.spr_zero_hit()
+                            && self.spr_zero_visible
+                            && bg_color != 0
+                            && x != 255
                         {
                             self.status.set_spr_zero_hit(true);
                         }
@@ -902,7 +862,7 @@ impl PpuRegisters for Ppu {
             self.prevent_vbl = true;
         }
         self.open_bus |= status & 0xE0;
-        self.mapper_mut().ppu_bus_write(0x2002, status);
+        self.bus.mapper.ppu_bus_write(0x2002, status);
         status
     }
 
@@ -1027,7 +987,7 @@ impl PpuRegisters for Ppu {
         self.scroll.write_addr(val);
         // MMC3 clocks using A12
         let addr = self.scroll.read_addr();
-        self.mapper_mut().ppu_bus_write(addr, val);
+        self.bus.mapper.ppu_bus_write(addr, val);
     }
 
     // $2007 | RW  | PPUDATA
@@ -1056,7 +1016,7 @@ impl PpuRegisters for Ppu {
         self.open_bus = val;
         // MMC3 clocks using A12
         let addr = self.scroll.read_addr();
-        self.mapper_mut().ppu_bus_write(addr, val);
+        self.bus.mapper.ppu_bus_write(addr, val);
 
         val
     }
@@ -1086,7 +1046,7 @@ impl PpuRegisters for Ppu {
 
         // MMC3 clocks using A12
         let addr = self.scroll.read_addr();
-        self.mapper_mut().ppu_bus_write(addr, val);
+        self.bus.mapper.ppu_bus_write(addr, val);
     }
 }
 
@@ -1153,6 +1113,7 @@ impl Regional for Ppu {
         self.region
     }
 
+    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         let (clock_divider, vblank_scanline, prerender_scanline) = match region {
             NesRegion::Ntsc => (4, 241, 261),
@@ -1170,12 +1131,12 @@ impl Regional for Ppu {
 }
 
 impl Reset for Ppu {
-    fn reset(&mut self, kind: Kind) {
+    fn reset(&mut self, kind: ResetKind) {
         self.reset_signal = true;
         self.ctrl.reset(kind);
         self.mask.reset(kind);
         self.status.reset(kind);
-        if kind == Kind::Hard {
+        if kind == ResetKind::Hard {
             self.oamaddr = 0x0000;
         }
         self.secondary_oamaddr = 0x0000;

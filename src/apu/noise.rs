@@ -1,6 +1,6 @@
 use crate::{
     apu::{envelope::Envelope, length_counter::LengthCounter},
-    common::{Clock, Kind, NesRegion, Regional, Reset},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 
@@ -170,7 +170,7 @@ impl Regional for Noise {
 }
 
 impl Reset for Noise {
-    fn reset(&mut self, _kind: Kind) {
+    fn reset(&mut self, _kind: ResetKind) {
         *self = Self::new();
     }
 }
