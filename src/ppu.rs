@@ -421,52 +421,47 @@ impl Ppu {
 
                 if self.cycle & 0x01 == 0x01 {
                     // Odd cycles are reads from OAM
-                    self.oam_fetch = self.oamdata[self.oamaddr as usize];
+                    let oamindex = self.oamaddr as usize;
+                    assert!(oamindex < self.oamdata.len());
+                    self.oam_fetch = self.oamdata[oamindex];
                 } else {
+                    let secondary_oamindex = self.secondary_oamaddr as usize & 0x1F;
+                    assert!(secondary_oamindex < self.secondary_oamdata.len());
+
                     // oamaddr rolled over, so we're done reading
                     if self.oam_eval_done {
                         self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
                         if self.secondary_oamaddr >= 0x20 {
-                            self.oam_fetch =
-                                self.secondary_oamdata[self.secondary_oamaddr as usize & 0x1F];
+                            self.oam_fetch = self.secondary_oamdata[secondary_oamindex];
                         }
                     } else {
                         // If previously not in range, interpret this byte as y
                         let y = u32::from(self.oam_fetch);
                         let height = self.ctrl.spr_height();
-                        if !self.spr_in_range && (y..y + height).contains(&self.scanline) {
-                            self.spr_in_range = true;
-                        }
+                        self.spr_in_range |=
+                            !self.spr_in_range && (y..y + height).contains(&self.scanline);
 
                         // Even cycles are writes to Secondary OAM
                         if self.secondary_oamaddr < 0x20 {
-                            self.secondary_oamdata[self.secondary_oamaddr as usize] =
-                                self.oam_fetch;
+                            self.secondary_oamdata[secondary_oamindex] = self.oam_fetch;
 
                             if self.spr_in_range {
                                 self.oamaddr_lo += 1;
                                 self.secondary_oamaddr += 1;
 
-                                if self.oamaddr_hi == 0x00 {
-                                    self.spr_zero_in_range = true;
-                                }
+                                self.spr_zero_in_range |= self.oamaddr_hi == 0x00;
                                 if self.oamaddr_lo == 0x04 {
                                     self.spr_in_range = false;
                                     self.oamaddr_lo = 0x00;
                                     self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
-                                    if self.oamaddr_hi == 0x00 {
-                                        self.oam_eval_done = true;
-                                    }
+                                    self.oam_eval_done |= self.oamaddr_hi == 0x00;
                                 }
                             } else {
                                 self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
-                                if self.oamaddr_hi == 0x00 {
-                                    self.oam_eval_done = true;
-                                }
+                                self.oam_eval_done |= self.oamaddr_hi == 0x00;
                             }
                         } else {
-                            self.oam_fetch =
-                                self.secondary_oamdata[self.secondary_oamaddr as usize & 0x1F];
+                            self.oam_fetch = self.secondary_oamdata[secondary_oamindex];
                             if self.spr_in_range {
                                 self.status.set_spr_overflow(true);
                                 self.oamaddr_lo += 1;
@@ -479,19 +474,16 @@ impl Ppu {
                                     Ordering::Equal => self.overflow_count = 3,
                                     Ordering::Greater => {
                                         self.overflow_count -= 1;
-                                        if self.overflow_count == 0 {
-                                            self.oam_eval_done = true;
-                                            self.oamaddr_lo = 0x00;
-                                        }
+                                        let no_overflow = self.overflow_count == 0;
+                                        self.oam_eval_done |= no_overflow;
+                                        self.oamaddr_lo *= !no_overflow as u8;
                                     }
                                     Ordering::Less => (),
                                 }
                             } else {
                                 self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
                                 self.oamaddr_lo = (self.oamaddr_lo + 1) & 0x03;
-                                if self.oamaddr_hi == 0x00 {
-                                    self.oam_eval_done = true;
-                                }
+                                self.oam_eval_done |= self.oamaddr_hi == 0x00;
                             }
                         }
                     }
@@ -506,6 +498,7 @@ impl Ppu {
         let idx = (self.cycle - Self::SPR_FETCH_START) as usize / 8;
         let oam_idx = idx << 2;
 
+        assert!(oam_idx + 3 < self.secondary_oamdata.len());
         if let [y, tile_number, attr, x] = self.secondary_oamdata[oam_idx..=oam_idx + 3] {
             let x = u32::from(x);
             let y = u32::from(y);
@@ -588,20 +581,31 @@ impl Ppu {
 
     fn pixel_color(&mut self) -> u8 {
         let x = self.cycle - 1;
+        let show_left_bg = self.mask.show_left_bg();
+        let show_left_spr = self.mask.show_left_spr();
+        let show_bg = self.mask.show_bg();
+        let show_spr = self.mask.show_spr();
+        let spr_present = self.spr_present[x as usize];
+        let fine_x = self.scroll.fine_x();
+        let tile_shift_hi = self.tile_shift_hi;
+        let tile_shift_lo = self.tile_shift_lo;
 
-        let left_clip_bg = x < 8 && !self.mask.show_left_bg();
-        let bg_color = if self.mask.show_bg() && !left_clip_bg {
-            let offset = self.scroll.fine_x();
-            ((((self.tile_shift_hi << offset) & 0x8000) >> 14)
-                | (((self.tile_shift_lo << offset) & 0x8000) >> 15)) as u8
+        let left_clip_bg = x < 8 && !show_left_bg;
+        let bg_color = if show_bg && !left_clip_bg {
+            ((((tile_shift_hi << fine_x) & 0x8000) >> 14)
+                | (((tile_shift_lo << fine_x) & 0x8000) >> 15)) as u8
         } else {
             0
         };
 
-        let left_clip_spr = x < 8 && !self.mask.show_left_spr();
-        if self.mask.show_spr() && !left_clip_spr && self.spr_present[x as usize] {
+        let left_clip_spr = x < 8 && !show_left_spr;
+        if show_spr && !left_clip_spr && spr_present {
+            let x = x as i16;
+            let rendering_enabled = self.rendering_enabled();
+            let spr_zero_hit = self.status.spr_zero_hit();
+            let spr_zero_visible = self.spr_zero_visible;
             for (i, sprite) in self.sprites.iter().take(self.spr_count).enumerate() {
-                let shift = x as i16 - sprite.x as i16;
+                let shift = x - sprite.x as i16;
                 if (0..=7).contains(&shift) {
                     let spr_color = if sprite.flip_horizontal {
                         (((sprite.tile_hi >> shift) & 0x01) << 1)
@@ -612,9 +616,9 @@ impl Ppu {
                     };
                     if spr_color != 0 {
                         if i == 0
-                            && self.rendering_enabled()
-                            && !self.status.spr_zero_hit()
-                            && self.spr_zero_visible
+                            && rendering_enabled
+                            && !spr_zero_hit
+                            && spr_zero_visible
                             && bg_color != 0
                             && x != 255
                         {
@@ -629,7 +633,7 @@ impl Ppu {
                 }
             }
         }
-        let palette = if (self.scroll.fine_x() + ((x & 0x07) as u16)) < 8 {
+        let palette = if (fine_x + ((x & 0x07) as u16)) < 8 {
             self.prev_palette
         } else {
             self.curr_palette
@@ -641,24 +645,25 @@ impl Ppu {
     fn render_pixel(&mut self) {
         let x = self.cycle - 1;
         let y = self.scanline;
-        let palette_addr = if self.rendering_enabled()
-            || (self.addr() & Self::PALETTE_START) != Self::PALETTE_START
-        {
-            let color = self.pixel_color();
-            if color & 0x03 > 0 {
-                u16::from(color)
-            } else {
-                0
-            }
-        } else {
-            self.addr() & 0x1F
-        };
+        let addr = self.addr();
+        let mask = self.mask;
+        let emphasis = mask.emphasis(self.region);
+
+        let palette_addr = (self.rendering_enabled()
+            || (addr & Self::PALETTE_START) != Self::PALETTE_START)
+            .then(|| {
+                let color = self.pixel_color();
+                (color & 0x03 > 0).then(|| u16::from(color)).unwrap_or(0)
+            })
+            .unwrap_or(addr & 0x1F);
+
         let mut color = self
             .bus
             .read(Self::PALETTE_START + palette_addr, Access::Read)
             .into();
-        color &= if self.mask.grayscale() { 0x30 } else { 0x3F };
-        color |= u16::from(self.mask.emphasis(self.region)) << 1;
+        color &= if mask.grayscale() { 0x30 } else { 0x3F };
+        color |= u16::from(emphasis) << 1;
+
         self.frame.set_pixel(x, y, color);
     }
 
@@ -1066,9 +1071,7 @@ impl Clock for Ppu {
     #[inline]
     fn clock(&mut self) -> usize {
         // Clear open bus roughly once every frame
-        if self.scanline == 0 {
-            self.open_bus = 0x00;
-        }
+        self.open_bus *= (self.scanline != 0) as u8;
 
         if self.cycle >= Self::CYCLE_END {
             self.cycle = 0;
@@ -1087,8 +1090,7 @@ impl Clock for Ppu {
             if self.cycle == Self::VBLANK {
                 if self.scanline == self.vblank_scanline {
                     self.start_vblank();
-                }
-                if self.scanline == self.prerender_scanline {
+                } else if self.scanline == self.prerender_scanline {
                     self.stop_vblank();
                 }
             }

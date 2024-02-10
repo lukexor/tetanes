@@ -53,25 +53,25 @@ workspace = false
 command = "cargo"
 args = ["run", "--profile", "devo", "-p", "tetanes", "${@}"]
 
-[tasks.dev-profiling]
+[tasks.profiling]
 description = "Run TetaNES in development mode with profiling enabled"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["run", "--profile", "devo", "-p", "tetanes", "--features", "profiling", "${@}"]
+args = ["run", "--profile", "release", "-p", "tetanes", "--features", "profiling", "${@}"]
 
-[tasks.profiling_viewer]
-description = "Run profiling viewer"
+[tasks.profile_viewer]
+description = "Run profile viewer"
 category = "Development"
 workspace = false
 command = "puffin_viewer"
 args = ["--url", "127.0.0.1:8585"]
 
-[tasks.profiling]
+[tasks.profile]
 description = "Run TetaNES in development mode with profiling viewer"
 category = "Development"
 workspace = false
-run_task = { name = ["dev-profiling", "profiling_viewer"], fork = true, parallel = true }
+run_task = { name = ["profiling", "profile_viewer"], fork = true, parallel = true }
 
 [tasks.install-web-deps]
 description = "Install wasm target"

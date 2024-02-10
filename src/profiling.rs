@@ -83,7 +83,7 @@ macro_rules! profile_end {
 #[macro_export]
 macro_rules! profile {
     () => {
-        profile!("");
+        $crate::profile!("");
     };
     ($data:expr) => {
         #[cfg(feature = "profiling")]
@@ -92,7 +92,7 @@ macro_rules! profile {
         // profile!($crate::profiling::function_name(__f));
     };
     ($name:expr) => {
-        profile!($name, "");
+        $crate::profile!($name, "");
     };
     ($name:expr, $data:expr) => {
         #[cfg(feature = "profiling")]

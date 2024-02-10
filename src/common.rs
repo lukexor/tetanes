@@ -267,7 +267,7 @@ pub(crate) mod tests {
 
     fn load_control_deck<P: AsRef<Path>>(path: P) -> ControlDeck {
         let path = path.as_ref();
-        let mut rom = BufReader::new(File::open(path).expect("failed to open path"));
+        let mut rom = BufReader::new(File::open(&path).expect("failed to open path"));
         let mut deck = ControlDeck::default();
         deck.load_rom(&path.to_string_lossy(), &mut rom)
             .expect("failed to load rom");

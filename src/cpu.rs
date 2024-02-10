@@ -64,10 +64,10 @@ bitflags! {
 }
 
 /// Every cycle is either a read or a write.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-enum Cycle {
-    Read,
-    Write,
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct Cycle {
+    start: u64,
+    end: u64,
 }
 
 /// The Central Processing Unit status and registers
@@ -77,8 +77,10 @@ pub struct Cpu {
     pub cycle: usize, // total number of cycles ran
     pub region: NesRegion,
     pub master_clock: u64,
-    pub start_clocks: u64,
-    pub end_clocks: u64,
+    // start/end cycle counts for reads
+    pub read_cycles: Cycle,
+    // start/end cycle counts for writes
+    pub write_cycles: Cycle,
     pub pc: u16,        // program counter
     pub sp: u8,         // stack pointer - stack is at $0100-$01FF
     pub acc: u8,        // accumulator
@@ -127,8 +129,8 @@ impl Cpu {
             cycle: 0,
             region: NesRegion::default(),
             master_clock: 0,
-            start_clocks: 0,
-            end_clocks: 0,
+            read_cycles: Cycle::default(),
+            write_cycles: Cycle::default(),
             pc: 0x0000,
             sp: 0x00,
             acc: 0x00,
@@ -223,10 +225,7 @@ impl Cpu {
         // signal if the input goes from being high during one cycle to being low during the
         // next.
         let nmi_pending = self.bus.ppu.nmi_pending();
-        if !self.prev_nmi_pending && nmi_pending {
-            self.nmi = true;
-            log::trace!("NMI Edge Detected: {}", self.cycle);
-        }
+        self.nmi |= !self.prev_nmi_pending && nmi_pending;
         self.prev_nmi_pending = nmi_pending;
 
         self.irq = self.bus.irqs_pending();
@@ -235,23 +234,15 @@ impl Cpu {
         // so keep the second-to-last status.
         self.prev_run_irq = self.run_irq;
         self.run_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
-        if self.run_irq {
-            log::trace!("IRQ Level Detected: {}: {:?}", self.cycle, self.irq);
-        }
 
-        if self.bus.apu.dmc_dma() {
-            self.dmc_dma = true;
-            self.dma_halt = true;
-            self.dummy_read = true;
-        }
+        let dmc_dma = self.bus.apu.dmc_dma();
+        self.dmc_dma |= dmc_dma;
+        self.dma_halt |= dmc_dma;
+        self.dummy_read |= dmc_dma;
     }
 
-    fn start_cycle(&mut self, cycle: Cycle) {
-        self.master_clock += if cycle == Cycle::Read {
-            self.start_clocks - 1
-        } else {
-            self.start_clocks + 1
-        };
+    fn start_cycle(&mut self, increment: u64) {
+        self.master_clock += increment;
         self.cycle = self.cycle.wrapping_add(1);
 
         #[cfg(feature = "cycle-accurate")]
@@ -261,12 +252,8 @@ impl Cpu {
         }
     }
 
-    fn end_cycle(&mut self, cycle: Cycle) {
-        self.master_clock += if cycle == Cycle::Read {
-            self.end_clocks + 1
-        } else {
-            self.end_clocks - 1
-        };
+    fn end_cycle(&mut self, increment: u64) {
+        self.master_clock += increment;
 
         #[cfg(feature = "cycle-accurate")]
         self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
@@ -282,13 +269,13 @@ impl Cpu {
         } else if self.dummy_read {
             self.dummy_read = false;
         }
-        self.start_cycle(Cycle::Read);
+        self.start_cycle(self.read_cycles.start);
     }
 
     fn handle_dma(&mut self, addr: u16) {
-        self.start_cycle(Cycle::Read);
+        self.start_cycle(self.read_cycles.start);
         self.bus.read(addr, Access::Dummy);
-        self.end_cycle(Cycle::Read);
+        self.end_cycle(self.read_cycles.end);
         self.dma_halt = false;
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
@@ -304,14 +291,14 @@ impl Cpu {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
                     read_val = self.bus.read(self.bus.apu.dmc_dma_addr(), Access::Dummy);
-                    self.end_cycle(Cycle::Read);
+                    self.end_cycle(self.read_cycles.end);
                     self.bus.apu.load_dmc_buffer(read_val);
                     self.dmc_dma = false;
                 } else if self.bus.oam_dma() {
                     // DMC DMA not running or ready, run OAM DMA
                     self.process_dma_cycle();
                     read_val = self.bus.read(oam_base_addr + oam_offset, Access::Dummy);
-                    self.end_cycle(Cycle::Read);
+                    self.end_cycle(self.read_cycles.end);
                     oam_offset += 1;
                     oam_dma_count += 1;
                 } else {
@@ -322,13 +309,13 @@ impl Cpu {
                     if !skip_dummy_reads {
                         self.bus.read(addr, Access::Dummy); // throw away
                     }
-                    self.end_cycle(Cycle::Read);
+                    self.end_cycle(self.read_cycles.end);
                 }
             } else if self.bus.oam_dma() && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.process_dma_cycle();
                 self.bus.write(0x2004, read_val, Access::Dummy);
-                self.end_cycle(Cycle::Read);
+                self.end_cycle(self.read_cycles.end);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
                     self.bus.oam_dma_finish();
@@ -339,7 +326,7 @@ impl Cpu {
                 if !skip_dummy_reads {
                     self.bus.read(addr, Access::Dummy); // throw away
                 }
-                self.end_cycle(Cycle::Read);
+                self.end_cycle(self.read_cycles.end);
             }
         }
     }
@@ -818,9 +805,9 @@ impl Mem for Cpu {
             self.handle_dma(addr);
         }
 
-        self.start_cycle(Cycle::Read);
+        self.start_cycle(self.read_cycles.start);
         let val = self.bus.read(addr, access);
-        self.end_cycle(Cycle::Read);
+        self.end_cycle(self.read_cycles.end);
         val
     }
 
@@ -831,9 +818,9 @@ impl Mem for Cpu {
 
     #[inline]
     fn write(&mut self, addr: u16, val: u8, access: Access) {
-        self.start_cycle(Cycle::Write);
+        self.start_cycle(self.write_cycles.start);
         self.bus.write(addr, val, access);
-        self.end_cycle(Cycle::Write);
+        self.end_cycle(self.write_cycles.end);
     }
 }
 
@@ -850,8 +837,14 @@ impl Regional for Cpu {
             NesRegion::Dendy => (7, 8),
         };
         self.region = region;
-        self.start_clocks = start_clocks;
-        self.end_clocks = end_clocks;
+        self.read_cycles = Cycle {
+            start: start_clocks - 1,
+            end: end_clocks + 1,
+        };
+        self.write_cycles = Cycle {
+            start: end_clocks + 1,
+            end: end_clocks - 1,
+        };
         self.bus.set_region(region);
     }
 }
@@ -900,8 +893,8 @@ impl Reset for Cpu {
         self.pc = u16::from_le_bytes([lo, hi]);
 
         for _ in 0..7 {
-            self.start_cycle(Cycle::Read);
-            self.end_cycle(Cycle::Read);
+            self.start_cycle(self.read_cycles.start);
+            self.end_cycle(self.read_cycles.end);
         }
     }
 }

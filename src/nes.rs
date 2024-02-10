@@ -210,7 +210,7 @@ impl Nes {
                     let now = Instant::now();
                     let last_frame_duration = now - self.last_frame_time;
                     self.last_frame_time = now;
-                    log::debug!(
+                    log::trace!(
                         "last frame: {:.2}ms",
                         1000.0 * last_frame_duration.as_secs_f32(),
                     );
