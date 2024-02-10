@@ -43,7 +43,7 @@ impl Pxrom {
             mirroring: cart.mirroring(),
             latch: [0x00; 2],
             latch_banks: [0x00; 4],
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr.len(), Self::CHR_ROM_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
         };
         let last_bank = pxrom.prg_rom_banks.last();

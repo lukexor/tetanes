@@ -67,8 +67,7 @@ fn get_info<P: AsRef<Path>>(path: P) -> NesResult<(u64, String)> {
     let pcb = "";
     let chip = "";
 
-    let chr_rom_banks = cart.chr_rom().len() / (8 * 1024);
-    let chr_ram_banks = cart.chr_ram().len() / (8 * 1024);
+    let chr_banks = cart.chr().len() / (8 * 1024);
     let prg_rom_banks = cart.prg_ram().len() / (16 * 1024);
     let prg_ram_banks = cart.prg_ram().len() / (16 * 1024);
     let mirroring = cart.mirroring();
@@ -76,21 +75,10 @@ fn get_info<P: AsRef<Path>>(path: P) -> NesResult<(u64, String)> {
     Ok((
         hash,
         format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{:?},{},{:?}",
-            hash,
-            region,
-            board,
-            pcb,
-            chip,
+            "{hash},{region},{board},{pcb},{chip},{},{chr_banks},{prg_rom_banks},{prg_ram_banks},{},{mirroring:?},{},{filename:?}",
             cart.mapper_num(),
-            prg_rom_banks,
-            chr_rom_banks,
-            chr_ram_banks,
-            prg_ram_banks,
             cart.battery_backed(),
-            mirroring,
             cart.submapper_num(),
-            filename
         ),
     ))
 }

@@ -31,8 +31,7 @@ pub struct PpuBus {
     mirror_shift: usize,
     ciram: Vec<u8>, // $2007 PPUDATA
     palette: [u8; Self::PALETTE_SIZE],
-    chr_rom: Vec<u8>,
-    chr_ram: Vec<u8>,
+    chr: Vec<u8>,
     exram: Vec<u8>,
     open_bus: u8,
 }
@@ -53,8 +52,7 @@ impl PpuBus {
             mirror_shift: Mirroring::default() as usize,
             ciram: vec![0x00; Self::VRAM_SIZE],
             palette: [0x00; Self::PALETTE_SIZE],
-            chr_rom: vec![],
-            chr_ram: vec![],
+            chr: vec![],
             exram: vec![],
             open_bus: 0x00,
         }
@@ -71,13 +69,8 @@ impl PpuBus {
     }
 
     #[inline]
-    pub fn load_chr_rom(&mut self, chr_rom: Vec<u8>) {
-        self.chr_rom = chr_rom;
-    }
-
-    #[inline]
-    pub fn load_chr_ram(&mut self, chr_ram: Vec<u8>) {
-        self.chr_ram = chr_ram;
+    pub fn load_chr(&mut self, chr: Vec<u8>) {
+        self.chr = chr;
     }
 
     #[inline]
@@ -110,42 +103,31 @@ impl PpuBus {
 
     #[inline]
     const fn palette_mirror(&self, addr: usize) -> usize {
-        let addr = addr & 0x001F;
-        if addr >= 16 && addr.trailing_zeros() >= 2 {
-            addr - 16
-        } else {
-            addr
-        }
+        addr & 0x001F
     }
 }
 
 impl Mem for PpuBus {
     fn read(&mut self, addr: u16, _access: Access) -> u8 {
         let val = match addr {
+            0x2000..=0x3EFF => match self.mapper.map_read(addr) {
+                MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
+                MappedRead::ExRam(addr) => self.exram[addr & 0x03FF],
+                MappedRead::Data(data) => data,
+                // NOTE: Mappers that support FourScreen should return MappedRead::ExRam or
+                // MappedRead::Data
+                _ => self.ciram[self.ciram_mirror(addr as usize)],
+            },
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
                     addr
                 } else {
                     addr.into()
                 };
-                if self.chr_rom.is_empty() {
-                    self.chr_ram[addr]
-                } else {
-                    self.chr_rom[addr]
-                }
+                self.chr[addr]
             }
-            0x2000..=0x3EFF => match self.mapper.map_read(addr) {
-                MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
-                MappedRead::ExRam(addr) => self.exram[addr & 0x03FF],
-                MappedRead::Data(data) => data,
-                _ => {
-                    if self.mirroring() == Mirroring::FourScreen {
-                        0x00
-                    } else {
-                        self.ciram[self.ciram_mirror(addr as usize)]
-                    }
-                }
-            },
+            // Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => self.read(addr - 0x10, _access),
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
                 log::error!("unexpected PPU memory access at ${:04X}", addr);
@@ -162,13 +144,9 @@ impl Mem for PpuBus {
                 MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
                 MappedRead::ExRam(addr) => self.exram[addr & 0x03FF],
                 MappedRead::Data(data) => data,
-                _ => {
-                    if self.mirroring() == Mirroring::FourScreen {
-                        0x00
-                    } else {
-                        self.ciram[self.ciram_mirror(addr as usize)]
-                    }
-                }
+                // NOTE: Mappers that support FourScreen should return MappedRead::ExRam or
+                // MappedRead::Data
+                _ => self.ciram[self.ciram_mirror(addr as usize)],
             },
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_peek(addr) {
@@ -176,11 +154,7 @@ impl Mem for PpuBus {
                 } else {
                     addr.into()
                 };
-                if !self.chr_ram.is_empty() {
-                    self.chr_ram[addr]
-                } else {
-                    self.chr_rom[addr]
-                }
+                self.chr[addr]
             }
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
@@ -195,18 +169,15 @@ impl Mem for PpuBus {
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
                 MappedWrite::CIRam(addr, val) => self.ciram[addr] = val,
                 MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
+                // NOTE: Mappers that support FourScreen should return MappedRead::ExRam
                 _ => {
-                    if self.mirroring() != Mirroring::FourScreen {
-                        let addr = self.ciram_mirror(addr as usize);
-                        self.ciram[addr] = val;
-                    }
+                    let addr = self.ciram_mirror(addr as usize);
+                    self.ciram[addr] = val;
                 }
             },
             0x0000..=0x1FFF => {
-                if !self.chr_ram.is_empty() {
-                    if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
-                        self.chr_ram[addr] = val;
-                    }
+                if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
+                    self.chr[addr] = val;
                 }
             }
             0x3F00..=0x3FFF => {
@@ -243,8 +214,7 @@ impl std::fmt::Debug for PpuBus {
             .field("mapper", &self.mapper)
             .field("ciram_len", &self.ciram.len())
             .field("palette_len", &self.palette.len())
-            .field("chr_rom_len", &self.chr_rom.len())
-            .field("chr_ram_len", &self.chr_ram.len())
+            .field("chr_len", &self.chr.len())
             .field("ex_ram_len", &self.exram.len())
             .field("open_bus", &self.open_bus)
             .finish()

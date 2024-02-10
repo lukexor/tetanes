@@ -26,7 +26,7 @@ impl Cnrom {
     pub fn load(cart: &mut Cart) -> Mapper {
         let cnrom = Self {
             mirroring: cart.mirroring(),
-            chr_banks: MemBanks::new(0x0000, 0x1FFFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFFF, cart.chr.len(), Self::CHR_ROM_WINDOW),
             mirror_prg_rom: cart.prg_rom.len() <= 0x4000,
         };
         cnrom.into()

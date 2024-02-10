@@ -105,8 +105,7 @@ impl Bus {
         self.set_region(cart.region());
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
-        self.ppu.bus.load_chr_rom(cart.chr_rom);
-        self.ppu.bus.load_chr_ram(cart.chr_ram);
+        self.ppu.bus.load_chr(cart.chr);
         self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
     }
@@ -114,8 +113,7 @@ impl Bus {
     pub fn unload_cart(&mut self) {
         self.prg_rom.clear();
         self.load_sram(vec![]);
-        self.ppu.bus.load_chr_rom(vec![]);
-        self.ppu.bus.load_chr_ram(vec![]);
+        self.ppu.bus.load_chr(vec![]);
         self.ppu.bus.load_ex_ram(vec![]);
         self.ppu.load_mapper(Mapper::default());
     }
@@ -417,7 +415,7 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = vec![0x66; 0x2000];
+        cart.chr = vec![0x66; 0x2000];
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00, Access::Write);
@@ -444,8 +442,7 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = vec![];
-        cart.chr_ram = vec![0x66; 0x2000];
+        cart.chr = vec![0x66; 0x2000];
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00, Access::Write);

@@ -400,7 +400,11 @@ impl Ppu {
     }
 
     fn evaluate_sprites(&mut self) {
-        match self.cycle {
+        // Local variables improve cache locality
+        let cycle = self.cycle;
+        let scanline = self.scanline;
+
+        match cycle {
             // 1. Clear Secondary OAM
             Self::OAM_CLEAR_START..=Self::OAM_CLEAR_END => {
                 self.oam_fetch = 0xFF;
@@ -409,67 +413,77 @@ impl Ppu {
             // 2. Read OAM to find first eight sprites on this scanline
             // 3. With > 8 sprites, check (wrongly) for more sprites to set overflow flag
             Self::SPR_EVAL_START..=Self::SPR_EVAL_END => {
-                if self.cycle == Self::SPR_EVAL_START {
+                if cycle == Self::SPR_EVAL_START {
                     self.spr_in_range = false;
                     self.spr_zero_in_range = false;
                     self.secondary_oamaddr = 0x00;
                     self.oam_eval_done = false;
                     self.oamaddr_hi = (self.oamaddr >> 2) & 0x3F;
                     self.oamaddr_lo = (self.oamaddr) & 0x03;
-                } else if self.cycle == Self::SPR_EVAL_END {
+                } else if cycle == Self::SPR_EVAL_END {
                     self.spr_zero_visible = self.spr_zero_in_range;
                     self.spr_count = (self.secondary_oamaddr >> 2) as usize;
                 }
 
-                if self.cycle & 0x01 == 0x01 {
+                // Local variables improve cache locality
+                let mut oam_eval_done = self.oam_eval_done;
+                let oamaddr = self.oamaddr;
+                let mut oamaddr_hi = self.oamaddr_hi;
+                let mut oamaddr_lo = self.oamaddr_lo;
+                let mut secondary_oamaddr = self.secondary_oamaddr;
+                let mut oam_fetch = self.oam_fetch;
+                let mut spr_in_range = self.spr_in_range;
+                let mut spr_zero_in_range = self.spr_zero_in_range;
+                let spr_zero_visible = self.spr_zero_visible;
+                let spr_count = self.spr_count;
+
+                if cycle & 0x01 == 0x01 {
                     // Odd cycles are reads from OAM
-                    let oamindex = self.oamaddr as usize;
-                    assert!(oamindex < self.oamdata.len());
-                    self.oam_fetch = self.oamdata[oamindex];
+                    let oamindex = oamaddr as usize;
+                    oam_fetch = self.oamdata[oamindex];
                 } else {
-                    let secondary_oamindex = self.secondary_oamaddr as usize & 0x1F;
+                    let secondary_oamindex = secondary_oamaddr as usize & 0x1F;
                     assert!(secondary_oamindex < self.secondary_oamdata.len());
 
                     // oamaddr rolled over, so we're done reading
-                    if self.oam_eval_done {
-                        self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
-                        if self.secondary_oamaddr >= 0x20 {
-                            self.oam_fetch = self.secondary_oamdata[secondary_oamindex];
+                    if oam_eval_done {
+                        oamaddr_hi = (oamaddr_hi + 1) & 0x3F;
+                        if secondary_oamaddr >= 0x20 {
+                            oam_fetch = self.secondary_oamdata[secondary_oamindex];
                         }
                     } else {
                         // If previously not in range, interpret this byte as y
-                        let y = u32::from(self.oam_fetch);
+                        let y = u32::from(oam_fetch);
                         let height = self.ctrl.spr_height();
-                        self.spr_in_range |=
-                            !self.spr_in_range && (y..y + height).contains(&self.scanline);
+                        spr_in_range |= !spr_in_range && (y..y + height).contains(&scanline);
 
                         // Even cycles are writes to Secondary OAM
-                        if self.secondary_oamaddr < 0x20 {
-                            self.secondary_oamdata[secondary_oamindex] = self.oam_fetch;
+                        if secondary_oamaddr < 0x20 {
+                            self.secondary_oamdata[secondary_oamindex] = oam_fetch;
 
-                            if self.spr_in_range {
-                                self.oamaddr_lo += 1;
-                                self.secondary_oamaddr += 1;
+                            if spr_in_range {
+                                oamaddr_lo += 1;
+                                secondary_oamaddr += 1;
 
-                                self.spr_zero_in_range |= self.oamaddr_hi == 0x00;
-                                if self.oamaddr_lo == 0x04 {
-                                    self.spr_in_range = false;
-                                    self.oamaddr_lo = 0x00;
-                                    self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
-                                    self.oam_eval_done |= self.oamaddr_hi == 0x00;
+                                spr_zero_in_range |= oamaddr_hi == 0x00;
+                                if oamaddr_lo == 0x04 {
+                                    spr_in_range = false;
+                                    oamaddr_lo = 0x00;
+                                    oamaddr_hi = (oamaddr_hi + 1) & 0x3F;
+                                    oam_eval_done |= oamaddr_hi == 0x00;
                                 }
                             } else {
-                                self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
-                                self.oam_eval_done |= self.oamaddr_hi == 0x00;
+                                oamaddr_hi = (oamaddr_hi + 1) & 0x3F;
+                                oam_eval_done |= oamaddr_hi == 0x00;
                             }
                         } else {
-                            self.oam_fetch = self.secondary_oamdata[secondary_oamindex];
-                            if self.spr_in_range {
+                            oam_fetch = self.secondary_oamdata[secondary_oamindex];
+                            if spr_in_range {
                                 self.status.set_spr_overflow(true);
-                                self.oamaddr_lo += 1;
-                                if self.oamaddr_lo == 0x04 {
-                                    self.oamaddr_lo = 0x00;
-                                    self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
+                                oamaddr_lo += 1;
+                                if oamaddr_lo == 0x04 {
+                                    oamaddr_lo = 0x00;
+                                    oamaddr_hi = (oamaddr_hi + 1) & 0x3F;
                                 }
 
                                 match self.overflow_count.cmp(&0) {
@@ -477,30 +491,44 @@ impl Ppu {
                                     Ordering::Greater => {
                                         self.overflow_count -= 1;
                                         let no_overflow = self.overflow_count == 0;
-                                        self.oam_eval_done |= no_overflow;
-                                        self.oamaddr_lo *= !no_overflow as u8;
+                                        oam_eval_done |= no_overflow;
+                                        oamaddr_lo *= !no_overflow as u8;
                                     }
                                     Ordering::Less => (),
                                 }
                             } else {
-                                self.oamaddr_hi = (self.oamaddr_hi + 1) & 0x3F;
-                                self.oamaddr_lo = (self.oamaddr_lo + 1) & 0x03;
-                                self.oam_eval_done |= self.oamaddr_hi == 0x00;
+                                oamaddr_hi = (oamaddr_hi + 1) & 0x3F;
+                                oamaddr_lo = (oamaddr_lo + 1) & 0x03;
+                                oam_eval_done |= oamaddr_hi == 0x00;
                             }
                         }
                     }
-                    self.oamaddr = (self.oamaddr_hi << 2) | (self.oamaddr_lo & 0x03);
                 }
+
+                self.oam_eval_done = oam_eval_done;
+                self.oamaddr = (oamaddr_hi << 2) | (oamaddr_lo & 0x03);
+                self.oamaddr_hi = oamaddr_hi;
+                self.oamaddr_lo = oamaddr_lo;
+                self.secondary_oamaddr = secondary_oamaddr;
+                self.oam_fetch = oam_fetch;
+                self.spr_in_range = spr_in_range;
+                self.spr_zero_in_range = spr_zero_in_range;
+                self.spr_zero_visible = spr_zero_visible;
+                self.spr_count = spr_count;
             }
             _ => (),
         }
     }
 
     fn load_sprites(&mut self) {
-        let idx = (self.cycle - Self::SPR_FETCH_START) as usize / 8;
+        // Local variables improve cache locality
+        let cycle = self.cycle;
+        let scanline = self.scanline;
+        let spr_count = self.spr_count;
+
+        let idx = (cycle - Self::SPR_FETCH_START) as usize / 8;
         let oam_idx = idx << 2;
 
-        assert!(oam_idx + 3 < self.secondary_oamdata.len());
         if let [y, tile_number, attr, x] = self.secondary_oamdata[oam_idx..=oam_idx + 3] {
             let x = u32::from(x);
             let y = u32::from(y);
@@ -512,8 +540,8 @@ impl Ppu {
 
             let height = self.ctrl.spr_height();
             // Should be in the range 0..=7 or 0..=15 depending on sprite height
-            let mut line_offset = if (y..y + height).contains(&self.scanline) {
-                self.scanline - y
+            let mut line_offset = if (y..y + height).contains(&scanline) {
+                scanline - y
             } else {
                 0
             };
@@ -521,7 +549,7 @@ impl Ppu {
                 line_offset = height - 1 - line_offset;
             }
 
-            if idx >= self.spr_count {
+            if idx >= spr_count {
                 line_offset = 0;
                 tile_number = 0xFF;
             }
@@ -541,7 +569,7 @@ impl Ppu {
                 self.ctrl.spr_select() | (tile_number << 4) | line_offset as u16
             };
 
-            if idx < self.spr_count {
+            if idx < spr_count {
                 let sprite = &mut self.sprites[idx];
                 sprite.x = x;
                 sprite.y = y;
@@ -582,7 +610,8 @@ impl Ppu {
     }
 
     fn pixel_color(&mut self) -> u8 {
-        let x = self.cycle - 1;
+        // Local variables improve cache locality
+        let x = (self.cycle - 1) as i16;
         let show_left_bg = self.mask.show_left_bg();
         let show_left_spr = self.mask.show_left_spr();
         let show_bg = self.mask.show_bg();
@@ -591,6 +620,9 @@ impl Ppu {
         let fine_x = self.scroll.fine_x();
         let tile_shift_hi = self.tile_shift_hi;
         let tile_shift_lo = self.tile_shift_lo;
+        let rendering_enabled = self.rendering_enabled();
+        let spr_zero_hit = self.status.spr_zero_hit();
+        let spr_zero_visible = self.spr_zero_visible;
 
         let left_clip_bg = x < 8 && !show_left_bg;
         let bg_color = if show_bg && !left_clip_bg {
@@ -602,10 +634,6 @@ impl Ppu {
 
         let left_clip_spr = x < 8 && !show_left_spr;
         if show_spr && !left_clip_spr && spr_present {
-            let x = x as i16;
-            let rendering_enabled = self.rendering_enabled();
-            let spr_zero_hit = self.status.spr_zero_hit();
-            let spr_zero_visible = self.spr_zero_visible;
             for (i, sprite) in self.sprites.iter().take(self.spr_count).enumerate() {
                 let shift = x - sprite.x as i16;
                 if (0..=7).contains(&shift) {
@@ -645,6 +673,7 @@ impl Ppu {
 
     #[inline]
     fn render_pixel(&mut self) {
+        // Local variables improve cache locality
         let x = self.cycle - 1;
         let y = self.scanline;
         let addr = self.addr();
@@ -685,9 +714,15 @@ impl Ppu {
         let render_scanline = prerender_scanline || visible_scanline;
 
         if self.rendering_enabled() {
-            if visible_scanline
-                || (self.region == NesRegion::Pal && self.scanline >= self.pal_spr_eval_scanline)
-            {
+            // Local variables improve cache locality
+            let cycle = self.cycle;
+            let scanline = self.scanline;
+            let region = self.region;
+            let pal_spr_eval_scanline = self.pal_spr_eval_scanline;
+            let oamaddr = self.oamaddr;
+            let frame_number = self.frame_number();
+
+            if visible_scanline || (region == NesRegion::Pal && scanline >= pal_spr_eval_scanline) {
                 if spr_eval_cycle {
                     self.evaluate_sprites();
                 } else if spr_fetch_cycle {
@@ -704,7 +739,7 @@ impl Ppu {
                     self.fetch_background();
 
                     // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-                    if self.cycle & 0x07 == 0x00 {
+                    if cycle & 0x07 == 0x00 {
                         self.scroll.increment_x();
                     }
                 } else if bg_dummy_cycle {
@@ -713,12 +748,13 @@ impl Ppu {
                     self.fetch_bg_nt_byte();
                 }
 
-                match self.cycle {
-                    Self::VISIBLE_START..=8 if prerender_scanline && self.oamaddr >= 0x08 => {
+                match cycle {
+                    Self::VISIBLE_START..=8 if prerender_scanline && oamaddr >= 0x08 => {
                         // If OAMADDR is not less than eight when rendering starts, the eight bytes
                         // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
-                        let addr = self.cycle as usize - 1;
-                        self.oamdata[addr] = self.oamdata[(self.oamaddr as usize & 0xF8) + addr];
+                        let addr = cycle as usize - 1;
+                        let oamindex = (oamaddr as usize & 0xF8) + addr;
+                        self.oamdata[addr] = self.oamdata[oamindex];
                     }
                     // Increment Fine Y when we reach the end of the screen
                     Self::INC_Y => self.scroll.increment_y(),
@@ -740,7 +776,7 @@ impl Ppu {
                     self.spr_count = 0;
                 }
                 if spr_fetch_cycle {
-                    if self.cycle == Self::SPR_FETCH_START {
+                    if cycle == Self::SPR_FETCH_START {
                         self.spr_present.fill(false);
                     }
                     self.fetch_sprites();
@@ -749,17 +785,17 @@ impl Ppu {
                     self.oam_fetch = self.secondary_oamdata[0];
                 }
 
-                if self.cycle == Self::ODD_SKIP
+                if cycle == Self::ODD_SKIP
                     && prerender_scanline
-                    && self.frame_number() & 0x01 == 0x01
-                    && self.region == NesRegion::Ntsc
+                    && frame_number & 0x01 == 0x01
+                    && region == NesRegion::Ntsc
                 {
                     // NTSC behavior while rendering - each odd PPU frame is one clock shorter
                     // (skipping from 339 over 340 to 0)
                     log::trace!(
                         "({}, {}): Skipped odd frame cycle: {}",
-                        self.cycle,
-                        self.scanline,
+                        cycle,
+                        scanline,
                         self.frame_number()
                     );
                     self.cycle = Self::CYCLE_END;
@@ -1072,33 +1108,42 @@ impl Mem for Ppu {
 impl Clock for Ppu {
     #[inline]
     fn clock(&mut self) -> usize {
-        // Clear open bus roughly once every frame
-        self.open_bus *= (self.scanline != 0) as u8;
+        let mut cycle = self.cycle;
+        let mut scanline = self.scanline;
+        let vblank_scanline = self.vblank_scanline;
+        let prerender_scanline = self.prerender_scanline;
 
-        if self.cycle >= Self::CYCLE_END {
-            self.cycle = 0;
-            self.scanline += 1;
+        // Clear open bus roughly once every frame
+        self.open_bus *= (scanline != 0) as u8;
+
+        if cycle >= Self::CYCLE_END {
+            cycle = 0;
+            scanline += 1;
             // Post-render line
-            if self.scanline == self.vblank_scanline - 1 {
+            if scanline == vblank_scanline - 1 {
                 self.frame.increment();
-            } else if self.scanline > self.prerender_scanline {
-                self.scanline = 0;
+            } else {
+                // Wrap scanline back to 0
+                scanline *= (scanline <= prerender_scanline) as u32;
             }
         } else {
             // cycle > 0
-            self.cycle += 1;
+            cycle += 1;
             self.tick();
 
-            if self.cycle == Self::VBLANK {
-                if self.scanline == self.vblank_scanline {
+            if cycle == Self::VBLANK {
+                if scanline == vblank_scanline {
                     self.start_vblank();
-                } else if self.scanline == self.prerender_scanline {
+                } else if scanline == prerender_scanline {
                     self.stop_vblank();
                 }
             }
         }
 
         self.cycle_count = self.cycle_count.wrapping_add(1);
+        self.cycle = cycle;
+        self.scanline = scanline;
+
         1
     }
 

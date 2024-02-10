@@ -35,8 +35,7 @@ pub struct Cart {
     region: NesRegion,
     ram_state: RamState,
     pub(crate) mapper: Mapper,
-    pub(crate) chr_rom: Vec<u8>, // Character ROM
-    pub(crate) chr_ram: Vec<u8>, // Character RAM
+    pub(crate) chr: Vec<u8>,     // Character ROM/RAM
     pub(crate) ex_ram: Vec<u8>,  // Internal Extra RAM
     pub(crate) prg_rom: Vec<u8>, // Program ROM
     pub(crate) prg_ram: Vec<u8>, // Program RAM
@@ -50,8 +49,7 @@ impl Cart {
             region: NesRegion::default(),
             ram_state: RamState::default(),
             mapper: Mapper::none(),
-            chr_rom: vec![0x00; CHR_ROM_BANK_SIZE],
-            chr_ram: vec![],
+            chr: vec![0x00; CHR_ROM_BANK_SIZE],
             ex_ram: vec![],
             prg_rom: vec![0x00; PRG_ROM_BANK_SIZE],
             prg_ram: vec![],
@@ -103,11 +101,11 @@ impl Cart {
         let mut prg_ram = vec![0x00; prg_ram_size];
         RamState::fill(&mut prg_ram, ram_state);
 
-        let mut chr_rom = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
+        let mut chr = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
         if header.chr_rom_banks > 0 {
-            rom_data.read_exact(&mut chr_rom).with_context(|| {
+            rom_data.read_exact(&mut chr).with_context(|| {
                 let bytes_rem = rom_data
-                    .read_to_end(&mut chr_rom)
+                    .read_to_end(&mut chr)
                     .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
                 format!(
                     "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
@@ -116,11 +114,10 @@ impl Cart {
             })?;
         }
 
-        let mut chr_ram = vec![];
-        if chr_rom.is_empty() {
+        if chr.is_empty() {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift).context("chr_ram")?;
-            chr_ram.resize(chr_ram_size, 0x00);
-            RamState::fill(&mut chr_ram, ram_state);
+            chr.resize(chr_ram_size, 0x00);
+            RamState::fill(&mut chr, ram_state);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -139,8 +136,7 @@ impl Cart {
             region,
             ram_state,
             mapper: Mapper::none(),
-            chr_rom,
-            chr_ram,
+            chr,
             ex_ram: vec![],
             prg_rom,
             prg_ram,
@@ -175,14 +171,8 @@ impl Cart {
 
     #[inline]
     #[must_use]
-    pub fn chr_rom(&self) -> &[u8] {
-        &self.chr_rom
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn chr_ram(&self) -> &[u8] {
-        &self.chr_ram
+    pub fn chr(&self) -> &[u8] {
+        &self.chr
     }
 
     #[inline]
@@ -200,19 +190,13 @@ impl Cart {
     #[inline]
     #[must_use]
     pub fn has_chr(&self) -> bool {
-        !self.chr_rom.is_empty() || !self.chr_ram.is_empty()
+        !self.chr.is_empty()
     }
 
     #[inline]
     #[must_use]
     pub fn chr_len(&self) -> usize {
-        if !self.chr_rom.is_empty() {
-            self.chr_rom.len()
-        } else if !self.chr_ram.is_empty() {
-            self.chr_ram.len()
-        } else {
-            0
-        }
+        self.chr.len()
     }
 
     #[inline]
@@ -277,8 +261,8 @@ impl Cart {
 
     /// Allows mappers to add CHR-RAM.
     pub(crate) fn add_chr_ram(&mut self, capacity: usize) {
-        self.chr_ram.resize(capacity, 0x00);
-        RamState::fill(&mut self.chr_ram, self.ram_state);
+        self.chr.resize(capacity, 0x00);
+        RamState::fill(&mut self.chr, self.ram_state);
     }
 
     /// Allows mappers to add EX-RAM.
@@ -336,11 +320,10 @@ impl std::fmt::Display for Cart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(
             f,
-            "{} - {}, CHR-ROM: {}K, CHR-RAM: {}K, PRG-ROM: {}K, PRG-RAM: {}K, Mirroring: {:?}, Battery: {}",
+            "{} - {}, CHR: {}K, PRG-ROM: {}K, PRG-RAM: {}K, Mirroring: {:?}, Battery: {}",
             self.name,
             self.mapper_board(),
-            self.chr_rom.len() / 0x0400,
-            self.chr_ram.len() / 0x0400,
+            self.chr.len() / 0x0400,
             self.prg_rom.len() / 0x0400,
             self.prg_ram.len() / 0x0400,
             self.mirroring(),
@@ -359,8 +342,7 @@ impl std::fmt::Debug for Cart {
             .field("mapper", &self.mapper)
             .field("mirroring", &self.mirroring())
             .field("battery_backed", &self.battery_backed())
-            .field("chr_rom_len", &self.chr_rom.len())
-            .field("chr_ram_len", &self.chr_ram.len())
+            .field("chr_len", &self.chr.len())
             .field("ex_ram_len", &self.ex_ram.len())
             .field("prg_rom_len", &self.prg_rom.len())
             .field("prg_ram_len", &self.prg_ram.len())

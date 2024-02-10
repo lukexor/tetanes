@@ -62,7 +62,7 @@ impl Vrc6 {
             nt_banks: [0; 4],
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_SIZE),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr.len(), Self::CHR_WINDOW),
         };
         let last_bank = vrc6.prg_rom_banks.last();
         vrc6.prg_rom_banks.set(3, last_bank);
