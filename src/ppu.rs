@@ -327,6 +327,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn start_vblank(&mut self) {
         log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
@@ -344,6 +345,7 @@ impl Ppu {
         self.bus.mapper.ppu_bus_write(0x2002, val);
     }
 
+    #[inline]
     fn stop_vblank(&mut self) {
         log::trace!(
             "({}, {}): Clear Sprite0 Hit, Overflow",

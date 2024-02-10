@@ -100,5 +100,5 @@ description = "Run TetaNES Web in development mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["watch", "-s", "cargo run-wasm --profile devo -p tetanes --features console_log"]
+args = ["watch", "-s", "cargo run-wasm --profile devo -p tetanes --no-default-features --features console_log"]
 dependencies = ["install-web-deps"]

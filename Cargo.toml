@@ -74,6 +74,13 @@ web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "nes"
+harness = false
+
 # Playable framerates in development
 [profile.devo]
 inherits = "dev"

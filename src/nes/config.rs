@@ -275,9 +275,9 @@ impl Default for Config {
             controller_deadzone: 0.5,
             audio_sample_rate: 44_100.0,
             audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
-                60
+                120
             } else {
-                30
+                40
             }),
             genie_codes: vec![],
             input_map: InputMap::default(),
