@@ -22,6 +22,7 @@
 
 ## General
 
+- [ ] Fix rad racer ii
 - [ ] archive Github project todos
 - [ ] Rank and point TODOs
 - [ ] Clone and run winit, pixels, cpa, and egui examples
