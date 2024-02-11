@@ -48,6 +48,14 @@ pix-engine = { version = "0.8", features = ["serde"] }
 getrandom = { version = "0.2", features = ["js"] }
 wasm-bindgen = "0.2"
 
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+
+[[bench]]
+name = "nes"
+harness = false
+
 [features]
 default = ["cycle-accurate"]
 cycle-accurate = []
@@ -83,7 +91,12 @@ ci = ["github"]
 # The installers to generate for each app
 installers = ["shell", "homebrew", "msi"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
 # Publish jobs to run in CI
 pr-run-mode = "plan"
 # A GitHub repo to push Homebrew formulas to
