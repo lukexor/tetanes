@@ -3,7 +3,7 @@ use std::{fs::File, io::BufReader};
 use tetanes::control_deck::ControlDeck;
 use web_time::Duration;
 
-fn test_rom(frames: u32) {
+fn clock_frames(frames: u32) {
     use std::path::PathBuf;
 
     let rom_path = PathBuf::from("roms/akumajou_densetsu.nes");
@@ -18,11 +18,12 @@ fn test_rom(frames: u32) {
     }
 }
 
-fn criterion_benchmark(c: &mut Criterion) {
+fn benchmark_clock_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
     group.measurement_time(Duration::from_secs(60));
-    group.bench_function("nes", |b| b.iter(|| test_rom(black_box(60))));
+    group.bench_function("clock_frame", |b| b.iter(|| clock_frames(black_box(60))));
+    group.finish();
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!(benches, benchmark_clock_frame);
 criterion_main!(benches);

@@ -19,7 +19,6 @@ use instr::{
         TXA, TXS, TYA, XAA, XXX,
     },
 };
-use log::{log_enabled, Level};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Write};
 
