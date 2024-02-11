@@ -283,9 +283,11 @@ impl Mem for Bus {
         match addr {
             0x0000..=0x07FF => self.wram[addr as usize] = val,
             0x4020..=0xFFFF => {
-                let prg_ram_enabled = !self.prg_ram.is_empty() && !self.prg_ram_protect;
                 match self.ppu.bus.mapper.map_write(addr, val) {
-                    MappedWrite::PrgRam(addr, val) if prg_ram_enabled => self.prg_ram[addr] = val,
+                    MappedWrite::PrgRam(addr, val) => {
+                        let prg_ram_enabled = !self.prg_ram.is_empty() && !self.prg_ram_protect;
+                        self.prg_ram[addr] = val;
+                    }
                     MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
                     _ => (),
                 }

@@ -22,7 +22,7 @@
 
 ## General
 
-- [ ] Fix rad racer ii
+- [x] Fix rad racer ii
 - [ ] archive Github project todos
 - [ ] Rank and point TODOs
 - [ ] Clone and run winit, pixels, cpa, and egui examples
@@ -54,7 +54,7 @@
 ## Performance Tuning
 
 - [ ] Run cachegrind on Linux - Maybe build an internal Cpu/Ppu cache
-- [ ] Blackbox benchmark Cpu/Ppu to tweak performance changes
+- [x] Blackbox benchmark Cpu/Ppu to tweak performance changes
 - [ ] Improve cache locality/function size - remove branches in hot loops
 - [ ] Try integrating bytes crate for frames or samples
 - [ ] Create shared circular buffer of Vecs to avoid allocations

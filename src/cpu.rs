@@ -406,8 +406,10 @@ impl Cpu {
     // is implied by the instruction such as INX which increments the X register.
     fn fetch_data(&mut self) {
         let mode = self.instr.addr_mode();
-        self.fetched_data = match mode {
-            IMP | ACC => self.acc,
+        match mode {
+            IMP | ACC => {
+                self.fetched_data = self.acc;
+            }
             ABX | ABY | IDY => {
                 // Read instructions may have crossed a page boundary and need to be re-read
                 if matches!(
@@ -437,16 +439,12 @@ impl Cpu {
                     // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
                     // around to 0.
                     if (self.abs_addr & 0x00FF) < u16::from(reg) {
-                        self.read(self.abs_addr, Access::Read)
-                    } else {
-                        self.fetched_data
+                        self.fetched_data = self.read(self.abs_addr, Access::Read);
                     }
-                } else {
-                    self.read(self.abs_addr, Access::Read) // Cycle 2/4/5 read
                 }
             }
-            _ => self.read(self.abs_addr, Access::Read), // Cycle 2/4/5 read
-        };
+            _ => self.fetched_data = self.read(self.abs_addr, Access::Read), // Cycle 2/4/5 read
+        }
     }
 
     // Writes data back to where fetched_data was sourced from. Either accumulator or memory
@@ -676,10 +674,6 @@ impl Clock for Cpu {
     #[inline]
     fn clock(&mut self) -> usize {
         let start_cycle = self.cycle;
-
-        if log_enabled!(Level::Trace) {
-            self.trace_instr();
-        }
 
         let opcode = self.read_instr(); // Cycle 1 of instruction
         self.instr = Cpu::INSTRUCTIONS[opcode as usize];

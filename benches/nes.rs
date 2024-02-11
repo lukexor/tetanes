@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::{fs::File, io::BufReader};
 use tetanes::control_deck::ControlDeck;
+use web_time::Duration;
 
 fn test_rom(frames: u32) {
     use std::path::PathBuf;
@@ -18,10 +19,9 @@ fn test_rom(frames: u32) {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    if std::env::var("RUST_LOG").is_ok() {
-        let _ = pretty_env_logger::try_init();
-    }
-    c.bench_function("nes", |b| b.iter(|| test_rom(black_box(5))));
+    let mut group = c.benchmark_group("nes");
+    group.measurement_time(Duration::from_secs(60));
+    group.bench_function("nes", |b| b.iter(|| test_rom(black_box(60))));
 }
 
 criterion_group!(benches, criterion_benchmark);
