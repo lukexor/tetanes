@@ -4,7 +4,7 @@ use crate::{
     input::{FourPlayer, Player},
     mem::RamState,
     nes::{
-        event::{Action, Input, InputMap},
+        event::{Action, Input, InputBinding, InputMap},
         Nes,
     },
     ppu::Ppu,
@@ -27,14 +27,15 @@ pub const FRAME_TRIM_PITCH: usize = (4 * Ppu::WIDTH * 8) as usize;
 /// NES emulation configuration settings.
 pub struct Config {
     pub rom_path: PathBuf,
+    pub replay_path: Option<PathBuf>,
     pub show_hidden_files: bool,
     pub pause_in_bg: bool,
     pub audio_enabled: bool,
     pub debug: bool,
-    pub save_on_exit: bool,
     pub fullscreen: bool,
     pub vsync: bool,
     pub filter: VideoFilter,
+    pub threaded: bool,
     pub concurrent_dpad: bool,
     pub region: NesRegion,
     pub frame_rate: f64,
@@ -42,9 +43,10 @@ pub struct Config {
     pub target_frame_duration: Duration,
     pub ram_state: RamState,
     pub save_slot: u8,
+    pub load_on_start: bool,
+    pub save_on_exit: bool,
     pub scale: f32,
     pub speed: f32,
-    pub replay_path: Option<PathBuf>,
     pub rewind: bool,
     pub rewind_frames: u32,
     pub rewind_buffer_size: usize,
@@ -54,7 +56,59 @@ pub struct Config {
     pub audio_sample_rate: f32,
     pub audio_latency: Duration,
     pub genie_codes: Vec<String>,
+    pub input_bindings: Vec<InputBinding>,
+    #[serde(skip)]
     pub input_map: InputMap,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let frame_rate = 60.0;
+        let input_map = InputMap::default();
+        Self {
+            rom_path: PathBuf::from("./"),
+            replay_path: None,
+            show_hidden_files: false,
+            // Only pause in bg by default in release builds
+            pause_in_bg: !cfg!(debug_assertions),
+            audio_enabled: true,
+            debug: false,
+            fullscreen: false,
+            vsync: true,
+            filter: VideoFilter::default(),
+            concurrent_dpad: false,
+            threaded: true,
+            region: NesRegion::default(),
+            frame_rate,
+            target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
+            ram_state: RamState::Random,
+            save_slot: 1,
+            // Only load by default in release builds
+            load_on_start: !cfg!(debug_assertions),
+            // Only save by default in release builds
+            save_on_exit: !cfg!(debug_assertions),
+            scale: 3.0,
+            speed: 1.0,
+            rewind: false,
+            rewind_frames: 2,
+            rewind_buffer_size: 20,
+            four_player: FourPlayer::default(),
+            zapper: false,
+            controller_deadzone: 0.5,
+            audio_sample_rate: 44_100.0,
+            audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
+                120
+            } else {
+                40
+            }),
+            genie_codes: vec![],
+            input_bindings: input_map
+                .iter()
+                .map(|(input, (slot, action))| (*input, *slot, *action))
+                .collect(),
+            input_map,
+        }
+    }
 }
 
 impl From<Config> for control_deck::Config {
@@ -100,6 +154,7 @@ impl Config {
             Self::default()
         };
 
+        config.input_map = InputMap::from_bindings(&config.input_bindings);
         let region = config.region;
         Self::set_region(&mut config, region);
 
@@ -107,10 +162,12 @@ impl Config {
     }
 
     pub fn set_binding(&mut self, input: Input, slot: Player, action: Action) {
+        self.input_bindings.push((input, slot, action));
         self.input_map.insert(input, (slot, action));
     }
 
     pub fn unset_binding(&mut self, input: Input) {
+        self.input_bindings.retain(|(i, ..)| i != &input);
         self.input_map.remove(&input);
     }
 
@@ -240,47 +297,5 @@ impl Nes {
         // } else {
         //     self.add_message("Vsync Disabled");
         // }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        let frame_rate = 60.0;
-        Self {
-            rom_path: PathBuf::from("./"),
-            show_hidden_files: false,
-            // Only pause in bg by default in release builds
-            pause_in_bg: !cfg!(debug_assertions),
-            audio_enabled: true,
-            debug: false,
-            // Only save by default in release builds
-            save_on_exit: !cfg!(debug_assertions),
-            fullscreen: false,
-            vsync: true,
-            filter: VideoFilter::default(),
-            concurrent_dpad: false,
-            region: NesRegion::default(),
-            frame_rate,
-            target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
-            ram_state: RamState::Random,
-            save_slot: 1,
-            scale: 3.0,
-            speed: 1.0,
-            replay_path: None,
-            rewind: false,
-            rewind_frames: 2,
-            rewind_buffer_size: 20,
-            four_player: FourPlayer::default(),
-            zapper: false,
-            controller_deadzone: 0.5,
-            audio_sample_rate: 44_100.0,
-            audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
-                120
-            } else {
-                40
-            }),
-            genie_codes: vec![],
-            input_map: InputMap::default(),
-        }
     }
 }

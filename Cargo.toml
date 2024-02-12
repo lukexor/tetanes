@@ -32,6 +32,7 @@ anyhow = "1.0"
 bincode = "1.3"
 bitflags = { version = "2.4", features = ["serde"] }
 chrono = "0.4"
+clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8"
 dirs = "5.0"
 enum_dispatch = "0.3"
@@ -61,7 +62,6 @@ cpal = "0.15"
 pollster = "0.3"
 pretty_env_logger = "0.5"
 puffin_http = { version = "0.15", optional = true }
-structopt = "0.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = { version = "0.1", optional = true }
@@ -82,22 +82,16 @@ name = "nes"
 harness = false
 
 # Playable framerates in development
-[profile.devo]
-inherits = "dev"
+[profile.dev]
 opt-level = 1
-
-[profile.test]
-inherits = "devo"
-
-[profile.release]
-strip = true
 
 # Profile used by 'cargo dist'
 [profile.dist]
-inherits = "release"
 codegen-units = 1
+inherits = "release"
 lto = "fat"
 panic = "abort"
+strip = true
 
 [profile.profiling]
 inherits = "dist"

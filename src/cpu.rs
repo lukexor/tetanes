@@ -405,44 +405,37 @@ impl Cpu {
     // is implied by the instruction such as INX which increments the X register.
     fn fetch_data(&mut self) {
         let mode = self.instr.addr_mode();
-        match mode {
-            IMP | ACC => {
-                self.fetched_data = self.acc;
+        let acc = self.acc;
+        let abs_addr = self.abs_addr;
+        self.fetched_data = if matches!(mode, IMP | ACC) {
+            acc
+        } else {
+            self.read(abs_addr, Access::Read) // Cycle 2/4/5 read
+        };
+    }
+
+    // Read instructions may have crossed a page boundary and need to be re-read
+    fn fetch_data_cross(&mut self) {
+        let mode = self.instr.addr_mode();
+        let x = self.x;
+        let y = self.y;
+        let abs_addr = self.abs_addr;
+        if matches!(mode, ABX | ABY | IDY) {
+            let reg = match mode {
+                ABX => x,
+                ABY | IDY => y,
+                _ => unreachable!("not possible"),
+            };
+            // Read if we crossed, otherwise use what was already set in cycle 4 from
+            // addressing mode
+            //
+            // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
+            // around to 0.
+            if (abs_addr & 0x00FF) < u16::from(reg) {
+                self.fetched_data = self.read(abs_addr, Access::Read);
             }
-            ABX | ABY | IDY => {
-                // Read instructions may have crossed a page boundary and need to be re-read
-                if matches!(
-                    self.instr.op(),
-                    LDA | LDX
-                        | LDY
-                        | EOR
-                        | AND
-                        | ORA
-                        | ADC
-                        | SBC
-                        | CMP
-                        | BIT
-                        | LAX
-                        | NOP
-                        | IGN
-                        | LAS
-                ) {
-                    let reg = match mode {
-                        ABX => self.x,
-                        ABY | IDY => self.y,
-                        _ => unreachable!("not possible"),
-                    };
-                    // Read if we crossed, otherwise use what was already set in cycle 4 from
-                    // addressing mode
-                    //
-                    // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
-                    // around to 0.
-                    if (self.abs_addr & 0x00FF) < u16::from(reg) {
-                        self.fetched_data = self.read(self.abs_addr, Access::Read);
-                    }
-                }
-            }
-            _ => self.fetched_data = self.read(self.abs_addr, Access::Read), // Cycle 2/4/5 read
+        } else {
+            self.fetch_data();
         }
     }
 
@@ -670,7 +663,6 @@ impl Cpu {
 
 impl Clock for Cpu {
     /// Runs the CPU one instruction
-    #[inline]
     fn clock(&mut self) -> usize {
         let start_cycle = self.cycle;
 
@@ -996,7 +988,6 @@ mod tests {
         int_irq_and_dma,
         int_nmi_and_brk,
         int_nmi_and_irq,
-        #[ignore = "need to fix frame timing"]
         overclock,
         sprdma_and_dmc_dma,
         sprdma_and_dmc_dma_512,

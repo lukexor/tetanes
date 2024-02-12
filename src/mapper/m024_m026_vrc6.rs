@@ -337,7 +337,6 @@ impl MemMap for Vrc6 {
 }
 
 impl Audio for Vrc6 {
-    #[inline]
     #[must_use]
     fn output(&self) -> f32 {
         self.audio.output()

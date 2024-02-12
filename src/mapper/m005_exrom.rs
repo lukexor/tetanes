@@ -973,7 +973,6 @@ impl MemMap for Exrom {
 }
 
 impl Audio for Exrom {
-    #[inline]
     #[must_use]
     fn output(&self) -> f32 {
         let pulse1 = self.pulse1.output();
@@ -986,7 +985,6 @@ impl Audio for Exrom {
 }
 
 impl Clock for Exrom {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.ppu_status.reading {
             self.ppu_status.idle = 0;

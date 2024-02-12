@@ -609,6 +609,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn pixel_color(&mut self) -> u8 {
         // Local variables improve cache locality
         let x = (self.cycle - 1) as i16;
@@ -698,7 +699,6 @@ impl Ppu {
         self.frame.set_pixel(x, y, color);
     }
 
-    #[inline]
     fn tick(&mut self) {
         let visible_cycle = matches!(self.cycle, Self::VISIBLE_START..=Self::VISIBLE_END);
         let bg_prefetch_cycle =
@@ -1106,7 +1106,6 @@ impl Mem for Ppu {
 }
 
 impl Clock for Ppu {
-    #[inline]
     fn clock(&mut self) -> usize {
         let mut cycle = self.cycle;
         let mut scanline = self.scanline;

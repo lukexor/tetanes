@@ -1,5 +1,8 @@
 use super::{Nes, NesResult};
-use crate::nes::config::Config;
+use crate::{
+    common::Regional,
+    nes::{config::Config, menu::Menu, state::Mode},
+};
 use anyhow::Context;
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use std::{
@@ -164,6 +167,56 @@ pub(crate) fn filename(path: &Path) -> &str {
 }
 
 impl Nes {
+    /// Loads a ROM cartridge into memory from a path.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {
+        let path = path.as_ref();
+        let filename = filename(path);
+        match std::fs::File::open(path).with_context(|| format!("failed to open rom {path:?}")) {
+            Ok(mut rom) => self.load_rom(filename, &mut rom),
+            Err(err) => {
+                log::error!("{path:?}: {err:?}");
+                self.mode = Mode::Menu(Menu::LoadRom);
+                self.error = Some(format!("Failed to open ROM {filename:?}"));
+            }
+        }
+    }
+
+    /// Loads a ROM cartridge into memory from a reader.
+    pub fn load_rom(&mut self, filename: &str, rom: &mut impl Read) {
+        self.pause_play();
+        match self.control_deck.load_rom(filename, rom) {
+            Ok(()) => {
+                self.error = None;
+                self.window.set_title(&filename.replace(".nes", ""));
+                if let Err(err) = self.mixer.play() {
+                    self.add_message(format!("failed to start audio: {err:?}"));
+                }
+                self.config.region = self.control_deck.region();
+                if let Err(err) = self.load_sram() {
+                    log::error!("{:?}: {:?}", self.config.rom_path, err);
+                    self.add_message("Failed to load game state");
+                }
+                self.resume_play();
+            }
+            Err(err) => {
+                log::error!("{:?}, {:?}", self.config.rom_path, err);
+                self.mode = Mode::Menu(Menu::LoadRom);
+                self.error = Some(format!("Failed to load ROM {filename:?}"));
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(path) = self.save_path(self.config.save_slot) {
+                if self.config.load_on_start && path.exists() {
+                    self.load_state(self.config.save_slot);
+                }
+            }
+            self.load_replay();
+        }
+    }
+
     /// Returns the path where battery-backed Save RAM files are stored if a ROM is loaded. Returns
     /// `None` if no ROM is loaded.
     pub fn sram_path(&self) -> Option<PathBuf> {

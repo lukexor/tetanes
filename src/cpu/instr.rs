@@ -620,21 +620,21 @@ impl Cpu {
     /// LDA: Load A with M
     #[inline]
     pub(super) fn lda(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         self.acc = self.fetched_data;
         self.set_zn_status(self.acc);
     }
     /// LDX: Load X with M
     #[inline]
     pub(super) fn ldx(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         self.x = self.fetched_data;
         self.set_zn_status(self.x);
     }
     /// LDY: Load Y with M
     #[inline]
     pub(super) fn ldy(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         self.y = self.fetched_data;
         self.set_zn_status(self.y);
     }
@@ -694,7 +694,7 @@ impl Cpu {
     /// ADC: Add M to A with Carry
     #[inline]
     pub(super) fn adc(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         let a = self.acc;
         let (x1, o1) = self.fetched_data.overflowing_add(a);
         let (x2, o2) = x1.overflowing_add(self.status_bit(Status::C));
@@ -709,7 +709,7 @@ impl Cpu {
     /// SBC: Subtract M from A with Carry
     #[inline]
     pub(super) fn sbc(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         let a = self.acc;
         let (x1, o1) = a.overflowing_sub(self.fetched_data);
         let (x2, o2) = x1.overflowing_sub(1 - self.status_bit(Status::C));
@@ -769,7 +769,7 @@ impl Cpu {
     /// AND: "And" M with A
     #[inline]
     pub(super) fn and(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         self.acc &= self.fetched_data;
         self.set_zn_status(self.acc);
     }
@@ -786,7 +786,7 @@ impl Cpu {
     /// BIT: Test Bits in M with A (Affects N, V, and Z)
     #[inline]
     pub(super) fn bit(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         let val = self.acc & self.fetched_data;
         self.status.set(Status::Z, val == 0);
         self.status.set(Status::N, self.fetched_data & (1 << 7) > 0);
@@ -795,7 +795,7 @@ impl Cpu {
     /// EOR: "Exclusive-Or" M with A
     #[inline]
     pub(super) fn eor(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         self.acc ^= self.fetched_data;
         self.set_zn_status(self.acc);
     }
@@ -812,7 +812,7 @@ impl Cpu {
     /// ORA: "OR" M with A
     #[inline]
     pub(super) fn ora(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         self.acc |= self.fetched_data;
         self.set_zn_status(self.acc);
     }
@@ -1035,7 +1035,7 @@ impl Cpu {
     /// CMP: Compare M and A
     #[inline]
     pub(super) fn cmp(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
         self.compare(self.acc, self.fetched_data);
     }
     /// CPX: Compare M and X
@@ -1150,7 +1150,7 @@ impl Cpu {
     /// NOP: No Operation
     #[inline]
     pub(super) fn nop(&mut self) {
-        self.fetch_data(); // throw away
+        self.fetch_data_cross(); // throw away
     }
 
     /// Unofficial opcodes
@@ -1164,7 +1164,7 @@ impl Cpu {
     /// IGN: Like NOP, but can cross page boundary
     #[inline]
     pub(super) fn ign(&mut self) {
-        self.fetch_data();
+        self.fetch_data_cross();
     }
 
     /// XXX: Captures all unimplemented opcodes

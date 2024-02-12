@@ -1,13 +1,13 @@
+use clap::Parser;
 use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
 };
-use structopt::StructOpt;
 use tetanes::{cart::Cart, mem::RamState, NesResult};
 
 fn main() -> NesResult<()> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     let path = opt
         .path
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
@@ -44,13 +44,11 @@ fn get_mapper<P: AsRef<Path>>(path: P) -> NesResult<String> {
     Ok(format!("{:<50} {:?}", cart.mapper_board(), cart.name()))
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
 #[must_use]
 struct Opt {
-    #[structopt(
-        help = "The NES ROM or a directory containing `.nes` ROM files. [default: current directory]"
-    )]
+    /// The NES ROM or a directory containing `.nes` ROM files. [default: current directory]
     path: Option<PathBuf>,
-    #[structopt(help = "The NES Mapper Board to filter by.")]
+    /// The NES Mapper Board to filter by.
     board: Option<String>,
 }

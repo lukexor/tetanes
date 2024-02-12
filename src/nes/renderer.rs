@@ -113,7 +113,9 @@ impl Renderer {
             16,
             WithCapacity::new().with_min_capacity(Video::FRAME_SIZE),
         ));
-        let backend = if thread::available_parallelism().map_or(false, |count| count.get() > 1) {
+        let backend = if config.threaded
+            && thread::available_parallelism().map_or(false, |count| count.get() > 1)
+        {
             Backend::MultiThreaded(MultiThreaded::spawn(pixels, Arc::clone(&buffer_pool))?)
         } else {
             Backend::SingleThreaded(pixels)
@@ -123,6 +125,17 @@ impl Renderer {
             buffer_pool,
             backend,
         })
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) -> NesResult<()> {
+        match self.backend {
+            Backend::SingleThreaded(ref mut pixels) => pixels.resize_surface(width, height)?,
+            // TODO: re-use allocations
+            Backend::MultiThreaded(MultiThreaded { ref tx, .. }) => {
+                tx.try_send(Message::Resize(width, height))?;
+            }
+        }
+        Ok(())
     }
 
     pub fn draw_frame(&mut self, frame_buffer: &[u8]) -> NesResult<()> {

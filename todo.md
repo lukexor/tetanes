@@ -54,15 +54,18 @@
 ## Performance Tuning
 
 - [ ] Run cachegrind on Linux - Maybe build an internal Cpu/Ppu cache
-- [x] Blackbox benchmark Cpu/Ppu to tweak performance changes
 - [ ] Improve cache locality/function size - remove branches in hot loops
-- [ ] Try integrating bytes crate for frames or samples
-- [ ] Create shared circular buffer of Vecs to avoid allocations
-- [ ] Add back `ringbuf` crate and use `pop_slice` and `push_slice`
 - [ ] Track all video/audio timing and try to visualize graph of torn/dropped
       frames and audio under/overruns
 - [ ] Experiment: jemalloc
 - [ ] Experiment: `ControlDeck` being clocked on another thread
+- [x] reduce cpu usage in main thread
+- [-] Add back `ringbuf` crate and use `pop_slice` and `push_slice` - switched
+  to ThingBuf instead.
+- [-] Try integrating bytes crate for frames or samples - not sure if really
+  needed at this point with ThingBuf
+- [x] Create shared circular buffer of Vecs to avoid allocations
+- [x] Blackbox benchmark Cpu/Ppu to tweak performance changes
 - [x] Remove `inline` from non-trivial functions, break up generics with
       concrete impls
 

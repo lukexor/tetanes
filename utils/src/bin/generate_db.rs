@@ -1,4 +1,5 @@
 use anyhow::Context;
+use clap::Parser;
 use std::{
     collections::hash_map::DefaultHasher,
     env,
@@ -8,13 +9,12 @@ use std::{
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
-use structopt::StructOpt;
 use tetanes::{cart::Cart, mem::RamState, NesResult};
 
 const GAME_DB: &str = "config/game_database.txt";
 
 fn main() -> NesResult<()> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     let path = opt
         .path
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
@@ -83,11 +83,9 @@ fn get_info<P: AsRef<Path>>(path: P) -> NesResult<(u64, String)> {
     ))
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
 #[must_use]
 struct Opt {
-    #[structopt(
-        help = "The NES ROM or a directory containing `.nes` ROM files. [default: current directory]"
-    )]
+    /// The NES ROM or a directory containing `.nes` ROM files. [default: current directory]
     path: Option<PathBuf>,
 }

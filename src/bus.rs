@@ -160,11 +160,6 @@ impl Bus {
     }
 
     #[inline]
-    fn mix_audio(&mut self, sample1: f32, sample2: f32) {
-        self.audio_samples.push(sample1 + sample2);
-    }
-
-    #[inline]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         &self.audio_samples
@@ -202,6 +197,7 @@ impl Bus {
 }
 
 impl Clock for Bus {
+    #[inline]
     fn clock(&mut self) -> usize {
         self.cycle = self.cycle.wrapping_add(1);
         self.apu.clock();
@@ -214,7 +210,7 @@ impl Clock for Bus {
             Mapper::Vrc6(ref vrc6) => vrc6.output(),
             _ => 0.0,
         };
-        self.mix_audio(apu_output, mapper_output);
+        self.audio_samples.push(apu_output + mapper_output);
 
         1
     }
@@ -285,8 +281,9 @@ impl Mem for Bus {
             0x4020..=0xFFFF => {
                 match self.ppu.bus.mapper.map_write(addr, val) {
                     MappedWrite::PrgRam(addr, val) => {
-                        let prg_ram_enabled = !self.prg_ram.is_empty() && !self.prg_ram_protect;
-                        self.prg_ram[addr] = val;
+                        if !self.prg_ram.is_empty() && !self.prg_ram_protect {
+                            self.prg_ram[addr] = val;
+                        }
                     }
                     MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
                     _ => (),
@@ -384,7 +381,7 @@ impl std::fmt::Debug for Bus {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::cart::Cart;
+    use crate::{cart::Cart, mapper::Cnrom};
 
     #[test]
     fn load_cart_values() {
@@ -418,6 +415,8 @@ mod test {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
         cart.chr = vec![0x66; 0x2000];
+        // Cnrom doesn't provide CHR-RAM
+        cart.mapper = Cnrom::load(&mut cart);
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00, Access::Write);

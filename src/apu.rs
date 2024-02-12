@@ -350,19 +350,14 @@ impl Audio for Apu {
         let triangle = self.triangle.output();
         let noise = self.noise.output();
         let dmc = self.dmc.output();
-        let mut pulse_idx = (pulse1 + pulse2) as usize;
-        if pulse_idx > PULSE_TABLE.len() {
-            pulse_idx %= PULSE_TABLE.len();
-        }
-        let mut tnd_idx = (3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize;
-        if tnd_idx > TND_TABLE.len() {
-            tnd_idx %= TND_TABLE.len();
-        }
+        let pulse_idx = (pulse1 + pulse2) as usize;
+        let tnd_idx = (3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize;
         PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx]
     }
 }
 
 impl Clock for Apu {
+    #[inline]
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {

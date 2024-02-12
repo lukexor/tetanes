@@ -216,6 +216,7 @@ impl InputRegisters for Input {
 }
 
 impl Clock for Input {
+    #[inline]
     fn clock(&mut self) -> usize {
         self.zapper.clock();
         if self.turbo_timer > 0 {

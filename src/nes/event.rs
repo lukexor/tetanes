@@ -66,10 +66,9 @@ impl Nes {
 
         if self.event_state.quitting {
             window_target.exit();
+        } else if self.is_paused() {
+            window_target.set_control_flow(ControlFlow::Wait);
         }
-        //     } else if self.mode.is_paused() {
-        //         window_target.set_control_flow(ControlFlow::Wait);
-        //     }
 
         match event {
             WinitEvent::WindowEvent {
@@ -80,12 +79,12 @@ impl Nes {
                         window_target.exit();
                     }
                 }
-                // TODO: Handle resize event
-                WindowEvent::RedrawRequested => {
-                    if let Err(err) = self.renderer.draw_frame(self.control_deck.frame_buffer()) {
+                WindowEvent::Resized(window_size) => {
+                    if let Err(err) = self.renderer.resize(window_size.width, window_size.height) {
                         self.handle_error(err);
                     }
                 }
+                WindowEvent::RedrawRequested => self.draw_frame(),
                 WindowEvent::Occluded(occluded) => {
                     if window_id == self.window.id() {
                         self.event_state.occluded = occluded;
@@ -135,7 +134,7 @@ impl Nes {
                 }
                 _ => {}
             },
-            WinitEvent::AboutToWait => self.next_frame(),
+            WinitEvent::AboutToWait => self.next_frame(window_target),
             WinitEvent::UserEvent(event) => match event {
                 Event::LoadRom((name, rom)) => {
                     #[cfg(target_arch = "wasm32")]
@@ -472,8 +471,21 @@ pub enum Input {
     // ControllerAxis(InputControllerAxis),
 }
 
+pub type InputBinding = (Input, Player, Action);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputMap(HashMap<Input, (Player, Action)>);
+
+impl InputMap {
+    pub fn from_bindings(bindings: &[InputBinding]) -> Self {
+        let mut map = HashMap::with_capacity(bindings.len());
+        for (input, player, action) in bindings {
+            map.insert(*input, (*player, *action));
+        }
+        map.shrink_to_fit();
+        Self(map)
+    }
+}
 
 impl Deref for InputMap {
     type Target = HashMap<Input, (Player, Action)>;
