@@ -214,20 +214,22 @@ impl From<f32> for Speed {
 
 impl Nes {
     pub(crate) fn open_menu(&mut self, menu: Menu) {
-        // s.cursor(Cursor::arrow())?;
+        self.pause(true);
         self.mode = Mode::Menu(menu);
-        self.mixer.pause();
+        if self.config.zapper {
+            // s.cursor(Cursor::arrow())?;
+        }
     }
 
     pub(crate) fn exit_menu(&mut self) {
         if self.config.zapper {
             // s.cursor(None)?;
         }
-        self.resume_play();
+        self.pause(false);
     }
 
     pub(crate) fn toggle_menu(&mut self, menu: Menu) {
-        if matches!(self.mode, Mode::Menu(current_menu) if current_menu == menu) {
+        if matches!(self.mode, Mode::Menu(..)) {
             self.exit_menu();
         } else {
             self.open_menu(menu);

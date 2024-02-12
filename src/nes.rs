@@ -2,12 +2,10 @@
 
 use crate::{
     audio::Mixer,
-    common::Regional,
     control_deck::ControlDeck,
     frame_begin,
     nes::{
         event::Event,
-        menu::Menu,
         platform::{EventLoopExt, WindowBuilderExt},
         renderer::Renderer,
         state::Mode,
@@ -15,7 +13,6 @@ use crate::{
     profile, NesResult,
 };
 use config::Config;
-use std::io::Read;
 use web_time::Instant;
 use winit::{
     dpi::LogicalSize,
@@ -141,55 +138,48 @@ impl Nes {
         frame_begin!();
         profile!();
 
-        if self.event_state.occluded {
+        if self.is_paused() || self.event_state.occluded {
             platform::sleep(self.config.target_frame_duration);
         } else {
-            if self.replay_state.is_playing() {
-                self.replay_action();
+            // Frames that aren't multiples of the default render 1 more/less frames
+            // every other frame
+            // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
+            // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
+            self.frame_accumulator += self.config.speed;
+            let mut frames_to_clock = 0;
+            while self.frame_accumulator >= 1.0 {
+                self.frame_accumulator -= 1.0;
+                frames_to_clock += 1;
             }
 
-            if self.is_playing() {
-                // Frames that aren't multiples of the default render 1 more/less frames
-                // every other frame
-                // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
-                // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
-                self.frame_accumulator += self.config.speed;
-                let mut frames_to_clock = 0;
-                while self.frame_accumulator >= 1.0 {
-                    self.frame_accumulator -= 1.0;
-                    frames_to_clock += 1;
-                }
+            while self.mixer.queued_time() < self.config.audio_latency && frames_to_clock > 0 {
+                let now = Instant::now();
+                let last_frame_duration = now - self.last_frame_time;
+                self.last_frame_time = now;
+                log::trace!(
+                    "last frame: {:.2}ms",
+                    1000.0 * last_frame_duration.as_secs_f32(),
+                );
 
-                while self.mixer.queued_time() < self.config.audio_latency && frames_to_clock > 0 {
-                    let now = Instant::now();
-                    let last_frame_duration = now - self.last_frame_time;
-                    self.last_frame_time = now;
-                    log::trace!(
-                        "last frame: {:.2}ms",
-                        1000.0 * last_frame_duration.as_secs_f32(),
-                    );
-
-                    match self.control_deck.clock_frame() {
-                        Ok(_) => {
-                            self.update_rewind();
-                            if let Err(err) = self.mixer.process(self.control_deck.audio_samples())
-                            {
-                                return self.handle_error(err);
-                            }
-                            self.control_deck.clear_audio_samples();
-                        }
-                        Err(err) => {
+                match self.control_deck.clock_frame() {
+                    Ok(_) => {
+                        self.update_rewind();
+                        if let Err(err) = self.mixer.process(self.control_deck.audio_samples()) {
                             return self.handle_error(err);
                         }
+                        self.control_deck.clear_audio_samples();
                     }
-                    frames_to_clock -= 1;
+                    Err(err) => {
+                        return self.handle_error(err);
+                    }
                 }
-
-                self.draw_frame();
-                window_target.set_control_flow(ControlFlow::WaitUntil(
-                    Instant::now() + self.mixer.queued_time() - self.config.audio_latency,
-                ));
+                frames_to_clock -= 1;
             }
+
+            self.draw_frame();
+            window_target.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + self.mixer.queued_time() - self.config.audio_latency,
+            ));
         }
     }
 }

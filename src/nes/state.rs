@@ -53,7 +53,7 @@ impl Nes {
 
     #[inline]
     pub fn handle_error(&mut self, err: NesError) {
-        self.pause_play();
+        self.pause(true);
         log::error!("{err:?}");
         self.error = Some(err.to_string());
     }
@@ -120,22 +120,22 @@ impl Nes {
         }
     }
 
-    pub fn resume_play(&mut self) {
-        self.mode = Mode::Play;
-        if self.control_deck.is_running() {
-            if let Err(err) = self.mixer.play() {
-                self.add_message(format!("failed to start audio: {err:?}"));
+    pub fn pause(&mut self, paused: bool) {
+        if paused {
+            self.mode = Mode::Pause;
+            if self.control_deck.is_running() {
+                if self.replay_state.is_recording() {
+                    self.stop_replay();
+                }
+                self.mixer.pause();
             }
-        }
-    }
-
-    pub fn pause_play(&mut self) {
-        self.mode = Mode::Pause;
-        if self.control_deck.is_running() {
-            if self.replay_state.is_recording() {
-                self.stop_replay();
+        } else {
+            self.mode = Mode::Play;
+            if self.control_deck.is_running() {
+                if let Err(err) = self.mixer.play() {
+                    self.add_message(format!("failed to start audio: {err:?}"));
+                }
             }
-            self.mixer.pause();
         }
     }
 
@@ -165,13 +165,7 @@ impl Nes {
     }
 
     pub fn toggle_pause(&mut self) {
-        if self.is_playing() {
-            self.pause_play();
-        } else if self.is_paused() {
-            self.resume_play();
-        } else if self.in_menu() {
-            self.exit_menu();
-        }
+        self.pause(!self.is_paused());
     }
 
     pub fn toggle_sound_recording(&mut self) {

@@ -184,7 +184,7 @@ impl Nes {
 
     /// Loads a ROM cartridge into memory from a reader.
     pub fn load_rom(&mut self, filename: &str, rom: &mut impl Read) {
-        self.pause_play();
+        self.pause(true);
         match self.control_deck.load_rom(filename, rom) {
             Ok(()) => {
                 self.error = None;
@@ -197,7 +197,7 @@ impl Nes {
                     log::error!("{:?}: {:?}", self.config.rom_path, err);
                     self.add_message("Failed to load game state");
                 }
-                self.resume_play();
+                self.pause(false);
             }
             Err(err) => {
                 log::error!("{:?}, {:?}", self.config.rom_path, err);

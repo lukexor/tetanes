@@ -404,6 +404,7 @@ When using the WASM version in the browser, also include:
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
   - [ ] Network Multi-player
   - [ ] Self Updater
+  - [x] Drag and drop load ROMs
 - Testing/Debugging/Documentation
   - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
     - [x] Step Into/Out/Over

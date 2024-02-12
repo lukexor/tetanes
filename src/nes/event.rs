@@ -14,6 +14,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    io,
     ops::{Deref, DerefMut},
 };
 use winit::{
@@ -62,12 +63,17 @@ impl Nes {
     ) {
         profile!();
 
-        window_target.set_control_flow(ControlFlow::Poll);
-
         if self.event_state.quitting {
             window_target.exit();
-        } else if self.is_paused() {
+        } else if self.is_paused() || self.event_state.occluded {
             window_target.set_control_flow(ControlFlow::Wait);
+        } else {
+            window_target.set_control_flow(ControlFlow::Poll);
+        }
+
+        let replaying = self.replay_state.is_playing();
+        if replaying {
+            self.replay_action();
         }
 
         match event {
@@ -88,9 +94,12 @@ impl Nes {
                 WindowEvent::Occluded(occluded) => {
                     if window_id == self.window.id() {
                         self.event_state.occluded = occluded;
+                        if let Err(err) = self.renderer.pause(self.event_state.occluded) {
+                            self.handle_error(err);
+                        }
                     }
                 }
-                WindowEvent::KeyboardInput { event, .. } => {
+                WindowEvent::KeyboardInput { event, .. } if !replaying => {
                     if let PhysicalKey::Code(key) = event.physical_key {
                         self.handle_input(
                             Input::Key(key, self.event_state.modifiers.state()),
@@ -100,7 +109,7 @@ impl Nes {
                     }
                 }
                 WindowEvent::ModifiersChanged(modifiers) => self.event_state.modifiers = modifiers,
-                WindowEvent::MouseInput { button, state, .. } => {
+                WindowEvent::MouseInput { button, state, .. } if !replaying => {
                     self.handle_input(Input::Mouse(button, state), state, false);
                 }
                 WindowEvent::CursorMoved { position, .. } => {
@@ -137,15 +146,14 @@ impl Nes {
             WinitEvent::AboutToWait => self.next_frame(window_target),
             WinitEvent::UserEvent(event) => match event {
                 Event::LoadRom((name, rom)) => {
+                    self.load_rom(&name, &mut io::Cursor::new(rom));
                     #[cfg(target_arch = "wasm32")]
                     {
                         use winit::platform::web::WindowExtWebSys;
-
-                        self.load_rom(&name, &mut std::io::Cursor::new(rom));
                         let _ = self.window.canvas().map(|canvas| canvas.focus());
                     }
                 }
-                Event::Pause => self.pause_play(),
+                Event::Pause => self.pause(true),
                 Event::Terminate => self.quit(),
             },
             // TODO: Controller support
@@ -220,7 +228,7 @@ impl Nes {
         }
         match nes_state {
             NesState::Quit => {
-                self.pause_play();
+                self.pause(true);
                 self.event_state.quitting = true;
             }
             NesState::TogglePause => self.toggle_pause(),
@@ -261,7 +269,7 @@ impl Nes {
                     }
                 } else if released {
                     if self.is_rewinding() {
-                        self.resume_play();
+                        self.pause(false);
                     } else {
                         self.instant_rewind();
                     }
@@ -381,13 +389,10 @@ impl Nes {
     fn handle_exit(&mut self) {
         log::info!("exiting...");
         profiling::disable();
-        if self.control_deck.loaded_rom().is_some() {
-            self.mixer.pause();
+        if self.is_playing() {
+            self.pause(true);
             if let Err(err) = self.save_sram() {
                 log::error!("failed to save sram: {err:?}");
-            }
-            if self.replay_state.is_recording() {
-                self.stop_replay();
             }
             if self.config.save_on_exit {
                 self.save_state(self.config.save_slot);

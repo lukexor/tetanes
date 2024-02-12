@@ -23,6 +23,7 @@ pub enum Message {
     NewFrame,
     SetVsync(bool),
     Resize(u32, u32),
+    Pause(bool),
     Terminate,
 }
 
@@ -49,6 +50,7 @@ impl MultiThreaded {
         buffer_pool: BufferPool,
         rx: channel::Receiver<Message>,
     ) -> NesResult<()> {
+        let mut paused = false;
         let mut latest_frame = None;
         loop {
             while let Ok(msg) = rx.try_recv() {
@@ -65,10 +67,13 @@ impl MultiThreaded {
                         // pixels.enable_vsync(enabled),
                     }
                     Message::Resize(width, height) => renderer.resize_surface(width, height)?,
+                    Message::Pause(new_paused) => paused = new_paused,
                     Message::Terminate => break,
                 }
             }
-            if let Some(ref frame) = latest_frame {
+            if paused {
+                thread::park();
+            } else if let Some(ref frame) = latest_frame {
                 Renderer::render_frame(&mut renderer, frame)?;
             }
         }
@@ -134,6 +139,14 @@ impl Renderer {
             Backend::MultiThreaded(MultiThreaded { ref tx, .. }) => {
                 tx.try_send(Message::Resize(width, height))?;
             }
+        }
+        Ok(())
+    }
+
+    pub fn pause(&mut self, paused: bool) -> NesResult<()> {
+        if let Backend::MultiThreaded(MultiThreaded { ref tx, ref handle }) = self.backend {
+            handle.thread().unpark();
+            tx.try_send(Message::Pause(paused))?;
         }
         Ok(())
     }
