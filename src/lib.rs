@@ -17,6 +17,7 @@ pub mod apu;
 pub mod audio;
 pub mod bus;
 pub mod cart;
+pub mod filesystem;
 #[macro_use]
 pub mod common;
 pub mod control_deck;

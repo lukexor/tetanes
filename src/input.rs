@@ -41,7 +41,7 @@ pub trait InputRegisters {
     fn write(&mut self, val: u8);
 }
 
-#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum FourPlayer {
     #[default]

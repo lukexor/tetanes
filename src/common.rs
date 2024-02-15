@@ -267,7 +267,7 @@ pub(crate) mod tests {
 
     fn load_control_deck<P: AsRef<Path>>(path: P) -> ControlDeck {
         let path = path.as_ref();
-        let mut rom = BufReader::new(File::open(&path).expect("failed to open path"));
+        let mut rom = BufReader::new(File::open(path).expect("failed to open path"));
         let mut deck = ControlDeck::default();
         deck.load_rom(&path.to_string_lossy(), &mut rom)
             .expect("failed to load rom");
@@ -276,7 +276,7 @@ pub(crate) mod tests {
         deck
     }
 
-    fn handle_frame_action(test_frame: &TestFrame, deck: &mut ControlDeck) {
+    fn on_frame_action(test_frame: &TestFrame, deck: &mut ControlDeck) {
         if let Some(action) = test_frame.action {
             log::debug!("{:?}", action);
             match action {
@@ -308,7 +308,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn handle_snapshot(
+    fn on_snapshot(
         test: &str,
         test_frame: &TestFrame,
         deck: &mut ControlDeck,
@@ -380,9 +380,8 @@ pub(crate) mod tests {
                 deck.joypad_mut(Player::Two).reset(ResetKind::Soft);
             }
 
-            handle_frame_action(test_frame, &mut deck);
-            if let Some(result) = handle_snapshot(&test.name, test_frame, &mut deck, results.len())
-            {
+            on_frame_action(test_frame, &mut deck);
+            if let Some(result) = on_snapshot(&test.name, test_frame, &mut deck, results.len()) {
                 results.push(result);
             }
         }

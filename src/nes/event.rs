@@ -1,35 +1,131 @@
 use crate::{
     apu::Channel,
-    common::{NesRegion, Reset, ResetKind},
-    input::{JoypadBtn, JoypadBtnState, Player},
+    common::{NesRegion, ResetKind},
+    input::{JoypadBtn, Player},
     mapper::MapperRevision,
     nes::{
-        menu::{ConfigTab, Menu},
-        state::Mode,
+        config::Config,
+        gui::{ConfigTab, Menu},
         Nes,
     },
-    profile, profiling,
+    profile,
     video::VideoFilter,
 };
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    io,
     ops::{Deref, DerefMut},
 };
 use winit::{
     event::{ElementState, Event as WinitEvent, Modifiers, MouseButton, WindowEvent},
-    event_loop::{ControlFlow, EventLoopWindowTarget},
+    event_loop::EventLoopWindowTarget,
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
     window::Fullscreen,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
+#[must_use]
+pub enum NesEvent {
+    Message(String),
+    Error(String),
+    ConfigUpdate(Config),
+    Terminate,
+}
+
+impl std::fmt::Debug for NesEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Message(msg) => write!(f, "NesEvent::Message({msg:?})"),
+            Self::Error(err) => write!(f, "NesEvent::Error({err:?})"),
+            Self::ConfigUpdate(_) => write!(f, "NesEvent::ConfigUpdate(..)"),
+            Self::Terminate => write!(f, "NesEvent::Terminate"),
+        }
+    }
+}
+
+impl From<NesEvent> for WinitEvent<Event> {
+    fn from(event: NesEvent) -> Self {
+        Self::UserEvent(event.into())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[must_use]
+pub enum DeckEvent {
+    LoadRom((String, Vec<u8>)),
+    Joypad((Player, JoypadBtn, ElementState)),
+    TriggerZapper,
+    Pause(bool),
+    TogglePause,
+    Reset(ResetKind),
+    ToggleReplayRecord,
+    ToggleAudioRecord,
+    ToggleAudio,
+    ToggleApuChannel(Channel),
+    ToggleVideoFilter(VideoFilter),
+    Screenshot,
+    SaveState,
+    LoadState,
+    SetSaveSlot(u8),
+    SetFrameSpeed(f32),
+    Rewind((ElementState, bool)),
+}
+
+impl std::fmt::Debug for DeckEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LoadRom((name, _)) => write!(f, "DeckEvent::LoadRom({name:?}, ..)"),
+            Self::Joypad(joypad) => write!(f, "DeckEvent::Joypad({joypad:?})"),
+            Self::TriggerZapper => write!(f, "DeckEvent::TriggerZapper"),
+            Self::Pause(paused) => write!(f, "DeckEvent::Pause({paused:?})"),
+            Self::TogglePause => write!(f, "DeckEvent::TogglePause"),
+            Self::Reset(kind) => write!(f, "DeckEvent::Reset({kind:?})"),
+            Self::ToggleReplayRecord => write!(f, "DeckEvent::ToggleReplayRecord"),
+            Self::ToggleAudioRecord => write!(f, "DeckEvent::ToggleAudioRecord"),
+            Self::ToggleAudio => write!(f, "DeckEvent::ToggleAudio"),
+            Self::ToggleApuChannel(channel) => {
+                write!(f, "DeckEvent::ToggleApuChannel({channel:?})")
+            }
+            Self::ToggleVideoFilter(filter) => {
+                write!(f, "DeckEvent::ToggleVideoFilter({filter:?})")
+            }
+            Self::Screenshot => write!(f, "DeckEvent::Screenshot"),
+            Self::SaveState => write!(f, "DeckEvent::SaveState"),
+            Self::LoadState => write!(f, "DeckEvent::LoadState"),
+            Self::SetSaveSlot(slot) => write!(f, "DeckEvent::SetSaveSlot({slot:?})"),
+            Self::SetFrameSpeed(speed) => write!(f, "DeckEvent::SetFrameSpeed({speed:?})"),
+            Self::Rewind((state, repeat)) => {
+                write!(f, "DeckEvent::Rewind({state:?}, {repeat:?})")
+            }
+        }
+    }
+}
+
+impl From<DeckEvent> for WinitEvent<Event> {
+    fn from(event: DeckEvent) -> Self {
+        Self::UserEvent(event.into())
+    }
+}
+
+#[derive(Debug, Clone)]
+#[must_use]
+pub enum RendererEvent {
+    ToggleVsync,
+}
+
+impl From<RendererEvent> for WinitEvent<Event> {
+    fn from(event: RendererEvent) -> Self {
+        Self::UserEvent(event.into())
+    }
+}
+
+#[derive(Debug, Clone)]
 #[must_use]
 pub enum Event {
-    LoadRom((String, Vec<u8>)),
-    Pause,
-    Terminate,
+    Nes(NesEvent),
+    ControlDeck(DeckEvent),
+    Renderer(RendererEvent),
     // TODO: Verify if DeviceEvent is sufficient or if manual handling is needed
     //     ControllerAxisMotion {
     //         device_id: DeviceId,
@@ -47,16 +143,41 @@ pub enum Event {
     //     },
 }
 
+impl From<NesEvent> for Event {
+    fn from(event: NesEvent) -> Self {
+        Self::Nes(event)
+    }
+}
+
+impl From<DeckEvent> for Event {
+    fn from(event: DeckEvent) -> Self {
+        Self::ControlDeck(event)
+    }
+}
+
+impl From<RendererEvent> for Event {
+    fn from(event: RendererEvent) -> Self {
+        Self::Renderer(event)
+    }
+}
+
+impl From<Event> for WinitEvent<Event> {
+    fn from(event: Event) -> Self {
+        Self::UserEvent(event)
+    }
+}
+
 #[derive(Default, Debug)]
 #[must_use]
 pub struct State {
+    pub paused: bool,
     pub occluded: bool,
     pub modifiers: Modifiers,
     pub quitting: bool,
 }
 
 impl Nes {
-    pub fn handle_event(
+    pub fn on_event(
         &mut self,
         event: WinitEvent<Event>,
         window_target: &EventLoopWindowTarget<Event>,
@@ -65,15 +186,13 @@ impl Nes {
 
         if self.event_state.quitting {
             window_target.exit();
-        } else if self.is_paused() || self.event_state.occluded {
-            window_target.set_control_flow(ControlFlow::Wait);
-        } else {
-            window_target.set_control_flow(ControlFlow::Poll);
         }
 
-        let replaying = self.replay_state.is_playing();
-        if replaying {
-            self.replay_action();
+        if let Err(err) = self.emulation.on_event(&event) {
+            self.on_error(err);
+        }
+        if let Err(err) = self.renderer.on_event(&event) {
+            self.on_error(err);
         }
 
         match event {
@@ -85,23 +204,23 @@ impl Nes {
                         window_target.exit();
                     }
                 }
-                WindowEvent::Resized(window_size) => {
-                    if let Err(err) = self.renderer.resize(window_size.width, window_size.height) {
-                        self.handle_error(err);
+                WindowEvent::RedrawRequested => {
+                    if let Err(err) = self
+                        .renderer
+                        .request_redraw(self.event_state.paused, &mut self.config)
+                    {
+                        self.on_error(err);
                     }
                 }
-                WindowEvent::RedrawRequested => self.draw_frame(),
                 WindowEvent::Occluded(occluded) => {
                     if window_id == self.window.id() {
                         self.event_state.occluded = occluded;
-                        if let Err(err) = self.renderer.pause(self.event_state.occluded) {
-                            self.handle_error(err);
-                        }
+                        self.pause(self.event_state.occluded);
                     }
                 }
-                WindowEvent::KeyboardInput { event, .. } if !replaying => {
+                WindowEvent::KeyboardInput { event, .. } => {
                     if let PhysicalKey::Code(key) = event.physical_key {
-                        self.handle_input(
+                        self.on_input(
                             Input::Key(key, self.event_state.modifiers.state()),
                             event.state,
                             event.repeat,
@@ -109,53 +228,21 @@ impl Nes {
                     }
                 }
                 WindowEvent::ModifiersChanged(modifiers) => self.event_state.modifiers = modifiers,
-                WindowEvent::MouseInput { button, state, .. } if !replaying => {
-                    self.handle_input(Input::Mouse(button, state), state, false);
+                WindowEvent::MouseInput { button, state, .. } => {
+                    self.on_input(Input::Mouse(button, state), state, false)
                 }
-                WindowEvent::CursorMoved { position, .. } => {
-                    // Aim zapper
-                    if self.config.zapper {
-                        let x = (position.x / self.config.scale as f64) * 8.0 / 7.0 + 0.5; // Adjust ratio
-                        let mut y = position.y / self.config.scale as f64;
-                        // Account for trimming top 8 scanlines
-                        if self.config.region.is_ntsc() {
-                            y += 8.0;
-                        };
-                        self.control_deck
-                            .aim_zapper(x.round() as i32, y.round() as i32);
-                    }
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                WindowEvent::DroppedFile(rom) => {
-                    if self.control_deck.loaded_rom().is_some() {
-                        self.mixer.pause();
-                        if let Err(err) = self.save_sram() {
-                            log::error!("failed to save sram: {err:?}");
-                        }
-                        if self.replay_state.is_recording() {
-                            self.stop_replay();
-                        }
-                        if self.config.save_on_exit {
-                            self.save_state(self.config.save_slot);
-                        }
-                    }
-                    self.load_rom_path(rom);
-                }
-                _ => {}
+                WindowEvent::HoveredFile(_) => (), // TODO: Show file drop cursor
+                WindowEvent::HoveredFileCancelled => (), // TODO: Restore cursor
+                _ => (),
             },
             WinitEvent::AboutToWait => self.next_frame(window_target),
-            WinitEvent::UserEvent(event) => match event {
-                Event::LoadRom((name, rom)) => {
-                    self.load_rom(&name, &mut io::Cursor::new(rom));
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        use winit::platform::web::WindowExtWebSys;
-                        let _ = self.window.canvas().map(|canvas| canvas.focus());
-                    }
-                }
-                Event::Pause => self.pause(true),
-                Event::Terminate => self.quit(),
+            WinitEvent::UserEvent(Event::Nes(event)) => match event {
+                NesEvent::Message(msg) => self.add_message(msg),
+                NesEvent::Error(err) => self.on_error(anyhow!(err)),
+                NesEvent::ConfigUpdate(config) => self.config = config,
+                NesEvent::Terminate => self.quit(),
             },
+            // WinitEvent::DeviceEvent { device_id, event } => todo!(),
             // TODO: Controller support
             // Event::UserEvent(event) => match event {
             //     CustomEvent::ControllerAxisMotion {
@@ -180,111 +267,82 @@ impl Nes {
             //         self.handle_controller_update(device_id, button, state);
             //     }
             // },
-            WinitEvent::LoopExiting => self.handle_exit(),
-            _ => {}
-        }
-    }
-
-    pub fn handle_input(&mut self, input: Input, state: ElementState, repeat: bool) {
-        if let Some((player, action)) = self.config.input_map.get(&input).copied() {
-            self.handle_action(player, action, state, repeat);
-        }
-    }
-
-    pub fn handle_action(
-        &mut self,
-        player: Player,
-        action: Action,
-        state: ElementState,
-        repeat: bool,
-    ) {
-        log::trace!("player: {player:?}, action: {action:?}, state: {state:?}, repeat: {repeat:?}");
-        let released = state == ElementState::Released;
-        match action {
-            Action::Nes(nes_state) => self.handle_nes_action(nes_state, state),
-            Action::Menu(menu) if released => self.toggle_menu(menu),
-            Action::Feature(feature) => self.handle_feature_action(feature, state, repeat),
-            Action::Setting(setting) => self.handle_setting_action(setting, state, repeat),
-            Action::Joypad(button) => self.handle_joypad_action(player, button, state),
-            Action::ZapperTrigger => self.handle_zapper_trigger_action(),
-            Action::Debug(action) => self.handle_debug_action(action, state, repeat),
             _ => (),
         }
+    }
 
-        if self.replay_state.is_recording() {
-            self.replay_state.buffer.push(ActionEvent {
-                frame: self.control_deck.frame_number(),
-                player,
-                action,
-                state,
-                repeat,
-            });
+    /// Send a custom event to the event loop.
+    pub fn send_event(&mut self, event: impl Into<Event>) {
+        let event = event.into();
+        log::debug!("Nes event: {event:?}");
+        if self.event_proxy.send_event(event).is_err() {
+            self.on_error(anyhow!("failed to send event"));
         }
     }
 
-    fn handle_nes_action(&mut self, nes_state: NesState, state: ElementState) {
-        if state != ElementState::Released || self.replay_state.is_recording() {
+    pub fn pause(&mut self, paused: bool) {
+        self.event_state.paused = paused;
+        self.send_event(DeckEvent::Pause(paused));
+    }
+
+    /// Handle user input mapped to key bindings.
+    pub fn on_input(&mut self, input: Input, state: ElementState, repeat: bool) {
+        if let Some((player, action)) = self.config.input_map.get(&input).copied() {
+            log::trace!(
+                "player: {player:?}, action: {action:?}, state: {state:?}, repeat: {repeat:?}"
+            );
+            let released = state == ElementState::Released;
+            match action {
+                Action::Nes(nes_state) => self.on_state_action(nes_state, state),
+                Action::Menu(menu) if released => self.renderer.toggle_menu(menu),
+                Action::Feature(feature) => self.on_feature_action(feature, state, repeat),
+                Action::Setting(setting) => self.on_setting_action(setting, state, repeat),
+                Action::Joypad(button) if !repeat => {
+                    self.send_event(DeckEvent::Joypad((player, button, state)));
+                }
+                Action::ZapperTrigger if self.config.control_deck.zapper => {
+                    self.send_event(DeckEvent::TriggerZapper);
+                }
+                Action::Debug(action) => self.on_debug_action(action, state, repeat),
+                _ => (),
+            }
+        }
+    }
+
+    fn on_state_action(&mut self, nes_state: NesState, state: ElementState) {
+        if state != ElementState::Released {
             return;
         }
         match nes_state {
-            NesState::Quit => {
-                self.pause(true);
-                self.event_state.quitting = true;
-            }
-            NesState::TogglePause => self.toggle_pause(),
-            NesState::SoftReset => {
-                self.error = None;
-                self.control_deck.reset(ResetKind::Soft);
-                self.add_message("Reset");
-            }
-            NesState::HardReset => {
-                self.error = None;
-                self.control_deck.reset(ResetKind::Hard);
-                self.add_message("Power Cycled");
-            }
+            NesState::Quit => self.event_state.quitting = true,
+            NesState::TogglePause => self.send_event(DeckEvent::TogglePause),
+            NesState::SoftReset => self.send_event(DeckEvent::Reset(ResetKind::Soft)),
+            NesState::HardReset => self.send_event(DeckEvent::Reset(ResetKind::Hard)),
             NesState::MapperRevision(_) => todo!("mapper revision"),
         }
     }
 
-    fn handle_feature_action(&mut self, feature: Feature, state: ElementState, repeat: bool) {
+    fn on_feature_action(&mut self, feature: Feature, state: ElementState, repeat: bool) {
         let released = state == ElementState::Released;
         match feature {
-            Feature::ToggleGameplayRecording => {
-                if self.replay_state.is_recording() || self.replay_state.is_playing() {
-                    self.stop_replay();
-                } else {
-                    self.start_replay();
-                }
+            Feature::ToggleReplayRecord if released => {
+                self.send_event(DeckEvent::ToggleReplayRecord);
             }
-            Feature::ToggleSoundRecording => self.toggle_sound_recording(),
-            Feature::TakeScreenshot => self.save_screenshot(),
-            Feature::SaveState => self.save_state(self.config.save_slot),
-            Feature::LoadState => self.load_state(self.config.save_slot),
-            Feature::Rewind => {
-                if repeat {
-                    if self.config.rewind {
-                        self.mode = Mode::Rewind;
-                    } else {
-                        self.add_message("Rewind disabled. You can enable it in the Config menu.");
-                    }
-                } else if released {
-                    if self.is_rewinding() {
-                        self.pause(false);
-                    } else {
-                        self.instant_rewind();
-                    }
-                }
+            Feature::ToggleAudioRecord if released => {
+                self.send_event(DeckEvent::ToggleAudioRecord);
             }
+            Feature::TakeScreenshot if released => self.send_event(DeckEvent::Screenshot),
+            Feature::SaveState if released => self.send_event(DeckEvent::SaveState),
+            Feature::LoadState if released => self.send_event(DeckEvent::LoadState),
+            Feature::Rewind => self.send_event(DeckEvent::Rewind((state, repeat))),
+            _ => (),
         }
     }
 
-    fn handle_setting_action(&mut self, setting: Setting, state: ElementState, _repeat: bool) {
+    fn on_setting_action(&mut self, setting: Setting, state: ElementState, _repeat: bool) {
         let released = state != ElementState::Pressed;
         match setting {
-            Setting::SetSaveSlot(slot) if released => {
-                self.config.save_slot = slot;
-                self.add_message(&format!("Set Save Slot to {slot}"));
-            }
+            Setting::SetSaveSlot(slot) if released => self.send_event(DeckEvent::SetSaveSlot(slot)),
             Setting::ToggleFullscreen if released => {
                 self.config.fullscreen = !self.config.fullscreen;
                 self.window.set_fullscreen(
@@ -293,68 +351,25 @@ impl Nes {
                         .then_some(Fullscreen::Borderless(None)),
                 );
             }
-            // Vsync is always on in wasm
             Setting::ToggleVsync if released => {
-                #[cfg(not(target_arch = "wasm32"))]
-                self.set_vsync(self.config.vsync);
+                self.config.vsync = !self.config.vsync;
+                self.send_event(RendererEvent::ToggleVsync);
             }
-            Setting::ToggleNtscFilter if released => {
-                self.config.filter = match self.config.filter {
-                    VideoFilter::Pixellate => VideoFilter::Ntsc,
-                    VideoFilter::Ntsc => VideoFilter::Pixellate,
-                };
-                self.control_deck.set_filter(self.config.filter);
+            Setting::ToggleVideoFilter(filter) if released => {
+                self.send_event(DeckEvent::ToggleVideoFilter(filter));
             }
-            Setting::ToggleSound if released => {
-                self.config.audio_enabled = !self.config.audio_enabled;
-                self.mixer.set_enabled(self.config.audio_enabled);
-                if self.config.audio_enabled {
-                    self.add_message("Sound Enabled");
-                } else {
-                    self.add_message("Sound Disabled");
-                }
+            Setting::ToggleAudio if released => self.send_event(DeckEvent::ToggleAudio),
+            Setting::ToggleApuChannel(channel) if released => {
+                self.send_event(DeckEvent::ToggleApuChannel(channel));
             }
-            Setting::TogglePulse1 if released => self.control_deck.toggle_channel(Channel::Pulse1),
-            Setting::TogglePulse2 if released => self.control_deck.toggle_channel(Channel::Pulse2),
-            Setting::ToggleTriangle if released => {
-                self.control_deck.toggle_channel(Channel::Triangle)
-            }
-            Setting::ToggleNoise if released => self.control_deck.toggle_channel(Channel::Noise),
-            Setting::ToggleDmc if released => self.control_deck.toggle_channel(Channel::Dmc),
             Setting::IncSpeed if released => self.change_speed(0.25),
             Setting::DecSpeed if released => self.change_speed(-0.25),
-            Setting::FastForward => {
-                if released {
-                    self.set_speed(1.0);
-                } else {
-                    self.set_speed(2.0);
-                }
-            }
+            Setting::FastForward => self.set_speed(if released { 1.0 } else { 2.0 }),
             _ => (),
         }
     }
 
-    fn handle_joypad_action(&mut self, player: Player, button: JoypadBtn, state: ElementState) {
-        let pressed = state == ElementState::Pressed;
-        let joypad = self.control_deck.joypad_mut(player);
-        if !self.config.concurrent_dpad && pressed {
-            match button {
-                JoypadBtn::Left => joypad.set_button(JoypadBtnState::RIGHT, false),
-                JoypadBtn::Right => joypad.set_button(JoypadBtnState::LEFT, false),
-                JoypadBtn::Up => joypad.set_button(JoypadBtnState::DOWN, false),
-                JoypadBtn::Down => joypad.set_button(JoypadBtnState::UP, false),
-                _ => (),
-            }
-        }
-        joypad.set_button(button.into(), pressed);
-    }
-
-    #[inline]
-    fn handle_zapper_trigger_action(&mut self) {
-        self.control_deck.trigger_zapper();
-    }
-
-    fn handle_debug_action(&mut self, action: DebugAction, state: ElementState, _repeat: bool) {
+    fn on_debug_action(&mut self, action: DebugAction, state: ElementState, _repeat: bool) {
         if state != ElementState::Released {
             return;
         }
@@ -383,22 +398,6 @@ impl Nes {
             }
             _ => (),
         }
-    }
-
-    /// Handle saving and exiting.
-    fn handle_exit(&mut self) {
-        log::info!("exiting...");
-        profiling::disable();
-        if self.is_playing() {
-            self.pause(true);
-            if let Err(err) = self.save_sram() {
-                log::error!("failed to save sram: {err:?}");
-            }
-            if self.config.save_on_exit {
-                self.save_state(self.config.save_slot);
-            }
-        }
-        self.config.save();
     }
 
     /// Quit the application.
@@ -436,16 +435,6 @@ impl Nes {
 //     Negative,
 // }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[must_use]
-pub struct ActionEvent {
-    pub frame: u32,
-    pub player: Player,
-    pub action: Action,
-    pub state: ElementState,
-    pub repeat: bool,
-}
-
 macro_rules! key_map {
     ($map:expr, $player:expr, $key:expr, $action:expr) => {
         $map.insert(
@@ -478,7 +467,7 @@ pub enum Input {
 
 pub type InputBinding = (Input, Player, Action);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InputMap(HashMap<Input, (Player, Action)>);
 
 impl InputMap {
@@ -567,25 +556,79 @@ impl Default for InputMap {
         key_map!(map, One, KeyL, CONTROL, Feature::LoadState);
         key_map!(map, One, KeyR, Feature::Rewind);
         key_map!(map, One, F10, Feature::TakeScreenshot);
-        key_map!(map, One, KeyV, SHIFT, Feature::ToggleGameplayRecording);
-        key_map!(map, One, KeyR, SHIFT, Feature::ToggleSoundRecording);
-        key_map!(map, One, KeyM, CONTROL, Setting::ToggleSound);
-        key_map!(map, One, Numpad1, SHIFT, Setting::TogglePulse1);
-        key_map!(map, One, Numpad2, SHIFT, Setting::TogglePulse2);
-        key_map!(map, One, Numpad3, SHIFT, Setting::ToggleTriangle);
-        key_map!(map, One, Numpad4, SHIFT, Setting::ToggleNoise);
-        key_map!(map, One, Numpad5, SHIFT, Setting::ToggleDmc);
+        key_map!(map, One, KeyV, SHIFT, Feature::ToggleReplayRecord);
+        key_map!(map, One, KeyR, SHIFT, Feature::ToggleAudioRecord);
+        key_map!(map, One, KeyM, CONTROL, Setting::ToggleAudio);
+        key_map!(
+            map,
+            One,
+            Numpad1,
+            SHIFT,
+            Setting::ToggleApuChannel(Channel::Pulse1)
+        );
+        key_map!(
+            map,
+            One,
+            Numpad2,
+            SHIFT,
+            Setting::ToggleApuChannel(Channel::Pulse2)
+        );
+        key_map!(
+            map,
+            One,
+            Numpad3,
+            SHIFT,
+            Setting::ToggleApuChannel(Channel::Triangle)
+        );
+        key_map!(
+            map,
+            One,
+            Numpad4,
+            SHIFT,
+            Setting::ToggleApuChannel(Channel::Noise)
+        );
+        key_map!(
+            map,
+            One,
+            Numpad5,
+            SHIFT,
+            Setting::ToggleApuChannel(Channel::Dmc)
+        );
         key_map!(map, One, Enter, CONTROL, Setting::ToggleFullscreen);
         key_map!(map, One, KeyV, CONTROL, Setting::ToggleVsync);
-        key_map!(map, One, KeyN, CONTROL, Setting::ToggleNtscFilter);
-        key_map!(map, One, KeyD, SHIFT, DebugAction::ToggleCpuDebugger);
-        key_map!(map, One, KeyP, SHIFT, DebugAction::TogglePpuDebugger);
-        key_map!(map, One, KeyA, SHIFT, DebugAction::ToggleApuDebugger);
-        key_map!(map, One, KeyC, DebugAction::StepInto);
-        key_map!(map, One, KeyO, DebugAction::StepOver);
-        key_map!(map, One, KeyO, SHIFT, DebugAction::StepOut);
-        key_map!(map, One, KeyL, SHIFT, DebugAction::StepScanline);
-        key_map!(map, One, KeyF, SHIFT, DebugAction::StepFrame);
+        key_map!(
+            map,
+            One,
+            KeyN,
+            CONTROL,
+            Setting::ToggleVideoFilter(VideoFilter::Ntsc)
+        );
+        key_map!(
+            map,
+            One,
+            KeyD,
+            SHIFT,
+            DebugAction::ToggleDebugger(Debugger::Cpu)
+        );
+        key_map!(
+            map,
+            One,
+            KeyP,
+            SHIFT,
+            DebugAction::ToggleDebugger(Debugger::Ppu)
+        );
+        key_map!(
+            map,
+            One,
+            KeyA,
+            SHIFT,
+            DebugAction::ToggleDebugger(Debugger::Apu)
+        );
+        key_map!(map, One, KeyC, DebugAction::Step(Step::Into));
+        key_map!(map, One, KeyO, DebugAction::Step(Step::Over));
+        key_map!(map, One, KeyO, SHIFT, DebugAction::Step(Step::Out));
+        key_map!(map, One, KeyL, SHIFT, DebugAction::Step(Step::Scanline));
+        key_map!(map, One, KeyF, SHIFT, DebugAction::Step(Step::Frame));
         key_map!(map, One, ArrowDown, CONTROL, DebugAction::IncScanline);
         key_map!(map, One, ArrowUp, CONTROL, DebugAction::DecScanline);
         key_map!(
@@ -634,8 +677,7 @@ impl Default for InputMap {
     }
 }
 
-#[allow(variant_size_differences)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Action {
     Nes(NesState),
     Menu(Menu),
@@ -682,7 +724,7 @@ impl From<DebugAction> for Action {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NesState {
     Quit,
     TogglePause,
@@ -691,45 +733,53 @@ pub enum NesState {
     MapperRevision(MapperRevision),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Feature {
-    ToggleGameplayRecording,
-    ToggleSoundRecording,
+    ToggleReplayRecord,
+    ToggleAudioRecord,
     Rewind,
     TakeScreenshot,
     SaveState,
     LoadState,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Setting {
     SetSaveSlot(u8),
     ToggleFullscreen,
     ToggleVsync,
-    ToggleNtscFilter,
+    ToggleVideoFilter(VideoFilter),
     SetVideoFilter(VideoFilter),
     SetNesFormat(NesRegion),
-    ToggleSound,
-    TogglePulse1,
-    TogglePulse2,
-    ToggleTriangle,
-    ToggleNoise,
-    ToggleDmc,
+    ToggleAudio,
+    ToggleApuChannel(Channel),
     FastForward,
     IncSpeed,
     DecSpeed,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum Debugger {
+    Cpu,
+    Ppu,
+    Apu,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum Step {
+    Into,
+    Out,
+    Over,
+    Scanline,
+    Frame,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DebugAction {
-    ToggleCpuDebugger,
-    TogglePpuDebugger,
-    ToggleApuDebugger,
-    StepInto,
-    StepOver,
-    StepOut,
-    StepFrame,
-    StepScanline,
+    ToggleDebugger(Debugger),
+    Step(Step),
     IncScanline,
     DecScanline,
 }

@@ -1,10 +1,19 @@
 # TODO
 
+## Project
+
+- [ ] archive Github project todos
+- [ ] Rank and point TODOs
+- [ ] Add todo autocommands/shortcuts
+  - Enter on a todo line creates a new todo
+  - shortcut to toggle completion
+  - shortcut to strikethrough
+  - shortcut to toggle bullet to/from todo
+
 ## High-level Priorities
 
-- [ ] Get basic WASM framerate/audio timing working
 - [ ] Add puffin-like profiling metrics
-- [ ] Add `pix-gui` crate for rendering text and rects to tart
+- [ ] Add `pix-gui` crate for rendering text and rects to start
 - [ ] Draw profiling metrics via rects for last 60 frames with 30ms scale for window
       width
 - [ ] Render last frame duration text
@@ -16,28 +25,34 @@
 
 ## API Design Reference
 
+- [ ] ref: compile api design cheatsheet
 - `get(s: &Self) -> T` and `get(s: &mut Self) -> T` instead of `get(&self)` or
   `get(&mut self)` if that Self implements `Deref`/`DerefMut`
 - if/when using `thread::park` - ensure it's used in a loop to avoid spurious wakeups
 
 ## General
 
-- [x] Fix rad racer ii
-- [ ] archive Github project todos
-- [ ] Rank and point TODOs
-- [ ] Clone and run winit, pixels, cpa, and egui examples
-- [ ] ref: compile api design cheatsheet
-- [ ] use fetch add atomic for generating unique IDs for profiling
-
-  ```rust
-  NEXT_ID.fetch_update(Relaxed, Relaxed, |n| n.checked_add(1)).expect("too many IDs!")
-  ```
-
+- [ ] add thiserror for recoverable and non-recoverable errors
+- [ ] Switch to tracing crate
+- [ ] Disable control deck running on cpu corrupted, require reset
+- [ ] Clone and run winit, pixels, cpa, and egui examples - draft task ideas
+- [ ] Review all debug impls for accuracy
 - [ ] research: Explore more traits/new type wrappers to break up functionality
       in `nes` modules
-- [-] Add Storage trait to reduce memory for saves/rewinds/replays
-  (After review, not necessary as serialize does it pretty well and I can
-  skip any fields not required for restoring state)
+- [ ] Maybe split tetanes/nes into separate crates to decrease dev compile times
+  - find a similar project with ui/backend to compare
+- [x] ensure trace logs are compiled out of hot paths
+- [x] Remove clocking msg from main thread, switch to control flow wait
+- [x] Rename Backend to Threads
+- [x] Add `Debug` impl for Event to not log `LoadRom`
+- [x] Move control deck state storage to control deck module
+- [x] Rename buffer_pool to frame_pool
+- [x] change handle_error to map handle_result
+- [x] add puffin_egui
+- [x] Fix rad racer ii
+- [x] ~~Add Storage trait to reduce memory for saves/rewinds/replays
+      (After review, not necessary as serialize does it pretty well and I can
+      skip any fields not required for restoring state)~~
 - [x] Remove long chain of getters/setters - control_deck is the outer boundary
       of the lib
 - [x] Extract TODO comments
@@ -53,17 +68,29 @@
 
 ## Performance Tuning
 
+- [ ] Perform perf tests:
+  - [ ] Test single vs multi-threaded
+  - [ ] CPU load playing, paused, occluded
+  - [ ] Profile Vsync, No Vsync
+  - [ ] Test wasm
+- [ ] Add string_pool for sending messages or just add messages and error later
 - [ ] Run cachegrind on Linux - Maybe build an internal Cpu/Ppu cache
 - [ ] Improve cache locality/function size - remove branches in hot loops
 - [ ] Track all video/audio timing and try to visualize graph of torn/dropped
       frames and audio under/overruns
 - [ ] Experiment: jemalloc
-- [ ] Experiment: `ControlDeck` being clocked on another thread
+- [ ] use fetch add atomic for generating unique IDs for profiling
+
+  ```rust
+  NEXT_ID.fetch_update(Relaxed, Relaxed, |n| n.checked_add(1)).expect("too many IDs!")
+  ```
+
+- [x] Experiment: `ControlDeck` being clocked on another thread
 - [x] reduce cpu usage in main thread
-- [-] Add back `ringbuf` crate and use `pop_slice` and `push_slice` - switched
-  to ThingBuf instead.
-- [-] Try integrating bytes crate for frames or samples - not sure if really
-  needed at this point with ThingBuf
+- [x] ~~Add back `ringbuf` crate and use `pop_slice` and `push_slice` - switched
+      to ThingBuf instead.~~
+- [x] ~~Try integrating bytes crate for frames or samples - not sure if really
+      needed at this point with ThingBuf~~
 - [x] Create shared circular buffer of Vecs to avoid allocations
 - [x] Blackbox benchmark Cpu/Ppu to tweak performance changes
 - [x] Remove `inline` from non-trivial functions, break up generics with
@@ -71,29 +98,31 @@
 
 ## Renderer
 
-- [ ] Provide way for Video decode to write directly to buffer to avoid extra
-      copying
+- [ ] Fix top/bottom trim on NTSC 8 lines with menu bar
 - [ ] Fix toggling Vsync - needs to re-create pixels instance
+- [x] ~~Provide way for Video decode to write directly to buffer to avoid extra
+      copying~~
 
 ## Audio
 
-- [ ] Prefer desired sample rate as f32
-- [ ] Update Mixer `play` to return available sample rates to constrain `Config`
-- [ ] Update filters to be in frequency domain - fft, filter, reverse fft
+- [ ] Compare audio graph with/without filters
 - [ ] Verify filters with visualizations/unit tests
-- [ ] Show error and disable audio if no valid device/config can be found
-- [ ] Add `rubato` crate for down-sampling
-- [ ] Allow selecting output device from config menu
-- [ ] Experiment: clocking partial frames (buffer size worth) from audio thread
 - [ ] Debug visualizations of pulse, triangle, sawtooth, noise, and dcm channels
       during play as well as combined waveform
+- [ ] Update Mixer `play` to return available sample rates to constrain `Config`
+- [ ] Update filters to be in frequency domain - fft, filter, reverse fft
+- [ ] Show error and disable audio if no valid device/config can be found
+- [ ] Add `rubato` crate for down-sampling
 - [ ] tests/apu.rs APU integration tests
 - [ ] Add saving `.wav` format for audio recording. Use `hound` crate
-- [ ] Create shared circular buffer of Vecs to avoid allocations
 - [ ] Pause when title receives mouse down
-      <https://github.com/rust-windowing/winit/issues/1885>
-- [ ] Add debug keybindings for incrementing/decrementing buffer size and audio delay
-- [ ] Fix audio latency to match expectation
+      <https://github.com/rust-windowing/winit/issues/1885> (I think this is fixed
+      by filling with 0s)
+- [ ] Add debug keybindings for incrementing/decrementing buffer size and audio latency
+- [x] Create shared circular buffer of Vecs to avoid allocations - ThingBuf
+- [x] Fix audio latency to match expectation
+- [x] ~~Experiment: clocking partial frames (buffer size worth) from audio thread~~
+- [x] Prefer desired sample rate as f32
 - [x] Add `make_stream` fn generic over sample type, remove `Callback` struct
 - [x] Explore circular buffer that overwrites oldest samples when full Try
       inserting all 29k samples per frame and processing them in audio callback
@@ -104,12 +133,13 @@
 
 ## New Features
 
-- [ ] Auto save every X seconds (configurable)
+- [ ] Auto save every X seconds (configurable) slot 0
 
 ## WASM
 
 - Ensure no blocking operations in wasm code paths
 
+- [ ] Get basic WASM framerate/audio timing working
 - [ ] Fix recursively dropped wasm error and perf/audio quality
 - [ ] Add trait for abstracting render work/threading/web workers/etc
 - [ ] Experiment: web workers for control_deck clocking
@@ -120,11 +150,10 @@
   - [ ] Add bin method that utilizies lib same as run-wasm
   - [ ] Utilize lib method inside lukeworks to build TetaNES Web page
 - [ ] Add filesystem trait for abstracting rom/config/save state storage
-- [ ] Focus canvas when loading a ROM
 - [ ] When adding click event listeners, do it on the body and use the click
       target to switch on which button was clicked - one event listener instead
       of many
-- [ ] Allow drag/drop file for loading ROMs
+- [x] Focus canvas when loading a ROM
 - [x] Switch event loop to use `event.spawn` instead of `event.run` - the latter
       uses exceptions for control flow, not great
 
@@ -135,21 +164,19 @@
 
 ## UI
 
-- [ ] fix monitor dpi resize when moving across monitors
-- [ ] Add egui
+- [ ] Add hide/show menu bar & shortcut
+- [ ] Fix zapper cursor
+- [ ] Add key bindings to UI menu labels
 - [ ] Fix window icon on macos - winit lacks support
-- [ ] Support window resizing, pause emulation while doing so
+- [ ] Pause emulation while moving/resizing
 - [ ] Keybindings menu
 - [ ] Recent game selection
 - [ ] Add `strum` crate for menus and enum iteration/stringifing of options
-- [ ] Add `MessageType` enum for displaying Info, Debug, Warn, and Error
-      messages on the screen.
 - [ ] Add confirm exit configuration and handle in `CloseRequested` event
 - [ ] Fix drawing zapper crosshair
 - [ ] Add fullscreen mode configuration - Windowed Borderless/Fullscreen
 - [ ] Update available video modes and window scale when window moved for fullscreen
 - [ ] Add game genie menu with save
-- [ ] Add clear savestate buttons
 - [ ] Toggle FPS
 - [ ] Toggle messages
 - [ ] Add UI button to reset saved config to default
@@ -157,12 +184,19 @@
 - [ ] NTSC overscan toggle
 - [ ] Add always on top configuration
 - [ ] Toggle MMC3 IRQ setting
+- [x] Add clear savestate buttons
+- [x] ~~Add `MessageType` enum for displaying Info, Debug, Warn, and Error
+      messages on the screen.~~
+- [x] fix monitor dpi resize when moving across monitors
+- [x] Add egui
+- [x] Allow drag/drop file for loading ROMs
 - [x] Pause/resume when window is moved to avoid stutter
 
 ## Configuration
 
-- [ ] Only save if changed (or only save diffs?)
+- [ ] only save diffs
 - [ ] Change save dir on Windows to AppData
+- [ ] Allow selecting audio output device
 
 ## Input
 

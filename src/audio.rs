@@ -1,5 +1,5 @@
 use crate::{audio::filter::Filter, profile, NesResult};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, Device, FromSample, SampleFormat, SampleRate, SizedSample, Stream, StreamConfig,
@@ -38,7 +38,7 @@ pub struct Mixer {
     resample_ratio: f32,
     sample_rate: f32,
     buffer_len: Arc<AtomicUsize>,
-    buffer_pool: Arc<ThingBuf<Vec<f32>, WithCapacity>>,
+    samples_pool: Arc<ThingBuf<Vec<f32>, WithCapacity>>,
     tx: Option<Sender<CallbackMsg>>,
     enabled: bool,
     recording: bool,
@@ -68,7 +68,7 @@ impl Mixer {
             resample_ratio,
             sample_rate,
             buffer_len: Arc::new(AtomicUsize::new(0)),
-            buffer_pool: Arc::new(ThingBuf::with_recycle(
+            samples_pool: Arc::new(ThingBuf::with_recycle(
                 16,
                 // 0x8000 = 32768, which is the next power of two greater than a single frame of CPU-generated
                 // audio samples.
@@ -90,7 +90,7 @@ impl Mixer {
     #[must_use]
     pub fn queued_time(&self) -> Duration {
         let queued_time = self.buffer_len() as f32 / self.sample_rate;
-        log::trace!("queued_audio_time: {:.2}ms", 1000.0 * queued_time);
+        log::trace!("queued_audio_time: {:.4}s", queued_time);
         Duration::from_secs_f32(queued_time)
     }
 
@@ -128,19 +128,36 @@ impl Mixer {
     /// # Errors
     ///
     /// Returns an error if the audio device does not support pausing.
-    pub fn pause(&mut self) {
+    pub fn pause(&mut self) -> NesResult<()> {
         if self.recording {
-            self.stop_recording();
+            self.stop_recording()?;
         }
-        self.stream.as_ref().map(Stream::pause);
+        self.set_enabled(false)?; // in case stream doesn't support pausing
+        match self.stream {
+            Some(ref stream) => Ok(stream.pause()?),
+            None => bail!("failed to pause stream"),
+        }
     }
 
     /// Resume the audio output stream.
     ///
     /// # Errors
     ///
-    /// Returns an error if audio can not be resumed.
+    /// Returns an error if the audio device does not support pausing.
     pub fn play(&mut self) -> NesResult<()> {
+        self.set_enabled(true)?; // in case stream doesn't support resuming
+        match self.stream {
+            Some(ref stream) => Ok(stream.play()?),
+            None => bail!("stream not started"),
+        }
+    }
+
+    /// Start the audio output stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if audio can not be resumed.
+    pub fn start(&mut self) -> NesResult<()> {
         match self.stream {
             Some(ref stream) => stream.play()?,
             None => {
@@ -236,7 +253,7 @@ impl Mixer {
             Filter::low_pass(self.sample_rate, 11_000.0, 1500.0),
         ];
         let buffer_len = Arc::clone(&self.buffer_len);
-        let buffer_pool = Arc::clone(&self.buffer_pool);
+        let buffer_pool = Arc::clone(&self.samples_pool);
         let mut processed_samples = Self::allocate_buffer(self.sample_rate);
         let mut enabled = self.enabled;
         let mut recording = self.recording;
@@ -281,13 +298,18 @@ impl Mixer {
                 );
                 let num_samples = out.len() / num_channels;
                 let len = num_samples.min(processed_samples.len());
-                for (frame, sample) in out
-                    .chunks_mut(num_channels)
-                    .zip(processed_samples.drain(..len).chain(iter::repeat(0.0)))
-                {
-                    let sample = if enabled { sample } else { 0.0 };
-                    for out in frame.iter_mut() {
-                        *out = T::from_sample(sample);
+                if enabled {
+                    for (frame, sample) in out
+                        .chunks_mut(num_channels)
+                        .zip(processed_samples.drain(..len).chain(iter::repeat(0.0)))
+                    {
+                        for out in frame.iter_mut() {
+                            *out = T::from_sample(sample);
+                        }
+                    }
+                } else {
+                    for out in out.iter_mut() {
+                        *out = T::from_sample(0.0);
                     }
                 }
 
@@ -304,7 +326,7 @@ impl Mixer {
     /// Change the audio resample ratio.
     pub fn set_resample_ratio(&mut self, resample_ratio: f32) -> NesResult<()> {
         self.resample_ratio = resample_ratio;
-        if let Some(ref mut callback_tx) = self.tx {
+        if let Some(ref callback_tx) = self.tx {
             callback_tx.try_send(CallbackMsg::UpdateResampleRatio(self.resample_ratio))?;
         }
         Ok(())
@@ -312,10 +334,11 @@ impl Mixer {
     // TODO: add set_sample_rate
 
     /// Set whether audio is enabled.
-    pub fn set_enabled(&mut self, enabled: bool) {
-        if let Some(ref mut callback_tx) = self.tx {
-            let _ = callback_tx.try_send(CallbackMsg::Enable(enabled));
+    pub fn set_enabled(&mut self, enabled: bool) -> NesResult<()> {
+        if let Some(ref callback_tx) = self.tx {
+            callback_tx.try_send(CallbackMsg::Enable(enabled))?;
         }
+        Ok(())
     }
 
     pub fn is_recording(&self) -> bool {
@@ -328,7 +351,7 @@ impl Mixer {
     ///
     /// Returns an error if the file can not be created.
     pub fn start_recording(&mut self) -> NesResult<()> {
-        if let Some(ref mut callback_tx) = self.tx {
+        if let Some(ref callback_tx) = self.tx {
             callback_tx.try_send(CallbackMsg::Record(true))?;
             self.recording = true;
         }
@@ -336,17 +359,18 @@ impl Mixer {
     }
 
     /// Stop recording audio to a file.
-    pub fn stop_recording(&mut self) {
-        if let Some(ref mut callback_tx) = self.tx {
-            let _ = callback_tx.try_send(CallbackMsg::Record(false));
+    pub fn stop_recording(&mut self) -> NesResult<()> {
+        if let Some(ref callback_tx) = self.tx {
+            callback_tx.try_send(CallbackMsg::Record(false))?;
             self.recording = false;
         }
+        Ok(())
     }
 
     /// Processes and filters generated audio samples.
     pub fn process(&mut self, samples: &[f32]) -> NesResult<()> {
-        if let Some(ref mut callback_tx) = self.tx {
-            if let Ok(mut buffer_slot) = self.buffer_pool.push_ref() {
+        if let Some(ref callback_tx) = self.tx {
+            if let Ok(mut buffer_slot) = self.samples_pool.push_ref() {
                 buffer_slot.extend_from_slice(samples);
                 callback_tx.try_send(CallbackMsg::NewSamples)?;
             }

@@ -44,7 +44,7 @@ struct ConfigOpts {
     /// The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
     path: Option<std::path::PathBuf>,
     /// A replay recording file for gameplay recording and playback.
-    #[arg(short = 'e', long)]
+    #[arg(short = 'p', long)]
     replay: Option<std::path::PathBuf>,
     /// Enable rewinding.
     #[arg(short, long, action=clap::ArgAction::SetTrue)]
@@ -59,7 +59,7 @@ struct ConfigOpts {
     #[arg(long, action=clap::ArgAction::SetTrue)]
     no_vsync: Option<bool>,
     /// Set four player adapter. [default: 'disabled']
-    #[arg(short = 'p', long)]
+    #[arg(short = '4', long)]
     four_player: Option<tetanes::input::FourPlayer>,
     /// Enable zapper gun.
     #[arg(short, long, action=clap::ArgAction::SetTrue)]
@@ -71,20 +71,26 @@ struct ConfigOpts {
     #[arg(short = 'm', long)]
     ram_state: Option<tetanes::mem::RamState>,
     /// Save slot. [default: 1]
-    #[arg(short = 'l', long)]
+    #[arg(short = 'i', long)]
     save_slot: Option<u8>,
     /// Don't load save state on start.
-    #[arg(short = 'i', long, action=clap::ArgAction::SetTrue)]
+    #[arg(long, action=clap::ArgAction::SetTrue)]
     no_load: Option<bool>,
+    /// Don't auto save state or save on exit.
+    #[arg(long, action=clap::ArgAction::SetTrue)]
+    no_save: Option<bool>,
     /// Window scale. [default: 3.0]
     #[arg(short = 'x', long)]
     scale: Option<f32>,
     /// Emulation speed. [default: 1.0]
-    #[arg(long)]
+    #[arg(short = 'e', long)]
     speed: Option<f32>,
     /// Add Game Genie Code(s).
     #[arg(short, long)]
     genie_code: Vec<String>,
+    /// "Default Config" (skip user config and save states)
+    #[arg(short, long)]
+    clean: bool,
     /// Start with debugger open.
     #[arg(short, long, action=clap::ArgAction::SetTrue)]
     debug: Option<bool>,
@@ -93,12 +99,29 @@ struct ConfigOpts {
 #[cfg(not(target_arch = "wasm32"))]
 impl ConfigOpts {
     /// Extends a base `Config` with CLI options
-    fn extend(base: Config) -> Config {
+    fn extend(mut base: Config) -> Config {
         use clap::Parser;
+        use tetanes::control_deck;
 
-        let opts = Self::parse();
+        let mut opts = Self::parse();
         log::debug!("CLI Options: {opts:?}");
+
+        if opts.clean {
+            base = Config::default();
+            opts.no_load = Some(true);
+            opts.no_save = Some(true);
+        }
+
         let mut config = Config {
+            control_deck: control_deck::Config {
+                four_player: opts.four_player.unwrap_or(base.control_deck.four_player),
+                zapper: opts.zapper.unwrap_or(base.control_deck.zapper),
+                ram_state: opts.ram_state.unwrap_or(base.control_deck.ram_state),
+                save_slot: opts.save_slot.unwrap_or(base.control_deck.save_slot),
+                load_on_start: !opts.no_load.unwrap_or(base.control_deck.load_on_start),
+                save_on_exit: !opts.no_save.unwrap_or(base.control_deck.save_on_exit),
+                ..base.control_deck
+            },
             rom_path: opts
                 .path
                 .map_or_else(
@@ -116,18 +139,13 @@ impl ConfigOpts {
             audio_enabled: !opts.silent.unwrap_or(base.audio_enabled),
             fullscreen: opts.fullscreen.unwrap_or(base.fullscreen),
             vsync: !opts.no_vsync.unwrap_or(base.vsync),
-            four_player: opts.four_player.unwrap_or(base.four_player),
-            zapper: opts.zapper.unwrap_or(base.zapper),
             threaded: !opts.no_threaded.unwrap_or(base.threaded),
-            ram_state: opts.ram_state.unwrap_or(base.ram_state),
-            save_slot: opts.save_slot.unwrap_or(base.save_slot),
-            load_on_start: !opts.no_load.unwrap_or(base.load_on_start),
             scale: opts.scale.unwrap_or(base.scale),
-            speed: opts.speed.unwrap_or(base.speed),
+            frame_speed: opts.speed.unwrap_or(base.frame_speed),
             debug: opts.debug.unwrap_or(base.debug),
             ..base
         };
-        config.genie_codes.extend(opts.genie_code);
+        config.control_deck.genie_codes.extend(opts.genie_code);
         config
     }
 }

@@ -4,6 +4,7 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
+    filesystem,
     input::{FourPlayer, Joypad, Player},
     mapper::Mapper,
     mem::RamState,
@@ -12,10 +13,11 @@ use crate::{
     video::{Video, VideoFilter},
     NesResult,
 };
-use anyhow::anyhow;
-use std::{io::Read, ops::ControlFlow};
+use anyhow::bail;
+use serde::{Deserialize, Serialize};
+use std::{ffi::OsStr, io::Read, path::PathBuf};
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 /// Control deck configuration settings.
 pub struct Config {
@@ -31,15 +33,76 @@ pub struct Config {
     pub zapper: bool,
     /// Game Genie codes.
     pub genie_codes: Vec<String>,
+    /// Save state slot.
+    pub save_slot: u8,
+    /// Load save state on loading a ROM.
+    pub load_on_start: bool,
+    /// Save state on unloading a ROM.
+    pub save_on_exit: bool,
+}
+
+impl PartialEq for Config {
+    fn eq(&self, other: &Self) -> bool {
+        self.filter == other.filter
+            && self.region == other.region
+            && self.ram_state == other.ram_state
+            && self.four_player == other.four_player
+            && self.zapper == other.zapper
+            && self.genie_codes == other.genie_codes
+            && self.save_slot == other.save_slot
+            && self.load_on_start == other.load_on_start
+            && self.save_on_exit == other.save_on_exit
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            filter: VideoFilter::default(),
+            region: NesRegion::default(),
+            ram_state: RamState::Random,
+            four_player: FourPlayer::default(),
+            zapper: false,
+            genie_codes: vec![],
+            load_on_start: true,
+            save_on_exit: true,
+            save_slot: 1,
+        }
+    }
+}
+
+impl Config {
+    pub const DIRECTORY: &'static str = ".config/tetanes";
+
+    #[cfg(target_arch = "wasm32")]
+    #[must_use]
+    pub fn directory() -> PathBuf {
+        PathBuf::from("./")
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn directory() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("./"))
+            .join(Self::DIRECTORY)
+    }
+
+    pub fn save_dir() -> PathBuf {
+        Config::directory().join("save")
+    }
+
+    pub fn sram_dir() -> PathBuf {
+        Config::directory().join("sram")
+    }
 }
 
 /// Represents an NES Control Deck
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct ControlDeck {
+    config: Config,
     running: bool,
-    ram_state: RamState,
-    region: NesRegion,
     video: Video,
     loaded_rom: Option<String>,
     cart_battery_backed: bool,
@@ -50,6 +113,14 @@ pub struct ControlDeck {
 impl Default for ControlDeck {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for ControlDeck {
+    fn drop(&mut self) {
+        if let Err(err) = self.unload_rom() {
+            log::error!("failed to unload ROM: {err:?}");
+        }
     }
 }
 
@@ -70,11 +141,11 @@ impl ControlDeck {
                 log::warn!("{}", err);
             }
         }
+        let video = Video::with_filter(config.filter);
         Self {
+            config,
             running: false,
-            ram_state: config.ram_state,
-            region: config.region,
-            video: Video::with_filter(config.filter),
+            video,
             loaded_rom: None,
             cart_battery_backed: false,
             cycles_remaining: 0.0,
@@ -88,20 +159,56 @@ impl ControlDeck {
     ///
     /// If there is any issue loading the ROM, then an error is returned.
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
+        self.unload_rom()?;
         self.loaded_rom = Some(name.to_string());
-        let cart = Cart::from_rom(name, rom, self.ram_state)?;
+        let cart = Cart::from_rom(name, rom, self.config.ram_state)?;
         self.cart_battery_backed = cart.battery_backed();
         self.set_region(cart.region());
         self.cpu.bus.load_cart(cart);
         self.reset(ResetKind::Hard);
+        if self.config.load_on_start {
+            self.load_state()?;
+        }
         self.running = true;
         Ok(())
     }
 
-    pub fn unload_rom(&mut self) {
+    /// Loads a ROM cartridge into memory from a path.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> NesResult<()> {
+        use anyhow::Context;
+        use std::fs::File;
+
+        self.unload_rom()?;
+        let path = path.as_ref();
+        let filename = filesystem::filename(path);
+        log::info!("loading ROM: {filename}");
+        File::open(path)
+            .with_context(|| format!("failed to open rom {path:?}"))
+            .and_then(|mut rom| self.load_rom(filename, &mut rom))
+    }
+
+    /// Loads a save slot.
+    ///
+    /// # Errors
+    ///
+    /// If there is any issue loading the save state, then an error is returned.
+    #[cfg(target_arch = "wasm32")]
+    pub fn load_save_slot(&mut self, save_slot: u8) -> NesResult<()> {
+        todo!("not implemented for web yet")
+    }
+
+    pub fn unload_rom(&mut self) -> NesResult<()> {
+        if self.loaded_rom.is_some() {
+            self.save_sram()?;
+            if self.config.save_on_exit {
+                self.save_state()?;
+            }
+        }
         self.loaded_rom = None;
         self.cpu.bus.unload_cart();
         self.running = false;
+        Ok(())
     }
 
     #[inline]
@@ -110,32 +217,111 @@ impl ControlDeck {
     }
 
     #[inline]
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    #[inline]
     #[must_use]
     pub const fn loaded_rom(&self) -> &Option<String> {
         &self.loaded_rom
     }
 
+    /// Returns whether the loaded Cart is battery-backed.
     #[inline]
     #[must_use]
-    pub const fn cart_battery_backed(&self) -> bool {
-        self.cart_battery_backed
+    pub fn cart_battery_backed(&self) -> Option<bool> {
+        self.loaded_rom.as_ref().map(|_| self.cart_battery_backed)
     }
 
+    /// Returns the NES Work RAM.
+    #[inline]
+    #[must_use]
+    pub fn wram(&self) -> &[u8] {
+        self.cpu.bus.wram()
+    }
+
+    /// Returns the battery-backed Save RAM.
     #[inline]
     #[must_use]
     pub fn sram(&self) -> &[u8] {
         self.cpu.bus.sram()
     }
 
-    #[inline]
-    pub fn load_sram(&mut self, sram: Vec<u8>) {
-        self.cpu.bus.load_sram(sram);
+    /// Save battery-backed Save RAM to a file (if cartridge supports it)
+    pub fn save_sram(&self) -> NesResult<()> {
+        if let Some(true) = self.cart_battery_backed() {
+            if let Some(sram_path) = self.sram_path() {
+                log::info!("saving SRAM...");
+                filesystem::save_data(sram_path, self.cpu.bus.sram())?;
+            }
+        }
+        Ok(())
     }
 
-    #[inline]
-    #[must_use]
-    pub fn wram(&self) -> &[u8] {
-        self.cpu.bus.wram()
+    /// Load battery-backed Save RAM from a file (if cartridge supports it)
+    pub fn load_sram(&mut self) -> NesResult<()> {
+        if let Some(sram_path) = self.sram_path() {
+            if sram_path.exists() {
+                log::info!("loading SRAM...");
+                filesystem::load_data(&sram_path).map(|data| self.cpu.bus.load_sram(data))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn set_save_slot(&mut self, slot: u8) {
+        self.config.save_slot = slot;
+    }
+
+    /// Save the current state of the console into a save file.
+    ///
+    /// # Errors
+    ///
+    /// If there is an issue saving the state, then an error is returned.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save_state(&mut self) -> NesResult<()> {
+        use anyhow::Context;
+
+        let slot = self.config.save_slot;
+        let Some(save_path) = self.save_path(slot) else {
+            bail!("no ROM loaded");
+        };
+        // Avoid saving any test roms
+        if save_path.to_string_lossy().contains("test") {
+            return Ok(());
+        }
+        self.save_path(slot).map_or(Ok(()), |save_path| {
+            bincode::serialize(&self.cpu)
+                .context("failed to serialize save state")
+                .and_then(|data| filesystem::save_data(save_path, &data))
+        })
+    }
+
+    /// Load the console with data saved from a save state
+    #[cfg(target_arch = "wasm32")]
+    pub fn load_state(&mut self) {
+        // TODO: load from local storage or indexdb
+    }
+
+    /// Load the console with data saved from a save state, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// If there is an issue loading the save state, then an error is returned.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load_state(&mut self) -> NesResult<()> {
+        use anyhow::Context;
+        let slot = self.config.save_slot;
+        self.save_path(slot)
+            .filter(|path| path.exists())
+            .map_or(Ok(()), |save_path| {
+                filesystem::load_data(save_path).and_then(|data| {
+                    bincode::deserialize(&data)
+                        .context("failed to deserialize save state")
+                        .map(|cpu| self.load_cpu(cpu))
+                })
+            })
     }
 
     /// Load a frame worth of pixels.
@@ -179,13 +365,12 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_instr(&mut self) -> NesResult<ControlFlow<usize, usize>> {
+    pub fn clock_instr(&mut self) -> NesResult<usize> {
         let cycles = self.clock();
         if self.cpu_corrupted() {
-            Err(anyhow!("cpu corrupted"))
-        } else {
-            Ok(ControlFlow::Continue(cycles))
+            bail!("cpu corrupted")
         }
+        Ok(cycles)
     }
 
     /// Steps the control deck the number of seconds.
@@ -199,10 +384,7 @@ impl ControlDeck {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
-            let cycles = self.cpu.clock();
-            if self.cpu_corrupted() {
-                return Err(anyhow!("cpu corrupted"));
-            }
+            let cycles = self.clock_instr()?;
             total_cycles += cycles;
             self.cycles_remaining -= cycles as f32;
         }
@@ -221,11 +403,7 @@ impl ControlDeck {
         let mut total_cycles = 0;
         let frame = self.frame_number();
         while frame == self.frame_number() {
-            let cycles = self.cpu.clock();
-            if self.cpu_corrupted() {
-                return Err(anyhow!("cpu corrupted"));
-            }
-            total_cycles += cycles;
+            total_cycles += self.clock_instr()?;
         }
         Ok(total_cycles)
     }
@@ -235,23 +413,15 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_scanline(&mut self) -> NesResult<ControlFlow<usize, usize>> {
+    pub fn clock_scanline(&mut self) -> NesResult<usize> {
         profile!();
 
         let current_scanline = self.cpu.bus.ppu.scanline();
         let mut total_cycles = 0;
         while current_scanline == self.cpu.bus.ppu.scanline() {
-            match self.clock_instr()? {
-                ControlFlow::Break(cycles) => {
-                    total_cycles += cycles;
-                    return Ok(ControlFlow::Break(total_cycles));
-                }
-                ControlFlow::Continue(cycles) => {
-                    total_cycles += cycles;
-                }
-            }
+            total_cycles += self.clock_instr()?;
         }
-        Ok(ControlFlow::Continue(total_cycles))
+        Ok(total_cycles)
     }
 
     /// Returns whether the CPU is corrupted or not which means it encounted an invalid/unhandled
@@ -371,7 +541,7 @@ impl ControlDeck {
 
     /// Toggle one of the APU audio channels.
     #[inline]
-    pub fn toggle_channel(&mut self, channel: Channel) {
+    pub fn toggle_apu_channel(&mut self, channel: Channel) {
         self.cpu.bus.apu.toggle_channel(channel);
     }
 
@@ -380,6 +550,39 @@ impl ControlDeck {
     #[must_use]
     pub const fn is_running(&self) -> bool {
         self.running
+    }
+
+    /// Returns the path where battery-backed Save RAM files are stored if a ROM is loaded. Returns
+    /// `None` if no ROM is loaded.
+    pub fn sram_path(&self) -> Option<PathBuf> {
+        self.loaded_rom().as_ref().and_then(|rom| {
+            PathBuf::from(rom)
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .map(|save_name| Config::sram_dir().join(save_name).with_extension("sram"))
+        })
+    }
+
+    /// Returns the path where Save states are stored if a ROM is loaded. Returns `None` if no ROM
+    /// is loaded.
+    pub fn save_path(&self, slot: u8) -> Option<PathBuf> {
+        self.loaded_rom().as_ref().and_then(|rom| {
+            PathBuf::from(rom)
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .map(|save_name| {
+                    Config::save_dir()
+                        .join(save_name)
+                        .join(slot.to_string())
+                        .with_extension("save")
+                })
+        })
+    }
+
+    /// Save the current state of the console into a save file
+    #[cfg(target_arch = "wasm32")]
+    pub fn save_state(&mut self) {
+        // TODO: save to local storage or indexdb
     }
 }
 
@@ -394,13 +597,13 @@ impl Regional for ControlDeck {
     /// Get the NES format for the emulation.
     #[inline]
     fn region(&self) -> NesRegion {
-        self.region
+        self.config.region
     }
 
     /// Set the NES format for the emulation.
     #[inline]
     fn set_region(&mut self, region: NesRegion) {
-        self.region = region;
+        self.config.region = region;
         self.cpu.set_region(region);
     }
 }

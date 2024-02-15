@@ -1,5 +1,6 @@
 pub fn init() {
-    enable();
+    #[cfg(feature = "profiling")]
+    enable(true);
 }
 
 // TODO: Add custom profiling similar to puffin
@@ -7,14 +8,9 @@ pub fn init() {
 // static EVENT_LOG_INDEX: AtomicU64 = AtomicU64::new(0);
 // static TIMER_FREQ: Lazy<f64> = Lazy::new(|| estimated_cpu_timer_freq() as f64);
 
-pub fn enable() {
-    #[cfg(feature = "profiling")]
-    puffin::set_scopes_on(true);
-}
-
-pub fn disable() {
-    #[cfg(feature = "profiling")]
-    puffin::set_scopes_on(false);
+#[cfg(feature = "profiling")]
+pub fn enable(enabled: bool) {
+    puffin::set_scopes_on(enabled);
 }
 
 #[allow(missing_debug_implementations)]

@@ -1,8 +1,5 @@
-use crate::{
-    nes::{event::Event, Nes},
-    NesResult,
-};
-use std::future::Future;
+use crate::{nes::Nes, NesResult};
+use std::{future::Future, io::Read};
 use web_time::Duration;
 use winit::{
     event::Event as WinitEvent,
@@ -40,68 +37,81 @@ pub fn sleep(duration: Duration) {
 }
 
 impl Nes {
+    #[cfg(target_arch = "wasm32")]
     pub fn initialize_platform(&mut self) {
-        #[cfg(target_arch = "wasm32")]
-        {
-            use wasm_bindgen::{closure::Closure, JsCast};
+        use crate::event::Event;
+        use wasm_bindgen::{closure::Closure, JsCast};
 
-            web_sys::window()
-                .and_then(|win| win.document())
-                .and_then(|doc| doc.body().map(|body| (doc, body)))
-                .map(|(doc, body)| {
-                    let handle_load_rom = Closure::<dyn FnMut(web_sys::MouseEvent)>::new({
-                        let event_proxy = self.event_proxy.clone();
-                        move |_| {
-                            const TEST_ROM: &[u8] =
-                                include_bytes!("../../roms/akumajou_densetsu.nes");
-                            if let Err(err) = event_proxy.send_event(Event::LoadRom((
-                                "akumajou_densetsu.nes".to_string(),
-                                TEST_ROM.to_vec(),
-                            ))) {
-                                log::error!(
-                                    "failed to send load rom message to event_loop: {err:?}"
-                                );
-                            }
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body().map(|body| (doc, body)))
+            .map(|(doc, body)| {
+                let handle_load_rom = Closure::<dyn FnMut(web_sys::MouseEvent)>::new({
+                    let event_proxy = self.event_proxy.clone();
+                    move |_| {
+                        const TEST_ROM: &[u8] = include_bytes!("../../roms/akumajou_densetsu.nes");
+                        if let Err(err) = event_proxy.send_event(Event::LoadRom((
+                            "akumajou_densetsu.nes".to_string(),
+                            TEST_ROM.to_vec(),
+                        ))) {
+                            log::error!("failed to send load rom message to event_loop: {err:?}");
                         }
-                    });
+                    }
+                });
 
-                    let load_rom_btn = doc.create_element("button").expect("created button");
-                    load_rom_btn.set_text_content(Some("Load ROM"));
-                    load_rom_btn
-                        .add_event_listener_with_callback(
-                            "click",
-                            handle_load_rom.as_ref().unchecked_ref(),
-                        )
-                        .expect("added event listener");
-                    body.append_child(&load_rom_btn).ok();
-                    handle_load_rom.forget();
+                let load_rom_btn = doc.create_element("button").expect("created button");
+                load_rom_btn.set_text_content(Some("Load ROM"));
+                load_rom_btn
+                    .add_event_listener_with_callback(
+                        "click",
+                        handle_load_rom.as_ref().unchecked_ref(),
+                    )
+                    .expect("added event listener");
+                body.append_child(&load_rom_btn).ok();
+                handle_load_rom.forget();
 
-                    let handle_pause = Closure::<dyn FnMut(web_sys::MouseEvent)>::new({
-                        let event_proxy = self.event_proxy.clone();
-                        move |_| {
-                            if let Err(err) = event_proxy.send_event(Event::Pause) {
-                                log::error!("failed to send pause message to event_loop: {err:?}");
-                            }
+                let handle_pause = Closure::<dyn FnMut(web_sys::MouseEvent)>::new({
+                    let event_proxy = self.event_proxy.clone();
+                    move |_| {
+                        if let Err(err) = event_proxy.send_event(Event::Pause) {
+                            log::error!("failed to send pause message to event_loop: {err:?}");
                         }
-                    });
+                    }
+                });
 
-                    let pause_btn = doc.create_element("button").expect("created button");
-                    pause_btn.set_text_content(Some("Pause"));
-                    pause_btn
-                        .add_event_listener_with_callback(
-                            "click",
-                            handle_pause.as_ref().unchecked_ref(),
-                        )
-                        .expect("added event listener");
-                    body.append_child(&pause_btn).ok();
-                    handle_pause.forget();
-                })
-                .expect("couldn't append canvas to document body");
-        }
+                let pause_btn = doc.create_element("button").expect("created button");
+                pause_btn.set_text_content(Some("Pause"));
+                pause_btn
+                    .add_event_listener_with_callback(
+                        "click",
+                        handle_pause.as_ref().unchecked_ref(),
+                    )
+                    .expect("added event listener");
+                body.append_child(&pause_btn).ok();
+                handle_pause.forget();
+            })
+            .expect("couldn't append canvas to document body");
+    }
 
-        #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn initialize_platform(&mut self) {
+        use crate::nes::event::DeckEvent;
+
         if self.config.rom_path.is_file() {
-            self.load_rom_path(self.config.rom_path.clone());
+            use crate::filesystem;
+            use anyhow::Context;
+            use std::fs::File;
+
+            let path = &self.config.rom_path;
+            let filename = filesystem::filename(path);
+            match File::open(path).with_context(|| format!("failed to open rom {path:?}")) {
+                Ok(mut rom) => {
+                    let mut buffer = Vec::new();
+                    rom.read_to_end(&mut buffer).unwrap();
+                    self.send_event(DeckEvent::LoadRom((filename.to_string(), buffer)));
+                }
+                Err(err) => self.on_error(err),
+            }
         }
     }
 }
@@ -154,24 +164,22 @@ impl WindowBuilderExt for winit::window::WindowBuilder {
             use anyhow::Context;
             use image::{io::Reader as ImageReader, ImageFormat};
             use std::io::Cursor;
-            use winit::window;
 
             static WINDOW_ICON: &[u8] = include_bytes!("../../assets/tetanes_icon.png");
 
-            // TODO: file PR to winit to support macos - SDL supports this.
-            // May be able to work around it with a macos app bundle.
+            let icon = ImageReader::with_format(Cursor::new(WINDOW_ICON), ImageFormat::Png)
+                .decode()
+                .context("failed to decode window icon");
+
             self.with_window_icon(
-                ImageReader::with_format(Cursor::new(WINDOW_ICON), ImageFormat::Png)
-                    .decode()
-                    .with_context(|| "failed to decode window icon")
-                    .and_then(|png| {
-                        let width = png.width();
-                        let height = png.height();
-                        window::Icon::from_rgba(png.into_rgba8().into_vec(), width, height)
-                            .with_context(|| "failed to create window icon")
-                    })
-                    .map_err(|err| log::error!("{err:?}"))
-                    .ok(),
+                icon.and_then(|png| {
+                    let width = png.width();
+                    let height = png.height();
+                    winit::window::Icon::from_rgba(png.into_rgba8().into_vec(), width, height)
+                        .with_context(|| "failed to create window icon")
+                })
+                .map_err(|err| log::error!("{err:?}"))
+                .ok(),
             )
         }
     }

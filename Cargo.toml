@@ -23,7 +23,14 @@ path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
 
 [features]
 default = ["cycle-accurate"]
-profiling = ["dep:puffin", "dep:puffin_http"]
+# profiling = ["dep:puffin", "dep:puffin_egui"]
+profiling = [
+  "dep:puffin",
+  "dep:puffin_http",
+  "egui/puffin",
+  "egui-winit/puffin",
+  "egui-wgpu/puffin",
+]
 console_log = ["dep:console_log", "dep:console_error_panic_hook"]
 cycle-accurate = []
 
@@ -35,33 +42,32 @@ chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8"
 dirs = "5.0"
+egui = { version = "0.26", features = ["rayon"] }
+egui-winit = "0.26"
+egui-wgpu = "0.26"
 enum_dispatch = "0.3"
 flate2 = "1.0"
 image = { version = "0.24", default-features = false, features = ["png"] }
 log = { version = "0.4", features = ["release_max_level_warn"] }
 once_cell = "1.19"
-pixels = "0.13"
-puffin = { version = "0.18", optional = true }
+# TODO: Update when new version is released with updated winit version to 0.29
+pixels = { git = "https://github.com/mkrasnitski/pixels/", branch = "bump-wgpu-winit" }
+puffin = { version = "0.19", optional = true }
+# puffin_egui = { version = "0.26", optional = true }
 rand = "0.8"
 # rubato = "0.14.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thingbuf = "0.1"
-web-time = "0.2"
-winit = { version = "0.29", default-features = false, features = [
-  "rwh_05",
-  "x11",
-  "wayland",
-  "wayland-dlopen",
-  "wayland-csd-adwaita",
-  "serde",
-] }
+web-time = "1.0"
+winit = { version = "0.29", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.15"
 pollster = "0.3"
 pretty_env_logger = "0.5"
-puffin_http = { version = "0.15", optional = true }
+puffin_http = { version = "0.16", optional = true }
+rfd = "0.13"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = { version = "0.1", optional = true }
@@ -69,7 +75,7 @@ console_log = { version = "1.0", features = ["color"], optional = true }
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.2", features = ["js"] }
-puffin = { version = "0.18", features = ["web"], optional = true }
+puffin = { version = "0.19", features = ["web"], optional = true }
 web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
@@ -85,17 +91,20 @@ harness = false
 [profile.dev]
 opt-level = 1
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 # Profile used by 'cargo dist'
 [profile.dist]
 codegen-units = 1
 inherits = "release"
 lto = "fat"
-panic = "abort"
 strip = true
 
-[profile.profiling]
+[profile.dist-web]
 inherits = "dist"
-debug = true
+panic = "abort"
 
 [workspace]
 members = ["utils", "run-wasm"]

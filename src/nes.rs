@@ -1,55 +1,52 @@
 //! User Interface representing the the NES Control Deck
 
 use crate::{
-    audio::Mixer,
-    control_deck::ControlDeck,
-    frame_begin,
     nes::{
+        emulation::Emulation,
         event::Event,
         platform::{EventLoopExt, WindowBuilderExt},
-        renderer::Renderer,
-        state::Mode,
+        renderer::{BufferPool, Renderer},
     },
-    profile, NesResult,
+    profile, profiling, NesResult,
 };
 use config::Config;
-use web_time::Instant;
+use std::sync::Arc;
 use winit::{
     dpi::LogicalSize,
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    window::{Fullscreen, Window, WindowBuilder},
+    window::{CursorIcon, Fullscreen, Window, WindowBuilder},
 };
 
 pub mod config;
+pub mod emulation;
 pub mod event;
-pub mod filesystem;
-pub mod menu;
+pub mod gui;
 pub mod platform;
 pub mod renderer;
-pub mod replay;
-pub mod rewind;
-pub mod state;
 
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
 pub struct Nes {
     config: Config,
-    window: Window,
+    window: Arc<Window>,
+    #[allow(unused)]
     event_proxy: EventLoopProxy<Event>,
-    control_deck: ControlDeck,
+    emulation: Emulation,
     // controllers: [Option<DeviceId>; 4],
     renderer: Renderer,
-    mixer: Mixer,
-    mode: Mode,
-    last_frame_time: Instant,
-    frame_accumulator: f32,
-    messages: Vec<(String, Instant)>,
-    error: Option<String>,
     event_state: event::State,
-    rewind_state: rewind::State,
-    replay_state: replay::State,
     // paths: Vec<PathBuf>,
     // selected_path: usize,
+}
+
+impl Drop for Nes {
+    fn drop(&mut self) {
+        #[cfg(feature = "profiling")]
+        profiling::enable(false);
+        if let Err(err) = self.config.save() {
+            log::error!("failed to save config: {err:?}");
+        }
+    }
 }
 
 impl Nes {
@@ -62,46 +59,32 @@ impl Nes {
         // Set up window, events and NES state
         let event_loop = EventLoopBuilder::<Event>::with_user_event().build()?;
         let mut nes = Nes::initialize(config, &event_loop).await?;
-        event_loop
-            .run_platform(move |event, window_target| nes.handle_event(event, window_target))?;
+        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop.run_platform(move |event, window_target| nes.on_event(event, window_target))?;
         Ok(())
     }
 
     /// Initializes the NES emulation.
     async fn initialize(config: Config, event_loop: &EventLoop<Event>) -> NesResult<Self> {
-        let window = Nes::initialize_window(event_loop, &config)?;
-        let control_deck = ControlDeck::with_config(config.clone().into());
-        let renderer = Renderer::initialize(&window, &config).await?;
-        let sample_rate = config.audio_sample_rate / config.speed;
-        let mixer = Mixer::new(
-            control_deck.clock_rate() / sample_rate,
-            sample_rate,
-            config.audio_enabled,
-        );
+        let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
+        let frame_pool = BufferPool::new();
+        let emulation = Emulation::initialize(
+            frame_pool.clone(),
+            Arc::clone(&window),
+            event_loop.create_proxy(),
+            config.clone(),
+        )?;
+        let renderer =
+            Renderer::initialize(event_loop, Arc::clone(&window), frame_pool, &config).await?;
 
-        let debug = config.debug;
         let mut nes = Self {
             config,
             window,
             event_proxy: event_loop.create_proxy(),
-            control_deck,
+            emulation,
             // controllers: [None; 4],
             renderer,
-            mixer,
-            mode: if debug { Mode::Pause } else { Mode::default() },
-            messages: vec![],
-            error: None,
             event_state: event::State::default(),
-            rewind_state: rewind::State::default(),
-            replay_state: replay::State::default(),
-            // Keep track of last frame time so we can predict audio sync requirements for the next
-            // frame.
-            last_frame_time: Instant::now(),
-            // A frame accumulator of partial frames for non-integer speed changes like
-            // 1.5x.
-            frame_accumulator: 0.0,
-            //         paths: vec![],
-            //         selected_path: 0,
         };
 
         nes.initialize_platform();
@@ -121,65 +104,23 @@ impl Nes {
             .with_platform();
         let window = window_builder.build(event_loop)?;
 
-        if config.zapper {
-            window.set_cursor_visible(false);
+        if config.control_deck.zapper {
+            window.set_cursor_icon(CursorIcon::Crosshair);
         }
 
         Ok(window)
     }
 
-    fn draw_frame(&mut self) {
-        if let Err(err) = self.renderer.draw_frame(self.control_deck.frame_buffer()) {
-            self.handle_error(err);
-        }
-    }
-
     fn next_frame(&mut self, window_target: &EventLoopWindowTarget<Event>) {
-        frame_begin!();
         profile!();
 
-        if self.is_paused() || self.event_state.occluded {
+        if self.event_state.occluded {
             platform::sleep(self.config.target_frame_duration);
         } else {
-            // Frames that aren't multiples of the default render 1 more/less frames
-            // every other frame
-            // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
-            // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
-            self.frame_accumulator += self.config.speed;
-            let mut frames_to_clock = 0;
-            while self.frame_accumulator >= 1.0 {
-                self.frame_accumulator -= 1.0;
-                frames_to_clock += 1;
+            if let Err(err) = self.emulation.request_clock_frame(window_target) {
+                self.on_error(err);
             }
-
-            while self.mixer.queued_time() < self.config.audio_latency && frames_to_clock > 0 {
-                let now = Instant::now();
-                let last_frame_duration = now - self.last_frame_time;
-                self.last_frame_time = now;
-                log::trace!(
-                    "last frame: {:.2}ms",
-                    1000.0 * last_frame_duration.as_secs_f32(),
-                );
-
-                match self.control_deck.clock_frame() {
-                    Ok(_) => {
-                        self.update_rewind();
-                        if let Err(err) = self.mixer.process(self.control_deck.audio_samples()) {
-                            return self.handle_error(err);
-                        }
-                        self.control_deck.clear_audio_samples();
-                    }
-                    Err(err) => {
-                        return self.handle_error(err);
-                    }
-                }
-                frames_to_clock -= 1;
-            }
-
-            self.draw_frame();
-            window_target.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + self.mixer.queued_time() - self.config.audio_latency,
-            ));
+            self.window.request_redraw();
         }
     }
 }
