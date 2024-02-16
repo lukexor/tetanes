@@ -145,7 +145,7 @@ impl Mixer {
     ///
     /// Returns an error if the audio device does not support pausing.
     pub fn play(&mut self) -> NesResult<()> {
-        self.set_enabled(true)?; // in case stream doesn't support resuming
+        self.set_enabled(self.enabled)?; // in case stream doesn't support resuming
         match self.stream {
             Some(ref stream) => Ok(stream.play()?),
             None => bail!("stream not started"),
@@ -308,7 +308,7 @@ impl Mixer {
                         }
                     }
                 } else {
-                    for out in out.iter_mut() {
+                    for (out, _) in out.iter_mut().zip(processed_samples.drain(..len)) {
                         *out = T::from_sample(0.0);
                     }
                 }

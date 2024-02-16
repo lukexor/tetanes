@@ -47,26 +47,26 @@ struct ConfigOpts {
     #[arg(short = 'p', long)]
     replay: Option<std::path::PathBuf>,
     /// Enable rewinding.
-    #[arg(short, long, action=clap::ArgAction::SetTrue)]
-    rewind: Option<bool>,
+    #[arg(short, long)]
+    rewind: bool,
     /// Silence audio.
-    #[arg(short, long, action=clap::ArgAction::SetTrue)]
-    silent: Option<bool>,
+    #[arg(short, long)]
+    silent: bool,
     /// Start fullscreen.
-    #[arg(short, long, action=clap::ArgAction::SetTrue)]
-    fullscreen: Option<bool>,
+    #[arg(short, long)]
+    fullscreen: bool,
     /// Disable VSync.
-    #[arg(long, action=clap::ArgAction::SetTrue)]
-    no_vsync: Option<bool>,
+    #[arg(long)]
+    no_vsync: bool,
     /// Set four player adapter. [default: 'disabled']
     #[arg(short = '4', long)]
     four_player: Option<tetanes::input::FourPlayer>,
     /// Enable zapper gun.
-    #[arg(short, long, action=clap::ArgAction::SetTrue)]
-    zapper: Option<bool>,
+    #[arg(short, long)]
+    zapper: bool,
     /// Disable multi-threaded.
-    #[arg(long, action=clap::ArgAction::SetTrue)]
-    no_threaded: Option<bool>,
+    #[arg(long)]
+    no_threaded: bool,
     /// Choose power-up RAM state. [default: "all_zeros"]
     #[arg(short = 'm', long)]
     ram_state: Option<tetanes::mem::RamState>,
@@ -74,11 +74,11 @@ struct ConfigOpts {
     #[arg(short = 'i', long)]
     save_slot: Option<u8>,
     /// Don't load save state on start.
-    #[arg(long, action=clap::ArgAction::SetTrue)]
-    no_load: Option<bool>,
+    #[arg(long)]
+    no_load: bool,
     /// Don't auto save state or save on exit.
-    #[arg(long, action=clap::ArgAction::SetTrue)]
-    no_save: Option<bool>,
+    #[arg(long)]
+    no_save: bool,
     /// Window scale. [default: 3.0]
     #[arg(short = 'x', long)]
     scale: Option<f32>,
@@ -92,8 +92,8 @@ struct ConfigOpts {
     #[arg(short, long)]
     clean: bool,
     /// Start with debugger open.
-    #[arg(short, long, action=clap::ArgAction::SetTrue)]
-    debug: Option<bool>,
+    #[arg(short, long)]
+    debug: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -108,18 +108,18 @@ impl ConfigOpts {
 
         if opts.clean {
             base = Config::default();
-            opts.no_load = Some(true);
-            opts.no_save = Some(true);
+            opts.no_load = true;
+            opts.no_save = true;
         }
 
         let mut config = Config {
             control_deck: control_deck::Config {
                 four_player: opts.four_player.unwrap_or(base.control_deck.four_player),
-                zapper: opts.zapper.unwrap_or(base.control_deck.zapper),
+                zapper: opts.zapper || base.control_deck.zapper,
                 ram_state: opts.ram_state.unwrap_or(base.control_deck.ram_state),
                 save_slot: opts.save_slot.unwrap_or(base.control_deck.save_slot),
-                load_on_start: !opts.no_load.unwrap_or(base.control_deck.load_on_start),
-                save_on_exit: !opts.no_save.unwrap_or(base.control_deck.save_on_exit),
+                load_on_start: !opts.no_load && base.control_deck.load_on_start,
+                save_on_exit: !opts.no_save && base.control_deck.save_on_exit,
                 ..base.control_deck
             },
             rom_path: opts
@@ -135,14 +135,14 @@ impl ConfigOpts {
                 .canonicalize()
                 .unwrap_or(base.rom_path),
             replay_path: opts.replay,
-            rewind: opts.rewind.unwrap_or(base.rewind),
-            audio_enabled: !opts.silent.unwrap_or(base.audio_enabled),
-            fullscreen: opts.fullscreen.unwrap_or(base.fullscreen),
-            vsync: !opts.no_vsync.unwrap_or(base.vsync),
-            threaded: !opts.no_threaded.unwrap_or(base.threaded),
+            rewind: opts.rewind || base.rewind,
+            audio_enabled: !opts.silent && base.audio_enabled,
+            fullscreen: opts.fullscreen || base.fullscreen,
+            vsync: !opts.no_vsync && base.vsync,
+            threaded: !opts.no_threaded && base.threaded,
             scale: opts.scale.unwrap_or(base.scale),
             frame_speed: opts.speed.unwrap_or(base.frame_speed),
-            debug: opts.debug.unwrap_or(base.debug),
+            debug: opts.debug || base.debug,
             ..base
         };
         config.control_deck.genie_codes.extend(opts.genie_code);

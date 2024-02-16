@@ -454,7 +454,7 @@ impl Zapper {
             x: 0,
             y: 0,
             radius: 3,
-            connected: false,
+            connected: true,
         }
     }
 
