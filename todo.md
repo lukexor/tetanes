@@ -233,21 +233,21 @@
 
 ## CPU
 
-- [ ] Refactor fetch code to reduce branches
-- [ ] Scanline length/nmi timing
-- [ ] roms/super_mario_bros_3.nes
-- [ ] roms/fire_hawk.nes
+- [ ] Review Scanline length/nmi timing
 - [ ] roms/laser_invasion.nes
-- [ ] test_roms/cpu/overclock.nes
+- [x] roms/super_mario_bros_3.nes
+- [x] roms/fire_hawk.nes
+- [x] Refactor fetch code to reduce branches
 
 ## PPU
 
 - [ ] Ppu::tick() very hot - optimize
-- [ ] fix failing rom tests
 
-## APU
+## Tests
 
-- [ ] fix failing rom tests
+- [x] test_roms/cpu/overclock.nes
+- [ ] fix failing PPU rom tests
+- [ ] fix failing APU rom tests
 
 ## Docs
 
