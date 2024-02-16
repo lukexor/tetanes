@@ -21,6 +21,9 @@ msrv = "1.70.0"
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
 path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
 
+[lib]
+bench = false
+
 [features]
 default = ["cycle-accurate"]
 # profiling = ["dep:puffin", "dep:puffin_egui"]
