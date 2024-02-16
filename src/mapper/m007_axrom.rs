@@ -56,7 +56,7 @@ impl MemMap for Axrom {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -71,9 +71,9 @@ impl MemMap for Axrom {
                 } else {
                     Mirroring::SingleScreenA
                 };
-                MappedWrite::None
+                MappedWrite::PpuRam
             }
-            _ => MappedWrite::None,
+            _ => MappedWrite::PpuRam,
         }
     }
 }

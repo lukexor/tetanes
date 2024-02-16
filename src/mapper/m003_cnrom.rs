@@ -47,7 +47,7 @@ impl MemMap for Cnrom {
                 let mirror = if self.mirror_prg_rom { 0x3FFF } else { 0x7FFF };
                 MappedRead::PrgRom((addr & mirror).into())
             }
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -56,7 +56,7 @@ impl MemMap for Cnrom {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, val.into());
         }
-        MappedWrite::None
+        MappedWrite::PpuRam
     }
 }
 

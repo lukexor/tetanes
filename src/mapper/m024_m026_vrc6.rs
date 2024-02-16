@@ -275,7 +275,7 @@ impl MemMap for Vrc6 {
                 MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
             }
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -332,7 +332,7 @@ impl MemMap for Vrc6 {
             0xF002 => self.irq.acknowledge(),
             _ => (),
         }
-        MappedWrite::None
+        MappedWrite::PpuRam
     }
 }
 

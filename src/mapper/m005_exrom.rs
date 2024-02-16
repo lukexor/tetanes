@@ -702,7 +702,7 @@ impl MemMap for Exrom {
                             MappedRead::Data(self.read_exram(addr))
                         }
                         Nametable::Fill if nametable_mode => MappedRead::Data(if is_attr {
-                            Self::ATTR_MIRROR[self.regs.fill.attr]
+                            Self::ATTR_MIRROR[self.regs.fill.attr & 0x03]
                         } else {
                             self.regs.fill.tile
                         }),
@@ -772,7 +772,7 @@ impl MemMap for Exrom {
             }
             0xE000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
             0x5207..=0x5209 => MappedRead::Data(0),
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -786,8 +786,9 @@ impl MemMap for Exrom {
                 }
                 Nametable::ExRam if self.regs.exram_mode.nametable => {
                     self.write_exram(addr, val);
+                    return MappedWrite::None;
                 }
-                _ => (),
+                _ => return MappedWrite::None,
             },
             0x5000 => self.pulse1.write_ctrl(val),
             // 0x5001 Has no effect since there is no Sweep unit
@@ -968,7 +969,7 @@ impl MemMap for Exrom {
             }
             _ => (),
         }
-        MappedWrite::None
+        MappedWrite::PpuRam
     }
 }
 

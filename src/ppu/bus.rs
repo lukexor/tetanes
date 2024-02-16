@@ -111,12 +111,19 @@ impl Mem for PpuBus {
     fn read(&mut self, addr: u16, _access: Access) -> u8 {
         let val = match addr {
             0x2000..=0x3EFF => match self.mapper.map_read(addr) {
+                MappedRead::PpuRam => self.ciram[self.ciram_mirror(addr as usize)],
                 MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
                 MappedRead::ExRam(addr) => self.exram[addr],
                 MappedRead::Data(data) => data,
-                // NOTE: Mappers that support FourScreen should return MappedRead::ExRam or
-                // MappedRead::Data
-                _ => self.ciram[self.ciram_mirror(addr as usize)],
+                MappedRead::Chr(mapped) => {
+                    panic!("unexpected mapped CHR read at ${addr:04X} for ${mapped:04X}")
+                }
+                MappedRead::PrgRom(mapped) => {
+                    panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+                }
+                MappedRead::PrgRam(mapped) => {
+                    panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
+                }
             },
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
@@ -141,12 +148,19 @@ impl Mem for PpuBus {
     fn peek(&self, addr: u16, _access: Access) -> u8 {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_peek(addr) {
+                MappedRead::PpuRam => self.ciram[self.ciram_mirror(addr as usize)],
                 MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
                 MappedRead::ExRam(addr) => self.exram[addr],
                 MappedRead::Data(data) => data,
-                // NOTE: Mappers that support FourScreen should return MappedRead::ExRam or
-                // MappedRead::Data
-                _ => self.ciram[self.ciram_mirror(addr as usize)],
+                MappedRead::Chr(mapped) => {
+                    panic!("unexpected mapped CHR read at ${addr:04X} for ${mapped:04X}")
+                }
+                MappedRead::PrgRom(mapped) => {
+                    panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+                }
+                MappedRead::PrgRam(mapped) => {
+                    panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
+                }
             },
             0x0000..=0x1FFF => {
                 let addr = if let MappedRead::Chr(addr) = self.mapper.map_peek(addr) {
@@ -167,13 +181,22 @@ impl Mem for PpuBus {
     fn write(&mut self, addr: u16, val: u8, _access: Access) {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
-                MappedWrite::CIRam(addr, val) => self.ciram[addr & 0x07FF] = val,
-                MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
-                // NOTE: Mappers that support FourScreen should return MappedRead::ExRam
-                _ => {
+                MappedWrite::PpuRam => {
                     let addr = self.ciram_mirror(addr as usize);
                     self.ciram[addr] = val;
                 }
+                MappedWrite::CIRam(addr, val) => self.ciram[addr & 0x07FF] = val,
+                MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
+                MappedWrite::Chr(mapped, val) => {
+                    panic!("unexpected mapped CHR write at ${addr:04X} for ${mapped:04X} with ${val:02X}");
+                }
+                MappedWrite::PrgRam(mapped, val) => {
+                    panic!("unexpected mapped PRG-RAM write at ${addr:04X} for ${mapped:04X} with ${val:02X}");
+                }
+                MappedWrite::PrgRamProtect(val) => {
+                    panic!("unexpected mapped PRG-RAM Protect write at ${addr:04X} with {val}");
+                }
+                MappedWrite::None => (),
             },
             0x0000..=0x1FFF => {
                 if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {

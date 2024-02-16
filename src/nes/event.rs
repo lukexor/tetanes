@@ -275,8 +275,9 @@ impl Nes {
     pub fn send_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
         log::debug!("Nes event: {event:?}");
-        if self.event_proxy.send_event(event).is_err() {
-            self.on_error(anyhow!("failed to send event"));
+        if let Err(err) = self.event_proxy.send_event(event) {
+            log::error!("failed to send nes event: {err:?}");
+            std::process::exit(1);
         }
     }
 
@@ -339,7 +340,7 @@ impl Nes {
         }
     }
 
-    fn on_setting_action(&mut self, setting: Setting, state: ElementState, _repeat: bool) {
+    fn on_setting_action(&mut self, setting: Setting, state: ElementState, repeat: bool) {
         let released = state != ElementState::Pressed;
         match setting {
             Setting::SetSaveSlot(slot) if released => self.send_event(DeckEvent::SetSaveSlot(slot)),
@@ -364,7 +365,7 @@ impl Nes {
             }
             Setting::IncSpeed if released => self.change_speed(0.25),
             Setting::DecSpeed if released => self.change_speed(-0.25),
-            Setting::FastForward => self.set_speed(if released { 1.0 } else { 2.0 }),
+            Setting::FastForward if !repeat => self.set_speed(if released { 1.0 } else { 2.0 }),
             _ => (),
         }
     }

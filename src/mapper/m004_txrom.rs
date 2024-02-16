@@ -235,7 +235,7 @@ impl MemMap for Txrom {
             }
             0x6000..=0x7FFF => MappedRead::PrgRam(self.prg_ram_banks.translate(addr)),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -303,9 +303,9 @@ impl MemMap for Txrom {
                     0xE001 => self.regs.irq_enabled = true,
                     _ => unreachable!("impossible address"),
                 }
-                MappedWrite::None
+                MappedWrite::PpuRam
             }
-            _ => MappedWrite::None,
+            _ => MappedWrite::PpuRam,
         }
     }
 }

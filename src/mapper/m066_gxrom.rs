@@ -45,7 +45,7 @@ impl MemMap for Gxrom {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -56,7 +56,7 @@ impl MemMap for Gxrom {
             self.prg_rom_banks
                 .set(0, ((val & Self::PRG_BANK_MASK) >> 4).into());
         }
-        MappedWrite::None
+        MappedWrite::PpuRam
     }
 }
 

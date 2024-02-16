@@ -170,39 +170,39 @@ impl MemBanks {
     #[inline]
     #[must_use]
     pub const fn get(&self, addr: u16) -> usize {
-        // 0x6005    - 0b0110000000000101 -> bank 0
-        //  (0x2000)   0b0010000000000000
+        // $6005    - 0b0110000000000101 -> bank 0
+        //  ($2000)   0b0010000000000000
         //
-        // 0x8005    - 0b1000000000000101 -> bank 0
-        //   (0x4000)  0b0100000000000000
-        // 0xC005    - 0b1100000000000101 -> bank 1
+        // $8005    - 0b1000000000000101 -> bank 0
+        //   ($4000)  0b0100000000000000
+        // $C005    - 0b1100000000000101 -> bank 1
         //
-        // 0x8005    - 0b1000000000000101 -> bank 0
-        // 0xA005    - 0b1010000000000101 -> bank 1
-        // 0xC005    - 0b1100000000000101 -> bank 2
-        // 0xE005    - 0b1110000000000101 -> bank 3
-        //   (0x2000)  0b0010000000000000
+        // $8005    - 0b1000000000000101 -> bank 0
+        // $A005    - 0b1010000000000101 -> bank 1
+        // $C005    - 0b1100000000000101 -> bank 2
+        // $E005    - 0b1110000000000101 -> bank 3
+        //   ($2000)  0b0010000000000000
         ((addr as usize) & self.size) >> self.shift
     }
 
     #[inline]
     #[must_use]
     pub fn translate(&self, addr: u16) -> usize {
-        // 0x6005    - 0b0110000000000101 -> bank 0
-        //  (0x2000)   0b0010000000000000
+        // $6005    - 0b0110000000000101 -> bank 0
+        //  ($2000)   0b0010000000000000
         //
-        // 0x8005    - 0b1000000000000101 -> bank 0
-        //   (0x4000)  0b0100000000000000
-        // 0xC005    - 0b1100000000000101 -> bank 1
+        // $8005    - 0b1000000000000101 -> bank 0
+        //   ($4000)  0b0100000000000000
+        // $C005    - 0b1100000000000101 -> bank 1
         //
-        // 0x8005    - 0b1000000000000101 -> bank 0
-        //  0 -> 0x0000
+        // $8005    - 0b1000000000000101 -> bank 0
+        //  0 -> $0000
         //  1
         //  2
-        // 0xA005    - 0b1010000000000101 -> bank 1
-        // 0xC005    - 0b1100000000000101 -> bank 2
-        // 0xE005    - 0b1110000000000101 -> bank 3
-        //   (0x2000)  0b0010000000000000
+        // $A005    - 0b1010000000000101 -> bank 1
+        // $C005    - 0b1100000000000101 -> bank 2
+        // $E005    - 0b1110000000000101 -> bank 3
+        //   ($2000)  0b0010000000000000
         let slot = self.get(addr);
         assert!(slot < self.banks.len());
         let page = self.banks[slot];
@@ -213,10 +213,10 @@ impl MemBanks {
 impl std::fmt::Debug for MemBanks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("Bank")
-            .field("start", &format_args!("0x{:04X}", self.start))
-            .field("end", &format_args!("0x{:04X}", self.end))
-            .field("size", &format_args!("0x{:04X}", self.size))
-            .field("window", &format_args!("0x{:04X}", self.window))
+            .field("start", &format_args!("${:04X}", self.start))
+            .field("end", &format_args!("${:04X}", self.end))
+            .field("size", &format_args!("${:04X}", self.size))
+            .field("window", &format_args!("${:04X}", self.window))
             .field("shift", &self.shift)
             .field("mask", &self.shift)
             .field("banks", &self.banks)

@@ -53,7 +53,7 @@ impl MemMap for Nrom {
                 let mirror = if self.mirror_prg_rom { 0x3FFF } else { 0x7FFF };
                 MappedRead::PrgRom((addr & mirror).into())
             }
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -62,7 +62,7 @@ impl MemMap for Nrom {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
-            _ => MappedWrite::None,
+            _ => MappedWrite::PpuRam,
         }
     }
 }

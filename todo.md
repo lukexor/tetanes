@@ -12,6 +12,7 @@
 
 ## High-level Priorities
 
+- [ ] fix zapper gun
 - [ ] Add puffin-like profiling metrics
 - [ ] Add `pix-gui` crate for rendering text and rects to start
 - [ ] Draw profiling metrics via rects for last 60 frames with 30ms scale for window

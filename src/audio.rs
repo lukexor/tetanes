@@ -1,5 +1,5 @@
 use crate::{audio::filter::Filter, profile, NesResult};
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, Device, FromSample, SampleFormat, SampleRate, SizedSample, Stream, StreamConfig,
@@ -70,7 +70,7 @@ impl Mixer {
             buffer_len: Arc::new(AtomicUsize::new(0)),
             samples_pool: Arc::new(ThingBuf::with_recycle(
                 16,
-                // 0x8000 = 32768, which is the next power of two greater than a single frame of CPU-generated
+                // $8000 = 32768, which is the next power of two greater than a single frame of CPU-generated
                 // audio samples.
                 WithCapacity::new().with_min_capacity(0x8000),
             )),
@@ -327,7 +327,9 @@ impl Mixer {
     pub fn set_resample_ratio(&mut self, resample_ratio: f32) -> NesResult<()> {
         self.resample_ratio = resample_ratio;
         if let Some(ref callback_tx) = self.tx {
-            callback_tx.try_send(CallbackMsg::UpdateResampleRatio(self.resample_ratio))?;
+            callback_tx
+                .try_send(CallbackMsg::UpdateResampleRatio(self.resample_ratio))
+                .context("failed to send update resample event")?;
         }
         Ok(())
     }
@@ -336,7 +338,9 @@ impl Mixer {
     /// Set whether audio is enabled.
     pub fn set_enabled(&mut self, enabled: bool) -> NesResult<()> {
         if let Some(ref callback_tx) = self.tx {
-            callback_tx.try_send(CallbackMsg::Enable(enabled))?;
+            callback_tx
+                .try_send(CallbackMsg::Enable(enabled))
+                .context("failed to send audio enable event")?;
         }
         Ok(())
     }
@@ -352,7 +356,9 @@ impl Mixer {
     /// Returns an error if the file can not be created.
     pub fn start_recording(&mut self) -> NesResult<()> {
         if let Some(ref callback_tx) = self.tx {
-            callback_tx.try_send(CallbackMsg::Record(true))?;
+            callback_tx
+                .try_send(CallbackMsg::Record(true))
+                .context("failed to send start recording audio event")?;
             self.recording = true;
         }
         Ok(())
@@ -361,7 +367,9 @@ impl Mixer {
     /// Stop recording audio to a file.
     pub fn stop_recording(&mut self) -> NesResult<()> {
         if let Some(ref callback_tx) = self.tx {
-            callback_tx.try_send(CallbackMsg::Record(false))?;
+            callback_tx
+                .try_send(CallbackMsg::Record(false))
+                .context("failed to send stop recording audio event")?;
             self.recording = false;
         }
         Ok(())
@@ -372,7 +380,9 @@ impl Mixer {
         if let Some(ref callback_tx) = self.tx {
             if let Ok(mut buffer_slot) = self.samples_pool.push_ref() {
                 buffer_slot.extend_from_slice(samples);
-                callback_tx.try_send(CallbackMsg::NewSamples)?;
+                callback_tx
+                    .try_send(CallbackMsg::NewSamples)
+                    .context("failed to send new audio samples event")?;
             }
         }
         Ok(())

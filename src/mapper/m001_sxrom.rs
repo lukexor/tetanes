@@ -178,7 +178,7 @@ impl MemMap for Sxrom {
                 MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
             }
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::None,
+            _ => MappedRead::PpuRam,
         }
     }
 
@@ -239,7 +239,7 @@ impl MemMap for Sxrom {
                 // +----- PRG-RAM chip enable (0: enabled; 1: disabled; ignored on MMC1A)
 
                 if self.regs.write_just_occurred > 0 {
-                    return MappedWrite::None;
+                    return MappedWrite::PpuRam;
                 }
                 self.regs.write_just_occurred = 2;
                 if val & Self::SHIFT_REG_RESET > 0 {
@@ -263,9 +263,9 @@ impl MemMap for Sxrom {
                         self.update_banks(addr);
                     }
                 }
-                MappedWrite::None
+                MappedWrite::PpuRam
             }
-            _ => MappedWrite::None,
+            _ => MappedWrite::PpuRam,
         }
     }
 }
@@ -318,10 +318,10 @@ impl std::fmt::Debug for SxRegs {
                 "shift_register",
                 &format_args!("0b{:08b}", self.shift_register),
             )
-            .field("control", &format_args!("0x{:02X}", self.control))
-            .field("chr0", &format_args!("0x{:02X}", self.chr0))
-            .field("chr1", &format_args!("0x{:02X}", self.chr1))
-            .field("prg", &format_args!("0x{:02X}", self.prg))
+            .field("control", &format_args!("${:02X}", self.control))
+            .field("chr0", &format_args!("${:02X}", self.chr0))
+            .field("chr1", &format_args!("${:02X}", self.chr1))
+            .field("prg", &format_args!("${:02X}", self.prg))
             .finish()
     }
 }

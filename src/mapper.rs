@@ -76,7 +76,7 @@ impl Default for Mapper {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedRead {
-    None,
+    PpuRam,
     Chr(usize),
     CIRam(usize),
     ExRam(usize),
@@ -89,6 +89,7 @@ pub enum MappedRead {
 #[must_use]
 pub enum MappedWrite {
     None,
+    PpuRam,
     Chr(usize, u8),
     CIRam(usize, u8),
     ExRam(usize, u8),
@@ -103,11 +104,11 @@ pub trait MemMap {
     }
 
     fn map_peek(&self, _addr: u16) -> MappedRead {
-        MappedRead::None
+        MappedRead::PpuRam
     }
 
     fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
-        MappedWrite::None
+        MappedWrite::PpuRam
     }
 }
 

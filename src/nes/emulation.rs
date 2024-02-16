@@ -98,20 +98,19 @@ impl State {
 
     pub fn add_message<S: ToString>(&mut self, msg: S) {
         // Can't use send_event here because it would create a cycle
-        if self
-            .event_proxy
-            .send_event(NesEvent::Message(msg.to_string()).into())
-            .is_err()
-        {
-            log::error!("failed to send message");
+        let msg = msg.to_string();
+        if let Err(err) = self.event_proxy.send_event(NesEvent::Message(msg).into()) {
+            log::error!("failed to send message event: {err:?}");
+            std::process::exit(1);
         }
     }
 
     pub fn send_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
         log::debug!("Emulation event: {event:?}");
-        if self.event_proxy.send_event(event).is_err() {
-            self.on_error(anyhow!("failed to send event"));
+        if let Err(err) = self.event_proxy.send_event(event) {
+            log::error!("failed to send emulation event: {err:?}");
+            std::process::exit(1);
         }
     }
 
@@ -521,9 +520,8 @@ impl Emulation {
                 Threads::Single(Single { state }) => state.on_event(event),
                 Threads::Multi(Multi { tx, handle }) => {
                     handle.thread().unpark();
-                    log::trace!("sending emulation event: {event:?}");
                     tx.try_send(event.clone())
-                        .with_context(|| anyhow!("failed to send event: {event:?}"))?;
+                        .with_context(|| anyhow!("failed to send emulation event: {event:?}"))?;
                 }
             }
         }
