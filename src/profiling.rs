@@ -13,17 +13,6 @@ pub fn enable(enabled: bool) {
     puffin::set_scopes_on(enabled);
 }
 
-#[allow(missing_debug_implementations)]
-#[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
-pub struct Server(puffin_http::Server);
-
-#[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
-
-pub fn start_server() -> anyhow::Result<Server> {
-    let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
-    Ok(Server(puffin_http::Server::new(&server_addr)?))
-}
-
 /// Begin profiling an arbitrary range of lines not inside a block, tagging it with a given name. For
 /// profiling a block of code, see [`profile!`].
 #[macro_export]

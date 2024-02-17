@@ -26,8 +26,7 @@ bench = false
 
 [features]
 default = ["cycle-accurate"]
-egui = ["dep:puffin_egui"]
-profiling = ["dep:puffin", "dep:puffin_http"]
+profiling = ["dep:puffin", "dep:puffin_egui"]
 console_log = ["dep:console_log", "dep:console_error_panic_hook"]
 cycle-accurate = []
 
@@ -35,7 +34,7 @@ cycle-accurate = []
 anyhow = "1.0"
 bincode = "1.3"
 bitflags = { version = "2.4", features = ["serde"] }
-chrono = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4.5", features = ["derive"] }
 crossbeam = "0.8"
 dirs = "5.0"
@@ -62,7 +61,6 @@ winit = { version = "0.29", features = ["serde"] }
 cpal = "0.15"
 pollster = "0.3"
 pretty_env_logger = "0.5"
-puffin_http = { version = "0.16", optional = true }
 rfd = "0.13"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -95,7 +93,7 @@ debug = true
 [profile.dist]
 codegen-units = 1
 inherits = "release"
-lto = "fat"
+lto = "thin"
 strip = true
 
 [profile.dist-web]

@@ -480,9 +480,7 @@ checksum = "5bc015644b92d5890fab7489e49d21f879d5c990186827d42ec511919404f38b"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
- "js-sys",
  "num-traits",
- "wasm-bindgen",
  "windows-targets 0.52.0",
 ]
 
@@ -2358,19 +2356,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "puffin_http"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4936c085e48efc86f6d96609dc5086d1d236afe3ec4676f09b157a4f4be83ff6"
-dependencies = [
- "anyhow",
- "crossbeam-channel",
- "log",
- "parking_lot",
- "puffin",
-]
-
-[[package]]
 name = "quick-xml"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2869,7 +2854,6 @@ dependencies = [
  "pretty_env_logger",
  "puffin",
  "puffin_egui",
- "puffin_http",
  "rand",
  "rfd",
  "serde",

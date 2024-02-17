@@ -226,9 +226,8 @@ impl Gui {
         let window_size = window.inner_size();
         let scale_factor = window.scale_factor() as f32;
         let ctx = egui::Context::default();
-        // #[cfg(not(target_arch = "wasm32"))]
-        // ctx.set_embed_viewports(false);
-        let state = egui_winit::State::new(
+
+        let egui_state = egui_winit::State::new(
             ctx.clone(),
             egui::ViewportId::default(),
             event_loop,
@@ -240,7 +239,7 @@ impl Gui {
             window,
             state: State::new(),
             ctx,
-            egui_state: state,
+            egui_state,
             screen_descriptor: egui_wgpu::ScreenDescriptor {
                 size_in_pixels: [window_size.width, window_size.height],
                 pixels_per_point: scale_factor,
@@ -631,7 +630,7 @@ impl State {
                 });
             });
 
-        #[cfg(all(feature = "profiling", feature = "egui"))]
+        #[cfg(feature = "profiling")]
         puffin_egui::show_viewport_if_enabled(ctx);
     }
 

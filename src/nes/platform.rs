@@ -20,8 +20,6 @@ where
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(execute);
 
-    #[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
-    let _profiling = crate::profiling::start_server()?;
     #[cfg(not(target_arch = "wasm32"))]
     pollster::block_on(execute);
 
