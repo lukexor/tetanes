@@ -26,14 +26,8 @@ bench = false
 
 [features]
 default = ["cycle-accurate"]
-# profiling = ["dep:puffin", "dep:puffin_egui"]
-profiling = [
-  "dep:puffin",
-  "dep:puffin_http",
-  "egui/puffin",
-  "egui-winit/puffin",
-  "egui-wgpu/puffin",
-]
+egui = ["dep:puffin_egui"]
+profiling = ["dep:puffin", "dep:puffin_http"]
 console_log = ["dep:console_log", "dep:console_error_panic_hook"]
 cycle-accurate = []
 
@@ -56,9 +50,8 @@ once_cell = "1.19"
 # TODO: Update when new version is released with updated winit version to 0.29
 pixels = { git = "https://github.com/mkrasnitski/pixels/", branch = "bump-wgpu-winit" }
 puffin = { version = "0.19", optional = true }
-# puffin_egui = { version = "0.26", optional = true }
+puffin_egui = { version = "0.26", optional = true }
 rand = "0.8"
-# rubato = "0.14.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thingbuf = "0.1"

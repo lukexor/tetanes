@@ -231,8 +231,8 @@ impl Gui {
         let window_size = window.inner_size();
         let scale_factor = window.scale_factor() as f32;
         let ctx = egui::Context::default();
-        #[cfg(not(target_arch = "wasm32"))]
-        ctx.set_embed_viewports(false);
+        // #[cfg(not(target_arch = "wasm32"))]
+        // ctx.set_embed_viewports(false);
         let state = egui_winit::State::new(
             ctx.clone(),
             egui::ViewportId::default(),
@@ -636,8 +636,8 @@ impl State {
                 });
             });
 
-        // #[cfg(feature = "profiling")]
-        // puffin_egui::show_viewport_if_enabled(ctx);
+        #[cfg(all(feature = "profiling", feature = "egui"))]
+        puffin_egui::show_viewport_if_enabled(ctx);
     }
 
     fn todo(&mut self, ui: &mut egui::Ui) {
