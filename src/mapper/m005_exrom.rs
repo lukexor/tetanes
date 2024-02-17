@@ -223,32 +223,22 @@ impl ExRegs {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
+struct IrqState {
+    pending: bool,
+    in_frame: bool,
+    prev_addr: Option<u16>,
+    match_count: u8,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
 struct PpuStatus {
     fetch_count: u32,
-    prev_addr: u16,
-    prev_match: u8,
     reading: bool,
-    idle: u8,
+    idle_count: u8,
     sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
     rendering: bool,
     scanline: u16,
-    in_frame: bool,
-}
-
-impl PpuStatus {
-    fn write(&mut self, addr: u16, val: u8) {
-        match addr {
-            0x2000 => self.sprite8x16 = val & 0x20 > 0,
-            0x2001 => {
-                self.rendering = val & 0x18 > 0; // 1, 2, or 3
-                if !self.rendering {
-                    self.in_frame = false;
-                    self.prev_addr = 0x0000;
-                }
-            }
-            _ => (),
-        }
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -256,8 +246,8 @@ impl PpuStatus {
 pub struct Exrom {
     regs: ExRegs,
     mirroring: Mirroring,
-    irq_pending: bool,
     ppu_status: PpuStatus,
+    irq_state: IrqState,
     exram: Vec<u8>,
     prg_ram_banks: MemBanks,
     prg_rom_banks: MemBanks,
@@ -324,17 +314,19 @@ impl Exrom {
         let mut exrom = Self {
             regs: ExRegs::new(),
             mirroring: cart.mirroring(),
-            irq_pending: false,
+            irq_state: IrqState {
+                pending: false,
+                in_frame: false,
+                prev_addr: None,
+                match_count: 0,
+            },
             ppu_status: PpuStatus {
                 fetch_count: 0x00,
-                prev_addr: 0xFFFF,
-                prev_match: 0x0000,
                 reading: false,
-                idle: 0x00,
+                idle_count: 0x00,
                 sprite8x16: false,
                 rendering: false,
                 scanline: 0x0000,
-                in_frame: false,
             },
             exram: vec![0x00; Self::EXRAM_SIZE],
             prg_ram_banks: MemBanks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW),
@@ -516,7 +508,7 @@ impl Exrom {
 impl Mapped for Exrom {
     #[inline]
     fn irq_pending(&self) -> bool {
-        self.regs.irq_enabled && self.irq_pending
+        self.regs.irq_enabled && self.irq_state.pending
     }
 
     #[inline]
@@ -531,7 +523,17 @@ impl Mapped for Exrom {
 
     #[inline]
     fn cpu_bus_write(&mut self, addr: u16, val: u8) {
-        self.ppu_status.write(addr, val);
+        match addr {
+            0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
+            0x2001 => {
+                self.ppu_status.rendering = val & 0x18 > 0; // BG or Spr rendering enabled
+                if !self.ppu_status.rendering {
+                    self.irq_state.in_frame = false;
+                    self.irq_state.prev_addr = None;
+                }
+            }
+            _ => (),
+        }
     }
 }
 
@@ -624,35 +626,39 @@ impl MemMap for Exrom {
                 // Monitor tile fetches to trigger IRQs
                 // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
                 let status = &mut self.ppu_status;
-                if !is_attr && addr == status.prev_addr {
-                    status.prev_match += 1;
-                    if status.prev_match == 2 {
-                        if status.in_frame {
-                            status.scanline = status.scanline.wrapping_add(1);
+                let irq_state = &mut self.irq_state;
+                // Wait for three consecutive fetches to match the same address, which means we're
+                // at the end of the render scanlines fetching dummy NT bytes
+                if !is_attr && Some(addr) == irq_state.prev_addr {
+                    irq_state.match_count += 1;
+                    status.fetch_count = 0;
+                    if irq_state.match_count == 2 {
+                        if irq_state.in_frame {
+                            // Scanline IRQ detected
+                            status.scanline += 1;
                             if status.scanline == self.regs.irq_scanline {
-                                self.irq_pending = true;
+                                irq_state.pending = true;
                             }
                         } else {
-                            status.in_frame = true;
+                            irq_state.in_frame = true;
                             status.scanline = 0;
                         }
-                        status.fetch_count = 0;
                     }
                 } else {
-                    status.prev_match = 0;
+                    irq_state.match_count = 0;
                 }
-                status.prev_addr = addr;
+                irq_state.prev_addr = Some(addr);
                 status.reading = true;
             }
             0xFFFA | 0xFFFB => {
-                self.ppu_status.in_frame = false; // NMI clears in_frame
-                self.ppu_status.prev_addr = 0x0000;
+                self.irq_state.in_frame = false; // NMI clears in_frame
+                self.irq_state.prev_addr = None;
             }
             _ => (),
         }
         let val = self.map_peek(addr);
         match addr {
-            0x5204 => self.irq_pending = false, // Reading from IRQ status clears it
+            0x5204 => self.irq_state.pending = false, // Reading from IRQ status clears it
             0x5010 => self.dmc.acknowledge_irq(),
             _ => (),
         }
@@ -754,7 +760,7 @@ impl MemMap for Exrom {
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in the read() function
                 MappedRead::Data(
-                    u8::from(self.irq_pending) << 7 | u8::from(self.ppu_status.in_frame) << 6,
+                    u8::from(self.irq_state.pending) << 7 | u8::from(self.irq_state.in_frame) << 6,
                 )
             }
             0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),
@@ -988,17 +994,18 @@ impl Audio for Exrom {
 impl Clock for Exrom {
     fn clock(&mut self) -> usize {
         if self.ppu_status.reading {
-            self.ppu_status.idle = 0;
+            self.ppu_status.idle_count = 0;
         } else {
-            self.ppu_status.idle += 1;
+            self.ppu_status.idle_count += 1;
             // 3 CPU clocks == 1 ppu clock
-            if self.ppu_status.idle == 3 {
-                self.ppu_status.idle = 0;
-                self.ppu_status.in_frame = false;
-                self.ppu_status.prev_addr = 0x0000;
+            if self.ppu_status.idle_count == 3 {
+                self.ppu_status.idle_count = 0;
+                self.irq_state.in_frame = false;
+                self.irq_state.prev_addr = None;
             }
         }
         self.ppu_status.reading = false;
+
         if self.cpu_cycle & 0x01 == 0x00 {
             self.pulse1.clock();
             self.pulse2.clock();
@@ -1029,8 +1036,8 @@ impl std::fmt::Debug for Exrom {
         f.debug_struct("Exrom")
             .field("regs", &self.regs)
             .field("mirroring", &self.mirroring)
-            .field("irq_pending", &self.irq_pending)
             .field("ppu_status", &self.ppu_status)
+            .field("irq_state", &self.irq_state)
             .field("exram_len", &self.exram.len())
             .field("prg_ram_banks", &self.prg_ram_banks)
             .field("prg_rom_banks", &self.prg_rom_banks)
