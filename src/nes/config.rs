@@ -211,7 +211,7 @@ impl Config {
         use anyhow::Context;
         use std::fs::{self, File};
 
-        if *self == Config::default() {
+        if *self == Config::default() || !self.control_deck.save_on_exit {
             // Don't save default configuration
             return Ok(());
         }

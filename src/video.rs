@@ -1,4 +1,4 @@
-use crate::ppu::Ppu;
+use crate::{ppu::Ppu, profile};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -81,6 +81,7 @@ impl Video {
     /// Fills a fully rendered frame of RENDER_SIZE RGB colors.
     #[inline]
     pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
+        profile!();
         match self.filter {
             VideoFilter::Pixellate => self.decode_buffer(buffer),
             VideoFilter::Ntsc => self.apply_ntsc_filter(buffer, frame_number),

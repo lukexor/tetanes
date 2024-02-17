@@ -1,9 +1,9 @@
 use crate::{
     frame_begin,
     nes::{
-        config::{Config, FRAME_TRIM_PITCH},
+        config::Config,
         event::{Event, RendererEvent},
-        gui::{self, Gui},
+        gui,
     },
     ppu::Ppu,
     profile,

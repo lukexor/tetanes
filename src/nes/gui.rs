@@ -1,8 +1,8 @@
 use crate::{
     control_deck,
-    input::{FourPlayer, Player},
+    input::{Player},
     nes::{config::Config, event::Event, Nes},
-    profiling, NesError,
+    NesError,
 };
 use pixels::{wgpu, PixelsContext};
 use serde::{Deserialize, Serialize};
@@ -549,7 +549,7 @@ impl State {
                         {
                             let mut profile = puffin::are_scopes_on();
                             ui.checkbox(&mut profile, "Toggle profiling");
-                            profiling::enable(profile);
+                            crate::profiling::enable(profile);
                         }
                         if ui.button("Toggle CPU Debugger").clicked() {
                             self.todo(ui);

@@ -7,7 +7,7 @@ use crate::{
         platform::{EventLoopExt, WindowBuilderExt},
         renderer::{BufferPool, Renderer},
     },
-    profile, profiling, NesResult,
+    profile, NesResult,
 };
 use config::Config;
 use std::sync::Arc;
@@ -42,7 +42,7 @@ pub struct Nes {
 impl Drop for Nes {
     fn drop(&mut self) {
         #[cfg(feature = "profiling")]
-        profiling::enable(false);
+        crate::profiling::enable(false);
         if let Err(err) = self.config.save() {
             log::error!("failed to save config: {err:?}");
         }

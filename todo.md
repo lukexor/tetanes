@@ -2,8 +2,9 @@
 
 ## Project
 
-- [ ] archive Github project todos
 - [ ] Rank and point TODOs
+- [ ] Clone and run winit, pixels, cpa, and egui examples - draft task ideas
+- [ ] archive Github project todos
 - [ ] Add todo autocommands/shortcuts
   - Enter on a todo line creates a new todo
   - shortcut to toggle completion
@@ -12,36 +13,25 @@
 
 ## High-level Priorities
 
-- [ ] fix zapper gun
-- [ ] Add puffin-like profiling metrics
-- [ ] Add `pix-gui` crate for rendering text and rects to start
-- [ ] Draw profiling metrics via rects for last 60 frames with 30ms scale for window
-      width
+- [ ] fix nmi/irq timing - 62aefa85ea810a41209ebc5fc7e541b34e573f6b
 - [ ] Render last frame duration text
-
-## Notes
-
-- Ensure spawn closures use an extra block scope to clone values to retain
-  variable names
 
 ## API Design Reference
 
 - [ ] ref: compile api design cheatsheet
+- Ensure spawn closures use an extra block scope to clone values to retain
+  variable names
 - `get(s: &Self) -> T` and `get(s: &mut Self) -> T` instead of `get(&self)` or
   `get(&mut self)` if that Self implements `Deref`/`DerefMut`
 - if/when using `thread::park` - ensure it's used in a loop to avoid spurious wakeups
 
 ## General
 
-- [ ] add thiserror for recoverable and non-recoverable errors
-- [ ] Switch to tracing crate
-- [ ] Disable control deck running on cpu corrupted, require reset
-- [ ] Clone and run winit, pixels, cpa, and egui examples - draft task ideas
-- [ ] Review all debug impls for accuracy
 - [ ] research: Explore more traits/new type wrappers to break up functionality
       in `nes` modules
 - [ ] Maybe split tetanes/nes into separate crates to decrease dev compile times
   - find a similar project with ui/backend to compare
+- [x] fix zapper gun
 - [x] ensure trace logs are compiled out of hot paths
 - [x] Remove clocking msg from main thread, switch to control flow wait
 - [x] Rename Backend to Threads
@@ -67,8 +57,16 @@
 - [x] Handle when `vsync` is enabled and `Mailbox` is not - hard to support
       falling back if Mailbox isn't available, not that important
 
+## Error Handling
+
+- [ ] add thiserror for recoverable and non-recoverable errors
+- [ ] Disable control deck running on cpu corrupted, require reset
+
 ## Performance Tuning
 
+- [ ] Fix puffin_egui
+- [ ] analyze opportunities for `rayon`
+- [ ] Add custom profiling tracking/visualizations similar to puffin
 - [ ] Perform perf tests:
   - [ ] Test single vs multi-threaded
   - [ ] CPU load playing, paused, occluded
@@ -165,10 +163,11 @@
 
 ## UI
 
+- [ ] fix screensaver starting while running
+- [ ] Add emojis to menus
+- [ ] Add save slot to title bar
 - [ ] Add hide/show menu bar & shortcut
-- [ ] Fix zapper cursor
 - [ ] Add key bindings to UI menu labels
-- [ ] Fix window icon on macos - winit lacks support
 - [ ] Pause emulation while moving/resizing
 - [ ] Keybindings menu
 - [ ] Recent game selection
@@ -184,6 +183,7 @@
 - [ ] Config path overrides
 - [ ] NTSC overscan toggle
 - [ ] Add always on top configuration
+- [ ] Fix window icon on macos - winit lacks support
 - [ ] Toggle MMC3 IRQ setting
 - [x] Add clear savestate buttons
 - [x] ~~Add `MessageType` enum for displaying Info, Debug, Warn, and Error
@@ -203,14 +203,12 @@
 
 - [ ] Fix controller support for 4 players
 - [ ] Add shortcut for `<C-+>` and `<C-->` to change window scale
-- [ ] Rename events module to keybinds?
 
 ## Debugging
 
-- [ ] Add FPS to screen using simple text function until EGUI is done
-- [ ] Add custom profiling tracking/visualizations similar to puffin
+- [ ] Review all debug impls for accuracy
 - [ ] Add CPU debugger
-  - [ ] instr/memory read/write breakpoints
+  - [ ] instr/memory read/write/exec breakpoints
   - [ ] Modify registers/memory
   - [ ] enable Label regions/addresses
   - [ ] Show irq/nmi status
@@ -219,17 +217,20 @@
 - [ ] Add PPU debugger
   - [ ] Nametable/Chr/Sprite/OAM views
   - [ ] Palette viewer
-  - [ ] Palette select
-  - [ ] Modify registers
-  - [ ] Toggle grid lines
-  - [ ] scanline/cycle slider
+  - [ ] Palette selection
+  - [ ] Modify registers/memory
+  - [ ] Toggle title grid lines
+  - [ ] Scanline/cycle sliders
   - [ ] Tile select with preview
-  - [ ] last known palette
+  - [ ] Last known palette
 - [ ] Add APU debugger
-- [ ] Performance benchmark suite
-- [ ] Run hyperfine on unit tests to benchmark inlining and perf changes
+  - [ ] Modify registers
+  - [ ] Enable/disable channels
+  - [ ] plot visual per channel
 - [ ] Update debug impls with hex values
-- [ ] Add file logging
+- [ ] Switch to tracing crate w/ file logging
+- [x] Performance bench
+- [x] Run hyperfine on unit tests to benchmark inlining and perf changes
 - [x] Add thread name to threads
 
 ## CPU
@@ -265,3 +266,6 @@
 - [ ] More mappers
 - [ ] wideNES feature
 - [ ] Network
+- [ ] Add `pix-gui` crate for rendering text and rects to start
+- [ ] Draw profiling metrics via rects for last 60 frames with 30ms scale for window
+      width
