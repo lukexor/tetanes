@@ -230,36 +230,30 @@ impl Ppu {
         ppu
     }
 
-    #[inline]
     #[must_use]
     pub const fn system_palette(pixel: u16) -> (u8, u8, u8) {
         Self::SYSTEM_PALETTE[(pixel as usize) & (Self::SYSTEM_PALETTE.len() - 1)]
     }
 
-    #[inline]
     #[must_use]
     pub const fn cycle(&self) -> u32 {
         self.cycle
     }
 
-    #[inline]
     #[must_use]
     pub const fn scanline(&self) -> u32 {
         self.scanline
     }
 
-    #[inline]
     pub const fn ctrl(&self) -> PpuCtrl {
         self.ctrl
     }
 
-    #[inline]
     #[must_use]
     pub fn frame_buffer(&self) -> &[u16] {
         self.frame.buffer()
     }
 
-    #[inline]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
         self.frame.number()
@@ -270,50 +264,43 @@ impl Ppu {
         self.frame.pixel_brightness(x, y)
     }
 
-    #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.bus.mapper = mapper;
         self.bus.update_mirroring();
     }
 
     #[must_use]
-    #[inline]
+
     pub const fn nmi_pending(&self) -> bool {
         self.nmi_pending
     }
 
-    #[inline]
     #[must_use]
     pub const fn addr(&self) -> u16 {
         self.scroll.read_addr()
     }
 
-    #[inline]
     #[must_use]
     pub const fn oamaddr(&self) -> u8 {
         self.oamaddr
     }
 
-    #[inline]
     #[must_use]
     pub const fn open_bus(&self) -> u8 {
         self.open_bus
     }
 
-    #[inline]
     pub fn set_open_bus(&mut self, val: u8) {
         self.open_bus = val;
     }
 }
 
 impl Ppu {
-    #[inline]
     #[must_use]
     const fn rendering_enabled(&self) -> bool {
         self.mask.show_bg() || self.mask.show_spr()
     }
 
-    #[inline]
     fn increment_vram_addr(&mut self) {
         // During rendering, v increments coarse X and coarse Y simultaneously
         if self.rendering_enabled()
@@ -327,7 +314,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn start_vblank(&mut self) {
         log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
@@ -345,7 +331,6 @@ impl Ppu {
         self.bus.mapper.ppu_bus_write(0x2002, val);
     }
 
-    #[inline]
     fn stop_vblank(&mut self) {
         log::trace!(
             "({}, {}): Clear Sprite0 Hit, Overflow",
@@ -362,7 +347,6 @@ impl Ppu {
         self.bus.mapper.ppu_bus_write(0x2002, val);
     }
 
-    #[inline]
     fn fetch_bg_nt_byte(&mut self) {
         // Fetch BG nametable
         // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
@@ -379,14 +363,12 @@ impl Ppu {
         self.tile_addr = self.ctrl.bg_select() | (tile_index << 4) | self.scroll.fine_y();
     }
 
-    #[inline]
     fn fetch_bg_attr_byte(&mut self) {
         let addr = self.scroll.attr_addr();
         let shift = self.scroll.attr_shift();
         self.next_palette = ((self.bus.read(addr, Access::Read) >> shift) & 0x03) << 2;
     }
 
-    #[inline]
     fn fetch_background(&mut self) {
         // Fetch 4 tiles and write out shift registers every 8th cycle
         // Each tile fetch takes 2 cycles
@@ -591,7 +573,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     // http://wiki.nesdev.com/w/index.php/PPU_OAM
     fn fetch_sprites(&mut self) {
         // OAMADDR set to $00 on prerender and visible scanlines
@@ -609,7 +590,6 @@ impl Ppu {
         }
     }
 
-    #[inline]
     fn pixel_color(&mut self) -> u8 {
         // Local variables improve cache locality
         let x = (self.cycle - 1) as i16;
@@ -672,7 +652,6 @@ impl Ppu {
         palette + bg_color
     }
 
-    #[inline]
     fn render_pixel(&mut self) {
         // Local variables improve cache locality
         let x = self.cycle - 1;
@@ -839,7 +818,7 @@ impl PpuRegisters for Ppu {
     //       |   5 | Sprite Size, 1 = 8x16, 0 = 8x8
     //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
     //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
-    #[inline]
+
     fn write_ctrl(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -873,7 +852,7 @@ impl PpuRegisters for Ppu {
     //       |   3 | BG Switch, 1 = show background, 0 = hide background
     //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
     //       | 5-7 | Unknown (???)
-    #[inline]
+
     fn write_mask(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -888,7 +867,7 @@ impl PpuRegisters for Ppu {
     //       |     | This flag resets to 0 when VBlank starts, or CPU reads $2002
     //       |   7 | VBlank Flag, 1 = PPU is generating a Vertical Blanking Impulse
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
-    #[inline]
+
     fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
         if self.nmi_pending() {
@@ -917,7 +896,7 @@ impl PpuRegisters for Ppu {
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
     //
     // Non-mutating version of `read_status`.
-    #[inline]
+
     fn peek_status(&self) -> u8 {
         // Only upper 3 bits are connected for this register
         (self.status.read() & 0xE0) | (self.open_bus & 0x1F)
@@ -928,7 +907,7 @@ impl PpuRegisters for Ppu {
     //       |     | accessed via $2004. This address will increment by 1 after
     //       |     | each access to $2004. The Sprite Memory contains coordinates,
     //       |     | colors, and other attributes of the sprites.
-    #[inline]
+
     fn write_oamaddr(&mut self, val: u8) {
         self.open_bus = val;
         self.oamaddr = val;
@@ -939,7 +918,7 @@ impl PpuRegisters for Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
-    #[inline]
+
     #[must_use]
     fn read_oamdata(&mut self) -> u8 {
         let val = self.peek_oamdata();
@@ -953,7 +932,7 @@ impl PpuRegisters for Ppu {
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
     // Non-mutating version of `read_oamdata`.
-    #[inline]
+
     #[must_use]
     fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
@@ -972,7 +951,7 @@ impl PpuRegisters for Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
-    #[inline]
+
     fn write_oamdata(&mut self, mut val: u8) {
         self.open_bus = val;
         if self.rendering_enabled()
@@ -1011,7 +990,7 @@ impl PpuRegisters for Ppu {
     //       |     | When scrolled, the picture may span over several Name Tables.
     //       |     | Remember, though, that because of the mirroring, there are
     //       |     | only 2 real Name Tables, not 4.
-    #[inline]
+
     fn write_scroll(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -1021,7 +1000,7 @@ impl PpuRegisters for Ppu {
     }
 
     // $2006 | W   | PPUADDR
-    #[inline]
+
     fn write_addr(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -1034,7 +1013,7 @@ impl PpuRegisters for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-    #[inline]
+
     #[must_use]
     fn read_data(&mut self) -> u8 {
         let addr = self.scroll.read_addr();
@@ -1067,7 +1046,7 @@ impl PpuRegisters for Ppu {
     // $2007 | RW  | PPUDATA
     //
     // Non-mutating version of `read_data`.
-    #[inline]
+
     #[must_use]
     fn peek_data(&self) -> u8 {
         let addr = self.scroll.read_addr();
@@ -1080,7 +1059,7 @@ impl PpuRegisters for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-    #[inline]
+
     fn write_data(&mut self, val: u8) {
         self.open_bus = val;
         let addr = self.scroll.read_addr();
@@ -1094,12 +1073,10 @@ impl PpuRegisters for Ppu {
 }
 
 impl Mem for Ppu {
-    #[inline]
     fn peek(&self, addr: u16, access: Access) -> u8 {
         self.bus.peek(addr, access)
     }
 
-    #[inline]
     fn write(&mut self, addr: u16, val: u8, access: Access) {
         self.bus.write(addr, val, access);
     }
@@ -1146,7 +1123,6 @@ impl Clock for Ppu {
         1
     }
 
-    #[inline]
     fn clock_to(&mut self, clock: u64) {
         while self.master_clock + self.clock_divider <= clock {
             self.clock();
@@ -1156,12 +1132,10 @@ impl Clock for Ppu {
 }
 
 impl Regional for Ppu {
-    #[inline]
     fn region(&self) -> NesRegion {
         self.region
     }
 
-    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         let (clock_divider, vblank_scanline, prerender_scanline) = match region {
             NesRegion::Ntsc => (4, 241, 261),

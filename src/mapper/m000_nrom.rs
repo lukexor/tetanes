@@ -43,7 +43,6 @@ impl MemMap for Nrom {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank 1 for NROM128 or NROM256
     // CPU $C000..=$FFFF 16K PRG-ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
 
-    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
@@ -57,7 +56,6 @@ impl MemMap for Nrom {
         }
     }
 
-    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
@@ -68,12 +66,10 @@ impl MemMap for Nrom {
 }
 
 impl Mapped for Nrom {
-    #[inline]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }

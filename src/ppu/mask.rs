@@ -34,42 +34,35 @@ impl PpuMask {
         Self::from_bits_truncate(0x00)
     }
 
-    #[inline]
     pub fn write(&mut self, val: u8) {
         *self = Self::from_bits_truncate(val);
     }
 
-    #[inline]
     #[must_use]
     pub const fn grayscale(&self) -> bool {
         self.contains(Self::GRAYSCALE)
     }
 
-    #[inline]
     #[must_use]
     pub const fn show_left_bg(&self) -> bool {
         self.contains(Self::SHOW_LEFT_BG)
     }
 
-    #[inline]
     #[must_use]
     pub const fn show_left_spr(&self) -> bool {
         self.contains(Self::SHOW_LEFT_SPR)
     }
 
-    #[inline]
     #[must_use]
     pub const fn show_bg(&self) -> bool {
         self.contains(Self::SHOW_BG)
     }
 
-    #[inline]
     #[must_use]
     pub const fn show_spr(&self) -> bool {
         self.contains(Self::SHOW_SPR)
     }
 
-    #[inline]
     #[must_use]
     pub fn emphasis(&self, region: NesRegion) -> u8 {
         let emphasis = match region {

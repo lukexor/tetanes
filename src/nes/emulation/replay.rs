@@ -33,13 +33,11 @@ pub struct Replay {
 }
 
 impl Replay {
-    #[inline]
     #[must_use]
     pub const fn is_recording(&self) -> bool {
         matches!(self.mode, Mode::Recording(..))
     }
 
-    #[inline]
     #[must_use]
     pub const fn is_playing(&self) -> bool {
         matches!(self.mode, Mode::Playback(..))

@@ -36,12 +36,10 @@ impl Axrom {
 }
 
 impl Mapped for Axrom {
-    #[inline]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }
@@ -51,7 +49,6 @@ impl MemMap for Axrom {
     // PPU $0000..=$1FFF 8K CHR-RAM Bank Fixed
     // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
-    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
@@ -60,7 +57,6 @@ impl MemMap for Axrom {
         }
     }
 
-    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),

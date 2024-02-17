@@ -151,7 +151,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[inline]
+
 pub(crate) fn filename(path: &Path) -> &str {
     path.file_name()
         .and_then(std::ffi::OsStr::to_str)

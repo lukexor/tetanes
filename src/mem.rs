@@ -12,21 +12,18 @@ pub enum Access {
 }
 
 pub trait Mem {
-    #[inline]
     fn read(&mut self, addr: u16, access: Access) -> u8 {
         self.peek(addr, access)
     }
 
     fn peek(&self, addr: u16, access: Access) -> u8;
 
-    #[inline]
     fn read_u16(&mut self, addr: u16, access: Access) -> u16 {
         let lo = self.read(addr, access);
         let hi = self.read(addr.wrapping_add(1), access);
         u16::from_le_bytes([lo, hi])
     }
 
-    #[inline]
     fn peek_u16(&self, addr: u16, access: Access) -> u16 {
         let lo = self.peek(addr, access);
         let hi = self.peek(addr.wrapping_add(1), access);
@@ -35,7 +32,6 @@ pub trait Mem {
 
     fn write(&mut self, addr: u16, val: u8, access: Access);
 
-    #[inline]
     fn write_u16(&mut self, addr: u16, val: u16, access: Access) {
         let [lo, hi] = val.to_le_bytes();
         self.write(addr, lo, access);
@@ -143,14 +139,12 @@ impl MemBanks {
         }
     }
 
-    #[inline]
     pub fn set(&mut self, slot: usize, bank: usize) {
         assert!(slot < self.banks.len());
         self.banks[slot] = (bank & self.mask) << self.shift;
         debug_assert!(self.banks[slot] < self.page_count * self.window);
     }
 
-    #[inline]
     pub fn set_range(&mut self, start: usize, end: usize, bank: usize) {
         let mut new_addr = (bank & self.mask) << self.shift;
         for slot in start..=end {
@@ -161,13 +155,11 @@ impl MemBanks {
         }
     }
 
-    #[inline]
     #[must_use]
     pub const fn last(&self) -> usize {
         self.page_count.saturating_sub(1)
     }
 
-    #[inline]
     #[must_use]
     pub const fn get(&self, addr: u16) -> usize {
         // $6005    - 0b0110000000000101 -> bank 0
@@ -185,7 +177,6 @@ impl MemBanks {
         ((addr as usize) & self.size) >> self.shift
     }
 
-    #[inline]
     #[must_use]
     pub fn translate(&self, addr: u16) -> usize {
         // $6005    - 0b0110000000000101 -> bank 0

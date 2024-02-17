@@ -79,7 +79,6 @@ impl Apu {
         }
     }
 
-    #[inline]
     #[must_use]
     pub const fn channel_enabled(&self, channel: Channel) -> bool {
         match channel {
@@ -101,7 +100,6 @@ impl Apu {
         }
     }
 
-    #[inline]
     pub fn irqs_pending(&self) -> Irq {
         let mut irq = Irq::empty();
         irq.set(Irq::FRAME_COUNTER, self.irq_pending);
@@ -109,19 +107,16 @@ impl Apu {
         irq
     }
 
-    #[inline]
     #[must_use]
     pub fn dmc_dma(&mut self) -> bool {
         self.dmc.dma()
     }
 
-    #[inline]
     #[must_use]
     pub const fn dmc_dma_addr(&self) -> u16 {
         self.dmc.dma_addr()
     }
 
-    #[inline]
     pub fn load_dmc_buffer(&mut self, val: u8) {
         self.dmc.load_buffer(val);
     }
@@ -167,7 +162,6 @@ impl Apu {
         }
     }
 
-    #[inline]
     fn clock_quarter_frame(&mut self) {
         self.pulse1.clock_quarter_frame();
         self.pulse2.clock_quarter_frame();
@@ -175,7 +169,6 @@ impl Apu {
         self.noise.clock_quarter_frame();
     }
 
-    #[inline]
     fn clock_half_frame(&mut self) {
         self.pulse1.clock_half_frame();
         self.pulse2.clock_half_frame();
@@ -342,7 +335,6 @@ impl ApuRegisters for Apu {
 }
 
 impl Audio for Apu {
-    #[inline]
     #[must_use]
     fn output(&self) -> f32 {
         let pulse1 = self.pulse1.output();
@@ -357,7 +349,6 @@ impl Audio for Apu {
 }
 
 impl Clock for Apu {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {
@@ -376,12 +367,10 @@ impl Clock for Apu {
 }
 
 impl Regional for Apu {
-    #[inline]
     fn region(&self) -> NesRegion {
         self.region
     }
 
-    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.frame_counter.set_region(region);

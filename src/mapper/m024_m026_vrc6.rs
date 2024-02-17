@@ -69,13 +69,11 @@ impl Vrc6 {
         vrc6.into()
     }
 
-    #[inline]
     #[must_use]
     const fn prg_ram_enabled(&self) -> bool {
         self.regs.banking_mode & 0x80 == 0x80
     }
 
-    #[inline]
     fn set_nametables(&mut self, nametables: &[usize]) {
         for (bank, page) in nametables.iter().enumerate() {
             self.set_nametable_page(bank, *page);
@@ -93,7 +91,6 @@ impl Vrc6 {
         }
     }
 
-    #[inline]
     fn set_nametable_page(&mut self, bank: usize, page: usize) {
         self.nt_banks[bank] = page;
     }
@@ -225,17 +222,14 @@ impl Vrc6 {
 }
 
 impl Mapped for Vrc6 {
-    #[inline]
     fn irq_pending(&self) -> bool {
         self.irq.pending()
     }
 
-    #[inline]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }
@@ -257,7 +251,6 @@ impl MemMap for Vrc6 {
     // CPU $C000..=$DFFF 8K switchable PRG-ROM bank
     // CPU $E000..=$FFFF 8K PRG-ROM bank, fixed to the last bank
 
-    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -279,7 +272,6 @@ impl MemMap for Vrc6 {
         }
     }
 
-    #[inline]
     fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
         if self.prg_ram_enabled() && matches!(addr, 0x6000..=0x7FFF) {
             return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
@@ -344,7 +336,6 @@ impl Audio for Vrc6 {
 }
 
 impl Clock for Vrc6 {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.irq.clock();
         self.audio.clock();
@@ -390,14 +381,12 @@ impl Vrc6Audio {
         }
     }
 
-    #[inline]
     #[must_use]
     fn output(&self) -> f32 {
         let pulse_scale = PULSE_TABLE[PULSE_TABLE.len() - 1] / 15.0;
         pulse_scale * self.out
     }
 
-    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         // Only A0, A1 and A12-15 are used for registers, remaining addresses are mirrored.
         match addr & 0xF003 {
@@ -423,7 +412,6 @@ impl Vrc6Audio {
 }
 
 impl Clock for Vrc6Audio {
-    #[inline]
     fn clock(&mut self) -> usize {
         if !self.halt {
             self.pulse1.clock();
@@ -476,7 +464,6 @@ impl Vrc6Pulse {
         }
     }
 
-    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         match addr & 0x03 {
             0 => {
@@ -496,12 +483,10 @@ impl Vrc6Pulse {
         }
     }
 
-    #[inline]
     fn set_freq_shift(&mut self, val: u8) {
         self.freq_shift = val;
     }
 
-    #[inline]
     fn volume(&self) -> f32 {
         if self.enabled && (self.ignore_duty || self.step <= self.duty_cycle) {
             f32::from(self.volume)
@@ -512,7 +497,6 @@ impl Vrc6Pulse {
 }
 
 impl Clock for Vrc6Pulse {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;
@@ -557,7 +541,6 @@ impl Vrc6Saw {
         }
     }
 
-    #[inline]
     fn write_register(&mut self, addr: u16, val: u8) {
         match addr & 0x03 {
             0 => {
@@ -576,12 +559,10 @@ impl Vrc6Saw {
         }
     }
 
-    #[inline]
     fn set_freq_shift(&mut self, val: u8) {
         self.freq_shift = val;
     }
 
-    #[inline]
     fn volume(&self) -> f32 {
         if self.enabled {
             f32::from(self.accum >> 3)
@@ -592,7 +573,6 @@ impl Vrc6Saw {
 }
 
 impl Clock for Vrc6Saw {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;

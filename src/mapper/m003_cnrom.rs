@@ -38,7 +38,6 @@ impl MemMap for Cnrom {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Fixed
     // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed or Bank 1 Mirror if only 16 KB PRG-ROM
 
-    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -51,7 +50,6 @@ impl MemMap for Cnrom {
         }
     }
 
-    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, val.into());
@@ -61,12 +59,10 @@ impl MemMap for Cnrom {
 }
 
 impl Mapped for Cnrom {
-    #[inline]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }

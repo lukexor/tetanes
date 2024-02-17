@@ -116,22 +116,18 @@ impl Input {
         }
     }
 
-    #[inline]
     pub const fn joypad(&self, player: Player) -> &Joypad {
         &self.joypads[player as usize]
     }
 
-    #[inline]
     pub fn joypad_mut(&mut self, player: Player) -> &mut Joypad {
         &mut self.joypads[player as usize]
     }
 
-    #[inline]
     pub fn connect_zapper(&mut self, connected: bool) {
         self.zapper.connected = connected;
     }
 
-    #[inline]
     pub fn set_four_player(&mut self, four_player: FourPlayer) {
         self.four_player = four_player;
         self.reset(ResetKind::Hard);
@@ -216,7 +212,6 @@ impl InputRegisters for Input {
 }
 
 impl Clock for Input {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.zapper.clock();
         if self.turbo_timer > 0 {
@@ -345,18 +340,15 @@ impl Joypad {
         }
     }
 
-    #[inline]
     #[must_use]
     pub const fn button(&self, button: JoypadBtnState) -> bool {
         self.buttons.contains(button)
     }
 
-    #[inline]
     pub fn set_button(&mut self, button: JoypadBtnState, pressed: bool) {
         self.buttons.set(button, pressed);
     }
 
-    #[inline]
     pub const fn signature(val: u16) -> Self {
         Self {
             buttons: JoypadBtnState::from_bits_truncate(val),
@@ -365,7 +357,6 @@ impl Joypad {
         }
     }
 
-    #[inline]
     #[must_use]
     pub fn read(&mut self) -> u8 {
         let val = self.peek();
@@ -375,7 +366,6 @@ impl Joypad {
         val
     }
 
-    #[inline]
     #[must_use]
     pub const fn peek(&self) -> u8 {
         if self.index < 8 {
@@ -385,7 +375,6 @@ impl Joypad {
         }
     }
 
-    #[inline]
     pub fn write(&mut self, val: u8) {
         let prev_strobe = self.strobe;
         self.strobe = val & 0x01 == 0x01;
@@ -394,7 +383,6 @@ impl Joypad {
         }
     }
 
-    #[inline]
     #[must_use]
     pub const fn index(&self) -> u8 {
         self.index
@@ -420,19 +408,16 @@ pub struct Zapper {
 }
 
 impl Zapper {
-    #[inline]
     #[must_use]
     pub const fn x(&self) -> i32 {
         self.x
     }
 
-    #[inline]
     #[must_use]
     pub const fn y(&self) -> i32 {
         self.y
     }
 
-    #[inline]
     pub fn trigger(&mut self) {
         if self.triggered <= 0.0 {
             // Zapper takes ~100ms to change to "released" after trigger is pulled
@@ -440,7 +425,6 @@ impl Zapper {
         }
     }
 
-    #[inline]
     pub fn aim(&mut self, x: i32, y: i32) {
         self.x = x;
         self.y = y;
@@ -458,7 +442,6 @@ impl Zapper {
         }
     }
 
-    #[inline]
     #[must_use]
     fn read(&self, ppu: &Ppu) -> u8 {
         if self.connected {
@@ -468,7 +451,6 @@ impl Zapper {
         }
     }
 
-    #[inline]
     fn triggered(&self) -> u8 {
         if self.triggered > 0.0 {
             0x10
@@ -477,7 +459,6 @@ impl Zapper {
         }
     }
 
-    #[inline]
     fn light_sense(&self, ppu: &Ppu) -> u8 {
         let width = Ppu::WIDTH as i32;
         let height = Ppu::HEIGHT as i32;
@@ -505,7 +486,6 @@ impl Zapper {
 }
 
 impl Clock for Zapper {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.triggered > 0.0 {
             self.triggered -= 1.0;

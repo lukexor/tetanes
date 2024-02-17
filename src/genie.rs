@@ -66,19 +66,16 @@ impl GenieCode {
         })
     }
 
-    #[inline]
     #[must_use]
     pub fn code(&self) -> &str {
         &self.code
     }
 
-    #[inline]
     #[must_use]
     pub const fn addr(&self) -> u16 {
         self.addr
     }
 
-    #[inline]
     #[must_use]
     pub const fn read(&self, val: u8) -> u8 {
         if let Some(compare) = self.compare {

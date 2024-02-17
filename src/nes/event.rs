@@ -806,7 +806,7 @@ pub enum DebugAction {
 // }
 
 // impl Nes {
-//     #[inline]
+//
 //     pub fn handle_controller_update(&mut self, device_id: DeviceId, update: ControllerUpdate) {
 //         match update {
 //             ControllerUpdate::Added => {
@@ -828,7 +828,7 @@ pub enum DebugAction {
 //         }
 //     }
 
-//     #[inline]
+//
 //     pub fn handle_controller_event(
 //         &mut self,
 //         device_id: DeviceId,
@@ -845,7 +845,7 @@ pub enum DebugAction {
 //         }
 //     }
 
-//     #[inline]
+//
 //     pub fn handle_controller_axis_motion(&mut self, device_id: DeviceId, axis: AxisId, value: f64) {
 //         if let Some(player) = self.get_controller_player(device_id) {
 //             let direction = if value < self.config.controller_deadzone {
@@ -876,7 +876,7 @@ pub enum DebugAction {
 // }
 
 // impl Nes {
-//     #[inline]
+//
 //     fn get_controller_player(&self, device_id: DeviceId) -> Option<Slot> {
 //         self.controllers.iter().enumerate().find_map(|(player, id)| {
 //             (*id == Some(device_id)).then_some(Slot::try_from(player).expect("valid player index"))

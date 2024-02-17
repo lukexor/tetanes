@@ -469,59 +469,48 @@ impl Exrom {
         };
     }
 
-    #[inline]
     fn read_exram(&self, addr: u16) -> u8 {
         self.exram[(addr & 0x03FF) as usize]
     }
 
-    #[inline]
     fn write_exram(&mut self, addr: u16, val: u8) {
         self.exram[(addr & 0x03FF) as usize] = val;
     }
 
-    #[inline]
     fn inc_fetch_count(&mut self) {
         self.ppu_status.fetch_count += 1;
     }
 
-    #[inline]
     const fn fetch_count(&self) -> u32 {
         self.ppu_status.fetch_count
     }
 
-    #[inline]
     const fn sprite8x16(&self) -> bool {
         self.ppu_status.sprite8x16
     }
 
-    #[inline]
     fn spr_fetch(&self) -> bool {
         (Self::SPR_FETCH_START..Self::SPR_FETCH_END).contains(&self.fetch_count())
     }
 
-    #[inline]
     const fn nametable_select(&self, addr: u16) -> Nametable {
         self.regs.nametable_mapping.select[((addr >> 10) & 0x03) as usize]
     }
 }
 
 impl Mapped for Exrom {
-    #[inline]
     fn irq_pending(&self) -> bool {
         self.regs.irq_enabled && self.irq_state.pending
     }
 
-    #[inline]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }
 
-    #[inline]
     fn cpu_bus_write(&mut self, addr: u16, val: u8) {
         match addr {
             0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
@@ -538,12 +527,10 @@ impl Mapped for Exrom {
 }
 
 impl Regional for Exrom {
-    #[inline]
     fn region(&self) -> NesRegion {
         self.dmc.region()
     }
 
-    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         self.dmc.set_region(region);
     }
@@ -597,7 +584,6 @@ impl MemMap for Exrom {
     // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
     // CPU $E000..=$FFFF 8K switchable PRG ROM bank
 
-    #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
@@ -665,7 +651,6 @@ impl MemMap for Exrom {
         val
     }
 
-    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
@@ -782,7 +767,6 @@ impl MemMap for Exrom {
         }
     }
 
-    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x2000..=0x3EFF => match self.nametable_select(addr) {

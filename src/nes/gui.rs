@@ -1,6 +1,6 @@
 use crate::{
     control_deck,
-    input::{Player},
+    input::Player,
     nes::{config::Config, event::Event, Nes},
     NesError,
 };
@@ -28,7 +28,6 @@ pub enum ConfigTab {
 }
 
 impl ConfigTab {
-    #[inline]
     #[must_use]
     pub const fn as_slice() -> &'static [Self] {
         &[Self::General, Self::Emulation, Self::Audio, Self::Video]
@@ -66,13 +65,11 @@ pub enum SampleRate {
 }
 
 impl SampleRate {
-    #[inline]
     #[must_use]
     pub const fn as_slice() -> &'static [Self] {
         &[Self::S32, Self::S44_1, Self::S48, Self::S96]
     }
 
-    #[inline]
     #[must_use]
     pub const fn as_f32(self) -> f32 {
         match self {
@@ -134,7 +131,6 @@ pub enum Speed {
 }
 
 impl Speed {
-    #[inline]
     #[must_use]
     pub const fn as_slice() -> &'static [Self] {
         &[
@@ -149,7 +145,6 @@ impl Speed {
         ]
     }
 
-    #[inline]
     #[must_use]
     pub const fn as_f32(self) -> f32 {
         match self {
@@ -659,7 +654,6 @@ impl State {
 }
 
 impl Nes {
-    #[inline]
     pub fn add_message<S>(&mut self, text: S)
     where
         S: Into<String>,
@@ -673,7 +667,6 @@ impl Nes {
             .push((text, Instant::now()));
     }
 
-    #[inline]
     pub fn on_error(&mut self, err: NesError) {
         self.pause(true);
         log::error!("{err:?}");

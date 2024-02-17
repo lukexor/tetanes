@@ -48,13 +48,11 @@ impl FrameCounter {
         }
     }
 
-    #[inline]
     pub(crate) fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.step_cycles = Self::step_cycles(region);
     }
 
-    #[inline]
     const fn step_cycles(region: NesRegion) -> [[u16; 6]; 2] {
         match region {
             NesRegion::Ntsc | NesRegion::Dendy => Self::STEP_CYCLES_NTSC,
@@ -62,7 +60,6 @@ impl FrameCounter {
         }
     }
 
-    #[inline]
     pub(crate) fn update(&mut self) -> bool {
         if let Some(val) = self.write_buffer {
             self.write_delay -= 1;
@@ -99,7 +96,6 @@ impl FrameCounter {
 }
 
 impl Clock for FrameCounter {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.cycles > 0 {
             self.cycles -= 1;

@@ -14,11 +14,10 @@ pub trait PpuAddr {
 }
 
 impl PpuAddr for u16 {
-    #[inline]
     fn is_attr(&self) -> bool {
         (*self & 0x03FF) >= 0x03C0
     }
-    #[inline]
+
     fn is_palette(&self) -> bool {
         *self >= 0x3F00
     }
@@ -58,22 +57,18 @@ impl PpuBus {
         }
     }
 
-    #[inline]
     pub fn mirroring(&self) -> Mirroring {
         self.mapper.mirroring()
     }
 
-    #[inline]
     pub fn update_mirroring(&mut self) {
         self.mirror_shift = self.mapper.mirroring() as usize;
     }
 
-    #[inline]
     pub fn load_chr(&mut self, chr: Vec<u8>) {
         self.chr = chr;
     }
 
-    #[inline]
     pub fn load_ex_ram(&mut self, ex_ram: Vec<u8>) {
         self.exram = ex_ram;
     }
@@ -95,13 +90,12 @@ impl PpuBus {
     //                  [ b ] [ b ]
     //
     // Fourscreen should not use this method and instead should rely on mapper translation.
-    #[inline]
+
     const fn ciram_mirror(&self, addr: usize) -> usize {
         let nametable = (addr >> self.mirror_shift) & (Ppu::NT_SIZE as usize);
         nametable | (!nametable & addr & 0x03FF)
     }
 
-    #[inline]
     const fn palette_mirror(&self, addr: usize) -> usize {
         addr & 0x001F
     }
@@ -214,7 +208,6 @@ impl Mem for PpuBus {
 }
 
 impl Regional for PpuBus {
-    #[inline]
     fn region(&self) -> NesRegion {
         self.mapper.region()
     }

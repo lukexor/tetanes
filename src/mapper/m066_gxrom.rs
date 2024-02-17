@@ -40,7 +40,6 @@ impl MemMap for Gxrom {
     // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
     // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
 
-    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -49,7 +48,6 @@ impl MemMap for Gxrom {
         }
     }
 
-    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, (val & Self::CHR_BANK_MASK).into());
@@ -61,12 +59,10 @@ impl MemMap for Gxrom {
 }
 
 impl Mapped for Gxrom {
-    #[inline]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }

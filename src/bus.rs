@@ -118,18 +118,15 @@ impl Bus {
         self.ppu.load_mapper(Mapper::default());
     }
 
-    #[inline]
     #[must_use]
     pub fn sram(&self) -> &[u8] {
         &self.prg_ram
     }
 
-    #[inline]
     pub fn load_sram(&mut self, sram: Vec<u8>) {
         self.prg_ram = sram;
     }
 
-    #[inline]
     #[must_use]
     pub fn wram(&self) -> &[u8] {
         &self.wram
@@ -147,30 +144,25 @@ impl Bus {
         Ok(())
     }
 
-    #[inline]
     pub fn remove_genie_code(&mut self, code: &str) {
         self.genie_codes.retain(|_, gc| gc.code() != code);
     }
 
-    #[inline]
     fn genie_read(&self, addr: u16, val: u8) -> u8 {
         self.genie_codes
             .get(&addr)
             .map_or(val, |genie_code| genie_code.read(val))
     }
 
-    #[inline]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         &self.audio_samples
     }
 
-    #[inline]
     pub fn clear_audio_samples(&mut self) {
         self.audio_samples.clear();
     }
 
-    #[inline]
     pub fn irqs_pending(&self) -> Irq {
         let mut irq = Irq::empty();
         irq.set(Irq::MAPPER, self.ppu.bus.mapper.irq_pending());
@@ -178,26 +170,22 @@ impl Bus {
         irq
     }
 
-    #[inline]
     #[must_use]
     pub const fn oam_dma(&self) -> bool {
         self.oam_dma
     }
 
-    #[inline]
     #[must_use]
     pub const fn oam_dma_addr(&self) -> u16 {
         self.oam_dma_addr
     }
 
-    #[inline]
     pub fn oam_dma_finish(&mut self) {
         self.oam_dma = false;
     }
 }
 
 impl Clock for Bus {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.cycle = self.cycle.wrapping_add(1);
         self.apu.clock();
@@ -215,7 +203,6 @@ impl Clock for Bus {
         1
     }
 
-    #[inline]
     fn clock_to(&mut self, clock: u64) {
         self.ppu.clock_to(clock);
     }
@@ -333,12 +320,10 @@ impl Mem for Bus {
 }
 
 impl Regional for Bus {
-    #[inline]
     fn region(&self) -> NesRegion {
         self.region
     }
 
-    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.ppu.set_region(region);

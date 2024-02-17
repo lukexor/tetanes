@@ -18,7 +18,7 @@ pub fn enable(enabled: bool) {
 pub struct Server(puffin_http::Server);
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
-#[inline]
+
 pub fn start_server() -> anyhow::Result<Server> {
     let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
     Ok(Server(puffin_http::Server::new(&server_addr)?))

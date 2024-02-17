@@ -18,7 +18,6 @@ pub struct VrcIrq {
 }
 
 impl VrcIrq {
-    #[inline]
     pub fn write_reload(&mut self, val: u8) {
         self.reload = val;
     }
@@ -36,13 +35,11 @@ impl VrcIrq {
         self.pending = false;
     }
 
-    #[inline]
     #[must_use]
     pub const fn pending(&self) -> bool {
         self.pending
     }
 
-    #[inline]
     pub fn acknowledge(&mut self) {
         self.enabled = self.enabled_after_ack;
         self.pending = false;
@@ -50,7 +47,6 @@ impl VrcIrq {
 }
 
 impl Clock for VrcIrq {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.prescalar_counter -= 3;

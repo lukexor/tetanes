@@ -202,7 +202,6 @@ impl Mixer {
         )
     }
 
-    #[inline]
     fn process_samples(
         samples: &[f32],
         buffer: &mut Vec<f32>,

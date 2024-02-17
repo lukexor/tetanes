@@ -21,25 +21,21 @@ impl LengthCounter {
         }
     }
 
-    #[inline]
     #[must_use]
     pub const fn counter(&self) -> u8 {
         self.counter
     }
 
-    #[inline]
     pub fn load_value(&mut self, val: u8) {
         self.counter = Self::LENGTH_TABLE[(val >> 3) as usize]; // D7..D3
     }
 
-    #[inline]
     pub fn write_ctrl(&mut self, val: u8) {
         self.enabled = (val >> 5) & 1 == 0; // !D5
     }
 }
 
 impl Clock for LengthCounter {
-    #[inline]
     fn clock(&mut self) -> usize {
         if self.enabled && self.counter > 0 {
             self.counter -= 1;

@@ -37,24 +37,20 @@ impl Triangle {
         }
     }
 
-    #[inline]
     #[must_use]
     pub const fn silent(&self) -> bool {
         self.force_silent
     }
 
-    #[inline]
     pub fn toggle_silent(&mut self) {
         self.force_silent = !self.force_silent;
     }
 
-    #[inline]
     #[must_use]
     pub const fn length_counter(&self) -> u8 {
         self.length.counter()
     }
 
-    #[inline]
     pub fn clock_quarter_frame(&mut self) {
         if self.linear.reload {
             self.linear.counter = self.linear.load;
@@ -66,12 +62,10 @@ impl Triangle {
         }
     }
 
-    #[inline]
     pub fn clock_half_frame(&mut self) {
         self.length.clock();
     }
 
-    #[inline]
     #[must_use]
     pub fn output(&self) -> f32 {
         if self.force_silent {
@@ -85,19 +79,16 @@ impl Triangle {
         }
     }
 
-    #[inline]
     pub fn write_linear_counter(&mut self, val: u8) {
         self.linear.control = (val >> 7) & 1 == 1; // D7
         self.length.enabled = (val >> 7) & 1 == 0; // !D7
         self.linear.load_value(val);
     }
 
-    #[inline]
     pub fn write_timer_lo(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
     }
 
-    #[inline]
     pub fn write_timer_hi(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
         self.freq_counter = self.freq_timer;
@@ -107,7 +98,6 @@ impl Triangle {
         }
     }
 
-    #[inline]
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
@@ -117,7 +107,6 @@ impl Triangle {
 }
 
 impl Clock for Triangle {
-    #[inline]
     fn clock(&mut self) -> usize {
         self.ultrasonic = false;
         if self.length.counter > 0 && self.freq_timer < 2 && self.freq_counter == 0 {

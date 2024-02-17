@@ -182,7 +182,6 @@ impl Config {
         );
     }
 
-    #[inline]
     #[must_use]
     pub fn get_dimensions(&self) -> (u32, u32) {
         let (width, height) = match self.control_deck.region {

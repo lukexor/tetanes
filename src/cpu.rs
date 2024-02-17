@@ -157,7 +157,6 @@ impl Cpu {
         cpu
     }
 
-    #[inline]
     #[must_use]
     pub const fn region_clock_rate(region: NesRegion) -> f32 {
         match region {
@@ -167,7 +166,6 @@ impl Cpu {
         }
     }
 
-    #[inline]
     #[must_use]
     pub const fn clock_rate(&self) -> f32 {
         Self::region_clock_rate(self.region)
@@ -260,7 +258,6 @@ impl Cpu {
         self.handle_interrupts();
     }
 
-    #[inline]
     fn process_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
         if self.dma_halt {
@@ -333,13 +330,12 @@ impl Cpu {
     // Status Register functions
 
     // Convenience method to set both Z and N
-    #[inline]
+
     fn set_zn_status(&mut self, val: u8) {
         self.status.set(Status::Z, val == 0x00);
         self.status.set(Status::N, val & 0x80 == 0x80);
     }
 
-    #[inline]
     const fn status_bit(&self, reg: Status) -> u8 {
         self.status.intersection(reg).bits()
     }
@@ -347,7 +343,7 @@ impl Cpu {
     // Stack Functions
 
     // Push a byte to the stack
-    #[inline]
+
     fn push(&mut self, val: u8) {
         self.write(Self::SP_BASE | u16::from(self.sp), val, Access::Write);
         self.sp = self.sp.wrapping_sub(1);
@@ -355,7 +351,7 @@ impl Cpu {
 
     // Pull a byte from the stack
     #[must_use]
-    #[inline]
+
     fn pop(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         self.read(Self::SP_BASE | u16::from(self.sp), Access::Read)
@@ -363,7 +359,7 @@ impl Cpu {
 
     // Peek byte at the top of the stack
     #[must_use]
-    #[inline]
+
     pub fn peek_stack(&self) -> u8 {
         self.peek(
             Self::SP_BASE | u16::from(self.sp.wrapping_add(1)),
@@ -373,7 +369,7 @@ impl Cpu {
 
     // Peek at the top of the stack
     #[must_use]
-    #[inline]
+
     pub fn peek_stack_u16(&self) -> u16 {
         let lo = self.peek(Self::SP_BASE | u16::from(self.sp), Access::Dummy);
         let hi = self.peek(
@@ -384,7 +380,7 @@ impl Cpu {
     }
 
     // Push a word (two bytes) to the stack
-    #[inline]
+
     fn push_u16(&mut self, val: u16) {
         let [lo, hi] = val.to_le_bytes();
         self.push(hi);
@@ -392,7 +388,7 @@ impl Cpu {
     }
 
     // Pull a word (two bytes) from the stack
-    #[inline]
+
     fn pop_u16(&mut self) -> u16 {
         let lo = self.pop();
         let hi = self.pop();
@@ -441,7 +437,7 @@ impl Cpu {
 
     // Writes data back to where fetched_data was sourced from. Either accumulator or memory
     // specified in abs_addr.
-    #[inline]
+
     fn write_fetched(&mut self, val: u8) {
         match self.instr.addr_mode() {
             IMP | ACC => self.acc = val,
@@ -452,7 +448,7 @@ impl Cpu {
 
     // Reads an instruction byte and increments PC by 1.
     #[must_use]
-    #[inline]
+
     fn read_instr(&mut self) -> u8 {
         let val = self.read(self.pc, Access::Read);
         self.pc = self.pc.wrapping_add(1);
@@ -461,7 +457,7 @@ impl Cpu {
 
     // Reads an instruction 16-bit word and increments PC by 2.
     #[must_use]
-    #[inline]
+
     fn read_instr_u16(&mut self) -> u16 {
         let lo = self.read_instr();
         let hi = self.read_instr();
@@ -470,7 +466,7 @@ impl Cpu {
 
     // Read a 16-bit word.
     #[must_use]
-    #[inline]
+
     pub fn read_u16(&mut self, addr: u16) -> u16 {
         let lo = self.read(addr, Access::Read);
         let hi = self.read(addr.wrapping_add(1), Access::Read);
@@ -479,7 +475,7 @@ impl Cpu {
 
     // Peek a 16-bit word without side effects.
     #[must_use]
-    #[inline]
+
     pub fn peek_u16(&self, addr: u16) -> u16 {
         let lo = self.peek(addr, Access::Dummy);
         let hi = self.peek(addr.wrapping_add(1), Access::Dummy);
@@ -488,7 +484,7 @@ impl Cpu {
 
     // Like read_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
-    #[inline]
+
     fn read_zp_u16(&mut self, addr: u8) -> u16 {
         let lo = self.read(addr.into(), Access::Read);
         let hi = self.read(addr.wrapping_add(1).into(), Access::Read);
@@ -497,7 +493,7 @@ impl Cpu {
 
     // Like peek_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
-    #[inline]
+
     fn peek_zp_u16(&self, addr: u8) -> u16 {
         let lo = self.peek(addr.into(), Access::Dummy);
         let hi = self.peek(addr.wrapping_add(1).into(), Access::Dummy);
@@ -655,7 +651,7 @@ impl Cpu {
     /// Utilities
 
     #[must_use]
-    #[inline]
+
     const fn pages_differ(addr1: u16, addr2: u16) -> bool {
         (addr1 & 0xFF00) != (addr2 & 0xFF00)
     }
@@ -784,7 +780,6 @@ impl Clock for Cpu {
 }
 
 impl Mem for Cpu {
-    #[inline]
     fn read(&mut self, addr: u16, access: Access) -> u8 {
         if self.dma_halt || self.bus.oam_dma() {
             self.handle_dma(addr);
@@ -796,12 +791,10 @@ impl Mem for Cpu {
         val
     }
 
-    #[inline]
     fn peek(&self, addr: u16, access: Access) -> u8 {
         self.bus.peek(addr, access)
     }
 
-    #[inline]
     fn write(&mut self, addr: u16, val: u8, access: Access) {
         self.start_cycle(self.write_cycles.start);
         self.bus.write(addr, val, access);
@@ -810,7 +803,6 @@ impl Mem for Cpu {
 }
 
 impl Regional for Cpu {
-    #[inline]
     fn region(&self) -> NesRegion {
         self.region
     }

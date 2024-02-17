@@ -163,63 +163,56 @@ impl Cart {
         Ok(cart)
     }
 
-    #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    #[inline]
     #[must_use]
     pub fn chr(&self) -> &[u8] {
         &self.chr
     }
 
-    #[inline]
     #[must_use]
     pub fn prg_rom(&self) -> &[u8] {
         &self.prg_rom
     }
 
-    #[inline]
     #[must_use]
     pub fn prg_ram(&self) -> &[u8] {
         &self.prg_ram
     }
 
-    #[inline]
     #[must_use]
     pub fn has_chr(&self) -> bool {
         !self.chr.is_empty()
     }
 
-    #[inline]
     #[must_use]
     pub fn chr_len(&self) -> usize {
         self.chr.len()
     }
 
-    #[inline]
     #[must_use]
     pub fn has_prg_ram(&self) -> bool {
         !self.prg_ram.is_empty()
     }
 
     /// Returns whether this cartridge has battery-backed Save RAM.
-    #[inline]
+
     #[must_use]
     pub const fn battery_backed(&self) -> bool {
         self.header.flags & 0x02 == 0x02
     }
 
     /// Returns `RamState`.
-    #[inline]
+
     pub const fn ram_state(&self) -> RamState {
         self.ram_state
     }
 
     /// Returns hardware configured `Mirroring`.
-    #[inline]
+
     pub fn mirroring(&self) -> Mirroring {
         if self.header.flags & 0x08 == 0x08 {
             Mirroring::FourScreen
@@ -233,21 +226,21 @@ impl Cart {
     }
 
     /// Returns the Mapper number for this Cart.
-    #[inline]
+
     #[must_use]
     pub const fn mapper_num(&self) -> u16 {
         self.header.mapper_num
     }
 
     /// Returns the Sub-Mapper number for this Cart.
-    #[inline]
+
     #[must_use]
     pub const fn submapper_num(&self) -> u8 {
         self.header.submapper_num
     }
 
     /// Returns the Mapper and Board name for this Cart.
-    #[inline]
+
     #[must_use]
     pub const fn mapper_board(&self) -> &'static str {
         self.header.mapper_board()
@@ -305,12 +298,10 @@ impl Cart {
 }
 
 impl Regional for Cart {
-    #[inline]
     fn region(&self) -> NesRegion {
         self.region
     }
 
-    #[inline]
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
     }

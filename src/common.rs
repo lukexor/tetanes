@@ -17,24 +17,20 @@ pub enum NesRegion {
 }
 
 impl NesRegion {
-    #[inline]
     pub const fn as_slice() -> &'static [Self] {
         &[NesRegion::Ntsc, NesRegion::Pal, NesRegion::Dendy]
     }
 
-    #[inline]
     #[must_use]
     pub const fn is_ntsc(&self) -> bool {
         matches!(self, Self::Ntsc)
     }
 
-    #[inline]
     #[must_use]
     pub const fn is_pal(&self) -> bool {
         matches!(self, Self::Pal)
     }
 
-    #[inline]
     #[must_use]
     pub const fn is_dendy(&self) -> bool {
         matches!(self, Self::Dendy)
@@ -76,7 +72,6 @@ impl From<usize> for NesRegion {
 
 #[enum_dispatch(Mapper)]
 pub trait Regional {
-    #[inline]
     fn region(&self) -> NesRegion {
         NesRegion::default()
     }

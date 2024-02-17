@@ -107,7 +107,6 @@ impl Txrom {
         txrom.into()
     }
 
-    #[inline]
     pub fn set_revision(&mut self, revision: Mmc3Revision) {
         self.revision = revision;
     }
@@ -147,7 +146,6 @@ impl Txrom {
         }
     }
 
-    #[inline]
     fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
@@ -179,27 +177,22 @@ impl Txrom {
 }
 
 impl Mapped for Txrom {
-    #[inline]
     fn irq_pending(&self) -> bool {
         self.irq_pending
     }
 
-    #[inline]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 
-    #[inline]
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }
 
-    #[inline]
     fn ppu_bus_read(&mut self, addr: u16) {
         self.clock_irq(addr);
     }
 
-    #[inline]
     fn ppu_bus_write(&mut self, addr: u16, _val: u8) {
         self.clock_irq(addr);
     }
@@ -220,13 +213,11 @@ impl MemMap for Txrom {
     // CPU $C000..=$DFFF (or $8000..=$9FFF) 8K PRG-ROM Bank 3 Fixed to second-to-last Bank
     // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
 
-    #[inline]
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.clock_irq(addr);
         self.map_peek(addr)
     }
 
-    #[inline]
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
@@ -239,7 +230,6 @@ impl MemMap for Txrom {
         }
     }
 
-    #[inline]
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
