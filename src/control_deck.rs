@@ -62,7 +62,7 @@ impl Default for Config {
             region: NesRegion::default(),
             ram_state: RamState::Random,
             four_player: FourPlayer::default(),
-            zapper: true,
+            zapper: false,
             genie_codes: vec![],
             load_on_start: true,
             save_on_exit: true,
