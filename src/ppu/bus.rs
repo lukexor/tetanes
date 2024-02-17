@@ -27,11 +27,11 @@ impl PpuAddr for u16 {
 #[must_use]
 pub struct PpuBus {
     pub mapper: Mapper,
+    pub ciram: Vec<u8>, // $2007 PPUDATA
+    pub palette: [u8; Self::PALETTE_SIZE],
+    pub chr: Vec<u8>,
+    pub exram: Vec<u8>,
     mirror_shift: usize,
-    ciram: Vec<u8>, // $2007 PPUDATA
-    palette: [u8; Self::PALETTE_SIZE],
-    chr: Vec<u8>,
-    exram: Vec<u8>,
     open_bus: u8,
 }
 
@@ -48,11 +48,11 @@ impl PpuBus {
     pub fn new() -> Self {
         Self {
             mapper: Mapper::none(),
-            mirror_shift: Mirroring::default() as usize,
             ciram: vec![0x00; Self::VRAM_SIZE],
             palette: [0x00; Self::PALETTE_SIZE],
             chr: vec![],
             exram: vec![],
+            mirror_shift: Mirroring::default() as usize,
             open_bus: 0x00,
         }
     }

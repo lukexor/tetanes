@@ -904,7 +904,7 @@ impl fmt::Debug for Cpu {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use crate::{cart::Cart, test_roms};
 

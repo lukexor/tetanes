@@ -169,7 +169,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
     output
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::{

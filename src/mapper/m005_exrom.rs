@@ -248,11 +248,11 @@ pub struct Exrom {
     mirroring: Mirroring,
     ppu_status: PpuStatus,
     irq_state: IrqState,
-    exram: Vec<u8>,
+    ex_ram: Vec<u8>,
     prg_ram_banks: MemBanks,
     prg_rom_banks: MemBanks,
     chr_banks: MemBanks,
-    tile_cache: usize,
+    tile_cache: u16,
     last_chr_write: ChrBank,
     region: NesRegion,
     pulse1: Pulse,
@@ -328,7 +328,9 @@ impl Exrom {
                 rendering: false,
                 scanline: 0x0000,
             },
-            exram: vec![0x00; Self::EXRAM_SIZE],
+            // Cart provides an `add_ex_ram` method used by the PpuBus, but during reads from the
+            // PpuBus we need access to it for bank selection so we need to store it here instead.
+            ex_ram: vec![0x00; Self::EXRAM_SIZE],
             prg_ram_banks: MemBanks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
             chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr.len(), Self::CHR_WINDOW),
@@ -469,12 +471,12 @@ impl Exrom {
         };
     }
 
-    fn read_exram(&self, addr: u16) -> u8 {
-        self.exram[(addr & 0x03FF) as usize]
+    fn read_ex_ram(&self, addr: u16) -> u8 {
+        self.ex_ram[(addr & 0x03FF) as usize]
     }
 
-    fn write_exram(&mut self, addr: u16, val: u8) {
-        self.exram[(addr & 0x03FF) as usize] = val;
+    fn write_ex_ram(&mut self, addr: u16, val: u8) {
+        self.ex_ram[(addr & 0x03FF) as usize] = val;
     }
 
     fn inc_fetch_count(&mut self) {
@@ -600,13 +602,13 @@ impl MemMap for Exrom {
                 let is_attr = addr.is_attr();
                 // Cache BG tile fetch for later attribute byte fetch
                 if self.regs.exram_mode.attr && !is_attr && !self.spr_fetch() {
-                    self.tile_cache = (addr & 0x03FF).into();
+                    self.tile_cache = addr & 0x03FF;
                 }
 
-                // Detect split
-                // if self.regs.vsplit.in_region && !addr.is_attr() {
-                //     self.regs.vsplit.tile = (((self.regs.vsplit.scroll & 0xF8)) << 2)
-                //         | ((self.fetch_count() / 4) & 0x1F) as usize;
+                // TODO: Detect split
+                // if self.regs.vsplit.in_region && !is_attr {
+                //     self.regs.vsplit.tile = ((self.regs.vsplit.scroll & 0xF8) << 2)
+                //         | ((self.fetch_count() / 4) & 0x1F) as u8;
                 // }
 
                 // Monitor tile fetches to trigger IRQs
@@ -615,7 +617,7 @@ impl MemMap for Exrom {
                 let irq_state = &mut self.irq_state;
                 // Wait for three consecutive fetches to match the same address, which means we're
                 // at the end of the render scanlines fetching dummy NT bytes
-                if !is_attr && Some(addr) == irq_state.prev_addr {
+                if addr < 0x2FFF && Some(addr) == irq_state.prev_addr {
                     irq_state.match_count += 1;
                     status.fetch_count = 0;
                     if irq_state.match_count == 2 {
@@ -658,7 +660,7 @@ impl MemMap for Exrom {
                     // Bits 6-7 of 4K CHR bank. Already shifted left by 8
                     let bank_hi = self.regs.chr_hi << 10;
                     // Bits 0-5 of 4k CHR bank
-                    let bank_lo = ((self.exram[self.tile_cache] & 0x3F) as usize) << 12;
+                    let bank_lo = ((self.read_ex_ram(self.tile_cache) & 0x3F) as usize) << 12;
                     let addr = bank_hi | bank_lo | (addr as usize) & 0x0FFF;
                     MappedRead::Chr(addr)
                 } else {
@@ -667,20 +669,21 @@ impl MemMap for Exrom {
             }
             0x2000..=0x3EFF => {
                 let is_attr = addr.is_attr();
-                if self.regs.vsplit.in_region {
-                    if is_attr {
-                        todo!()
-                        // let addr =
-                        //     Self::ATTR_OFFSET | u16::from(ATTR_LOC[(self.regs.vsplit.tile as usize) >> 2]);
-                        // let attr = self.read_exram(addr - 0x2000) as usize;
-                        // let shift = ATTR_SHIFT[(self.regs.vsplit.tile as usize) & 0x7F] as usize;
-                        // MappedRead::Data(ATTR_BITS[(attr >> shift) & 0x03])
-                    } else {
-                        MappedRead::Data(self.read_exram(self.regs.vsplit.tile.into()))
-                    }
-                } else if self.regs.exram_mode.attr && is_attr && !self.spr_fetch() {
+                // TODO: vsplit
+                // if self.regs.vsplit.in_region {
+                //     if is_attr {
+                //         // let addr =
+                //         //     Self::ATTR_OFFSET | u16::from(ATTR_LOC[(self.regs.vsplit.tile as usize) >> 2]);
+                //         // let attr = self.read_exram(addr - 0x2000) as usize;
+                //         // let shift = ATTR_SHIFT[(self.regs.vsplit.tile as usize) & 0x7F] as usize;
+                //         // MappedRead::Data(ATTR_BITS[(attr >> shift) & 0x03])
+                //     } else {
+                //         MappedRead::Data(self.read_exram(self.regs.vsplit.tile.into()))
+                //     }
+                // }
+                if self.regs.exram_mode.attr && is_attr && !self.spr_fetch() {
                     // ExAttr mode returns attr bits for all nametables, regardless of mapping
-                    let attr = (self.exram[self.tile_cache] >> 6) & 0x03;
+                    let attr = (self.read_ex_ram(self.tile_cache) >> 6) & 0x03;
                     MappedRead::Data(Self::ATTR_MIRROR[attr as usize])
                 } else {
                     let nametable_mode = self.regs.exram_mode.nametable;
@@ -690,7 +693,7 @@ impl MemMap for Exrom {
                             MappedRead::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into())
                         }
                         Nametable::ExRam if nametable_mode => {
-                            MappedRead::Data(self.read_exram(addr))
+                            MappedRead::Data(self.read_ex_ram(addr))
                         }
                         Nametable::Fill if nametable_mode => MappedRead::Data(if is_attr {
                             Self::ATTR_MIRROR[self.regs.fill.attr & 0x03]
@@ -752,7 +755,7 @@ impl MemMap for Exrom {
             0x5206 => MappedRead::Data(((self.regs.mult_result >> 8) & 0xFF) as u8),
             0x5C00..=0x5FFF if matches!(self.regs.exram_mode.rw, ExRamRW::R | ExRamRW::RW) => {
                 // Nametable/Attr modes are not used for RAM, thus are not readable
-                MappedRead::Data(self.read_exram(addr))
+                MappedRead::Data(self.read_ex_ram(addr))
             }
             0x6000..=0xDFFF => {
                 if self.rom_select(addr) {
@@ -775,7 +778,7 @@ impl MemMap for Exrom {
                     return MappedWrite::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into(), val)
                 }
                 Nametable::ExRam if self.regs.exram_mode.nametable => {
-                    self.write_exram(addr, val);
+                    self.write_ex_ram(addr, val);
                     return MappedWrite::None;
                 }
                 _ => return MappedWrite::None,
@@ -949,9 +952,9 @@ impl MemMap for Exrom {
             0x5C00..=0x5FFF => match self.regs.exram_mode.rw {
                 ExRamRW::W => {
                     let val = if self.ppu_status.rendering { val } else { 0x00 };
-                    self.write_exram(addr, val);
+                    self.write_ex_ram(addr, val);
                 }
-                ExRamRW::RW => self.write_exram(addr, val),
+                ExRamRW::RW => self.write_ex_ram(addr, val),
                 _ => (),
             },
             0x6000..=0xDFFF if !self.rom_select(addr) => {
@@ -1022,7 +1025,7 @@ impl std::fmt::Debug for Exrom {
             .field("mirroring", &self.mirroring)
             .field("ppu_status", &self.ppu_status)
             .field("irq_state", &self.irq_state)
-            .field("exram_len", &self.exram.len())
+            .field("exram_len", &self.ex_ram.len())
             .field("prg_ram_banks", &self.prg_ram_banks)
             .field("prg_rom_banks", &self.prg_rom_banks)
             .field("chr_banks", &self.chr_banks)
@@ -1039,7 +1042,7 @@ impl std::fmt::Debug for Exrom {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use crate::test_roms;
 

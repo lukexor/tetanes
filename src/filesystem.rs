@@ -161,7 +161,7 @@ pub(crate) fn filename(path: &Path) -> &str {
         })
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
