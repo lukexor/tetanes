@@ -1,5 +1,4 @@
 use crate::{
-    frame_begin,
     nes::{
         config::Config,
         event::{Event, RendererEvent},
@@ -119,7 +118,6 @@ impl Renderer {
 
     /// Request redraw.
     pub fn request_redraw(&mut self, paused: bool, config: &mut Config) -> NesResult<()> {
-        frame_begin!();
         profile!();
 
         self.gui.prepare(paused, config);

@@ -24,13 +24,10 @@ fn clock_frames(frames: u32) {
 
 fn benchmark_clock_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
-    let seconds = 5;
     let frames = 60;
-    let samples = 10;
-    group.measurement_time(Duration::from_secs(samples * seconds));
-    group.sample_size(samples as usize);
+    group.measurement_time(Duration::from_secs(40));
     group.bench_function("clock_frame", |b| {
-        b.iter(|| clock_frames(black_box((seconds * frames) as u32)))
+        b.iter(|| clock_frames(black_box(frames)))
     });
     group.finish();
 }

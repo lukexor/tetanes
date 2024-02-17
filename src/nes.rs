@@ -1,6 +1,7 @@
 //! User Interface representing the the NES Control Deck
 
 use crate::{
+    frame_begin,
     nes::{
         emulation::Emulation,
         event::Event,
@@ -112,6 +113,7 @@ impl Nes {
     }
 
     fn next_frame(&mut self, window_target: &EventLoopWindowTarget<Event>) {
+        frame_begin!();
         profile!();
 
         if self.event_state.occluded {
