@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::{fs::File, io::BufReader};
-use tetanes::control_deck::ControlDeck;
+use tetanes::control_deck::{Config, ControlDeck};
 use web_time::Duration;
 
 fn clock_frames(frames: u32) {
@@ -9,7 +9,11 @@ fn clock_frames(frames: u32) {
     let rom_path = PathBuf::from("roms/akumajou_densetsu.nes");
     assert!(rom_path.exists(), "No test rom found for {rom_path:?}");
     let mut rom = BufReader::new(File::open(&rom_path).expect("failed to open path"));
-    let mut deck = ControlDeck::default();
+    let mut deck = ControlDeck::with_config(Config {
+        load_on_start: false,
+        save_on_exit: false,
+        ..Default::default()
+    });
     deck.load_rom(&rom_path.to_string_lossy(), &mut rom)
         .expect("failed to load rom");
     while deck.frame_number() < frames {

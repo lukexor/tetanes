@@ -117,15 +117,13 @@
 - [ ] Pause when title receives mouse down
       <https://github.com/rust-windowing/winit/issues/1885> (I think this is fixed
       by filling with 0s)
+- [ ] Show error and disable audio if no valid device/config can be found
+  - requires update loop that doesn't depend on audio
+- [ ] Update Mixer `play` to return available sample rates to constrain `Config`
 - [ ] Compare audio graph with/without filters
 - [ ] Add `rubato` crate for down-sampling
 - [ ] Update filters to be in frequency domain - fft, filter, reverse fft
 - [ ] Verify filters with visualizations/unit tests
-- [ ] Debug visualizations of pulse, triangle, sawtooth, noise, and dcm channels
-      during play as well as combined waveform
-- [ ] Show error and disable audio if no valid device/config can be found
-  - requires update loop that doesn't depend on audio
-- [ ] Update Mixer `play` to return available sample rates to constrain `Config`
 - [x] Create shared circular buffer of Vecs to avoid allocations - ThingBuf
 - [x] Fix audio latency to match expectation
 - [x] ~~Experiment: clocking partial frames (buffer size worth) from audio thread~~
@@ -230,7 +228,7 @@
 - [ ] Add APU debugger
   - [ ] Modify registers
   - [ ] Enable/disable channels
-  - [ ] plot visual per channel
+  - [ ] plot visuals per channel and combined
 - [ ] Update debug impls with hex values
 - [ ] Switch to tracing crate w/ file logging
 - [x] Performance bench
