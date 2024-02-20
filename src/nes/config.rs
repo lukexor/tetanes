@@ -15,9 +15,8 @@ const MIN_SPEED: f32 = 0.25; // 25% - 15 Hz
 const MAX_SPEED: f32 = 2.0; // 200% - 120 Hz
 const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
 const WINDOW_WIDTH_PAL: f32 = Ppu::WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
-const WINDOW_HEIGHT_NTSC: f32 = Ppu::HEIGHT as f32;
-const WINDOW_HEIGHT_PAL: f32 = Ppu::HEIGHT as f32;
-pub const FRAME_TRIM_PITCH: usize = (4 * Ppu::WIDTH * 8) as usize;
+const WINDOW_HEIGHT: f32 = Ppu::HEIGHT as f32;
+pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
@@ -39,6 +38,7 @@ pub struct Config {
     pub target_frame_duration: Duration,
     pub scale: f32,
     pub frame_speed: f32,
+    pub hide_overscan: bool,
     pub rewind: bool,
     pub rewind_interval: u8,
     pub rewind_buffer_size_mb: usize,
@@ -62,6 +62,7 @@ impl PartialEq for Config {
             && self.threaded == other.threaded
             && self.concurrent_dpad == other.concurrent_dpad
             && self.frame_rate == other.frame_rate
+            && self.hide_overscan == other.hide_overscan
             && self.target_frame_duration == other.target_frame_duration
             && self.scale == other.scale
             && self.frame_speed == other.frame_speed
@@ -91,6 +92,7 @@ impl Default for Config {
             concurrent_dpad: false,
             threaded: true,
             frame_rate,
+            hide_overscan: true,
             target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
             scale: 3.0,
             frame_speed: 1.0,
@@ -183,12 +185,12 @@ impl Config {
     }
 
     #[must_use]
-    pub fn get_dimensions(&self) -> (u32, u32) {
+    pub fn dimensions(&self) -> (f32, f32) {
         let (width, height) = match self.control_deck.region {
-            NesRegion::Ntsc => (WINDOW_WIDTH_NTSC, WINDOW_HEIGHT_NTSC),
-            NesRegion::Pal | NesRegion::Dendy => (WINDOW_WIDTH_PAL, WINDOW_HEIGHT_PAL),
+            NesRegion::Ntsc => (WINDOW_WIDTH_NTSC, WINDOW_HEIGHT),
+            NesRegion::Pal | NesRegion::Dendy => (WINDOW_WIDTH_PAL, WINDOW_HEIGHT),
         };
-        ((self.scale * width) as u32, (self.scale * height) as u32)
+        (self.scale * width, self.scale * height)
     }
 
     pub fn directory() -> PathBuf {
@@ -210,8 +212,7 @@ impl Config {
         use anyhow::Context;
         use std::fs::{self, File};
 
-        if *self == Config::default() || !self.control_deck.save_on_exit {
-            // Don't save default configuration
+        if !self.control_deck.save_on_exit {
             return Ok(());
         }
 

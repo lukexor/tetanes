@@ -31,7 +31,6 @@
 
 ## Performance Tuning
 
-- [ ] Fix puffin_egui
 - [ ] Add string_pool for sending messages or just add messages and error later
 - [ ] Run cachegrind - Maybe build an internal Cpu/Ppu cache
 - [ ] Perform perf tests:
@@ -51,6 +50,7 @@
   NEXT_ID.fetch_update(Relaxed, Relaxed, |n| n.checked_add(1)).expect("too many IDs!")
   ```
 
+- [x] Fix puffin_egui
 - [x] Experiment: `ControlDeck` being clocked on another thread
 - [x] reduce cpu usage in main thread
 - [x] ~~Add back `ringbuf` crate and use `pop_slice` and `push_slice` - switched

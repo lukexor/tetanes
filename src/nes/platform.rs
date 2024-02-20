@@ -1,7 +1,11 @@
-use crate::{nes::Nes, NesResult};
+use crate::{
+    nes::{config::Config, Nes},
+    NesResult,
+};
 use std::{future::Future, io::Read};
 use web_time::Duration;
 use winit::{
+    dpi::LogicalSize,
     event::Event as WinitEvent,
     event_loop::{EventLoop, EventLoopWindowTarget},
 };
@@ -180,5 +184,38 @@ impl WindowBuilderExt for winit::window::WindowBuilder {
                 .ok(),
             )
         }
+    }
+}
+
+pub trait WindowExt {
+    fn inner_dimensions(&self) -> (LogicalSize<f32>, LogicalSize<f32>);
+    fn inner_dimensions_with_spacing(&self, x: f32, y: f32)
+        -> (LogicalSize<f32>, LogicalSize<f32>);
+}
+
+impl WindowExt for Config {
+    fn inner_dimensions(&self) -> (LogicalSize<f32>, LogicalSize<f32>) {
+        let (width, height) = self.dimensions();
+        let scale = self.scale;
+        (
+            LogicalSize::new(width, height),
+            LogicalSize::new(width / scale, height / scale),
+        )
+    }
+
+    fn inner_dimensions_with_spacing(
+        &self,
+        x: f32,
+        y: f32,
+    ) -> (LogicalSize<f32>, LogicalSize<f32>) {
+        let (inner_size, min_inner_size) = self.inner_dimensions();
+        let scale = self.scale;
+        (
+            LogicalSize::new(inner_size.width + x, inner_size.height + y),
+            LogicalSize::new(
+                min_inner_size.width + x / scale,
+                min_inner_size.height + y / scale,
+            ),
+        )
     }
 }

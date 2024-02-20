@@ -111,7 +111,7 @@ impl From<DeckEvent> for WinitEvent<Event> {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum RendererEvent {
-    ToggleVsync,
+    SetVSync(bool),
 }
 
 impl From<RendererEvent> for WinitEvent<Event> {
@@ -242,6 +242,13 @@ impl Nes {
                 NesEvent::ConfigUpdate(config) => self.config = config,
                 NesEvent::Terminate => self.quit(),
             },
+            WinitEvent::LoopExiting => {
+                #[cfg(feature = "profiling")]
+                crate::profiling::enable(false);
+                if let Err(err) = self.config.save() {
+                    log::error!("failed to save config: {err:?}");
+                }
+            }
             // WinitEvent::DeviceEvent { device_id, event } => todo!(),
             // TODO: Controller support
             // Event::UserEvent(event) => match event {
@@ -354,7 +361,7 @@ impl Nes {
             }
             Setting::ToggleVsync if released => {
                 self.config.vsync = !self.config.vsync;
-                self.send_event(RendererEvent::ToggleVsync);
+                self.send_event(RendererEvent::SetVSync(self.config.vsync));
             }
             Setting::ToggleVideoFilter(filter) if released => {
                 self.send_event(DeckEvent::ToggleVideoFilter(filter));

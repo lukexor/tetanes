@@ -1,14 +1,26 @@
 use crate::{
     control_deck,
     input::Player,
-    nes::{config::Config, event::Event, Nes},
+    nes::{config::Config, event::Event, platform::WindowExt, Nes},
     NesError,
 };
-use pixels::{wgpu, PixelsContext};
+use egui::{
+    global_dark_light_mode_switch, load::SizedTexture, menu, viewport::ViewportCommand,
+    CentralPanel, ClippedPrimitive, Context, CursorIcon, Frame, Image, Margin, RichText,
+    SystemTheme, TexturesDelta, TopBottomPanel, Ui, Vec2, ViewportId, Window,
+};
+use pixels::{
+    wgpu::{self, TextureViewDescriptor},
+    PixelsContext,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use web_time::{Duration, Instant};
-use winit::{event::WindowEvent, event_loop::EventLoop, window::Window};
+use winit::window::Theme;
+use winit::{event::WindowEvent, event_loop::EventLoop, window::Window as WinitWindow};
+
+const MSG_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_MESSAGES: usize = 3;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Menu {
@@ -198,14 +210,14 @@ impl From<f32> for Speed {
 
 #[must_use]
 pub struct Gui {
-    window: Arc<Window>,
+    window: Arc<WinitWindow>,
     state: State,
-    ctx: egui::Context,
+    ctx: Context,
     egui_state: egui_winit::State,
     screen_descriptor: egui_wgpu::ScreenDescriptor,
     renderer: egui_wgpu::Renderer,
-    paint_jobs: Vec<egui::ClippedPrimitive>,
-    textures: egui::TexturesDelta,
+    paint_jobs: Vec<ClippedPrimitive>,
+    textures: TexturesDelta,
 }
 
 impl std::fmt::Debug for Gui {
@@ -220,38 +232,53 @@ impl Gui {
     /// Create `Framework`.
     pub fn new(
         event_loop: &EventLoop<Event>,
-        window: Arc<Window>,
+        window: Arc<WinitWindow>,
         pixels: &pixels::Pixels<'static>,
     ) -> Self {
         let window_size = window.inner_size();
         let scale_factor = window.scale_factor() as f32;
-        let ctx = egui::Context::default();
+        let ctx = Context::default();
 
         let egui_state = egui_winit::State::new(
             ctx.clone(),
-            egui::ViewportId::default(),
+            ViewportId::default(),
             event_loop,
             Some(scale_factor),
             Some(pixels.device().limits().max_texture_dimension_2d as usize),
         );
 
+        let texture = pixels.texture();
+        let texture_view = texture.create_view(&TextureViewDescriptor::default());
+        let mut renderer =
+            egui_wgpu::Renderer::new(pixels.device(), pixels.render_texture_format(), None, 1);
+        let egui_texture = renderer.register_native_texture(
+            pixels.device(),
+            &texture_view,
+            wgpu::FilterMode::Nearest,
+        );
+        let state = State::new(
+            Arc::clone(&window),
+            SizedTexture::new(
+                egui_texture,
+                Vec2 {
+                    x: window_size.width as f32,
+                    y: window_size.height as f32,
+                },
+            ),
+        );
+
         Self {
             window,
-            state: State::new(),
+            state,
             ctx,
             egui_state,
             screen_descriptor: egui_wgpu::ScreenDescriptor {
                 size_in_pixels: [window_size.width, window_size.height],
                 pixels_per_point: scale_factor,
             },
-            renderer: egui_wgpu::Renderer::new(
-                pixels.device(),
-                pixels.render_texture_format(),
-                None,
-                1,
-            ),
+            renderer,
             paint_jobs: vec![],
-            textures: egui::TexturesDelta::default(),
+            textures: TexturesDelta::default(),
         }
     }
 
@@ -267,8 +294,6 @@ impl Gui {
                 self.screen_descriptor.pixels_per_point = *scale_factor as f32;
             }
             WindowEvent::ThemeChanged(theme) => {
-                use egui::{viewport::ViewportCommand, SystemTheme};
-                use winit::window::Theme;
                 self.ctx
                     .send_viewport_cmd(ViewportCommand::SetTheme(if *theme == Theme::Light {
                         SystemTheme::Light
@@ -284,8 +309,11 @@ impl Gui {
     /// Prepare.
     pub fn prepare(&mut self, paused: bool, config: &mut Config) {
         let raw_input = self.egui_state.take_egui_input(&self.window);
+        if paused {
+            self.state.status = Some("Paused");
+        }
         let output = self.ctx.run(raw_input, |ctx| {
-            self.state.ui(ctx, paused, config);
+            self.state.ui(ctx, config);
         });
 
         self.textures.append(output.textures_delta);
@@ -353,6 +381,10 @@ impl Gui {
 #[derive(Debug)]
 #[must_use]
 pub struct State {
+    window: Arc<WinitWindow>,
+    texture: SizedTexture,
+    show_menu: bool,
+    menu_height: f32,
     config_open: bool,
     keybind_open: bool,
     load_rom_open: bool,
@@ -362,15 +394,18 @@ pub struct State {
     save_dir: String,
     sram_dir: String,
     messages: Vec<(String, Instant)>,
+    status: Option<&'static str>,
     error: Option<String>,
 }
 
 impl State {
-    pub const MENUBAR_HEIGHT: f32 = 18.0;
-
     /// Create a `Gui`.
-    fn new() -> Self {
+    fn new(window: Arc<WinitWindow>, texture: SizedTexture) -> Self {
         Self {
+            window,
+            texture,
+            show_menu: true,
+            menu_height: 0.0,
             config_open: false,
             keybind_open: false,
             load_rom_open: false,
@@ -386,255 +421,308 @@ impl State {
                 .to_string_lossy()
                 .to_string(),
             messages: vec![],
+            status: None,
             error: None,
         }
     }
 
     /// Create the UI.
-    fn ui(&mut self, ctx: &egui::Context, paused: bool, config: &mut Config) {
-        use egui::RichText;
+    fn ui(&mut self, ctx: &Context, config: &mut Config) {
+        TopBottomPanel::top("menu_bar")
+            .resizable(true)
+            .show_animated(ctx, self.show_menu, |ui| self.menu_bar(ctx, ui, config));
+        CentralPanel::default()
+            .frame(Frame::none())
+            .show(ctx, |ui| self.nes_frame(ctx, ui, config));
 
-        egui::TopBottomPanel::top("menu_bar")
-            .exact_height(Self::MENUBAR_HEIGHT)
-            .show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
-                    egui::global_dark_light_mode_switch(ui);
-                    ui.separator();
-
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Load ROM...").clicked() || self.load_rom_open {
-                            self.open_load_dialog();
-                        }
-                        if ui.button("Recently Played...").clicked() {
-                            self.todo(ui);
-                        }
-                        if ui.button("Load Replay...").clicked() {
-                            self.todo(ui);
-                        }
-                        // Load Replay
-                        if ui.button("Configuration").clicked() {
-                            self.config_open = true;
-                            // button Restore Defaults
-                            // button Clear Save State
-                            //
-                            // General
-                            //   textedit Config Path
-                            //   textedit Save Path
-                            //   textedit Battey-Backed Save Path
-                            //   checkbox Enable Rewind
-                            //     textedit Rewind Frames
-                            //     textedit Rewind Buffer Size (MB)
-                            //
-                            // Emulation
-                            //   combobox Speed
-                            //   checkbox Enable Zapper Gun
-                            //   combobox Four Player Mode
-                            //   combobox NES Region
-                            //   combobox RAM State
-                            //   checkbox Concurrent D-Pad
-                            //
-                            // View
-                            //   combobox Scale
-                            //   checkbox Show FPS
-                            //   checkbox Show Messages
-                            //   combobox Video Filter
-                            //   checkbox Show Overscan
-                            //   combobox Fullscreen Mode
-                            //   checkbox Enable VSync
-                            //   checkbox Always On Top
-                            //
-                            // Audio
-                            //   checkbox Enabled
-                            //   combobox Output Device
-                            //   combobox Sample Rate
-                            //   combobox Latency ms
-                            //   checkbox APU Channels
-                            ui.close_menu();
-                        }
-                        if ui.button("Keybinds").clicked() {
-                            self.keybind_open = true;
-                            // Keyboard
-                            // Controllers
-                            // combobox
-                            //   Player 1
-                            //   Player 2
-                            //   Player 3
-                            //   Player 4
-                            ui.close_menu();
-                        };
-                        if ui.button("Reset").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Power Cycle").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Quit").clicked() {
-                            self.todo(ui);
-                        };
-                    });
-                    ui.menu_button("Controls", |ui| {
-                        if ui.button("Pause/Unpause").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Mute/Unmute").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Save State").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Load State").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Save Slot...").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Rewind").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Begin/End Replay Recording").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Begin/End Audio Recording").clicked() {
-                            self.todo(ui);
-                        };
-                    });
-                    ui.menu_button("Emulation", |ui| {
-                        if ui.button("Speed...").clicked() {
-                            self.todo(ui);
-                            // Increase/Decrease/Default
-                        };
-                        ui.checkbox(&mut config.control_deck.zapper, "Enable Zapper Gun");
-                        // Four Player Mode
-                        // NES Region
-                        // RAM State
-                        // Concurrent D-Pad
-                    });
-                    ui.menu_button("View", |ui| {
-                        if ui.button("Scale...").clicked() {
-                            self.todo(ui);
-                        };
-                        let mut show_fps = false;
-                        ui.checkbox(&mut show_fps, "Show FPS");
-                        let mut show_messages = false;
-                        ui.checkbox(&mut show_messages, "Show Messages");
-                        if ui.button("Video Filter...").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Take Screenshot").clicked() {
-                            self.todo(ui);
-                        };
-                    });
-                    ui.menu_button("Window", |ui| {
-                        if ui.button("Maximize").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Minimize").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Toggle Fullscreen").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Hide Menu Bar").clicked() {
-                            self.todo(ui);
-                        };
-                    });
-                    ui.menu_button("Debug", |ui| {
-                        #[cfg(feature = "profiling")]
-                        {
-                            let mut profile = puffin::are_scopes_on();
-                            ui.checkbox(&mut profile, "Toggle profiling");
-                            crate::profiling::enable(profile);
-                        }
-                        if ui.button("Toggle CPU Debugger").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Toggle PPU Debugger").clicked() {
-                            self.todo(ui);
-                        };
-                        if ui.button("Toggle APU Debugger").clicked() {
-                            self.todo(ui);
-                        };
-                    });
-                    if ui.button("About").clicked() {
-                        self.about_open = true;
-                        ui.close_menu();
-                    }
-                });
-            });
-
-        if !self.messages.is_empty() {
-            egui::TopBottomPanel::top("messages").show(ctx, |ui| {
-                const TIMEOUT: Duration = Duration::from_secs(3);
-
-                let now = Instant::now();
-                self.messages
-                    .retain(|(_, created)| (now - *created) < TIMEOUT);
-                self.messages.dedup_by(|a, b| a.0.eq(&b.0));
-                for (message, _) in &self.messages {
-                    ui.label(message);
-                }
-            });
-        }
         // TODO: show confirm quit dialog?
 
-        if paused || self.error.is_some() {
-            egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-                // TODO: Render framerate if enabled
-                // TODO: maybe show other statuses like rewinding/playback/recording - bitflags?
-                if paused {
-                    ui.label("Paused");
-                }
-                let mut clear_error = false;
-                if let Some(ref error) = self.error {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(error).color(egui::Color32::RED));
-                        clear_error = ui.button("Clear").clicked();
-                    });
-                }
-                if clear_error {
-                    self.error = None;
-                }
-            });
-        }
+        let mut config_open = self.config_open;
+        Window::new("Configuration")
+            .open(&mut config_open)
+            .show(ctx, |ui| self.configuration(ui));
+        self.config_open = config_open;
 
-        egui::Window::new("Configuration")
-            .open(&mut self.config_open)
-            .show(ctx, |ui| {
-                // let mut save_slot = config.save_slot as usize - 1;
-                // if ui.combo_box("Save Slot", &mut save_slot, &["1", "2", "3", "4"], 4)? {
-                //     self.config.save_slot = save_slot as u8 + 1;
-                // }
-            });
-
-        egui::Window::new("About TetaNES")
-            .open(&mut self.about_open)
-            .show(ctx, |ui| {
-                ui.label(RichText::new(&self.version).strong());
-                ui.hyperlink("https://github.com/lukexor/tetanes");
-
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Configuration: ").strong());
-                    ui.label(&self.config_dir);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Save States: ").strong());
-                    ui.label(&self.save_dir);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Battery-Backed Save States: ").strong());
-                    ui.label(&self.sram_dir);
-                });
-            });
+        let mut about_open = self.about_open;
+        Window::new("About TetaNES")
+            .open(&mut about_open)
+            .show(ctx, |ui| self.about(ui));
+        self.about_open = about_open;
 
         #[cfg(feature = "profiling")]
         puffin_egui::show_viewport_if_enabled(ctx);
     }
 
-    fn todo(&mut self, ui: &mut egui::Ui) {
+    fn menu_bar(&mut self, ctx: &Context, ui: &mut egui::Ui, config: &mut Config) {
+        ui.style_mut().spacing.menu_margin = Margin::ZERO;
+        let inner_response = menu::bar(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                global_dark_light_mode_switch(ui);
+                ui.separator();
+
+                ui.menu_button("File", |ui| self.file_menu(ui));
+                ui.menu_button("Controls", |ui| self.controls_menu(ui));
+                ui.menu_button("Emulation", |ui| self.emulation_menu(ctx, ui, config));
+                ui.menu_button("View", |ui| self.view_menu(ctx, ui, config));
+                ui.menu_button("Window", |ui| self.window_menu(ui));
+                ui.menu_button("Debug", |ui| self.debug_menu(ui));
+                ui.toggle_value(&mut self.about_open, "About");
+            });
+        });
+        let height = inner_response.response.rect.height();
+        if height != self.menu_height {
+            self.menu_height = height;
+            self.resize_window(ctx, config);
+        }
+    }
+
+    fn file_menu(&mut self, ui: &mut Ui) {
+        if ui.button("Load ROM...").clicked() || self.load_rom_open {
+            self.open_load_dialog();
+        }
+        if ui.button("Recently Played...").clicked() {
+            self.todo(ui);
+        }
+        if ui.button("Load Replay...").clicked() {
+            self.todo(ui);
+        }
+        // Load Replay
+        if ui.button("Configuration").clicked() {
+            self.config_open = true;
+            ui.close_menu();
+        }
+        if ui.button("Keybinds").clicked() {
+            self.keybind_open = true;
+            // Keyboard
+            // Controllers
+            // combobox
+            //   Player 1
+            //   Player 2
+            //   Player 3
+            //   Player 4
+            ui.close_menu();
+        };
+        if ui.button("Reset").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Power Cycle").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Quit").clicked() {
+            self.todo(ui);
+        };
+    }
+
+    fn controls_menu(&mut self, ui: &mut Ui) {
+        if ui.button("Pause/Unpause").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Mute/Unmute").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Save State").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Load State").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Save Slot...").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Rewind").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Begin/End Replay Recording").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Begin/End Audio Recording").clicked() {
+            self.todo(ui);
+        };
+    }
+
+    fn emulation_menu(&mut self, ctx: &Context, ui: &mut Ui, config: &mut Config) {
+        if ui.button("Speed...").clicked() {
+            self.todo(ui);
+            // Increase/Decrease/Default
+        };
+        ui.checkbox(&mut config.control_deck.zapper, "Enable Zapper Gun");
+        // Four Player Mode
+        // NES Region
+        // RAM State
+        // Concurrent D-Pad
+    }
+
+    fn view_menu(&mut self, ctx: &Context, ui: &mut Ui, config: &mut Config) {
+        if ui.button("Scale...").clicked() {
+            self.todo(ui);
+        };
+        let mut show_fps = false;
+        ui.checkbox(&mut show_fps, "Show FPS");
+        let mut show_messages = false;
+        ui.checkbox(&mut show_messages, "Show Messages");
+        if ui
+            .checkbox(&mut config.hide_overscan, "Hide Overscan")
+            .clicked()
+        {
+            self.resize_window(ctx, config);
+        }
+        if ui.button("Video Filter...").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Take Screenshot").clicked() {
+            self.todo(ui);
+        };
+    }
+
+    fn window_menu(&mut self, ui: &mut Ui) {
+        if ui.button("Maximize").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Minimize").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Toggle Fullscreen").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Hide Menu Bar").clicked() {
+            self.todo(ui);
+        };
+    }
+
+    fn debug_menu(&mut self, ui: &mut Ui) {
+        #[cfg(feature = "profiling")]
+        {
+            let mut profile = puffin::are_scopes_on();
+            ui.checkbox(&mut profile, "Toggle profiling");
+            crate::profiling::enable(profile);
+        }
+        if ui.button("Toggle CPU Debugger").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Toggle PPU Debugger").clicked() {
+            self.todo(ui);
+        };
+        if ui.button("Toggle APU Debugger").clicked() {
+            self.todo(ui);
+        };
+    }
+
+    fn error_bar(&mut self, ui: &mut Ui) {
+        let mut clear_error = false;
+        if let Some(ref error) = self.error {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(error).color(egui::Color32::RED));
+                clear_error = ui.button("Clear").clicked();
+            });
+        }
+        if clear_error {
+            self.error = None;
+        }
+    }
+
+    fn status_bar(&mut self, ui: &mut Ui) {
+        // TODO: Render framerate if enabled
+        // TODO: maybe show other statuses like rewinding/playback/recording - bitflags?
+        if let Some(status) = self.status {
+            ui.label(status);
+        }
+    }
+
+    fn nes_frame(&mut self, ctx: &Context, ui: &mut egui::Ui, config: &Config) {
+        TopBottomPanel::top("messages").show_animated_inside(ui, !self.messages.is_empty(), |ui| {
+            let now = Instant::now();
+            self.messages.retain(|(_, expires)| now < *expires);
+            self.messages.dedup_by(|a, b| a.0.eq(&b.0));
+            for (message, _) in self.messages.iter().take(MAX_MESSAGES) {
+                ui.label(message);
+            }
+        });
+        TopBottomPanel::top("error")
+            .show_animated_inside(ui, self.error.is_some(), |ui| self.error_bar(ui));
+        TopBottomPanel::bottom("status")
+            .show_animated_inside(ui, self.status.is_some(), |ui| self.status_bar(ui));
+        CentralPanel::default()
+            .frame(Frame::none())
+            .show_inside(ui, |ui| {
+                ui.add_sized(
+                    ui.available_size(),
+                    Image::from_texture(self.texture)
+                        .maintain_aspect_ratio(true)
+                        .shrink_to_fit(),
+                )
+                .on_hover_cursor(if config.control_deck.zapper {
+                    CursorIcon::Crosshair
+                } else {
+                    CursorIcon::Default
+                });
+            });
+    }
+
+    fn configuration(&mut self, ui: &mut Ui) {
+        // button Restore Defaults
+        // button Clear Save State
+        //
+        // General
+        //   textedit Config Path
+        //   textedit Save Path
+        //   textedit Battey-Backed Save Path
+        //   checkbox Enable Rewind
+        //     textedit Rewind Frames
+        //     textedit Rewind Buffer Size (MB)
+        //
+        // Emulation
+        //   combobox Speed
+        //   checkbox Enable Zapper Gun
+        //   combobox Four Player Mode
+        //   combobox NES Region
+        //   combobox RAM State
+        //   checkbox Concurrent D-Pad
+        //
+        // View
+        //   combobox Scale
+        //   checkbox Show FPS
+        //   checkbox Show Messages
+        //   combobox Video Filter
+        //   checkbox Show Overscan
+        //   combobox Fullscreen Mode
+        //   checkbox Enable VSync
+        //   checkbox Always On Top
+        //
+        // Audio
+        //   checkbox Enabled
+        //   combobox Output Device
+        //   combobox Sample Rate
+        //   combobox Latency ms
+        //   checkbox APU Channels
+        // let mut save_slot = config.save_slot as usize - 1;
+        // if ui.combo_box("Save Slot", &mut save_slot, &["1", "2", "3", "4"], 4)? {
+        //     self.config.save_slot = save_slot as u8 + 1;
+        // }
+    }
+
+    fn about(&mut self, ui: &mut Ui) {
+        ui.label(RichText::new(&self.version).strong());
+        ui.hyperlink("https://github.com/lukexor/tetanes");
+
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Configuration: ").strong());
+            ui.label(&self.config_dir);
+        });
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Save States: ").strong());
+            ui.label(&self.save_dir);
+        });
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Battery-Backed Save States: ").strong());
+            ui.label(&self.sram_dir);
+        });
+    }
+
+    fn todo(&mut self, ui: &mut Ui) {
         log::warn!("not implemented yet");
     }
 
@@ -650,6 +738,15 @@ impl State {
             // self.open_puffin_path(path);
         }
     }
+
+    fn resize_window(&mut self, ctx: &Context, config: &mut Config) {
+        let spacing = ctx.style().spacing.item_spacing;
+        let border = 1.0;
+        let (inner_size, min_inner_size) =
+            config.inner_dimensions_with_spacing(0.0, self.menu_height + spacing.y + border);
+        let _ = self.window.request_inner_size(inner_size);
+        self.window.set_min_inner_size(Some(min_inner_size));
+    }
 }
 
 impl Nes {
@@ -663,7 +760,7 @@ impl Nes {
             .gui
             .state
             .messages
-            .push((text, Instant::now()));
+            .push((text, Instant::now() + MSG_TIMEOUT));
     }
 
     pub fn on_error(&mut self, err: NesError) {

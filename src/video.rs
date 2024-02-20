@@ -1,7 +1,11 @@
 use crate::{ppu::Ppu, profile};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::f64::consts::PI;
+use std::{
+    f64::consts::PI,
+    ops::{Deref, DerefMut},
+};
+use thingbuf::Recycle;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -36,11 +40,61 @@ impl From<usize> for VideoFilter {
     }
 }
 
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct Frame(Vec<u8>);
+
+impl Frame {
+    pub const SIZE: usize = Ppu::SIZE * 4;
+
+    /// Allocate a new frame for video output.
+    pub fn new() -> Self {
+        let mut frame = vec![0; Self::SIZE];
+        frame
+            .iter_mut()
+            .skip(3)
+            .step_by(4)
+            .for_each(|alpha| *alpha = 255);
+        Self(frame)
+    }
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug)]
+#[must_use]
+pub struct FrameRecycle;
+
+impl Recycle<Frame> for FrameRecycle {
+    fn new_element(&self) -> Frame {
+        Frame::new()
+    }
+
+    fn recycle(&self, _frame: &mut Frame) {}
+}
+
+impl Deref for Frame {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Frame {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Clone)]
 #[must_use]
 pub struct Video {
     pub filter: VideoFilter,
-    frame_buffer: Vec<u8>,
+    frame: Frame,
 }
 
 impl Default for Video {
@@ -50,9 +104,7 @@ impl Default for Video {
 }
 
 impl Video {
-    pub const FRAME_SIZE: usize = Ppu::SIZE * 4;
-
-    /// Create a new Video encoder with the default filter.
+    /// Create a new Video decoder with the default filter.
     pub fn new() -> Self {
         Self::with_filter(VideoFilter::default())
     }
@@ -61,36 +113,23 @@ impl Video {
     pub fn with_filter(filter: VideoFilter) -> Self {
         Self {
             filter,
-            frame_buffer: Self::new_frame_buffer(),
+            frame: Frame::new(),
         }
     }
 
-    /// Allocate a new frame buffer for decoding a frame of video output with full alpha.
-    #[must_use]
-    pub fn new_frame_buffer() -> Vec<u8> {
-        // Force alpha to 255.
-        let mut frame_buffer = vec![0; Self::FRAME_SIZE];
-        frame_buffer
-            .iter_mut()
-            .skip(3)
-            .step_by(4)
-            .for_each(|alpha| *alpha = 255);
-        frame_buffer
-    }
-
-    /// Fills a fully rendered frame of RENDER_SIZE RGB colors.
-
+    /// Applies the given filer to the video buffer and returns the result.
     pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
         profile!();
         match self.filter {
             VideoFilter::Pixellate => self.decode_buffer(buffer),
             VideoFilter::Ntsc => self.apply_ntsc_filter(buffer, frame_number),
         }
-        &self.frame_buffer
+        &self.frame
     }
 
+    /// Fills a fully rendered frame with RGB colors.
     pub fn decode_buffer(&mut self, buffer: &[u16]) {
-        for (pixel, colors) in buffer.iter().zip(self.frame_buffer.chunks_exact_mut(4)) {
+        for (pixel, colors) in buffer.iter().zip(self.frame.chunks_exact_mut(4)) {
             let (red, green, blue) = Ppu::system_palette(*pixel);
             assert!(colors.len() > 2);
             colors[0] = red;
@@ -109,7 +148,7 @@ impl Video {
         let mut prev_pixel = 0;
         for (idx, (pixel, colors)) in buffer
             .iter()
-            .zip(self.frame_buffer.chunks_exact_mut(4))
+            .zip(self.frame.chunks_exact_mut(4))
             .enumerate()
         {
             let x = idx % 256;

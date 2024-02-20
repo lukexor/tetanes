@@ -60,19 +60,6 @@ workspace = false
 command = "cargo"
 args = ["run", "-p", "tetanes", "--features", "profiling", "${@}"]
 
-[tasks.profile_viewer]
-description = "Run profile viewer"
-category = "Development"
-workspace = false
-command = "puffin_viewer"
-args = ["--url", "127.0.0.1:8585"]
-
-[tasks.profile]
-description = "Run TetaNES in development mode with profiling viewer"
-category = "Development"
-workspace = false
-run_task = { name = ["profiling", "profile_viewer"], fork = true, parallel = true }
-
 [tasks.install-web-deps]
 description = "Install wasm target"
 workspace = false

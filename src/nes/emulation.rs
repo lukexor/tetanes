@@ -190,6 +190,7 @@ impl State {
             }
             DeckEvent::Reset(kind) => {
                 self.control_deck.reset(*kind);
+                self.pause(false);
                 match kind {
                     ResetKind::Soft => self.add_message("Reset"),
                     ResetKind::Hard => self.add_message("Power Cycled"),
@@ -269,8 +270,8 @@ impl State {
     }
 
     pub fn pause(&mut self, paused: bool) {
-        self.paused = paused;
         if self.control_deck.is_running() {
+            self.paused = paused;
             if paused {
                 if let Err(err) = self.replay.stop() {
                     self.on_error(err);
@@ -282,6 +283,8 @@ impl State {
                 self.on_error(err);
                 self.add_message("Failed to resume audio");
             }
+        } else {
+            self.paused = false;
         }
     }
 
@@ -410,9 +413,9 @@ impl State {
             frames_to_clock -= 1;
         }
 
-        if let Ok(mut frame_slot) = self.frame_pool.push_ref() {
-            frame_slot.clear();
-            frame_slot.extend_from_slice(self.control_deck.frame_buffer());
+        if let Ok(mut frame) = self.frame_pool.push_ref() {
+            frame.clear();
+            frame.extend_from_slice(self.control_deck.frame_buffer());
         }
     }
 }

@@ -1,12 +1,12 @@
 use crate::{
     nes::{
-        config::Config,
+        config::{Config, OVERSCAN_TRIM},
         event::{Event, RendererEvent},
         gui,
     },
     ppu::Ppu,
     profile,
-    video::Video,
+    video::{Frame, FrameRecycle},
     NesResult,
 };
 use pixels::{
@@ -14,9 +14,9 @@ use pixels::{
     Pixels, PixelsBuilder, SurfaceTexture,
 };
 use std::{ops::Deref, sync::Arc};
-use thingbuf::{recycling::WithCapacity, ThingBuf};
+use thingbuf::ThingBuf;
 use winit::{
-    dpi::PhysicalSize,
+    dpi::LogicalSize,
     event::{Event as WinitEvent, WindowEvent},
     event_loop::EventLoop,
     window::Window,
@@ -29,14 +29,11 @@ pub enum Message {
 }
 
 #[derive(Debug)]
-pub struct BufferPool(Arc<ThingBuf<Vec<u8>, WithCapacity>>);
+pub struct BufferPool(Arc<ThingBuf<Frame, FrameRecycle>>);
 
 impl BufferPool {
     pub fn new() -> Self {
-        Self(Arc::new(ThingBuf::with_recycle(
-            1,
-            WithCapacity::new().with_min_capacity(Video::FRAME_SIZE),
-        )))
+        Self(Arc::new(ThingBuf::with_recycle(1, FrameRecycle)))
     }
 }
 
@@ -47,7 +44,7 @@ impl Default for BufferPool {
 }
 
 impl Deref for BufferPool {
-    type Target = Arc<ThingBuf<Vec<u8>, WithCapacity>>;
+    type Target = Arc<ThingBuf<Frame, FrameRecycle>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -62,9 +59,9 @@ impl Clone for BufferPool {
 #[derive(Debug)]
 #[must_use]
 pub struct Renderer {
-    pub(crate) frame_buffer: BufferPool,
+    frame_pool: BufferPool,
     pub(crate) gui: gui::Gui,
-    pub(crate) pixels: Pixels<'static>,
+    pixels: Pixels<'static>,
 }
 
 impl Renderer {
@@ -77,8 +74,9 @@ impl Renderer {
     ) -> NesResult<Self> {
         let mut window_size = window.inner_size();
         if window_size.width == 0 {
-            let (width, height) = config.get_dimensions();
-            window_size = PhysicalSize::new(width, height);
+            let scale_factor = window.scale_factor();
+            let (width, height) = config.dimensions();
+            window_size = LogicalSize::new(width, height).to_physical(scale_factor);
         }
         let surface_texture =
             SurfaceTexture::new(window_size.width, window_size.height, Arc::clone(&window));
@@ -93,7 +91,7 @@ impl Renderer {
         let gui = gui::Gui::new(event_loop, Arc::clone(&window), &pixels);
 
         Ok(Self {
-            frame_buffer: frame_pool,
+            frame_pool,
             gui,
             pixels,
         })
@@ -108,8 +106,8 @@ impl Renderer {
                     self.pixels.resize_surface(size.width, size.height)?
                 }
             }
-            WinitEvent::UserEvent(Event::Renderer(RendererEvent::ToggleVsync)) => {
-                // TODO: Toggle vsync, not released yet/ See: https://github.com/parasyte/pixels/issues/372
+            WinitEvent::UserEvent(Event::Renderer(RendererEvent::SetVSync(enabled))) => {
+                self.pixels.enable_vsync(*enabled);
             }
             _ => (),
         }
@@ -123,13 +121,20 @@ impl Renderer {
         self.gui.prepare(paused, config);
 
         // Copy NES frame buffer
-        if let Some(frame_buffer) = self.frame_buffer.pop_ref() {
+        if let Some(frame_buffer) = self.frame_pool.pop_ref() {
             let frame = self.pixels.frame_mut();
-            frame.copy_from_slice(&frame_buffer[..]);
+            if config.hide_overscan {
+                let len = frame_buffer.len();
+                frame[OVERSCAN_TRIM..len - OVERSCAN_TRIM]
+                    .copy_from_slice(&frame_buffer[OVERSCAN_TRIM..len - OVERSCAN_TRIM]);
+                frame[..OVERSCAN_TRIM].fill(0);
+                frame[len - OVERSCAN_TRIM..].fill(0);
+            } else {
+                frame.copy_from_slice(&frame_buffer);
+            }
         };
 
         Ok(self.pixels.render_with(|encoder, render_target, ctx| {
-            ctx.scaling_renderer.render(encoder, render_target);
             self.gui.render(encoder, render_target, ctx);
             Ok(())
         })?)

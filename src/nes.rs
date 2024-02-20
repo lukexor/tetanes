@@ -5,7 +5,7 @@ use crate::{
     nes::{
         emulation::Emulation,
         event::Event,
-        platform::{EventLoopExt, WindowBuilderExt},
+        platform::{EventLoopExt, WindowBuilderExt, WindowExt},
         renderer::{BufferPool, Renderer},
     },
     profile, NesResult,
@@ -13,7 +13,6 @@ use crate::{
 use config::Config;
 use std::sync::Arc;
 use winit::{
-    dpi::LogicalSize,
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
     window::{CursorIcon, Fullscreen, Window, WindowBuilder},
 };
@@ -38,16 +37,6 @@ pub struct Nes {
     event_state: event::State,
     // paths: Vec<PathBuf>,
     // selected_path: usize,
-}
-
-impl Drop for Nes {
-    fn drop(&mut self) {
-        #[cfg(feature = "profiling")]
-        crate::profiling::enable(false);
-        if let Err(err) = self.config.save() {
-            log::error!("failed to save config: {err:?}");
-        }
-    }
 }
 
 impl Nes {
@@ -94,20 +83,17 @@ impl Nes {
 
     /// Initializes the window in a platform agnostic way.
     pub fn initialize_window(event_loop: &EventLoop<Event>, config: &Config) -> NesResult<Window> {
-        let (width, height) = config.get_dimensions();
+        let (inner_size, min_inner_size) = config.inner_dimensions();
         let window_builder = WindowBuilder::new();
         let window_builder = window_builder
             .with_active(true)
-            .with_inner_size(LogicalSize::new(width, height))
+            .with_inner_size(inner_size)
+            .with_min_inner_size(min_inner_size)
             .with_title(Config::WINDOW_TITLE)
             // TODO: Support exclusive fullscreen config
             .with_fullscreen(config.fullscreen.then_some(Fullscreen::Borderless(None)))
             .with_platform();
         let window = window_builder.build(event_loop)?;
-
-        if config.control_deck.zapper {
-            window.set_cursor_icon(CursorIcon::Crosshair);
-        }
 
         Ok(window)
     }
