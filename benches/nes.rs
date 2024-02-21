@@ -6,7 +6,7 @@ use web_time::Duration;
 fn clock_frames(frames: u32) {
     use std::path::PathBuf;
 
-    let rom_path = PathBuf::from("roms/akumajou_densetsu.nes");
+    let rom_path = PathBuf::from("test_roms/ppu/_240pee.nes");
     assert!(rom_path.exists(), "No test rom found for {rom_path:?}");
     let mut rom = BufReader::new(File::open(&rom_path).expect("failed to open path"));
     let mut deck = ControlDeck::with_config(Config {
