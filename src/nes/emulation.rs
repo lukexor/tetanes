@@ -7,6 +7,7 @@ use crate::{
         config::Config,
         emulation::{replay::Replay, rewind::Rewind},
         event::{DeckEvent, Event, NesEvent},
+        platform,
         renderer::BufferPool,
     },
     profile,
@@ -53,6 +54,7 @@ pub struct State {
     // Keep track of last frame time so we can predict audio sync requirements for the next
     // frame.
     last_frame_time: Instant,
+    occluded: bool,
     paused: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -89,6 +91,7 @@ impl State {
             frame_pool,
             frame_accumulator: 0.0,
             last_frame_time: Instant::now(),
+            occluded: false,
             paused: true,
             rewinding: false,
             rewind,
@@ -196,6 +199,7 @@ impl State {
                     ResetKind::Hard => self.add_message("Power Cycled"),
                 }
             }
+            DeckEvent::Occluded(occluded) => self.occluded = *occluded,
             DeckEvent::Pause(paused) => self.pause(*paused),
             DeckEvent::TogglePause => self.pause(!self.paused),
             DeckEvent::ToggleReplayRecord => match self.replay.toggle(self.control_deck.cpu()) {
@@ -373,6 +377,13 @@ impl State {
     }
 
     fn clock_frame(&mut self) {
+        if self.paused || self.occluded {
+            return platform::sleep(self.config.target_frame_duration);
+        }
+        if self.rewinding {
+            return self.rewind();
+        }
+
         // Frames that aren't multiples of the default render 1 more/less frames
         // every other frame
         // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
@@ -465,12 +476,7 @@ impl Multi {
                 state.on_event(&event);
             }
 
-            if !state.paused {
-                state.clock_frame();
-            } else if state.rewinding {
-                state.rewind();
-            }
-
+            state.clock_frame();
             std::thread::park_timeout(
                 state
                     .mixer
@@ -536,11 +542,7 @@ impl Emulation {
         window_target: &EventLoopWindowTarget<Event>,
     ) -> NesResult<()> {
         if let Threads::Single(Single { ref mut state }) = self.threads {
-            if !state.paused {
-                state.clock_frame();
-            } else if state.rewinding {
-                state.rewind();
-            }
+            state.clock_frame();
             window_target.set_control_flow(ControlFlow::WaitUntil(state.next_frame_time()));
         }
         Ok(())

@@ -199,13 +199,23 @@ impl Cpu {
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::NMI_VECTOR);
-            log::trace!("NMI: {}", self.cycle);
+            log::trace!(
+                "NMI - PPU:{:3},{:3} CYC:{}",
+                self.bus.ppu.cycle(),
+                self.bus.ppu.scanline(),
+                self.cycle
+            );
         } else {
             self.push(status);
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::IRQ_VECTOR);
-            log::trace!("IRQ: {}", self.cycle);
+            log::trace!(
+                "IRQ - PPU:{:3},{:3} CYC:{}",
+                self.bus.ppu.cycle(),
+                self.bus.ppu.scanline(),
+                self.cycle
+            );
         }
     }
 
@@ -225,11 +235,10 @@ impl Cpu {
         self.nmi |= !self.prev_nmi_pending && nmi_pending;
         self.prev_nmi_pending = nmi_pending;
 
-        self.irq = self.bus.irqs_pending();
-
         // The IRQ status at the end of the second-to-last cycle is what matters,
         // so keep the second-to-last status.
         self.prev_run_irq = self.run_irq;
+        self.irq = self.bus.irqs_pending();
         self.run_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
 
         let dmc_dma = self.bus.apu.dmc_dma();
@@ -500,73 +509,88 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
-    pub fn disassemble(&mut self, pc: &mut u16) {
+    pub fn disassemble(&mut self, pc: &mut u16) -> &str {
         let opcode = self.peek(*pc, Access::Dummy);
         let instr = Cpu::INSTRUCTIONS[opcode as usize];
-        let mut bytes = Vec::with_capacity(3);
         self.disasm.clear();
-        let _ = write!(self.disasm, "{pc:04X} ");
-        bytes.push(opcode);
+
+        let _ = write!(self.disasm, "${pc:04X} ${opcode:02X} ");
         let mut addr = pc.wrapping_add(1);
-        let mode = match instr.addr_mode() {
+
+        match instr.addr_mode() {
             IMM => {
-                bytes.push(self.peek(addr, Access::Dummy));
+                let byte = self.peek(addr, Access::Dummy);
                 addr = addr.wrapping_add(1);
-                format!(" #${:02X}", bytes[1])
+                let _ = write!(self.disasm, "${byte:02X}     {instr} #${byte:02X}");
             }
             ZP0 => {
-                bytes.push(self.peek(addr, Access::Dummy));
+                let byte = self.peek(addr, Access::Dummy);
                 addr = addr.wrapping_add(1);
-                let val = self.peek(bytes[1].into(), Access::Dummy);
-                format!(" ${:02X} = #${val:02X}", bytes[1])
+                let val = self.peek(byte.into(), Access::Dummy);
+                let _ = write!(
+                    self.disasm,
+                    "${byte:02X}     {instr} ${byte:02X} = #${val:02X}"
+                );
             }
             ZPX => {
-                bytes.push(self.peek(addr, Access::Dummy));
+                let byte = self.peek(addr, Access::Dummy);
                 addr = addr.wrapping_add(1);
-                let x_offset = bytes[1].wrapping_add(self.x);
+                let x_offset = byte.wrapping_add(self.x);
                 let val = self.peek(x_offset.into(), Access::Dummy);
-                format!(" ${:02X},X @ ${x_offset:02X} = #${val:02X}", bytes[1])
+                let _ = write!(
+                    self.disasm,
+                    "${byte:02X}     {instr} ${byte:02X},X @ ${x_offset:02X} = #${val:02X}"
+                );
             }
             ZPY => {
-                bytes.push(self.peek(addr, Access::Dummy));
+                let byte = self.peek(addr, Access::Dummy);
                 addr = addr.wrapping_add(1);
-                let y_offset = bytes[1].wrapping_add(self.y);
+                let y_offset = byte.wrapping_add(self.y);
                 let val = self.peek(y_offset.into(), Access::Dummy);
-                format!(" ${:02X},Y @ ${y_offset:02X} = #${val:02X}", bytes[1])
+                let _ = write!(
+                    self.disasm,
+                    "${byte:02X}     {instr} ${byte:02X},Y @ ${y_offset:02X} = #${val:02X}"
+                );
             }
             ABS => {
-                bytes.push(self.peek(addr, Access::Dummy));
-                bytes.push(self.peek(addr.wrapping_add(1), Access::Dummy));
+                let byte1 = self.peek(addr, Access::Dummy);
+                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 if instr.op() == JMP || instr.op() == JSR {
-                    format!(" ${abs_addr:04X}")
+                    let _ = write!(
+                        self.disasm,
+                        "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X}"
+                    );
                 } else {
                     let val = self.peek(abs_addr, Access::Dummy);
-                    format!(" ${abs_addr:04X} = #${val:02X}")
+                    let _ = write!(
+                        self.disasm,
+                        "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X} = #${val:02X}"
+                    );
                 }
             }
             ABX => {
-                bytes.push(self.peek(addr, Access::Dummy));
-                bytes.push(self.peek(addr.wrapping_add(1), Access::Dummy));
+                let byte1 = self.peek(addr, Access::Dummy);
+                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset, Access::Dummy);
-                format!(" ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}")
+                let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}");
             }
             ABY => {
-                bytes.push(self.peek(addr, Access::Dummy));
-                bytes.push(self.peek(addr.wrapping_add(1), Access::Dummy));
+                let byte1 = self.peek(addr, Access::Dummy);
+                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset, Access::Dummy);
-                format!(" ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}")
+                let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}");
             }
             IND => {
-                bytes.push(self.peek(addr, Access::Dummy));
-                bytes.push(self.peek(addr.wrapping_add(1), Access::Dummy));
+                let byte1 = self.peek(addr, Access::Dummy);
+                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 let lo = self.peek(abs_addr, Access::Dummy);
@@ -576,75 +600,69 @@ impl Cpu {
                     self.peek(abs_addr + 1, Access::Dummy)
                 };
                 let val = u16::from_le_bytes([lo, hi]);
-                format!(" (${abs_addr:04X}) = ${val:04X}")
+                let _ = write!(
+                    self.disasm,
+                    "${byte1:02X} ${byte2:02X} {instr} (${abs_addr:04X}) = ${val:04X}"
+                );
             }
             IDX => {
-                bytes.push(self.peek(addr, Access::Dummy));
+                let byte = self.peek(addr, Access::Dummy);
                 addr = addr.wrapping_add(1);
-                let x_offset = bytes[1].wrapping_add(self.x);
+                let x_offset = byte.wrapping_add(self.x);
                 let abs_addr = self.peek_zp_u16(x_offset);
                 let val = self.peek(abs_addr, Access::Dummy);
-                format!(" (${:02X},X) @ ${abs_addr:04X} = #${val:02X}", bytes[1])
+                let _ = write!(
+                    self.disasm,
+                    "${byte:02X}     {instr} (${byte:02X},X) @ ${abs_addr:04X} = #${val:02X}"
+                );
             }
             IDY => {
-                bytes.push(self.peek(addr, Access::Dummy));
+                let byte = self.peek(addr, Access::Dummy);
                 addr = addr.wrapping_add(1);
-                let abs_addr = self.peek_zp_u16(bytes[1]);
+                let abs_addr = self.peek_zp_u16(byte);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset, Access::Dummy);
-                format!(" (${:02X}),Y @ ${y_offset:04X} = #${val:02X}", bytes[1])
+                let _ = write!(
+                    self.disasm,
+                    "${byte:02X}     {instr} (${byte:02X}),Y @ ${y_offset:04X} = #${val:02X}"
+                );
             }
             REL => {
-                bytes.push(self.peek(addr, Access::Dummy));
+                let byte = self.peek(addr, Access::Dummy);
                 let mut rel_addr = self.peek(addr, Access::Dummy).into();
                 addr = addr.wrapping_add(1);
                 if rel_addr & 0x80 == 0x80 {
                     // If address is negative, extend sign to 16-bits
                     rel_addr |= 0xFF00;
                 }
-                format!(" ${:04X}", addr.wrapping_add(rel_addr))
+                rel_addr = addr.wrapping_add(rel_addr);
+                let _ = write!(self.disasm, "${byte:02X}     {instr} ${rel_addr:04X}");
             }
-            ACC | IMP => "".to_string(),
+            ACC | IMP => (),
         };
         *pc = addr;
-        for byte in &bytes {
-            let _ = write!(self.disasm, "{byte:02X} ");
-        }
-        for _ in 0..(3 - bytes.len()) {
-            self.disasm.push_str("   ");
-        }
-        let _ = write!(self.disasm, "{instr:?}{mode}");
+        &self.disasm
     }
 
-    // Print the current instruction and status
+    // Return the current instruction and status
     pub fn trace_instr(&mut self) {
         let mut pc = self.pc;
-        self.disassemble(&mut pc);
-
-        let status_str = |status: Status, set: char, clear: char| {
-            if self.status.contains(status) {
-                set
-            } else {
-                clear
-            }
-        };
-
+        let status = self.status;
+        let acc = self.acc;
+        let x = self.x;
+        let y = self.y;
+        let sp = self.sp;
+        let ppu_cycle = self.bus.ppu.cycle();
+        let ppu_scanline = self.bus.ppu.scanline();
+        let cycle = self.cycle;
+        let n = if status.contains(Status::N) { 'N' } else { 'n' };
+        let v = if status.contains(Status::V) { 'V' } else { 'v' };
+        let i = if status.contains(Status::I) { 'I' } else { 'i' };
+        let z = if status.contains(Status::Z) { 'Z' } else { 'z' };
+        let c = if status.contains(Status::C) { 'C' } else { 'c' };
         log::trace!(
-            "{:<50} A:{:02X} X:{:02X} Y:{:02X} P:{}{}--{}{}{}{} SP:{:02X} PPU:{:3},{:3} CYC:{}",
-            self.disasm,
-            self.acc,
-            self.x,
-            self.y,
-            status_str(Status::N, 'N', 'n'),
-            status_str(Status::V, 'V', 'v'),
-            status_str(Status::D, 'd', 'd'),
-            status_str(Status::I, 'I', 'i'),
-            status_str(Status::Z, 'Z', 'z'),
-            status_str(Status::C, 'C', 'c'),
-            self.sp,
-            self.bus.ppu.cycle(),
-            self.bus.ppu.scanline(),
-            self.cycle,
+            "{:<50} A:{acc:02X} X:{x:02X} Y:{y:02X} P:{n}{v}--d{i}{z}{c} SP:{sp:02X} PPU:{ppu_cycle:3},{ppu_scanline:3} CYC:{cycle}",
+            self.disassemble(&mut pc),
         );
     }
 
@@ -661,6 +679,8 @@ impl Clock for Cpu {
     /// Runs the CPU one instruction
     fn clock(&mut self) -> usize {
         let start_cycle = self.cycle;
+
+        self.trace_instr();
 
         let opcode = self.read_instr(); // Cycle 1 of instruction
         self.instr = Cpu::INSTRUCTIONS[opcode as usize];

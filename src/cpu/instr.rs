@@ -42,7 +42,7 @@ use Operation::{
 };
 
 // (opcode, Addressing Mode, Operation, cycles taken)
-#[derive(Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub struct Instr(u8, AddrMode, Operation, usize);
 
@@ -1130,17 +1130,29 @@ impl Cpu {
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::NMI_VECTOR);
-            log::trace!("NMI: {}", self.cycle);
+            log::trace!(
+                "NMI - PPU:{:3},{:3} CYC:{}",
+                self.bus.ppu.cycle(),
+                self.bus.ppu.scanline(),
+                self.cycle
+            );
         } else {
             self.push(status);
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::IRQ_VECTOR);
-            log::trace!("IRQ: {}", self.cycle);
+            log::trace!(
+                "IRQ - PPU:{:3},{:3} CYC:{}",
+                self.bus.ppu.cycle(),
+                self.bus.ppu.scanline(),
+                self.cycle
+            );
         }
         // Prevent NMI from triggering immediately after BRK
         log::trace!(
-            "Suppress NMI after BRK: {}, {} -> false",
+            "Suppress NMI after BRK - PPU:{:3},{:3} CYC:{}, prev_nmi:{}",
+            self.bus.ppu.cycle(),
+            self.bus.ppu.scanline(),
             self.cycle,
             self.prev_nmi,
         );
@@ -1392,7 +1404,7 @@ impl Cpu {
     }
 }
 
-impl std::fmt::Debug for Instr {
+impl std::fmt::Display for Instr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         let mut op = self.op();
         let unofficial = match self.op() {

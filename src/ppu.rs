@@ -318,7 +318,7 @@ impl Ppu {
         log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
-            self.nmi_pending = self.ctrl.nmi_enabled();
+            self.nmi_pending |= self.ctrl.nmi_enabled();
             log::trace!(
                 "({}, {}): VBL NMI: {}",
                 self.cycle,
@@ -333,11 +333,10 @@ impl Ppu {
 
     fn stop_vblank(&mut self) {
         log::trace!(
-            "({}, {}): Clear Sprite0 Hit, Overflow",
+            "({}, {}): Clear VBL flag, Sprite0 Hit, Overflow",
             self.cycle,
             self.scanline
         );
-        log::trace!("({}, {}): Clear VBL flag", self.cycle, self.scanline);
         self.status.set_spr_zero_hit(false);
         self.status.set_spr_overflow(false);
         self.status.reset_in_vblank();
@@ -1084,41 +1083,37 @@ impl Mem for Ppu {
 
 impl Clock for Ppu {
     fn clock(&mut self) -> usize {
-        let mut cycle = self.cycle;
-        let mut scanline = self.scanline;
         let vblank_scanline = self.vblank_scanline;
         let prerender_scanline = self.prerender_scanline;
 
         // Clear open bus roughly once every frame
-        self.open_bus *= (scanline != 0) as u8;
+        self.open_bus *= (self.scanline != 0) as u8;
 
-        if cycle >= Self::CYCLE_END {
-            cycle = 0;
-            scanline += 1;
+        if self.cycle >= Self::CYCLE_END {
+            self.cycle = 0;
+            self.scanline += 1;
             // Post-render line
-            if scanline == vblank_scanline - 1 {
+            if self.scanline == vblank_scanline - 1 {
                 self.frame.increment();
             } else {
                 // Wrap scanline back to 0
-                scanline *= (scanline <= prerender_scanline) as u32;
+                self.scanline *= (self.scanline <= prerender_scanline) as u32;
             }
         } else {
             // cycle > 0
-            cycle += 1;
+            self.cycle += 1;
             self.tick();
 
-            if cycle == Self::VBLANK {
-                if scanline == vblank_scanline {
+            if self.cycle == Self::VBLANK {
+                if self.scanline == vblank_scanline {
                     self.start_vblank();
-                } else if scanline == prerender_scanline {
+                } else if self.scanline == prerender_scanline {
                     self.stop_vblank();
                 }
             }
         }
 
         self.cycle_count = self.cycle_count.wrapping_add(1);
-        self.cycle = cycle;
-        self.scanline = scanline;
 
         1
     }

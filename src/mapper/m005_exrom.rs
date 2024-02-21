@@ -617,7 +617,7 @@ impl MemMap for Exrom {
                 let irq_state = &mut self.irq_state;
                 // Wait for three consecutive fetches to match the same address, which means we're
                 // at the end of the render scanlines fetching dummy NT bytes
-                if addr < 0x2FFF && Some(addr) == irq_state.prev_addr {
+                if addr <= 0x2FFF && Some(addr) == irq_state.prev_addr {
                     irq_state.match_count += 1;
                     status.fetch_count = 0;
                     if irq_state.match_count == 2 {

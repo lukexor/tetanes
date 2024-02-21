@@ -14,7 +14,7 @@ use config::Config;
 use std::sync::Arc;
 use winit::{
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    window::{CursorIcon, Fullscreen, Window, WindowBuilder},
+    window::{Fullscreen, Window, WindowBuilder},
 };
 
 pub mod config;
@@ -102,13 +102,9 @@ impl Nes {
         frame_begin!();
         profile!();
 
-        if self.event_state.occluded {
-            platform::sleep(self.config.target_frame_duration);
-        } else {
-            if let Err(err) = self.emulation.request_clock_frame(window_target) {
-                self.on_error(err);
-            }
-            self.window.request_redraw();
+        if let Err(err) = self.emulation.request_clock_frame(window_target) {
+            self.on_error(err);
         }
+        self.window.request_redraw();
     }
 }

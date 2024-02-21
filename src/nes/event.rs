@@ -56,6 +56,7 @@ pub enum DeckEvent {
     LoadRom((String, Vec<u8>)),
     Joypad((Player, JoypadBtn, ElementState)),
     TriggerZapper,
+    Occluded(bool),
     Pause(bool),
     TogglePause,
     Reset(ResetKind),
@@ -78,6 +79,7 @@ impl std::fmt::Debug for DeckEvent {
             Self::LoadRom((name, _)) => write!(f, "DeckEvent::LoadRom({name:?}, ..)"),
             Self::Joypad(joypad) => write!(f, "DeckEvent::Joypad({joypad:?})"),
             Self::TriggerZapper => write!(f, "DeckEvent::TriggerZapper"),
+            Self::Occluded(occluded) => write!(f, "DeckEvent::Occluded({occluded:?})"),
             Self::Pause(paused) => write!(f, "DeckEvent::Pause({paused:?})"),
             Self::TogglePause => write!(f, "DeckEvent::TogglePause"),
             Self::Reset(kind) => write!(f, "DeckEvent::Reset({kind:?})"),
@@ -214,8 +216,7 @@ impl Nes {
                 }
                 WindowEvent::Occluded(occluded) => {
                     if window_id == self.window.id() {
-                        self.event_state.occluded = occluded;
-                        self.pause(self.event_state.occluded);
+                        self.send_event(DeckEvent::Occluded(occluded));
                     }
                 }
                 WindowEvent::KeyboardInput { event, .. } => {
