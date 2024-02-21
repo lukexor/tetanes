@@ -14,7 +14,7 @@ static GENIE_MAP: Lazy<HashMap<char, u8>> = Lazy::new(|| {
 });
 
 /// Game Genie Code
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenieCode {
     code: String,
     addr: u16,
@@ -29,17 +29,7 @@ impl GenieCode {
     ///
     /// This function will return an error if the given code is not the correct format.
     pub fn new(code: String) -> NesResult<Self> {
-        if code.len() != 6 && code.len() != 8 {
-            return Err(anyhow!("invalid game genie code: {}", code));
-        }
-        let mut hex: Vec<u8> = Vec::with_capacity(code.len());
-        for s in code.chars() {
-            if let Some(h) = GENIE_MAP.get(&s) {
-                hex.push(*h);
-            } else {
-                return Err(anyhow!("invalid game genie code: {}", code));
-            }
-        }
+        let hex = Self::parse(&code)?;
         let addr = 0x8000
             + (((u16::from(hex[3]) & 7) << 12)
                 | ((u16::from(hex[5]) & 7) << 8)
@@ -64,6 +54,25 @@ impl GenieCode {
             data,
             compare,
         })
+    }
+
+    pub fn parse(code: &str) -> NesResult<Vec<u8>> {
+        if code.len() != 6 && code.len() != 8 {
+            return Err(anyhow!(
+                "invalid game genie code: {code}. Length must be 6 or 8 characters."
+            ));
+        }
+        let mut hex: Vec<u8> = Vec::with_capacity(code.len());
+        for s in code.chars() {
+            if let Some(h) = GENIE_MAP.get(&s) {
+                hex.push(*h);
+            } else {
+                return Err(anyhow!(
+                    "invalid game genie code: {code}. Invalid character: {s}"
+                ));
+            }
+        }
+        Ok(hex)
     }
 
     #[must_use]

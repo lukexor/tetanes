@@ -75,7 +75,7 @@ impl State {
         config: Config,
     ) -> Self {
         let control_deck = ControlDeck::with_config(config.clone().into());
-        let sample_rate = config.audio_sample_rate / config.frame_speed;
+        let sample_rate = config.audio_sample_rate / f32::from(config.frame_speed);
         let mixer = Mixer::new(
             control_deck.clock_rate() / sample_rate,
             sample_rate,
@@ -132,8 +132,9 @@ impl State {
                 WindowEvent::CursorMoved { position, .. } => {
                     // Aim zapper
                     if self.config.control_deck.zapper {
-                        let x = (position.x / self.config.scale as f64) * 8.0 / 7.0 + 0.5; // Adjust ratio
-                        let mut y = position.y / self.config.scale as f64;
+                        let scale = f64::from(self.config.scale);
+                        let x = (position.x / scale) * 8.0 / 7.0 + 0.5; // Adjust ratio
+                        let mut y = position.y / scale;
                         // Account for trimming top 8 scanlines
                         if self.config.control_deck.region.is_ntsc() {
                             y += 8.0;
@@ -260,10 +261,11 @@ impl State {
                 self.send_event(NesEvent::ConfigUpdate(self.config.clone()));
             }
             DeckEvent::SetFrameSpeed(speed) => {
-                self.add_message(format!("Changed Emulation Speed to {}", speed));
+                self.add_message(format!("Changed Emulation Speed to {speed}"));
                 self.config.frame_speed = *speed;
                 let clock_rate = self.control_deck.clock_rate();
-                let sample_rate = self.config.audio_sample_rate / self.config.frame_speed;
+                let sample_rate =
+                    self.config.audio_sample_rate / f32::from(self.config.frame_speed);
                 self.send_event(NesEvent::ConfigUpdate(self.config.clone()));
                 if let Err(err) = self.mixer.set_resample_ratio(clock_rate / sample_rate) {
                     self.on_error(err);
@@ -388,7 +390,7 @@ impl State {
         // every other frame
         // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
         // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
-        self.frame_accumulator += self.config.frame_speed;
+        self.frame_accumulator += f32::from(self.config.frame_speed);
         let mut frames_to_clock = 0;
         while self.frame_accumulator >= 1.0 {
             self.frame_accumulator -= 1.0;

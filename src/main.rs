@@ -18,6 +18,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tetanes::{
+    genie::GenieCode,
     nes::{self, config::Config, Nes},
     profiling, NesResult,
 };
@@ -30,7 +31,7 @@ fn main() -> NesResult<()> {
 
     let config = Config::load();
     #[cfg(not(target_arch = "wasm32"))]
-    let config = ConfigOpts::extend(config);
+    let config = ConfigOpts::extend(config)?;
 
     nes::platform::spawn(Nes::run(config))
 }
@@ -59,7 +60,7 @@ struct ConfigOpts {
     #[arg(long)]
     no_vsync: bool,
     /// Set four player adapter. [default: 'disabled']
-    #[arg(short = '4', long)]
+    #[arg(short = '4', long, value_enum)]
     four_player: Option<tetanes::input::FourPlayer>,
     /// Enable zapper gun.
     #[arg(short, long)]
@@ -67,8 +68,8 @@ struct ConfigOpts {
     /// Disable multi-threaded.
     #[arg(long)]
     no_threaded: bool,
-    /// Choose power-up RAM state. [default: "all_zeros"]
-    #[arg(short = 'm', long)]
+    /// Choose power-up RAM state. [default: "all-zeros"]
+    #[arg(short = 'm', long, value_enum)]
     ram_state: Option<tetanes::mem::RamState>,
     /// Save slot. [default: 1]
     #[arg(short = 'i', long)]
@@ -79,16 +80,16 @@ struct ConfigOpts {
     /// Don't auto save state or save on exit.
     #[arg(long)]
     no_save: bool,
-    /// Window scale. [default: 3.0]
-    #[arg(short = 'x', long)]
-    scale: Option<f32>,
-    /// Emulation speed. [default: 1.0]
-    #[arg(short = 'e', long)]
-    speed: Option<f32>,
-    /// Add Game Genie Code(s).
+    /// Window scale. [default: x3]
+    #[arg(short = 'x', long, value_enum)]
+    scale: Option<tetanes::nes::config::Scale>,
+    /// Emulation speed. [default: x100]
+    #[arg(short = 'e', long, value_enum)]
+    speed: Option<tetanes::nes::config::Speed>,
+    /// Add Game Genie Code(s). e.g. `AATOZE` (Start Super Mario Bros. with 9 lives).
     #[arg(short, long)]
     genie_code: Vec<String>,
-    /// "Default Config" (skip user config and save states)
+    /// "Default Config" (skip user config and previous save states)
     #[arg(short, long)]
     clean: bool,
     /// Start with debugger open.
@@ -99,7 +100,7 @@ struct ConfigOpts {
 #[cfg(not(target_arch = "wasm32"))]
 impl ConfigOpts {
     /// Extends a base `Config` with CLI options
-    fn extend(mut base: Config) -> Config {
+    fn extend(mut base: Config) -> NesResult<Config> {
         use clap::Parser;
         use tetanes::control_deck;
 
@@ -145,7 +146,16 @@ impl ConfigOpts {
             debug: opts.debug || base.debug,
             ..base
         };
-        config.control_deck.genie_codes.extend(opts.genie_code);
         config
+            .control_deck
+            .genie_codes
+            .reserve(opts.genie_code.len());
+        for genie_code in opts.genie_code.into_iter() {
+            config
+                .control_deck
+                .genie_codes
+                .push(GenieCode::new(genie_code)?);
+        }
+        Ok(config)
     }
 }

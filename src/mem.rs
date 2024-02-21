@@ -39,7 +39,7 @@ pub trait Mem {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[must_use]
 pub enum RamState {
     #[default]

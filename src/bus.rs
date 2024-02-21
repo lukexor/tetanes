@@ -9,7 +9,6 @@ use crate::{
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::{Access, Mem, RamState},
     ppu::{Ppu, PpuRegisters},
-    NesResult,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -137,11 +136,9 @@ impl Bus {
     /// # Errors
     ///
     /// Errors if genie code is invalid.
-    pub fn add_genie_code(&mut self, code: String) -> NesResult<()> {
-        let genie_code = GenieCode::new(code)?;
+    pub fn add_genie_code(&mut self, genie_code: GenieCode) {
         let addr = genie_code.addr();
         self.genie_codes.insert(addr, genie_code);
-        Ok(())
     }
 
     pub fn remove_genie_code(&mut self, code: &str) {
@@ -463,8 +460,7 @@ mod test {
         cart.prg_rom[(addr & 0x7FFF) as usize] = orig_value;
 
         bus.load_cart(cart);
-        bus.add_genie_code(code.to_string())
-            .expect("valid genie code");
+        bus.add_genie_code(GenieCode::new(code.to_string()).expect("valid genie code"));
 
         assert_eq!(bus.peek(addr, Access::Read), new_value, "peek code value");
         assert_eq!(bus.read(addr, Access::Read), new_value, "read code value");

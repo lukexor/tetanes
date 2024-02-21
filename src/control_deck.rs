@@ -5,6 +5,7 @@ use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
     filesystem,
+    genie::GenieCode,
     input::{FourPlayer, Joypad, Player},
     mapper::Mapper,
     mem::RamState,
@@ -32,7 +33,7 @@ pub struct Config {
     /// Enable zapper gun.
     pub zapper: bool,
     /// Game Genie codes.
-    pub genie_codes: Vec<String>,
+    pub genie_codes: Vec<GenieCode>,
     /// Save state slot.
     pub save_slot: u8,
     /// Load save state on loading a ROM.
@@ -136,10 +137,8 @@ impl ControlDeck {
         cpu.set_region(config.region);
         cpu.bus.input.set_four_player(config.four_player);
         cpu.bus.input.connect_zapper(config.zapper);
-        for code in config.genie_codes.clone() {
-            if let Err(err) = cpu.bus.add_genie_code(code.clone()) {
-                log::warn!("{}", err);
-            }
+        for genie_code in config.genie_codes.iter().cloned() {
+            cpu.bus.add_genie_code(genie_code);
         }
         let video = Video::with_filter(config.filter);
         Self {
@@ -514,7 +513,8 @@ impl ControlDeck {
     /// If genie code is invalid, an error is returned.
 
     pub fn add_genie_code(&mut self, genie_code: String) -> NesResult<()> {
-        self.cpu.bus.add_genie_code(genie_code)
+        self.cpu.bus.add_genie_code(GenieCode::new(genie_code)?);
+        Ok(())
     }
 
     pub fn remove_genie_code(&mut self, genie_code: &str) {

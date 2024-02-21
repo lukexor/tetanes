@@ -4,7 +4,7 @@ use crate::{
     input::{JoypadBtn, Player},
     mapper::MapperRevision,
     nes::{
-        config::Config,
+        config::{Config, Scale, Speed},
         gui::{ConfigTab, Menu},
         Nes,
     },
@@ -69,7 +69,7 @@ pub enum DeckEvent {
     SaveState,
     LoadState,
     SetSaveSlot(u8),
-    SetFrameSpeed(f32),
+    SetFrameSpeed(Speed),
     Rewind((ElementState, bool)),
 }
 
@@ -114,6 +114,7 @@ impl From<DeckEvent> for WinitEvent<Event> {
 #[must_use]
 pub enum RendererEvent {
     SetVSync(bool),
+    SetScale(Scale),
 }
 
 impl From<RendererEvent> for WinitEvent<Event> {
@@ -371,9 +372,13 @@ impl Nes {
             Setting::ToggleApuChannel(channel) if released => {
                 self.send_event(DeckEvent::ToggleApuChannel(channel));
             }
-            Setting::IncSpeed if released => self.change_speed(0.25),
-            Setting::DecSpeed if released => self.change_speed(-0.25),
-            Setting::FastForward if !repeat => self.set_speed(if released { 1.0 } else { 2.0 }),
+            Setting::IncSpeed if released => self.set_speed(self.config.frame_speed.increment()),
+            Setting::DecSpeed if released => self.set_speed(self.config.frame_speed.decrement()),
+            Setting::FastForward if !repeat => self.set_speed(if released {
+                Speed::default()
+            } else {
+                Speed::X200
+            }),
             _ => (),
         }
     }

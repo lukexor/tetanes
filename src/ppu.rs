@@ -318,7 +318,7 @@ impl Ppu {
         log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
-            self.nmi_pending |= self.ctrl.nmi_enabled();
+            self.nmi_pending = self.ctrl.nmi_enabled();
             log::trace!(
                 "({}, {}): VBL NMI: {}",
                 self.cycle,
@@ -869,9 +869,12 @@ impl PpuRegisters for Ppu {
 
     fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
-        if self.nmi_pending() {
-            log::trace!("({}, {}): $2002 NMI Ack", self.cycle, self.scanline);
-        }
+        log::trace!(
+            "({}, {}): $2002 NMI Ack - pending: {}",
+            self.cycle,
+            self.scanline,
+            self.nmi_pending
+        );
         self.nmi_pending = false;
         self.status.reset_in_vblank();
         self.scroll.reset_latch();

@@ -173,9 +173,10 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 pub(crate) mod tests {
     use super::*;
     use crate::{
-        control_deck::ControlDeck,
+        control_deck::{Config, ControlDeck},
         input::Player,
         mapper::{Mapper, MapperRevision},
+        mem::RamState,
         nes::event::{Action, NesState, Setting},
         ppu::Ppu,
         video::VideoFilter,
@@ -263,7 +264,12 @@ pub(crate) mod tests {
     fn load_control_deck<P: AsRef<Path>>(path: P) -> ControlDeck {
         let path = path.as_ref();
         let mut rom = BufReader::new(File::open(path).expect("failed to open path"));
-        let mut deck = ControlDeck::default();
+        let mut deck = ControlDeck::with_config(Config {
+            load_on_start: false,
+            save_on_exit: false,
+            ram_state: RamState::AllZeros,
+            ..Default::default()
+        });
         deck.load_rom(&path.to_string_lossy(), &mut rom)
             .expect("failed to load rom");
         deck.set_filter(VideoFilter::Pixellate);

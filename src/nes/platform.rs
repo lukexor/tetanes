@@ -196,7 +196,7 @@ pub trait WindowExt {
 impl WindowExt for Config {
     fn inner_dimensions(&self) -> (LogicalSize<f32>, LogicalSize<f32>) {
         let (width, height) = self.dimensions();
-        let scale = self.scale;
+        let scale = f32::from(self.scale);
         (
             LogicalSize::new(width, height),
             LogicalSize::new(width / scale, height / scale),
@@ -209,7 +209,7 @@ impl WindowExt for Config {
         y: f32,
     ) -> (LogicalSize<f32>, LogicalSize<f32>) {
         let (inner_size, min_inner_size) = self.inner_dimensions();
-        let scale = self.scale;
+        let scale = f32::from(self.scale);
         (
             LogicalSize::new(inner_size.width + x, inner_size.height + y),
             LogicalSize::new(

@@ -5,32 +5,24 @@ use crate::{
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Player {
+    #[default]
     One,
     Two,
     Three,
     Four,
 }
 
-impl Default for Player {
-    fn default() -> Self {
-        Self::One
-    }
-}
-
-impl TryFrom<usize> for Player {
-    type Error = &'static str;
-    fn try_from(player: usize) -> Result<Self, Self::Error> {
-        match player {
-            0 => Ok(Self::One),
-            1 => Ok(Self::Two),
-            2 => Ok(Self::Three),
-            3 => Ok(Self::Four),
-            _ => Err("invalid player number: {player}"),
+impl AsRef<str> for Player {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::One => "Player One",
+            Self::Two => "Player Two",
+            Self::Three => "Player Three",
+            Self::Four => "Player Four",
         }
     }
 }
@@ -41,7 +33,7 @@ pub trait InputRegisters {
     fn write(&mut self, val: u8);
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[must_use]
 pub enum FourPlayer {
     #[default]
@@ -50,42 +42,12 @@ pub enum FourPlayer {
     Satellite,
 }
 
-impl FourPlayer {
-    pub const fn as_slice() -> &'static [Self] {
-        &[Self::Disabled, Self::FourScore, Self::Satellite]
-    }
-}
-
-impl From<usize> for FourPlayer {
-    fn from(value: usize) -> Self {
-        match value {
-            1 => Self::FourScore,
-            2 => Self::Satellite,
-            _ => Self::Disabled,
-        }
-    }
-}
-
 impl AsRef<str> for FourPlayer {
     fn as_ref(&self) -> &str {
         match self {
             Self::Disabled => "Disabled",
             Self::FourScore => "FourScore",
             Self::Satellite => "Satellite",
-        }
-    }
-}
-
-impl FromStr for FourPlayer {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "disabled" => Ok(Self::Disabled),
-            "fourscore" => Ok(Self::FourScore),
-            "satellite" => Ok(Self::Satellite),
-            _ => Err(
-                "invalid FourScore value. valid options: `disabled`, `fourscore`, or `satellite`",
-            ),
         }
     }
 }

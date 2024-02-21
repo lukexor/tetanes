@@ -3,20 +3,215 @@ use crate::{
     control_deck,
     input::Player,
     nes::{
-        event::{Action, DeckEvent, Input, InputBinding, InputMap},
+        event::{Action, DeckEvent, Input, InputBinding, InputMap, RendererEvent},
         Nes,
     },
     ppu::Ppu,
+    NesError,
 };
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 
-const MIN_SPEED: f32 = 0.25; // 25% - 15 Hz
-const MAX_SPEED: f32 = 2.0; // 200% - 120 Hz
 const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
 const WINDOW_WIDTH_PAL: f32 = Ppu::WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
 const WINDOW_HEIGHT: f32 = Ppu::HEIGHT as f32;
 pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[must_use]
+pub enum Scale {
+    X1,
+    X2,
+    #[default]
+    X3,
+    X4,
+}
+
+impl From<Scale> for f32 {
+    fn from(val: Scale) -> Self {
+        match val {
+            Scale::X1 => 1.0,
+            Scale::X2 => 2.0,
+            Scale::X3 => 3.0,
+            Scale::X4 => 4.0,
+        }
+    }
+}
+
+impl From<Scale> for f64 {
+    fn from(val: Scale) -> Self {
+        f32::from(val) as f64
+    }
+}
+
+impl TryFrom<f32> for Scale {
+    type Error = NesError;
+    fn try_from(val: f32) -> Result<Self, Self::Error> {
+        match val {
+            1.0 => Ok(Scale::X1),
+            2.0 => Ok(Scale::X2),
+            3.0 => Ok(Scale::X3),
+            4.0 => Ok(Scale::X4),
+            _ => Err(anyhow!("unsupported scale: {val}")),
+        }
+    }
+}
+
+impl AsRef<str> for Scale {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::X1 => "100%",
+            Self::X2 => "200%",
+            Self::X3 => "300%",
+            Self::X4 => "400%",
+        }
+    }
+}
+
+impl std::fmt::Display for Scale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[must_use]
+pub enum Speed {
+    X25,
+    X50,
+    X75,
+    #[default]
+    X100,
+    X125,
+    X150,
+    X175,
+    X200,
+}
+
+impl Speed {
+    pub fn increment(&self) -> Self {
+        match self {
+            Speed::X25 => Speed::X50,
+            Speed::X50 => Speed::X75,
+            Speed::X75 => Speed::X100,
+            Speed::X100 => Speed::X125,
+            Speed::X125 => Speed::X150,
+            Speed::X150 => Speed::X175,
+            Speed::X175 => Speed::X200,
+            Speed::X200 => Speed::X200,
+        }
+    }
+
+    pub fn decrement(&self) -> Self {
+        match self {
+            Speed::X25 => Speed::X25,
+            Speed::X50 => Speed::X25,
+            Speed::X75 => Speed::X50,
+            Speed::X100 => Speed::X75,
+            Speed::X125 => Speed::X100,
+            Speed::X150 => Speed::X125,
+            Speed::X175 => Speed::X150,
+            Speed::X200 => Speed::X175,
+        }
+    }
+}
+
+impl From<Speed> for f32 {
+    fn from(val: Speed) -> Self {
+        match val {
+            Speed::X25 => 0.25,
+            Speed::X50 => 0.50,
+            Speed::X75 => 0.75,
+            Speed::X100 => 1.0,
+            Speed::X125 => 1.25,
+            Speed::X150 => 1.50,
+            Speed::X175 => 1.75,
+            Speed::X200 => 2.0,
+        }
+    }
+}
+
+impl TryFrom<f32> for Speed {
+    type Error = NesError;
+    fn try_from(val: f32) -> Result<Self, Self::Error> {
+        match val {
+            0.25 => Ok(Speed::X25),
+            0.50 => Ok(Speed::X50),
+            0.75 => Ok(Speed::X75),
+            1.0 => Ok(Speed::X100),
+            1.25 => Ok(Speed::X125),
+            1.50 => Ok(Speed::X150),
+            1.75 => Ok(Speed::X175),
+            2.0 => Ok(Speed::X200),
+            _ => Err(anyhow!("unsupported speed: {val}")),
+        }
+    }
+}
+
+impl AsRef<str> for Speed {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::X25 => "25%",
+            Self::X50 => "50%",
+            Self::X75 => "75%",
+            Self::X100 => "100%",
+            Self::X125 => "125%",
+            Self::X150 => "150%",
+            Self::X175 => "175%",
+            Self::X200 => "200%",
+        }
+    }
+}
+
+impl std::fmt::Display for Speed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SampleRate {
+    S32,
+    S44_1,
+    S48,
+    S96,
+}
+
+impl From<SampleRate> for f32 {
+    fn from(val: SampleRate) -> Self {
+        match val {
+            SampleRate::S32 => 32000.0,
+            SampleRate::S44_1 => 44100.0,
+            SampleRate::S48 => 48000.0,
+            SampleRate::S96 => 96000.0,
+        }
+    }
+}
+
+impl TryFrom<f32> for SampleRate {
+    type Error = NesError;
+    fn try_from(val: f32) -> Result<Self, Self::Error> {
+        match val {
+            32000.0 => Ok(Self::S32),
+            44100.0 => Ok(Self::S44_1),
+            48000.0 => Ok(Self::S48),
+            96000.0 => Ok(Self::S96),
+            _ => Err(anyhow!("unsupported sample rate: {val}")),
+        }
+    }
+}
+
+impl AsRef<str> for SampleRate {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::S32 => "32 kHz",
+            Self::S44_1 => "44.1 kHz",
+            Self::S48 => "48 kHz",
+            Self::S96 => "96 kHz",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
@@ -36,8 +231,8 @@ pub struct Config {
     pub frame_rate: f64,
     #[serde(skip)]
     pub target_frame_duration: Duration,
-    pub scale: f32,
-    pub frame_speed: f32,
+    pub scale: Scale,
+    pub frame_speed: Speed,
     pub hide_overscan: bool,
     pub rewind: bool,
     pub rewind_interval: u8,
@@ -94,8 +289,8 @@ impl Default for Config {
             frame_rate,
             hide_overscan: true,
             target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
-            scale: 3.0,
-            frame_speed: 1.0,
+            scale: Scale::default(),
+            frame_speed: Speed::default(),
             rewind: true,
             rewind_interval: 2,
             rewind_buffer_size_mb: 20 * 1024 * 1024,
@@ -190,7 +385,8 @@ impl Config {
             NesRegion::Ntsc => (WINDOW_WIDTH_NTSC, WINDOW_HEIGHT),
             NesRegion::Pal | NesRegion::Dendy => (WINDOW_WIDTH_PAL, WINDOW_HEIGHT),
         };
-        (self.scale * width, self.scale * height)
+        let scale = f32::from(self.scale);
+        (scale * width, scale * height)
     }
 
     pub fn directory() -> PathBuf {
@@ -241,26 +437,12 @@ impl Nes {
         // TODO: Save to local storage
     }
 
-    pub fn set_scale(&mut self, scale: f32) {
+    pub fn set_scale(&mut self, scale: Scale) {
         self.config.scale = scale;
-        // TODO: switch to egui
-        // let (font_size, fpad, ipad) = match scale as usize {
-        //     1 => (6, 2, 2),
-        //     2 => (8, 6, 4),
-        //     3 => (12, 8, 6),
-        //     _ => (16, 10, 8),
-        // };
-        // s.font_size(font_size).expect("valid font size");
-        // s.theme_mut().spacing.frame_pad = point!(fpad, fpad);
-        // s.theme_mut().spacing.item_pad = point!(ipad, ipad);
+        self.send_event(RendererEvent::SetScale(self.config.scale));
     }
 
-    pub fn change_speed(&mut self, delta: f32) {
-        self.config.frame_speed = (self.config.frame_speed + delta).clamp(MIN_SPEED, MAX_SPEED);
-        self.set_speed(self.config.frame_speed);
-    }
-
-    pub fn set_speed(&mut self, speed: f32) {
+    pub fn set_speed(&mut self, speed: Speed) {
         self.config.frame_speed = speed;
         self.send_event(DeckEvent::SetFrameSpeed(self.config.frame_speed));
     }
