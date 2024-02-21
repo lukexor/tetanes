@@ -15,7 +15,7 @@ exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
 edition = "2021"
 
 [package.metadata]
-msrv = "1.72.0"
+msrv = "1.74.0"
 
 [package.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"

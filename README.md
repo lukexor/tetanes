@@ -52,7 +52,7 @@ emulation.
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current minimum Rust version is `1.72.0`.
+The current minimum Rust version is `1.74.0`.
 
 ## Screenshots
 
