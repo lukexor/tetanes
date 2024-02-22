@@ -60,6 +60,7 @@ impl Clone for BufferPool {
 #[must_use]
 pub struct Renderer {
     frame_pool: BufferPool,
+    // TODO: remove pub(crate)
     pub(crate) gui: gui::Gui,
     pixels: Pixels<'static>,
 }
@@ -135,6 +136,7 @@ impl Renderer {
         };
 
         Ok(self.pixels.render_with(|encoder, render_target, ctx| {
+            ctx.scaling_renderer.render(encoder, render_target);
             self.gui.render(encoder, render_target, ctx);
             Ok(())
         })?)

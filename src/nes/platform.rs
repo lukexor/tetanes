@@ -1,47 +1,13 @@
-use crate::{
-    nes::{config::Config, Nes},
-    NesResult,
-};
-use std::{future::Future, io::Read};
-use web_time::Duration;
+use crate::nes::{config::Config, event::DeckEvent, Nes};
 use winit::{
     dpi::LogicalSize,
     event::Event as WinitEvent,
     event_loop::{EventLoop, EventLoopWindowTarget},
 };
 
-/// Spawn a future to be run until completion.
-pub fn spawn<F>(future: F) -> NesResult<()>
-where
-    F: Future<Output = NesResult<()>> + 'static,
-{
-    let execute = async {
-        if let Err(err) = future.await {
-            log::error!("spawned future failed: {err:?}");
-        }
-    };
-
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(execute);
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pollster::block_on(execute);
-
-    Ok(())
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn sleep(_duration: Duration) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn sleep(duration: Duration) {
-    std::thread::sleep(duration);
-}
-
 impl Nes {
     #[cfg(target_arch = "wasm32")]
     pub fn initialize_platform(&mut self) {
-        use crate::event::Event;
         use wasm_bindgen::{closure::Closure, JsCast};
 
         web_sys::window()
@@ -52,10 +18,13 @@ impl Nes {
                     let event_proxy = self.event_proxy.clone();
                     move |_| {
                         const TEST_ROM: &[u8] = include_bytes!("../../roms/akumajou_densetsu.nes");
-                        if let Err(err) = event_proxy.send_event(Event::LoadRom((
-                            "akumajou_densetsu.nes".to_string(),
-                            TEST_ROM.to_vec(),
-                        ))) {
+                        if let Err(err) = event_proxy.send_event(
+                            DeckEvent::LoadRom((
+                                "akumajou_densetsu.nes".to_string(),
+                                TEST_ROM.to_vec(),
+                            ))
+                            .into(),
+                        ) {
                             log::error!("failed to send load rom message to event_loop: {err:?}");
                         }
                     }
@@ -74,15 +43,17 @@ impl Nes {
 
                 let handle_pause = Closure::<dyn FnMut(web_sys::MouseEvent)>::new({
                     let event_proxy = self.event_proxy.clone();
+                    let mut paused = false;
                     move |_| {
-                        if let Err(err) = event_proxy.send_event(Event::Pause) {
+                        paused = !paused;
+                        if let Err(err) = event_proxy.send_event(DeckEvent::Pause(paused).into()) {
                             log::error!("failed to send pause message to event_loop: {err:?}");
                         }
                     }
                 });
 
                 let pause_btn = doc.create_element("button").expect("created button");
-                pause_btn.set_text_content(Some("Pause"));
+                pause_btn.set_text_content(Some("Toggle Pause"));
                 pause_btn
                     .add_event_listener_with_callback(
                         "click",
@@ -97,12 +68,10 @@ impl Nes {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn initialize_platform(&mut self) {
-        use crate::nes::event::DeckEvent;
-
         if self.config.rom_path.is_file() {
             use crate::filesystem;
             use anyhow::Context;
-            use std::fs::File;
+            use std::{fs::File, io::Read};
 
             let path = &self.config.rom_path;
             let filename = filesystem::filename(path);

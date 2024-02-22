@@ -18,12 +18,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tetanes::{
-    genie::GenieCode,
-    nes::{self, config::Config, Nes},
-    profiling, NesResult,
+    logging,
+    nes::{config::Config, Nes},
+    platform, profiling, NesResult,
 };
-
-mod logging;
 
 fn main() -> NesResult<()> {
     logging::init();
@@ -33,7 +31,7 @@ fn main() -> NesResult<()> {
     #[cfg(not(target_arch = "wasm32"))]
     let config = ConfigOpts::extend(config)?;
 
-    nes::platform::spawn(Nes::run(config))
+    platform::thread::spawn(Nes::run(config))
 }
 
 /// `TetaNES` CLI Config Options
@@ -102,7 +100,7 @@ impl ConfigOpts {
     /// Extends a base `Config` with CLI options
     fn extend(mut base: Config) -> NesResult<Config> {
         use clap::Parser;
-        use tetanes::control_deck;
+        use tetanes::{control_deck, genie::GenieCode};
 
         let mut opts = Self::parse();
         log::debug!("CLI Options: {opts:?}");

@@ -6,12 +6,13 @@ use crate::{
         event::{Action, DeckEvent, Input, InputBinding, InputMap, RendererEvent},
         Nes,
     },
+    platform::time::Duration,
     ppu::Ppu,
-    NesError,
+    NesError, NesResult,
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
 const WINDOW_WIDTH_PAL: f32 = Ppu::WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
@@ -326,6 +327,39 @@ impl Config {
     pub const FILENAME: &'static str = "config.json";
 
     #[cfg(target_arch = "wasm32")]
+    pub fn save(&self) -> NesResult<()> {
+        // TODO
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save(&self) -> NesResult<()> {
+        use anyhow::Context;
+        use std::fs::{self, File};
+
+        if !self.control_deck.save_on_exit {
+            return Ok(());
+        }
+
+        let dir = Self::directory();
+        if !dir.exists() {
+            fs::create_dir_all(&dir).with_context(|| {
+                format!("failed to create config directory: {}", dir.display(),)
+            })?;
+            log::info!("created config directory: {}", dir.display());
+        }
+
+        let path = dir.join(Self::FILENAME);
+        File::create(&path)
+            .with_context(|| format!("failed to create config file: {path:?}"))
+            .and_then(|file| {
+                serde_json::to_writer_pretty(file, &self).context("failed to serialize config")
+            })?;
+        log::info!("Saved configuration");
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
     pub fn load() -> Self {
         log::info!("Loading default configuration");
         // TODO: Load from local storage?
@@ -337,7 +371,7 @@ impl Config {
         use anyhow::Context;
         use std::fs::File;
 
-        let path = Self::path(Self::FILENAME);
+        let path = Self::directory().join(Self::FILENAME);
         let mut config = if path.exists() {
             log::info!("Loading saved configuration");
             File::open(&path)
@@ -397,41 +431,12 @@ impl Config {
         control_deck::Config::directory()
     }
 
-    #[must_use]
-    pub(crate) fn path<P: AsRef<std::path::Path>>(path: P) -> PathBuf {
-        Self::directory().join(path)
+    pub fn save_dir() -> PathBuf {
+        control_deck::Config::save_dir()
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn save(&self) {
-        // TODO
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn save(&self) -> crate::NesResult<()> {
-        use anyhow::Context;
-        use std::fs::{self, File};
-
-        if !self.control_deck.save_on_exit {
-            return Ok(());
-        }
-
-        let dir = Self::directory();
-        if !dir.exists() {
-            fs::create_dir_all(&dir).with_context(|| {
-                format!("failed to create config directory: {}", dir.display(),)
-            })?;
-            log::info!("created config directory: {}", dir.display());
-        }
-
-        let path = Self::path(Self::FILENAME);
-        File::create(&path)
-            .with_context(|| format!("failed to create config file: {path:?}"))
-            .and_then(|file| {
-                serde_json::to_writer_pretty(file, &self).context("failed to serialize config")
-            })?;
-        log::info!("Saved configuration");
-        Ok(())
+    pub fn sram_dir() -> PathBuf {
+        control_deck::Config::sram_dir()
     }
 }
 

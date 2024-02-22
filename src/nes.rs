@@ -13,7 +13,7 @@ use crate::{
 use config::Config;
 use std::sync::Arc;
 use winit::{
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
+    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
 };
 
@@ -49,7 +49,6 @@ impl Nes {
         // Set up window, events and NES state
         let event_loop = EventLoopBuilder::<Event>::with_user_event().build()?;
         let mut nes = Nes::initialize(config, &event_loop).await?;
-        event_loop.set_control_flow(ControlFlow::Poll);
         event_loop.run_platform(move |event, window_target| nes.on_event(event, window_target))?;
         Ok(())
     }
@@ -59,9 +58,9 @@ impl Nes {
         let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
         let frame_pool = BufferPool::new();
         let emulation = Emulation::initialize(
-            frame_pool.clone(),
+            event_loop,
             Arc::clone(&window),
-            event_loop.create_proxy(),
+            frame_pool.clone(),
             config.clone(),
         )?;
         let renderer =
@@ -98,11 +97,10 @@ impl Nes {
         Ok(window)
     }
 
-    fn next_frame(&mut self, window_target: &EventLoopWindowTarget<Event>) {
+    fn next_frame(&mut self) {
         frame_begin!();
         profile!();
-
-        if let Err(err) = self.emulation.request_clock_frame(window_target) {
+        if let Err(err) = self.emulation.request_clock_frame() {
             self.on_error(err);
         }
         self.window.request_redraw();

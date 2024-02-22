@@ -1,7 +1,7 @@
 use crate::{
-    control_deck,
     input::Player,
     nes::{config::Config, event::Event, platform::WindowExt, Nes},
+    platform::time::{Duration, Instant},
     profile, NesError,
 };
 use egui::{
@@ -16,7 +16,6 @@ use pixels::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use web_time::{Duration, Instant};
 use winit::window::Theme;
 use winit::{event::WindowEvent, event_loop::EventLoop, window::Window as WinitWindow};
 
@@ -254,15 +253,9 @@ impl State {
             load_rom_open: false,
             about_open: false,
             version: format!("Version: {}", env!("CARGO_PKG_VERSION")),
-            config_dir: control_deck::Config::directory()
-                .to_string_lossy()
-                .to_string(),
-            save_dir: control_deck::Config::save_dir()
-                .to_string_lossy()
-                .to_string(),
-            sram_dir: control_deck::Config::sram_dir()
-                .to_string_lossy()
-                .to_string(),
+            config_dir: Config::directory().to_string_lossy().to_string(),
+            save_dir: Config::save_dir().to_string_lossy().to_string(),
+            sram_dir: Config::sram_dir().to_string_lossy().to_string(),
             messages: vec![],
             status: None,
             error: None,

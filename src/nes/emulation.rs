@@ -7,9 +7,9 @@ use crate::{
         config::Config,
         emulation::{replay::Replay, rewind::Rewind},
         event::{DeckEvent, Event, NesEvent},
-        platform,
         renderer::BufferPool,
     },
+    platform::{thread, time::Instant},
     profile,
     video::VideoFilter,
     NesError, NesResult,
@@ -20,12 +20,11 @@ use std::{
     io::{self, Read},
     path::PathBuf,
     sync::Arc,
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
 };
-use web_time::Instant;
 use winit::{
     event::{ElementState, Event as WinitEvent, WindowEvent},
-    event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
+    event_loop::{EventLoop, EventLoopProxy},
     window::Window,
 };
 
@@ -127,6 +126,8 @@ impl State {
     }
 
     pub fn on_event(&mut self, event: &WinitEvent<Event>) {
+        profile!();
+
         match event {
             WinitEvent::WindowEvent { event, .. } => match event {
                 WindowEvent::CursorMoved { position, .. } => {
@@ -177,8 +178,10 @@ impl State {
                 #[cfg(target_arch = "wasm32")]
                 {
                     use winit::platform::web::WindowExtWebSys;
-                    if let Err(err) = self.window.canvas().map(|canvas| canvas.focus()) {
-                        log::error!("failed to focus canvas: {err:?}");
+                    if let Some(canvas) = self.window.canvas() {
+                        if let Err(err) = canvas.focus() {
+                            log::error!("failed to focus canvas: {err:?}");
+                        }
                     }
                 }
             }
@@ -376,11 +379,17 @@ impl State {
 
             Ok(image.save(&filename).map(|_| filename)?)
         }
+
+        #[cfg(target_arch = "wasm32")]
+        Err(anyhow!("screenshot not implemented for web yet"))
     }
 
     fn clock_frame(&mut self) {
+        profile!();
+
         if self.paused || self.occluded {
-            return platform::sleep(self.config.target_frame_duration);
+            profile!("sleep");
+            return thread::sleep(self.config.target_frame_duration);
         }
         if self.rewinding {
             return self.rewind();
@@ -457,7 +466,7 @@ impl Multi {
         let (tx, rx) = channel::bounded::<WinitEvent<Event>>(1024);
         Ok(Self {
             tx,
-            handle: thread::Builder::new()
+            handle: std::thread::Builder::new()
                 .name("emulation".into())
                 .spawn(move || Self::main(frame_pool, window, event_proxy, config, rx))?,
         })
@@ -480,12 +489,15 @@ impl Multi {
             }
 
             state.clock_frame();
-            std::thread::park_timeout(
-                state
-                    .mixer
-                    .queued_time()
-                    .saturating_sub(state.config.audio_latency),
-            );
+            {
+                profile!("park");
+                std::thread::park_timeout(
+                    state
+                        .mixer
+                        .queued_time()
+                        .saturating_sub(state.config.audio_latency),
+                );
+            }
         }
     }
 }
@@ -499,13 +511,14 @@ pub struct Emulation {
 impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn initialize(
-        frame_pool: BufferPool,
+        event: &EventLoop<Event>,
         window: Arc<Window>,
-        event_proxy: EventLoopProxy<Event>,
+        frame_pool: BufferPool,
         config: Config,
     ) -> NesResult<Self> {
+        let event_proxy = event.create_proxy();
         let threaded = config.threaded
-            && thread::available_parallelism().map_or(false, |count| count.get() > 1);
+            && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
         let backend = if threaded {
             Threads::Multi(Multi::spawn(frame_pool, window, event_proxy, config)?)
         } else {
@@ -540,13 +553,10 @@ impl Emulation {
         Ok(())
     }
 
-    pub fn request_clock_frame(
-        &mut self,
-        window_target: &EventLoopWindowTarget<Event>,
-    ) -> NesResult<()> {
+    pub fn request_clock_frame(&mut self) -> NesResult<()> {
+        // Multi-threaded emulation will handle frame clocking on its own
         if let Threads::Single(Single { ref mut state }) = self.threads {
             state.clock_frame();
-            window_target.set_control_flow(ControlFlow::WaitUntil(state.next_frame_time()));
         }
         Ok(())
     }

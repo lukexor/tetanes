@@ -8,7 +8,7 @@ pub fn init() {
         console_log::init_with_level(if cfg!(debug_assertions) {
             Level::Debug
         } else {
-            Level::Warn
+            Level::Info
         })
         .expect("valid console log");
     }
@@ -24,10 +24,10 @@ pub fn init() {
             if cfg!(debug_assertions) {
                 "tetanes=debug"
             } else {
-                "tetanes=warn"
+                "tetanes=info"
             },
         );
     }
 
-    pretty_env_logger::init_timed();
+    let _ = pretty_env_logger::try_init_timed();
 }

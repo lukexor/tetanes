@@ -187,16 +187,6 @@ impl ControlDeck {
             .and_then(|mut rom| self.load_rom(filename, &mut rom))
     }
 
-    /// Loads a save slot.
-    ///
-    /// # Errors
-    ///
-    /// If there is any issue loading the save state, then an error is returned.
-    #[cfg(target_arch = "wasm32")]
-    pub fn load_save_slot(&mut self, save_slot: u8) -> NesResult<()> {
-        todo!("not implemented for web yet")
-    }
-
     pub fn unload_rom(&mut self) -> NesResult<()> {
         if self.loaded_rom.is_some() {
             self.save_sram()?;
@@ -296,8 +286,9 @@ impl ControlDeck {
 
     /// Load the console with data saved from a save state
     #[cfg(target_arch = "wasm32")]
-    pub fn load_state(&mut self) {
+    pub fn load_state(&mut self) -> NesResult<()> {
         // TODO: load from local storage or indexdb
+        Ok(())
     }
 
     /// Load the console with data saved from a save state, if it exists.
@@ -375,8 +366,6 @@ impl ControlDeck {
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
     pub fn clock_seconds(&mut self, seconds: f32) -> NesResult<usize> {
-        profile!();
-
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
@@ -570,8 +559,9 @@ impl ControlDeck {
 
     /// Save the current state of the console into a save file
     #[cfg(target_arch = "wasm32")]
-    pub fn save_state(&mut self) {
+    pub fn save_state(&mut self) -> NesResult<()> {
         // TODO: save to local storage or indexdb
+        Ok(())
     }
 }
 

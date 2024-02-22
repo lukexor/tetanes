@@ -1,7 +1,9 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::time::Duration;
 use std::{fs::File, io::BufReader};
 use tetanes::control_deck::{Config, ControlDeck};
-use web_time::Duration;
 
 fn clock_frames(frames: u32) {
     use std::path::PathBuf;

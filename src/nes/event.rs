@@ -19,7 +19,7 @@ use std::{
 };
 use winit::{
     event::{ElementState, Event as WinitEvent, Modifiers, MouseButton, WindowEvent},
-    event_loop::EventLoopWindowTarget,
+    event_loop::{ControlFlow, EventLoopWindowTarget},
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
     window::Fullscreen,
 };
@@ -187,6 +187,7 @@ impl Nes {
     ) {
         profile!();
 
+        window_target.set_control_flow(ControlFlow::Poll);
         if self.event_state.quitting {
             window_target.exit();
         }
@@ -207,7 +208,7 @@ impl Nes {
                         window_target.exit();
                     }
                 }
-                WindowEvent::RedrawRequested => {
+                WindowEvent::RedrawRequested if !self.event_state.occluded => {
                     if let Err(err) = self
                         .renderer
                         .request_redraw(self.event_state.paused, &mut self.config)
@@ -217,7 +218,11 @@ impl Nes {
                 }
                 WindowEvent::Occluded(occluded) => {
                     if window_id == self.window.id() {
-                        self.send_event(DeckEvent::Occluded(occluded));
+                        self.event_state.occluded = occluded;
+                        self.send_event(DeckEvent::Occluded(self.event_state.occluded));
+                        if self.event_state.occluded {
+                            window_target.set_control_flow(ControlFlow::Wait);
+                        }
                     }
                 }
                 WindowEvent::KeyboardInput { event, .. } => {
@@ -237,7 +242,7 @@ impl Nes {
                 WindowEvent::HoveredFileCancelled => (), // TODO: Restore cursor
                 _ => (),
             },
-            WinitEvent::AboutToWait => self.next_frame(window_target),
+            WinitEvent::AboutToWait => self.next_frame(),
             WinitEvent::UserEvent(Event::Nes(event)) => match event {
                 NesEvent::Message(msg) => self.add_message(msg),
                 NesEvent::Error(err) => self.on_error(anyhow!(err)),
@@ -292,7 +297,7 @@ impl Nes {
 
     pub fn pause(&mut self, paused: bool) {
         self.event_state.paused = paused;
-        self.send_event(DeckEvent::Pause(paused));
+        self.send_event(DeckEvent::Pause(self.event_state.paused));
     }
 
     /// Handle user input mapped to key bindings.
@@ -801,28 +806,7 @@ pub enum DebugAction {
     DecScanline,
 }
 
-// const fn render_message(_message: &str, _color: Color) {
-//     // TODO: switch to egui
-//     // s.push();
-//     // s.stroke(None);
-//     // s.fill(rgb!(0, 200));
-//     // let pady = s.theme().spacing.frame_pad.y();
-//     // let width = s.width()?;
-//     // s.wrap(width);
-//     // let (_, height) = s.size_of(message)?;
-//     // s.rect([
-//     //     0,
-//     //     s.cursor_pos().y() - pady,
-//     //     width as i32,
-//     //     height as i32 + 2 * pady,
-//     // ])?;
-//     // s.fill(color);
-//     // s.text(message)?;
-//     // s.pop();
-// }
-
 // impl Nes {
-//
 //     pub fn handle_controller_update(&mut self, device_id: DeviceId, update: ControllerUpdate) {
 //         match update {
 //             ControllerUpdate::Added => {
@@ -892,68 +876,67 @@ pub enum DebugAction {
 // }
 
 // impl Nes {
-//
 //     fn get_controller_player(&self, device_id: DeviceId) -> Option<Slot> {
 //         self.controllers.iter().enumerate().find_map(|(player, id)| {
 //             (*id == Some(device_id)).then_some(Slot::try_from(player).expect("valid player index"))
 //         })
 //     }
 
-//     // fn debug_step_into(&mut self) {
-//     //     self.pause_play(PauseMode::Manual);
-//     //     if let Err(err) = self.control_deck.clock_instr() {
-//     //         self.handle_emulation_error(&err);
-//     //     }
-//     // }
+//     fn debug_step_into(&mut self) {
+//         self.pause_play(PauseMode::Manual);
+//         if let Err(err) = self.control_deck.clock_instr() {
+//             self.handle_emulation_error(&err);
+//         }
+//     }
 
-//     // fn next_instr(&mut self) -> Instr {
-//     //     let pc = self.control_deck.cpu().pc();
-//     //     let opcode = self.control_deck.cpu().peek(pc, Access::Dummy);
-//     //     Cpu::INSTRUCTIONS[opcode as usize]
-//     // }
+//     fn next_instr(&mut self) -> Instr {
+//         let pc = self.control_deck.cpu().pc();
+//         let opcode = self.control_deck.cpu().peek(pc, Access::Dummy);
+//         Cpu::INSTRUCTIONS[opcode as usize]
+//     }
 
-//     // fn debug_step_over(&mut self) {
-//     //     self.pause_play(PauseMode::Manual);
-//     //     let instr = self.next_instr();
-//     //     if let Err(err) = self.control_deck.clock_instr() {
-//     //         self.handle_emulation_error(&err);
-//     //     }
-//     //     if instr.op() == Operation::JSR {
-//     //         let rti_addr = self.control_deck.cpu().peek_stack_u16().wrapping_add(1);
-//     //         while self.control_deck.cpu().pc() != rti_addr {
-//     //             if let Err(err) = self.control_deck.clock_instr() {
-//     //                 self.handle_emulation_error(&err);
-//     //                 break;
-//     //             }
-//     //         }
-//     //     }
-//     // }
+//     fn debug_step_over(&mut self) {
+//         self.pause_play(PauseMode::Manual);
+//         let instr = self.next_instr();
+//         if let Err(err) = self.control_deck.clock_instr() {
+//             self.handle_emulation_error(&err);
+//         }
+//         if instr.op() == Operation::JSR {
+//             let rti_addr = self.control_deck.cpu().peek_stack_u16().wrapping_add(1);
+//             while self.control_deck.cpu().pc() != rti_addr {
+//                 if let Err(err) = self.control_deck.clock_instr() {
+//                     self.handle_emulation_error(&err);
+//                     break;
+//                 }
+//             }
+//         }
+//     }
 
-//     // fn debug_step_out(&mut self) {
-//     //     let mut instr = self.next_instr();
-//     //     while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
-//     //         if let Err(err) = self.control_deck.clock_instr() {
-//     //             self.handle_emulation_error(&err);
-//     //             break;
-//     //         }
-//     //         instr = self.next_instr();
-//     //     }
-//     //     if let Err(err) = self.control_deck.clock_instr() {
-//     //         self.handle_emulation_error(&err);
-//     //     }
-//     // }
+//     fn debug_step_out(&mut self) {
+//         let mut instr = self.next_instr();
+//         while !matches!(instr.op(), Operation::RTS | Operation::RTI) {
+//             if let Err(err) = self.control_deck.clock_instr() {
+//                 self.handle_emulation_error(&err);
+//                 break;
+//             }
+//             instr = self.next_instr();
+//         }
+//         if let Err(err) = self.control_deck.clock_instr() {
+//             self.handle_emulation_error(&err);
+//         }
+//     }
 
-//     // fn debug_step_frame(&mut self) {
-//     //     self.pause_play(PauseMode::Manual);
-//     //     if let Err(err) = self.control_deck.clock_frame() {
-//     //         self.handle_emulation_error(&err);
-//     //     }
-//     // }
+//     fn debug_step_frame(&mut self) {
+//         self.pause_play(PauseMode::Manual);
+//         if let Err(err) = self.control_deck.clock_frame() {
+//             self.handle_emulation_error(&err);
+//         }
+//     }
 
-//     // fn debug_step_scanline(&mut self) {
-//     //     self.pause_play(PauseMode::Manual);
-//     //     if let Err(err) = self.control_deck.clock_scanline() {
-//     //         self.handle_emulation_error(&err);
-//     //     }
-//     // }
+//     fn debug_step_scanline(&mut self) {
+//         self.pause_play(PauseMode::Manual);
+//         if let Err(err) = self.control_deck.clock_scanline() {
+//             self.handle_emulation_error(&err);
+//         }
+//     }
 // }

@@ -1,5 +1,5 @@
-use crate::{audio::filter::Filter, profile, NesResult};
-use anyhow::{anyhow, bail, Context};
+use crate::{audio::filter::Filter, platform::time::Duration, profile, NesResult};
+use anyhow::{anyhow, Context};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, Device, FromSample, SampleFormat, SampleRate, SizedSample, Stream, StreamConfig,
@@ -14,7 +14,6 @@ use std::{
     },
 };
 use thingbuf::{recycling::WithCapacity, ThingBuf};
-use web_time::Duration;
 
 pub mod filter;
 pub mod window_sinc;
@@ -135,7 +134,7 @@ impl Mixer {
         self.set_enabled(false)?; // in case stream doesn't support pausing
         match self.stream {
             Some(ref stream) => Ok(stream.pause()?),
-            None => bail!("failed to pause stream"),
+            None => Err(anyhow!("failed to pause stream")),
         }
     }
 
@@ -148,7 +147,7 @@ impl Mixer {
         self.set_enabled(self.enabled)?; // in case stream doesn't support resuming
         match self.stream {
             Some(ref stream) => Ok(stream.play()?),
-            None => bail!("stream not started"),
+            None => Err(anyhow!("stream not started")),
         }
     }
 

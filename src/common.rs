@@ -351,6 +351,9 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn test_rom(directory: &str, test_name: &str) {
+        if env::var("RUST_LOG").is_ok() {
+            crate::logging::init();
+        }
         if !&*INIT_TESTS {
             log::debug!("Initialized tests");
         }
@@ -366,9 +369,6 @@ pub(crate) mod tests {
         assert!(rom.exists(), "No test rom found for {rom:?}");
 
         let mut deck = load_control_deck(&rom);
-        if env::var("RUST_LOG").is_ok() {
-            let _ = pretty_env_logger::try_init();
-        }
 
         let mut results = Vec::new();
         for test_frame in test.frames.iter() {

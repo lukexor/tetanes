@@ -2,7 +2,7 @@ use super::NesResult;
 use anyhow::Context;
 use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
 use std::{
-    io::{BufReader, Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::Path,
 };
 
@@ -15,7 +15,7 @@ const MAJOR_VERSION: &str = env!("CARGO_PKG_VERSION_MAJOR");
 /// # Errors
 ///
 /// If the header fails to write to disk, then an error is returned.
-pub(crate) fn write_save_header<F: Write>(f: &mut F) -> NesResult<()> {
+pub(crate) fn write_save_header(f: &mut impl Write) -> NesResult<()> {
     f.write_all(&SAVE_FILE_MAGIC)?;
     f.write_all(MAJOR_VERSION.as_bytes())?;
     Ok(())
@@ -26,7 +26,7 @@ pub(crate) fn write_save_header<F: Write>(f: &mut F) -> NesResult<()> {
 /// # Errors
 ///
 /// If the header fails to validate, then an error is returned.
-pub(crate) fn validate_save_header<F: Read>(f: &mut F) -> NesResult<()> {
+pub(crate) fn validate_save_header(f: &mut impl Read) -> NesResult<()> {
     use anyhow::anyhow;
 
     let mut magic = [0u8; SAVE_FILE_MAGIC_LEN];
@@ -48,7 +48,7 @@ pub(crate) fn validate_save_header<F: Read>(f: &mut F) -> NesResult<()> {
     }
 }
 
-pub(crate) fn encode_data(data: &[u8]) -> NesResult<Vec<u8>> {
+pub fn encode_data(data: &[u8]) -> NesResult<Vec<u8>> {
     let mut encoded = vec![];
     let mut encoder = DeflateEncoder::new(&mut encoded, Compression::default());
     encoder.write_all(data).context("failed to encode data")?;
@@ -56,7 +56,7 @@ pub(crate) fn encode_data(data: &[u8]) -> NesResult<Vec<u8>> {
     Ok(encoded)
 }
 
-pub(crate) fn decode_data(data: &[u8]) -> NesResult<Vec<u8>> {
+pub fn decode_data(data: &[u8]) -> NesResult<Vec<u8>> {
     let mut decoded = vec![];
     let mut decoder = DeflateDecoder::new(BufReader::new(data));
     decoder
@@ -66,19 +66,13 @@ pub(crate) fn decode_data(data: &[u8]) -> NesResult<Vec<u8>> {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn save_data<P>(_path: P, _data: &[u8]) -> NesResult<()>
-where
-    P: AsRef<Path>,
-{
+pub fn save_data(_path: impl AsRef<Path>, _data: &[u8]) -> NesResult<()> {
     // TODO: provide file download?
-    anyhow::bail!("not implemented")
+    Err(anyhow::anyhow!("not implemented"))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn save_data<P>(path: P, data: &[u8]) -> NesResult<()>
-where
-    P: AsRef<Path>,
-{
+pub fn save_data(path: impl AsRef<Path>, data: &[u8]) -> NesResult<()> {
     use std::io::BufWriter;
 
     let path = path.as_ref();
@@ -87,24 +81,13 @@ where
         std::fs::create_dir_all(directory)
             .with_context(|| format!("failed to create directory {directory:?}"))?;
     }
-
     let write_data = || {
         let mut writer = BufWriter::new(
             std::fs::File::create(path)
                 .with_context(|| format!("failed to create file {path:?}"))?,
         );
-        write_save_header(&mut writer)
-            .with_context(|| format!("failed to write header {path:?}"))?;
-        let mut encoder = DeflateEncoder::new(writer, Compression::default());
-        encoder
-            .write_all(data)
-            .with_context(|| format!("failed to encode file {path:?}"))?;
-        encoder
-            .finish()
-            .with_context(|| format!("failed to write file {path:?}"))?;
-        Ok(())
+        save_writer(&mut writer, data)
     };
-
     if path.exists() {
         // Check if exists and header is different, so we avoid overwriting
         let mut reader = BufReader::new(
@@ -112,47 +95,51 @@ where
         );
         validate_save_header(&mut reader)
             .with_context(|| format!("failed to validate header {path:?}"))
-            .and_then(|_| write_data())?;
+            .and_then(|_| write_data())
     } else {
-        write_data()?;
+        write_data()
     }
+}
+
+pub fn save_writer(writer: &mut impl Write, data: &[u8]) -> NesResult<()> {
+    write_save_header(writer).context("failed to write header")?;
+    let mut encoder = DeflateEncoder::new(writer, Compression::default());
+    encoder.write_all(data).context("failed to write file")?;
+    encoder.finish().context("failed to encode file")?;
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn load_data<P>(_path: P) -> NesResult<Vec<u8>>
-where
-    P: AsRef<Path>,
-{
+pub fn load_data(_path: impl AsRef<Path>) -> NesResult<Vec<u8>> {
     // TODO: provide file upload?
-    anyhow::bail!("not implemented")
+    Err(anyhow::anyhow!("not implemented"))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn load_data<P>(path: P) -> NesResult<Vec<u8>>
-where
-    P: AsRef<Path>,
-{
+pub fn load_data(path: impl AsRef<Path>) -> NesResult<Vec<u8>> {
     let path = path.as_ref();
     let mut reader = BufReader::new(
         std::fs::File::open(path).with_context(|| format!("Failed to open file {path:?}"))?,
     );
+    load_reader(&mut reader)
+}
+
+pub fn load_reader(reader: &mut impl BufRead) -> NesResult<Vec<u8>> {
     let mut bytes = vec![];
     // Don't care about the size read
-    let _ = validate_save_header(&mut reader)
-        .with_context(|| format!("failed to validate header {path:?}"))
+    let _ = validate_save_header(reader)
+        .context("failed to validate header")
         .and_then(|_| {
             let mut decoder = DeflateDecoder::new(reader);
             decoder
                 .read_to_end(&mut bytes)
-                .with_context(|| format!("failed to read file {path:?}"))
+                .context("failed to decode file")
         })?;
     Ok(bytes)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-
-pub(crate) fn filename(path: &Path) -> &str {
+pub fn filename(path: &Path) -> &str {
     path.file_name()
         .and_then(std::ffi::OsStr::to_str)
         .unwrap_or_else(|| {
