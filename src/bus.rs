@@ -440,10 +440,16 @@ mod test {
         // Writes allowed
         bus.write(0x2006, 0x10, Access::Write);
         bus.write(0x2006, 0x00, Access::Write);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        bus.ppu.clock();
+        bus.ppu.clock();
         bus.write(0x2007, 0x77, Access::Write);
 
         bus.write(0x2006, 0x10, Access::Write);
         bus.write(0x2006, 0x00, Access::Write);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        bus.ppu.clock();
+        bus.ppu.clock();
         bus.read(0x2007, Access::Read);
         assert_eq!(bus.read(0x2007, Access::Read), 0x77, "chr_ram write");
     }

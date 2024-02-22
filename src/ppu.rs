@@ -277,7 +277,7 @@ impl Ppu {
 
     #[must_use]
     pub const fn addr(&self) -> u16 {
-        self.scroll.read_addr()
+        self.scroll.addr()
     }
 
     #[must_use]
@@ -781,6 +781,12 @@ impl Ppu {
             }
         }
 
+        if self.scroll.delayed_update() {
+            // MMC3 clocks using A12
+            let addr = self.scroll.addr();
+            self.bus.mapper.ppu_bus_read(addr);
+        }
+
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
         // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
         if visible_cycle && visible_scanline {
@@ -1010,7 +1016,7 @@ impl PpuRegisters for Ppu {
         }
         self.scroll.write_addr(val);
         // MMC3 clocks using A12
-        let addr = self.scroll.read_addr();
+        let addr = self.scroll.addr();
         self.bus.mapper.ppu_bus_write(addr, val);
     }
 
@@ -1018,7 +1024,7 @@ impl PpuRegisters for Ppu {
 
     #[must_use]
     fn read_data(&mut self) -> u8 {
-        let addr = self.scroll.read_addr();
+        let addr = self.scroll.addr();
         self.increment_vram_addr();
 
         // Buffering quirk resulting in a dummy read for the CPU
@@ -1039,8 +1045,8 @@ impl PpuRegisters for Ppu {
 
         self.open_bus = val;
         // MMC3 clocks using A12
-        let addr = self.scroll.read_addr();
-        self.bus.mapper.ppu_bus_write(addr, val);
+        let addr = self.scroll.addr();
+        self.bus.mapper.ppu_bus_read(addr);
 
         val
     }
@@ -1051,7 +1057,7 @@ impl PpuRegisters for Ppu {
 
     #[must_use]
     fn peek_data(&self) -> u8 {
-        let addr = self.scroll.read_addr();
+        let addr = self.scroll.addr();
         if addr < Self::PALETTE_START {
             self.vram_buffer
         } else {
@@ -1064,12 +1070,12 @@ impl PpuRegisters for Ppu {
 
     fn write_data(&mut self, val: u8) {
         self.open_bus = val;
-        let addr = self.scroll.read_addr();
+        let addr = self.scroll.addr();
         self.increment_vram_addr();
         self.bus.write(addr, val, Access::Write);
 
         // MMC3 clocks using A12
-        let addr = self.scroll.read_addr();
+        let addr = self.scroll.addr();
         self.bus.mapper.ppu_bus_write(addr, val);
     }
 }
@@ -1244,6 +1250,7 @@ mod tests {
     use crate::{
         cart::Cart,
         mapper::{Mapped, Mmc1Revision, Sxrom},
+        test_roms,
     };
 
     #[test]
@@ -1251,6 +1258,9 @@ mod tests {
         let mut ppu = Ppu::default();
         ppu.write_addr(0x23);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.write_data(0x66); // write to $2305
 
         assert_eq!(ppu.bus.read(0x2305, Access::Read), 0x66);
@@ -1264,10 +1274,13 @@ mod tests {
 
         ppu.write_addr(0x23);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
-        assert_eq!(ppu.scroll.read_addr(), 0x2306);
+        assert_eq!(ppu.scroll.addr(), 0x2306);
         assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.scroll.read_addr(), 0x2307);
+        assert_eq!(ppu.scroll.addr(), 0x2307);
     }
 
     #[test]
@@ -1279,6 +1292,9 @@ mod tests {
 
         ppu.write_addr(0x21);
         ppu.write_addr(0xFF);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
         assert_eq!(ppu.read_data(), 0x66);
         assert_eq!(ppu.read_data(), 0x77);
@@ -1294,6 +1310,9 @@ mod tests {
 
         ppu.write_addr(0x21);
         ppu.write_addr(0xFF);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
         assert_eq!(ppu.read_data(), 0x66);
         assert_eq!(ppu.read_data(), 0x77);
@@ -1308,19 +1327,31 @@ mod tests {
         let mut ppu = Ppu::default();
         ppu.write_addr(0x24);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.write_data(0x66); // write to a at $2405
 
         ppu.write_addr(0x28);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.write_data(0x77); // write to B at $2805
 
         ppu.write_addr(0x20);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
         assert_eq!(ppu.read_data(), 0x66); // read A from $2005
 
         ppu.write_addr(0x2C);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
         assert_eq!(ppu.read_data(), 0x77); // read b from $2C05
     }
@@ -1338,19 +1369,31 @@ mod tests {
 
         ppu.write_addr(0x20);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.write_data(0x66); // write to A at $2005
 
         ppu.write_addr(0x2C);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.write_data(0x77); // write to b at $2C05
 
         ppu.write_addr(0x28);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
         assert_eq!(ppu.read_data(), 0x66); // read a from $2805
 
         ppu.write_addr(0x24);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
         assert_eq!(ppu.read_data(), 0x77); // read B from $2405
     }
@@ -1362,6 +1405,9 @@ mod tests {
 
         ppu.write_addr(0x21);
         ppu.write_addr(0x23);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.write_addr(0x05);
         ppu.read_data(); // buffer read
         assert_ne!(ppu.read_data(), 0x66);
@@ -1370,6 +1416,9 @@ mod tests {
 
         ppu.write_addr(0x23);
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
         assert_eq!(ppu.read_data(), 0x66);
     }
@@ -1382,10 +1431,13 @@ mod tests {
 
         ppu.write_addr(0x63); // 0x6305 mirrors to 0x2305
         ppu.write_addr(0x05);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock();
+        ppu.clock();
         ppu.read_data(); // buffer read
-        assert_eq!(ppu.scroll.read_addr(), 0x2306);
+        assert_eq!(ppu.scroll.addr(), 0x2306);
         assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.scroll.read_addr(), 0x2307);
+        assert_eq!(ppu.scroll.addr(), 0x2307);
     }
 
     #[test]
@@ -1411,4 +1463,51 @@ mod tests {
         ppu.write_oamaddr(0x11);
         assert_eq!(ppu.read_oamdata(), 0x77);
     }
+
+    test_roms!(
+        "test_roms/ppu",
+        _240pee, // TODO: Run each test
+        color,   // TODO: Test all color combinations
+        ntsc_torture,
+        oam_read,
+        oam_stress,
+        open_bus,
+        palette,
+        palette_ram,
+        read_buffer,
+        scanline,
+        spr_hit_alignment,
+        spr_hit_basics,
+        spr_hit_corners,
+        spr_hit_double_height,
+        spr_hit_edge_timing,
+        spr_hit_flip,
+        spr_hit_left_clip,
+        spr_hit_right_edge,
+        spr_hit_screen_bottom,
+        spr_hit_timing_basics,
+        spr_hit_timing_order,
+        spr_overflow_basics,
+        spr_overflow_details,
+        spr_overflow_emulator,
+        spr_overflow_obscure,
+        spr_overflow_timing,
+        sprite_ram,
+        tv,
+        vbl_nmi_basics,
+        vbl_nmi_clear_timing,
+        vbl_nmi_control,
+        vbl_nmi_disable,
+        vbl_nmi_even_odd_frames,
+        #[ignore = "clock is skipped too late relative to enabling BG Failed #3"]
+        vbl_nmi_even_odd_timing,
+        vbl_nmi_frame_basics,
+        vbl_nmi_off_timing,
+        vbl_nmi_on_timing,
+        vbl_nmi_set_time,
+        vbl_nmi_suppression,
+        vbl_nmi_timing,
+        vbl_timing,
+        vram_access,
+    );
 }

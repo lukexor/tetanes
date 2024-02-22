@@ -97,7 +97,12 @@ impl PpuBus {
     }
 
     const fn palette_mirror(&self, addr: usize) -> usize {
-        addr & 0x001F
+        let addr = addr & 0x001F;
+        if addr >= 16 && addr.trailing_zeros() >= 2 {
+            addr - 16
+        } else {
+            addr
+        }
     }
 }
 
@@ -127,8 +132,6 @@ impl Mem for PpuBus {
                 };
                 self.chr[addr]
             }
-            // Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
-            0x3F10 | 0x3F14 | 0x3F18 | 0x3F1C => self.read(addr - 0x10, _access),
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
                 log::error!("unexpected PPU memory access at ${:04X}", addr);

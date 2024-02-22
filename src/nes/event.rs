@@ -325,7 +325,10 @@ impl Nes {
         }
         match nes_state {
             NesState::Quit => self.event_state.quitting = true,
-            NesState::TogglePause => self.send_event(DeckEvent::TogglePause),
+            NesState::TogglePause => {
+                self.event_state.paused = !self.event_state.paused;
+                self.send_event(DeckEvent::TogglePause);
+            }
             NesState::SoftReset => self.send_event(DeckEvent::Reset(ResetKind::Soft)),
             NesState::HardReset => self.send_event(DeckEvent::Reset(ResetKind::Hard)),
             NesState::MapperRevision(_) => todo!("mapper revision"),

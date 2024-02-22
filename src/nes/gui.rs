@@ -2,12 +2,13 @@ use crate::{
     control_deck,
     input::Player,
     nes::{config::Config, event::Event, platform::WindowExt, Nes},
-    NesError,
+    profile, NesError,
 };
 use egui::{
-    global_dark_light_mode_switch, load::SizedTexture, menu, viewport::ViewportCommand,
-    CentralPanel, ClippedPrimitive, Context, CursorIcon, Frame, Image, Margin, RichText,
-    SystemTheme, TexturesDelta, TopBottomPanel, Ui, Vec2, ViewportId, Window,
+    global_dark_light_mode_switch, load::SizedTexture, menu, viewport::ViewportCommand, Align,
+    Align2, Area, CentralPanel, ClippedPrimitive, Context, CursorIcon, Frame, Image, Layout,
+    Margin, Order, RichText, Style, SystemTheme, TexturesDelta, TopBottomPanel, Ui, Vec2,
+    ViewportId, Window,
 };
 use pixels::{
     wgpu::{self, TextureViewDescriptor},
@@ -151,9 +152,7 @@ impl Gui {
     /// Prepare.
     pub fn prepare(&mut self, paused: bool, config: &mut Config) {
         let raw_input = self.egui_state.take_egui_input(&self.window);
-        if paused {
-            self.state.status = Some("Paused");
-        }
+        self.state.status = if paused { Some("Paused") } else { None };
         let output = self.ctx.run(raw_input, |ctx| {
             self.state.ui(ctx, config);
         });
@@ -173,6 +172,8 @@ impl Gui {
         render_target: &wgpu::TextureView,
         ctx: &PixelsContext<'_>,
     ) {
+        profile!();
+
         for (id, image_delta) in &self.textures.set {
             self.renderer
                 .update_texture(&ctx.device, &ctx.queue, *id, image_delta);
@@ -270,12 +271,14 @@ impl State {
 
     /// Create the UI.
     fn ui(&mut self, ctx: &Context, config: &mut Config) {
+        profile!();
+
         TopBottomPanel::top("menu_bar")
             .resizable(true)
-            .show_animated(ctx, self.show_menu, |ui| self.menu_bar(ctx, ui, config));
+            .show_animated(ctx, self.show_menu, |ui| self.menu_bar(ui, config));
         CentralPanel::default()
             .frame(Frame::none())
-            .show(ctx, |ui| self.nes_frame(ctx, ui, config));
+            .show(ctx, |ui| self.nes_frame(ui, config));
 
         // TODO: show confirm quit dialog?
 
@@ -295,7 +298,7 @@ impl State {
         puffin_egui::show_viewport_if_enabled(ctx);
     }
 
-    fn menu_bar(&mut self, ctx: &Context, ui: &mut egui::Ui, config: &mut Config) {
+    fn menu_bar(&mut self, ui: &mut egui::Ui, config: &mut Config) {
         ui.style_mut().spacing.menu_margin = Margin::ZERO;
         let inner_response = menu::bar(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -304,8 +307,8 @@ impl State {
 
                 ui.menu_button("File", |ui| self.file_menu(ui));
                 ui.menu_button("Controls", |ui| self.controls_menu(ui));
-                ui.menu_button("Emulation", |ui| self.emulation_menu(ctx, ui, config));
-                ui.menu_button("View", |ui| self.view_menu(ctx, ui, config));
+                ui.menu_button("Emulation", |ui| self.emulation_menu(ui, config));
+                ui.menu_button("View", |ui| self.view_menu(ui, config));
                 ui.menu_button("Window", |ui| self.window_menu(ui));
                 ui.menu_button("Debug", |ui| self.debug_menu(ui));
                 ui.toggle_value(&mut self.about_open, "About");
@@ -314,7 +317,7 @@ impl State {
         let height = inner_response.response.rect.height();
         if height != self.menu_height {
             self.menu_height = height;
-            self.resize_window(ctx, config);
+            self.resize_window(ui.style(), config);
         }
     }
 
@@ -382,7 +385,7 @@ impl State {
         };
     }
 
-    fn emulation_menu(&mut self, ctx: &Context, ui: &mut Ui, config: &mut Config) {
+    fn emulation_menu(&mut self, ui: &mut Ui, config: &mut Config) {
         if ui.button("Speed...").clicked() {
             self.todo(ui);
             // Increase/Decrease/Default
@@ -394,19 +397,17 @@ impl State {
         // Concurrent D-Pad
     }
 
-    fn view_menu(&mut self, ctx: &Context, ui: &mut Ui, config: &mut Config) {
+    fn view_menu(&mut self, ui: &mut Ui, config: &mut Config) {
         if ui.button("Scale...").clicked() {
             self.todo(ui);
         };
-        let mut show_fps = false;
-        ui.checkbox(&mut show_fps, "Show FPS");
-        let mut show_messages = false;
-        ui.checkbox(&mut show_messages, "Show Messages");
+        ui.checkbox(&mut config.show_fps, "Show FPS");
+        ui.checkbox(&mut config.show_messages, "Show Messages");
         if ui
             .checkbox(&mut config.hide_overscan, "Hide Overscan")
             .clicked()
         {
-            self.resize_window(ctx, config);
+            self.resize_window(ui.style(), config);
         }
         if ui.button("Video Filter...").clicked() {
             self.todo(ui);
@@ -449,10 +450,19 @@ impl State {
         };
     }
 
+    fn message_bar(&mut self, ui: &mut Ui) {
+        let now = Instant::now();
+        self.messages.retain(|(_, expires)| now < *expires);
+        self.messages.dedup_by(|a, b| a.0.eq(&b.0));
+        for (message, _) in self.messages.iter().take(MAX_MESSAGES) {
+            ui.label(message);
+        }
+    }
+
     fn error_bar(&mut self, ui: &mut Ui) {
         let mut clear_error = false;
         if let Some(ref error) = self.error {
-            ui.horizontal(|ui| {
+            ui.vertical(|ui| {
                 ui.label(RichText::new(error).color(egui::Color32::RED));
                 clear_error = ui.button("Clear").clicked();
             });
@@ -470,19 +480,36 @@ impl State {
         }
     }
 
-    fn nes_frame(&mut self, ctx: &Context, ui: &mut egui::Ui, config: &Config) {
-        TopBottomPanel::top("messages").show_animated_inside(ui, !self.messages.is_empty(), |ui| {
-            let now = Instant::now();
-            self.messages.retain(|(_, expires)| now < *expires);
-            self.messages.dedup_by(|a, b| a.0.eq(&b.0));
-            for (message, _) in self.messages.iter().take(MAX_MESSAGES) {
-                ui.label(message);
-            }
-        });
-        TopBottomPanel::top("error")
-            .show_animated_inside(ui, self.error.is_some(), |ui| self.error_bar(ui));
-        TopBottomPanel::bottom("status")
-            .show_animated_inside(ui, self.status.is_some(), |ui| self.status_bar(ui));
+    fn nes_frame(&mut self, ui: &mut egui::Ui, config: &Config) {
+        if !self.messages.is_empty() || self.error.is_some() {
+            Area::new("messages")
+                .anchor(Align2::LEFT_TOP, Vec2::ZERO)
+                .order(Order::Foreground)
+                .constrain(true)
+                .show(ui.ctx(), |ui| {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
+                            ui.set_width(ui.available_width());
+                            self.message_bar(ui);
+                            self.error_bar(ui);
+                        });
+                    });
+                });
+        }
+        if self.status.is_some() {
+            Area::new("status")
+                .anchor(Align2::LEFT_BOTTOM, Vec2::ZERO)
+                .order(Order::Foreground)
+                .constrain(true)
+                .show(ui.ctx(), |ui| {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
+                            ui.set_width(ui.available_width());
+                            self.status_bar(ui);
+                        });
+                    });
+                });
+        }
         CentralPanel::default()
             .frame(Frame::none())
             .show_inside(ui, |ui| {
@@ -581,8 +608,8 @@ impl State {
         }
     }
 
-    fn resize_window(&mut self, ctx: &Context, config: &mut Config) {
-        let spacing = ctx.style().spacing.item_spacing;
+    fn resize_window(&mut self, style: &Style, config: &mut Config) {
+        let spacing = style.spacing.item_spacing;
         let border = 1.0;
         let (inner_size, min_inner_size) =
             config.inner_dimensions_with_spacing(0.0, self.menu_height + spacing.y + border);

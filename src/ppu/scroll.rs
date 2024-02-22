@@ -8,6 +8,8 @@ pub struct PpuScroll {
     t: u16,            // Temporary v - Also the addr of top-left onscreen tile
     x: u16,            // Fine X
     write_latch: bool, // 1st or 2nd write toggle
+    delay_v_cycles: u32,
+    delay_v: u16,
 }
 
 impl PpuScroll {
@@ -38,6 +40,8 @@ impl PpuScroll {
             t: 0x0000,
             x: 0x00,
             write_latch: false,
+            delay_v_cycles: 0,
+            delay_v: 0x0000,
         }
     }
 
@@ -62,7 +66,7 @@ impl PpuScroll {
     }
 
     #[must_use]
-    pub const fn read_addr(&self) -> u16 {
+    pub const fn addr(&self) -> u16 {
         self.v
     }
 
@@ -111,8 +115,10 @@ impl PpuScroll {
             // t: ........ HGFEDCBA
             // v: t
             self.t = (self.t & lo_bits_mask) | u16::from(val);
-            self.v = self.t;
-            self.v &= Self::ADDR_MIRROR;
+            // PPUADDR update is apparently delayed by 2-3 PPU cycles (based on Visual NES findings)
+            // A 3-cycle delay causes issues with the scanline test.
+            self.delay_v_cycles = 2;
+            self.delay_v = self.t & Self::ADDR_MIRROR;
         } else {
             // Write hi address on first write
             let hi_bits_mask = 0x00FF;
@@ -123,6 +129,20 @@ impl PpuScroll {
             self.t = (self.t & hi_bits_mask) | ((u16::from(val) & six_bits_mask) << 8);
         }
         self.write_latch = !self.write_latch;
+    }
+
+    // Delayed update for PPUADDR after 2 PPU cycles (based on Visual NES findings)
+    // Returns true when it was updated so the PPU can inform mappers monitoring $2006 reads and
+    // writes. e.g. MMC3 clocks using A12
+    pub fn delayed_update(&mut self) -> bool {
+        if self.delay_v_cycles > 0 {
+            self.delay_v_cycles -= 1;
+            if self.delay_v_cycles == 0 {
+                self.v = self.delay_v;
+                return true;
+            }
+        }
+        false
     }
 
     // Returns Coarse X: XXXXX from PPUADDR v

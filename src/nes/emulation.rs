@@ -75,9 +75,9 @@ impl State {
         config: Config,
     ) -> Self {
         let control_deck = ControlDeck::with_config(config.clone().into());
-        let sample_rate = config.audio_sample_rate / f32::from(config.frame_speed);
+        let sample_rate = config.audio_sample_rate;
         let mixer = Mixer::new(
-            control_deck.clock_rate() / sample_rate,
+            control_deck.clock_rate() / (sample_rate / f32::from(config.frame_speed)),
             sample_rate,
             config.audio_enabled,
         );
@@ -276,7 +276,7 @@ impl State {
     }
 
     pub fn pause(&mut self, paused: bool) {
-        if self.control_deck.is_running() {
+        if self.control_deck.is_running() && !self.control_deck.cpu_corrupted() {
             self.paused = paused;
             if paused {
                 if let Err(err) = self.replay.stop() {
@@ -290,7 +290,7 @@ impl State {
                 self.add_message("Failed to resume audio");
             }
         } else {
-            self.paused = false;
+            self.paused = true;
         }
     }
 
@@ -407,20 +407,21 @@ impl State {
                 self.on_control_deck_event(&event);
             }
 
-            if self
-                .control_deck
-                .clock_frame()
-                .map_err(|err| self.on_error(err))
-                .is_ok()
-            {
-                if self.config.rewind {
-                    self.rewind.push(self.control_deck.cpu().clone());
+            match self.control_deck.clock_frame() {
+                Ok(_) => {
+                    if self.config.rewind {
+                        self.rewind.push(self.control_deck.cpu().clone());
+                    }
+                    let _ = self
+                        .mixer
+                        .process(self.control_deck.audio_samples())
+                        .map_err(|err| self.on_error(err));
+                    self.control_deck.clear_audio_samples();
                 }
-                let _ = self
-                    .mixer
-                    .process(self.control_deck.audio_samples())
-                    .map_err(|err| self.on_error(err));
-                self.control_deck.clear_audio_samples();
+                Err(err) => {
+                    self.on_error(err);
+                    self.pause(true);
+                }
             }
 
             frames_to_clock -= 1;
