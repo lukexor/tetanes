@@ -14,9 +14,9 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-const WINDOW_WIDTH_NTSC: f32 = Ppu::WIDTH as f32 * 8.0 / 7.0 + 0.5; // for 8:7 Aspect Ratio
-const WINDOW_WIDTH_PAL: f32 = Ppu::WIDTH as f32 * 18.0 / 13.0 + 0.5; // for 18:13 Aspect Ratio
-const WINDOW_HEIGHT: f32 = Ppu::HEIGHT as f32;
+// https://www.nesdev.org/wiki/Overscan
+pub const NTSC_RATIO: f32 = 8.0 / 7.0;
+pub const PAL_RATIO: f32 = 18.0 / 13.0;
 pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
@@ -214,12 +214,12 @@ impl AsRef<str> for SampleRate {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 /// NES emulation configuration settings.
 pub struct Config {
-    pub control_deck: control_deck::Config,
+    pub deck: control_deck::Config,
     pub rom_path: PathBuf,
     pub replay_path: Option<PathBuf>,
     pub show_hidden_files: bool,
@@ -233,6 +233,7 @@ pub struct Config {
     #[serde(skip)]
     pub target_frame_duration: Duration,
     pub scale: Scale,
+    pub aspect_ratio: f32,
     pub frame_speed: Speed,
     pub hide_overscan: bool,
     pub show_fps: bool,
@@ -248,38 +249,17 @@ pub struct Config {
     pub input_map: InputMap,
 }
 
-impl PartialEq for Config {
-    fn eq(&self, other: &Self) -> bool {
-        // To avoid comparing an unsorted input_bindings list
-        self.control_deck == other.control_deck
-            && self.show_hidden_files == other.show_hidden_files
-            && self.audio_enabled == other.audio_enabled
-            && self.debug == other.debug
-            && self.fullscreen == other.fullscreen
-            && self.vsync == other.vsync
-            && self.threaded == other.threaded
-            && self.concurrent_dpad == other.concurrent_dpad
-            && self.frame_rate == other.frame_rate
-            && self.hide_overscan == other.hide_overscan
-            && self.target_frame_duration == other.target_frame_duration
-            && self.scale == other.scale
-            && self.frame_speed == other.frame_speed
-            && self.rewind == other.rewind
-            && self.rewind_interval == other.rewind_interval
-            && self.rewind_buffer_size_mb == other.rewind_buffer_size_mb
-            && self.controller_deadzone == other.controller_deadzone
-            && self.audio_sample_rate == other.audio_sample_rate
-            && self.audio_latency == other.audio_latency
-            && self.input_map == other.input_map
-    }
-}
-
 impl Default for Config {
     fn default() -> Self {
         let frame_rate = 60.0;
         let input_map = InputMap::default();
+        let deck = control_deck::Config::default();
+        let aspect_ratio = match deck.region {
+            NesRegion::Ntsc => NTSC_RATIO,
+            NesRegion::Pal | NesRegion::Dendy => PAL_RATIO,
+        };
         Self {
-            control_deck: control_deck::Config::default(),
+            deck,
             rom_path: PathBuf::from("./"),
             replay_path: None,
             show_hidden_files: false,
@@ -295,6 +275,7 @@ impl Default for Config {
             show_messages: true,
             target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
             scale: Scale::default(),
+            aspect_ratio,
             frame_speed: Speed::default(),
             rewind: true,
             rewind_interval: 2,
@@ -317,13 +298,13 @@ impl Default for Config {
 
 impl From<Config> for control_deck::Config {
     fn from(config: Config) -> Self {
-        config.control_deck
+        config.deck
     }
 }
 
 impl Config {
     pub const WINDOW_TITLE: &'static str = "TetaNES";
-    pub const DIRECTORY: &'static str = control_deck::Config::DIRECTORY;
+    pub const DEFAULT_DIRECTORY: &'static str = control_deck::Config::DIR;
     pub const FILENAME: &'static str = "config.json";
 
     #[cfg(target_arch = "wasm32")]
@@ -337,19 +318,21 @@ impl Config {
         use anyhow::Context;
         use std::fs::{self, File};
 
-        if !self.control_deck.save_on_exit {
+        if !self.deck.save_on_exit {
             return Ok(());
         }
 
-        let dir = Self::directory();
-        if !dir.exists() {
-            fs::create_dir_all(&dir).with_context(|| {
-                format!("failed to create config directory: {}", dir.display(),)
+        if !self.deck.dir.exists() {
+            fs::create_dir_all(&self.deck.dir).with_context(|| {
+                format!(
+                    "failed to create config directory: {}",
+                    self.deck.dir.display()
+                )
             })?;
-            log::info!("created config directory: {}", dir.display());
+            log::info!("created config directory: {}", self.deck.dir.display());
         }
 
-        let path = dir.join(Self::FILENAME);
+        let path = self.deck.dir.join(Self::FILENAME);
         File::create(&path)
             .with_context(|| format!("failed to create config file: {path:?}"))
             .and_then(|file| {
@@ -367,11 +350,11 @@ impl Config {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn load() -> Self {
+    pub fn load(path: Option<PathBuf>) -> Self {
         use anyhow::Context;
         use std::fs::File;
 
-        let path = Self::directory().join(Self::FILENAME);
+        let path = path.unwrap_or_else(|| control_deck::Config::default_dir().join(Self::FILENAME));
         let mut config = if path.exists() {
             log::info!("Loading saved configuration");
             File::open(&path)
@@ -388,7 +371,7 @@ impl Config {
         };
 
         config.input_map = InputMap::from_bindings(&config.input_bindings);
-        let region = config.control_deck.region;
+        let region = config.deck.region;
         Self::set_region(&mut config, region);
 
         config
@@ -406,9 +389,18 @@ impl Config {
 
     pub fn set_region(&mut self, region: NesRegion) {
         match region {
-            NesRegion::Ntsc => self.frame_rate = 60.0,
-            NesRegion::Pal => self.frame_rate = 50.0,
-            NesRegion::Dendy => self.frame_rate = 59.0,
+            NesRegion::Ntsc => {
+                self.frame_rate = 60.0;
+                self.aspect_ratio = NTSC_RATIO;
+            }
+            NesRegion::Pal => {
+                self.frame_rate = 50.0;
+                self.aspect_ratio = PAL_RATIO;
+            }
+            NesRegion::Dendy => {
+                self.frame_rate = 59.0;
+                self.aspect_ratio = PAL_RATIO;
+            }
         }
         self.target_frame_duration = Duration::from_secs_f64(self.frame_rate.recip());
         log::info!(
@@ -419,24 +411,11 @@ impl Config {
 
     #[must_use]
     pub fn dimensions(&self) -> (f32, f32) {
-        let (width, height) = match self.control_deck.region {
-            NesRegion::Ntsc => (WINDOW_WIDTH_NTSC, WINDOW_HEIGHT),
-            NesRegion::Pal | NesRegion::Dendy => (WINDOW_WIDTH_PAL, WINDOW_HEIGHT),
-        };
         let scale = f32::from(self.scale);
-        (scale * width, scale * height)
-    }
-
-    pub fn directory() -> PathBuf {
-        control_deck::Config::directory()
-    }
-
-    pub fn save_dir() -> PathBuf {
-        control_deck::Config::save_dir()
-    }
-
-    pub fn sram_dir() -> PathBuf {
-        control_deck::Config::sram_dir()
+        (
+            scale * Ppu::WIDTH as f32 * self.aspect_ratio,
+            scale * Ppu::HEIGHT as f32,
+        )
     }
 }
 
@@ -448,11 +427,13 @@ impl Nes {
 
     pub fn set_scale(&mut self, scale: Scale) {
         self.config.scale = scale;
-        self.send_event(RendererEvent::SetScale(self.config.scale));
+        self.send_event(RendererEvent::SetScale(scale));
+        self.add_message(format!("Changed Scale to {scale}"));
     }
 
     pub fn set_speed(&mut self, speed: Speed) {
         self.config.frame_speed = speed;
-        self.send_event(DeckEvent::SetFrameSpeed(self.config.frame_speed));
+        self.send_event(DeckEvent::SetFrameSpeed(speed));
+        self.add_message(format!("Changed Emulation Speed to {speed}"));
     }
 }

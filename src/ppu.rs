@@ -1249,7 +1249,7 @@ mod tests {
     use super::*;
     use crate::{
         cart::Cart,
-        mapper::{Mapped, Mmc1Revision, Sxrom},
+        mapper::{Mmc1Revision, Sxrom},
         test_roms,
     };
 

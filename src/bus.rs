@@ -47,7 +47,7 @@ use std::collections::HashMap;
 pub struct Bus {
     wram: Vec<u8>,
     region: NesRegion,
-    ram_state: RamState,
+    pub ram_state: RamState,
     prg_ram: Vec<u8>,
     prg_ram_protect: bool,
     prg_rom: Vec<u8>,
@@ -363,7 +363,7 @@ impl std::fmt::Debug for Bus {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{cart::Cart, mapper::Cnrom};
+    use crate::mapper::Cnrom;
 
     #[test]
     fn load_cart_values() {

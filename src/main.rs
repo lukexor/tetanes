@@ -27,9 +27,18 @@ fn main() -> NesResult<()> {
     logging::init();
     profiling::init();
 
+    #[cfg(target_arch = "wasm32")]
     let config = Config::load();
     #[cfg(not(target_arch = "wasm32"))]
-    let config = ConfigOpts::extend(config)?;
+    let config = {
+        use clap::Parser;
+
+        let opts = ConfigOpts::parse();
+        log::debug!("CLI Options: {opts:?}");
+
+        let config = Config::load(opts.config.clone());
+        opts.extend(config)?
+    };
 
     platform::thread::spawn(Nes::run(config))
 }
@@ -87,6 +96,8 @@ struct ConfigOpts {
     /// Add Game Genie Code(s). e.g. `AATOZE` (Start Super Mario Bros. with 9 lives).
     #[arg(short, long)]
     genie_code: Vec<String>,
+    /// Custom Config path.
+    config: Option<std::path::PathBuf>,
     /// "Default Config" (skip user config and previous save states)
     #[arg(short, long)]
     clean: bool,
@@ -98,30 +109,26 @@ struct ConfigOpts {
 #[cfg(not(target_arch = "wasm32"))]
 impl ConfigOpts {
     /// Extends a base `Config` with CLI options
-    fn extend(mut base: Config) -> NesResult<Config> {
-        use clap::Parser;
+    fn extend(mut self, mut base: Config) -> NesResult<Config> {
         use tetanes::{control_deck, genie::GenieCode};
 
-        let mut opts = Self::parse();
-        log::debug!("CLI Options: {opts:?}");
-
-        if opts.clean {
+        if self.clean {
             base = Config::default();
-            opts.no_load = true;
-            opts.no_save = true;
+            self.no_load = true;
+            self.no_save = true;
         }
 
         let mut config = Config {
-            control_deck: control_deck::Config {
-                four_player: opts.four_player.unwrap_or(base.control_deck.four_player),
-                zapper: opts.zapper || base.control_deck.zapper,
-                ram_state: opts.ram_state.unwrap_or(base.control_deck.ram_state),
-                save_slot: opts.save_slot.unwrap_or(base.control_deck.save_slot),
-                load_on_start: !opts.no_load && base.control_deck.load_on_start,
-                save_on_exit: !opts.no_save && base.control_deck.save_on_exit,
-                ..base.control_deck
+            deck: control_deck::Config {
+                four_player: self.four_player.unwrap_or(base.deck.four_player),
+                zapper: self.zapper || base.deck.zapper,
+                ram_state: self.ram_state.unwrap_or(base.deck.ram_state),
+                save_slot: self.save_slot.unwrap_or(base.deck.save_slot),
+                load_on_start: !self.no_load && base.deck.load_on_start,
+                save_on_exit: !self.no_save && base.deck.save_on_exit,
+                ..base.deck
             },
-            rom_path: opts
+            rom_path: self
                 .path
                 .map_or_else(
                     || {
@@ -133,26 +140,20 @@ impl ConfigOpts {
                 )
                 .canonicalize()
                 .unwrap_or(base.rom_path),
-            replay_path: opts.replay,
-            rewind: opts.rewind || base.rewind,
-            audio_enabled: !opts.silent && base.audio_enabled,
-            fullscreen: opts.fullscreen || base.fullscreen,
-            vsync: !opts.no_vsync && base.vsync,
-            threaded: !opts.no_threaded && base.threaded,
-            scale: opts.scale.unwrap_or(base.scale),
-            frame_speed: opts.speed.unwrap_or(base.frame_speed),
-            debug: opts.debug || base.debug,
+            replay_path: self.replay,
+            rewind: self.rewind || base.rewind,
+            audio_enabled: !self.silent && base.audio_enabled,
+            fullscreen: self.fullscreen || base.fullscreen,
+            vsync: !self.no_vsync && base.vsync,
+            threaded: !self.no_threaded && base.threaded,
+            scale: self.scale.unwrap_or(base.scale),
+            frame_speed: self.speed.unwrap_or(base.frame_speed),
+            debug: self.debug || base.debug,
             ..base
         };
-        config
-            .control_deck
-            .genie_codes
-            .reserve(opts.genie_code.len());
-        for genie_code in opts.genie_code.into_iter() {
-            config
-                .control_deck
-                .genie_codes
-                .push(GenieCode::new(genie_code)?);
+        config.deck.genie_codes.reserve(self.genie_code.len());
+        for genie_code in self.genie_code.into_iter() {
+            config.deck.genie_codes.push(GenieCode::new(genie_code)?);
         }
         Ok(config)
     }

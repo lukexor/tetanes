@@ -3,6 +3,7 @@
 use crate::{
     frame_begin,
     nes::{
+        config::Config,
         emulation::Emulation,
         event::Event,
         platform::{EventLoopExt, WindowBuilderExt, WindowExt},
@@ -10,7 +11,6 @@ use crate::{
     },
     profile, NesResult,
 };
-use config::Config;
 use std::sync::Arc;
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
@@ -20,7 +20,6 @@ use winit::{
 pub mod config;
 pub mod emulation;
 pub mod event;
-pub mod gui;
 pub mod platform;
 pub mod renderer;
 
@@ -29,7 +28,6 @@ pub mod renderer;
 pub struct Nes {
     config: Config,
     window: Arc<Window>,
-    #[allow(unused)]
     event_proxy: EventLoopProxy<Event>,
     emulation: Emulation,
     // controllers: [Option<DeviceId>; 4],

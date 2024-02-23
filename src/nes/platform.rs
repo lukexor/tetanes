@@ -1,4 +1,8 @@
-use crate::nes::{config::Config, event::DeckEvent, Nes};
+use crate::nes::{
+    config::Config,
+    event::{DeckEvent, RomData},
+    Nes,
+};
 use winit::{
     dpi::LogicalSize,
     event::Event as WinitEvent,
@@ -21,7 +25,7 @@ impl Nes {
                         if let Err(err) = event_proxy.send_event(
                             DeckEvent::LoadRom((
                                 "akumajou_densetsu.nes".to_string(),
-                                TEST_ROM.to_vec(),
+                                RomData::new(TEST_ROM.to_vec()),
                             ))
                             .into(),
                         ) {
@@ -68,18 +72,21 @@ impl Nes {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn initialize_platform(&mut self) {
-        if self.config.rom_path.is_file() {
-            use crate::filesystem;
-            use anyhow::Context;
-            use std::{fs::File, io::Read};
+        use crate::filesystem;
+        use anyhow::Context;
+        use std::{fs::File, io::Read};
 
+        if self.config.rom_path.is_file() {
             let path = &self.config.rom_path;
             let filename = filesystem::filename(path);
             match File::open(path).with_context(|| format!("failed to open rom {path:?}")) {
                 Ok(mut rom) => {
                     let mut buffer = Vec::new();
                     rom.read_to_end(&mut buffer).unwrap();
-                    self.send_event(DeckEvent::LoadRom((filename.to_string(), buffer)));
+                    self.send_event(DeckEvent::LoadRom((
+                        filename.to_string(),
+                        RomData::new(buffer),
+                    )));
                 }
                 Err(err) => self.on_error(err),
             }

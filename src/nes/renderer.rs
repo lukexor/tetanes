@@ -1,16 +1,25 @@
 use crate::{
     nes::{
         config::{Config, OVERSCAN_TRIM},
-        event::{Event, RendererEvent},
-        gui,
+        event::{DeckEvent, Event, RendererEvent},
+        renderer::gui::{Gui, Menu, MSG_TIMEOUT},
+        Nes,
     },
+    platform::time::Instant,
     ppu::Ppu,
     profile,
     video::{Frame, FrameRecycle},
-    NesResult,
+    NesError, NesResult,
+};
+use egui::{
+    load::SizedTexture, ClippedPrimitive, Context, SystemTheme, TexturesDelta, Vec2,
+    ViewportCommand, ViewportId,
 };
 use pixels::{
-    wgpu::{PowerPreference, RequestAdapterOptions},
+    wgpu::{
+        FilterMode, LoadOp, Operations, PowerPreference, RenderPassColorAttachment,
+        RenderPassDescriptor, RequestAdapterOptions, StoreOp, TextureViewDescriptor,
+    },
     Pixels, PixelsBuilder, SurfaceTexture,
 };
 use std::{ops::Deref, sync::Arc};
@@ -19,8 +28,10 @@ use winit::{
     dpi::LogicalSize,
     event::{Event as WinitEvent, WindowEvent},
     event_loop::EventLoop,
-    window::Window,
+    window::{Theme, Window},
 };
+
+pub mod gui;
 
 #[derive(Debug)]
 #[must_use]
@@ -56,13 +67,25 @@ impl Clone for BufferPool {
     }
 }
 
-#[derive(Debug)]
 #[must_use]
 pub struct Renderer {
+    window: Arc<Window>,
     frame_pool: BufferPool,
-    // TODO: remove pub(crate)
-    pub(crate) gui: gui::Gui,
     pixels: Pixels<'static>,
+    gui: Gui,
+    ctx: Context,
+    egui_state: egui_winit::State,
+    screen_descriptor: egui_wgpu::ScreenDescriptor,
+    renderer: egui_wgpu::Renderer,
+    paint_jobs: Vec<ClippedPrimitive>,
+    textures: TexturesDelta,
+}
+impl std::fmt::Debug for Renderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Renderer")
+            .field("gui", &self.gui)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Renderer {
@@ -89,12 +112,50 @@ impl Renderer {
             .enable_vsync(config.vsync)
             .build_async()
             .await?;
-        let gui = gui::Gui::new(event_loop, Arc::clone(&window), &pixels);
+        let window_size = window.inner_size();
+        let scale_factor = window.scale_factor() as f32;
+        let ctx = Context::default();
+
+        let egui_state = egui_winit::State::new(
+            ctx.clone(),
+            ViewportId::default(),
+            event_loop,
+            Some(scale_factor),
+            Some(pixels.device().limits().max_texture_dimension_2d as usize),
+        );
+
+        let texture = pixels.texture();
+        let texture_view = texture.create_view(&TextureViewDescriptor::default());
+        let mut renderer =
+            egui_wgpu::Renderer::new(pixels.device(), pixels.render_texture_format(), None, 1);
+        let egui_texture =
+            renderer.register_native_texture(pixels.device(), &texture_view, FilterMode::Nearest);
+        let state = Gui::new(
+            Arc::clone(&window),
+            event_loop,
+            SizedTexture::new(
+                egui_texture,
+                Vec2 {
+                    x: window_size.width as f32,
+                    y: window_size.height as f32,
+                },
+            ),
+        );
 
         Ok(Self {
+            window,
             frame_pool,
-            gui,
             pixels,
+            gui: state,
+            ctx,
+            egui_state,
+            screen_descriptor: egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [window_size.width, window_size.height],
+                pixels_per_point: scale_factor,
+            },
+            renderer,
+            paint_jobs: vec![],
+            textures: TexturesDelta::default(),
         })
     }
 
@@ -102,25 +163,51 @@ impl Renderer {
     pub fn on_event(&mut self, event: &WinitEvent<Event>) -> NesResult<()> {
         match event {
             WinitEvent::WindowEvent { event, .. } => {
-                let _ = self.gui.on_event(event);
-                if let WindowEvent::Resized(size) = event {
-                    self.pixels.resize_surface(size.width, size.height)?
+                let _ = self.egui_state.on_window_event(&self.window, event);
+                match event {
+                    WindowEvent::Resized(size) => {
+                        if size.width > 0 && size.height > 0 {
+                            self.screen_descriptor.size_in_pixels = [size.width, size.height];
+                            self.pixels.resize_surface(size.width, size.height)?;
+                        }
+                    }
+                    WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                        self.screen_descriptor.pixels_per_point = *scale_factor as f32;
+                    }
+                    WindowEvent::ThemeChanged(theme) => {
+                        self.ctx.send_viewport_cmd(ViewportCommand::SetTheme(
+                            if *theme == Theme::Light {
+                                SystemTheme::Light
+                            } else {
+                                SystemTheme::Dark
+                            },
+                        ));
+                    }
+                    _ => (),
                 }
             }
-            WinitEvent::UserEvent(Event::Renderer(RendererEvent::SetVSync(enabled))) => {
-                self.pixels.enable_vsync(*enabled);
-            }
+            WinitEvent::UserEvent(Event::Renderer(event)) => match event {
+                RendererEvent::SetVSync(enabled) => self.pixels.enable_vsync(*enabled),
+                RendererEvent::SetScale(_) => {
+                    // TODO
+                    // self.state
+                    //     .resize_window(&self.ctx.style(), &mut self.state.config);
+                }
+                RendererEvent::Frame(duration) => self.gui.last_frame_duration = *duration,
+                RendererEvent::Menu(menu) => match menu {
+                    Menu::Config(_) => self.gui.config_open = !self.gui.config_open,
+                    Menu::Keybind(_) => self.gui.keybind_open = !self.gui.keybind_open,
+                    Menu::LoadRom => self.gui.load_rom_open = !self.gui.load_rom_open,
+                    Menu::About => self.gui.about_open = !self.gui.about_open,
+                },
+            },
             _ => (),
         }
         Ok(())
     }
 
-    /// Request redraw.
-    pub fn request_redraw(&mut self, paused: bool, config: &mut Config) -> NesResult<()> {
-        profile!();
-
-        self.gui.prepare(paused, config);
-
+    /// Prepare.
+    pub fn prepare(&mut self, paused: bool, config: &mut Config) {
         // Copy NES frame buffer
         if let Some(frame_buffer) = self.frame_pool.pop_ref() {
             let frame = self.pixels.frame_mut();
@@ -135,14 +222,85 @@ impl Renderer {
             }
         };
 
-        Ok(self.pixels.render_with(|encoder, render_target, ctx| {
-            ctx.scaling_renderer.render(encoder, render_target);
-            self.gui.render(encoder, render_target, ctx);
-            Ok(())
-        })?)
+        let raw_input = self.egui_state.take_egui_input(&self.window);
+        let output = self.ctx.run(raw_input, |ctx| {
+            self.gui.ui(ctx, paused, config);
+        });
+
+        self.textures.append(output.textures_delta);
+        self.egui_state
+            .handle_platform_output(&self.window, output.platform_output);
+        self.paint_jobs = self
+            .ctx
+            .tessellate(output.shapes, self.screen_descriptor.pixels_per_point);
     }
 
-    pub fn toggle_menu(&mut self, menu: gui::Menu) {
-        self.gui.toggle_menu(menu);
+    /// Request redraw.
+    pub fn request_redraw(&mut self, paused: bool, config: &mut Config) -> NesResult<()> {
+        profile!();
+
+        self.prepare(paused, config);
+        self.pixels.render_with(|encoder, render_target, ctx| {
+            // ctx.scaling_renderer.render(encoder, render_target);
+
+            for (id, image_delta) in &self.textures.set {
+                self.renderer
+                    .update_texture(&ctx.device, &ctx.queue, *id, image_delta);
+            }
+            self.renderer.update_buffers(
+                &ctx.device,
+                &ctx.queue,
+                encoder,
+                &self.paint_jobs,
+                &self.screen_descriptor,
+            );
+
+            {
+                let mut renderpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("gui"),
+                    color_attachments: &[Some(RenderPassColorAttachment {
+                        view: render_target,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Load,
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
+
+                self.renderer
+                    .render(&mut renderpass, &self.paint_jobs, &self.screen_descriptor);
+            }
+
+            // Cleanup
+            let textures = std::mem::take(&mut self.textures);
+            for id in &textures.free {
+                self.renderer.free_texture(id);
+            }
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+}
+
+impl Nes {
+    pub fn add_message<S>(&mut self, text: S)
+    where
+        S: Into<String>,
+    {
+        let text = text.into();
+        log::info!("{text}");
+        self.renderer
+            .gui
+            .messages
+            .push((text, Instant::now() + MSG_TIMEOUT));
+    }
+
+    pub fn on_error(&mut self, err: NesError) {
+        self.send_event(DeckEvent::Pause(true));
+        log::error!("{err:?}");
+        self.renderer.gui.error = Some(err.to_string());
     }
 }

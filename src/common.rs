@@ -185,7 +185,6 @@ pub(crate) mod tests {
     use image::{ImageBuffer, Rgba};
     use once_cell::sync::Lazy;
     use serde::{Deserialize, Serialize};
-    use std::fmt::Write;
     use std::{
         collections::hash_map::DefaultHasher,
         env,
@@ -265,12 +264,10 @@ pub(crate) mod tests {
         let path = path.as_ref();
         let mut rom = BufReader::new(File::open(path).expect("failed to open path"));
         let mut deck = ControlDeck::with_config(Config {
-            load_on_start: false,
-            save_on_exit: false,
             ram_state: RamState::AllZeros,
             ..Default::default()
         });
-        deck.load_rom(&path.to_string_lossy(), &mut rom)
+        deck.load_rom(&path.to_string_lossy(), &mut rom, None)
             .expect("failed to load rom");
         deck.set_filter(VideoFilter::Pixellate);
         deck.set_region(NesRegion::Ntsc);

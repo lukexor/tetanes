@@ -1,4 +1,4 @@
-use crate::{hashmap, NesResult};
+use crate::NesResult;
 use anyhow::anyhow;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};

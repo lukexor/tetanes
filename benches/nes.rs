@@ -3,7 +3,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::time::Duration;
 use std::{fs::File, io::BufReader};
-use tetanes::control_deck::{Config, ControlDeck};
+use tetanes::{
+    control_deck::{Config, ControlDeck},
+    mem::RamState,
+};
 
 fn clock_frames(frames: u32) {
     use std::path::PathBuf;
@@ -14,9 +17,10 @@ fn clock_frames(frames: u32) {
     let mut deck = ControlDeck::with_config(Config {
         load_on_start: false,
         save_on_exit: false,
+        ram_state: RamState::AllZeros,
         ..Default::default()
     });
-    deck.load_rom(&rom_path.to_string_lossy(), &mut rom)
+    deck.load_rom(&rom_path.to_string_lossy(), &mut rom, None)
         .expect("failed to load rom");
     while deck.frame_number() < frames {
         deck.clock_frame().expect("valid frame clock");

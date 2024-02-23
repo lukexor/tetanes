@@ -22,6 +22,8 @@ use std::{ffi::OsStr, io::Read, path::PathBuf};
 #[must_use]
 /// Control deck configuration settings.
 pub struct Config {
+    /// Directory where config is stored.
+    pub dir: PathBuf,
     /// Video filter.
     pub filter: VideoFilter,
     /// NES region.
@@ -59,6 +61,7 @@ impl PartialEq for Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            dir: Self::default_dir(),
             filter: VideoFilter::default(),
             region: NesRegion::default(),
             ram_state: RamState::Random,
@@ -73,28 +76,30 @@ impl Default for Config {
 }
 
 impl Config {
-    pub const DIRECTORY: &'static str = ".config/tetanes";
+    pub const DIR: &'static str = ".config/tetanes";
 
     #[cfg(target_arch = "wasm32")]
     #[must_use]
-    pub fn directory() -> PathBuf {
-        PathBuf::from("./")
+    pub fn default_dir() -> PathBuf {
+        PathBuf::from("./").join(Self::DIR)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[must_use]
-    pub fn directory() -> PathBuf {
+    pub fn default_dir() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("./"))
-            .join(Self::DIRECTORY)
+            .join(Self::DIR)
     }
 
-    pub fn save_dir() -> PathBuf {
-        Config::directory().join("save")
+    #[must_use]
+    pub fn save_dir(&self) -> PathBuf {
+        self.dir.join("save")
     }
 
-    pub fn sram_dir() -> PathBuf {
-        Config::directory().join("sram")
+    #[must_use]
+    pub fn sram_dir(&self) -> PathBuf {
+        self.dir.join("sram")
     }
 }
 
@@ -102,7 +107,6 @@ impl Config {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct ControlDeck {
-    config: Config,
     running: bool,
     video: Video,
     loaded_rom: Option<String>,
@@ -114,14 +118,6 @@ pub struct ControlDeck {
 impl Default for ControlDeck {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Drop for ControlDeck {
-    fn drop(&mut self) {
-        if let Err(err) = self.unload_rom() {
-            log::error!("failed to unload ROM: {err:?}");
-        }
     }
 }
 
@@ -142,7 +138,6 @@ impl ControlDeck {
         }
         let video = Video::with_filter(config.filter);
         Self {
-            config,
             running: false,
             video,
             loaded_rom: None,
@@ -157,16 +152,21 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is any issue loading the ROM, then an error is returned.
-    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
-        self.unload_rom()?;
+    pub fn load_rom<S: ToString, F: Read>(
+        &mut self,
+        name: S,
+        rom: &mut F,
+        config: Option<&Config>,
+    ) -> NesResult<()> {
+        self.unload_rom(config)?;
         self.loaded_rom = Some(name.to_string());
-        let cart = Cart::from_rom(name, rom, self.config.ram_state)?;
+        let cart = Cart::from_rom(name, rom, self.cpu.bus.ram_state)?;
         self.cart_battery_backed = cart.battery_backed();
         self.set_region(cart.region());
         self.cpu.bus.load_cart(cart);
         self.reset(ResetKind::Hard);
-        if self.config.load_on_start {
-            self.load_state()?;
+        if matches!(config, Some(config) if config.load_on_start) {
+            self.load_state(config)?;
         }
         self.running = true;
         Ok(())
@@ -174,24 +174,27 @@ impl ControlDeck {
 
     /// Loads a ROM cartridge into memory from a path.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> NesResult<()> {
+    pub fn load_rom_path(
+        &mut self,
+        path: impl AsRef<std::path::Path>,
+        config: Option<&Config>,
+    ) -> NesResult<()> {
         use anyhow::Context;
         use std::fs::File;
 
-        self.unload_rom()?;
         let path = path.as_ref();
         let filename = filesystem::filename(path);
         log::info!("loading ROM: {filename}");
         File::open(path)
             .with_context(|| format!("failed to open rom {path:?}"))
-            .and_then(|mut rom| self.load_rom(filename, &mut rom))
+            .and_then(|mut rom| self.load_rom(filename, &mut rom, config))
     }
 
-    pub fn unload_rom(&mut self) -> NesResult<()> {
+    pub fn unload_rom(&mut self, config: Option<&Config>) -> NesResult<()> {
         if self.loaded_rom.is_some() {
-            self.save_sram()?;
-            if self.config.save_on_exit {
-                self.save_state()?;
+            self.save_sram(config)?;
+            if matches!(config, Some(config) if config.save_on_exit) {
+                self.save_state(config)?;
             }
         }
         self.loaded_rom = None;
@@ -202,10 +205,6 @@ impl ControlDeck {
 
     pub fn load_cpu(&mut self, cpu: Cpu) {
         self.cpu = cpu;
-    }
-
-    pub fn config(&self) -> &Config {
-        &self.config
     }
 
     #[must_use]
@@ -235,9 +234,9 @@ impl ControlDeck {
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
-    pub fn save_sram(&self) -> NesResult<()> {
+    pub fn save_sram(&self, config: Option<&Config>) -> NesResult<()> {
         if let Some(true) = self.cart_battery_backed() {
-            if let Some(sram_path) = self.sram_path() {
+            if let Some(sram_path) = self.sram_path(config) {
                 log::info!("saving SRAM...");
                 filesystem::save_data(sram_path, self.cpu.bus.sram())?;
             }
@@ -246,8 +245,8 @@ impl ControlDeck {
     }
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
-    pub fn load_sram(&mut self) -> NesResult<()> {
-        if let Some(sram_path) = self.sram_path() {
+    pub fn load_sram(&mut self, config: Option<&Config>) -> NesResult<()> {
+        if let Some(sram_path) = self.sram_path(config) {
             if sram_path.exists() {
                 log::info!("loading SRAM...");
                 filesystem::load_data(&sram_path).map(|data| self.cpu.bus.load_sram(data))?;
@@ -256,8 +255,11 @@ impl ControlDeck {
         Ok(())
     }
 
-    pub fn set_save_slot(&mut self, slot: u8) {
-        self.config.save_slot = slot;
+    /// Save the current state of the console into a save file
+    #[cfg(target_arch = "wasm32")]
+    pub fn save_state(&mut self, _config: Option<&Config>) -> NesResult<()> {
+        // TODO: save to local storage or indexdb
+        Ok(())
     }
 
     /// Save the current state of the console into a save file.
@@ -266,27 +268,24 @@ impl ControlDeck {
     ///
     /// If there is an issue saving the state, then an error is returned.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn save_state(&mut self) -> NesResult<()> {
+    pub fn save_state(&mut self, config: Option<&Config>) -> NesResult<()> {
         use anyhow::Context;
 
-        let slot = self.config.save_slot;
-        let Some(save_path) = self.save_path(slot) else {
+        let Some(save_path) = self.save_path(config) else {
             bail!("no ROM loaded");
         };
         // Avoid saving any test roms
         if save_path.to_string_lossy().contains("test") {
             return Ok(());
         }
-        self.save_path(slot).map_or(Ok(()), |save_path| {
-            bincode::serialize(&self.cpu)
-                .context("failed to serialize save state")
-                .and_then(|data| filesystem::save_data(save_path, &data))
-        })
+        bincode::serialize(&self.cpu)
+            .context("failed to serialize save state")
+            .and_then(|data| filesystem::save_data(save_path, &data))
     }
 
     /// Load the console with data saved from a save state
     #[cfg(target_arch = "wasm32")]
-    pub fn load_state(&mut self) -> NesResult<()> {
+    pub fn load_state(&mut self, _config: Option<&Config>) -> NesResult<()> {
         // TODO: load from local storage or indexdb
         Ok(())
     }
@@ -297,10 +296,9 @@ impl ControlDeck {
     ///
     /// If there is an issue loading the save state, then an error is returned.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn load_state(&mut self) -> NesResult<()> {
+    pub fn load_state(&mut self, config: Option<&Config>) -> NesResult<()> {
         use anyhow::Context;
-        let slot = self.config.save_slot;
-        self.save_path(slot)
+        self.save_path(config)
             .filter(|path| path.exists())
             .map_or(Ok(()), |save_path| {
                 filesystem::load_data(save_path).and_then(|data| {
@@ -532,36 +530,38 @@ impl ControlDeck {
 
     /// Returns the path where battery-backed Save RAM files are stored if a ROM is loaded. Returns
     /// `None` if no ROM is loaded.
-    pub fn sram_path(&self) -> Option<PathBuf> {
-        self.loaded_rom().as_ref().and_then(|rom| {
-            PathBuf::from(rom)
-                .file_stem()
-                .and_then(OsStr::to_str)
-                .map(|save_name| Config::sram_dir().join(save_name).with_extension("sram"))
-        })
-    }
-
-    /// Returns the path where Save states are stored if a ROM is loaded. Returns `None` if no ROM
-    /// is loaded.
-    pub fn save_path(&self, slot: u8) -> Option<PathBuf> {
+    pub fn sram_path(&self, config: Option<&Config>) -> Option<PathBuf> {
         self.loaded_rom().as_ref().and_then(|rom| {
             PathBuf::from(rom)
                 .file_stem()
                 .and_then(OsStr::to_str)
                 .map(|save_name| {
-                    Config::save_dir()
+                    config
+                        .unwrap_or(&Config::default())
+                        .sram_dir()
                         .join(save_name)
-                        .join(slot.to_string())
-                        .with_extension("save")
+                        .with_extension("sram")
                 })
         })
     }
 
-    /// Save the current state of the console into a save file
-    #[cfg(target_arch = "wasm32")]
-    pub fn save_state(&mut self) -> NesResult<()> {
-        // TODO: save to local storage or indexdb
-        Ok(())
+    /// Returns the path where Save states are stored if a ROM is loaded. Returns `None` if no ROM
+    /// is loaded.
+    pub fn save_path(&self, config: Option<&Config>) -> Option<PathBuf> {
+        let default = Config::default();
+        let config = config.unwrap_or(&default);
+        self.loaded_rom().as_ref().and_then(|rom| {
+            PathBuf::from(rom)
+                .file_stem()
+                .and_then(OsStr::to_str)
+                .map(|save_name| {
+                    config
+                        .save_dir()
+                        .join(save_name)
+                        .join(config.save_slot.to_string())
+                        .with_extension("save")
+                })
+        })
     }
 }
 
@@ -576,13 +576,12 @@ impl Regional for ControlDeck {
     /// Get the NES format for the emulation.
 
     fn region(&self) -> NesRegion {
-        self.config.region
+        self.cpu.region
     }
 
     /// Set the NES format for the emulation.
 
     fn set_region(&mut self, region: NesRegion) {
-        self.config.region = region;
         self.cpu.set_region(region);
     }
 }

@@ -1,18 +1,16 @@
 use crate::{
     audio::Mixer,
-    common::{Reset, ResetKind},
+    common::{Regional, Reset, ResetKind},
     control_deck::ControlDeck,
     input::{JoypadBtn, JoypadBtnState, Player},
     nes::{
         config::Config,
         emulation::{replay::Replay, rewind::Rewind},
-        event::{DeckEvent, Event, NesEvent},
+        event::{DeckEvent, Event, NesEvent, RendererEvent},
         renderer::BufferPool,
     },
     platform::{thread, time::Instant},
-    profile,
-    video::VideoFilter,
-    NesError, NesResult,
+    profile, NesError, NesResult,
 };
 use anyhow::{anyhow, Context};
 use crossbeam::channel::{self, Sender};
@@ -109,7 +107,7 @@ impl State {
 
     pub fn send_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
-        log::debug!("Emulation event: {event:?}");
+        log::trace!("Emulation event: {event:?}");
         if let Err(err) = self.event_proxy.send_event(event) {
             log::error!("failed to send emulation event: {err:?}");
             std::process::exit(1);
@@ -121,10 +119,6 @@ impl State {
         self.add_message(err);
     }
 
-    pub fn next_frame_time(&self) -> Instant {
-        Instant::now() + self.mixer.queued_time() - self.config.audio_latency
-    }
-
     pub fn on_event(&mut self, event: &WinitEvent<Event>) {
         profile!();
 
@@ -132,12 +126,12 @@ impl State {
             WinitEvent::WindowEvent { event, .. } => match event {
                 WindowEvent::CursorMoved { position, .. } => {
                     // Aim zapper
-                    if self.config.control_deck.zapper {
-                        let scale = f64::from(self.config.scale);
-                        let x = (position.x / scale) * 8.0 / 7.0 + 0.5; // Adjust ratio
-                        let mut y = position.y / scale;
+                    if self.config.deck.zapper {
+                        let scale = f32::from(self.config.scale);
+                        let x = (position.x as f32 / scale) * self.config.aspect_ratio;
+                        let mut y = position.y as f32 / scale;
                         // Account for trimming top 8 scanlines
-                        if self.config.control_deck.region.is_ntsc() {
+                        if self.config.hide_overscan {
                             y += 8.0;
                         };
                         self.control_deck
@@ -155,9 +149,7 @@ impl State {
                 }
                 _ => (),
             },
-            WinitEvent::UserEvent(Event::ControlDeck(event)) => {
-                self.on_control_deck_event(event);
-            }
+            WinitEvent::UserEvent(Event::ControlDeck(event)) => self.on_control_deck_event(event),
             _ => (),
         }
     }
@@ -190,6 +182,14 @@ impl State {
                 self.replay
                     .record(self.control_deck.frame_number(), event.clone());
             }
+            DeckEvent::SetRegion(region) => {
+                self.config.set_region(*region);
+                self.control_deck.set_region(*region);
+            }
+            DeckEvent::ConnectZapper(connected) => {
+                self.config.deck.zapper = *connected;
+                self.control_deck.connect_zapper(*connected);
+            }
             DeckEvent::TriggerZapper => {
                 self.control_deck.trigger_zapper();
                 self.replay
@@ -205,71 +205,49 @@ impl State {
             }
             DeckEvent::Occluded(occluded) => self.occluded = *occluded,
             DeckEvent::Pause(paused) => self.pause(*paused),
-            DeckEvent::TogglePause => self.pause(!self.paused),
             DeckEvent::ToggleReplayRecord => match self.replay.toggle(self.control_deck.cpu()) {
                 Ok(()) => self.add_message("Audio Recording Started"),
                 Err(err) => self.on_error(err),
             },
             DeckEvent::ToggleAudioRecord => self.toggle_audio_record(),
-            DeckEvent::ToggleAudio => {
-                self.config.audio_enabled = !self.config.audio_enabled;
-                if let Err(err) = self.mixer.set_enabled(self.config.audio_enabled) {
-                    self.on_error(err);
-                }
-                self.send_event(NesEvent::ConfigUpdate(self.config.clone()));
-                if self.config.audio_enabled {
-                    self.add_message("Audio Enabled");
-                } else {
-                    self.add_message("Audio Disabled");
+            DeckEvent::SetAudioEnabled(enabled) => {
+                self.config.audio_enabled = *enabled;
+                match self.mixer.set_enabled(self.config.audio_enabled) {
+                    Ok(()) => {
+                        if self.config.audio_enabled {
+                            self.add_message("Audio Enabled");
+                        } else {
+                            self.add_message("Audio Disabled");
+                        }
+                    }
+                    Err(err) => self.on_error(err),
                 }
             }
             DeckEvent::ToggleApuChannel(channel) => {
                 self.control_deck.toggle_apu_channel(*channel);
                 self.add_message(format!("Toggled APU Channel {:?}", channel));
             }
-            DeckEvent::ToggleVideoFilter(filter) => {
-                self.config.control_deck.filter = if self.config.control_deck.filter == *filter {
-                    VideoFilter::Pixellate
-                } else {
-                    *filter
-                };
-                self.control_deck
-                    .set_filter(self.config.control_deck.filter);
-                self.send_event(NesEvent::ConfigUpdate(self.config.clone()));
-            }
+            DeckEvent::ToggleVideoFilter(filter) => self.control_deck.set_filter(*filter),
+            DeckEvent::SetHideOverscan(hidden) => self.config.hide_overscan = *hidden,
             DeckEvent::Screenshot => match self.save_screenshot() {
                 Ok(filename) => {
                     self.add_message(format!("Screenshot Saved: {}", filename.display()))
                 }
                 Err(err) => self.on_error(err),
             },
-            DeckEvent::SaveState => match self.control_deck.save_state() {
-                Ok(_) => self.add_message(format!(
-                    "State {} Saved",
-                    self.config.control_deck.save_slot
-                )),
+            DeckEvent::SetSaveSlot(slot) => self.config.deck.save_slot = *slot,
+            DeckEvent::SaveState => match self.control_deck.save_state(Some(&self.config.deck)) {
+                Ok(_) => self.add_message(format!("State {} Saved", self.config.deck.save_slot)),
                 Err(err) => self.on_error(err),
             },
-            DeckEvent::LoadState => match self.control_deck.load_state() {
-                Ok(_) => self.add_message(format!(
-                    "State {} Loaded",
-                    self.config.control_deck.save_slot
-                )),
+            DeckEvent::LoadState => match self.control_deck.load_state(Some(&self.config.deck)) {
+                Ok(_) => self.add_message(format!("State {} Loaded", self.config.deck.save_slot)),
                 Err(err) => self.on_error(err),
             },
-            DeckEvent::SetSaveSlot(slot) => {
-                self.add_message(format!("Changed Save Slot to {}", slot));
-                self.control_deck.set_save_slot(*slot);
-                self.config.control_deck = self.control_deck.config().clone();
-                self.send_event(NesEvent::ConfigUpdate(self.config.clone()));
-            }
             DeckEvent::SetFrameSpeed(speed) => {
-                self.add_message(format!("Changed Emulation Speed to {speed}"));
                 self.config.frame_speed = *speed;
                 let clock_rate = self.control_deck.clock_rate();
-                let sample_rate =
-                    self.config.audio_sample_rate / f32::from(self.config.frame_speed);
-                self.send_event(NesEvent::ConfigUpdate(self.config.clone()));
+                let sample_rate = self.config.audio_sample_rate / f32::from(*speed);
                 if let Err(err) = self.mixer.set_resample_ratio(clock_rate / sample_rate) {
                     self.on_error(err);
                 }
@@ -320,8 +298,6 @@ impl State {
         if let Some(loaded_rom) = self.control_deck.loaded_rom() {
             self.window.set_title(loaded_rom);
         }
-        self.config.control_deck = self.control_deck.config().clone();
-        self.send_event(NesEvent::ConfigUpdate(self.config.clone()));
         if let Err(err) = self.mixer.start() {
             self.on_error(err);
         }
@@ -331,7 +307,10 @@ impl State {
     #[cfg(not(target_arch = "wasm32"))]
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {
         self.on_unload_rom();
-        match self.control_deck.load_rom_path(path) {
+        match self
+            .control_deck
+            .load_rom_path(path, Some(&self.config.deck))
+        {
             Ok(()) => self.on_load_rom(),
             Err(err) => self.on_error(err),
         }
@@ -339,7 +318,10 @@ impl State {
 
     fn load_rom(&mut self, filename: &str, rom: &mut impl Read) {
         self.on_unload_rom();
-        match self.control_deck.load_rom(filename, rom) {
+        match self
+            .control_deck
+            .load_rom(filename, rom, Some(&self.config.deck))
+        {
             Ok(()) => self.on_load_rom(),
             Err(err) => self.on_error(err),
         }
@@ -406,12 +388,13 @@ impl State {
             frames_to_clock += 1;
         }
 
-        while self.mixer.queued_time() <= self.config.audio_latency && frames_to_clock > 0 {
-            let now = Instant::now();
-            let last_frame_duration = now - self.last_frame_time;
-            self.last_frame_time = now;
-            log::trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
+        let now = Instant::now();
+        let last_frame_duration = now - self.last_frame_time;
+        self.last_frame_time = now;
+        log::trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
+        self.send_event(RendererEvent::Frame(last_frame_duration));
 
+        while self.mixer.queued_time() <= self.config.audio_latency && frames_to_clock > 0 {
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                 self.on_control_deck_event(&event);
             }
