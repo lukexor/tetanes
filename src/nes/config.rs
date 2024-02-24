@@ -1,6 +1,6 @@
 use crate::{
     common::NesRegion,
-    control_deck,
+    control_deck::Config as DeckConfig,
     input::Player,
     nes::{
         event::{Action, DeckEvent, Input, InputBinding, InputMap, RendererEvent},
@@ -219,84 +219,85 @@ impl AsRef<str> for SampleRate {
 #[serde(default)] // Ensures new fields don't break existing configurations
 /// NES emulation configuration settings.
 pub struct Config {
-    pub deck: control_deck::Config,
-    pub rom_path: PathBuf,
-    pub replay_path: Option<PathBuf>,
-    pub show_hidden_files: bool,
-    pub audio_enabled: bool,
-    pub debug: bool,
-    pub fullscreen: bool,
-    pub vsync: bool,
-    pub threaded: bool,
-    pub concurrent_dpad: bool,
-    pub frame_rate: f64,
-    #[serde(skip)]
-    pub target_frame_duration: Duration,
-    pub scale: Scale,
     pub aspect_ratio: f32,
-    pub frame_speed: Speed,
-    pub hide_overscan: bool,
-    pub show_fps: bool,
-    pub show_messages: bool,
-    pub rewind: bool,
-    pub rewind_interval: u8,
-    pub rewind_buffer_size_mb: usize,
-    pub controller_deadzone: f64,
-    pub audio_sample_rate: f32,
+    pub audio_enabled: bool,
     pub audio_latency: Duration,
+    pub audio_sample_rate: f32,
+    pub concurrent_dpad: bool,
+    pub controller_deadzone: f64,
+    pub debug: bool,
+    pub deck: DeckConfig,
+    pub frame_rate: f64,
+    pub frame_speed: Speed,
+    pub fullscreen: bool,
+    pub hide_overscan: bool,
     pub input_bindings: Vec<InputBinding>,
     #[serde(skip)]
     pub input_map: InputMap,
+    pub replay_path: Option<PathBuf>,
+    pub rewind: bool,
+    pub rewind_buffer_size_mb: usize,
+    pub rewind_interval: u8,
+    pub rom_path: PathBuf,
+    pub scale: Scale,
+    pub show_fps: bool,
+    pub show_hidden_files: bool,
+    pub show_messages: bool,
+    #[serde(skip)]
+    pub target_frame_duration: Duration,
+    pub threaded: bool,
+    pub vsync: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         let frame_rate = 60.0;
         let input_map = InputMap::default();
-        let deck = control_deck::Config::default();
+        let input_bindings = input_map
+            .iter()
+            .map(|(input, (slot, action))| (*input, *slot, *action))
+            .collect();
+        let deck = DeckConfig::default();
         let aspect_ratio = match deck.region {
             NesRegion::Ntsc => NTSC_RATIO,
             NesRegion::Pal | NesRegion::Dendy => PAL_RATIO,
         };
         Self {
-            deck,
-            rom_path: PathBuf::from("./"),
-            replay_path: None,
-            show_hidden_files: false,
-            audio_enabled: true,
-            debug: false,
-            fullscreen: false,
-            vsync: true,
-            concurrent_dpad: false,
-            threaded: true,
-            frame_rate,
-            hide_overscan: true,
-            show_fps: false,
-            show_messages: true,
-            target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
-            scale: Scale::default(),
             aspect_ratio,
-            frame_speed: Speed::default(),
-            rewind: true,
-            rewind_interval: 2,
-            rewind_buffer_size_mb: 20 * 1024 * 1024,
-            controller_deadzone: 0.5,
-            audio_sample_rate: 44_100.0,
             audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
                 120
             } else {
                 30
             }),
-            input_bindings: input_map
-                .iter()
-                .map(|(input, (slot, action))| (*input, *slot, *action))
-                .collect(),
+            audio_enabled: true,
+            audio_sample_rate: 44_100.0,
+            concurrent_dpad: false,
+            controller_deadzone: 0.5,
+            debug: false,
+            deck,
+            frame_rate,
+            frame_speed: Speed::default(),
+            fullscreen: false,
+            hide_overscan: true,
             input_map,
+            input_bindings,
+            replay_path: None,
+            rewind: true,
+            rewind_buffer_size_mb: 20 * 1024 * 1024,
+            rewind_interval: 2,
+            rom_path: PathBuf::from("./"),
+            scale: Scale::default(),
+            show_fps: false,
+            show_hidden_files: false,
+            show_messages: true,
+            target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
+            threaded: true,
+            vsync: true,
         }
     }
 }
 
-impl From<Config> for control_deck::Config {
+impl From<Config> for DeckConfig {
     fn from(config: Config) -> Self {
         config.deck
     }
@@ -304,7 +305,7 @@ impl From<Config> for control_deck::Config {
 
 impl Config {
     pub const WINDOW_TITLE: &'static str = "TetaNES";
-    pub const DEFAULT_DIRECTORY: &'static str = control_deck::Config::DIR;
+    pub const DEFAULT_DIRECTORY: &'static str = DeckConfig::DIR;
     pub const FILENAME: &'static str = "config.json";
 
     #[cfg(target_arch = "wasm32")]
@@ -354,7 +355,7 @@ impl Config {
         use anyhow::Context;
         use std::fs::File;
 
-        let path = path.unwrap_or_else(|| control_deck::Config::default_dir().join(Self::FILENAME));
+        let path = path.unwrap_or_else(|| DeckConfig::default_dir().join(Self::FILENAME));
         let mut config = if path.exists() {
             log::info!("Loading saved configuration");
             File::open(&path)

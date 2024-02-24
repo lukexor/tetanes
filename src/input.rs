@@ -363,20 +363,20 @@ impl Reset for Joypad {
 #[must_use]
 pub struct Zapper {
     pub triggered: f32,
-    pub x: i32,
-    pub y: i32,
-    pub radius: i32,
+    pub x: u32,
+    pub y: u32,
+    pub radius: u32,
     pub connected: bool,
 }
 
 impl Zapper {
     #[must_use]
-    pub const fn x(&self) -> i32 {
+    pub const fn x(&self) -> u32 {
         self.x
     }
 
     #[must_use]
-    pub const fn y(&self) -> i32 {
+    pub const fn y(&self) -> u32 {
         self.y
     }
 
@@ -387,7 +387,7 @@ impl Zapper {
         }
     }
 
-    pub fn aim(&mut self, x: i32, y: i32) {
+    pub fn aim(&mut self, x: u32, y: u32) {
         self.x = x;
         self.y = y;
     }
@@ -422,24 +422,20 @@ impl Zapper {
     }
 
     fn light_sense(&self, ppu: &Ppu) -> u8 {
-        let width = Ppu::WIDTH as i32;
-        let height = Ppu::HEIGHT as i32;
-        let scanline = ppu.scanline() as i32;
-        let cycle = ppu.cycle() as i32;
-        let x = self.x;
-        let y = self.y;
-        if x >= 0 && y >= 0 {
-            for y in (y - self.radius)..=(y + self.radius) {
-                if y >= 0 && y < height {
-                    for x in (x - self.radius)..=(x + self.radius) {
-                        let in_bounds = x >= 0 && x < width;
-                        let behind_ppu =
-                            scanline >= y && (scanline - y) <= 20 && (scanline != y || cycle > x);
-                        if in_bounds && behind_ppu && ppu.pixel_brightness(x as u32, y as u32) >= 85
-                        {
-                            return 0x00;
-                        }
-                    }
+        let width = Ppu::WIDTH;
+        let height = Ppu::HEIGHT;
+        let scanline = ppu.scanline();
+        let cycle = ppu.cycle();
+        let min_y = self.y.saturating_sub(self.radius);
+        let max_y = (self.y + self.radius).min(height - 1);
+        let min_x = self.x.saturating_sub(self.radius);
+        let max_x = (self.x + self.radius).min(width - 1);
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let behind_ppu =
+                    scanline >= y && (scanline - y) <= 20 && (scanline != y || cycle > x);
+                if behind_ppu && ppu.pixel_brightness(x, y) >= 85 {
+                    return 0x00;
                 }
             }
         }

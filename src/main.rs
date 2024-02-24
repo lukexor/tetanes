@@ -20,12 +20,11 @@
 use tetanes::{
     logging,
     nes::{config::Config, Nes},
-    platform, profiling, NesResult,
+    platform, NesResult,
 };
 
 fn main() -> NesResult<()> {
     logging::init();
-    profiling::init();
 
     #[cfg(target_arch = "wasm32")]
     let config = Config::load();

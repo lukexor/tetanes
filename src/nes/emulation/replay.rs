@@ -67,7 +67,7 @@ impl Replay {
 
     pub fn record(&mut self, frame: u32, event: DeckEvent) {
         if let Mode::Recording(State((_, ref mut events))) = self.mode {
-            if matches!(event, DeckEvent::Joypad(..) | DeckEvent::TriggerZapper) {
+            if matches!(event, DeckEvent::Joypad(..) | DeckEvent::ZapperTrigger) {
                 events.push(ReplayEvent { frame, event });
             }
         }

@@ -464,7 +464,7 @@ impl ControlDeck {
     /// Returns the zapper aiming position for the given controller slot.
 
     #[must_use]
-    pub const fn zapper_pos(&self) -> (i32, i32) {
+    pub const fn zapper_pos(&self) -> (u32, u32) {
         let zapper = self.cpu.bus.input.zapper;
         (zapper.x(), zapper.y())
     }
@@ -477,7 +477,7 @@ impl ControlDeck {
 
     /// Aim Zapper gun for a given controller slot.
 
-    pub fn aim_zapper(&mut self, x: i32, y: i32) {
+    pub fn aim_zapper(&mut self, x: u32, y: u32) {
         self.cpu.bus.input.zapper.aim(x, y);
     }
 

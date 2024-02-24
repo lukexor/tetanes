@@ -1,8 +1,3 @@
-pub fn init() {
-    #[cfg(feature = "profiling")]
-    enable(true);
-}
-
 // TODO: Add custom profiling similar to puffin
 // pub static mut EVENT_LOG: EventLog = EventLog::new();
 // static EVENT_LOG_INDEX: AtomicU64 = AtomicU64::new(0);

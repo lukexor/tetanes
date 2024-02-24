@@ -44,7 +44,7 @@ pub struct BufferPool(Arc<ThingBuf<Frame, FrameRecycle>>);
 
 impl BufferPool {
     pub fn new() -> Self {
-        Self(Arc::new(ThingBuf::with_recycle(1, FrameRecycle)))
+        Self(Arc::new(ThingBuf::with_recycle(2, FrameRecycle)))
     }
 }
 

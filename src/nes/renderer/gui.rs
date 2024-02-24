@@ -99,7 +99,7 @@ impl Gui {
     /// Send a custom event to the event loop.
     pub fn send_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
-        log::debug!("Gui event: {event:?}");
+        log::trace!("Gui event: {event:?}");
         if let Err(err) = self.event_proxy.send_event(event) {
             log::error!("failed to send nes event: {err:?}");
             std::process::exit(1);
@@ -215,10 +215,10 @@ impl Gui {
             self.send_event(DeckEvent::SetAudioEnabled(config.audio_enabled));
         };
         if ui.button("Save State").clicked() {
-            self.send_event(DeckEvent::SaveState);
+            self.send_event(DeckEvent::StateSave);
         };
         if ui.button("Load State").clicked() {
-            self.send_event(DeckEvent::LoadState);
+            self.send_event(DeckEvent::StateLoad);
         };
         if ui.button("Save Slot...").clicked() {
             self.todo(ui);
@@ -243,7 +243,7 @@ impl Gui {
             .checkbox(&mut config.deck.zapper, "Enable Zapper Gun")
             .clicked()
         {
-            self.send_event(DeckEvent::ConnectZapper(config.deck.zapper));
+            self.send_event(DeckEvent::ZapperConnect(config.deck.zapper));
         }
         // Four Player Mode
         if ui.button("Nes Region...").clicked() {
@@ -377,17 +377,31 @@ impl Gui {
         CentralPanel::default()
             .frame(Frame::none())
             .show_inside(ui, |ui| {
-                ui.add_sized(
-                    ui.available_size(),
-                    Image::from_texture(self.texture)
-                        .maintain_aspect_ratio(true)
-                        .shrink_to_fit(),
-                )
-                .on_hover_cursor(if config.deck.zapper {
-                    CursorIcon::Crosshair
-                } else {
-                    CursorIcon::Default
-                });
+                let frame_resp = ui
+                    .add_sized(
+                        ui.available_size(),
+                        Image::from_texture(self.texture)
+                            .maintain_aspect_ratio(true)
+                            .shrink_to_fit(),
+                    )
+                    .on_hover_cursor(if config.deck.zapper {
+                        CursorIcon::Crosshair
+                    } else {
+                        CursorIcon::Default
+                    });
+                if config.deck.zapper {
+                    if let Some(pos) = frame_resp.hover_pos() {
+                        let scale = f32::from(config.scale);
+                        let x = (pos.x / scale) * config.aspect_ratio;
+                        let y = pos.y / scale;
+                        if x > 0.0 && y > 0.0 {
+                            self.send_event(DeckEvent::ZapperAim((
+                                x.round() as u32,
+                                y.round() as u32,
+                            )));
+                        }
+                    }
+                }
             });
     }
 

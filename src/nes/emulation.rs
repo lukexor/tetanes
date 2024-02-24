@@ -9,10 +9,13 @@ use crate::{
         event::{DeckEvent, Event, NesEvent, RendererEvent},
         renderer::BufferPool,
     },
-    platform::{thread, time::Instant},
+    platform::{
+        thread,
+        time::{Duration, Instant},
+    },
     profile, NesError, NesResult,
 };
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use crossbeam::channel::{self, Sender};
 use std::{
     io::{self, Read},
@@ -97,12 +100,7 @@ impl State {
     }
 
     pub fn add_message<S: ToString>(&mut self, msg: S) {
-        // Can't use send_event here because it would create a cycle
-        let msg = msg.to_string();
-        if let Err(err) = self.event_proxy.send_event(NesEvent::Message(msg).into()) {
-            log::error!("failed to send message event: {err:?}");
-            std::process::exit(1);
-        }
+        self.send_event(NesEvent::Message(msg.to_string()));
     }
 
     pub fn send_event(&mut self, event: impl Into<Event>) {
@@ -123,32 +121,18 @@ impl State {
         profile!();
 
         match event {
-            WinitEvent::WindowEvent { event, .. } => match event {
-                WindowEvent::CursorMoved { position, .. } => {
-                    // Aim zapper
-                    if self.config.deck.zapper {
-                        let scale = f32::from(self.config.scale);
-                        let x = (position.x as f32 / scale) * self.config.aspect_ratio;
-                        let mut y = position.y as f32 / scale;
-                        // Account for trimming top 8 scanlines
-                        if self.config.hide_overscan {
-                            y += 8.0;
-                        };
-                        self.control_deck
-                            .aim_zapper(x.round() as i32, y.round() as i32);
+            #[cfg(not(target_arch = "wasm32"))]
+            WinitEvent::WindowEvent {
+                event: WindowEvent::DroppedFile(rom),
+                ..
+            } => {
+                if self.control_deck.loaded_rom().is_some() {
+                    if let Err(err) = self.mixer.pause() {
+                        self.on_error(err);
                     }
                 }
-                #[cfg(not(target_arch = "wasm32"))]
-                WindowEvent::DroppedFile(rom) => {
-                    if self.control_deck.loaded_rom().is_some() {
-                        if let Err(err) = self.mixer.pause() {
-                            self.on_error(err);
-                        }
-                    }
-                    self.load_rom_path(rom);
-                }
-                _ => (),
-            },
+                self.load_rom_path(rom);
+            }
             WinitEvent::UserEvent(Event::ControlDeck(event)) => self.on_control_deck_event(event),
             _ => (),
         }
@@ -160,6 +144,11 @@ impl State {
         }
 
         match event {
+            DeckEvent::Joypad((player, button, state)) => {
+                self.on_joypad(*player, *button, *state);
+                self.replay
+                    .record(self.control_deck.frame_number(), event.clone());
+            }
             DeckEvent::LoadRom((name, rom)) => {
                 self.load_rom(name, &mut io::Cursor::new(rom));
                 if let Some(ref replay) = self.config.replay_path {
@@ -177,24 +166,8 @@ impl State {
                     }
                 }
             }
-            DeckEvent::Joypad((player, button, state)) => {
-                self.on_joypad(*player, *button, *state);
-                self.replay
-                    .record(self.control_deck.frame_number(), event.clone());
-            }
-            DeckEvent::SetRegion(region) => {
-                self.config.set_region(*region);
-                self.control_deck.set_region(*region);
-            }
-            DeckEvent::ConnectZapper(connected) => {
-                self.config.deck.zapper = *connected;
-                self.control_deck.connect_zapper(*connected);
-            }
-            DeckEvent::TriggerZapper => {
-                self.control_deck.trigger_zapper();
-                self.replay
-                    .record(self.control_deck.frame_number(), event.clone());
-            }
+            DeckEvent::Occluded(occluded) => self.occluded = *occluded,
+            DeckEvent::Pause(paused) => self.pause(*paused),
             DeckEvent::Reset(kind) => {
                 self.control_deck.reset(*kind);
                 self.pause(false);
@@ -203,13 +176,13 @@ impl State {
                     ResetKind::Hard => self.add_message("Power Cycled"),
                 }
             }
-            DeckEvent::Occluded(occluded) => self.occluded = *occluded,
-            DeckEvent::Pause(paused) => self.pause(*paused),
-            DeckEvent::ToggleReplayRecord => match self.replay.toggle(self.control_deck.cpu()) {
-                Ok(()) => self.add_message("Audio Recording Started"),
+            DeckEvent::Rewind((state, repeat)) => self.on_rewind(*state, *repeat),
+            DeckEvent::Screenshot => match self.save_screenshot() {
+                Ok(filename) => {
+                    self.add_message(format!("Screenshot Saved: {}", filename.display()))
+                }
                 Err(err) => self.on_error(err),
             },
-            DeckEvent::ToggleAudioRecord => self.toggle_audio_record(),
             DeckEvent::SetAudioEnabled(enabled) => {
                 self.config.audio_enabled = *enabled;
                 match self.mixer.set_enabled(self.config.audio_enabled) {
@@ -223,27 +196,6 @@ impl State {
                     Err(err) => self.on_error(err),
                 }
             }
-            DeckEvent::ToggleApuChannel(channel) => {
-                self.control_deck.toggle_apu_channel(*channel);
-                self.add_message(format!("Toggled APU Channel {:?}", channel));
-            }
-            DeckEvent::ToggleVideoFilter(filter) => self.control_deck.set_filter(*filter),
-            DeckEvent::SetHideOverscan(hidden) => self.config.hide_overscan = *hidden,
-            DeckEvent::Screenshot => match self.save_screenshot() {
-                Ok(filename) => {
-                    self.add_message(format!("Screenshot Saved: {}", filename.display()))
-                }
-                Err(err) => self.on_error(err),
-            },
-            DeckEvent::SetSaveSlot(slot) => self.config.deck.save_slot = *slot,
-            DeckEvent::SaveState => match self.control_deck.save_state(Some(&self.config.deck)) {
-                Ok(_) => self.add_message(format!("State {} Saved", self.config.deck.save_slot)),
-                Err(err) => self.on_error(err),
-            },
-            DeckEvent::LoadState => match self.control_deck.load_state(Some(&self.config.deck)) {
-                Ok(_) => self.add_message(format!("State {} Loaded", self.config.deck.save_slot)),
-                Err(err) => self.on_error(err),
-            },
             DeckEvent::SetFrameSpeed(speed) => {
                 self.config.frame_speed = *speed;
                 let clock_rate = self.control_deck.clock_rate();
@@ -252,7 +204,40 @@ impl State {
                     self.on_error(err);
                 }
             }
-            DeckEvent::Rewind((state, repeat)) => self.on_rewind(*state, *repeat),
+            DeckEvent::SetHideOverscan(hidden) => self.config.hide_overscan = *hidden,
+            DeckEvent::SetRegion(region) => {
+                self.config.set_region(*region);
+                self.control_deck.set_region(*region);
+            }
+            DeckEvent::SetSaveSlot(slot) => self.config.deck.save_slot = *slot,
+            DeckEvent::StateLoad => match self.control_deck.load_state(Some(&self.config.deck)) {
+                Ok(_) => self.add_message(format!("State {} Loaded", self.config.deck.save_slot)),
+                Err(err) => self.on_error(err),
+            },
+            DeckEvent::StateSave => match self.control_deck.save_state(Some(&self.config.deck)) {
+                Ok(_) => self.add_message(format!("State {} Saved", self.config.deck.save_slot)),
+                Err(err) => self.on_error(err),
+            },
+            DeckEvent::ToggleApuChannel(channel) => {
+                self.control_deck.toggle_apu_channel(*channel);
+                self.add_message(format!("Toggled APU Channel {:?}", channel));
+            }
+            DeckEvent::ToggleAudioRecord => self.toggle_audio_record(),
+            DeckEvent::ToggleReplayRecord => match self.replay.toggle(self.control_deck.cpu()) {
+                Ok(()) => self.add_message("Audio Recording Started"),
+                Err(err) => self.on_error(err),
+            },
+            DeckEvent::ToggleVideoFilter(filter) => self.control_deck.set_filter(*filter),
+            DeckEvent::ZapperAim((x, y)) => self.control_deck.aim_zapper(*x, *y),
+            DeckEvent::ZapperConnect(connected) => {
+                self.config.deck.zapper = *connected;
+                self.control_deck.connect_zapper(*connected);
+            }
+            DeckEvent::ZapperTrigger => {
+                self.control_deck.trigger_zapper();
+                self.replay
+                    .record(self.control_deck.frame_number(), event.clone());
+            }
         }
     }
 
@@ -366,6 +351,12 @@ impl State {
         Err(anyhow!("screenshot not implemented for web yet"))
     }
 
+    pub fn remaining_frame_time(&self) -> Duration {
+        self.mixer
+            .queued_time()
+            .saturating_sub(self.config.audio_latency)
+    }
+
     fn clock_frame(&mut self) {
         profile!();
 
@@ -472,14 +463,10 @@ impl Multi {
             }
 
             state.clock_frame();
+
             {
                 profile!("park");
-                std::thread::park_timeout(
-                    state
-                        .mixer
-                        .queued_time()
-                        .saturating_sub(state.config.audio_latency),
-                );
+                std::thread::park_timeout(state.remaining_frame_time());
             }
         }
     }
@@ -528,8 +515,10 @@ impl Emulation {
                 Threads::Single(Single { state }) => state.on_event(event),
                 Threads::Multi(Multi { tx, handle }) => {
                     handle.thread().unpark();
-                    tx.try_send(event.clone())
-                        .with_context(|| anyhow!("failed to send emulation event: {event:?}"))?;
+                    if let Err(err) = tx.try_send(event.clone()) {
+                        log::error!("failed to send event to emulation thread: {event:?}. {err:?}");
+                        std::process::exit(1);
+                    }
                 }
             }
         }

@@ -28,10 +28,10 @@ use winit::{
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum NesEvent {
-    Message(String),
     Error(String),
-    TogglePause,
+    Message(String),
     Terminate,
+    TogglePause,
 }
 
 impl From<NesEvent> for WinitEvent<Event> {
@@ -64,26 +64,27 @@ impl RomData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub enum DeckEvent {
-    LoadRom((String, RomData)),
     Joypad((Player, JoypadBtn, ElementState)),
-    SetRegion(NesRegion),
-    ConnectZapper(bool),
-    TriggerZapper,
-    Reset(ResetKind),
+    LoadRom((String, RomData)),
     Occluded(bool),
     Pause(bool),
-    ToggleReplayRecord,
-    ToggleAudioRecord,
-    SetAudioEnabled(bool),
-    ToggleApuChannel(Channel),
-    ToggleVideoFilter(VideoFilter),
-    SetHideOverscan(bool),
-    Screenshot,
-    SetSaveSlot(u8),
-    SaveState,
-    LoadState,
-    SetFrameSpeed(Speed),
+    Reset(ResetKind),
     Rewind((ElementState, bool)),
+    Screenshot,
+    SetAudioEnabled(bool),
+    SetFrameSpeed(Speed),
+    SetHideOverscan(bool),
+    SetRegion(NesRegion),
+    SetSaveSlot(u8),
+    StateLoad,
+    StateSave,
+    ToggleApuChannel(Channel),
+    ToggleAudioRecord,
+    ToggleReplayRecord,
+    ToggleVideoFilter(VideoFilter),
+    ZapperAim((u32, u32)),
+    ZapperConnect(bool),
+    ZapperTrigger,
 }
 
 impl From<DeckEvent> for WinitEvent<Event> {
@@ -95,10 +96,10 @@ impl From<DeckEvent> for WinitEvent<Event> {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum RendererEvent {
-    SetVSync(bool),
-    SetScale(Scale),
     Frame(Duration),
     Menu(Menu),
+    SetScale(Scale),
+    SetVSync(bool),
 }
 
 impl From<RendererEvent> for WinitEvent<Event> {
@@ -110,8 +111,8 @@ impl From<RendererEvent> for WinitEvent<Event> {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum Event {
-    Nes(NesEvent),
     ControlDeck(DeckEvent),
+    Nes(NesEvent),
     Renderer(RendererEvent),
     // TODO: Verify if DeviceEvent is sufficient or if manual handling is needed
     //     ControllerAxisMotion {
@@ -157,9 +158,9 @@ impl From<Event> for WinitEvent<Event> {
 #[derive(Default, Debug)]
 #[must_use]
 pub struct State {
-    pub paused: bool,
-    pub occluded: bool,
     pub modifiers: Modifiers,
+    pub occluded: bool,
+    pub paused: bool,
     pub quitting: bool,
 }
 
@@ -306,8 +307,8 @@ impl Nes {
                         self.send_event(DeckEvent::ToggleAudioRecord);
                     }
                     Feature::TakeScreenshot if released => self.send_event(DeckEvent::Screenshot),
-                    Feature::SaveState if released => self.send_event(DeckEvent::SaveState),
-                    Feature::LoadState if released => self.send_event(DeckEvent::LoadState),
+                    Feature::SaveState if released => self.send_event(DeckEvent::StateSave),
+                    Feature::LoadState if released => self.send_event(DeckEvent::StateLoad),
                     Feature::Rewind => self.send_event(DeckEvent::Rewind((state, repeat))),
                     _ => (),
                 },
@@ -363,7 +364,7 @@ impl Nes {
                     self.send_event(DeckEvent::Joypad((player, button, state)));
                 }
                 Action::ZapperTrigger if self.config.deck.zapper => {
-                    self.send_event(DeckEvent::TriggerZapper);
+                    self.send_event(DeckEvent::ZapperTrigger);
                 }
                 Action::Debug(action) => match action {
                     // DebugAction::ToggleCpuDebugger if released => self.toggle_debugger()?,
