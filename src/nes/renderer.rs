@@ -69,7 +69,6 @@ impl Clone for BufferPool {
 
 #[must_use]
 pub struct Renderer {
-    window: Arc<Window>,
     frame_pool: BufferPool,
     pixels: Pixels<'static>,
     gui: Gui,
@@ -92,7 +91,7 @@ impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub async fn initialize(
         event_loop: &EventLoop<Event>,
-        window: Arc<Window>,
+        window: &'static Window,
         frame_pool: BufferPool,
         config: &Config,
     ) -> NesResult<Self> {
@@ -102,8 +101,7 @@ impl Renderer {
             let (width, height) = config.dimensions();
             window_size = LogicalSize::new(width, height).to_physical(scale_factor);
         }
-        let surface_texture =
-            SurfaceTexture::new(window_size.width, window_size.height, Arc::clone(&window));
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, window);
         let pixels = PixelsBuilder::new(Ppu::WIDTH, Ppu::HEIGHT, surface_texture)
             .request_adapter_options(RequestAdapterOptions {
                 power_preference: PowerPreference::HighPerformance,
@@ -131,7 +129,6 @@ impl Renderer {
         let egui_texture =
             renderer.register_native_texture(pixels.device(), &texture_view, FilterMode::Nearest);
         let state = Gui::new(
-            Arc::clone(&window),
             event_loop,
             SizedTexture::new(
                 egui_texture,
@@ -143,7 +140,6 @@ impl Renderer {
         );
 
         Ok(Self {
-            window,
             frame_pool,
             pixels,
             gui: state,
@@ -160,10 +156,10 @@ impl Renderer {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &WinitEvent<Event>) -> NesResult<()> {
+    pub fn on_event(&mut self, window: &Window, event: &WinitEvent<Event>) -> NesResult<()> {
         match event {
             WinitEvent::WindowEvent { event, .. } => {
-                let _ = self.egui_state.on_window_event(&self.window, event);
+                let _ = self.egui_state.on_window_event(window, event);
                 match event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
@@ -207,7 +203,7 @@ impl Renderer {
     }
 
     /// Prepare.
-    pub fn prepare(&mut self, paused: bool, config: &mut Config) {
+    pub fn prepare(&mut self, window: &Window, paused: bool, config: &mut Config) {
         // Copy NES frame buffer
         if let Some(frame_buffer) = self.frame_pool.pop_ref() {
             let frame = self.pixels.frame_mut();
@@ -222,24 +218,29 @@ impl Renderer {
             }
         };
 
-        let raw_input = self.egui_state.take_egui_input(&self.window);
+        let raw_input = self.egui_state.take_egui_input(window);
         let output = self.ctx.run(raw_input, |ctx| {
             self.gui.ui(ctx, paused, config);
         });
 
         self.textures.append(output.textures_delta);
         self.egui_state
-            .handle_platform_output(&self.window, output.platform_output);
+            .handle_platform_output(window, output.platform_output);
         self.paint_jobs = self
             .ctx
             .tessellate(output.shapes, self.screen_descriptor.pixels_per_point);
     }
 
     /// Request redraw.
-    pub fn request_redraw(&mut self, paused: bool, config: &mut Config) -> NesResult<()> {
+    pub fn request_redraw(
+        &mut self,
+        window: &Window,
+        paused: bool,
+        config: &mut Config,
+    ) -> NesResult<()> {
         profile!();
 
-        self.prepare(paused, config);
+        self.prepare(window, paused, config);
         self.pixels.render_with(|encoder, render_target, ctx| {
             // ctx.scaling_renderer.render(encoder, render_target);
 

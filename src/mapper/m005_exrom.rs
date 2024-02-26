@@ -77,7 +77,7 @@ impl ExRamMode {
     fn set(&mut self, val: u8) {
         let val = val & 0x03;
         self.bits = val;
-        self.nametable = matches!(val, 0b00 | 0b01);
+        self.nametable = val <= 0b01;
         self.attr = val == 0b01;
         self.rw = match val {
             0b00 | 0b01 => ExRamRW::W,
@@ -753,7 +753,7 @@ impl MemMap for Exrom {
             }
             0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),
             0x5206 => MappedRead::Data(((self.regs.mult_result >> 8) & 0xFF) as u8),
-            0x5C00..=0x5FFF if matches!(self.regs.exram_mode.rw, ExRamRW::R | ExRamRW::RW) => {
+            0x5C00..=0x5FFF if self.regs.exram_mode.rw != ExRamRW::W => {
                 // Nametable/Attr modes are not used for RAM, thus are not readable
                 MappedRead::Data(self.read_ex_ram(addr))
             }

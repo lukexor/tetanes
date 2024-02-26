@@ -8,7 +8,7 @@ use crate::{
     input::{Input, InputRegisters, Player},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::{Access, Mem, RamState},
-    ppu::{Ppu, PpuRegisters},
+    ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -45,21 +45,21 @@ use std::collections::HashMap;
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bus {
-    wram: Vec<u8>,
-    region: NesRegion,
-    pub ram_state: RamState,
-    prg_ram: Vec<u8>,
-    prg_ram_protect: bool,
-    prg_rom: Vec<u8>,
+    cycle: usize, // Total number of CPU cycles ran
     pub ppu: Ppu,
     pub apu: Apu,
+    audio_samples: Vec<f32>,
     #[serde(skip)]
     pub input: Input,
+    wram: Vec<u8>,
+    prg_ram: Vec<u8>,
+    prg_rom: Vec<u8>,
     oam_dma: bool,
     oam_dma_addr: u16,
-    audio_samples: Vec<f32>,
+    pub ram_state: RamState,
+    prg_ram_protect: bool,
+    region: NesRegion,
     genie_codes: HashMap<u16, GenieCode>,
-    cycle: usize, // Total number of CPU cycles ran
     open_bus: u8,
 }
 
@@ -185,17 +185,16 @@ impl Bus {
 impl Clock for Bus {
     fn clock(&mut self) -> usize {
         self.cycle = self.cycle.wrapping_add(1);
-        self.apu.clock();
         self.ppu.bus.mapper.clock();
-        self.input.clock();
-
-        let apu_output = self.apu.output();
         let mapper_output = match self.ppu.bus.mapper {
             Mapper::Exrom(ref exrom) => exrom.output(),
             Mapper::Vrc6(ref vrc6) => vrc6.output(),
             _ => 0.0,
         };
+        self.apu.clock();
+        let apu_output = self.apu.output();
         self.audio_samples.push(apu_output + mapper_output);
+        self.input.clock();
 
         1
     }

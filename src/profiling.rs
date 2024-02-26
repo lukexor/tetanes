@@ -3,6 +3,56 @@
 // static EVENT_LOG_INDEX: AtomicU64 = AtomicU64::new(0);
 // static TIMER_FREQ: Lazy<f64> = Lazy::new(|| estimated_cpu_timer_freq() as f64);
 
+pub static mut EVENT_LOG: Vec<(&'static str, u64, u64)> = Vec::new();
+pub static mut LAST_PRINT: std::time::SystemTime = std::time::UNIX_EPOCH;
+
+pub fn start(name: &'static str) -> u64 {
+    // #[cfg(feature = "profiling")]
+    // unsafe {
+    //     std::arch::x86_64::_rdtsc()
+    // }
+    // #[cfg(not(feature = "profiling"))]
+    0
+}
+
+pub fn end(name: &'static str, tsc: u64) {
+    // #[cfg(feature = "profiling")]
+    // unsafe {
+    //     let now = std::arch::x86_64::_rdtsc();
+    //     if let Some((_, d, c)) = EVENT_LOG.iter_mut().find(|(n, ..)| *n == name) {
+    //         *d += now - tsc;
+    //         *c += 1;
+    //     } else {
+    //         EVENT_LOG.push((name, now - tsc, 1));
+    //     }
+    // }
+}
+
+pub fn end_frame() {
+    // #[cfg(feature = "profiling")]
+    // unsafe {
+    //     if std::time::SystemTime::now()
+    //         .duration_since(LAST_PRINT)
+    //         .unwrap()
+    //         > std::time::Duration::from_secs(1)
+    //     {
+    //         for (name, tsc, count) in EVENT_LOG.iter() {
+    //             println!("{name}: {}", tsc / *count);
+    //         }
+    //         println!("---");
+    //         EVENT_LOG.clear();
+    //         LAST_PRINT = std::time::SystemTime::now();
+    //     }
+    // }
+}
+
+pub fn init() {
+    unsafe {
+        EVENT_LOG.reserve(2 << 20);
+        LAST_PRINT = std::time::SystemTime::now();
+    }
+}
+
 #[cfg(feature = "profiling")]
 pub fn enable(enabled: bool) {
     puffin::set_scopes_on(enabled);

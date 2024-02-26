@@ -11,7 +11,6 @@ use crate::{
     },
     profile, NesResult,
 };
-use std::sync::Arc;
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
@@ -27,7 +26,7 @@ pub mod renderer;
 #[derive(Debug)]
 pub struct Nes {
     config: Config,
-    window: Arc<Window>,
+    window: &'static Window,
     event_proxy: EventLoopProxy<Event>,
     emulation: Emulation,
     // controllers: [Option<DeviceId>; 4],
@@ -53,16 +52,10 @@ impl Nes {
 
     /// Initializes the NES emulation.
     async fn initialize(config: Config, event_loop: &EventLoop<Event>) -> NesResult<Self> {
-        let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
+        let window = Box::leak(Box::new(Nes::initialize_window(event_loop, &config)?));
         let frame_pool = BufferPool::new();
-        let emulation = Emulation::initialize(
-            event_loop,
-            Arc::clone(&window),
-            frame_pool.clone(),
-            config.clone(),
-        )?;
-        let renderer =
-            Renderer::initialize(event_loop, Arc::clone(&window), frame_pool, &config).await?;
+        let emulation = Emulation::initialize(event_loop, frame_pool.clone(), config.clone())?;
+        let renderer = Renderer::initialize(event_loop, window, frame_pool, &config).await?;
 
         let mut nes = Self {
             config,
@@ -89,6 +82,7 @@ impl Nes {
             .with_title(Config::WINDOW_TITLE)
             // TODO: Support exclusive fullscreen config
             .with_fullscreen(config.fullscreen.then_some(Fullscreen::Borderless(None)))
+            .with_resizable(false)
             .with_platform();
         let window = window_builder.build(event_loop)?;
 

@@ -2,6 +2,15 @@ use crate::common::{Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
+#[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
+#[must_use]
+pub struct Status {
+    pub spr_overflow: bool,
+    pub spr_zero_hit: bool,
+    pub in_vblank: bool,
+    bits: Bits,
+}
+
 bitflags! {
     // $2002 PPUSTATUS
     //
@@ -24,7 +33,7 @@ bitflags! {
     //            pre-render line.
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
-    pub struct PpuStatus: u8 {
+    pub struct Bits: u8 {
         const UNUSED1 = 0x01;
         const UNUSED2 = 0x02;
         const UNUSED3 = 0x04;
@@ -36,48 +45,47 @@ bitflags! {
     }
 }
 
-impl PpuStatus {
-    pub const fn new() -> Self {
-        Self::from_bits_truncate(0x00)
+impl Status {
+    pub fn new() -> Self {
+        let mut status = Self::default();
+        status.write(0);
+        status
     }
 
     pub fn write(&mut self, val: u8) {
-        *self = Self::from_bits_truncate(val);
+        self.bits = Bits::from_bits_truncate(val);
+        self.spr_overflow = self.bits.contains(Bits::SPR_ZERO_HIT);
+        self.spr_zero_hit = self.bits.contains(Bits::SPR_ZERO_HIT);
+        self.in_vblank = self.bits.contains(Bits::VBLANK_STARTED);
     }
 
     #[must_use]
     pub const fn read(&self) -> u8 {
-        self.bits()
+        self.bits.bits()
     }
 
     pub fn set_spr_overflow(&mut self, val: bool) {
-        self.set(Self::SPR_OVERFLOW, val);
-    }
-
-    #[must_use]
-    pub const fn spr_zero_hit(&self) -> bool {
-        self.contains(Self::SPR_ZERO_HIT)
+        self.bits.set(Bits::SPR_OVERFLOW, val);
+        self.spr_overflow = val;
     }
 
     pub fn set_spr_zero_hit(&mut self, val: bool) {
-        self.set(Self::SPR_ZERO_HIT, val);
-    }
-
-    #[must_use]
-    pub const fn in_vblank(&self) -> bool {
-        self.contains(Self::VBLANK_STARTED)
+        self.bits.set(Bits::SPR_ZERO_HIT, val);
+        self.spr_zero_hit = val;
     }
 
     pub fn set_in_vblank(&mut self, val: bool) {
-        self.set(Self::VBLANK_STARTED, val);
+        self.bits.set(Bits::VBLANK_STARTED, val);
+        self.in_vblank = val;
     }
 
     pub fn reset_in_vblank(&mut self) {
-        self.remove(Self::VBLANK_STARTED);
+        self.bits.remove(Bits::VBLANK_STARTED);
+        self.in_vblank = false;
     }
 }
 
-impl Reset for PpuStatus {
+impl Reset for Status {
     // https://www.nesdev.org/wiki/PPU_power_up_state
     fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {

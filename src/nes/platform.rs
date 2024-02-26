@@ -31,6 +31,13 @@ impl Nes {
                         ) {
                             log::error!("failed to send load rom message to event_loop: {err:?}");
                         }
+                        // TODO: focus canvas
+                        // use winit::platform::web::WindowExtWebSys;
+                        // if let Some(canvas) = window.canvas() {
+                        //     if let Err(err) = canvas.focus() {
+                        //         log::error!("failed to focus canvas: {err:?}");
+                        //     }
+                        // }
                     }
                 });
 
@@ -67,7 +74,7 @@ impl Nes {
                 body.append_child(&pause_btn).ok();
                 handle_pause.forget();
             })
-            .expect("couldn't append canvas to document body");
+            .expect("couldn't set up document body");
     }
 
     #[cfg(not(target_arch = "wasm32"))]

@@ -78,6 +78,10 @@ web-time = "1.0"
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 
+[[bench]]
+name = "nes"
+harness = false
+
 # Playable framerates in development
 [profile.dev]
 opt-level = 1

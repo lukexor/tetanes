@@ -22,18 +22,18 @@ impl NesRegion {
     }
 
     #[must_use]
-    pub const fn is_ntsc(&self) -> bool {
-        matches!(self, Self::Ntsc)
+    pub fn is_ntsc(&self) -> bool {
+        self == &Self::Ntsc
     }
 
     #[must_use]
-    pub const fn is_pal(&self) -> bool {
-        matches!(self, Self::Pal)
+    pub fn is_pal(&self) -> bool {
+        self == &Self::Pal
     }
 
     #[must_use]
-    pub const fn is_dendy(&self) -> bool {
-        matches!(self, Self::Dendy)
+    pub fn is_dendy(&self) -> bool {
+        self == &Self::Dendy
     }
 }
 
@@ -265,6 +265,7 @@ pub(crate) mod tests {
         let mut rom = BufReader::new(File::open(path).expect("failed to open path"));
         let mut deck = ControlDeck::with_config(Config {
             ram_state: RamState::AllZeros,
+            filter: VideoFilter::Pixellate,
             ..Default::default()
         });
         deck.load_rom(&path.to_string_lossy(), &mut rom, None)

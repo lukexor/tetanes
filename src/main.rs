@@ -25,6 +25,7 @@ use tetanes::{
 
 fn main() -> NesResult<()> {
     logging::init();
+    tetanes::profiling::init();
 
     #[cfg(target_arch = "wasm32")]
     let config = Config::load();

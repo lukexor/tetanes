@@ -25,23 +25,23 @@ impl PpuAddr for u16 {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct PpuBus {
+pub struct Bus {
+    mirror_shift: usize,
     pub mapper: Mapper,
+    pub chr: Vec<u8>,
     pub ciram: Vec<u8>, // $2007 PPUDATA
     pub palette: [u8; Self::PALETTE_SIZE],
-    pub chr: Vec<u8>,
     pub exram: Vec<u8>,
-    mirror_shift: usize,
     open_bus: u8,
 }
 
-impl Default for PpuBus {
+impl Default for Bus {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PpuBus {
+impl Bus {
     const VRAM_SIZE: usize = 0x0800; // Two 1k Nametables
     const PALETTE_SIZE: usize = 32; // 32 possible colors at a time
 
@@ -104,42 +104,56 @@ impl PpuBus {
             addr
         }
     }
-}
 
-impl Mem for PpuBus {
-    fn read(&mut self, addr: u16, _access: Access) -> u8 {
-        let val = match addr {
-            0x2000..=0x3EFF => match self.mapper.map_read(addr) {
-                MappedRead::PpuRam => self.ciram[self.ciram_mirror(addr as usize)],
-                MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
-                MappedRead::ExRam(addr) => self.exram[addr],
-                MappedRead::Data(data) => data,
-                MappedRead::Chr(mapped) => {
-                    panic!("unexpected mapped CHR read at ${addr:04X} for ${mapped:04X}")
-                }
-                MappedRead::PrgRom(mapped) => {
-                    panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
-                }
-                MappedRead::PrgRam(mapped) => {
-                    panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
-                }
-            },
-            0x0000..=0x1FFF => {
-                let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
-                    addr
-                } else {
-                    addr.into()
-                };
-                self.chr[addr]
+    pub fn read_ciram(&mut self, addr: u16, _access: Access) -> u8 {
+        let val = match self.mapper.map_read(addr) {
+            MappedRead::PpuRam => self.ciram[self.ciram_mirror(addr as usize)],
+            MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
+            MappedRead::ExRam(addr) => self.exram[addr],
+            MappedRead::Data(data) => data,
+            MappedRead::Chr(mapped) => {
+                panic!("unexpected mapped CHR read at ${addr:04X} for ${mapped:04X}")
             }
-            0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
-            _ => {
-                log::error!("unexpected PPU memory access at ${:04X}", addr);
-                0x00
+            MappedRead::PrgRom(mapped) => {
+                panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+            }
+            MappedRead::PrgRam(mapped) => {
+                panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
             }
         };
         self.open_bus = val;
         val
+    }
+
+    pub fn read_chr(&mut self, addr: u16, _access: Access) -> u8 {
+        let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
+            addr
+        } else {
+            addr.into()
+        };
+        let val = self.chr[addr];
+        self.open_bus = val;
+        val
+    }
+
+    pub fn read_palette(&mut self, addr: u16, _access: Access) -> u8 {
+        let val = self.palette[self.palette_mirror(addr as usize)];
+        self.open_bus = val;
+        val
+    }
+}
+
+impl Mem for Bus {
+    fn read(&mut self, addr: u16, access: Access) -> u8 {
+        match addr {
+            0x2000..=0x3EFF => self.read_ciram(addr, access),
+            0x0000..=0x1FFF => self.read_chr(addr, access),
+            0x3F00..=0x3FFF => self.read_palette(addr, access),
+            _ => {
+                log::error!("unexpected PPU memory access at ${:04X}", addr);
+                0x00
+            }
+        }
     }
 
     fn peek(&self, addr: u16, _access: Access) -> u8 {
@@ -210,7 +224,7 @@ impl Mem for PpuBus {
     }
 }
 
-impl Regional for PpuBus {
+impl Regional for Bus {
     fn region(&self) -> NesRegion {
         self.mapper.region()
     }
@@ -220,14 +234,14 @@ impl Regional for PpuBus {
     }
 }
 
-impl Reset for PpuBus {
+impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         self.open_bus = 0x00;
         self.mapper.reset(kind);
     }
 }
 
-impl std::fmt::Debug for PpuBus {
+impl std::fmt::Debug for Bus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PpuBus")
             .field("mapper", &self.mapper)
@@ -246,7 +260,7 @@ mod tests {
 
     #[test]
     fn ciram_mirror_horizontal() {
-        let mut ppu_bus = PpuBus::new();
+        let mut ppu_bus = Bus::new();
         ppu_bus.mirror_shift = Mirroring::Horizontal as usize;
 
         assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0000);
@@ -266,7 +280,7 @@ mod tests {
 
     #[test]
     fn ciram_mirror_vertical() {
-        let mut ppu_bus = PpuBus::new();
+        let mut ppu_bus = Bus::new();
         ppu_bus.mirror_shift = Mirroring::Vertical as usize;
 
         assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0000);
@@ -286,7 +300,7 @@ mod tests {
 
     #[test]
     fn ciram_mirror_single_screen_a() {
-        let mut ppu_bus = PpuBus::new();
+        let mut ppu_bus = Bus::new();
         ppu_bus.mirror_shift = Mirroring::SingleScreenA as usize;
 
         assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0000);
@@ -305,7 +319,7 @@ mod tests {
 
     #[test]
     fn ciram_mirror_single_screen_b() {
-        let mut ppu_bus = PpuBus::new();
+        let mut ppu_bus = Bus::new();
         ppu_bus.mirror_shift = Mirroring::SingleScreenB as usize;
 
         assert_eq!(ppu_bus.ciram_mirror(0x2000), 0x0400);

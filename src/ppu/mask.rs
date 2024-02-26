@@ -2,6 +2,20 @@ use crate::common::{NesRegion, Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
+#[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
+#[must_use]
+pub struct Mask {
+    pub rendering_enabled: bool,
+    pub grayscale: u16,
+    pub emphasis: u16,
+    pub show_left_bg: bool,
+    pub show_left_spr: bool,
+    pub show_bg: bool,
+    pub show_spr: bool,
+    region: NesRegion,
+    bits: Bits,
+}
+
 bitflags! {
     // $2001 PPUMASK
     //
@@ -17,7 +31,7 @@ bitflags! {
     // +--------- Emphasize blue
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
-    pub struct PpuMask: u8 {
+    pub struct Bits: u8 {
         const GRAYSCALE = 0x01;
         const SHOW_LEFT_BG = 0x02;
         const SHOW_LEFT_SPR = 0x04;
@@ -29,60 +43,60 @@ bitflags! {
     }
 }
 
-impl PpuMask {
-    pub const fn new() -> Self {
-        Self::from_bits_truncate(0x00)
+impl Mask {
+    pub fn new(region: NesRegion) -> Self {
+        let mut mask = Self {
+            region,
+            ..Default::default()
+        };
+        mask.write(0);
+        mask
     }
 
     pub fn write(&mut self, val: u8) {
-        *self = Self::from_bits_truncate(val);
-    }
-
-    #[must_use]
-    pub const fn grayscale(&self) -> bool {
-        self.contains(Self::GRAYSCALE)
-    }
-
-    #[must_use]
-    pub const fn show_left_bg(&self) -> bool {
-        self.contains(Self::SHOW_LEFT_BG)
-    }
-
-    #[must_use]
-    pub const fn show_left_spr(&self) -> bool {
-        self.contains(Self::SHOW_LEFT_SPR)
-    }
-
-    #[must_use]
-    pub const fn show_bg(&self) -> bool {
-        self.contains(Self::SHOW_BG)
-    }
-
-    #[must_use]
-    pub const fn show_spr(&self) -> bool {
-        self.contains(Self::SHOW_SPR)
-    }
-
-    #[must_use]
-    pub fn emphasis(&self, region: NesRegion) -> u8 {
-        let emphasis = match region {
-            NesRegion::Ntsc => self
-                .intersection(Self::EMPHASIZE_RED | Self::EMPHASIZE_GREEN | Self::EMPHASIZE_BLUE),
-            NesRegion::Pal | NesRegion::Dendy => {
-                // Red/Green are swapped for PAL/Dendy
-                let mut emphasis = self.intersection(Self::EMPHASIZE_BLUE);
-                emphasis.set(Self::EMPHASIZE_GREEN, self.contains(Self::EMPHASIZE_RED));
-                emphasis.set(Self::EMPHASIZE_RED, self.contains(Self::EMPHASIZE_GREEN));
-                emphasis
-            }
+        self.bits = Bits::from_bits_truncate(val);
+        self.grayscale = if self.bits.contains(Bits::GRAYSCALE) {
+            0x30
+        } else {
+            0x3F
         };
-        emphasis.bits()
+        self.show_left_bg = self.bits.contains(Bits::SHOW_LEFT_BG);
+        self.show_left_spr = self.bits.contains(Bits::SHOW_LEFT_SPR);
+        self.show_bg = self.bits.contains(Bits::SHOW_BG);
+        self.show_spr = self.bits.contains(Bits::SHOW_SPR);
+        self.rendering_enabled = self.show_bg || self.show_spr;
+        self.emphasis = u16::from(
+            match self.region {
+                NesRegion::Ntsc => self.bits.intersection(
+                    Bits::EMPHASIZE_RED | Bits::EMPHASIZE_GREEN | Bits::EMPHASIZE_BLUE,
+                ),
+                NesRegion::Pal | NesRegion::Dendy => {
+                    // Red/Green are swapped for PAL/Dendy
+                    let mut emphasis = self.bits.intersection(Bits::EMPHASIZE_BLUE);
+                    emphasis.set(
+                        Bits::EMPHASIZE_GREEN,
+                        self.bits.contains(Bits::EMPHASIZE_RED),
+                    );
+                    emphasis.set(
+                        Bits::EMPHASIZE_RED,
+                        self.bits.contains(Bits::EMPHASIZE_GREEN),
+                    );
+                    emphasis
+                }
+            }
+            .bits(),
+        ) << 1;
+    }
+
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
+        self.write(self.bits.bits());
     }
 }
 
-impl Reset for PpuMask {
+impl Reset for Mask {
     // https://www.nesdev.org/wiki/PPU_power_up_state
     fn reset(&mut self, _kind: ResetKind) {
-        *self = Self::empty();
+        self.write(0);
     }
 }

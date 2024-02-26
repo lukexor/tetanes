@@ -81,7 +81,7 @@ pub enum DeckEvent {
     ToggleApuChannel(Channel),
     ToggleAudioRecord,
     ToggleReplayRecord,
-    ToggleVideoFilter(VideoFilter),
+    SetVideoFilter(VideoFilter),
     ZapperAim((u32, u32)),
     ZapperConnect(bool),
     ZapperTrigger,
@@ -180,7 +180,7 @@ impl Nes {
         if let Err(err) = self.emulation.on_event(&event) {
             self.on_error(err);
         }
-        if let Err(err) = self.renderer.on_event(&event) {
+        if let Err(err) = self.renderer.on_event(self.window, &event) {
             self.on_error(err);
         }
 
@@ -194,10 +194,11 @@ impl Nes {
                     }
                 }
                 WindowEvent::RedrawRequested if !self.event_state.occluded => {
-                    if let Err(err) = self
-                        .renderer
-                        .request_redraw(self.event_state.paused, &mut self.config)
-                    {
+                    if let Err(err) = self.renderer.request_redraw(
+                        self.window,
+                        self.event_state.paused,
+                        &mut self.config,
+                    ) {
                         self.on_error(err);
                     }
                 }
@@ -336,7 +337,7 @@ impl Nes {
                         } else {
                             filter
                         };
-                        self.send_event(DeckEvent::ToggleVideoFilter(filter));
+                        self.send_event(DeckEvent::SetVideoFilter(self.config.deck.filter));
                     }
                     Setting::ToggleAudio if released => {
                         self.config.audio_enabled = !self.config.audio_enabled;

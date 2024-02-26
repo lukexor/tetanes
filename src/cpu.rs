@@ -74,33 +74,33 @@ pub struct Cycle {
 #[must_use]
 pub struct Cpu {
     pub cycle: usize, // total number of cycles ran
-    pub region: NesRegion,
-    pub master_clock: u64,
+    pub pc: u16,      // program counter
+    pub dma_halt: bool,
+    pub bus: Bus,
     // start/end cycle counts for reads
     pub read_cycles: Cycle,
     // start/end cycle counts for writes
     pub write_cycles: Cycle,
-    pub pc: u16,        // program counter
-    pub sp: u8,         // stack pointer - stack is at $0100-$01FF
-    pub acc: u8,        // accumulator
-    pub x: u8,          // x register
-    pub y: u8,          // y register
-    pub status: Status, // Status Registers
-    pub bus: Bus,
+    pub master_clock: u64,
     pub instr: Instr,     // The currently executing instruction
+    pub fetched_data: u8, // Represents data fetched for the ALU
+    pub status: Status,   // Status Registers
+    pub acc: u8,          // accumulator
+    pub x: u8,            // x register
+    pub y: u8,            // y register
+    pub sp: u8,           // stack pointer - stack is at $0100-$01FF
     pub abs_addr: u16,    // Used memory addresses get set here
     pub rel_addr: u16,    // Relative address for branch instructions
-    pub fetched_data: u8, // Represents data fetched for the ALU
     pub irq: Irq,         // Pending interrupts
     pub run_irq: bool,
     pub prev_run_irq: bool,
     pub nmi: bool,
     pub prev_nmi: bool,
     pub prev_nmi_pending: bool,
+    pub dmc_dma: bool,
     #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
-    pub dmc_dma: bool,
-    pub dma_halt: bool,
+    pub region: NesRegion,
     pub dummy_read: bool,
     #[serde(skip)]
     pub disasm: String,

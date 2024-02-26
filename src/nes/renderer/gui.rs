@@ -15,11 +15,7 @@ use egui::{
     TopBottomPanel, Ui, Vec2, Window,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use winit::{
-    event_loop::{EventLoop, EventLoopProxy},
-    window::Window as WinitWindow,
-};
+use winit::event_loop::{EventLoop, EventLoopProxy};
 
 pub const MSG_TIMEOUT: Duration = Duration::from_secs(3);
 pub const MAX_MESSAGES: usize = 3;
@@ -55,7 +51,6 @@ impl AsRef<str> for ConfigTab {
 #[derive(Debug)]
 #[must_use]
 pub struct Gui {
-    pub window: Arc<WinitWindow>,
     pub event_proxy: EventLoopProxy<Event>,
     pub texture: SizedTexture,
     pub show_menu: bool,
@@ -73,13 +68,8 @@ pub struct Gui {
 
 impl Gui {
     /// Create a gui `State`.
-    pub fn new(
-        window: Arc<WinitWindow>,
-        event_loop: &EventLoop<Event>,
-        texture: SizedTexture,
-    ) -> Self {
+    pub fn new(event_loop: &EventLoop<Event>, texture: SizedTexture) -> Self {
         Self {
-            window,
             event_proxy: event_loop.create_proxy(),
             texture,
             show_menu: true,
@@ -496,7 +486,8 @@ impl Gui {
         let border = 1.0;
         let (inner_size, min_inner_size) =
             config.inner_dimensions_with_spacing(0.0, self.menu_height + spacing.y + border);
-        let _ = self.window.request_inner_size(inner_size);
-        self.window.set_min_inner_size(Some(min_inner_size));
+        // TODO: send resize request
+        // let _ = self.window.request_inner_size(inner_size);
+        // self.window.set_min_inner_size(Some(min_inner_size));
     }
 }

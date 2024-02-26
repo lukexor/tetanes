@@ -51,11 +51,11 @@ pub trait ApuRegisters {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Apu {
+    frame_counter: FrameCounter,
     cycle: usize,
     region: NesRegion,
-    irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     irq_disabled: bool, // Set by $4017 D6
-    frame_counter: FrameCounter,
+    irq_pending: bool,  // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,

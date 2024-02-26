@@ -1,8 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use std::time::Duration;
-use std::{fs::File, io::BufReader};
+use std::{fs::File, io::BufReader, time::Duration};
 use tetanes::{
     control_deck::{Config, ControlDeck},
     mem::RamState,
@@ -30,11 +29,8 @@ fn clock_frames(frames: u32) {
 
 fn benchmark_clock_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
-    let frames = 60;
-    group.measurement_time(Duration::from_secs(40));
-    group.bench_function("clock_frame", |b| {
-        b.iter(|| clock_frames(black_box(frames)))
-    });
+    group.measurement_time(Duration::from_secs(10));
+    group.bench_function("clock_frame", |b| b.iter(|| clock_frames(black_box(15))));
     group.finish();
 }
 

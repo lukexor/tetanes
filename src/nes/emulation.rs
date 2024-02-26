@@ -20,13 +20,11 @@ use crossbeam::channel::{self, Sender};
 use std::{
     io::{self, Read},
     path::PathBuf,
-    sync::Arc,
     thread::JoinHandle,
 };
 use winit::{
     event::{ElementState, Event as WinitEvent, WindowEvent},
     event_loop::{EventLoop, EventLoopProxy},
-    window::Window,
 };
 
 pub mod replay;
@@ -43,7 +41,6 @@ enum Threads {
 #[must_use]
 pub struct State {
     config: Config,
-    window: Arc<Window>,
     event_proxy: EventLoopProxy<Event>,
     control_deck: ControlDeck,
     mixer: Mixer,
@@ -68,12 +65,7 @@ impl Drop for State {
 }
 
 impl State {
-    pub fn new(
-        frame_pool: BufferPool,
-        window: Arc<Window>,
-        event_proxy: EventLoopProxy<Event>,
-        config: Config,
-    ) -> Self {
+    pub fn new(frame_pool: BufferPool, event_proxy: EventLoopProxy<Event>, config: Config) -> Self {
         let control_deck = ControlDeck::with_config(config.clone().into());
         let sample_rate = config.audio_sample_rate;
         let mixer = Mixer::new(
@@ -84,7 +76,6 @@ impl State {
         let rewind = Rewind::new(config.rewind_interval, config.rewind_buffer_size_mb);
         Self {
             config,
-            window,
             event_proxy,
             control_deck,
             mixer,
@@ -156,15 +147,6 @@ impl State {
                         self.on_error(err);
                     }
                 }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    use winit::platform::web::WindowExtWebSys;
-                    if let Some(canvas) = self.window.canvas() {
-                        if let Err(err) = canvas.focus() {
-                            log::error!("failed to focus canvas: {err:?}");
-                        }
-                    }
-                }
             }
             DeckEvent::Occluded(occluded) => self.occluded = *occluded,
             DeckEvent::Pause(paused) => self.pause(*paused),
@@ -227,7 +209,10 @@ impl State {
                 Ok(()) => self.add_message("Audio Recording Started"),
                 Err(err) => self.on_error(err),
             },
-            DeckEvent::ToggleVideoFilter(filter) => self.control_deck.set_filter(*filter),
+            DeckEvent::SetVideoFilter(filter) => {
+                self.config.deck.filter = *filter;
+                self.control_deck.set_filter(*filter);
+            }
             DeckEvent::ZapperAim((x, y)) => self.control_deck.aim_zapper(*x, *y),
             DeckEvent::ZapperConnect(connected) => {
                 self.config.deck.zapper = *connected;
@@ -280,9 +265,10 @@ impl State {
     }
 
     fn on_load_rom(&mut self) {
-        if let Some(loaded_rom) = self.control_deck.loaded_rom() {
-            self.window.set_title(loaded_rom);
-        }
+        // TODO: Move to main thread
+        // if let Some(loaded_rom) = self.control_deck.loaded_rom() {
+        //     self.window.set_title(loaded_rom);
+        // }
         if let Err(err) = self.mixer.start() {
             self.on_error(err);
         }
@@ -414,6 +400,8 @@ impl State {
             frame.clear();
             frame.extend_from_slice(self.control_deck.frame_buffer());
         }
+
+        crate::profiling::end_frame();
     }
 }
 
@@ -433,7 +421,6 @@ struct Multi {
 impl Multi {
     fn spawn(
         frame_pool: BufferPool,
-        window: Arc<Window>,
         event_proxy: EventLoopProxy<Event>,
         config: Config,
     ) -> NesResult<Self> {
@@ -442,19 +429,18 @@ impl Multi {
             tx,
             handle: std::thread::Builder::new()
                 .name("emulation".into())
-                .spawn(move || Self::main(frame_pool, window, event_proxy, config, rx))?,
+                .spawn(move || Self::main(frame_pool, event_proxy, config, rx))?,
         })
     }
 
     fn main(
         frame_pool: BufferPool,
-        window: Arc<Window>,
         event_proxy: EventLoopProxy<Event>,
         config: Config,
         rx: channel::Receiver<WinitEvent<Event>>,
     ) {
         log::debug!("emulation thread started");
-        let mut state = State::new(frame_pool, window, event_proxy, config); // Has to be created on the thread, since
+        let mut state = State::new(frame_pool, event_proxy, config); // Has to be created on the thread, since
         loop {
             profile!();
 
@@ -482,7 +468,6 @@ impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn initialize(
         event: &EventLoop<Event>,
-        window: Arc<Window>,
         frame_pool: BufferPool,
         config: Config,
     ) -> NesResult<Self> {
@@ -490,10 +475,10 @@ impl Emulation {
         let threaded = config.threaded
             && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
         let backend = if threaded {
-            Threads::Multi(Multi::spawn(frame_pool, window, event_proxy, config)?)
+            Threads::Multi(Multi::spawn(frame_pool, event_proxy, config)?)
         } else {
             Threads::Single(Single {
-                state: State::new(frame_pool, window, event_proxy, config),
+                state: State::new(frame_pool, event_proxy, config),
             })
         };
 

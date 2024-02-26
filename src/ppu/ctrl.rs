@@ -7,6 +7,19 @@ const NAMETABLE2: u16 = 0x2400;
 const NAMETABLE3: u16 = 0x2800;
 const NAMETABLE4: u16 = 0x2C00;
 
+#[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
+#[must_use]
+pub struct Ctrl {
+    pub spr_select: u16,
+    pub bg_select: u16,
+    pub spr_height: u32,
+    pub master_slave: u8,
+    pub nmi_enabled: bool,
+    pub nametable_addr: u16,
+    pub vram_increment: u16,
+    bits: Bits,
+}
+
 bitflags! {
     // $2000 PPUCTRL
     //
@@ -24,7 +37,7 @@ bitflags! {
     // +--------- NMI Enable: NMI at next vblank: 0 = off, 1: on
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
-    pub struct PpuCtrl: u8 {
+    pub struct Bits: u8 {
         const NAMETABLE1 = 0x01;
         const NAMETABLE2 = 0x02;
         const VRAM_INCREMENT = 0x04;
@@ -36,65 +49,39 @@ bitflags! {
     }
 }
 
-impl PpuCtrl {
-    pub const fn new() -> Self {
-        Self::from_bits_truncate(0x00)
+impl Ctrl {
+    pub fn new() -> Self {
+        let mut ctrl = Self::default();
+        ctrl.write(0);
+        ctrl
     }
 
     pub fn write(&mut self, val: u8) {
-        *self = Self::from_bits_truncate(val);
-    }
-
-    #[must_use]
-    pub fn nametable_addr(&self) -> u16 {
-        match self.bits() & 0b11 {
+        self.bits = Bits::from_bits_truncate(val);
+        // 0x1000 or 0x0000
+        self.spr_select = self.bits.contains(Bits::SPR_SELECT) as u16 * 0x1000;
+        // 0x1000 or 0x0000
+        self.bg_select = self.bits.contains(Bits::BG_SELECT) as u16 * 0x1000;
+        // 16 or 8
+        self.spr_height = self.bits.contains(Bits::SPR_HEIGHT) as u32 * 8 + 8;
+        // 1 or 0
+        self.master_slave = self.bits.contains(Bits::MASTER_SLAVE) as u8;
+        self.nmi_enabled = self.bits.contains(Bits::NMI_ENABLE);
+        self.nametable_addr = match self.bits.bits() & 0b11 {
             0b00 => NAMETABLE1,
             0b01 => NAMETABLE2,
             0b10 => NAMETABLE3,
             0b11 => NAMETABLE4,
             _ => unreachable!("impossible nametable_addr"),
-        }
-    }
-
-    #[must_use]
-    pub const fn vram_increment(&self) -> u16 {
+        };
         // 32 or 1
-        self.contains(Self::VRAM_INCREMENT) as u16 * 31 + 1
-    }
-
-    #[must_use]
-    pub const fn spr_select(&self) -> u16 {
-        // 0x1000 or 0x0000
-        self.contains(Self::SPR_SELECT) as u16 * 0x1000
-    }
-
-    #[must_use]
-    pub const fn bg_select(&self) -> u16 {
-        // 0x1000 or 0x0000
-        self.contains(Self::BG_SELECT) as u16 * 0x1000
-    }
-
-    #[must_use]
-    pub const fn spr_height(&self) -> u32 {
-        // 16 or 8
-        self.contains(Self::SPR_HEIGHT) as u32 * 8 + 8
-    }
-
-    #[must_use]
-    pub const fn master_slave(&self) -> u8 {
-        // 1 or 0
-        self.contains(Self::MASTER_SLAVE) as u8
-    }
-
-    #[must_use]
-    pub const fn nmi_enabled(&self) -> bool {
-        self.contains(Self::NMI_ENABLE)
+        self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT) as u16 * 31 + 1
     }
 }
 
-impl Reset for PpuCtrl {
+impl Reset for Ctrl {
     // https://www.nesdev.org/wiki/PPU_power_up_state
     fn reset(&mut self, _kind: ResetKind) {
-        *self = Self::empty();
+        self.write(0);
     }
 }
