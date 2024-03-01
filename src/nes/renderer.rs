@@ -2,6 +2,7 @@ use crate::{
     nes::{
         config::{Config, OVERSCAN_TRIM},
         event::{DeckEvent, Event, RendererEvent},
+        platform::BuilderExt,
         renderer::gui::{Gui, Menu, MSG_TIMEOUT},
         Nes,
     },
@@ -17,8 +18,8 @@ use egui::{
 };
 use pixels::{
     wgpu::{
-        FilterMode, LoadOp, Operations, PowerPreference, RenderPassColorAttachment,
-        RenderPassDescriptor, RequestAdapterOptions, StoreOp, TextureViewDescriptor,
+        FilterMode, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
+        TextureViewDescriptor,
     },
     Pixels, PixelsBuilder, SurfaceTexture,
 };
@@ -34,17 +35,11 @@ use winit::{
 pub mod gui;
 
 #[derive(Debug)]
-#[must_use]
-pub enum Message {
-    NewFrame,
-}
-
-#[derive(Debug)]
 pub struct BufferPool(Arc<ThingBuf<Frame, FrameRecycle>>);
 
 impl BufferPool {
     pub fn new() -> Self {
-        Self(Arc::new(ThingBuf::with_recycle(2, FrameRecycle)))
+        Self(Arc::new(ThingBuf::with_recycle(4, FrameRecycle)))
     }
 }
 
@@ -103,11 +98,8 @@ impl Renderer {
         }
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, window);
         let pixels = PixelsBuilder::new(Ppu::WIDTH, Ppu::HEIGHT, surface_texture)
-            .request_adapter_options(RequestAdapterOptions {
-                power_preference: PowerPreference::HighPerformance,
-                ..Default::default()
-            })
             .enable_vsync(config.vsync)
+            .with_platform()
             .build_async()
             .await?;
         let window_size = window.inner_size();
@@ -156,7 +148,12 @@ impl Renderer {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, window: &Window, event: &WinitEvent<Event>) -> NesResult<()> {
+    pub fn on_event(
+        &mut self,
+        window: &Window,
+        event: &WinitEvent<Event>,
+        config: &mut Config,
+    ) -> NesResult<()> {
         match event {
             WinitEvent::WindowEvent { event, .. } => {
                 let _ = self.egui_state.on_window_event(window, event);
@@ -165,6 +162,7 @@ impl Renderer {
                         if size.width > 0 && size.height > 0 {
                             self.screen_descriptor.size_in_pixels = [size.width, size.height];
                             self.pixels.resize_surface(size.width, size.height)?;
+                            window.request_redraw();
                         }
                     }
                     WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -184,11 +182,7 @@ impl Renderer {
             }
             WinitEvent::UserEvent(Event::Renderer(event)) => match event {
                 RendererEvent::SetVSync(enabled) => self.pixels.enable_vsync(*enabled),
-                RendererEvent::SetScale(_) => {
-                    // TODO
-                    // self.state
-                    //     .resize_window(&self.ctx.style(), &mut self.state.config);
-                }
+                RendererEvent::SetScale(_) => self.gui.resize_window(&self.ctx.style(), config),
                 RendererEvent::Frame(duration) => self.gui.last_frame_duration = *duration,
                 RendererEvent::Menu(menu) => match menu {
                     Menu::Config(_) => self.gui.config_open = !self.gui.config_open,
@@ -242,8 +236,6 @@ impl Renderer {
 
         self.prepare(window, paused, config);
         self.pixels.render_with(|encoder, render_target, ctx| {
-            // ctx.scaling_renderer.render(encoder, render_target);
-
             for (id, image_delta) in &self.textures.set {
                 self.renderer
                     .update_texture(&ctx.device, &ctx.queue, *id, image_delta);
@@ -279,6 +271,7 @@ impl Renderer {
             for id in &textures.free {
                 self.renderer.free_texture(id);
             }
+
             Ok(())
         })?;
 

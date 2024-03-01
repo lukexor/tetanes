@@ -6,7 +6,7 @@ use crate::{
         config::Config,
         emulation::Emulation,
         event::Event,
-        platform::{EventLoopExt, WindowBuilderExt, WindowExt},
+        platform::{BuilderExt, EventLoopExt, WindowExt},
         renderer::{BufferPool, Renderer},
     },
     profile, NesResult,

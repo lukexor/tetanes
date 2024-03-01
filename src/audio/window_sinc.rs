@@ -1,3 +1,4 @@
+use crate::nes::config::SampleRate;
 use std::f32::consts::PI;
 
 #[must_use]
@@ -15,9 +16,9 @@ impl WindowSinc {
     /// # Panics
     ///
     /// Panics if `cutoff` or `bandwidth` ratio to `sample_rate` is greater than `0.5`.
-    pub fn new(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
-        let fc = cutoff / sample_rate;
-        let bw = bandwidth / sample_rate;
+    pub fn new(sample_rate: SampleRate, cutoff: f32, bandwidth: f32) -> Self {
+        let fc = cutoff / f32::from(sample_rate);
+        let bw = bandwidth / f32::from(sample_rate);
         assert!(
             (0.0..=0.5).contains(&fc),
             "cutoff frequency can not be greater than 1/2 the sampling rate: {cutoff} / {sample_rate}",

@@ -6,9 +6,9 @@ pub fn init() {
         use log::Level;
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init_with_level(if cfg!(debug_assertions) {
-            Level::Debug
-        } else {
             Level::Info
+        } else {
+            Level::Warn
         })
         .expect("valid console log");
     }

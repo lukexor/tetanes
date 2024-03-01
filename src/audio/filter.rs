@@ -1,4 +1,4 @@
-use crate::audio::window_sinc::WindowSinc;
+use crate::{audio::window_sinc::WindowSinc, nes::config::SampleRate};
 
 #[derive(Debug)]
 #[must_use]
@@ -7,12 +7,12 @@ pub struct Filter {
 }
 
 impl Filter {
-    pub fn low_pass(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
+    pub fn low_pass(sample_rate: SampleRate, cutoff: f32, bandwidth: f32) -> Self {
         let sinc = WindowSinc::new(sample_rate, cutoff, bandwidth);
         Self { sinc }
     }
 
-    pub fn high_pass(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
+    pub fn high_pass(sample_rate: SampleRate, cutoff: f32, bandwidth: f32) -> Self {
         let mut sinc = WindowSinc::new(sample_rate, cutoff, bandwidth);
         sinc.spectral_invert();
         Self { sinc }

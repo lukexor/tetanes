@@ -20,12 +20,12 @@
 use tetanes::{
     logging,
     nes::{config::Config, Nes},
-    platform, NesResult,
+    platform, profiling, NesResult,
 };
 
 fn main() -> NesResult<()> {
     logging::init();
-    tetanes::profiling::init();
+    profiling::init();
 
     #[cfg(target_arch = "wasm32")]
     let config = Config::load();
@@ -92,7 +92,7 @@ struct ConfigOpts {
     scale: Option<tetanes::nes::config::Scale>,
     /// Emulation speed. [default: x100]
     #[arg(short = 'e', long, value_enum)]
-    speed: Option<tetanes::nes::config::Speed>,
+    speed: Option<tetanes::nes::config::FrameSpeed>,
     /// Add Game Genie Code(s). e.g. `AATOZE` (Start Super Mario Bros. with 9 lives).
     #[arg(short, long)]
     genie_code: Vec<String>,

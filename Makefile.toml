@@ -39,6 +39,13 @@ workspace = false
 command = "cargo"
 args = ["build", "-p", "tetanes", "--profile", "dist", "${@}"]
 
+[tasks.post-build]
+description = "Strip symbols"
+category = "Build"
+workspace = false
+command = "strip"
+args = ["${CARGO_TARGET_DIR}/release/tetanes*"]
+
 [tasks.run]
 description = "Run TetaNES in release mode"
 category = "Development"
@@ -46,12 +53,19 @@ workspace = false
 command = "cargo"
 args = ["run", "-p", "tetanes", "--release", "${@}"]
 
+[tasks.profile]
+description = "Run TetaNES in release mode w/profiling"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["run", "-p", "tetanes", "--release", "--features", "profiling", "${@}"]
+
 [tasks.dev]
 description = "Run TetaNES in development mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["run", "-p", "tetanes", "--features", "profiling", "${@}"]
+args = ["run", "-p", "tetanes", "${@}"]
 
 [tasks.install-web-deps]
 description = "Install wasm target"
@@ -64,7 +78,7 @@ description = "Build TetaNES Web"
 category = "Build"
 workspace = false
 command = "cargo"
-args = ["run-wasm", "-p", "tetanes", "--build-only", "--profile", "dist-web"]
+args = ["run-wasm", "--bin", "nes", "--build-only", "--profile", "dist-web", "--no-default-features"]
 dependencies = ["install-web-deps"]
 
 [tasks.run-web]
@@ -72,7 +86,7 @@ description = "Run TetaNES Web in release mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["watch", "-s", "cargo run-wasm -p tetanes --release"]
+args = ["watch", "-s", "cargo run-wasm --bin nes --release --no-default-features"]
 dependencies = ["install-web-deps"]
 
 [tasks.dev-web]
@@ -80,5 +94,5 @@ description = "Run TetaNES Web in development mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["watch", "-s", "cargo run-wasm -p tetanes --features console_log,profiling"]
+args = ["watch", "-s", "cargo run-wasm --bin nes --features console_log"]
 dependencies = ["install-web-deps"]

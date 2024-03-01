@@ -73,7 +73,7 @@ impl Scroll {
 
     #[must_use]
     pub const fn addr(&self) -> u16 {
-        self.v & Self::ADDR_MIRROR
+        self.v & Self::ADDR_MIRROR // Only the lower 14 bits are valid
     }
 
     // Writes to PPUSCROLL affect v and t

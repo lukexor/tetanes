@@ -248,7 +248,7 @@ impl Cpu {
     }
 
     fn start_cycle(&mut self, increment: u64) {
-        self.master_clock += increment;
+        self.master_clock = self.master_clock.wrapping_add(increment);
         self.cycle = self.cycle.wrapping_add(1);
 
         #[cfg(feature = "cycle-accurate")]
@@ -259,7 +259,7 @@ impl Cpu {
     }
 
     fn end_cycle(&mut self, increment: u64) {
-        self.master_clock += increment;
+        self.master_clock = self.master_clock.wrapping_add(increment);
 
         #[cfg(feature = "cycle-accurate")]
         self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);

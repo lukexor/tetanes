@@ -73,8 +73,6 @@ pub fn save_data(_path: impl AsRef<Path>, _data: &[u8]) -> NesResult<()> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_data(path: impl AsRef<Path>, data: &[u8]) -> NesResult<()> {
-    use std::io::BufWriter;
-
     let path = path.as_ref();
     let directory = path.parent().expect("can not save to root path");
     if !directory.exists() {
@@ -82,10 +80,8 @@ pub fn save_data(path: impl AsRef<Path>, data: &[u8]) -> NesResult<()> {
             .with_context(|| format!("failed to create directory {directory:?}"))?;
     }
     let write_data = || {
-        let mut writer = BufWriter::new(
-            std::fs::File::create(path)
-                .with_context(|| format!("failed to create file {path:?}"))?,
-        );
+        let mut writer = std::fs::File::create(path)
+            .with_context(|| format!("failed to create file {path:?}"))?;
         save_writer(&mut writer, data)
     };
     if path.exists() {

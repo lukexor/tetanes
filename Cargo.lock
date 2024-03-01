@@ -483,7 +483,9 @@ checksum = "5bc015644b92d5890fab7489e49d21f879d5c990186827d42ec511919404f38b"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
+ "wasm-bindgen",
  "windows-targets 0.52.0",
 ]
 
@@ -2523,6 +2525,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ringbuf"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79abed428d1fd2a128201cec72c5f6938e2da607c6f3745f769fabea399d950a"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "run-wasm"
 version = "0.1.0"
 dependencies = [
@@ -2856,6 +2867,7 @@ dependencies = [
  "puffin_egui",
  "rand",
  "rfd",
+ "ringbuf",
  "serde",
  "serde_json",
  "thingbuf",

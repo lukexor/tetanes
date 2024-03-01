@@ -8,30 +8,43 @@ pub struct Rewind {
     frames: u8,
     interval: u8,
     max_buffer_size: usize,
+    enabled: bool,
     buffer: VecDeque<Cpu>,
 }
 
 impl Rewind {
-    pub fn new(interval: u8, max_buffer_size: usize) -> Self {
+    pub fn new(enabled: bool, interval: u8, max_buffer_size: usize) -> Self {
         Self {
             frames: 0,
             interval,
             max_buffer_size,
-            buffer: VecDeque::new(),
+            enabled,
+            buffer: if enabled {
+                VecDeque::with_capacity(max_buffer_size)
+            } else {
+                VecDeque::new()
+            },
         }
     }
 
-    pub fn push(&mut self, cpu: Cpu) {
+    pub fn enable(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    pub fn push(&mut self, cpu: &Cpu) {
+        if !self.enabled {
+            return;
+        }
         self.frames += 1;
         if self.frames >= self.interval {
             self.frames = 0;
-            self.buffer.push_front(cpu);
+            self.buffer.push_front(cpu.clone());
             let buffer_size = self
                 .buffer
                 .iter()
                 .fold(0, |size, _| size + std::mem::size_of::<Cpu>());
-            if buffer_size > self.max_buffer_size {
-                self.buffer.truncate(self.buffer.len() / 2);
+            if buffer_size >= self.max_buffer_size {
+                self.buffer.pop_back();
             }
         }
     }

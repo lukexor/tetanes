@@ -40,9 +40,21 @@ impl From<Scale> for f32 {
     }
 }
 
+impl From<&Scale> for f32 {
+    fn from(val: &Scale) -> Self {
+        Self::from(*val)
+    }
+}
+
 impl From<Scale> for f64 {
     fn from(val: Scale) -> Self {
         f32::from(val) as f64
+    }
+}
+
+impl From<&Scale> for f64 {
+    fn from(val: &Scale) -> Self {
+        Self::from(*val)
     }
 }
 
@@ -78,7 +90,7 @@ impl std::fmt::Display for Scale {
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[must_use]
-pub enum Speed {
+pub enum FrameSpeed {
     X25,
     X50,
     X75,
@@ -90,67 +102,73 @@ pub enum Speed {
     X200,
 }
 
-impl Speed {
+impl FrameSpeed {
     pub fn increment(&self) -> Self {
         match self {
-            Speed::X25 => Speed::X50,
-            Speed::X50 => Speed::X75,
-            Speed::X75 => Speed::X100,
-            Speed::X100 => Speed::X125,
-            Speed::X125 => Speed::X150,
-            Speed::X150 => Speed::X175,
-            Speed::X175 => Speed::X200,
-            Speed::X200 => Speed::X200,
+            FrameSpeed::X25 => FrameSpeed::X50,
+            FrameSpeed::X50 => FrameSpeed::X75,
+            FrameSpeed::X75 => FrameSpeed::X100,
+            FrameSpeed::X100 => FrameSpeed::X125,
+            FrameSpeed::X125 => FrameSpeed::X150,
+            FrameSpeed::X150 => FrameSpeed::X175,
+            FrameSpeed::X175 => FrameSpeed::X200,
+            FrameSpeed::X200 => FrameSpeed::X200,
         }
     }
 
     pub fn decrement(&self) -> Self {
         match self {
-            Speed::X25 => Speed::X25,
-            Speed::X50 => Speed::X25,
-            Speed::X75 => Speed::X50,
-            Speed::X100 => Speed::X75,
-            Speed::X125 => Speed::X100,
-            Speed::X150 => Speed::X125,
-            Speed::X175 => Speed::X150,
-            Speed::X200 => Speed::X175,
+            FrameSpeed::X25 => FrameSpeed::X25,
+            FrameSpeed::X50 => FrameSpeed::X25,
+            FrameSpeed::X75 => FrameSpeed::X50,
+            FrameSpeed::X100 => FrameSpeed::X75,
+            FrameSpeed::X125 => FrameSpeed::X100,
+            FrameSpeed::X150 => FrameSpeed::X125,
+            FrameSpeed::X175 => FrameSpeed::X150,
+            FrameSpeed::X200 => FrameSpeed::X175,
         }
     }
 }
 
-impl From<Speed> for f32 {
-    fn from(val: Speed) -> Self {
-        match val {
-            Speed::X25 => 0.25,
-            Speed::X50 => 0.50,
-            Speed::X75 => 0.75,
-            Speed::X100 => 1.0,
-            Speed::X125 => 1.25,
-            Speed::X150 => 1.50,
-            Speed::X175 => 1.75,
-            Speed::X200 => 2.0,
+impl From<FrameSpeed> for f32 {
+    fn from(speed: FrameSpeed) -> Self {
+        match speed {
+            FrameSpeed::X25 => 0.25,
+            FrameSpeed::X50 => 0.50,
+            FrameSpeed::X75 => 0.75,
+            FrameSpeed::X100 => 1.0,
+            FrameSpeed::X125 => 1.25,
+            FrameSpeed::X150 => 1.50,
+            FrameSpeed::X175 => 1.75,
+            FrameSpeed::X200 => 2.0,
         }
     }
 }
 
-impl TryFrom<f32> for Speed {
+impl From<&FrameSpeed> for f32 {
+    fn from(speed: &FrameSpeed) -> Self {
+        Self::from(*speed)
+    }
+}
+
+impl TryFrom<f32> for FrameSpeed {
     type Error = NesError;
     fn try_from(val: f32) -> Result<Self, Self::Error> {
         match val {
-            0.25 => Ok(Speed::X25),
-            0.50 => Ok(Speed::X50),
-            0.75 => Ok(Speed::X75),
-            1.0 => Ok(Speed::X100),
-            1.25 => Ok(Speed::X125),
-            1.50 => Ok(Speed::X150),
-            1.75 => Ok(Speed::X175),
-            2.0 => Ok(Speed::X200),
+            0.25 => Ok(FrameSpeed::X25),
+            0.50 => Ok(FrameSpeed::X50),
+            0.75 => Ok(FrameSpeed::X75),
+            1.0 => Ok(FrameSpeed::X100),
+            1.25 => Ok(FrameSpeed::X125),
+            1.50 => Ok(FrameSpeed::X150),
+            1.75 => Ok(FrameSpeed::X175),
+            2.0 => Ok(FrameSpeed::X200),
             _ => Err(anyhow!("unsupported speed: {val}")),
         }
     }
 }
 
-impl AsRef<str> for Speed {
+impl AsRef<str> for FrameSpeed {
     fn as_ref(&self) -> &str {
         match self {
             Self::X25 => "25%",
@@ -165,39 +183,57 @@ impl AsRef<str> for Speed {
     }
 }
 
-impl std::fmt::Display for Speed {
+impl std::fmt::Display for FrameSpeed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_ref())
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SampleRate {
-    S32,
-    S44_1,
+    #[default]
+    S44,
     S48,
-    S96,
 }
 
-impl From<SampleRate> for f32 {
-    fn from(val: SampleRate) -> Self {
-        match val {
-            SampleRate::S32 => 32000.0,
-            SampleRate::S44_1 => 44100.0,
-            SampleRate::S48 => 48000.0,
-            SampleRate::S96 => 96000.0,
+impl SampleRate {
+    pub const MIN: Self = Self::S44;
+    pub const MAX: Self = Self::S48;
+}
+
+impl From<SampleRate> for u32 {
+    fn from(sample_rate: SampleRate) -> Self {
+        match sample_rate {
+            SampleRate::S44 => 44100,
+            SampleRate::S48 => 48000,
         }
     }
 }
 
-impl TryFrom<f32> for SampleRate {
+impl From<&SampleRate> for u32 {
+    fn from(sample_rate: &SampleRate) -> Self {
+        Self::from(*sample_rate)
+    }
+}
+
+impl From<SampleRate> for f32 {
+    fn from(sample_rate: SampleRate) -> Self {
+        u32::from(sample_rate) as f32
+    }
+}
+
+impl From<&SampleRate> for f32 {
+    fn from(sample_rate: &SampleRate) -> Self {
+        Self::from(*sample_rate)
+    }
+}
+
+impl TryFrom<u32> for SampleRate {
     type Error = NesError;
-    fn try_from(val: f32) -> Result<Self, Self::Error> {
+    fn try_from(val: u32) -> Result<Self, Self::Error> {
         match val {
-            32000.0 => Ok(Self::S32),
-            44100.0 => Ok(Self::S44_1),
-            48000.0 => Ok(Self::S48),
-            96000.0 => Ok(Self::S96),
+            44100 => Ok(Self::S44),
+            48000 => Ok(Self::S48),
             _ => Err(anyhow!("unsupported sample rate: {val}")),
         }
     }
@@ -206,11 +242,104 @@ impl TryFrom<f32> for SampleRate {
 impl AsRef<str> for SampleRate {
     fn as_ref(&self) -> &str {
         match self {
-            Self::S32 => "32 kHz",
-            Self::S44_1 => "44.1 kHz",
+            Self::S44 => "44.1 kHz",
             Self::S48 => "48 kHz",
-            Self::S96 => "96 kHz",
         }
+    }
+}
+
+impl std::fmt::Display for SampleRate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FrameRate {
+    X50,
+    X59,
+    #[default]
+    X60,
+}
+
+impl FrameRate {
+    pub const MIN: Self = Self::X50;
+    pub const MAX: Self = Self::X60;
+
+    pub fn duration(&self) -> Duration {
+        Duration::from_secs_f32(f32::from(self).recip())
+    }
+}
+
+impl From<FrameRate> for u32 {
+    fn from(frame_rate: FrameRate) -> Self {
+        match frame_rate {
+            FrameRate::X50 => 50,
+            FrameRate::X59 => 59,
+            FrameRate::X60 => 60,
+        }
+    }
+}
+
+impl From<&FrameRate> for u32 {
+    fn from(frame_rate: &FrameRate) -> Self {
+        Self::from(*frame_rate)
+    }
+}
+
+impl From<FrameRate> for f32 {
+    fn from(frame_rate: FrameRate) -> Self {
+        u32::from(frame_rate) as f32
+    }
+}
+
+impl From<&FrameRate> for f32 {
+    fn from(frame_rate: &FrameRate) -> Self {
+        Self::from(*frame_rate)
+    }
+}
+
+impl TryFrom<u32> for FrameRate {
+    type Error = NesError;
+    fn try_from(val: u32) -> Result<Self, Self::Error> {
+        match val {
+            50 => Ok(Self::X50),
+            59 => Ok(Self::X59),
+            60 => Ok(Self::X60),
+            _ => Err(anyhow!("unsupported frame rate: {val}")),
+        }
+    }
+}
+
+impl From<NesRegion> for FrameRate {
+    fn from(region: NesRegion) -> Self {
+        match region {
+            NesRegion::Pal => Self::X50,
+            NesRegion::Dendy => Self::X59,
+            NesRegion::Ntsc => Self::X60,
+        }
+    }
+}
+
+impl From<&NesRegion> for FrameRate {
+    fn from(region: &NesRegion) -> Self {
+        Self::from(*region)
+    }
+}
+
+impl AsRef<str> for FrameRate {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::X50 => "50 Hz",
+            Self::X59 => "59 Hz",
+            Self::X60 => "60 Hz",
+        }
+    }
+}
+
+impl std::fmt::Display for FrameRate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
     }
 }
 
@@ -222,13 +351,13 @@ pub struct Config {
     pub aspect_ratio: f32,
     pub audio_enabled: bool,
     pub audio_latency: Duration,
-    pub audio_sample_rate: f32,
+    pub audio_sample_rate: SampleRate,
     pub concurrent_dpad: bool,
     pub controller_deadzone: f64,
     pub debug: bool,
     pub deck: DeckConfig,
-    pub frame_rate: f64,
-    pub frame_speed: Speed,
+    pub frame_rate: FrameRate,
+    pub frame_speed: FrameSpeed,
     pub fullscreen: bool,
     pub hide_overscan: bool,
     pub input_bindings: Vec<InputBinding>,
@@ -251,7 +380,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let frame_rate = 60.0;
+        let frame_rate = FrameRate::default();
         let input_map = InputMap::default();
         let input_bindings = input_map
             .iter()
@@ -264,25 +393,21 @@ impl Default for Config {
         };
         Self {
             aspect_ratio,
-            audio_latency: Duration::from_millis(if cfg!(target_arch = "wasm32") {
-                120
-            } else {
-                30
-            }),
+            audio_latency: Duration::from_millis(50),
             audio_enabled: true,
-            audio_sample_rate: 44_100.0,
+            audio_sample_rate: SampleRate::default(),
             concurrent_dpad: false,
             controller_deadzone: 0.5,
             debug: false,
             deck,
             frame_rate,
-            frame_speed: Speed::default(),
+            frame_speed: FrameSpeed::default(),
             fullscreen: false,
             hide_overscan: true,
             input_map,
             input_bindings,
             replay_path: None,
-            rewind: true,
+            rewind: false,
             rewind_buffer_size_mb: 20 * 1024 * 1024,
             rewind_interval: 2,
             rom_path: PathBuf::from("./"),
@@ -290,7 +415,7 @@ impl Default for Config {
             show_fps: false,
             show_hidden_files: false,
             show_messages: true,
-            target_frame_duration: Duration::from_secs_f64(frame_rate.recip()),
+            target_frame_duration: frame_rate.duration(),
             threaded: true,
             vsync: true,
         }
@@ -389,24 +514,25 @@ impl Config {
     }
 
     pub fn set_region(&mut self, region: NesRegion) {
-        match region {
-            NesRegion::Ntsc => {
-                self.frame_rate = 60.0;
-                self.aspect_ratio = NTSC_RATIO;
-            }
-            NesRegion::Pal => {
-                self.frame_rate = 50.0;
-                self.aspect_ratio = PAL_RATIO;
-            }
-            NesRegion::Dendy => {
-                self.frame_rate = 59.0;
-                self.aspect_ratio = PAL_RATIO;
-            }
-        }
-        self.target_frame_duration = Duration::from_secs_f64(self.frame_rate.recip());
+        self.frame_rate = FrameRate::from(region);
+        self.aspect_ratio = match region {
+            NesRegion::Ntsc => NTSC_RATIO,
+            NesRegion::Pal => PAL_RATIO,
+            NesRegion::Dendy => PAL_RATIO,
+        };
+        self.target_frame_duration = Duration::from_secs_f32(
+            (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
+        );
         log::info!(
             "Updated frame rate based on NES Region: {region:?} ({:?}Hz)",
             self.frame_rate,
+        );
+    }
+
+    pub fn set_frame_speed(&mut self, speed: FrameSpeed) {
+        self.frame_speed = speed;
+        self.target_frame_duration = Duration::from_secs_f32(
+            (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
         );
     }
 
@@ -432,8 +558,8 @@ impl Nes {
         self.add_message(format!("Changed Scale to {scale}"));
     }
 
-    pub fn set_speed(&mut self, speed: Speed) {
-        self.config.frame_speed = speed;
+    pub fn set_speed(&mut self, speed: FrameSpeed) {
+        self.config.set_frame_speed(speed);
         self.send_event(DeckEvent::SetFrameSpeed(speed));
         self.add_message(format!("Changed Emulation Speed to {speed}"));
     }

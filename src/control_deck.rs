@@ -62,7 +62,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             dir: Self::default_dir(),
-            filter: VideoFilter::default(),
+            filter: if cfg!(target_arch = "wasm32") {
+                VideoFilter::Pixellate
+            } else {
+                VideoFilter::default()
+            },
             region: NesRegion::default(),
             ram_state: RamState::Random,
             four_player: FourPlayer::default(),
@@ -78,18 +82,14 @@ impl Default for Config {
 impl Config {
     pub const DIR: &'static str = ".config/tetanes";
 
-    #[cfg(target_arch = "wasm32")]
     #[must_use]
     pub fn default_dir() -> PathBuf {
-        PathBuf::from("./").join(Self::DIR)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[must_use]
-    pub fn default_dir() -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("./"))
-            .join(Self::DIR)
+        if cfg!(target_arch = "wasm32") {
+            PathBuf::from("./")
+        } else {
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from("./"))
+        }
+        .join(Self::DIR)
     }
 
     #[must_use]
@@ -178,7 +178,7 @@ impl ControlDeck {
         &mut self,
         path: impl AsRef<std::path::Path>,
         config: Option<&Config>,
-    ) -> NesResult<()> {
+    ) -> NesResult<String> {
         use anyhow::Context;
         use std::fs::File;
 
@@ -188,6 +188,7 @@ impl ControlDeck {
         File::open(path)
             .with_context(|| format!("failed to open rom {path:?}"))
             .and_then(|mut rom| self.load_rom(filename, &mut rom, config))
+            .map(|_| filename.to_string())
     }
 
     pub fn unload_rom(&mut self, config: Option<&Config>) -> NesResult<()> {

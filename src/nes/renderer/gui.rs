@@ -481,13 +481,11 @@ impl Gui {
         }
     }
 
-    fn resize_window(&mut self, style: &Style, config: &Config) {
+    pub fn resize_window(&mut self, style: &Style, config: &Config) {
         let spacing = style.spacing.item_spacing;
         let border = 1.0;
-        let (inner_size, min_inner_size) =
+        let dimensions =
             config.inner_dimensions_with_spacing(0.0, self.menu_height + spacing.y + border);
-        // TODO: send resize request
-        // let _ = self.window.request_inner_size(inner_size);
-        // self.window.set_min_inner_size(Some(min_inner_size));
+        self.send_event(NesEvent::ResizeWindow(dimensions));
     }
 }

@@ -9,10 +9,7 @@ use crate::{
         event::{DeckEvent, Event, NesEvent, RendererEvent},
         renderer::BufferPool,
     },
-    platform::{
-        thread,
-        time::{Duration, Instant},
-    },
+    platform::time::{Duration, Instant},
     profile, NesError, NesResult,
 };
 use anyhow::anyhow;
@@ -20,7 +17,7 @@ use crossbeam::channel::{self, Sender};
 use std::{
     io::{self, Read},
     path::PathBuf,
-    thread::JoinHandle,
+    thread::{self, JoinHandle},
 };
 use winit::{
     event::{ElementState, Event as WinitEvent, WindowEvent},
@@ -45,12 +42,8 @@ pub struct State {
     control_deck: ControlDeck,
     mixer: Mixer,
     frame_pool: BufferPool,
-    // A frame accumulator of partial frames for non-integer speed changes like
-    // 1.5x.
-    frame_accumulator: f32,
-    // Keep track of last frame time so we can predict audio sync requirements for the next
-    // frame.
     last_frame_time: Instant,
+    frame_time_accumulator: f32,
     occluded: bool,
     paused: bool,
     rewinding: bool,
@@ -69,18 +62,23 @@ impl State {
         let control_deck = ControlDeck::with_config(config.clone().into());
         let sample_rate = config.audio_sample_rate;
         let mixer = Mixer::new(
-            control_deck.clock_rate() / (sample_rate / f32::from(config.frame_speed)),
+            control_deck.clock_rate() * f32::from(config.frame_speed),
             sample_rate,
-            config.audio_enabled,
+            config.audio_latency,
         );
-        let rewind = Rewind::new(config.rewind_interval, config.rewind_buffer_size_mb);
+        let rewind = Rewind::new(
+            config.rewind,
+            config.rewind_interval,
+            config.rewind_buffer_size_mb,
+        );
+        let frame_time_accumulator = config.target_frame_duration.as_secs_f32();
         Self {
             config,
             event_proxy,
             control_deck,
             mixer,
             frame_pool,
-            frame_accumulator: 0.0,
+            frame_time_accumulator,
             last_frame_time: Instant::now(),
             occluded: false,
             paused: true,
@@ -116,14 +114,7 @@ impl State {
             WinitEvent::WindowEvent {
                 event: WindowEvent::DroppedFile(rom),
                 ..
-            } => {
-                if self.control_deck.loaded_rom().is_some() {
-                    if let Err(err) = self.mixer.pause() {
-                        self.on_error(err);
-                    }
-                }
-                self.load_rom_path(rom);
-            }
+            } => self.load_rom_path(rom),
             WinitEvent::UserEvent(Event::ControlDeck(event)) => self.on_control_deck_event(event),
             _ => (),
         }
@@ -167,24 +158,25 @@ impl State {
             },
             DeckEvent::SetAudioEnabled(enabled) => {
                 self.config.audio_enabled = *enabled;
-                match self.mixer.set_enabled(self.config.audio_enabled) {
-                    Ok(()) => {
-                        if self.config.audio_enabled {
+                if self.config.audio_enabled {
+                    match self.mixer.start() {
+                        Ok(sample_rate) => {
+                            self.config.audio_sample_rate = sample_rate;
                             self.add_message("Audio Enabled");
-                        } else {
-                            self.add_message("Audio Disabled");
                         }
+                        Err(err) => self.on_error(err),
                     }
-                    Err(err) => self.on_error(err),
+                } else {
+                    match self.mixer.stop() {
+                        Ok(()) => self.add_message("Audio Disabled"),
+                        Err(err) => self.on_error(err),
+                    }
                 }
             }
             DeckEvent::SetFrameSpeed(speed) => {
-                self.config.frame_speed = *speed;
-                let clock_rate = self.control_deck.clock_rate();
-                let sample_rate = self.config.audio_sample_rate / f32::from(*speed);
-                if let Err(err) = self.mixer.set_resample_ratio(clock_rate / sample_rate) {
-                    self.on_error(err);
-                }
+                self.config.set_frame_speed(*speed);
+                self.mixer
+                    .set_input_rate(self.control_deck.clock_rate() * f32::from(*speed));
             }
             DeckEvent::SetHideOverscan(hidden) => self.config.hide_overscan = *hidden,
             DeckEvent::SetRegion(region) => {
@@ -229,16 +221,13 @@ impl State {
     pub fn pause(&mut self, paused: bool) {
         if self.control_deck.is_running() && !self.control_deck.cpu_corrupted() {
             self.paused = paused;
-            if paused {
+            if self.paused {
                 if let Err(err) = self.replay.stop() {
                     self.on_error(err);
                 }
-                if let Err(err) = self.mixer.pause() {
-                    self.on_error(err);
-                }
-            } else if let Err(err) = self.mixer.play() {
+            }
+            if let Err(err) = self.mixer.pause(self.paused) {
                 self.on_error(err);
-                self.add_message("Failed to resume audio");
             }
         } else {
             self.paused = true;
@@ -264,13 +253,15 @@ impl State {
         self.pause(true);
     }
 
-    fn on_load_rom(&mut self) {
-        // TODO: Move to main thread
-        // if let Some(loaded_rom) = self.control_deck.loaded_rom() {
-        //     self.window.set_title(loaded_rom);
-        // }
-        if let Err(err) = self.mixer.start() {
-            self.on_error(err);
+    fn on_load_rom(&mut self, name: String) {
+        self.send_event(NesEvent::SetTitle(name));
+        if self.config.audio_enabled {
+            match self.mixer.start() {
+                Ok(sample_rate) => self.config.audio_sample_rate = sample_rate,
+                Err(err) => {
+                    self.on_error(err);
+                }
+            }
         }
         self.pause(false);
     }
@@ -282,18 +273,18 @@ impl State {
             .control_deck
             .load_rom_path(path, Some(&self.config.deck))
         {
-            Ok(()) => self.on_load_rom(),
+            Ok(name) => self.on_load_rom(name),
             Err(err) => self.on_error(err),
         }
     }
 
-    fn load_rom(&mut self, filename: &str, rom: &mut impl Read) {
+    fn load_rom(&mut self, name: &str, rom: &mut impl Read) {
         self.on_unload_rom();
         match self
             .control_deck
-            .load_rom(filename, rom, Some(&self.config.deck))
+            .load_rom(name, rom, Some(&self.config.deck))
         {
-            Ok(()) => self.on_load_rom(),
+            Ok(()) => self.on_load_rom(name.to_string()),
             Err(err) => self.on_error(err),
         }
     }
@@ -301,11 +292,9 @@ impl State {
     pub fn toggle_audio_record(&mut self) {
         if self.control_deck.is_running() {
             if self.mixer.is_recording() {
-                if let Err(err) = self.mixer.stop_recording() {
-                    self.on_error(err);
-                }
-            } else if let Err(err) = self.mixer.start_recording() {
-                self.on_error(err);
+                self.mixer.set_recording(false);
+            } else {
+                self.mixer.set_recording(true);
             }
         }
     }
@@ -343,44 +332,58 @@ impl State {
             .saturating_sub(self.config.audio_latency)
     }
 
+    fn should_clock_frame(&mut self) -> bool {
+        if self.config.audio_enabled {
+            self.mixer.queued_time() <= self.config.audio_latency
+        } else {
+            let secs_per_frame = self.config.target_frame_duration.as_secs_f32();
+            self.frame_time_accumulator >= secs_per_frame
+        }
+    }
+
+    fn sleep(&self) {
+        profile!("sleep");
+        let timeout = self.remaining_frame_time();
+        log::trace!("sleeping for {:.4}s", timeout.as_secs_f32());
+        thread::park_timeout(timeout);
+    }
+
     fn clock_frame(&mut self) {
         profile!();
 
-        if self.paused || self.occluded {
-            profile!("sleep");
-            return thread::sleep(self.config.target_frame_duration);
-        }
-        if self.rewinding {
-            return self.rewind();
+        if self.paused || self.occluded || !self.control_deck.is_running() {
+            return self.sleep();
         }
 
-        // Frames that aren't multiples of the default render 1 more/less frames
-        // every other frame
-        // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
-        // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
-        self.frame_accumulator += f32::from(self.config.frame_speed);
-        let mut frames_to_clock = 0;
-        while self.frame_accumulator >= 1.0 {
-            self.frame_accumulator -= 1.0;
-            frames_to_clock += 1;
-        }
-
-        let now = Instant::now();
-        let last_frame_duration = now - self.last_frame_time;
-        self.last_frame_time = now;
-        log::trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
+        let last_frame_duration = self
+            .last_frame_time
+            .elapsed()
+            .min(Duration::from_millis(25));
+        self.last_frame_time = Instant::now();
+        self.frame_time_accumulator += last_frame_duration.as_secs_f32();
         self.send_event(RendererEvent::Frame(last_frame_duration));
+        log::trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
 
-        while self.mixer.queued_time() <= self.config.audio_latency && frames_to_clock > 0 {
+        // TODO: fix rewind
+        // if self.rewinding {
+        //     self.rewind();
+        // }
+
+        let secs_per_frame = self.config.target_frame_duration.as_secs_f32();
+        while self.should_clock_frame() {
+            log::trace!(
+                "queued_audio_time: {:.4}s",
+                self.mixer.queued_time().as_secs_f32()
+            );
+
+            let start = Instant::now();
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                 self.on_control_deck_event(&event);
             }
 
             match self.control_deck.clock_frame() {
                 Ok(_) => {
-                    if self.config.rewind {
-                        self.rewind.push(self.control_deck.cpu().clone());
-                    }
+                    self.rewind.push(self.control_deck.cpu());
                     let _ = self
                         .mixer
                         .process(self.control_deck.audio_samples())
@@ -392,16 +395,18 @@ impl State {
                     self.pause(true);
                 }
             }
-
-            frames_to_clock -= 1;
+            self.frame_time_accumulator -= secs_per_frame;
+            log::trace!("clock: {:.4}s", start.elapsed().as_secs_f32());
         }
 
         if let Ok(mut frame) = self.frame_pool.push_ref() {
+            let start = Instant::now();
             frame.clear();
             frame.extend_from_slice(self.control_deck.frame_buffer());
+            log::trace!("copy: {:.4}s", start.elapsed().as_secs_f32());
         }
 
-        crate::profiling::end_frame();
+        self.sleep();
     }
 }
 
@@ -449,11 +454,6 @@ impl Multi {
             }
 
             state.clock_frame();
-
-            {
-                profile!("park");
-                std::thread::park_timeout(state.remaining_frame_time());
-            }
         }
     }
 }

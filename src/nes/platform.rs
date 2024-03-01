@@ -3,11 +3,22 @@ use crate::nes::{
     event::{DeckEvent, RomData},
     Nes,
 };
+use pixels::{wgpu::WindowHandle, PixelsBuilder};
 use winit::{
     dpi::LogicalSize,
     event::Event as WinitEvent,
     event_loop::{EventLoop, EventLoopWindowTarget},
+    window::WindowBuilder,
 };
+
+#[cfg(target_arch = "wasm32")]
+pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
+    web_sys::window()
+        .and_then(|win| win.document())
+        .and_then(|doc| doc.query_selector("canvas").ok())
+        .flatten()
+        .map(|canvas| web_sys::HtmlCanvasElement::from(wasm_bindgen::JsValue::from(canvas)))
+}
 
 impl Nes {
     #[cfg(target_arch = "wasm32")]
@@ -31,13 +42,9 @@ impl Nes {
                         ) {
                             log::error!("failed to send load rom message to event_loop: {err:?}");
                         }
-                        // TODO: focus canvas
-                        // use winit::platform::web::WindowExtWebSys;
-                        // if let Some(canvas) = window.canvas() {
-                        //     if let Err(err) = canvas.focus() {
-                        //         log::error!("failed to focus canvas: {err:?}");
-                        //     }
-                        // }
+                        if let Some(canvas) = get_canvas() {
+                            let _ = canvas.focus();
+                        }
                     }
                 });
 
@@ -128,13 +135,13 @@ impl<T> EventLoopExt<T> for EventLoop<T> {
     }
 }
 
-/// Extension trait for `WindowBuilder` that provides platform-specific behavior.
-pub trait WindowBuilderExt {
-    /// Sets platform-specific window options.
+/// Extension trait for any builder that provides platform-specific behavior.
+pub trait BuilderExt {
+    /// Sets platform-specific options.
     fn with_platform(self) -> Self;
 }
 
-impl WindowBuilderExt for winit::window::WindowBuilder {
+impl BuilderExt for WindowBuilder {
     /// Sets platform-specific window options.
     fn with_platform(self) -> Self {
         #[cfg(target_arch = "wasm32")]
@@ -200,5 +207,38 @@ impl WindowExt for Config {
                 min_inner_size.height + y / scale,
             ),
         )
+    }
+}
+
+impl<'req, 'dev, 'win, W: WindowHandle> BuilderExt for PixelsBuilder<'req, 'dev, 'win, W> {
+    /// Sets platform-specific pixels options.
+    fn with_platform(self) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use pixels::wgpu::TextureFormat;
+            use web_sys::GpuTextureFormat;
+
+            if let Some(canvas) = get_canvas() {
+                let webgpu_context = canvas.get_context("webgpu").ok().flatten();
+                let texture_format = if webgpu_context.is_some() {
+                    let canvas_format = web_sys::window()
+                        .expect("valid window")
+                        .navigator()
+                        .gpu()
+                        .get_preferred_canvas_format();
+                    // Default is currently Bgra8UnormSrgb and we want Rgba8Unorm but Chrome
+                    // doesn't support it for WebGpu just yet.
+                    match canvas_format {
+                        GpuTextureFormat::Bgra8unorm => TextureFormat::Bgra8Unorm,
+                        _ => TextureFormat::Rgba8Unorm,
+                    }
+                } else {
+                    TextureFormat::Rgba8Unorm
+                };
+                return self.surface_texture_format(texture_format);
+            }
+        }
+
+        self
     }
 }

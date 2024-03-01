@@ -47,10 +47,12 @@ pub fn end_frame() {
 }
 
 pub fn init() {
-    unsafe {
-        EVENT_LOG.reserve(2 << 20);
-        LAST_PRINT = std::time::SystemTime::now();
-    }
+    #[cfg(feature = "profiling")]
+    enable(true);
+    // unsafe {
+    //     EVENT_LOG.reserve(2 << 20);
+    //     LAST_PRINT = std::time::SystemTime::now();
+    // }
 }
 
 #[cfg(feature = "profiling")]

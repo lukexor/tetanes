@@ -4,7 +4,7 @@ use crate::{
     input::{JoypadBtn, Player},
     mapper::MapperRevision,
     nes::{
-        config::{Scale, Speed},
+        config::{FrameSpeed, Scale},
         renderer::gui::{ConfigTab, Menu},
         Nes,
     },
@@ -19,6 +19,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 use winit::{
+    dpi::LogicalSize,
     event::{ElementState, Event as WinitEvent, Modifiers, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoopWindowTarget},
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
@@ -30,6 +31,8 @@ use winit::{
 pub enum NesEvent {
     Error(String),
     Message(String),
+    SetTitle(String),
+    ResizeWindow((LogicalSize<f32>, LogicalSize<f32>)),
     Terminate,
     TogglePause,
 }
@@ -72,7 +75,7 @@ pub enum DeckEvent {
     Rewind((ElementState, bool)),
     Screenshot,
     SetAudioEnabled(bool),
-    SetFrameSpeed(Speed),
+    SetFrameSpeed(FrameSpeed),
     SetHideOverscan(bool),
     SetRegion(NesRegion),
     SetSaveSlot(u8),
@@ -180,7 +183,10 @@ impl Nes {
         if let Err(err) = self.emulation.on_event(&event) {
             self.on_error(err);
         }
-        if let Err(err) = self.renderer.on_event(self.window, &event) {
+        if let Err(err) = self
+            .renderer
+            .on_event(self.window, &event, &mut self.config)
+        {
             self.on_error(err);
         }
 
@@ -233,6 +239,11 @@ impl Nes {
                 NesEvent::Message(msg) => self.add_message(msg),
                 NesEvent::Error(err) => self.on_error(anyhow!(err)),
                 NesEvent::Terminate => self.event_state.quitting = true,
+                NesEvent::SetTitle(title) => self.window.set_title(&title),
+                NesEvent::ResizeWindow((inner_size, min_inner_size)) => {
+                    let _ = self.window.request_inner_size(inner_size);
+                    self.window.set_min_inner_size(Some(min_inner_size));
+                }
                 NesEvent::TogglePause => {
                     self.event_state.paused = !self.event_state.paused;
                     self.send_event(DeckEvent::Pause(self.event_state.paused));
@@ -355,9 +366,9 @@ impl Nes {
                         self.set_speed(self.config.frame_speed);
                     }
                     Setting::FastForward if !repeat => self.set_speed(if released {
-                        Speed::default()
+                        FrameSpeed::default()
                     } else {
-                        Speed::X200
+                        FrameSpeed::X200
                     }),
                     _ => (),
                 },

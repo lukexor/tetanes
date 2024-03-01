@@ -333,6 +333,7 @@ impl Ppu {
         self.status.reset_in_vblank();
         self.nmi_pending = false;
         self.reset_signal = false;
+        self.open_bus = 0; // Clear open bus every frame
         let val = self.peek_status();
         self.bus.mapper.ppu_bus_write(0x2002, val);
     }
@@ -1073,21 +1074,15 @@ impl Registers for Ppu {
 
 impl Clock for Ppu {
     fn clock(&mut self) -> usize {
-        let vblank_scanline = self.vblank_scanline;
-        let prerender_scanline = self.prerender_scanline;
-
-        // Clear open bus roughly once every frame
-        self.open_bus *= (self.scanline != 0) as u8;
-
         if self.cycle >= Self::CYCLE_END {
             self.cycle = 0;
             self.scanline += 1;
             // Post-render line
-            if self.scanline == vblank_scanline - 1 {
+            if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
             } else {
                 // Wrap scanline back to 0
-                self.scanline *= (self.scanline <= prerender_scanline) as u32;
+                self.scanline *= (self.scanline <= self.prerender_scanline) as u32;
             }
         } else {
             // cycle > 0
@@ -1098,9 +1093,9 @@ impl Clock for Ppu {
 
             if self.cycle == Self::VBLANK {
                 let time = crate::profiling::start("vblank");
-                if self.scanline == vblank_scanline {
+                if self.scanline == self.vblank_scanline {
                     self.start_vblank();
-                } else if self.scanline == prerender_scanline {
+                } else if self.scanline == self.prerender_scanline {
                     self.stop_vblank();
                 }
                 crate::profiling::end("vblank", time);
