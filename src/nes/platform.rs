@@ -4,6 +4,7 @@ use crate::nes::{
     Nes,
 };
 use pixels::{wgpu::WindowHandle, PixelsBuilder};
+use tracing::error;
 use winit::{
     dpi::LogicalSize,
     event::Event as WinitEvent,
@@ -40,7 +41,7 @@ impl Nes {
                             ))
                             .into(),
                         ) {
-                            log::error!("failed to send load rom message to event_loop: {err:?}");
+                            error!("failed to send load rom message to event_loop: {err:?}");
                         }
                         if let Some(canvas) = get_canvas() {
                             let _ = canvas.focus();
@@ -65,7 +66,7 @@ impl Nes {
                     move |_| {
                         paused = !paused;
                         if let Err(err) = event_proxy.send_event(DeckEvent::Pause(paused).into()) {
-                            log::error!("failed to send pause message to event_loop: {err:?}");
+                            error!("failed to send pause message to event_loop: {err:?}");
                         }
                     }
                 });
@@ -170,7 +171,7 @@ impl BuilderExt for WindowBuilder {
                     winit::window::Icon::from_rgba(png.into_rgba8().into_vec(), width, height)
                         .with_context(|| "failed to create window icon")
                 })
-                .map_err(|err| log::error!("{err:?}"))
+                .map_err(|err| error!("{err:?}"))
                 .ok(),
             )
         }
@@ -226,14 +227,13 @@ impl<'req, 'dev, 'win, W: WindowHandle> BuilderExt for PixelsBuilder<'req, 'dev,
                         .navigator()
                         .gpu()
                         .get_preferred_canvas_format();
-                    // Default is currently Bgra8UnormSrgb and we want Rgba8Unorm but Chrome
-                    // doesn't support it for WebGpu just yet.
+                    // Default is currently Bgra8UnormSrgb but Chrome doesn't support it.
                     match canvas_format {
                         GpuTextureFormat::Bgra8unorm => TextureFormat::Bgra8Unorm,
-                        _ => TextureFormat::Rgba8Unorm,
+                        _ => TextureFormat::Bgra8UnormSrgb,
                     }
                 } else {
-                    TextureFormat::Rgba8Unorm
+                    TextureFormat::Rgba8UnormSrgb
                 };
                 return self.surface_texture_format(texture_format);
             }

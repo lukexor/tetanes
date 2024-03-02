@@ -136,10 +136,12 @@ pub fn load_reader(reader: &mut impl BufRead) -> NesResult<Vec<u8>> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn filename(path: &Path) -> &str {
+    use tracing::warn;
+
     path.file_name()
         .and_then(std::ffi::OsStr::to_str)
         .unwrap_or_else(|| {
-            log::warn!("invalid rom_path: {path:?}");
+            warn!("invalid rom_path: {path:?}");
             "??"
         })
 }

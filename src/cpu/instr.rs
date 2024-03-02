@@ -32,6 +32,7 @@ pub enum AddrMode {
     REL, ACC, IMP,
 }
 
+use tracing::{error, trace};
 use AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY};
 use Operation::{
     ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
@@ -1130,7 +1131,7 @@ impl Cpu {
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::NMI_VECTOR);
-            log::trace!(
+            trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
                 self.bus.ppu.cycle(),
                 self.bus.ppu.scanline(),
@@ -1141,7 +1142,7 @@ impl Cpu {
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::IRQ_VECTOR);
-            log::trace!(
+            trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
                 self.bus.ppu.cycle(),
                 self.bus.ppu.scanline(),
@@ -1149,7 +1150,7 @@ impl Cpu {
             );
         }
         // Prevent NMI from triggering immediately after BRK
-        log::trace!(
+        trace!(
             "Suppress NMI after BRK - PPU:{:3},{:3} CYC:{}, prev_nmi:{}",
             self.bus.ppu.cycle(),
             self.bus.ppu.scanline(),
@@ -1182,7 +1183,7 @@ impl Cpu {
 
     pub(super) fn xxx(&mut self) {
         self.corrupted = true;
-        log::error!(
+        error!(
             "Invalid opcode ${:02X} {:?} #{:?} encountered!",
             self.instr.opcode(),
             self.instr.op(),

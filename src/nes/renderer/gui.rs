@@ -15,6 +15,7 @@ use egui::{
     TopBottomPanel, Ui, Vec2, Window,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{error, info, trace, warn};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 pub const MSG_TIMEOUT: Duration = Duration::from_secs(3);
@@ -89,9 +90,9 @@ impl Gui {
     /// Send a custom event to the event loop.
     pub fn send_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
-        log::trace!("Gui event: {event:?}");
+        trace!("Gui event: {event:?}");
         if let Err(err) = self.event_proxy.send_event(event) {
-            log::error!("failed to send nes event: {err:?}");
+            error!("failed to send nes event: {err:?}");
             std::process::exit(1);
         }
     }
@@ -367,18 +368,16 @@ impl Gui {
         CentralPanel::default()
             .frame(Frame::none())
             .show_inside(ui, |ui| {
-                let frame_resp = ui
-                    .add_sized(
-                        ui.available_size(),
-                        Image::from_texture(self.texture)
-                            .maintain_aspect_ratio(true)
-                            .shrink_to_fit(),
-                    )
-                    .on_hover_cursor(if config.deck.zapper {
+                let image = Image::from_texture(self.texture)
+                    .maintain_aspect_ratio(true)
+                    .shrink_to_fit();
+                let frame_resp = ui.add_sized(ui.available_size(), image).on_hover_cursor(
+                    if config.deck.zapper {
                         CursorIcon::Crosshair
                     } else {
                         CursorIcon::Default
-                    });
+                    },
+                );
                 if config.deck.zapper {
                     if let Some(pos) = frame_resp.hover_pos() {
                         let scale = f32::from(config.scale);
@@ -465,7 +464,7 @@ impl Gui {
     }
 
     fn todo(&mut self, ui: &mut Ui) {
-        log::warn!("not implemented yet");
+        warn!("not implemented yet");
     }
 
     fn open_load_dialog(&mut self) {
@@ -474,7 +473,7 @@ impl Gui {
             .add_filter("nes", &["nes"])
             .pick_file()
         {
-            log::info!("loading rom: {path:?}");
+            info!("loading rom: {path:?}");
             self.load_rom_open = false;
             // Send LoadROM path event
             // self.open_puffin_path(path);

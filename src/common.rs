@@ -193,6 +193,7 @@ pub(crate) mod tests {
         io::{BufReader, BufWriter},
         path::{Path, PathBuf},
     };
+    use tracing::debug;
 
     pub(crate) const RESULT_DIR: &str = "test_results";
 
@@ -277,7 +278,7 @@ pub(crate) mod tests {
 
     fn on_frame_action(test_frame: &TestFrame, deck: &mut ControlDeck) {
         if let Some(action) = test_frame.action {
-            log::debug!("{:?}", action);
+            debug!("{:?}", action);
             match action {
                 Action::Nes(state) => match state {
                     NesState::SoftReset => deck.reset(ResetKind::Soft),
@@ -318,7 +319,7 @@ pub(crate) mod tests {
             let frame_buffer = deck.frame_buffer();
             frame_buffer.hash(&mut hasher);
             let actual = hasher.finish();
-            log::debug!(
+            debug!(
                 "frame : {}, matched: {}",
                 test_frame.number,
                 expected == actual
@@ -353,7 +354,7 @@ pub(crate) mod tests {
             crate::logging::init();
         }
         if !&*INIT_TESTS {
-            log::debug!("Initialized tests");
+            debug!("Initialized tests");
         }
 
         let (test_file, mut tests) = get_rom_tests(directory);
@@ -370,7 +371,7 @@ pub(crate) mod tests {
 
         let mut results = Vec::new();
         for test_frame in test.frames.iter() {
-            log::debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Player::One));
+            debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Player::One));
 
             while deck.frame_number() < test_frame.number {
                 deck.clock_frame().expect("valid frame clock");

@@ -6,6 +6,7 @@ use crate::{
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 pub trait PpuAddr {
     /// Returns whether this value can be used to fetch a nametable attribute byte.
@@ -150,7 +151,7 @@ impl Mem for Bus {
             0x0000..=0x1FFF => self.read_chr(addr, access),
             0x3F00..=0x3FFF => self.read_palette(addr, access),
             _ => {
-                log::error!("unexpected PPU memory access at ${:04X}", addr);
+                error!("unexpected PPU memory access at ${:04X}", addr);
                 0x00
             }
         }
@@ -183,7 +184,7 @@ impl Mem for Bus {
             }
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
-                log::error!("unexpected PPU memory access at ${:04X}", addr);
+                error!("unexpected PPU memory access at ${:04X}", addr);
                 0x00
             }
         }
@@ -217,7 +218,7 @@ impl Mem for Bus {
             0x3F00..=0x3FFF => {
                 self.palette[self.palette_mirror(addr as usize)] = val;
             }
-            _ => log::error!("unexpected PPU memory access at ${:04X}", addr),
+            _ => error!("unexpected PPU memory access at ${:04X}", addr),
         }
         self.mapper.ppu_bus_write(addr, val);
         self.open_bus = val;

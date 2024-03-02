@@ -21,6 +21,7 @@ use instr::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Write};
+use tracing::trace;
 
 pub mod instr;
 
@@ -199,7 +200,7 @@ impl Cpu {
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::NMI_VECTOR);
-            log::trace!(
+            trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
                 self.bus.ppu.cycle(),
                 self.bus.ppu.scanline(),
@@ -210,7 +211,7 @@ impl Cpu {
             self.status.set(Status::I, true);
 
             self.pc = self.read_u16(Self::IRQ_VECTOR);
-            log::trace!(
+            trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
                 self.bus.ppu.cycle(),
                 self.bus.ppu.scanline(),
@@ -660,7 +661,7 @@ impl Cpu {
         let i = if status.contains(Status::I) { 'I' } else { 'i' };
         let z = if status.contains(Status::Z) { 'Z' } else { 'z' };
         let c = if status.contains(Status::C) { 'C' } else { 'c' };
-        log::trace!(
+        trace!(
             "{:<50} A:{acc:02X} X:{x:02X} Y:{y:02X} P:{n}{v}--d{i}{z}{c} SP:{sp:02X} PPU:{ppu_cycle:3},{ppu_scanline:3} CYC:{cycle}",
             self.disassemble(&mut pc),
         );
@@ -853,7 +854,7 @@ impl Reset for Cpu {
     ///
     /// These operations take the CPU 7 cycles.
     fn reset(&mut self, kind: ResetKind) {
-        log::trace!("{:?} RESET", kind);
+        trace!("{:?} RESET", kind);
 
         match kind {
             ResetKind::Soft => {

@@ -19,6 +19,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -818,7 +819,7 @@ impl MemMap for Exrom {
                     2 => PrgMode::Bank16_8k,
                     3 => PrgMode::Bank8k,
                     _ => {
-                        log::warn!("invalid PrgMode value: ${:02X}", val);
+                        warn!("invalid PrgMode value: ${:02X}", val);
                         self.regs.prg_mode
                     }
                 };
@@ -836,7 +837,7 @@ impl MemMap for Exrom {
                         2 => ChrMode::Bank2k,
                         3 => ChrMode::Bank1k,
                         _ => {
-                            log::warn!("invalid ChrMode value: ${:02X}", val);
+                            warn!("invalid ChrMode value: ${:02X}", val);
                             self.regs.chr_mode
                         }
                     };

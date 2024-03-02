@@ -22,9 +22,10 @@ use tetanes::{
     nes::{config::Config, Nes},
     platform, profiling, NesResult,
 };
+use tracing::debug;
 
 fn main() -> NesResult<()> {
-    logging::init();
+    let _log_guard = logging::init();
     profiling::init();
 
     #[cfg(target_arch = "wasm32")]
@@ -34,7 +35,7 @@ fn main() -> NesResult<()> {
         use clap::Parser;
 
         let opts = ConfigOpts::parse();
-        log::debug!("CLI Options: {opts:?}");
+        debug!("CLI Options: {opts:?}");
 
         let config = Config::load(opts.config.clone());
         opts.extend(config)?

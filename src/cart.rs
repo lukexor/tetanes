@@ -19,6 +19,7 @@ use std::{
     io::{BufReader, Read},
     path::Path,
 };
+use tracing::{debug, info};
 
 const PRG_ROM_BANK_SIZE: usize = 0x4000;
 const CHR_ROM_BANK_SIZE: usize = 0x2000;
@@ -158,8 +159,8 @@ impl Cart {
             _ => bail!("unimplemented mapper: {}", cart.header.mapper_num),
         };
 
-        log::info!("loaded ROM `{cart}`");
-        log::debug!("{cart:?}");
+        info!("loaded ROM `{cart}`");
+        debug!("{cart:?}");
         Ok(cart)
     }
 

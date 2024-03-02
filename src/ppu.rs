@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sprite::Sprite;
 use status::Status;
 use std::cmp::Ordering;
+use tracing::trace;
 
 pub mod bus;
 pub mod ctrl;
@@ -306,11 +307,11 @@ impl Ppu {
     }
 
     fn start_vblank(&mut self) {
-        log::trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
+        trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
             self.nmi_pending = self.ctrl.nmi_enabled;
-            log::trace!(
+            trace!(
                 "({}, {}): VBL NMI: {}",
                 self.cycle,
                 self.scanline,
@@ -323,7 +324,7 @@ impl Ppu {
     }
 
     fn stop_vblank(&mut self) {
-        log::trace!(
+        trace!(
             "({}, {}): Clear VBL flag, Sprite0 Hit, Overflow",
             self.cycle,
             self.scanline
@@ -763,7 +764,7 @@ impl Ppu {
                 {
                     // NTSC behavior while rendering - each odd PPU frame is one clock shorter
                     // (skipping from 339 over 340 to 0)
-                    log::trace!(
+                    trace!(
                         "({cycle}, {scanline}): Skipped odd frame cycle: {}",
                         self.frame_number()
                     );
@@ -826,7 +827,7 @@ impl Registers for Ppu {
         self.ctrl.write(val);
         self.scroll.write_nametable_select(val);
 
-        log::trace!(
+        trace!(
             "({}, {}): $2000 NMI Enabled: {}",
             self.cycle,
             self.scanline,
@@ -836,10 +837,10 @@ impl Registers for Ppu {
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
         // multiple times, causing multiple NMIs to be generated.
         if !self.ctrl.nmi_enabled {
-            log::trace!("({}, {}): $2000 NMI Disable", self.cycle, self.scanline);
+            trace!("({}, {}): $2000 NMI Disable", self.cycle, self.scanline);
             self.nmi_pending = false;
         } else if self.status.in_vblank {
-            log::trace!("({}, {}): $2000 NMI During VBL", self.cycle, self.scanline);
+            trace!("({}, {}): $2000 NMI During VBL", self.cycle, self.scanline);
             self.nmi_pending = true;
         }
     }
@@ -869,7 +870,7 @@ impl Registers for Ppu {
 
     fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
-        log::trace!(
+        trace!(
             "({}, {}): $2002 NMI Ack - pending: {}",
             self.cycle,
             self.scanline,
@@ -882,7 +883,7 @@ impl Registers for Ppu {
         if self.scanline == self.vblank_scanline && self.cycle == Self::VBLANK - 1 {
             // Reading PPUSTATUS one clock before the start of vertical blank will read as clear
             // and never set the flag or generate an NMI for that frame
-            log::trace!("({}, {}): $2002 Prevent VBL", self.cycle, self.scanline);
+            trace!("({}, {}): $2002 Prevent VBL", self.cycle, self.scanline);
             self.prevent_vbl = true;
         }
         self.open_bus |= status & 0xE0;

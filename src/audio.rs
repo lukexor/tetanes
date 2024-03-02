@@ -9,6 +9,7 @@ use cpal::{
 };
 use ringbuf::{HeapRb, Producer};
 use std::{fmt, iter, sync::Arc};
+use tracing::{debug, enabled, info, trace, Level};
 
 pub mod filter;
 pub mod window_sinc;
@@ -118,7 +119,7 @@ impl Mixer {
             }
             let len = producer.free_len().min(self.processed_samples.len());
             let queued_samples = producer.push_iter(&mut self.processed_samples.drain(..len));
-            log::trace!("queued: {queued_samples}, buffer len: {}", producer.len());
+            trace!("queued: {queued_samples}, buffer len: {}", producer.len());
         }
         Ok(())
     }
@@ -201,7 +202,7 @@ impl Mixer {
         let device = host
             .default_output_device()
             .ok_or_else(|| anyhow!("no available audio devices found"))?;
-        log::debug!(
+        debug!(
             "device name: {}",
             device
                 .name()
@@ -284,7 +285,7 @@ impl Mixer {
         };
         let chosen_config = supported_configs
             .find(|config| {
-                log::debug!("supported config: {config:?}");
+                debug!("supported config: {config:?}");
                 let supports_sample_rate = config.max_sample_rate() >= desired_sample_rate;
                 let supports_sample_format = config.sample_format() == SampleFormat::F32;
                 let supports_buffer_size = match config.buffer_size() {
@@ -296,16 +297,14 @@ impl Mixer {
                 supports_sample_rate && supports_sample_format && supports_buffer_size
             })
             .or_else(|| {
-                log::debug!("falling back to first supported output");
+                debug!("falling back to first supported output");
                 device
                     .supported_output_configs()
                     .ok()
                     .and_then(|mut c| c.next())
             })
             .map(|config| {
-                log::debug!(
-                    "desired sample rate: {desired_sample_rate:?}, chosen config: {config:?}"
-                );
+                debug!("desired sample rate: {desired_sample_rate:?}, chosen config: {config:?}");
                 let min_sample_rate = config.min_sample_rate();
                 let max_sample_rate = config.max_sample_rate();
                 config.with_sample_rate(desired_sample_rate.clamp(min_sample_rate, max_sample_rate))
@@ -325,7 +324,7 @@ impl Mixer {
     where
         T: SizedSample + FromSample<f32>,
     {
-        log::info!("creating audio stream with config: {config:?}");
+        info!("creating audio stream with config: {config:?}");
 
         self.processed_samples.reserve(self.sample_latency);
         let buffer = HeapRb::<f32>::new(self.processed_samples.capacity().next_power_of_two());
@@ -337,11 +336,11 @@ impl Mixer {
             move |out: &mut [T], _info| {
                 profile!("audio callback");
 
-                if log::log_enabled!(log::Level::Debug) && out.len() > consumer.len() {
-                    log::debug!("audio underrun: {} < {}", consumer.len(), out.len());
+                if enabled!(Level::DEBUG) && out.len() > consumer.len() {
+                    debug!("audio underrun: {} < {}", consumer.len(), out.len());
                 }
 
-                log::trace!("playing audio samples: {}", out.len().min(consumer.len()));
+                trace!("playing audio samples: {}", out.len().min(consumer.len()));
                 for (sample, value) in out
                     .iter_mut()
                     .zip(consumer.pop_iter().chain(iter::repeat(0.0)))

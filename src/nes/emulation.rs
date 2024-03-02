@@ -19,6 +19,7 @@ use std::{
     path::PathBuf,
     thread::{self, JoinHandle},
 };
+use tracing::{debug, error, trace};
 use winit::{
     event::{ElementState, Event as WinitEvent, WindowEvent},
     event_loop::{EventLoop, EventLoopProxy},
@@ -94,15 +95,15 @@ impl State {
 
     pub fn send_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
-        log::trace!("Emulation event: {event:?}");
+        trace!("Emulation event: {event:?}");
         if let Err(err) = self.event_proxy.send_event(event) {
-            log::error!("failed to send emulation event: {err:?}");
+            error!("failed to send emulation event: {err:?}");
             std::process::exit(1);
         }
     }
 
     pub fn on_error(&mut self, err: NesError) {
-        log::error!("Emulation error: {err:?}");
+        error!("Emulation error: {err:?}");
         self.add_message(err);
     }
 
@@ -344,7 +345,7 @@ impl State {
     fn sleep(&self) {
         profile!("sleep");
         let timeout = self.remaining_frame_time();
-        log::trace!("sleeping for {:.4}s", timeout.as_secs_f32());
+        trace!("sleeping for {:.4}s", timeout.as_secs_f32());
         thread::park_timeout(timeout);
     }
 
@@ -362,7 +363,7 @@ impl State {
         self.last_frame_time = Instant::now();
         self.frame_time_accumulator += last_frame_duration.as_secs_f32();
         self.send_event(RendererEvent::Frame(last_frame_duration));
-        log::trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
+        trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
 
         // TODO: fix rewind
         // if self.rewinding {
@@ -371,7 +372,7 @@ impl State {
 
         let secs_per_frame = self.config.target_frame_duration.as_secs_f32();
         while self.should_clock_frame() {
-            log::trace!(
+            trace!(
                 "queued_audio_time: {:.4}s",
                 self.mixer.queued_time().as_secs_f32()
             );
@@ -396,14 +397,14 @@ impl State {
                 }
             }
             self.frame_time_accumulator -= secs_per_frame;
-            log::trace!("clock: {:.4}s", start.elapsed().as_secs_f32());
+            trace!("clock: {:.4}s", start.elapsed().as_secs_f32());
         }
 
         if let Ok(mut frame) = self.frame_pool.push_ref() {
             let start = Instant::now();
             frame.clear();
             frame.extend_from_slice(self.control_deck.frame_buffer());
-            log::trace!("copy: {:.4}s", start.elapsed().as_secs_f32());
+            trace!("copy: {:.4}s", start.elapsed().as_secs_f32());
         }
 
         self.sleep();
@@ -444,7 +445,7 @@ impl Multi {
         config: Config,
         rx: channel::Receiver<WinitEvent<Event>>,
     ) {
-        log::debug!("emulation thread started");
+        debug!("emulation thread started");
         let mut state = State::new(frame_pool, event_proxy, config); // Has to be created on the thread, since
         loop {
             profile!();
@@ -501,7 +502,7 @@ impl Emulation {
                 Threads::Multi(Multi { tx, handle }) => {
                     handle.thread().unpark();
                     if let Err(err) = tx.try_send(event.clone()) {
-                        log::error!("failed to send event to emulation thread: {event:?}. {err:?}");
+                        error!("failed to send event to emulation thread: {event:?}. {err:?}");
                         std::process::exit(1);
                     }
                 }

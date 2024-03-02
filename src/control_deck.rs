@@ -17,6 +17,7 @@ use crate::{
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, io::Read, path::PathBuf};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
@@ -184,7 +185,7 @@ impl ControlDeck {
 
         let path = path.as_ref();
         let filename = filesystem::filename(path);
-        log::info!("loading ROM: {filename}");
+        info!("loading ROM: {filename}");
         File::open(path)
             .with_context(|| format!("failed to open rom {path:?}"))
             .and_then(|mut rom| self.load_rom(filename, &mut rom, config))
@@ -238,7 +239,7 @@ impl ControlDeck {
     pub fn save_sram(&self, config: Option<&Config>) -> NesResult<()> {
         if let Some(true) = self.cart_battery_backed() {
             if let Some(sram_path) = self.sram_path(config) {
-                log::info!("saving SRAM...");
+                info!("saving SRAM...");
                 filesystem::save_data(sram_path, self.cpu.bus.sram())?;
             }
         }
@@ -249,7 +250,7 @@ impl ControlDeck {
     pub fn load_sram(&mut self, config: Option<&Config>) -> NesResult<()> {
         if let Some(sram_path) = self.sram_path(config) {
             if sram_path.exists() {
-                log::info!("loading SRAM...");
+                info!("loading SRAM...");
                 filesystem::load_data(&sram_path).map(|data| self.cpu.bus.load_sram(data))?;
             }
         }

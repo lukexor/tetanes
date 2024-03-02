@@ -9,6 +9,7 @@ pub mod thread {
     use super::time::Duration;
     use crate::NesResult;
     use std::future::Future;
+    use tracing::error;
 
     /// Spawn a future to be run until completion.
     pub fn spawn<F>(future: F) -> NesResult<()>
@@ -17,7 +18,7 @@ pub mod thread {
     {
         let execute = async {
             if let Err(err) = future.await {
-                log::error!("spawned future failed: {err:?}");
+                error!("spawned future failed: {err:?}");
             }
         };
 

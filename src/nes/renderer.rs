@@ -18,8 +18,7 @@ use egui::{
 };
 use pixels::{
     wgpu::{
-        FilterMode, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
-        TextureViewDescriptor,
+        FilterMode, LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureViewDescriptor
     },
     Pixels, PixelsBuilder, SurfaceTexture,
 };
@@ -31,6 +30,7 @@ use winit::{
     event_loop::EventLoop,
     window::{Theme, Window},
 };
+use tracing::{error, info};
 
 pub mod gui;
 
@@ -86,11 +86,12 @@ impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub async fn initialize(
         event_loop: &EventLoop<Event>,
-        window: &'static Window,
+        window: Arc<Window>,
         frame_pool: BufferPool,
         config: &Config,
     ) -> NesResult<Self> {
         let mut window_size = window.inner_size();
+        let scale_factor = window.scale_factor() as f32;
         if window_size.width == 0 {
             let scale_factor = window.scale_factor();
             let (width, height) = config.dimensions();
@@ -102,8 +103,6 @@ impl Renderer {
             .with_platform()
             .build_async()
             .await?;
-        let window_size = window.inner_size();
-        let scale_factor = window.scale_factor() as f32;
         let ctx = Context::default();
 
         let egui_state = egui_winit::State::new(
@@ -285,7 +284,7 @@ impl Nes {
         S: Into<String>,
     {
         let text = text.into();
-        log::info!("{text}");
+        info!("{text}");
         self.renderer
             .gui
             .messages
@@ -294,7 +293,7 @@ impl Nes {
 
     pub fn on_error(&mut self, err: NesError) {
         self.send_event(DeckEvent::Pause(true));
-        log::error!("{err:?}");
+        error!("{err:?}");
         self.renderer.gui.error = Some(err.to_string());
     }
 }

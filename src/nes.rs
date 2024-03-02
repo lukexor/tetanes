@@ -15,18 +15,21 @@ use winit::{
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
 };
+use std::sync::Arc;
 
 pub mod config;
 pub mod emulation;
 pub mod event;
 pub mod platform;
 pub mod renderer;
+#[cfg(target_arch = "wasm32")]
+pub mod web;
 
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
 pub struct Nes {
     config: Config,
-    window: &'static Window,
+    window: Arc<Window>,
     event_proxy: EventLoopProxy<Event>,
     emulation: Emulation,
     // controllers: [Option<DeviceId>; 4],
@@ -52,10 +55,10 @@ impl Nes {
 
     /// Initializes the NES emulation.
     async fn initialize(config: Config, event_loop: &EventLoop<Event>) -> NesResult<Self> {
-        let window = Box::leak(Box::new(Nes::initialize_window(event_loop, &config)?));
+        let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
         let frame_pool = BufferPool::new();
         let emulation = Emulation::initialize(event_loop, frame_pool.clone(), config.clone())?;
-        let renderer = Renderer::initialize(event_loop, window, frame_pool, &config).await?;
+        let renderer = Renderer::initialize(event_loop, Arc::clone(&window), frame_pool, &config).await?;
 
         let mut nes = Self {
             config,

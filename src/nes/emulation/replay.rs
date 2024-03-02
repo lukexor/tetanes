@@ -6,6 +6,7 @@ use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
 };
+use tracing::{info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct State((Cpu, Vec<ReplayEvent>));
@@ -81,7 +82,7 @@ impl Replay {
                 .to_string(),
         )
         .with_extension("replay");
-        log::info!("saving replay to {replay_path:?}...",);
+        info!("saving replay to {replay_path:?}...",);
         bincode::serialize(&State((cpu, events)))
             .context("failed to serialize replay recording")
             .and_then(|data| filesystem::save_data(replay_path, &data))
@@ -90,7 +91,7 @@ impl Replay {
     /// Loads a replay recording file.
     pub fn load(&mut self, path: impl AsRef<Path>) -> NesResult<()> {
         let path = path.as_ref();
-        log::info!("loading replay {}...", path.display());
+        info!("loading replay {}...", path.display());
         filesystem::load_data(path).and_then(|data| {
             bincode::deserialize::<State>(&data)
                 .context("failed to deserialize replay recording")
@@ -107,7 +108,7 @@ impl Replay {
                 Some(event) => match event.frame.cmp(&frame) {
                     Ordering::Less | Ordering::Equal => {
                         if event.frame < frame {
-                            log::warn!("out of order replay event: {} < {frame}", event.frame);
+                            warn!("out of order replay event: {} < {frame}", event.frame);
                         }
                         return events.pop().map(|event| event.event);
                     }

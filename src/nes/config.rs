@@ -13,6 +13,7 @@ use crate::{
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tracing::info;
 
 // https://www.nesdev.org/wiki/Overscan
 pub const NTSC_RATIO: f32 = 8.0 / 7.0;
@@ -443,6 +444,7 @@ impl Config {
     pub fn save(&self) -> NesResult<()> {
         use anyhow::Context;
         use std::fs::{self, File};
+        use tracing::info;
 
         if !self.deck.save_on_exit {
             return Ok(());
@@ -455,7 +457,7 @@ impl Config {
                     self.deck.dir.display()
                 )
             })?;
-            log::info!("created config directory: {}", self.deck.dir.display());
+            info!("created config directory: {}", self.deck.dir.display());
         }
 
         let path = self.deck.dir.join(Self::FILENAME);
@@ -464,13 +466,13 @@ impl Config {
             .and_then(|file| {
                 serde_json::to_writer_pretty(file, &self).context("failed to serialize config")
             })?;
-        log::info!("Saved configuration");
+        info!("Saved configuration");
         Ok(())
     }
 
     #[cfg(target_arch = "wasm32")]
     pub fn load() -> Self {
-        log::info!("Loading default configuration");
+        info!("Loading default configuration");
         // TODO: Load from local storage?
         Self::default()
     }
@@ -479,20 +481,21 @@ impl Config {
     pub fn load(path: Option<PathBuf>) -> Self {
         use anyhow::Context;
         use std::fs::File;
+        use tracing::{error, info};
 
         let path = path.unwrap_or_else(|| DeckConfig::default_dir().join(Self::FILENAME));
         let mut config = if path.exists() {
-            log::info!("Loading saved configuration");
+            info!("Loading saved configuration");
             File::open(&path)
                 .with_context(|| format!("failed to open {path:?}"))
                 .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
                 .with_context(|| format!("failed to parse {path:?}"))
                 .unwrap_or_else(|err| {
-                    log::error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
+                    error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
                     Self::default()
                 })
         } else {
-            log::info!("Loading default configuration");
+            info!("Loading default configuration");
             Self::default()
         };
 
@@ -523,7 +526,7 @@ impl Config {
         self.target_frame_duration = Duration::from_secs_f32(
             (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
         );
-        log::info!(
+        info!(
             "Updated frame rate based on NES Region: {region:?} ({:?}Hz)",
             self.frame_rate,
         );

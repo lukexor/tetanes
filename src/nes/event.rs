@@ -18,6 +18,7 @@ use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
 };
+use tracing::{debug, error, trace};
 use winit::{
     dpi::LogicalSize,
     event::{ElementState, Event as WinitEvent, Modifiers, MouseButton, WindowEvent},
@@ -164,7 +165,6 @@ pub struct State {
     pub modifiers: Modifiers,
     pub occluded: bool,
     pub paused: bool,
-    pub quitting: bool,
 }
 
 impl Nes {
@@ -176,16 +176,13 @@ impl Nes {
         profile!();
 
         window_target.set_control_flow(ControlFlow::Poll);
-        if self.event_state.quitting {
-            window_target.exit();
-        }
 
         if let Err(err) = self.emulation.on_event(&event) {
             self.on_error(err);
         }
         if let Err(err) = self
             .renderer
-            .on_event(self.window, &event, &mut self.config)
+            .on_event(&self.window, &event, &mut self.config)
         {
             self.on_error(err);
         }
@@ -199,9 +196,9 @@ impl Nes {
                         window_target.exit();
                     }
                 }
-                WindowEvent::RedrawRequested if !self.event_state.occluded => {
+                WindowEvent::RedrawRequested => {
                     if let Err(err) = self.renderer.request_redraw(
-                        self.window,
+                        &self.window,
                         self.event_state.paused,
                         &mut self.config,
                     ) {
@@ -238,7 +235,7 @@ impl Nes {
             WinitEvent::UserEvent(Event::Nes(event)) => match event {
                 NesEvent::Message(msg) => self.add_message(msg),
                 NesEvent::Error(err) => self.on_error(anyhow!(err)),
-                NesEvent::Terminate => self.event_state.quitting = true,
+                NesEvent::Terminate => window_target.exit(),
                 NesEvent::SetTitle(title) => self.window.set_title(&title),
                 NesEvent::ResizeWindow((inner_size, min_inner_size)) => {
                     let _ = self.window.request_inner_size(inner_size);
@@ -253,7 +250,7 @@ impl Nes {
                 #[cfg(feature = "profiling")]
                 crate::profiling::enable(false);
                 if let Err(err) = self.config.save() {
-                    log::error!("failed to save config: {err:?}");
+                    error!("failed to save config: {err:?}");
                 }
             }
             // WinitEvent::DeviceEvent { device_id, event } => todo!(),
@@ -288,9 +285,9 @@ impl Nes {
     /// Send a custom event to the event loop.
     pub fn send_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
-        log::debug!("Nes event: {event:?}");
+        debug!("Nes event: {event:?}");
         if let Err(err) = self.event_proxy.send_event(event) {
-            log::error!("failed to send nes event: {err:?}");
+            error!("failed to send nes event: {err:?}");
             std::process::exit(1);
         }
     }
@@ -298,9 +295,7 @@ impl Nes {
     /// Handle user input mapped to key bindings.
     pub fn on_input(&mut self, input: Input, state: ElementState, repeat: bool) {
         if let Some((player, action)) = self.config.input_map.get(&input).copied() {
-            log::trace!(
-                "player: {player:?}, action: {action:?}, state: {state:?}, repeat: {repeat:?}"
-            );
+            trace!("player: {player:?}, action: {action:?}, state: {state:?}, repeat: {repeat:?}");
             let released = state == ElementState::Released;
             match action {
                 Action::Nes(nes_state) if released => match nes_state {
