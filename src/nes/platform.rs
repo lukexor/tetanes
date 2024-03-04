@@ -3,7 +3,6 @@ use crate::nes::{
     event::{DeckEvent, RomData},
     Nes,
 };
-use pixels::{wgpu::WindowHandle, PixelsBuilder};
 use tracing::error;
 use winit::{
     dpi::LogicalSize,
@@ -186,7 +185,7 @@ pub trait WindowExt {
 
 impl WindowExt for Config {
     fn inner_dimensions(&self) -> (LogicalSize<f32>, LogicalSize<f32>) {
-        let (width, height) = self.dimensions();
+        let (width, height) = self.window_dimensions();
         let scale = f32::from(self.scale);
         (
             LogicalSize::new(width, height),
@@ -208,37 +207,5 @@ impl WindowExt for Config {
                 min_inner_size.height + y / scale,
             ),
         )
-    }
-}
-
-impl<'req, 'dev, 'win, W: WindowHandle> BuilderExt for PixelsBuilder<'req, 'dev, 'win, W> {
-    /// Sets platform-specific pixels options.
-    fn with_platform(self) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        {
-            use pixels::wgpu::TextureFormat;
-            use web_sys::GpuTextureFormat;
-
-            if let Some(canvas) = get_canvas() {
-                let webgpu_context = canvas.get_context("webgpu").ok().flatten();
-                let texture_format = if webgpu_context.is_some() {
-                    let canvas_format = web_sys::window()
-                        .expect("valid window")
-                        .navigator()
-                        .gpu()
-                        .get_preferred_canvas_format();
-                    // Default is currently Bgra8UnormSrgb but Chrome doesn't support it.
-                    match canvas_format {
-                        GpuTextureFormat::Bgra8unorm => TextureFormat::Bgra8Unorm,
-                        _ => TextureFormat::Bgra8UnormSrgb,
-                    }
-                } else {
-                    TextureFormat::Rgba8UnormSrgb
-                };
-                return self.surface_texture_format(texture_format);
-            }
-        }
-
-        self
     }
 }

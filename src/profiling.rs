@@ -4,7 +4,7 @@
 // static TIMER_FREQ: Lazy<f64> = Lazy::new(|| estimated_cpu_timer_freq() as f64);
 
 pub static mut EVENT_LOG: Vec<(&'static str, u64, u64)> = Vec::new();
-pub static mut LAST_PRINT: std::time::SystemTime = std::time::UNIX_EPOCH;
+// pub static mut LAST_PRINT: std::time::SystemTime = std::time::UNIX_EPOCH;
 
 pub fn start(name: &'static str) -> u64 {
     // #[cfg(feature = "profiling")]

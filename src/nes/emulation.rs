@@ -328,17 +328,20 @@ impl State {
     }
 
     pub fn remaining_frame_time(&self) -> Duration {
-        self.mixer
-            .queued_time()
-            .saturating_sub(self.config.audio_latency)
+        if self.config.audio_enabled {
+            self.mixer
+                .queued_time()
+                .saturating_sub(self.config.audio_latency)
+        } else {
+            self.last_frame_time + self.config.target_frame_duration - Instant::now()
+        }
     }
 
-    fn should_clock_frame(&mut self) -> bool {
+    fn should_clock_frame(&mut self, frame_duration_seconds: f32) -> bool {
         if self.config.audio_enabled {
             self.mixer.queued_time() <= self.config.audio_latency
         } else {
-            let secs_per_frame = self.config.target_frame_duration.as_secs_f32();
-            self.frame_time_accumulator >= secs_per_frame
+            self.frame_time_accumulator >= frame_duration_seconds
         }
     }
 
@@ -370,8 +373,8 @@ impl State {
         //     self.rewind();
         // }
 
-        let secs_per_frame = self.config.target_frame_duration.as_secs_f32();
-        while self.should_clock_frame() {
+        let frame_duration_seconds = self.config.target_frame_duration.as_secs_f32();
+        while self.should_clock_frame(frame_duration_seconds) {
             trace!(
                 "queued_audio_time: {:.4}s",
                 self.mixer.queued_time().as_secs_f32()
@@ -396,7 +399,7 @@ impl State {
                     self.pause(true);
                 }
             }
-            self.frame_time_accumulator -= secs_per_frame;
+            self.frame_time_accumulator -= frame_duration_seconds;
             trace!("clock: {:.4}s", start.elapsed().as_secs_f32());
         }
 

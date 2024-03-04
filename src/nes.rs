@@ -11,11 +11,11 @@ use crate::{
     },
     profile, NesResult,
 };
+use std::sync::Arc;
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
 };
-use std::sync::Arc;
 
 pub mod config;
 pub mod emulation;
@@ -58,7 +58,8 @@ impl Nes {
         let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
         let frame_pool = BufferPool::new();
         let emulation = Emulation::initialize(event_loop, frame_pool.clone(), config.clone())?;
-        let renderer = Renderer::initialize(event_loop, Arc::clone(&window), frame_pool, &config).await?;
+        let renderer =
+            Renderer::initialize(event_loop, Arc::clone(&window), frame_pool, &config).await?;
 
         let mut nes = Self {
             config,

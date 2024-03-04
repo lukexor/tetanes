@@ -350,9 +350,6 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn test_rom(directory: &str, test_name: &str) {
-        if env::var("RUST_LOG").is_ok() {
-            crate::logging::init();
-        }
         if !&*INIT_TESTS {
             debug!("Initialized tests");
         }

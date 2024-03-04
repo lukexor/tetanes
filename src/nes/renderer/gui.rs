@@ -15,7 +15,7 @@ use egui::{
     TopBottomPanel, Ui, Vec2, Window,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, trace, warn};
+use tracing::{error, trace, warn};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 pub const MSG_TIMEOUT: Duration = Duration::from_secs(3);
@@ -369,7 +369,7 @@ impl Gui {
             .frame(Frame::none())
             .show_inside(ui, |ui| {
                 let image = Image::from_texture(self.texture)
-                    .maintain_aspect_ratio(true)
+                    .maintain_aspect_ratio(false)
                     .shrink_to_fit();
                 let frame_resp = ui.add_sized(ui.available_size(), image).on_hover_cursor(
                     if config.deck.zapper {
@@ -473,7 +473,7 @@ impl Gui {
             .add_filter("nes", &["nes"])
             .pick_file()
         {
-            info!("loading rom: {path:?}");
+            tracing::info!("loading rom: {path:?}");
             self.load_rom_open = false;
             // Send LoadROM path event
             // self.open_puffin_path(path);

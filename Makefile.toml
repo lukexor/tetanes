@@ -78,7 +78,7 @@ description = "Build TetaNES Web"
 category = "Build"
 workspace = false
 command = "cargo"
-args = ["run-wasm", "--bin", "nes", "--build-only", "--profile", "dist-web", "--no-default-features"]
+args = ["run-wasm", "--bin", "nes", "--build-only", "--profile", "dist", "--no-default-features"]
 dependencies = ["install-web-deps"]
 
 [tasks.run-web]
@@ -94,5 +94,5 @@ description = "Run TetaNES Web in development mode"
 category = "Development"
 workspace = false
 command = "cargo"
-args = ["watch", "-s", "cargo run-wasm --bin nes --features console_log"]
+args = ["watch", "-s", "cargo run-wasm --bin nes"]
 dependencies = ["install-web-deps"]

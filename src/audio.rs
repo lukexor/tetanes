@@ -9,7 +9,7 @@ use cpal::{
 };
 use ringbuf::{HeapRb, Producer};
 use std::{fmt, iter, sync::Arc};
-use tracing::{debug, enabled, info, trace, Level};
+use tracing::{debug, enabled, info, trace, warn, Level};
 
 pub mod filter;
 pub mod window_sinc;
@@ -337,7 +337,7 @@ impl Mixer {
                 profile!("audio callback");
 
                 if enabled!(Level::DEBUG) && out.len() > consumer.len() {
-                    debug!("audio underrun: {} < {}", consumer.len(), out.len());
+                    warn!("audio underrun: {} < {}", consumer.len(), out.len());
                 }
 
                 trace!("playing audio samples: {}", out.len().min(consumer.len()));

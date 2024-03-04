@@ -540,12 +540,21 @@ impl Config {
     }
 
     #[must_use]
-    pub fn dimensions(&self) -> (f32, f32) {
+    pub fn window_dimensions(&self) -> (f32, f32) {
         let scale = f32::from(self.scale);
-        (
-            scale * Ppu::WIDTH as f32 * self.aspect_ratio,
-            scale * Ppu::HEIGHT as f32,
-        )
+        let (width, height) = self.texture_dimensions();
+        (scale * width * self.aspect_ratio, scale * height)
+    }
+
+    #[must_use]
+    pub fn texture_dimensions(&self) -> (f32, f32) {
+        let width = Ppu::WIDTH;
+        let height = if self.hide_overscan {
+            Ppu::HEIGHT - 16
+        } else {
+            Ppu::HEIGHT
+        };
+        (width as f32, height as f32)
     }
 }
 

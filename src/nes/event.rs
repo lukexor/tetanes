@@ -175,8 +175,6 @@ impl Nes {
     ) {
         profile!();
 
-        window_target.set_control_flow(ControlFlow::Poll);
-
         if let Err(err) = self.emulation.on_event(&event) {
             self.on_error(err);
         }
@@ -211,6 +209,8 @@ impl Nes {
                         self.send_event(DeckEvent::Occluded(self.event_state.occluded));
                         if self.event_state.occluded {
                             window_target.set_control_flow(ControlFlow::Wait);
+                        } else {
+                            window_target.set_control_flow(ControlFlow::Poll);
                         }
                     }
                 }
