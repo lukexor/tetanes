@@ -1,4 +1,4 @@
-use crate::{cpu::Cpu, filesystem, nes::event::DeckEvent, NesResult};
+use crate::{cpu::Cpu, filesystem, nes::event::EmulationEvent, NesResult};
 use anyhow::Context;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ pub struct State((Cpu, Vec<ReplayEvent>));
 #[must_use]
 pub struct ReplayEvent {
     pub frame: u32,
-    pub event: DeckEvent,
+    pub event: EmulationEvent,
 }
 
 /// Represents which mode the emulator is in for the Replay feature.
@@ -66,9 +66,12 @@ impl Replay {
         }
     }
 
-    pub fn record(&mut self, frame: u32, event: DeckEvent) {
+    pub fn record(&mut self, frame: u32, event: EmulationEvent) {
         if let Mode::Recording(State((_, ref mut events))) = self.mode {
-            if matches!(event, DeckEvent::Joypad(..) | DeckEvent::ZapperTrigger) {
+            if matches!(
+                event,
+                EmulationEvent::Joypad(..) | EmulationEvent::ZapperTrigger
+            ) {
                 events.push(ReplayEvent { frame, event });
             }
         }
@@ -102,7 +105,7 @@ impl Replay {
         })
     }
 
-    pub fn next(&mut self, frame: u32) -> Option<DeckEvent> {
+    pub fn next(&mut self, frame: u32) -> Option<EmulationEvent> {
         if let Mode::Playback(State((_, ref mut events))) = self.mode {
             match events.last() {
                 Some(event) => match event.frame.cmp(&frame) {

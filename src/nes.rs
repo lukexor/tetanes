@@ -5,7 +5,7 @@ use crate::{
     nes::{
         config::Config,
         emulation::Emulation,
-        event::Event,
+        event::State,
         platform::{BuilderExt, EventLoopExt, WindowExt},
         renderer::{BufferPool, Renderer},
     },
@@ -13,7 +13,7 @@ use crate::{
 };
 use std::sync::Arc;
 use winit::{
-    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
+    event_loop::EventLoop,
     window::{Fullscreen, Window, WindowBuilder},
 };
 
@@ -22,19 +22,16 @@ pub mod emulation;
 pub mod event;
 pub mod platform;
 pub mod renderer;
-#[cfg(target_arch = "wasm32")]
-pub mod web;
 
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
 pub struct Nes {
     config: Config,
     window: Arc<Window>,
-    event_proxy: EventLoopProxy<Event>,
     emulation: Emulation,
-    // controllers: [Option<DeviceId>; 4],
     renderer: Renderer,
-    event_state: event::State,
+    state: State,
+    // controllers: [Option<DeviceId>; 4],
     // paths: Vec<PathBuf>,
     // selected_path: usize,
 }
@@ -47,36 +44,38 @@ impl Nes {
     /// If engine fails to build or run, then an error is returned.
     pub async fn run(config: Config) -> NesResult<()> {
         // Set up window, events and NES state
-        let event_loop = EventLoopBuilder::<Event>::with_user_event().build()?;
+        let event_loop = EventLoop::new()?;
         let mut nes = Nes::initialize(config, &event_loop).await?;
         event_loop.run_platform(move |event, window_target| nes.on_event(event, window_target))?;
+
         Ok(())
     }
 
     /// Initializes the NES emulation.
-    async fn initialize(config: Config, event_loop: &EventLoop<Event>) -> NesResult<Self> {
+    async fn initialize(config: Config, event_loop: &EventLoop<()>) -> NesResult<Self> {
         let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
         let frame_pool = BufferPool::new();
-        let emulation = Emulation::initialize(event_loop, frame_pool.clone(), config.clone())?;
+        let state = State::new();
+        let emulation =
+            Emulation::initialize(state.tx.clone(), frame_pool.clone(), config.clone())?;
         let renderer =
-            Renderer::initialize(event_loop, Arc::clone(&window), frame_pool, &config).await?;
+            Renderer::initialize(state.tx.clone(), Arc::clone(&window), frame_pool, &config)
+                .await?;
 
         let mut nes = Self {
             config,
             window,
-            event_proxy: event_loop.create_proxy(),
             emulation,
-            // controllers: [None; 4],
             renderer,
-            event_state: event::State::default(),
+            state,
         };
+        nes.initialize_platform()?;
 
-        nes.initialize_platform();
         Ok(nes)
     }
 
     /// Initializes the window in a platform agnostic way.
-    pub fn initialize_window(event_loop: &EventLoop<Event>, config: &Config) -> NesResult<Window> {
+    pub fn initialize_window(event_loop: &EventLoop<()>, config: &Config) -> NesResult<Window> {
         let (inner_size, min_inner_size) = config.inner_dimensions();
         let window_builder = WindowBuilder::new();
         let window_builder = window_builder
@@ -99,6 +98,5 @@ impl Nes {
         if let Err(err) = self.emulation.request_clock_frame() {
             self.on_error(err);
         }
-        self.window.request_redraw();
     }
 }

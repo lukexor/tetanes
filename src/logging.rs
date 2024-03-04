@@ -23,9 +23,18 @@ fn create_registry() -> Layered<Targets, Registry> {
     tracing_subscriber::registry().with(filter)
 }
 
+#[derive(Debug)]
+#[must_use]
+pub struct Guard {
+    #[cfg(target_arch = "wasm32")]
+    _inner: (),
+    #[cfg(not(target_arch = "wasm32"))]
+    _inner: tracing_appender::non_blocking::WorkerGuard,
+}
+
 /// Initialize logging.
 #[cfg(target_arch = "wasm32")]
-pub fn init() {
+pub fn init() -> Guard {
     use tracing_subscriber::fmt::format::Pretty;
     use tracing_web::{performance_layer, MakeWebConsoleWriter};
 
@@ -47,11 +56,13 @@ pub fn init() {
     {
         eprintln!("initializing tracing failed: {err:?}");
     }
+
+    Guard { _inner: () }
 }
 
 /// Initialize logging.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn init() -> tracing_appender::non_blocking::WorkerGuard {
+pub fn init() -> Guard {
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
     const LOG_DIR: &str = "logs";
@@ -65,12 +76,12 @@ pub fn init() -> tracing_appender::non_blocking::WorkerGuard {
         .filename_prefix(LOG_PREFIX)
         .build(LOG_DIR)
         .expect("Failed to create log file");
-    let (non_blocking_file, file_log_guard) = tracing_appender::non_blocking(file_appender);
+    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
     let registry = registry.with(
         fmt::layer()
             .compact()
             .with_line_number(true)
-            .with_writer(non_blocking_file),
+            .with_writer(file_writer),
     );
 
     #[cfg(debug_assertions)]
@@ -85,5 +96,5 @@ pub fn init() -> tracing_appender::non_blocking::WorkerGuard {
         eprintln!("setting tracing default failed: {err:?}");
     }
 
-    file_log_guard
+    Guard { _inner: guard }
 }

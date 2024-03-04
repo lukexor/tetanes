@@ -1,8 +1,4 @@
-use crate::nes::{
-    config::Config,
-    event::{DeckEvent, RomData},
-    Nes,
-};
+use crate::nes::{config::Config, event::EmulationEvent, Nes, NesResult};
 use tracing::error;
 use winit::{
     dpi::LogicalSize,
@@ -12,99 +8,108 @@ use winit::{
 };
 
 #[cfg(target_arch = "wasm32")]
+pub mod html_ids {
+    pub const CANVAS: &str = "frame";
+    pub const ROM_INPUT: &str = "load-rom";
+}
+
+#[cfg(target_arch = "wasm32")]
 pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
-    web_sys::window()
+    use wasm_bindgen::JsCast;
+    use web_sys::{window, HtmlCanvasElement};
+
+    window()
         .and_then(|win| win.document())
-        .and_then(|doc| doc.query_selector("canvas").ok())
-        .flatten()
-        .map(|canvas| web_sys::HtmlCanvasElement::from(wasm_bindgen::JsValue::from(canvas)))
+        .and_then(|doc| doc.get_element_by_id(html_ids::CANVAS))
+        .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
 }
 
 impl Nes {
     #[cfg(target_arch = "wasm32")]
-    pub fn initialize_platform(&mut self) {
-        use wasm_bindgen::{closure::Closure, JsCast};
+    pub fn initialize_platform(&mut self) -> NesResult<()> {
+        use crate::nes::event::{Event, NesEvent, RomData};
+        use anyhow::Context;
+        use crossbeam::channel::Sender;
+        use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+        use web_sys::{js_sys::Uint8Array, FileReader, HtmlInputElement};
 
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| doc.body().map(|body| (doc, body)))
-            .map(|(doc, body)| {
-                let handle_load_rom = Closure::<dyn FnMut(web_sys::MouseEvent)>::new({
-                    let event_proxy = self.event_proxy.clone();
-                    move |_| {
-                        const TEST_ROM: &[u8] = include_bytes!("../../roms/akumajou_densetsu.nes");
-                        if let Err(err) = event_proxy.send_event(
-                            DeckEvent::LoadRom((
-                                "akumajou_densetsu.nes".to_string(),
-                                RomData::new(TEST_ROM.to_vec()),
-                            ))
-                            .into(),
-                        ) {
-                            error!("failed to send load rom message to event_loop: {err:?}");
-                        }
-                        if let Some(canvas) = get_canvas() {
-                            let _ = canvas.focus();
-                        }
+        let window = web_sys::window().context("valid js window")?;
+        let document = window.document().context("valid html document")?;
+
+        let on_error = |tx: &Sender<Event>, err: JsValue| {
+            if let Err(err) = tx.send(
+                NesEvent::Error(
+                    err.as_string()
+                        .unwrap_or_else(|| "failed to load rom".to_string()),
+                )
+                .into(),
+            ) {
+                error!("failed to send event: {err:?}");
+            }
+        };
+
+        let on_load_rom = Closure::<dyn FnMut(_)>::new({
+            let tx = self.state.tx.clone();
+            move |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
+                evt.current_target()
+                    .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
+                    .and_then(|input| input.files())
+                    .and_then(|files| files.item(0))
+                    .map(|file| {
+                        reader.read_as_array_buffer(&file).map(|_| {
+                            let onload = Closure::<dyn FnMut()>::new({
+                                let reader = reader.clone();
+                                let tx = tx.clone();
+                                move || {
+                                    if let Err(err) = reader.result().map(|result| {
+                                        let data = Uint8Array::new(&result);
+                                        tx.send(
+                                            EmulationEvent::LoadRom((
+                                                file.name(),
+                                                RomData::new(data.to_vec()),
+                                            ))
+                                            .into(),
+                                        )
+                                    }) {
+                                        on_error(&tx, err);
+                                    }
+                                }
+                            });
+                            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+                            onload.forget();
+                        })
+                    })
+                    .unwrap()
+            }) {
+                Ok(()) => {
+                    if let Some(canvas) = get_canvas() {
+                        let _ = canvas.focus();
                     }
-                });
+                }
+                Err(err) => on_error(&tx, err),
+            }
+        });
 
-                let load_rom_btn = doc.create_element("button").expect("created button");
-                load_rom_btn.set_text_content(Some("Load ROM"));
-                load_rom_btn
-                    .add_event_listener_with_callback(
-                        "click",
-                        handle_load_rom.as_ref().unchecked_ref(),
-                    )
-                    .expect("added event listener");
-                body.append_child(&load_rom_btn).ok();
-                handle_load_rom.forget();
+        let load_rom_btn = document
+            .get_element_by_id(html_ids::ROM_INPUT)
+            .context("valid load-rom button")?;
+        if let Err(err) = load_rom_btn
+            .add_event_listener_with_callback("change", on_load_rom.as_ref().unchecked_ref())
+        {
+            on_error(&self.state.tx, err);
+        }
+        on_load_rom.forget();
 
-                let handle_pause = Closure::<dyn FnMut(web_sys::MouseEvent)>::new({
-                    let event_proxy = self.event_proxy.clone();
-                    let mut paused = false;
-                    move |_| {
-                        paused = !paused;
-                        if let Err(err) = event_proxy.send_event(DeckEvent::Pause(paused).into()) {
-                            error!("failed to send pause message to event_loop: {err:?}");
-                        }
-                    }
-                });
-
-                let pause_btn = doc.create_element("button").expect("created button");
-                pause_btn.set_text_content(Some("Toggle Pause"));
-                pause_btn
-                    .add_event_listener_with_callback(
-                        "click",
-                        handle_pause.as_ref().unchecked_ref(),
-                    )
-                    .expect("added event listener");
-                body.append_child(&pause_btn).ok();
-                handle_pause.forget();
-            })
-            .expect("couldn't set up document body");
+        Ok(())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn initialize_platform(&mut self) {
-        use crate::filesystem;
-        use anyhow::Context;
-        use std::{fs::File, io::Read};
-
+    pub fn initialize_platform(&mut self) -> NesResult<()> {
         if self.config.rom_path.is_file() {
             let path = &self.config.rom_path;
-            let filename = filesystem::filename(path);
-            match File::open(path).with_context(|| format!("failed to open rom {path:?}")) {
-                Ok(mut rom) => {
-                    let mut buffer = Vec::new();
-                    rom.read_to_end(&mut buffer).unwrap();
-                    self.send_event(DeckEvent::LoadRom((
-                        filename.to_string(),
-                        RomData::new(buffer),
-                    )));
-                }
-                Err(err) => self.on_error(err),
-            }
+            self.trigger_event(EmulationEvent::LoadRomPath(path.to_path_buf()));
         }
+        Ok(())
     }
 }
 
@@ -147,8 +152,7 @@ impl BuilderExt for WindowBuilder {
         #[cfg(target_arch = "wasm32")]
         {
             use winit::platform::web::WindowBuilderExtWebSys;
-            // TODO: insert into specific section in the DOM
-            self.with_append(true)
+            self.with_canvas(get_canvas())
         }
 
         #[cfg(not(target_arch = "wasm32"))]

@@ -6,24 +6,21 @@ use crate::{
     nes::{
         config::Config,
         emulation::{replay::Replay, rewind::Rewind},
-        event::{DeckEvent, Event, NesEvent, RendererEvent},
+        event::{EmulationEvent, Event, NesEvent, RendererEvent},
         renderer::BufferPool,
     },
     platform::time::{Duration, Instant},
     profile, NesError, NesResult,
 };
 use anyhow::anyhow;
-use crossbeam::channel::{self, Sender};
+use crossbeam::channel::{self, Receiver, Sender};
 use std::{
     io::{self, Read},
     path::PathBuf,
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
 };
 use tracing::{debug, error, trace};
-use winit::{
-    event::{ElementState, Event as WinitEvent, WindowEvent},
-    event_loop::{EventLoop, EventLoopProxy},
-};
+use winit::event::ElementState;
 
 pub mod replay;
 pub mod rewind;
@@ -37,9 +34,37 @@ enum Threads {
 
 #[derive(Debug)]
 #[must_use]
+pub enum StateEvent {
+    Nes(NesEvent),
+    Renderer(RendererEvent),
+}
+
+impl From<NesEvent> for StateEvent {
+    fn from(event: NesEvent) -> Self {
+        Self::Nes(event)
+    }
+}
+
+impl From<RendererEvent> for StateEvent {
+    fn from(event: RendererEvent) -> Self {
+        Self::Renderer(event)
+    }
+}
+
+impl From<StateEvent> for Event {
+    fn from(event: StateEvent) -> Self {
+        match event {
+            StateEvent::Nes(event) => Self::Nes(event),
+            StateEvent::Renderer(event) => Self::Renderer(event),
+        }
+    }
+}
+
+#[derive(Debug)]
+#[must_use]
 pub struct State {
     config: Config,
-    event_proxy: EventLoopProxy<Event>,
+    event_tx: Sender<Event>,
     control_deck: ControlDeck,
     mixer: Mixer,
     frame_pool: BufferPool,
@@ -59,7 +84,7 @@ impl Drop for State {
 }
 
 impl State {
-    pub fn new(frame_pool: BufferPool, event_proxy: EventLoopProxy<Event>, config: Config) -> Self {
+    pub fn new(event_tx: Sender<Event>, frame_pool: BufferPool, config: Config) -> Self {
         let control_deck = ControlDeck::with_config(config.clone().into());
         let sample_rate = config.audio_sample_rate;
         let mixer = Mixer::new(
@@ -75,7 +100,7 @@ impl State {
         let frame_time_accumulator = config.target_frame_duration.as_secs_f32();
         Self {
             config,
-            event_proxy,
+            event_tx,
             control_deck,
             mixer,
             frame_pool,
@@ -93,10 +118,10 @@ impl State {
         self.send_event(NesEvent::Message(msg.to_string()));
     }
 
-    pub fn send_event(&mut self, event: impl Into<Event>) {
+    pub fn send_event(&mut self, event: impl Into<StateEvent>) {
         let event = event.into();
         trace!("Emulation event: {event:?}");
-        if let Err(err) = self.event_proxy.send_event(event) {
+        if let Err(err) = self.event_tx.send(event.into()) {
             error!("failed to send emulation event: {err:?}");
             std::process::exit(1);
         }
@@ -107,58 +132,38 @@ impl State {
         self.add_message(err);
     }
 
-    pub fn on_event(&mut self, event: &WinitEvent<Event>) {
-        profile!();
-
-        match event {
-            #[cfg(not(target_arch = "wasm32"))]
-            WinitEvent::WindowEvent {
-                event: WindowEvent::DroppedFile(rom),
-                ..
-            } => self.load_rom_path(rom),
-            WinitEvent::UserEvent(Event::ControlDeck(event)) => self.on_control_deck_event(event),
-            _ => (),
-        }
-    }
-
-    pub fn on_control_deck_event(&mut self, event: &DeckEvent) {
+    pub fn on_event(&mut self, event: EmulationEvent) {
         if self.replay.is_playing() {
             return;
         }
 
         match event {
-            DeckEvent::Joypad((player, button, state)) => {
-                self.on_joypad(*player, *button, *state);
+            EmulationEvent::Joypad((player, button, state)) => {
+                self.on_joypad(player, button, state);
                 self.replay
                     .record(self.control_deck.frame_number(), event.clone());
             }
-            DeckEvent::LoadRom((name, rom)) => {
-                self.load_rom(name, &mut io::Cursor::new(rom));
-                if let Some(ref replay) = self.config.replay_path {
-                    if let Err(err) = self.replay.load(replay) {
-                        self.on_error(err);
-                    }
-                }
-            }
-            DeckEvent::Occluded(occluded) => self.occluded = *occluded,
-            DeckEvent::Pause(paused) => self.pause(*paused),
-            DeckEvent::Reset(kind) => {
-                self.control_deck.reset(*kind);
+            #[cfg(not(target_arch = "wasm32"))]
+            EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
+            EmulationEvent::LoadRom((name, rom)) => self.load_rom(&name, &mut io::Cursor::new(rom)),
+            EmulationEvent::Pause(paused) => self.pause(paused),
+            EmulationEvent::Reset(kind) => {
+                self.control_deck.reset(kind);
                 self.pause(false);
                 match kind {
                     ResetKind::Soft => self.add_message("Reset"),
                     ResetKind::Hard => self.add_message("Power Cycled"),
                 }
             }
-            DeckEvent::Rewind((state, repeat)) => self.on_rewind(*state, *repeat),
-            DeckEvent::Screenshot => match self.save_screenshot() {
+            EmulationEvent::Rewind((state, repeat)) => self.on_rewind(state, repeat),
+            EmulationEvent::Screenshot => match self.save_screenshot() {
                 Ok(filename) => {
                     self.add_message(format!("Screenshot Saved: {}", filename.display()))
                 }
                 Err(err) => self.on_error(err),
             },
-            DeckEvent::SetAudioEnabled(enabled) => {
-                self.config.audio_enabled = *enabled;
+            EmulationEvent::SetAudioEnabled(enabled) => {
+                self.config.audio_enabled = enabled;
                 if self.config.audio_enabled {
                     match self.mixer.start() {
                         Ok(sample_rate) => {
@@ -174,44 +179,53 @@ impl State {
                     }
                 }
             }
-            DeckEvent::SetFrameSpeed(speed) => {
-                self.config.set_frame_speed(*speed);
+            EmulationEvent::SetFrameSpeed(speed) => {
+                self.config.set_frame_speed(speed);
                 self.mixer
-                    .set_input_rate(self.control_deck.clock_rate() * f32::from(*speed));
+                    .set_input_rate(self.control_deck.clock_rate() * f32::from(speed));
             }
-            DeckEvent::SetHideOverscan(hidden) => self.config.hide_overscan = *hidden,
-            DeckEvent::SetRegion(region) => {
-                self.config.set_region(*region);
-                self.control_deck.set_region(*region);
+            EmulationEvent::SetHideOverscan(hidden) => self.config.hide_overscan = hidden,
+            EmulationEvent::SetRegion(region) => {
+                self.config.set_region(region);
+                self.control_deck.set_region(region);
             }
-            DeckEvent::SetSaveSlot(slot) => self.config.deck.save_slot = *slot,
-            DeckEvent::StateLoad => match self.control_deck.load_state(Some(&self.config.deck)) {
-                Ok(_) => self.add_message(format!("State {} Loaded", self.config.deck.save_slot)),
-                Err(err) => self.on_error(err),
-            },
-            DeckEvent::StateSave => match self.control_deck.save_state(Some(&self.config.deck)) {
-                Ok(_) => self.add_message(format!("State {} Saved", self.config.deck.save_slot)),
-                Err(err) => self.on_error(err),
-            },
-            DeckEvent::ToggleApuChannel(channel) => {
-                self.control_deck.toggle_apu_channel(*channel);
+            EmulationEvent::SetSaveSlot(slot) => self.config.deck.save_slot = slot,
+            EmulationEvent::StateLoad => {
+                match self.control_deck.load_state(Some(&self.config.deck)) {
+                    Ok(_) => {
+                        self.add_message(format!("State {} Loaded", self.config.deck.save_slot))
+                    }
+                    Err(err) => self.on_error(err),
+                }
+            }
+            EmulationEvent::StateSave => {
+                match self.control_deck.save_state(Some(&self.config.deck)) {
+                    Ok(_) => {
+                        self.add_message(format!("State {} Saved", self.config.deck.save_slot))
+                    }
+                    Err(err) => self.on_error(err),
+                }
+            }
+            EmulationEvent::ToggleApuChannel(channel) => {
+                self.control_deck.toggle_apu_channel(channel);
                 self.add_message(format!("Toggled APU Channel {:?}", channel));
             }
-            DeckEvent::ToggleAudioRecord => self.toggle_audio_record(),
-            DeckEvent::ToggleReplayRecord => match self.replay.toggle(self.control_deck.cpu()) {
+            EmulationEvent::ToggleAudioRecord => self.toggle_audio_record(),
+            EmulationEvent::ToggleReplayRecord => match self.replay.toggle(self.control_deck.cpu())
+            {
                 Ok(()) => self.add_message("Audio Recording Started"),
                 Err(err) => self.on_error(err),
             },
-            DeckEvent::SetVideoFilter(filter) => {
-                self.config.deck.filter = *filter;
-                self.control_deck.set_filter(*filter);
+            EmulationEvent::SetVideoFilter(filter) => {
+                self.config.deck.filter = filter;
+                self.control_deck.set_filter(filter);
             }
-            DeckEvent::ZapperAim((x, y)) => self.control_deck.aim_zapper(*x, *y),
-            DeckEvent::ZapperConnect(connected) => {
-                self.config.deck.zapper = *connected;
-                self.control_deck.connect_zapper(*connected);
+            EmulationEvent::ZapperAim((x, y)) => self.control_deck.aim_zapper(x, y),
+            EmulationEvent::ZapperConnect(connected) => {
+                self.config.deck.zapper = connected;
+                self.control_deck.connect_zapper(connected);
             }
-            DeckEvent::ZapperTrigger => {
+            EmulationEvent::ZapperTrigger => {
                 self.control_deck.trigger_zapper();
                 self.replay
                     .record(self.control_deck.frame_number(), event.clone());
@@ -251,7 +265,12 @@ impl State {
     }
 
     fn on_unload_rom(&mut self) {
-        self.pause(true);
+        if self.control_deck.loaded_rom().is_some() {
+            self.pause(true);
+            if let Err(err) = self.mixer.stop() {
+                self.on_error(err);
+            }
+        }
     }
 
     fn on_load_rom(&mut self, name: String) {
@@ -262,6 +281,11 @@ impl State {
                 Err(err) => {
                     self.on_error(err);
                 }
+            }
+        }
+        if let Some(ref replay) = self.config.replay_path {
+            if let Err(err) = self.replay.load(replay) {
+                self.on_error(err);
             }
         }
         self.pause(false);
@@ -333,7 +357,13 @@ impl State {
                 .queued_time()
                 .saturating_sub(self.config.audio_latency)
         } else {
-            self.last_frame_time + self.config.target_frame_duration - Instant::now()
+            let next_frame_time = self.last_frame_time + self.config.target_frame_duration;
+            let now = Instant::now();
+            if next_frame_time > now {
+                next_frame_time - now
+            } else {
+                Duration::from_secs(0)
+            }
         }
     }
 
@@ -347,9 +377,15 @@ impl State {
 
     fn sleep(&self) {
         profile!("sleep");
-        let timeout = self.remaining_frame_time();
-        trace!("sleeping for {:.4}s", timeout.as_secs_f32());
-        thread::park_timeout(timeout);
+        #[cfg(not(target_arch = "wasm32"))]
+        loop {
+            let timeout = self.remaining_frame_time();
+            if timeout <= Duration::from_millis(1) {
+                break;
+            }
+            trace!("sleeping for {:.4}s", timeout.as_secs_f32());
+            std::thread::park_timeout(timeout);
+        }
     }
 
     fn clock_frame(&mut self) {
@@ -365,7 +401,6 @@ impl State {
             .min(Duration::from_millis(25));
         self.last_frame_time = Instant::now();
         self.frame_time_accumulator += last_frame_duration.as_secs_f32();
-        self.send_event(RendererEvent::Frame(last_frame_duration));
         trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
 
         // TODO: fix rewind
@@ -382,7 +417,7 @@ impl State {
 
             let start = Instant::now();
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
-                self.on_control_deck_event(&event);
+                self.on_event(event);
             }
 
             match self.control_deck.clock_frame() {
@@ -423,38 +458,34 @@ struct Single {
 #[derive(Debug)]
 #[must_use]
 struct Multi {
-    tx: Sender<WinitEvent<Event>>,
+    tx: Sender<EmulationEvent>,
     handle: JoinHandle<()>,
 }
 
 impl Multi {
-    fn spawn(
-        frame_pool: BufferPool,
-        event_proxy: EventLoopProxy<Event>,
-        config: Config,
-    ) -> NesResult<Self> {
-        let (tx, rx) = channel::bounded::<WinitEvent<Event>>(1024);
+    fn spawn(event_tx: Sender<Event>, frame_pool: BufferPool, config: Config) -> NesResult<Self> {
+        let (tx, rx) = channel::bounded(1024);
         Ok(Self {
             tx,
             handle: std::thread::Builder::new()
                 .name("emulation".into())
-                .spawn(move || Self::main(frame_pool, event_proxy, config, rx))?,
+                .spawn(move || Self::main(event_tx, rx, frame_pool, config))?,
         })
     }
 
     fn main(
+        tx: Sender<Event>,
+        rx: Receiver<EmulationEvent>,
         frame_pool: BufferPool,
-        event_proxy: EventLoopProxy<Event>,
         config: Config,
-        rx: channel::Receiver<WinitEvent<Event>>,
     ) {
         debug!("emulation thread started");
-        let mut state = State::new(frame_pool, event_proxy, config); // Has to be created on the thread, since
+        let mut state = State::new(tx, frame_pool, config); // Has to be created on the thread, since
         loop {
             profile!();
 
             while let Ok(event) = rx.try_recv() {
-                state.on_event(&event);
+                state.on_event(event);
             }
 
             state.clock_frame();
@@ -471,18 +502,17 @@ pub struct Emulation {
 impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn initialize(
-        event: &EventLoop<Event>,
+        event_tx: Sender<Event>,
         frame_pool: BufferPool,
         config: Config,
     ) -> NesResult<Self> {
-        let event_proxy = event.create_proxy();
         let threaded = config.threaded
             && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
         let backend = if threaded {
-            Threads::Multi(Multi::spawn(frame_pool, event_proxy, config)?)
+            Threads::Multi(Multi::spawn(event_tx, frame_pool, config)?)
         } else {
             Threads::Single(Single {
-                state: State::new(frame_pool, event_proxy, config),
+                state: State::new(event_tx, frame_pool, config),
             })
         };
 
@@ -490,28 +520,17 @@ impl Emulation {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &WinitEvent<Event>) -> NesResult<()> {
-        if !matches!(
-            event,
-            WinitEvent::AboutToWait
-                | WinitEvent::NewEvents(..)
-                | WinitEvent::WindowEvent {
-                    event: WindowEvent::RedrawRequested,
-                    ..
-                }
-        ) {
-            match &mut self.threads {
-                Threads::Single(Single { state }) => state.on_event(event),
-                Threads::Multi(Multi { tx, handle }) => {
-                    handle.thread().unpark();
-                    if let Err(err) = tx.try_send(event.clone()) {
-                        error!("failed to send event to emulation thread: {event:?}. {err:?}");
-                        std::process::exit(1);
-                    }
+    pub fn on_event(&mut self, event: EmulationEvent) {
+        match &mut self.threads {
+            Threads::Single(Single { state }) => state.on_event(event),
+            Threads::Multi(Multi { tx, handle }) => {
+                handle.thread().unpark();
+                if let Err(err) = tx.try_send(event.clone()) {
+                    error!("failed to send event to emulation thread: {event:?}. {err:?}");
+                    std::process::exit(1);
                 }
             }
         }
-        Ok(())
     }
 
     pub fn request_clock_frame(&mut self) -> NesResult<()> {

@@ -13,6 +13,7 @@ use crate::{
     video::VideoFilter,
 };
 use anyhow::anyhow;
+use crossbeam::channel::{self, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -33,15 +34,12 @@ pub enum NesEvent {
     Error(String),
     Message(String),
     SetTitle(String),
+    RequestRedraw,
     ResizeWindow((LogicalSize<f32>, LogicalSize<f32>)),
     Terminate,
+    Pause(bool),
     TogglePause,
-}
-
-impl From<NesEvent> for WinitEvent<Event> {
-    fn from(event: NesEvent) -> Self {
-        Self::UserEvent(event.into())
-    }
+    LoadRomDialog,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -67,10 +65,11 @@ impl RomData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
-pub enum DeckEvent {
+pub enum EmulationEvent {
     Joypad((Player, JoypadBtn, ElementState)),
+    #[cfg(not(target_arch = "wasm32"))]
+    LoadRomPath(std::path::PathBuf),
     LoadRom((String, RomData)),
-    Occluded(bool),
     Pause(bool),
     Reset(ResetKind),
     Rewind((ElementState, bool)),
@@ -91,32 +90,21 @@ pub enum DeckEvent {
     ZapperTrigger,
 }
 
-impl From<DeckEvent> for WinitEvent<Event> {
-    fn from(event: DeckEvent) -> Self {
-        Self::UserEvent(event.into())
-    }
-}
-
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum RendererEvent {
     Frame(Duration),
+    Pause(bool),
     Menu(Menu),
     SetScale(Scale),
     SetVSync(bool),
 }
 
-impl From<RendererEvent> for WinitEvent<Event> {
-    fn from(event: RendererEvent) -> Self {
-        Self::UserEvent(event.into())
-    }
-}
-
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum Event {
-    ControlDeck(DeckEvent),
     Nes(NesEvent),
+    Emulation(EmulationEvent),
     Renderer(RendererEvent),
     // TODO: Verify if DeviceEvent is sufficient or if manual handling is needed
     //     ControllerAxisMotion {
@@ -141,9 +129,9 @@ impl From<NesEvent> for Event {
     }
 }
 
-impl From<DeckEvent> for Event {
-    fn from(event: DeckEvent) -> Self {
-        Self::ControlDeck(event)
+impl From<EmulationEvent> for Event {
+    fn from(event: EmulationEvent) -> Self {
+        Self::Emulation(event)
     }
 }
 
@@ -153,99 +141,108 @@ impl From<RendererEvent> for Event {
     }
 }
 
-impl From<Event> for WinitEvent<Event> {
-    fn from(event: Event) -> Self {
-        Self::UserEvent(event)
-    }
-}
-
-#[derive(Default, Debug)]
+#[derive(Debug)]
 #[must_use]
 pub struct State {
+    #[allow(unused)]
+    pub tx: Sender<Event>,
+    pub rx: Receiver<Event>,
     pub modifiers: Modifiers,
     pub occluded: bool,
     pub paused: bool,
+    pub quitting: bool,
+}
+
+impl State {
+    pub fn new() -> Self {
+        let (tx, rx) = channel::bounded(1024);
+        Self {
+            tx,
+            rx,
+            modifiers: Modifiers::default(),
+            occluded: false,
+            paused: false,
+            quitting: false,
+        }
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Nes {
-    pub fn on_event(
-        &mut self,
-        event: WinitEvent<Event>,
-        window_target: &EventLoopWindowTarget<Event>,
-    ) {
+    pub fn on_event(&mut self, event: WinitEvent<()>, window_target: &EventLoopWindowTarget<()>) {
         profile!();
 
-        if let Err(err) = self.emulation.on_event(&event) {
-            self.on_error(err);
-        }
-        if let Err(err) = self
-            .renderer
-            .on_event(&self.window, &event, &mut self.config)
-        {
-            self.on_error(err);
+        if self.state.quitting {
+            window_target.exit();
         }
 
         match event {
             WinitEvent::WindowEvent {
                 window_id, event, ..
-            } => match event {
-                WindowEvent::CloseRequested => {
-                    if window_id == self.window.id() {
-                        window_target.exit();
-                    }
-                }
-                WindowEvent::RedrawRequested => {
-                    if let Err(err) = self.renderer.request_redraw(
-                        &self.window,
-                        self.event_state.paused,
-                        &mut self.config,
-                    ) {
-                        self.on_error(err);
-                    }
-                }
-                WindowEvent::Occluded(occluded) => {
-                    if window_id == self.window.id() {
-                        self.event_state.occluded = occluded;
-                        self.send_event(DeckEvent::Occluded(self.event_state.occluded));
-                        if self.event_state.occluded {
-                            window_target.set_control_flow(ControlFlow::Wait);
-                        } else {
-                            window_target.set_control_flow(ControlFlow::Poll);
+            } => {
+                self.renderer.on_window_event(&self.window, &event);
+                match event {
+                    WindowEvent::CloseRequested => {
+                        if window_id == self.window.id() {
+                            window_target.exit();
                         }
                     }
+                    WindowEvent::RedrawRequested => {
+                        if let Err(err) =
+                            self.renderer.request_redraw(&self.window, &mut self.config)
+                        {
+                            self.on_error(err);
+                        }
+                        self.window.request_redraw();
+                    }
+                    WindowEvent::Occluded(occluded) => {
+                        if window_id == self.window.id() {
+                            self.state.occluded = occluded;
+                            self.trigger_event(NesEvent::Pause(self.state.occluded));
+                            if self.state.occluded {
+                                window_target.set_control_flow(ControlFlow::Wait);
+                            } else {
+                                window_target.set_control_flow(ControlFlow::Poll);
+                            }
+                        }
+                    }
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        if let PhysicalKey::Code(key) = event.physical_key {
+                            self.on_input(
+                                Input::Key(key, self.state.modifiers.state()),
+                                event.state,
+                                event.repeat,
+                            );
+                        }
+                    }
+                    WindowEvent::ModifiersChanged(modifiers) => self.state.modifiers = modifiers,
+                    WindowEvent::MouseInput { button, state, .. } => {
+                        self.on_input(Input::Mouse(button, state), state, false);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    WindowEvent::DroppedFile(path) => {
+                        self.trigger_event(EmulationEvent::LoadRomPath(path));
+                    }
+                    WindowEvent::HoveredFile(_) => (), // TODO: Show file drop cursor
+                    WindowEvent::HoveredFileCancelled => (), // TODO: Restore cursor
+                    _ => (),
                 }
-                WindowEvent::KeyboardInput { event, .. } => {
-                    if let PhysicalKey::Code(key) = event.physical_key {
-                        self.on_input(
-                            Input::Key(key, self.event_state.modifiers.state()),
-                            event.state,
-                            event.repeat,
-                        );
+            }
+            WinitEvent::AboutToWait => {
+                while let Ok(event) = self.state.rx.try_recv() {
+                    match event {
+                        Event::Nes(event) => self.on_nes_event(event),
+                        Event::Emulation(event) => self.emulation.on_event(event),
+                        Event::Renderer(event) => self.renderer.on_event(event, &self.config),
                     }
                 }
-                WindowEvent::ModifiersChanged(modifiers) => self.event_state.modifiers = modifiers,
-                WindowEvent::MouseInput { button, state, .. } => {
-                    self.on_input(Input::Mouse(button, state), state, false)
-                }
-                WindowEvent::HoveredFile(_) => (), // TODO: Show file drop cursor
-                WindowEvent::HoveredFileCancelled => (), // TODO: Restore cursor
-                _ => (),
-            },
-            WinitEvent::AboutToWait => self.next_frame(),
-            WinitEvent::UserEvent(Event::Nes(event)) => match event {
-                NesEvent::Message(msg) => self.add_message(msg),
-                NesEvent::Error(err) => self.on_error(anyhow!(err)),
-                NesEvent::Terminate => window_target.exit(),
-                NesEvent::SetTitle(title) => self.window.set_title(&title),
-                NesEvent::ResizeWindow((inner_size, min_inner_size)) => {
-                    let _ = self.window.request_inner_size(inner_size);
-                    self.window.set_min_inner_size(Some(min_inner_size));
-                }
-                NesEvent::TogglePause => {
-                    self.event_state.paused = !self.event_state.paused;
-                    self.send_event(DeckEvent::Pause(self.event_state.paused));
-                }
-            },
+                self.next_frame();
+            }
             WinitEvent::LoopExiting => {
                 #[cfg(feature = "profiling")]
                 crate::profiling::enable(false);
@@ -282,13 +279,75 @@ impl Nes {
         }
     }
 
-    /// Send a custom event to the event loop.
-    pub fn send_event(&mut self, event: impl Into<Event>) {
+    pub fn on_nes_event(&mut self, event: NesEvent) {
+        match event {
+            NesEvent::Message(msg) => self.add_message(msg),
+            NesEvent::Error(err) => self.on_error(anyhow!(err)),
+            NesEvent::Terminate => self.state.quitting = true,
+            NesEvent::SetTitle(title) => self.window.set_title(&title),
+            NesEvent::ResizeWindow((inner_size, min_inner_size)) => {
+                let _ = self.window.request_inner_size(inner_size);
+                self.window.set_min_inner_size(Some(min_inner_size));
+            }
+            NesEvent::RequestRedraw => self.window.request_redraw(),
+            NesEvent::Pause(paused) => {
+                self.state.paused = paused;
+                self.emulation
+                    .on_event(EmulationEvent::Pause(self.state.paused));
+                self.renderer
+                    .on_event(RendererEvent::Pause(self.state.paused), &self.config);
+            }
+            NesEvent::TogglePause => {
+                self.state.paused = !self.state.paused;
+                self.emulation
+                    .on_event(EmulationEvent::Pause(self.state.paused));
+                self.renderer
+                    .on_event(RendererEvent::Pause(self.state.paused), &self.config);
+            }
+            NesEvent::LoadRomDialog => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    use crate::nes::platform::html_ids;
+                    use wasm_bindgen::JsCast;
+                    use web_sys::HtmlInputElement;
+
+                    let input = web_sys::window()
+                        .and_then(|window| window.document())
+                        .and_then(|document| document.get_element_by_id(html_ids::ROM_INPUT))
+                        .and_then(|input| input.dyn_into::<HtmlInputElement>().ok());
+                    match input {
+                        Some(input) => input.click(),
+                        None => {
+                            self.trigger_event(NesEvent::Error("failed to open rom".to_string()))
+                        }
+                    }
+                    if let Some(canvas) = crate::nes::platform::get_canvas() {
+                        let _ = canvas.focus();
+                    }
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("NES ROMs", &["nes"])
+                        .pick_file()
+                    {
+                        self.trigger_event(EmulationEvent::LoadRomPath(path));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Trigger a custom event.
+    pub fn trigger_event(&mut self, event: impl Into<Event>) {
         let event = event.into();
         debug!("Nes event: {event:?}");
-        if let Err(err) = self.event_proxy.send_event(event) {
-            error!("failed to send nes event: {err:?}");
-            std::process::exit(1);
+
+        match event {
+            Event::Nes(event) => self.on_nes_event(event),
+            Event::Emulation(event) => self.emulation.on_event(event),
+            Event::Renderer(event) => self.renderer.on_event(event, &self.config),
         }
     }
 
@@ -299,30 +358,36 @@ impl Nes {
             let released = state == ElementState::Released;
             match action {
                 Action::Nes(nes_state) if released => match nes_state {
-                    NesState::Quit => self.send_event(NesEvent::Terminate),
-                    NesState::TogglePause => self.send_event(NesEvent::TogglePause),
-                    NesState::SoftReset => self.send_event(DeckEvent::Reset(ResetKind::Soft)),
-                    NesState::HardReset => self.send_event(DeckEvent::Reset(ResetKind::Hard)),
+                    NesState::Quit => self.trigger_event(NesEvent::Terminate),
+                    NesState::TogglePause => self.trigger_event(NesEvent::TogglePause),
+                    NesState::SoftReset => {
+                        self.trigger_event(EmulationEvent::Reset(ResetKind::Soft))
+                    }
+                    NesState::HardReset => {
+                        self.trigger_event(EmulationEvent::Reset(ResetKind::Hard))
+                    }
                     NesState::MapperRevision(_) => todo!("mapper revision"),
                 },
-                Action::Menu(menu) if released => self.send_event(RendererEvent::Menu(menu)),
+                Action::Menu(menu) if released => self.trigger_event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) => match feature {
                     Feature::ToggleReplayRecord if released => {
-                        self.send_event(DeckEvent::ToggleReplayRecord);
+                        self.trigger_event(EmulationEvent::ToggleReplayRecord);
                     }
                     Feature::ToggleAudioRecord if released => {
-                        self.send_event(DeckEvent::ToggleAudioRecord);
+                        self.trigger_event(EmulationEvent::ToggleAudioRecord);
                     }
-                    Feature::TakeScreenshot if released => self.send_event(DeckEvent::Screenshot),
-                    Feature::SaveState if released => self.send_event(DeckEvent::StateSave),
-                    Feature::LoadState if released => self.send_event(DeckEvent::StateLoad),
-                    Feature::Rewind => self.send_event(DeckEvent::Rewind((state, repeat))),
+                    Feature::TakeScreenshot if released => {
+                        self.trigger_event(EmulationEvent::Screenshot)
+                    }
+                    Feature::SaveState if released => self.trigger_event(EmulationEvent::StateSave),
+                    Feature::LoadState if released => self.trigger_event(EmulationEvent::StateLoad),
+                    Feature::Rewind => self.trigger_event(EmulationEvent::Rewind((state, repeat))),
                     _ => (),
                 },
                 Action::Setting(setting) => match setting {
                     Setting::SetSaveSlot(slot) if released => {
                         self.config.deck.save_slot = slot;
-                        self.send_event(DeckEvent::SetSaveSlot(slot));
+                        self.trigger_event(EmulationEvent::SetSaveSlot(slot));
                         self.add_message(format!("Changed Save Slot to {slot}"));
                     }
                     Setting::ToggleFullscreen if released => {
@@ -335,7 +400,7 @@ impl Nes {
                     }
                     Setting::ToggleVsync if released => {
                         self.config.vsync = !self.config.vsync;
-                        self.send_event(RendererEvent::SetVSync(self.config.vsync));
+                        self.trigger_event(RendererEvent::SetVSync(self.config.vsync));
                     }
                     Setting::ToggleVideoFilter(filter) if released => {
                         self.config.deck.filter = if self.config.deck.filter == filter {
@@ -343,14 +408,16 @@ impl Nes {
                         } else {
                             filter
                         };
-                        self.send_event(DeckEvent::SetVideoFilter(self.config.deck.filter));
+                        self.trigger_event(EmulationEvent::SetVideoFilter(self.config.deck.filter));
                     }
                     Setting::ToggleAudio if released => {
                         self.config.audio_enabled = !self.config.audio_enabled;
-                        self.send_event(DeckEvent::SetAudioEnabled(self.config.audio_enabled));
+                        self.trigger_event(EmulationEvent::SetAudioEnabled(
+                            self.config.audio_enabled,
+                        ));
                     }
                     Setting::ToggleApuChannel(channel) if released => {
-                        self.send_event(DeckEvent::ToggleApuChannel(channel));
+                        self.trigger_event(EmulationEvent::ToggleApuChannel(channel));
                     }
                     Setting::IncSpeed if released => {
                         self.config.frame_speed = self.config.frame_speed.increment();
@@ -368,10 +435,10 @@ impl Nes {
                     _ => (),
                 },
                 Action::Joypad(button) if !repeat => {
-                    self.send_event(DeckEvent::Joypad((player, button, state)));
+                    self.trigger_event(EmulationEvent::Joypad((player, button, state)));
                 }
                 Action::ZapperTrigger if self.config.deck.zapper => {
-                    self.send_event(DeckEvent::ZapperTrigger);
+                    self.trigger_event(EmulationEvent::ZapperTrigger);
                 }
                 Action::Debug(action) => match action {
                     // DebugAction::ToggleCpuDebugger if released => self.toggle_debugger()?,
@@ -512,6 +579,8 @@ impl Default for InputMap {
         key_map!(map, One, Enter, JoypadBtn::Start);
         key_map!(map, One, ShiftRight, JoypadBtn::Select);
         key_map!(map, One, ShiftLeft, JoypadBtn::Select);
+        key_map!(map, One, ShiftRight, SHIFT, JoypadBtn::Select); // Required because shift is also a modifier
+        key_map!(map, One, ShiftLeft, SHIFT, JoypadBtn::Select); // Required because shift is also a modifier
         key_map!(map, Two, KeyJ, JoypadBtn::Left);
         key_map!(map, Two, KeyL, JoypadBtn::Right);
         key_map!(map, Two, KeyI, JoypadBtn::Up);

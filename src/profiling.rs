@@ -6,7 +6,7 @@
 pub static mut EVENT_LOG: Vec<(&'static str, u64, u64)> = Vec::new();
 // pub static mut LAST_PRINT: std::time::SystemTime = std::time::UNIX_EPOCH;
 
-pub fn start(name: &'static str) -> u64 {
+pub fn start(_name: &'static str) -> u64 {
     // #[cfg(feature = "profiling")]
     // unsafe {
     //     std::arch::x86_64::_rdtsc()
@@ -15,7 +15,7 @@ pub fn start(name: &'static str) -> u64 {
     0
 }
 
-pub fn end(name: &'static str, tsc: u64) {
+pub fn end(_name: &'static str, _tsc: u64) {
     // #[cfg(feature = "profiling")]
     // unsafe {
     //     let now = std::arch::x86_64::_rdtsc();

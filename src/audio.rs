@@ -238,6 +238,7 @@ impl Mixer {
     /// Stop the audio output stream.
     pub fn stop(&mut self) -> NesResult<()> {
         self.pause(true)?;
+        self.processed_samples.clear();
         self.stream = None;
         Ok(())
     }

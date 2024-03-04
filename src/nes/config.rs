@@ -3,7 +3,7 @@ use crate::{
     control_deck::Config as DeckConfig,
     input::Player,
     nes::{
-        event::{Action, DeckEvent, Input, InputBinding, InputMap, RendererEvent},
+        event::{Action, EmulationEvent, Input, InputBinding, InputMap, RendererEvent},
         Nes,
     },
     platform::time::Duration,
@@ -20,14 +20,23 @@ pub const NTSC_RATIO: f32 = 8.0 / 7.0;
 pub const PAL_RATIO: f32 = 18.0 / 13.0;
 pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[must_use]
 pub enum Scale {
     X1,
     X2,
-    #[default]
     X3,
     X4,
+}
+
+impl Default for Scale {
+    fn default() -> Self {
+        if cfg!(target_arch = "wasm32") {
+            Self::X2
+        } else {
+            Self::X3
+        }
+    }
 }
 
 impl From<Scale> for f32 {
@@ -566,13 +575,13 @@ impl Nes {
 
     pub fn set_scale(&mut self, scale: Scale) {
         self.config.scale = scale;
-        self.send_event(RendererEvent::SetScale(scale));
+        self.trigger_event(RendererEvent::SetScale(scale));
         self.add_message(format!("Changed Scale to {scale}"));
     }
 
     pub fn set_speed(&mut self, speed: FrameSpeed) {
         self.config.set_frame_speed(speed);
-        self.send_event(DeckEvent::SetFrameSpeed(speed));
+        self.trigger_event(EmulationEvent::SetFrameSpeed(speed));
         self.add_message(format!("Changed Emulation Speed to {speed}"));
     }
 }

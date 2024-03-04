@@ -3,12 +3,13 @@ use crate::{
     input::Player,
     nes::{
         config::Config,
-        event::{DeckEvent, Event, NesEvent},
+        event::{EmulationEvent, Event, NesEvent},
         platform::WindowExt,
     },
     platform::time::{Duration, Instant},
     profile,
 };
+use crossbeam::channel::Sender;
 use egui::{
     global_dark_light_mode_switch, load::SizedTexture, menu, Align, Align2, Area, CentralPanel,
     Color32, Context, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, Style,
@@ -16,7 +17,6 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, trace, warn};
-use winit::event_loop::{EventLoop, EventLoopProxy};
 
 pub const MSG_TIMEOUT: Duration = Duration::from_secs(3);
 pub const MAX_MESSAGES: usize = 3;
@@ -52,8 +52,9 @@ impl AsRef<str> for ConfigTab {
 #[derive(Debug)]
 #[must_use]
 pub struct Gui {
-    pub event_proxy: EventLoopProxy<Event>,
+    pub tx: Sender<Event>,
     pub texture: SizedTexture,
+    pub paused: bool,
     pub show_menu: bool,
     pub menu_height: f32,
     pub config_open: bool,
@@ -67,12 +68,41 @@ pub struct Gui {
     pub error: Option<String>,
 }
 
+#[derive(Debug)]
+#[must_use]
+pub enum GuiEvent {
+    Nes(NesEvent),
+    Emulation(EmulationEvent),
+}
+
+impl From<NesEvent> for GuiEvent {
+    fn from(event: NesEvent) -> Self {
+        Self::Nes(event)
+    }
+}
+
+impl From<EmulationEvent> for GuiEvent {
+    fn from(event: EmulationEvent) -> Self {
+        Self::Emulation(event)
+    }
+}
+
+impl From<GuiEvent> for Event {
+    fn from(event: GuiEvent) -> Self {
+        match event {
+            GuiEvent::Nes(event) => Self::Nes(event),
+            GuiEvent::Emulation(event) => Self::Emulation(event),
+        }
+    }
+}
+
 impl Gui {
     /// Create a gui `State`.
-    pub fn new(event_loop: &EventLoop<Event>, texture: SizedTexture) -> Self {
+    pub fn new(tx: Sender<Event>, texture: SizedTexture) -> Self {
         Self {
-            event_proxy: event_loop.create_proxy(),
+            tx,
             texture,
+            paused: false,
             show_menu: true,
             menu_height: 0.0,
             config_open: false,
@@ -88,22 +118,21 @@ impl Gui {
     }
 
     /// Send a custom event to the event loop.
-    pub fn send_event(&mut self, event: impl Into<Event>) {
+    pub fn send_event(&mut self, event: impl Into<GuiEvent>) {
         let event = event.into();
         trace!("Gui event: {event:?}");
-        if let Err(err) = self.event_proxy.send_event(event) {
+        if let Err(err) = self.tx.send(event.into()) {
             error!("failed to send nes event: {err:?}");
             std::process::exit(1);
         }
     }
 
     /// Create the UI.
-    pub fn ui(&mut self, ctx: &Context, paused: bool, config: &mut Config) {
+    pub fn ui(&mut self, ctx: &Context, config: &mut Config) {
         profile!();
 
         TopBottomPanel::top("menu_bar")
-            .resizable(true)
-            .show_animated(ctx, self.show_menu, |ui| self.menu_bar(ui, paused, config));
+            .show_animated(ctx, self.show_menu, |ui| self.menu_bar(ui, config));
         CentralPanel::default()
             .frame(Frame::none())
             .show(ctx, |ui| self.nes_frame(ui, config));
@@ -126,7 +155,7 @@ impl Gui {
         puffin_egui::show_viewport_if_enabled(ctx);
     }
 
-    fn menu_bar(&mut self, ui: &mut Ui, paused: bool, config: &mut Config) {
+    fn menu_bar(&mut self, ui: &mut Ui, config: &mut Config) {
         ui.style_mut().spacing.menu_margin = Margin::ZERO;
         let inner_response = menu::bar(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -134,7 +163,7 @@ impl Gui {
                 ui.separator();
 
                 ui.menu_button("File", |ui| self.file_menu(ui));
-                ui.menu_button("Controls", |ui| self.controls_menu(ui, paused, config));
+                ui.menu_button("Controls", |ui| self.controls_menu(ui, config));
                 ui.menu_button("Emulation", |ui| self.emulation_menu(ui, config));
                 ui.menu_button("View", |ui| self.view_menu(ui, config));
                 ui.menu_button("Window", |ui| self.window_menu(ui));
@@ -151,14 +180,20 @@ impl Gui {
 
     fn file_menu(&mut self, ui: &mut Ui) {
         if ui.button("Load ROM...").clicked() || self.load_rom_open {
-            self.open_load_dialog();
+            self.load_rom_open = false;
+            ui.close_menu();
+            self.send_event(NesEvent::Pause(true));
+            self.send_event(NesEvent::LoadRomDialog);
+        }
+        if ui.button("Load Homebrew ROM...").clicked() {
+            self.todo(ui);
         }
         if ui.button("Recently Played...").clicked() {
             self.todo(ui);
         }
         if ui.button("Load Replay...").clicked() {
             self.todo(ui);
-            // self.send_event(DeckEvent::LoadReplay(path));
+            // self.send_event(EmulationEvent::LoadReplay(path));
         }
         // Load Replay
         if ui.button("Configuration").clicked() {
@@ -177,19 +212,19 @@ impl Gui {
             ui.close_menu();
         };
         if ui.button("Reset").clicked() {
-            self.send_event(DeckEvent::Reset(ResetKind::Soft));
+            self.send_event(EmulationEvent::Reset(ResetKind::Soft));
         };
         if ui.button("Power Cycle").clicked() {
-            self.send_event(DeckEvent::Reset(ResetKind::Hard));
+            self.send_event(EmulationEvent::Reset(ResetKind::Hard));
         };
         if ui.button("Quit").clicked() {
             self.send_event(NesEvent::Terminate);
         };
     }
 
-    fn controls_menu(&mut self, ui: &mut Ui, paused: bool, config: &mut Config) {
+    fn controls_menu(&mut self, ui: &mut Ui, config: &mut Config) {
         if ui
-            .button(if paused { "Unpause" } else { "Pause" })
+            .button(if self.paused { "Unpause" } else { "Pause" })
             .clicked()
         {
             self.send_event(NesEvent::TogglePause);
@@ -203,13 +238,13 @@ impl Gui {
             .clicked()
         {
             config.audio_enabled = !config.audio_enabled;
-            self.send_event(DeckEvent::SetAudioEnabled(config.audio_enabled));
+            self.send_event(EmulationEvent::SetAudioEnabled(config.audio_enabled));
         };
         if ui.button("Save State").clicked() {
-            self.send_event(DeckEvent::StateSave);
+            self.send_event(EmulationEvent::StateSave);
         };
         if ui.button("Load State").clicked() {
-            self.send_event(DeckEvent::StateLoad);
+            self.send_event(EmulationEvent::StateLoad);
         };
         if ui.button("Save Slot...").clicked() {
             self.todo(ui);
@@ -218,10 +253,10 @@ impl Gui {
             self.todo(ui);
         };
         if ui.button("Toggle Replay Recording").clicked() {
-            self.send_event(DeckEvent::ToggleReplayRecord);
+            self.send_event(EmulationEvent::ToggleReplayRecord);
         };
         if ui.button("Toggle Audio Recording").clicked() {
-            self.send_event(DeckEvent::ToggleAudioRecord);
+            self.send_event(EmulationEvent::ToggleAudioRecord);
         };
     }
 
@@ -234,12 +269,12 @@ impl Gui {
             .checkbox(&mut config.deck.zapper, "Enable Zapper Gun")
             .clicked()
         {
-            self.send_event(DeckEvent::ZapperConnect(config.deck.zapper));
+            self.send_event(EmulationEvent::ZapperConnect(config.deck.zapper));
         }
         // Four Player Mode
         if ui.button("Nes Region...").clicked() {
             // config.set_region(region);
-            self.send_event(DeckEvent::SetRegion(config.deck.region));
+            self.send_event(EmulationEvent::SetRegion(config.deck.region));
         }
         // RAM State
         // Concurrent D-Pad
@@ -255,14 +290,14 @@ impl Gui {
             .checkbox(&mut config.hide_overscan, "Hide Overscan")
             .clicked()
         {
-            self.send_event(DeckEvent::SetHideOverscan(config.hide_overscan));
+            self.send_event(EmulationEvent::SetHideOverscan(config.hide_overscan));
             self.resize_window(ui.style(), config);
         }
         if ui.button("Video Filter...").clicked() {
             self.todo(ui);
         };
         if ui.button("Take Screenshot").clicked() {
-            self.send_event(DeckEvent::Screenshot)
+            self.send_event(EmulationEvent::Screenshot)
         };
     }
 
@@ -384,7 +419,7 @@ impl Gui {
                         let x = (pos.x / scale) * config.aspect_ratio;
                         let y = pos.y / scale;
                         if x > 0.0 && y > 0.0 {
-                            self.send_event(DeckEvent::ZapperAim((
+                            self.send_event(EmulationEvent::ZapperAim((
                                 x.round() as u32,
                                 y.round() as u32,
                             )));
@@ -404,7 +439,7 @@ impl Gui {
         //   textedit Battey-Backed Save Path
         //   checkbox Enable Rewind
         //     textedit Rewind Frames
-        //     self.send_event(DeckEvent::SetRewind(enabled));
+        //     self.send_event(EmulationEvent::SetRewind(enabled));
         //     textedit Rewind Buffer Size (MB)
         //
         // Emulation
@@ -414,7 +449,7 @@ impl Gui {
         //   combobox NES Region
         //   combobox RAM State
         //   checkbox Concurrent D-Pad
-        //     self.send_event(DeckEvent::SetConcurrentDpad(enabled));
+        //     self.send_event(EmulationEvent::SetConcurrentDpad(enabled));
         //
         // View
         //   combobox Scale
@@ -429,11 +464,11 @@ impl Gui {
         // Audio
         //   checkbox Enabled
         //   combobox Output Device
-        //     self.send_event(DeckEvent::SetAudioDevice(sample_rate));
+        //     self.send_event(EmulationEvent::SetAudioDevice(sample_rate));
         //   combobox Sample Rate
-        //     self.send_event(DeckEvent::SetAudioSampleRate(sample_rate));
+        //     self.send_event(EmulationEvent::SetAudioSampleRate(sample_rate));
         //   combobox Latency ms
-        //     self.send_event(DeckEvent::SetAudioLatency(sample_rate));
+        //     self.send_event(EmulationEvent::SetAudioLatency(sample_rate));
         //   checkbox APU Channels
         // let mut save_slot = config.save_slot as usize - 1;
         // if ui.combo_box("Save Slot", &mut save_slot, &["1", "2", "3", "4"], 4)? {
@@ -465,19 +500,6 @@ impl Gui {
 
     fn todo(&mut self, ui: &mut Ui) {
         warn!("not implemented yet");
-    }
-
-    fn open_load_dialog(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("nes", &["nes"])
-            .pick_file()
-        {
-            tracing::info!("loading rom: {path:?}");
-            self.load_rom_open = false;
-            // Send LoadROM path event
-            // self.open_puffin_path(path);
-        }
     }
 
     pub fn resize_window(&mut self, style: &Style, config: &Config) {

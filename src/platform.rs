@@ -6,7 +6,6 @@ pub mod time {
 }
 
 pub mod thread {
-    use super::time::Duration;
     use crate::NesResult;
     use std::future::Future;
     use tracing::error;
@@ -29,13 +28,5 @@ pub mod thread {
         pollster::block_on(execute);
 
         Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn sleep(_duration: Duration) {}
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn sleep(duration: Duration) {
-        std::thread::sleep(duration);
     }
 }

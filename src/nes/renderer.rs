@@ -1,7 +1,7 @@
 use crate::{
     nes::{
         config::{Config, OVERSCAN_TRIM},
-        event::{DeckEvent, Event, RendererEvent},
+        event::{EmulationEvent, Event, RendererEvent},
         renderer::{
             gui::{Gui, Menu, MSG_TIMEOUT},
             texture::Texture,
@@ -14,6 +14,7 @@ use crate::{
     NesError, NesResult,
 };
 use anyhow::Context;
+use crossbeam::channel::Sender;
 use egui::{
     load::SizedTexture, ClippedPrimitive, SystemTheme, TexturesDelta, Vec2, ViewportCommand,
 };
@@ -23,8 +24,7 @@ use tracing::{error, info};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::LogicalSize,
-    event::{Event as WinitEvent, WindowEvent},
-    event_loop::EventLoop,
+    event::WindowEvent,
     window::{Theme, Window},
 };
 
@@ -130,7 +130,7 @@ pub struct BufferPool(Arc<ThingBuf<Frame, FrameRecycle>>);
 
 impl BufferPool {
     pub fn new() -> Self {
-        Self(Arc::new(ThingBuf::with_recycle(4, FrameRecycle)))
+        Self(Arc::new(ThingBuf::with_recycle(2, FrameRecycle)))
     }
 }
 
@@ -184,7 +184,7 @@ impl std::fmt::Debug for Renderer {
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub async fn initialize(
-        event_loop: &EventLoop<Event>,
+        event_tx: Sender<Event>,
         window: Arc<Window>,
         frame_pool: BufferPool,
         config: &Config,
@@ -198,7 +198,7 @@ impl Renderer {
         }
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let surface = instance.create_surface(window)?;
+        let surface = instance.create_surface(Arc::clone(&window))?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -344,7 +344,7 @@ impl Renderer {
         let egui_state = egui_winit::State::new(
             ctx.clone(),
             ctx.viewport_id(),
-            event_loop,
+            &window,
             Some(scale_factor),
             Some(device.limits().max_texture_dimension_2d as usize),
         );
@@ -353,7 +353,7 @@ impl Renderer {
             renderer.register_native_texture(&device, &texture.view, wgpu::FilterMode::Nearest);
 
         let state = Gui::new(
-            event_loop,
+            event_tx,
             SizedTexture::new(
                 egui_texture,
                 Vec2 {
@@ -387,62 +387,53 @@ impl Renderer {
         })
     }
 
-    /// Handle event.
-    pub fn on_event(
-        &mut self,
-        window: &Window,
-        event: &WinitEvent<Event>,
-        config: &mut Config,
-    ) -> NesResult<()> {
+    pub fn on_window_event(&mut self, window: &Window, event: &WindowEvent) {
+        let _ = self.egui_state.on_window_event(window, event);
         match event {
-            WinitEvent::WindowEvent { event, .. } => {
-                let _ = self.egui_state.on_window_event(window, event);
-                match event {
-                    WindowEvent::Resized(size) => {
-                        if size.width > 0 && size.height > 0 {
-                            self.screen_descriptor.size_in_pixels = [size.width, size.height];
-                            self.surface_config.width = size.width;
-                            self.surface_config.height = size.height;
-                            self.surface.configure(&self.device, &self.surface_config);
-                            window.request_redraw();
-                        }
-                    }
-                    WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                        self.screen_descriptor.pixels_per_point = *scale_factor as f32;
-                    }
-                    WindowEvent::ThemeChanged(theme) => {
-                        self.ctx.send_viewport_cmd(ViewportCommand::SetTheme(
-                            if *theme == Theme::Light {
-                                SystemTheme::Light
-                            } else {
-                                SystemTheme::Dark
-                            },
-                        ));
-                    }
-                    _ => (),
-                }
-            }
-            WinitEvent::UserEvent(Event::Renderer(event)) => match event {
-                RendererEvent::SetVSync(enabled) => {
-                    self.surface_config.present_mode = if *enabled {
-                        wgpu::PresentMode::AutoVsync
-                    } else {
-                        wgpu::PresentMode::AutoNoVsync
-                    };
+            WindowEvent::Resized(size) => {
+                if size.width > 0 && size.height > 0 {
+                    self.screen_descriptor.size_in_pixels = [size.width, size.height];
+                    self.surface_config.width = size.width;
+                    self.surface_config.height = size.height;
                     self.surface.configure(&self.device, &self.surface_config);
                 }
-                RendererEvent::SetScale(_) => self.gui.resize_window(&self.ctx.style(), config),
-                RendererEvent::Frame(duration) => self.gui.last_frame_duration = *duration,
-                RendererEvent::Menu(menu) => match menu {
-                    Menu::Config(_) => self.gui.config_open = !self.gui.config_open,
-                    Menu::Keybind(_) => self.gui.keybind_open = !self.gui.keybind_open,
-                    Menu::LoadRom => self.gui.load_rom_open = !self.gui.load_rom_open,
-                    Menu::About => self.gui.about_open = !self.gui.about_open,
-                },
-            },
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.screen_descriptor.pixels_per_point = *scale_factor as f32;
+            }
+            WindowEvent::ThemeChanged(theme) => {
+                self.ctx
+                    .send_viewport_cmd(ViewportCommand::SetTheme(if *theme == Theme::Light {
+                        SystemTheme::Light
+                    } else {
+                        SystemTheme::Dark
+                    }));
+            }
             _ => (),
         }
-        Ok(())
+    }
+
+    /// Handle event.
+    pub fn on_event(&mut self, event: RendererEvent, config: &Config) {
+        match event {
+            RendererEvent::SetVSync(enabled) => {
+                self.surface_config.present_mode = if enabled {
+                    wgpu::PresentMode::AutoVsync
+                } else {
+                    wgpu::PresentMode::AutoNoVsync
+                };
+                self.surface.configure(&self.device, &self.surface_config);
+            }
+            RendererEvent::SetScale(_) => self.gui.resize_window(&self.ctx.style(), config),
+            RendererEvent::Frame(duration) => self.gui.last_frame_duration = duration,
+            RendererEvent::Pause(paused) => self.gui.paused = paused,
+            RendererEvent::Menu(menu) => match menu {
+                Menu::Config(_) => self.gui.config_open = !self.gui.config_open,
+                Menu::Keybind(_) => self.gui.keybind_open = !self.gui.keybind_open,
+                Menu::LoadRom => self.gui.load_rom_open = !self.gui.load_rom_open,
+                Menu::About => self.gui.about_open = !self.gui.about_open,
+            },
+        }
     }
 
     fn resize_texture(&mut self, config: &Config) {
@@ -478,10 +469,10 @@ impl Renderer {
     }
 
     /// Prepare.
-    pub fn prepare(&mut self, window: &Window, paused: bool, config: &mut Config) {
+    pub fn prepare(&mut self, window: &Window, config: &mut Config) {
         let raw_input = self.egui_state.take_egui_input(window);
         let output = self.ctx.run(raw_input, |ctx| {
-            self.gui.ui(ctx, paused, config);
+            self.gui.ui(ctx, config);
         });
 
         self.textures.append(output.textures_delta);
@@ -493,16 +484,11 @@ impl Renderer {
     }
 
     /// Request redraw.
-    pub fn request_redraw(
-        &mut self,
-        window: &Window,
-        paused: bool,
-        config: &mut Config,
-    ) -> NesResult<()> {
+    pub fn request_redraw(&mut self, window: &Window, config: &mut Config) -> NesResult<()> {
         profile!();
 
         let prev_hide_overscan = config.hide_overscan;
-        self.prepare(window, paused, config);
+        self.prepare(window, config);
         if prev_hide_overscan != config.hide_overscan {
             self.resize_texture(config);
         }
@@ -600,7 +586,7 @@ impl Nes {
     }
 
     pub fn on_error(&mut self, err: NesError) {
-        self.send_event(DeckEvent::Pause(true));
+        self.trigger_event(EmulationEvent::Pause(true));
         error!("{err:?}");
         self.renderer.gui.error = Some(err.to_string());
     }
