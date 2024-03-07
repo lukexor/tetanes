@@ -125,7 +125,7 @@ strip = true
 inherits = "release"
 
 [workspace]
-members = ["utils", "run-wasm"]
+members = ["utils"]
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]
