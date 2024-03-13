@@ -6,7 +6,7 @@ use crate::{
         pulse::{OutputFreq, Pulse, PulseChannel},
         triangle::Triangle,
     },
-    audio::Audio,
+    audio::AudioSample,
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Irq,
 };
@@ -334,7 +334,7 @@ impl ApuRegisters for Apu {
     }
 }
 
-impl Audio for Apu {
+impl AudioSample for Apu {
     #[must_use]
     fn output(&self) -> f32 {
         let pulse1 = self.pulse1.output();

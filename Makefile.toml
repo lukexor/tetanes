@@ -3,11 +3,8 @@ VERSION = { script = [
   "awk -F ' = ' '$1 ~ /version/ { gsub(/[\\\"]/, \"\", $2); printf(\"%s\",$2) }' Cargo.toml",
 ] }
 
-[env.development]
-RUST_LOG = { value = "tetanes=debug", condition = { env_not_set = ["RUST_LOG"] } }
-
-[env.production]
-RUST_LOG = { value = "tetanes=info", condition = { env_not_set = ["RUST_LOG"] } }
+[config]
+reduce_output = false
 
 [tasks.default]
 alias = "run"
@@ -86,7 +83,7 @@ description = "Run TetaNES Web in release mode"
 category = "Development"
 workspace = false
 command = "trunk"
-args = ["serve", "--release"]
+args = ["serve", "--release", "--no-default-features"]
 dependencies = ["install-web-deps"]
 
 [tasks.dev-web]
@@ -94,5 +91,5 @@ description = "Run TetaNES Web in development mode"
 category = "Development"
 workspace = false
 command = "trunk"
-args = ["serve"]
+args = ["serve", "--no-default-features"]
 dependencies = ["install-web-deps"]

@@ -1,6 +1,6 @@
 use crate::{
     apu::{Apu, ApuRegisters, Channel},
-    audio::Audio,
+    audio::AudioSample,
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::{Cpu, Irq},

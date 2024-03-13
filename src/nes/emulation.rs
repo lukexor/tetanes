@@ -1,5 +1,5 @@
 use crate::{
-    audio::Mixer,
+    audio::Audio,
     common::{Regional, Reset, ResetKind},
     control_deck::ControlDeck,
     input::{JoypadBtn, JoypadBtnState, Player},
@@ -66,7 +66,7 @@ pub struct State {
     config: Config,
     event_tx: Sender<Event>,
     control_deck: ControlDeck,
-    mixer: Mixer,
+    audio: Audio,
     frame_pool: BufferPool,
     last_frame_time: Instant,
     frame_time_accumulator: f32,
@@ -87,10 +87,11 @@ impl State {
     pub fn new(event_tx: Sender<Event>, frame_pool: BufferPool, config: Config) -> Self {
         let control_deck = ControlDeck::with_config(config.clone().into());
         let sample_rate = config.audio_sample_rate;
-        let mixer = Mixer::new(
+        let audio = Audio::new(
             control_deck.clock_rate() * f32::from(config.frame_speed),
             sample_rate,
             config.audio_latency,
+            config.audio_buffer_size,
         );
         let rewind = Rewind::new(
             config.rewind,
@@ -102,7 +103,7 @@ impl State {
             config,
             event_tx,
             control_deck,
-            mixer,
+            audio,
             frame_pool,
             frame_time_accumulator,
             last_frame_time: Instant::now(),
@@ -165,23 +166,18 @@ impl State {
             EmulationEvent::SetAudioEnabled(enabled) => {
                 self.config.audio_enabled = enabled;
                 if self.config.audio_enabled {
-                    match self.mixer.start() {
-                        Ok(sample_rate) => {
-                            self.config.audio_sample_rate = sample_rate;
-                            self.add_message("Audio Enabled");
-                        }
+                    match self.audio.start() {
+                        Ok(()) => self.add_message("Audio Enabled"),
                         Err(err) => self.on_error(err),
                     }
                 } else {
-                    match self.mixer.stop() {
-                        Ok(()) => self.add_message("Audio Disabled"),
-                        Err(err) => self.on_error(err),
-                    }
+                    self.audio.stop();
+                    self.add_message("Audio Disabled");
                 }
             }
             EmulationEvent::SetFrameSpeed(speed) => {
                 self.config.set_frame_speed(speed);
-                self.mixer
+                self.audio
                     .set_input_rate(self.control_deck.clock_rate() * f32::from(speed));
             }
             EmulationEvent::SetHideOverscan(hidden) => self.config.hide_overscan = hidden,
@@ -220,7 +216,11 @@ impl State {
                 self.config.deck.filter = filter;
                 self.control_deck.set_filter(filter);
             }
-            EmulationEvent::ZapperAim((x, y)) => self.control_deck.aim_zapper(x, y),
+            EmulationEvent::ZapperAim((x, y)) => {
+                self.control_deck.aim_zapper(x, y);
+                self.replay
+                    .record(self.control_deck.frame_number(), event.clone());
+            }
             EmulationEvent::ZapperConnect(connected) => {
                 self.config.deck.zapper = connected;
                 self.control_deck.connect_zapper(connected);
@@ -241,7 +241,7 @@ impl State {
                     self.on_error(err);
                 }
             }
-            if let Err(err) = self.mixer.pause(self.paused) {
+            if let Err(err) = self.audio.pause(self.paused) {
                 self.on_error(err);
             }
         } else {
@@ -267,20 +267,15 @@ impl State {
     fn on_unload_rom(&mut self) {
         if self.control_deck.loaded_rom().is_some() {
             self.pause(true);
-            if let Err(err) = self.mixer.stop() {
-                self.on_error(err);
-            }
+            self.audio.stop();
         }
     }
 
     fn on_load_rom(&mut self, name: String) {
         self.send_event(NesEvent::SetTitle(name));
         if self.config.audio_enabled {
-            match self.mixer.start() {
-                Ok(sample_rate) => self.config.audio_sample_rate = sample_rate,
-                Err(err) => {
-                    self.on_error(err);
-                }
+            if let Err(err) = self.audio.start() {
+                self.on_error(err);
             }
         }
         if let Some(ref replay) = self.config.replay_path {
@@ -316,10 +311,10 @@ impl State {
 
     pub fn toggle_audio_record(&mut self) {
         if self.control_deck.is_running() {
-            if self.mixer.is_recording() {
-                self.mixer.set_recording(false);
+            if self.audio.is_recording() {
+                self.audio.set_recording(false);
             } else {
-                self.mixer.set_recording(true);
+                self.audio.set_recording(true);
             }
         }
     }
@@ -351,38 +346,27 @@ impl State {
         Err(anyhow!("screenshot not implemented for web yet"))
     }
 
-    pub fn remaining_frame_time(&self) -> Duration {
-        if self.config.audio_enabled {
-            self.mixer
-                .queued_time()
-                .saturating_sub(self.config.audio_latency)
-        } else {
-            let next_frame_time = self.last_frame_time + self.config.target_frame_duration;
-            let now = Instant::now();
-            if next_frame_time > now {
-                next_frame_time - now
-            } else {
-                Duration::from_secs(0)
-            }
-        }
-    }
-
     fn should_clock_frame(&mut self, frame_duration_seconds: f32) -> bool {
-        if self.config.audio_enabled {
-            self.mixer.queued_time() <= self.config.audio_latency
+        let should_clock = if self.config.audio_enabled {
+            self.audio.queued_time() <= self.config.audio_latency
         } else {
             self.frame_time_accumulator >= frame_duration_seconds
-        }
+        };
+        self.frame_time_accumulator -= frame_duration_seconds;
+        should_clock
     }
 
     fn sleep(&self) {
         profile!("sleep");
-        #[cfg(not(target_arch = "wasm32"))]
-        loop {
-            let timeout = self.remaining_frame_time();
-            if timeout <= Duration::from_millis(1) {
-                break;
-            }
+        let timeout = if self.config.audio_enabled {
+            self.audio
+                .queued_time()
+                .saturating_sub(self.config.audio_latency)
+        } else {
+            (self.last_frame_time + self.config.target_frame_duration)
+                .saturating_duration_since(now)
+        };
+        if timeout > Duration::from_millis(1) {
             trace!("sleeping for {:.4}s", timeout.as_secs_f32());
             std::thread::park_timeout(timeout);
         }
@@ -392,7 +376,7 @@ impl State {
         profile!();
 
         if self.paused || self.occluded || !self.control_deck.is_running() {
-            return self.sleep();
+            return std::thread::park();
         }
 
         let last_frame_duration = self
@@ -401,7 +385,6 @@ impl State {
             .min(Duration::from_millis(25));
         self.last_frame_time = Instant::now();
         self.frame_time_accumulator += last_frame_duration.as_secs_f32();
-        trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
 
         // TODO: fix rewind
         // if self.rewinding {
@@ -410,12 +393,9 @@ impl State {
 
         let frame_duration_seconds = self.config.target_frame_duration.as_secs_f32();
         while self.should_clock_frame(frame_duration_seconds) {
-            trace!(
-                "queued_audio_time: {:.4}s",
-                self.mixer.queued_time().as_secs_f32()
-            );
+            self.send_event(RendererEvent::Frame(last_frame_duration));
+            trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
 
-            let start = Instant::now();
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                 self.on_event(event);
             }
@@ -423,10 +403,7 @@ impl State {
             match self.control_deck.clock_frame() {
                 Ok(_) => {
                     self.rewind.push(self.control_deck.cpu());
-                    let _ = self
-                        .mixer
-                        .process(self.control_deck.audio_samples())
-                        .map_err(|err| self.on_error(err));
+                    self.audio.process(self.control_deck.audio_samples());
                     self.control_deck.clear_audio_samples();
                 }
                 Err(err) => {
@@ -434,15 +411,11 @@ impl State {
                     self.pause(true);
                 }
             }
-            self.frame_time_accumulator -= frame_duration_seconds;
-            trace!("clock: {:.4}s", start.elapsed().as_secs_f32());
         }
 
         if let Ok(mut frame) = self.frame_pool.push_ref() {
-            let start = Instant::now();
             frame.clear();
             frame.extend_from_slice(self.control_deck.frame_buffer());
-            trace!("copy: {:.4}s", start.elapsed().as_secs_f32());
         }
 
         self.sleep();

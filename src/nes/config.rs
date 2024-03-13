@@ -360,6 +360,7 @@ impl std::fmt::Display for FrameRate {
 pub struct Config {
     pub aspect_ratio: f32,
     pub audio_enabled: bool,
+    pub audio_buffer_size: usize,
     pub audio_latency: Duration,
     pub audio_sample_rate: SampleRate,
     pub concurrent_dpad: bool,
@@ -403,6 +404,12 @@ impl Default for Config {
         };
         Self {
             aspect_ratio,
+            audio_buffer_size: if cfg!(target_arch = "wasm32") {
+                // Too low a value for wasm causes audio underruns in Chrome
+                2048
+            } else {
+                512
+            },
             audio_latency: Duration::from_millis(50),
             audio_enabled: true,
             audio_sample_rate: SampleRate::default(),
