@@ -143,7 +143,7 @@ impl Audio {
         self.output_rate = sample_rate;
         self.resample_ratio = self.input_rate / f32::from(self.output_rate);
         self.stop();
-        let output = Output::create(&self.host, self.output_rate, self.latency, self.buffer_size);
+        self.output = Output::create(&self.host, self.output_rate, self.latency, self.buffer_size);
         self.start()
     }
 
@@ -152,7 +152,7 @@ impl Audio {
     pub fn set_buffer_size(&mut self, buffer_size: usize) -> NesResult<()> {
         self.buffer_size = buffer_size;
         self.stop();
-        let output = Output::create(&self.host, self.output_rate, self.latency, self.buffer_size);
+        self.output = Output::create(&self.host, self.output_rate, self.latency, self.buffer_size);
         self.start()
     }
 

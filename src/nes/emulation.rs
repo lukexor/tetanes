@@ -346,16 +346,6 @@ impl State {
         Err(anyhow!("screenshot not implemented for web yet"))
     }
 
-    fn should_clock_frame(&mut self, frame_duration_seconds: f32) -> bool {
-        let should_clock = if self.config.audio_enabled {
-            self.audio.queued_time() <= self.config.audio_latency
-        } else {
-            self.frame_time_accumulator >= frame_duration_seconds
-        };
-        self.frame_time_accumulator -= frame_duration_seconds;
-        should_clock
-    }
-
     fn sleep(&self) {
         profile!("sleep");
         let timeout = if self.config.audio_enabled {
@@ -364,7 +354,7 @@ impl State {
                 .saturating_sub(self.config.audio_latency)
         } else {
             (self.last_frame_time + self.config.target_frame_duration)
-                .saturating_duration_since(now)
+                .saturating_duration_since(Instant::now())
         };
         if timeout > Duration::from_millis(1) {
             trace!("sleeping for {:.4}s", timeout.as_secs_f32());
@@ -391,8 +381,13 @@ impl State {
         //     self.rewind();
         // }
 
+        let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
         let frame_duration_seconds = self.config.target_frame_duration.as_secs_f32();
-        while self.should_clock_frame(frame_duration_seconds) {
+        while if self.config.audio_enabled {
+            self.audio.queued_time() <= self.config.audio_latency && clocked_frames <= 3
+        } else {
+            self.frame_time_accumulator >= frame_duration_seconds
+        } {
             self.send_event(RendererEvent::Frame(last_frame_duration));
             trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
 
@@ -411,6 +406,8 @@ impl State {
                     self.pause(true);
                 }
             }
+            self.frame_time_accumulator -= frame_duration_seconds;
+            clocked_frames += 1;
         }
 
         if let Ok(mut frame) = self.frame_pool.push_ref() {

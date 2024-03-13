@@ -474,13 +474,12 @@ impl Renderer {
         let output = self.ctx.run(raw_input, |ctx| {
             self.gui.ui(ctx, config);
         });
+        self.screen_descriptor.pixels_per_point = output.pixels_per_point;
 
         self.textures.append(output.textures_delta);
         self.egui_state
             .handle_platform_output(window, output.platform_output);
-        self.paint_jobs = self
-            .ctx
-            .tessellate(output.shapes, self.screen_descriptor.pixels_per_point);
+        self.paint_jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
     }
 
     /// Request redraw.
