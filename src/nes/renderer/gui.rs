@@ -365,6 +365,34 @@ impl Gui {
     }
 
     fn nes_frame(&mut self, ui: &mut Ui, config: &Config) {
+        CentralPanel::default()
+            .frame(Frame::none())
+            .show_inside(ui, |ui| {
+                let image = Image::from_texture(self.texture)
+                    .maintain_aspect_ratio(false)
+                    .shrink_to_fit();
+                let frame_resp = ui.add_sized(ui.available_size(), image).on_hover_cursor(
+                    if config.deck.zapper {
+                        CursorIcon::Crosshair
+                    } else {
+                        CursorIcon::Default
+                    },
+                );
+                if config.deck.zapper {
+                    if let Some(pos) = frame_resp.hover_pos() {
+                        let scale = f32::from(config.scale);
+                        let x = pos.x / scale / config.aspect_ratio;
+                        let y = (pos.y - self.menu_height - ui.style().spacing.menu_margin.bottom)
+                            / scale;
+                        if x > 0.0 && y > 0.0 {
+                            self.send_event(EmulationEvent::ZapperAim((
+                                x.round() as u32,
+                                y.round() as u32,
+                            )));
+                        }
+                    }
+                }
+            });
         if !self.messages.is_empty() || self.error.is_some() {
             Area::new("messages")
                 .anchor(Align2::LEFT_TOP, Vec2::ZERO)
@@ -400,33 +428,6 @@ impl Gui {
                 self.last_frame_duration.as_secs_f32()
             ));
         }
-        CentralPanel::default()
-            .frame(Frame::none())
-            .show_inside(ui, |ui| {
-                let image = Image::from_texture(self.texture)
-                    .maintain_aspect_ratio(false)
-                    .shrink_to_fit();
-                let frame_resp = ui.add_sized(ui.available_size(), image).on_hover_cursor(
-                    if config.deck.zapper {
-                        CursorIcon::Crosshair
-                    } else {
-                        CursorIcon::Default
-                    },
-                );
-                if config.deck.zapper {
-                    if let Some(pos) = frame_resp.hover_pos() {
-                        let scale = f32::from(config.scale);
-                        let x = (pos.x / scale) * config.aspect_ratio;
-                        let y = pos.y / scale;
-                        if x > 0.0 && y > 0.0 {
-                            self.send_event(EmulationEvent::ZapperAim((
-                                x.round() as u32,
-                                y.round() as u32,
-                            )));
-                        }
-                    }
-                }
-            });
     }
 
     fn configuration(&mut self, ui: &mut Ui) {
