@@ -125,15 +125,24 @@ impl Cart {
             RamState::fill(&mut chr, ram_state);
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let region = {
-            let mut hasher = DefaultHasher::new();
-            prg_rom.hash(&mut hasher);
-            let hash = hasher.finish();
-            Self::lookup_region(hash)
+        let region = if header.version == 2 {
+            match header.tv_mode {
+                0 => NesRegion::Ntsc,
+                1 => NesRegion::Pal,
+                3 => NesRegion::Dendy,
+                _ => NesRegion::default(),
+            }
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let mut hasher = DefaultHasher::new();
+                prg_rom.hash(&mut hasher);
+                let hash = hasher.finish();
+                Self::lookup_region(hash)
+            }
+            #[cfg(target_arch = "wasm32")]
+            NesRegion::default()
         };
-        #[cfg(target_arch = "wasm32")]
-        let region = NesRegion::default();
 
         let mut cart = Self {
             name,
