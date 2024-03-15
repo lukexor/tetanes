@@ -60,7 +60,7 @@
       {
         "number": 0,
         "action": {
-          "Nes": {
+          "Ui": {
             "MapperRevision": {
               "Mmc3": "A"
             }
@@ -79,7 +79,7 @@
       {
         "number": 0,
         "action": {
-          "Nes": {
+          "Ui": {
             "MapperRevision": {
               "Mmc3": "BC"
             }

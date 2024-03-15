@@ -1,0 +1,100 @@
+[package]
+name = "tetanes"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A NES Emulator written in Rust with WebAssembly support"
+authors.workspace = true
+readme.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories = ["emulators", "wasm"]
+keywords = ["nes", "emulator", "wasm"]
+exclude = ["/bin"]
+default-run = "tetanes"
+
+[[bin]]
+name = "list_boards"
+path = "bin/list_boards.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "generate_db"
+path = "bin/generate_db.rs"
+test = false
+bench = false
+
+[package.metadata.wix]
+upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
+path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
+license = false
+eula = false
+
+[features]
+default = ["tetanes-core/cycle-accurate"]
+profiling = ["tetanes-util/profiling", "dep:puffin_egui"]
+cycle-accurate = []
+
+[dependencies]
+anyhow.workspace = true
+bincode.workspace = true
+bytemuck = "1.14"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap.workspace = true
+crossbeam = "0.8"
+egui-wgpu = "0.26"
+image.workspace = true
+puffin = { workspace = true, optional = true }
+puffin_egui = { version = "0.26", optional = true }
+rfd = "0.13"
+ringbuf = "0.3"
+serde.workspace = true
+serde_json.workspace = true
+tetanes-core = { path = "../tetanes-core" }
+tetanes-util = { path = "../tetanes-util" }
+thingbuf = "0.1"
+tracing.workspace = true
+tracing-subscriber = "0.3"
+tracing-appender = "0.2"
+wgpu = "0.19"
+winit = { version = "0.29", features = ["serde"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = "0.15"
+dirs.workspace = true
+egui = "0.26"
+egui-winit = "0.26"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { version = "0.4", default-features = false, features = [
+  "clock",
+  "wasmbind",
+] }
+console_error_panic_hook = "0.1"
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
+egui = "0.26"
+egui-winit = { version = "0.26", default-features = false, features = [
+  "links",
+] }
+# Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
+getrandom = { version = "0.2", features = ["js"] }
+puffin = { workspace = true, features = ["web"], optional = true }
+tracing-web = "0.1"
+wgpu = { version = "0.19", features = ["webgl", "webgpu"] }
+web-sys = { version = "0.3", features = [
+  "Window",
+  "Document",
+  "HtmlElement",
+  "HtmlCanvasElement",
+  "HtmlInputElement",
+  "File",
+  "FileList",
+  "FileReader",
+  "Blob",
+] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-time.workspace = true

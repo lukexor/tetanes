@@ -1,5 +1,8 @@
-[alias]
-run-wasm = "run --release --package run-wasm --"
+# [unstable]
+# codegen-backend = true
+
+# [profile.dev]
+# codegen-backend = "cranelift"
 
 [build]
 rustflags = ["-Z", "threads=8", "-C", "target-cpu=native"]

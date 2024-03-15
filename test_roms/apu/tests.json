@@ -282,7 +282,7 @@
       {
         "number": 20,
         "action": {
-          "Nes": "SoftReset"
+          "Ui": "SoftReset"
         }
       },
       {
@@ -297,12 +297,12 @@
       {
         "number": 20,
         "action": {
-          "Nes": "SoftReset"
+          "Ui": "SoftReset"
         }
       },
       {
         "number": 40,
-        "hash": 8903377843713862963
+        "hash": 9878544886164504196
       }
     ]
   },
@@ -312,13 +312,13 @@
       {
         "number": 20,
         "action": {
-          "Nes": "SoftReset"
+          "Ui": "SoftReset"
         }
       },
       {
         "number": 35,
         "action": {
-          "Nes": "SoftReset"
+          "Ui": "SoftReset"
         }
       },
       {
@@ -333,7 +333,7 @@
       {
         "number": 15,
         "action": {
-          "Nes": "SoftReset"
+          "Ui": "SoftReset"
         }
       },
       {
@@ -348,7 +348,7 @@
       {
         "number": 20,
         "action": {
-          "Nes": "SoftReset"
+          "Ui": "SoftReset"
         }
       },
       {
@@ -364,7 +364,7 @@
         "number": 0,
         "action": {
           "Setting": {
-            "SetNesFormat": "Ntsc"
+            "SetNesRegion": "Ntsc"
           }
         }
       },
@@ -381,7 +381,7 @@
         "number": 0,
         "action": {
           "Setting": {
-            "SetNesFormat": "Ntsc"
+            "SetNesRegion": "Ntsc"
           }
         }
       },
@@ -398,7 +398,7 @@
         "number": 0,
         "action": {
           "Setting": {
-            "SetNesFormat": "Ntsc"
+            "SetNesRegion": "Ntsc"
           }
         }
       },
@@ -415,7 +415,7 @@
         "number": 0,
         "action": {
           "Setting": {
-            "SetNesFormat": "Ntsc"
+            "SetNesRegion": "Ntsc"
           }
         }
       },
