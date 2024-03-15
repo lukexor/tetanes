@@ -9,9 +9,9 @@ use tracing_subscriber::{
 
 fn create_registry() -> Layered<Targets, Registry> {
     let default_filter = if cfg!(debug_assertions) {
-        "tetanes=debug"
+        "tetanes=debug,tetanes-core=debug,tetanes-util=debug"
     } else {
-        "tetanes=info"
+        "tetanes=info,tetanes-core=info,tetanes-util=info"
     }
     .parse::<Targets>()
     .expect("valid filter");

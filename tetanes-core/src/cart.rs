@@ -36,7 +36,8 @@ pub struct Cart {
     region: NesRegion,
     ram_state: RamState,
     pub(crate) mapper: Mapper,
-    pub(crate) chr: Vec<u8>,     // Character ROM/RAM
+    pub(crate) chr: Vec<u8>, // Character ROM/RAM
+    pub(crate) has_chr_ram: bool,
     pub(crate) ex_ram: Vec<u8>,  // Internal Extra RAM
     pub(crate) prg_rom: Vec<u8>, // Program ROM
     pub(crate) prg_ram: Vec<u8>, // Program RAM
@@ -51,6 +52,7 @@ impl Cart {
             ram_state: RamState::default(),
             mapper: Mapper::none(),
             chr: vec![0x00; CHR_ROM_BANK_SIZE],
+            has_chr_ram: false,
             ex_ram: vec![],
             prg_rom: vec![0x00; PRG_ROM_BANK_SIZE],
             prg_ram: vec![],
@@ -115,9 +117,11 @@ impl Cart {
             })?;
         }
 
+        let mut has_chr_ram = false;
         if chr.is_empty() {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift).context("chr_ram")?;
             chr.resize(chr_ram_size, 0x00);
+            has_chr_ram = true;
             RamState::fill(&mut chr, ram_state);
         }
 
@@ -138,6 +142,7 @@ impl Cart {
             ram_state,
             mapper: Mapper::none(),
             chr,
+            has_chr_ram,
             ex_ram: vec![],
             prg_rom,
             prg_ram,
@@ -256,6 +261,7 @@ impl Cart {
     /// Allows mappers to add CHR-RAM.
     pub(crate) fn add_chr_ram(&mut self, capacity: usize) {
         self.chr.resize(capacity, 0x00);
+        self.has_chr_ram = true;
         RamState::fill(&mut self.chr, self.ram_state);
     }
 

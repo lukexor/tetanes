@@ -30,6 +30,7 @@ pub struct Bus {
     mirror_shift: usize,
     pub mapper: Mapper,
     pub chr: Vec<u8>,
+    pub has_chr_ram: bool,
     pub ciram: Vec<u8>, // $2007 PPUDATA
     pub palette: [u8; Self::PALETTE_SIZE],
     pub exram: Vec<u8>,
@@ -52,6 +53,7 @@ impl Bus {
             ciram: vec![0x00; Self::VRAM_SIZE],
             palette: [0x00; Self::PALETTE_SIZE],
             chr: vec![],
+            has_chr_ram: false,
             exram: vec![],
             mirror_shift: Mirroring::default() as usize,
             open_bus: 0x00,
@@ -66,8 +68,9 @@ impl Bus {
         self.mirror_shift = self.mapper.mirroring() as usize;
     }
 
-    pub fn load_chr(&mut self, chr: Vec<u8>) {
+    pub fn load_chr(&mut self, chr: Vec<u8>, is_ram: bool) {
         self.chr = chr;
+        self.has_chr_ram = is_ram;
     }
 
     pub fn load_ex_ram(&mut self, ex_ram: Vec<u8>) {
@@ -211,8 +214,10 @@ impl Mem for Bus {
                 MappedWrite::None => (),
             },
             0x0000..=0x1FFF => {
-                if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
-                    self.chr[addr] = val;
+                if self.has_chr_ram {
+                    if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
+                        self.chr[addr] = val;
+                    }
                 }
             }
             0x3F00..=0x3FFF => {

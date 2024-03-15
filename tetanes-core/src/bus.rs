@@ -103,16 +103,12 @@ impl Bus {
         self.set_region(cart.region());
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
-        self.ppu.bus.load_chr(cart.chr);
+        self.ppu.bus.load_chr(cart.chr, cart.has_chr_ram);
         self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
     }
 
     pub fn unload_cart(&mut self) {
-        self.prg_rom.clear();
-        self.load_sram(vec![]);
-        self.ppu.bus.load_chr(vec![]);
-        self.ppu.bus.load_ex_ram(vec![]);
         self.ppu.load_mapper(Mapper::default());
     }
 
