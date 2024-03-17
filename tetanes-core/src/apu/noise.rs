@@ -1,6 +1,6 @@
 use crate::{
     apu::{envelope::Envelope, length_counter::LengthCounter},
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 
@@ -82,19 +82,6 @@ impl Noise {
         self.length.clock();
     }
 
-    #[must_use]
-    pub fn output(&self) -> f32 {
-        if self.shift & 1 == 0 && self.length.counter != 0 && !self.force_silent {
-            if self.envelope.enabled {
-                f32::from(self.envelope.volume)
-            } else {
-                f32::from(self.envelope.constant_volume)
-            }
-        } else {
-            0f32
-        }
-    }
-
     pub fn write_ctrl(&mut self, val: u8) {
         self.length.write_ctrl(val);
         self.envelope.write_ctrl(val);
@@ -122,6 +109,21 @@ impl Noise {
         self.enabled = enabled;
         if !enabled {
             self.length.counter = 0;
+        }
+    }
+}
+
+impl AudioSample for Noise {
+    #[must_use]
+    fn output(&self) -> f32 {
+        if self.shift & 1 == 0 && self.length.counter != 0 && !self.force_silent {
+            if self.envelope.enabled {
+                f32::from(self.envelope.volume)
+            } else {
+                f32::from(self.envelope.constant_volume)
+            }
+        } else {
+            0f32
         }
     }
 }

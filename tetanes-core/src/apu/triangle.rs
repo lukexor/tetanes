@@ -1,6 +1,6 @@
 use crate::{
     apu::{length_counter::LengthCounter, linear_counter::LinearCounter},
-    common::{Clock, Reset, ResetKind},
+    common::{AudioSample, Clock, Reset, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 
@@ -66,19 +66,6 @@ impl Triangle {
         self.length.clock();
     }
 
-    #[must_use]
-    pub fn output(&self) -> f32 {
-        if self.force_silent {
-            0.0
-        } else if self.ultrasonic {
-            7.5
-        } else if self.step & 0x10 == 0x10 {
-            f32::from(self.step ^ 0x1F)
-        } else {
-            f32::from(self.step)
-        }
-    }
-
     pub fn write_linear_counter(&mut self, val: u8) {
         self.linear.control = (val >> 7) & 1 == 1; // D7
         self.length.enabled = (val >> 7) & 1 == 0; // !D7
@@ -106,16 +93,24 @@ impl Triangle {
     }
 }
 
+impl AudioSample for Triangle {
+    #[must_use]
+    fn output(&self) -> f32 {
+        if self.force_silent {
+            0.0
+        } else if self.freq_timer < 2 {
+            7.5
+        } else if self.step & 0x10 == 0x10 {
+            f32::from(self.step ^ 0x1F)
+        } else {
+            f32::from(self.step)
+        }
+    }
+}
+
 impl Clock for Triangle {
     fn clock(&mut self) -> usize {
-        self.ultrasonic = false;
-        if self.length.counter > 0 && self.freq_timer < 2 && self.freq_counter == 0 {
-            self.ultrasonic = true;
-        }
-
-        let should_clock =
-            !(self.length.counter == 0 || self.linear.counter == 0 || self.ultrasonic);
-        if should_clock {
+        if self.linear.counter > 0 && self.length.counter > 0 {
             if self.freq_counter > 0 {
                 self.freq_counter -= 1;
             } else {

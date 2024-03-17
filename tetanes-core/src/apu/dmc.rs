@@ -1,4 +1,4 @@
-use crate::common::{Clock, NesRegion, Regional, Reset, ResetKind};
+use crate::common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -135,15 +135,6 @@ impl Dmc {
         }
     }
 
-    #[must_use]
-    pub fn output(&self) -> f32 {
-        if self.force_silent {
-            0.0
-        } else {
-            f32::from(self.output)
-        }
-    }
-
     // $4010 DMC timer
 
     pub fn write_timer(&mut self, val: u8) {
@@ -192,6 +183,17 @@ impl Dmc {
             if self.init == 0 && self.sample_buffer_empty && self.length > 0 {
                 self.dma_pending = true;
             }
+        }
+    }
+}
+
+impl AudioSample for Dmc {
+    #[must_use]
+    fn output(&self) -> f32 {
+        if self.force_silent {
+            0.0
+        } else {
+            f32::from(self.output)
         }
     }
 }

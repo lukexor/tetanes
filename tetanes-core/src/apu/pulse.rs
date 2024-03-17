@@ -1,6 +1,6 @@
 use crate::{
     apu::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep},
-    common::{Clock, Reset, ResetKind},
+    common::{AudioSample, Clock, Reset, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 
@@ -124,23 +124,6 @@ impl Pulse {
         }
     }
 
-    #[must_use]
-    pub fn output(&self) -> f32 {
-        if Self::DUTY_TABLE[self.duty_cycle as usize][self.duty_counter as usize] != 0
-            && self.length.counter != 0
-            && !self.sweep_forcing_silence()
-            && !self.force_silent
-        {
-            if self.envelope.enabled {
-                f32::from(self.envelope.volume)
-            } else {
-                f32::from(self.envelope.constant_volume)
-            }
-        } else {
-            0f32
-        }
-    }
-
     // $4000 Pulse control
 
     pub fn write_ctrl(&mut self, val: u8) {
@@ -181,6 +164,25 @@ impl Pulse {
         self.enabled = enabled;
         if !enabled {
             self.length.counter = 0;
+        }
+    }
+}
+
+impl AudioSample for Pulse {
+    #[must_use]
+    fn output(&self) -> f32 {
+        if Self::DUTY_TABLE[self.duty_cycle as usize][self.duty_counter as usize] != 0
+            && self.length.counter != 0
+            && !self.sweep_forcing_silence()
+            && !self.force_silent
+        {
+            if self.envelope.enabled {
+                f32::from(self.envelope.volume)
+            } else {
+                f32::from(self.envelope.constant_volume)
+            }
+        } else {
+            0f32
         }
     }
 }

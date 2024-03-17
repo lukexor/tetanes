@@ -20,6 +20,6 @@ impl LinearCounter {
     }
 
     pub(crate) fn load_value(&mut self, val: u8) {
-        self.load = val >> 1; // D6..D0
+        self.load = val & 0x7F; // D6..D0
     }
 }

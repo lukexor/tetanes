@@ -540,35 +540,35 @@ impl Default for InputMap {
         key_map!(
             map,
             One,
-            Numpad1,
+            Digit1,
             SHIFT,
             Setting::ToggleApuChannel(Channel::Pulse1)
         );
         key_map!(
             map,
             One,
-            Numpad2,
+            Digit2,
             SHIFT,
             Setting::ToggleApuChannel(Channel::Pulse2)
         );
         key_map!(
             map,
             One,
-            Numpad3,
+            Digit3,
             SHIFT,
             Setting::ToggleApuChannel(Channel::Triangle)
         );
         key_map!(
             map,
             One,
-            Numpad4,
+            Digit4,
             SHIFT,
             Setting::ToggleApuChannel(Channel::Noise)
         );
         key_map!(
             map,
             One,
-            Numpad5,
+            Digit5,
             SHIFT,
             Setting::ToggleApuChannel(Channel::Dmc)
         );
