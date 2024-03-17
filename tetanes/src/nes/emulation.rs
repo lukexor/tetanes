@@ -150,14 +150,6 @@ impl State {
         }
 
         match event {
-            // For debugging keybinds
-            #[cfg(debug_assertions)]
-            Event::WindowEvent {
-                event: winit::event::WindowEvent::KeyboardInput { event, .. },
-                ..
-            } => match event.physical_key {
-                _ => (),
-            },
             Event::UserEvent(NesEvent::Emulation(event)) => match event {
                 EmulationEvent::Joypad((player, button, state)) => {
                     let pressed = *state == ElementState::Pressed;
