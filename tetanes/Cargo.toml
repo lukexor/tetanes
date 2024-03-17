@@ -16,6 +16,12 @@ exclude = ["/bin"]
 default-run = "tetanes"
 
 [[bin]]
+name = "tetanes"
+path = "src/main.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "list_boards"
 path = "bin/list_boards.rs"
 test = false

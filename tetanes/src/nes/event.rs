@@ -1,5 +1,5 @@
 use crate::nes::{
-    action::{Action, DebugAction, DebugStep, Debugger, Feature, Setting, UiState},
+    action::{Action, DebugKind, DebugStep, Debugger, Feature, Setting, UiState},
     config::{Config, FrameSpeed, Scale},
     renderer::gui::{ConfigTab, Menu},
     Nes,
@@ -11,9 +11,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 use tetanes_core::{
+    action::Action as DeckAction,
     apu::Channel,
     common::{NesRegion, ResetKind},
-    control_deck::Config as DeckConfig,
+    control_deck,
     input::{JoypadBtn, Player},
     video::VideoFilter,
 };
@@ -77,8 +78,8 @@ pub enum EmulationEvent {
     SetFrameSpeed(FrameSpeed),
     SetRegion(NesRegion),
     SetTargetFrameDuration(Duration),
-    StateLoad(DeckConfig),
-    StateSave(DeckConfig),
+    StateLoad(control_deck::Config),
+    StateSave(control_deck::Config),
     ToggleApuChannel(Channel),
     ToggleAudioRecord,
     ToggleReplayRecord,
@@ -308,13 +309,6 @@ impl Nes {
                         self.state.paused = !self.state.paused;
                         self.trigger_event(EmulationEvent::TogglePause);
                     }
-                    UiState::SoftReset => {
-                        self.trigger_event(EmulationEvent::Reset(ResetKind::Soft))
-                    }
-                    UiState::HardReset => {
-                        self.trigger_event(EmulationEvent::Reset(ResetKind::Hard))
-                    }
-                    UiState::MapperRevision(_) => todo!("mapper revision"),
                 },
                 Action::Menu(menu) if released => self.trigger_event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) => match feature {
@@ -327,20 +321,10 @@ impl Nes {
                     Feature::TakeScreenshot if released => {
                         self.trigger_event(EmulationEvent::Screenshot)
                     }
-                    Feature::SaveState if released => {
-                        self.trigger_event(EmulationEvent::StateSave(self.config.deck.clone()))
-                    }
-                    Feature::LoadState if released => {
-                        self.trigger_event(EmulationEvent::StateLoad(self.config.deck.clone()))
-                    }
                     Feature::Rewind => self.trigger_event(EmulationEvent::Rewind((state, repeat))),
                     _ => (),
                 },
                 Action::Setting(setting) => match setting {
-                    Setting::SetSaveSlot(slot) if released => {
-                        self.config.deck.save_slot = slot;
-                        self.add_message(format!("Changed Save Slot to {slot}"));
-                    }
                     Setting::ToggleFullscreen if released => {
                         self.config.fullscreen = !self.config.fullscreen;
                         self.window.set_fullscreen(
@@ -353,22 +337,11 @@ impl Nes {
                         self.config.vsync = !self.config.vsync;
                         self.trigger_event(RendererEvent::SetVSync(self.config.vsync));
                     }
-                    Setting::ToggleVideoFilter(filter) if released => {
-                        self.config.deck.filter = if self.config.deck.filter == filter {
-                            VideoFilter::Pixellate
-                        } else {
-                            filter
-                        };
-                        self.trigger_event(EmulationEvent::SetVideoFilter(self.config.deck.filter));
-                    }
                     Setting::ToggleAudio if released => {
                         self.config.audio_enabled = !self.config.audio_enabled;
                         self.trigger_event(EmulationEvent::SetAudioEnabled(
                             self.config.audio_enabled,
                         ));
-                    }
-                    Setting::ToggleApuChannel(channel) if released => {
-                        self.trigger_event(EmulationEvent::ToggleApuChannel(channel));
                     }
                     Setting::IncSpeed if released => {
                         self.config.frame_speed = self.config.frame_speed.increment();
@@ -385,28 +358,62 @@ impl Nes {
                     }),
                     _ => (),
                 },
-                Action::Joypad(button) if !repeat => {
-                    let pressed = state == ElementState::Pressed;
-                    if !self.config.concurrent_dpad && pressed {
-                        if let Some(button) = match button {
-                            JoypadBtn::Left => Some(JoypadBtn::Right),
-                            JoypadBtn::Right => Some(JoypadBtn::Left),
-                            JoypadBtn::Up => Some(JoypadBtn::Down),
-                            JoypadBtn::Down => Some(JoypadBtn::Up),
-                            _ => None,
-                        } {
-                            self.trigger_event(EmulationEvent::Joypad((
-                                player,
-                                button,
-                                ElementState::Released,
-                            )));
-                        }
+                Action::Deck(action) => match action {
+                    DeckAction::SoftReset if released => {
+                        self.trigger_event(EmulationEvent::Reset(ResetKind::Soft));
                     }
-                    self.trigger_event(EmulationEvent::Joypad((player, button, state)));
-                }
-                Action::ZapperTrigger if self.config.deck.zapper => {
-                    self.trigger_event(EmulationEvent::ZapperTrigger);
-                }
+                    DeckAction::HardReset if released => {
+                        self.trigger_event(EmulationEvent::Reset(ResetKind::Hard));
+                    }
+                    DeckAction::Joypad(button) if !repeat => {
+                        let pressed = state == ElementState::Pressed;
+                        if !self.config.concurrent_dpad && pressed {
+                            if let Some(button) = match button {
+                                JoypadBtn::Left => Some(JoypadBtn::Right),
+                                JoypadBtn::Right => Some(JoypadBtn::Left),
+                                JoypadBtn::Up => Some(JoypadBtn::Down),
+                                JoypadBtn::Down => Some(JoypadBtn::Up),
+                                _ => None,
+                            } {
+                                self.trigger_event(EmulationEvent::Joypad((
+                                    player,
+                                    button,
+                                    ElementState::Released,
+                                )));
+                            }
+                        }
+                        self.trigger_event(EmulationEvent::Joypad((player, button, state)));
+                    }
+                    DeckAction::ZapperTrigger if self.config.deck.zapper => {
+                        self.trigger_event(EmulationEvent::ZapperTrigger);
+                    }
+                    DeckAction::SetSaveSlot(slot) if released => {
+                        self.config.deck.save_slot = slot;
+                        self.add_message(format!("Changed Save Slot to {slot}"));
+                    }
+                    DeckAction::SaveState if released => {
+                        self.trigger_event(EmulationEvent::StateSave(self.config.deck.clone()));
+                    }
+                    DeckAction::LoadState if released => {
+                        self.trigger_event(EmulationEvent::StateLoad(self.config.deck.clone()));
+                    }
+                    DeckAction::ToggleApuChannel(channel) if released => {
+                        self.trigger_event(EmulationEvent::ToggleApuChannel(channel));
+                    }
+                    DeckAction::MapperRevision(_) if released => todo!("mapper revision"),
+                    DeckAction::SetNesRegion(region) if released => {
+                        self.trigger_event(EmulationEvent::SetRegion(region));
+                    }
+                    DeckAction::SetVideoFilter(filter) if released => {
+                        self.config.deck.filter = if self.config.deck.filter == filter {
+                            VideoFilter::Pixellate
+                        } else {
+                            filter
+                        };
+                        self.trigger_event(EmulationEvent::SetVideoFilter(self.config.deck.filter));
+                    }
+                    _ => (),
+                },
                 _ => (),
             }
         }
@@ -517,21 +524,21 @@ impl Default for InputMap {
         key_map!(map, One, F3, Menu::LoadRom);
         key_map!(map, One, KeyK, CONTROL, Menu::Keybind(Player::One));
         key_map!(map, One, KeyQ, CONTROL, UiState::Quit);
-        key_map!(map, One, KeyR, CONTROL, UiState::SoftReset);
-        key_map!(map, One, KeyP, CONTROL, UiState::HardReset);
+        key_map!(map, One, KeyR, CONTROL, DeckAction::SoftReset);
+        key_map!(map, One, KeyP, CONTROL, DeckAction::HardReset);
         key_map!(map, One, Equal, CONTROL, Setting::IncSpeed);
         key_map!(map, One, Minus, CONTROL, Setting::DecSpeed);
         key_map!(map, One, Space, Setting::FastForward);
-        key_map!(map, One, Digit1, CONTROL, Setting::SetSaveSlot(1));
-        key_map!(map, One, Digit2, CONTROL, Setting::SetSaveSlot(2));
-        key_map!(map, One, Digit3, CONTROL, Setting::SetSaveSlot(3));
-        key_map!(map, One, Digit4, CONTROL, Setting::SetSaveSlot(4));
-        key_map!(map, One, Numpad1, CONTROL, Setting::SetSaveSlot(1));
-        key_map!(map, One, Numpad2, CONTROL, Setting::SetSaveSlot(2));
-        key_map!(map, One, Numpad3, CONTROL, Setting::SetSaveSlot(3));
-        key_map!(map, One, Numpad4, CONTROL, Setting::SetSaveSlot(4));
-        key_map!(map, One, KeyS, CONTROL, Feature::SaveState);
-        key_map!(map, One, KeyL, CONTROL, Feature::LoadState);
+        key_map!(map, One, Digit1, CONTROL, DeckAction::SetSaveSlot(1));
+        key_map!(map, One, Digit2, CONTROL, DeckAction::SetSaveSlot(2));
+        key_map!(map, One, Digit3, CONTROL, DeckAction::SetSaveSlot(3));
+        key_map!(map, One, Digit4, CONTROL, DeckAction::SetSaveSlot(4));
+        key_map!(map, One, Numpad1, CONTROL, DeckAction::SetSaveSlot(1));
+        key_map!(map, One, Numpad2, CONTROL, DeckAction::SetSaveSlot(2));
+        key_map!(map, One, Numpad3, CONTROL, DeckAction::SetSaveSlot(3));
+        key_map!(map, One, Numpad4, CONTROL, DeckAction::SetSaveSlot(4));
+        key_map!(map, One, KeyS, CONTROL, DeckAction::SaveState);
+        key_map!(map, One, KeyL, CONTROL, DeckAction::LoadState);
         key_map!(map, One, KeyR, Feature::Rewind);
         key_map!(map, One, F10, Feature::TakeScreenshot);
         key_map!(map, One, KeyV, SHIFT, Feature::ToggleReplayRecord);
@@ -542,35 +549,35 @@ impl Default for InputMap {
             One,
             Digit1,
             SHIFT,
-            Setting::ToggleApuChannel(Channel::Pulse1)
+            DeckAction::ToggleApuChannel(Channel::Pulse1)
         );
         key_map!(
             map,
             One,
             Digit2,
             SHIFT,
-            Setting::ToggleApuChannel(Channel::Pulse2)
+            DeckAction::ToggleApuChannel(Channel::Pulse2)
         );
         key_map!(
             map,
             One,
             Digit3,
             SHIFT,
-            Setting::ToggleApuChannel(Channel::Triangle)
+            DeckAction::ToggleApuChannel(Channel::Triangle)
         );
         key_map!(
             map,
             One,
             Digit4,
             SHIFT,
-            Setting::ToggleApuChannel(Channel::Noise)
+            DeckAction::ToggleApuChannel(Channel::Noise)
         );
         key_map!(
             map,
             One,
             Digit5,
             SHIFT,
-            Setting::ToggleApuChannel(Channel::Dmc)
+            DeckAction::ToggleApuChannel(Channel::Dmc)
         );
         key_map!(map, One, Enter, CONTROL, Setting::ToggleFullscreen);
         key_map!(map, One, KeyV, CONTROL, Setting::ToggleVsync);
@@ -579,58 +586,52 @@ impl Default for InputMap {
             One,
             KeyN,
             CONTROL,
-            Setting::ToggleVideoFilter(VideoFilter::Ntsc)
+            DeckAction::SetVideoFilter(VideoFilter::Ntsc)
         );
         key_map!(
             map,
             One,
             KeyD,
             SHIFT,
-            DebugAction::ToggleDebugger(Debugger::Cpu)
+            Debugger::ToggleDebugger(DebugKind::Cpu)
         );
         key_map!(
             map,
             One,
             KeyP,
             SHIFT,
-            DebugAction::ToggleDebugger(Debugger::Ppu)
+            Debugger::ToggleDebugger(DebugKind::Ppu)
         );
         key_map!(
             map,
             One,
             KeyA,
             SHIFT,
-            DebugAction::ToggleDebugger(Debugger::Apu)
+            Debugger::ToggleDebugger(DebugKind::Apu)
         );
-        key_map!(map, One, KeyC, DebugAction::Step(DebugStep::Into));
-        key_map!(map, One, KeyO, DebugAction::Step(DebugStep::Over));
-        key_map!(map, One, KeyO, SHIFT, DebugAction::Step(DebugStep::Out));
-        key_map!(
-            map,
-            One,
-            KeyL,
-            SHIFT,
-            DebugAction::Step(DebugStep::Scanline)
-        );
-        key_map!(map, One, KeyF, SHIFT, DebugAction::Step(DebugStep::Frame));
-        key_map!(map, One, ArrowDown, CONTROL, DebugAction::UpdateScanline(1));
-        key_map!(map, One, ArrowUp, CONTROL, DebugAction::UpdateScanline(-1));
+        key_map!(map, One, KeyC, Debugger::Step(DebugStep::Into));
+        key_map!(map, One, KeyO, Debugger::Step(DebugStep::Over));
+        key_map!(map, One, KeyO, SHIFT, Debugger::Step(DebugStep::Out));
+        key_map!(map, One, KeyL, SHIFT, Debugger::Step(DebugStep::Scanline));
+        key_map!(map, One, KeyF, SHIFT, Debugger::Step(DebugStep::Frame));
+        key_map!(map, One, ArrowDown, CONTROL, Debugger::UpdateScanline(1));
+        key_map!(map, One, ArrowUp, CONTROL, Debugger::UpdateScanline(-1));
         key_map!(
             map,
             One,
             ArrowDown,
             SHIFT | CONTROL,
-            DebugAction::UpdateScanline(10)
+            Debugger::UpdateScanline(10)
         );
         key_map!(
             map,
             One,
             ArrowUp,
             SHIFT | CONTROL,
-            DebugAction::UpdateScanline(-10)
+            Debugger::UpdateScanline(-10)
         );
 
-        mouse_map!(map, Two, MouseButton::Left, Action::ZapperTrigger);
+        mouse_map!(map, Two, MouseButton::Left, DeckAction::ZapperTrigger);
 
         Self(map)
     }

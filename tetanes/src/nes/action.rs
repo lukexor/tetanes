@@ -1,8 +1,6 @@
 use crate::nes::renderer::gui::Menu;
 use serde::{Deserialize, Serialize};
-use tetanes_core::{
-    apu::Channel, common::NesRegion, input::JoypadBtn, mapper::MapperRevision, video::VideoFilter,
-};
+use tetanes_core::{action::Action as DeckAction, input::JoypadBtn};
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Action {
@@ -10,9 +8,8 @@ pub enum Action {
     Menu(Menu),
     Feature(Feature),
     Setting(Setting),
-    Joypad(JoypadBtn),
-    ZapperTrigger,
-    Debug(DebugAction),
+    Deck(DeckAction),
+    Debug(Debugger),
 }
 
 impl From<UiState> for Action {
@@ -41,12 +38,18 @@ impl From<Setting> for Action {
 
 impl From<JoypadBtn> for Action {
     fn from(btn: JoypadBtn) -> Self {
-        Self::Joypad(btn)
+        Self::Deck(DeckAction::Joypad(btn))
     }
 }
 
-impl From<DebugAction> for Action {
-    fn from(action: DebugAction) -> Self {
+impl From<DeckAction> for Action {
+    fn from(deck: DeckAction) -> Self {
+        Self::Deck(deck)
+    }
+}
+
+impl From<Debugger> for Action {
+    fn from(action: Debugger) -> Self {
         Self::Debug(action)
     }
 }
@@ -55,9 +58,6 @@ impl From<DebugAction> for Action {
 pub enum UiState {
     Quit,
     TogglePause,
-    SoftReset,
-    HardReset,
-    MapperRevision(MapperRevision),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,20 +66,13 @@ pub enum Feature {
     ToggleAudioRecord,
     Rewind,
     TakeScreenshot,
-    SaveState,
-    LoadState,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Setting {
-    SetSaveSlot(u8),
     ToggleFullscreen,
     ToggleVsync,
-    ToggleVideoFilter(VideoFilter),
-    SetVideoFilter(VideoFilter),
-    SetNesRegion(NesRegion),
     ToggleAudio,
-    ToggleApuChannel(Channel),
     FastForward,
     IncSpeed,
     DecSpeed,
@@ -87,7 +80,7 @@ pub enum Setting {
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
-pub enum Debugger {
+pub enum DebugKind {
     Cpu,
     Ppu,
     Apu,
@@ -104,8 +97,8 @@ pub enum DebugStep {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-pub enum DebugAction {
-    ToggleDebugger(Debugger),
+pub enum Debugger {
+    ToggleDebugger(DebugKind),
     Step(DebugStep),
     UpdateScanline(isize),
 }

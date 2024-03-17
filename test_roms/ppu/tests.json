@@ -5,9 +5,7 @@
       {
         "number": 0,
         "action": {
-          "Setting": {
-            "SetVideoFilter": "Ntsc"
-          }
+          "SetVideoFilter": "Ntsc"
         }
       },
       {
@@ -355,9 +353,7 @@
       {
         "number": 10,
         "action": {
-          "Setting": {
-            "SetVideoFilter": "Ntsc"
-          }
+          "SetVideoFilter": "Ntsc"
         }
       },
       {
@@ -508,9 +504,7 @@
       {
         "number": 0,
         "action": {
-          "Setting": {
-            "SetVideoFilter": "Ntsc"
-          }
+          "SetVideoFilter": "Ntsc"
         }
       },
       {
@@ -547,3 +541,4 @@
     ]
   }
 ]
+

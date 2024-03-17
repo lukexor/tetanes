@@ -281,9 +281,7 @@
     "frames": [
       {
         "number": 20,
-        "action": {
-          "Ui": "SoftReset"
-        }
+        "action": "SoftReset"
       },
       {
         "number": 40,
@@ -296,9 +294,7 @@
     "frames": [
       {
         "number": 20,
-        "action": {
-          "Ui": "SoftReset"
-        }
+        "action": "SoftReset"
       },
       {
         "number": 40,
@@ -311,15 +307,11 @@
     "frames": [
       {
         "number": 20,
-        "action": {
-          "Ui": "SoftReset"
-        }
+        "action": "SoftReset"
       },
       {
         "number": 35,
-        "action": {
-          "Ui": "SoftReset"
-        }
+        "action": "SoftReset"
       },
       {
         "number": 50,
@@ -332,9 +324,7 @@
     "frames": [
       {
         "number": 15,
-        "action": {
-          "Ui": "SoftReset"
-        }
+        "action": "SoftReset"
       },
       {
         "number": 20,
@@ -347,9 +337,7 @@
     "frames": [
       {
         "number": 20,
-        "action": {
-          "Ui": "SoftReset"
-        }
+        "action": "SoftReset"
       },
       {
         "number": 30,
@@ -363,9 +351,7 @@
       {
         "number": 0,
         "action": {
-          "Setting": {
-            "SetNesRegion": "Ntsc"
-          }
+          "SetNesRegion": "Ntsc"
         }
       },
       {
@@ -380,9 +366,7 @@
       {
         "number": 0,
         "action": {
-          "Setting": {
-            "SetNesRegion": "Ntsc"
-          }
+          "SetNesRegion": "Ntsc"
         }
       },
       {
@@ -397,9 +381,7 @@
       {
         "number": 0,
         "action": {
-          "Setting": {
-            "SetNesRegion": "Ntsc"
-          }
+          "SetNesRegion": "Ntsc"
         }
       },
       {
@@ -414,9 +396,7 @@
       {
         "number": 0,
         "action": {
-          "Setting": {
-            "SetNesRegion": "Ntsc"
-          }
+          "SetNesRegion": "Ntsc"
         }
       },
       {
@@ -426,3 +406,4 @@
     ]
   }
 ]
+

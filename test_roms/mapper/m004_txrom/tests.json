@@ -60,10 +60,8 @@
       {
         "number": 0,
         "action": {
-          "Ui": {
-            "MapperRevision": {
-              "Mmc3": "A"
-            }
+          "MapperRevision": {
+            "Mmc3": "A"
           }
         }
       },
@@ -79,10 +77,8 @@
       {
         "number": 0,
         "action": {
-          "Ui": {
-            "MapperRevision": {
-              "Mmc3": "BC"
-            }
+          "MapperRevision": {
+            "Mmc3": "BC"
           }
         }
       },

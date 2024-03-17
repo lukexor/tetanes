@@ -5,9 +5,7 @@
       {
         "number": 0,
         "action": {
-          "Setting": {
-            "SetVideoFilter": "Ntsc"
-          }
+          "SetVideoFilter": "Ntsc"
         }
       },
       {
