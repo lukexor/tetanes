@@ -95,8 +95,20 @@ pub(crate) struct Opts {
 }
 
 impl Opts {
-    /// Extends a base `Config` with CLI options
-    pub(crate) fn extend(self, base: Config) -> NesResult<Config> {
+    /// Loads a base `Config`, merging with CLI options
+    pub(crate) fn load(self) -> NesResult<Config> {
+        let rom_path = self
+            .path
+            .map_or_else(
+                || {
+                    dirs::home_dir()
+                        .or_else(|| std::env::current_dir().ok())
+                        .unwrap_or(PathBuf::from("."))
+                },
+                Into::into,
+            )
+            .canonicalize()?;
+
         if self.clean {
             let base = Config::default();
             return Ok(Config {
@@ -105,10 +117,13 @@ impl Opts {
                     save_on_exit: false,
                     ..base.deck
                 },
+                rom_path,
+                replay_path: self.replay,
                 ..base
             });
         }
 
+        let base = Config::load(self.config.clone());
         let mut config = Config {
             deck: control_deck::Config {
                 four_player: self
@@ -122,18 +137,7 @@ impl Opts {
                 save_on_exit: !self.no_save && base.deck.save_on_exit,
                 ..base.deck
             },
-            rom_path: self
-                .path
-                .map_or_else(
-                    || {
-                        dirs::home_dir()
-                            .or_else(|| std::env::current_dir().ok())
-                            .unwrap_or_else(|| base.rom_path.clone())
-                    },
-                    Into::into,
-                )
-                .canonicalize()
-                .unwrap_or(base.rom_path),
+            rom_path,
             replay_path: self.replay,
             rewind: self.rewind || base.rewind,
             audio_enabled: !self.silent && base.audio_enabled,

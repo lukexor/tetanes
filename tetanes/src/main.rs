@@ -23,7 +23,7 @@ pub mod nes;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opts;
 
-use nes::{config::Config, Nes};
+use nes::Nes;
 use tetanes_util::{platform, profiling, NesResult};
 
 fn main() -> NesResult<()> {
@@ -35,16 +35,9 @@ fn main() -> NesResult<()> {
     #[cfg(not(target_arch = "wasm32"))]
     let config = {
         use clap::Parser;
-
         let opts = opts::Opts::parse();
         tracing::debug!("CLI Options: {opts:?}");
-
-        let config = if opts.clean {
-            Config::default()
-        } else {
-            Config::load(opts.config.clone())
-        };
-        opts.extend(config)?
+        opts.load()?
     };
 
     platform::thread::spawn(Nes::run(config))

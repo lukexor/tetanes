@@ -372,184 +372,208 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    test_roms!(
-        "../test_roms/cpu",
-        branch_backward,
-        nestest,
-        ram_after_reset,
-        regs_after_reset,
-        branch_basics,
-        branch_forward,
-        dummy_reads,
-        dummy_writes_oam,
-        dummy_writes_ppumem,
-        exec_space_apu,
-        exec_space_ppuio,
-        flag_concurrency,
-        instr_abs,
-        instr_abs_xy,
-        instr_basics,
-        instr_branches,
-        instr_brk,
-        instr_imm,
-        instr_imp,
-        instr_ind_x,
-        instr_ind_y,
-        instr_jmp_jsr,
-        instr_misc,
-        instr_rti,
-        instr_rts,
-        instr_special,
-        instr_stack,
-        instr_timing,
-        instr_zp,
-        instr_zp_xy,
-        int_branch_delays_irq,
-        int_cli_latency,
-        int_irq_and_dma,
-        int_nmi_and_brk,
-        int_nmi_and_irq,
-        overclock,
-        sprdma_and_dmc_dma,
-        sprdma_and_dmc_dma_512,
-        timing_test,
-    );
-    test_roms!(
-        "../test_roms/ppu",
-        _240pee, // TODO: Run each test
-        color,   // TODO: Test all color combinations
-        ntsc_torture,
-        oam_read,
-        oam_stress,
-        open_bus,
-        palette,
-        palette_ram,
-        read_buffer,
-        scanline,
-        spr_hit_alignment,
-        spr_hit_basics,
-        spr_hit_corners,
-        spr_hit_double_height,
-        spr_hit_edge_timing,
-        spr_hit_flip,
-        spr_hit_left_clip,
-        spr_hit_right_edge,
-        spr_hit_screen_bottom,
-        spr_hit_timing_basics,
-        spr_hit_timing_order,
-        spr_overflow_basics,
-        spr_overflow_details,
-        spr_overflow_emulator,
-        spr_overflow_obscure,
-        spr_overflow_timing,
-        sprite_ram,
-        tv,
-        vbl_nmi_basics,
-        vbl_nmi_clear_timing,
-        vbl_nmi_control,
-        vbl_nmi_disable,
-        vbl_nmi_even_odd_frames,
-        #[ignore = "clock is skipped too late relative to enabling BG Failed #3"]
-        vbl_nmi_even_odd_timing,
-        vbl_nmi_frame_basics,
-        vbl_nmi_off_timing,
-        vbl_nmi_on_timing,
-        vbl_nmi_set_time,
-        vbl_nmi_suppression,
-        vbl_nmi_timing,
-        vbl_timing,
-        vram_access,
-    );
-    test_roms!(
-        "../test_roms/apu",
-        clock_jitter,
-        dmc_basics,
-        dmc_dma_2007_read,
-        dmc_dma_2007_write,
-        dmc_dma_4016_read,
-        dmc_dma_double_2007_read,
-        dmc_dma_read_write_2007,
-        dmc_rates,
-        dpcmletterbox,
-        irq_flag,
-        #[ignore = "fails $04"]
-        irq_flag_timing,
-        irq_timing,
-        jitter,
-        len_ctr,
-        #[ignore = "fails $03"]
-        len_halt_timing,
-        #[ignore = "fails $04"]
-        len_reload_timing,
-        len_table,
-        #[ignore = "Channel: 0 second length of mode 0 is too soon"]
-        len_timing,
-        #[ignore = "fails $04"]
-        len_timing_mode0,
-        #[ignore = "fails $05"]
-        len_timing_mode1,
-        reset_4015_cleared,
-        reset_4017_timing,
-        reset_4017_written,
-        reset_irq_flag_cleared,
-        #[ignore = "At power, length counters should be enabled, #2"]
-        reset_len_ctrs_enabled,
-        reset_timing,
-        reset_works_immediately,
-        test_1,
-        test_2,
-        #[ignore = "todo"]
-        test_3,
-        #[ignore = "todo"]
-        test_4,
-        test_5,
-        test_6,
-        #[ignore = "todo"]
-        test_7,
-        #[ignore = "todo"]
-        test_8,
-        #[ignore = "todo"]
-        test_9,
-        #[ignore = "todo"]
-        test_10,
-        #[ignore = "todo"]
-        pal_clock_jitter,
-        pal_irq_flag,
-        #[ignore = "todo"]
-        pal_irq_flag_timing,
-        #[ignore = "todo"]
-        pal_irq_timing,
-        pal_len_ctr,
-        #[ignore = "todo"]
-        pal_len_halt_timing,
-        #[ignore = "todo"]
-        pal_len_reload_timing,
-        pal_len_table,
-        #[ignore = "todo"]
-        pal_len_timing_mode0,
-        #[ignore = "todo"]
-        pal_len_timing_mode1,
-    );
-    test_roms!(
-        "../test_roms/input",
-        #[ignore = "todo"]
-        zapper_flip,
-        #[ignore = "todo"]
-        zapper_light,
-        #[ignore = "todo"]
-        zapper_stream,
-        #[ignore = "todo"]
-        zapper_trigger,
-    );
-    test_roms!(
-        "../test_roms/mapper/m004_txrom",
-        a12_clocking,
-        clocking,
-        details,
-        rev_b,
-        scanline_timing,
-        big_chr_ram,
-        rev_a,
-    );
-    test_roms!("../test_roms/mapper/m005_exrom", exram, basics);
+    mod cpu {
+        use super::*;
+        test_roms!(
+            "../test_roms/cpu",
+            branch_backward,
+            nestest,
+            ram_after_reset,
+            regs_after_reset,
+            branch_basics,
+            branch_forward,
+            dummy_reads,
+            dummy_writes_oam,
+            dummy_writes_ppumem,
+            exec_space_apu,
+            exec_space_ppuio,
+            flag_concurrency,
+            instr_abs,
+            instr_abs_xy,
+            instr_basics,
+            instr_branches,
+            instr_brk,
+            instr_imm,
+            instr_imp,
+            instr_ind_x,
+            instr_ind_y,
+            instr_jmp_jsr,
+            instr_misc,
+            instr_rti,
+            instr_rts,
+            instr_special,
+            instr_stack,
+            instr_timing,
+            instr_zp,
+            instr_zp_xy,
+            int_branch_delays_irq,
+            int_cli_latency,
+            int_irq_and_dma,
+            int_nmi_and_brk,
+            int_nmi_and_irq,
+            overclock,
+            sprdma_and_dmc_dma,
+            sprdma_and_dmc_dma_512,
+            timing_test,
+        );
+    }
+
+    mod ppu {
+        use super::*;
+        test_roms!(
+            "../test_roms/ppu",
+            _240pee, // TODO: Run each test
+            color,   // TODO: Test all color combinations
+            ntsc_torture,
+            oam_read,
+            oam_stress,
+            open_bus,
+            palette,
+            palette_ram,
+            read_buffer,
+            scanline,
+            spr_hit_alignment,
+            spr_hit_basics,
+            spr_hit_corners,
+            spr_hit_double_height,
+            spr_hit_edge_timing,
+            spr_hit_flip,
+            spr_hit_left_clip,
+            spr_hit_right_edge,
+            spr_hit_screen_bottom,
+            spr_hit_timing_basics,
+            spr_hit_timing_order,
+            spr_overflow_basics,
+            spr_overflow_details,
+            spr_overflow_emulator,
+            spr_overflow_obscure,
+            spr_overflow_timing,
+            sprite_ram,
+            tv,
+            vbl_nmi_basics,
+            vbl_nmi_clear_timing,
+            vbl_nmi_control,
+            vbl_nmi_disable,
+            vbl_nmi_even_odd_frames,
+            #[ignore = "clock is skipped too late relative to enabling BG Failed #3"]
+            vbl_nmi_even_odd_timing,
+            vbl_nmi_frame_basics,
+            vbl_nmi_off_timing,
+            vbl_nmi_on_timing,
+            vbl_nmi_set_time,
+            vbl_nmi_suppression,
+            vbl_nmi_timing,
+            vbl_timing,
+            vram_access,
+        );
+    }
+
+    mod apu {
+        use super::*;
+
+        test_roms!(
+            "../test_roms/apu",
+            clock_jitter,
+            dmc_basics,
+            dmc_dma_2007_read,
+            dmc_dma_2007_write,
+            dmc_dma_4016_read,
+            dmc_dma_double_2007_read,
+            dmc_dma_read_write_2007,
+            dmc_rates,
+            dpcmletterbox,
+            irq_flag,
+            #[ignore = "fails $04"]
+            irq_flag_timing,
+            irq_timing,
+            jitter,
+            len_ctr,
+            #[ignore = "fails $03"]
+            len_halt_timing,
+            #[ignore = "fails $02"]
+            len_reload_timing,
+            len_table,
+            #[ignore = "Channel: 0 second length of mode 0 is too soon"]
+            len_timing,
+            #[ignore = "fails $03"]
+            len_timing_mode0,
+            #[ignore = "fails $03"]
+            len_timing_mode1,
+            reset_4015_cleared,
+            reset_4017_timing,
+            reset_4017_written,
+            reset_irq_flag_cleared,
+            #[ignore = "At power, length counters should be enabled, #2"]
+            reset_len_ctrs_enabled,
+            reset_timing,
+            reset_works_immediately,
+            test_1,
+            test_2,
+            #[ignore = "failed"]
+            test_3,
+            #[ignore = "failed"]
+            test_4,
+            test_5,
+            test_6,
+            #[ignore = "failed"]
+            test_7,
+            #[ignore = "failed"]
+            test_8,
+            #[ignore = "failed"]
+            test_9,
+            #[ignore = "failed"]
+            test_10,
+            #[ignore = "fails #2"]
+            pal_clock_jitter,
+            pal_irq_flag,
+            #[ignore = "fails #2"]
+            pal_irq_flag_timing,
+            #[ignore = "fails #3"]
+            pal_irq_timing,
+            pal_len_ctr,
+            #[ignore = "fails #3"]
+            pal_len_halt_timing,
+            #[ignore = "fails #2"]
+            pal_len_reload_timing,
+            pal_len_table,
+            #[ignore = "fails #3"]
+            pal_len_timing_mode0,
+            #[ignore = "fails #3"]
+            pal_len_timing_mode1,
+        );
+    }
+
+    mod input {
+        use super::*;
+        test_roms!(
+            "../test_roms/input",
+            #[ignore = "todo"]
+            zapper_flip,
+            #[ignore = "todo"]
+            zapper_light,
+            #[ignore = "todo"]
+            zapper_stream,
+            #[ignore = "todo"]
+            zapper_trigger,
+        );
+    }
+
+    mod m004_txrom {
+        use super::*;
+        test_roms!(
+            "../test_roms/mapper/m004_txrom",
+            a12_clocking,
+            clocking,
+            details,
+            rev_b,
+            scanline_timing,
+            big_chr_ram,
+            rev_a,
+        );
+    }
+
+    mod m005_exrom {
+        use super::*;
+        test_roms!("../test_roms/mapper/m005_exrom", exram, basics);
+    }
 }

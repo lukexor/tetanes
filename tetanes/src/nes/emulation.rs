@@ -149,8 +149,8 @@ impl State {
             return;
         }
 
-        match event {
-            Event::UserEvent(NesEvent::Emulation(event)) => match event {
+        if let Event::UserEvent(NesEvent::Emulation(event)) = event {
+            match event {
                 EmulationEvent::Joypad((player, button, state)) => {
                     let pressed = *state == ElementState::Pressed;
                     let joypad = self.control_deck.joypad_mut(*player);
@@ -235,8 +235,7 @@ impl State {
                     self.replay
                         .record(self.control_deck.frame_number(), event.clone());
                 }
-            },
-            _ => (),
+            }
         }
     }
 
