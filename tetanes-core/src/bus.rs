@@ -391,6 +391,7 @@ mod test {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
         cart.chr = vec![0x66; 0x2000];
+        cart.has_chr_ram = false;
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart);
         bus.load_cart(cart);
@@ -420,6 +421,7 @@ mod test {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
         cart.chr = vec![0x66; 0x2000];
+        cart.has_chr_ram = true;
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00, Access::Write);
