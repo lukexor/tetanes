@@ -151,7 +151,7 @@ impl Gui {
         self.about_open = about_open;
 
         #[cfg(feature = "profiling")]
-        puffin_egui::show_viewport_if_enabled(ctx);
+        tetanes_util::profiling::show_viewport_if_enabled(ctx);
     }
 
     fn menu_bar(&mut self, ui: &mut Ui, config: &mut Config) {
@@ -317,9 +317,9 @@ impl Gui {
     fn debug_menu(&mut self, ui: &mut Ui) {
         #[cfg(feature = "profiling")]
         {
-            let mut profile = puffin::are_scopes_on();
+            let mut profile = tetanes_util::profiling::enabled();
             ui.checkbox(&mut profile, "Toggle profiling");
-            crate::profiling::enable(profile);
+            tetanes_util::profiling::enable(profile);
         }
         if ui.button("Toggle CPU Debugger").clicked() {
             self.todo(ui);

@@ -13,6 +13,7 @@ use std::{
     thread::JoinHandle,
 };
 use tetanes_core::{
+    apu::Apu,
     common::{Regional, Reset, ResetKind},
     control_deck::ControlDeck,
 };
@@ -97,7 +98,7 @@ impl State {
         let control_deck = ControlDeck::with_config(config.clone().into());
         let sample_rate = config.audio_sample_rate;
         let audio = Audio::new(
-            control_deck.clock_rate() * f32::from(config.frame_speed),
+            Apu::SAMPLE_RATE * f32::from(config.frame_speed),
             sample_rate,
             config.audio_latency,
             config.audio_buffer_size,

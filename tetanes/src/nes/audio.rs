@@ -1,14 +1,10 @@
 use crate::nes::config::SampleRate;
 use anyhow::anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use filter::Filter;
 use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
 use std::{iter, sync::Arc};
 use tetanes_util::{platform::time::Duration, profile, NesError, NesResult};
 use tracing::{debug, enabled, error, info, trace, warn, Level};
-
-pub mod filter;
-pub mod window_sinc;
 
 type AudioRb = Arc<HeapRb<f32>>;
 
@@ -77,7 +73,7 @@ impl Audio {
             .unwrap_or(false)
     }
 
-    /// Processes and filters generated audio samples.
+    /// Processes generated audio samples.
     pub fn process(&mut self, samples: &[f32]) {
         if let Some(ref mut mixer) = self
             .output
@@ -363,7 +359,6 @@ pub(crate) struct Mixer {
     sample_avg: f32,
     sample_count: f32,
     decim_fraction: f32,
-    filters: [Filter; 3],
     recording: bool,
 }
 
@@ -373,10 +368,10 @@ impl std::fmt::Debug for Mixer {
             .field("paused", &self.paused)
             .field("channels", &self.channels)
             .field("queued_len", &self.producer.len())
+            .field("processed_len", &self.processed_samples.len())
             .field("sample_avg", &self.sample_avg)
             .field("sample_count", &self.sample_count)
             .field("decim_fraction", &self.decim_fraction)
-            .field("filters", &self.filters)
             .field("recording", &self.recording)
             .finish_non_exhaustive()
     }
@@ -420,7 +415,6 @@ impl Mixer {
         }?;
         stream.play()?;
 
-        let sample_rate = sample_rate as f32;
         Ok(Self {
             stream,
             paused: false,
@@ -430,12 +424,6 @@ impl Mixer {
             sample_avg: 0.0,
             sample_count: 0.0,
             decim_fraction: 0.0,
-            filters: [
-                Filter::high_pass(sample_rate, 90.0, 1500.0),
-                Filter::high_pass(sample_rate, 440.0, 1500.0),
-                // NOTE: Should be 14k, but this allows 2X speed within the Nyquist limit
-                Filter::low_pass(sample_rate, 11_000.0, 1500.0),
-            ],
             recording: false,
         })
     }
@@ -502,7 +490,6 @@ impl Mixer {
             self.channels,
             resample_ratio,
             &mut self.processed_samples,
-            &mut self.filters,
             &mut self.sample_avg,
             &mut self.sample_count,
             &mut self.decim_fraction,
@@ -527,7 +514,6 @@ impl Mixer {
         channels: u16,
         resample_ratio: f32,
         buffer: &mut Vec<f32>,
-        filters: &mut [Filter],
         avg: &mut f32,
         count: &mut f32,
         fraction: &mut f32,
@@ -537,11 +523,8 @@ impl Mixer {
             *count += 1.0;
             *fraction -= 1.0;
             while *fraction < 1.0 {
-                let sample = filters
-                    .iter_mut()
-                    .fold(*avg / *count, |sample, filter| filter.apply(sample));
                 for _ in 0..channels {
-                    buffer.push(sample);
+                    buffer.push(*sample);
                 }
                 *avg = 0.0;
                 *count = 0.0;

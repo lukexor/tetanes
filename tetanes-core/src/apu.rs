@@ -17,6 +17,7 @@ pub mod pulse;
 pub mod triangle;
 
 pub mod envelope;
+pub mod filter;
 pub mod frame_counter;
 pub mod length_counter;
 pub mod linear_counter;
@@ -63,6 +64,8 @@ pub struct Apu {
 }
 
 impl Apu {
+    pub const SAMPLE_RATE: f32 = 44_100.0;
+
     pub fn new() -> Self {
         Self {
             cycle: 0,

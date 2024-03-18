@@ -1,5 +1,5 @@
 use crate::{
-    apu::{Apu, ApuRegisters, Channel},
+    apu::{filter::Filter, Apu, ApuRegisters, Channel},
     cart::Cart,
     common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::{Cpu, Irq},
@@ -48,6 +48,7 @@ pub struct Bus {
     pub ppu: Ppu,
     pub apu: Apu,
     audio_samples: Vec<f32>,
+    filter: Filter,
     #[serde(skip)]
     pub input: Input,
     wram: Vec<u8>,
@@ -74,15 +75,17 @@ impl Bus {
     pub fn new(ram_state: RamState) -> Self {
         let mut wram = vec![0x00; Self::WRAM_SIZE];
         RamState::fill(&mut wram, ram_state);
+        let region = NesRegion::default();
         Self {
             wram,
-            region: NesRegion::default(),
+            region,
             ram_state,
             prg_ram: vec![],
             prg_ram_protect: false,
             prg_rom: vec![],
             ppu: Ppu::new(),
             apu: Apu::new(),
+            filter: Filter::new(Cpu::region_clock_rate(region)),
             input: Input::new(),
             oam_dma: false,
             oam_dma_addr: 0x0000,
@@ -188,7 +191,11 @@ impl Clock for Bus {
         };
         self.apu.clock();
         let apu_output = self.apu.output();
-        self.audio_samples.push(apu_output + mapper_output);
+        self.filter.add(apu_output);
+        while self.filter.output() {
+            let sample = self.filter.apply(apu_output + mapper_output);
+            self.audio_samples.push(sample);
+        }
         self.input.clock();
 
         1
@@ -317,6 +324,7 @@ impl Regional for Bus {
 
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
+        self.filter.set_input_rate(Cpu::region_clock_rate(region));
         self.ppu.set_region(region);
         self.apu.set_region(region);
     }

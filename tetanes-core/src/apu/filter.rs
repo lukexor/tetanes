@@ -1,5 +1,61 @@
+use crate::apu::Apu;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Filter {
+    sincs: [WindowSinc; 3],
+    decim_fraction: f32,
+    sample_avg: f32,
+    sample_count: f32,
+    fraction: f32,
+    resample_ratio: f32,
+}
+
+impl Filter {
+    pub fn new(input_rate: f32) -> Self {
+        let sample_rate = Apu::SAMPLE_RATE;
+        Self {
+            sincs: [
+                WindowSinc::high_pass(sample_rate, 90.0, 1500.0),
+                WindowSinc::high_pass(sample_rate, 440.0, 1500.0),
+                WindowSinc::low_pass(sample_rate, 14_000.0, 1500.0),
+            ],
+            decim_fraction: 0.0,
+            sample_avg: 0.0,
+            sample_count: 0.0,
+            fraction: 0.0,
+            resample_ratio: input_rate / sample_rate,
+        }
+    }
+
+    pub fn set_input_rate(&mut self, input_rate: f32) {
+        self.resample_ratio = input_rate / Apu::SAMPLE_RATE;
+    }
+
+    pub fn add(&mut self, sample: f32) {
+        self.sample_avg += sample;
+        self.sample_count += 1.0;
+        self.fraction -= 1.0;
+    }
+
+    pub fn output(&mut self) -> bool {
+        if self.fraction < 1.0 {
+            self.sample_avg = 0.0;
+            self.sample_count = 0.0;
+            self.fraction += self.resample_ratio;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn apply(&mut self, sample: f32) -> f32 {
+        self.sincs.iter_mut().fold(sample, |s, sinc| sinc.apply(s))
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct WindowSinc {
     m: usize,
@@ -10,6 +66,25 @@ pub struct WindowSinc {
 }
 
 impl WindowSinc {
+    pub fn low_pass(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
+        WindowSinc::new(sample_rate, cutoff, bandwidth)
+    }
+
+    pub fn high_pass(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
+        let mut high_pass = WindowSinc::new(sample_rate, cutoff, bandwidth);
+        high_pass.spectral_invert();
+        high_pass
+    }
+
+    #[must_use]
+    pub fn apply(&self, sample: f32) -> f32 {
+        let mut out = 0.0;
+        for h in &self.taps {
+            out += sample * h;
+        }
+        out
+    }
+
     /// Creates a new [`WindowSinc`] instance.
     ///
     /// # Panics
