@@ -61,11 +61,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             dir: Self::default_dir(),
-            filter: if cfg!(target_arch = "wasm32") {
-                VideoFilter::Pixellate
-            } else {
-                VideoFilter::default()
-            },
+            filter: VideoFilter::default(),
             region: NesRegion::default(),
             ram_state: RamState::Random,
             four_player: FourPlayer::default(),
@@ -83,12 +79,9 @@ impl Config {
 
     #[must_use]
     pub fn default_dir() -> PathBuf {
-        #[cfg(target_arch = "wasm32")]
-        let path = PathBuf::from("./");
-        #[cfg(not(target_arch = "wasm32"))]
-        let path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("./"));
-
-        path.join(Self::DIR)
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("./"))
+            .join(Self::DIR)
     }
 
     #[must_use]

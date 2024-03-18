@@ -8,11 +8,6 @@ use crate::{
     ppu::Mirroring,
 };
 use anyhow::{anyhow, bail, Context};
-#[cfg(not(target_arch = "wasm32"))]
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -23,9 +18,6 @@ use tracing::{debug, info};
 
 const PRG_ROM_BANK_SIZE: usize = 0x4000;
 const CHR_ROM_BANK_SIZE: usize = 0x2000;
-
-#[cfg(not(target_arch = "wasm32"))]
-const GAME_DB: &[u8] = include_bytes!("../game_database.txt");
 
 /// An NES cartridge.
 #[derive(Default)]
@@ -135,6 +127,10 @@ impl Cart {
         } else {
             #[cfg(not(target_arch = "wasm32"))]
             {
+                use std::{
+                    collections::hash_map::DefaultHasher,
+                    hash::{Hash, Hasher},
+                };
                 let mut hasher = DefaultHasher::new();
                 prg_rom.hash(&mut hasher);
                 let hash = hasher.finish();
@@ -293,6 +289,8 @@ impl Cart {
     #[cfg(not(target_arch = "wasm32"))]
     fn lookup_region(lookup_hash: u64) -> NesRegion {
         use std::io::BufRead;
+
+        const GAME_DB: &[u8] = include_bytes!("../game_database.txt");
 
         let db = BufReader::new(GAME_DB);
         let lines: Vec<String> = db.lines().map_while(Result::ok).collect();
