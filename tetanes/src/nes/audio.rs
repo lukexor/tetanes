@@ -1,4 +1,3 @@
-use crate::nes::config::SampleRate;
 use anyhow::anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
@@ -19,9 +18,7 @@ pub enum CallbackMsg {
 
 #[must_use]
 pub struct Audio {
-    pub input_rate: f32,
-    pub output_rate: SampleRate,
-    pub resample_ratio: f32,
+    pub sample_rate: f32,
     pub latency: Duration,
     pub buffer_size: usize,
     pub host: cpal::Host,
@@ -31,9 +28,7 @@ pub struct Audio {
 impl std::fmt::Debug for Audio {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Audio")
-            .field("input_rate", &self.input_rate)
-            .field("output_rate", &self.output_rate)
-            .field("resample_ratio", &self.resample_ratio)
+            .field("sample_rate", &self.sample_rate)
             .field("buffer_size", &self.buffer_size)
             .field("output", &self.output)
             .finish_non_exhaustive()
@@ -46,18 +41,11 @@ impl Audio {
     /// # Errors
     ///
     /// Returns an error if the audio device fails to be opened.
-    pub fn new(
-        input_rate: f32,
-        output_rate: SampleRate,
-        latency: Duration,
-        buffer_size: usize,
-    ) -> Self {
+    pub fn new(sample_rate: f32, latency: Duration, buffer_size: usize) -> Self {
         let host = cpal::default_host();
-        let output = Output::create(&host, output_rate, latency, buffer_size);
+        let output = Output::create(&host, sample_rate, latency, buffer_size);
         Self {
-            input_rate,
-            output_rate,
-            resample_ratio: input_rate / f32::from(output_rate),
+            sample_rate,
             latency,
             buffer_size,
             host,
@@ -80,7 +68,7 @@ impl Audio {
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
         {
-            mixer.process(self.resample_ratio, samples);
+            mixer.process(samples);
         }
     }
 
@@ -92,12 +80,6 @@ impl Audio {
             .map_or(0, |output| output.config.channels)
     }
 
-    /// Returns the current of resample ratio.
-    #[must_use]
-    pub fn resample_ratio(&self) -> f32 {
-        self.resample_ratio
-    }
-
     /// Returns the `Duration` of audio queued for playback.
     #[must_use]
     pub fn queued_time(&self) -> Duration {
@@ -106,7 +88,7 @@ impl Audio {
             .and_then(|output| output.mixer.as_ref())
             .map_or(Duration::default(), |mixer| {
                 let queued_seconds = mixer.producer.len() as f32
-                    / f32::from(self.output_rate)
+                    / f32::from(self.sample_rate)
                     / mixer.channels as f32;
                 Duration::from_secs_f32(queued_seconds)
             })
@@ -129,20 +111,12 @@ impl Audio {
         Ok(())
     }
 
-    /// Set the input sample rate. This is normally the clock rate of the NES based on the
-    /// region. Also changes the resampling ratio for downsampling.
-    pub fn set_input_rate(&mut self, sample_rate: f32) {
-        self.input_rate = sample_rate;
-        self.resample_ratio = self.input_rate / f32::from(self.output_rate);
-    }
-
-    /// Set the output sample rate that the audio device uses. Also changes the resampling ratio
-    /// for downsampling. Requires restarting the audio stream and so may fail.
-    pub fn set_output_rate(&mut self, sample_rate: SampleRate) -> NesResult<()> {
-        self.output_rate = sample_rate;
-        self.resample_ratio = self.input_rate / f32::from(self.output_rate);
+    /// Set the output sample rate that the audio device uses. Requires restarting the audio stream
+    /// and so may fail.
+    pub fn set_sample_rate(&mut self, sample_rate: f32) -> NesResult<()> {
+        self.sample_rate = sample_rate;
         self.stop();
-        self.output = Output::create(&self.host, self.output_rate, self.latency, self.buffer_size);
+        self.output = Output::create(&self.host, self.sample_rate, self.latency, self.buffer_size);
         self.start()
     }
 
@@ -151,7 +125,7 @@ impl Audio {
     pub fn set_buffer_size(&mut self, buffer_size: usize) -> NesResult<()> {
         self.buffer_size = buffer_size;
         self.stop();
-        self.output = Output::create(&self.host, self.output_rate, self.latency, self.buffer_size);
+        self.output = Output::create(&self.host, self.sample_rate, self.latency, self.buffer_size);
         self.start()
     }
 
@@ -246,7 +220,7 @@ impl std::fmt::Debug for Output {
 impl Output {
     fn create(
         host: &cpal::Host,
-        sample_rate: SampleRate,
+        sample_rate: f32,
         latency: Duration,
         buffer_size: usize,
     ) -> Option<Self> {
@@ -281,11 +255,11 @@ impl Output {
     /// Choose the best audio configuration for the given device and sample_rate.
     fn choose_config(
         device: &cpal::Device,
-        sample_rate: SampleRate,
+        sample_rate: f32,
         buffer_size: usize,
     ) -> NesResult<(cpal::StreamConfig, cpal::SampleFormat)> {
         let mut supported_configs = device.supported_output_configs()?;
-        let desired_sample_rate = cpal::SampleRate(u32::from(sample_rate));
+        let desired_sample_rate = cpal::SampleRate(sample_rate as u32);
         let desired_buffer_size = buffer_size as u32;
         let chosen_config = supported_configs
             .find(|config| {
@@ -485,16 +459,12 @@ impl Mixer {
         )?)
     }
 
-    fn process(&mut self, resample_ratio: f32, samples: &[f32]) {
-        Self::downsample(
-            samples,
-            self.channels,
-            resample_ratio,
-            &mut self.processed_samples,
-            &mut self.sample_avg,
-            &mut self.sample_count,
-            &mut self.decim_fraction,
-        );
+    fn process(&mut self, samples: &[f32]) {
+        for sample in samples {
+            for _ in 0..self.channels {
+                self.processed_samples.push(*sample);
+            }
+        }
         if self.recording {
             // TODO: push slice to recording thread
         }
@@ -507,30 +477,5 @@ impl Mixer {
             "processed: {processed_len}, queued: {queued_len}, buffer len: {}",
             self.producer.len()
         );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn downsample(
-        samples: &[f32],
-        channels: u16,
-        resample_ratio: f32,
-        buffer: &mut Vec<f32>,
-        avg: &mut f32,
-        count: &mut f32,
-        fraction: &mut f32,
-    ) {
-        for sample in samples {
-            *avg += sample;
-            *count += 1.0;
-            *fraction -= 1.0;
-            while *fraction < 1.0 {
-                for _ in 0..channels {
-                    buffer.push(*sample);
-                }
-                *avg = 0.0;
-                *count = 0.0;
-                *fraction += resample_ratio;
-            }
-        }
     }
 }

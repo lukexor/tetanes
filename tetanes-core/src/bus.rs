@@ -65,14 +65,14 @@ pub struct Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new(RamState::default())
+        Self::new(RamState::default(), Apu::DEFAULT_SAMPLE_RATE)
     }
 }
 
 impl Bus {
     const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
 
-    pub fn new(ram_state: RamState) -> Self {
+    pub fn new(ram_state: RamState, sample_rate: f32) -> Self {
         let mut wram = vec![0x00; Self::WRAM_SIZE];
         RamState::fill(&mut wram, ram_state);
         let region = NesRegion::default();
@@ -85,7 +85,7 @@ impl Bus {
             prg_rom: vec![],
             ppu: Ppu::new(),
             apu: Apu::new(),
-            filter: Filter::new(Cpu::region_clock_rate(region)),
+            filter: Filter::new(Cpu::region_clock_rate(region), sample_rate),
             input: Input::new(),
             oam_dma: false,
             oam_dma_addr: 0x0000,
@@ -190,13 +190,13 @@ impl Clock for Bus {
             _ => 0.0,
         };
         self.apu.clock();
+        self.input.clock();
+
         let apu_output = self.apu.output();
-        self.filter.add(apu_output);
-        while self.filter.output() {
-            let sample = self.filter.apply(apu_output + mapper_output);
+        self.filter.add(apu_output + mapper_output);
+        while let Some(sample) = self.filter.output() {
             self.audio_samples.push(sample);
         }
-        self.input.clock();
 
         1
     }

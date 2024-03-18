@@ -13,7 +13,6 @@ use std::{
     thread::JoinHandle,
 };
 use tetanes_core::{
-    apu::Apu,
     common::{Regional, Reset, ResetKind},
     control_deck::ControlDeck,
 };
@@ -98,8 +97,7 @@ impl State {
         let control_deck = ControlDeck::with_config(config.clone().into());
         let sample_rate = config.audio_sample_rate;
         let audio = Audio::new(
-            Apu::SAMPLE_RATE * f32::from(config.frame_speed),
-            sample_rate,
+            sample_rate * f32::from(config.frame_speed),
             config.audio_latency,
             config.audio_buffer_size,
         );
@@ -192,21 +190,28 @@ impl State {
                         self.add_message("Audio Disabled");
                     }
                 }
-                EmulationEvent::SetFrameSpeed(speed) => self
-                    .audio
-                    .set_input_rate(self.control_deck.clock_rate() * f32::from(speed)),
+                EmulationEvent::SetFrameSpeed(speed) => {
+                    if let Err(err) = self
+                        .audio
+                        .set_sample_rate(self.control_deck.config().sample_rate * f32::from(speed))
+                    {
+                        self.on_error(err);
+                    }
+                }
                 EmulationEvent::SetRegion(region) => self.control_deck.set_region(*region),
                 EmulationEvent::SetTargetFrameDuration(duration) => {
                     self.target_frame_duration = *duration
                 }
                 EmulationEvent::StateLoad(config) => {
-                    match self.control_deck.load_state(Some(config)) {
+                    self.control_deck.set_save_slot(config.save_slot);
+                    match self.control_deck.load_state() {
                         Ok(_) => self.add_message(format!("State {} Loaded", config.save_slot)),
                         Err(err) => self.on_error(err),
                     }
                 }
                 EmulationEvent::StateSave(config) => {
-                    match self.control_deck.save_state(Some(config)) {
+                    self.control_deck.set_save_slot(config.save_slot);
+                    match self.control_deck.save_state() {
                         Ok(_) => self.add_message(format!("State {} Saved", config.save_slot)),
                         Err(err) => self.on_error(err),
                     }
@@ -281,7 +286,7 @@ impl State {
     #[cfg(not(target_arch = "wasm32"))]
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>, config: &Config) {
         self.on_unload_rom();
-        match self.control_deck.load_rom_path(path, Some(&config.deck)) {
+        match self.control_deck.load_rom_path(path) {
             Ok(name) => self.on_load_rom(name, config),
             Err(err) => self.on_error(err),
         }
@@ -289,7 +294,7 @@ impl State {
 
     fn load_rom(&mut self, name: &str, rom: &mut impl Read, config: &Config) {
         self.on_unload_rom();
-        match self.control_deck.load_rom(name, rom, Some(&config.deck)) {
+        match self.control_deck.load_rom(name, rom) {
             Ok(()) => self.on_load_rom(name.to_string(), config),
             Err(err) => self.on_error(err),
         }

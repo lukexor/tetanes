@@ -64,7 +64,7 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub const SAMPLE_RATE: f32 = 44_100.0;
+    pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
 
     pub fn new() -> Self {
         Self {

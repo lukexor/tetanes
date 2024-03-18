@@ -57,6 +57,7 @@ image.workspace = true
 puffin_egui = { version = "0.26", optional = true }
 rfd = "0.13"
 ringbuf = "0.3"
+rubato = "0.15"
 serde.workspace = true
 serde_json.workspace = true
 tetanes-core = { path = "../tetanes-core" }

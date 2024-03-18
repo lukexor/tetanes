@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tetanes_core::{
-    common::NesRegion, control_deck::Config as DeckConfig, input::Player, ppu::Ppu,
+    apu::Apu, common::NesRegion, control_deck::Config as DeckConfig, input::Player, ppu::Ppu,
 };
 use tetanes_util::{platform::time::Duration, NesError, NesResult};
 use tracing::info;
@@ -414,7 +414,7 @@ pub struct Config {
     pub audio_enabled: bool,
     pub audio_buffer_size: usize,
     pub audio_latency: Duration,
-    pub audio_sample_rate: SampleRate,
+    pub audio_sample_rate: f32,
     pub concurrent_dpad: bool,
     pub controller_deadzone: f64,
     pub debug: bool,
@@ -464,7 +464,7 @@ impl Default for Config {
             },
             audio_latency: Duration::from_millis(50),
             audio_enabled: true,
-            audio_sample_rate: SampleRate::default(),
+            audio_sample_rate: Apu::DEFAULT_SAMPLE_RATE,
             concurrent_dpad: false,
             controller_deadzone: 0.5,
             debug: false,
@@ -551,7 +551,11 @@ impl Config {
         use std::fs::File;
         use tracing::{error, info};
 
-        let path = path.unwrap_or_else(|| DeckConfig::default_dir().join(Self::FILENAME));
+        let path = path.unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("./"))
+                .join(Self::FILENAME)
+        });
         let mut config = if path.exists() {
             info!("Loading saved configuration");
             File::open(&path)

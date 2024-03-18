@@ -1,57 +1,68 @@
-use crate::apu::Apu;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Filter {
     sincs: [WindowSinc; 3],
-    decim_fraction: f32,
+    input_rate: f32,
+    output_rate: f32,
+    resample_ratio: f32,
     sample_avg: f32,
     sample_count: f32,
-    fraction: f32,
-    resample_ratio: f32,
+    decim_fraction: f32,
+    last_sample: Option<f32>,
 }
 
 impl Filter {
-    pub fn new(input_rate: f32) -> Self {
-        let sample_rate = Apu::SAMPLE_RATE;
+    pub fn new(input_rate: f32, output_rate: f32) -> Self {
+        let resample_ratio = input_rate / output_rate;
         Self {
             sincs: [
-                WindowSinc::high_pass(sample_rate, 90.0, 1500.0),
-                WindowSinc::high_pass(sample_rate, 440.0, 1500.0),
-                WindowSinc::low_pass(sample_rate, 14_000.0, 1500.0),
+                WindowSinc::high_pass(output_rate, 90.0, 1500.0),
+                WindowSinc::high_pass(output_rate, 440.0, 1500.0),
+                WindowSinc::low_pass(output_rate, 14_000.0, 1500.0),
             ],
-            decim_fraction: 0.0,
+            resample_ratio,
+            input_rate,
+            output_rate,
             sample_avg: 0.0,
             sample_count: 0.0,
-            fraction: 0.0,
-            resample_ratio: input_rate / sample_rate,
+            decim_fraction: resample_ratio,
+            last_sample: None,
         }
     }
 
     pub fn set_input_rate(&mut self, input_rate: f32) {
-        self.resample_ratio = input_rate / Apu::SAMPLE_RATE;
+        self.input_rate = input_rate;
+        self.resample_ratio = self.input_rate / self.output_rate;
+    }
+
+    pub fn set_output_rate(&mut self, output_rate: f32) {
+        self.output_rate = output_rate;
+        self.resample_ratio = self.input_rate / self.output_rate;
     }
 
     pub fn add(&mut self, sample: f32) {
         self.sample_avg += sample;
         self.sample_count += 1.0;
-        self.fraction -= 1.0;
+        self.decim_fraction -= 1.0;
     }
 
-    pub fn output(&mut self) -> bool {
-        if self.fraction < 1.0 {
+    pub fn output(&mut self) -> Option<f32> {
+        if self.decim_fraction < 1.0 {
+            if self.sample_count > 0.0 {
+                self.last_sample = Some(
+                    self.sincs
+                        .iter_mut()
+                        .fold(self.sample_avg / self.sample_count, |s, sinc| sinc.apply(s)),
+                );
+            }
             self.sample_avg = 0.0;
             self.sample_count = 0.0;
-            self.fraction += self.resample_ratio;
-            true
-        } else {
-            false
+            self.decim_fraction += self.resample_ratio;
+            return self.last_sample;
         }
-    }
-
-    pub fn apply(&mut self, sample: f32) -> f32 {
-        self.sincs.iter_mut().fold(sample, |s, sinc| sinc.apply(s))
+        None
     }
 }
 
