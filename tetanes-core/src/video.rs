@@ -5,7 +5,6 @@ use std::{
     ops::{Deref, DerefMut},
     sync::OnceLock,
 };
-use tetanes_util::profile;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -107,7 +106,8 @@ impl Video {
 
     /// Applies the given filer to the video buffer and returns the result.
     pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
         match self.filter {
             VideoFilter::Pixellate => self.decode_buffer(buffer),
             VideoFilter::Ntsc => self.apply_ntsc_filter(buffer, frame_number),

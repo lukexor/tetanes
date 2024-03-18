@@ -6,7 +6,7 @@ use event::{NesEvent, State};
 use platform::{BuilderExt, EventLoopExt, WindowExt};
 use renderer::{BufferPool, Renderer};
 use std::sync::Arc;
-use tetanes_util::{frame_begin, profile, NesResult};
+use tetanes_util::NesResult;
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder},
     window::{Fullscreen, Window, WindowBuilder},
@@ -100,8 +100,8 @@ impl Nes {
     }
 
     fn next_frame(&mut self) {
-        frame_begin!();
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::GlobalProfiler::lock().new_frame();
         if let Err(err) = self.emulation.request_clock_frame() {
             self.on_error(err);
         }

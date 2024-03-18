@@ -24,11 +24,12 @@ pub mod nes;
 pub mod opts;
 
 use nes::Nes;
-use tetanes_util::{platform, profiling, NesResult};
+use tetanes_util::{platform, NesResult};
 
 fn main() -> NesResult<()> {
     let _log_guard = logging::init();
-    profiling::init();
+    #[cfg(feature = "profiling")]
+    puffin::set_scopes_on(true);
 
     #[cfg(target_arch = "wasm32")]
     let config = Config::load();

@@ -19,7 +19,7 @@ use tetanes_core::{
 };
 use tetanes_util::{
     platform::time::{Duration, Instant},
-    profile, NesError, NesResult,
+    NesError, NesResult,
 };
 use tracing::{debug, error, trace};
 use winit::{
@@ -333,7 +333,8 @@ impl State {
     }
 
     fn sleep(&self) {
-        profile!("sleep");
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
         let timeout = if self.audio.enabled() {
             self.audio.queued_time().saturating_sub(self.audio.latency)
         } else {
@@ -347,7 +348,8 @@ impl State {
     }
 
     fn clock_frame(&mut self) {
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         if self.paused || self.occluded || !self.control_deck.is_running() {
             return std::thread::park();
@@ -371,6 +373,9 @@ impl State {
         } else {
             self.frame_time_accumulator >= frame_duration_seconds
         } {
+            #[cfg(feature = "profiling")]
+            puffin::profile_scope!("clock");
+
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                 self.on_event(&Event::UserEvent(event.into()));
             }
@@ -443,7 +448,8 @@ impl Multi {
         debug!("emulation thread started");
         let mut state = State::new(event_proxy, frame_pool, config); // Has to be created on the thread, since
         loop {
-            profile!();
+            #[cfg(feature = "profiling")]
+            puffin::profile_scope!("emulation loop");
 
             while let Ok(event) = rx.try_recv() {
                 state.on_event(&event);

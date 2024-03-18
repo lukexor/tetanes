@@ -13,7 +13,7 @@ use egui::{
 };
 use std::{ops::Deref, sync::Arc};
 use tetanes_core::video::Frame;
-use tetanes_util::{platform::time::Instant, profile, NesError, NesResult};
+use tetanes_util::{platform::time::Instant, NesError, NesResult};
 use thingbuf::{Recycle, ThingBuf};
 use tracing::{error, info};
 use wgpu::util::DeviceExt;
@@ -508,7 +508,8 @@ impl Renderer {
 
     /// Request redraw.
     pub fn request_redraw(&mut self, window: &Window, config: &mut Config) -> NesResult<()> {
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         if self.needs_resize {
             self.surface.configure(&self.device, &self.surface_config);

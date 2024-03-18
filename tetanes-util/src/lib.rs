@@ -11,6 +11,5 @@
 pub mod error;
 pub mod filesystem;
 pub mod platform;
-pub mod profiling;
 
 pub use error::{Error as NesError, Result as NesResult};

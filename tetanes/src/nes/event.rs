@@ -18,7 +18,7 @@ use tetanes_core::{
     input::{JoypadBtn, Player},
     video::VideoFilter,
 };
-use tetanes_util::{platform::time::Duration, profile};
+use tetanes_util::platform::time::Duration;
 use tracing::{error, trace};
 use winit::{
     dpi::LogicalSize,
@@ -156,7 +156,8 @@ impl Nes {
         event: Event<NesEvent>,
         window_target: &EventLoopWindowTarget<NesEvent>,
     ) {
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         if self.state.quitting {
             window_target.exit();
@@ -225,7 +226,7 @@ impl Nes {
             Event::AboutToWait => self.next_frame(),
             Event::LoopExiting => {
                 #[cfg(feature = "profiling")]
-                crate::profiling::enable(false);
+                puffin::set_scopes_on(false);
                 if let Err(err) = self.config.save() {
                     error!("failed to save config: {err:?}");
                 }

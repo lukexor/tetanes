@@ -10,10 +10,7 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 use tetanes_core::{common::ResetKind, input::Player};
-use tetanes_util::{
-    platform::time::{Duration, Instant},
-    profile,
-};
+use tetanes_util::platform::time::{Duration, Instant};
 use tracing::{error, trace, warn};
 use winit::event_loop::EventLoopProxy;
 
@@ -128,7 +125,8 @@ impl Gui {
 
     /// Create the UI.
     pub fn ui(&mut self, ctx: &Context, config: &mut Config) {
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         TopBottomPanel::top("menu_bar")
             .show_animated(ctx, self.show_menu, |ui| self.menu_bar(ui, config));
@@ -151,7 +149,7 @@ impl Gui {
         self.about_open = about_open;
 
         #[cfg(feature = "profiling")]
-        tetanes_util::profiling::show_viewport_if_enabled(ctx);
+        puffin_egui::show_viewport_if_enabled(ctx);
     }
 
     fn menu_bar(&mut self, ui: &mut Ui, config: &mut Config) {
@@ -317,9 +315,9 @@ impl Gui {
     fn debug_menu(&mut self, ui: &mut Ui) {
         #[cfg(feature = "profiling")]
         {
-            let mut profile = tetanes_util::profiling::enabled();
+            let mut profile = puffin::are_scopes_on();
             ui.checkbox(&mut profile, "Toggle profiling");
-            tetanes_util::profiling::enable(profile);
+            puffin::set_scopes_on(profile);
         }
         if ui.button("Toggle CPU Debugger").clicked() {
             self.todo(ui);

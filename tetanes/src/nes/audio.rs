@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
 use std::{iter, sync::Arc};
-use tetanes_util::{platform::time::Duration, profile, NesError, NesResult};
+use tetanes_util::{platform::time::Duration, NesError, NesResult};
 use tracing::{debug, enabled, error, info, trace, warn, Level};
 
 type AudioRb = Arc<HeapRb<f32>>;
@@ -465,7 +465,8 @@ impl Mixer {
         Ok(device.build_output_stream(
             config,
             move |out: &mut [T], _info| {
-                profile!("audio callback");
+                #[cfg(feature = "profiling")]
+                puffin::profile_scope!("audio callback");
 
                 if enabled!(Level::DEBUG) && consumer.len() < out.len() {
                     warn!("audio underrun: {} < {}", consumer.len(), out.len());

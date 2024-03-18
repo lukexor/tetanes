@@ -14,9 +14,7 @@ use crate::{
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, io::Read, path::PathBuf};
-use tetanes_util::filesystem;
-use tetanes_util::profile;
-use tetanes_util::NesResult;
+use tetanes_util::{filesystem, NesResult};
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -383,7 +381,8 @@ impl ControlDeck {
     /// If CPU encounteres an invalid opcode, an error is returned.
 
     pub fn clock_frame(&mut self) -> NesResult<usize> {
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         let mut total_cycles = 0;
         let frame = self.frame_number();
@@ -399,7 +398,8 @@ impl ControlDeck {
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
     pub fn clock_scanline(&mut self) -> NesResult<usize> {
-        profile!();
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         let current_scanline = self.cpu.bus.ppu.scanline();
         let mut total_cycles = 0;
