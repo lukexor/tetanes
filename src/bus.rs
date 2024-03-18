@@ -58,6 +58,7 @@ pub struct CpuBus {
     input: Input,
     oam_dma: bool,
     oam_dma_addr: u16,
+    #[serde(skip)]
     audio_samples: Vec<f32>,
     genie_codes: HashMap<u16, GenieCode>,
     cycle: usize, // Total number of CPU cycles ran
@@ -89,7 +90,8 @@ impl CpuBus {
             input: Input::new(),
             oam_dma: false,
             oam_dma_addr: 0x0000,
-            audio_samples: vec![],
+            // Start with max sample rate capacity to reduce allocs on initial startup
+            audio_samples: Vec::with_capacity((48000.0 / 60.0) as usize),
             genie_codes: HashMap::new(),
             cycle: 0,
             open_bus: 0x00,

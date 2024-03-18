@@ -108,6 +108,7 @@ pub struct Cpu {
     halt: bool,
     dummy_read: bool,
     cycle_accurate: bool,
+    #[serde(skip)]
     disasm: String,
 }
 
