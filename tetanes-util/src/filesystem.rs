@@ -8,7 +8,7 @@ use std::{
 
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
-const MAJOR_VERSION: &str = env!("CARGO_PKG_VERSION_MAJOR");
+const VERSION: &str = "1";
 
 /// Writes a header including a magic string and a version
 ///
@@ -17,7 +17,7 @@ const MAJOR_VERSION: &str = env!("CARGO_PKG_VERSION_MAJOR");
 /// If the header fails to write to disk, then an error is returned.
 pub(crate) fn write_save_header(f: &mut impl Write) -> NesResult<()> {
     f.write_all(&SAVE_FILE_MAGIC)?;
-    f.write_all(MAJOR_VERSION.as_bytes())?;
+    f.write_all(VERSION.as_bytes())?;
     Ok(())
 }
 
@@ -34,12 +34,12 @@ pub(crate) fn validate_save_header(f: &mut impl Read) -> NesResult<()> {
     if magic == SAVE_FILE_MAGIC {
         let mut version = [0u8];
         f.read_exact(&mut version)?;
-        if version == MAJOR_VERSION.as_bytes() {
+        if version == VERSION.as_bytes() {
             Ok(())
         } else {
             Err(anyhow!(
                 "invalid save file version. current: {}, save file: {}",
-                MAJOR_VERSION,
+                VERSION,
                 version[0],
             ))
         }
