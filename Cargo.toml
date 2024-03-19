@@ -23,7 +23,7 @@ path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
 [dependencies]
 anyhow = "1.0"
 bincode = "1.3"
-bitflags = { version = "2.4", features = ["serde"] }
+bitflags = { version = "2.5", features = ["serde"] }
 chrono = "0.4"
 dirs = "5.0"
 enum_dispatch = "0.3"
