@@ -32,7 +32,7 @@ fn main() -> NesResult<()> {
     puffin::set_scopes_on(true);
 
     #[cfg(target_arch = "wasm32")]
-    let config = Config::load();
+    let config = nes::config::Config::load();
     #[cfg(not(target_arch = "wasm32"))]
     let config = {
         use clap::Parser;

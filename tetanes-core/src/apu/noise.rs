@@ -1,6 +1,6 @@
 use crate::{
     apu::{envelope::Envelope, length_counter::LengthCounter},
-    common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
 
@@ -113,7 +113,7 @@ impl Noise {
     }
 }
 
-impl AudioSample for Noise {
+impl Sample for Noise {
     #[must_use]
     fn output(&self) -> f32 {
         if self.shift & 1 == 0 && self.length.counter != 0 && !self.force_silent {

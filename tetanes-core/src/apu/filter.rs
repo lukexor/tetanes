@@ -1,199 +1,304 @@
+use crate::{
+    common::{NesRegion, Sample},
+    cpu::Cpu,
+};
 use serde::{Deserialize, Serialize};
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
+
+pub trait Consume {
+    fn consume(&mut self, sample: f32);
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
+pub enum FilterKind {
+    MovingAverage,
+    HighPass,
+    LowPass,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Filter {
-    sincs: [WindowSinc; 3],
-    input_rate: f32,
-    output_rate: f32,
-    resample_ratio: f32,
-    sample_avg: f32,
-    sample_count: f32,
-    decim_fraction: f32,
-    last_sample: Option<f32>,
-}
-
-impl Filter {
-    pub fn new(input_rate: f32, output_rate: f32) -> Self {
-        let resample_ratio = input_rate / output_rate;
-        Self {
-            sincs: [
-                WindowSinc::high_pass(output_rate, 90.0, 1500.0),
-                WindowSinc::high_pass(output_rate, 440.0, 1500.0),
-                WindowSinc::low_pass(output_rate, 14_000.0, 1500.0),
-            ],
-            resample_ratio,
-            input_rate,
-            output_rate,
-            sample_avg: 0.0,
-            sample_count: 0.0,
-            decim_fraction: resample_ratio,
-            last_sample: None,
-        }
-    }
-
-    pub fn set_input_rate(&mut self, input_rate: f32) {
-        self.input_rate = input_rate;
-        self.resample_ratio = self.input_rate / self.output_rate;
-    }
-
-    pub fn set_output_rate(&mut self, output_rate: f32) {
-        self.output_rate = output_rate;
-        self.resample_ratio = self.input_rate / self.output_rate;
-    }
-
-    pub fn add(&mut self, sample: f32) {
-        self.sample_avg += sample;
-        self.sample_count += 1.0;
-        self.decim_fraction -= 1.0;
-    }
-
-    pub fn output(&mut self) -> Option<f32> {
-        if self.decim_fraction < 1.0 {
-            if self.sample_count > 0.0 {
-                self.last_sample = Some(
-                    self.sincs
-                        .iter_mut()
-                        .fold(self.sample_avg / self.sample_count, |s, sinc| sinc.apply(s)),
-                );
-            }
-            self.sample_avg = 0.0;
-            self.sample_count = 0.0;
-            self.decim_fraction += self.resample_ratio;
-            return self.last_sample;
-        }
-        None
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct WindowSinc {
-    m: usize,
-    fc: f32,
-    bw: f32,
-    taps: Vec<f32>,
-    latency: usize,
+pub struct Iir {
+    alpha: f32,
+    prev_output: f32,
+    prev_input: f32,
+    delta: f32,
+    kind: FilterKind,
 }
 
-impl WindowSinc {
-    pub fn low_pass(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
-        WindowSinc::new(sample_rate, cutoff, bandwidth)
+impl Iir {
+    pub fn high_pass(sample_rate: f32, cutoff: f32) -> Self {
+        let period = 1.0 / sample_rate;
+        let cutoff_period = 1.0 / cutoff;
+        let alpha = cutoff_period / (cutoff_period + period);
+        Self {
+            alpha,
+            prev_output: 0.0,
+            prev_input: 0.0,
+            delta: 0.0,
+            kind: FilterKind::HighPass,
+        }
     }
 
-    pub fn high_pass(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
-        let mut high_pass = WindowSinc::new(sample_rate, cutoff, bandwidth);
-        high_pass.spectral_invert();
-        high_pass
+    pub fn low_pass(sample_rate: f32, cutoff: f32) -> Self {
+        let period = 1.0 / sample_rate;
+        let cutoff_period = 1.0 / (TAU * cutoff);
+        let alpha = cutoff_period / (cutoff_period + period);
+        Self {
+            alpha,
+            prev_output: 0.0,
+            prev_input: 0.0,
+            delta: 0.0,
+            kind: FilterKind::LowPass,
+        }
+    }
+}
+
+impl Consume for Iir {
+    fn consume(&mut self, sample: f32) {
+        self.prev_output = self.output();
+        self.delta = sample - self.prev_input;
+        self.prev_input = sample;
+    }
+}
+
+impl Sample for Iir {
+    fn output(&self) -> f32 {
+        match self.kind {
+            FilterKind::HighPass => self.alpha * self.prev_output + self.alpha * self.delta,
+            FilterKind::LowPass => self.prev_output + self.alpha * self.delta,
+            FilterKind::MovingAverage => unreachable!("MovingAverage Iir is not supported"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub struct Fir {
+    kernel: Vec<f32>,
+    inputs: Vec<f32>,
+    input_index: usize,
+    kind: FilterKind,
+}
+
+impl Fir {
+    pub fn moving_avg(window_size: usize) -> Self {
+        Self {
+            kernel: vec![],
+            inputs: vec![0.0; window_size + 1],
+            input_index: 0,
+            kind: FilterKind::MovingAverage,
+        }
     }
 
-    #[must_use]
-    pub fn apply(&self, sample: f32) -> f32 {
-        let mut out = 0.0;
-        for h in &self.taps {
-            out += sample * h;
+    pub fn low_pass(sample_rate: f32, cutoff: f32, window_size: usize) -> Self {
+        Self {
+            kernel: windowed_sinc_kernel(sample_rate, cutoff, window_size),
+            inputs: vec![0.0; window_size + 1],
+            input_index: 0,
+            kind: FilterKind::LowPass,
         }
-        out
+    }
+}
+
+impl Consume for Fir {
+    fn consume(&mut self, sample: f32) {
+        self.inputs[self.input_index] = sample;
+        self.input_index += 1;
+        if self.input_index >= self.inputs.len() {
+            self.input_index = 0;
+        }
+    }
+}
+
+impl Sample for Fir {
+    fn output(&self) -> f32 {
+        if let FilterKind::MovingAverage = self.kind {
+            self.inputs.iter().sum::<f32>() / self.inputs.len() as f32
+        } else {
+            self.kernel
+                .iter()
+                .zip(self.inputs.iter().cycle().skip(self.input_index))
+                .map(|(k, v)| k * v)
+                .sum()
+        }
+    }
+}
+
+pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -> Vec<f32> {
+    fn blackman_window(index: usize, window_size: usize) -> f32 {
+        let i = index as f32;
+        let m = window_size as f32;
+        0.42 - 0.5 * ((TAU * i) / m).cos() + 0.08 * ((2.0 * TAU * i) / m).cos()
     }
 
-    /// Creates a new [`WindowSinc`] instance.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `cutoff` or `bandwidth` ratio to `sample_rate` is greater than `0.5`.
-    pub fn new(sample_rate: f32, cutoff: f32, bandwidth: f32) -> Self {
-        let fc = cutoff / sample_rate;
-        let bw = bandwidth / sample_rate;
-        assert!(
-            (0.0..=0.5).contains(&fc),
-            "cutoff frequency can not be greater than 1/2 the sampling rate: {cutoff} / {sample_rate}",
-        );
-        assert!(
-            (0.0..=0.5).contains(&bw),
-            "transition bandwidth can not be greater than 1/2 the sampling rate: {bandwidth} / {sample_rate}",
-        );
+    fn sinc(index: usize, fc: f32, window_size: usize) -> f32 {
+        let i = index as f32;
+        let m = window_size as f32;
+        let shifted_index = i - (m / 2.0);
+        if index == (window_size / 2) {
+            TAU * fc
+        } else {
+            (TAU * fc * shifted_index).sin() / shifted_index
+        }
+    }
 
-        let m = (4.0 / bw) as usize; // Approximation
-        let latency = m / 2; // Middle sample of FIR
+    fn normalize(input: Vec<f32>) -> Vec<f32> {
+        let sum: f32 = input.iter().sum();
+        input.into_iter().map(|x| x / sum).collect()
+    }
 
-        let mut h = Self::blackman_window(m);
+    let fc = cutoff / sample_rate;
+    let mut kernel = Vec::with_capacity(window_size);
+    for i in 0..=window_size {
+        kernel.push(sinc(i, fc, window_size) * blackman_window(i, window_size));
+    }
+    normalize(kernel)
+}
 
-        // Apply window sinc filter
-        let p = 2.0 * PI * fc;
-        for (i, h) in h.iter_mut().enumerate() {
-            let i = i as f32 - latency as f32;
-            *h *= if i == 0.0 { p } else { (p * i).sin() / i };
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub enum Filter {
+    Iir(Iir),
+    Fir(Fir),
+}
+
+impl Consume for Filter {
+    fn consume(&mut self, sample: f32) {
+        match self {
+            Filter::Iir(iir) => iir.consume(sample),
+            Filter::Fir(fir) => fir.consume(sample),
+        }
+    }
+}
+
+impl Sample for Filter {
+    fn output(&self) -> f32 {
+        match self {
+            Filter::Iir(iir) => iir.output(),
+            Filter::Fir(fir) => fir.output(),
+        }
+    }
+}
+
+impl From<Iir> for Filter {
+    fn from(filter: Iir) -> Self {
+        Self::Iir(filter)
+    }
+}
+
+impl From<Fir> for Filter {
+    fn from(filter: Fir) -> Self {
+        Self::Fir(filter)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub struct SampledFilter {
+    filter: Filter,
+    sample_period: f32,
+    period_counter: f32,
+}
+
+impl SampledFilter {
+    pub fn new(filter: impl Into<Filter>, sample_rate: f32) -> Self {
+        Self {
+            filter: filter.into(),
+            sample_period: 1.0 / sample_rate,
+            period_counter: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterChain {
+    region: NesRegion,
+    dt: f32,
+    filters: Vec<SampledFilter>,
+}
+
+impl FilterChain {
+    pub fn new(region: NesRegion, output_rate: f32) -> Self {
+        let clock_rate = Cpu::region_clock_rate(region);
+        let intermediate_sample_rate = output_rate * 2.0 + (PI / 32.0);
+        let intermediate_cutoff = output_rate * 0.4;
+
+        // first-order low-pass filter at intermediate_cutoff
+        let mut filters = vec![
+            SampledFilter::new(
+                Fir::moving_avg((clock_rate / intermediate_sample_rate) as usize),
+                1.0,
+            ),
+            SampledFilter::new(Iir::low_pass(clock_rate, intermediate_cutoff), clock_rate),
+        ];
+        match region {
+            NesRegion::Ntsc => {
+                // first-order high-pass filter at 90 Hz
+                filters.push(SampledFilter::new(
+                    Iir::high_pass(intermediate_sample_rate, 90.0),
+                    intermediate_sample_rate,
+                ));
+                // first-order high-pass filter at 440 Hz
+                filters.push(SampledFilter::new(
+                    Iir::high_pass(intermediate_sample_rate, 440.0),
+                    intermediate_sample_rate,
+                ));
+                // first-order low-pass filter at 14 kHz
+                filters.push(SampledFilter::new(
+                    Iir::low_pass(intermediate_sample_rate, 14000.0),
+                    intermediate_sample_rate,
+                ));
+            }
+            NesRegion::Pal | NesRegion::Dendy => {
+                // first-order high-pass filter at 37 Hz
+                filters.push(SampledFilter::new(
+                    Iir::high_pass(intermediate_sample_rate, 37.0),
+                    intermediate_sample_rate,
+                ));
+            }
         }
 
-        // Normalize
-        let sum_inv = 1.0 / h.iter().sum::<f32>();
-        for h in &mut h {
-            *h *= sum_inv;
-        }
+        // high-quality low-pass filter
+        let window_size = 64;
+        let intermediate_cutoff = output_rate * 0.45;
+        filters.push(SampledFilter::new(
+            Fir::low_pass(intermediate_sample_rate, intermediate_cutoff, window_size),
+            intermediate_sample_rate,
+        ));
 
         Self {
-            m,
-            fc,
-            bw,
-            taps: h,
-            latency,
+            region,
+            dt: 1.0 / clock_rate,
+            filters,
         }
-    }
-
-    fn blackman_window(m: usize) -> Vec<f32> {
-        let p1 = 2.0 * PI / m as f32;
-        let p2 = 4.0 * PI / m as f32;
-
-        // Force N to be symmetrical
-        let n = if m % 2 == 0 { m + 1 } else { m };
-        let mut h = vec![0.0; n];
-
-        for (i, h) in h.iter_mut().enumerate() {
-            let i = i as f32;
-            *h = 0.42 - 0.5 * (p1 * i).cos() + 0.8 * (p2 * i).cos();
-        }
-
-        h
-    }
-
-    #[must_use]
-    pub const fn taps(&self) -> &Vec<f32> {
-        &self.taps
-    }
-
-    pub fn spectral_invert(&mut self) {
-        let mut i = 1.0;
-        for h in &mut self.taps {
-            i *= -1.0;
-            *h *= i;
-        }
-        self.taps[self.latency] += 1.0;
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.taps.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.taps.is_empty()
-    }
-
-    #[must_use]
-    pub const fn latency(&self) -> usize {
-        self.latency
     }
 }
 
-impl std::fmt::Debug for WindowSinc {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WindowSinc")
-            .field("m", &self.m)
-            .field("fc", &self.fc)
-            .field("bw", &self.bw)
-            .field("taps_len", &self.taps.len())
-            .field("latency", &self.latency)
-            .finish()
+impl Consume for FilterChain {
+    fn consume(&mut self, sample: f32) {
+        // Add sample to average filter
+        self.filters[0].filter.consume(sample);
+        for i in 1..self.filters.len() {
+            let prev = i - 1;
+            let current = i;
+            while self.filters[current].period_counter >= self.filters[current].sample_period {
+                self.filters[current].period_counter -= self.filters[current].sample_period;
+                let prev_output = self.filters[prev].filter.output();
+                self.filters[current].filter.consume(prev_output);
+            }
+            self.filters[current].period_counter += self.dt;
+        }
+    }
+}
+
+impl Sample for FilterChain {
+    fn output(&self) -> f32 {
+        self.filters
+            .last()
+            .expect("no filters defined")
+            .filter
+            .output()
     }
 }

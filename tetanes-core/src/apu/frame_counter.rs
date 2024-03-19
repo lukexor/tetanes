@@ -2,18 +2,18 @@ use crate::common::{Clock, NesRegion, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct FrameCounter {
-    pub(crate) region: NesRegion,
-    pub(crate) step_cycles: [[u16; 6]; 2],
-    pub(crate) cycles: u16,
-    pub(crate) step: usize,
-    pub(crate) mode: FcMode,
-    pub(crate) write_buffer: Option<u8>,
-    pub(crate) write_delay: u8,
+pub struct FrameCounter {
+    pub region: NesRegion,
+    pub step_cycles: [[u16; 6]; 2],
+    pub cycles: u16,
+    pub step: usize,
+    pub mode: FcMode,
+    pub write_buffer: Option<u8>,
+    pub write_delay: u8,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum FcMode {
+pub enum FcMode {
     Step4,
     Step5,
 }
@@ -34,7 +34,7 @@ impl FrameCounter {
         [8313, 8314, 8312, 8314, 8312, 1],
     ];
 
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let region = NesRegion::default();
         let step_cycles = Self::step_cycles(region);
         Self {
@@ -48,7 +48,7 @@ impl FrameCounter {
         }
     }
 
-    pub(crate) fn set_region(&mut self, region: NesRegion) {
+    pub fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.step_cycles = Self::step_cycles(region);
     }
@@ -60,7 +60,7 @@ impl FrameCounter {
         }
     }
 
-    pub(crate) fn update(&mut self) -> bool {
+    pub fn update(&mut self) -> bool {
         if let Some(val) = self.write_buffer {
             self.write_delay -= 1;
             if self.write_delay == 0 {
@@ -73,13 +73,13 @@ impl FrameCounter {
     }
 
     // On write to $4017
-    pub(crate) fn write(&mut self, val: u8, cycle: usize) {
+    pub fn write(&mut self, val: u8, cycle: usize) {
         self.write_buffer = Some(val);
         // Writes occurring on odd clocks are delayed
         self.write_delay = if cycle & 0x01 == 0x01 { 4 } else { 3 };
     }
 
-    pub(crate) fn reload(&mut self, val: u8) {
+    pub fn reload(&mut self, val: u8) {
         self.mode = if val & 0x80 == 0x80 {
             FcMode::Step5
         } else {

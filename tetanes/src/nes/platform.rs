@@ -50,7 +50,8 @@ impl Nes {
 
         let on_load_rom = Closure::<dyn FnMut(_)>::new({
             let event_proxy = self.event_proxy.clone();
-            |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
+            let config = self.config.clone();
+            move |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
                 evt.current_target()
                     .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
                     .and_then(|input| input.files())
@@ -60,6 +61,7 @@ impl Nes {
                             let onload = Closure::<dyn FnMut()>::new({
                                 let reader = reader.clone();
                                 let event_proxy = event_proxy.clone();
+                                let config = config.clone();
                                 move || {
                                     if let Err(err) = reader.result().map(|result| {
                                         let data = Uint8Array::new(&result);
@@ -67,7 +69,7 @@ impl Nes {
                                             EmulationEvent::LoadRom((
                                                 file.name(),
                                                 RomData::new(data.to_vec()),
-                                                self.config.clone(),
+                                                config.clone(),
                                             ))
                                             .into(),
                                         )
@@ -91,10 +93,10 @@ impl Nes {
             }
         });
 
-        let load_rom_btn = document
+        let load_rom_input = document
             .get_element_by_id(html_ids::ROM_INPUT)
             .context("valid load-rom button")?;
-        if let Err(err) = load_rom_btn
+        if let Err(err) = load_rom_input
             .add_event_listener_with_callback("change", on_load_rom.as_ref().unchecked_ref())
         {
             on_error(&self.event_proxy, err);

@@ -1,4 +1,4 @@
-use crate::common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind};
+use crate::common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -187,7 +187,7 @@ impl Dmc {
     }
 }
 
-impl AudioSample for Dmc {
+impl Sample for Dmc {
     #[must_use]
     fn output(&self) -> f32 {
         if self.force_silent {

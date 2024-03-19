@@ -99,7 +99,7 @@ pub trait Clock {
 }
 
 /// Trait for types that can output `f32` audio samples.
-pub trait AudioSample {
+pub trait Sample {
     fn output(&self) -> f32;
 }
 
@@ -240,7 +240,7 @@ pub(crate) mod tests {
             filter: VideoFilter::Pixellate,
             ..Default::default()
         });
-        deck.load_rom(&path.to_string_lossy(), &mut rom, None)
+        deck.load_rom(&path.to_string_lossy(), &mut rom)
             .expect("failed to load rom");
         deck.set_filter(VideoFilter::Pixellate);
         deck.set_region(NesRegion::Ntsc);

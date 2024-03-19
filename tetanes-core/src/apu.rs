@@ -1,13 +1,14 @@
 use crate::{
     apu::{
         dmc::Dmc,
+        filter::{Consume, FilterChain},
         frame_counter::{FcMode, FrameCounter},
         noise::Noise,
         pulse::{OutputFreq, Pulse, PulseChannel},
         triangle::Triangle,
     },
-    common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind},
-    cpu::Irq,
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    cpu::{Cpu, Irq},
 };
 use serde::{Deserialize, Serialize};
 
@@ -51,25 +52,37 @@ pub trait ApuRegisters {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Apu {
-    frame_counter: FrameCounter,
-    cycle: usize,
-    region: NesRegion,
-    irq_disabled: bool, // Set by $4017 D6
-    irq_pending: bool,  // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
-    pulse1: Pulse,
-    pulse2: Pulse,
-    triangle: Triangle,
-    noise: Noise,
-    dmc: Dmc,
+    pub frame_counter: FrameCounter,
+    pub cycle: usize,
+    pub clock_rate: f32,
+    pub sample_rate: f32,
+    pub region: NesRegion,
+    pub irq_disabled: bool, // Set by $4017 D6
+    pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
+    pub pulse1: Pulse,
+    pub pulse2: Pulse,
+    pub triangle: Triangle,
+    pub noise: Noise,
+    pub dmc: Dmc,
+    pub filter_chain: FilterChain,
+    #[serde(skip)]
+    pub audio_samples: Vec<f32>,
+    pub sample_period: f32,
+    pub sample_counter: f32,
 }
 
 impl Apu {
     pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
 
-    pub fn new() -> Self {
+    pub fn new(sample_rate: f32) -> Self {
+        let region = NesRegion::default();
+        let clock_rate = Cpu::region_clock_rate(region);
+        let sample_period = clock_rate / sample_rate;
         Self {
             cycle: 0,
-            region: NesRegion::default(),
+            clock_rate,
+            sample_rate,
+            region,
             irq_pending: false,
             irq_disabled: false,
             frame_counter: FrameCounter::new(),
@@ -78,6 +91,28 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
+            filter_chain: FilterChain::new(region, sample_rate),
+            audio_samples: Vec::with_capacity((sample_rate / 60.0) as usize),
+            sample_period,
+            sample_counter: sample_period,
+        }
+    }
+
+    pub fn mix(&mut self, input: f32) {
+        let pulse1 = self.pulse1.output();
+        let pulse2 = self.pulse2.output();
+        let triangle = self.triangle.output();
+        let noise = self.noise.output();
+        let dmc = self.dmc.output();
+        let pulse_idx = (pulse1 + pulse2) as usize;
+        let tnd_idx = (3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize;
+        let output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
+
+        self.filter_chain.consume(output + input);
+        self.sample_counter -= 1.0;
+        if self.sample_counter <= 1.0 {
+            self.audio_samples.push(self.filter_chain.output());
+            self.sample_counter += self.sample_period;
         }
     }
 
@@ -177,11 +212,27 @@ impl Apu {
         self.triangle.clock_half_frame();
         self.noise.clock_half_frame();
     }
+
+    pub fn clock(&mut self) -> usize {
+        self.dmc.check_pending_dma();
+        if self.cycle & 0x01 == 0x00 {
+            self.pulse1.clock();
+            self.pulse2.clock();
+            self.noise.clock();
+            self.dmc.clock();
+        }
+        self.triangle.clock();
+        // Technically only clocks every 2 CPU cycles, but due
+        // to half-cycle timings, we clock every cycle
+        self.clock_frame_counter();
+        self.cycle = self.cycle.wrapping_add(1);
+        1
+    }
 }
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new()
+        Self::new(Self::DEFAULT_SAMPLE_RATE)
     }
 }
 
@@ -336,38 +387,6 @@ impl ApuRegisters for Apu {
     }
 }
 
-impl AudioSample for Apu {
-    #[must_use]
-    fn output(&self) -> f32 {
-        let pulse1 = self.pulse1.output();
-        let pulse2 = self.pulse2.output();
-        let triangle = self.triangle.output();
-        let noise = self.noise.output();
-        let dmc = self.dmc.output();
-        let pulse_idx = (pulse1 + pulse2) as usize;
-        let tnd_idx = (3.0f32.mul_add(triangle, 2.0 * noise) + dmc) as usize;
-        PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx]
-    }
-}
-
-impl Clock for Apu {
-    fn clock(&mut self) -> usize {
-        self.dmc.check_pending_dma();
-        if self.cycle & 0x01 == 0x00 {
-            self.pulse1.clock();
-            self.pulse2.clock();
-            self.noise.clock();
-            self.dmc.clock();
-        }
-        self.triangle.clock();
-        // Technically only clocks every 2 CPU cycles, but due
-        // to half-cycle timings, we clock every cycle
-        self.clock_frame_counter();
-        self.cycle = self.cycle.wrapping_add(1);
-        1
-    }
-}
-
 impl Regional for Apu {
     fn region(&self) -> NesRegion {
         self.region
@@ -375,6 +394,8 @@ impl Regional for Apu {
 
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
+        self.clock_rate = Cpu::region_clock_rate(region);
+        self.filter_chain = FilterChain::new(region, self.sample_rate);
         self.frame_counter.set_region(region);
         self.noise.set_region(region);
         self.dmc.set_region(region);
@@ -407,6 +428,8 @@ impl std::fmt::Debug for Apu {
             .field("triangle", &self.triangle)
             .field("noise", &self.noise)
             .field("dmc", &self.dmc)
+            .field("filter_chain", &self.filter_chain)
+            .field("audio_samples_len", &self.audio_samples.len())
             .finish()
     }
 }

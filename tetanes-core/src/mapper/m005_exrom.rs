@@ -10,7 +10,7 @@ use crate::{
         PULSE_TABLE,
     },
     cart::Cart,
-    common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
     cpu::Cpu,
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
@@ -966,7 +966,7 @@ impl MemMap for Exrom {
     }
 }
 
-impl AudioSample for Exrom {
+impl Sample for Exrom {
     #[must_use]
     fn output(&self) -> f32 {
         let pulse1 = self.pulse1.output();

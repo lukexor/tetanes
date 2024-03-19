@@ -1,6 +1,6 @@
 use crate::{
     apu::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep},
-    common::{AudioSample, Clock, Reset, ResetKind},
+    common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
 
@@ -168,7 +168,7 @@ impl Pulse {
     }
 }
 
-impl AudioSample for Pulse {
+impl Sample for Pulse {
     #[must_use]
     fn output(&self) -> f32 {
         if Self::DUTY_TABLE[self.duty_cycle as usize][self.duty_counter as usize] != 0

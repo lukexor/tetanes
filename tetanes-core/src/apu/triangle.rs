@@ -1,6 +1,6 @@
 use crate::{
     apu::{length_counter::LengthCounter, linear_counter::LinearCounter},
-    common::{AudioSample, Clock, Reset, ResetKind},
+    common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
 
@@ -93,7 +93,7 @@ impl Triangle {
     }
 }
 
-impl AudioSample for Triangle {
+impl Sample for Triangle {
     #[must_use]
     fn output(&self) -> f32 {
         if self.force_silent {

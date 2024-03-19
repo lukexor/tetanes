@@ -1,8 +1,8 @@
 use crate::{
-    apu::{filter::Filter, Apu, ApuRegisters, Channel},
+    apu::{Apu, ApuRegisters, Channel},
     cart::Cart,
-    common::{AudioSample, Clock, NesRegion, Regional, Reset, ResetKind},
-    cpu::{Cpu, Irq},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    cpu::Irq,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
@@ -47,9 +47,6 @@ pub struct Bus {
     cycle: usize, // Total number of CPU cycles ran
     pub ppu: Ppu,
     pub apu: Apu,
-    audio_samples: Vec<f32>,
-    filter: Filter,
-    #[serde(skip)]
     pub input: Input,
     wram: Vec<u8>,
     prg_ram: Vec<u8>,
@@ -84,12 +81,10 @@ impl Bus {
             prg_ram_protect: false,
             prg_rom: vec![],
             ppu: Ppu::new(),
-            apu: Apu::new(),
-            filter: Filter::new(Cpu::region_clock_rate(region), sample_rate),
+            apu: Apu::new(sample_rate),
             input: Input::new(),
             oam_dma: false,
             oam_dma_addr: 0x0000,
-            audio_samples: vec![],
             genie_codes: HashMap::new(),
             cycle: 0,
             open_bus: 0x00,
@@ -97,12 +92,6 @@ impl Bus {
     }
 
     pub fn load_cart(&mut self, cart: Cart) {
-        // Start with ~20ms of audio capacity
-        let audio_capacity = (Cpu::region_clock_rate(cart.region()) * 0.02) as usize;
-        if audio_capacity > self.audio_samples.capacity() {
-            self.audio_samples
-                .reserve(audio_capacity - self.audio_samples.capacity());
-        }
         self.set_region(cart.region());
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
@@ -151,11 +140,11 @@ impl Bus {
 
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
-        &self.audio_samples
+        &self.apu.audio_samples
     }
 
     pub fn clear_audio_samples(&mut self) {
-        self.audio_samples.clear();
+        self.apu.audio_samples.clear();
     }
 
     pub fn irqs_pending(&self) -> Irq {
@@ -190,13 +179,8 @@ impl Clock for Bus {
             _ => 0.0,
         };
         self.apu.clock();
+        self.apu.mix(mapper_output);
         self.input.clock();
-
-        let apu_output = self.apu.output();
-        self.filter.add(apu_output + mapper_output);
-        while let Some(sample) = self.filter.output() {
-            self.audio_samples.push(sample);
-        }
 
         1
     }
@@ -324,7 +308,6 @@ impl Regional for Bus {
 
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
-        self.filter.set_input_rate(Cpu::region_clock_rate(region));
         self.ppu.set_region(region);
         self.apu.set_region(region);
     }
@@ -354,7 +337,6 @@ impl std::fmt::Debug for Bus {
             .field("input", &self.input)
             .field("oam_dma", &self.oam_dma)
             .field("oam_dma_addr", &self.oam_dma_addr)
-            .field("audio_samples_len", &self.audio_samples.len())
             .field("genie_codes", &self.genie_codes.values())
             .field("cycle", &self.cycle)
             .field("open_bus", &format_args!("${:02X}", &self.open_bus))

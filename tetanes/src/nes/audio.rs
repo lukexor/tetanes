@@ -1,7 +1,13 @@
 use anyhow::anyhow;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
-use std::{iter, sync::Arc};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    iter,
+    path::PathBuf,
+    sync::Arc,
+};
 use tetanes_util::{platform::time::Duration, NesError, NesResult};
 use tracing::{debug, enabled, error, info, trace, warn, Level};
 
@@ -87,9 +93,8 @@ impl Audio {
             .as_ref()
             .and_then(|output| output.mixer.as_ref())
             .map_or(Duration::default(), |mixer| {
-                let queued_seconds = mixer.producer.len() as f32
-                    / f32::from(self.sample_rate)
-                    / mixer.channels as f32;
+                let queued_seconds =
+                    mixer.producer.len() as f32 / self.sample_rate / mixer.channels as f32;
                 Duration::from_secs_f32(queued_seconds)
             })
     }
@@ -134,7 +139,7 @@ impl Audio {
         self.output
             .as_ref()
             .and_then(|output| output.mixer.as_ref())
-            .map_or(false, |mixer| mixer.recording)
+            .map_or(false, |mixer| mixer.recording.is_some())
     }
 
     /// Start/stop recording audio to a file.
@@ -144,7 +149,7 @@ impl Audio {
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
         {
-            mixer.recording = recording;
+            mixer.set_recording(recording);
         }
     }
 
@@ -328,12 +333,10 @@ pub(crate) struct Mixer {
     stream: cpal::Stream,
     paused: bool,
     channels: u16,
+    sample_latency: usize,
     producer: Producer<f32, AudioRb>,
     processed_samples: Vec<f32>,
-    sample_avg: f32,
-    sample_count: f32,
-    decim_fraction: f32,
-    recording: bool,
+    recording: Option<BufWriter<File>>,
 }
 
 impl std::fmt::Debug for Mixer {
@@ -341,12 +344,10 @@ impl std::fmt::Debug for Mixer {
         f.debug_struct("Audio")
             .field("paused", &self.paused)
             .field("channels", &self.channels)
+            .field("sample_latency", &self.sample_latency)
             .field("queued_len", &self.producer.len())
             .field("processed_len", &self.processed_samples.len())
-            .field("sample_avg", &self.sample_avg)
-            .field("sample_count", &self.sample_count)
-            .field("decim_fraction", &self.decim_fraction)
-            .field("recording", &self.recording)
+            .field("recording", &self.recording.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -364,14 +365,8 @@ impl Mixer {
         let sample_rate = config.sample_rate.0;
         let sample_latency =
             (latency.as_secs_f32() * sample_rate as f32 * channels as f32).ceil() as usize;
-        let processed_samples = Vec::with_capacity(sample_latency);
-        // buffer needs to be larger than sample_latency, otherwise emulation can't queue enough
-        // samples. Being a power of two makes the ring buffer more performant.
-        let mut buffer_size = sample_latency.next_power_of_two();
-        if buffer_size == sample_latency {
-            buffer_size *= 2;
-        }
-        let buffer = HeapRb::<f32>::new(buffer_size);
+        let processed_samples = Vec::with_capacity(2 * sample_latency);
+        let buffer = HeapRb::<f32>::new(2 * sample_latency);
         let (producer, consumer) = buffer.split();
 
         let stream = match sample_format {
@@ -393,12 +388,10 @@ impl Mixer {
             stream,
             paused: false,
             channels,
+            sample_latency,
             producer,
             processed_samples,
-            sample_avg: 0.0,
-            sample_count: 0.0,
-            decim_fraction: 0.0,
-            recording: false,
+            recording: None,
         })
     }
 
@@ -417,15 +410,38 @@ impl Mixer {
     /// Returns an error if the audio device has not been started yet or does not support pausing.
     fn pause(&mut self, paused: bool) -> NesResult<()> {
         if paused && !self.paused {
-            if self.recording {
-                self.recording = false;
-            }
+            self.stop_recording();
             self.stream.pause()?;
         } else if self.paused {
             self.stream.play()?;
         }
         self.paused = paused;
         Ok(())
+    }
+
+    fn stop_recording(&mut self) {
+        if let Some(mut recording) = self.recording.take() {
+            if let Err(err) = recording.flush() {
+                error!("failed to flush audio recording: {err:?}");
+            }
+        }
+    }
+
+    fn set_recording(&mut self, recording: bool) {
+        if recording {
+            self.stop_recording();
+            let filename = PathBuf::from(
+                chrono::Local::now()
+                    .format("recording_%Y-%m-%d_at_%H_%M_%S")
+                    .to_string(),
+            )
+            .with_extension("raw");
+            self.recording = Some(BufWriter::new(
+                File::create(filename).expect("failed to create audio recording"),
+            ));
+        } else {
+            self.stop_recording();
+        }
     }
 
     fn make_stream<T>(
@@ -464,18 +480,22 @@ impl Mixer {
             for _ in 0..self.channels {
                 self.processed_samples.push(*sample);
             }
-        }
-        if self.recording {
-            // TODO: push slice to recording thread
+            if let Some(ref mut recording) = self.recording {
+                // TODO: push slice to recording thread
+                // TODO: add wav format
+                let _ = recording.write_all(&sample.to_le_bytes());
+            }
         }
         let processed_len = self.processed_samples.len();
-        let len = self.producer.free_len().min(processed_len);
-        let queued_len = self
-            .producer
-            .push_iter(&mut self.processed_samples.drain(..len));
-        trace!(
-            "processed: {processed_len}, queued: {queued_len}, buffer len: {}",
-            self.producer.len()
-        );
+        if processed_len >= self.sample_latency {
+            let len = self.producer.free_len().min(self.sample_latency);
+            let queued_len = self
+                .producer
+                .push_iter(&mut self.processed_samples.drain(..len));
+            trace!(
+                "processed: {processed_len}, queued: {queued_len}, buffer len: {}",
+                self.producer.len()
+            );
+        }
     }
 }
