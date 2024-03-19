@@ -584,6 +584,42 @@ pub(crate) mod tests {
             pal_len_timing_mode0,
             #[ignore = "fails #3"]
             pal_len_timing_mode1,
+            #[ignore = "todo: compare output"]
+            apu_env,
+            #[ignore = "fails: fix silence"]
+            dmc,
+            #[ignore = "passes: check status"]
+            dmc_buffer_retained,
+            #[ignore = "todo: compare output"]
+            dmc_latency,
+            #[ignore = "todo: compare output"]
+            dmc_pitch,
+            #[ignore = "passes: check status"]
+            dmc_status,
+            #[ignore = "passes: todo, check status"]
+            dmc_status_irq,
+            #[ignore = "todo: compare output"]
+            lin_ctr,
+            #[ignore = "fails: fix silence"]
+            noise,
+            #[ignore = "todo: compare output"]
+            noise_pitch,
+            #[ignore = "todo: compare output"]
+            phase_reset,
+            #[ignore = "fails: fix silence"]
+            square,
+            #[ignore = "todo: compare output"]
+            square_pitch,
+            #[ignore = "todo: compare output"]
+            sweep_cutoff,
+            #[ignore = "todo: compare output"]
+            sweep_sub,
+            #[ignore = "fails: fix silence"]
+            triangle,
+            #[ignore = "todo: compare output"]
+            triangle_pitch,
+            #[ignore = "todo: compare output"]
+            volumes,
         );
     }
 
