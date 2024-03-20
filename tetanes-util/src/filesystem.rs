@@ -9,7 +9,7 @@ use std::{
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
 // Keep this separate from Semver because breaking API changes may not invalidate the save format.
-const SAVE_VERSION: &str = "1.0.0";
+const SAVE_VERSION: &str = "1";
 
 /// Writes a header including a magic string and a version
 ///

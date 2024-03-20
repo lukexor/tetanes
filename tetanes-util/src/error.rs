@@ -1,2 +1,2 @@
 pub type Error = anyhow::Error;
-pub type Result<T> = anyhow::Result<T, Error>;
+pub type Result<T, E = Error> = anyhow::Result<T, E>;

@@ -283,7 +283,12 @@ impl Nes {
 
         match event {
             NesEvent::Ui(event) => self.on_event(event),
-            NesEvent::Emulation(_) => self.emulation.on_event(&Event::UserEvent(event)),
+            NesEvent::Emulation(ref emulation_event) => {
+                if let EmulationEvent::LoadRomPath((path, ..)) = emulation_event {
+                    self.config.recent_roms.insert(path.clone());
+                }
+                self.emulation.on_event(&Event::UserEvent(event));
+            }
             NesEvent::Renderer(_) => self
                 .renderer
                 .on_event(&self.window, &Event::UserEvent(event)),

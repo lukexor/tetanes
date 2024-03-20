@@ -15,7 +15,7 @@ use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, io::Read, path::PathBuf};
 use tetanes_util::{filesystem, NesResult};
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
@@ -75,6 +75,11 @@ impl Config {
     pub const DIR: &'static str = ".config/tetanes";
     pub const SAVE_DIR: &'static str = "save";
     pub const SRAM_DIR: &'static str = "sram";
+
+    #[must_use]
+    pub fn dir(&self) -> &PathBuf {
+        &self.dir
+    }
 
     #[must_use]
     pub fn save_dir(&self) -> PathBuf {
@@ -147,11 +152,16 @@ impl ControlDeck {
         self.set_region(cart.region());
         self.cpu.bus.load_cart(cart);
         self.reset(ResetKind::Hard);
-        self.load_sram()?;
-        if self.config.load_on_start {
-            self.load_state()?;
-        }
         self.running = true;
+        // TODO: Bubble this up to caller while still providing region
+        if let Err(err) = self.load_sram() {
+            error!("failed to load SRAM: {err:?}");
+        }
+        if self.config.load_on_start {
+            if let Err(err) = self.load_state() {
+                error!("failed to load state: {err:?}");
+            }
+        }
         Ok(region)
     }
 

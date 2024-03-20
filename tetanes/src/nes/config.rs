@@ -6,7 +6,7 @@ use super::{
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, str::FromStr};
+use std::{collections::HashSet, path::PathBuf, str::FromStr};
 use tetanes_core::{
     apu::Apu, common::NesRegion, control_deck::Config as DeckConfig, input::Player, ppu::Ppu,
 };
@@ -17,6 +17,260 @@ use tracing::info;
 pub const NTSC_RATIO: f32 = 8.0 / 7.0;
 pub const PAL_RATIO: f32 = 18.0 / 13.0;
 pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
+
+/// NES emulation configuration settings.
+///
+/// # Config JSON
+///
+/// Configuration for `TetaNES` is stored (by default) in `~/.config/tetanes/config.json`
+/// with defaults that can be customized in the `TetaNES` config menu.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[must_use]
+#[serde(default)] // Ensures new fields don't break existing configurations
+pub struct Config {
+    pub aspect_ratio: f32,
+    pub audio_enabled: bool,
+    pub audio_buffer_size: usize,
+    pub audio_latency: Duration,
+    pub audio_sample_rate: f32,
+    pub concurrent_dpad: bool,
+    pub controller_deadzone: f64,
+    pub debug: bool,
+    pub deck: DeckConfig,
+    pub frame_rate: FrameRate,
+    pub frame_speed: FrameSpeed,
+    pub fullscreen: bool,
+    pub hide_overscan: bool,
+    pub input_bindings: Vec<InputBinding>,
+    #[serde(skip)]
+    pub input_map: InputMap,
+    pub replay_path: Option<PathBuf>,
+    pub rewind: bool,
+    pub rewind_buffer_size_mb: usize,
+    pub rewind_interval: u8,
+    pub rom_path: PathBuf,
+    pub recent_roms: HashSet<PathBuf>,
+    pub scale: Scale,
+    pub show_fps: bool,
+    pub show_hidden_files: bool,
+    pub show_messages: bool,
+    #[serde(skip)]
+    pub target_frame_duration: Duration,
+    pub threaded: bool,
+    pub vsync: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let frame_rate = FrameRate::default();
+        let input_map = InputMap::default();
+        let input_bindings = input_map
+            .iter()
+            .map(|(input, (slot, action))| (*input, *slot, *action))
+            .collect();
+        let deck = DeckConfig::default();
+        let aspect_ratio = match deck.region {
+            NesRegion::Ntsc => NTSC_RATIO,
+            NesRegion::Pal | NesRegion::Dendy => PAL_RATIO,
+        };
+        Self {
+            aspect_ratio,
+            audio_buffer_size: if cfg!(target_arch = "wasm32") {
+                // Too low a value for wasm causes audio underruns in Chrome
+                2048
+            } else {
+                512
+            },
+            audio_latency: Duration::from_millis(50),
+            audio_enabled: true,
+            audio_sample_rate: Apu::DEFAULT_SAMPLE_RATE,
+            concurrent_dpad: false,
+            controller_deadzone: 0.5,
+            debug: false,
+            deck,
+            frame_rate,
+            frame_speed: FrameSpeed::default(),
+            fullscreen: false,
+            hide_overscan: true,
+            input_map,
+            input_bindings,
+            replay_path: None,
+            rewind: false,
+            rewind_buffer_size_mb: 20 * 1024 * 1024,
+            rewind_interval: 2,
+            rom_path: PathBuf::from("./"),
+            recent_roms: HashSet::new(),
+            scale: Scale::default(),
+            show_fps: cfg!(debug_assertions),
+            show_hidden_files: false,
+            show_messages: true,
+            target_frame_duration: frame_rate.duration(),
+            threaded: true,
+            vsync: true,
+        }
+    }
+}
+
+impl From<Config> for DeckConfig {
+    fn from(config: Config) -> Self {
+        config.deck
+    }
+}
+
+impl Config {
+    pub const WINDOW_TITLE: &'static str = "TetaNES";
+    pub const DEFAULT_DIRECTORY: &'static str = DeckConfig::DIR;
+    pub const FILENAME: &'static str = "config.json";
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn save(&self) -> NesResult<()> {
+        // TODO
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save(&self) -> NesResult<()> {
+        use anyhow::Context;
+        use std::fs::{self, File};
+        use tracing::info;
+
+        if !self.deck.save_on_exit {
+            return Ok(());
+        }
+
+        if !self.deck.dir.exists() {
+            fs::create_dir_all(&self.deck.dir).with_context(|| {
+                format!(
+                    "failed to create config directory: {}",
+                    self.deck.dir.display()
+                )
+            })?;
+            info!("created config directory: {}", self.deck.dir.display());
+        }
+
+        let path = self.deck.dir.join(Self::FILENAME);
+        File::create(&path)
+            .with_context(|| format!("failed to create config file: {path:?}"))
+            .and_then(|file| {
+                serde_json::to_writer_pretty(file, &self).context("failed to serialize config")
+            })?;
+        info!("Saved configuration");
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load() -> Self {
+        info!("Loading default configuration");
+        // TODO: Load from local storage?
+        Self::default()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load(path: Option<PathBuf>) -> Self {
+        use anyhow::Context;
+        use std::fs::File;
+        use tracing::{error, info};
+
+        let path = path.unwrap_or_else(|| DeckConfig::default().dir().join(Self::FILENAME));
+        let mut config = if path.exists() {
+            info!("Loading saved configuration");
+            File::open(&path)
+                .with_context(|| format!("failed to open {path:?}"))
+                .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
+                .with_context(|| format!("failed to parse {path:?}"))
+                .unwrap_or_else(|err| {
+                    error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
+                    Self::default()
+                })
+        } else {
+            info!("Loading default configuration");
+            Self::default()
+        };
+
+        config.input_map = InputMap::from_bindings(&config.input_bindings);
+        let region = config.deck.region;
+        Self::set_region(&mut config, region);
+
+        config
+    }
+
+    pub fn set_binding(&mut self, input: Input, slot: Player, action: Action) {
+        self.input_bindings.push((input, slot, action));
+        self.input_map.insert(input, (slot, action));
+    }
+
+    pub fn unset_binding(&mut self, input: Input) {
+        self.input_bindings.retain(|(i, ..)| i != &input);
+        self.input_map.remove(&input);
+    }
+
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.frame_rate = FrameRate::from(region);
+        self.aspect_ratio = match region {
+            NesRegion::Ntsc => NTSC_RATIO,
+            NesRegion::Pal => PAL_RATIO,
+            NesRegion::Dendy => PAL_RATIO,
+        };
+        self.target_frame_duration = Duration::from_secs_f32(
+            (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
+        );
+        info!(
+            "Updated frame rate based on NES Region: {region:?} ({:?}Hz)",
+            self.frame_rate,
+        );
+    }
+
+    pub fn set_frame_speed(&mut self, speed: FrameSpeed) {
+        self.frame_speed = speed;
+        self.target_frame_duration = Duration::from_secs_f32(
+            (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
+        );
+    }
+
+    #[must_use]
+    pub fn window_dimensions(&self) -> (f32, f32) {
+        let scale = f32::from(self.scale);
+        let (width, height) = self.texture_dimensions();
+        (scale * width * self.aspect_ratio, scale * height)
+    }
+
+    #[must_use]
+    pub fn texture_dimensions(&self) -> (f32, f32) {
+        let width = Ppu::WIDTH;
+        let height = if self.hide_overscan {
+            Ppu::HEIGHT - 16
+        } else {
+            Ppu::HEIGHT
+        };
+        (width as f32, height as f32)
+    }
+}
+
+impl Nes {
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.config.set_region(region);
+        self.trigger_event(EmulationEvent::SetRegion(region));
+        self.trigger_event(EmulationEvent::SetTargetFrameDuration(
+            self.config.target_frame_duration,
+        ));
+        self.add_message(format!("Changed NES Region to {region:?}"));
+    }
+
+    pub fn set_scale(&mut self, scale: Scale) {
+        self.config.scale = scale;
+        self.trigger_event(RendererEvent::SetScale(scale));
+        self.add_message(format!("Changed Scale to {scale}"));
+    }
+
+    pub fn set_speed(&mut self, speed: FrameSpeed) {
+        self.config.set_frame_speed(speed);
+        self.trigger_event(EmulationEvent::SetFrameSpeed(speed));
+        self.trigger_event(EmulationEvent::SetTargetFrameDuration(
+            self.config.target_frame_duration,
+        ));
+        self.add_message(format!("Changed Emulation Speed to {speed}"));
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -380,311 +634,5 @@ impl AsRef<str> for FrameRate {
 impl std::fmt::Display for FrameRate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_ref())
-    }
-}
-
-/// NES emulation configuration settings.
-///
-/// # Config JSON
-///
-/// Configuration for `TetaNES` is stored (by default) in `~/.config/tetanes/config.json`
-/// with defaults that can be customized in the `TetaNES` config menu.
-///
-/// # Bindings
-///
-/// ## Keyboard Mappings
-///
-/// A `keys` array with the following values:
-///
-/// - `controller`: The controller this keybinding should apply to (`One`, `Two`,
-///   `Three`, or `Four`).
-/// - `key`: A string that maps to a `pix_engine::prelude::Key` variant.
-/// - `keymod`: A number that maps to a `pix_engine::prelude::KeyMod` constant:
-///   - `NONE`: `-1`
-///   - `SHIFT`: `0`,
-///   - `CTRL`: `63`,
-///   - `ALT`: `255`,
-///   - `GUI`: `1023`,
-/// - `action`: An object that maps to an `nes::Action` variant. e.g.
-///   `{ "Joypad": "Left" } }`
-///
-/// ## Mouse Mappings
-///
-/// A `mouse` array with the following values:
-///
-/// - `controller`: The controller this button should apply to (`One`, `Two`,
-///   `Three`, or `Four`).
-/// - `button`: A string that maps to a `pix_engine::prelud::Mouse` variant.
-/// - `action`: An object that maps to an `Nes::Action` variant. e.g.
-///   `{ "Zapper": [0, 0] }`
-///
-/// ## Controller Button Mappings
-///
-/// A `buttons` array with the following values:
-///
-/// - `controller`: The controller this button should apply to (`One`, `Two`,
-///   `Three`, or `Four`).
-/// - `button`: A string that maps to a `pix_engine::prelude::ControllerButton`
-///   variant.
-/// - `action`: An object that maps to an `nes::Action` variant. e.g.
-///   `{ "Nes": ToggleMenu" } }`
-///
-/// ## Controller Axis Mappings
-///
-/// A `axes` array with the following values:
-///
-/// - `controller`: The controller this button should apply to (`One`, `Two`,
-///   `Three`, or `Four`).
-/// - `axis`: A string that maps to a `pix_engine::prelude::Axis` variant.
-/// - `direction`: `None`, `Positive`, or `Negative` to indicate axis direction.
-/// - `action`: An object that maps to an `nes::Action` variant. e.g.
-///   `{ "Feature": "SaveState" } }`
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[must_use]
-#[serde(default)] // Ensures new fields don't break existing configurations
-pub struct Config {
-    pub aspect_ratio: f32,
-    pub audio_enabled: bool,
-    pub audio_buffer_size: usize,
-    pub audio_latency: Duration,
-    pub audio_sample_rate: f32,
-    pub concurrent_dpad: bool,
-    pub controller_deadzone: f64,
-    pub debug: bool,
-    pub deck: DeckConfig,
-    pub frame_rate: FrameRate,
-    pub frame_speed: FrameSpeed,
-    pub fullscreen: bool,
-    pub hide_overscan: bool,
-    pub input_bindings: Vec<InputBinding>,
-    #[serde(skip)]
-    pub input_map: InputMap,
-    pub replay_path: Option<PathBuf>,
-    pub rewind: bool,
-    pub rewind_buffer_size_mb: usize,
-    pub rewind_interval: u8,
-    pub rom_path: PathBuf,
-    pub scale: Scale,
-    pub show_fps: bool,
-    pub show_hidden_files: bool,
-    pub show_messages: bool,
-    #[serde(skip)]
-    pub target_frame_duration: Duration,
-    pub threaded: bool,
-    pub vsync: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        let frame_rate = FrameRate::default();
-        let input_map = InputMap::default();
-        let input_bindings = input_map
-            .iter()
-            .map(|(input, (slot, action))| (*input, *slot, *action))
-            .collect();
-        let deck = DeckConfig::default();
-        let aspect_ratio = match deck.region {
-            NesRegion::Ntsc => NTSC_RATIO,
-            NesRegion::Pal | NesRegion::Dendy => PAL_RATIO,
-        };
-        Self {
-            aspect_ratio,
-            audio_buffer_size: if cfg!(target_arch = "wasm32") {
-                // Too low a value for wasm causes audio underruns in Chrome
-                2048
-            } else {
-                512
-            },
-            audio_latency: Duration::from_millis(50),
-            audio_enabled: true,
-            audio_sample_rate: Apu::DEFAULT_SAMPLE_RATE,
-            concurrent_dpad: false,
-            controller_deadzone: 0.5,
-            debug: false,
-            deck,
-            frame_rate,
-            frame_speed: FrameSpeed::default(),
-            fullscreen: false,
-            hide_overscan: true,
-            input_map,
-            input_bindings,
-            replay_path: None,
-            rewind: false,
-            rewind_buffer_size_mb: 20 * 1024 * 1024,
-            rewind_interval: 2,
-            rom_path: PathBuf::from("./"),
-            scale: Scale::default(),
-            show_fps: cfg!(debug_assertions),
-            show_hidden_files: false,
-            show_messages: true,
-            target_frame_duration: frame_rate.duration(),
-            threaded: true,
-            vsync: true,
-        }
-    }
-}
-
-impl From<Config> for DeckConfig {
-    fn from(config: Config) -> Self {
-        config.deck
-    }
-}
-
-impl Config {
-    pub const WINDOW_TITLE: &'static str = "TetaNES";
-    pub const DEFAULT_DIRECTORY: &'static str = DeckConfig::DIR;
-    pub const FILENAME: &'static str = "config.json";
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn save(&self) -> NesResult<()> {
-        // TODO
-        Ok(())
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn save(&self) -> NesResult<()> {
-        use anyhow::Context;
-        use std::fs::{self, File};
-        use tracing::info;
-
-        if !self.deck.save_on_exit {
-            return Ok(());
-        }
-
-        if !self.deck.dir.exists() {
-            fs::create_dir_all(&self.deck.dir).with_context(|| {
-                format!(
-                    "failed to create config directory: {}",
-                    self.deck.dir.display()
-                )
-            })?;
-            info!("created config directory: {}", self.deck.dir.display());
-        }
-
-        let path = self.deck.dir.join(Self::FILENAME);
-        File::create(&path)
-            .with_context(|| format!("failed to create config file: {path:?}"))
-            .and_then(|file| {
-                serde_json::to_writer_pretty(file, &self).context("failed to serialize config")
-            })?;
-        info!("Saved configuration");
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn load() -> Self {
-        info!("Loading default configuration");
-        // TODO: Load from local storage?
-        Self::default()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn load(path: Option<PathBuf>) -> Self {
-        use anyhow::Context;
-        use std::fs::File;
-        use tracing::{error, info};
-
-        let path = path.unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("./"))
-                .join(Self::FILENAME)
-        });
-        let mut config = if path.exists() {
-            info!("Loading saved configuration");
-            File::open(&path)
-                .with_context(|| format!("failed to open {path:?}"))
-                .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
-                .with_context(|| format!("failed to parse {path:?}"))
-                .unwrap_or_else(|err| {
-                    error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
-                    Self::default()
-                })
-        } else {
-            info!("Loading default configuration");
-            Self::default()
-        };
-
-        config.input_map = InputMap::from_bindings(&config.input_bindings);
-        let region = config.deck.region;
-        Self::set_region(&mut config, region);
-
-        config
-    }
-
-    pub fn set_binding(&mut self, input: Input, slot: Player, action: Action) {
-        self.input_bindings.push((input, slot, action));
-        self.input_map.insert(input, (slot, action));
-    }
-
-    pub fn unset_binding(&mut self, input: Input) {
-        self.input_bindings.retain(|(i, ..)| i != &input);
-        self.input_map.remove(&input);
-    }
-
-    pub fn set_region(&mut self, region: NesRegion) {
-        self.frame_rate = FrameRate::from(region);
-        self.aspect_ratio = match region {
-            NesRegion::Ntsc => NTSC_RATIO,
-            NesRegion::Pal => PAL_RATIO,
-            NesRegion::Dendy => PAL_RATIO,
-        };
-        self.target_frame_duration = Duration::from_secs_f32(
-            (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
-        );
-        info!(
-            "Updated frame rate based on NES Region: {region:?} ({:?}Hz)",
-            self.frame_rate,
-        );
-    }
-
-    pub fn set_frame_speed(&mut self, speed: FrameSpeed) {
-        self.frame_speed = speed;
-        self.target_frame_duration = Duration::from_secs_f32(
-            (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
-        );
-    }
-
-    #[must_use]
-    pub fn window_dimensions(&self) -> (f32, f32) {
-        let scale = f32::from(self.scale);
-        let (width, height) = self.texture_dimensions();
-        (scale * width * self.aspect_ratio, scale * height)
-    }
-
-    #[must_use]
-    pub fn texture_dimensions(&self) -> (f32, f32) {
-        let width = Ppu::WIDTH;
-        let height = if self.hide_overscan {
-            Ppu::HEIGHT - 16
-        } else {
-            Ppu::HEIGHT
-        };
-        (width as f32, height as f32)
-    }
-}
-
-impl Nes {
-    pub fn set_region(&mut self, region: NesRegion) {
-        self.config.set_region(region);
-        self.trigger_event(EmulationEvent::SetRegion(region));
-        self.trigger_event(EmulationEvent::SetTargetFrameDuration(
-            self.config.target_frame_duration,
-        ));
-        self.add_message(format!("Changed NES Region to {region:?}"));
-    }
-
-    pub fn set_scale(&mut self, scale: Scale) {
-        self.config.scale = scale;
-        self.trigger_event(RendererEvent::SetScale(scale));
-        self.add_message(format!("Changed Scale to {scale}"));
-    }
-
-    pub fn set_speed(&mut self, speed: FrameSpeed) {
-        self.config.set_frame_speed(speed);
-        self.trigger_event(EmulationEvent::SetFrameSpeed(speed));
-        self.trigger_event(EmulationEvent::SetTargetFrameDuration(
-            self.config.target_frame_duration,
-        ));
-        self.add_message(format!("Changed Emulation Speed to {speed}"));
     }
 }

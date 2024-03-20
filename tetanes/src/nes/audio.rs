@@ -399,10 +399,10 @@ impl Mixer {
     }
 
     fn stop(&mut self) {
+        self.processed_samples.clear();
         if let Err(err) = self.pause(true) {
             error!("failed to pause stream on stop: {err:?}");
         }
-        self.processed_samples.clear();
     }
 
     /// Pause or resume the audio output stream. If `paused` is false and the stream is not started
@@ -414,8 +414,9 @@ impl Mixer {
     fn pause(&mut self, paused: bool) -> NesResult<()> {
         if paused && !self.paused {
             self.stop_recording();
+            self.processed_samples.clear();
             self.stream.pause()?;
-        } else if self.paused {
+        } else if !paused && self.paused {
             self.stream.play()?;
         }
         self.paused = paused;
@@ -461,8 +462,8 @@ impl Mixer {
                 #[cfg(feature = "profiling")]
                 puffin::profile_scope!("audio callback");
 
-                if enabled!(Level::DEBUG) && consumer.len() < out.len() {
-                    warn!("audio underrun: {} < {}", consumer.len(), out.len());
+                if enabled!(Level::TRACE) && consumer.len() < out.len() {
+                    trace!("audio underrun: {} < {}", consumer.len(), out.len());
                 }
 
                 trace!("playing audio samples: {}", out.len().min(consumer.len()));
@@ -479,6 +480,9 @@ impl Mixer {
     }
 
     fn process(&mut self, samples: &[f32]) {
+        if self.paused {
+            return;
+        }
         for sample in samples {
             for _ in 0..self.channels {
                 self.processed_samples.push(*sample);

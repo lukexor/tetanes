@@ -10,7 +10,10 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 use tetanes_core::{common::ResetKind, input::Player};
-use tetanes_util::platform::time::{Duration, Instant};
+use tetanes_util::{
+    filesystem,
+    platform::time::{Duration, Instant},
+};
 use tracing::{error, trace, warn};
 use winit::event_loop::EventLoopProxy;
 
@@ -53,6 +56,7 @@ pub struct Gui {
     pub paused: bool,
     pub show_menu: bool,
     pub menu_height: f32,
+    pub recent_open: bool,
     pub config_open: bool,
     pub keybind_open: bool,
     pub load_rom_open: bool,
@@ -101,6 +105,7 @@ impl Gui {
             paused: false,
             show_menu: true,
             menu_height: 0.0,
+            recent_open: false,
             config_open: false,
             keybind_open: false,
             load_rom_open: false,
@@ -135,6 +140,12 @@ impl Gui {
             .show(ctx, |ui| self.nes_frame(ui, config));
 
         // TODO: show confirm quit dialog?
+
+        let mut recent_open = self.recent_open;
+        Window::new("Recent Played ROMs")
+            .open(&mut recent_open)
+            .show(ctx, |ui| self.recently_played(ui, config));
+        self.recent_open = recent_open;
 
         let mut config_open = self.config_open;
         Window::new("Configuration")
@@ -180,13 +191,14 @@ impl Gui {
             self.load_rom_open = false;
             ui.close_menu();
             self.send_event(EmulationEvent::Pause(true));
+            // Due to some platforms file dialogs blocking the event loop,
+            // loading requires a round-trip in order for the above pause to
+            // get processed.
             self.send_event(UiEvent::LoadRomDialog);
         }
-        if ui.button("Load Homebrew ROM...").clicked() {
-            self.todo(ui);
-        }
         if ui.button("Recently Played...").clicked() {
-            self.todo(ui);
+            self.recent_open = true;
+            ui.close_menu();
         }
         if ui.button("Load Replay...").clicked() {
             self.todo(ui);
@@ -217,6 +229,15 @@ impl Gui {
         if ui.button("Quit").clicked() {
             self.send_event(UiEvent::Terminate);
         };
+    }
+
+    fn recently_played(&mut self, ui: &mut Ui, config: &Config) {
+        // TODO: add timestamp, save slots, and screenshot
+        for rom in &config.recent_roms {
+            if ui.button(filesystem::filename(rom)).clicked() {
+                self.send_event(EmulationEvent::LoadRomPath((rom.clone(), config.clone())));
+            }
+        }
     }
 
     fn controls_menu(&mut self, ui: &mut Ui, config: &mut Config) {
