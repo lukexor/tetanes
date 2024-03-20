@@ -1,11 +1,12 @@
 use super::{
     action::Action,
-    event::{EmulationEvent, Input, InputBinding, InputMap, RendererEvent},
+    event::{EmulationEvent, RendererEvent},
+    input::{Input, InputBinding, InputMap},
     Nes,
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 use tetanes_core::{
     apu::Apu, common::NesRegion, control_deck::Config as DeckConfig, input::Player, ppu::Ppu,
 };
@@ -17,13 +18,19 @@ pub const NTSC_RATIO: f32 = 8.0 / 7.0;
 pub const PAL_RATIO: f32 = 18.0 / 13.0;
 pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum Scale {
     X1,
     X2,
     X3,
     X4,
+}
+
+impl Scale {
+    pub fn from_str_f32(s: &str) -> NesResult<f32> {
+        Ok(f32::from(Self::from_str(s)?))
+    }
 }
 
 impl Default for Scale {
@@ -73,7 +80,9 @@ impl TryFrom<f32> for Scale {
             2.0 => Ok(Scale::X2),
             3.0 => Ok(Scale::X3),
             4.0 => Ok(Scale::X4),
-            _ => Err(anyhow!("unsupported scale: {val}")),
+            _ => Err(anyhow!(
+                "unsupported scale: {val}. valid values: `1`, `2`, `3` or `4`"
+            )),
         }
     }
 }
@@ -89,13 +98,21 @@ impl AsRef<str> for Scale {
     }
 }
 
+impl FromStr for Scale {
+    type Err = NesError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let speed = s.parse::<f32>()?;
+        Scale::try_from(speed)
+    }
+}
+
 impl std::fmt::Display for Scale {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_ref())
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum FrameSpeed {
     X25,
@@ -110,6 +127,10 @@ pub enum FrameSpeed {
 }
 
 impl FrameSpeed {
+    pub fn from_str_f32(s: &str) -> NesResult<f32> {
+        Ok(f32::from(Self::from_str(s)?))
+    }
+
     pub fn increment(&self) -> Self {
         match self {
             FrameSpeed::X25 => FrameSpeed::X50,
@@ -170,7 +191,7 @@ impl TryFrom<f32> for FrameSpeed {
             1.50 => Ok(FrameSpeed::X150),
             1.75 => Ok(FrameSpeed::X175),
             2.0 => Ok(FrameSpeed::X200),
-            _ => Err(anyhow!("unsupported speed: {val}")),
+            _ => Err(anyhow!("unsupported speed: {val}. valid values: `.25`, `.50`, `.75`, `1`, `1.25`, `1.50`, `1.75`, or `2`"))
         }
     }
 }
@@ -187,6 +208,14 @@ impl AsRef<str> for FrameSpeed {
             Self::X175 => "175%",
             Self::X200 => "200%",
         }
+    }
+}
+
+impl FromStr for FrameSpeed {
+    type Err = NesError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let speed = s.parse::<f32>()?;
+        FrameSpeed::try_from(speed)
     }
 }
 
@@ -241,7 +270,9 @@ impl TryFrom<u32> for SampleRate {
         match val {
             44100 => Ok(Self::S44),
             48000 => Ok(Self::S48),
-            _ => Err(anyhow!("unsupported sample rate: {val}")),
+            _ => Err(anyhow!(
+                "unsupported sample rate: {val}. valid values: `44100` or `48000`"
+            )),
         }
     }
 }
@@ -313,7 +344,9 @@ impl TryFrom<u32> for FrameRate {
             50 => Ok(Self::X50),
             59 => Ok(Self::X59),
             60 => Ok(Self::X60),
-            _ => Err(anyhow!("unsupported frame rate: {val}")),
+            _ => Err(anyhow!(
+                "unsupported frame rate: {val}. valid values: `50`, `59`, or `60`"
+            )),
         }
     }
 }

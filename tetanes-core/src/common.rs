@@ -162,7 +162,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 pub(crate) mod tests {
     use crate::{
         action::Action,
-        common::{NesRegion, Regional, Reset, ResetKind},
+        common::{Regional, Reset, ResetKind},
         control_deck::{Config, ControlDeck},
         input::Player,
         mapper::{Mapper, MapperRevision},
@@ -240,10 +240,11 @@ pub(crate) mod tests {
             filter: VideoFilter::Pixellate,
             ..Default::default()
         });
-        deck.load_rom(&path.to_string_lossy(), &mut rom)
+        let region = deck
+            .load_rom(&path.to_string_lossy(), &mut rom)
             .expect("failed to load rom");
         deck.set_filter(VideoFilter::Pixellate);
-        deck.set_region(NesRegion::Ntsc);
+        deck.set_region(region);
         deck
     }
 

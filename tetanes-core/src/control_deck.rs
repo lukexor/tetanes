@@ -43,6 +43,10 @@ pub struct Config {
     pub load_on_start: bool,
     /// Save state on unloading a ROM.
     pub save_on_exit: bool,
+    /// Whether to support concurrent D-Pad input which wasn't possible on the original NES.
+    pub concurrent_dpad: bool,
+    /// Apu channels enabled.
+    pub channels_enabled: [bool; 5],
 }
 
 impl Default for Config {
@@ -61,6 +65,8 @@ impl Default for Config {
             load_on_start: true,
             save_on_exit: true,
             save_slot: 1,
+            concurrent_dpad: false,
+            channels_enabled: [true; 5],
         }
     }
 }
@@ -132,21 +138,26 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is any issue loading the ROM, then an error is returned.
-    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<()> {
+    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<NesRegion> {
         self.unload_rom()?;
         self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.cpu.bus.ram_state)?;
+        let region = cart.region();
         self.cart_battery_backed = cart.battery_backed();
         self.set_region(cart.region());
         self.cpu.bus.load_cart(cart);
         self.reset(ResetKind::Hard);
+        self.load_sram()?;
+        if self.config.load_on_start {
+            self.load_state()?;
+        }
         self.running = true;
-        Ok(())
+        Ok(region)
     }
 
     /// Loads a ROM cartridge into memory from a path.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> NesResult<String> {
+    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> NesResult<NesRegion> {
         use anyhow::Context;
         use std::fs::File;
 
@@ -156,7 +167,6 @@ impl ControlDeck {
         File::open(path)
             .with_context(|| format!("failed to open rom {path:?}"))
             .and_then(|mut rom| self.load_rom(filename, &mut rom))
-            .map(|_| filename.to_string())
     }
 
     pub fn unload_rom(&mut self) -> NesResult<()> {
@@ -457,6 +467,11 @@ impl ControlDeck {
     /// Set the image filter for video output.
     pub fn set_filter(&mut self, filter: VideoFilter) {
         self.video.filter = filter;
+    }
+
+    /// Set the APU sample rate (useful for emulation speed changes).
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        self.cpu.bus.apu.set_sample_rate(sample_rate);
     }
 
     /// Enable Zapper gun.

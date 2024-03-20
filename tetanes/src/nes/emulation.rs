@@ -13,7 +13,7 @@ use std::{
     thread::JoinHandle,
 };
 use tetanes_core::{
-    common::{Regional, Reset, ResetKind},
+    common::{NesRegion, Regional, Reset, ResetKind},
     control_deck::ControlDeck,
 };
 use tetanes_util::{
@@ -191,12 +191,8 @@ impl State {
                     }
                 }
                 EmulationEvent::SetFrameSpeed(speed) => {
-                    if let Err(err) = self
-                        .audio
-                        .set_sample_rate(self.control_deck.config().sample_rate * f32::from(speed))
-                    {
-                        self.on_error(err);
-                    }
+                    self.control_deck
+                        .set_sample_rate(self.control_deck.config().sample_rate / f32::from(speed));
                 }
                 EmulationEvent::SetRegion(region) => self.control_deck.set_region(*region),
                 EmulationEvent::SetTargetFrameDuration(duration) => {
@@ -268,8 +264,8 @@ impl State {
         }
     }
 
-    fn on_load_rom(&mut self, name: String, config: &Config) {
-        self.send_event(UiEvent::SetTitle(name));
+    fn on_load_rom(&mut self, name: impl Into<String>, region: NesRegion, config: &Config) {
+        self.send_event(UiEvent::RomLoaded((name.into(), region)));
         if config.audio_enabled {
             if let Err(err) = self.audio.start() {
                 self.on_error(err);
@@ -285,9 +281,15 @@ impl State {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>, config: &Config) {
+        use tetanes_util::filesystem;
+
+        let path = path.as_ref();
         self.on_unload_rom();
         match self.control_deck.load_rom_path(path) {
-            Ok(name) => self.on_load_rom(name, config),
+            Ok(region) => {
+                let filename = filesystem::filename(path);
+                self.on_load_rom(filename, region, config);
+            }
             Err(err) => self.on_error(err),
         }
     }
@@ -295,7 +297,7 @@ impl State {
     fn load_rom(&mut self, name: &str, rom: &mut impl Read, config: &Config) {
         self.on_unload_rom();
         match self.control_deck.load_rom(name, rom) {
-            Ok(()) => self.on_load_rom(name.to_string(), config),
+            Ok(region) => self.on_load_rom(name, region, config),
             Err(err) => self.on_error(err),
         }
     }

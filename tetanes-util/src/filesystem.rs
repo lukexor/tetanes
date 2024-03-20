@@ -1,14 +1,15 @@
 use crate::NesResult;
 use anyhow::Context;
-use flate2::{bufread::DeflateDecoder, write::DeflateEncoder, Compression};
+use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{Read, Write},
     path::Path,
 };
 
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
-const VERSION: &str = "1";
+// Keep this separate from Semver because breaking API changes may not invalidate the save format.
+const SAVE_VERSION: &str = "1.0.0";
 
 /// Writes a header including a magic string and a version
 ///
@@ -17,7 +18,7 @@ const VERSION: &str = "1";
 /// If the header fails to write to disk, then an error is returned.
 pub(crate) fn write_save_header(f: &mut impl Write) -> NesResult<()> {
     f.write_all(&SAVE_FILE_MAGIC)?;
-    f.write_all(VERSION.as_bytes())?;
+    f.write_all(SAVE_VERSION.as_bytes())?;
     Ok(())
 }
 
@@ -34,12 +35,12 @@ pub(crate) fn validate_save_header(f: &mut impl Read) -> NesResult<()> {
     if magic == SAVE_FILE_MAGIC {
         let mut version = [0u8];
         f.read_exact(&mut version)?;
-        if version == VERSION.as_bytes() {
+        if version == SAVE_VERSION.as_bytes() {
             Ok(())
         } else {
             Err(anyhow!(
                 "invalid save file version. current: {}, save file: {}",
-                VERSION,
+                SAVE_VERSION,
                 version[0],
             ))
         }
@@ -58,7 +59,7 @@ pub fn encode_data(data: &[u8]) -> NesResult<Vec<u8>> {
 
 pub fn decode_data(data: &[u8]) -> NesResult<Vec<u8>> {
     let mut decoded = vec![];
-    let mut decoder = DeflateDecoder::new(BufReader::new(data));
+    let mut decoder = DeflateDecoder::new(data);
     decoder
         .read_to_end(&mut decoded)
         .context("failed to read data")?;
@@ -86,9 +87,8 @@ pub fn save_data(path: impl AsRef<Path>, data: &[u8]) -> NesResult<()> {
     };
     if path.exists() {
         // Check if exists and header is different, so we avoid overwriting
-        let mut reader = BufReader::new(
-            std::fs::File::open(path).with_context(|| format!("failed to open file {path:?}"))?,
-        );
+        let mut reader =
+            std::fs::File::open(path).with_context(|| format!("failed to open file {path:?}"))?;
         validate_save_header(&mut reader)
             .with_context(|| format!("failed to validate header {path:?}"))
             .and_then(|_| write_data())
@@ -114,13 +114,12 @@ pub fn load_data(_path: impl AsRef<Path>) -> NesResult<Vec<u8>> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn load_data(path: impl AsRef<Path>) -> NesResult<Vec<u8>> {
     let path = path.as_ref();
-    let mut reader = BufReader::new(
-        std::fs::File::open(path).with_context(|| format!("Failed to open file {path:?}"))?,
-    );
+    let mut reader =
+        std::fs::File::open(path).with_context(|| format!("Failed to open file {path:?}"))?;
     load_reader(&mut reader)
 }
 
-pub fn load_reader(reader: &mut impl BufRead) -> NesResult<Vec<u8>> {
+pub fn load_reader(reader: &mut impl Read) -> NesResult<Vec<u8>> {
     let mut bytes = vec![];
     // Don't care about the size read
     let _ = validate_save_header(reader)

@@ -17,6 +17,7 @@ pub mod audio;
 pub mod config;
 pub mod emulation;
 pub mod event;
+pub mod input;
 pub mod platform;
 pub mod renderer;
 

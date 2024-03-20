@@ -116,6 +116,13 @@ impl Apu {
         }
     }
 
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        let clock_rate = Cpu::region_clock_rate(self.region);
+        self.sample_rate = sample_rate;
+        self.filter_chain = FilterChain::new(self.region, self.sample_rate);
+        self.sample_period = clock_rate / self.sample_rate;
+    }
+
     #[must_use]
     pub const fn channel_enabled(&self, channel: Channel) -> bool {
         match channel {

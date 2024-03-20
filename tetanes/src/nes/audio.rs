@@ -116,22 +116,25 @@ impl Audio {
         Ok(())
     }
 
+    /// Recreate audio output device.
+    fn recreate_output(&mut self) -> NesResult<()> {
+        self.stop();
+        self.output = Output::create(&self.host, self.sample_rate, self.latency, self.buffer_size);
+        self.start()
+    }
+
     /// Set the output sample rate that the audio device uses. Requires restarting the audio stream
     /// and so may fail.
     pub fn set_sample_rate(&mut self, sample_rate: f32) -> NesResult<()> {
         self.sample_rate = sample_rate;
-        self.stop();
-        self.output = Output::create(&self.host, self.sample_rate, self.latency, self.buffer_size);
-        self.start()
+        self.recreate_output()
     }
 
     /// Set the buffer size used by the audio device for playback. Requires restarting the audio
     /// stream and so may fail.
     pub fn set_buffer_size(&mut self, buffer_size: usize) -> NesResult<()> {
         self.buffer_size = buffer_size;
-        self.stop();
-        self.output = Output::create(&self.host, self.sample_rate, self.latency, self.buffer_size);
-        self.start()
+        self.recreate_output()
     }
 
     /// Whether the mixer is currently recording samples to a file.

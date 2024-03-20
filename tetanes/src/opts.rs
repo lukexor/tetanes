@@ -75,12 +75,12 @@ pub(crate) struct Opts {
     /// Don't auto save state or save on exit.
     #[arg(long)]
     pub(crate) no_save: bool,
-    /// Window scale. [default: x3]
-    #[arg(short = 'x', long, value_enum)]
-    pub(crate) scale: Option<Scale>,
-    /// Emulation speed. [default: x100]
-    #[arg(short = 'e', long, value_enum)]
-    pub(crate) speed: Option<FrameSpeed>,
+    /// Window scale. [default: 3.0]
+    #[arg(short = 'x', long, value_parser = Scale::from_str_f32)]
+    pub(crate) scale: Option<f32>,
+    /// Emulation speed. [default: 1.0]
+    #[arg(short = 'e', long, value_parser = FrameSpeed::from_str_f32)]
+    pub(crate) speed: Option<f32>,
     /// Add Game Genie Code(s). e.g. `AATOZE` (Start Super Mario Bros. with 9 lives).
     #[arg(short, long)]
     pub(crate) genie_code: Vec<String>,
@@ -109,21 +109,19 @@ impl Opts {
             )
             .canonicalize()?;
 
-        if self.clean {
-            let base = Config::default();
-            return Ok(Config {
+        let base = if self.clean {
+            let default = Config::default();
+            Config {
                 deck: control_deck::Config {
                     load_on_start: false,
                     save_on_exit: false,
-                    ..base.deck
+                    ..default.deck
                 },
-                rom_path,
-                replay_path: self.replay,
-                ..base
-            });
-        }
-
-        let base = Config::load(self.config.clone());
+                ..default
+            }
+        } else {
+            Config::load(self.config.clone())
+        };
         let mut config = Config {
             deck: control_deck::Config {
                 four_player: self
@@ -144,8 +142,11 @@ impl Opts {
             fullscreen: self.fullscreen || base.fullscreen,
             vsync: !self.no_vsync && base.vsync,
             threaded: !self.no_threaded && base.threaded,
-            scale: self.scale.unwrap_or(base.scale),
-            frame_speed: self.speed.unwrap_or(base.frame_speed),
+            scale: self.scale.map(Scale::try_from).unwrap_or(Ok(base.scale))?,
+            frame_speed: self
+                .speed
+                .map(FrameSpeed::try_from)
+                .unwrap_or(Ok(base.frame_speed))?,
             debug: self.debug || base.debug,
             ..base
         };
