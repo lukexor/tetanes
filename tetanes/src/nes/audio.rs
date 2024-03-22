@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
 use std::{
@@ -8,7 +8,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tetanes_util::{platform::time::Duration, NesError, NesResult};
+use tetanes_core::time::Duration;
 use tracing::{debug, enabled, error, info, trace, warn, Level};
 
 type AudioRb = Arc<HeapRb<f32>>;
@@ -105,7 +105,7 @@ impl Audio {
     /// # Errors
     ///
     /// Returns an error if the audio device has not been started yet or does not support pausing.
-    pub fn pause(&mut self, paused: bool) -> NesResult<()> {
+    pub fn pause(&mut self, paused: bool) -> anyhow::Result<()> {
         if let Some(ref mut mixer) = self
             .output
             .as_mut()
@@ -117,7 +117,7 @@ impl Audio {
     }
 
     /// Recreate audio output device.
-    fn recreate_output(&mut self) -> NesResult<()> {
+    fn recreate_output(&mut self) -> anyhow::Result<()> {
         self.stop();
         self.output = Output::create(&self.host, self.sample_rate, self.latency, self.buffer_size);
         self.start()
@@ -125,14 +125,14 @@ impl Audio {
 
     /// Set the output sample rate that the audio device uses. Requires restarting the audio stream
     /// and so may fail.
-    pub fn set_sample_rate(&mut self, sample_rate: f32) -> NesResult<()> {
+    pub fn set_sample_rate(&mut self, sample_rate: f32) -> anyhow::Result<()> {
         self.sample_rate = sample_rate;
         self.recreate_output()
     }
 
     /// Set the buffer size used by the audio device for playback. Requires restarting the audio
     /// stream and so may fail.
-    pub fn set_buffer_size(&mut self, buffer_size: usize) -> NesResult<()> {
+    pub fn set_buffer_size(&mut self, buffer_size: usize) -> anyhow::Result<()> {
         self.buffer_size = buffer_size;
         self.recreate_output()
     }
@@ -161,7 +161,7 @@ impl Audio {
     /// # Errors
     ///
     /// Returns an error if audio is already started or can not be initialized.
-    pub fn start(&mut self) -> NesResult<()> {
+    pub fn start(&mut self) -> anyhow::Result<()> {
         if let Some(ref mut output) = self.output {
             output.start()?;
         }
@@ -186,7 +186,7 @@ impl Audio {
     /// # Errors
     ///
     /// If the device is no longer valid (i.e. has been disconnected), an error is returned.
-    pub fn available_devices(&self) -> NesResult<cpal::Devices> {
+    pub fn available_devices(&self) -> anyhow::Result<cpal::Devices> {
         Ok(self.host.devices()?)
     }
 
@@ -196,12 +196,12 @@ impl Audio {
     /// # Errors
     ///
     /// If the device is no longer valid (i.e. has been disconnected), an error is returned.
-    pub fn supported_configs(&self) -> Option<NesResult<cpal::SupportedOutputConfigs>> {
+    pub fn supported_configs(&self) -> Option<anyhow::Result<cpal::SupportedOutputConfigs>> {
         self.output.as_ref().map(|output| {
             output
                 .device
                 .supported_output_configs()
-                .map_err(NesError::msg)
+                .context("failed to get supported configurations")
         })
     }
 }
@@ -265,7 +265,7 @@ impl Output {
         device: &cpal::Device,
         sample_rate: f32,
         buffer_size: usize,
-    ) -> NesResult<(cpal::StreamConfig, cpal::SampleFormat)> {
+    ) -> anyhow::Result<(cpal::StreamConfig, cpal::SampleFormat)> {
         let mut supported_configs = device.supported_output_configs()?;
         let desired_sample_rate = cpal::SampleRate(sample_rate as u32);
         let desired_buffer_size = buffer_size as u32;
@@ -308,7 +308,7 @@ impl Output {
         Ok((config, sample_format))
     }
 
-    fn start(&mut self) -> NesResult<()> {
+    fn start(&mut self) -> anyhow::Result<()> {
         if let Some(ref mixer) = self.mixer {
             mixer.stream.play()?;
             return Ok(());
@@ -361,7 +361,7 @@ impl Mixer {
         config: &cpal::StreamConfig,
         latency: Duration,
         sample_format: cpal::SampleFormat,
-    ) -> NesResult<Self> {
+    ) -> anyhow::Result<Self> {
         use cpal::SampleFormat;
 
         let channels = config.channels;
@@ -411,7 +411,7 @@ impl Mixer {
     /// # Errors
     ///
     /// Returns an error if the audio device has not been started yet or does not support pausing.
-    fn pause(&mut self, paused: bool) -> NesResult<()> {
+    fn pause(&mut self, paused: bool) -> anyhow::Result<()> {
         if paused && !self.paused {
             self.stop_recording();
             self.processed_samples.clear();
@@ -452,7 +452,7 @@ impl Mixer {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         mut consumer: Consumer<f32, AudioRb>,
-    ) -> NesResult<cpal::Stream>
+    ) -> anyhow::Result<cpal::Stream>
     where
         T: cpal::SizedSample + cpal::FromSample<f32>,
     {

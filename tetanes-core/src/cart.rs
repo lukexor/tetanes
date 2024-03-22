@@ -7,17 +7,47 @@ use crate::{
     mem::RamState,
     ppu::Mirroring,
 };
-use anyhow::{anyhow, bail, Context};
 use std::{
+    collections::hash_map::DefaultHasher,
     fs::File,
-    io::{BufReader, Read},
+    hash::{Hash, Hasher},
+    io::{BufRead, BufReader, Read},
     path::Path,
 };
-use tetanes_util::NesResult;
+use thiserror::Error;
 use tracing::{debug, info};
 
 const PRG_ROM_BANK_SIZE: usize = 0x4000;
 const CHR_ROM_BANK_SIZE: usize = 0x2000;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Error, Debug)]
+#[must_use]
+pub enum Error {
+    #[error("invalid nes header (found: ${value:04X} at byte: {byte}). {message}")]
+    InvalidHeader {
+        byte: u8,
+        value: u8,
+        message: String,
+    },
+    #[error("unimplemented mapper `{0}`")]
+    UnimplementedMapper(u16),
+    #[error("{context}: {source:?}")]
+    Io {
+        context: String,
+        source: std::io::Error,
+    },
+}
+
+impl Error {
+    pub fn io(source: std::io::Error, context: impl Into<String>) -> Self {
+        Self::Io {
+            context: context.into(),
+            source,
+        }
+    }
+}
 
 /// An NES cartridge.
 #[derive(Default)]
@@ -59,10 +89,11 @@ impl Cart {
     ///
     /// If the NES header is corrupted, the ROM file cannot be read, or the data does not match
     /// the header, then an error is returned.
-    pub fn from_path<P: AsRef<Path>>(path: P, ram_state: RamState) -> NesResult<Self> {
+    pub fn from_path<P: AsRef<Path>>(path: P, ram_state: RamState) -> Result<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
-            File::open(path).with_context(|| format!("failed to open rom {path:?}"))?,
+            File::open(path)
+                .map_err(|err| Error::io(err, format!("failed to open rom {path:?}")))?,
         );
         Self::from_rom(&path.to_string_lossy(), &mut rom, ram_state)
     }
@@ -73,7 +104,7 @@ impl Cart {
     ///
     /// If the NES header is invalid, or the ROM data does not match the header, then an error is
     /// returned.
-    pub fn from_rom<S, F>(name: S, mut rom_data: &mut F, ram_state: RamState) -> NesResult<Self>
+    pub fn from_rom<S, F>(name: S, mut rom_data: &mut F, ram_state: RamState) -> Result<Self>
     where
         S: ToString,
         F: Read,
@@ -81,43 +112,56 @@ impl Cart {
         let name = name.to_string();
         let header = NesHeader::load(&mut rom_data)?;
 
-        let mut prg_rom = vec![0x00; (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE];
-        rom_data.read_exact(&mut prg_rom).with_context(|| {
-            let bytes_rem = rom_data
-                .read_to_end(&mut prg_rom)
-                .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
-            format!(
-                "invalid rom header '{}'. prg-rom banks: {}. bytes remaining: {}",
-                name, header.prg_rom_banks, bytes_rem
-            )
+        let prg_rom_len = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
+        let mut prg_rom = vec![0x00; prg_rom_len];
+        rom_data.read_exact(&mut prg_rom).map_err(|err| {
+            if let std::io::ErrorKind::UnexpectedEof = err.kind() {
+                Error::InvalidHeader {
+                    byte: 4,
+                    value: header.prg_rom_banks as u8,
+                    message: format!(
+                        "expected `{}` prg-rom banks ({prg_rom_len} total bytes)",
+                        header.prg_rom_banks
+                    ),
+                }
+            } else {
+                Error::io(err, "failed to read prg-rom")
+            }
         })?;
 
-        let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift).context("prg_ram")?;
+        let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
         let mut prg_ram = vec![0x00; prg_ram_size];
         RamState::fill(&mut prg_ram, ram_state);
 
         let mut chr = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
-        if header.chr_rom_banks > 0 {
-            rom_data.read_exact(&mut chr).with_context(|| {
-                let bytes_rem = rom_data
-                    .read_to_end(&mut chr)
-                    .map_or_else(|_| "unknown".to_string(), |rem| rem.to_string());
-                format!(
-                    "invalid rom header \"{}\". chr-rom banks: {}. bytes remaining: {}",
-                    name, header.chr_rom_banks, bytes_rem,
-                )
+        let has_chr_ram = if header.chr_rom_banks > 0 {
+            rom_data.read_exact(&mut chr).map_err(|err| {
+                if let std::io::ErrorKind::UnexpectedEof = err.kind() {
+                    Error::InvalidHeader {
+                        byte: 5,
+                        value: header.chr_rom_banks as u8,
+                        message: format!(
+                            "expected `{}` chr-rom banks ({prg_rom_len} total bytes)",
+                            header.chr_rom_banks
+                        ),
+                    }
+                } else {
+                    Error::io(err, "failed to read chr-rom")
+                }
             })?;
-        }
+            true
+        } else {
+            let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
+            if chr_ram_size > 0 {
+                chr.resize(chr_ram_size, 0x00);
+                RamState::fill(&mut chr, ram_state);
+                true
+            } else {
+                false
+            }
+        };
 
-        let mut has_chr_ram = false;
-        if chr.is_empty() {
-            let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift).context("chr_ram")?;
-            chr.resize(chr_ram_size, 0x00);
-            has_chr_ram = true;
-            RamState::fill(&mut chr, ram_state);
-        }
-
-        let region = if header.version == 2 {
+        let region = if matches!(header.variant, NesVariant::INes | NesVariant::Nes2) {
             match header.tv_mode {
                 0 => NesRegion::Ntsc,
                 1 => NesRegion::Pal,
@@ -125,19 +169,10 @@ impl Cart {
                 _ => NesRegion::default(),
             }
         } else {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                use std::{
-                    collections::hash_map::DefaultHasher,
-                    hash::{Hash, Hasher},
-                };
-                let mut hasher = DefaultHasher::new();
-                prg_rom.hash(&mut hasher);
-                let hash = hasher.finish();
-                Self::lookup_region(hash)
-            }
-            #[cfg(target_arch = "wasm32")]
-            NesRegion::default()
+            let mut hasher = DefaultHasher::new();
+            prg_rom.hash(&mut hasher);
+            let hash = hasher.finish();
+            Self::lookup_region(hash)
         };
 
         let mut cart = Self {
@@ -166,7 +201,7 @@ impl Cart {
             66 => Gxrom::load(&mut cart),
             71 => Bf909x::load(&mut cart),
             155 => Sxrom::load(&mut cart, Mmc1Revision::A),
-            _ => bail!("unimplemented mapper: {}", cart.header.mapper_num),
+            _ => return Err(Error::UnimplementedMapper(cart.header.mapper_num)),
         };
 
         info!("loaded ROM `{cart}`");
@@ -276,24 +311,25 @@ impl Cart {
         RamState::fill(&mut self.ex_ram, self.ram_state);
     }
 
-    fn calculate_ram_size(value: u8) -> NesResult<usize> {
+    fn calculate_ram_size(value: u8) -> Result<usize> {
         if value > 0 {
             64usize
                 .checked_shl(value.into())
-                .ok_or_else(|| anyhow!("invalid header ram size: ${:02X}", value))
+                .ok_or_else(|| Error::InvalidHeader {
+                    byte: 11,
+                    value,
+                    message: "header ram size larger than 64".to_string(),
+                })
         } else {
             Ok(0)
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn lookup_region(lookup_hash: u64) -> NesRegion {
-        use std::io::BufRead;
-
         const GAME_DB: &[u8] = include_bytes!("../game_database.txt");
 
         let db = BufReader::new(GAME_DB);
-        let lines: Vec<String> = db.lines().map_while(Result::ok).collect();
+        let lines: Vec<String> = db.lines().map_while(std::io::Result::ok).collect();
         if let Ok(line) = lines.binary_search_by(|line| {
             let hash = line
                 .split(',')
@@ -355,6 +391,16 @@ impl std::fmt::Debug for Cart {
     }
 }
 
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum NesVariant {
+    #[default]
+    ArchaicINes,
+    INes07,
+    INes,
+    Nes2,
+}
+
 /// An `iNES` or `NES 2.0` formatted header representing hardware specs of a given NES cartridge.
 ///
 /// <http://wiki.nesdev.com/w/index.php/INES>
@@ -363,7 +409,7 @@ impl std::fmt::Debug for Cart {
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct NesHeader {
-    pub version: u8,        // 1 for iNES or 2 for NES 2.0
+    pub variant: NesVariant,
     pub mapper_num: u16,    // The primary mapper number
     pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
     pub flags: u8,          // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
@@ -382,10 +428,11 @@ impl NesHeader {
     ///
     /// If the NES header is corrupted, the ROM file cannot be read, or the data does not match
     /// the header, then an error is returned.
-    pub fn from_path<P: AsRef<Path>>(path: P) -> NesResult<Self> {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let mut rom = BufReader::new(
-            File::open(path).with_context(|| format!("failed to open rom {path:?}"))?,
+            File::open(path)
+                .map_err(|err| Error::io(err, format!("failed to open rom {path:?}")))?,
         );
         Self::load(&mut rom)
     }
@@ -395,17 +442,39 @@ impl NesHeader {
     /// # Errors
     ///
     /// If the NES header is invalid, then an error is returned.
-    pub fn load<F: Read>(rom_data: &mut F) -> NesResult<Self> {
+    pub fn load<F: Read>(rom_data: &mut F) -> Result<Self> {
         let mut header = [0u8; 16];
-        rom_data.read_exact(&mut header)?;
+        rom_data.read_exact(&mut header).map_err(|err| {
+            if let std::io::ErrorKind::UnexpectedEof = err.kind() {
+                Error::InvalidHeader {
+                    byte: 0,
+                    value: 0,
+                    message: "expected 16-byte header".to_string(),
+                }
+            } else {
+                Error::io(err, "failed to read nes header")
+            }
+        })?;
 
         // Header checks
         if header[0..4] != *b"NES\x1a" {
-            bail!("nes header signature not found");
+            return Err(Error::InvalidHeader {
+                byte: 0,
+                value: header[0],
+                message: "nes header signature not found".to_string(),
+            });
         } else if (header[7] & 0x0C) == 0x04 {
-            bail!("header is corrupted by `DiskDude!`. repair and try again");
+            return Err(Error::InvalidHeader {
+                byte: 7,
+                value: header[7],
+                message: "header is corrupted by `DiskDude!`. repair and try again".to_string(),
+            });
         } else if (header[7] & 0x0C) == 0x0C {
-            bail!("unrecognized header format. repair and try again");
+            return Err(Error::InvalidHeader {
+                byte: 7,
+                value: header[7],
+                message: "unrecognized header format. repair and try again".to_string(),
+            });
         }
 
         let mut prg_rom_banks = u16::from(header[4]);
@@ -416,15 +485,13 @@ impl NesHeader {
         let flags = (header[6] & 0x0F) | ((header[7] & 0x0F) << 4);
 
         // NES 2.0 Format
-        let mut version = 1; // Start off checking for iNES format
         let mut submapper_num = 0;
         let mut prg_ram_shift = 0;
         let mut chr_ram_shift = 0;
         let mut tv_mode = 0;
         let mut vs_data = 0;
-        // If D2..D3 of flag 7 == 2
-        if header[7] & 0x0C == 0x08 {
-            version = 2;
+        // If D2..D3 of flag 7 == 2, then NES 2.0 (supports bytes 0-15)
+        let variant = if header[7] & 0x0C == 0x08 {
             // lower 4 bits of flag 8 = D8..D11 of mapper num
             mapper_num |= u16::from(header[8] & 0x0F) << 8;
             // upper 4 bits of flag 8 = D0..D3 of submapper
@@ -439,32 +506,64 @@ impl NesHeader {
             vs_data = header[13];
 
             if prg_ram_shift & 0x0F == 0x0F || prg_ram_shift & 0xF0 == 0xF0 {
-                bail!("invalid prg-ram size in header");
+                return Err(Error::InvalidHeader {
+                    byte: 10,
+                    value: prg_ram_shift,
+                    message: "invalid prg-ram size in header".to_string(),
+                });
             } else if chr_ram_shift & 0x0F == 0x0F || chr_ram_shift & 0xF0 == 0xF0 {
-                bail!("invalid chr-ram size in header");
+                return Err(Error::InvalidHeader {
+                    byte: 11,
+                    value: chr_ram_shift,
+                    message: "invalid chr-ram size in header".to_string(),
+                });
             } else if chr_ram_shift & 0xF0 == 0xF0 {
-                bail!("battery-backed chr-ram is currently not supported");
+                return Err(Error::InvalidHeader {
+                    byte: 11,
+                    value: chr_ram_shift,
+                    message: "battery-backed chr-ram is currently not supported".to_string(),
+                });
             } else if header[14] > 0 || header[15] > 0 {
-                bail!("unrecognized data found at header offsets 14-15");
+                return Err(Error::InvalidHeader {
+                    byte: 14,
+                    value: header[14],
+                    message: "unrecognized data found at header offsets 14-15".to_string(),
+                });
             }
-        } else {
-            for (i, header) in header.iter().enumerate().take(16).skip(8) {
-                if *header > 0 {
-                    bail!(
-                        "unrecogonized data found at header offset {}. repair and try again",
-                        i,
-                    );
+            NesVariant::Nes2
+        } else if header[7] & 0x0C == 0x04 {
+            // If D2..D3 of flag 7 == 1, then archaic iNES (supports bytes 0-7)
+            for (i, value) in header.iter().enumerate().take(16).skip(8) {
+                if *value > 0 {
+                    return Err(Error::InvalidHeader {
+                        byte: i as u8,
+                        value: *value,
+                        message: format!(
+                            "unrecogonized data found at header byte {i}. repair and try again"
+                        ),
+                    });
                 }
             }
-        }
+            NesVariant::ArchaicINes
+        } else if header[7] & 0x0C == 00 && header[12..=15].iter().all(|v| *v == 0) {
+            // If D2..D3 of flag 7 == 0 and bytes 12-15 are all 0, then iNES (supports bytes 0-9)
+            NesVariant::INes
+        } else {
+            // Else iNES 0.7 or archaic iNES (supports mapper high nibble)
+            NesVariant::INes07
+        };
 
         // Trainer
         if flags & 0x04 == 0x04 {
-            bail!("trained roms are currently not supported.");
+            return Err(Error::InvalidHeader {
+                byte: 6,
+                value: header[6],
+                message: "trained roms are currently not supported.".to_string(),
+            });
         }
 
         Ok(Self {
-            version,
+            variant,
             mapper_num,
             submapper_num,
             flags,
@@ -501,7 +600,7 @@ impl NesHeader {
 impl std::fmt::Debug for NesHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("NesHeader")
-            .field("version", &self.version)
+            .field("version", &self.variant)
             .field("mapper_num", &format_args!("{:03}", &self.mapper_num))
             .field("submapper_num", &self.submapper_num)
             .field("flags", &format_args!("0b{:08b}", &self.flags))
@@ -538,7 +637,7 @@ mod tests {
              0x00, 0x00, 0x00, 0x00,
              0x00, 0x00, 0x00, 0x00],
             NesHeader {
-                version: 1,
+                variant: NesVariant::INes,
                 mapper_num: 0,
                 flags: 0b0000_0001,
                 prg_rom_banks: 2,
@@ -553,7 +652,7 @@ mod tests {
              0x00, 0x00, 0x00, 0x00,
              0x00, 0x00, 0x00, 0x00],
             NesHeader {
-                version: 1,
+                variant: NesVariant::INes,
                 mapper_num: 1,
                 flags: 0b0000_0000,
                 prg_rom_banks: 8,

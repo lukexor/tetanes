@@ -1,9 +1,12 @@
-use crate::nes::{
-    action::{Action, Feature, Setting, UiState},
-    config::{Config, FrameSpeed, Scale},
-    input::Input,
-    renderer::gui::Menu,
-    Nes,
+use crate::{
+    nes::{
+        action::{Action, Feature, Setting, UiState},
+        config::{Config, FrameSpeed, Scale},
+        input::Input,
+        renderer::gui::Menu,
+        Nes,
+    },
+    platform::open_file_dialog,
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -13,9 +16,9 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck,
     input::{JoypadBtn, Player},
+    time::Duration,
     video::VideoFilter,
 };
-use tetanes_util::platform::time::Duration;
 use tracing::{error, trace};
 use winit::{
     dpi::LogicalSize,
@@ -32,7 +35,7 @@ pub enum UiEvent {
     Message(String),
     RomLoaded((String, NesRegion)),
     RequestRedraw,
-    ResizeWindow((LogicalSize<f32>, LogicalSize<f32>)),
+    ResizeWindow(LogicalSize<f32>),
     LoadRomDialog,
     Terminate,
 }
@@ -62,7 +65,6 @@ impl RomData {
 #[must_use]
 pub enum EmulationEvent {
     Joypad((Player, JoypadBtn, ElementState)),
-    #[cfg(not(target_arch = "wasm32"))]
     LoadRomPath((std::path::PathBuf, Config)),
     LoadRom((String, RomData, Config)),
     TogglePause,
@@ -207,7 +209,6 @@ impl Nes {
                     WindowEvent::MouseInput { button, state, .. } => {
                         self.on_input(Input::Mouse(button, state), state, false);
                     }
-                    #[cfg(not(target_arch = "wasm32"))]
                     WindowEvent::DroppedFile(path) => {
                         self.trigger_event(EmulationEvent::LoadRomPath((
                             path,
@@ -224,7 +225,7 @@ impl Nes {
                 #[cfg(feature = "profiling")]
                 puffin::set_scopes_on(false);
                 if let Err(err) = self.config.save() {
-                    error!("failed to save config: {err:?}");
+                    error!("{err:?}");
                 }
             }
             Event::UserEvent(NesEvent::Ui(event)) => self.on_event(event),
@@ -241,38 +242,25 @@ impl Nes {
                 self.window.set_title(&name);
                 self.config.set_region(region);
             }
-            UiEvent::ResizeWindow((inner_size, min_inner_size)) => {
-                let _ = self.window.request_inner_size(inner_size);
-                self.window.set_min_inner_size(Some(min_inner_size));
+            UiEvent::ResizeWindow(size) => {
+                let _ = self.window.request_inner_size(size);
+                self.window.set_min_inner_size(Some(size));
             }
             UiEvent::RequestRedraw => self.window.request_redraw(),
-            #[cfg(target_arch = "wasm32")]
-            UiEvent::LoadRomDialog => {
-                use crate::nes::platform::html_ids;
-                use wasm_bindgen::JsCast;
-                use web_sys::HtmlInputElement;
-
-                let input = web_sys::window()
-                    .and_then(|window| window.document())
-                    .and_then(|document| document.get_element_by_id(html_ids::ROM_INPUT))
-                    .and_then(|input| input.dyn_into::<HtmlInputElement>().ok());
-                match input {
-                    Some(input) => input.click(),
-                    None => self.trigger_event(UiEvent::Error("failed to open rom".to_string())),
+            UiEvent::LoadRomDialog => match open_file_dialog("NES ROMs", &["nes"]) {
+                Ok(maybe_path) => {
+                    if let Some(path) = maybe_path {
+                        self.trigger_event(EmulationEvent::LoadRomPath((
+                            path,
+                            self.config.clone(),
+                        )));
+                    }
                 }
-                if let Some(canvas) = crate::nes::platform::get_canvas() {
-                    let _ = canvas.focus();
+                Err(err) => {
+                    error!("failed to open rom dialog: {err:?}");
+                    self.trigger_event(UiEvent::Error("failed to open rom dialog".to_string()))
                 }
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            UiEvent::LoadRomDialog => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("NES ROMs", &["nes"])
-                    .pick_file()
-                {
-                    self.trigger_event(EmulationEvent::LoadRomPath((path, self.config.clone())));
-                }
-            }
+            },
         }
     }
 

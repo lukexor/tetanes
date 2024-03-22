@@ -48,6 +48,7 @@ cycle-accurate = []
 anyhow.workspace = true
 bincode.workspace = true
 bytemuck = "1.14"
+cfg-if.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap.workspace = true
 crossbeam = "0.8"
@@ -61,8 +62,8 @@ rubato = "0.15"
 serde.workspace = true
 serde_json.workspace = true
 tetanes-core = { path = "../tetanes-core" }
-tetanes-util = { path = "../tetanes-util" }
 thingbuf = "0.1"
+thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = "0.3"
 tracing-appender = "0.2"
@@ -73,6 +74,7 @@ winit = { version = "0.29", features = ["serde"] }
 cpal = "0.15"
 dirs.workspace = true
 egui-winit = "0.26"
+pollster = "0.3"
 puffin = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -103,4 +105,3 @@ web-sys = { version = "0.3", features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-time.workspace = true

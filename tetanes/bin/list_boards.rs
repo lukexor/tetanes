@@ -5,9 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use tetanes_core::{cart::Cart, mem::RamState};
-use tetanes_util::NesResult;
 
-fn main() -> NesResult<()> {
+fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
     let path = opt
         .path
@@ -40,7 +39,7 @@ fn main() -> NesResult<()> {
     Ok(())
 }
 
-fn get_mapper<P: AsRef<Path>>(path: P) -> NesResult<String> {
+fn get_mapper<P: AsRef<Path>>(path: P) -> anyhow::Result<String> {
     let cart = Cart::from_path(path, RamState::default())?;
     Ok(format!("{:<50} {:?}", cart.mapper_board(), cart.name()))
 }

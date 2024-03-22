@@ -1,11 +1,15 @@
-use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
-use tetanes_util::{NesError, NesResult};
+use thiserror::Error;
 
 pub const SAVE_DIR: &str = "save";
 pub const SRAM_DIR: &str = "sram";
+
+#[derive(Error, Debug)]
+#[must_use]
+#[error("failed to parse `NesRegion`")]
+pub struct ParseNesRegionError;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -35,6 +39,15 @@ impl NesRegion {
     pub fn is_dendy(&self) -> bool {
         self == &Self::Dendy
     }
+
+    #[must_use]
+    pub fn aspect_ratio(&self) -> f32 {
+        // https://www.nesdev.org/wiki/Overscan
+        match self {
+            Self::Ntsc => 8.0 / 7.0,
+            Self::Pal | Self::Dendy => 18.0 / 13.0,
+        }
+    }
 }
 
 impl AsRef<str> for NesRegion {
@@ -48,24 +61,27 @@ impl AsRef<str> for NesRegion {
 }
 
 impl TryFrom<&str> for NesRegion {
-    type Error = NesError;
+    type Error = ParseNesRegionError;
 
-    fn try_from(value: &str) -> NesResult<Self> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "NTSC" => Ok(Self::Ntsc),
             "PAL" => Ok(Self::Pal),
             "Dendy" => Ok(Self::Dendy),
-            _ => Err(anyhow!("invalid nes region")),
+            _ => Err(ParseNesRegionError),
         }
     }
 }
 
-impl From<usize> for NesRegion {
-    fn from(value: usize) -> Self {
+impl TryFrom<usize> for NesRegion {
+    type Error = ParseNesRegionError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
         match value {
-            1 => Self::Pal,
-            2 => Self::Dendy,
-            _ => Self::Ntsc,
+            0 => Ok(Self::Ntsc),
+            1 => Ok(Self::Pal),
+            2 => Ok(Self::Dendy),
+            _ => Err(ParseNesRegionError),
         }
     }
 }
@@ -179,10 +195,10 @@ pub(crate) mod tests {
         fmt::Write,
         fs::{self, File},
         hash::{Hash, Hasher},
+        io::BufReader,
         path::{Path, PathBuf},
         sync::OnceLock,
     };
-    use tetanes_util::NesResult;
     use tracing::debug;
 
     pub(crate) const RESULT_DIR: &str = "test_results";
@@ -192,13 +208,15 @@ pub(crate) mod tests {
 
     #[macro_export]
     macro_rules! test_roms {
-        ($directory:expr, $( $(#[ignore = $reason:expr])? $test:ident ),* $(,)?) => {$(
-            $(#[ignore = $reason])?
-            #[test]
-            fn $test() -> NesResult<()> {
-                $crate::common::tests::test_rom($directory, stringify!($test))
-            }
-        )*};
+        ($mod:ident, $directory:expr, $( $(#[ignore = $reason:expr])? $test:ident ),* $(,)?) => {
+            mod $mod {$(
+                $(#[ignore = $reason])?
+                #[test]
+                fn $test() -> anyhow::Result<()> {
+                    $crate::common::tests::test_rom($directory, stringify!($test))
+                }
+            )*}
+        };
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,19 +240,19 @@ pub(crate) mod tests {
         frames: Vec<TestFrame>,
     }
 
-    fn get_rom_tests(directory: &str) -> NesResult<(PathBuf, Vec<RomTest>)> {
+    fn get_rom_tests(directory: &str) -> anyhow::Result<(PathBuf, Vec<RomTest>)> {
         let file = PathBuf::from(directory)
             .join("tests")
             .with_extension("json");
         let tests = File::open(&file)
             .and_then(|file| Ok(serde_json::from_reader::<_, Vec<RomTest>>(file)?))
-            .with_context(|| format!("valid rom test data: {}", file.display()))?;
+            .with_context(|| format!("valid rom test data: {file:?}"))?;
         Ok((file, tests))
     }
 
     fn load_control_deck<P: AsRef<Path>>(path: P) -> ControlDeck {
         let path = path.as_ref();
-        let mut rom = File::open(path).expect("failed to open path");
+        let mut rom = BufReader::new(File::open(path).expect("failed to open path"));
         let mut deck = ControlDeck::with_config(Config {
             ram_state: RamState::AllZeros,
             filter: VideoFilter::Pixellate,
@@ -279,7 +297,7 @@ pub(crate) mod tests {
         test_frame: &TestFrame,
         deck: &mut ControlDeck,
         count: usize,
-    ) -> NesResult<Option<(u64, u64, u32, PathBuf)>> {
+    ) -> anyhow::Result<Option<(u64, u64, u32, PathBuf)>> {
         match test_frame.hash {
             Some(expected) => {
                 let mut hasher = DefaultHasher::new();
@@ -296,10 +314,7 @@ pub(crate) mod tests {
                     PASS_DIR.get_or_init(|| {
                         let directory = PathBuf::from(RESULT_DIR).join("pass");
                         if let Err(err) = fs::create_dir_all(&directory) {
-                            panic!(
-                                "created pass test results dir: {}. {err}",
-                                directory.display()
-                            );
+                            panic!("created pass test results dir: {directory:?}. {err}",);
                         }
                         directory
                     })
@@ -307,10 +322,7 @@ pub(crate) mod tests {
                     FAIL_DIR.get_or_init(|| {
                         let directory = PathBuf::from(RESULT_DIR).join("fail");
                         if let Err(err) = fs::create_dir_all(&directory) {
-                            panic!(
-                                "created fail test results dir: {}. {err}",
-                                directory.display()
-                            );
+                            panic!("created fail test results dir: {directory:?}. {err}",);
                         }
                         directory
                     })
@@ -328,9 +340,7 @@ pub(crate) mod tests {
                 ImageBuffer::<Rgba<u8>, &[u8]>::from_raw(Ppu::WIDTH, Ppu::HEIGHT, frame_buffer)
                     .expect("valid frame")
                     .save(&screenshot)
-                    .with_context(|| {
-                        format!("failed to save screenshot: {}", screenshot.display())
-                    })?;
+                    .with_context(|| format!("failed to save screenshot: {screenshot:?}"))?;
 
                 Ok(Some((expected, actual, test_frame.number, screenshot)))
             }
@@ -338,17 +348,14 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn test_rom(directory: &str, test_name: &str) -> NesResult<()> {
+    pub(crate) fn test_rom(directory: &str, test_name: &str) -> anyhow::Result<()> {
         static INIT_TESTS: OnceLock<bool> = OnceLock::new();
 
         let initialized = INIT_TESTS.get_or_init(|| {
             let result_dir = PathBuf::from(RESULT_DIR);
             if result_dir.exists() {
                 if let Err(err) = fs::remove_dir_all(&result_dir) {
-                    panic!(
-                        "failed to clear test results dir: {}. {err}",
-                        result_dir.display()
-                    );
+                    panic!("failed to clear test results dir: {result_dir:?}. {err}",);
                 }
             }
             true
@@ -365,7 +372,7 @@ pub(crate) mod tests {
         let rom = PathBuf::from(directory)
             .join(PathBuf::from(&test.name))
             .with_extension("nes");
-        anyhow::ensure!(rom.exists(), "No test rom found for {rom:?}");
+        assert!(rom.exists(), "No test rom found for {rom:?}");
 
         let mut deck = load_control_deck(&rom);
 
@@ -399,7 +406,7 @@ pub(crate) mod tests {
                     frame.hash = Some(actual);
                 }
             }
-            anyhow::ensure!(
+            assert!(
                 expected == actual,
                 "mismatched snapshot for {rom:?} -> {screenshot:?}",
             );
@@ -411,250 +418,231 @@ pub(crate) mod tests {
                     serde_json::to_writer_pretty(file, &tests)
                         .context("failed to serialize rom data")
                 })
-                .with_context(|| format!("failed to update snapshot: {}", test_file.display()))?
+                .with_context(|| format!("failed to update snapshot: {test_file:?}"))?
         }
 
         Ok(())
     }
 
-    mod cpu {
-        use super::*;
-        test_roms!(
-            "../test_roms/cpu",
-            branch_backward,
-            nestest,
-            ram_after_reset,
-            regs_after_reset,
-            branch_basics,
-            branch_forward,
-            dummy_reads,
-            dummy_writes_oam,
-            dummy_writes_ppumem,
-            exec_space_apu,
-            exec_space_ppuio,
-            flag_concurrency,
-            instr_abs,
-            instr_abs_xy,
-            instr_basics,
-            instr_branches,
-            instr_brk,
-            instr_imm,
-            instr_imp,
-            instr_ind_x,
-            instr_ind_y,
-            instr_jmp_jsr,
-            instr_misc,
-            instr_rti,
-            instr_rts,
-            instr_special,
-            instr_stack,
-            instr_timing,
-            instr_zp,
-            instr_zp_xy,
-            int_branch_delays_irq,
-            int_cli_latency,
-            int_irq_and_dma,
-            int_nmi_and_brk,
-            int_nmi_and_irq,
-            overclock,
-            sprdma_and_dmc_dma,
-            sprdma_and_dmc_dma_512,
-            timing_test,
-        );
-    }
-
-    mod ppu {
-        use super::*;
-        test_roms!(
-            "../test_roms/ppu",
-            _240pee, // TODO: Run each test
-            color,   // TODO: Test all color combinations
-            ntsc_torture,
-            oam_read,
-            oam_stress,
-            open_bus,
-            palette,
-            palette_ram,
-            read_buffer,
-            scanline,
-            spr_hit_alignment,
-            spr_hit_basics,
-            spr_hit_corners,
-            spr_hit_double_height,
-            spr_hit_edge_timing,
-            spr_hit_flip,
-            spr_hit_left_clip,
-            spr_hit_right_edge,
-            spr_hit_screen_bottom,
-            spr_hit_timing_basics,
-            spr_hit_timing_order,
-            spr_overflow_basics,
-            spr_overflow_details,
-            spr_overflow_emulator,
-            spr_overflow_obscure,
-            spr_overflow_timing,
-            sprite_ram,
-            tv,
-            vbl_nmi_basics,
-            vbl_nmi_clear_timing,
-            vbl_nmi_control,
-            vbl_nmi_disable,
-            vbl_nmi_even_odd_frames,
-            #[ignore = "clock is skipped too late relative to enabling BG Failed #3"]
-            vbl_nmi_even_odd_timing,
-            vbl_nmi_frame_basics,
-            vbl_nmi_off_timing,
-            vbl_nmi_on_timing,
-            vbl_nmi_set_time,
-            vbl_nmi_suppression,
-            vbl_nmi_timing,
-            vbl_timing,
-            vram_access,
-        );
-    }
-
-    mod apu {
-        use super::*;
-
-        test_roms!(
-            "../test_roms/apu",
-            clock_jitter,
-            dmc_basics,
-            dmc_dma_2007_read,
-            dmc_dma_2007_write,
-            dmc_dma_4016_read,
-            dmc_dma_double_2007_read,
-            dmc_dma_read_write_2007,
-            dmc_rates,
-            dpcmletterbox,
-            irq_flag,
-            #[ignore = "fails $04"]
-            irq_flag_timing,
-            irq_timing,
-            jitter,
-            len_ctr,
-            #[ignore = "fails $03"]
-            len_halt_timing,
-            #[ignore = "fails $02"]
-            len_reload_timing,
-            len_table,
-            #[ignore = "Channel: 0 second length of mode 0 is too soon"]
-            len_timing,
-            #[ignore = "fails $03"]
-            len_timing_mode0,
-            #[ignore = "fails $03"]
-            len_timing_mode1,
-            reset_4015_cleared,
-            reset_4017_timing,
-            reset_4017_written,
-            reset_irq_flag_cleared,
-            #[ignore = "At power, length counters should be enabled, #2"]
-            reset_len_ctrs_enabled,
-            reset_timing,
-            reset_works_immediately,
-            test_1,
-            test_2,
-            #[ignore = "failed"]
-            test_3,
-            #[ignore = "failed"]
-            test_4,
-            test_5,
-            test_6,
-            #[ignore = "failed"]
-            test_7,
-            #[ignore = "failed"]
-            test_8,
-            #[ignore = "failed"]
-            test_9,
-            #[ignore = "failed"]
-            test_10,
-            #[ignore = "fails #2"]
-            pal_clock_jitter,
-            pal_irq_flag,
-            #[ignore = "fails #2"]
-            pal_irq_flag_timing,
-            #[ignore = "fails #3"]
-            pal_irq_timing,
-            pal_len_ctr,
-            #[ignore = "fails #3"]
-            pal_len_halt_timing,
-            #[ignore = "fails #2"]
-            pal_len_reload_timing,
-            pal_len_table,
-            #[ignore = "fails #3"]
-            pal_len_timing_mode0,
-            #[ignore = "fails #3"]
-            pal_len_timing_mode1,
-            #[ignore = "todo: compare output"]
-            apu_env,
-            #[ignore = "fails: fix silence"]
-            dmc,
-            #[ignore = "passes: check status"]
-            dmc_buffer_retained,
-            #[ignore = "todo: compare output"]
-            dmc_latency,
-            #[ignore = "todo: compare output"]
-            dmc_pitch,
-            #[ignore = "passes: check status"]
-            dmc_status,
-            #[ignore = "passes: todo, check status"]
-            dmc_status_irq,
-            #[ignore = "todo: compare output"]
-            lin_ctr,
-            #[ignore = "fails: fix silence"]
-            noise,
-            #[ignore = "todo: compare output"]
-            noise_pitch,
-            #[ignore = "todo: compare output"]
-            phase_reset,
-            #[ignore = "fails: fix silence"]
-            square,
-            #[ignore = "todo: compare output"]
-            square_pitch,
-            #[ignore = "todo: compare output"]
-            sweep_cutoff,
-            #[ignore = "todo: compare output"]
-            sweep_sub,
-            #[ignore = "fails: fix silence"]
-            triangle,
-            #[ignore = "todo: compare output"]
-            triangle_pitch,
-            #[ignore = "todo: compare output"]
-            volumes,
-        );
-    }
-
-    mod input {
-        use super::*;
-        test_roms!(
-            "../test_roms/input",
-            #[ignore = "todo"]
-            zapper_flip,
-            #[ignore = "todo"]
-            zapper_light,
-            #[ignore = "todo"]
-            zapper_stream,
-            #[ignore = "todo"]
-            zapper_trigger,
-        );
-    }
-
-    mod m004_txrom {
-        use super::*;
-        test_roms!(
-            "../test_roms/mapper/m004_txrom",
-            a12_clocking,
-            clocking,
-            details,
-            rev_b,
-            scanline_timing,
-            big_chr_ram,
-            rev_a,
-        );
-    }
-
-    mod m005_exrom {
-        use super::*;
-        test_roms!("../test_roms/mapper/m005_exrom", exram, basics);
-    }
+    test_roms!(
+        cpu,
+        "../test_roms/cpu",
+        branch_backward,
+        nestest,
+        ram_after_reset,
+        regs_after_reset,
+        branch_basics,
+        branch_forward,
+        dummy_reads,
+        dummy_writes_oam,
+        dummy_writes_ppumem,
+        exec_space_apu,
+        exec_space_ppuio,
+        flag_concurrency,
+        instr_abs,
+        instr_abs_xy,
+        instr_basics,
+        instr_branches,
+        instr_brk,
+        instr_imm,
+        instr_imp,
+        instr_ind_x,
+        instr_ind_y,
+        instr_jmp_jsr,
+        instr_misc,
+        instr_rti,
+        instr_rts,
+        instr_special,
+        instr_stack,
+        instr_timing,
+        instr_zp,
+        instr_zp_xy,
+        int_branch_delays_irq,
+        int_cli_latency,
+        int_irq_and_dma,
+        int_nmi_and_brk,
+        int_nmi_and_irq,
+        overclock,
+        sprdma_and_dmc_dma,
+        sprdma_and_dmc_dma_512,
+        timing_test,
+    );
+    test_roms!(
+        ppu,
+        "../test_roms/ppu",
+        _240pee, // TODO: Run each test
+        color,   // TODO: Test all color combinations
+        ntsc_torture,
+        oam_read,
+        oam_stress,
+        open_bus,
+        palette,
+        palette_ram,
+        read_buffer,
+        scanline,
+        spr_hit_alignment,
+        spr_hit_basics,
+        spr_hit_corners,
+        spr_hit_double_height,
+        spr_hit_edge_timing,
+        spr_hit_flip,
+        spr_hit_left_clip,
+        spr_hit_right_edge,
+        spr_hit_screen_bottom,
+        spr_hit_timing_basics,
+        spr_hit_timing_order,
+        spr_overflow_basics,
+        spr_overflow_details,
+        spr_overflow_emulator,
+        spr_overflow_obscure,
+        spr_overflow_timing,
+        sprite_ram,
+        tv,
+        vbl_nmi_basics,
+        vbl_nmi_clear_timing,
+        vbl_nmi_control,
+        vbl_nmi_disable,
+        vbl_nmi_even_odd_frames,
+        #[ignore = "clock is skipped too late relative to enabling BG Failed #3"]
+        vbl_nmi_even_odd_timing,
+        vbl_nmi_frame_basics,
+        vbl_nmi_off_timing,
+        vbl_nmi_on_timing,
+        vbl_nmi_set_time,
+        vbl_nmi_suppression,
+        vbl_nmi_timing,
+        vbl_timing,
+        vram_access,
+    );
+    test_roms!(
+        apu,
+        "../test_roms/apu",
+        clock_jitter,
+        dmc_basics,
+        dmc_dma_2007_read,
+        dmc_dma_2007_write,
+        dmc_dma_4016_read,
+        dmc_dma_double_2007_read,
+        dmc_dma_read_write_2007,
+        dmc_rates,
+        dpcmletterbox,
+        irq_flag,
+        #[ignore = "fails $04"]
+        irq_flag_timing,
+        irq_timing,
+        jitter,
+        len_ctr,
+        #[ignore = "fails $03"]
+        len_halt_timing,
+        #[ignore = "fails $02"]
+        len_reload_timing,
+        len_table,
+        #[ignore = "Channel: 0 second length of mode 0 is too soon"]
+        len_timing,
+        #[ignore = "fails $03"]
+        len_timing_mode0,
+        #[ignore = "fails $03"]
+        len_timing_mode1,
+        reset_4015_cleared,
+        reset_4017_timing,
+        reset_4017_written,
+        reset_irq_flag_cleared,
+        #[ignore = "At power, length counters should be enabled, #2"]
+        reset_len_ctrs_enabled,
+        reset_timing,
+        reset_works_immediately,
+        test_1,
+        test_2,
+        #[ignore = "failed"]
+        test_3,
+        #[ignore = "failed"]
+        test_4,
+        test_5,
+        test_6,
+        #[ignore = "failed"]
+        test_7,
+        #[ignore = "failed"]
+        test_8,
+        #[ignore = "failed"]
+        test_9,
+        #[ignore = "failed"]
+        test_10,
+        #[ignore = "fails #2"]
+        pal_clock_jitter,
+        pal_irq_flag,
+        #[ignore = "fails #2"]
+        pal_irq_flag_timing,
+        #[ignore = "fails #3"]
+        pal_irq_timing,
+        pal_len_ctr,
+        #[ignore = "fails #3"]
+        pal_len_halt_timing,
+        #[ignore = "fails #2"]
+        pal_len_reload_timing,
+        pal_len_table,
+        #[ignore = "fails #3"]
+        pal_len_timing_mode0,
+        #[ignore = "fails #3"]
+        pal_len_timing_mode1,
+        #[ignore = "todo: compare output"]
+        apu_env,
+        #[ignore = "fails: fix silence"]
+        dmc,
+        #[ignore = "passes: check status"]
+        dmc_buffer_retained,
+        #[ignore = "todo: compare output"]
+        dmc_latency,
+        #[ignore = "todo: compare output"]
+        dmc_pitch,
+        #[ignore = "passes: check status"]
+        dmc_status,
+        #[ignore = "passes: todo, check status"]
+        dmc_status_irq,
+        #[ignore = "todo: compare output"]
+        lin_ctr,
+        #[ignore = "fails: fix silence"]
+        noise,
+        #[ignore = "todo: compare output"]
+        noise_pitch,
+        #[ignore = "todo: compare output"]
+        phase_reset,
+        #[ignore = "fails: fix silence"]
+        square,
+        #[ignore = "todo: compare output"]
+        square_pitch,
+        #[ignore = "todo: compare output"]
+        sweep_cutoff,
+        #[ignore = "todo: compare output"]
+        sweep_sub,
+        #[ignore = "fails: fix silence"]
+        triangle,
+        #[ignore = "todo: compare output"]
+        triangle_pitch,
+        #[ignore = "todo: compare output"]
+        volumes,
+    );
+    test_roms!(
+        input,
+        "../test_roms/input",
+        #[ignore = "todo"]
+        zapper_flip,
+        #[ignore = "todo"]
+        zapper_light,
+        #[ignore = "todo"]
+        zapper_stream,
+        #[ignore = "todo"]
+        zapper_trigger,
+    );
+    test_roms!(
+        m004_txrom,
+        "../test_roms/mapper/m004_txrom",
+        a12_clocking,
+        clocking,
+        details,
+        rev_b,
+        scanline_timing,
+        big_chr_ram,
+        rev_a,
+    );
+    test_roms!(m005_exram, "../test_roms/mapper/m005_exrom", exram, basics);
 }

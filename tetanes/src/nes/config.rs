@@ -4,19 +4,16 @@ use super::{
     input::{Input, InputBinding, InputMap},
     Nes,
 };
-use anyhow::anyhow;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, path::PathBuf, str::FromStr};
 use tetanes_core::{
-    apu::Apu, common::NesRegion, control_deck::Config as DeckConfig, input::Player, ppu::Ppu,
+    apu::Apu, common::NesRegion, control_deck::Config as DeckConfig, fs, input::Player, ppu::Ppu,
+    time::Duration,
 };
-use tetanes_util::{platform::time::Duration, NesError, NesResult};
-use tracing::info;
-
-// https://www.nesdev.org/wiki/Overscan
-pub const NTSC_RATIO: f32 = 8.0 / 7.0;
-pub const PAL_RATIO: f32 = 18.0 / 13.0;
-pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
+use thiserror::Error;
+use tracing::{error, info};
+use winit::dpi::LogicalSize;
 
 /// NES emulation configuration settings.
 ///
@@ -28,7 +25,6 @@ pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct Config {
-    pub aspect_ratio: f32,
     pub audio_enabled: bool,
     pub audio_buffer_size: usize,
     pub audio_latency: Duration,
@@ -68,13 +64,7 @@ impl Default for Config {
             .iter()
             .map(|(input, (slot, action))| (*input, *slot, *action))
             .collect();
-        let deck = DeckConfig::default();
-        let aspect_ratio = match deck.region {
-            NesRegion::Ntsc => NTSC_RATIO,
-            NesRegion::Pal | NesRegion::Dendy => PAL_RATIO,
-        };
         Self {
-            aspect_ratio,
             audio_buffer_size: if cfg!(target_arch = "wasm32") {
                 // Too low a value for wasm causes audio underruns in Chrome
                 2048
@@ -87,7 +77,7 @@ impl Default for Config {
             concurrent_dpad: false,
             controller_deadzone: 0.5,
             debug: false,
-            deck,
+            deck: DeckConfig::default(),
             frame_rate,
             frame_speed: FrameSpeed::default(),
             fullscreen: false,
@@ -122,61 +112,26 @@ impl Config {
     pub const DEFAULT_DIRECTORY: &'static str = DeckConfig::DIR;
     pub const FILENAME: &'static str = "config.json";
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn save(&self) -> NesResult<()> {
-        // TODO
-        Ok(())
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn save(&self) -> NesResult<()> {
-        use anyhow::Context;
-        use std::fs::{self, File};
-        use tracing::info;
-
+    pub fn save(&self) -> anyhow::Result<()> {
         if !self.deck.save_on_exit {
             return Ok(());
         }
 
-        if !self.deck.dir.exists() {
-            fs::create_dir_all(&self.deck.dir).with_context(|| {
-                format!(
-                    "failed to create config directory: {}",
-                    self.deck.dir.display()
-                )
-            })?;
-            info!("created config directory: {}", self.deck.dir.display());
-        }
-
         let path = self.deck.dir.join(Self::FILENAME);
-        File::create(&path)
-            .with_context(|| format!("failed to create config file: {path:?}"))
-            .and_then(|file| {
-                serde_json::to_writer_pretty(file, &self).context("failed to serialize config")
-            })?;
+        let data = serde_json::to_vec_pretty(&self).context("failed to serialize config")?;
+        fs::save_raw(path, &data).context("failed to save config")?;
+
         info!("Saved configuration");
         Ok(())
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn load() -> Self {
-        info!("Loading default configuration");
-        // TODO: Load from local storage?
-        Self::default()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(path: Option<PathBuf>) -> Self {
-        use anyhow::Context;
-        use std::fs::File;
-        use tracing::{error, info};
-
         let path = path.unwrap_or_else(|| DeckConfig::default().dir().join(Self::FILENAME));
         let mut config = if path.exists() {
             info!("Loading saved configuration");
-            File::open(&path)
-                .with_context(|| format!("failed to open {path:?}"))
-                .and_then(|file| Ok(serde_json::from_reader::<_, Config>(file)?))
+            fs::load_raw(&path)
+                .context("failed to load config")
+                .and_then(|data| Ok(serde_json::from_slice::<Config>(&data)?))
                 .with_context(|| format!("failed to parse {path:?}"))
                 .unwrap_or_else(|err| {
                     error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
@@ -206,11 +161,6 @@ impl Config {
 
     pub fn set_region(&mut self, region: NesRegion) {
         self.frame_rate = FrameRate::from(region);
-        self.aspect_ratio = match region {
-            NesRegion::Ntsc => NTSC_RATIO,
-            NesRegion::Pal => PAL_RATIO,
-            NesRegion::Dendy => PAL_RATIO,
-        };
         self.target_frame_duration = Duration::from_secs_f32(
             (f32::from(self.frame_rate) * f32::from(self.frame_speed)).recip(),
         );
@@ -228,10 +178,11 @@ impl Config {
     }
 
     #[must_use]
-    pub fn window_dimensions(&self) -> (f32, f32) {
+    pub fn window_size(&self) -> LogicalSize<f32> {
         let scale = f32::from(self.scale);
+        let aspect_ratio = self.deck.region.aspect_ratio();
         let (width, height) = self.texture_dimensions();
-        (scale * width * self.aspect_ratio, scale * height)
+        LogicalSize::new(scale * width * aspect_ratio, scale * height)
     }
 
     #[must_use]
@@ -272,6 +223,11 @@ impl Nes {
     }
 }
 
+#[derive(Error, Debug)]
+#[must_use]
+#[error("unsupported scale `{0}`. valid values: `1`, `2`, `3`, or `4`")]
+pub struct ParseScaleError(String);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum Scale {
@@ -282,18 +238,14 @@ pub enum Scale {
 }
 
 impl Scale {
-    pub fn from_str_f32(s: &str) -> NesResult<f32> {
+    pub fn from_str_f32(s: &str) -> anyhow::Result<f32> {
         Ok(f32::from(Self::from_str(s)?))
     }
 }
 
 impl Default for Scale {
     fn default() -> Self {
-        if cfg!(target_arch = "wasm32") {
-            Self::X2
-        } else {
-            Self::X3
-        }
+        Self::X3
     }
 }
 
@@ -327,16 +279,14 @@ impl From<&Scale> for f64 {
 }
 
 impl TryFrom<f32> for Scale {
-    type Error = NesError;
+    type Error = ParseScaleError;
     fn try_from(val: f32) -> Result<Self, Self::Error> {
         match val {
             1.0 => Ok(Scale::X1),
             2.0 => Ok(Scale::X2),
             3.0 => Ok(Scale::X3),
             4.0 => Ok(Scale::X4),
-            _ => Err(anyhow!(
-                "unsupported scale: {val}. valid values: `1`, `2`, `3` or `4`"
-            )),
+            _ => Err(ParseScaleError(val.to_string())),
         }
     }
 }
@@ -353,9 +303,11 @@ impl AsRef<str> for Scale {
 }
 
 impl FromStr for Scale {
-    type Err = NesError;
+    type Err = ParseScaleError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let speed = s.parse::<f32>()?;
+        let speed = s
+            .parse::<f32>()
+            .map_err(|_| ParseScaleError(s.to_string()))?;
         Scale::try_from(speed)
     }
 }
@@ -365,6 +317,11 @@ impl std::fmt::Display for Scale {
         write!(f, "{}", self.as_ref())
     }
 }
+
+#[derive(Error, Debug)]
+#[must_use]
+#[error("unsupported frame speed `{0}`. valid values: `.25`, `.50`, `.75`, `1`, `1.25`, `1.50`, `1.75`, or `2`")]
+pub struct ParseFrameSpeedError(String);
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -381,7 +338,7 @@ pub enum FrameSpeed {
 }
 
 impl FrameSpeed {
-    pub fn from_str_f32(s: &str) -> NesResult<f32> {
+    pub fn from_str_f32(s: &str) -> anyhow::Result<f32> {
         Ok(f32::from(Self::from_str(s)?))
     }
 
@@ -434,7 +391,7 @@ impl From<&FrameSpeed> for f32 {
 }
 
 impl TryFrom<f32> for FrameSpeed {
-    type Error = NesError;
+    type Error = ParseFrameSpeedError;
     fn try_from(val: f32) -> Result<Self, Self::Error> {
         match val {
             0.25 => Ok(FrameSpeed::X25),
@@ -445,7 +402,7 @@ impl TryFrom<f32> for FrameSpeed {
             1.50 => Ok(FrameSpeed::X150),
             1.75 => Ok(FrameSpeed::X175),
             2.0 => Ok(FrameSpeed::X200),
-            _ => Err(anyhow!("unsupported speed: {val}. valid values: `.25`, `.50`, `.75`, `1`, `1.25`, `1.50`, `1.75`, or `2`"))
+            _ => Err(ParseFrameSpeedError(val.to_string())),
         }
     }
 }
@@ -466,9 +423,11 @@ impl AsRef<str> for FrameSpeed {
 }
 
 impl FromStr for FrameSpeed {
-    type Err = NesError;
+    type Err = ParseFrameSpeedError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let speed = s.parse::<f32>()?;
+        let speed = s
+            .parse::<f32>()
+            .map_err(|_| ParseFrameSpeedError(s.to_string()))?;
         FrameSpeed::try_from(speed)
     }
 }
@@ -478,6 +437,11 @@ impl std::fmt::Display for FrameSpeed {
         write!(f, "{}", self.as_ref())
     }
 }
+
+#[derive(Error, Debug)]
+#[must_use]
+#[error("unsupported sample rate `{0}`. valid values: `44100` or `48000`")]
+pub struct ParseSampleRateError(u32);
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SampleRate {
@@ -519,14 +483,12 @@ impl From<&SampleRate> for f32 {
 }
 
 impl TryFrom<u32> for SampleRate {
-    type Error = NesError;
+    type Error = ParseSampleRateError;
     fn try_from(val: u32) -> Result<Self, Self::Error> {
         match val {
             44100 => Ok(Self::S44),
             48000 => Ok(Self::S48),
-            _ => Err(anyhow!(
-                "unsupported sample rate: {val}. valid values: `44100` or `48000`"
-            )),
+            _ => Err(ParseSampleRateError(val)),
         }
     }
 }
@@ -545,6 +507,11 @@ impl std::fmt::Display for SampleRate {
         write!(f, "{}", self.as_ref())
     }
 }
+
+#[derive(Error, Debug)]
+#[must_use]
+#[error("unsupported frame rate `{0}`. valid values: `50`, `59`, or `60`")]
+pub struct ParseFrameRateError(u32);
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FrameRate {
@@ -592,15 +559,13 @@ impl From<&FrameRate> for f32 {
 }
 
 impl TryFrom<u32> for FrameRate {
-    type Error = NesError;
+    type Error = ParseFrameRateError;
     fn try_from(val: u32) -> Result<Self, Self::Error> {
         match val {
             50 => Ok(Self::X50),
             59 => Ok(Self::X59),
             60 => Ok(Self::X60),
-            _ => Err(anyhow!(
-                "unsupported frame rate: {val}. valid values: `50`, `59`, or `60`"
-            )),
+            _ => Err(ParseFrameRateError(val)),
         }
     }
 }

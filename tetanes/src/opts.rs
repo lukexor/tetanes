@@ -2,7 +2,6 @@ use crate::nes::config::{Config, FrameSpeed, Scale};
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 use tetanes_core::{control_deck, genie::GenieCode};
-use tetanes_util::NesResult;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FourPlayer(tetanes_core::input::FourPlayer);
@@ -36,7 +35,7 @@ impl ValueEnum for RamState {
 #[derive(Parser, Debug)]
 #[command(version, author, about, long_about = None)]
 #[must_use]
-pub(crate) struct Opts {
+pub struct Opts {
     /// The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
     pub(crate) path: Option<PathBuf>,
     /// A replay recording file for gameplay recording and playback.
@@ -96,7 +95,7 @@ pub(crate) struct Opts {
 
 impl Opts {
     /// Loads a base `Config`, merging with CLI options
-    pub(crate) fn load(self) -> NesResult<Config> {
+    pub fn load(self) -> anyhow::Result<Config> {
         let rom_path = self
             .path
             .map_or_else(

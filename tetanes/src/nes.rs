@@ -1,14 +1,13 @@
 //! User Interface representing the the NES Control Deck
 
+use crate::platform::{BuilderExt, EventLoopExt, Initialize};
 use config::Config;
 use emulation::Emulation;
 use event::{NesEvent, State};
-use platform::{BuilderExt, EventLoopExt, WindowExt};
 use renderer::{BufferPool, Renderer};
 use std::sync::Arc;
-use tetanes_util::NesResult;
 use winit::{
-    event_loop::{EventLoop, EventLoopBuilder},
+    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
 };
 
@@ -18,19 +17,19 @@ pub mod config;
 pub mod emulation;
 pub mod event;
 pub mod input;
-pub mod platform;
 pub mod renderer;
 
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
 pub struct Nes {
-    config: Config,
-    window: Arc<Window>,
-    emulation: Emulation,
-    renderer: Renderer,
-    #[cfg(target_arch = "wasm32")]
-    event_proxy: winit::event_loop::EventLoopProxy<NesEvent>,
-    state: State,
+    pub(crate) config: Config,
+    pub(crate) window: Arc<Window>,
+    pub(crate) emulation: Emulation,
+    pub(crate) renderer: Renderer,
+    // Only used by wasm currently
+    #[allow(unused)]
+    pub(crate) event_proxy: EventLoopProxy<NesEvent>,
+    pub(crate) state: State,
 }
 
 impl Nes {
@@ -39,18 +38,18 @@ impl Nes {
     /// # Errors
     ///
     /// If engine fails to build or run, then an error is returned.
-    pub async fn run(config: Config) -> NesResult<()> {
+    pub async fn run(config: Config) -> anyhow::Result<()> {
         // Set up window, events and NES state
         let event_loop = EventLoopBuilder::<NesEvent>::with_user_event().build()?;
-        let mut nes = Nes::initialize(config, &event_loop).await?;
+        let mut nes = Nes::new(config, &event_loop).await?;
         event_loop
             .run_platform(move |event, window_target| nes.event_loop(event, window_target))?;
 
         Ok(())
     }
 
-    /// Initializes the NES emulation.
-    async fn initialize(config: Config, event_loop: &EventLoop<NesEvent>) -> NesResult<Self> {
+    /// Create the NES emulation.
+    async fn new(config: Config, event_loop: &EventLoop<NesEvent>) -> anyhow::Result<Self> {
         let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
         let event_proxy = event_loop.create_proxy();
         let frame_pool = BufferPool::new();
@@ -70,11 +69,10 @@ impl Nes {
             window,
             emulation,
             renderer,
-            #[cfg(target_arch = "wasm32")]
             event_proxy,
             state,
         };
-        nes.initialize_platform()?;
+        nes.initialize()?;
 
         Ok(nes)
     }
@@ -83,13 +81,13 @@ impl Nes {
     pub fn initialize_window(
         event_loop: &EventLoop<NesEvent>,
         config: &Config,
-    ) -> NesResult<Window> {
-        let (inner_size, min_inner_size) = config.inner_dimensions();
+    ) -> anyhow::Result<Window> {
+        let size = config.window_size();
         let window_builder = WindowBuilder::new();
         let window_builder = window_builder
             .with_active(true)
-            .with_inner_size(inner_size)
-            .with_min_inner_size(min_inner_size)
+            .with_inner_size(size)
+            .with_min_inner_size(size)
             .with_title(Config::WINDOW_TITLE)
             // TODO: Support exclusive fullscreen config
             .with_fullscreen(config.fullscreen.then_some(Fullscreen::Borderless(None)))

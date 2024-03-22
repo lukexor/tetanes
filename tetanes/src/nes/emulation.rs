@@ -6,6 +6,7 @@ use crate::nes::{
     renderer::BufferPool,
 };
 use anyhow::anyhow;
+use chrono::Local;
 use crossbeam::channel::{self, Receiver, Sender};
 use std::{
     io::{self, Read},
@@ -15,10 +16,9 @@ use std::{
 use tetanes_core::{
     common::{NesRegion, Regional, Reset, ResetKind},
     control_deck::ControlDeck,
-};
-use tetanes_util::{
-    platform::time::{Duration, Instant},
-    NesError, NesResult,
+    fs,
+    ppu::Ppu,
+    time::{Duration, Instant},
 };
 use tracing::{debug, error, trace};
 use winit::{
@@ -137,7 +137,7 @@ impl State {
         }
     }
 
-    pub fn on_error(&mut self, err: NesError) {
+    pub fn on_error(&mut self, err: anyhow::Error) {
         error!("Emulation error: {err:?}");
         self.add_message(err);
     }
@@ -157,7 +157,6 @@ impl State {
                     self.replay
                         .record(self.control_deck.frame_number(), event.clone());
                 }
-                #[cfg(not(target_arch = "wasm32"))]
                 EmulationEvent::LoadRomPath((path, config)) => self.load_rom_path(path, config),
                 EmulationEvent::LoadRom((name, rom, config)) => {
                     self.load_rom(name, &mut io::Cursor::new(rom), config)
@@ -202,14 +201,14 @@ impl State {
                     self.control_deck.set_save_slot(config.save_slot);
                     match self.control_deck.load_state() {
                         Ok(_) => self.add_message(format!("State {} Loaded", config.save_slot)),
-                        Err(err) => self.on_error(err),
+                        Err(err) => self.on_error(err.into()),
                     }
                 }
                 EmulationEvent::StateSave(config) => {
                     self.control_deck.set_save_slot(config.save_slot);
                     match self.control_deck.save_state() {
                         Ok(_) => self.add_message(format!("State {} Saved", config.save_slot)),
-                        Err(err) => self.on_error(err),
+                        Err(err) => self.on_error(err.into()),
                     }
                 }
                 EmulationEvent::ToggleApuChannel(channel) => {
@@ -279,18 +278,15 @@ impl State {
         self.pause(false);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>, config: &Config) {
-        use tetanes_util::filesystem;
-
         let path = path.as_ref();
         self.on_unload_rom();
         match self.control_deck.load_rom_path(path) {
             Ok(region) => {
-                let filename = filesystem::filename(path);
+                let filename = fs::filename(path);
                 self.on_load_rom(filename, region, config);
             }
-            Err(err) => self.on_error(err),
+            Err(err) => self.on_error(err.into()),
         }
     }
 
@@ -298,7 +294,7 @@ impl State {
         self.on_unload_rom();
         match self.control_deck.load_rom(name, rom) {
             Ok(region) => self.on_load_rom(name, region, config),
-            Err(err) => self.on_error(err),
+            Err(err) => self.on_error(err.into()),
         }
     }
 
@@ -312,36 +308,28 @@ impl State {
         }
     }
 
-    pub fn save_screenshot(&mut self) -> NesResult<PathBuf> {
-        // TODO: Provide download file for WASM
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use chrono::Local;
-            use tetanes_core::ppu::Ppu;
+    pub fn save_screenshot(&mut self) -> anyhow::Result<PathBuf> {
+        let filename = PathBuf::from(
+            Local::now()
+                .format("screenshot_%Y-%m-%d_at_%H_%M_%S")
+                .to_string(),
+        )
+        .with_extension("png");
+        let image = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
+            Ppu::WIDTH,
+            Ppu::HEIGHT,
+            self.control_deck.frame_buffer(),
+        )
+        .ok_or_else(|| anyhow!("failed to create image buffer"))?;
 
-            let filename = PathBuf::from(
-                Local::now()
-                    .format("screenshot_%Y-%m-%d_at_%H_%M_%S")
-                    .to_string(),
-            )
-            .with_extension("png");
-            let image = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
-                Ppu::WIDTH,
-                Ppu::HEIGHT,
-                self.control_deck.frame_buffer(),
-            )
-            .ok_or_else(|| anyhow!("failed to create image buffer"))?;
-
-            Ok(image.save(&filename).map(|_| filename)?)
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        Err(anyhow!("screenshot not implemented for web yet"))
+        // TODO: provide wasm download
+        Ok(image.save(&filename).map(|_| filename)?)
     }
 
     fn sleep(&self) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
         let timeout = if self.audio.enabled() {
             self.audio.queued_time().saturating_sub(self.audio.latency)
         } else {
@@ -394,7 +382,7 @@ impl State {
                     self.control_deck.clear_audio_samples();
                 }
                 Err(err) => {
-                    self.on_error(err);
+                    self.on_error(err.into());
                     self.pause(true);
                 }
             }
@@ -436,7 +424,7 @@ impl Multi {
         event_proxy: EventLoopProxy<NesEvent>,
         frame_pool: BufferPool,
         config: Config,
-    ) -> NesResult<Self> {
+    ) -> anyhow::Result<Self> {
         let (tx, rx) = channel::bounded(1024);
         Ok(Self {
             tx,
@@ -479,7 +467,7 @@ impl Emulation {
         event_proxy: EventLoopProxy<NesEvent>,
         frame_pool: BufferPool,
         config: Config,
-    ) -> NesResult<Self> {
+    ) -> anyhow::Result<Self> {
         let threaded = config.threaded
             && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
         let backend = if threaded {
@@ -507,7 +495,7 @@ impl Emulation {
         }
     }
 
-    pub fn request_clock_frame(&mut self) -> NesResult<()> {
+    pub fn request_clock_frame(&mut self) -> anyhow::Result<()> {
         // Multi-threaded emulation will handle frame clocking on its own
         if let Threads::Single(Single { ref mut state }) = self.threads {
             state.clock_frame();

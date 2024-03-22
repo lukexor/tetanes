@@ -1,21 +1,56 @@
 use crate::{
     apu::{Apu, Channel},
     bus::Bus,
-    cart::Cart,
+    cart::{self, Cart},
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
-    genie::GenieCode,
+    fs,
+    genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
     mapper::Mapper,
     mem::RamState,
     ppu::Ppu,
     video::{Video, VideoFilter},
 };
-use anyhow::bail;
 use serde::{Deserialize, Serialize};
-use std::{ffi::OsStr, io::Read, path::PathBuf};
-use tetanes_util::{filesystem, NesResult};
+use std::{io::Read, path::PathBuf};
+use thiserror::Error;
 use tracing::{error, info};
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Error, Debug)]
+#[must_use]
+pub enum Error {
+    #[error(transparent)]
+    Cart(#[from] cart::Error),
+    #[error("sram error: {0:?}")]
+    Sram(fs::Error),
+    #[error("save state error: {0:?}")]
+    SaveState(fs::Error),
+    #[error("no rom is loaded")]
+    RomNotLoaded,
+    #[error("cpu state is corrupted")]
+    CpuCorrupted,
+    #[error(transparent)]
+    InvalidGenieCode(#[from] genie::Error),
+    #[error("invalid rom path {0:?}")]
+    InvalidRomPath(PathBuf),
+    #[error("{context}: {source:?}")]
+    Io {
+        context: String,
+        source: std::io::Error,
+    },
+}
+
+impl Error {
+    pub fn io(source: std::io::Error, context: impl Into<String>) -> Self {
+        Self::Io {
+            context: context.into(),
+            source,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
@@ -143,7 +178,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is any issue loading the ROM, then an error is returned.
-    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> NesResult<NesRegion> {
+    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<NesRegion> {
         self.unload_rom()?;
         self.loaded_rom = Some(name.to_string());
         let cart = Cart::from_rom(name, rom, self.cpu.bus.ram_state)?;
@@ -166,20 +201,18 @@ impl ControlDeck {
     }
 
     /// Loads a ROM cartridge into memory from a path.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> NesResult<NesRegion> {
-        use anyhow::Context;
-        use std::fs::File;
+    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> Result<NesRegion> {
+        use std::{fs::File, io::BufReader};
 
         let path = path.as_ref();
-        let filename = filesystem::filename(path);
+        let filename = fs::filename(path);
         info!("loading ROM: {filename}");
         File::open(path)
-            .with_context(|| format!("failed to open rom {path:?}"))
-            .and_then(|mut rom| self.load_rom(filename, &mut rom))
+            .map_err(|err| Error::io(err, format!("failed to open rom {path:?}")))
+            .and_then(|rom| self.load_rom(filename, &mut BufReader::new(rom)))
     }
 
-    pub fn unload_rom(&mut self) -> NesResult<()> {
+    pub fn unload_rom(&mut self) -> Result<()> {
         if self.loaded_rom.is_some() {
             self.save_sram()?;
             if self.config.save_on_exit {
@@ -224,22 +257,24 @@ impl ControlDeck {
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
-    pub fn save_sram(&self) -> NesResult<()> {
+    pub fn save_sram(&self) -> Result<()> {
         if let Some(true) = self.cart_battery_backed() {
             if let Some(sram_path) = self.sram_path() {
                 info!("saving SRAM...");
-                filesystem::save_data(sram_path, self.cpu.bus.sram())?;
+                fs::save(sram_path, self.cpu.bus.sram()).map_err(Error::Sram)?;
             }
         }
         Ok(())
     }
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
-    pub fn load_sram(&mut self) -> NesResult<()> {
+    pub fn load_sram(&mut self) -> Result<()> {
         if let Some(sram_path) = self.sram_path() {
             if sram_path.exists() {
                 info!("loading SRAM...");
-                filesystem::load_data(&sram_path).map(|data| self.cpu.bus.load_sram(data))?;
+                fs::load(&sram_path)
+                    .map(|data| self.cpu.bus.load_sram(data))
+                    .map_err(Error::Sram)?;
             }
         }
         Ok(())
@@ -255,39 +290,20 @@ impl ControlDeck {
         self.config.save_slot = slot;
     }
 
-    /// Save the current state of the console into a save file
-    #[cfg(target_arch = "wasm32")]
-    pub fn save_state(&mut self) -> NesResult<()> {
-        // TODO: save to local storage or indexdb
-        Ok(())
-    }
-
     /// Save the current state of the console into a save file.
     ///
     /// # Errors
     ///
     /// If there is an issue saving the state, then an error is returned.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn save_state(&mut self) -> NesResult<()> {
-        use anyhow::Context;
-
+    pub fn save_state(&mut self) -> Result<()> {
         let Some(save_path) = self.save_path() else {
-            bail!("no ROM loaded");
+            return Err(Error::RomNotLoaded);
         };
         // Avoid saving any test roms
         if save_path.to_string_lossy().contains("test") {
             return Ok(());
         }
-        bincode::serialize(&self.cpu)
-            .context("failed to serialize save state")
-            .and_then(|data| filesystem::save_data(save_path, &data))
-    }
-
-    /// Load the console with data saved from a save state
-    #[cfg(target_arch = "wasm32")]
-    pub fn load_state(&mut self) -> NesResult<()> {
-        // TODO: load from local storage or indexdb
-        Ok(())
+        fs::save(save_path, &self.cpu).map_err(Error::SaveState)
     }
 
     /// Load the console with data saved from a save state, if it exists.
@@ -295,17 +311,13 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is an issue loading the save state, then an error is returned.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn load_state(&mut self) -> NesResult<()> {
-        use anyhow::Context;
+    pub fn load_state(&mut self) -> Result<()> {
         self.save_path()
             .filter(|path| path.exists())
             .map_or(Ok(()), |save_path| {
-                filesystem::load_data(save_path).and_then(|data| {
-                    bincode::deserialize(&data)
-                        .context("failed to deserialize save state")
-                        .map(|cpu| self.load_cpu(cpu))
-                })
+                fs::load(save_path)
+                    .map_err(Error::SaveState)
+                    .map(|cpu| self.load_cpu(cpu))
             })
     }
 
@@ -345,14 +357,14 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_instr(&mut self) -> NesResult<usize> {
+    pub fn clock_instr(&mut self) -> Result<usize> {
         if !self.running {
-            bail!("control deck not running")
+            return Err(Error::RomNotLoaded);
         }
         let cycles = self.clock();
         if self.cpu_corrupted() {
             self.running = false;
-            bail!("cpu corrupted")
+            return Err(Error::CpuCorrupted);
         }
         Ok(cycles)
     }
@@ -362,7 +374,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_seconds(&mut self, seconds: f32) -> NesResult<usize> {
+    pub fn clock_seconds(&mut self, seconds: f32) -> Result<usize> {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
@@ -378,7 +390,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_frame(&mut self) -> NesResult<usize> {
+    pub fn clock_frame(&mut self) -> Result<usize> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -395,7 +407,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_scanline(&mut self) -> NesResult<usize> {
+    pub fn clock_scanline(&mut self) -> Result<usize> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -494,7 +506,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If genie code is invalid, an error is returned.
-    pub fn add_genie_code(&mut self, genie_code: String) -> NesResult<()> {
+    pub fn add_genie_code(&mut self, genie_code: String) -> Result<()> {
         self.cpu.bus.add_genie_code(GenieCode::new(genie_code)?);
         Ok(())
     }
@@ -523,33 +535,20 @@ impl ControlDeck {
     /// Returns the path where battery-backed Save RAM files are stored if a ROM is loaded. Returns
     /// `None` if no ROM is loaded.
     pub fn sram_path(&self) -> Option<PathBuf> {
-        self.loaded_rom().as_ref().and_then(|rom| {
-            PathBuf::from(rom)
-                .file_stem()
-                .and_then(OsStr::to_str)
-                .map(|save_name| {
-                    self.config
-                        .sram_dir()
-                        .join(save_name)
-                        .with_extension("sram")
-                })
-        })
+        self.loaded_rom()
+            .as_ref()
+            .map(|rom| self.config.sram_dir().join(rom).with_extension("sram"))
     }
 
     /// Returns the path where Save states are stored if a ROM is loaded. Returns `None` if no ROM
     /// is loaded.
     pub fn save_path(&self) -> Option<PathBuf> {
-        self.loaded_rom().as_ref().and_then(|rom| {
-            PathBuf::from(rom)
-                .file_stem()
-                .and_then(OsStr::to_str)
-                .map(|save_name| {
-                    self.config
-                        .save_dir()
-                        .join(save_name)
-                        .join(self.config.save_slot.to_string())
-                        .with_extension("save")
-                })
+        self.loaded_rom().as_ref().map(|rom| {
+            self.config
+                .save_dir()
+                .join(rom)
+                .join(self.config.save_slot.to_string())
+                .with_extension("save")
         })
     }
 }

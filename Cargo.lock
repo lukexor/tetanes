@@ -2614,6 +2614,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "bytemuck",
+ "cfg-if",
  "chrono",
  "clap",
  "console_error_panic_hook",
@@ -2625,6 +2626,7 @@ dependencies = [
  "egui-winit",
  "getrandom",
  "image",
+ "pollster",
  "puffin",
  "puffin_egui",
  "rfd",
@@ -2633,8 +2635,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tetanes-core",
- "tetanes-util",
  "thingbuf",
+ "thiserror",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -2642,7 +2644,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "web-time 1.1.0",
  "wgpu",
  "winit",
 ]
@@ -2654,28 +2655,18 @@ dependencies = [
  "anyhow",
  "bincode",
  "bitflags 2.4.2",
+ "cfg-if",
  "criterion",
  "dirs",
  "enum_dispatch",
+ "flate2",
  "image",
  "puffin",
  "rand",
  "serde",
  "serde_json",
- "tetanes-util",
+ "thiserror",
  "tracing",
-]
-
-[[package]]
-name = "tetanes-util"
-version = "0.10.0"
-dependencies = [
- "anyhow",
- "flate2",
- "pollster",
- "serde",
- "tracing",
- "wasm-bindgen-futures",
  "web-time 1.1.0",
 ]
 

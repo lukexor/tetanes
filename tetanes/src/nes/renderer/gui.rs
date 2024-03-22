@@ -1,7 +1,6 @@
 use crate::nes::{
     config::Config,
     event::{EmulationEvent, NesEvent, UiEvent},
-    platform::WindowExt,
 };
 use egui::{
     global_dark_light_mode_switch, load::SizedTexture, menu, Align, Align2, Area, CentralPanel,
@@ -9,10 +8,10 @@ use egui::{
     TopBottomPanel, Ui, Vec2, Window,
 };
 use serde::{Deserialize, Serialize};
-use tetanes_core::{common::ResetKind, input::Player};
-use tetanes_util::{
-    filesystem,
-    platform::time::{Duration, Instant},
+use tetanes_core::{
+    common::ResetKind,
+    input::Player,
+    time::{Duration, Instant},
 };
 use tracing::{error, trace, warn};
 use winit::event_loop::EventLoopProxy;
@@ -196,6 +195,8 @@ impl Gui {
             // get processed.
             self.send_event(UiEvent::LoadRomDialog);
         }
+        // TODO: support recent games on wasm? Requires storing the nes rom data somewhere
+        #[cfg(not(target_arch = "wasm32"))]
         if ui.button("Recently Played...").clicked() {
             self.recent_open = true;
             ui.close_menu();
@@ -232,9 +233,11 @@ impl Gui {
     }
 
     fn recently_played(&mut self, ui: &mut Ui, config: &Config) {
+        use tetanes_core::fs;
+
         // TODO: add timestamp, save slots, and screenshot
         for rom in &config.recent_roms {
-            if ui.button(filesystem::filename(rom)).clicked() {
+            if ui.button(fs::filename(rom)).clicked() {
                 self.send_event(EmulationEvent::LoadRomPath((rom.clone(), config.clone())));
             }
         }
@@ -398,7 +401,8 @@ impl Gui {
                 if config.deck.zapper {
                     if let Some(pos) = frame_resp.hover_pos() {
                         let scale = f32::from(config.scale);
-                        let x = pos.x / scale / config.aspect_ratio;
+                        let aspect_ratio = config.deck.region.aspect_ratio();
+                        let x = pos.x / scale / aspect_ratio;
                         let y = (pos.y - self.menu_height - ui.style().spacing.menu_margin.bottom)
                             / scale;
                         if x > 0.0 && y > 0.0 {
@@ -523,8 +527,8 @@ impl Gui {
     pub fn resize_window(&mut self, style: &Style, config: &Config) {
         let spacing = style.spacing.item_spacing;
         let border = 1.0;
-        let dimensions =
-            config.inner_dimensions_with_spacing(0.0, self.menu_height + spacing.y + border);
-        self.send_event(UiEvent::ResizeWindow(dimensions));
+        let mut size = config.window_size();
+        size.height += self.menu_height + spacing.y + border;
+        self.send_event(UiEvent::ResizeWindow(size));
     }
 }

@@ -1,5 +1,5 @@
 use crate::nes::{
-    config::{Config, OVERSCAN_TRIM},
+    config::Config,
     event::{EmulationEvent, NesEvent, RendererEvent},
     renderer::{
         gui::{Gui, Menu, MSG_TIMEOUT},
@@ -12,13 +12,11 @@ use egui::{
     load::SizedTexture, ClippedPrimitive, SystemTheme, TexturesDelta, Vec2, ViewportCommand,
 };
 use std::{ops::Deref, sync::Arc};
-use tetanes_core::video::Frame;
-use tetanes_util::{platform::time::Instant, NesError, NesResult};
+use tetanes_core::{ppu::Ppu, time::Instant, video::Frame};
 use thingbuf::{Recycle, ThingBuf};
 use tracing::{error, info};
 use wgpu::util::DeviceExt;
 use winit::{
-    dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
     window::{Theme, Window},
@@ -26,6 +24,8 @@ use winit::{
 
 pub mod gui;
 pub mod texture;
+
+pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
 
 #[derive(Debug)]
 #[must_use]
@@ -103,13 +103,12 @@ impl Renderer {
         window: Arc<Window>,
         frame_pool: BufferPool,
         config: &Config,
-    ) -> NesResult<Self> {
+    ) -> anyhow::Result<Self> {
         let mut window_size = window.inner_size();
         let scale_factor = window.scale_factor() as f32;
         if window_size.width == 0 {
             let scale_factor = window.scale_factor();
-            let (width, height) = config.window_dimensions();
-            window_size = LogicalSize::new(width, height).to_physical(scale_factor);
+            window_size = config.window_size().to_physical(scale_factor);
         }
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
@@ -413,7 +412,7 @@ impl Renderer {
     }
 
     /// Request redraw.
-    pub fn request_redraw(&mut self, window: &Window, config: &mut Config) -> NesResult<()> {
+    pub fn request_redraw(&mut self, window: &Window, config: &mut Config) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -520,7 +519,7 @@ impl Nes {
             .push((text, Instant::now() + MSG_TIMEOUT));
     }
 
-    pub fn on_error(&mut self, err: NesError) {
+    pub fn on_error(&mut self, err: anyhow::Error) {
         self.trigger_event(EmulationEvent::Pause(true));
         error!("{err:?}");
         self.renderer.gui.error = Some(err.to_string());

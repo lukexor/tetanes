@@ -1,13 +1,11 @@
 use crate::nes::event::EmulationEvent;
-use anyhow::Context;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
 };
-use tetanes_core::cpu::Cpu;
-use tetanes_util::{filesystem, NesResult};
+use tetanes_core::{cpu::Cpu, fs};
 use tracing::{info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,7 +48,7 @@ impl Replay {
         self.mode = Mode::Recording(State((cpu, vec![])));
     }
 
-    pub fn stop(&mut self) -> NesResult<()> {
+    pub fn stop(&mut self) -> anyhow::Result<()> {
         if let Mode::Recording(State((cpu, events))) = std::mem::take(&mut self.mode) {
             self.save(cpu, events)
         } else {
@@ -58,7 +56,7 @@ impl Replay {
         }
     }
 
-    pub fn toggle(&mut self, cpu: &Cpu) -> NesResult<()> {
+    pub fn toggle(&mut self, cpu: &Cpu) -> anyhow::Result<()> {
         if let Mode::Recording(State((cpu, events))) = std::mem::take(&mut self.mode) {
             self.save(cpu, events)?;
             self.stop()
@@ -80,7 +78,7 @@ impl Replay {
     }
 
     /// Saves the replay recording out to a file.
-    pub fn save(&self, cpu: Cpu, events: Vec<ReplayEvent>) -> NesResult<()> {
+    pub fn save(&self, cpu: Cpu, events: Vec<ReplayEvent>) -> anyhow::Result<()> {
         let replay_path = PathBuf::from(
             Local::now()
                 .format("tetanes_replay_%Y-%m-%d_%H.%M.%S")
@@ -88,23 +86,17 @@ impl Replay {
         )
         .with_extension("replay");
         info!("saving replay to {replay_path:?}...",);
-        bincode::serialize(&State((cpu, events)))
-            .context("failed to serialize replay recording")
-            .and_then(|data| filesystem::save_data(replay_path, &data))
+        Ok(fs::save(replay_path, &State((cpu, events)))?)
     }
 
     /// Loads a replay recording file.
-    pub fn load(&mut self, path: impl AsRef<Path>) -> NesResult<()> {
+    pub fn load(&mut self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let path = path.as_ref();
         info!("loading replay {}...", path.display());
-        filesystem::load_data(path).and_then(|data| {
-            bincode::deserialize::<State>(&data)
-                .context("failed to deserialize replay recording")
-                .map(|State((cpu, mut events))| {
-                    events.reverse(); // So we can pop off the end
-                    self.mode = Mode::Playback(State((cpu, events)));
-                })
-        })
+        Ok(fs::load(path).map(|State((cpu, mut events))| {
+            events.reverse(); // So we can pop off the end
+            self.mode = Mode::Playback(State((cpu, events)));
+        })?)
     }
 
     pub fn next(&mut self, frame: u32) -> Option<EmulationEvent> {

@@ -1,9 +1,39 @@
-use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::OnceLock};
-use tetanes_util::NesResult;
+use thiserror::Error;
 
 static GENIE_MAP: OnceLock<HashMap<char, u8>> = OnceLock::new();
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Error, Debug)]
+#[error("invalid genie code {code:?}. {kind}")]
+pub struct Error {
+    code: String,
+    kind: ErrorKind,
+}
+
+impl Error {
+    fn new(code: impl Into<String>, kind: ErrorKind) -> Self {
+        Self {
+            code: code.into(),
+            kind,
+        }
+    }
+
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+}
+
+#[derive(Error, Debug, Copy, Clone)]
+#[must_use]
+pub enum ErrorKind {
+    #[error("length must be 6 or 8 characters. found `{0}`")]
+    InvalidLength(usize),
+    #[error("invalid character: `{0}`")]
+    InvalidCharacter(char),
+}
 
 /// Game Genie Code
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,7 +50,7 @@ impl GenieCode {
     /// # Errors
     ///
     /// This function will return an error if the given code is not the correct format.
-    pub fn new(code: String) -> NesResult<Self> {
+    pub fn new(code: String) -> Result<Self> {
         let hex = Self::parse(&code)?;
         let addr = 0x8000
             + (((u16::from(hex[3]) & 7) << 12)
@@ -70,20 +100,16 @@ impl GenieCode {
         ])
     }
 
-    pub fn parse(code: &str) -> NesResult<Vec<u8>> {
+    pub fn parse(code: &str) -> Result<Vec<u8>> {
         if code.len() != 6 && code.len() != 8 {
-            return Err(anyhow!(
-                "invalid game genie code: {code}. Length must be 6 or 8 characters."
-            ));
+            return Err(Error::new(code, ErrorKind::InvalidLength(code.len())));
         }
         let mut hex: Vec<u8> = Vec::with_capacity(code.len());
         for s in code.chars() {
             if let Some(h) = GENIE_MAP.get_or_init(Self::generate_genie_map).get(&s) {
                 hex.push(*h);
             } else {
-                return Err(anyhow!(
-                    "invalid game genie code: {code}. Invalid character: {s}"
-                ));
+                return Err(Error::new(code, ErrorKind::InvalidCharacter(s)));
             }
         }
         Ok(hex)
