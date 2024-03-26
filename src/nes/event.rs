@@ -373,7 +373,7 @@ impl Nes {
                     Ordering::Equal => AxisDirection::None,
                 };
                 let input = Input::Axis((slot, axis, direction));
-                self.handle_input(s, slot, input, true, false)
+                self.handle_input(s, slot, input, direction != AxisDirection::None, false)
             })
     }
 
@@ -405,9 +405,8 @@ impl Nes {
             Action::ZeroAxis(buttons) => {
                 let mut handled = false;
                 for button in buttons {
-                    if self.handle_joypad_pressed(slot, button, pressed) {
+                    if self.handle_joypad_pressed(slot, button, false) {
                         handled = true;
-                        break;
                     }
                 }
                 handled
