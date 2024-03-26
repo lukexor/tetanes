@@ -7,6 +7,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1](https://github.com/lukexor/pix-engine/compare/0.8.0..0.9.1) - 2024-03-26
+
+### ⛰️  Features
+
+
+- Don't show hidden files in load rom by default - ([c2a03e1](https://github.com/lukexor/pix-engine/commit/c2a03e1309e5b32a8baad2e9f30fd09b9acbe28f))
+
+### 🐛 Bug Fixes
+
+
+- Fix controller handling - ([9233297](https://github.com/lukexor/pix-engine/commit/92332977d1fe460337b2956251cce26d593baccd))
+- Fixed duplicate controller events - ([7172fa8](https://github.com/lukexor/pix-engine/commit/7172fa874dbc25af7f46d9e948d20959f1bb283e))
+- Reduce save state size - ([fda993c](https://github.com/lukexor/pix-engine/commit/fda993cc6738901925e98fe1a7ef60d25951fa56))
+- Fixed linear counter load - ([e6e03a6](https://github.com/lukexor/pix-engine/commit/e6e03a64da1afadf40c4b4ccdc2e69c28b8fabce))
+
+### ⚡ Performance
+
+
+- Added benchmark - ([2d10fbe](https://github.com/lukexor/pix-engine/commit/2d10fbe68206f7511bed73893f29f1a4de6e3062))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Updated deps - ([4824926](https://github.com/lukexor/pix-engine/commit/482492610b1fba259fc86fdb8aec8bbb9bc33e00))
+- Updated cargo dist - ([57d3320](https://github.com/lukexor/pix-engine/commit/57d3320b39223cd979d111c8aa21e62f715ab484))
+- Updated deps and msrv - ([f66b75e](https://github.com/lukexor/pix-engine/commit/f66b75ea2be1846c5aa70a4a94616134ebcaabe2))
+- Updated deps and msrv - ([01d5f68](https://github.com/lukexor/pix-engine/commit/01d5f6877b561c1bc3d5ea1e3b8fed294ee71439))
+- Updated deps - ([a5ba66e](https://github.com/lukexor/pix-engine/commit/a5ba66e4adbb5c952108fd6c0d1b6ca4db6c5f97))
+- Updated deps - ([6e381e8](https://github.com/lukexor/pix-engine/commit/6e381e8b59a7707aaacccc96740e08af8bb1777d))
+- Updated cargo-dist - ([e39154d](https://github.com/lukexor/pix-engine/commit/e39154d638817f3f0446988e52af09fd5362e60a))
+- Updated packages - ([d0fe81e](https://github.com/lukexor/pix-engine/commit/d0fe81eb5269e0d19bbaf22c8a6b16d4a6ebdf1d))
+- Updated packages - ([7755a0f](https://github.com/lukexor/pix-engine/commit/7755a0fe991d76c0c726c8f551d1f3405319ba82))
+- Update github actions and once-cell - ([71dbbaa](https://github.com/lukexor/pix-engine/commit/71dbbaabe197cdcd7227ebd9a9a7968bff9a1865))
+- Updated cargo deps - ([f8e01c0](https://github.com/lukexor/pix-engine/commit/f8e01c06d2755c7e41844410b053aa94d4de9ffb))
+- Remove powershell installation - ([44f5e54](https://github.com/lukexor/pix-engine/commit/44f5e544aa323c911f2147f6a882266b09f9906e))
+- Updated cargo dist - ([8cb52a1](https://github.com/lukexor/pix-engine/commit/8cb52a1456029426a31986b798714dcb34c4b66d))
+- Setup msi installer - ([5172da0](https://github.com/lukexor/pix-engine/commit/5172da06ba88116b6bd6f1cf983ba52dafee1648))
+- Fix coverage - ([ab1388e](https://github.com/lukexor/pix-engine/commit/ab1388ecb3d66f18c8e68cb7a15aa295eb27dbb6))
+- Build macOS dmg - ([94fdbfa](https://github.com/lukexor/pix-engine/commit/94fdbfae2d17977158b00f2a9eb980c27e2b482e))
+- Fix cargo dist - ([238c3b1](https://github.com/lukexor/pix-engine/commit/238c3b11a5d52d2068142a182ce3d01ee4b7d0e3))
+- Fixing cargo-dist - ([45e083b](https://github.com/lukexor/pix-engine/commit/45e083b2337cefc8104085781e8c8e81d015ba32))
+
 ## [tetanes-v0.9.0](https://github.com/lukexor/pix-engine/compare/v0.8.0..tetanes-v0.9.0) - 2023-10-31
 
 ### ⛰️ Features

@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 name = "tetanes"
 repository = "https://github.com/lukexor/tetanes.git"
 resolver = "2"
-version = "0.9.0"
+version = "0.9.1"
 default-run = "tetanes"
 exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
 
