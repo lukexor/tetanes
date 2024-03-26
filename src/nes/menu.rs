@@ -408,7 +408,7 @@ impl Nes {
                     self.update_paths();
                 }
             } else if path.is_dir() {
-                self.config.rom_path = path.clone();
+                self.config.rom_path.clone_from(&path);
                 self.update_paths();
             }
         }

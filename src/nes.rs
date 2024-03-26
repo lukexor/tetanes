@@ -478,15 +478,15 @@ impl PixEngine for Nes {
     ) -> PixResult<bool> {
         match update {
             ControllerUpdate::Added => {
-                match self.players.entry(Slot::One) {
-                    Entry::Vacant(v) => {
-                        v.insert(controller_id);
-                    }
-                    Entry::Occupied(_) => {
-                        self.players.entry(Slot::Two).or_insert(controller_id);
+                let mut handled = false;
+                for slot in [Slot::One, Slot::Two, Slot::Three, Slot::Four] {
+                    if let Entry::Vacant(entry) = self.players.entry(slot) {
+                        entry.insert(controller_id);
+                        handled = true;
+                        break;
                     }
                 }
-                Ok(true)
+                Ok(handled)
             }
             ControllerUpdate::Removed => {
                 self.players.retain(|_, &mut id| id != controller_id);
