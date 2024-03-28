@@ -70,6 +70,7 @@ impl Clone for BufferPool {
 #[must_use]
 pub struct Renderer {
     frame_pool: BufferPool,
+    config: Config,
     gui: Gui,
     ctx: egui::Context,
     egui_state: egui_winit::State,
@@ -80,7 +81,7 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
-    needs_resize: bool,
+    resize_surface: bool,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -102,13 +103,15 @@ impl Renderer {
         event_proxy: EventLoopProxy<NesEvent>,
         window: Arc<Window>,
         frame_pool: BufferPool,
-        config: &Config,
+        config: Config,
     ) -> anyhow::Result<Self> {
         let mut window_size = window.inner_size();
         let scale_factor = window.scale_factor() as f32;
         if window_size.width == 0 {
             let scale_factor = window.scale_factor();
-            window_size = config.window_size().to_physical(scale_factor);
+            window_size = config
+                .read(|cfg| cfg.window_size())
+                .to_physical(scale_factor);
         }
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
@@ -121,23 +124,28 @@ impl Renderer {
             })
             .await
             .context("failed to request wgpu adapter")?;
+        // WebGL doesn't support all of wgpu's features, so if
+        // we're building for the web we'll have to disable some.
+        let mut required_limits = if cfg!(target_arch = "wasm32") {
+            wgpu::Limits::downlevel_webgl2_defaults()
+        } else {
+            wgpu::Limits::downlevel_defaults()
+        };
+        // However, we do want to support the adapters max texture dimension for window size to
+        // be maximized
+        required_limits.max_texture_dimension_2d = adapter.limits().max_texture_dimension_2d;
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("tetanes"),
                     required_features: wgpu::Features::empty(),
-                    // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
-                    required_limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::downlevel_defaults()
-                    },
+                    required_limits,
                 },
                 None,
             )
             .await?;
 
+        let max_texture_dimension = device.limits().max_texture_dimension_2d;
         let surface_capabilities = surface.get_capabilities(&adapter);
         let surface_format = surface_capabilities
             .formats
@@ -148,9 +156,9 @@ impl Renderer {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: window_size.width,
-            height: window_size.height,
-            present_mode: if config.vsync {
+            width: window_size.width.min(max_texture_dimension),
+            height: window_size.height.min(max_texture_dimension),
+            present_mode: if config.read(|cfg| cfg.renderer.vsync) {
                 wgpu::PresentMode::AutoVsync
             } else {
                 wgpu::PresentMode::AutoNoVsync
@@ -161,8 +169,13 @@ impl Renderer {
         };
         surface.configure(&device, &surface_config);
 
-        let (width, height) = config.texture_dimensions();
-        let texture = Texture::new(&device, width as u32, height as u32, Some("nes frame"));
+        let texture_size = config.read(|cfg| cfg.texture_dimensions());
+        let texture = Texture::new(
+            &device,
+            texture_size.width.min(max_texture_dimension),
+            texture_size.height.min(max_texture_dimension),
+            Some("nes frame"),
+        );
         let module = device.create_shader_module(wgpu::include_wgsl!("../../shaders/blit.wgsl"));
 
         let vertex_data: [[f32; 2]; 3] = [
@@ -266,19 +279,23 @@ impl Renderer {
         let egui_texture =
             renderer.register_native_texture(&device, &texture.view, wgpu::FilterMode::Nearest);
 
+        let aspect_ratio = config.read(|cfg| cfg.deck.region.aspect_ratio());
         let state = Gui::new(
+            window,
             event_proxy,
             SizedTexture::new(
                 egui_texture,
                 Vec2 {
-                    x: texture.size.width as f32,
+                    x: texture.size.width as f32 * aspect_ratio,
                     y: texture.size.height as f32,
                 },
             ),
+            config.clone(),
         );
 
         Ok(Self {
             frame_pool,
+            config,
             gui: state,
             ctx,
             egui_state,
@@ -292,7 +309,7 @@ impl Renderer {
             device,
             queue,
             surface_config,
-            needs_resize: false,
+            resize_surface: false,
             render_pipeline,
             vertex_buffer,
             bind_group_layout,
@@ -310,10 +327,14 @@ impl Renderer {
                 match event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            self.screen_descriptor.size_in_pixels = [size.width, size.height];
-                            self.surface_config.width = size.width;
-                            self.surface_config.height = size.height;
-                            self.needs_resize = true;
+                            let max_texture_dimension =
+                                self.device.limits().max_texture_dimension_2d;
+                            let width = size.width.min(max_texture_dimension);
+                            let height = size.height.min(max_texture_dimension);
+                            self.screen_descriptor.size_in_pixels = [width, height];
+                            self.surface_config.width = width;
+                            self.surface_config.height = height;
+                            self.resize_surface = true;
                         }
                     }
                     WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -348,14 +369,16 @@ impl Renderer {
                         } else {
                             wgpu::PresentMode::AutoNoVsync
                         };
-                        self.needs_resize = true;
+                        self.resize_surface = true;
                     }
-                    RendererEvent::SetScale(_) => self.needs_resize = true,
+                    RendererEvent::RequestTextureResize => {
+                        // TODO: handle window aspect ratio resize
+                        self.gui.resize_texture = true;
+                    }
                     RendererEvent::Frame(duration) => self.gui.last_frame_duration = *duration,
                     RendererEvent::Menu(menu) => match menu {
-                        Menu::Config(_) => self.gui.config_open = !self.gui.config_open,
-                        Menu::Keybind(_) => self.gui.keybind_open = !self.gui.keybind_open,
-                        Menu::LoadRom => self.gui.load_rom_open = !self.gui.load_rom_open,
+                        Menu::Config(_) => self.gui.preferences_open = !self.gui.preferences_open,
+                        Menu::Keybind(_) => self.gui.keybinds_open = !self.gui.keybinds_open,
                         Menu::About => self.gui.about_open = !self.gui.about_open,
                     },
                 },
@@ -365,10 +388,10 @@ impl Renderer {
         }
     }
 
-    fn resize_texture(&mut self, config: &Config) {
-        let (width, height) = config.texture_dimensions();
+    fn resize_texture(&mut self) {
+        let texture_size = self.config.read(|cfg| cfg.texture_dimensions());
         self.texture
-            .resize(&self.device, width as u32, height as u32);
+            .resize(&self.device, texture_size.width, texture_size.height);
         self.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("nes frame bind group"),
             layout: &self.bind_group_layout,
@@ -388,23 +411,25 @@ impl Renderer {
             &self.texture.view,
             wgpu::FilterMode::Nearest,
         );
+        let aspect_ratio = self.config.read(|cfg| cfg.deck.region.aspect_ratio());
         self.gui.texture = SizedTexture::new(
             egui_texture,
             Vec2 {
-                x: self.texture.size.width as f32,
+                x: self.texture.size.width as f32 * aspect_ratio,
                 y: self.texture.size.height as f32,
             },
         );
     }
 
     /// Prepare.
-    pub fn prepare(&mut self, window: &Window, config: &mut Config) {
+    fn prepare(&mut self, window: &Window) {
         let raw_input = self.egui_state.take_egui_input(window);
-        let output = self.ctx.run(raw_input, |ctx| {
-            self.gui.ui(ctx, config);
-        });
-        self.screen_descriptor.pixels_per_point = output.pixels_per_point;
 
+        let output = self.ctx.run(raw_input, |ctx| {
+            self.gui.ui(ctx);
+        });
+
+        self.screen_descriptor.pixels_per_point = output.pixels_per_point;
         self.textures.append(output.textures_delta);
         self.egui_state
             .handle_platform_output(window, output.platform_output);
@@ -412,37 +437,37 @@ impl Renderer {
     }
 
     /// Request redraw.
-    pub fn request_redraw(&mut self, window: &Window, config: &mut Config) -> anyhow::Result<()> {
+    pub fn request_redraw(&mut self, window: &Window) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        if self.needs_resize {
+        self.prepare(window);
+
+        if self.resize_surface || self.gui.resize_surface {
             self.surface.configure(&self.device, &self.surface_config);
-            self.gui.resize_window(&self.ctx.style(), config);
+            self.resize_surface = false;
+            self.gui.resize_surface = false;
+        }
+        if self.gui.resize_texture {
+            self.resize_texture();
+            self.gui.resize_texture = false;
         }
 
-        let prev_hide_overscan = config.hide_overscan;
-        self.prepare(window, config);
-        if prev_hide_overscan != config.hide_overscan {
-            self.resize_texture(config);
-        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("renderer"),
+            });
 
         let frame = self.surface.get_current_texture().or_else(|_| {
             self.surface.configure(&self.device, &self.surface_config);
             self.surface.get_current_texture()
         })?;
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render encoder"),
-            });
-
         // Copy NES frame buffer
         if let Some(frame_buffer) = self.frame_pool.pop_ref() {
             self.texture.update(
                 &self.queue,
-                if config.hide_overscan {
+                if self.config.read(|cfg| cfg.renderer.hide_overscan) {
                     let len = frame_buffer.len();
                     &frame_buffer[OVERSCAN_TRIM..len - OVERSCAN_TRIM]
                 } else {
@@ -452,14 +477,9 @@ impl Renderer {
         };
 
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("view"),
-            format: None,
-            dimension: None,
-            aspect: wgpu::TextureAspect::All,
-            base_mip_level: 0,
-            mip_level_count: None,
-            base_array_layer: 0,
-            array_layer_count: None,
+            label: Some("gui"),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            ..Default::default()
         });
 
         for (id, image_delta) in &self.textures.set {

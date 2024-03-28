@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Nrom {
-    mirroring: Mirroring,
-    mirror_prg_rom: bool,
+    pub mirroring: Mirroring,
+    pub mirror_prg_rom: bool,
 }
 
 impl Nrom {
@@ -26,7 +26,7 @@ impl Nrom {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         // NROM doesn't have CHR-RAM - but a lot of homebrew games use Mapper 000 with CHR-RAM, so
         // we'll provide some.
-        if !cart.has_chr() {
+        if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         };
         let nrom = Self {

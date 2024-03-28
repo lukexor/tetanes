@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct VrcIrq {
-    reload: u8,
-    counter: u8,
-    prescalar_counter: i16,
-    enabled: bool,
-    enabled_after_ack: bool,
-    cycle_mode: bool,
-    pending: bool,
+    pub reload: u8,
+    pub counter: u8,
+    pub prescalar_counter: i16,
+    pub enabled: bool,
+    pub enabled_after_ack: bool,
+    pub cycle_mode: bool,
+    pub pending: bool,
 }
 
 impl VrcIrq {

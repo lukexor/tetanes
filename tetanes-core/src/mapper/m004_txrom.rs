@@ -35,20 +35,20 @@ pub enum Mmc3Revision {
     Acc,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
-struct TxRegs {
-    bank_select: u8,
-    bank_values: [u8; 8],
-    irq_latch: u8,
-    irq_counter: u8,
-    irq_enabled: bool,
-    irq_reload: bool,
-    last_clock: u16,
+pub struct TxRegs {
+    pub bank_select: u8,
+    pub bank_values: [u8; 8],
+    pub irq_latch: u8,
+    pub irq_counter: u8,
+    pub irq_enabled: bool,
+    pub irq_reload: bool,
+    pub last_clock: u16,
 }
 
 impl TxRegs {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             bank_select: 0x00,
             bank_values: [0x00; 8],
@@ -64,13 +64,13 @@ impl TxRegs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Txrom {
-    regs: TxRegs,
-    mirroring: Mirroring,
-    irq_pending: bool,
-    revision: Mmc3Revision,
-    chr_banks: MemBanks,
-    prg_ram_banks: MemBanks,
-    prg_rom_banks: MemBanks,
+    pub regs: TxRegs,
+    pub mirroring: Mirroring,
+    pub irq_pending: bool,
+    pub revision: Mmc3Revision,
+    pub chr_banks: MemBanks,
+    pub prg_ram_banks: MemBanks,
+    pub prg_rom_banks: MemBanks,
 }
 
 impl Txrom {
@@ -89,15 +89,20 @@ impl Txrom {
         if cart.mirroring() == Mirroring::FourScreen {
             cart.add_ex_ram(Self::FOUR_SCREEN_RAM_SIZE);
         }
-        if !cart.has_chr() {
-            cart.add_chr_ram(Self::CHR_RAM_SIZE);
+        let chr_len = if cart.has_chr_rom() {
+            cart.chr_rom.len()
+        } else {
+            if cart.chr_ram.is_empty() {
+                cart.add_chr_ram(Self::CHR_RAM_SIZE);
+            }
+            cart.chr_ram.len()
         };
         let mut txrom = Self {
             regs: TxRegs::new(),
             mirroring: cart.mirroring(),
             irq_pending: false,
             revision: Mmc3Revision::BC, // TODO compare to known games
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_len(), Self::CHR_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
         };
@@ -111,7 +116,7 @@ impl Txrom {
         self.revision = revision;
     }
 
-    fn update_banks(&mut self) {
+    pub fn update_banks(&mut self) {
         let prg_last = self.prg_rom_banks.last();
         let prg_lo = self.regs.bank_values[6] as usize;
         let prg_hi = self.regs.bank_values[7] as usize;
@@ -146,7 +151,7 @@ impl Txrom {
         }
     }
 
-    fn clock_irq(&mut self, addr: u16) {
+    pub fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
             let (last, next) = if self.revision == Mmc3Revision::Acc {

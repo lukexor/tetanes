@@ -85,7 +85,7 @@ category = "Development"
 workspace = false
 cwd = "tetanes"
 command = "trunk"
-args = ["serve", "--release", "--no-default-features"]
+args = ["serve", "--release"]
 dependencies = ["install-web-deps"]
 
 [tasks.dev-web]
@@ -94,5 +94,5 @@ category = "Development"
 workspace = false
 cwd = "tetanes"
 command = "trunk"
-args = ["serve", "--no-default-features"]
+args = ["serve"]
 dependencies = ["install-web-deps"]

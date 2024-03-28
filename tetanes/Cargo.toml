@@ -52,9 +52,11 @@ cfg-if.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap.workspace = true
 crossbeam = "0.8"
+dirs.workspace = true
 egui = "0.26"
 egui-wgpu = "0.26"
 image.workspace = true
+parking_lot = "0.12"
 puffin_egui = { version = "0.26", optional = true }
 rfd = "0.13"
 ringbuf = "0.3"
@@ -72,7 +74,6 @@ winit = { version = "0.29", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.15"
-dirs.workspace = true
 egui-winit = "0.26"
 pollster = "0.3"
 puffin = { workspace = true, optional = true }

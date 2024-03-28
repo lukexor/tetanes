@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Uxrom {
-    mirroring: Mirroring,
-    prg_rom_banks: MemBanks,
+    pub mirroring: Mirroring,
+    pub prg_rom_banks: MemBanks,
 }
 
 impl Uxrom {
@@ -23,7 +23,7 @@ impl Uxrom {
     const CHR_RAM_SIZE: usize = 8 * 1024;
 
     pub fn load(cart: &mut Cart) -> Mapper {
-        if !cart.has_chr() {
+        if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         };
         let mut uxrom = Self {

@@ -22,7 +22,7 @@ use tracing::warn;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-enum PrgMode {
+pub enum PrgMode {
     Bank32k,
     Bank16k,
     Bank16_8k,
@@ -31,7 +31,7 @@ enum PrgMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-enum ChrMode {
+pub enum ChrMode {
     Bank8k,
     Bank4k,
     Bank2k,
@@ -40,7 +40,7 @@ enum ChrMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-enum ChrBank {
+pub enum ChrBank {
     Spr,
     Bg,
 }
@@ -48,7 +48,7 @@ enum ChrBank {
 bitflags! {
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
     #[must_use]
-    struct ExRamRW: u8 {
+    pub struct ExRamRW: u8 {
         const W = 0x01;
         const R = 0x02;
         const RW = Self::R.bits() | Self::W.bits();
@@ -57,15 +57,21 @@ bitflags! {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-struct ExRamMode {
+pub struct ExRamMode {
     bits: u8,
     nametable: bool,
     attr: bool,
     rw: ExRamRW,
 }
 
+impl Default for ExRamMode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExRamMode {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             bits: 0x00,
             nametable: false,
@@ -74,7 +80,7 @@ impl ExRamMode {
         }
     }
 
-    fn set(&mut self, val: u8) {
+    pub fn set(&mut self, val: u8) {
         let val = val & 0x03;
         self.bits = val;
         self.nametable = val <= 0b01;
@@ -90,7 +96,7 @@ impl ExRamMode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-enum Nametable {
+pub enum Nametable {
     ScreenA,
     ScreenB,
     ExRam,
@@ -99,20 +105,26 @@ enum Nametable {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-struct NametableMapping {
-    mode: u8,
-    select: [Nametable; 4],
+pub struct NametableMapping {
+    pub mode: u8,
+    pub select: [Nametable; 4],
+}
+
+impl Default for NametableMapping {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NametableMapping {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             mode: 0x00,
             select: [Nametable::ScreenA; 4],
         }
     }
 
-    fn set(&mut self, val: u8) {
+    pub fn set(&mut self, val: u8) {
         let nametable = |val: u8| match val & 0x03 {
             0 => Nametable::ScreenA,
             1 => Nametable::ScreenB,
@@ -132,13 +144,19 @@ impl NametableMapping {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-struct Fill {
-    tile: u8,    // $5106
-    attr: usize, // $5107
+pub struct Fill {
+    pub tile: u8,    // $5106
+    pub attr: usize, // $5107
+}
+
+impl Default for Fill {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Fill {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             attr: 0x03,
             tile: 0xFF,
@@ -148,25 +166,31 @@ impl Fill {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-enum Side {
+pub enum Side {
     Left,
     Right,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-struct VSplit {
-    mode: u8,      // $5200 [ES.T TTTT]
-    enabled: bool, // $5200 [E... ....]
-    side: Side,    // $5200 [.S.. ....]
-    tile: u8,      // $5200 [...T TTTT]
-    scroll: u8,    // $5201
-    bank: u8,      // $5202
-    in_region: bool,
+pub struct VSplit {
+    pub mode: u8,      // $5200 [ES.T TTTT]
+    pub enabled: bool, // $5200 [E... ....]
+    pub side: Side,    // $5200 [.S.. ....]
+    pub tile: u8,      // $5200 [...T TTTT]
+    pub scroll: u8,    // $5201
+    pub bank: u8,      // $5202
+    pub in_region: bool,
+}
+
+impl Default for VSplit {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VSplit {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             mode: 0x00,
             enabled: false,
@@ -181,26 +205,32 @@ impl VSplit {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-struct ExRegs {
-    prg_mode: PrgMode,                   // $5100
-    chr_mode: ChrMode,                   // $5101
-    prg_ram_protect: [u8; 2],            // $5102 - $5103
-    exram_mode: ExRamMode,               // $5104
-    nametable_mapping: NametableMapping, // $5105
-    fill: Fill,                          // $5106 - $5107
-    prg_banks: [usize; 5],               // $5113 - $5117
-    chr_banks: [usize; 16],              // $5120 - $512B
-    chr_hi: usize,                       // $5130
-    vsplit: VSplit,                      // $5200 - $5202
-    irq_scanline: u16,                   // $5203: Write $00 to disable IRQs
-    irq_enabled: bool,                   // $5204
-    multiplicand: u8,                    // $5205: write
-    multiplier: u8,                      // $5206: write
-    mult_result: u16,                    // $5205: read lo, $5206: read hi
+pub struct ExRegs {
+    pub prg_mode: PrgMode,                   // $5100
+    pub chr_mode: ChrMode,                   // $5101
+    pub prg_ram_protect: [u8; 2],            // $5102 - $5103
+    pub exram_mode: ExRamMode,               // $5104
+    pub nametable_mapping: NametableMapping, // $5105
+    pub fill: Fill,                          // $5106 - $5107
+    pub prg_banks: [usize; 5],               // $5113 - $5117
+    pub chr_banks: [usize; 16],              // $5120 - $512B
+    pub chr_hi: usize,                       // $5130
+    pub vsplit: VSplit,                      // $5200 - $5202
+    pub irq_scanline: u16,                   // $5203: Write $00 to disable IRQs
+    pub irq_enabled: bool,                   // $5204
+    pub multiplicand: u8,                    // $5205: write
+    pub multiplier: u8,                      // $5206: write
+    pub mult_result: u16,                    // $5205: read lo, $5206: read hi
+}
+
+impl Default for ExRegs {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ExRegs {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             prg_mode: PrgMode::Bank8k,
             chr_mode: ChrMode::Bank1k,
@@ -223,44 +253,44 @@ impl ExRegs {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-struct IrqState {
-    pending: bool,
-    in_frame: bool,
-    prev_addr: Option<u16>,
-    match_count: u8,
+pub struct IrqState {
+    pub pending: bool,
+    pub in_frame: bool,
+    pub prev_addr: Option<u16>,
+    pub match_count: u8,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-struct PpuStatus {
-    fetch_count: u32,
-    reading: bool,
-    idle_count: u8,
-    sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
-    rendering: bool,
-    scanline: u16,
+pub struct PpuStatus {
+    pub fetch_count: u32,
+    pub reading: bool,
+    pub idle_count: u8,
+    pub sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
+    pub rendering: bool,
+    pub scanline: u16,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Exrom {
-    regs: ExRegs,
-    mirroring: Mirroring,
-    ppu_status: PpuStatus,
-    irq_state: IrqState,
-    ex_ram: Vec<u8>,
-    prg_ram_banks: MemBanks,
-    prg_rom_banks: MemBanks,
-    chr_banks: MemBanks,
-    tile_cache: u16,
-    last_chr_write: ChrBank,
-    region: NesRegion,
-    pulse1: Pulse,
-    pulse2: Pulse,
-    dmc: Dmc,
-    dmc_mode: u8,
-    cpu_cycle: usize,
-    pulse_timer: f32,
+    pub regs: ExRegs,
+    pub mirroring: Mirroring,
+    pub ppu_status: PpuStatus,
+    pub irq_state: IrqState,
+    pub ex_ram: Vec<u8>,
+    pub prg_ram_banks: MemBanks,
+    pub prg_rom_banks: MemBanks,
+    pub chr_banks: MemBanks,
+    pub tile_cache: u16,
+    pub last_chr_write: ChrBank,
+    pub region: NesRegion,
+    pub pulse1: Pulse,
+    pub pulse2: Pulse,
+    pub dmc: Dmc,
+    pub dmc_mode: u8,
+    pub cpu_cycle: usize,
+    pub pulse_timer: f32,
 }
 
 impl Exrom {
@@ -333,7 +363,7 @@ impl Exrom {
             ex_ram: vec![0x00; Self::EXRAM_SIZE],
             prg_ram_banks: MemBanks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr.len(), Self::CHR_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
             tile_cache: 0,
             last_chr_write: ChrBank::Spr,
             region: NesRegion::default(),
@@ -359,7 +389,7 @@ impl Exrom {
     //            +-------+---------------+-------+-------+
     // P=%11:     | $5113 | $5114 | $5115 | $5116 | $5117 |
     //            +-------+-------+-------+-------+-------+
-    fn update_prg_banks(&mut self) {
+    pub fn update_prg_banks(&mut self) {
         let mode = self.regs.prg_mode;
         let banks = self.regs.prg_banks;
 
@@ -386,7 +416,7 @@ impl Exrom {
         };
     }
 
-    fn set_prg_bank_range(&mut self, start: usize, end: usize, bank: usize) {
+    pub fn set_prg_bank_range(&mut self, start: usize, end: usize, bank: usize) {
         let rom = bank & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK;
         let bank = bank & Self::BANK_MASK;
         if rom {
@@ -396,7 +426,7 @@ impl Exrom {
         }
     }
 
-    fn rom_select(&self, addr: u16) -> bool {
+    pub fn rom_select(&self, addr: u16) -> bool {
         let mode = self.regs.prg_mode;
         if matches!(addr, 0x6000..=0x7FFF) {
             false
@@ -439,7 +469,7 @@ impl Exrom {
     //             +---------------+---------------+---------------+---------------+
     //   C=%11:    | $5128 | $5129 | $512A | $512B | $5128 | $5129 | $512A | $512B |
     //             +-------+-------+-------+-------+-------+-------+-------+-------+
-    fn update_chr_banks(&mut self, chr_bank: ChrBank) {
+    pub fn update_chr_banks(&mut self, chr_bank: ChrBank) {
         let hi = self.regs.chr_hi;
         let banks = match chr_bank {
             ChrBank::Spr => &self.regs.chr_banks[0..8],
@@ -471,31 +501,31 @@ impl Exrom {
         };
     }
 
-    fn read_ex_ram(&self, addr: u16) -> u8 {
+    pub fn read_ex_ram(&self, addr: u16) -> u8 {
         self.ex_ram[(addr & 0x03FF) as usize]
     }
 
-    fn write_ex_ram(&mut self, addr: u16, val: u8) {
+    pub fn write_ex_ram(&mut self, addr: u16, val: u8) {
         self.ex_ram[(addr & 0x03FF) as usize] = val;
     }
 
-    fn inc_fetch_count(&mut self) {
+    pub fn inc_fetch_count(&mut self) {
         self.ppu_status.fetch_count += 1;
     }
 
-    const fn fetch_count(&self) -> u32 {
+    pub const fn fetch_count(&self) -> u32 {
         self.ppu_status.fetch_count
     }
 
-    const fn sprite8x16(&self) -> bool {
+    pub const fn sprite8x16(&self) -> bool {
         self.ppu_status.sprite8x16
     }
 
-    fn spr_fetch(&self) -> bool {
+    pub fn spr_fetch(&self) -> bool {
         (Self::SPR_FETCH_START..Self::SPR_FETCH_END).contains(&self.fetch_count())
     }
 
-    const fn nametable_select(&self, addr: u16) -> Nametable {
+    pub const fn nametable_select(&self, addr: u16) -> Nametable {
         self.regs.nametable_mapping.select[((addr >> 10) & 0x03) as usize]
     }
 }

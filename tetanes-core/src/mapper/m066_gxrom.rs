@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Gxrom {
-    mirroring: Mirroring,
-    chr_banks: MemBanks,
-    prg_rom_banks: MemBanks,
+    pub mirroring: Mirroring,
+    pub chr_banks: MemBanks,
+    pub prg_rom_banks: MemBanks,
 }
 
 impl Gxrom {
@@ -29,7 +29,7 @@ impl Gxrom {
     pub fn load(cart: &mut Cart) -> Mapper {
         let gxrom = Self {
             mirroring: cart.mirroring(),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr.len(), Self::CHR_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
         };
         gxrom.into()

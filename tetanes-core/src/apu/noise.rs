@@ -4,24 +4,30 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Noise shift mode.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-enum ShiftMode {
+pub enum ShiftMode {
+    /// Zero (XOR bits 0 and 1)
     Zero,
+    /// One (XOR bits 0 and 6)
     One,
 }
 
+/// APU Noise Channel provides pseudo-random noise generation.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Noise>
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Noise {
-    region: NesRegion,
-    force_silent: bool,
-    enabled: bool,
-    freq_timer: u16,       // timer freq_counter reload value
-    freq_counter: u16,     // Current frequency timer value
-    shift: u16,            // Must never be 0
-    shift_mode: ShiftMode, // Zero (XOR bits 0 and 1) or One (XOR bits 0 and 6)
-    length: LengthCounter,
-    envelope: Envelope,
+    pub region: NesRegion,
+    pub force_silent: bool,
+    pub enabled: bool,
+    pub freq_timer: u16,   // timer freq_counter reload value
+    pub freq_counter: u16, // Current frequency timer value
+    pub shift: u16,        // Must never be 0
+    pub shift_mode: ShiftMode,
+    pub length: LengthCounter,
+    pub envelope: Envelope,
 }
 
 impl Default for Noise {
@@ -87,8 +93,7 @@ impl Noise {
         self.envelope.write_ctrl(val);
     }
 
-    // $400E Noise timer
-
+    /// $400E Noise timer
     pub fn write_timer(&mut self, val: u8) {
         self.freq_timer = Self::freq_timer(self.region, val);
         self.shift_mode = if (val >> 7) & 1 == 1 {

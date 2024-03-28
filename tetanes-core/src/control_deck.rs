@@ -13,7 +13,10 @@ use crate::{
     video::{Video, VideoFilter},
 };
 use serde::{Deserialize, Serialize};
-use std::{io::Read, path::PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -36,6 +39,8 @@ pub enum Error {
     InvalidGenieCode(#[from] genie::Error),
     #[error("invalid rom path {0:?}")]
     InvalidRomPath(PathBuf),
+    #[error("invalid file path {0:?}")]
+    InvalidFilePath(PathBuf),
     #[error("{context}: {source:?}")]
     Io {
         context: String,
@@ -56,12 +61,8 @@ impl Error {
 #[must_use]
 /// Control deck configuration settings.
 pub struct Config {
-    /// Directory where config is stored.
-    pub dir: PathBuf,
     /// Video filter.
     pub filter: VideoFilter,
-    /// Audio device sample rate.
-    pub sample_rate: f32,
     /// NES region.
     pub region: NesRegion,
     /// RAM initialization state.
@@ -72,58 +73,39 @@ pub struct Config {
     pub zapper: bool,
     /// Game Genie codes.
     pub genie_codes: Vec<GenieCode>,
-    /// Save state slot.
-    pub save_slot: u8,
-    /// Load save state on loading a ROM.
-    pub load_on_start: bool,
-    /// Save state on unloading a ROM.
-    pub save_on_exit: bool,
     /// Whether to support concurrent D-Pad input which wasn't possible on the original NES.
     pub concurrent_dpad: bool,
     /// Apu channels enabled.
     pub channels_enabled: [bool; 5],
 }
 
+impl Config {
+    pub const BASE_DIR: &'static str = "tetanes";
+    pub const SRAM_DIR: &'static str = "sram";
+
+    #[must_use]
+    pub fn data_dir() -> Option<PathBuf> {
+        dirs::data_local_dir().map(|dir| dir.join(Self::BASE_DIR))
+    }
+
+    #[must_use]
+    pub fn sram_path(name: &str) -> Option<PathBuf> {
+        Self::data_dir().map(|dir| dir.join(Self::SRAM_DIR).join(name).with_extension("sram"))
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            dir: dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("./"))
-                .join(Self::DIR),
             filter: VideoFilter::default(),
-            sample_rate: Apu::DEFAULT_SAMPLE_RATE,
             region: NesRegion::default(),
             ram_state: RamState::Random,
             four_player: FourPlayer::default(),
             zapper: false,
             genie_codes: vec![],
-            load_on_start: true,
-            save_on_exit: true,
-            save_slot: 1,
             concurrent_dpad: false,
             channels_enabled: [true; 5],
         }
-    }
-}
-
-impl Config {
-    pub const DIR: &'static str = ".config/tetanes";
-    pub const SAVE_DIR: &'static str = "save";
-    pub const SRAM_DIR: &'static str = "sram";
-
-    #[must_use]
-    pub fn dir(&self) -> &PathBuf {
-        &self.dir
-    }
-
-    #[must_use]
-    pub fn save_dir(&self) -> PathBuf {
-        self.dir.join(Self::SAVE_DIR)
-    }
-
-    #[must_use]
-    pub fn sram_dir(&self) -> PathBuf {
-        self.dir.join(Self::SRAM_DIR)
     }
 }
 
@@ -131,7 +113,6 @@ impl Config {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct ControlDeck {
-    config: Config,
     running: bool,
     video: Video,
     loaded_rom: Option<String>,
@@ -154,7 +135,7 @@ impl ControlDeck {
 
     /// Create a NES `ControlDeck` with a configuration.
     pub fn with_config(config: Config) -> Self {
-        let mut cpu = Cpu::new(Bus::new(config.ram_state, config.sample_rate));
+        let mut cpu = Cpu::new(Bus::new(config.ram_state));
         cpu.set_region(config.region);
         cpu.bus.input.set_four_player(config.four_player);
         cpu.bus.input.connect_zapper(config.zapper);
@@ -163,7 +144,6 @@ impl ControlDeck {
         }
         let video = Video::with_filter(config.filter);
         Self {
-            config,
             running: false,
             video,
             loaded_rom: None,
@@ -178,30 +158,26 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is any issue loading the ROM, then an error is returned.
-    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<NesRegion> {
+    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<()> {
+        let name = name.to_string();
         self.unload_rom()?;
-        self.loaded_rom = Some(name.to_string());
-        let cart = Cart::from_rom(name, rom, self.cpu.bus.ram_state)?;
-        let region = cart.region();
+        let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state)?;
         self.cart_battery_backed = cart.battery_backed();
         self.set_region(cart.region());
         self.cpu.bus.load_cart(cart);
         self.reset(ResetKind::Hard);
         self.running = true;
-        // TODO: Bubble this up to caller while still providing region
-        if let Err(err) = self.load_sram() {
-            error!("failed to load SRAM: {err:?}");
-        }
-        if self.config.load_on_start {
-            if let Err(err) = self.load_state() {
-                error!("failed to load state: {err:?}");
+        if let Some(path) = Config::sram_path(&name) {
+            if let Err(err) = self.load_sram(path) {
+                error!("failed to load SRAM: {err:?}");
             }
         }
-        Ok(region)
+        self.loaded_rom = Some(name);
+        Ok(())
     }
 
     /// Loads a ROM cartridge into memory from a path.
-    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> Result<NesRegion> {
+    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> Result<()> {
         use std::{fs::File, io::BufReader};
 
         let path = path.as_ref();
@@ -213,10 +189,11 @@ impl ControlDeck {
     }
 
     pub fn unload_rom(&mut self) -> Result<()> {
-        if self.loaded_rom.is_some() {
-            self.save_sram()?;
-            if self.config.save_on_exit {
-                self.save_state()?;
+        if let Some(ref rom) = self.loaded_rom {
+            if let Some(dir) = Config::sram_path(rom) {
+                if let Err(err) = self.save_sram(dir) {
+                    error!("failed to save SRAM: {err:?}");
+                }
             }
         }
         self.loaded_rom = None;
@@ -226,11 +203,11 @@ impl ControlDeck {
     }
 
     pub fn load_cpu(&mut self, cpu: Cpu) {
-        self.cpu = cpu;
+        self.cpu.load(cpu);
     }
 
-    pub fn config(&self) -> &Config {
-        &self.config
+    pub fn set_cycle_accurate(&mut self, enabled: bool) {
+        self.cpu.cycle_accurate = enabled;
     }
 
     #[must_use]
@@ -257,37 +234,31 @@ impl ControlDeck {
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
-    pub fn save_sram(&self) -> Result<()> {
+    pub fn save_sram(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        if path.is_dir() {
+            return Err(Error::InvalidFilePath(path.to_path_buf()));
+        }
         if let Some(true) = self.cart_battery_backed() {
-            if let Some(sram_path) = self.sram_path() {
-                info!("saving SRAM...");
-                fs::save(sram_path, self.cpu.bus.sram()).map_err(Error::Sram)?;
-            }
+            info!("saving SRAM...");
+            fs::save(path, self.cpu.bus.sram()).map_err(Error::Sram)?;
         }
         Ok(())
     }
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
-    pub fn load_sram(&mut self) -> Result<()> {
-        if let Some(sram_path) = self.sram_path() {
-            if sram_path.exists() {
-                info!("loading SRAM...");
-                fs::load(&sram_path)
-                    .map(|data| self.cpu.bus.load_sram(data))
-                    .map_err(Error::Sram)?;
-            }
+    pub fn load_sram(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        if path.is_dir() {
+            return Err(Error::InvalidFilePath(path.to_path_buf()));
+        }
+        if path.is_file() {
+            info!("loading SRAM...");
+            fs::load(path)
+                .map(|data| self.cpu.bus.load_sram(data))
+                .map_err(Error::Sram)?;
         }
         Ok(())
-    }
-
-    /// Set the directory where the configuration and save files are stored.
-    pub fn set_config_dir(&mut self, dir: impl Into<PathBuf>) {
-        self.config.dir = dir.into();
-    }
-
-    /// Set the save slot for save states.
-    pub fn set_save_slot(&mut self, slot: u8) {
-        self.config.save_slot = slot;
     }
 
     /// Save the current state of the console into a save file.
@@ -295,15 +266,12 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is an issue saving the state, then an error is returned.
-    pub fn save_state(&mut self) -> Result<()> {
-        let Some(save_path) = self.save_path() else {
+    pub fn save_state(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
         };
-        // Avoid saving any test roms
-        if save_path.to_string_lossy().contains("test") {
-            return Ok(());
-        }
-        fs::save(save_path, &self.cpu).map_err(Error::SaveState)
+        let path = path.as_ref();
+        fs::save(path, &self.cpu).map_err(Error::SaveState)
     }
 
     /// Load the console with data saved from a save state, if it exists.
@@ -311,14 +279,18 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is an issue loading the save state, then an error is returned.
-    pub fn load_state(&mut self) -> Result<()> {
-        self.save_path()
-            .filter(|path| path.exists())
-            .map_or(Ok(()), |save_path| {
-                fs::load(save_path)
-                    .map_err(Error::SaveState)
-                    .map(|cpu| self.load_cpu(cpu))
-            })
+    pub fn load_state(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        if self.loaded_rom().is_none() {
+            return Err(Error::RomNotLoaded);
+        };
+        let path = path.as_ref();
+        if path.exists() {
+            fs::load(path)
+                .map_err(Error::SaveState)
+                .map(|cpu| self.load_cpu(cpu))
+        } else {
+            Ok(())
+        }
     }
 
     /// Load a frame worth of pixels.
@@ -491,9 +463,9 @@ impl ControlDeck {
         self.video.filter = filter;
     }
 
-    /// Set the APU sample rate (useful for emulation speed changes).
-    pub fn set_sample_rate(&mut self, sample_rate: f32) {
-        self.cpu.bus.apu.set_sample_rate(sample_rate);
+    /// Set the emulation speed.
+    pub fn set_frame_speed(&mut self, speed: f32) {
+        self.cpu.bus.apu.set_frame_speed(speed);
     }
 
     /// Enable Zapper gun.
@@ -531,26 +503,6 @@ impl ControlDeck {
     pub const fn is_running(&self) -> bool {
         self.running
     }
-
-    /// Returns the path where battery-backed Save RAM files are stored if a ROM is loaded. Returns
-    /// `None` if no ROM is loaded.
-    pub fn sram_path(&self) -> Option<PathBuf> {
-        self.loaded_rom()
-            .as_ref()
-            .map(|rom| self.config.sram_dir().join(rom).with_extension("sram"))
-    }
-
-    /// Returns the path where Save states are stored if a ROM is loaded. Returns `None` if no ROM
-    /// is loaded.
-    pub fn save_path(&self) -> Option<PathBuf> {
-        self.loaded_rom().as_ref().map(|rom| {
-            self.config
-                .save_dir()
-                .join(rom)
-                .join(self.config.save_slot.to_string())
-                .with_extension("save")
-        })
-    }
 }
 
 impl Clock for ControlDeck {
@@ -578,5 +530,8 @@ impl Reset for ControlDeck {
     /// Resets the console.
     fn reset(&mut self, kind: ResetKind) {
         self.cpu.reset(kind);
+        if self.loaded_rom.is_some() {
+            self.running = true;
+        }
     }
 }

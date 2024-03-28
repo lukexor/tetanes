@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-
 use crate::{
-    nes::{event::EmulationEvent, Nes},
+    nes::Nes,
     platform::{BuilderExt, EventLoopExt, Initialize},
 };
+use std::path::PathBuf;
 use tracing::error;
 use winit::{
     event::Event,
@@ -12,23 +11,22 @@ use winit::{
 };
 
 pub fn open_file_dialog(
+    title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
+    dir: Option<PathBuf>,
 ) -> anyhow::Result<Option<PathBuf>> {
-    Ok(rfd::FileDialog::new()
-        .add_filter(name, extensions)
-        .pick_file())
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(title)
+        .add_filter(name, extensions);
+    if let Some(dir) = dir {
+        dialog = dialog.set_directory(dir);
+    }
+    Ok(dialog.pick_file())
 }
 
 impl Initialize for Nes {
     fn initialize(&mut self) -> anyhow::Result<()> {
-        if self.config.rom_path.is_file() {
-            let path = &self.config.rom_path;
-            self.trigger_event(EmulationEvent::LoadRomPath((
-                path.to_path_buf(),
-                self.config.clone(),
-            )));
-        }
         Ok(())
     }
 }

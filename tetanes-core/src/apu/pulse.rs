@@ -4,32 +4,37 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Pulse Channel selection.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum PulseChannel {
     One,
     Two,
 }
 
+/// Pulse Channel output frequency.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum OutputFreq {
     Default,
     Ultrasonic,
 }
 
+/// APU Pulse Channel provides square wave generation.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Pulse>
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pulse {
-    enabled: bool,
-    force_silent: bool,
-    duty_cycle: u8,        // Select row in DUTY_TABLE
-    duty_counter: u8,      // Select column in DUTY_TABLE
-    freq_timer: u16,       // timer freq_counter reload value
-    freq_counter: u16,     // Current frequency timer value
-    channel: PulseChannel, // One or Two
-    length: LengthCounter,
-    envelope: Envelope,
-    sweep: Sweep,
-    output_freq: OutputFreq,
+    pub enabled: bool,
+    pub force_silent: bool,
+    pub duty_cycle: u8,        // Select row in DUTY_TABLE
+    pub duty_counter: u8,      // Select column in DUTY_TABLE
+    pub freq_timer: u16,       // timer freq_counter reload value
+    pub freq_counter: u16,     // Current frequency timer value
+    pub channel: PulseChannel, // One or Two
+    pub length: LengthCounter,
+    pub envelope: Envelope,
+    pub sweep: Sweep,
+    pub output_freq: OutputFreq,
 }
 
 impl Default for Pulse {
@@ -124,16 +129,14 @@ impl Pulse {
         }
     }
 
-    // $4000 Pulse control
-
+    /// $4000 Pulse control
     pub fn write_ctrl(&mut self, val: u8) {
         self.duty_cycle = (val >> 6) & 0x03; // D7..D6
         self.length.write_ctrl(val);
         self.envelope.write_ctrl(val);
     }
 
-    // $4001 Pulse sweep
-
+    /// $4001 Pulse sweep
     pub fn write_sweep(&mut self, val: u8) {
         self.sweep.timer = (val >> 4) & 0x07; // D6..D4
         self.sweep.negate = (val >> 3) & 1 == 1; // D3
@@ -142,14 +145,12 @@ impl Pulse {
         self.sweep.reload = true;
     }
 
-    // $4002 Pulse timer lo
-
+    /// $4002 Pulse timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
     }
 
-    // $4003 Pulse timer hi
-
+    /// $4003 Pulse timer hi
     pub fn write_timer_hi(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
         self.freq_counter = self.freq_timer;

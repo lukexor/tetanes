@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[rustfmt::skip]
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 // List of all CPU official and unofficial operations
 // http://wiki.nesdev.com/w/index.php/6502_instructions
 // http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf
@@ -17,14 +17,15 @@ pub enum Operation {
     PLP, ROL, ROR, RTI, RTS, SBC, SEC, SED, SEI, STA, STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
     // "Unofficial" opcodes
     SKB, IGN, ISB, DCP, AXS, LAS, LAX, AHX, SAX, XAA, SXA, RRA, TAS, SYA, ARR, SRE, ALR, RLA, ANC,
-    SLO, XXX
+    SLO, #[default] XXX
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::upper_case_acronyms)]
 #[rustfmt::skip]
 #[must_use]
 pub enum AddrMode {
+    #[default]
     IMM,
     ZP0, ZPX, ZPY,
     ABS, ABX, ABY,
@@ -43,7 +44,7 @@ use Operation::{
 };
 
 // (opcode, Addressing Mode, Operation, cycles taken)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub struct Instr(u8, AddrMode, Operation, usize);
 

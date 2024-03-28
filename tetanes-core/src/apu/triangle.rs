@@ -4,17 +4,20 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// APU Triangle Channel provides triangle wave generation.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Triangle>
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Triangle {
-    enabled: bool,
-    force_silent: bool,
-    ultrasonic: bool,
-    step: u8,
-    freq_timer: u16,
-    freq_counter: u16,
-    length: LengthCounter,
-    linear: LinearCounter,
+    pub enabled: bool,
+    pub force_silent: bool,
+    pub ultrasonic: bool,
+    pub step: u8,
+    pub freq_timer: u16,
+    pub freq_counter: u16,
+    pub length: LengthCounter,
+    pub linear: LinearCounter,
 }
 
 impl Default for Triangle {

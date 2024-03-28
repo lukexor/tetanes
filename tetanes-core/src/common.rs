@@ -50,6 +50,12 @@ impl NesRegion {
     }
 }
 
+impl std::fmt::Display for NesRegion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+
 impl AsRef<str> for NesRegion {
     fn as_ref(&self) -> &str {
         match self {
@@ -258,11 +264,8 @@ pub(crate) mod tests {
             filter: VideoFilter::Pixellate,
             ..Default::default()
         });
-        let region = deck
-            .load_rom(&path.to_string_lossy(), &mut rom)
+        deck.load_rom(&path.to_string_lossy(), &mut rom)
             .expect("failed to load rom");
-        deck.set_filter(VideoFilter::Pixellate);
-        deck.set_region(region);
         deck
     }
 

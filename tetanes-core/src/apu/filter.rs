@@ -5,10 +5,12 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::f32::consts::{PI, TAU};
 
+/// A trait for audio processing that consumes samples.
 pub trait Consume {
     fn consume(&mut self, sample: f32);
 }
 
+/// Represents a digital filter with certain characteristics.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub enum FilterKind {
@@ -17,14 +19,15 @@ pub enum FilterKind {
     LowPass,
 }
 
+/// An infinite impulse response (IIR) filter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Iir {
-    alpha: f32,
-    prev_output: f32,
-    prev_input: f32,
-    delta: f32,
-    kind: FilterKind,
+    pub alpha: f32,
+    pub prev_output: f32,
+    pub prev_input: f32,
+    pub delta: f32,
+    pub kind: FilterKind,
 }
 
 impl Iir {
@@ -73,13 +76,14 @@ impl Sample for Iir {
     }
 }
 
+/// A finite impulse response (FIR) filter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fir {
-    kernel: Vec<f32>,
-    inputs: Vec<f32>,
-    input_index: usize,
-    kind: FilterKind,
+    pub kernel: Vec<f32>,
+    pub inputs: Vec<f32>,
+    pub input_index: usize,
+    pub kind: FilterKind,
 }
 
 impl Fir {
@@ -126,6 +130,7 @@ impl Sample for Fir {
     }
 }
 
+/// Generate a windowed sinc kernel.
 pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -> Vec<f32> {
     fn blackman_window(index: usize, window_size: usize) -> f32 {
         let i = index as f32;
@@ -157,6 +162,7 @@ pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -
     normalize(kernel)
 }
 
+/// Represents a digital audio filter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub enum Filter {
@@ -194,12 +200,13 @@ impl From<Fir> for Filter {
     }
 }
 
+/// Represents a filter with a given sampling period.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct SampledFilter {
-    filter: Filter,
-    sample_period: f32,
-    period_counter: f32,
+    pub filter: Filter,
+    pub sample_period: f32,
+    pub period_counter: f32,
 }
 
 impl SampledFilter {
@@ -212,11 +219,12 @@ impl SampledFilter {
     }
 }
 
+/// Represents a chain of filters for a given [`NesRegion`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterChain {
-    region: NesRegion,
-    dt: f32,
-    filters: Vec<SampledFilter>,
+    pub region: NesRegion,
+    pub dt: f32,
+    pub filters: Vec<SampledFilter>,
 }
 
 impl FilterChain {

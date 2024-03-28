@@ -20,10 +20,10 @@ pub enum Player {
 impl AsRef<str> for Player {
     fn as_ref(&self) -> &str {
         match self {
-            Self::One => "Player One",
-            Self::Two => "Player Two",
-            Self::Three => "Player Three",
-            Self::Four => "Player Four",
+            Self::One => "one",
+            Self::Two => "two",
+            Self::Three => "three",
+            Self::Four => "four",
         }
     }
 }
@@ -50,9 +50,9 @@ impl FourPlayer {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Disabled => "Disabled",
-            Self::FourScore => "FourScore",
-            Self::Satellite => "Satellite",
+            Self::Disabled => "disabled",
+            Self::FourScore => "four-score",
+            Self::Satellite => "satellite",
         }
     }
 }

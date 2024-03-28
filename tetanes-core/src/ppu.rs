@@ -54,57 +54,57 @@ pub trait Registers {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
-    master_clock: u64,
-    clock_divider: u64,
-    cycle: u32,    // (0, 340) cycles per scanline
-    scanline: u32, // (0,happen  261) NTSC or (0, 311) PAL/Dendy scanlines per frame
-    vblank_scanline: u32,
-    prerender_scanline: u32,
-    pal_spr_eval_scanline: u32,
+    pub master_clock: u64,
+    pub clock_divider: u64,
+    pub cycle: u32,    // (0, 340) cycles per scanline
+    pub scanline: u32, // (0,happen  261) NTSC or (0, 311) PAL/Dendy scanlines per frame
+    pub vblank_scanline: u32,
+    pub prerender_scanline: u32,
+    pub pal_spr_eval_scanline: u32,
 
-    scroll: Scroll, // $2005 PPUSCROLL and $2006 PPUADDR write-only
-    mask: Mask,     // $2001 PPUMASK write-only
-    ctrl: Ctrl,     // $2000 PPUCTRL write-only
-    status: Status, // $2002 PPUSTATUS read-only
+    pub scroll: Scroll, // $2005 PPUSCROLL and $2006 PPUADDR write-only
+    pub mask: Mask,     // $2001 PPUMASK write-only
+    pub ctrl: Ctrl,     // $2000 PPUCTRL write-only
+    pub status: Status, // $2002 PPUSTATUS read-only
     pub bus: Bus,
 
-    prev_palette: u8,
-    curr_palette: u8,
-    next_palette: u8,
-    tile_shift_lo: u16,
-    tile_shift_hi: u16,
-    tile_lo: u8,
-    tile_hi: u8,
-    tile_addr: u16,
+    pub curr_palette: u8,
+    pub prev_palette: u8,
+    pub next_palette: u8,
+    pub tile_shift_lo: u16,
+    pub tile_shift_hi: u16,
+    pub tile_lo: u8,
+    pub tile_hi: u8,
+    pub tile_addr: u16,
 
-    oamaddr_lo: u8,
-    oamaddr_hi: u8,
-    oamaddr: u8, // $2003 OAM addr write-only
-    oam_fetch: u8,
-    oam_eval_done: bool,
-    secondary_oamaddr: u8,
-    overflow_count: u8,
-    spr_in_range: bool,
-    spr_zero_in_range: bool,
-    spr_zero_visible: bool,
-    spr_count: usize,
-    vram_buffer: u8, // $2007 PPUDATA buffer
+    pub oamaddr_lo: u8,
+    pub oamaddr_hi: u8,
+    pub oamaddr: u8, // $2003 OAM addr write-only
+    pub oam_fetch: u8,
+    pub oam_eval_done: bool,
+    pub secondary_oamaddr: u8,
+    pub overflow_count: u8,
+    pub spr_in_range: bool,
+    pub spr_zero_in_range: bool,
+    pub spr_zero_visible: bool,
+    pub spr_count: usize,
+    pub vram_buffer: u8, // $2007 PPUDATA buffer
 
-    oamdata: Vec<u8>, // $2004 OAM data read/write - Object Attribute Memory for Sprites
-    secondary_oamdata: [u8; Self::SECONDARY_OAM_SIZE], // Secondary OAM data for Sprites on a given scanline
-    sprites: [Sprite; 8],                              // Each scanline can hold 8 sprites at a time
-    spr_present: Vec<bool>,
+    pub oamdata: Vec<u8>, // $2004 OAM data read/write - Object Attribute Memory for Sprites
+    pub secondary_oamdata: [u8; Self::SECONDARY_OAM_SIZE], // Secondary OAM data for Sprites on a given scanline
+    pub sprites: [Sprite; 8], // Each scanline can hold 8 sprites at a time
+    pub spr_present: Vec<bool>,
 
-    nmi_pending: bool,
-    prevent_vbl: bool,
-    frame: Frame,
+    pub nmi_pending: bool,
+    pub prevent_vbl: bool,
+    pub frame: Frame,
 
-    region: NesRegion,
-    cycle_count: usize,
+    pub region: NesRegion,
+    pub cycle_count: usize,
     // Internal signal that clears status registers and prevents writes and cleared at the end of VBlank
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    reset_signal: bool,
-    open_bus: u8,
+    pub reset_signal: bool,
+    pub open_bus: u8,
 }
 
 impl Default for Ppu {
@@ -150,9 +150,11 @@ impl Ppu {
     // Scanlines
     const VISIBLE_SCANLINE_END: u32 = 239; // Rendering graphics for the screen
 
+    pub const NTSC_PALETTE: &'static [u8] = include_bytes!("../ntscpalette.pal");
+
     // 64 total possible colors, though only 32 can be loaded at a time
     #[rustfmt::skip]
-    const SYSTEM_PALETTE: [(u8,u8,u8); 64] = [
+    pub const SYSTEM_PALETTE: [(u8,u8,u8); 64] = [
         // 0x00
         (0x54, 0x54, 0x54), (0x00, 0x1E, 0x74), (0x08, 0x10, 0x90), (0x30, 0x00, 0x88), // $00-$03
         (0x44, 0x00, 0x64), (0x5C, 0x00, 0x30), (0x54, 0x04, 0x00), (0x3C, 0x18, 0x00), // $04-$07

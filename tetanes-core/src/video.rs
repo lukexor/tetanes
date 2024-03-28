@@ -118,12 +118,12 @@ impl Video {
     /// Fills a fully rendered frame with RGB colors.
     pub fn decode_buffer(&mut self, buffer: &[u16]) {
         for (pixel, colors) in buffer.iter().zip(self.frame.chunks_exact_mut(4)) {
-            let (red, green, blue) = Ppu::system_palette(*pixel);
+            let index = (pixel * 3) as usize;
+            assert!(Ppu::NTSC_PALETTE.len() > index + 2);
             assert!(colors.len() > 2);
-            colors[0] = red;
-            colors[1] = green;
-            colors[2] = blue;
-            // Alpha should always be 255
+            colors[0] = Ppu::NTSC_PALETTE[index];
+            colors[1] = Ppu::NTSC_PALETTE[index + 1];
+            colors[2] = Ppu::NTSC_PALETTE[index + 2];
         }
     }
 
@@ -131,7 +131,6 @@ impl Video {
     // to translate it to Rust
     // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
     // http://wiki.nesdev.com/w/index.php/NTSC_video
-
     pub fn apply_ntsc_filter(&mut self, buffer: &[u16], frame_number: u32) {
         let mut prev_pixel = 0;
         for (idx, (pixel, colors)) in buffer

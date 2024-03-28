@@ -29,7 +29,11 @@ impl Texture {
             view_formats: &[],
         });
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            label,
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            ..Default::default()
+        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,

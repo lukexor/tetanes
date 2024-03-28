@@ -8,9 +8,9 @@ pub struct Scroll {
     pub coarse_x: u16,
     pub fine_y: u16,
     pub coarse_y: u16,
-    v: u16,            // Subject to ADDR_MIRROR
-    t: u16,            // Temporary v - Also the addr of top-left onscreen tile
-    write_latch: bool, // 1st or 2nd write toggle
+    pub v: u16,            // Subject to ADDR_MIRROR
+    t: u16,                // Temporary v - Also the addr of top-left onscreen tile
+    pub write_latch: bool, // 1st or 2nd write toggle
     delay_v_cycles: u32,
     delay_v: u16,
 }

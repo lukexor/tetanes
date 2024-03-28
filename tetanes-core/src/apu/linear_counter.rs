@@ -1,16 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+/// APU Linear Counter provides duration control for the APU triangle channel.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Triangle>
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
-pub(crate) struct LinearCounter {
-    pub(crate) reload: bool,
-    pub(crate) control: bool,
-    pub(crate) load: u8,
-    pub(crate) counter: u8,
+pub struct LinearCounter {
+    pub reload: bool,
+    pub control: bool,
+    pub load: u8,
+    pub counter: u8,
 }
 
 impl LinearCounter {
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             reload: false,
             control: false,
@@ -19,7 +22,7 @@ impl LinearCounter {
         }
     }
 
-    pub(crate) fn load_value(&mut self, val: u8) {
+    pub fn load_value(&mut self, val: u8) {
         self.load = val & 0x7F; // D6..D0
     }
 }

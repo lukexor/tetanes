@@ -63,8 +63,8 @@ impl Audio {
     pub fn enabled(&self) -> bool {
         self.output
             .as_ref()
-            .map(|output| output.mixer.is_some())
-            .unwrap_or(false)
+            .and_then(|output| output.mixer.as_ref())
+            .map_or(false, |mixer| !mixer.paused)
     }
 
     /// Processes generated audio samples.
@@ -101,19 +101,14 @@ impl Audio {
 
     /// Pause or resume the audio output stream. If `paused` is false and the stream is not started
     /// yet, it will be started.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the audio device has not been started yet or does not support pausing.
-    pub fn pause(&mut self, paused: bool) -> anyhow::Result<()> {
+    pub fn pause(&mut self, paused: bool) {
         if let Some(ref mut mixer) = self
             .output
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
         {
-            mixer.pause(paused)?;
+            mixer.pause(paused);
         }
-        Ok(())
     }
 
     /// Recreate audio output device.
@@ -325,8 +320,8 @@ impl Output {
     }
 
     fn stop(&mut self) {
-        if let Some(ref mut mixer) = self.mixer {
-            mixer.stop();
+        if let Some(mut mixer) = self.mixer.take() {
+            mixer.pause(true);
         }
     }
 }
@@ -398,29 +393,21 @@ impl Mixer {
         })
     }
 
-    fn stop(&mut self) {
-        self.processed_samples.clear();
-        if let Err(err) = self.pause(true) {
-            error!("failed to pause stream on stop: {err:?}");
-        }
-    }
-
     /// Pause or resume the audio output stream. If `paused` is false and the stream is not started
     /// yet, it will be started.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the audio device has not been started yet or does not support pausing.
-    fn pause(&mut self, paused: bool) -> anyhow::Result<()> {
+    fn pause(&mut self, paused: bool) {
         if paused && !self.paused {
             self.stop_recording();
             self.processed_samples.clear();
-            self.stream.pause()?;
+            if let Err(err) = self.stream.pause() {
+                error!("failed to pause audio stream: {err:?}");
+            }
         } else if !paused && self.paused {
-            self.stream.play()?;
+            if let Err(err) = self.stream.play() {
+                error!("failed to resume audio stream: {err:?}");
+            }
         }
         self.paused = paused;
-        Ok(())
     }
 
     fn stop_recording(&mut self) {

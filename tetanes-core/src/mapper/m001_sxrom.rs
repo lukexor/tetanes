@@ -23,7 +23,7 @@ pub enum Mmc1Revision {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
-struct SxRegs {
+pub struct SxRegs {
     write_just_occurred: u8,
     shift_register: u8, // $8000-$FFFF - 5 bit shift register
     control: u8,        // $8000-$9FFF
@@ -35,14 +35,14 @@ struct SxRegs {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Sxrom {
-    regs: SxRegs,
-    submapper_num: u8,
-    mirroring: Mirroring,
-    board: Mmc1Revision,
-    chr_select: bool,
-    chr_banks: MemBanks,
-    prg_ram_banks: MemBanks,
-    prg_rom_banks: MemBanks,
+    pub regs: SxRegs,
+    pub submapper_num: u8,
+    pub mirroring: Mirroring,
+    pub board: Mmc1Revision,
+    pub chr_select: bool,
+    pub chr_banks: MemBanks,
+    pub prg_ram_banks: MemBanks,
+    pub prg_rom_banks: MemBanks,
 }
 
 impl Sxrom {
@@ -66,8 +66,13 @@ impl Sxrom {
         if !cart.has_prg_ram() {
             cart.add_prg_ram(Self::PRG_RAM_SIZE);
         }
-        if !cart.has_chr() {
-            cart.add_chr_ram(Self::CHR_RAM_SIZE);
+        let chr_len = if cart.has_chr_rom() {
+            cart.chr_rom.len()
+        } else {
+            if cart.chr_ram.is_empty() {
+                cart.add_chr_ram(Self::CHR_RAM_SIZE);
+            }
+            cart.chr_ram.len()
         };
         let mut sxrom = Self {
             regs: SxRegs {
@@ -82,7 +87,7 @@ impl Sxrom {
             mirroring: Mirroring::SingleScreenA,
             board,
             chr_select: cart.prg_rom.len() == 0x80000,
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_len(), Self::CHR_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
         };
@@ -90,7 +95,7 @@ impl Sxrom {
         sxrom.into()
     }
 
-    fn update_banks(&mut self, addr: u16) {
+    pub fn update_banks(&mut self, addr: u16) {
         self.mirroring = match self.regs.control & Self::MIRRORING_MASK {
             0 => Mirroring::SingleScreenA,
             1 => Mirroring::SingleScreenB,
@@ -146,7 +151,7 @@ impl Sxrom {
         }
     }
 
-    fn prg_ram_enabled(&self) -> bool {
+    pub fn prg_ram_enabled(&self) -> bool {
         self.board == Mmc1Revision::A || self.regs.prg & Self::PRG_RAM_DISABLED == 0
     }
 }

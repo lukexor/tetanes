@@ -1,91 +1,83 @@
 use crate::nes::emulation::State;
-use std::collections::VecDeque;
 use tetanes_core::cpu::Cpu;
-use winit::event::ElementState;
 
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Rewind {
     frames: u8,
-    interval: u8,
-    max_buffer_size: usize,
-    enabled: bool,
-    buffer: VecDeque<Cpu>,
+    index: usize,
+    count: usize,
+    buffer: Vec<Cpu>,
 }
 
 impl Rewind {
-    pub fn new(enabled: bool, interval: u8, max_buffer_size: usize) -> Self {
+    const BUFFER_SIZE: usize = 2048;
+    const INTERVAL: u8 = 2;
+
+    pub fn new() -> Self {
         Self {
             frames: 0,
-            interval,
-            max_buffer_size,
-            enabled,
-            buffer: if enabled {
-                VecDeque::with_capacity(max_buffer_size)
-            } else {
-                VecDeque::new()
-            },
+            index: 0,
+            count: 0,
+            buffer: vec![Cpu::default(); Self::BUFFER_SIZE],
         }
-    }
-
-    pub fn enable(&mut self, enabled: bool) {
-        self.enabled = enabled;
     }
 
     pub fn push(&mut self, cpu: &Cpu) {
-        if !self.enabled {
-            return;
-        }
         self.frames += 1;
-        if self.frames >= self.interval {
+        if self.frames >= Self::INTERVAL {
             self.frames = 0;
-            self.buffer.push_front(cpu.clone());
-            let buffer_size = self
-                .buffer
-                .iter()
-                .fold(0, |size, _| size + std::mem::size_of::<Cpu>());
-            if buffer_size >= self.max_buffer_size {
-                self.buffer.pop_back();
+            self.buffer[self.index] = cpu.clone();
+            self.index += 1;
+            self.count += 1;
+            if self.index >= self.buffer.len() {
+                self.index = 0;
             }
         }
     }
 
     pub fn pop(&mut self) -> Option<Cpu> {
-        self.buffer.pop_front()
+        if self.count > 0 {
+            let cpu = self.buffer[self.index].clone();
+            self.index -= 1;
+            if self.index == 0 {
+                self.index = self.buffer.len() - 1;
+            }
+            Some(cpu)
+        } else {
+            None
+        }
     }
 }
 
 impl State {
+    fn rewind_disabled(&mut self) {
+        self.add_message("Rewind disabled. You can enable it in the Preferences menu.");
+    }
+
     pub fn rewind(&mut self) {
-        if let Some(cpu) = self.rewind.pop() {
-            self.control_deck.load_cpu(cpu);
+        match self.rewind.as_mut().and_then(|r| r.pop()) {
+            Some(cpu) => {
+                self.control_deck.load_cpu(cpu);
+            }
+            None => self.rewind_disabled(),
         }
     }
 
     pub fn instant_rewind(&mut self) {
-        // Two seconds worth of frames @ 60 FPS
-        let mut rewind_frames = 120 / self.rewind.interval;
-        while rewind_frames > 0 {
-            self.rewind.buffer.pop_front();
-            rewind_frames -= 1;
-        }
-        self.rewind();
-    }
-
-    pub fn on_rewind(&mut self, state: ElementState, repeat: bool) {
-        if !self.rewind.enabled {
-            self.add_message("Rewind disabled. You can enable it in the Config menu.");
-            return;
-        }
-        if repeat {
-            self.rewinding = true;
-            self.pause(true);
-        } else if state == ElementState::Released {
-            if self.rewinding {
-                self.pause(false);
-            } else {
-                self.instant_rewind();
+        match self.rewind {
+            Some(ref mut rewind) => {
+                // Two seconds worth of frames @ 60 FPS
+                let mut rewind_frames = 120 / Rewind::INTERVAL;
+                while let Some(cpu) = rewind.pop() {
+                    self.control_deck.load_cpu(cpu);
+                    rewind_frames -= 1;
+                    if rewind_frames == 0 {
+                        break;
+                    }
+                }
             }
+            None => self.rewind_disabled(),
         }
     }
 }

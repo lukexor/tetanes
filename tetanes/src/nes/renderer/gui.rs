@@ -4,27 +4,31 @@ use crate::nes::{
 };
 use egui::{
     global_dark_light_mode_switch, load::SizedTexture, menu, Align, Align2, Area, CentralPanel,
-    Color32, Context, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, Style,
-    TopBottomPanel, Ui, Vec2, Window,
+    Color32, Context, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, TopBottomPanel,
+    Ui, Vec2,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tetanes_core::{
-    common::ResetKind,
-    input::Player,
+    common::{NesRegion, ResetKind},
+    input::{FourPlayer, Player},
+    ppu::Ppu,
     time::{Duration, Instant},
+    video::VideoFilter,
 };
-use tracing::{error, trace, warn};
-use winit::event_loop::EventLoopProxy;
+use tracing::{error, trace};
+use winit::{
+    event_loop::EventLoopProxy,
+    window::{Fullscreen, Window},
+};
 
 pub const MSG_TIMEOUT: Duration = Duration::from_secs(3);
 pub const MAX_MESSAGES: usize = 3;
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Menu {
     Config(ConfigTab),
     Keybind(Player),
-    #[default]
-    LoadRom,
     About,
 }
 
@@ -50,16 +54,17 @@ impl AsRef<str> for ConfigTab {
 #[derive(Debug)]
 #[must_use]
 pub struct Gui {
+    pub window: Arc<Window>,
     pub event_proxy: EventLoopProxy<NesEvent>,
     pub texture: SizedTexture,
+    pub config: Config,
     pub paused: bool,
-    pub show_menu: bool,
     pub menu_height: f32,
-    pub recent_open: bool,
-    pub config_open: bool,
-    pub keybind_open: bool,
-    pub load_rom_open: bool,
+    pub preferences_open: bool,
+    pub keybinds_open: bool,
     pub about_open: bool,
+    pub resize_surface: bool,
+    pub resize_texture: bool,
     pub version: String,
     pub last_frame_duration: Duration,
     pub messages: Vec<(String, Instant)>,
@@ -97,18 +102,24 @@ impl From<GuiEvent> for NesEvent {
 
 impl Gui {
     /// Create a gui `State`.
-    pub fn new(event_proxy: EventLoopProxy<NesEvent>, texture: SizedTexture) -> Self {
+    pub fn new(
+        window: Arc<Window>,
+        event_proxy: EventLoopProxy<NesEvent>,
+        texture: SizedTexture,
+        config: Config,
+    ) -> Self {
         Self {
+            window,
             event_proxy,
             texture,
+            config,
             paused: false,
-            show_menu: true,
             menu_height: 0.0,
-            recent_open: false,
-            config_open: false,
-            keybind_open: false,
-            load_rom_open: false,
+            preferences_open: false,
+            keybinds_open: false,
             about_open: false,
+            resize_surface: false,
+            resize_texture: false,
             version: format!("Version: {}", env!("CARGO_PKG_VERSION")),
             last_frame_duration: Duration::default(),
             messages: vec![],
@@ -128,41 +139,44 @@ impl Gui {
     }
 
     /// Create the UI.
-    pub fn ui(&mut self, ctx: &Context, config: &mut Config) {
+    pub fn ui(&mut self, ctx: &Context) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        TopBottomPanel::top("menu_bar")
-            .show_animated(ctx, self.show_menu, |ui| self.menu_bar(ui, config));
+        TopBottomPanel::top("menu_bar").show_animated(
+            ctx,
+            self.config.read(|cfg| cfg.renderer.show_menubar),
+            |ui| self.menu_bar(ui),
+        );
         CentralPanel::default()
             .frame(Frame::none())
-            .show(ctx, |ui| self.nes_frame(ui, config));
+            .show(ctx, |ui| self.nes_frame(ui));
 
         // TODO: show confirm quit dialog?
 
-        let mut recent_open = self.recent_open;
-        Window::new("Recent Played ROMs")
-            .open(&mut recent_open)
-            .show(ctx, |ui| self.recently_played(ui, config));
-        self.recent_open = recent_open;
+        let mut preferences_open = self.preferences_open;
+        egui::Window::new("Preferences")
+            .open(&mut preferences_open)
+            .show(ctx, |ui| self.preferences(ui));
+        self.preferences_open = preferences_open;
 
-        let mut config_open = self.config_open;
-        Window::new("Configuration")
-            .open(&mut config_open)
-            .show(ctx, |ui| self.configuration(ui));
-        self.config_open = config_open;
+        let mut keybinds_open = self.keybinds_open;
+        egui::Window::new("Keybinds")
+            .open(&mut keybinds_open)
+            .show(ctx, |ui| self.keybinds(ui));
+        self.keybinds_open = keybinds_open;
 
         let mut about_open = self.about_open;
-        Window::new("About TetaNES")
+        egui::Window::new("About TetaNES")
             .open(&mut about_open)
-            .show(ctx, |ui| self.about(ui, config));
+            .show(ctx, |ui| self.about(ui));
         self.about_open = about_open;
 
         #[cfg(feature = "profiling")]
         puffin_egui::show_viewport_if_enabled(ctx);
     }
 
-    fn menu_bar(&mut self, ui: &mut Ui, config: &mut Config) {
+    fn menu_bar(&mut self, ui: &mut Ui) {
         ui.style_mut().spacing.menu_margin = Margin::ZERO;
         let inner_response = menu::bar(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -170,48 +184,214 @@ impl Gui {
                 ui.separator();
 
                 ui.menu_button("File", |ui| self.file_menu(ui));
-                ui.menu_button("Controls", |ui| self.controls_menu(ui, config));
-                ui.menu_button("Emulation", |ui| self.emulation_menu(ui, config));
-                ui.menu_button("View", |ui| self.view_menu(ui, config));
+                ui.menu_button("Controls", |ui| self.controls_menu(ui));
+                ui.menu_button("Settings", |ui| self.settings_menu(ui));
                 ui.menu_button("Window", |ui| self.window_menu(ui));
                 ui.menu_button("Debug", |ui| self.debug_menu(ui));
                 ui.toggle_value(&mut self.about_open, "About");
             });
         });
-        let height = inner_response.response.rect.height();
+        let spacing = ui.style().spacing.item_spacing;
+        let border = 1.0;
+        let height = inner_response.response.rect.height() + spacing.y + border;
         if height != self.menu_height {
             self.menu_height = height;
-            self.resize_window(ui.style(), config);
+            self.resize_surface = true;
         }
     }
 
     fn file_menu(&mut self, ui: &mut Ui) {
-        if ui.button("Load ROM...").clicked() || self.load_rom_open {
-            self.load_rom_open = false;
-            ui.close_menu();
+        // NOTE: Due to some platforms file dialogs blocking the event loop,
+        // loading requires a round-trip in order for the above pause to
+        // get processed.
+        if ui.button("Load ROM...").clicked() {
             self.send_event(EmulationEvent::Pause(true));
-            // Due to some platforms file dialogs blocking the event loop,
-            // loading requires a round-trip in order for the above pause to
-            // get processed.
             self.send_event(UiEvent::LoadRomDialog);
-        }
-        // TODO: support recent games on wasm? Requires storing the nes rom data somewhere
-        #[cfg(not(target_arch = "wasm32"))]
-        if ui.button("Recently Played...").clicked() {
-            self.recent_open = true;
             ui.close_menu();
         }
         if ui.button("Load Replay...").clicked() {
-            self.todo(ui);
-            // self.send_event(EmulationEvent::LoadReplay(path));
+            self.send_event(EmulationEvent::Pause(true));
+            self.send_event(UiEvent::LoadReplayDialog);
+            ui.close_menu();
         }
-        // Load Replay
-        if ui.button("Configuration").clicked() {
-            self.config_open = true;
+
+        // TODO: support saves and recent games on wasm? Requires storing the data
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if ui.button("Save State").clicked() {
+                self.send_event(EmulationEvent::StateSave);
+                ui.close_menu();
+            };
+            if ui.button("Load State").clicked() {
+                self.send_event(EmulationEvent::StateLoad);
+                ui.close_menu();
+            }
+
+            self.config.write(|cfg| {
+                ui.menu_button("Save Slot...", |ui| {
+                    for i in 1..=4 {
+                        if ui
+                            .radio_value(&mut cfg.emulation.save_slot, i, &i.to_string())
+                            .clicked()
+                        {
+                            ui.close_menu();
+                        }
+                    }
+                });
+            });
+
+            ui.menu_button("Recently Played...", |ui| {
+                use tetanes_core::fs;
+                let mut rom = self.config.read(|cfg| {
+                    // TODO: add timestamp, save slots, and screenshot
+                    for rom in &cfg.renderer.recent_roms {
+                        if ui.button(fs::filename(rom)).clicked() {
+                            return Some(rom.to_path_buf());
+                        }
+                    }
+                    None
+                });
+                if let Some(rom) = rom.take() {
+                    self.send_event(EmulationEvent::LoadRomPath(rom));
+                    ui.close_menu();
+                }
+            });
+
+            if ui.button("Quit").clicked() {
+                self.send_event(UiEvent::Terminate);
+                ui.close_menu();
+            };
+        }
+    }
+
+    fn controls_menu(&mut self, ui: &mut Ui) {
+        if ui
+            .button(if self.paused { "Resume" } else { "Pause" })
+            .clicked()
+        {
+            self.send_event(EmulationEvent::TogglePause);
+            ui.close_menu();
+        };
+        if ui.button("Reset").clicked() {
+            self.send_event(EmulationEvent::Reset(ResetKind::Soft));
+            ui.close_menu();
+        };
+        if ui.button("Power Cycle").clicked() {
+            self.send_event(EmulationEvent::Reset(ResetKind::Hard));
+            ui.close_menu();
+        };
+        if ui
+            .button(if self.config.read(|cfg| cfg.audio.enabled) {
+                "Mute"
+            } else {
+                "Unmute"
+            })
+            .clicked()
+        {
+            self.send_event(EmulationEvent::SetAudioEnabled(self.config.write(|cfg| {
+                cfg.audio.enabled = !cfg.audio.enabled;
+                cfg.audio.enabled
+            })));
+            ui.close_menu();
+        };
+        if ui.button("Take Screenshot").clicked() {
+            self.send_event(EmulationEvent::Screenshot);
+            ui.close_menu();
+        };
+        if ui.button("Rewind").clicked() {
+            self.send_event(EmulationEvent::InstantRewind);
+            ui.close_menu();
+        };
+        // TODO: change to Start/Stop
+        if ui.button("Toggle Replay Recording").clicked() {
+            self.send_event(EmulationEvent::ToggleReplayRecord);
+            ui.close_menu();
+        };
+        if ui.button("Toggle Audio Recording").clicked() {
+            self.send_event(EmulationEvent::ToggleAudioRecord);
+            ui.close_menu();
+        };
+    }
+
+    fn settings_menu(&mut self, ui: &mut Ui) {
+        self.config.write(|cfg| {
+            ui.checkbox(&mut cfg.emulation.cycle_accurate, "Cycle Accurate");
+        });
+        ui.menu_button("Speed...", |ui| {
+            let changed = self.config.write(|cfg| {
+                ui.add(
+                    egui::Slider::new(&mut cfg.emulation.speed, 0.25..=2.0)
+                        .step_by(0.25)
+                        .suffix("%"),
+                )
+                .changed()
+            });
+            if changed {
+                self.send_event(EmulationEvent::SetSpeed(
+                    self.config.read(|cfg| cfg.emulation.speed),
+                ));
+            }
+        });
+        self.config.write(|cfg| {
+            ui.checkbox(&mut cfg.deck.zapper, "Enable Zapper Gun");
+        });
+        self.resize_texture = self.config.write(|cfg| {
+            ui.checkbox(&mut cfg.renderer.hide_overscan, "Hide Overscan")
+                .clicked()
+        });
+        ui.menu_button("Video Filter...", |ui| {
+            let filter = self.config.read(|cfg| cfg.deck.filter);
+            self.config.write(|cfg| {
+                ui.radio_value(&mut cfg.deck.filter, VideoFilter::Pixellate, "Pixellate");
+                ui.radio_value(&mut cfg.deck.filter, VideoFilter::Ntsc, "Ntsc");
+            });
+            if filter != self.config.read(|cfg| cfg.deck.filter) {
+                self.send_event(EmulationEvent::SetVideoFilter(
+                    self.config.read(|cfg| cfg.deck.filter),
+                ));
+            }
+        });
+        ui.menu_button("Four Player...", |ui| {
+            let four_player = self.config.read(|cfg| cfg.deck.four_player);
+            self.config.write(|cfg| {
+                ui.radio_value(&mut cfg.deck.four_player, FourPlayer::Disabled, "Disabled");
+                ui.radio_value(
+                    &mut cfg.deck.four_player,
+                    FourPlayer::FourScore,
+                    "Four Score",
+                );
+                ui.radio_value(
+                    &mut cfg.deck.four_player,
+                    FourPlayer::Satellite,
+                    "Satellite",
+                );
+            });
+            if four_player != self.config.read(|cfg| cfg.deck.four_player) {
+                self.send_event(EmulationEvent::SetFourPlayer(
+                    self.config.read(|cfg| cfg.deck.four_player),
+                ));
+            }
+        });
+        ui.menu_button("Nes Region...", |ui| {
+            let region = self.config.read(|cfg| cfg.deck.region);
+            self.config.write(|cfg| {
+                ui.radio_value(&mut cfg.deck.region, NesRegion::Ntsc, "NTSC");
+                ui.radio_value(&mut cfg.deck.region, NesRegion::Pal, "PAL");
+                ui.radio_value(&mut cfg.deck.region, NesRegion::Dendy, "Dendy");
+            });
+            if region != self.config.read(|cfg| cfg.deck.region) {
+                self.resize_texture = true;
+                self.send_event(EmulationEvent::SetRegion(
+                    self.config.read(|cfg| cfg.deck.region),
+                ));
+            }
+        });
+        if ui.button("Preferences").clicked() {
+            self.preferences_open = true;
             ui.close_menu();
         }
         if ui.button("Keybinds").clicked() {
-            self.keybind_open = true;
+            self.keybinds_open = true;
             // Keyboard
             // Controllers
             // combobox
@@ -221,118 +401,29 @@ impl Gui {
             //   Player 4
             ui.close_menu();
         };
-        if ui.button("Reset").clicked() {
-            self.send_event(EmulationEvent::Reset(ResetKind::Soft));
-        };
-        if ui.button("Power Cycle").clicked() {
-            self.send_event(EmulationEvent::Reset(ResetKind::Hard));
-        };
-        if ui.button("Quit").clicked() {
-            self.send_event(UiEvent::Terminate);
-        };
-    }
-
-    fn recently_played(&mut self, ui: &mut Ui, config: &Config) {
-        use tetanes_core::fs;
-
-        // TODO: add timestamp, save slots, and screenshot
-        for rom in &config.recent_roms {
-            if ui.button(fs::filename(rom)).clicked() {
-                self.send_event(EmulationEvent::LoadRomPath((rom.clone(), config.clone())));
-            }
-        }
-    }
-
-    fn controls_menu(&mut self, ui: &mut Ui, config: &mut Config) {
-        if ui
-            .button(if self.paused { "Unpause" } else { "Pause" })
-            .clicked()
-        {
-            self.send_event(EmulationEvent::TogglePause);
-        };
-        if ui
-            .button(if config.audio_enabled {
-                "Mute"
-            } else {
-                "Unmute"
-            })
-            .clicked()
-        {
-            config.audio_enabled = !config.audio_enabled;
-            self.send_event(EmulationEvent::SetAudioEnabled(config.audio_enabled));
-        };
-        if ui.button("Save State").clicked() {
-            self.send_event(EmulationEvent::StateSave(config.deck.clone()));
-        };
-        if ui.button("Load State").clicked() {
-            self.send_event(EmulationEvent::StateLoad(config.deck.clone()));
-        };
-        if ui.button("Save Slot...").clicked() {
-            self.todo(ui);
-        };
-        if ui.button("Rewind").clicked() {
-            self.todo(ui);
-        };
-        if ui.button("Toggle Replay Recording").clicked() {
-            self.send_event(EmulationEvent::ToggleReplayRecord);
-        };
-        if ui.button("Toggle Audio Recording").clicked() {
-            self.send_event(EmulationEvent::ToggleAudioRecord);
-        };
-    }
-
-    fn emulation_menu(&mut self, ui: &mut Ui, config: &mut Config) {
-        if ui.button("Speed...").clicked() {
-            self.todo(ui);
-            // Increase/Decrease/Default
-        };
-        if ui
-            .checkbox(&mut config.deck.zapper, "Enable Zapper Gun")
-            .clicked()
-        {
-            self.send_event(EmulationEvent::ZapperConnect(config.deck.zapper));
-        }
-        // Four Player Mode
-        if ui.button("Nes Region...").clicked() {
-            // config.set_region(region);
-            self.send_event(EmulationEvent::SetRegion(config.deck.region));
-        }
-        // RAM State
-        // Concurrent D-Pad
-    }
-
-    fn view_menu(&mut self, ui: &mut Ui, config: &mut Config) {
-        if ui.button("Scale...").clicked() {
-            self.todo(ui);
-        };
-        ui.checkbox(&mut config.show_fps, "Show FPS");
-        ui.checkbox(&mut config.show_messages, "Show Messages");
-        if ui
-            .checkbox(&mut config.hide_overscan, "Hide Overscan")
-            .clicked()
-        {
-            self.resize_window(ui.style(), config);
-        }
-        if ui.button("Video Filter...").clicked() {
-            self.todo(ui);
-        };
-        if ui.button("Take Screenshot").clicked() {
-            self.send_event(EmulationEvent::Screenshot)
-        };
     }
 
     fn window_menu(&mut self, ui: &mut Ui) {
         if ui.button("Maximize").clicked() {
-            self.todo(ui);
+            self.window.set_maximized(true);
+            ui.close_menu();
         };
         if ui.button("Minimize").clicked() {
-            self.todo(ui);
+            self.window.set_minimized(true);
+            ui.close_menu();
         };
         if ui.button("Toggle Fullscreen").clicked() {
-            self.todo(ui);
+            let fullscreen = self.config.write(|cfg| {
+                cfg.renderer.fullscreen = !cfg.renderer.fullscreen;
+                cfg.renderer.fullscreen
+            });
+            self.window
+                .set_fullscreen(fullscreen.then_some(Fullscreen::Borderless(None)));
+            ui.close_menu();
         };
         if ui.button("Hide Menu Bar").clicked() {
-            self.todo(ui);
+            self.config.write(|cfg| cfg.renderer.show_menubar = false);
+            ui.close_menu();
         };
     }
 
@@ -344,13 +435,13 @@ impl Gui {
             puffin::set_scopes_on(profile);
         }
         if ui.button("Toggle CPU Debugger").clicked() {
-            self.todo(ui);
+            self.todo();
         };
         if ui.button("Toggle PPU Debugger").clicked() {
-            self.todo(ui);
+            self.todo();
         };
         if ui.button("Toggle APU Debugger").clicked() {
-            self.todo(ui);
+            self.todo();
         };
     }
 
@@ -384,27 +475,29 @@ impl Gui {
         }
     }
 
-    fn nes_frame(&mut self, ui: &mut Ui, config: &Config) {
+    fn nes_frame(&mut self, ui: &mut Ui) {
         CentralPanel::default()
             .frame(Frame::none())
             .show_inside(ui, |ui| {
                 let image = Image::from_texture(self.texture)
-                    .maintain_aspect_ratio(false)
+                    .maintain_aspect_ratio(true)
                     .shrink_to_fit();
-                let frame_resp = ui.add_sized(ui.available_size(), image).on_hover_cursor(
-                    if config.deck.zapper {
-                        CursorIcon::Crosshair
-                    } else {
-                        CursorIcon::Default
-                    },
-                );
-                if config.deck.zapper {
+                let zapper = self.config.read(|cfg| cfg.deck.zapper);
+                let frame_resp =
+                    ui.add_sized(ui.available_size(), image)
+                        .on_hover_cursor(if zapper {
+                            CursorIcon::Crosshair
+                        } else {
+                            CursorIcon::Default
+                        });
+                if zapper {
                     if let Some(pos) = frame_resp.hover_pos() {
-                        let scale = f32::from(config.scale);
-                        let aspect_ratio = config.deck.region.aspect_ratio();
-                        let x = pos.x / scale / aspect_ratio;
+                        let scale_x = frame_resp.rect.width() / Ppu::WIDTH as f32;
+                        let scale_y = frame_resp.rect.height() / Ppu::HEIGHT as f32;
+                        let aspect_ratio = self.config.read(|cfg| cfg.deck.region.aspect_ratio());
+                        let x = pos.x / scale_x / aspect_ratio;
                         let y = (pos.y - self.menu_height - ui.style().spacing.menu_margin.bottom)
-                            / scale;
+                            / scale_y;
                         if x > 0.0 && y > 0.0 {
                             self.send_event(EmulationEvent::ZapperAim((
                                 x.round() as u32,
@@ -443,7 +536,7 @@ impl Gui {
                     });
                 });
         }
-        if config.show_fps {
+        if self.config.read(|cfg| cfg.renderer.show_fps) {
             ui.label(format!(
                 "Last Frame: {:.4}s",
                 self.last_frame_duration.as_secs_f32()
@@ -451,7 +544,13 @@ impl Gui {
         }
     }
 
-    fn configuration(&mut self, ui: &mut Ui) {
+    fn preferences(&mut self, ui: &mut Ui) {
+        ui.label("not yet implemented");
+
+        // fn view_menu(&mut self, ui: &mut Ui, config: &mut Config) {
+        //     ui.checkbox(&mut config.show_fps, "Show FPS");
+        //     ui.checkbox(&mut config.show_messages, "Show Messages");
+        // }
         // button Restore Defaults
         // button Clear Save State
         //
@@ -498,37 +597,36 @@ impl Gui {
         // }
     }
 
-    fn about(&mut self, ui: &mut Ui, config: &Config) {
+    fn keybinds(&mut self, ui: &mut Ui) {
+        ui.label("not yet implemented");
+    }
+
+    fn about(&mut self, ui: &mut Ui) {
         ui.label(RichText::new(&self.version).strong());
         ui.hyperlink("https://github.com/lukexor/tetanes");
 
-        ui.separator();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            ui.separator();
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Configuration: ").strong());
-            ui.label(config.deck.dir.to_string_lossy());
-        });
+            // TODO: avoid allocations
+            if let Some(config_dir) = Config::config_dir() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Configuration: ").strong());
+                    ui.label(config_dir.to_string_lossy());
+                });
+            }
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Save States: ").strong());
-            ui.label(config.deck.save_dir().to_string_lossy());
-        });
-
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Battery-Backed Save States: ").strong());
-            ui.label(config.deck.sram_dir().to_string_lossy());
-        });
+            if let Some(save_dir) = Config::data_dir() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Save States & Battery-Backed Ram: ").strong());
+                    ui.label(save_dir.to_string_lossy());
+                });
+            }
+        }
     }
 
-    fn todo(&mut self, ui: &mut Ui) {
-        warn!("not implemented yet");
-    }
-
-    pub fn resize_window(&mut self, style: &Style, config: &Config) {
-        let spacing = style.spacing.item_spacing;
-        let border = 1.0;
-        let mut size = config.window_size();
-        size.height += self.menu_height + spacing.y + border;
-        self.send_event(UiEvent::ResizeWindow(size));
+    fn todo(&mut self) {
+        self.send_event(UiEvent::Message("not yet implemented".to_string()));
     }
 }

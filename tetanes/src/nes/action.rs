@@ -58,6 +58,7 @@ impl From<Debugger> for Action {
 pub enum UiState {
     Quit,
     TogglePause,
+    LoadRom,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,6 +74,7 @@ pub enum Setting {
     ToggleFullscreen,
     ToggleVsync,
     ToggleAudio,
+    ToggleMenuBar,
     FastForward,
     IncSpeed,
     DecSpeed,

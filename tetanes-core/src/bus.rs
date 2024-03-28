@@ -44,32 +44,33 @@ use std::collections::HashMap;
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bus {
-    cycle: usize, // Total number of CPU cycles ran
+    pub cycle: usize, // Total number of CPU cycles ran
     pub ppu: Ppu,
     pub apu: Apu,
     pub input: Input,
-    wram: Vec<u8>,
-    prg_ram: Vec<u8>,
-    prg_rom: Vec<u8>,
-    oam_dma: bool,
-    oam_dma_addr: u16,
+    pub wram: Vec<u8>,
+    pub prg_ram: Vec<u8>,
+    #[serde(skip)]
+    pub prg_rom: Vec<u8>,
+    pub oam_dma: bool,
+    pub oam_dma_addr: u16,
     pub ram_state: RamState,
-    prg_ram_protect: bool,
-    region: NesRegion,
-    genie_codes: HashMap<u16, GenieCode>,
-    open_bus: u8,
+    pub prg_ram_protect: bool,
+    pub region: NesRegion,
+    pub genie_codes: HashMap<u16, GenieCode>,
+    pub open_bus: u8,
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new(RamState::default(), Apu::DEFAULT_SAMPLE_RATE)
+        Self::new(RamState::default())
     }
 }
 
 impl Bus {
     const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
 
-    pub fn new(ram_state: RamState, sample_rate: f32) -> Self {
+    pub fn new(ram_state: RamState) -> Self {
         let mut wram = vec![0x00; Self::WRAM_SIZE];
         RamState::fill(&mut wram, ram_state);
         let region = NesRegion::default();
@@ -81,7 +82,7 @@ impl Bus {
             prg_ram_protect: false,
             prg_rom: vec![],
             ppu: Ppu::new(),
-            apu: Apu::new(sample_rate),
+            apu: Apu::new(),
             input: Input::new(),
             oam_dma: false,
             oam_dma_addr: 0x0000,
@@ -95,7 +96,8 @@ impl Bus {
         self.set_region(cart.region());
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
-        self.ppu.bus.load_chr(cart.chr, cart.has_chr_ram);
+        self.ppu.bus.load_chr_rom(cart.chr_rom);
+        self.ppu.bus.load_chr_ram(cart.chr_ram);
         self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
     }
@@ -380,8 +382,7 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr = vec![0x66; 0x2000];
-        cart.has_chr_ram = false;
+        cart.chr_rom = vec![0x66; 0x2000];
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart);
         bus.load_cart(cart);
@@ -410,8 +411,7 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr = vec![0x66; 0x2000];
-        cart.has_chr_ram = true;
+        cart.chr_ram = vec![0x66; 0x2000];
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00, Access::Write);

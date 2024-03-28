@@ -1,28 +1,31 @@
 use crate::common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample};
 use serde::{Deserialize, Serialize};
 
+/// APU Delta Modulation Channel (DMC) provides sample playback.
+///
+/// See: <https://www.nesdev.org/wiki/APU_DMC>
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
-    region: NesRegion,
-    force_silent: bool,
-    irq_enabled: bool,
-    irq_pending: bool,
-    loops: bool,
-    freq_timer: u16,
-    freq_counter: u16,
-    addr: u16,
-    addr_load: u16,
-    length: u16,
-    length_load: u16,
-    sample_buffer: u8,
-    sample_buffer_empty: bool,
-    dma_pending: bool,
-    init: u8,
-    output: u8,
-    output_bits: u8,
-    output_shift: u8,
-    output_silent: bool,
+    pub region: NesRegion,
+    pub force_silent: bool,
+    pub irq_enabled: bool,
+    pub irq_pending: bool,
+    pub loops: bool,
+    pub freq_timer: u16,
+    pub freq_counter: u16,
+    pub addr: u16,
+    pub addr_load: u16,
+    pub length: u16,
+    pub length_load: u16,
+    pub sample_buffer: u8,
+    pub sample_buffer_empty: bool,
+    pub dma_pending: bool,
+    pub init: u8,
+    pub output: u8,
+    pub output_bits: u8,
+    pub output_shift: u8,
+    pub output_silent: bool,
 }
 
 impl Default for Dmc {
@@ -135,8 +138,7 @@ impl Dmc {
         }
     }
 
-    // $4010 DMC timer
-
+    /// $4010 DMC timer
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
         self.loops = val & 0x40 == 0x40;
@@ -146,25 +148,22 @@ impl Dmc {
         }
     }
 
-    // $4011 DMC output
-
+    /// $4011 DMC output
     pub fn write_output(&mut self, val: u8) {
         self.output = val;
     }
 
-    // $4012 DMC addr load
-
+    /// $4012 DMC addr load
     pub fn write_addr_load(&mut self, val: u8) {
         self.addr_load = 0xC000 | (u16::from(val) << 6);
     }
 
-    // $4013 DMC length
-
+    /// $4013 DMC length
     pub fn write_length(&mut self, val: u8) {
         self.length_load = (u16::from(val) << 4) + 1;
     }
 
-    // $4015 WRITE
+    /// $4015 WRITE
     pub fn set_enabled(&mut self, enabled: bool, cycle: usize) {
         self.irq_pending = false;
         if !enabled {

@@ -1,6 +1,9 @@
 use crate::common::Clock;
 use serde::{Deserialize, Serialize};
 
+/// APU Length Counter provides duration control for APU waveform channels.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Length_Counter>
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct LengthCounter {

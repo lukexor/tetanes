@@ -12,7 +12,7 @@ pub struct Mask {
     pub show_left_spr: bool,
     pub show_bg: bool,
     pub show_spr: bool,
-    region: NesRegion,
+    pub region: NesRegion,
     bits: Bits,
 }
 

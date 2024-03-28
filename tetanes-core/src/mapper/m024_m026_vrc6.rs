@@ -24,23 +24,23 @@ pub enum Vrc6Revision {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6Regs {
-    banking_mode: u8,
-    prg: [usize; 4],
-    chr: [usize; 8],
+    pub banking_mode: u8,
+    pub prg: [usize; 4],
+    pub chr: [usize; 8],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6 {
-    regs: Vrc6Regs,
-    revision: Vrc6Revision,
-    mirroring: Mirroring,
-    irq: VrcIrq,
-    audio: Vrc6Audio,
-    nt_banks: [usize; 4],
-    chr_banks: MemBanks,
-    prg_ram_banks: MemBanks,
-    prg_rom_banks: MemBanks,
+    pub regs: Vrc6Regs,
+    pub revision: Vrc6Revision,
+    pub mirroring: Mirroring,
+    pub irq: VrcIrq,
+    pub audio: Vrc6Audio,
+    pub nt_banks: [usize; 4],
+    pub chr_banks: MemBanks,
+    pub prg_ram_banks: MemBanks,
+    pub prg_rom_banks: MemBanks,
 }
 
 impl Vrc6 {
@@ -61,7 +61,7 @@ impl Vrc6 {
             nt_banks: [0; 4],
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_SIZE),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr.len(), Self::CHR_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
         };
         let last_bank = vrc6.prg_rom_banks.last();
         vrc6.prg_rom_banks.set(3, last_bank);
@@ -69,17 +69,17 @@ impl Vrc6 {
     }
 
     #[must_use]
-    const fn prg_ram_enabled(&self) -> bool {
+    pub const fn prg_ram_enabled(&self) -> bool {
         self.regs.banking_mode & 0x80 == 0x80
     }
 
-    fn set_nametables(&mut self, nametables: &[usize]) {
+    pub fn set_nametables(&mut self, nametables: &[usize]) {
         for (bank, page) in nametables.iter().enumerate() {
             self.set_nametable_page(bank, *page);
         }
     }
 
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
+    pub fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
         match self.mirroring {
             Mirroring::Vertical => self.set_nametables(&[0, 1, 0, 1]),
@@ -90,11 +90,11 @@ impl Vrc6 {
         }
     }
 
-    fn set_nametable_page(&mut self, bank: usize, page: usize) {
+    pub fn set_nametable_page(&mut self, bank: usize, page: usize) {
         self.nt_banks[bank] = page;
     }
 
-    fn update_chr_banks(&mut self) {
+    pub fn update_chr_banks(&mut self) {
         let (mask, or_mask) = if self.regs.banking_mode & 0x20 == 0x20 {
             (0xFE, 1)
         } else {

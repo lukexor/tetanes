@@ -3,10 +3,11 @@
 use crate::platform::{BuilderExt, EventLoopExt, Initialize};
 use config::Config;
 use emulation::Emulation;
-use event::{NesEvent, State};
+use event::{EmulationEvent, NesEvent, State};
 use renderer::{BufferPool, Renderer};
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use winit::{
+    dpi::LogicalSize,
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
 };
@@ -38,10 +39,21 @@ impl Nes {
     /// # Errors
     ///
     /// If engine fails to build or run, then an error is returned.
-    pub async fn run(config: Config) -> anyhow::Result<()> {
+    pub async fn run(path: Option<PathBuf>, config: Config) -> anyhow::Result<()> {
         // Set up window, events and NES state
         let event_loop = EventLoopBuilder::<NesEvent>::with_user_event().build()?;
         let mut nes = Nes::new(config, &event_loop).await?;
+        if let Some(path) = path {
+            if path.is_file() {
+                if let Some(parent) = path.parent() {
+                    nes.config
+                        .write(|cfg| cfg.renderer.roms_path = Some(parent.to_path_buf()));
+                }
+                nes.trigger_event(EmulationEvent::LoadRomPath(path));
+            } else {
+                nes.config.write(|cfg| cfg.renderer.roms_path = Some(path));
+            }
+        }
         event_loop
             .run_platform(move |event, window_target| nes.event_loop(event, window_target))?;
 
@@ -53,14 +65,14 @@ impl Nes {
         let window = Arc::new(Nes::initialize_window(event_loop, &config)?);
         let event_proxy = event_loop.create_proxy();
         let frame_pool = BufferPool::new();
-        let state = State::new();
+        let state = State::new(&config);
         let emulation =
             Emulation::initialize(event_proxy.clone(), frame_pool.clone(), config.clone())?;
         let renderer = Renderer::initialize(
             event_proxy.clone(),
             Arc::clone(&window),
             frame_pool,
-            &config,
+            config.clone(),
         )
         .await?;
 
@@ -82,16 +94,29 @@ impl Nes {
         event_loop: &EventLoop<NesEvent>,
         config: &Config,
     ) -> anyhow::Result<Window> {
-        let size = config.window_size();
+        let size = config.read(|cfg| cfg.window_size());
+        let scale = if cfg!(target_arch = "wasm32") {
+            2.0
+        } else {
+            3.0
+        };
+        let scaled_size = LogicalSize {
+            width: size.width * scale,
+            height: size.height * scale,
+        };
         let window_builder = WindowBuilder::new();
         let window_builder = window_builder
             .with_active(true)
-            .with_inner_size(size)
+            .with_inner_size(scaled_size)
             .with_min_inner_size(size)
             .with_title(Config::WINDOW_TITLE)
             // TODO: Support exclusive fullscreen config
-            .with_fullscreen(config.fullscreen.then_some(Fullscreen::Borderless(None)))
-            .with_resizable(false)
+            .with_fullscreen(config.read(|cfg| {
+                cfg.renderer
+                    .fullscreen
+                    .then_some(Fullscreen::Borderless(None))
+            }))
+            .with_resizable(true)
             .with_platform();
         let window = window_builder.build(event_loop)?;
 

@@ -12,8 +12,6 @@ fn clock_frames(frames: u32) {
     assert!(rom_path.exists(), "No test rom found for {rom_path:?}");
     let mut rom = BufReader::new(File::open(&rom_path).expect("failed to open path"));
     let mut deck = ControlDeck::with_config(Config {
-        load_on_start: false,
-        save_on_exit: false,
         ram_state: RamState::AllZeros,
         ..Default::default()
     });

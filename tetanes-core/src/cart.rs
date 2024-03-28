@@ -1,5 +1,6 @@
 use crate::{
     common::{NesRegion, Regional},
+    fs,
     mapper::{
         m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision,
         Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
@@ -7,15 +8,14 @@ use crate::{
     mem::RamState,
     ppu::Mirroring,
 };
+use serde::{Deserialize, Serialize};
 use std::{
-    collections::hash_map::DefaultHasher,
     fs::File,
-    hash::{Hash, Hasher},
-    io::{BufRead, BufReader, Read},
+    io::{BufReader, Read},
     path::Path,
 };
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 const PRG_ROM_BANK_SIZE: usize = 0x4000;
 const CHR_ROM_BANK_SIZE: usize = 0x2000;
@@ -49,6 +49,13 @@ impl Error {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub struct GameRegion {
+    pub crc32: u32,
+    pub region: NesRegion,
+}
+
 /// An NES cartridge.
 #[derive(Default)]
 #[must_use]
@@ -58,11 +65,11 @@ pub struct Cart {
     region: NesRegion,
     ram_state: RamState,
     pub(crate) mapper: Mapper,
-    pub(crate) chr: Vec<u8>, // Character ROM/RAM
-    pub(crate) has_chr_ram: bool,
-    pub(crate) ex_ram: Vec<u8>,  // Internal Extra RAM
+    pub(crate) chr_rom: Vec<u8>, // Character ROM
+    pub(crate) chr_ram: Vec<u8>, // Character RAM
     pub(crate) prg_rom: Vec<u8>, // Program ROM
     pub(crate) prg_ram: Vec<u8>, // Program RAM
+    pub(crate) ex_ram: Vec<u8>,  // Internal Extra RAM
 }
 
 impl Cart {
@@ -73,11 +80,11 @@ impl Cart {
             region: NesRegion::default(),
             ram_state: RamState::default(),
             mapper: Mapper::none(),
-            chr: vec![0x00; CHR_ROM_BANK_SIZE],
-            has_chr_ram: false,
-            ex_ram: vec![],
+            chr_rom: vec![0x00; CHR_ROM_BANK_SIZE],
+            chr_ram: vec![],
             prg_rom: vec![0x00; PRG_ROM_BANK_SIZE],
             prg_ram: vec![],
+            ex_ram: vec![],
         };
         empty.mapper = Nrom::load(&mut empty);
         empty
@@ -133,9 +140,10 @@ impl Cart {
         let mut prg_ram = vec![0x00; prg_ram_size];
         RamState::fill(&mut prg_ram, ram_state);
 
-        let mut chr = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
-        let has_chr_ram = if header.chr_rom_banks > 0 {
-            rom_data.read_exact(&mut chr).map_err(|err| {
+        let mut chr_rom = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
+        let mut chr_ram = vec![];
+        if header.chr_rom_banks > 0 {
+            rom_data.read_exact(&mut chr_rom).map_err(|err| {
                 if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                     Error::InvalidHeader {
                         byte: 5,
@@ -149,30 +157,22 @@ impl Cart {
                     Error::io(err, "failed to read chr-rom")
                 }
             })?;
-            true
         } else {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
             if chr_ram_size > 0 {
-                chr.resize(chr_ram_size, 0x00);
-                RamState::fill(&mut chr, ram_state);
-                true
-            } else {
-                false
+                chr_ram.resize(chr_ram_size, 0x00);
+                RamState::fill(&mut chr_ram, ram_state);
             }
-        };
+        }
 
         let region = if matches!(header.variant, NesVariant::INes | NesVariant::Nes2) {
             match header.tv_mode {
-                0 => NesRegion::Ntsc,
                 1 => NesRegion::Pal,
                 3 => NesRegion::Dendy,
-                _ => NesRegion::default(),
+                _ => Self::lookup_region(&prg_rom, &chr_rom),
             }
         } else {
-            let mut hasher = DefaultHasher::new();
-            prg_rom.hash(&mut hasher);
-            let hash = hasher.finish();
-            Self::lookup_region(hash)
+            Self::lookup_region(&prg_rom, &chr_rom)
         };
 
         let mut cart = Self {
@@ -181,11 +181,11 @@ impl Cart {
             region,
             ram_state,
             mapper: Mapper::none(),
-            chr,
-            has_chr_ram,
-            ex_ram: vec![],
+            chr_rom,
+            chr_ram,
             prg_rom,
             prg_ram,
+            ex_ram: vec![],
         };
         cart.mapper = match cart.header.mapper_num {
             0 => Nrom::load(&mut cart),
@@ -215,8 +215,13 @@ impl Cart {
     }
 
     #[must_use]
-    pub fn chr(&self) -> &[u8] {
-        &self.chr
+    pub fn chr_rom(&self) -> &[u8] {
+        &self.chr_rom
+    }
+
+    #[must_use]
+    pub fn chr_ram(&self) -> &[u8] {
+        &self.chr_ram
     }
 
     #[must_use]
@@ -230,13 +235,13 @@ impl Cart {
     }
 
     #[must_use]
-    pub fn has_chr(&self) -> bool {
-        !self.chr.is_empty()
+    pub fn has_chr_rom(&self) -> bool {
+        !self.chr_rom.is_empty()
     }
 
     #[must_use]
-    pub fn chr_len(&self) -> usize {
-        self.chr.len()
+    pub fn has_chr_ram(&self) -> bool {
+        !self.chr_ram.is_empty()
     }
 
     #[must_use]
@@ -245,20 +250,17 @@ impl Cart {
     }
 
     /// Returns whether this cartridge has battery-backed Save RAM.
-
     #[must_use]
     pub const fn battery_backed(&self) -> bool {
         self.header.flags & 0x02 == 0x02
     }
 
     /// Returns `RamState`.
-
     pub const fn ram_state(&self) -> RamState {
         self.ram_state
     }
 
     /// Returns hardware configured `Mirroring`.
-
     pub fn mirroring(&self) -> Mirroring {
         if self.header.flags & 0x08 == 0x08 {
             Mirroring::FourScreen
@@ -272,21 +274,18 @@ impl Cart {
     }
 
     /// Returns the Mapper number for this Cart.
-
     #[must_use]
     pub const fn mapper_num(&self) -> u16 {
         self.header.mapper_num
     }
 
     /// Returns the Sub-Mapper number for this Cart.
-
     #[must_use]
     pub const fn submapper_num(&self) -> u8 {
         self.header.submapper_num
     }
 
     /// Returns the Mapper and Board name for this Cart.
-
     #[must_use]
     pub const fn mapper_board(&self) -> &'static str {
         self.header.mapper_board()
@@ -300,9 +299,8 @@ impl Cart {
 
     /// Allows mappers to add CHR-RAM.
     pub(crate) fn add_chr_ram(&mut self, capacity: usize) {
-        self.chr.resize(capacity, 0x00);
-        self.has_chr_ram = true;
-        RamState::fill(&mut self.chr, self.ram_state);
+        self.chr_ram.resize(capacity, 0x00);
+        RamState::fill(&mut self.chr_ram, self.ram_state);
     }
 
     /// Allows mappers to add EX-RAM.
@@ -325,25 +323,23 @@ impl Cart {
         }
     }
 
-    fn lookup_region(lookup_hash: u64) -> NesRegion {
-        const GAME_DB: &[u8] = include_bytes!("../game_database.txt");
+    fn lookup_region(prg_rom: &[u8], chr: &[u8]) -> NesRegion {
+        const GAME_REGIONS: &[u8] = include_bytes!("../../game_regions.dat");
 
-        let db = BufReader::new(GAME_DB);
-        let lines: Vec<String> = db.lines().map_while(std::io::Result::ok).collect();
-        if let Ok(line) = lines.binary_search_by(|line| {
-            let hash = line
-                .split(',')
-                .next()
-                .map(|hash| hash.parse::<u64>().unwrap_or_default())
-                .unwrap_or_default();
-            hash.cmp(&lookup_hash)
-        }) {
-            let mut fields = lines[line].split(',').skip(1);
-            if let Some(region) = fields.next() {
-                return NesRegion::try_from(region).unwrap_or_default();
-            }
+        let Ok(games) = fs::load_bytes::<Vec<GameRegion>>(GAME_REGIONS) else {
+            error!("failed to load game_regions.dat");
+            return NesRegion::default();
+        };
+
+        let mut crc32 = fs::compute_crc32(prg_rom);
+        if !chr.is_empty() {
+            crc32 = fs::compute_combine_crc32(crc32, chr);
         }
-        NesRegion::default()
+
+        match games.binary_search_by(|game| game.crc32.cmp(&crc32)) {
+            Ok(index) => games[index].region,
+            Err(_) => NesRegion::default(),
+        }
     }
 }
 
@@ -361,12 +357,14 @@ impl std::fmt::Display for Cart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(
             f,
-            "{} - {}, CHR: {}K, PRG-ROM: {}K, PRG-RAM: {}K, Mirroring: {:?}, Battery: {}",
+            "{} - {}, CHR-ROM: {}K, CHR-RAM: {}K, PRG-ROM: {}K, PRG-RAM: {}K, EX-RAM: {}K, Mirroring: {:?}, Battery: {}",
             self.name,
             self.mapper_board(),
-            self.chr.len() / 0x0400,
+            self.chr_rom.len() / 0x0400,
+            self.chr_ram.len() / 0x0400,
             self.prg_rom.len() / 0x0400,
             self.prg_ram.len() / 0x0400,
+            self.ex_ram.len() / 0x0400,
             self.mirroring(),
             self.battery_backed(),
         )
@@ -383,10 +381,11 @@ impl std::fmt::Debug for Cart {
             .field("mapper", &self.mapper)
             .field("mirroring", &self.mirroring())
             .field("battery_backed", &self.battery_backed())
-            .field("chr_len", &self.chr.len())
-            .field("ex_ram_len", &self.ex_ram.len())
+            .field("chr_rom_len", &self.chr_rom.len())
+            .field("chr_ram_len", &self.chr_ram.len())
             .field("prg_rom_len", &self.prg_rom.len())
             .field("prg_ram_len", &self.prg_ram.len())
+            .field("ex_ram_len", &self.ex_ram.len())
             .finish()
     }
 }

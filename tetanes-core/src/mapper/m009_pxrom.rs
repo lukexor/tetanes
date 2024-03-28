@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pxrom {
-    mirroring: Mirroring,
+    pub mirroring: Mirroring,
     // CHR-ROM $FD/0000 bank select ($B000-$BFFF)
     // CHR-ROM $FE/0000 bank select ($C000-$CFFF)
     // CHR-ROM $FD/1000 bank select ($D000-$DFFF)
@@ -24,10 +24,10 @@ pub struct Pxrom {
     //    | ||||
     //    +-++++- Select 4K CHR-ROM bank for PPU $0000/$1000-$0FFF/$1FFF
     //            used when latch 0/1 = $FD/$FE
-    latch: [usize; 2],
-    latch_banks: [u8; 4],
-    chr_banks: MemBanks,
-    prg_rom_banks: MemBanks,
+    pub latch: [usize; 2],
+    pub latch_banks: [u8; 4],
+    pub chr_banks: MemBanks,
+    pub prg_rom_banks: MemBanks,
 }
 
 impl Pxrom {
@@ -43,7 +43,7 @@ impl Pxrom {
             mirroring: cart.mirroring(),
             latch: [0x00; 2],
             latch_banks: [0x00; 4],
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr.len(), Self::CHR_ROM_WINDOW),
+            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
         };
         let last_bank = pxrom.prg_rom_banks.last();
@@ -53,7 +53,7 @@ impl Pxrom {
         pxrom.into()
     }
 
-    fn update_banks(&mut self) {
+    pub fn update_banks(&mut self) {
         let bank0 = self.latch_banks[self.latch[0]] as usize;
         let bank1 = self.latch_banks[self.latch[1] + 2] as usize;
         self.chr_banks.set(0, bank0);

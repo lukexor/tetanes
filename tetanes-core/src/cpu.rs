@@ -6,6 +6,7 @@ use crate::{
     bus::Bus,
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     mem::{Access, Mem},
+    ppu::{self, Ppu},
 };
 use bitflags::bitflags;
 use instr::{
@@ -71,7 +72,7 @@ pub struct Cycle {
 }
 
 /// The Central Processing Unit status and registers
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cpu {
     pub cycle: usize, // total number of cycles ran
@@ -103,6 +104,7 @@ pub struct Cpu {
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     pub region: NesRegion,
     pub dummy_read: bool,
+    pub cycle_accurate: bool,
     #[serde(skip)]
     pub disasm: String,
 }
@@ -152,10 +154,30 @@ impl Cpu {
             dmc_dma: false,
             dma_halt: false,
             dummy_read: false,
+            cycle_accurate: true,
             disasm: String::with_capacity(100),
         };
         cpu.set_region(cpu.region);
         cpu
+    }
+
+    pub fn load(&mut self, cpu: Self) {
+        // Basic we don't want to serialize the entire ROM in save states, extract out the loaded
+        // ROM data and merge it in with the loaded state.
+        *self = Self {
+            bus: Bus {
+                prg_rom: std::mem::take(&mut self.bus.prg_rom),
+                ppu: Ppu {
+                    bus: ppu::bus::Bus {
+                        chr_rom: std::mem::take(&mut self.bus.ppu.bus.chr_rom),
+                        ..cpu.bus.ppu.bus
+                    },
+                    ..cpu.bus.ppu
+                },
+                ..cpu.bus
+            },
+            ..cpu
+        };
     }
 
     #[must_use]
@@ -252,8 +274,7 @@ impl Cpu {
         self.master_clock = self.master_clock.wrapping_add(increment);
         self.cycle = self.cycle.wrapping_add(1);
 
-        #[cfg(feature = "cycle-accurate")]
-        {
+        if self.cycle_accurate {
             self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
             self.bus.clock();
         }
@@ -262,8 +283,9 @@ impl Cpu {
     fn end_cycle(&mut self, increment: u64) {
         self.master_clock = self.master_clock.wrapping_add(increment);
 
-        #[cfg(feature = "cycle-accurate")]
-        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
+        if self.cycle_accurate {
+            self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
+        }
 
         self.handle_interrupts();
     }
@@ -786,8 +808,7 @@ impl Clock for Cpu {
             self.irq();
         }
 
-        #[cfg(not(feature = "cycle-accurate"))]
-        {
+        if !self.cycle_accurate {
             self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
             let cycles = self.cycle - start_cycle;
             for _ in 0..cycles {

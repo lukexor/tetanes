@@ -143,8 +143,8 @@ impl Default for InputMap {
         key_map!(map, One, F1, Menu::About);
         key_map!(map, One, KeyC, CONTROL, Menu::Config(ConfigTab::General));
         key_map!(map, One, F2, Menu::Config(ConfigTab::General));
-        key_map!(map, One, KeyO, CONTROL, Menu::LoadRom);
-        key_map!(map, One, F3, Menu::LoadRom);
+        key_map!(map, One, KeyO, CONTROL, UiState::LoadRom);
+        key_map!(map, One, F3, UiState::LoadRom);
         key_map!(map, One, KeyK, CONTROL, Menu::Keybind(Player::One));
         key_map!(map, One, KeyQ, CONTROL, UiState::Quit);
         key_map!(map, One, KeyR, CONTROL, DeckAction::SoftReset);
@@ -167,6 +167,7 @@ impl Default for InputMap {
         key_map!(map, One, KeyV, SHIFT, Feature::ToggleReplayRecord);
         key_map!(map, One, KeyR, SHIFT, Feature::ToggleAudioRecord);
         key_map!(map, One, KeyM, CONTROL, Setting::ToggleAudio);
+        key_map!(map, One, KeyE, CONTROL, Setting::ToggleMenuBar);
         key_map!(
             map,
             One,

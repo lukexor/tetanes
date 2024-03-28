@@ -62,9 +62,9 @@ impl RamState {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::AllZeros => "All $00",
-            Self::AllOnes => "All $FF",
-            Self::Random => "Random",
+            Self::AllZeros => "all-zeros",
+            Self::AllOnes => "all-ones",
+            Self::Random => "random",
         }
     }
 

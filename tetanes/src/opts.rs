@@ -1,7 +1,7 @@
-use crate::nes::config::{Config, FrameSpeed, Scale};
+use crate::nes::config::Config;
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
-use tetanes_core::{control_deck, genie::GenieCode};
+use tetanes_core::genie::GenieCode;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FourPlayer(tetanes_core::input::FourPlayer);
@@ -38,9 +38,6 @@ impl ValueEnum for RamState {
 pub struct Opts {
     /// The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
     pub(crate) path: Option<PathBuf>,
-    /// A replay recording file for gameplay recording and playback.
-    #[arg(short = 'p', long)]
-    pub(crate) replay: Option<PathBuf>,
     /// Enable rewinding.
     #[arg(short, long)]
     pub(crate) rewind: bool,
@@ -74,11 +71,7 @@ pub struct Opts {
     /// Don't auto save state or save on exit.
     #[arg(long)]
     pub(crate) no_save: bool,
-    /// Window scale. [default: 3.0]
-    #[arg(short = 'x', long, value_parser = Scale::from_str_f32)]
-    pub(crate) scale: Option<f32>,
     /// Emulation speed. [default: 1.0]
-    #[arg(short = 'e', long, value_parser = FrameSpeed::from_str_f32)]
     pub(crate) speed: Option<f32>,
     /// Add Game Genie Code(s). e.g. `AATOZE` (Start Super Mario Bros. with 9 lives).
     #[arg(short, long)]
@@ -95,64 +88,52 @@ pub struct Opts {
 
 impl Opts {
     /// Loads a base `Config`, merging with CLI options
-    pub fn load(self) -> anyhow::Result<Config> {
-        let rom_path = self
-            .path
-            .map_or_else(
-                || {
-                    dirs::home_dir()
-                        .or_else(|| std::env::current_dir().ok())
-                        .unwrap_or(PathBuf::from("."))
-                },
-                Into::into,
-            )
-            .canonicalize()?;
-
-        let base = if self.clean {
-            let default = Config::default();
-            Config {
-                deck: control_deck::Config {
-                    load_on_start: false,
-                    save_on_exit: false,
-                    ..default.deck
-                },
-                ..default
-            }
+    pub fn load(self) -> anyhow::Result<(Option<PathBuf>, Config)> {
+        let config = if self.clean {
+            Config::default()
         } else {
             Config::load(self.config.clone())
         };
-        let mut config = Config {
-            deck: control_deck::Config {
-                four_player: self
-                    .four_player
-                    .map(|fp| fp.0)
-                    .unwrap_or(base.deck.four_player),
-                zapper: self.zapper || base.deck.zapper,
-                ram_state: self.ram_state.map(|rs| rs.0).unwrap_or(base.deck.ram_state),
-                save_slot: self.save_slot.unwrap_or(base.deck.save_slot),
-                load_on_start: !self.no_load && base.deck.load_on_start,
-                save_on_exit: !self.no_save && base.deck.save_on_exit,
-                ..base.deck
-            },
-            rom_path,
-            replay_path: self.replay,
-            rewind: self.rewind || base.rewind,
-            audio_enabled: !self.silent && base.audio_enabled,
-            fullscreen: self.fullscreen || base.fullscreen,
-            vsync: !self.no_vsync && base.vsync,
-            threaded: !self.no_threaded && base.threaded,
-            scale: self.scale.map(Scale::try_from).unwrap_or(Ok(base.scale))?,
-            frame_speed: self
-                .speed
-                .map(FrameSpeed::try_from)
-                .unwrap_or(Ok(base.frame_speed))?,
-            debug: self.debug || base.debug,
-            ..base
-        };
-        config.deck.genie_codes.reserve(self.genie_code.len());
-        for genie_code in self.genie_code.into_iter() {
-            config.deck.genie_codes.push(GenieCode::new(genie_code)?);
-        }
-        Ok(config)
+        config.write(|cfg| -> anyhow::Result<()> {
+            if let Some(FourPlayer(four_player)) = self.four_player {
+                cfg.deck.four_player = four_player;
+            }
+            cfg.deck.zapper = self.zapper || cfg.deck.zapper;
+            if let Some(RamState(ram_state)) = self.ram_state {
+                cfg.deck.ram_state = ram_state;
+            }
+            cfg.deck.genie_codes.reserve(self.genie_code.len());
+            for genie_code in self.genie_code.into_iter() {
+                cfg.deck.genie_codes.push(GenieCode::new(genie_code)?);
+            }
+
+            cfg.emulation.load_on_start = if self.clean {
+                false
+            } else {
+                !self.no_load && cfg.emulation.load_on_start
+            };
+            cfg.emulation.rewind = self.rewind || cfg.emulation.rewind;
+            cfg.emulation.save_on_exit = if self.clean {
+                false
+            } else {
+                !self.no_save && cfg.emulation.save_on_exit
+            };
+            if let Some(save_slot) = self.save_slot {
+                cfg.emulation.save_slot = save_slot
+            }
+            if let Some(speed) = self.speed {
+                cfg.emulation.speed = speed
+            }
+            cfg.emulation.threaded = !self.no_threaded && cfg.emulation.threaded;
+
+            cfg.audio.enabled = !self.silent && cfg.audio.enabled;
+
+            cfg.renderer.fullscreen = self.fullscreen || cfg.renderer.fullscreen;
+            cfg.renderer.vsync = !self.no_vsync && cfg.renderer.vsync;
+
+            Ok(())
+        })?;
+
+        Ok((self.path, config))
     }
 }

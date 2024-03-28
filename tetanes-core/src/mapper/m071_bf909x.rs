@@ -21,9 +21,9 @@ pub enum Bf909Revision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bf909x {
-    variant: Bf909Revision,
-    mirroring: Mirroring,
-    prg_rom_banks: MemBanks,
+    pub variant: Bf909Revision,
+    pub mirroring: Mirroring,
+    pub prg_rom_banks: MemBanks,
 }
 
 impl Bf909x {
@@ -33,7 +33,7 @@ impl Bf909x {
     const SINGLE_SCREEN_A: u8 = 0x10; // 0b10000
 
     pub fn load(cart: &mut Cart) -> Mapper {
-        if !cart.has_chr() {
+        if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         };
         let mut bf909x = Self {

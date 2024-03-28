@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Frame {
-    count: u32,
-    front_buffer: Vec<u16>,
+    pub count: u32,
+    #[serde(skip, default = "Frame::default_buffer")]
+    pub front_buffer: Vec<u16>,
+    #[serde(skip, default = "Frame::default_buffer")]
     back_buffer: Vec<u16>,
 }
 
@@ -25,6 +27,10 @@ impl Frame {
             front_buffer: vec![0x00; Ppu::SIZE],
             back_buffer: vec![0x00; Ppu::SIZE],
         }
+    }
+
+    fn default_buffer() -> Vec<u16> {
+        vec![0x00; Ppu::SIZE]
     }
 
     pub fn increment(&mut self) {

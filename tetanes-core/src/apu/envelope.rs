@@ -1,19 +1,22 @@
 use crate::common::Clock;
 use serde::{Deserialize, Serialize};
 
+/// APU Envelope provides volume control for APU waveform channels.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Envelope>
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
-pub(crate) struct Envelope {
-    pub(crate) enabled: bool,
-    loops: bool,
-    pub(crate) reset: bool,
-    pub(crate) volume: u8,
-    pub(crate) constant_volume: u8,
-    counter: u8,
+pub struct Envelope {
+    pub enabled: bool,
+    pub loops: bool,
+    pub reset: bool,
+    pub volume: u8,
+    pub constant_volume: u8,
+    pub counter: u8,
 }
 
 impl Envelope {
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             enabled: false,
             loops: false,
@@ -24,9 +27,8 @@ impl Envelope {
         }
     }
 
-    // $4000/$4004/$400C Envelope control
-
-    pub(crate) fn write_ctrl(&mut self, val: u8) {
+    /// $4000/$4004/$400C Envelope control
+    pub fn write_ctrl(&mut self, val: u8) {
         self.loops = (val >> 5) & 1 == 1; // D5
         self.enabled = (val >> 4) & 1 == 0; // !D4
         self.constant_volume = val & 0x0F; // D3..D0

@@ -1,86 +1,127 @@
 use anyhow::Context;
 use clap::Parser;
 use std::{
-    collections::hash_map::DefaultHasher,
     env,
     ffi::OsStr,
     fs::File,
-    hash::{Hash, Hasher},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
-use tetanes_core::{cart::Cart, mem::RamState};
+use tetanes_core::{
+    cart::{Cart, GameRegion},
+    common::NesRegion,
+    fs,
+    mem::RamState,
+    ppu::Mirroring,
+};
 
-const GAME_DB: &str = "config/game_database.txt";
+const GAME_DB: &str = "game_database.txt";
+const GAME_REGIONS: &str = "game_regions.dat";
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
     let path = opt
         .path
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
-    let header = "# Fields: Hash, Region, Board, PCB, Chip, Mapper, PrgRomSize, ChrRomSize, ChrRamSize, PrgRamSize, Battery, Mirroring, SubMapper, Title";
+    let header = "# CRC, Region, Mapper, PrgRomSize, ChrRomSize, ChrRamSize, PrgRamSize, Battery, Mirroring, SubMapper, Title";
     if path.is_dir() {
-        let mut db_file =
-            BufWriter::new(File::create(GAME_DB).context("failed to open game_database.txt")?);
-        let paths: Vec<PathBuf> = path
+        let mut db_file = BufWriter::new(
+            File::create(GAME_DB).with_context(|| format!("failed to open {GAME_DB}"))?,
+        );
+        let mut games = path
             .read_dir()
             .unwrap_or_else(|err| panic!("unable read directory {path:?}: {err}"))
             .filter_map(Result::ok)
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .map(|f| f.path())
-            .collect();
-        let mut boards: Vec<(u64, String)> =
-            paths.iter().map(get_info).filter_map(Result::ok).collect();
-        boards.sort_by_key(|board| board.0);
+            .map(Game::new)
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
+        games.sort_by_key(|game| game.crc32);
+        let mut entries = Vec::with_capacity(games.len());
         writeln!(db_file, "{header}")?;
-        let mut last_hash = 0;
-        for board in &boards {
-            if board.0 != last_hash {
-                writeln!(db_file, "{}", board.1)?;
-            }
-            last_hash = board.0;
+        for game in &games {
+            let Game {
+                crc32,
+                region,
+                mapper,
+                submapper,
+                chr_banks,
+                prg_rom_banks,
+                prg_ram_banks,
+                battery,
+                mirroring,
+                title,
+            } = game;
+            writeln!(
+                db_file,
+                "  {crc32:8X}, {region}, {mapper}/{submapper}, {chr_banks}, {prg_rom_banks}, {prg_ram_banks}, {battery}, {mirroring:?}, {title:?}",
+            )?;
+            entries.push(GameRegion {
+                crc32: *crc32,
+                region: *region,
+            });
         }
+        fs::save(GAME_REGIONS, &entries)?;
     } else if path.is_file() {
         todo!("adding individual files is not yet supported");
     }
     Ok(())
 }
 
-fn get_info<P: AsRef<Path>>(path: P) -> anyhow::Result<(u64, String)> {
-    let path = path.as_ref();
-    let cart = Cart::from_path(path, RamState::default())?;
-    let mut hasher = DefaultHasher::new();
-    cart.prg_rom().hash(&mut hasher);
-    let filename = path.file_name().unwrap_or_default();
-    let hash = hasher.finish();
-    let region = match filename.to_str() {
-        Some(filename) => {
-            if filename.contains("Europe") || filename.contains("PAL") {
-                "PAL"
-            } else {
-                "NTSC"
-            }
+#[derive(Debug)]
+#[must_use]
+pub struct Game {
+    crc32: u32,
+    region: NesRegion,
+    mapper: &'static str,
+    submapper: u8,
+    chr_banks: usize,
+    prg_rom_banks: usize,
+    prg_ram_banks: usize,
+    battery: bool,
+    mirroring: Mirroring,
+    title: String,
+}
+
+impl Game {
+    fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Game> {
+        let path = path.as_ref();
+        let cart = Cart::from_path(path, RamState::default())?;
+        let mut crc32 = fs::compute_crc32(cart.prg_rom());
+        if cart.has_chr_rom() {
+            crc32 = fs::compute_combine_crc32(crc32, cart.chr_rom());
         }
-        None => "NTSC",
-    };
-    let board = "";
-    let pcb = "";
-    let chip = "";
+        let filename = path.file_name().unwrap_or_default();
+        let region = match filename.to_str() {
+            Some(filename) => {
+                if filename.contains("Europe") || filename.contains("PAL") {
+                    NesRegion::Pal
+                } else {
+                    NesRegion::Ntsc
+                }
+            }
+            None => NesRegion::Ntsc,
+        };
 
-    let chr_banks = cart.chr().len() / (8 * 1024);
-    let prg_rom_banks = cart.prg_ram().len() / (16 * 1024);
-    let prg_ram_banks = cart.prg_ram().len() / (16 * 1024);
-    let mirroring = cart.mirroring();
+        let chr_banks = cart.chr_rom().len() / (8 * 1024);
+        let prg_rom_banks = cart.prg_ram().len() / (16 * 1024);
+        let prg_ram_banks = cart.prg_ram().len() / (16 * 1024);
+        let mirroring = cart.mirroring();
 
-    Ok((
-        hash,
-        format!(
-            "{hash},{region},{board},{pcb},{chip},{},{chr_banks},{prg_rom_banks},{prg_ram_banks},{},{mirroring:?},{},{filename:?}",
-            cart.mapper_num(),
-            cart.battery_backed(),
-            cart.submapper_num(),
-        ),
-    ))
+        Ok(Game {
+            crc32,
+            region,
+            mapper: cart.mapper_board(),
+            submapper: cart.submapper_num(),
+            chr_banks,
+            prg_rom_banks,
+            prg_ram_banks,
+            battery: cart.battery_backed(),
+            mirroring,
+            title: filename.to_string_lossy().to_string(),
+        })
+    }
 }
 
 #[derive(Parser, Debug)]

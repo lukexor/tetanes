@@ -1,6 +1,9 @@
 use crate::common::{Clock, NesRegion, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
+/// The APU Frame Counter generates a low-frequency clock for each APU channel.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Frame_Counter>
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct FrameCounter {
     pub region: NesRegion,
@@ -12,6 +15,7 @@ pub struct FrameCounter {
     pub write_delay: u8,
 }
 
+/// The Frame Counter step sequence mode.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FcMode {
     Step4,
@@ -72,7 +76,7 @@ impl FrameCounter {
         false
     }
 
-    // On write to $4017
+    /// On write to $4017
     pub fn write(&mut self, val: u8, cycle: usize) {
         self.write_buffer = Some(val);
         // Writes occurring on odd clocks are delayed

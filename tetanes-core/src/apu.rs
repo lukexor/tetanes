@@ -55,7 +55,6 @@ pub struct Apu {
     pub frame_counter: FrameCounter,
     pub cycle: usize,
     pub clock_rate: f32,
-    pub sample_rate: f32,
     pub region: NesRegion,
     pub irq_disabled: bool, // Set by $4017 D6
     pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
@@ -72,16 +71,15 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
+    pub const SAMPLE_RATE: f32 = 44_100.0;
 
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new() -> Self {
         let region = NesRegion::default();
         let clock_rate = Cpu::region_clock_rate(region);
-        let sample_period = clock_rate / sample_rate;
+        let sample_period = clock_rate / Self::SAMPLE_RATE;
         Self {
             cycle: 0,
             clock_rate,
-            sample_rate,
             region,
             irq_pending: false,
             irq_disabled: false,
@@ -91,8 +89,8 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
-            filter_chain: FilterChain::new(region, sample_rate),
-            audio_samples: Vec::with_capacity((sample_rate / 60.0) as usize),
+            filter_chain: FilterChain::new(region, Self::SAMPLE_RATE),
+            audio_samples: Vec::with_capacity((Self::SAMPLE_RATE / 60.0) as usize),
             sample_period,
             sample_counter: sample_period,
         }
@@ -116,11 +114,11 @@ impl Apu {
         }
     }
 
-    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+    pub fn set_frame_speed(&mut self, speed: f32) {
         let clock_rate = Cpu::region_clock_rate(self.region);
-        self.sample_rate = sample_rate;
-        self.filter_chain = FilterChain::new(self.region, self.sample_rate);
-        self.sample_period = clock_rate / self.sample_rate;
+        let sample_rate = Self::SAMPLE_RATE / speed;
+        self.filter_chain = FilterChain::new(self.region, sample_rate);
+        self.sample_period = clock_rate / sample_rate;
     }
 
     #[must_use]
@@ -239,7 +237,7 @@ impl Apu {
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new(Self::DEFAULT_SAMPLE_RATE)
+        Self::new()
     }
 }
 
@@ -402,7 +400,7 @@ impl Regional for Apu {
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.clock_rate = Cpu::region_clock_rate(region);
-        self.filter_chain = FilterChain::new(region, self.sample_rate);
+        self.filter_chain = FilterChain::new(region, Self::SAMPLE_RATE);
         self.frame_counter.set_region(region);
         self.noise.set_region(region);
         self.dmc.set_region(region);

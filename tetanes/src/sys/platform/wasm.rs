@@ -36,8 +36,10 @@ pub fn focus_canvas() {
 }
 
 pub fn open_file_dialog(
+    _title: impl Into<String>,
     _name: impl Into<String>,
     _extensions: &[impl ToString],
+    _dir: Option<PathBuf>,
 ) -> anyhow::Result<Option<PathBuf>> {
     let input = web_sys::window()
         .and_then(|window| window.document())
@@ -70,7 +72,6 @@ impl Initialize for Nes {
 
         let on_load_rom = Closure::<dyn FnMut(_)>::new({
             let event_proxy = self.event_proxy.clone();
-            let config = self.config.clone();
             move |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
                 evt.current_target()
                     .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
@@ -81,7 +82,6 @@ impl Initialize for Nes {
                             let onload = Closure::<dyn FnMut()>::new({
                                 let reader = reader.clone();
                                 let event_proxy = event_proxy.clone();
-                                let config = config.clone();
                                 move || {
                                     if let Err(err) = reader.result().map(|result| {
                                         let data = Uint8Array::new(&result);
@@ -89,7 +89,6 @@ impl Initialize for Nes {
                                             EmulationEvent::LoadRom((
                                                 file.name(),
                                                 RomData::new(data.to_vec()),
-                                                config.clone(),
                                             ))
                                             .into(),
                                         )

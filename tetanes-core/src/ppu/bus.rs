@@ -27,14 +27,15 @@ impl PpuAddr for u16 {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bus {
-    mirror_shift: usize,
+    pub mirror_shift: usize,
     pub mapper: Mapper,
-    pub chr: Vec<u8>,
-    pub has_chr_ram: bool,
+    pub chr_ram: Vec<u8>,
+    #[serde(skip)]
+    pub chr_rom: Vec<u8>,
     pub ciram: Vec<u8>, // $2007 PPUDATA
     pub palette: [u8; Self::PALETTE_SIZE],
     pub exram: Vec<u8>,
-    open_bus: u8,
+    pub open_bus: u8,
 }
 
 impl Default for Bus {
@@ -52,8 +53,8 @@ impl Bus {
             mapper: Mapper::none(),
             ciram: vec![0x00; Self::VRAM_SIZE],
             palette: [0x00; Self::PALETTE_SIZE],
-            chr: vec![],
-            has_chr_ram: false,
+            chr_ram: vec![],
+            chr_rom: vec![],
             exram: vec![],
             mirror_shift: Mirroring::default() as usize,
             open_bus: 0x00,
@@ -68,9 +69,12 @@ impl Bus {
         self.mirror_shift = self.mapper.mirroring() as usize;
     }
 
-    pub fn load_chr(&mut self, chr: Vec<u8>, is_ram: bool) {
-        self.chr = chr;
-        self.has_chr_ram = is_ram;
+    pub fn load_chr_rom(&mut self, chr_rom: Vec<u8>) {
+        self.chr_rom = chr_rom;
+    }
+
+    pub fn load_chr_ram(&mut self, chr_ram: Vec<u8>) {
+        self.chr_ram = chr_ram;
     }
 
     pub fn load_ex_ram(&mut self, ex_ram: Vec<u8>) {
@@ -135,7 +139,11 @@ impl Bus {
         } else {
             addr.into()
         };
-        let val = self.chr[addr];
+        let val = if self.chr_ram.is_empty() {
+            self.chr_rom[addr]
+        } else {
+            self.chr_ram[addr]
+        };
         self.open_bus = val;
         val
     }
@@ -183,7 +191,11 @@ impl Mem for Bus {
                 } else {
                     addr.into()
                 };
-                self.chr[addr]
+                if self.chr_ram.is_empty() {
+                    self.chr_rom[addr]
+                } else {
+                    self.chr_ram[addr]
+                }
             }
             0x3F00..=0x3FFF => self.palette[self.palette_mirror(addr as usize)],
             _ => {
@@ -214,9 +226,9 @@ impl Mem for Bus {
                 MappedWrite::None => (),
             },
             0x0000..=0x1FFF => {
-                if self.has_chr_ram {
+                if !self.chr_ram.is_empty() {
                     if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
-                        self.chr[addr] = val;
+                        self.chr_ram[addr] = val;
                     }
                 }
             }
@@ -253,7 +265,8 @@ impl std::fmt::Debug for Bus {
             .field("mapper", &self.mapper)
             .field("ciram_len", &self.ciram.len())
             .field("palette_len", &self.palette.len())
-            .field("chr_len", &self.chr.len())
+            .field("chr_rom_len", &self.chr_rom.len())
+            .field("chr_ram_len", &self.chr_ram.len())
             .field("ex_ram_len", &self.exram.len())
             .field("open_bus", &self.open_bus)
             .finish()
