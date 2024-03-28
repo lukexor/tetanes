@@ -1,4 +1,4 @@
-use super::{
+use crate::nes::{
     action::Action,
     event::EmulationEvent,
     input::{Input, InputBinding, InputMap},
@@ -57,7 +57,7 @@ impl Default for EmulationConfig {
         Self {
             cycle_accurate: true,
             load_on_start: true,
-            rewind: false,
+            rewind: true,
             save_on_exit: true,
             save_slot: 1,
             speed: 1.0,

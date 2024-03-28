@@ -7,11 +7,11 @@ pub struct Rewind {
     frames: u8,
     index: usize,
     count: usize,
-    buffer: Vec<Cpu>,
+    buffer: Vec<Option<Cpu>>,
 }
 
 impl Rewind {
-    const BUFFER_SIZE: usize = 2048;
+    const BUFFER_SIZE: usize = 2048; // ~34 seconds of frames
     const INTERVAL: u8 = 2;
 
     pub fn new() -> Self {
@@ -19,7 +19,7 @@ impl Rewind {
             frames: 0,
             index: 0,
             count: 0,
-            buffer: vec![Cpu::default(); Self::BUFFER_SIZE],
+            buffer: vec![None; Self::BUFFER_SIZE],
         }
     }
 
@@ -27,7 +27,11 @@ impl Rewind {
         self.frames += 1;
         if self.frames >= Self::INTERVAL {
             self.frames = 0;
-            self.buffer[self.index] = cpu.clone();
+            let mut cpu = cpu.clone();
+            cpu.bus.prg_rom.clear();
+            cpu.bus.ppu.bus.chr_rom.clear();
+            cpu.bus.input.clear();
+            self.buffer[self.index] = Some(cpu);
             self.index += 1;
             self.count += 1;
             if self.index >= self.buffer.len() {
@@ -38,12 +42,13 @@ impl Rewind {
 
     pub fn pop(&mut self) -> Option<Cpu> {
         if self.count > 0 {
-            let cpu = self.buffer[self.index].clone();
+            let cpu = self.buffer[self.index].take();
             self.index -= 1;
+            self.count -= 1;
             if self.index == 0 {
                 self.index = self.buffer.len() - 1;
             }
-            Some(cpu)
+            cpu
         } else {
             None
         }
@@ -51,33 +56,24 @@ impl Rewind {
 }
 
 impl State {
-    fn rewind_disabled(&mut self) {
+    pub fn rewind_disabled(&mut self) {
         self.add_message("Rewind disabled. You can enable it in the Preferences menu.");
     }
 
-    pub fn rewind(&mut self) {
-        match self.rewind.as_mut().and_then(|r| r.pop()) {
-            Some(cpu) => {
-                self.control_deck.load_cpu(cpu);
-            }
-            None => self.rewind_disabled(),
-        }
-    }
-
     pub fn instant_rewind(&mut self) {
-        match self.rewind {
-            Some(ref mut rewind) => {
-                // Two seconds worth of frames @ 60 FPS
-                let mut rewind_frames = 120 / Rewind::INTERVAL;
-                while let Some(cpu) = rewind.pop() {
-                    self.control_deck.load_cpu(cpu);
-                    rewind_frames -= 1;
-                    if rewind_frames == 0 {
-                        break;
-                    }
+        if !self.config.read(|cfg| cfg.emulation.rewind) {
+            return self.rewind_disabled();
+        }
+        if let Some(ref mut rewind) = self.rewind {
+            // Two seconds worth of frames @ 60 FPS
+            let mut rewind_frames = 120 / Rewind::INTERVAL;
+            while let Some(cpu) = rewind.pop() {
+                self.control_deck.load_cpu(cpu);
+                rewind_frames -= 1;
+                if rewind_frames == 0 {
+                    break;
                 }
             }
-            None => self.rewind_disabled(),
         }
     }
 }

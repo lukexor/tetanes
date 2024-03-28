@@ -1,9 +1,8 @@
-use super::Ppu;
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::{Access, Mem},
-    ppu::Mirroring,
+    ppu::{Mirroring, Ppu},
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;

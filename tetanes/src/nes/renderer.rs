@@ -354,8 +354,11 @@ impl Renderer {
             }
             Event::UserEvent(event) => match event {
                 NesEvent::Emulation(event) => match event {
-                    EmulationEvent::TogglePause => {
-                        self.gui.paused = !self.gui.paused;
+                    EmulationEvent::ReplayRecord(recording) => {
+                        self.gui.replay_recording = *recording;
+                    }
+                    EmulationEvent::AudioRecord(recording) => {
+                        self.gui.audio_recording = *recording;
                     }
                     EmulationEvent::Pause(paused) => {
                         self.gui.paused = *paused;

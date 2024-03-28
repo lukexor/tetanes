@@ -461,7 +461,7 @@ impl Mixer {
                     *sample = T::from_sample(value);
                 }
             },
-            |err| eprintln!("an error occurred on stream: {err}"),
+            |err| error!("an error occurred on stream: {err}"),
             None,
         )?)
     }

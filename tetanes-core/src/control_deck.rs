@@ -436,6 +436,11 @@ impl ControlDeck {
         self.cpu.bus.input.set_four_player(four_player);
     }
 
+    /// Returns a reference to a joypad.
+    pub fn joypad(&mut self, slot: Player) -> &Joypad {
+        self.cpu.bus.input.joypad(slot)
+    }
+
     /// Returns a mutable reference to a joypad.
     pub fn joypad_mut(&mut self, slot: Player) -> &mut Joypad {
         self.cpu.bus.input.joypad_mut(slot)

@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tetanes_core::{cpu::Cpu, fs};
-use tracing::{info, warn};
+use tracing::warn;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct State((Cpu, Vec<ReplayEvent>));
@@ -56,7 +56,6 @@ impl Record {
                         .to_string(),
                 )
                 .with_extension("replay");
-            info!("saving replay to {path:?}...",);
             fs::save(&path, &State((self.start, self.events)))?;
             Ok(path)
         } else {
@@ -75,7 +74,6 @@ impl Replay {
     /// Loads a replay recording file.
     pub fn load(path: impl AsRef<Path>) -> anyhow::Result<(Cpu, Self)> {
         let path = path.as_ref();
-        info!("loading replay {}...", path.display());
         Ok(fs::load(path).map(|State((cpu, mut events))| {
             events.reverse(); // So we can pop off the end
             (cpu, Self { events })

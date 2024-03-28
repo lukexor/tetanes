@@ -100,8 +100,8 @@ impl Input {
             joypads: [Joypad::new(); 4],
             // Signature bits are reversed so they can shift right
             signatures: [
-                Joypad::signature(0b0000_1000),
-                Joypad::signature(0b0000_0100),
+                Joypad::from_bytes(0b0000_1000),
+                Joypad::from_bytes(0b0000_0100),
             ],
             zapper: Zapper::new(),
             turbo_timer: 30,
@@ -124,6 +124,13 @@ impl Input {
     pub fn set_four_player(&mut self, four_player: FourPlayer) {
         self.four_player = four_player;
         self.reset(ResetKind::Hard);
+    }
+
+    pub fn clear(&mut self) {
+        for pad in &mut self.joypads {
+            pad.clear();
+        }
+        self.zapper.clear();
     }
 }
 
@@ -233,9 +240,8 @@ impl Reset for Input {
         for pad in &mut self.joypads {
             pad.reset(kind);
         }
-        for sig in &mut self.signatures {
-            sig.reset(kind);
-        }
+        self.signatures[0] = Joypad::from_bytes(0b0000_1000);
+        self.signatures[1] = Joypad::from_bytes(0b0000_0100);
         self.zapper.reset(kind);
     }
 }
@@ -295,7 +301,6 @@ bitflags! {
         const RIGHT = 0x80;
         const TURBO_A = 0x100;
         const TURBO_B = 0x200;
-        const DPAD = Self::UP.bits() | Self::DOWN.bits() | Self::LEFT.bits() | Self::RIGHT.bits();
     }
 }
 
@@ -319,6 +324,7 @@ impl From<JoypadBtn> for JoypadBtnState {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Joypad {
+    #[serde(skip)]
     buttons: JoypadBtnState,
     index: u8,
     strobe: bool,
@@ -342,7 +348,7 @@ impl Joypad {
         self.buttons.set(button.into(), pressed);
     }
 
-    pub const fn signature(val: u16) -> Self {
+    pub fn from_bytes(val: u16) -> Self {
         Self {
             buttons: JoypadBtnState::from_bits_truncate(val),
             index: 0,
@@ -380,6 +386,10 @@ impl Joypad {
     pub const fn index(&self) -> u8 {
         self.index
     }
+
+    pub fn clear(&mut self) {
+        self.buttons = JoypadBtnState::empty();
+    }
 }
 
 impl Reset for Joypad {
@@ -393,6 +403,7 @@ impl Reset for Joypad {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
+    #[serde(skip)]
     pub triggered: f32,
     pub x: u32,
     pub y: u32,
@@ -421,6 +432,10 @@ impl Zapper {
     pub fn aim(&mut self, x: u32, y: u32) {
         self.x = x;
         self.y = y;
+    }
+
+    pub fn clear(&mut self) {
+        self.triggered = 0.0;
     }
 }
 

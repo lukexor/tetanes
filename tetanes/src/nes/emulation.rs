@@ -147,12 +147,9 @@ impl State {
 
     /// Handle event.
     pub fn on_event(&mut self, event: &Event<NesEvent>) {
-        if self.record.is_some() {
-            return;
-        }
-
         if let Event::UserEvent(NesEvent::Emulation(event)) = event {
             match event {
+                EmulationEvent::InstantRewind => self.instant_rewind(),
                 EmulationEvent::Joypad((player, button, state)) => {
                     let pressed = *state == ElementState::Pressed;
                     let joypad = self.control_deck.joypad_mut(*player);
@@ -161,12 +158,11 @@ impl State {
                         replay.record(self.control_deck.frame_number(), event.clone());
                     }
                 }
+                EmulationEvent::LoadRom((name, rom)) => {
+                    self.load_rom(name, &mut io::Cursor::new(rom));
+                }
                 EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
                 EmulationEvent::LoadReplayPath(path) => self.load_replay_path(path),
-                EmulationEvent::LoadRom((name, rom)) => {
-                    self.load_rom(name, &mut io::Cursor::new(rom))
-                }
-                EmulationEvent::TogglePause => self.pause(!self.paused),
                 EmulationEvent::Pause(paused) => self.pause(*paused),
                 EmulationEvent::Reset(kind) => {
                     self.control_deck.reset(*kind);
@@ -176,13 +172,16 @@ impl State {
                         ResetKind::Hard => self.add_message("Power Cycled"),
                     }
                 }
-                EmulationEvent::ToggleRewind(rewind) => {
-                    self.rewinding = *rewind;
+                EmulationEvent::Rewind(rewind) => {
+                    if self.config.read(|cfg| cfg.emulation.rewind) {
+                        self.rewinding = *rewind;
+                    } else {
+                        self.rewind_disabled();
+                    }
                 }
-                EmulationEvent::InstantRewind => self.instant_rewind(),
                 EmulationEvent::Screenshot => match self.save_screenshot() {
                     Ok(filename) => {
-                        self.add_message(format!("Screenshot Saved: {}", filename.display()))
+                        self.add_message(format!("Screenshot Saved: {}", filename.display()));
                     }
                     Err(err) => self.on_error(err),
                 },
@@ -234,19 +233,8 @@ impl State {
                     self.control_deck.toggle_apu_channel(*channel);
                     self.add_message(format!("Toggled APU Channel {:?}", channel));
                 }
-                EmulationEvent::ToggleAudioRecord => self.toggle_audio_record(),
-                EmulationEvent::ToggleReplayRecord => match self.record.take() {
-                    Some(replay) => match replay.stop() {
-                        Ok(filename) => {
-                            self.add_message(format!("Saved Replay Recording {filename:?}"));
-                        }
-                        Err(err) => self.on_error(err),
-                    },
-                    None => {
-                        self.add_message("Replay Recording Started");
-                        self.record = Some(Record::start(self.control_deck.cpu().clone()));
-                    }
-                },
+                EmulationEvent::AudioRecord(recording) => self.audio_record(*recording),
+                EmulationEvent::ReplayRecord(recording) => self.replay_record(*recording),
                 EmulationEvent::SetVideoFilter(filter) => self.control_deck.set_filter(*filter),
                 EmulationEvent::ZapperAim((x, y)) => {
                     self.control_deck.aim_zapper(*x, *y);
@@ -344,10 +332,13 @@ impl State {
     }
 
     fn load_replay_path(&mut self, path: impl AsRef<std::path::Path>) {
-        match Replay::load(path) {
+        let path = path.as_ref();
+        match Replay::load(&path) {
             Ok((start, replay)) => {
+                self.add_message(format!("Loaded Replay Recording {path:?}"));
                 self.control_deck.load_cpu(start);
                 self.replay = Some(replay);
+                self.pause(false);
             }
             Err(err) => self.on_error(err),
         }
@@ -361,14 +352,30 @@ impl State {
         }
     }
 
-    pub fn toggle_audio_record(&mut self) {
+    pub fn audio_record(&mut self, recording: bool) {
         if self.control_deck.is_running() {
-            if self.audio.is_recording() {
+            if !recording && self.audio.is_recording() {
                 self.audio.set_recording(false);
                 self.add_message("Audio Recording Stopped");
-            } else {
+            } else if recording {
                 self.audio.set_recording(true);
                 self.add_message("Audio Recording Started");
+            }
+        }
+    }
+
+    pub fn replay_record(&mut self, recording: bool) {
+        if self.control_deck.is_running() {
+            if recording {
+                self.record = Some(Record::start(self.control_deck.cpu().clone()));
+                self.add_message("Replay Recording Started");
+            } else if let Some(replay) = self.record.take() {
+                match replay.stop() {
+                    Ok(filename) => {
+                        self.add_message(format!("Saved Replay Recording {filename:?}"));
+                    }
+                    Err(err) => self.on_error(err),
+                }
             }
         }
     }
@@ -422,13 +429,9 @@ impl State {
             self.frame_time_accumulator = 0.25;
         }
 
-        if self.rewinding {
-            self.rewind();
-        }
-
         let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
         let frame_duration_seconds = self.target_frame_duration.as_secs_f32();
-        while if self.audio.enabled() {
+        while if self.audio.enabled() && !self.rewinding {
             self.audio.queued_time() <= self.audio.latency && clocked_frames <= 3
         } else {
             self.frame_time_accumulator >= frame_duration_seconds
@@ -436,25 +439,32 @@ impl State {
             #[cfg(feature = "profiling")]
             puffin::profile_scope!("clock");
 
-            if let Some(event) = self
-                .replay
-                .as_mut()
-                .and_then(|r| r.next(self.control_deck.frame_number()))
-            {
-                self.on_event(&Event::UserEvent(event.into()));
-            }
-
-            match self.control_deck.clock_frame() {
-                Ok(_) => {
-                    if let Some(ref mut rewind) = self.rewind {
-                        rewind.push(self.control_deck.cpu());
-                    }
-                    self.audio.process(self.control_deck.audio_samples());
-                    self.control_deck.clear_audio_samples();
+            if self.rewinding {
+                match self.rewind.as_mut().and_then(|rewind| rewind.pop()) {
+                    Some(cpu) => self.control_deck.load_cpu(cpu),
+                    None => self.rewinding = false,
                 }
-                Err(err) => {
-                    self.on_error(err.into());
-                    self.pause(true);
+            } else {
+                if let Some(event) = self
+                    .replay
+                    .as_mut()
+                    .and_then(|r| r.next(self.control_deck.frame_number()))
+                {
+                    self.on_event(&Event::UserEvent(event.into()));
+                }
+
+                match self.control_deck.clock_frame() {
+                    Ok(_) => {
+                        if let Some(ref mut rewind) = self.rewind {
+                            rewind.push(self.control_deck.cpu());
+                        }
+                        self.audio.process(self.control_deck.audio_samples());
+                        self.control_deck.clear_audio_samples();
+                    }
+                    Err(err) => {
+                        self.on_error(err.into());
+                        self.pause(true);
+                    }
                 }
             }
             self.frame_time_accumulator -= frame_duration_seconds;

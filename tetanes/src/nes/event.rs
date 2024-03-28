@@ -70,6 +70,7 @@ pub enum EmulationEvent {
     LoadReplayPath(PathBuf),
     Pause(bool),
     Reset(ResetKind),
+    Rewind(bool),
     Screenshot,
     SetAudioEnabled(bool),
     SetCycleAccurate(bool),
@@ -80,10 +81,8 @@ pub enum EmulationEvent {
     StateLoad,
     StateSave,
     ToggleApuChannel(Channel),
-    ToggleAudioRecord,
-    TogglePause,
-    ToggleReplayRecord,
-    ToggleRewind(bool),
+    AudioRecord(bool),
+    ReplayRecord(bool),
     ZapperAim((u32, u32)),
     ZapperConnect(bool),
     ZapperTrigger,
@@ -131,6 +130,9 @@ pub struct State {
     pub modifiers: Modifiers,
     pub occluded: bool,
     pub paused: bool,
+    pub replay_recording: bool,
+    pub audio_recording: bool,
+    pub rewinding: bool,
     pub quitting: bool,
 }
 
@@ -141,6 +143,9 @@ impl State {
             modifiers: Modifiers::default(),
             occluded: false,
             paused: false,
+            replay_recording: false,
+            audio_recording: false,
+            rewinding: false,
             quitting: false,
         }
     }
@@ -311,26 +316,42 @@ impl Nes {
                     UiState::Quit => self.trigger_event(UiEvent::Terminate),
                     UiState::TogglePause => {
                         self.state.paused = !self.state.paused;
-                        self.trigger_event(EmulationEvent::TogglePause);
+                        self.trigger_event(EmulationEvent::Pause(self.state.paused));
                     }
                     UiState::LoadRom => {
                         self.state.paused = !self.state.paused;
-                        self.trigger_event(EmulationEvent::TogglePause);
+                        self.trigger_event(EmulationEvent::Pause(self.state.paused));
                         self.trigger_event(UiEvent::LoadRomDialog);
                     }
                 },
                 Action::Menu(menu) if released => self.trigger_event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) => match feature {
                     Feature::ToggleReplayRecord if released => {
-                        self.trigger_event(EmulationEvent::ToggleReplayRecord);
+                        self.state.replay_recording = !self.state.replay_recording;
+                        self.trigger_event(EmulationEvent::ReplayRecord(
+                            self.state.replay_recording,
+                        ));
                     }
                     Feature::ToggleAudioRecord if released => {
-                        self.trigger_event(EmulationEvent::ToggleAudioRecord);
+                        self.state.audio_recording = !self.state.audio_recording;
+                        self.trigger_event(EmulationEvent::AudioRecord(self.state.audio_recording));
                     }
                     Feature::TakeScreenshot if released => {
                         self.trigger_event(EmulationEvent::Screenshot);
                     }
-                    Feature::Rewind => self.trigger_event(EmulationEvent::ToggleRewind(!released)),
+                    Feature::Rewind => {
+                        if !self.state.rewinding {
+                            if repeat {
+                                self.state.rewinding = true;
+                                self.trigger_event(EmulationEvent::Rewind(true));
+                            } else if released {
+                                self.trigger_event(EmulationEvent::InstantRewind);
+                            }
+                        } else if released {
+                            self.state.rewinding = false;
+                            self.trigger_event(EmulationEvent::Rewind(false));
+                        }
+                    }
                     _ => (),
                 },
                 Action::Setting(setting) => match setting {

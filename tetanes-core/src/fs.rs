@@ -28,6 +28,8 @@ pub enum Error {
     DecodingFailed(std::io::Error),
     #[error("failed to serialize data: {0:?}")]
     SerializationFailed(String),
+    #[error("failed to deserialize data: {0:?}")]
+    DeserializationFailed(String),
     #[error("invalid path: {0:?}")]
     InvalidPath(PathBuf),
     #[error("{context}: {source:?}")]
@@ -130,7 +132,7 @@ where
     let mut reader = fs::reader_impl(path)?;
     validate_header(&mut reader)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
-    bincode::deserialize(&data).map_err(|err| Error::SerializationFailed(err.to_string()))
+    bincode::deserialize(&data).map_err(|err| Error::DeserializationFailed(err.to_string()))
 }
 
 pub fn load_bytes<T>(bytes: &[u8]) -> Result<T>

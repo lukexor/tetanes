@@ -65,6 +65,8 @@ pub struct Gui {
     pub about_open: bool,
     pub resize_surface: bool,
     pub resize_texture: bool,
+    pub replay_recording: bool,
+    pub audio_recording: bool,
     pub version: String,
     pub last_frame_duration: Duration,
     pub messages: Vec<(String, Instant)>,
@@ -120,6 +122,8 @@ impl Gui {
             about_open: false,
             resize_surface: false,
             resize_texture: false,
+            replay_recording: false,
+            audio_recording: false,
             version: format!("Version: {}", env!("CARGO_PKG_VERSION")),
             last_frame_duration: Duration::default(),
             messages: vec![],
@@ -265,11 +269,17 @@ impl Gui {
     }
 
     fn controls_menu(&mut self, ui: &mut Ui) {
-        if ui
-            .button(if self.paused { "Resume" } else { "Pause" })
-            .clicked()
-        {
-            self.send_event(EmulationEvent::TogglePause);
+        let pause_label = if self.paused { "Resume" } else { "Pause" };
+        if ui.button(pause_label).clicked() {
+            self.send_event(EmulationEvent::Pause(!self.paused));
+            ui.close_menu();
+        };
+        let audio_enabled = self.config.read(|cfg| cfg.audio.enabled);
+        let mute_label = if audio_enabled { "Mute" } else { "Unmute" };
+        if ui.button(mute_label).clicked() {
+            self.config
+                .write(|cfg| cfg.audio.enabled = !cfg.audio.enabled);
+            self.send_event(EmulationEvent::SetAudioEnabled(!audio_enabled));
             ui.close_menu();
         };
         if ui.button("Reset").clicked() {
@@ -280,35 +290,30 @@ impl Gui {
             self.send_event(EmulationEvent::Reset(ResetKind::Hard));
             ui.close_menu();
         };
-        if ui
-            .button(if self.config.read(|cfg| cfg.audio.enabled) {
-                "Mute"
-            } else {
-                "Unmute"
-            })
-            .clicked()
-        {
-            self.send_event(EmulationEvent::SetAudioEnabled(self.config.write(|cfg| {
-                cfg.audio.enabled = !cfg.audio.enabled;
-                cfg.audio.enabled
-            })));
+        if ui.button("Rewind").clicked() {
+            self.send_event(EmulationEvent::InstantRewind);
             ui.close_menu();
         };
         if ui.button("Take Screenshot").clicked() {
             self.send_event(EmulationEvent::Screenshot);
             ui.close_menu();
         };
-        if ui.button("Rewind").clicked() {
-            self.send_event(EmulationEvent::InstantRewind);
+        let replay_label = if self.replay_recording {
+            "Stop Replay Recording"
+        } else {
+            "Record Replay"
+        };
+        if ui.button(replay_label).clicked() {
+            self.send_event(EmulationEvent::ReplayRecord(!self.replay_recording));
             ui.close_menu();
         };
-        // TODO: change to Start/Stop
-        if ui.button("Toggle Replay Recording").clicked() {
-            self.send_event(EmulationEvent::ToggleReplayRecord);
-            ui.close_menu();
+        let audio_label = if self.audio_recording {
+            "Stop Audio Recording"
+        } else {
+            "Record Audio"
         };
-        if ui.button("Toggle Audio Recording").clicked() {
-            self.send_event(EmulationEvent::ToggleAudioRecord);
+        if ui.button(audio_label).clicked() {
+            self.send_event(EmulationEvent::AudioRecord(!self.audio_recording));
             ui.close_menu();
         };
     }

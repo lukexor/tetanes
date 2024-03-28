@@ -130,14 +130,17 @@ impl Default for InputMap {
         key_map!(map, Two, KeyM, JoypadBtn::B);
         key_map!(map, Two, Numpad8, JoypadBtn::Start);
         key_map!(map, Two, Numpad9, SHIFT, JoypadBtn::Select);
-        key_map!(map, Three, KeyF, JoypadBtn::Left);
-        key_map!(map, Three, KeyH, JoypadBtn::Right);
-        key_map!(map, Three, KeyT, JoypadBtn::Up);
-        key_map!(map, Three, KeyG, JoypadBtn::Down);
-        key_map!(map, Three, KeyV, JoypadBtn::A);
-        key_map!(map, Three, KeyB, JoypadBtn::B);
-        key_map!(map, Three, Numpad5, JoypadBtn::Start);
-        key_map!(map, Three, Numpad6, SHIFT, JoypadBtn::Select);
+        #[cfg(debug_assertions)]
+        {
+            key_map!(map, Three, KeyF, JoypadBtn::Left);
+            key_map!(map, Three, KeyH, JoypadBtn::Right);
+            key_map!(map, Three, KeyT, JoypadBtn::Up);
+            key_map!(map, Three, KeyG, JoypadBtn::Down);
+            key_map!(map, Three, KeyV, JoypadBtn::A);
+            key_map!(map, Three, KeyB, JoypadBtn::B);
+            key_map!(map, Three, Numpad5, JoypadBtn::Start);
+            key_map!(map, Three, Numpad6, SHIFT, JoypadBtn::Select);
+        }
         key_map!(map, One, Escape, UiState::TogglePause);
         key_map!(map, One, KeyH, CONTROL, Menu::About);
         key_map!(map, One, F1, Menu::About);
