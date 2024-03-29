@@ -32,7 +32,6 @@ use winit::{
 pub enum UiEvent {
     Error(String),
     Message(String),
-    RomLoaded(String),
     RequestRedraw,
     LoadRomDialog,
     LoadReplayDialog,
@@ -92,9 +91,9 @@ pub enum EmulationEvent {
 #[must_use]
 pub enum RendererEvent {
     Frame(Duration),
+    RomLoaded(String),
     Menu(Menu),
     SetVSync(bool),
-    RequestTextureResize,
 }
 
 #[derive(Debug, Clone)]
@@ -242,7 +241,6 @@ impl Nes {
             UiEvent::Message(msg) => self.add_message(msg),
             UiEvent::Error(err) => self.on_error(anyhow!(err)),
             UiEvent::Terminate => self.state.quitting = true,
-            UiEvent::RomLoaded(name) => self.window.set_title(&name),
             UiEvent::RequestRedraw => self.window.request_redraw(),
             UiEvent::LoadRomDialog => match open_file_dialog(
                 "Load ROM",

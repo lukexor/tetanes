@@ -302,15 +302,8 @@ impl State {
         }
         let region = self.control_deck.region();
         self.target_frame_duration = FrameRate::from(region).duration();
-        let region_changed = self.config.write(|cfg| {
-            let changed = cfg.deck.region != region;
-            cfg.deck.region = region;
-            changed
-        });
-        if region_changed {
-            self.send_event(RendererEvent::RequestTextureResize);
-        }
-        self.send_event(UiEvent::RomLoaded(name));
+        self.config.write(|cfg| cfg.deck.region = region);
+        self.send_event(RendererEvent::RomLoaded(name));
         if self.config.read(|cfg| cfg.audio.enabled) {
             if let Err(err) = self.audio.start() {
                 self.on_error(err);
@@ -333,7 +326,7 @@ impl State {
 
     fn load_replay_path(&mut self, path: impl AsRef<std::path::Path>) {
         let path = path.as_ref();
-        match Replay::load(&path) {
+        match Replay::load(path) {
             Ok((start, replay)) => {
                 self.add_message(format!("Loaded Replay Recording {path:?}"));
                 self.control_deck.load_cpu(start);

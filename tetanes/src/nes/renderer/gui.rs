@@ -3,9 +3,8 @@ use crate::nes::{
     event::{EmulationEvent, NesEvent, UiEvent},
 };
 use egui::{
-    global_dark_light_mode_switch, load::SizedTexture, menu, Align, Align2, Area, CentralPanel,
-    Color32, Context, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, TopBottomPanel,
-    Ui, Vec2,
+    global_dark_light_mode_switch, load::SizedTexture, menu, Align, CentralPanel, Color32, Context,
+    CursorIcon, Direction, Frame, Image, Layout, Margin, RichText, TopBottomPanel, Ui,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
@@ -23,7 +22,7 @@ use winit::{
 };
 
 pub const MSG_TIMEOUT: Duration = Duration::from_secs(3);
-pub const MAX_MESSAGES: usize = 3;
+pub const MAX_MESSAGES: usize = 5;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Menu {
@@ -55,6 +54,7 @@ impl AsRef<str> for ConfigTab {
 #[must_use]
 pub struct Gui {
     pub window: Arc<Window>,
+    pub title: String,
     pub event_proxy: EventLoopProxy<NesEvent>,
     pub texture: SizedTexture,
     pub config: Config,
@@ -63,7 +63,7 @@ pub struct Gui {
     pub preferences_open: bool,
     pub keybinds_open: bool,
     pub about_open: bool,
-    pub resize_surface: bool,
+    pub resize_window: bool,
     pub resize_texture: bool,
     pub replay_recording: bool,
     pub audio_recording: bool,
@@ -113,6 +113,7 @@ impl Gui {
     ) -> Self {
         Self {
             window,
+            title: Config::WINDOW_TITLE.to_string(),
             event_proxy,
             texture,
             config,
@@ -121,7 +122,7 @@ impl Gui {
             preferences_open: false,
             keybinds_open: false,
             about_open: false,
-            resize_surface: false,
+            resize_window: false,
             resize_texture: false,
             replay_recording: false,
             audio_recording: false,
@@ -210,7 +211,7 @@ impl Gui {
         let height = inner_response.response.rect.height() + spacing.y + border;
         if height != self.menu_height {
             self.menu_height = height;
-            self.resize_surface = true;
+            self.resize_window = true;
         }
     }
 
@@ -513,85 +514,73 @@ impl Gui {
         CentralPanel::default()
             .frame(Frame::none())
             .show_inside(ui, |ui| {
-                let image = Image::from_texture(self.texture)
-                    .maintain_aspect_ratio(true)
-                    .shrink_to_fit();
                 let zapper = self.config.read(|cfg| cfg.deck.zapper);
-                let frame_resp =
-                    ui.add_sized(ui.available_size(), image)
-                        .on_hover_cursor(if zapper {
-                            CursorIcon::Crosshair
-                        } else {
-                            CursorIcon::Default
-                        });
-                if zapper {
-                    if let Some(pos) = frame_resp.hover_pos() {
-                        let scale_x = frame_resp.rect.width() / Ppu::WIDTH as f32;
-                        let scale_y = frame_resp.rect.height() / Ppu::HEIGHT as f32;
-                        let aspect_ratio = self.config.read(|cfg| cfg.deck.region.aspect_ratio());
-                        let x = pos.x / scale_x / aspect_ratio;
-                        let y = (pos.y - self.menu_height - ui.style().spacing.menu_margin.bottom)
-                            / scale_y;
-                        if x > 0.0 && y > 0.0 {
-                            self.send_event(EmulationEvent::ZapperAim((
-                                x.round() as u32,
-                                y.round() as u32,
-                            )));
+                let layout = Layout {
+                    main_dir: Direction::TopDown,
+                    main_align: Align::Center,
+                    cross_align: Align::Center,
+                    ..Default::default()
+                };
+                ui.with_layout(layout, |ui| {
+                    let image = Image::from_texture(self.texture)
+                        .maintain_aspect_ratio(true)
+                        .shrink_to_fit();
+                    let frame_resp = ui.add(image).on_hover_cursor(if zapper {
+                        CursorIcon::Crosshair
+                    } else {
+                        CursorIcon::Default
+                    });
+
+                    if zapper {
+                        if let Some(pos) = frame_resp.hover_pos() {
+                            let width = Ppu::WIDTH as f32;
+                            let height = Ppu::HEIGHT as f32;
+                            // Normalize x/y to 0..=1 and scale to PPU dimensions
+                            let x =
+                                ((pos.x - frame_resp.rect.min.x) / frame_resp.rect.width()) * width;
+                            let y = ((pos.y - frame_resp.rect.min.y) / frame_resp.rect.height())
+                                * height;
+                            if (0.0..width).contains(&x) && (0.0..height).contains(&y) {
+                                self.send_event(EmulationEvent::ZapperAim((
+                                    x.round() as u32,
+                                    y.round() as u32,
+                                )));
+                            }
                         }
                     }
-                }
+                });
             });
-        if self.config.read(|cfg| cfg.renderer.show_messages) {
-            if !self.messages.is_empty() || self.error.is_some() {
-                Area::new("messages")
-                    .anchor(Align2::LEFT_TOP, Vec2::ZERO)
-                    .order(Order::Foreground)
-                    .constrain(true)
-                    .show(ui.ctx(), |ui| {
-                        Frame::canvas(ui.style()).show(ui, |ui| {
-                            ui.with_layout(
-                                Layout::top_down(Align::LEFT).with_main_wrap(true),
-                                |ui| {
-                                    ui.set_width(ui.available_width());
-                                    self.message_bar(ui);
-                                    self.error_bar(ui);
-                                },
-                            );
-                        });
-                    });
-            }
-
-            if self.status.is_some() {
-                Area::new("status")
-                    .anchor(Align2::LEFT_BOTTOM, Vec2::ZERO)
-                    .order(Order::Foreground)
-                    .constrain(true)
-                    .show(ui.ctx(), |ui| {
-                        Frame::canvas(ui.style()).show(ui, |ui| {
-                            ui.with_layout(
-                                Layout::top_down(Align::LEFT).with_main_wrap(true),
-                                |ui| {
-                                    ui.set_width(ui.available_width());
-                                    self.status_bar(ui);
-                                },
-                            );
-                        });
-                    });
-            }
-        }
 
         if self.config.read(|cfg| cfg.renderer.show_fps) {
-            egui::Frame::canvas(ui.style()).show(ui, |ui| {
-                ui.colored_label(
-                    egui::Color32::WHITE,
-                    format!(
+            Frame::canvas(ui.style()).show(ui, |ui| {
+                ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
+                    ui.label(format!(
                         "FPS: {:.2}",
                         (self.frame_durations.iter().sum::<Duration>()
                             / self.frame_durations.len() as u32)
                             .as_secs_f32()
                             .recip()
-                    ),
-                );
+                    ));
+                });
+            });
+        }
+
+        if self.config.read(|cfg| cfg.renderer.show_messages)
+            && (!self.messages.is_empty() || self.error.is_some())
+        {
+            Frame::canvas(ui.style()).show(ui, |ui| {
+                ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
+                    self.message_bar(ui);
+                    self.error_bar(ui);
+                });
+            });
+        }
+
+        if self.status.is_some() {
+            Frame::canvas(ui.style()).show(ui, |ui| {
+                ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
+                    self.status_bar(ui);
+                });
             });
         }
     }

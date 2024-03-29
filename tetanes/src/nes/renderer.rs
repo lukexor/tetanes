@@ -110,7 +110,7 @@ impl Renderer {
         if window_size.width == 0 {
             let scale_factor = window.scale_factor();
             window_size = config
-                .read(|cfg| cfg.window_size())
+                .read(|cfg| cfg.texture_size())
                 .to_physical(scale_factor);
         }
 
@@ -169,7 +169,7 @@ impl Renderer {
         };
         surface.configure(&device, &surface_config);
 
-        let texture_size = config.read(|cfg| cfg.texture_dimensions());
+        let texture_size = config.read(|cfg| cfg.texture_size());
         let texture = Texture::new(
             &device,
             texture_size.width.min(max_texture_dimension),
@@ -335,6 +335,17 @@ impl Renderer {
                             self.surface_config.width = width;
                             self.surface_config.height = height;
                             self.resize_surface = true;
+
+                            let scale_factor = window.scale_factor() as f32;
+                            let texture_size = self.config.read(|cfg| cfg.texture_size());
+                            let scale = if size.width < size.height {
+                                (width as f32 / scale_factor) / texture_size.width as f32
+                            } else {
+                                (height as f32 / scale_factor) / texture_size.height as f32
+                            };
+                            self.config.write(|cfg| {
+                                cfg.renderer.scale = scale.floor();
+                            });
                         }
                     }
                     WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -374,12 +385,13 @@ impl Renderer {
                         };
                         self.resize_surface = true;
                     }
-                    RendererEvent::RequestTextureResize => {
-                        // TODO: handle window aspect ratio resize
-                        self.gui.resize_texture = true;
-                    }
                     RendererEvent::Frame(duration) => {
                         self.gui.add_frame_duration(*duration);
+                    }
+                    RendererEvent::RomLoaded(title) => {
+                        self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
+                        self.gui.resize_window = true;
+                        self.gui.resize_texture = true;
                     }
                     RendererEvent::Menu(menu) => match menu {
                         Menu::Config(_) => self.gui.preferences_open = !self.gui.preferences_open,
@@ -394,7 +406,7 @@ impl Renderer {
     }
 
     fn resize_texture(&mut self) {
-        let texture_size = self.config.read(|cfg| cfg.texture_dimensions());
+        let texture_size = self.config.read(|cfg| cfg.texture_size());
         self.texture
             .resize(&self.device, texture_size.width, texture_size.height);
         self.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -448,10 +460,15 @@ impl Renderer {
 
         self.prepare(window);
 
-        if self.resize_surface || self.gui.resize_surface {
+        if self.resize_surface || self.gui.resize_window {
             self.surface.configure(&self.device, &self.surface_config);
+            if self.gui.resize_window {
+                let mut window_size = self.config.read(|cfg| cfg.window_size());
+                window_size.height += self.gui.menu_height;
+                let _ = self.gui.window.request_inner_size(window_size);
+            }
             self.resize_surface = false;
-            self.gui.resize_surface = false;
+            self.gui.resize_window = false;
         }
         if self.gui.resize_texture {
             self.resize_texture();

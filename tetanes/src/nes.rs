@@ -7,7 +7,6 @@ use event::{EmulationEvent, NesEvent, State};
 use renderer::{BufferPool, Renderer};
 use std::{path::PathBuf, sync::Arc};
 use winit::{
-    dpi::LogicalSize,
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
 };
@@ -94,21 +93,13 @@ impl Nes {
         event_loop: &EventLoop<NesEvent>,
         config: &Config,
     ) -> anyhow::Result<Window> {
-        let size = config.read(|cfg| cfg.window_size());
-        let scale = if cfg!(target_arch = "wasm32") {
-            2.0
-        } else {
-            3.0
-        };
-        let scaled_size = LogicalSize {
-            width: size.width * scale,
-            height: size.height * scale,
-        };
+        let window_size = config.read(|cfg| cfg.window_size());
+        let texture_size = config.read(|cfg| cfg.texture_size());
         let window_builder = WindowBuilder::new();
         let window_builder = window_builder
             .with_active(true)
-            .with_inner_size(scaled_size)
-            .with_min_inner_size(size)
+            .with_inner_size(window_size)
+            .with_min_inner_size(texture_size)
             .with_title(Config::WINDOW_TITLE)
             // TODO: Support exclusive fullscreen config
             .with_fullscreen(config.read(|cfg| {

@@ -72,6 +72,7 @@ impl Default for EmulationConfig {
 pub struct RendererConfig {
     pub fullscreen: bool,
     pub hide_overscan: bool,
+    pub scale: f32,
     pub recent_roms: HashSet<PathBuf>,
     pub roms_path: Option<PathBuf>,
     pub show_fps: bool,
@@ -85,6 +86,11 @@ impl Default for RendererConfig {
         Self {
             fullscreen: false,
             hide_overscan: true,
+            scale: if cfg!(target_arch = "wasm32") {
+                2.0
+            } else {
+                3.0
+            },
             recent_roms: HashSet::new(),
             roms_path: None,
             show_fps: cfg!(debug_assertions),
@@ -246,15 +252,16 @@ impl ConfigImpl {
     #[must_use]
     pub fn window_size(&self) -> LogicalSize<f32> {
         let aspect_ratio = self.deck.region.aspect_ratio();
-        let texture_size = self.texture_dimensions();
+        let scale = self.renderer.scale;
+        let texture_size = self.texture_size();
         LogicalSize::new(
-            texture_size.width as f32 * aspect_ratio,
-            texture_size.height as f32,
+            scale * texture_size.width as f32 * aspect_ratio,
+            scale * texture_size.height as f32,
         )
     }
 
     #[must_use]
-    pub fn texture_dimensions(&self) -> LogicalSize<u32> {
+    pub fn texture_size(&self) -> LogicalSize<u32> {
         let width = Ppu::WIDTH;
         let height = if self.renderer.hide_overscan {
             Ppu::HEIGHT - 16
