@@ -1,5 +1,5 @@
 use crate::nes::emulation::State;
-use tetanes_core::cpu::Cpu;
+use tetanes_core::{cpu::Cpu, ppu::frame::Frame};
 
 #[derive(Default, Debug)]
 #[must_use]
@@ -11,7 +11,7 @@ pub struct Rewind {
 }
 
 impl Rewind {
-    const BUFFER_SIZE: usize = 2048; // ~34 seconds of frames
+    const BUFFER_SIZE: usize = 1024; // ~34 seconds of frames at a 2 frame interval
     const INTERVAL: u8 = 2;
 
     pub fn new() -> Self {
@@ -28,12 +28,16 @@ impl Rewind {
         if self.frames >= Self::INTERVAL {
             self.frames = 0;
             let mut cpu = cpu.clone();
+            // Reduce total memory needed for rewind state
+            // front_buffer is required to have visual rewind
+            cpu.bus.ppu.frame.back_buffer.clear();
+            cpu.bus.clear_audio_samples();
             cpu.bus.prg_rom.clear();
             cpu.bus.ppu.bus.chr_rom.clear();
             cpu.bus.input.clear();
             self.buffer[self.index] = Some(cpu);
-            self.index += 1;
             self.count += 1;
+            self.index += 1;
             if self.index >= self.buffer.len() {
                 self.index = 0;
             }
@@ -42,11 +46,14 @@ impl Rewind {
 
     pub fn pop(&mut self) -> Option<Cpu> {
         if self.count > 0 {
-            let cpu = self.buffer[self.index].take();
-            self.index -= 1;
             self.count -= 1;
+            self.index -= 1;
             if self.index == 0 {
                 self.index = self.buffer.len() - 1;
+            }
+            let mut cpu = self.buffer[self.index].take();
+            if let Some(ref mut cpu) = cpu {
+                cpu.bus.ppu.frame.back_buffer = Frame::default_buffer();
             }
             cpu
         } else {

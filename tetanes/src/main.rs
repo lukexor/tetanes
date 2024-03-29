@@ -19,6 +19,9 @@
 
 use tetanes::{logging, nes::Nes, thread};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod opts;
+
 fn main() -> anyhow::Result<()> {
     let _log = logging::init();
     #[cfg(feature = "profiling")]
@@ -32,7 +35,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     let (path, config) = {
         use clap::Parser;
-        let opts = tetanes::opts::Opts::parse();
+        let opts = opts::Opts::parse();
         tracing::debug!("CLI Options: {opts:?}");
         opts.load()?
     };

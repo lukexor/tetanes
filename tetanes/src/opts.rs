@@ -1,6 +1,6 @@
-use crate::nes::config::Config;
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
+use tetanes::nes::config::Config;
 use tetanes_core::genie::GenieCode;
 
 #[derive(Debug, Clone)]

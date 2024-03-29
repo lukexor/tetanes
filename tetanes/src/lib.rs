@@ -16,8 +16,6 @@
 pub mod error;
 pub mod logging;
 pub mod nes;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod opts;
 pub mod platform;
 pub mod sys;
 pub mod thread;

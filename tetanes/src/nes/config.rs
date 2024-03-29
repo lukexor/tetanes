@@ -34,7 +34,11 @@ impl Default for AudioConfig {
                 512
             },
             enabled: true,
-            latency: Duration::from_millis(50),
+            latency: if cfg!(target_arch = "wasm32") {
+                Duration::from_millis(80)
+            } else {
+                Duration::from_millis(50)
+            },
         }
     }
 }

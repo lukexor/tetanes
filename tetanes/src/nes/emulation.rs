@@ -16,17 +16,14 @@ use std::{
 };
 use tetanes_core::{
     apu::Apu,
-    common::{Regional, Reset, ResetKind},
+    common::{NesRegion, Regional, Reset, ResetKind},
     control_deck::ControlDeck,
     fs,
     ppu::Ppu,
     time::{Duration, Instant},
 };
 use tracing::{debug, error, trace};
-use winit::{
-    event::{ElementState, Event},
-    event_loop::EventLoopProxy,
-};
+use winit::{event::ElementState, event_loop::EventLoopProxy};
 
 pub mod replay;
 pub mod rewind;
@@ -74,6 +71,7 @@ pub struct State {
     control_deck: ControlDeck,
     audio: Audio,
     frame_pool: BufferPool,
+    frame_latency: usize,
     target_frame_duration: Duration,
     last_frame_time: Instant,
     total_frame_duration: Duration,
@@ -114,6 +112,7 @@ impl State {
             control_deck,
             audio,
             frame_pool,
+            frame_latency: 1,
             target_frame_duration: Duration::default(),
             last_frame_time: Instant::now(),
             total_frame_duration: Duration::default(),
@@ -146,110 +145,108 @@ impl State {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &Event<NesEvent>) {
-        if let Event::UserEvent(NesEvent::Emulation(event)) = event {
-            match event {
-                EmulationEvent::InstantRewind => self.instant_rewind(),
-                EmulationEvent::Joypad((player, button, state)) => {
-                    let pressed = *state == ElementState::Pressed;
-                    let joypad = self.control_deck.joypad_mut(*player);
-                    joypad.set_button(*button, pressed);
-                    if let Some(ref mut replay) = self.record {
-                        replay.record(self.control_deck.frame_number(), event.clone());
+    pub fn on_event(&mut self, event: &EmulationEvent) {
+        match event {
+            EmulationEvent::InstantRewind => self.instant_rewind(),
+            EmulationEvent::Joypad((player, button, state)) => {
+                let pressed = *state == ElementState::Pressed;
+                let joypad = self.control_deck.joypad_mut(*player);
+                joypad.set_button(*button, pressed);
+                if let Some(ref mut replay) = self.record {
+                    replay.record(self.control_deck.frame_number(), event.clone());
+                }
+            }
+            EmulationEvent::LoadRom((name, rom)) => {
+                self.load_rom(name, &mut io::Cursor::new(rom));
+            }
+            EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
+            EmulationEvent::LoadReplayPath(path) => self.load_replay_path(path),
+            EmulationEvent::Pause(paused) => self.pause(*paused),
+            EmulationEvent::Reset(kind) => {
+                self.control_deck.reset(*kind);
+                self.pause(false);
+                match kind {
+                    ResetKind::Soft => self.add_message("Reset"),
+                    ResetKind::Hard => self.add_message("Power Cycled"),
+                }
+            }
+            EmulationEvent::Rewind(rewind) => {
+                if self.config.read(|cfg| cfg.emulation.rewind) {
+                    self.rewinding = *rewind;
+                } else {
+                    self.rewind_disabled();
+                }
+            }
+            EmulationEvent::Screenshot => match self.save_screenshot() {
+                Ok(filename) => {
+                    self.add_message(format!("Screenshot Saved: {}", filename.display()));
+                }
+                Err(err) => self.on_error(err),
+            },
+            EmulationEvent::SetAudioEnabled(enabled) => {
+                if *enabled {
+                    match self.audio.start() {
+                        Ok(()) => self.add_message("Audio Enabled"),
+                        Err(err) => self.on_error(err),
                     }
+                } else {
+                    self.audio.stop();
+                    self.add_message("Audio Disabled");
                 }
-                EmulationEvent::LoadRom((name, rom)) => {
-                    self.load_rom(name, &mut io::Cursor::new(rom));
-                }
-                EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
-                EmulationEvent::LoadReplayPath(path) => self.load_replay_path(path),
-                EmulationEvent::Pause(paused) => self.pause(*paused),
-                EmulationEvent::Reset(kind) => {
-                    self.control_deck.reset(*kind);
-                    self.pause(false);
-                    match kind {
-                        ResetKind::Soft => self.add_message("Reset"),
-                        ResetKind::Hard => self.add_message("Power Cycled"),
-                    }
-                }
-                EmulationEvent::Rewind(rewind) => {
-                    if self.config.read(|cfg| cfg.emulation.rewind) {
-                        self.rewinding = *rewind;
-                    } else {
-                        self.rewind_disabled();
-                    }
-                }
-                EmulationEvent::Screenshot => match self.save_screenshot() {
-                    Ok(filename) => {
-                        self.add_message(format!("Screenshot Saved: {}", filename.display()));
-                    }
-                    Err(err) => self.on_error(err),
-                },
-                EmulationEvent::SetAudioEnabled(enabled) => {
-                    if *enabled {
-                        match self.audio.start() {
-                            Ok(()) => self.add_message("Audio Enabled"),
-                            Err(err) => self.on_error(err),
-                        }
-                    } else {
-                        self.audio.stop();
-                        self.add_message("Audio Disabled");
-                    }
-                }
-                EmulationEvent::SetCycleAccurate(enabled) => {
-                    self.control_deck.set_cycle_accurate(*enabled);
-                }
-                EmulationEvent::SetFourPlayer(four_player) => {
-                    self.control_deck.set_four_player(*four_player);
-                }
-                EmulationEvent::SetSpeed(speed) => self.control_deck.set_frame_speed(*speed),
-                EmulationEvent::SetRegion(region) => {
-                    self.control_deck.set_region(*region);
-                    self.target_frame_duration = FrameRate::from(*region).duration();
-                }
-                EmulationEvent::StateLoad => {
-                    if let Some(rom) = self.control_deck.loaded_rom() {
-                        let slot = self.config.read(|cfg| cfg.emulation.save_slot);
-                        if let Some(path) = Config::save_path(rom, slot) {
-                            match self.control_deck.load_state(path) {
-                                Ok(_) => self.add_message(format!("State {slot} Loaded")),
-                                Err(err) => self.on_error(err.into()),
-                            }
+            }
+            EmulationEvent::SetCycleAccurate(enabled) => {
+                self.control_deck.set_cycle_accurate(*enabled);
+            }
+            EmulationEvent::SetFourPlayer(four_player) => {
+                self.control_deck.set_four_player(*four_player);
+            }
+            EmulationEvent::SetSpeed(speed) => self.control_deck.set_frame_speed(*speed),
+            EmulationEvent::SetRegion(region) => {
+                self.control_deck.set_region(*region);
+                self.set_region(*region);
+            }
+            EmulationEvent::StateLoad => {
+                if let Some(rom) = self.control_deck.loaded_rom() {
+                    let slot = self.config.read(|cfg| cfg.emulation.save_slot);
+                    if let Some(path) = Config::save_path(rom, slot) {
+                        match self.control_deck.load_state(path) {
+                            Ok(_) => self.add_message(format!("State {slot} Loaded")),
+                            Err(err) => self.on_error(err.into()),
                         }
                     }
                 }
-                EmulationEvent::StateSave => {
-                    if let Some(rom) = self.control_deck.loaded_rom() {
-                        let slot = self.config.read(|cfg| cfg.emulation.save_slot);
-                        if let Some(data_dir) = Config::save_path(rom, slot) {
-                            match self.control_deck.save_state(data_dir) {
-                                Ok(_) => self.add_message(format!("State {slot} Saved")),
-                                Err(err) => self.on_error(err.into()),
-                            }
+            }
+            EmulationEvent::StateSave => {
+                if let Some(rom) = self.control_deck.loaded_rom() {
+                    let slot = self.config.read(|cfg| cfg.emulation.save_slot);
+                    if let Some(data_dir) = Config::save_path(rom, slot) {
+                        match self.control_deck.save_state(data_dir) {
+                            Ok(_) => self.add_message(format!("State {slot} Saved")),
+                            Err(err) => self.on_error(err.into()),
                         }
                     }
                 }
-                EmulationEvent::ToggleApuChannel(channel) => {
-                    self.control_deck.toggle_apu_channel(*channel);
-                    self.add_message(format!("Toggled APU Channel {:?}", channel));
+            }
+            EmulationEvent::ToggleApuChannel(channel) => {
+                self.control_deck.toggle_apu_channel(*channel);
+                self.add_message(format!("Toggled APU Channel {:?}", channel));
+            }
+            EmulationEvent::AudioRecord(recording) => self.audio_record(*recording),
+            EmulationEvent::ReplayRecord(recording) => self.replay_record(*recording),
+            EmulationEvent::SetVideoFilter(filter) => self.control_deck.set_filter(*filter),
+            EmulationEvent::ZapperAim((x, y)) => {
+                self.control_deck.aim_zapper(*x, *y);
+                if let Some(ref mut replay) = self.record {
+                    replay.record(self.control_deck.frame_number(), event.clone());
                 }
-                EmulationEvent::AudioRecord(recording) => self.audio_record(*recording),
-                EmulationEvent::ReplayRecord(recording) => self.replay_record(*recording),
-                EmulationEvent::SetVideoFilter(filter) => self.control_deck.set_filter(*filter),
-                EmulationEvent::ZapperAim((x, y)) => {
-                    self.control_deck.aim_zapper(*x, *y);
-                    if let Some(ref mut replay) = self.record {
-                        replay.record(self.control_deck.frame_number(), event.clone());
-                    }
-                }
-                EmulationEvent::ZapperConnect(connected) => {
-                    self.control_deck.connect_zapper(*connected)
-                }
-                EmulationEvent::ZapperTrigger => {
-                    self.control_deck.trigger_zapper();
-                    if let Some(ref mut replay) = self.record {
-                        replay.record(self.control_deck.frame_number(), event.clone());
-                    }
+            }
+            EmulationEvent::ZapperConnect(connected) => {
+                self.control_deck.connect_zapper(*connected)
+            }
+            EmulationEvent::ZapperTrigger => {
+                self.control_deck.trigger_zapper();
+                if let Some(ref mut replay) = self.record {
+                    replay.record(self.control_deck.frame_number(), event.clone());
                 }
             }
         }
@@ -301,8 +298,7 @@ impl State {
             }
         }
         let region = self.control_deck.region();
-        self.target_frame_duration = FrameRate::from(region).duration();
-        self.config.write(|cfg| cfg.deck.region = region);
+        self.set_region(region);
         self.send_event(RendererEvent::RomLoaded(name));
         if self.config.read(|cfg| cfg.audio.enabled) {
             if let Err(err) = self.audio.start() {
@@ -345,7 +341,15 @@ impl State {
         }
     }
 
-    pub fn audio_record(&mut self, recording: bool) {
+    fn set_region(&mut self, region: NesRegion) {
+        self.target_frame_duration = FrameRate::from(region).duration();
+        self.frame_latency = (self.audio.latency.as_secs_f32()
+            / self.target_frame_duration.as_secs_f32())
+        .ceil() as usize;
+        self.config.write(|cfg| cfg.deck.region = region);
+    }
+
+    fn audio_record(&mut self, recording: bool) {
         if self.control_deck.is_running() {
             if !recording && self.audio.is_recording() {
                 self.audio.set_recording(false);
@@ -357,7 +361,7 @@ impl State {
         }
     }
 
-    pub fn replay_record(&mut self, recording: bool) {
+    fn replay_record(&mut self, recording: bool) {
         if self.control_deck.is_running() {
             if recording {
                 self.record = Some(Record::start(self.control_deck.cpu().clone()));
@@ -401,7 +405,9 @@ impl State {
             (self.last_frame_time + self.target_frame_duration)
                 .saturating_duration_since(Instant::now())
         };
-        if timeout > Duration::from_micros(100) {
+        let epsilon = Duration::from_millis(1);
+        if timeout > epsilon {
+            let timeout = timeout.min(self.target_frame_duration - epsilon);
             trace!("sleeping for {:.4}s", timeout.as_secs_f32());
             std::thread::park_timeout(timeout);
         }
@@ -427,9 +433,9 @@ impl State {
         let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
         let frame_duration_seconds = self.target_frame_duration.as_secs_f32();
         while if self.audio.enabled() && !self.rewinding {
-            self.audio.queued_time() < self.audio.latency && clocked_frames <= 3
+            self.audio.queued_time() <= self.audio.latency && clocked_frames <= self.frame_latency
         } else {
-            self.frame_time_accumulator > frame_duration_seconds
+            self.frame_time_accumulator >= frame_duration_seconds
         } {
             #[cfg(feature = "profiling")]
             puffin::profile_scope!("clock");
@@ -445,7 +451,7 @@ impl State {
                     .as_mut()
                     .and_then(|r| r.next(self.control_deck.frame_number()))
                 {
-                    self.on_event(&Event::UserEvent(event.into()));
+                    self.on_event(&event);
                 }
 
                 match self.control_deck.clock_frame() {
@@ -461,20 +467,22 @@ impl State {
                         self.pause(true);
                     }
                 }
+                self.send_event(RendererEvent::Frame);
             }
             self.frame_time_accumulator -= frame_duration_seconds;
             clocked_frames += 1;
         }
 
-        let mut new_frame = false;
-        if let Ok(mut frame) = self.frame_pool.push_ref() {
-            frame.clear();
-            frame.extend_from_slice(self.control_deck.frame_buffer());
-            new_frame = true;
-        }
+        let new_frame = match self.frame_pool.push_ref() {
+            Ok(mut frame) => {
+                frame.clear();
+                frame.extend_from_slice(self.control_deck.frame_buffer());
+                true
+            }
+            Err(_) => false,
+        };
         if new_frame {
-            self.send_event(RendererEvent::Frame(self.total_frame_duration));
-            self.total_frame_duration = Duration::default();
+            self.send_event(UiEvent::RequestRedraw);
         }
 
         self.sleep();
@@ -490,7 +498,7 @@ struct Single {
 #[derive(Debug)]
 #[must_use]
 struct Multi {
-    tx: Sender<Event<NesEvent>>,
+    tx: Sender<EmulationEvent>,
     handle: JoinHandle<()>,
 }
 
@@ -511,7 +519,7 @@ impl Multi {
 
     fn main(
         event_proxy: EventLoopProxy<NesEvent>,
-        rx: Receiver<Event<NesEvent>>,
+        rx: Receiver<EmulationEvent>,
         frame_pool: BufferPool,
         config: Config,
     ) {
@@ -557,7 +565,7 @@ impl Emulation {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &Event<NesEvent>) {
+    pub fn on_event(&mut self, event: &EmulationEvent) {
         match &mut self.threads {
             Threads::Single(Single { state }) => state.on_event(event),
             Threads::Multi(Multi { tx, handle }) => {

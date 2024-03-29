@@ -95,8 +95,7 @@ impl Nes {
     ) -> anyhow::Result<Window> {
         let window_size = config.read(|cfg| cfg.window_size());
         let texture_size = config.read(|cfg| cfg.texture_size());
-        let window_builder = WindowBuilder::new();
-        let window_builder = window_builder
+        Ok(WindowBuilder::new()
             .with_active(true)
             .with_inner_size(window_size)
             .with_min_inner_size(texture_size)
@@ -108,10 +107,8 @@ impl Nes {
                     .then_some(Fullscreen::Borderless(None))
             }))
             .with_resizable(true)
-            .with_platform();
-        let window = window_builder.build(event_loop)?;
-
-        Ok(window)
+            .with_platform()
+            .build(event_loop)?)
     }
 
     fn next_frame(&mut self) {

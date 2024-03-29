@@ -1,6 +1,6 @@
+use crate::sys::platform;
+use std::path::PathBuf;
 use winit::{event::Event, event_loop::EventLoopWindowTarget};
-
-pub use crate::sys::platform::*;
 
 /// Trait for any type requiring platform-specific initialization.
 pub trait Initialize {
@@ -20,4 +20,24 @@ pub trait EventLoopExt<T> {
     fn run_platform<F>(self, event_handler: F) -> anyhow::Result<()>
     where
         F: FnMut(Event<T>, &EventLoopWindowTarget<T>) + 'static;
+}
+
+pub fn open_file_dialog(
+    title: impl Into<String>,
+    name: impl Into<String>,
+    extensions: &[impl ToString],
+    dir: Option<PathBuf>,
+) -> anyhow::Result<Option<PathBuf>> {
+    platform::open_file_dialog_impl(title, name, extensions, dir)
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum Feature {
+    SaveStates,
+    WindowMinMax,
+}
+
+pub fn supports(feature: Feature) -> bool {
+    platform::supports_impl(feature)
 }

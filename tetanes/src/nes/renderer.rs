@@ -69,6 +69,7 @@ impl Clone for BufferPool {
 
 #[must_use]
 pub struct Renderer {
+    window: Arc<Window>,
     frame_pool: BufferPool,
     config: Config,
     gui: Gui,
@@ -281,7 +282,7 @@ impl Renderer {
 
         let aspect_ratio = config.read(|cfg| cfg.deck.region.aspect_ratio());
         let state = Gui::new(
-            window,
+            Arc::clone(&window),
             event_proxy,
             SizedTexture::new(
                 egui_texture,
@@ -294,6 +295,7 @@ impl Renderer {
         );
 
         Ok(Self {
+            window,
             frame_pool,
             config,
             gui: state,
@@ -385,9 +387,7 @@ impl Renderer {
                         };
                         self.resize_surface = true;
                     }
-                    RendererEvent::Frame(duration) => {
-                        self.gui.add_frame_duration(*duration);
-                    }
+                    RendererEvent::Frame => self.gui.frame_counter += 1,
                     RendererEvent::RomLoaded(title) => {
                         self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
                         self.gui.resize_window = true;
@@ -465,7 +465,7 @@ impl Renderer {
             if self.gui.resize_window {
                 let mut window_size = self.config.read(|cfg| cfg.window_size());
                 window_size.height += self.gui.menu_height;
-                let _ = self.gui.window.request_inner_size(window_size);
+                let _ = self.window.request_inner_size(window_size);
             }
             self.resize_surface = false;
             self.gui.resize_window = false;

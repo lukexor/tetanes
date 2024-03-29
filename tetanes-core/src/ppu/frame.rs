@@ -11,7 +11,7 @@ pub struct Frame {
     #[serde(skip, default = "Frame::default_buffer")]
     pub front_buffer: Vec<u16>,
     #[serde(skip, default = "Frame::default_buffer")]
-    back_buffer: Vec<u16>,
+    pub back_buffer: Vec<u16>,
 }
 
 impl Default for Frame {
@@ -29,7 +29,7 @@ impl Frame {
         }
     }
 
-    fn default_buffer() -> Vec<u16> {
+    pub fn default_buffer() -> Vec<u16> {
         vec![0x00; Ppu::SIZE]
     }
 

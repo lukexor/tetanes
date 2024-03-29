@@ -1,6 +1,6 @@
 use crate::{
     nes::Nes,
-    platform::{BuilderExt, EventLoopExt, Initialize},
+    platform::{BuilderExt, EventLoopExt, Feature, Initialize},
 };
 use std::path::PathBuf;
 use tracing::error;
@@ -10,7 +10,11 @@ use winit::{
     window::WindowBuilder,
 };
 
-pub fn open_file_dialog(
+pub fn supports_impl(feature: Feature) -> bool {
+    matches!(feature, Feature::SaveStates | Feature::WindowMinMax)
+}
+
+pub fn open_file_dialog_impl(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],

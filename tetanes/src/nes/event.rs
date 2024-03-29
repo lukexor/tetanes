@@ -16,7 +16,6 @@ use tetanes_core::{
     apu::Channel,
     common::{NesRegion, ResetKind},
     input::{FourPlayer, JoypadBtn, Player},
-    time::Duration,
     video::VideoFilter,
 };
 use tracing::{error, trace};
@@ -90,7 +89,7 @@ pub enum EmulationEvent {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum RendererEvent {
-    Frame(Duration),
+    Frame,
     RomLoaded(String),
     Menu(Menu),
     SetVSync(bool),
@@ -160,16 +159,20 @@ impl Nes {
     pub fn event_loop(
         &mut self,
         event: Event<NesEvent>,
-        window_target: &EventLoopWindowTarget<NesEvent>,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
     ) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         if self.state.quitting {
-            window_target.exit();
+            event_loop.exit();
+        }
+        if self.state.occluded {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        } else {
+            event_loop.set_control_flow(ControlFlow::Poll);
         }
 
-        self.emulation.on_event(&event);
         self.renderer.on_event(&self.window, &event);
 
         match event {
@@ -179,14 +182,16 @@ impl Nes {
                 match event {
                     WindowEvent::CloseRequested => {
                         if window_id == self.window.id() {
-                            window_target.exit();
+                            event_loop.exit();
                         }
                     }
                     WindowEvent::RedrawRequested => {
-                        if let Err(err) = self.renderer.request_redraw(&self.window) {
-                            self.on_error(err);
+                        if !self.state.occluded {
+                            if let Err(err) = self.renderer.request_redraw(&self.window) {
+                                self.on_error(err);
+                            }
+                            self.window.request_redraw();
                         }
-                        self.window.request_redraw();
                     }
                     WindowEvent::Occluded(occluded) => {
                         if window_id == self.window.id() {
@@ -194,11 +199,6 @@ impl Nes {
                             // Don't unpause if paused manually
                             if !self.state.paused {
                                 self.trigger_event(EmulationEvent::Pause(self.state.occluded));
-                            }
-                            if self.state.occluded {
-                                window_target.set_control_flow(ControlFlow::Wait);
-                            } else {
-                                window_target.set_control_flow(ControlFlow::Poll);
                             }
                         }
                     }
@@ -231,6 +231,7 @@ impl Nes {
                     error!("{err:?}");
                 }
             }
+            Event::UserEvent(NesEvent::Emulation(event)) => self.emulation.on_event(&event),
             Event::UserEvent(NesEvent::Ui(event)) => self.on_event(event),
             _ => (),
         }
@@ -289,14 +290,14 @@ impl Nes {
 
         match event {
             NesEvent::Ui(event) => self.on_event(event),
-            NesEvent::Emulation(ref emulation_event) => {
-                if let EmulationEvent::LoadRomPath(path) = emulation_event {
+            NesEvent::Emulation(ref event) => {
+                if let EmulationEvent::LoadRomPath(path) = event {
                     if let Ok(path) = path.canonicalize() {
                         self.config
                             .write(|cfg| cfg.renderer.recent_roms.insert(path));
                     }
                 }
-                self.emulation.on_event(&Event::UserEvent(event));
+                self.emulation.on_event(event);
             }
             NesEvent::Renderer(_) => self
                 .renderer
@@ -341,13 +342,13 @@ impl Nes {
                         if !self.state.rewinding {
                             if repeat {
                                 self.state.rewinding = true;
-                                self.trigger_event(EmulationEvent::Rewind(true));
+                                self.trigger_event(EmulationEvent::Rewind(self.state.rewinding));
                             } else if released {
                                 self.trigger_event(EmulationEvent::InstantRewind);
                             }
                         } else if released {
                             self.state.rewinding = false;
-                            self.trigger_event(EmulationEvent::Rewind(false));
+                            self.trigger_event(EmulationEvent::Rewind(self.state.rewinding));
                         }
                     }
                     _ => (),

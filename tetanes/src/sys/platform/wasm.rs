@@ -3,7 +3,7 @@ use crate::{
         event::{EmulationEvent, NesEvent, RomData, UiEvent},
         Nes,
     },
-    platform::{BuilderExt, EventLoopExt, Initialize},
+    platform::{BuilderExt, EventLoopExt, Feature, Initialize},
 };
 use anyhow::{bail, Context};
 use std::path::PathBuf;
@@ -17,25 +17,11 @@ use winit::{
     window::WindowBuilder,
 };
 
-pub mod html_ids {
-    pub const CANVAS: &str = "frame";
-    pub const ROM_INPUT: &str = "load-rom";
+pub fn supports_impl(_feature: Feature) -> bool {
+    false
 }
 
-pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
-    window()
-        .and_then(|win| win.document())
-        .and_then(|doc| doc.get_element_by_id(html_ids::CANVAS))
-        .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
-}
-
-pub fn focus_canvas() {
-    if let Some(canvas) = get_canvas() {
-        let _ = canvas.focus();
-    }
-}
-
-pub fn open_file_dialog(
+pub fn open_file_dialog_impl(
     _title: impl Into<String>,
     _name: impl Into<String>,
     _extensions: &[impl ToString],
@@ -137,5 +123,23 @@ impl<T> EventLoopExt<T> for EventLoop<T> {
     {
         self.spawn(event_handler);
         Ok(())
+    }
+}
+
+mod html_ids {
+    pub(super) const CANVAS: &str = "frame";
+    pub(super) const ROM_INPUT: &str = "load-rom";
+}
+
+fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
+    window()
+        .and_then(|win| win.document())
+        .and_then(|doc| doc.get_element_by_id(html_ids::CANVAS))
+        .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
+}
+
+fn focus_canvas() {
+    if let Some(canvas) = get_canvas() {
+        let _ = canvas.focus();
     }
 }

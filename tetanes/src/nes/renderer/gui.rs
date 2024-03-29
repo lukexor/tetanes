@@ -1,6 +1,9 @@
-use crate::nes::{
-    config::Config,
-    event::{EmulationEvent, NesEvent, UiEvent},
+use crate::{
+    nes::{
+        config::Config,
+        event::{EmulationEvent, NesEvent, UiEvent},
+    },
+    platform::{self, Feature},
 };
 use egui::{
     global_dark_light_mode_switch, load::SizedTexture, menu, Align, CentralPanel, Color32, Context,
@@ -68,8 +71,9 @@ pub struct Gui {
     pub replay_recording: bool,
     pub audio_recording: bool,
     pub labels: HashMap<&'static str, String>,
-    pub frame_durations: [Duration; 120],
-    pub frame_duration_index: usize,
+    pub frame_counter: usize,
+    pub frame_timer: Instant,
+    pub avg_fps: f32,
     pub messages: Vec<(String, Instant)>,
     pub status: Option<&'static str>,
     pub error: Option<String>,
@@ -127,8 +131,9 @@ impl Gui {
             replay_recording: false,
             audio_recording: false,
             labels: HashMap::from([("version", format!("Version: {}", env!("CARGO_PKG_VERSION")))]),
-            frame_durations: [Duration::from_secs_f32(1.0 / 60.0); 120],
-            frame_duration_index: 0,
+            frame_counter: 0,
+            frame_timer: Instant::now(),
+            avg_fps: 60.0,
             messages: vec![],
             status: None,
             error: None,
@@ -142,14 +147,6 @@ impl Gui {
         if let Err(err) = self.event_proxy.send_event(event.into()) {
             error!("failed to send nes event: {err:?}");
             std::process::exit(1);
-        }
-    }
-
-    pub fn add_frame_duration(&mut self, duration: Duration) {
-        self.frame_durations[self.frame_duration_index] = duration;
-        self.frame_duration_index += 1;
-        if self.frame_duration_index >= self.frame_durations.len() {
-            self.frame_duration_index = 0;
         }
     }
 
@@ -231,8 +228,7 @@ impl Gui {
         }
 
         // TODO: support saves and recent games on wasm? Requires storing the data
-        #[cfg(not(target_arch = "wasm32"))]
-        {
+        if platform::supports(Feature::SaveStates) {
             if ui.button("Save State").clicked() {
                 self.send_event(EmulationEvent::StateSave);
                 ui.close_menu();
@@ -420,14 +416,16 @@ impl Gui {
     }
 
     fn window_menu(&mut self, ui: &mut Ui) {
-        if ui.button("Maximize").clicked() {
-            self.window.set_maximized(true);
-            ui.close_menu();
-        };
-        if ui.button("Minimize").clicked() {
-            self.window.set_minimized(true);
-            ui.close_menu();
-        };
+        if platform::supports(Feature::WindowMinMax) {
+            if ui.button("Maximize").clicked() {
+                self.window.set_maximized(true);
+                ui.close_menu();
+            };
+            if ui.button("Minimize").clicked() {
+                self.window.set_minimized(true);
+                ui.close_menu();
+            };
+        }
         if ui.button("Toggle Fullscreen").clicked() {
             let fullscreen = self.config.write(|cfg| {
                 cfg.renderer.fullscreen = !cfg.renderer.fullscreen;
@@ -554,13 +552,13 @@ impl Gui {
         if self.config.read(|cfg| cfg.renderer.show_fps) {
             Frame::canvas(ui.style()).show(ui, |ui| {
                 ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
-                    ui.label(format!(
-                        "FPS: {:.2}",
-                        (self.frame_durations.iter().sum::<Duration>()
-                            / self.frame_durations.len() as u32)
-                            .as_secs_f32()
-                            .recip()
-                    ));
+                    if self.frame_timer.elapsed() >= Duration::from_millis(200) {
+                        self.avg_fps =
+                            self.frame_counter as f32 / self.frame_timer.elapsed().as_secs_f32();
+                        self.frame_counter = 0;
+                        self.frame_timer = Instant::now();
+                    }
+                    ui.label(format!("FPS: {:.2}", self.avg_fps));
                 });
             });
         }
@@ -646,8 +644,7 @@ impl Gui {
         ui.label(RichText::new(self.labels.get("version").expect("valid version")).strong());
         ui.hyperlink("https://github.com/lukexor/tetanes");
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
+        if platform::supports(Feature::SaveStates) {
             ui.separator();
 
             // TODO: avoid allocations
