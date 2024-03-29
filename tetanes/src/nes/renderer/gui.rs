@@ -8,7 +8,7 @@ use egui::{
     Ui, Vec2,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tetanes_core::{
     common::{NesRegion, ResetKind},
     input::{FourPlayer, Player},
@@ -67,8 +67,9 @@ pub struct Gui {
     pub resize_texture: bool,
     pub replay_recording: bool,
     pub audio_recording: bool,
-    pub version: String,
-    pub last_frame_duration: Duration,
+    pub labels: HashMap<&'static str, String>,
+    pub frame_durations: [Duration; 120],
+    pub frame_duration_index: usize,
     pub messages: Vec<(String, Instant)>,
     pub status: Option<&'static str>,
     pub error: Option<String>,
@@ -124,8 +125,9 @@ impl Gui {
             resize_texture: false,
             replay_recording: false,
             audio_recording: false,
-            version: format!("Version: {}", env!("CARGO_PKG_VERSION")),
-            last_frame_duration: Duration::default(),
+            labels: HashMap::from([("version", format!("Version: {}", env!("CARGO_PKG_VERSION")))]),
+            frame_durations: [Duration::from_secs_f32(1.0 / 60.0); 120],
+            frame_duration_index: 0,
             messages: vec![],
             status: None,
             error: None,
@@ -139,6 +141,14 @@ impl Gui {
         if let Err(err) = self.event_proxy.send_event(event.into()) {
             error!("failed to send nes event: {err:?}");
             std::process::exit(1);
+        }
+    }
+
+    pub fn add_frame_duration(&mut self, duration: Duration) {
+        self.frame_durations[self.frame_duration_index] = duration;
+        self.frame_duration_index += 1;
+        if self.frame_duration_index >= self.frame_durations.len() {
+            self.frame_duration_index = 0;
         }
     }
 
@@ -430,6 +440,26 @@ impl Gui {
             self.config.write(|cfg| cfg.renderer.show_menubar = false);
             ui.close_menu();
         };
+        let fps_label = if self.config.read(|cfg| cfg.renderer.show_fps) {
+            "Hide FPS"
+        } else {
+            "Show FPS"
+        };
+        if ui.button(fps_label).clicked() {
+            self.config
+                .write(|cfg| cfg.renderer.show_fps = !cfg.renderer.show_fps);
+            ui.close_menu();
+        };
+        let messages_label = if self.config.read(|cfg| cfg.renderer.show_messages) {
+            "Hide Messages"
+        } else {
+            "Show Messages"
+        };
+        if ui.button(messages_label).clicked() {
+            self.config
+                .write(|cfg| cfg.renderer.show_messages = !cfg.renderer.show_messages);
+            ui.close_menu();
+        };
     }
 
     fn debug_menu(&mut self, ui: &mut Ui) {
@@ -473,7 +503,6 @@ impl Gui {
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
-        // TODO: Render framerate if enabled
         // TODO: maybe show other statuses like rewinding/playback/recording - bitflags?
         if let Some(status) = self.status {
             ui.label(status);
@@ -512,40 +541,58 @@ impl Gui {
                     }
                 }
             });
-        if !self.messages.is_empty() || self.error.is_some() {
-            Area::new("messages")
-                .anchor(Align2::LEFT_TOP, Vec2::ZERO)
-                .order(Order::Foreground)
-                .constrain(true)
-                .show(ui.ctx(), |ui| {
-                    Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
-                            ui.set_width(ui.available_width());
-                            self.message_bar(ui);
-                            self.error_bar(ui);
+        if self.config.read(|cfg| cfg.renderer.show_messages) {
+            if !self.messages.is_empty() || self.error.is_some() {
+                Area::new("messages")
+                    .anchor(Align2::LEFT_TOP, Vec2::ZERO)
+                    .order(Order::Foreground)
+                    .constrain(true)
+                    .show(ui.ctx(), |ui| {
+                        Frame::canvas(ui.style()).show(ui, |ui| {
+                            ui.with_layout(
+                                Layout::top_down(Align::LEFT).with_main_wrap(true),
+                                |ui| {
+                                    ui.set_width(ui.available_width());
+                                    self.message_bar(ui);
+                                    self.error_bar(ui);
+                                },
+                            );
                         });
                     });
-                });
-        }
-        if self.status.is_some() {
-            Area::new("status")
-                .anchor(Align2::LEFT_BOTTOM, Vec2::ZERO)
-                .order(Order::Foreground)
-                .constrain(true)
-                .show(ui.ctx(), |ui| {
-                    Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
-                            ui.set_width(ui.available_width());
-                            self.status_bar(ui);
+            }
+
+            if self.status.is_some() {
+                Area::new("status")
+                    .anchor(Align2::LEFT_BOTTOM, Vec2::ZERO)
+                    .order(Order::Foreground)
+                    .constrain(true)
+                    .show(ui.ctx(), |ui| {
+                        Frame::canvas(ui.style()).show(ui, |ui| {
+                            ui.with_layout(
+                                Layout::top_down(Align::LEFT).with_main_wrap(true),
+                                |ui| {
+                                    ui.set_width(ui.available_width());
+                                    self.status_bar(ui);
+                                },
+                            );
                         });
                     });
-                });
+            }
         }
+
         if self.config.read(|cfg| cfg.renderer.show_fps) {
-            ui.label(format!(
-                "Last Frame: {:.4}s",
-                self.last_frame_duration.as_secs_f32()
-            ));
+            egui::Frame::canvas(ui.style()).show(ui, |ui| {
+                ui.colored_label(
+                    egui::Color32::WHITE,
+                    format!(
+                        "FPS: {:.2}",
+                        (self.frame_durations.iter().sum::<Duration>()
+                            / self.frame_durations.len() as u32)
+                            .as_secs_f32()
+                            .recip()
+                    ),
+                );
+            });
         }
     }
 
@@ -607,7 +654,7 @@ impl Gui {
     }
 
     fn about(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new(&self.version).strong());
+        ui.label(RichText::new(self.labels.get("version").expect("valid version")).strong());
         ui.hyperlink("https://github.com/lukexor/tetanes");
 
         #[cfg(not(target_arch = "wasm32"))]

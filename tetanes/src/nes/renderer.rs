@@ -378,7 +378,9 @@ impl Renderer {
                         // TODO: handle window aspect ratio resize
                         self.gui.resize_texture = true;
                     }
-                    RendererEvent::Frame(duration) => self.gui.last_frame_duration = *duration,
+                    RendererEvent::Frame(duration) => {
+                        self.gui.add_frame_duration(*duration);
+                    }
                     RendererEvent::Menu(menu) => match menu {
                         Menu::Config(_) => self.gui.preferences_open = !self.gui.preferences_open,
                         Menu::Keybind(_) => self.gui.keybinds_open = !self.gui.keybinds_open,

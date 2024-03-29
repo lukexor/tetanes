@@ -76,8 +76,8 @@ pub struct State {
     frame_pool: BufferPool,
     target_frame_duration: Duration,
     last_frame_time: Instant,
+    total_frame_duration: Duration,
     frame_time_accumulator: f32,
-    last_frame_event: Instant,
     occluded: bool,
     paused: bool,
     rewinding: bool,
@@ -116,8 +116,8 @@ impl State {
             frame_pool,
             target_frame_duration: Duration::default(),
             last_frame_time: Instant::now(),
+            total_frame_duration: Duration::default(),
             frame_time_accumulator: 0.0,
-            last_frame_event: Instant::now(),
             occluded: false,
             paused: true,
             rewinding: false,
@@ -408,7 +408,7 @@ impl State {
             (self.last_frame_time + self.target_frame_duration)
                 .saturating_duration_since(Instant::now())
         };
-        if timeout > Duration::from_millis(1) {
+        if timeout > Duration::from_micros(100) {
             trace!("sleeping for {:.4}s", timeout.as_secs_f32());
             std::thread::park_timeout(timeout);
         }
@@ -423,7 +423,9 @@ impl State {
         }
 
         let last_frame_duration = self.last_frame_time.elapsed();
+        trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
         self.last_frame_time = Instant::now();
+        self.total_frame_duration += last_frame_duration;
         self.frame_time_accumulator += last_frame_duration.as_secs_f32();
         if self.frame_time_accumulator > 0.25 {
             self.frame_time_accumulator = 0.25;
@@ -432,9 +434,9 @@ impl State {
         let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
         let frame_duration_seconds = self.target_frame_duration.as_secs_f32();
         while if self.audio.enabled() && !self.rewinding {
-            self.audio.queued_time() <= self.audio.latency && clocked_frames <= 3
+            self.audio.queued_time() < self.audio.latency && clocked_frames <= 3
         } else {
-            self.frame_time_accumulator >= frame_duration_seconds
+            self.frame_time_accumulator > frame_duration_seconds
         } {
             #[cfg(feature = "profiling")]
             puffin::profile_scope!("clock");
@@ -477,10 +479,9 @@ impl State {
             frame.extend_from_slice(self.control_deck.frame_buffer());
             new_frame = true;
         }
-        if new_frame && self.last_frame_event.elapsed() > Duration::from_millis(200) {
-            self.send_event(RendererEvent::Frame(last_frame_duration));
-            self.last_frame_event = Instant::now();
-            trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
+        if new_frame {
+            self.send_event(RendererEvent::Frame(self.total_frame_duration));
+            self.total_frame_duration = Duration::default();
         }
 
         self.sleep();
