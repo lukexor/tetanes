@@ -401,6 +401,7 @@ impl Regional for Apu {
         self.region = region;
         self.clock_rate = Cpu::region_clock_rate(region);
         self.filter_chain = FilterChain::new(region, Self::SAMPLE_RATE);
+        self.sample_period = self.clock_rate / Self::SAMPLE_RATE;
         self.frame_counter.set_region(region);
         self.noise.set_region(region);
         self.dmc.set_region(region);
