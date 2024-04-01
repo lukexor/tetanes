@@ -113,12 +113,12 @@ impl Default for Config {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct ControlDeck {
-    running: bool,
-    video: Video,
-    loaded_rom: Option<String>,
-    cart_battery_backed: bool,
-    cycles_remaining: f32,
-    cpu: Cpu,
+    pub running: bool,
+    pub video: Video,
+    pub loaded_rom: Option<String>,
+    pub cart_battery_backed: bool,
+    pub cycles_remaining: f32,
+    pub cpu: Cpu,
 }
 
 impl Default for ControlDeck {
@@ -285,9 +285,12 @@ impl ControlDeck {
         };
         let path = path.as_ref();
         if path.exists() {
-            fs::load(path)
+            fs::load::<Cpu>(path)
                 .map_err(Error::SaveState)
-                .map(|cpu| self.load_cpu(cpu))
+                .map(|mut cpu| {
+                    cpu.bus.input.clear();
+                    self.load_cpu(cpu)
+                })
         } else {
             Ok(())
         }

@@ -53,6 +53,7 @@ pub struct EmulationConfig {
     pub save_on_exit: bool,
     pub save_slot: u8,
     pub speed: f32,
+    pub run_ahead: usize,
     pub threaded: bool,
 }
 
@@ -65,6 +66,7 @@ impl Default for EmulationConfig {
             save_on_exit: true,
             save_slot: 1,
             speed: 1.0,
+            run_ahead: if cfg!(debug_assertions) { 0 } else { 1 },
             threaded: true,
         }
     }

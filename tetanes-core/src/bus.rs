@@ -44,21 +44,21 @@ use std::collections::HashMap;
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bus {
-    pub cycle: usize, // Total number of CPU cycles ran
-    pub ppu: Ppu,
     pub apu: Apu,
+    pub cycle: usize, // Total number of CPU cycles ran
+    pub genie_codes: HashMap<u16, GenieCode>,
     pub input: Input,
-    pub wram: Vec<u8>,
+    pub oam_dma: bool,
+    pub oam_dma_addr: u16,
+    pub open_bus: u8,
+    pub ppu: Ppu,
+    pub prg_ram_protect: bool,
     pub prg_ram: Vec<u8>,
     #[serde(skip)]
     pub prg_rom: Vec<u8>,
-    pub oam_dma: bool,
-    pub oam_dma_addr: u16,
     pub ram_state: RamState,
-    pub prg_ram_protect: bool,
     pub region: NesRegion,
-    pub genie_codes: HashMap<u16, GenieCode>,
-    pub open_bus: u8,
+    pub wram: Vec<u8>,
 }
 
 impl Default for Bus {
@@ -75,20 +75,20 @@ impl Bus {
         RamState::fill(&mut wram, ram_state);
         let region = NesRegion::default();
         Self {
-            wram,
-            region,
-            ram_state,
-            prg_ram: vec![],
-            prg_ram_protect: false,
-            prg_rom: vec![],
-            ppu: Ppu::new(),
             apu: Apu::new(),
+            cycle: 0,
+            genie_codes: HashMap::new(),
             input: Input::new(),
             oam_dma: false,
             oam_dma_addr: 0x0000,
-            genie_codes: HashMap::new(),
-            cycle: 0,
             open_bus: 0x00,
+            ppu: Ppu::new(),
+            prg_ram: vec![],
+            prg_ram_protect: false,
+            prg_rom: vec![],
+            ram_state,
+            region,
+            wram,
         }
     }
 

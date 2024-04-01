@@ -189,9 +189,16 @@ impl Cpu {
         }
     }
 
+    /// Clock rate based on currently configured NES region.
     #[must_use]
     pub const fn clock_rate(&self) -> f32 {
         Self::region_clock_rate(self.region)
+    }
+
+    /// Peek at the next instruction.
+    pub fn next_instr(&self) -> Instr {
+        let opcode = self.peek(self.pc, Access::Dummy);
+        Cpu::INSTRUCTIONS[opcode as usize]
     }
 
     // <http://wiki.nesdev.com/w/index.php/IRQ>
@@ -362,7 +369,6 @@ impl Cpu {
     // Status Register functions
 
     // Convenience method to set both Z and N
-
     fn set_zn_status(&mut self, val: u8) {
         self.status.set(Status::Z, val == 0x00);
         self.status.set(Status::N, val & 0x80 == 0x80);
@@ -375,7 +381,6 @@ impl Cpu {
     // Stack Functions
 
     // Push a byte to the stack
-
     fn push(&mut self, val: u8) {
         self.write(Self::SP_BASE | u16::from(self.sp), val, Access::Write);
         self.sp = self.sp.wrapping_sub(1);
@@ -383,7 +388,6 @@ impl Cpu {
 
     // Pull a byte from the stack
     #[must_use]
-
     fn pop(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         self.read(Self::SP_BASE | u16::from(self.sp), Access::Read)
@@ -391,7 +395,6 @@ impl Cpu {
 
     // Peek byte at the top of the stack
     #[must_use]
-
     pub fn peek_stack(&self) -> u8 {
         self.peek(
             Self::SP_BASE | u16::from(self.sp.wrapping_add(1)),
@@ -401,7 +404,6 @@ impl Cpu {
 
     // Peek at the top of the stack
     #[must_use]
-
     pub fn peek_stack_u16(&self) -> u16 {
         let lo = self.peek(Self::SP_BASE | u16::from(self.sp), Access::Dummy);
         let hi = self.peek(
@@ -412,7 +414,6 @@ impl Cpu {
     }
 
     // Push a word (two bytes) to the stack
-
     fn push_u16(&mut self, val: u16) {
         let [lo, hi] = val.to_le_bytes();
         self.push(hi);
@@ -420,7 +421,6 @@ impl Cpu {
     }
 
     // Pull a word (two bytes) from the stack
-
     fn pop_u16(&mut self) -> u16 {
         let lo = self.pop();
         let hi = self.pop();
@@ -469,7 +469,6 @@ impl Cpu {
 
     // Writes data back to where fetched_data was sourced from. Either accumulator or memory
     // specified in abs_addr.
-
     fn write_fetched(&mut self, val: u8) {
         match self.instr.addr_mode() {
             IMP | ACC => self.acc = val,
@@ -480,7 +479,6 @@ impl Cpu {
 
     // Reads an instruction byte and increments PC by 1.
     #[must_use]
-
     fn read_instr(&mut self) -> u8 {
         let val = self.read(self.pc, Access::Read);
         self.pc = self.pc.wrapping_add(1);
@@ -489,7 +487,6 @@ impl Cpu {
 
     // Reads an instruction 16-bit word and increments PC by 2.
     #[must_use]
-
     fn read_instr_u16(&mut self) -> u16 {
         let lo = self.read_instr();
         let hi = self.read_instr();
@@ -498,7 +495,6 @@ impl Cpu {
 
     // Read a 16-bit word.
     #[must_use]
-
     pub fn read_u16(&mut self, addr: u16) -> u16 {
         let lo = self.read(addr, Access::Read);
         let hi = self.read(addr.wrapping_add(1), Access::Read);
@@ -507,7 +503,6 @@ impl Cpu {
 
     // Peek a 16-bit word without side effects.
     #[must_use]
-
     pub fn peek_u16(&self, addr: u16) -> u16 {
         let lo = self.peek(addr, Access::Dummy);
         let hi = self.peek(addr.wrapping_add(1), Access::Dummy);
@@ -516,7 +511,6 @@ impl Cpu {
 
     // Like read_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
-
     fn read_zp_u16(&mut self, addr: u8) -> u16 {
         let lo = self.read(addr.into(), Access::Read);
         let hi = self.read(addr.wrapping_add(1).into(), Access::Read);
@@ -525,7 +519,6 @@ impl Cpu {
 
     // Like peek_word, but for Zero Page which means it'll wrap around at 0xFF
     #[must_use]
-
     fn peek_zp_u16(&self, addr: u8) -> u16 {
         let lo = self.peek(addr.into(), Access::Dummy);
         let hi = self.peek(addr.wrapping_add(1).into(), Access::Dummy);
@@ -692,7 +685,6 @@ impl Cpu {
     /// Utilities
 
     #[must_use]
-
     const fn pages_differ(addr1: u16, addr2: u16) -> bool {
         (addr1 & 0xFF00) != (addr2 & 0xFF00)
     }

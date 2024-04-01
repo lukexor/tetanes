@@ -1,6 +1,6 @@
 use crate::{
     nes::{
-        action::{Action, Feature, Setting, UiState},
+        action::{Action, DebugStep, Debugger, Feature, Setting, UiState},
         config::Config,
         input::{Input, InputMap},
         renderer::gui::Menu,
@@ -62,6 +62,7 @@ impl RomData {
 #[must_use]
 pub enum EmulationEvent {
     InstantRewind,
+    DebugStep(DebugStep),
     Joypad((Player, JoypadBtn, ElementState)),
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
@@ -73,8 +74,9 @@ pub enum EmulationEvent {
     SetAudioEnabled(bool),
     SetCycleAccurate(bool),
     SetFourPlayer(FourPlayer),
-    SetSpeed(f32),
     SetRegion(NesRegion),
+    SetRewind(bool),
+    SetSpeed(f32),
     SetVideoFilter(VideoFilter),
     StateLoad,
     StateSave,
@@ -199,6 +201,7 @@ impl Nes {
                             // Don't unpause if paused manually
                             if !self.state.paused {
                                 self.trigger_event(EmulationEvent::Pause(self.state.occluded));
+                                self.window.request_redraw();
                             }
                         }
                     }
@@ -391,7 +394,7 @@ impl Nes {
                         }
                     }
                     Setting::DecSpeed if released => {
-                        if self.config.read(|cfg| cfg.emulation.speed >= 0.25) {
+                        if self.config.read(|cfg| cfg.emulation.speed >= 0.50) {
                             let speed = self.config.write(|cfg| {
                                 cfg.emulation.speed -= 0.25;
                                 cfg.emulation.speed
@@ -465,6 +468,14 @@ impl Nes {
                         });
                         self.trigger_event(EmulationEvent::SetVideoFilter(filter));
                     }
+                    _ => (),
+                },
+                Action::Debug(action) => match action {
+                    Debugger::ToggleDebugger(_kind) if released => (),
+                    Debugger::Step(step) if released | repeat => {
+                        self.trigger_event(EmulationEvent::DebugStep(step))
+                    }
+                    Debugger::UpdateScanline(_line) if released | repeat => (),
                     _ => (),
                 },
                 _ => (),

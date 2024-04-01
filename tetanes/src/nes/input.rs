@@ -119,9 +119,7 @@ impl Default for InputMap {
         key_map!(map, One, KeyS, JoypadBtn::TurboB);
         key_map!(map, One, Enter, JoypadBtn::Start);
         key_map!(map, One, ShiftRight, JoypadBtn::Select);
-        key_map!(map, One, ShiftLeft, JoypadBtn::Select);
         key_map!(map, One, ShiftRight, SHIFT, JoypadBtn::Select); // Required because shift is also a modifier
-        key_map!(map, One, ShiftLeft, SHIFT, JoypadBtn::Select); // Required because shift is also a modifier
         key_map!(map, Two, KeyJ, JoypadBtn::Left);
         key_map!(map, Two, KeyL, JoypadBtn::Right);
         key_map!(map, Two, KeyI, JoypadBtn::Up);

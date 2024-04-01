@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 use tetanes_core::time::Duration;
-use tracing::{debug, enabled, error, info, trace, warn, Level};
+use tracing::{debug, error, info, trace, warn};
 
 type AudioRb = Arc<HeapRb<f32>>;
 
@@ -449,7 +449,7 @@ impl Mixer {
                 #[cfg(feature = "profiling")]
                 puffin::profile_scope!("audio callback");
 
-                if enabled!(Level::TRACE) && consumer.len() < out.len() {
+                if consumer.len() < out.len() {
                     trace!("audio underrun: {} < {}", consumer.len(), out.len());
                 }
 
@@ -481,15 +481,13 @@ impl Mixer {
             }
         }
         let processed_len = self.processed_samples.len();
-        if processed_len >= self.sample_latency {
-            let len = self.producer.free_len().min(self.sample_latency);
-            let queued_len = self
-                .producer
-                .push_iter(&mut self.processed_samples.drain(..len));
-            trace!(
-                "processed: {processed_len}, queued: {queued_len}, buffer len: {}",
-                self.producer.len()
-            );
-        }
+        let len = self.producer.free_len().min(processed_len);
+        let queued_len = self
+            .producer
+            .push_iter(&mut self.processed_samples.drain(..len));
+        trace!(
+            "processed: {processed_len}, queued: {queued_len}, buffer len: {}",
+            self.producer.len()
+        );
     }
 }

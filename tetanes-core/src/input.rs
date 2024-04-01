@@ -89,7 +89,6 @@ pub struct Input {
     joypads: [Joypad; 4],
     signatures: [Joypad; 2],
     pub zapper: Zapper,
-    #[serde(skip)]
     turbo_timer: u32,
     pub four_player: FourPlayer,
 }
@@ -324,7 +323,6 @@ impl From<JoypadBtn> for JoypadBtnState {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Joypad {
-    #[serde(skip)]
     buttons: JoypadBtnState,
     index: u8,
     strobe: bool,
@@ -403,7 +401,6 @@ impl Reset for Joypad {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
-    #[serde(skip)]
     pub triggered: f32,
     pub x: u32,
     pub y: u32,

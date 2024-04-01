@@ -1,47 +1,58 @@
 use crate::nes::emulation::State;
-use tetanes_core::{cpu::Cpu, ppu::frame::Frame};
+use tetanes_core::{
+    cpu::Cpu,
+    fs::{Error, Result},
+};
+use tracing::error;
+
+#[derive(Default, Debug, Clone)]
+#[must_use]
+struct Frame {
+    buffer: Vec<u16>,
+    state: Vec<u8>,
+}
 
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Rewind {
-    frames: u8,
+    interval_counter: u8,
     index: usize,
     count: usize,
-    buffer: Vec<Option<Cpu>>,
+    frames: Vec<Option<Frame>>,
 }
 
 impl Rewind {
-    const BUFFER_SIZE: usize = 1024; // ~34 seconds of frames at a 2 frame interval
+    const FRAMES_SIZE: usize = 1024; // ~34 seconds of frames at a 2 frame interval
     const INTERVAL: u8 = 2;
 
     pub fn new() -> Self {
         Self {
-            frames: 0,
+            interval_counter: 0,
             index: 0,
             count: 0,
-            buffer: vec![None; Self::BUFFER_SIZE],
+            frames: vec![None; Self::FRAMES_SIZE],
         }
     }
 
-    pub fn push(&mut self, cpu: &Cpu) {
-        self.frames += 1;
-        if self.frames >= Self::INTERVAL {
-            self.frames = 0;
-            let mut cpu = cpu.clone();
-            // Reduce total memory needed for rewind state
-            // front_buffer is required to have visual rewind
-            cpu.bus.ppu.frame.back_buffer.clear();
-            cpu.bus.clear_audio_samples();
-            cpu.bus.prg_rom.clear();
-            cpu.bus.ppu.bus.chr_rom.clear();
-            cpu.bus.input.clear();
-            self.buffer[self.index] = Some(cpu);
+    pub fn push(&mut self, cpu: &Cpu) -> Result<()> {
+        self.interval_counter += 1;
+        if self.interval_counter >= Self::INTERVAL {
+            self.interval_counter = 0;
+
+            let state = bincode::serialize(&cpu)
+                .map_err(|err| Error::SerializationFailed(err.to_string()))?;
+            self.frames[self.index] = Some(Frame {
+                buffer: cpu.bus.ppu.frame.front_buffer.clone(),
+                state,
+            });
+
             self.count += 1;
             self.index += 1;
-            if self.index >= self.buffer.len() {
+            if self.index >= self.frames.len() {
                 self.index = 0;
             }
         }
+        Ok(())
     }
 
     pub fn pop(&mut self) -> Option<Cpu> {
@@ -49,13 +60,18 @@ impl Rewind {
             self.count -= 1;
             self.index -= 1;
             if self.index == 0 {
-                self.index = self.buffer.len() - 1;
+                self.index = self.frames.len() - 1;
             }
-            let mut cpu = self.buffer[self.index].take();
-            if let Some(ref mut cpu) = cpu {
-                cpu.bus.ppu.frame.back_buffer = Frame::default_buffer();
-            }
-            cpu
+
+            let frame = self.frames[self.index].take()?;
+            bincode::deserialize::<Cpu>(&frame.state)
+                .map(|mut cpu| {
+                    cpu.bus.input.clear();
+                    cpu.bus.ppu.frame.front_buffer = frame.buffer;
+                    cpu
+                })
+                .map_err(|err| error!("Failed to deserialize CPU state: {err:?}"))
+                .ok()
         } else {
             None
         }
