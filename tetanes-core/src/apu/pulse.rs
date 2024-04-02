@@ -4,6 +4,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Pulse Channel output frequency. Supports MMC5 being able to pulse at ultrasonic frequencies.
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+pub enum OutputFreq {
+    Default,
+    Ultrasonic,
+}
+
 /// Pulse Channel selection.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum PulseChannel {
@@ -26,11 +33,12 @@ pub struct Pulse {
     pub envelope: Envelope,
     pub sweep: Sweep,
     pub force_silent: bool,
+    pub output_freq: OutputFreq,
 }
 
 impl Default for Pulse {
     fn default() -> Self {
-        Self::new(PulseChannel::One)
+        Self::new(PulseChannel::One, OutputFreq::Default)
     }
 }
 
@@ -42,7 +50,7 @@ impl Pulse {
         [1, 1, 1, 1, 1, 1, 0, 0],
     ];
 
-    pub const fn new(channel: PulseChannel) -> Self {
+    pub const fn new(channel: PulseChannel, output_freq: OutputFreq) -> Self {
         Self {
             channel,
             timer: 0,
@@ -53,6 +61,7 @@ impl Pulse {
             envelope: Envelope::new(),
             sweep: Sweep::new(channel),
             force_silent: false,
+            output_freq,
         }
     }
 
@@ -129,7 +138,8 @@ impl Pulse {
 impl Sample for Pulse {
     #[must_use]
     fn output(&self) -> f32 {
-        if self.is_muted() || self.silent() {
+        // MMC5 doesn't mute at ultasonic frequencies
+        if (self.is_muted() && self.output_freq == OutputFreq::Default) || self.silent() {
             0.0
         } else {
             f32::from(
