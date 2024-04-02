@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Triangle {
-    pub enabled: bool,
     pub force_silent: bool,
     pub ultrasonic: bool,
     pub step: u8,
@@ -29,7 +28,6 @@ impl Default for Triangle {
 impl Triangle {
     pub const fn new() -> Self {
         Self {
-            enabled: false,
             force_silent: false,
             ultrasonic: false,
             step: 0u8,
@@ -51,7 +49,7 @@ impl Triangle {
 
     #[must_use]
     pub const fn length_counter(&self) -> u8 {
-        self.length.counter()
+        self.length.counter
     }
 
     pub fn clock_quarter_frame(&mut self) {
@@ -69,30 +67,28 @@ impl Triangle {
         self.length.clock();
     }
 
+    /// $4008 Linear counter control
     pub fn write_linear_counter(&mut self, val: u8) {
-        self.linear.control = (val >> 7) & 1 == 1; // D7
-        self.length.enabled = (val >> 7) & 1 == 0; // !D7
+        self.linear.control = (val & 0x80) == 0x80; // D7
         self.linear.load_value(val);
+        self.length.write_ctrl(self.linear.control); // !D7
     }
 
+    /// $400A Triangle timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
     }
 
+    /// $400B Triangle timer high
     pub fn write_timer_hi(&mut self, val: u8) {
         self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
         self.freq_counter = self.freq_timer;
         self.linear.reload = true;
-        if self.enabled {
-            self.length.load_value(val);
-        }
+        self.length.write(val);
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
-        if !enabled {
-            self.length.counter = 0;
-        }
+        self.length.set_enabled(enabled);
     }
 }
 
@@ -128,7 +124,12 @@ impl Clock for Triangle {
 }
 
 impl Reset for Triangle {
-    fn reset(&mut self, _kind: ResetKind) {
-        *self = Self::new();
+    fn reset(&mut self, kind: ResetKind) {
+        self.ultrasonic = false;
+        self.step = 0u8;
+        self.freq_timer = 0u16;
+        self.freq_counter = 0u16;
+        self.length.reset(kind);
+        self.linear = LinearCounter::new();
     }
 }

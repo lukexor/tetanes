@@ -11,67 +11,53 @@ pub enum PulseChannel {
     Two,
 }
 
-/// Pulse Channel output frequency.
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-pub enum OutputFreq {
-    Default,
-    Ultrasonic,
-}
-
 /// APU Pulse Channel provides square wave generation.
 ///
 /// See: <https://www.nesdev.org/wiki/APU_Pulse>
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pulse {
-    pub enabled: bool,
-    pub force_silent: bool,
-    pub duty_cycle: u8,        // Select row in DUTY_TABLE
-    pub duty_counter: u8,      // Select column in DUTY_TABLE
-    pub freq_timer: u16,       // timer freq_counter reload value
-    pub freq_counter: u16,     // Current frequency timer value
-    pub channel: PulseChannel, // One or Two
+    pub channel: PulseChannel,
+    pub timer: u16,
+    pub period: u16,
+    pub duty: u8,       // Select row in DUTY_TABLE
+    pub duty_cycle: u8, // Select column in DUTY_TABLE
     pub length: LengthCounter,
     pub envelope: Envelope,
     pub sweep: Sweep,
-    pub output_freq: OutputFreq,
+    pub force_silent: bool,
 }
 
 impl Default for Pulse {
     fn default() -> Self {
-        Self::new(PulseChannel::One, OutputFreq::Default)
+        Self::new(PulseChannel::One)
     }
 }
 
 impl Pulse {
     const DUTY_TABLE: [[u8; 8]; 4] = [
-        [0, 1, 0, 0, 0, 0, 0, 0],
-        [0, 1, 1, 0, 0, 0, 0, 0],
-        [0, 1, 1, 1, 1, 0, 0, 0],
-        [1, 0, 0, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 0, 0, 1],
+        [0, 0, 0, 0, 0, 0, 1, 1],
+        [0, 0, 0, 0, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 0, 0],
     ];
 
-    pub const fn new(channel: PulseChannel, output_freq: OutputFreq) -> Self {
+    pub const fn new(channel: PulseChannel) -> Self {
         Self {
-            enabled: false,
-            force_silent: false,
-            duty_cycle: 0u8,
-            duty_counter: 0u8,
-            freq_timer: 0u16,
-            freq_counter: 0u16,
             channel,
+            timer: 0,
+            period: 0,
+            duty: 0u8,
+            duty_cycle: 0,
             length: LengthCounter::new(),
             envelope: Envelope::new(),
-            sweep: Sweep {
-                enabled: false,
-                reload: false,
-                negate: false,
-                timer: 0u8,
-                counter: 0u8,
-                shift: 0u8,
-            },
-            output_freq,
+            sweep: Sweep::new(channel),
+            force_silent: false,
         }
+    }
+
+    fn is_muted(&self) -> bool {
+        self.sweep.is_muted()
     }
 
     #[must_use]
@@ -85,7 +71,7 @@ impl Pulse {
 
     #[must_use]
     pub const fn length_counter(&self) -> u8 {
-        self.length.counter()
+        self.length.counter
     }
 
     pub fn clock_quarter_frame(&mut self) {
@@ -93,78 +79,49 @@ impl Pulse {
     }
 
     pub fn clock_half_frame(&mut self) {
-        let sweep_forcing_silence = self.sweep_forcing_silence();
-        let swp = &mut self.sweep;
-        if swp.reload {
-            swp.counter = swp.timer;
-            swp.reload = false;
-        } else if swp.counter > 0 {
-            swp.counter -= 1;
-        } else {
-            swp.counter = swp.timer;
-            if swp.enabled && !sweep_forcing_silence {
-                let delta = self.freq_timer >> swp.shift;
-                if swp.negate {
-                    self.freq_timer -= delta + 1;
-                    if self.channel == PulseChannel::One {
-                        self.freq_timer += 1;
-                    }
-                } else {
-                    self.freq_timer += delta;
-                }
-            }
-        }
-
+        self.envelope.clock();
         self.length.clock();
-    }
-
-    #[must_use]
-    pub const fn sweep_forcing_silence(&self) -> bool {
-        match self.output_freq {
-            OutputFreq::Default => {
-                let next_freq = self.freq_timer + (self.freq_timer >> self.sweep.shift);
-                self.freq_timer < 8 || (!self.sweep.negate && next_freq >= 0x800)
-            }
-            OutputFreq::Ultrasonic => false,
+        if self.sweep.clock() > 0 {
+            self.period = self.sweep.period + 1;
         }
     }
 
-    /// $4000 Pulse control
+    /// $4000/$4004 Pulse control
     pub fn write_ctrl(&mut self, val: u8) {
-        self.duty_cycle = (val >> 6) & 0x03; // D7..D6
-        self.length.write_ctrl(val);
+        self.length.write_ctrl((val & 0x20) == 0x20); // !D5
         self.envelope.write_ctrl(val);
+        self.duty = (val & 0xC0) >> 6;
     }
 
-    /// $4001 Pulse sweep
+    /// $4001/$4005 Pulse sweep
     pub fn write_sweep(&mut self, val: u8) {
-        self.sweep.timer = (val >> 4) & 0x07; // D6..D4
-        self.sweep.negate = (val >> 3) & 1 == 1; // D3
-        self.sweep.shift = val & 0x07; // D2..D0
-        self.sweep.enabled = ((val >> 7) & 1 == 1) && (self.sweep.shift != 0); // D7
-        self.sweep.reload = true;
+        self.sweep.write(val);
     }
 
-    /// $4002 Pulse timer lo
+    /// $4002/$4006 Pulse timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
-        self.freq_timer = (self.freq_timer & 0xFF00) | u16::from(val); // D7..D0
+        self.sweep.write_timer_lo(val);
+        self.period = self.sweep.period + 1;
     }
 
-    /// $4003 Pulse timer hi
+    /// $4003/$4007 Pulse timer hi
     pub fn write_timer_hi(&mut self, val: u8) {
-        self.freq_timer = (self.freq_timer & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
-        self.freq_counter = self.freq_timer;
-        self.duty_counter = 0;
-        self.envelope.reset = true;
-        if self.enabled {
-            self.length.load_value(val);
-        }
+        self.length.write(val);
+        self.sweep.write_timer_hi(val & 0x07);
+        self.period = self.sweep.period + 1;
+        self.duty_cycle = 0;
+        self.envelope.restart();
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
-        if !enabled {
-            self.length.counter = 0;
+        self.length.set_enabled(enabled);
+    }
+
+    fn volume(&self) -> u8 {
+        if self.length.counter > 0 {
+            self.envelope.volume()
+        } else {
+            0
         }
     }
 }
@@ -172,36 +129,35 @@ impl Pulse {
 impl Sample for Pulse {
     #[must_use]
     fn output(&self) -> f32 {
-        if Self::DUTY_TABLE[self.duty_cycle as usize][self.duty_counter as usize] != 0
-            && self.length.counter != 0
-            && !self.sweep_forcing_silence()
-            && !self.force_silent
-        {
-            if self.envelope.enabled {
-                f32::from(self.envelope.volume)
-            } else {
-                f32::from(self.envelope.constant_volume)
-            }
+        if self.is_muted() || self.silent() {
+            0.0
         } else {
-            0f32
+            f32::from(
+                Self::DUTY_TABLE[self.duty as usize][self.duty_cycle as usize] * self.volume(),
+            )
         }
     }
 }
 
 impl Clock for Pulse {
     fn clock(&mut self) -> usize {
-        if self.freq_counter > 0 {
-            self.freq_counter -= 1;
+        if self.timer > 0 {
+            self.timer -= 1;
         } else {
-            self.freq_counter = self.freq_timer;
-            self.duty_counter = (self.duty_counter + 1) & 0x07;
+            self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
+            self.timer = self.period;
         }
+
         1
     }
 }
 
 impl Reset for Pulse {
-    fn reset(&mut self, _kind: ResetKind) {
-        *self = Self::new(self.channel, OutputFreq::Default);
+    fn reset(&mut self, kind: ResetKind) {
+        self.length.reset(kind);
+        self.envelope.reset(kind);
+        self.sweep.reset(kind);
+        self.duty = 0;
+        self.duty_cycle = 0;
     }
 }

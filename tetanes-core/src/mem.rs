@@ -100,7 +100,12 @@ impl AsRef<str> for RamState {
 
 impl std::fmt::Display for RamState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_ref())
+        let s = match self {
+            Self::AllZeros => "All $00",
+            Self::AllOnes => "All $FF",
+            Self::Random => "Random",
+        };
+        write!(f, "{s}")
     }
 }
 

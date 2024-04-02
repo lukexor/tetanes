@@ -65,7 +65,12 @@ impl AsRef<str> for FourPlayer {
 
 impl std::fmt::Display for FourPlayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_ref())
+        let s = match self {
+            Self::Disabled => "Disabled",
+            Self::FourScore => "FourScore",
+            Self::Satellite => "Satellite",
+        };
+        write!(f, "{s}")
     }
 }
 

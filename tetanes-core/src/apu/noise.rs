@@ -21,7 +21,6 @@ pub enum ShiftMode {
 pub struct Noise {
     pub region: NesRegion,
     pub force_silent: bool,
-    pub enabled: bool,
     pub freq_timer: u16,   // timer freq_counter reload value
     pub freq_counter: u16, // Current frequency timer value
     pub shift: u16,        // Must never be 0
@@ -48,7 +47,6 @@ impl Noise {
     pub fn new() -> Self {
         Self {
             region: NesRegion::default(),
-            enabled: false,
             force_silent: false,
             freq_timer: 0u16,
             freq_counter: 0u16,
@@ -70,7 +68,7 @@ impl Noise {
 
     #[must_use]
     pub const fn length_counter(&self) -> u8 {
-        self.length.counter()
+        self.length.counter
     }
 
     const fn freq_timer(region: NesRegion, val: u8) -> u16 {
@@ -85,11 +83,13 @@ impl Noise {
     }
 
     pub fn clock_half_frame(&mut self) {
+        self.envelope.clock();
         self.length.clock();
     }
 
+    /// $400C Noise control
     pub fn write_ctrl(&mut self, val: u8) {
-        self.length.write_ctrl(val);
+        self.length.write_ctrl((val & 0x20) == 0x20); // !D5
         self.envelope.write_ctrl(val);
     }
 
@@ -103,17 +103,21 @@ impl Noise {
         };
     }
 
+    /// $400F Length counter
     pub fn write_length(&mut self, val: u8) {
-        if self.enabled {
-            self.length.load_value(val);
-        }
-        self.envelope.reset = true;
+        self.length.write(val);
+        self.envelope.restart();
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
-        if !enabled {
-            self.length.counter = 0;
+        self.length.set_enabled(enabled);
+    }
+
+    fn volume(&self) -> u8 {
+        if self.length.counter > 0 {
+            self.envelope.volume()
+        } else {
+            0
         }
     }
 }
@@ -121,14 +125,10 @@ impl Noise {
 impl Sample for Noise {
     #[must_use]
     fn output(&self) -> f32 {
-        if self.shift & 1 == 0 && self.length.counter != 0 && !self.force_silent {
-            if self.envelope.enabled {
-                f32::from(self.envelope.volume)
-            } else {
-                f32::from(self.envelope.constant_volume)
-            }
-        } else {
+        if self.shift & 1 == 1 || self.silent() {
             0f32
+        } else {
+            f32::from(self.volume())
         }
     }
 }
@@ -164,7 +164,12 @@ impl Regional for Noise {
 }
 
 impl Reset for Noise {
-    fn reset(&mut self, _kind: ResetKind) {
-        *self = Self::new();
+    fn reset(&mut self, kind: ResetKind) {
+        self.freq_timer = 0u16;
+        self.freq_counter = 0u16;
+        self.shift = 1u16;
+        self.shift_mode = ShiftMode::Zero;
+        self.length.reset(kind);
+        self.envelope.reset(kind);
     }
 }

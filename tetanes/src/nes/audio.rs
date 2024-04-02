@@ -1,3 +1,4 @@
+use crate::nes::config::Config;
 use anyhow::{anyhow, Context};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
@@ -5,7 +6,6 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     iter,
-    path::PathBuf,
     sync::Arc,
 };
 use tetanes_core::time::Duration;
@@ -419,19 +419,28 @@ impl Mixer {
     }
 
     fn set_recording(&mut self, recording: bool) {
+        self.stop_recording();
         if recording {
-            self.stop_recording();
-            let filename = PathBuf::from(
-                chrono::Local::now()
-                    .format("recording_%Y-%m-%d_at_%H_%M_%S")
-                    .to_string(),
-            )
-            .with_extension("raw");
-            self.recording = Some(BufWriter::new(
-                File::create(filename).expect("failed to create audio recording"),
-            ));
-        } else {
-            self.stop_recording();
+            if let Some(dir) = Config::audio_dir() {
+                let path = dir
+                    .join(
+                        chrono::Local::now()
+                            .format("recording_%Y-%m-%d_at_%H_%M_%S")
+                            .to_string(),
+                    )
+                    .with_extension("raw");
+                if let Some(parent) = path.parent() {
+                    if !parent.exists() {
+                        if let Err(err) = std::fs::create_dir_all(parent) {
+                            error!("failed to create audio recording directory: {err:?}");
+                            return;
+                        }
+                    }
+                }
+                self.recording = Some(BufWriter::new(
+                    File::create(path).expect("failed to create audio recording"),
+                ));
+            }
         }
     }
 

@@ -31,6 +31,20 @@ impl ValueEnum for RamState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct NesRegion(tetanes_core::common::NesRegion);
+
+impl ValueEnum for NesRegion {
+    fn value_variants<'a>() -> &'a [Self] {
+        use tetanes_core::common::NesRegion::*;
+        &[Self(Ntsc), Self(Pal), Self(Dendy)]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        Some(clap::builder::PossibleValue::new(self.0.as_str()))
+    }
+}
+
 /// `TetaNES` CLI Config Options
 #[derive(Parser, Debug)]
 #[command(version, author, about, long_about = None)]
@@ -39,7 +53,7 @@ pub struct Opts {
     /// The NES ROM to load or a directory containing `.nes` ROM files. [default: current directory]
     pub(crate) path: Option<PathBuf>,
     /// Enable rewinding.
-    #[arg(short, long)]
+    #[arg(long)]
     pub(crate) rewind: bool,
     /// Silence audio.
     #[arg(short, long)]
@@ -62,6 +76,9 @@ pub struct Opts {
     /// Choose power-up RAM state. [default: "all-zeros"]
     #[arg(short = 'm', long, value_enum)]
     pub(crate) ram_state: Option<RamState>,
+    /// Choose default NES region. [default: "ntsc"]
+    #[arg(short = 'r', long, value_enum)]
+    pub(crate) region: Option<NesRegion>,
     /// Save slot. [default: 1]
     #[arg(short = 'i', long)]
     pub(crate) save_slot: Option<u8>,
@@ -101,6 +118,9 @@ impl Opts {
             cfg.deck.zapper = self.zapper || cfg.deck.zapper;
             if let Some(RamState(ram_state)) = self.ram_state {
                 cfg.deck.ram_state = ram_state;
+            }
+            if let Some(NesRegion(region)) = self.region {
+                cfg.deck.region = region;
             }
             cfg.deck.genie_codes.reserve(self.genie_code.len());
             for genie_code in self.genie_code.into_iter() {

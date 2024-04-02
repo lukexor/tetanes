@@ -219,6 +219,15 @@ impl Apu {
     }
 
     pub fn clock(&mut self) -> usize {
+        // Technically only clocks every 2 CPU cycles, but due
+        // to half-cycle timings, we clock every cycle
+        self.clock_frame_counter();
+
+        self.pulse1.length.reload();
+        self.pulse2.length.reload();
+        self.noise.length.reload();
+        self.triangle.length.reload();
+
         self.dmc.check_pending_dma();
         if self.cycle & 0x01 == 0x00 {
             self.pulse1.clock();
@@ -227,10 +236,9 @@ impl Apu {
             self.dmc.clock();
         }
         self.triangle.clock();
-        // Technically only clocks every 2 CPU cycles, but due
-        // to half-cycle timings, we clock every cycle
-        self.clock_frame_counter();
+
         self.cycle = self.cycle.wrapping_add(1);
+
         1
     }
 }
@@ -480,6 +488,7 @@ pub(crate) static PULSE_TABLE: [f32; 31] = [
     0.251_186_07,
     0.257_512_57,
 ];
+
 // Generated values to avoid constant Lazy deref cost during runtime.
 //
 // Original calculation:
