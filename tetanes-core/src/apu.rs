@@ -21,8 +21,6 @@ pub mod envelope;
 pub mod filter;
 pub mod frame_counter;
 pub mod length_counter;
-pub mod linear_counter;
-pub mod sweep;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -87,7 +85,7 @@ impl Apu {
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Default),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Default),
             triangle: Triangle::new(),
-            noise: Noise::new(),
+            noise: Noise::new(region),
             dmc: Dmc::new(),
             filter_chain: FilterChain::new(region, Self::SAMPLE_RATE),
             audio_samples: Vec::with_capacity((Self::SAMPLE_RATE / 60.0) as usize),
@@ -229,12 +227,10 @@ impl Apu {
         self.triangle.length.reload();
 
         self.dmc.check_pending_dma();
-        if self.cycle & 0x01 == 0x00 {
-            self.pulse1.clock();
-            self.pulse2.clock();
-            self.noise.clock();
-            self.dmc.clock();
-        }
+        self.pulse1.clock();
+        self.pulse2.clock();
+        self.noise.clock();
+        self.dmc.clock();
         self.triangle.clock();
 
         self.cycle = self.cycle.wrapping_add(1);

@@ -1,5 +1,5 @@
 use crate::{
-    apu::{envelope::Envelope, length_counter::LengthCounter, sweep::Sweep},
+    apu::{envelope::Envelope, length_counter::LengthCounter},
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,7 @@ pub struct Pulse {
     pub channel: PulseChannel,
     pub timer: u16,
     pub period: u16,
+    pub real_period: u16,
     pub duty: u8,       // Select row in DUTY_TABLE
     pub duty_cycle: u8, // Select column in DUTY_TABLE
     pub length: LengthCounter,
@@ -55,6 +56,7 @@ impl Pulse {
             channel,
             timer: 0,
             period: 0,
+            real_period: 0,
             duty: 0u8,
             duty_cycle: 0,
             length: LengthCounter::new(),
@@ -65,8 +67,12 @@ impl Pulse {
         }
     }
 
-    fn is_muted(&self) -> bool {
-        self.sweep.is_muted()
+    #[inline]
+    pub fn is_muted(&self) -> bool {
+        // MMC5 doesn't mute at ultasonic frequencies
+        self.output_freq == OutputFreq::Default
+            && (self.real_period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7FF))
+            || self.silent()
     }
 
     #[must_use]
@@ -83,6 +89,43 @@ impl Pulse {
         self.length.counter
     }
 
+    fn update_target_period(&mut self) {
+        let delta = self.real_period >> self.sweep.shift;
+        if self.sweep.negate {
+            self.sweep.target_period = self.real_period - delta;
+            if let PulseChannel::One = self.channel {
+                self.sweep.target_period = self.sweep.target_period.wrapping_sub(1);
+            }
+        } else {
+            self.sweep.target_period = self.real_period + delta;
+        }
+    }
+
+    fn set_period(&mut self, period: u16) {
+        self.real_period = period;
+        self.period = (self.real_period * 2) + 1;
+        self.update_target_period();
+    }
+
+    fn clock_sweep(&mut self) {
+        self.sweep.divider = self.sweep.divider.wrapping_sub(1);
+        if self.sweep.divider == 0 {
+            if self.sweep.shift > 0
+                && self.sweep.enabled
+                && self.real_period >= 8
+                && self.sweep.target_period <= 0x7FF
+            {
+                self.set_period(self.sweep.target_period);
+            }
+            self.sweep.divider = self.sweep.period;
+        }
+
+        if self.sweep.reload {
+            self.sweep.divider = self.sweep.period;
+            self.sweep.reload = false;
+        }
+    }
+
     pub fn clock_quarter_frame(&mut self) {
         self.envelope.clock();
     }
@@ -90,9 +133,7 @@ impl Pulse {
     pub fn clock_half_frame(&mut self) {
         self.envelope.clock();
         self.length.clock();
-        if self.sweep.clock() > 0 {
-            self.period = self.sweep.period + 1;
-        }
+        self.clock_sweep();
     }
 
     /// $4000/$4004 Pulse control
@@ -104,20 +145,23 @@ impl Pulse {
 
     /// $4001/$4005 Pulse sweep
     pub fn write_sweep(&mut self, val: u8) {
-        self.sweep.write(val);
+        self.sweep.enabled = (val & 0x80) == 0x80;
+        self.sweep.negate = (val & 0x08) == 0x08;
+        self.sweep.period = ((val & 0x70) >> 4) + 1;
+        self.sweep.shift = val & 0x07;
+        self.update_target_period();
+        self.sweep.reload = true;
     }
 
     /// $4002/$4006 Pulse timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
-        self.sweep.write_timer_lo(val);
-        self.period = self.sweep.period + 1;
+        self.set_period(self.real_period & 0x0700 | u16::from(val));
     }
 
     /// $4003/$4007 Pulse timer hi
     pub fn write_timer_hi(&mut self, val: u8) {
-        self.length.write(val);
-        self.sweep.write_timer_hi(val & 0x07);
-        self.period = self.sweep.period + 1;
+        self.length.write(val >> 3);
+        self.set_period(self.real_period & 0xFF | (u16::from(val & 0x07) << 8));
         self.duty_cycle = 0;
         self.envelope.restart();
     }
@@ -138,8 +182,7 @@ impl Pulse {
 impl Sample for Pulse {
     #[must_use]
     fn output(&self) -> f32 {
-        // MMC5 doesn't mute at ultasonic frequencies
-        if (self.is_muted() && self.output_freq == OutputFreq::Default) || self.silent() {
+        if self.is_muted() {
             0.0
         } else {
             f32::from(
@@ -153,21 +196,66 @@ impl Clock for Pulse {
     fn clock(&mut self) -> usize {
         if self.timer > 0 {
             self.timer -= 1;
+            0
         } else {
             self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
             self.timer = self.period;
+            1
         }
-
-        1
     }
 }
 
 impl Reset for Pulse {
     fn reset(&mut self, kind: ResetKind) {
-        self.length.reset(kind);
         self.envelope.reset(kind);
+        self.length.reset(kind);
         self.sweep.reset(kind);
         self.duty = 0;
         self.duty_cycle = 0;
+        self.update_target_period();
+    }
+}
+
+/// APU Sweep provides frequency sweeping for the APU pulse channels.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Sweep>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Sweep {
+    pub enabled: bool,
+    pub channel: PulseChannel,
+    pub negate: bool, // Treats PulseChannel 1 differently than PulseChannel 2
+    pub reload: bool,
+    pub shift: u8,
+    pub timer: u16,
+    pub divider: u8,
+    pub period: u8,
+    pub target_period: u16,
+}
+
+impl Sweep {
+    pub const fn new(channel: PulseChannel) -> Self {
+        Self {
+            enabled: false,
+            channel,
+            negate: false,
+            reload: false,
+            shift: 0,
+            timer: 0,
+            divider: 0,
+            period: 0,
+            target_period: 0,
+        }
+    }
+}
+
+impl Reset for Sweep {
+    fn reset(&mut self, _kind: ResetKind) {
+        self.enabled = false;
+        self.period = 0;
+        self.negate = false;
+        self.reload = false;
+        self.shift = 0;
+        self.divider = 0;
+        self.target_period = 0;
     }
 }

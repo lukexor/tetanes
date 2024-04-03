@@ -1036,6 +1036,10 @@ impl Clock for Exrom {
             self.pulse2.clock_half_frame();
             self.pulse_timer = Cpu::region_clock_rate(self.region) / 240.0;
         }
+
+        self.pulse1.length.reload();
+        self.pulse2.length.reload();
+
         self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
         1
     }

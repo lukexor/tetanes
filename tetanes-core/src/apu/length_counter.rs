@@ -35,7 +35,7 @@ impl LengthCounter {
     #[inline]
     pub fn write(&mut self, val: u8) {
         if self.enabled {
-            self.reload = Self::LENGTH_TABLE[(val >> 3) as usize]; // D7..D3
+            self.reload = Self::LENGTH_TABLE[val as usize]; // D7..D3
             self.previous_counter = self.counter;
             // TODO: set apu needs to run
         }
@@ -63,7 +63,7 @@ impl LengthCounter {
     #[inline]
     pub fn write_ctrl(&mut self, halt: bool) {
         // TODO: set apu needs to run
-        self.new_halt = halt; // !D5
+        self.new_halt = halt;
     }
 }
 
@@ -87,17 +87,16 @@ impl Reset for LengthCounter {
                 self.halt = false;
                 self.new_halt = false;
                 self.counter = 0;
-                self.previous_counter = 0;
                 self.reload = 0;
+                self.previous_counter = 0;
             }
             ResetKind::Hard => {
                 self.halt = false;
                 self.new_halt = false;
                 self.counter = 0;
-                self.previous_counter = 0;
                 self.reload = 0;
+                self.previous_counter = 0;
             }
         }
-        self.reload();
     }
 }
