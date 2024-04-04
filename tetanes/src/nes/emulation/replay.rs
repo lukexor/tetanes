@@ -18,36 +18,46 @@ pub struct ReplayEvent {
     pub event: EmulationEvent,
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 #[must_use]
 pub struct Record {
-    pub start: Cpu,
+    pub start: Option<Cpu>,
     pub events: Vec<ReplayEvent>,
 }
 
 impl Record {
-    pub fn start(cpu: Cpu) -> Self {
-        Self {
-            start: cpu,
-            events: vec![],
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn stop(self) -> anyhow::Result<PathBuf> {
+    pub fn start(&mut self, cpu: Cpu) {
+        self.start = Some(cpu);
+        self.events.clear();
+    }
+
+    pub fn stop(&mut self) -> anyhow::Result<Option<PathBuf>> {
         self.save()
     }
 
-    pub fn record(&mut self, frame: u32, event: EmulationEvent) {
-        if matches!(
-            event,
-            EmulationEvent::Joypad(..) | EmulationEvent::ZapperTrigger
-        ) {
+    pub fn push(&mut self, frame: u32, event: EmulationEvent) {
+        if self.start.is_some()
+            && matches!(
+                event,
+                EmulationEvent::Joypad(..) | EmulationEvent::ZapperTrigger
+            )
+        {
             self.events.push(ReplayEvent { frame, event });
         }
     }
 
     /// Saves the replay recording out to a file.
-    pub fn save(self) -> anyhow::Result<PathBuf> {
+    pub fn save(&mut self) -> anyhow::Result<Option<PathBuf>> {
+        let Some(start) = self.start.take() else {
+            return Ok(None);
+        };
+        if self.events.is_empty() {
+            return Ok(None);
+        }
         if let Some(dir) = Config::document_dir() {
             let path = dir
                 .join(
@@ -56,28 +66,33 @@ impl Record {
                         .to_string(),
                 )
                 .with_extension("replay");
-            fs::save(&path, &State((self.start, self.events)))?;
-            Ok(path)
+            let events = std::mem::take(&mut self.events);
+            fs::save(&path, &State((start, events)))?;
+            Ok(Some(path))
         } else {
             Err(anyhow::anyhow!("failed to find document directory"))
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 #[must_use]
 pub struct Replay {
     pub events: Vec<ReplayEvent>,
 }
 
 impl Replay {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Loads a replay recording file.
-    pub fn load(path: impl AsRef<Path>) -> anyhow::Result<(Cpu, Self)> {
+    pub fn load(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Cpu> {
         let path = path.as_ref();
-        Ok(fs::load(path).map(|State((cpu, mut events))| {
-            events.reverse(); // So we can pop off the end
-            (cpu, Self { events })
-        })?)
+        let State((cpu, mut events)) = fs::load(path)?;
+        events.reverse(); // So we can pop off the end
+        self.events = events;
+        Ok(cpu)
     }
 
     pub fn next(&mut self, frame: u32) -> Option<EmulationEvent> {

@@ -35,6 +35,7 @@ pub enum Mirroring {
     FourScreen = 4,
 }
 
+/// Trait for PPU Registers.
 pub trait Registers {
     fn write_ctrl(&mut self, val: u8); // $2000 PPUCTRL
     fn write_mask(&mut self, val: u8); // $2001 PPUMASK
@@ -51,6 +52,9 @@ pub trait Registers {
     fn write_data(&mut self, val: u8); // $2007 PPUDATA
 }
 
+/// NES PPU.
+///
+/// See: <https://wiki.nesdev.com/w/index.php/PPU>
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
@@ -61,6 +65,7 @@ pub struct Ppu {
     pub vblank_scanline: u32,
     pub prerender_scanline: u32,
     pub pal_spr_eval_scanline: u32,
+    pub skip_rendering: bool,
 
     pub scroll: Scroll, // $2005 PPUSCROLL and $2006 PPUADDR write-only
     pub mask: Mask,     // $2001 PPUMASK write-only
@@ -152,7 +157,8 @@ impl Ppu {
 
     pub const NTSC_PALETTE: &'static [u8] = include_bytes!("../ntscpalette.pal");
 
-    // 64 total possible colors, though only 32 can be loaded at a time
+    /// NES PPU System Palette
+    /// 64 total possible colors, though only 32 can be loaded at a time
     #[rustfmt::skip]
     pub const SYSTEM_PALETTE: [(u8,u8,u8); 64] = [
         // 0x00
@@ -177,6 +183,7 @@ impl Ppu {
         (0xA0, 0xD6, 0xE4), (0xA0, 0xA2, 0xA0), (0x00, 0x00, 0x00), (0x00, 0x00, 0x00), // $3C-$3F
     ];
 
+    /// Create a new PPU instance.
     pub fn new() -> Self {
         let region = NesRegion::default();
         let mut ppu = Self {
@@ -187,6 +194,7 @@ impl Ppu {
             vblank_scanline: 0,
             prerender_scanline: 0,
             pal_spr_eval_scanline: 0,
+            skip_rendering: false,
 
             scroll: Scroll::new(),
             mask: Mask::new(region),
@@ -234,63 +242,39 @@ impl Ppu {
         ppu
     }
 
+    /// Return the system palette color for the given pixel.
+    #[inline]
     #[must_use]
     pub const fn system_palette(pixel: u16) -> (u8, u8, u8) {
         Self::SYSTEM_PALETTE[(pixel as usize) & (Self::SYSTEM_PALETTE.len() - 1)]
     }
 
-    #[must_use]
-    pub const fn cycle(&self) -> u32 {
-        self.cycle
-    }
-
-    #[must_use]
-    pub const fn scanline(&self) -> u32 {
-        self.scanline
-    }
-
-    pub const fn ctrl(&self) -> Ctrl {
-        self.ctrl
-    }
-
+    /// Return the current frame buffer.
+    #[inline]
     #[must_use]
     pub fn frame_buffer(&self) -> &[u16] {
         self.frame.buffer()
     }
 
+    /// Return the current frame number.
+    #[inline]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
         self.frame.number()
     }
 
+    /// Get the pixel pixel brightness at the given coordinates.
+    #[inline]
     #[must_use]
     pub fn pixel_brightness(&self, x: u32, y: u32) -> u32 {
         self.frame.pixel_brightness(x, y)
     }
 
+    /// Load a Mapper into the PPU.
+    #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.bus.mapper = mapper;
         self.bus.update_mirroring();
-    }
-
-    #[must_use]
-
-    pub const fn nmi_pending(&self) -> bool {
-        self.nmi_pending
-    }
-
-    #[must_use]
-    pub const fn oamaddr(&self) -> u8 {
-        self.oamaddr
-    }
-
-    #[must_use]
-    pub const fn open_bus(&self) -> u8 {
-        self.open_bus
-    }
-
-    pub fn set_open_bus(&mut self, val: u8) {
-        self.open_bus = val;
     }
 }
 
@@ -665,6 +649,7 @@ impl Ppu {
         // Local variables improve cache locality
         let cycle = self.cycle;
         let scanline = self.scanline;
+        let skip_rendering = self.skip_rendering;
         let visible_cycle = matches!(cycle, Self::VISIBLE_START..=Self::VISIBLE_END);
         let bg_prefetch_cycle = matches!(cycle, Self::BG_PREFETCH_START..=Self::BG_PREFETCH_END);
         let bg_fetch_cycle = bg_prefetch_cycle || visible_cycle;
@@ -773,7 +758,7 @@ impl Ppu {
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
         // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
-        if visible_scanline && visible_cycle {
+        if visible_scanline && visible_cycle && !skip_rendering {
             self.render_pixel();
         }
         // Update shift registers after rendering
@@ -808,7 +793,6 @@ impl Registers for Ppu {
     //       |   5 | Sprite Size, 1 = 8x16, 0 = 8x8
     //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
     //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
-
     fn write_ctrl(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -842,7 +826,6 @@ impl Registers for Ppu {
     //       |   3 | BG Switch, 1 = show background, 0 = hide background
     //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
     //       | 5-7 | Unknown (???)
-
     fn write_mask(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -857,7 +840,6 @@ impl Registers for Ppu {
     //       |     | This flag resets to 0 when VBlank starts, or CPU reads $2002
     //       |   7 | VBlank Flag, 1 = PPU is generating a Vertical Blanking Impulse
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
-
     fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
         trace!(
@@ -889,7 +871,6 @@ impl Registers for Ppu {
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
     //
     // Non-mutating version of `read_status`.
-
     fn peek_status(&self) -> u8 {
         // Only upper 3 bits are connected for this register
         (self.status.read() & 0xE0) | (self.open_bus & 0x1F)
@@ -900,7 +881,6 @@ impl Registers for Ppu {
     //       |     | accessed via $2004. This address will increment by 1 after
     //       |     | each access to $2004. The Sprite Memory contains coordinates,
     //       |     | colors, and other attributes of the sprites.
-
     fn write_oamaddr(&mut self, val: u8) {
         self.open_bus = val;
         self.oamaddr = val;
@@ -911,7 +891,6 @@ impl Registers for Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
-
     #[must_use]
     fn read_oamdata(&mut self) -> u8 {
         let val = self.peek_oamdata();
@@ -925,7 +904,6 @@ impl Registers for Ppu {
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
     // Non-mutating version of `read_oamdata`.
-
     #[must_use]
     fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
@@ -944,7 +922,6 @@ impl Registers for Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
-
     fn write_oamdata(&mut self, mut val: u8) {
         self.open_bus = val;
         if self.mask.rendering_enabled
@@ -983,7 +960,6 @@ impl Registers for Ppu {
     //       |     | When scrolled, the picture may span over several Name Tables.
     //       |     | Remember, though, that because of the mirroring, there are
     //       |     | only 2 real Name Tables, not 4.
-
     fn write_scroll(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -993,7 +969,6 @@ impl Registers for Ppu {
     }
 
     // $2006 | W   | PPUADDR
-
     fn write_addr(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -1005,7 +980,6 @@ impl Registers for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-
     #[must_use]
     fn read_data(&mut self) -> u8 {
         let addr = self.scroll.addr();
@@ -1037,7 +1011,6 @@ impl Registers for Ppu {
     // $2007 | RW  | PPUDATA
     //
     // Non-mutating version of `read_data`.
-
     #[must_use]
     fn peek_data(&self) -> u8 {
         let addr = self.scroll.addr();
@@ -1050,7 +1023,6 @@ impl Registers for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-
     fn write_data(&mut self, val: u8) {
         self.open_bus = val;
         let addr = self.scroll.addr();

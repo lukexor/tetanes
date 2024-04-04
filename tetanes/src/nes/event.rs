@@ -6,7 +6,7 @@ use crate::{
         renderer::gui::Menu,
         Nes,
     },
-    platform::open_file_dialog,
+    platform::{self, open_file_dialog},
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -366,11 +366,15 @@ impl Nes {
                             .set_fullscreen(fullscreen.then_some(Fullscreen::Borderless(None)));
                     }
                     Setting::ToggleVsync if released => {
-                        let vsync = self.config.write(|cfg| {
-                            cfg.renderer.vsync = !cfg.renderer.vsync;
-                            cfg.renderer.vsync
-                        });
-                        self.trigger_event(RendererEvent::SetVSync(vsync));
+                        if platform::supports(platform::Feature::ToggleVsync) {
+                            let vsync = self.config.write(|cfg| {
+                                cfg.renderer.vsync = !cfg.renderer.vsync;
+                                cfg.renderer.vsync
+                            });
+                            self.trigger_event(RendererEvent::SetVSync(vsync));
+                        } else {
+                            self.add_message("Disabling VSync is not supported on this platform.");
+                        }
                     }
                     Setting::ToggleAudio if released => {
                         let enabled = self.config.write(|cfg| {
@@ -451,6 +455,10 @@ impl Nes {
                         self.trigger_event(EmulationEvent::StateLoad);
                     }
                     DeckAction::ToggleApuChannel(channel) if released => {
+                        self.config.write(|cfg| {
+                            cfg.deck.channels_enabled[channel as usize] =
+                                !cfg.deck.channels_enabled[channel as usize];
+                        });
                         self.trigger_event(EmulationEvent::ToggleApuChannel(channel));
                     }
                     DeckAction::MapperRevision(_) if released => todo!("mapper revision"),

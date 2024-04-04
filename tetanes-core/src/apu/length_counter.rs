@@ -1,13 +1,17 @@
-use crate::common::{Clock, Reset, ResetKind};
+use crate::{
+    apu::Channel,
+    common::{Clock, Reset, ResetKind},
+};
 use serde::{Deserialize, Serialize};
 
 /// APU Length Counter provides duration control for APU waveform channels.
 ///
 /// See: <https://www.nesdev.org/wiki/APU_Length_Counter>
-#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct LengthCounter {
     pub enabled: bool,
+    pub channel: Channel,
     pub halt: bool,
     pub new_halt: bool,
     pub counter: u8, // Entry into LENGTH_TABLE
@@ -21,9 +25,10 @@ impl LengthCounter {
         22, 192, 24, 72, 26, 16, 28, 32, 30,
     ];
 
-    pub const fn new() -> Self {
+    pub const fn new(channel: Channel) -> Self {
         Self {
             enabled: false,
+            channel,
             halt: false,
             new_halt: false,
             counter: 0,
@@ -83,12 +88,13 @@ impl Reset for LengthCounter {
         self.enabled = false;
         match kind {
             ResetKind::Soft => {
-                // TODO: if not triangle
-                self.halt = false;
-                self.new_halt = false;
-                self.counter = 0;
-                self.reload = 0;
-                self.previous_counter = 0;
+                if self.channel != Channel::Triangle {
+                    self.halt = false;
+                    self.new_halt = false;
+                    self.counter = 0;
+                    self.reload = 0;
+                    self.previous_counter = 0;
+                }
             }
             ResetKind::Hard => {
                 self.halt = false;

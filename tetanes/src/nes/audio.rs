@@ -476,6 +476,9 @@ impl Mixer {
     }
 
     fn process(&mut self, samples: &[f32]) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if self.paused {
             return;
         }

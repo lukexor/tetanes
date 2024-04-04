@@ -1,5 +1,5 @@
 use crate::{
-    apu::{envelope::Envelope, length_counter::LengthCounter},
+    apu::{envelope::Envelope, length_counter::LengthCounter, Channel},
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -59,7 +59,10 @@ impl Pulse {
             real_period: 0,
             duty: 0u8,
             duty_cycle: 0,
-            length: LengthCounter::new(),
+            length: LengthCounter::new(match channel {
+                PulseChannel::One => Channel::Pulse1,
+                PulseChannel::Two => Channel::Pulse2,
+            }),
             envelope: Envelope::new(),
             sweep: Sweep::new(channel),
             force_silent: false,
@@ -80,8 +83,8 @@ impl Pulse {
         self.force_silent
     }
 
-    pub fn toggle_silent(&mut self) {
-        self.force_silent = !self.force_silent;
+    pub fn set_silent(&mut self, silent: bool) {
+        self.force_silent = silent;
     }
 
     #[must_use]

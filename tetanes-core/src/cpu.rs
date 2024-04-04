@@ -6,7 +6,6 @@ use crate::{
     bus::Bus,
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     mem::{Access, Mem},
-    ppu::{self, Ppu},
 };
 use bitflags::bitflags;
 use instr::{
@@ -50,6 +49,7 @@ bitflags! {
 // |+-------- Overflow
 // +--------- Negative
 bitflags! {
+    /// CPU Status Registers.
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct Status: u8 {
@@ -126,6 +126,7 @@ impl Cpu {
     const POWER_ON_SP: u8 = 0xFD;
     const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
+    /// Create a new CPU with the given bus.
     pub fn new(bus: Bus) -> Self {
         let mut cpu = Self {
             cycle: 0,
@@ -161,25 +162,21 @@ impl Cpu {
         cpu
     }
 
-    pub fn load(&mut self, cpu: Self) {
-        // Basic we don't want to serialize the entire ROM in save states, extract out the loaded
-        // ROM data and merge it in with the loaded state.
-        *self = Self {
-            bus: Bus {
-                prg_rom: std::mem::take(&mut self.bus.prg_rom),
-                ppu: Ppu {
-                    bus: ppu::bus::Bus {
-                        chr_rom: std::mem::take(&mut self.bus.ppu.bus.chr_rom),
-                        ..cpu.bus.ppu.bus
-                    },
-                    ..cpu.bus.ppu
-                },
-                ..cpu.bus
-            },
-            ..cpu
+    /// Load a CPU state.
+    pub fn load(&mut self, mut cpu: Self) {
+        // Because we don't want to serialize the entire ROM in save states, extract out the
+        // already loaded ROM data if it's not provided
+        if cpu.bus.prg_rom.is_empty() {
+            cpu.bus.prg_rom = std::mem::take(&mut self.bus.prg_rom);
         };
+        if cpu.bus.ppu.bus.chr_rom.is_empty() {
+            cpu.bus.ppu.bus.chr_rom = std::mem::take(&mut self.bus.ppu.bus.chr_rom);
+        };
+        *self = cpu;
     }
 
+    /// Returns the CPU clock rate based on [`NesRegion`].
+    #[inline]
     #[must_use]
     pub const fn region_clock_rate(region: NesRegion) -> f32 {
         match region {
@@ -190,27 +187,31 @@ impl Cpu {
     }
 
     /// Clock rate based on currently configured NES region.
+    #[inline]
     #[must_use]
     pub const fn clock_rate(&self) -> f32 {
         Self::region_clock_rate(self.region)
     }
 
     /// Peek at the next instruction.
+    #[inline]
     pub fn next_instr(&self) -> Instr {
         let opcode = self.peek(self.pc, Access::Dummy);
         Cpu::INSTRUCTIONS[opcode as usize]
     }
 
-    // <http://wiki.nesdev.com/w/index.php/IRQ>
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch PCH
-    //  2    PC     R  fetch PCL
-    //  3  $0100,S  W  push PCH to stack, decrement S
-    //  4  $0100,S  W  push PCL to stack, decrement S
-    //  5  $0100,S  W  push P to stack, decrement S
-    //  6    PC     R  fetch low byte of interrupt vector
-    //  7    PC     R  fetch high byte of interrupt vector
+    /// Process an interrupted request.
+    ///
+    /// <http://wiki.nesdev.com/w/index.php/IRQ>
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch PCH
+    ///  2    PC     R  fetch PCL
+    ///  3  $0100,S  W  push PCH to stack, decrement S
+    ///  4  $0100,S  W  push PCL to stack, decrement S
+    ///  5  $0100,S  W  push P to stack, decrement S
+    ///  6    PC     R  fetch low byte of interrupt vector
+    ///  7    PC     R  fetch high byte of interrupt vector
     pub fn irq(&mut self) {
         self.read(self.pc, Access::Dummy);
         self.read(self.pc, Access::Dummy);
@@ -231,8 +232,8 @@ impl Cpu {
             self.pc = self.read_u16(Self::NMI_VECTOR);
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle(),
-                self.bus.ppu.scanline(),
+                self.bus.ppu.cycle,
+                self.bus.ppu.scanline,
                 self.cycle
             );
         } else {
@@ -242,13 +243,14 @@ impl Cpu {
             self.pc = self.read_u16(Self::IRQ_VECTOR);
             trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle(),
-                self.bus.ppu.scanline(),
+                self.bus.ppu.cycle,
+                self.bus.ppu.scanline,
                 self.cycle
             );
         }
     }
 
+    /// Handle CPU interrupt requests, if any are pending.
     fn handle_interrupts(&mut self) {
         // https://www.nesdev.org/wiki/CPU_interrupts
         //
@@ -261,7 +263,7 @@ impl Cpu {
         // during the second half of each cycle, hence here in `end_cycle`) and raises an internal
         // signal if the input goes from being high during one cycle to being low during the
         // next.
-        let nmi_pending = self.bus.ppu.nmi_pending();
+        let nmi_pending = self.bus.ppu.nmi_pending;
         self.nmi |= !self.prev_nmi_pending && nmi_pending;
         self.prev_nmi_pending = nmi_pending;
 
@@ -277,6 +279,7 @@ impl Cpu {
         self.dummy_read |= dmc_dma;
     }
 
+    /// Start a CPU cycle.
     fn start_cycle(&mut self, increment: u64) {
         self.master_clock = self.master_clock.wrapping_add(increment);
         self.cycle = self.cycle.wrapping_add(1);
@@ -287,6 +290,7 @@ impl Cpu {
         }
     }
 
+    /// End a CPU cycle.
     fn end_cycle(&mut self, increment: u64) {
         self.master_clock = self.master_clock.wrapping_add(increment);
 
@@ -297,6 +301,7 @@ impl Cpu {
         self.handle_interrupts();
     }
 
+    /// Process a direct-memory access (DMA) cycle.
     fn process_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
         if self.dma_halt {
@@ -307,6 +312,7 @@ impl Cpu {
         self.start_cycle(self.read_cycles.start);
     }
 
+    /// Handle a direct-memory access (DMA) request.
     fn handle_dma(&mut self, addr: u16) {
         self.start_cycle(self.read_cycles.start);
         self.bus.read(addr, Access::Dummy);
@@ -368,32 +374,38 @@ impl Cpu {
 
     // Status Register functions
 
-    // Convenience method to set both Z and N
+    /// Convenience method to set both [`Status::Z`] and [`Status::N`] flags based on value.
+    #[inline]
     fn set_zn_status(&mut self, val: u8) {
         self.status.set(Status::Z, val == 0x00);
         self.status.set(Status::N, val & 0x80 == 0x80);
     }
 
+    /// Returns the status register as a byte.
+    #[inline]
     const fn status_bit(&self, reg: Status) -> u8 {
         self.status.intersection(reg).bits()
     }
 
     // Stack Functions
 
-    // Push a byte to the stack
+    /// Push a byte to the stack.
+    #[inline]
     fn push(&mut self, val: u8) {
         self.write(Self::SP_BASE | u16::from(self.sp), val, Access::Write);
         self.sp = self.sp.wrapping_sub(1);
     }
 
-    // Pull a byte from the stack
+    /// Pull a byte from the stack.
+    #[inline]
     #[must_use]
     fn pop(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         self.read(Self::SP_BASE | u16::from(self.sp), Access::Read)
     }
 
-    // Peek byte at the top of the stack
+    /// Peek byte at the top of the stack.
+    #[inline]
     #[must_use]
     pub fn peek_stack(&self) -> u8 {
         self.peek(
@@ -402,7 +414,8 @@ impl Cpu {
         )
     }
 
-    // Peek at the top of the stack
+    /// Peek at the top of the stack.
+    #[inline]
     #[must_use]
     pub fn peek_stack_u16(&self) -> u16 {
         let lo = self.peek(Self::SP_BASE | u16::from(self.sp), Access::Dummy);
@@ -413,14 +426,16 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
-    // Push a word (two bytes) to the stack
+    /// Push a word (two bytes) to the stack
+    #[inline]
     fn push_u16(&mut self, val: u16) {
         let [lo, hi] = val.to_le_bytes();
         self.push(hi);
         self.push(lo);
     }
 
-    // Pull a word (two bytes) from the stack
+    /// Pull a word (two bytes) from the stack
+    #[inline]
     fn pop_u16(&mut self) -> u16 {
         let lo = self.pop();
         let hi = self.pop();
@@ -429,8 +444,8 @@ impl Cpu {
 
     // Memory accesses
 
-    // Source the data used by an instruction. Some instructions don't fetch data as the source
-    // is implied by the instruction such as INX which increments the X register.
+    /// Source the data used by an instruction. Some instructions don't fetch data as the source
+    /// is implied by the instruction such as INX which increments the X register.
     fn fetch_data(&mut self) {
         let mode = self.instr.addr_mode();
         let acc = self.acc;
@@ -442,7 +457,7 @@ impl Cpu {
         };
     }
 
-    // Read instructions may have crossed a page boundary and need to be re-read
+    /// Read instructions may have crossed a page boundary and need to be re-read.
     fn fetch_data_cross(&mut self) {
         let mode = self.instr.addr_mode();
         let x = self.x;
@@ -467,8 +482,8 @@ impl Cpu {
         }
     }
 
-    // Writes data back to where fetched_data was sourced from. Either accumulator or memory
-    // specified in abs_addr.
+    /// Writes data back to where fetched_data was sourced from. Either accumulator or memory
+    /// specified in abs_addr.
     fn write_fetched(&mut self, val: u8) {
         match self.instr.addr_mode() {
             IMP | ACC => self.acc = val,
@@ -477,7 +492,8 @@ impl Cpu {
         }
     }
 
-    // Reads an instruction byte and increments PC by 1.
+    /// Reads an instruction byte and increments PC by 1.
+    #[inline]
     #[must_use]
     fn read_instr(&mut self) -> u8 {
         let val = self.read(self.pc, Access::Read);
@@ -485,7 +501,8 @@ impl Cpu {
         val
     }
 
-    // Reads an instruction 16-bit word and increments PC by 2.
+    /// Reads an instruction 16-bit word and increments PC by 2.
+    #[inline]
     #[must_use]
     fn read_instr_u16(&mut self) -> u16 {
         let lo = self.read_instr();
@@ -493,7 +510,8 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
-    // Read a 16-bit word.
+    /// Read a 16-bit word.
+    #[inline]
     #[must_use]
     pub fn read_u16(&mut self, addr: u16) -> u16 {
         let lo = self.read(addr, Access::Read);
@@ -501,7 +519,8 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
-    // Peek a 16-bit word without side effects.
+    /// Peek a 16-bit word without side effects.
+    #[inline]
     #[must_use]
     pub fn peek_u16(&self, addr: u16) -> u16 {
         let lo = self.peek(addr, Access::Dummy);
@@ -509,7 +528,8 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
-    // Like read_word, but for Zero Page which means it'll wrap around at 0xFF
+    /// Like read_word, but for Zero Page which means it'll wrap around at 0xFF.
+    #[inline]
     #[must_use]
     fn read_zp_u16(&mut self, addr: u8) -> u16 {
         let lo = self.read(addr.into(), Access::Read);
@@ -517,7 +537,8 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
-    // Like peek_word, but for Zero Page which means it'll wrap around at 0xFF
+    /// Like peek_word, but for Zero Page which means it'll wrap around at 0xFF
+    #[inline]
     #[must_use]
     fn peek_zp_u16(&self, addr: u8) -> u16 {
         let lo = self.peek(addr.into(), Access::Dummy);
@@ -525,6 +546,7 @@ impl Cpu {
         u16::from_le_bytes([lo, hi])
     }
 
+    /// Disassemble the instruction at the given program counter.
     pub fn disassemble(&mut self, pc: &mut u16) -> &str {
         let opcode = self.peek(*pc, Access::Dummy);
         let instr = Cpu::INSTRUCTIONS[opcode as usize];
@@ -660,7 +682,7 @@ impl Cpu {
         &self.disasm
     }
 
-    // Return the current instruction and status
+    /// Logs the disassembled instruction being executed.
     pub fn trace_instr(&mut self) {
         let mut pc = self.pc;
         let status = self.status;
@@ -668,8 +690,8 @@ impl Cpu {
         let x = self.x;
         let y = self.y;
         let sp = self.sp;
-        let ppu_cycle = self.bus.ppu.cycle();
-        let ppu_scanline = self.bus.ppu.scanline();
+        let ppu_cycle = self.bus.ppu.cycle;
+        let ppu_scanline = self.bus.ppu.scanline;
         let cycle = self.cycle;
         let n = if status.contains(Status::N) { 'N' } else { 'n' };
         let v = if status.contains(Status::V) { 'V' } else { 'v' };
@@ -682,8 +704,10 @@ impl Cpu {
         );
     }
 
-    /// Utilities
+    // Utilities
 
+    /// Returns whether two addresses are on different memory pages.
+    #[inline]
     #[must_use]
     const fn pages_differ(addr1: u16, addr2: u16) -> bool {
         (addr1 & 0xFF00) != (addr2 & 0xFF00)
@@ -691,7 +715,7 @@ impl Cpu {
 }
 
 impl Clock for Cpu {
-    /// Runs the CPU one instruction
+    /// Runs the CPU one instruction.
     fn clock(&mut self) -> usize {
         let start_cycle = self.cycle;
 

@@ -46,6 +46,17 @@ impl BufferPool {
     pub fn new() -> Self {
         Self(Arc::new(ThingBuf::with_recycle(2, FrameRecycle)))
     }
+
+    pub fn push(&mut self, frame_buffer: &[u8]) -> bool {
+        match self.0.push_ref() {
+            Ok(mut frame) => {
+                frame.clear();
+                frame.extend_from_slice(frame_buffer);
+                true
+            }
+            Err(_) => false,
+        }
+    }
 }
 
 impl Default for BufferPool {

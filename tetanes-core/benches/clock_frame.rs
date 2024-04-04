@@ -15,8 +15,7 @@ fn clock_frames(frames: u32) {
         ram_state: RamState::AllZeros,
         ..Default::default()
     });
-    let _ = deck
-        .load_rom(&rom_path.to_string_lossy(), &mut rom)
+    deck.load_rom(&rom_path.to_string_lossy(), &mut rom)
         .expect("failed to load rom");
     while deck.frame_number() < frames {
         deck.clock_frame().expect("valid frame clock");

@@ -36,6 +36,7 @@ pub fn open_file_dialog(
 pub enum Feature {
     SaveStates,
     WindowMinMax,
+    ToggleVsync,
 }
 
 pub fn supports(feature: Feature) -> bool {

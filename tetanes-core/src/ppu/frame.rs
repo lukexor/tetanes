@@ -3,15 +3,44 @@ use crate::{
     ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+#[must_use]
+pub struct Buffer(Vec<u16>);
+
+impl std::fmt::Debug for Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Buffer({} elements)", self.0.len())
+    }
+}
+
+impl Default for Buffer {
+    fn default() -> Self {
+        Self(vec![0x00; Ppu::SIZE])
+    }
+}
+
+impl Deref for Buffer {
+    type Target = [u16];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Buffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Frame {
     pub count: u32,
-    #[serde(skip, default = "Frame::default_buffer")]
-    pub front_buffer: Vec<u16>,
-    #[serde(skip, default = "Frame::default_buffer")]
-    pub back_buffer: Vec<u16>,
+    #[serde(skip)]
+    pub buffer: Buffer,
 }
 
 impl Default for Frame {
@@ -24,27 +53,21 @@ impl Frame {
     pub fn new() -> Self {
         Self {
             count: 0,
-            front_buffer: vec![0x00; Ppu::SIZE],
-            back_buffer: vec![0x00; Ppu::SIZE],
+            buffer: Buffer::default(),
         }
-    }
-
-    pub fn default_buffer() -> Vec<u16> {
-        vec![0x00; Ppu::SIZE]
     }
 
     pub fn increment(&mut self) {
         self.count = self.count.wrapping_add(1);
-        std::mem::swap(&mut self.front_buffer, &mut self.back_buffer);
     }
 
     #[must_use]
     pub fn pixel(&self, x: u32, y: u32) -> u16 {
-        self.back_buffer[(x + (y << 8)) as usize]
+        self.buffer[(x + (y << 8)) as usize]
     }
 
     pub fn set_pixel(&mut self, x: u32, y: u32, color: u16) {
-        self.back_buffer[(x + (y << 8)) as usize] = color;
+        self.buffer[(x + (y << 8)) as usize] = color;
     }
 
     #[must_use]
@@ -61,20 +84,13 @@ impl Frame {
 
     #[must_use]
     pub fn buffer(&self) -> &[u16] {
-        &self.front_buffer
+        &self.buffer
     }
 }
 
 impl Reset for Frame {
     fn reset(&mut self, _kind: ResetKind) {
         self.count = 0;
-        self.front_buffer.fill(0);
-        self.back_buffer.fill(0);
-    }
-}
-
-impl std::fmt::Debug for Frame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Frame").field("count", &self.count).finish()
+        self.buffer.fill(0);
     }
 }

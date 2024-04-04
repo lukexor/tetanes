@@ -104,20 +104,33 @@ impl Video {
         }
     }
 
-    /// Applies the given filer to the video buffer and returns the result.
+    /// Applies the given filter to the given video buffer and returns the result.
     pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
         match self.filter {
-            VideoFilter::Pixellate => self.decode_buffer(buffer),
-            VideoFilter::Ntsc => self.apply_ntsc_filter(buffer, frame_number),
+            VideoFilter::Pixellate => Self::decode_buffer(buffer, &mut self.frame),
+            VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, &mut self.frame),
         }
+
         &self.frame
     }
 
+    /// Applies the given filter to the given video buffer by coping into the provided buffer.
+    pub fn apply_filter_into(&self, buffer: &[u16], frame_number: u32, output: &mut [u8]) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        match self.filter {
+            VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
+            VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),
+        }
+    }
+
     /// Fills a fully rendered frame with RGB colors.
-    pub fn decode_buffer(&mut self, buffer: &[u16]) {
-        for (pixel, colors) in buffer.iter().zip(self.frame.chunks_exact_mut(4)) {
+    pub fn decode_buffer(buffer: &[u16], output: &mut [u8]) {
+        for (pixel, colors) in buffer.iter().zip(output.chunks_exact_mut(4)) {
             let index = (pixel * 3) as usize;
             assert!(Ppu::NTSC_PALETTE.len() > index + 2);
             assert!(colors.len() > 2);
@@ -127,17 +140,15 @@ impl Video {
         }
     }
 
-    // Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
-    // to translate it to Rust
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // http://wiki.nesdev.com/w/index.php/NTSC_video
-    pub fn apply_ntsc_filter(&mut self, buffer: &[u16], frame_number: u32) {
+    /// Applies the NTSC filter to the given video buffer.
+    ///
+    /// Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
+    /// to translate it to Rust
+    /// Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
+    /// http://wiki.nesdev.com/w/index.php/NTSC_video
+    pub fn apply_ntsc_filter(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
         let mut prev_pixel = 0;
-        for (idx, (pixel, colors)) in buffer
-            .iter()
-            .zip(self.frame.chunks_exact_mut(4))
-            .enumerate()
-        {
+        for (idx, (pixel, colors)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
             let x = idx % 256;
             let color = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel

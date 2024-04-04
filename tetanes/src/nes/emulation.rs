@@ -178,9 +178,9 @@ pub struct State {
     occluded: bool,
     paused: bool,
     rewinding: bool,
-    rewind: Option<Rewind>,
-    record: Option<Record>,
-    replay: Option<Replay>,
+    rewind: Rewind,
+    record: Record,
+    replay: Replay,
 }
 
 impl Drop for State {
@@ -202,7 +202,7 @@ impl State {
                 cfg.audio.latency,
                 cfg.audio.buffer_size,
             );
-            let rewind = cfg.emulation.rewind.then_some(Rewind::new());
+            let rewind = Rewind::new(cfg.emulation.rewind);
             (control_deck, audio, rewind)
         });
         Self {
@@ -220,8 +220,8 @@ impl State {
             paused: true,
             rewinding: false,
             rewind,
-            record: None,
-            replay: None,
+            record: Record::new(),
+            replay: Replay::new(),
         }
     }
 
@@ -290,9 +290,8 @@ impl State {
                 let pressed = *state == ElementState::Pressed;
                 let joypad = self.control_deck.joypad_mut(*player);
                 joypad.set_button(*button, pressed);
-                if let Some(ref mut replay) = self.record {
-                    replay.record(self.control_deck.frame_number(), event.clone());
-                }
+                self.record
+                    .push(self.control_deck.frame_number(), event.clone());
             }
             EmulationEvent::LoadRom((name, rom)) => {
                 self.load_rom(name, &mut io::Cursor::new(rom));
@@ -343,11 +342,7 @@ impl State {
                 self.set_region(*region);
             }
             EmulationEvent::SetRewind(enabled) => {
-                if *enabled {
-                    self.rewind = Some(Rewind::new());
-                } else {
-                    self.rewind = None;
-                }
+                self.rewind.enable(*enabled);
             }
             EmulationEvent::SetSpeed(speed) => self.control_deck.set_frame_speed(*speed),
             EmulationEvent::StateLoad => {
@@ -381,19 +376,24 @@ impl State {
             EmulationEvent::SetVideoFilter(filter) => self.control_deck.set_filter(*filter),
             EmulationEvent::ZapperAim((x, y)) => {
                 self.control_deck.aim_zapper(*x, *y);
-                if let Some(ref mut replay) = self.record {
-                    replay.record(self.control_deck.frame_number(), event.clone());
-                }
+                self.record
+                    .push(self.control_deck.frame_number(), event.clone());
             }
             EmulationEvent::ZapperConnect(connected) => {
                 self.control_deck.connect_zapper(*connected)
             }
             EmulationEvent::ZapperTrigger => {
                 self.control_deck.trigger_zapper();
-                if let Some(ref mut replay) = self.record {
-                    replay.record(self.control_deck.frame_number(), event.clone());
-                }
+                self.record
+                    .push(self.control_deck.frame_number(), event.clone());
             }
+        }
+    }
+
+    fn send_frame(&mut self) {
+        self.send_event(RendererEvent::Frame);
+        if let Ok(mut frame) = self.frame_pool.push_ref() {
+            self.control_deck.frame_buffer_into(&mut frame);
         }
     }
 
@@ -401,10 +401,8 @@ impl State {
         if self.control_deck.is_running() && !self.control_deck.cpu_corrupted() {
             self.paused = paused;
             if self.paused {
-                if let Some(replay) = self.record.take() {
-                    if let Err(err) = replay.stop() {
-                        self.on_error(err);
-                    }
+                if let Err(err) = self.record.stop() {
+                    self.on_error(err);
                 }
             }
             self.audio.pause(self.paused);
@@ -467,11 +465,10 @@ impl State {
 
     fn load_replay_path(&mut self, path: impl AsRef<std::path::Path>) {
         let path = path.as_ref();
-        match Replay::load(path) {
-            Ok((start, replay)) => {
+        match self.replay.load(path) {
+            Ok(start) => {
                 self.add_message(format!("Loaded Replay Recording {path:?}"));
                 self.control_deck.load_cpu(start);
-                self.replay = Some(replay);
                 self.pause(false);
             }
             Err(err) => self.on_error(err),
@@ -509,14 +506,15 @@ impl State {
     fn replay_record(&mut self, recording: bool) {
         if self.control_deck.is_running() {
             if recording {
-                self.record = Some(Record::start(self.control_deck.cpu().clone()));
+                self.record.start(self.control_deck.cpu().clone());
                 self.add_message("Replay Recording Started");
-            } else if let Some(replay) = self.record.take() {
-                match replay.stop() {
-                    Ok(filename) => {
+            } else {
+                match self.record.stop() {
+                    Ok(Some(filename)) => {
                         self.add_message(format!("Saved Replay Recording {filename:?}"));
                     }
                     Err(err) => self.on_error(err),
+                    _ => (),
                 }
             }
         }
@@ -558,64 +556,6 @@ impl State {
         }
     }
 
-    fn clock_frame(&mut self) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        if self.write_deck(|deck| deck.clock_frame()).is_some() {
-            if let Some(ref mut rewind) = self.rewind {
-                if let Err(err) = rewind.push(self.control_deck.cpu()) {
-                    self.config.write(|cfg| cfg.emulation.rewind = false);
-                    self.rewind = None;
-                    self.on_error(err);
-                }
-            }
-            self.send_audio();
-            self.send_frame();
-        }
-    }
-
-    fn clock_frame_ahead(&mut self) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        let speed = self.config.read(|cfg| cfg.emulation.speed);
-        let run_ahead = self.config.read(|cfg| cfg.emulation.run_ahead);
-        if run_ahead == 0 || speed > 1.0 {
-            return self.clock_frame();
-        }
-
-        // Clock current frame and discard video
-        if self.write_deck(|deck| deck.clock_frame()).is_none() {
-            return;
-        }
-        // Save state so we can rewind
-        let Ok(state) = bincode::serialize(self.control_deck.cpu()) else {
-            self.pause(true);
-            self.on_error(anyhow!("failed to serialize state"));
-            return;
-        };
-
-        // Clock additional frames and discard video/audio
-        for _ in 1..run_ahead {
-            if self.write_deck(|deck| deck.clock_frame()).is_none() {
-                return;
-            }
-        }
-
-        // Discard audio and only output the future frame video/audio
-        self.control_deck.clear_audio_samples();
-        self.clock_frame();
-
-        // Restore back to current frame
-        if let Ok(state) = bincode::deserialize(&state) {
-            self.control_deck.load_cpu(state);
-        } else {
-            self.pause(true);
-            self.on_error(anyhow!("failed to deserialize state"));
-        }
-    }
-
     fn clock(&mut self) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -633,8 +573,16 @@ impl State {
             self.frame_time_accumulator = 0.25;
         }
 
+        // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
+        // not rewinding, otherwise fall back to time-based clocking
         let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
         let frame_duration_seconds = self.target_frame_duration.as_secs_f32();
+        let (speed, mut run_ahead) = self
+            .config
+            .read(|cfg| (cfg.emulation.speed, cfg.emulation.run_ahead));
+        if speed > 1.0 {
+            run_ahead = 0;
+        }
         while if self.audio.enabled() && !self.rewinding {
             self.audio.queued_time() <= self.audio.latency && clocked_frames <= self.frame_latency
         } else {
@@ -644,51 +592,47 @@ impl State {
             puffin::profile_scope!("clock");
 
             if self.rewinding {
-                match self.rewind.as_mut().and_then(|rewind| rewind.pop()) {
+                match self.rewind.pop() {
                     Some(cpu) => self.control_deck.load_cpu(cpu),
                     None => self.rewinding = false,
                 }
                 self.send_frame();
             } else {
-                if let Some(event) = self
-                    .replay
-                    .as_mut()
-                    .and_then(|r| r.next(self.control_deck.frame_number()))
-                {
+                if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                     self.on_event(&event);
                 }
-                self.clock_frame_ahead();
+                // Have to split borrows here to send frame
+                let res = self.control_deck.clock_frame_ahead(
+                    run_ahead,
+                    |_cycles, frame_buffer, audio_samples| {
+                        self.audio.process(audio_samples);
+                        self.frame_pool.push(frame_buffer)
+                    },
+                );
+                match res {
+                    Ok(new_frame) => {
+                        if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
+                            self.config.write(|cfg| cfg.emulation.rewind = false);
+                            self.on_error(err);
+                            break;
+                        }
+                        self.send_event(RendererEvent::Frame);
+                        if new_frame {
+                            self.send_event(UiEvent::RequestRedraw);
+                        }
+                    }
+                    Err(err) => {
+                        self.pause(true);
+                        self.on_error(err);
+                        break;
+                    }
+                }
             }
+
             self.frame_time_accumulator -= frame_duration_seconds;
             clocked_frames += 1;
         }
 
         self.sleep();
-    }
-
-    fn send_audio(&mut self) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        self.audio.process(self.control_deck.audio_samples());
-        self.control_deck.clear_audio_samples();
-    }
-
-    fn send_frame(&mut self) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        self.send_event(RendererEvent::Frame);
-        let new_frame = match self.frame_pool.push_ref() {
-            Ok(mut frame) => {
-                frame.clear();
-                frame.extend_from_slice(self.control_deck.frame_buffer());
-                true
-            }
-            Err(_) => false,
-        };
-        if new_frame {
-            self.send_event(UiEvent::RequestRedraw);
-        }
     }
 }

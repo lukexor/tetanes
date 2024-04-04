@@ -14,7 +14,7 @@ pub trait Consume {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub enum FilterKind {
-    MovingAverage,
+    Identity,
     HighPass,
     LowPass,
 }
@@ -31,6 +31,16 @@ pub struct Iir {
 }
 
 impl Iir {
+    pub fn identity() -> Self {
+        Self {
+            alpha: 0.0,
+            prev_output: 0.0,
+            prev_input: 0.0,
+            delta: 0.0,
+            kind: FilterKind::Identity,
+        }
+    }
+
     pub fn high_pass(sample_rate: f32, cutoff: f32) -> Self {
         let period = 1.0 / sample_rate;
         let cutoff_period = 1.0 / cutoff;
@@ -69,9 +79,9 @@ impl Consume for Iir {
 impl Sample for Iir {
     fn output(&self) -> f32 {
         match self.kind {
+            FilterKind::Identity => self.prev_input,
             FilterKind::HighPass => self.alpha * self.prev_output + self.alpha * self.delta,
             FilterKind::LowPass => self.prev_output + self.alpha * self.delta,
-            FilterKind::MovingAverage => unreachable!("MovingAverage Iir is not supported"),
         }
     }
 }
@@ -87,15 +97,6 @@ pub struct Fir {
 }
 
 impl Fir {
-    pub fn moving_avg(window_size: usize) -> Self {
-        Self {
-            kernel: vec![],
-            inputs: vec![0.0; window_size + 1],
-            input_index: 0,
-            kind: FilterKind::MovingAverage,
-        }
-    }
-
     pub fn low_pass(sample_rate: f32, cutoff: f32, window_size: usize) -> Self {
         Self {
             kernel: windowed_sinc_kernel(sample_rate, cutoff, window_size),
@@ -118,15 +119,11 @@ impl Consume for Fir {
 
 impl Sample for Fir {
     fn output(&self) -> f32 {
-        if let FilterKind::MovingAverage = self.kind {
-            self.inputs.iter().sum::<f32>() / self.inputs.len() as f32
-        } else {
-            self.kernel
-                .iter()
-                .zip(self.inputs.iter().cycle().skip(self.input_index))
-                .map(|(k, v)| k * v)
-                .sum()
-        }
+        self.kernel
+            .iter()
+            .zip(self.inputs.iter().cycle().skip(self.input_index))
+            .map(|(k, v)| k * v)
+            .sum()
     }
 }
 
@@ -231,16 +228,8 @@ impl FilterChain {
     pub fn new(region: NesRegion, output_rate: f32) -> Self {
         let clock_rate = Cpu::region_clock_rate(region);
         let intermediate_sample_rate = output_rate * 2.0 + (PI / 32.0);
-        let intermediate_cutoff = output_rate * 0.4;
 
-        // first-order low-pass filter at intermediate_cutoff
-        let mut filters = vec![
-            SampledFilter::new(
-                Fir::moving_avg((clock_rate / intermediate_sample_rate) as usize),
-                1.0,
-            ),
-            SampledFilter::new(Iir::low_pass(clock_rate, intermediate_cutoff), clock_rate),
-        ];
+        let mut filters = vec![SampledFilter::new(Iir::identity(), 1.0)];
         match region {
             NesRegion::Ntsc => {
                 // first-order high-pass filter at 90 Hz
@@ -269,7 +258,7 @@ impl FilterChain {
         }
 
         // high-quality low-pass filter
-        let window_size = 64;
+        let window_size = 60;
         let intermediate_cutoff = output_rate * 0.45;
         filters.push(SampledFilter::new(
             Fir::low_pass(intermediate_sample_rate, intermediate_cutoff, window_size),
@@ -286,7 +275,7 @@ impl FilterChain {
 
 impl Consume for FilterChain {
     fn consume(&mut self, sample: f32) {
-        // Add sample to average filter
+        // Add sample to identity filter
         self.filters[0].filter.consume(sample);
         for i in 1..self.filters.len() {
             let prev = i - 1;

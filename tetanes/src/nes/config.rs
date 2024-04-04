@@ -66,6 +66,8 @@ impl Default for EmulationConfig {
             save_on_exit: true,
             save_slot: 1,
             speed: 1.0,
+            // FIXME debug builds aren't currently fast enough to default to 1 without audio
+            // underruns.
             run_ahead: if cfg!(debug_assertions) { 0 } else { 1 },
             threaded: true,
         }

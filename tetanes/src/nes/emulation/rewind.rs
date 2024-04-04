@@ -2,19 +2,21 @@ use crate::nes::emulation::State;
 use tetanes_core::{
     cpu::Cpu,
     fs::{Error, Result},
+    ppu::frame::Buffer,
 };
 use tracing::error;
 
 #[derive(Default, Debug, Clone)]
 #[must_use]
 struct Frame {
-    buffer: Vec<u16>,
+    buffer: Buffer,
     state: Vec<u8>,
 }
 
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Rewind {
+    enabled: bool,
     interval_counter: u8,
     index: usize,
     count: usize,
@@ -25,8 +27,9 @@ impl Rewind {
     const FRAMES_SIZE: usize = 1024; // ~34 seconds of frames at a 2 frame interval
     const INTERVAL: u8 = 2;
 
-    pub fn new() -> Self {
+    pub fn new(enabled: bool) -> Self {
         Self {
+            enabled,
             interval_counter: 0,
             index: 0,
             count: 0,
@@ -34,7 +37,14 @@ impl Rewind {
         }
     }
 
+    pub fn enable(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
     pub fn push(&mut self, cpu: &Cpu) -> Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
         self.interval_counter += 1;
         if self.interval_counter >= Self::INTERVAL {
             self.interval_counter = 0;
@@ -42,7 +52,7 @@ impl Rewind {
             let state = bincode::serialize(&cpu)
                 .map_err(|err| Error::SerializationFailed(err.to_string()))?;
             self.frames[self.index] = Some(Frame {
-                buffer: cpu.bus.ppu.frame.front_buffer.clone(),
+                buffer: cpu.bus.ppu.frame.buffer.clone(),
                 state,
             });
 
@@ -56,6 +66,9 @@ impl Rewind {
     }
 
     pub fn pop(&mut self) -> Option<Cpu> {
+        if !self.enabled {
+            return None;
+        }
         if self.count > 0 {
             self.count -= 1;
             self.index -= 1;
@@ -67,7 +80,7 @@ impl Rewind {
             bincode::deserialize::<Cpu>(&frame.state)
                 .map(|mut cpu| {
                     cpu.bus.input.clear();
-                    cpu.bus.ppu.frame.front_buffer = frame.buffer;
+                    cpu.bus.ppu.frame.buffer = frame.buffer;
                     cpu
                 })
                 .map_err(|err| error!("Failed to deserialize CPU state: {err:?}"))
@@ -84,18 +97,16 @@ impl State {
     }
 
     pub fn instant_rewind(&mut self) {
-        if !self.config.read(|cfg| cfg.emulation.rewind) {
+        if !self.rewind.enabled {
             return self.rewind_disabled();
         }
-        if let Some(ref mut rewind) = self.rewind {
-            // Two seconds worth of frames @ 60 FPS
-            let mut rewind_frames = 120 / Rewind::INTERVAL;
-            while let Some(cpu) = rewind.pop() {
-                self.control_deck.load_cpu(cpu);
-                rewind_frames -= 1;
-                if rewind_frames == 0 {
-                    break;
-                }
+        // Two seconds worth of frames @ 60 FPS
+        let mut rewind_frames = 120 / Rewind::INTERVAL;
+        while let Some(cpu) = self.rewind.pop() {
+            self.control_deck.load_cpu(cpu);
+            rewind_frames -= 1;
+            if rewind_frames == 0 {
+                break;
             }
         }
     }

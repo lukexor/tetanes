@@ -1,5 +1,5 @@
 use crate::{
-    apu::{envelope::Envelope, length_counter::LengthCounter},
+    apu::{envelope::Envelope, length_counter::LengthCounter, Channel},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,6 @@ impl Noise {
     const PERIOD_TABLE_PAL: [u16; 16] = [
         4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
     ];
-    const SHIFT_BIT_15_MASK: u16 = !0x8000;
 
     pub fn new(region: NesRegion) -> Self {
         Self {
@@ -51,7 +50,7 @@ impl Noise {
             period: Self::period(region, 0),
             shift: 1, // defaults to 1 on power up
             shift_mode: ShiftMode::Zero,
-            length: LengthCounter::new(),
+            length: LengthCounter::new(Channel::Noise),
             envelope: Envelope::new(),
             force_silent: false,
         }
@@ -67,8 +66,8 @@ impl Noise {
         self.force_silent
     }
 
-    pub fn toggle_silent(&mut self) {
-        self.force_silent = !self.force_silent;
+    pub fn set_silent(&mut self, silent: bool) {
+        self.force_silent = silent;
     }
 
     #[must_use]
@@ -79,8 +78,8 @@ impl Noise {
     const fn period(region: NesRegion, val: u8) -> u16 {
         let index = (val & 0x0F) as usize;
         match region {
-            NesRegion::Ntsc => Self::PERIOD_TABLE_NTSC[index] - 1,
-            NesRegion::Pal | NesRegion::Dendy => Self::PERIOD_TABLE_PAL[index] - 1,
+            NesRegion::Ntsc | NesRegion::Dendy => Self::PERIOD_TABLE_NTSC[index] - 1,
+            NesRegion::Pal => Self::PERIOD_TABLE_PAL[index] - 1,
         }
     }
 

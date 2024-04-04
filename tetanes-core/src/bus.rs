@@ -1,7 +1,7 @@
 use crate::{
     apu::{Apu, ApuRegisters, Channel},
     cart::Cart,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     cpu::Irq,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
@@ -175,13 +175,8 @@ impl Clock for Bus {
     fn clock(&mut self) -> usize {
         self.cycle = self.cycle.wrapping_add(1);
         self.ppu.bus.mapper.clock();
-        let mapper_output = match self.ppu.bus.mapper {
-            Mapper::Exrom(ref exrom) => exrom.output(),
-            Mapper::Vrc6(ref vrc6) => vrc6.output(),
-            _ => 0.0,
-        };
         self.apu.clock();
-        self.apu.mix(mapper_output);
+        self.apu.mix(&self.ppu.bus.mapper);
         self.input.clock();
 
         1
@@ -211,7 +206,7 @@ impl Mem for Bus {
             0x4015 => self.apu.read_status(),
             0x4016 => self.input.read(Player::One, &self.ppu),
             0x4017 => self.input.read(Player::Two, &self.ppu),
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
             0x0800..=0x1FFF => self.read(addr & 0x07FF, _access), // WRAM Mirrors
             0x2008..=0x3FFF => self.read(addr & 0x2007, _access), // Ppu Mirrors
             _ => self.open_bus,
@@ -239,7 +234,7 @@ impl Mem for Bus {
             0x4015 => self.apu.peek_status(),
             0x4016 => self.input.peek(Player::One, &self.ppu),
             0x4017 => self.input.peek(Player::Two, &self.ppu),
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus(),
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
             0x0800..=0x1FFF => self.peek(addr & 0x07FF, _access), // WRAM Mirrors
             0x2008..=0x3FFF => self.peek(addr & 0x2007, _access), // Ppu Mirrors
             _ => self.open_bus,
@@ -293,7 +288,7 @@ impl Mem for Bus {
             0x4015 => self.apu.write_status(val),
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
-            0x2002 => self.ppu.set_open_bus(val),
+            0x2002 => self.ppu.open_bus = val,
             0x0800..=0x1FFF => return self.write(addr & 0x07FF, val, _access), // WRAM Mirrors
             0x2008..=0x3FFF => return self.write(addr & 0x2007, val, _access), // Ppu Mirrors
             _ => (),
@@ -468,7 +463,7 @@ mod test {
         bus.clock_to(12);
         assert_eq!(bus.ppu.master_clock(), 12, "ppu clock");
         bus.clock();
-        assert_eq!(bus.apu.cycle(), 1, "apu clock");
+        assert_eq!(bus.apu.cycle, 1, "apu clock");
     }
 
     #[test]

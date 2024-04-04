@@ -390,7 +390,7 @@ pub(crate) mod tests {
         let mut deck = load_control_deck(&rom);
 
         let mut results = Vec::new();
-        assert!(test.frames.len() > 0, "No test frames found for {rom:?}");
+        assert!(!test.frames.is_empty(), "No test frames found for {rom:?}");
         for test_frame in test.frames.iter() {
             debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Player::One));
 

@@ -472,8 +472,8 @@ impl Zapper {
     fn light_sense(&self, ppu: &Ppu) -> u8 {
         let width = Ppu::WIDTH;
         let height = Ppu::HEIGHT;
-        let scanline = ppu.scanline();
-        let cycle = ppu.cycle();
+        let scanline = ppu.scanline;
+        let cycle = ppu.cycle;
         let min_y = self.y.saturating_sub(self.radius);
         let max_y = (self.y + self.radius).min(height - 1);
         let min_x = self.x.saturating_sub(self.radius);

@@ -1115,8 +1115,8 @@ impl Cpu {
             self.pc = self.read_u16(Self::NMI_VECTOR);
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle(),
-                self.bus.ppu.scanline(),
+                self.bus.ppu.cycle,
+                self.bus.ppu.scanline,
                 self.cycle
             );
         } else {
@@ -1126,16 +1126,16 @@ impl Cpu {
             self.pc = self.read_u16(Self::IRQ_VECTOR);
             trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle(),
-                self.bus.ppu.scanline(),
+                self.bus.ppu.cycle,
+                self.bus.ppu.scanline,
                 self.cycle
             );
         }
         // Prevent NMI from triggering immediately after BRK
         trace!(
             "Suppress NMI after BRK - PPU:{:3},{:3} CYC:{}, prev_nmi:{}",
-            self.bus.ppu.cycle(),
-            self.bus.ppu.scanline(),
+            self.bus.ppu.cycle,
+            self.bus.ppu.scanline,
             self.cycle,
             self.prev_nmi,
         );

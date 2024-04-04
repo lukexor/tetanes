@@ -11,7 +11,10 @@ use winit::{
 };
 
 pub fn supports_impl(feature: Feature) -> bool {
-    matches!(feature, Feature::SaveStates | Feature::WindowMinMax)
+    matches!(
+        feature,
+        Feature::SaveStates | Feature::WindowMinMax | Feature::ToggleVsync
+    )
 }
 
 pub fn open_file_dialog_impl(

@@ -1,5 +1,5 @@
 use crate::{
-    apu::length_counter::LengthCounter,
+    apu::{length_counter::LengthCounter, Channel},
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,7 @@ impl Triangle {
             timer: 0,
             period: 0,
             sequence: 0,
-            length: LengthCounter::new(),
+            length: LengthCounter::new(Channel::Triangle),
             linear: LinearCounter::new(),
             force_silent: false,
         }
@@ -46,8 +46,8 @@ impl Triangle {
         self.force_silent
     }
 
-    pub fn toggle_silent(&mut self) {
-        self.force_silent = !self.force_silent;
+    pub fn set_silent(&mut self, silent: bool) {
+        self.force_silent = silent;
     }
 
     #[must_use]
@@ -90,26 +90,28 @@ impl Triangle {
 impl Sample for Triangle {
     #[must_use]
     fn output(&self) -> f32 {
-        if !self.silent() {
-            f32::from(Self::SEQUENCE[self.sequence as usize])
-        } else {
+        if self.silent() {
             0.0
+        } else if self.period < 2 {
+            // This is normally silenced by a lowpass filter on real hardware
+            // See: https://forums.nesdev.org/viewtopic.php?t=10658
+            7.5
+        } else {
+            f32::from(Self::SEQUENCE[self.sequence as usize])
         }
     }
 }
 
 impl Clock for Triangle {
     fn clock(&mut self) -> usize {
-        if self.timer == 0 && self.length.counter > 0 && self.linear.counter > 0 {
+        if self.timer > 0 {
+            self.timer -= 1;
+        } else if self.length.counter > 0 && self.linear.counter > 0 {
             self.sequence = (self.sequence + 1) & 0x1F;
             self.timer = self.period;
-            1
-        } else {
-            if self.timer > 0 {
-                self.timer -= 1;
-            }
-            0
+            return 1;
         }
+        0
     }
 }
 
@@ -150,15 +152,17 @@ impl LinearCounter {
 
 impl Clock for LinearCounter {
     fn clock(&mut self) -> usize {
+        let mut clock = 0;
         if self.reload {
             self.counter = self.counter_reload;
+            clock = 1;
         } else if self.counter > 0 {
             self.counter -= 1;
         }
         if !self.control {
             self.reload = false;
         }
-        1
+        clock
     }
 }
 

@@ -41,7 +41,7 @@ eula = false
 
 [features]
 default = ["tetanes-core/cycle-accurate"]
-profiling = ["dep:puffin", "dep:puffin_egui"]
+profiling = ["tetanes-core/profiling", "dep:puffin", "dep:puffin_egui"]
 cycle-accurate = []
 
 [dependencies]
