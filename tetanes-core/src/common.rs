@@ -127,7 +127,9 @@ pub trait Clock {
     fn clock(&mut self) -> usize {
         0
     }
-    fn clock_to(&mut self, _clocks: u64) {}
+    fn clock_to(&mut self, _clock: usize) -> usize {
+        0
+    }
 }
 
 /// Trait for types that can output `f32` audio samples.

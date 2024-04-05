@@ -2,7 +2,7 @@ use crate::{
     apu::{
         dmc::Dmc,
         filter::{Consume, FilterChain},
-        frame_counter::{FcMode, FrameCounter},
+        frame_counter::{FrameCounter, Mode},
         noise::Noise,
         pulse::{OutputFreq, Pulse, PulseChannel},
         triangle::Triangle,
@@ -231,7 +231,8 @@ impl Apu {
     fn clock_frame_counter(&mut self) {
         let clock = self.frame_counter.clock();
 
-        if self.frame_counter.mode == FcMode::Step4
+        // Set IRQ on last 3 cycles for Step4 mode
+        if self.frame_counter.mode == Mode::Step4
             && !self.irq_disabled
             && self.frame_counter.step >= 4
         {
@@ -261,7 +262,7 @@ impl Apu {
         }
 
         // Clock Step5 immediately
-        if self.frame_counter.update() && self.frame_counter.mode == FcMode::Step5 {
+        if self.frame_counter.update() {
             self.clock_quarter_frame();
             self.clock_half_frame();
         }
@@ -287,6 +288,10 @@ impl Apu {
 impl Clock for Apu {
     /// Clock the APU.
     fn clock(&mut self) -> usize {
+        // Technically only clocks every 2 CPU cycles, but due
+        // to half-cycle timings, we clock every cycle
+        self.clock_frame_counter();
+
         self.pulse1.length.reload();
         self.pulse2.length.reload();
         self.noise.length.reload();
@@ -300,10 +305,6 @@ impl Clock for Apu {
             self.dmc.clock();
         }
         self.triangle.clock();
-
-        // Technically only clocks every 2 CPU cycles, but due
-        // to half-cycle timings, we clock every cycle
-        self.clock_frame_counter();
 
         self.cycle = self.cycle.wrapping_add(1);
 

@@ -67,8 +67,8 @@ bitflags! {
 /// Every cycle is either a read or a write.
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Cycle {
-    start: u64,
-    end: u64,
+    start: usize,
+    end: usize,
 }
 
 /// The Central Processing Unit status and registers
@@ -83,7 +83,7 @@ pub struct Cpu {
     pub read_cycles: Cycle,
     // start/end cycle counts for writes
     pub write_cycles: Cycle,
-    pub master_clock: u64,
+    pub master_clock: usize,
     pub instr: Instr,     // The currently executing instruction
     pub fetched_data: u8, // Represents data fetched for the ALU
     pub status: Status,   // Status Registers
@@ -116,8 +116,10 @@ impl Cpu {
     const PAL_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 16.0;
     const DENDY_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 15.0;
 
-    // Represents CPU/PPU alignment and would range from 0..=ppu_divider-1, if random alignment was emulated
-    const PPU_OFFSET: u64 = 1;
+    // Represents CPU/PPU alignment and would range from 1..=Ppu::clock_divider-1
+    // if random PPU alignment was emulated
+    // See: https://www.nesdev.org/wiki/PPU_frame_timing#CPU-PPU_Clock_Alignment
+    const PPU_OFFSET: usize = 1;
 
     const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
     const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
@@ -280,22 +282,22 @@ impl Cpu {
     }
 
     /// Start a CPU cycle.
-    fn start_cycle(&mut self, increment: u64) {
+    fn start_cycle(&mut self, increment: usize) {
         self.master_clock = self.master_clock.wrapping_add(increment);
         self.cycle = self.cycle.wrapping_add(1);
 
         if self.cycle_accurate {
-            self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
+            self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
             self.bus.clock();
         }
     }
 
     /// End a CPU cycle.
-    fn end_cycle(&mut self, increment: u64) {
+    fn end_cycle(&mut self, increment: usize) {
         self.master_clock = self.master_clock.wrapping_add(increment);
 
         if self.cycle_accurate {
-            self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
+            self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
         }
 
         self.handle_interrupts();
@@ -309,7 +311,6 @@ impl Cpu {
         } else if self.dummy_read {
             self.dummy_read = false;
         }
-        self.start_cycle(self.read_cycles.start);
     }
 
     /// Handle a direct-memory access (DMA) request.
@@ -331,6 +332,7 @@ impl Cpu {
                 if self.dmc_dma && !self.dma_halt && !self.dummy_read {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.process_dma_cycle();
+                    self.start_cycle(self.read_cycles.start);
                     read_val = self.bus.read(self.bus.apu.dmc_dma_addr(), Access::Dummy);
                     self.end_cycle(self.read_cycles.end);
                     self.bus.apu.load_dmc_buffer(read_val);
@@ -338,6 +340,7 @@ impl Cpu {
                 } else if self.bus.oam_dma() {
                     // DMC DMA not running or ready, run OAM DMA
                     self.process_dma_cycle();
+                    self.start_cycle(self.read_cycles.start);
                     read_val = self.bus.read(oam_base_addr + oam_offset, Access::Dummy);
                     self.end_cycle(self.read_cycles.end);
                     oam_offset += 1;
@@ -347,6 +350,7 @@ impl Cpu {
                     // DMA isn't running
                     debug_assert!(self.dma_halt || self.dummy_read);
                     self.process_dma_cycle();
+                    self.start_cycle(self.read_cycles.start);
                     if !skip_dummy_reads {
                         self.bus.read(addr, Access::Dummy); // throw away
                     }
@@ -355,6 +359,7 @@ impl Cpu {
             } else if self.bus.oam_dma() && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.process_dma_cycle();
+                self.start_cycle(self.read_cycles.start);
                 self.bus.write(0x2004, read_val, Access::Dummy);
                 self.end_cycle(self.read_cycles.end);
                 oam_dma_count += 1;
@@ -364,6 +369,7 @@ impl Cpu {
             } else {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
                 self.process_dma_cycle();
+                self.start_cycle(self.read_cycles.start);
                 if !skip_dummy_reads {
                     self.bus.read(addr, Access::Dummy); // throw away
                 }
@@ -824,16 +830,16 @@ impl Clock for Cpu {
             self.irq();
         }
 
+        let cycles_ran = self.cycle - start_cycle;
         if !self.cycle_accurate {
-            self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
-            let cycles = self.cycle - start_cycle;
-            for _ in 0..cycles {
+            self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
+            for _ in 0..cycles_ran {
                 self.bus.clock();
             }
             self.handle_interrupts();
         }
 
-        self.cycle - start_cycle
+        cycles_ran
     }
 }
 

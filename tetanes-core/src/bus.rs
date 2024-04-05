@@ -182,8 +182,8 @@ impl Clock for Bus {
         1
     }
 
-    fn clock_to(&mut self, clock: u64) {
-        self.ppu.clock_to(clock);
+    fn clock_to(&mut self, clock: usize) -> usize {
+        self.ppu.clock_to(clock)
     }
 }
 
@@ -461,7 +461,7 @@ mod test {
         let mut bus = Bus::default();
 
         bus.clock_to(12);
-        assert_eq!(bus.ppu.master_clock(), 12, "ppu clock");
+        assert_eq!(bus.ppu.master_clock, 12, "ppu clock");
         bus.clock();
         assert_eq!(bus.apu.cycle, 1, "apu clock");
     }

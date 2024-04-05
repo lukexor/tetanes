@@ -58,8 +58,8 @@ pub trait Registers {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
-    pub master_clock: u64,
-    pub clock_divider: u64,
+    pub master_clock: usize,
+    pub clock_divider: usize,
     pub cycle: u32,    // (0, 340) cycles per scanline
     pub scanline: u32, // (0,happen  261) NTSC or (0, 311) PAL/Dendy scanlines per frame
     pub vblank_scanline: u32,
@@ -1066,11 +1066,13 @@ impl Clock for Ppu {
         1
     }
 
-    fn clock_to(&mut self, clock: u64) {
+    fn clock_to(&mut self, clock: usize) -> usize {
+        let mut cycles = 0;
         while self.master_clock + self.clock_divider <= clock {
-            self.clock();
+            cycles += self.clock();
             self.master_clock += self.clock_divider;
         }
+        cycles
     }
 }
 
@@ -1174,13 +1176,6 @@ impl std::fmt::Debug for Ppu {
             .field("spr_present_len", &self.spr_present.len())
             .field("open_bus", &self.open_bus)
             .finish()
-    }
-}
-
-#[cfg(test)]
-impl Ppu {
-    pub(crate) const fn master_clock(&self) -> u64 {
-        self.master_clock
     }
 }
 

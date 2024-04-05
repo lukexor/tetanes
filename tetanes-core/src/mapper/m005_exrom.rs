@@ -1023,9 +1023,9 @@ impl Clock for Exrom {
         }
         self.ppu_status.reading = false;
 
+        self.pulse1.clock();
+        self.pulse2.clock();
         if self.cpu_cycle & 0x01 == 0x00 {
-            self.pulse1.clock();
-            self.pulse2.clock();
             self.dmc.clock();
         }
         self.pulse_timer -= 1.0;
