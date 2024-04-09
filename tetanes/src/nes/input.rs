@@ -204,6 +204,13 @@ impl Default for InputMap {
             SHIFT,
             DeckAction::ToggleApuChannel(Channel::Dmc)
         );
+        key_map!(
+            map,
+            One,
+            Digit6,
+            SHIFT,
+            DeckAction::ToggleApuChannel(Channel::Mapper)
+        );
         key_map!(map, One, Enter, CONTROL, Setting::ToggleFullscreen);
         key_map!(map, One, KeyV, CONTROL, Setting::ToggleVsync);
         key_map!(

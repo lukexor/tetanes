@@ -4,7 +4,7 @@
 
 use crate::{
     bus::Bus,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
     mem::{Access, Mem},
 };
 use bitflags::bitflags;
@@ -872,19 +872,19 @@ impl Regional for Cpu {
     }
 
     fn set_region(&mut self, region: NesRegion) {
-        let (start_clocks, end_clocks) = match region {
+        let (start_cycles, end_cycles) = match region {
             NesRegion::Ntsc => (6, 6),
             NesRegion::Pal => (8, 8),
             NesRegion::Dendy => (7, 8),
         };
         self.region = region;
         self.read_cycles = Cycle {
-            start: start_clocks - 1,
-            end: end_clocks + 1,
+            start: start_cycles - 1,
+            end: end_cycles + 1,
         };
         self.write_cycles = Cycle {
-            start: end_clocks + 1,
-            end: end_clocks - 1,
+            start: end_cycles + 1,
+            end: end_cycles - 1,
         };
         self.bus.set_region(region);
     }

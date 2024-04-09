@@ -1,5 +1,5 @@
 use crate::{
-    apu::{envelope::Envelope, length_counter::LengthCounter, Channel},
+    apu::{envelope::Envelope, length_counter::LengthCounter, timer::Timer, Apu, Channel},
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -25,9 +25,7 @@ pub enum PulseChannel {
 #[must_use]
 pub struct Pulse {
     pub channel: PulseChannel,
-    pub timer: u16,
-    pub period: u16,
-    pub real_period: u16,
+    pub timer: Timer,
     pub duty: u8,       // Select row in DUTY_TABLE
     pub duty_cycle: u8, // Select column in DUTY_TABLE
     pub length: LengthCounter,
@@ -54,9 +52,8 @@ impl Pulse {
     pub const fn new(channel: PulseChannel, output_freq: OutputFreq) -> Self {
         Self {
             channel,
-            timer: 0,
-            period: 0,
-            real_period: 0,
+            // Pulse channel is clocked at APU rate (CPU / 2)
+            timer: Timer::new(0, 2),
             duty: 0u8,
             duty_cycle: 0,
             length: LengthCounter::new(match channel {
@@ -74,7 +71,7 @@ impl Pulse {
     pub fn is_muted(&self) -> bool {
         // MMC5 doesn't mute at ultasonic frequencies
         self.output_freq == OutputFreq::Default
-            && (self.real_period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7FF))
+            && (self.timer.period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7FF))
             || self.silent()
     }
 
@@ -87,26 +84,20 @@ impl Pulse {
         self.force_silent = silent;
     }
 
-    #[must_use]
-    pub const fn length_counter(&self) -> u8 {
-        self.length.counter
-    }
-
     fn update_target_period(&mut self) {
-        let delta = self.real_period >> self.sweep.shift;
+        let delta = self.timer.period >> self.sweep.shift;
         if self.sweep.negate {
-            self.sweep.target_period = self.real_period - delta;
+            self.sweep.target_period = self.timer.period - delta;
             if let PulseChannel::One = self.channel {
                 self.sweep.target_period = self.sweep.target_period.wrapping_sub(1);
             }
         } else {
-            self.sweep.target_period = self.real_period + delta;
+            self.sweep.target_period = self.timer.period + delta;
         }
     }
 
-    fn set_period(&mut self, period: u16) {
-        self.real_period = period;
-        self.period = (self.real_period * 2) + 1;
+    fn set_period(&mut self, period: usize) {
+        self.timer.period = period;
         self.update_target_period();
     }
 
@@ -115,7 +106,7 @@ impl Pulse {
         if self.sweep.divider == 0 {
             if self.sweep.shift > 0
                 && self.sweep.enabled
-                && self.real_period >= 8
+                && self.timer.period >= 8
                 && self.sweep.target_period <= 0x7FF
             {
                 self.set_period(self.sweep.target_period);
@@ -134,7 +125,7 @@ impl Pulse {
     }
 
     pub fn clock_half_frame(&mut self) {
-        self.envelope.clock();
+        self.clock_quarter_frame();
         self.length.clock();
         self.clock_sweep();
     }
@@ -158,13 +149,13 @@ impl Pulse {
 
     /// $4002/$4006 Pulse timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
-        self.set_period(self.real_period & 0x0700 | u16::from(val));
+        self.set_period(self.timer.period & 0x0700 | usize::from(val));
     }
 
     /// $4003/$4007 Pulse timer hi
     pub fn write_timer_hi(&mut self, val: u8) {
         self.length.write(val >> 3);
-        self.set_period(self.real_period & 0xFF | (u16::from(val & 0x07) << 8));
+        self.set_period(self.timer.period & 0xFF | (usize::from(val & 0x07) << 8));
         self.duty_cycle = 0;
         self.envelope.restart();
     }
@@ -173,12 +164,33 @@ impl Pulse {
         self.length.set_enabled(enabled);
     }
 
-    fn volume(&self) -> u8 {
+    pub fn volume(&self) -> u8 {
         if self.length.counter > 0 {
             self.envelope.volume()
         } else {
             0
         }
+    }
+
+    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
+        let offset = self.channel as usize;
+        let start = self.timer.cycle;
+        while self.timer.cycle < cycle {
+            //                     Sweep -----> Timer
+            //                       |            |
+            //                       |            |
+            //                       |            v
+            //                       |        Sequencer   Length Counter
+            //                       |            |             |
+            //                       |            |             |
+            //                       v            v             v
+            //    Envelope -------> Gate -----> Gate -------> Gate --->(to mixer)
+            if self.timer.clock() > 0 {
+                self.clock();
+            }
+            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
+        }
+        self.timer.cycle - start
     }
 }
 
@@ -197,14 +209,8 @@ impl Sample for Pulse {
 
 impl Clock for Pulse {
     fn clock(&mut self) -> usize {
-        if self.timer > 0 {
-            self.timer -= 1;
-            0
-        } else {
-            self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
-            self.timer = self.period;
-            1
-        }
+        self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
+        1
     }
 }
 
@@ -232,7 +238,7 @@ pub struct Sweep {
     pub timer: u16,
     pub divider: u8,
     pub period: u8,
-    pub target_period: u16,
+    pub target_period: usize,
 }
 
 impl Sweep {

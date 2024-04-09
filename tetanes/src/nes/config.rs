@@ -68,7 +68,11 @@ impl Default for EmulationConfig {
             speed: 1.0,
             // FIXME debug builds aren't currently fast enough to default to 1 without audio
             // underruns.
-            run_ahead: if cfg!(debug_assertions) { 0 } else { 1 },
+            run_ahead: if cfg!(any(debug_assertions, target_arch = "wasm32")) {
+                0
+            } else {
+                1
+            },
             threaded: true,
         }
     }

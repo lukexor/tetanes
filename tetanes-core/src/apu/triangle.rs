@@ -1,5 +1,5 @@
 use crate::{
-    apu::{length_counter::LengthCounter, Channel},
+    apu::{length_counter::LengthCounter, timer::Timer, Apu, Channel},
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Triangle {
-    pub timer: u16,
-    pub period: u16,
+    pub timer: Timer,
     pub sequence: u8,
     pub length: LengthCounter,
     pub linear: LinearCounter,
@@ -32,8 +31,8 @@ impl Triangle {
 
     pub const fn new() -> Self {
         Self {
-            timer: 0,
-            period: 0,
+            // Triangle channel is clocked at CPU rate
+            timer: Timer::new(0, 1),
             sequence: 0,
             length: LengthCounter::new(Channel::Triangle),
             linear: LinearCounter::new(),
@@ -50,16 +49,12 @@ impl Triangle {
         self.force_silent = silent;
     }
 
-    #[must_use]
-    pub const fn length_counter(&self) -> u8 {
-        self.length.counter
-    }
-
     pub fn clock_quarter_frame(&mut self) {
         self.linear.clock();
     }
 
     pub fn clock_half_frame(&mut self) {
+        self.clock_quarter_frame();
         self.length.clock();
     }
 
@@ -72,18 +67,34 @@ impl Triangle {
 
     /// $400A Triangle timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
-        self.period = (self.period & 0xFF00) | u16::from(val); // D7..D0
+        self.timer.period = (self.timer.period & 0xFF00) | usize::from(val); // D7..D0
     }
 
     /// $400B Triangle timer high
     pub fn write_timer_hi(&mut self, val: u8) {
         self.length.write(val >> 3);
-        self.period = (self.period & 0x00FF) | u16::from(val & 0x07) << 8; // D2..D0
+        self.timer.period = (self.timer.period & 0x00FF) | usize::from(val & 0x07) << 8; // D2..D0
         self.linear.reload = true;
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.length.set_enabled(enabled);
+    }
+
+    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
+        let offset = Channel::Triangle as usize;
+        let start = self.timer.cycle;
+        while self.timer.cycle < cycle {
+            //       Linear Counter   Length Counter
+            //             |                |
+            //             v                v
+            // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
+            if self.timer.clock() > 0 {
+                self.clock();
+            }
+            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
+        }
+        self.timer.cycle - start
     }
 }
 
@@ -92,7 +103,7 @@ impl Sample for Triangle {
     fn output(&self) -> f32 {
         if self.silent() {
             0.0
-        } else if self.period < 2 {
+        } else if self.timer.period < 2 {
             // This is normally silenced by a lowpass filter on real hardware
             // See: https://forums.nesdev.org/viewtopic.php?t=10658
             7.5
@@ -104,14 +115,12 @@ impl Sample for Triangle {
 
 impl Clock for Triangle {
     fn clock(&mut self) -> usize {
-        if self.timer > 0 {
-            self.timer -= 1;
-        } else if self.length.counter > 0 && self.linear.counter > 0 {
+        if self.length.counter > 0 && self.linear.counter > 0 {
             self.sequence = (self.sequence + 1) & 0x1F;
-            self.timer = self.period;
-            return 1;
+            1
+        } else {
+            0
         }
-        0
     }
 }
 

@@ -1,19 +1,21 @@
-use crate::common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample};
+use crate::{
+    apu::{timer::Timer, Apu, Channel},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+};
 use serde::{Deserialize, Serialize};
 
 /// APU Delta Modulation Channel (DMC) provides sample playback.
 ///
 /// See: <https://www.nesdev.org/wiki/APU_DMC>
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dmc {
     pub region: NesRegion,
+    pub timer: Timer,
     pub force_silent: bool,
     pub irq_enabled: bool,
     pub irq_pending: bool,
     pub loops: bool,
-    pub period: u16,
-    pub timer: u16,
     pub addr: u16,
     pub sample_addr: u16,
     pub bytes_remaining: u16,
@@ -26,33 +28,33 @@ pub struct Dmc {
     pub bits_remaining: u8,
     pub shift: u8,
     pub silence: bool,
+    pub should_clock: bool,
 }
 
 impl Default for Dmc {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesRegion::default())
     }
 }
 
 impl Dmc {
-    const PERIOD_TABLE_NTSC: [u16; 16] = [
+    const PERIOD_TABLE_NTSC: [usize; 16] = [
         428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
     ];
-    const FREQ_TABLE_PAL: [u16; 16] = [
+    const PERIOD_TABLE_PAL: [usize; 16] = [
         398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50,
     ];
 
-    pub fn new() -> Self {
-        let region = NesRegion::default();
-        let period = Self::period(region, 0);
+    pub fn new(region: NesRegion) -> Self {
         Self {
             region,
+            // DMC channel is clocked at APU rate (CPU / 2) but the periods are defined as CPU
+            // cycles
+            timer: Timer::preload(Self::period(region, 0), 1),
             force_silent: false,
             irq_enabled: false,
             irq_pending: false,
             loops: false,
-            period,
-            timer: period,
             addr: 0xC000,
             sample_addr: 0x0000,
             bytes_remaining: 0x0000,
@@ -62,9 +64,10 @@ impl Dmc {
             dma_pending: false,
             init: 0,
             output_level: 0x00,
-            bits_remaining: 0x00,
+            bits_remaining: 0x08,
             shift: 0x00,
             silence: true,
+            should_clock: false,
         }
     }
 
@@ -78,18 +81,15 @@ impl Dmc {
     }
 
     #[must_use]
-    pub const fn length(&self) -> u16 {
-        self.bytes_remaining
-    }
-
-    #[must_use]
-    pub const fn irq_enabled(&self) -> bool {
-        self.irq_enabled
-    }
-
-    #[must_use]
-    pub const fn irq_pending(&self) -> bool {
-        self.irq_pending
+    pub fn irq_pending_in(&self, cycles_to_run: usize) -> bool {
+        if self.irq_enabled && self.bytes_remaining > 0 {
+            let cycles_to_empty = (usize::from(self.bits_remaining)
+                + usize::from(self.bytes_remaining - 1) * 8)
+                * self.timer.period;
+            cycles_to_run >= cycles_to_empty
+        } else {
+            false
+        }
     }
 
     pub fn acknowledge_irq(&mut self) {
@@ -104,14 +104,14 @@ impl Dmc {
     }
 
     #[must_use]
-    pub const fn dma_addr(&self) -> u16 {
+    pub fn dma_addr(&self) -> u16 {
         self.addr
     }
 
     fn init_sample(&mut self) {
         self.addr = self.sample_addr;
         self.bytes_remaining = self.sample_length;
-        // TODO: set apu needs to run if self.bytes_remaining > 0
+        self.should_clock = self.bytes_remaining > 0;
     }
 
     pub fn load_buffer(&mut self, val: u8) {
@@ -125,7 +125,7 @@ impl Dmc {
             }
             self.bytes_remaining -= 1;
             if self.bytes_remaining == 0 {
-                // TODO: clear apu needs to run
+                self.should_clock = false;
                 if self.loops {
                     self.init_sample();
                 } else if self.irq_enabled {
@@ -135,23 +135,30 @@ impl Dmc {
         }
     }
 
-    const fn period(region: NesRegion, val: u8) -> u16 {
+    const fn period(region: NesRegion, val: u8) -> usize {
+        let index = (val & 0x0F) as usize;
         match region {
-            NesRegion::Ntsc | NesRegion::Dendy => {
-                Self::PERIOD_TABLE_NTSC[(val & 0x0F) as usize] - 2
-            }
-            NesRegion::Pal => Self::FREQ_TABLE_PAL[(val & 0x0F) as usize] - 2,
+            NesRegion::Ntsc | NesRegion::Dendy => Self::PERIOD_TABLE_NTSC[index] - 1,
+            NesRegion::Pal => Self::PERIOD_TABLE_PAL[index] - 1,
         }
     }
 
     /// $4010 DMC timer
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
-        self.loops = val & 0x40 == 0x40;
-        self.period = Self::period(self.region, val);
         if !self.irq_enabled {
             self.irq_pending = false;
         }
+        self.loops = val & 0x40 == 0x40;
+        self.timer.period = Self::period(self.region, val);
+    }
+
+    /// $4011 DMC output
+    pub fn write_output_in(&mut self, val: u8, output: &mut [f32]) {
+        self.write_output(val);
+        // $4011 applies new output right away, not on timer reload.
+        let offset = Channel::Dmc as usize;
+        output[(self.timer.cycle * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
     }
 
     /// $4011 DMC output
@@ -160,13 +167,13 @@ impl Dmc {
     }
 
     /// $4012 DMC addr load
-    pub fn write_addr_load(&mut self, val: u8) {
-        self.sample_addr = 0xC000 | (u16::from(val) << 6);
+    pub fn write_addr(&mut self, val: u8) {
+        self.sample_addr = 0xC000 + (u16::from(val) << 6);
     }
 
     /// $4013 DMC length
     pub fn write_length(&mut self, val: u8) {
-        self.sample_length = (u16::from(val) << 4) | 0x01;
+        self.sample_length = (u16::from(val) << 4) + 1;
     }
 
     /// $4015 WRITE
@@ -174,6 +181,7 @@ impl Dmc {
         self.irq_pending = false;
         if !enabled {
             self.bytes_remaining = 0;
+            self.should_clock = false;
         } else if self.bytes_remaining == 0 {
             self.init_sample();
             // Delay a number of cycles based on even/odd cycle
@@ -181,20 +189,37 @@ impl Dmc {
         }
     }
 
-    pub fn check_pending_dma(&mut self) {
+    pub fn should_clock(&mut self) -> bool {
         if self.init > 0 {
             self.init -= 1;
             if self.init == 0 && self.buffer_empty && self.bytes_remaining > 0 {
                 self.dma_pending = true;
             }
         }
+        self.should_clock
+    }
+
+    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
+        let offset = Channel::Dmc as usize;
+        let start = self.timer.cycle;
+        while self.timer.cycle < cycle {
+            //                          Timer
+            //                            |
+            //                            v
+            // Reader ---> Buffer ---> Shifter ---> Output level ---> (to the mixer)
+            if self.timer.clock() > 0 {
+                self.clock();
+            }
+            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
+        }
+        self.timer.cycle - start
     }
 }
 
 impl Sample for Dmc {
     #[must_use]
     fn output(&self) -> f32 {
-        if self.silent() {
+        if self.force_silent {
             0.0
         } else {
             f32::from(self.output_level)
@@ -204,39 +229,35 @@ impl Sample for Dmc {
 
 impl Clock for Dmc {
     fn clock(&mut self) -> usize {
-        if self.timer > 1 {
-            self.timer -= 2;
-            0
-        } else {
-            self.timer = self.period;
-
-            if !self.silence {
-                if self.shift & 0x01 == 0x01 {
-                    if self.output_level <= 125 {
-                        self.output_level += 2;
-                    }
-                } else if self.output_level >= 2 {
-                    self.output_level -= 2;
+        if !self.silence {
+            // Update output level but clamp to 0..=127 range
+            if self.shift & 0x01 == 0x01 {
+                if self.output_level <= 125 {
+                    self.output_level += 2;
                 }
-                self.shift >>= 1;
+            } else if self.output_level >= 2 {
+                self.output_level -= 2;
             }
-
-            self.bits_remaining = self.bits_remaining.saturating_sub(1);
-            if self.bits_remaining == 0 {
-                self.bits_remaining = 8;
-                if self.buffer_empty {
-                    self.silence = true;
-                } else {
-                    self.silence = false;
-                    self.shift = self.sample_buffer;
-                    self.buffer_empty = true;
-                    if self.bytes_remaining > 0 {
-                        self.dma_pending = true;
-                    }
-                }
-            }
-            1
+            self.shift >>= 1;
         }
+
+        if self.bits_remaining > 0 {
+            self.bits_remaining -= 1;
+        }
+        if self.bits_remaining == 0 {
+            self.bits_remaining = 8;
+            if self.buffer_empty {
+                self.silence = true;
+            } else {
+                self.silence = false;
+                self.shift = self.sample_buffer;
+                self.buffer_empty = true;
+                if self.bytes_remaining > 0 {
+                    self.dma_pending = true;
+                }
+            }
+        }
+        1
     }
 }
 
@@ -247,7 +268,7 @@ impl Regional for Dmc {
 
     fn set_region(&mut self, region: NesRegion) {
         self.region = region;
-        self.period = Self::period(region, 0);
+        self.timer.period = Self::period(region, 0);
     }
 }
 
@@ -260,17 +281,17 @@ impl Reset for Dmc {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
-        self.period = Self::period(self.region, 0);
-        self.timer = self.period;
+        self.timer.period = Self::period(self.region, 0);
+        self.timer.reload();
         self.sample_addr = 0x0000;
         self.bytes_remaining = 0x0000;
         self.sample_buffer = 0x00;
         self.buffer_empty = true;
         self.dma_pending = false;
-        self.init = 0;
         self.output_level = 0x00;
-        self.bits_remaining = 0x00;
+        self.bits_remaining = 0x08;
         self.shift = 0x00;
         self.silence = true;
+        self.should_clock = false;
     }
 }

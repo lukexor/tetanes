@@ -1,7 +1,7 @@
 use crate::{
     apu::{Apu, ApuRegisters, Channel},
     cart::Cart,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample},
     cpu::Irq,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
@@ -45,7 +45,6 @@ use std::collections::HashMap;
 #[must_use]
 pub struct Bus {
     pub apu: Apu,
-    pub cycle: usize, // Total number of CPU cycles ran
     pub genie_codes: HashMap<u16, GenieCode>,
     pub input: Input,
     pub oam_dma: bool,
@@ -76,7 +75,6 @@ impl Bus {
         let region = NesRegion::default();
         Self {
             apu: Apu::new(),
-            cycle: 0,
             genie_codes: HashMap::new(),
             input: Input::new(),
             oam_dma: false,
@@ -173,15 +171,21 @@ impl Bus {
 
 impl Clock for Bus {
     fn clock(&mut self) -> usize {
-        self.cycle = self.cycle.wrapping_add(1);
+        self.apu.clock_lazy();
         self.ppu.bus.mapper.clock();
-        self.apu.clock();
-        self.apu.mix(&self.ppu.bus.mapper);
+        let output = match self.ppu.bus.mapper {
+            Mapper::Exrom(ref exrom) => exrom.output(),
+            Mapper::Vrc6(ref vrc6) => vrc6.output(),
+            _ => 0.0,
+        };
+        self.apu.add_output(output);
         self.input.clock();
 
         1
     }
+}
 
+impl ClockTo for Bus {
     fn clock_to(&mut self, clock: usize) -> usize {
         self.ppu.clock_to(clock)
     }
@@ -271,15 +275,15 @@ impl Mem for Bus {
             0x4005 => self.apu.write_sweep(Channel::Pulse2, val),
             0x4006 => self.apu.write_timer_lo(Channel::Pulse2, val),
             0x4007 => self.apu.write_timer_hi(Channel::Pulse2, val),
-            0x4008 => self.apu.write_linear_counter(Channel::Triangle, val),
+            0x4008 => self.apu.write_linear_counter(val),
             0x400A => self.apu.write_timer_lo(Channel::Triangle, val),
             0x400B => self.apu.write_timer_hi(Channel::Triangle, val),
             0x400C => self.apu.write_ctrl(Channel::Noise, val),
             0x400E => self.apu.write_timer_lo(Channel::Noise, val),
             0x400F => self.apu.write_length(Channel::Noise, val),
             0x4010 => self.apu.write_timer_lo(Channel::Dmc, val),
-            0x4011 => self.apu.write_output(Channel::Dmc, val),
-            0x4012 => self.apu.write_addr_load(Channel::Dmc, val),
+            0x4011 => self.apu.write_dmc_output(val),
+            0x4012 => self.apu.write_dmc_addr(val),
             0x4013 => self.apu.write_length(Channel::Dmc, val),
             0x4014 => {
                 self.oam_dma = true;
@@ -335,7 +339,6 @@ impl std::fmt::Debug for Bus {
             .field("oam_dma", &self.oam_dma)
             .field("oam_dma_addr", &self.oam_dma_addr)
             .field("genie_codes", &self.genie_codes.values())
-            .field("cycle", &self.cycle)
             .field("open_bus", &format_args!("${:02X}", &self.open_bus))
             .finish()
     }
@@ -463,7 +466,7 @@ mod test {
         bus.clock_to(12);
         assert_eq!(bus.ppu.master_clock, 12, "ppu clock");
         bus.clock();
-        assert_eq!(bus.apu.cycle, 1, "apu clock");
+        assert_eq!(bus.apu.master_cycle, 1, "apu clock");
     }
 
     #[test]

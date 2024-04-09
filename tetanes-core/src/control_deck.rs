@@ -436,6 +436,7 @@ impl ControlDeck {
         while frame == self.frame_number() {
             total_cycles += self.clock_instr()?;
         }
+        self.cpu.bus.apu.clock_flush();
 
         Ok(total_cycles)
     }
@@ -514,6 +515,7 @@ impl ControlDeck {
         for _ in 1..run_ahead {
             self.clock_frame()?;
         }
+        self.cpu.bus.apu.clock_flush();
 
         // Discard audio and only output the future frame video/audio
         self.clear_audio_samples();
@@ -556,6 +558,7 @@ impl ControlDeck {
         for _ in 1..run_ahead {
             self.clock_frame()?;
         }
+        self.cpu.bus.apu.clock_flush();
 
         // Discard audio and only output the future frame/audio
         self.clear_audio_samples();

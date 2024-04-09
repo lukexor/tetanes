@@ -1,5 +1,5 @@
 use crate::{
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
     mapper::{Mapped, Mapper},
     mem::{Access, Mem},
     ppu::{bus::Bus, frame::Frame},
@@ -1065,7 +1065,9 @@ impl Clock for Ppu {
 
         1
     }
+}
 
+impl ClockTo for Ppu {
     fn clock_to(&mut self, clock: usize) -> usize {
         let mut cycles = 0;
         while self.master_clock + self.clock_divider <= clock {

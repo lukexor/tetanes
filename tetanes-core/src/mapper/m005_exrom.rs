@@ -369,7 +369,7 @@ impl Exrom {
             region: NesRegion::default(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
-            dmc: Dmc::new(),
+            dmc: Dmc::new(cart.region()),
             dmc_mode: 0x01, // Default to read mode
             cpu_cycle: 0,
             pulse_timer: 0.0,
@@ -739,7 +739,7 @@ impl MemMap for Exrom {
                 // [I... ...M] DMC
                 // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 // M = Mode select (0 = write mode. 1 = read mode.)
-                let irq = self.dmc.irq_pending() && self.dmc.irq_enabled();
+                let irq = self.dmc.irq_pending && self.dmc.irq_enabled;
                 MappedRead::Data(u8::from(irq) << 7 | self.dmc_mode)
             }
             0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
@@ -751,10 +751,10 @@ impl MemMap for Exrom {
             0x5015 => {
                 // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
                 let mut status = 0x00;
-                if self.pulse1.length_counter() > 0 {
+                if self.pulse1.length.counter > 0 {
                     status |= 0x01;
                 }
-                if self.pulse2.length_counter() > 0 {
+                if self.pulse2.length.counter > 0 {
                     status |= 0x02;
                 }
                 MappedRead::Data(status)
@@ -1023,16 +1023,18 @@ impl Clock for Exrom {
         }
         self.ppu_status.reading = false;
 
-        self.pulse1.clock();
-        self.pulse2.clock();
-        if self.cpu_cycle & 0x01 == 0x00 {
+        if self.pulse1.timer.clock() > 0 {
+            self.pulse1.clock();
+        }
+        if self.pulse2.timer.clock() > 0 {
+            self.pulse2.clock();
+        }
+        if self.dmc.timer.clock() > 0 {
             self.dmc.clock();
         }
         self.pulse_timer -= 1.0;
         if self.pulse_timer <= 0.0 {
-            self.pulse1.clock_quarter_frame();
             self.pulse1.clock_half_frame();
-            self.pulse2.clock_quarter_frame();
             self.pulse2.clock_half_frame();
             self.pulse_timer = Cpu::region_clock_rate(self.region) / 240.0;
         }

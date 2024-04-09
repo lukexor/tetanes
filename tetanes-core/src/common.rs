@@ -127,6 +127,9 @@ pub trait Clock {
     fn clock(&mut self) -> usize {
         0
     }
+}
+
+pub trait ClockTo {
     fn clock_to(&mut self, _clock: usize) -> usize {
         0
     }
@@ -197,7 +200,7 @@ pub(crate) mod tests {
     use crate::{
         action::Action,
         common::{Regional, Reset, ResetKind},
-        control_deck::{Config, ControlDeck},
+        control_deck::{Config, ControlDeck, HeadlessMode},
         input::Player,
         mapper::{Mapper, MapperRevision},
         mem::RamState,
@@ -274,6 +277,7 @@ pub(crate) mod tests {
         let mut deck = ControlDeck::with_config(Config {
             ram_state: RamState::AllZeros,
             filter: VideoFilter::Pixellate,
+            headless_mode: HeadlessMode::NO_AUDIO,
             ..Default::default()
         });
         deck.load_rom(&path.to_string_lossy(), &mut rom)

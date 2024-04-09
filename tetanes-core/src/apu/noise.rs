@@ -1,5 +1,5 @@
 use crate::{
-    apu::{envelope::Envelope, length_counter::LengthCounter, Channel},
+    apu::{envelope::Envelope, length_counter::LengthCounter, timer::Timer, Apu, Channel},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -20,8 +20,7 @@ pub enum ShiftMode {
 #[must_use]
 pub struct Noise {
     pub region: NesRegion,
-    pub timer: u16,
-    pub period: u16,
+    pub timer: Timer,
     pub shift: u16,
     pub shift_mode: ShiftMode,
     pub length: LengthCounter,
@@ -36,18 +35,18 @@ impl Default for Noise {
 }
 
 impl Noise {
-    const PERIOD_TABLE_NTSC: [u16; 16] = [
+    const PERIOD_TABLE_NTSC: [usize; 16] = [
         4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
     ];
-    const PERIOD_TABLE_PAL: [u16; 16] = [
+    const PERIOD_TABLE_PAL: [usize; 16] = [
         4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
     ];
 
-    pub fn new(region: NesRegion) -> Self {
+    pub const fn new(region: NesRegion) -> Self {
         Self {
             region,
-            timer: 0,
-            period: Self::period(region, 0),
+            // Noise channel is clocked at APU rate (CPU / 2)
+            timer: Timer::new(Self::period(region, 0), 2),
             shift: 1, // defaults to 1 on power up
             shift_mode: ShiftMode::Zero,
             length: LengthCounter::new(Channel::Noise),
@@ -70,12 +69,7 @@ impl Noise {
         self.force_silent = silent;
     }
 
-    #[must_use]
-    pub const fn length_counter(&self) -> u8 {
-        self.length.counter
-    }
-
-    const fn period(region: NesRegion, val: u8) -> u16 {
+    const fn period(region: NesRegion, val: u8) -> usize {
         let index = (val & 0x0F) as usize;
         match region {
             NesRegion::Ntsc | NesRegion::Dendy => Self::PERIOD_TABLE_NTSC[index] - 1,
@@ -88,7 +82,7 @@ impl Noise {
     }
 
     pub fn clock_half_frame(&mut self) {
-        self.envelope.clock();
+        self.clock_quarter_frame();
         self.length.clock();
     }
 
@@ -100,7 +94,7 @@ impl Noise {
 
     /// $400E Noise timer
     pub fn write_timer(&mut self, val: u8) {
-        self.period = Self::period(self.region, val);
+        self.timer.period = Self::period(self.region, val);
         self.shift_mode = if (val & 0x80) == 0x80 {
             ShiftMode::One
         } else {
@@ -118,12 +112,28 @@ impl Noise {
         self.length.set_enabled(enabled);
     }
 
-    fn volume(&self) -> u8 {
+    pub fn volume(&self) -> u8 {
         if self.length.counter > 0 {
             self.envelope.volume()
         } else {
             0
         }
+    }
+
+    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
+        let offset = Channel::Noise as usize;
+        let start = self.timer.cycle;
+        while self.timer.cycle < cycle {
+            //    Timer --> Shift Register   Length Counter
+            //                    |                |
+            //                    v                v
+            // Envelope -------> Gate ----------> Gate --> (to mixer)
+            if self.timer.clock() > 0 {
+                self.clock();
+            }
+            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
+        }
+        self.timer.cycle - start
     }
 }
 
@@ -140,21 +150,15 @@ impl Sample for Noise {
 
 impl Clock for Noise {
     fn clock(&mut self) -> usize {
-        if self.timer > 0 {
-            self.timer -= 1;
-            0
+        let shift_by = if self.shift_mode == ShiftMode::One {
+            6
         } else {
-            self.timer = self.period;
-            let amt = if self.shift_mode == ShiftMode::One {
-                6
-            } else {
-                1
-            };
-            let feedback = (self.shift & 0x01) ^ ((self.shift >> amt) & 0x01);
-            self.shift >>= 1;
-            self.shift |= feedback << 14;
             1
-        }
+        };
+        let feedback = (self.shift & 0x01) ^ ((self.shift >> shift_by) & 0x01);
+        self.shift >>= 1;
+        self.shift |= feedback << 14;
+        1
     }
 }
 
@@ -172,7 +176,7 @@ impl Reset for Noise {
     fn reset(&mut self, kind: ResetKind) {
         self.envelope.reset(kind);
         self.length.reset(kind);
-        self.period = Self::period(self.region, 0);
+        self.timer.period = Self::period(self.region, 0);
         self.shift = 1;
         self.shift_mode = ShiftMode::Zero;
     }

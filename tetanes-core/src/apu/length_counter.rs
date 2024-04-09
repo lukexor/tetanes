@@ -17,7 +17,6 @@ pub struct LengthCounter {
     pub counter: u8, // Entry into LENGTH_TABLE
     pub previous_counter: u8,
     pub reload: u8,
-    pub needs_to_clock: bool,
 }
 
 impl LengthCounter {
@@ -35,7 +34,6 @@ impl LengthCounter {
             counter: 0,
             previous_counter: 0,
             reload: 0,
-            needs_to_clock: false,
         }
     }
 
@@ -44,7 +42,6 @@ impl LengthCounter {
         if self.enabled {
             self.reload = Self::LENGTH_TABLE[val as usize]; // D7..D3
             self.previous_counter = self.counter;
-            self.needs_to_clock = true;
         }
     }
 
@@ -70,7 +67,6 @@ impl LengthCounter {
     #[inline]
     pub fn write_ctrl(&mut self, halt: bool) {
         self.new_halt = halt;
-        self.needs_to_clock = true;
     }
 }
 
