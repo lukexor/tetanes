@@ -1,8 +1,9 @@
 use crate::{
-    apu::{timer::Timer, Apu, Channel},
+    apu::timer::{Timer, TimerCycle},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
+use tracing::trace;
 
 /// APU Delta Modulation Channel (DMC) provides sample playback.
 ///
@@ -111,6 +112,10 @@ impl Dmc {
     fn init_sample(&mut self) {
         self.addr = self.sample_addr;
         self.bytes_remaining = self.sample_length;
+        trace!(
+            "APU DMC sample started. bytes remaining: {}",
+            self.bytes_remaining
+        );
         self.should_clock = self.bytes_remaining > 0;
     }
 
@@ -119,11 +124,13 @@ impl Dmc {
         if self.bytes_remaining > 0 {
             self.sample_buffer = val;
             self.buffer_empty = false;
-            self.addr = self.addr.wrapping_add(1);
-            if self.addr == 0 {
+            if self.addr == 0xFFFF {
                 self.addr = 0x8000;
+            } else {
+                self.addr += 1;
             }
             self.bytes_remaining -= 1;
+            trace!("APU DMC bytes remaining: {}", self.bytes_remaining);
             if self.bytes_remaining == 0 {
                 self.should_clock = false;
                 if self.loops {
@@ -138,7 +145,9 @@ impl Dmc {
     const fn period(region: NesRegion, val: u8) -> usize {
         let index = (val & 0x0F) as usize;
         match region {
-            NesRegion::Ntsc | NesRegion::Dendy => Self::PERIOD_TABLE_NTSC[index] - 1,
+            NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy => {
+                Self::PERIOD_TABLE_NTSC[index] - 1
+            }
             NesRegion::Pal => Self::PERIOD_TABLE_PAL[index] - 1,
         }
     }
@@ -154,26 +163,18 @@ impl Dmc {
     }
 
     /// $4011 DMC output
-    pub fn write_output_in(&mut self, val: u8, output: &mut [f32]) {
-        self.write_output(val);
-        // $4011 applies new output right away, not on timer reload.
-        let offset = Channel::Dmc as usize;
-        output[(self.timer.cycle * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
-    }
-
-    /// $4011 DMC output
     pub fn write_output(&mut self, val: u8) {
         self.output_level = val & 0x7F;
     }
 
     /// $4012 DMC addr load
     pub fn write_addr(&mut self, val: u8) {
-        self.sample_addr = 0xC000 + (u16::from(val) << 6);
+        self.sample_addr = 0xC000 | (u16::from(val) << 6);
     }
 
     /// $4013 DMC length
     pub fn write_length(&mut self, val: u8) {
-        self.sample_length = (u16::from(val) << 4) + 1;
+        self.sample_length = (u16::from(val) << 4) | 1;
     }
 
     /// $4015 WRITE
@@ -193,33 +194,18 @@ impl Dmc {
         if self.init > 0 {
             self.init -= 1;
             if self.init == 0 && self.buffer_empty && self.bytes_remaining > 0 {
+                trace!("APU DMC DMA pending");
                 self.dma_pending = true;
             }
         }
         self.should_clock
-    }
-
-    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
-        let offset = Channel::Dmc as usize;
-        let start = self.timer.cycle;
-        while self.timer.cycle < cycle {
-            //                          Timer
-            //                            |
-            //                            v
-            // Reader ---> Buffer ---> Shifter ---> Output level ---> (to the mixer)
-            if self.timer.clock() > 0 {
-                self.clock();
-            }
-            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
-        }
-        self.timer.cycle - start
     }
 }
 
 impl Sample for Dmc {
     #[must_use]
     fn output(&self) -> f32 {
-        if self.force_silent {
+        if self.silent() {
             0.0
         } else {
             f32::from(self.output_level)
@@ -227,37 +213,52 @@ impl Sample for Dmc {
     }
 }
 
-impl Clock for Dmc {
-    fn clock(&mut self) -> usize {
-        if !self.silence {
-            // Update output level but clamp to 0..=127 range
-            if self.shift & 0x01 == 0x01 {
-                if self.output_level <= 125 {
-                    self.output_level += 2;
-                }
-            } else if self.output_level >= 2 {
-                self.output_level -= 2;
-            }
-            self.shift >>= 1;
-        }
+impl TimerCycle for Dmc {
+    fn cycle(&self) -> usize {
+        self.timer.cycle
+    }
+}
 
-        if self.bits_remaining > 0 {
-            self.bits_remaining -= 1;
-        }
-        if self.bits_remaining == 0 {
-            self.bits_remaining = 8;
-            if self.buffer_empty {
-                self.silence = true;
-            } else {
-                self.silence = false;
-                self.shift = self.sample_buffer;
-                self.buffer_empty = true;
-                if self.bytes_remaining > 0 {
-                    self.dma_pending = true;
+impl Clock for Dmc {
+    //                          Timer
+    //                            |
+    //                            v
+    // Reader ---> Buffer ---> Shifter ---> Output level ---> (to the mixer)
+    fn clock(&mut self) -> usize {
+        if self.timer.clock() > 0 {
+            if !self.silence {
+                // Update output level but clamp to 0..=127 range
+                if self.shift & 0x01 == 0x01 {
+                    if self.output_level <= 125 {
+                        self.output_level += 2;
+                    }
+                } else if self.output_level >= 2 {
+                    self.output_level -= 2;
+                }
+                self.shift >>= 1;
+            }
+
+            if self.bits_remaining > 0 {
+                self.bits_remaining -= 1;
+            }
+            trace!("APU DMC bits remaining: {}", self.bits_remaining);
+
+            if self.bits_remaining == 0 {
+                self.bits_remaining = 8;
+                self.silence = self.buffer_empty;
+                if !self.buffer_empty {
+                    self.shift = self.sample_buffer;
+                    self.buffer_empty = true;
+                    if self.bytes_remaining > 0 {
+                        trace!("APU DMC DMA pending");
+                        self.dma_pending = true;
+                    }
                 }
             }
+            1
+        } else {
+            0
         }
-        1
     }
 }
 
@@ -274,17 +275,18 @@ impl Regional for Dmc {
 
 impl Reset for Dmc {
     fn reset(&mut self, kind: ResetKind) {
+        self.timer.reset(kind);
+        self.timer.period = Self::period(self.region, 0);
+        self.timer.reload();
         if let ResetKind::Hard = kind {
-            self.addr = 0xC000;
-            self.sample_length = 0x0001;
+            self.sample_addr = 0xC000;
+            self.sample_length = 1;
         }
         self.irq_enabled = false;
         self.irq_pending = false;
         self.loops = false;
-        self.timer.period = Self::period(self.region, 0);
-        self.timer.reload();
-        self.sample_addr = 0x0000;
-        self.bytes_remaining = 0x0000;
+        self.addr = 0x0000;
+        self.bytes_remaining = 0;
         self.sample_buffer = 0x00;
         self.buffer_empty = true;
         self.dma_pending = false;

@@ -5,14 +5,15 @@ use crate::{
         frame_counter::{FrameCounter, FrameType},
         noise::Noise,
         pulse::{OutputFreq, Pulse, PulseChannel},
+        timer::TimerCycle,
         triangle::Triangle,
     },
-    common::{ClockTo, NesRegion, Regional, Reset, ResetKind, Sample},
+    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample},
     cpu::{Cpu, Irq},
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::warn;
+use tracing::{trace, warn};
 
 pub mod dmc;
 pub mod noise;
@@ -54,6 +55,7 @@ impl TryFrom<usize> for Channel {
             2 => Ok(Self::Triangle),
             3 => Ok(Self::Noise),
             4 => Ok(Self::Dmc),
+            5 => Ok(Self::Mapper),
             _ => Err(ParseChannelError),
         }
     }
@@ -93,10 +95,8 @@ pub struct Apu {
     pub noise: Noise,
     pub dmc: Dmc,
     pub filter_chain: FilterChain,
-    #[serde(skip)]
+    #[serde(skip, default = "Apu::default_channel_outputs")]
     pub channel_outputs: Vec<f32>,
-    #[serde(skip)]
-    pub output_cycle: usize,
     #[serde(skip)]
     pub audio_samples: Vec<f32>,
     pub sample_period: f32,
@@ -130,8 +130,7 @@ impl Apu {
             noise: Noise::new(region),
             dmc: Dmc::new(region),
             filter_chain: FilterChain::new(region, Self::SAMPLE_RATE),
-            channel_outputs: vec![0.0; Self::MAX_CHANNEL_COUNT * Self::CYCLE_SIZE],
-            output_cycle: 0,
+            channel_outputs: Self::default_channel_outputs(),
             audio_samples: Vec::with_capacity((Self::SAMPLE_RATE / 60.0) as usize),
             sample_period,
             sample_counter: sample_period,
@@ -141,9 +140,13 @@ impl Apu {
         }
     }
 
-    pub fn add_output(&mut self, output: f32) {
-        let offset = Channel::Mapper as usize;
-        self.channel_outputs[(self.master_cycle * Self::MAX_CHANNEL_COUNT) + offset] = output;
+    pub fn default_channel_outputs() -> Vec<f32> {
+        vec![0.0; Self::MAX_CHANNEL_COUNT * Self::CYCLE_SIZE]
+    }
+
+    pub fn add_mapper_output(&mut self, output: f32) {
+        self.channel_outputs
+            [(self.master_cycle * Self::MAX_CHANNEL_COUNT) + Channel::Mapper as usize] = output;
     }
 
     /// Filter and mix audio sample based on region sampling rate.
@@ -229,33 +232,16 @@ impl Apu {
         irq
     }
 
-    /// Whether the APU DMC is requesting a direct-memory access (DMA) transfer.
-    #[inline]
-    #[must_use]
-    pub fn dmc_dma(&mut self) -> bool {
-        self.dmc.dma()
-    }
-
-    /// Get the current DMC DMA address.
-    #[inline]
-    #[must_use]
-    pub fn dmc_dma_addr(&self) -> u16 {
-        self.dmc.dma_addr()
-    }
-
-    /// Load a byte into the DMC buffer.
-    #[inline]
-    pub fn load_dmc_buffer(&mut self, val: u8) {
-        self.dmc.load_buffer(val);
-    }
-
-    fn should_clock(&mut self) -> bool {
-        if self.dmc.should_clock() || self.should_clock {
-            self.should_clock = false;
-            return true;
+    pub fn clock_lazy(&mut self) -> usize {
+        self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
+        self.master_cycle += 1;
+        if self.master_cycle == Self::CYCLE_SIZE - 1 {
+            self.clock_flush()
+        } else if self.should_clock() {
+            self.clock_to(self.master_cycle)
+        } else {
+            0
         }
-        let cycles = self.master_cycle - self.cycle;
-        self.frame_counter.should_clock(cycles) || self.dmc.irq_pending_in(cycles)
     }
 
     pub fn clock_flush(&mut self) -> usize {
@@ -263,6 +249,7 @@ impl Apu {
 
         self.process_outputs();
 
+        debug_assert_eq!(self.master_cycle, self.cycle);
         self.master_cycle = 0;
         self.cycle = 0;
         self.pulse1.timer.cycle = 0;
@@ -274,15 +261,38 @@ impl Apu {
         cycles
     }
 
-    pub fn clock_lazy(&mut self) -> usize {
-        self.master_cycle += 1;
-        self.cpu_cycle += 1;
-        if self.master_cycle == Self::CYCLE_SIZE - 1 {
-            self.clock_flush()
-        } else if self.should_clock() {
-            self.clock_to(self.master_cycle)
-        } else {
-            0
+    fn should_clock(&mut self) -> bool {
+        // Clock every cycle while DMC is running to get accurate CPU stalling, sprite DMA
+        // emulation, etc
+        if self.dmc.should_clock() || self.should_clock {
+            self.should_clock = false;
+            return true;
+        }
+        let cycles = self.master_cycle - self.cycle;
+        self.frame_counter.should_clock(cycles) || self.dmc.irq_pending_in(cycles)
+    }
+
+    fn channel_clock_to(&mut self, channel: Channel, cycle: usize) {
+        fn clock_to<T>(instance: &mut T, cycle: usize, offset: usize, outputs: &mut [f32])
+        where
+            T: Clock + TimerCycle + Sample,
+        {
+            while instance.cycle() < cycle {
+                instance.clock();
+                outputs[((instance.cycle() - 1) * Apu::MAX_CHANNEL_COUNT) + offset] =
+                    instance.output();
+            }
+        }
+
+        let offset = channel as usize;
+        let outputs = &mut self.channel_outputs;
+        match channel {
+            Channel::Pulse1 => clock_to(&mut self.pulse1, cycle, offset, outputs),
+            Channel::Pulse2 => clock_to(&mut self.pulse2, cycle, offset, outputs),
+            Channel::Triangle => clock_to(&mut self.triangle, cycle, offset, outputs),
+            Channel::Noise => clock_to(&mut self.noise, cycle, offset, outputs),
+            Channel::Dmc => clock_to(&mut self.dmc, cycle, offset, outputs),
+            _ => (),
         }
     }
 }
@@ -291,18 +301,27 @@ impl ClockTo for Apu {
     fn clock_to(&mut self, cycle: usize) -> usize {
         self.master_cycle = cycle;
 
-        let mut cycles = self.master_cycle - self.cycle;
-        while cycles > 0 {
+        let cycles = self.master_cycle - self.cycle;
+        trace!(
+            "APU cycles to run: {} ({} - {}) - CYC:{}",
+            cycles,
+            self.master_cycle,
+            self.cycle,
+            self.cpu_cycle,
+        );
+        while self.master_cycle - self.cycle > 0 {
             self.cycle += self
                 .frame_counter
-                .clock_to_with(&mut cycles, |ty| match ty {
+                .clock_with(self.master_cycle - self.cycle, |ty| match ty {
                     FrameType::Quarter => {
+                        trace!("APU Quarter Frame clock - CYC:{}", self.cpu_cycle);
                         self.pulse1.clock_quarter_frame();
                         self.pulse2.clock_quarter_frame();
                         self.triangle.clock_quarter_frame();
                         self.noise.clock_quarter_frame();
                     }
                     FrameType::Half => {
+                        trace!("APU Half Frame clock - CYC:{}", self.cpu_cycle);
                         self.pulse1.clock_half_frame();
                         self.pulse2.clock_half_frame();
                         self.triangle.clock_half_frame();
@@ -316,16 +335,11 @@ impl ClockTo for Apu {
             self.triangle.length.reload();
             self.noise.length.reload();
 
-            self.pulse1
-                .clock_to_output(self.cycle, &mut self.channel_outputs);
-            self.pulse2
-                .clock_to_output(self.cycle, &mut self.channel_outputs);
-            self.triangle
-                .clock_to_output(self.cycle, &mut self.channel_outputs);
-            self.noise
-                .clock_to_output(self.cycle, &mut self.channel_outputs);
-            self.dmc
-                .clock_to_output(self.cycle, &mut self.channel_outputs);
+            self.channel_clock_to(Channel::Pulse1, self.cycle);
+            self.channel_clock_to(Channel::Pulse2, self.cycle);
+            self.channel_clock_to(Channel::Triangle, self.cycle);
+            self.channel_clock_to(Channel::Noise, self.cycle);
+            self.channel_clock_to(Channel::Dmc, self.cycle);
         }
 
         cycles
@@ -343,21 +357,35 @@ impl ApuRegisters for Apu {
     fn write_ctrl(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_cycle);
         match channel {
-            Channel::Pulse1 => self.pulse1.write_ctrl(val),
-            Channel::Pulse2 => self.pulse2.write_ctrl(val),
-            Channel::Noise => self.noise.write_ctrl(val),
+            Channel::Pulse1 => {
+                trace!("APU $4000 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse1.write_ctrl(val);
+            }
+            Channel::Pulse2 => {
+                trace!("APU $4004 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse2.write_ctrl(val);
+            }
+            Channel::Noise => {
+                trace!("APU $400C write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.noise.write_ctrl(val);
+            }
             _ => panic!("{channel:?} does not have a control register"),
         }
-        self.should_clock =
-            self.pulse1.length.enabled || self.pulse2.length.enabled || self.noise.length.enabled;
+        self.should_clock = true;
     }
 
     /// $4001 Pulse1 and $4005 Pulse2 Sweep.
     fn write_sweep(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_cycle);
         match channel {
-            Channel::Pulse1 => self.pulse1.write_sweep(val),
-            Channel::Pulse2 => self.pulse2.write_sweep(val),
+            Channel::Pulse1 => {
+                trace!("APU $4001 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse1.write_sweep(val);
+            }
+            Channel::Pulse2 => {
+                trace!("APU $4005 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse2.write_sweep(val);
+            }
             _ => panic!("{channel:?} does not have a sweep register"),
         }
     }
@@ -366,11 +394,26 @@ impl ApuRegisters for Apu {
     fn write_timer_lo(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_cycle);
         match channel {
-            Channel::Pulse1 => self.pulse1.write_timer_lo(val),
-            Channel::Pulse2 => self.pulse2.write_timer_lo(val),
-            Channel::Triangle => self.triangle.write_timer_lo(val),
-            Channel::Noise => self.noise.write_timer(val),
-            Channel::Dmc => self.dmc.write_timer(val),
+            Channel::Pulse1 => {
+                trace!("APU $4002 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse1.write_timer_lo(val);
+            }
+            Channel::Pulse2 => {
+                trace!("APU $4006 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse2.write_timer_lo(val);
+            }
+            Channel::Triangle => {
+                trace!("APU $400A write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.triangle.write_timer_lo(val);
+            }
+            Channel::Noise => {
+                trace!("APU $400E write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.noise.write_timer(val);
+            }
+            Channel::Dmc => {
+                trace!("APU $4010 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.dmc.write_timer(val);
+            }
             _ => panic!("{channel:?} does not have a timer_lo register"),
         }
     }
@@ -379,9 +422,18 @@ impl ApuRegisters for Apu {
     fn write_timer_hi(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_cycle);
         match channel {
-            Channel::Pulse1 => self.pulse1.write_timer_hi(val),
-            Channel::Pulse2 => self.pulse2.write_timer_hi(val),
-            Channel::Triangle => self.triangle.write_timer_hi(val),
+            Channel::Pulse1 => {
+                trace!("APU $4003 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse1.write_timer_hi(val);
+            }
+            Channel::Pulse2 => {
+                trace!("APU $4007 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.pulse2.write_timer_hi(val);
+            }
+            Channel::Triangle => {
+                trace!("APU $400B write: ${val:02X} - CYC:{}", self.cpu_cycle);
+                self.triangle.write_timer_hi(val);
+            }
             _ => panic!("{channel:?} does not have a timer_hi register"),
         }
         self.should_clock = self.pulse1.length.enabled
@@ -392,13 +444,15 @@ impl ApuRegisters for Apu {
     /// $4008 Triangle Linear Counter.
     fn write_linear_counter(&mut self, val: u8) {
         self.clock_to(self.master_cycle);
+        trace!("APU $4008 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         self.triangle.write_linear_counter(val);
-        self.should_clock = self.triangle.length.enabled;
+        self.should_clock = true;
     }
 
     /// $400F Noise and $4013 DMC Length.
     fn write_length(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_cycle);
+        trace!("APU $400F write: ${val:02X} - CYC:{}", self.cpu_cycle);
         match channel {
             Channel::Noise => self.noise.write_length(val),
             Channel::Dmc => self.dmc.write_length(val),
@@ -410,42 +464,37 @@ impl ApuRegisters for Apu {
     /// $4011 DMC Output Level.
     fn write_dmc_output(&mut self, val: u8) {
         self.clock_to(self.master_cycle);
+        trace!("APU $4011 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         // Only 7-bits are used
-        self.dmc
-            .write_output_in(val & 0x7F, &mut self.channel_outputs);
+        self.dmc.write_output(val & 0x7F);
+        // $4011 applies new output right away, not on timer reload.
+        let offset = Channel::Dmc as usize;
+        self.channel_outputs[(self.dmc.timer.cycle * Apu::MAX_CHANNEL_COUNT) + offset] =
+            self.dmc.output();
     }
 
     /// $4012 DMC Sample Addr.
     fn write_dmc_addr(&mut self, val: u8) {
         self.clock_to(self.master_cycle);
+        trace!("APU $4012 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         self.dmc.write_addr(val);
     }
 
     /// Read APU Status.
     ///
-    /// $4015 | RW  | APU Status
-    ///       |   0 | Channel 1, 1 = enable sound
-    ///       |   1 | Channel 2, 1 = enable sound
-    ///       |   2 | Channel 3, 1 = enable sound
-    ///       |   3 | Channel 4, 1 = enable sound
-    ///       |   4 | Channel 5, 1 = enable sound
-    ///       | 5-7 | Unused (???)
+    /// $4015   if-d nt21   DMC IRQ, frame IRQ, length counter statuses
     fn read_status(&mut self) -> u8 {
         self.clock_to(self.master_cycle);
         let val = self.peek_status();
+        trace!("APU $4015 read: ${val:02X} - CYC:{}", self.cpu_cycle);
+        if self.frame_counter.irq_pending {
+            trace!("APU Frame Counter IRQ - CYC:{}", self.cpu_cycle);
+        }
         self.frame_counter.irq_pending = false;
         val
     }
 
     /// Read APU Status without side-effects.
-    ///
-    /// $4015 | RW  | APU Status
-    ///       |   0 | Channel 1, 1 = enable sound
-    ///       |   1 | Channel 2, 1 = enable sound
-    ///       |   2 | Channel 3, 1 = enable sound
-    ///       |   3 | Channel 4, 1 = enable sound
-    ///       |   4 | Channel 5, 1 = enable sound
-    ///       | 5-7 | Unused (???)
     ///
     /// Non-mutating version of `read_status`.
     fn peek_status(&self) -> u8 {
@@ -463,6 +512,7 @@ impl ApuRegisters for Apu {
             status |= 0x08;
         }
         if self.dmc.bytes_remaining > 0 {
+            trace!("dmc bytes remaining: {}", self.dmc.bytes_remaining);
             status |= 0x10;
         }
         if self.frame_counter.irq_pending {
@@ -476,15 +526,10 @@ impl ApuRegisters for Apu {
 
     /// Write APU Status.
     ///
-    /// $4015 | RW  | APU Status
-    ///       |   0 | Channel 1, 1 = enable sound
-    ///       |   1 | Channel 2, 1 = enable sound
-    ///       |   2 | Channel 3, 1 = enable sound
-    ///       |   3 | Channel 4, 1 = enable sound
-    ///       |   4 | Channel 5, 1 = enable sound
-    ///       | 5-7 | Unused (???)
+    /// $4015   ---d nt21   length ctr enable: DMC, noise, triangle, pulse 2, 1
     fn write_status(&mut self, val: u8) {
         self.clock_to(self.master_cycle);
+        trace!("APU $4015 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         self.pulse1.set_enabled(val & 0x01 == 0x01);
         self.pulse2.set_enabled(val & 0x02 == 0x02);
         self.triangle.set_enabled(val & 0x04 == 0x04);
@@ -495,7 +540,8 @@ impl ApuRegisters for Apu {
     /// $4017 APU Frame Counter.
     fn write_frame_counter(&mut self, val: u8) {
         self.clock_to(self.master_cycle);
-        self.frame_counter.write(val, self.master_cycle);
+        trace!("APU $4017 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+        self.frame_counter.write(val, self.cpu_cycle);
     }
 }
 
@@ -520,7 +566,9 @@ impl Regional for Apu {
 
 impl Reset for Apu {
     fn reset(&mut self, kind: ResetKind) {
+        self.cpu_cycle = 0;
         self.master_cycle = 0;
+        self.cycle = 0;
         self.should_clock = false;
         self.frame_counter.reset(kind);
         self.pulse1.reset(kind);
@@ -534,7 +582,9 @@ impl Reset for Apu {
 impl std::fmt::Debug for Apu {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("Apu")
-            .field("cycle", &self.master_cycle)
+            .field("cpu_cycle", &self.cpu_cycle)
+            .field("master_cycle", &self.master_cycle)
+            .field("cycle", &self.cycle)
             .field("frame_counter", &self.frame_counter)
             .field("pulse1", &self.pulse1)
             .field("pulse2", &self.pulse2)

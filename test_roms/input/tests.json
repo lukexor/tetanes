@@ -1,18 +1,114 @@
 [
   {
     "name": "zapper_flip",
-    "frames": []
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "ZapperConnect": true
+        }
+      },
+      {
+        "number": 0,
+        "action": {
+          "ZapperAim": [10, 10]
+        }
+      },
+      {
+        "number": 4,
+        "hash": 8615630426075156747
+      },
+      {
+        "number": 5,
+        "action": "ZapperTrigger"
+      },
+      {
+        "number": 6,
+        "hash": 14878161860519346933
+      },
+      {
+        "number": 13,
+        "hash": 8615630426075156747
+      }
+    ]
   },
   {
     "name": "zapper_light",
-    "frames": []
+    "audio": true,
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "ZapperConnect": true
+        }
+      },
+      {
+        "number": 0,
+        "action": {
+          "ZapperAim": [10, 10]
+        }
+      },
+      {
+        "number": 4,
+        "hash": 8615630426075156747
+      },
+      {
+        "number": 5,
+        "hash": 14758896780652774471,
+        "audio": true
+      },
+      {
+        "number": 5,
+        "action": {
+          "ZapperAim": [61, 61]
+        }
+      },
+      {
+        "number": 6,
+        "hash": 1663876347477948190,
+        "audio": true
+      },
+      {
+        "number": 7,
+        "action": {
+          "ZapperAim": [194, 178]
+        }
+      },
+      {
+        "number": 8,
+        "hash": 8563339329510678956,
+        "audio": true
+      }
+    ]
   },
   {
     "name": "zapper_stream",
-    "frames": []
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "ZapperConnect": true
+        }
+      },
+      {
+        "number": 20,
+        "hash": 0
+      }
+    ]
   },
   {
     "name": "zapper_trigger",
-    "frames": []
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "ZapperConnect": true
+        }
+      },
+      {
+        "number": 20,
+        "hash": 0
+      }
+    ]
   }
 ]

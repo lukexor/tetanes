@@ -1,5 +1,10 @@
 use crate::{
-    apu::{envelope::Envelope, length_counter::LengthCounter, timer::Timer, Apu, Channel},
+    apu::{
+        envelope::Envelope,
+        length_counter::LengthCounter,
+        timer::{Timer, TimerCycle},
+        Channel,
+    },
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -72,7 +77,9 @@ impl Noise {
     const fn period(region: NesRegion, val: u8) -> usize {
         let index = (val & 0x0F) as usize;
         match region {
-            NesRegion::Ntsc | NesRegion::Dendy => Self::PERIOD_TABLE_NTSC[index] - 1,
+            NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy => {
+                Self::PERIOD_TABLE_NTSC[index] - 1
+            }
             NesRegion::Pal => Self::PERIOD_TABLE_PAL[index] - 1,
         }
     }
@@ -119,22 +126,6 @@ impl Noise {
             0
         }
     }
-
-    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
-        let offset = Channel::Noise as usize;
-        let start = self.timer.cycle;
-        while self.timer.cycle < cycle {
-            //    Timer --> Shift Register   Length Counter
-            //                    |                |
-            //                    v                v
-            // Envelope -------> Gate ----------> Gate --> (to mixer)
-            if self.timer.clock() > 0 {
-                self.clock();
-            }
-            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
-        }
-        self.timer.cycle - start
-    }
 }
 
 impl Sample for Noise {
@@ -148,17 +139,31 @@ impl Sample for Noise {
     }
 }
 
+impl TimerCycle for Noise {
+    fn cycle(&self) -> usize {
+        self.timer.cycle
+    }
+}
+
 impl Clock for Noise {
+    //    Timer --> Shift Register   Length Counter
+    //                    |                |
+    //                    v                v
+    // Envelope -------> Gate ----------> Gate --> (to mixer)
     fn clock(&mut self) -> usize {
-        let shift_by = if self.shift_mode == ShiftMode::One {
-            6
-        } else {
+        if self.timer.clock() > 0 {
+            let shift_by = if self.shift_mode == ShiftMode::One {
+                6
+            } else {
+                1
+            };
+            let feedback = (self.shift & 0x01) ^ ((self.shift >> shift_by) & 0x01);
+            self.shift >>= 1;
+            self.shift |= feedback << 14;
             1
-        };
-        let feedback = (self.shift & 0x01) ^ ((self.shift >> shift_by) & 0x01);
-        self.shift >>= 1;
-        self.shift |= feedback << 14;
-        1
+        } else {
+            0
+        }
     }
 }
 
@@ -174,9 +179,10 @@ impl Regional for Noise {
 
 impl Reset for Noise {
     fn reset(&mut self, kind: ResetKind) {
-        self.envelope.reset(kind);
-        self.length.reset(kind);
+        self.timer.reset(kind);
         self.timer.period = Self::period(self.region, 0);
+        self.length.reset(kind);
+        self.envelope.reset(kind);
         self.shift = 1;
         self.shift_mode = ShiftMode::Zero;
     }

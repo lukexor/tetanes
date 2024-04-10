@@ -81,7 +81,7 @@ impl DerefMut for Frame {
 #[must_use]
 pub struct Video {
     pub filter: VideoFilter,
-    frame: Frame,
+    pub frame: Frame,
 }
 
 impl Default for Video {

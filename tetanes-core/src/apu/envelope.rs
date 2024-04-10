@@ -79,6 +79,5 @@ impl Reset for Envelope {
         self.volume = 0;
         self.divider = 0;
         self.counter = 0;
-        self.loops = false;
     }
 }

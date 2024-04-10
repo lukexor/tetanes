@@ -89,7 +89,7 @@ pub struct Config {
     /// Whether to support concurrent D-Pad input which wasn't possible on the original NES.
     pub concurrent_dpad: bool,
     /// Apu channels enabled.
-    pub channels_enabled: [bool; 5],
+    pub channels_enabled: [bool; Apu::MAX_CHANNEL_COUNT],
     /// Headless mode.
     pub headless_mode: HeadlessMode,
 }
@@ -124,7 +124,7 @@ impl Default for Config {
             zapper: false,
             genie_codes: vec![],
             concurrent_dpad: false,
-            channels_enabled: [true; 5],
+            channels_enabled: [true; Apu::MAX_CHANNEL_COUNT],
             headless_mode: HeadlessMode::empty(),
         }
     }
@@ -136,8 +136,11 @@ impl Default for Config {
 pub struct ControlDeck {
     pub running: bool,
     pub video: Video,
+    pub last_frame_number: u32,
     pub loaded_rom: Option<String>,
     pub cart_battery_backed: bool,
+    pub cart_region: NesRegion,
+    pub region_auto_detect: bool,
     pub cycles_remaining: f32,
     pub cpu: Cpu,
 }
@@ -174,8 +177,11 @@ impl ControlDeck {
         Self {
             running: false,
             video,
+            last_frame_number: 0,
             loaded_rom: None,
             cart_battery_backed: false,
+            cart_region: NesRegion::default(),
+            region_auto_detect: config.region.is_auto(),
             cycles_remaining: 0.0,
             cpu,
         }
@@ -191,7 +197,10 @@ impl ControlDeck {
         self.unload_rom()?;
         let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state)?;
         self.cart_battery_backed = cart.battery_backed();
-        self.set_region(cart.region());
+        self.cart_region = cart.region();
+        if self.region_auto_detect {
+            self.cpu.set_region(self.cart_region);
+        }
         self.cpu.bus.load_cart(cart);
         self.reset(ResetKind::Hard);
         self.running = true;
@@ -346,10 +355,15 @@ impl ControlDeck {
     /// Load a frame worth of pixels.
     #[inline]
     pub fn frame_buffer(&mut self) -> &[u8] {
-        self.video.apply_filter(
-            self.cpu.bus.ppu.frame_buffer(),
-            self.cpu.bus.ppu.frame_number(),
-        )
+        // Avoid applying filter if the frame number hasn't changed
+        let frame_number = self.cpu.bus.ppu.frame_number();
+        if self.last_frame_number == frame_number {
+            return &self.video.frame;
+        }
+
+        self.last_frame_number = frame_number;
+        self.video
+            .apply_filter(self.cpu.bus.ppu.frame_buffer(), frame_number)
     }
 
     /// Load a frame worth of pixels into the given buffer.
@@ -451,7 +465,6 @@ impl ControlDeck {
         &mut self,
         handle_output: impl FnOnce(usize, &[u8], &[f32]) -> T,
     ) -> Result<T> {
-        self.cpu.bus.ppu.skip_rendering = false;
         let cycles = self.clock_frame()?;
         let frame = self.video.apply_filter(
             self.cpu.bus.ppu.frame_buffer(),
@@ -474,7 +487,6 @@ impl ControlDeck {
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
     ) -> Result<usize> {
-        self.cpu.bus.ppu.skip_rendering = false;
         let cycles = self.clock_frame()?;
         let frame = self.video.apply_filter(
             self.cpu.bus.ppu.frame_buffer(),
@@ -504,7 +516,6 @@ impl ControlDeck {
             return self.clock_frame_output(handle_output);
         }
 
-        self.cpu.bus.ppu.skip_rendering = true;
         // Clock current frame and discard video
         self.clock_frame()?;
         // Save state so we can rewind
@@ -515,9 +526,8 @@ impl ControlDeck {
         for _ in 1..run_ahead {
             self.clock_frame()?;
         }
-        self.cpu.bus.apu.clock_flush();
 
-        // Discard audio and only output the future frame video/audio
+        // Output the future frame video/audio
         self.clear_audio_samples();
         let result = self.clock_frame_output(handle_output)?;
 
@@ -547,7 +557,6 @@ impl ControlDeck {
             return self.clock_frame_into(frame_buffer, audio_samples);
         }
 
-        self.cpu.bus.ppu.skip_rendering = true;
         // Clock current frame and discard video
         self.clock_frame()?;
         // Save state so we can rewind
@@ -558,9 +567,8 @@ impl ControlDeck {
         for _ in 1..run_ahead {
             self.clock_frame()?;
         }
-        self.cpu.bus.apu.clock_flush();
 
-        // Discard audio and only output the future frame/audio
+        // Output the future frame/audio
         self.clear_audio_samples();
         let cycles = self.clock_frame_into(frame_buffer, audio_samples)?;
 
@@ -760,6 +768,7 @@ impl Regional for ControlDeck {
 
     /// Set the NES format for the emulation.
     fn set_region(&mut self, region: NesRegion) {
+        self.region_auto_detect = region.is_auto();
         self.cpu.set_region(region);
     }
 }

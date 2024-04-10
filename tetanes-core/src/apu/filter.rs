@@ -231,7 +231,7 @@ impl FilterChain {
 
         let mut filters = vec![SampledFilter::new(Iir::identity(), 1.0)];
         match region {
-            NesRegion::Ntsc => {
+            NesRegion::Auto | NesRegion::Ntsc => {
                 // first-order high-pass filter at 90 Hz
                 filters.push(SampledFilter::new(
                     Iir::high_pass(intermediate_sample_rate, 90.0),

@@ -67,7 +67,7 @@ tetanes-core = { path = "../tetanes-core" }
 thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber = "0.3"
+tracing-subscriber.workspace = true
 tracing-appender = "0.2"
 wgpu = "0.19"
 winit = { version = "0.29", features = ["serde"] }

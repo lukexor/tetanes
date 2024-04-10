@@ -1,5 +1,10 @@
 use crate::{
-    apu::{envelope::Envelope, length_counter::LengthCounter, timer::Timer, Apu, Channel},
+    apu::{
+        envelope::Envelope,
+        length_counter::LengthCounter,
+        timer::{Timer, TimerCycle},
+        Channel,
+    },
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -171,27 +176,6 @@ impl Pulse {
             0
         }
     }
-
-    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
-        let offset = self.channel as usize;
-        let start = self.timer.cycle;
-        while self.timer.cycle < cycle {
-            //                     Sweep -----> Timer
-            //                       |            |
-            //                       |            |
-            //                       |            v
-            //                       |        Sequencer   Length Counter
-            //                       |            |             |
-            //                       |            |             |
-            //                       v            v             v
-            //    Envelope -------> Gate -----> Gate -------> Gate --->(to mixer)
-            if self.timer.clock() > 0 {
-                self.clock();
-            }
-            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
-        }
-        self.timer.cycle - start
-    }
 }
 
 impl Sample for Pulse {
@@ -207,21 +191,41 @@ impl Sample for Pulse {
     }
 }
 
+impl TimerCycle for Pulse {
+    fn cycle(&self) -> usize {
+        self.timer.cycle
+    }
+}
+
 impl Clock for Pulse {
+    //                  Sweep -----> Timer
+    //                    |            |
+    //                    |            |
+    //                    |            v
+    //                    |        Sequencer   Length Counter
+    //                    |            |             |
+    //                    |            |             |
+    //                    v            v             v
+    // Envelope -------> Gate -----> Gate -------> Gate --->(to mixer)
     fn clock(&mut self) -> usize {
-        self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
-        1
+        if self.timer.clock() > 0 {
+            self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
+            1
+        } else {
+            0
+        }
     }
 }
 
 impl Reset for Pulse {
     fn reset(&mut self, kind: ResetKind) {
-        self.envelope.reset(kind);
+        self.timer.reset(kind);
         self.length.reset(kind);
+        self.envelope.reset(kind);
         self.sweep.reset(kind);
+        self.update_target_period();
         self.duty = 0;
         self.duty_cycle = 0;
-        self.update_target_period();
     }
 }
 

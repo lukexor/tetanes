@@ -293,16 +293,13 @@ impl Ppu {
     }
 
     fn start_vblank(&mut self) {
-        trace!("({}, {}): Set VBL flag", self.cycle, self.scanline);
+        trace!("Start VBL - PPU:{:3},{:3}", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
             self.nmi_pending = self.ctrl.nmi_enabled;
-            trace!(
-                "({}, {}): VBL NMI: {}",
-                self.cycle,
-                self.scanline,
-                self.nmi_pending
-            );
+            if self.nmi_pending {
+                trace!("VBL NMI - PPU:{:3},{:3}", self.cycle, self.scanline,);
+            }
         }
         self.prevent_vbl = false;
         let val = self.peek_status();
@@ -311,7 +308,7 @@ impl Ppu {
 
     fn stop_vblank(&mut self) {
         trace!(
-            "({}, {}): Clear VBL flag, Sprite0 Hit, Overflow",
+            "Stop VBL, Sprite0 Hit, Overflow - PPU:{:3},{:3}",
             self.cycle,
             self.scanline
         );
@@ -742,7 +739,7 @@ impl Ppu {
                     // NTSC behavior while rendering - each odd PPU frame is one clock shorter
                     // (skipping from 339 over 340 to 0)
                     trace!(
-                        "({cycle}, {scanline}): Skipped odd frame cycle: {}",
+                        "Skipped odd frame cycle: {} - PPU:{cycle:3},{scanline:3}",
                         self.frame_number()
                     );
                     self.cycle = Self::CYCLE_END;
@@ -802,19 +799,22 @@ impl Registers for Ppu {
         self.scroll.write_nametable_select(val);
 
         trace!(
-            "({}, {}): $2000 NMI Enabled: {}",
+            "$2000 NMI Enabled: {} - PPU:{:3},{:3}",
+            self.ctrl.nmi_enabled,
             self.cycle,
             self.scanline,
-            self.ctrl.nmi_enabled
         );
 
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
         // multiple times, causing multiple NMIs to be generated.
         if !self.ctrl.nmi_enabled {
-            trace!("({}, {}): $2000 NMI Disable", self.cycle, self.scanline);
             self.nmi_pending = false;
         } else if self.status.in_vblank {
-            trace!("({}, {}): $2000 NMI During VBL", self.cycle, self.scanline);
+            trace!(
+                "$2000 NMI During VBL - PPU:{:3},{:3}",
+                self.cycle,
+                self.scanline
+            );
             self.nmi_pending = true;
         }
     }
@@ -842,12 +842,9 @@ impl Registers for Ppu {
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
     fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
-        trace!(
-            "({}, {}): $2002 NMI Ack - pending: {}",
-            self.cycle,
-            self.scanline,
-            self.nmi_pending
-        );
+        if self.nmi_pending {
+            trace!("$2002 NMI Ack - PPU:{:3},{:3}", self.cycle, self.scanline,);
+        }
         self.nmi_pending = false;
         self.status.reset_in_vblank();
         self.scroll.reset_latch();
@@ -855,7 +852,11 @@ impl Registers for Ppu {
         if self.scanline == self.vblank_scanline && self.cycle == Self::VBLANK - 1 {
             // Reading PPUSTATUS one clock before the start of vertical blank will read as clear
             // and never set the flag or generate an NMI for that frame
-            trace!("({}, {}): $2002 Prevent VBL", self.cycle, self.scanline);
+            trace!(
+                "$2002 Prevent VBL - PPU:{:3},{:3}",
+                self.cycle,
+                self.scanline
+            );
             self.prevent_vbl = true;
         }
         self.open_bus |= status & 0xE0;
@@ -1005,6 +1006,12 @@ impl Registers for Ppu {
         // MMC3 clocks using A12
         self.bus.mapper.ppu_bus_read(self.scroll.addr());
 
+        trace!(
+            "PPU $2007 read: {val:02X} - PPU:{:3},{:3}",
+            self.cycle,
+            self.scanline
+        );
+
         val
     }
 
@@ -1026,6 +1033,11 @@ impl Registers for Ppu {
     fn write_data(&mut self, val: u8) {
         self.open_bus = val;
         let addr = self.scroll.addr();
+        trace!(
+            "PPU $2007 write: ${addr:04X} -> {val:02X} - PPU:{:3},{:3}",
+            self.cycle,
+            self.scanline
+        );
         self.increment_vram_addr();
         self.bus.write(addr, val, Access::Write);
 
@@ -1085,7 +1097,7 @@ impl Regional for Ppu {
 
     fn set_region(&mut self, region: NesRegion) {
         let (clock_divider, vblank_scanline, prerender_scanline) = match region {
-            NesRegion::Ntsc => (4, 241, 261),
+            NesRegion::Auto | NesRegion::Ntsc => (4, 241, 261),
             NesRegion::Pal => (5, 241, 311),
             NesRegion::Dendy => (5, 291, 311),
         };

@@ -345,9 +345,9 @@ impl From<&FrameRate> for f32 {
 impl From<NesRegion> for FrameRate {
     fn from(region: NesRegion) -> Self {
         match region {
+            NesRegion::Auto | NesRegion::Ntsc => Self::X60,
             NesRegion::Pal => Self::X50,
             NesRegion::Dendy => Self::X59,
-            NesRegion::Ntsc => Self::X60,
         }
     }
 }

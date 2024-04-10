@@ -6,6 +6,7 @@ use crate::{
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use tracing::trace;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -432,6 +433,9 @@ impl Zapper {
     }
 
     pub fn aim(&mut self, x: u32, y: u32) {
+        if x != self.x || y != self.y {
+            trace!("zapper aim: {x}, {y}");
+        }
         self.x = x;
         self.y = y;
     }
@@ -482,7 +486,9 @@ impl Zapper {
             for x in min_x..=max_x {
                 let behind_ppu =
                     scanline >= y && (scanline - y) <= 20 && (scanline != y || cycle > x);
-                if behind_ppu && ppu.pixel_brightness(x, y) >= 85 {
+                let brightness = ppu.pixel_brightness(x, y);
+                if behind_ppu && brightness >= 85 {
+                    trace!("zapper light: {brightness}");
                     return 0x00;
                 }
             }

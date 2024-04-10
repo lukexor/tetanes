@@ -437,6 +437,13 @@ impl Nes {
                         }
                         self.trigger_event(EmulationEvent::Joypad((player, button, state)));
                     }
+                    DeckAction::ZapperConnect(connected) => {
+                        self.config.write(|cfg| cfg.deck.zapper = connected);
+                        self.trigger_event(EmulationEvent::ZapperConnect(connected));
+                    }
+                    DeckAction::ZapperAim((x, y)) => {
+                        self.trigger_event(EmulationEvent::ZapperAim((x, y)));
+                    }
                     DeckAction::ZapperTrigger => {
                         if self.config.read(|cfg| cfg.deck.zapper) {
                             self.trigger_event(EmulationEvent::ZapperTrigger);

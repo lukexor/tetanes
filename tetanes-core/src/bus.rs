@@ -91,7 +91,6 @@ impl Bus {
     }
 
     pub fn load_cart(&mut self, cart: Cart) {
-        self.set_region(cart.region());
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
         self.ppu.bus.load_chr_rom(cart.chr_rom);
@@ -153,20 +152,6 @@ impl Bus {
         irq |= self.apu.irqs_pending();
         irq
     }
-
-    #[must_use]
-    pub const fn oam_dma(&self) -> bool {
-        self.oam_dma
-    }
-
-    #[must_use]
-    pub const fn oam_dma_addr(&self) -> u16 {
-        self.oam_dma_addr
-    }
-
-    pub fn oam_dma_finish(&mut self) {
-        self.oam_dma = false;
-    }
 }
 
 impl Clock for Bus {
@@ -178,7 +163,7 @@ impl Clock for Bus {
             Mapper::Vrc6(ref vrc6) => vrc6.output(),
             _ => 0.0,
         };
-        self.apu.add_output(output);
+        self.apu.add_mapper_output(output);
         self.input.clock();
 
         1

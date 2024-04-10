@@ -67,7 +67,7 @@ impl Mask {
         self.rendering_enabled = self.show_bg || self.show_spr;
         self.emphasis = u16::from(
             match self.region {
-                NesRegion::Ntsc => self.bits.intersection(
+                NesRegion::Auto | NesRegion::Ntsc => self.bits.intersection(
                     Bits::EMPHASIZE_RED | Bits::EMPHASIZE_GREEN | Bits::EMPHASIZE_BLUE,
                 ),
                 NesRegion::Pal | NesRegion::Dendy => {

@@ -1,5 +1,9 @@
 use crate::{
-    apu::{length_counter::LengthCounter, timer::Timer, Apu, Channel},
+    apu::{
+        length_counter::LengthCounter,
+        timer::{Timer, TimerCycle},
+        Channel,
+    },
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -80,22 +84,6 @@ impl Triangle {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.length.set_enabled(enabled);
     }
-
-    pub fn clock_to_output(&mut self, cycle: usize, output: &mut [f32]) -> usize {
-        let offset = Channel::Triangle as usize;
-        let start = self.timer.cycle;
-        while self.timer.cycle < cycle {
-            //       Linear Counter   Length Counter
-            //             |                |
-            //             v                v
-            // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
-            if self.timer.clock() > 0 {
-                self.clock();
-            }
-            output[((self.timer.cycle - 1) * Apu::MAX_CHANNEL_COUNT) + offset] = self.output();
-        }
-        self.timer.cycle - start
-    }
 }
 
 impl Sample for Triangle {
@@ -113,9 +101,19 @@ impl Sample for Triangle {
     }
 }
 
+impl TimerCycle for Triangle {
+    fn cycle(&self) -> usize {
+        self.timer.cycle
+    }
+}
+
 impl Clock for Triangle {
+    //       Linear Counter   Length Counter
+    //             |                |
+    //             v                v
+    // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
     fn clock(&mut self) -> usize {
-        if self.length.counter > 0 && self.linear.counter > 0 {
+        if self.timer.clock() > 0 && self.length.counter > 0 && self.linear.counter > 0 {
             self.sequence = (self.sequence + 1) & 0x1F;
             1
         } else {

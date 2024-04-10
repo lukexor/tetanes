@@ -1023,15 +1023,9 @@ impl Clock for Exrom {
         }
         self.ppu_status.reading = false;
 
-        if self.pulse1.timer.clock() > 0 {
-            self.pulse1.clock();
-        }
-        if self.pulse2.timer.clock() > 0 {
-            self.pulse2.clock();
-        }
-        if self.dmc.timer.clock() > 0 {
-            self.dmc.clock();
-        }
+        self.pulse1.clock();
+        self.pulse2.clock();
+        self.dmc.clock();
         self.pulse_timer -= 1.0;
         if self.pulse_timer <= 0.0 {
             self.pulse1.clock_half_frame();

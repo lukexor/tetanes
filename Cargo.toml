@@ -36,6 +36,7 @@ tracing = { version = "0.1", default-features = false, features = [
   "std",
   "release_max_level_warn",
 ] }
+tracing-subscriber = "0.3"
 serde_json = "1.0"
 web-time = "1.0"
 
