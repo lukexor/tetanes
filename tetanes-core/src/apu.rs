@@ -223,15 +223,6 @@ impl Apu {
         }
     }
 
-    /// Whether the APU has any IRQs pending.
-    #[inline]
-    pub fn irqs_pending(&self) -> Irq {
-        let mut irq = Irq::empty();
-        irq.set(Irq::FRAME_COUNTER, self.frame_counter.irq_pending);
-        irq.set(Irq::DMC, self.dmc.irq_pending);
-        irq
-    }
-
     pub fn clock_lazy(&mut self) -> usize {
         self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
         self.master_cycle += 1;
@@ -487,10 +478,10 @@ impl ApuRegisters for Apu {
         self.clock_to(self.master_cycle);
         let val = self.peek_status();
         trace!("APU $4015 read: ${val:02X} - CYC:{}", self.cpu_cycle);
-        if self.frame_counter.irq_pending {
+        if Cpu::has_irq(Irq::FRAME_COUNTER) {
             trace!("APU Frame Counter IRQ - CYC:{}", self.cpu_cycle);
         }
-        self.frame_counter.irq_pending = false;
+        Cpu::clear_irq(Irq::FRAME_COUNTER);
         val
     }
 
@@ -515,10 +506,11 @@ impl ApuRegisters for Apu {
             trace!("dmc bytes remaining: {}", self.dmc.bytes_remaining);
             status |= 0x10;
         }
-        if self.frame_counter.irq_pending {
+        let irqs = Cpu::irqs();
+        if irqs.contains(Irq::FRAME_COUNTER) {
             status |= 0x40;
         }
-        if self.dmc.irq_pending {
+        if irqs.contains(Irq::DMC) {
             status |= 0x80;
         }
         status
@@ -530,6 +522,7 @@ impl ApuRegisters for Apu {
     fn write_status(&mut self, val: u8) {
         self.clock_to(self.master_cycle);
         trace!("APU $4015 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+        Cpu::clear_irq(Irq::DMC);
         self.pulse1.set_enabled(val & 0x01 == 0x01);
         self.pulse2.set_enabled(val & 0x02 == 0x02);
         self.triangle.set_enabled(val & 0x04 == 0x04);

@@ -2,7 +2,7 @@ use crate::{
     apu::{Apu, ApuRegisters, Channel},
     cart::Cart,
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample},
-    cpu::Irq,
+    cpu::Cpu,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
@@ -47,8 +47,6 @@ pub struct Bus {
     pub apu: Apu,
     pub genie_codes: HashMap<u16, GenieCode>,
     pub input: Input,
-    pub oam_dma: bool,
-    pub oam_dma_addr: u16,
     pub open_bus: u8,
     pub ppu: Ppu,
     pub prg_ram_protect: bool,
@@ -77,8 +75,6 @@ impl Bus {
             apu: Apu::new(),
             genie_codes: HashMap::new(),
             input: Input::new(),
-            oam_dma: false,
-            oam_dma_addr: 0x0000,
             open_bus: 0x00,
             ppu: Ppu::new(),
             prg_ram: vec![],
@@ -144,13 +140,6 @@ impl Bus {
 
     pub fn clear_audio_samples(&mut self) {
         self.apu.audio_samples.clear();
-    }
-
-    pub fn irqs_pending(&self) -> Irq {
-        let mut irq = Irq::empty();
-        irq.set(Irq::MAPPER, self.ppu.bus.mapper.irq_pending());
-        irq |= self.apu.irqs_pending();
-        irq
     }
 }
 
@@ -270,10 +259,7 @@ impl Mem for Bus {
             0x4011 => self.apu.write_dmc_output(val),
             0x4012 => self.apu.write_dmc_addr(val),
             0x4013 => self.apu.write_length(Channel::Dmc, val),
-            0x4014 => {
-                self.oam_dma = true;
-                self.oam_dma_addr = u16::from(val) << 8;
-            }
+            0x4014 => Cpu::start_oam_dma(u16::from(val) << 8),
             0x4015 => self.apu.write_status(val),
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
@@ -321,8 +307,6 @@ impl std::fmt::Debug for Bus {
             .field("ppu", &self.ppu)
             .field("apu", &self.apu)
             .field("input", &self.input)
-            .field("oam_dma", &self.oam_dma)
-            .field("oam_dma_addr", &self.oam_dma_addr)
             .field("genie_codes", &self.genie_codes.values())
             .field("open_bus", &format_args!("${:02X}", &self.open_bus))
             .finish()

@@ -2,9 +2,11 @@
 VERSION = { script = [
   "awk -F ' = ' '$1 ~ /version/ { gsub(/[\\\"]/, \"\", $2); printf(\"%s\",$2) }' Cargo.toml",
 ] }
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 
 [config]
 reduce_output = false
+skip_core_tasks = true
 
 [tasks.default]
 alias = "run"
@@ -37,11 +39,18 @@ command = "cargo"
 args = ["build", "-p", "tetanes", "--profile", "dist", "${@}"]
 
 [tasks.post-build]
-description = "Strip symbols"
+description = "Strip release build symbols"
 category = "Build"
 workspace = false
 command = "strip"
 args = ["${CARGO_TARGET_DIR}/release/tetanes*"]
+
+[tasks.bench]
+description = "Benchmark TetaNES"
+category = "Development"
+workspace = false
+command = "cargo"
+args = ["bench", "--bench", "clock_frame", "${@}"]
 
 [tasks.run]
 description = "Run TetaNES in release mode"
@@ -66,6 +75,7 @@ args = ["run", "-p", "tetanes", "${@}"]
 
 [tasks.install-web-deps]
 description = "Install wasm target"
+category = "Development"
 workspace = false
 command = "rustup"
 args = ["target", "add", "wasm32-unknown-unknown"]

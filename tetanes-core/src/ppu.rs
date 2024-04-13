@@ -1,5 +1,6 @@
 use crate::{
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
+    cpu::Cpu,
     mapper::{Mapped, Mapper},
     mem::{Access, Mem},
     ppu::{bus::Bus, frame::Frame},
@@ -100,7 +101,6 @@ pub struct Ppu {
     pub sprites: [Sprite; 8], // Each scanline can hold 8 sprites at a time
     pub spr_present: Vec<bool>,
 
-    pub nmi_pending: bool,
     pub prevent_vbl: bool,
     pub frame: Frame,
 
@@ -229,7 +229,6 @@ impl Ppu {
             sprites: [Sprite::new(); 8],
             spr_present: vec![false; Self::VISIBLE_END as usize],
 
-            nmi_pending: false,
             prevent_vbl: false,
             frame: Frame::new(),
 
@@ -296,8 +295,8 @@ impl Ppu {
         trace!("Start VBL - PPU:{:3},{:3}", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
-            self.nmi_pending = self.ctrl.nmi_enabled;
-            if self.nmi_pending {
+            if self.ctrl.nmi_enabled {
+                Cpu::set_nmi();
                 trace!("VBL NMI - PPU:{:3},{:3}", self.cycle, self.scanline,);
             }
         }
@@ -315,7 +314,7 @@ impl Ppu {
         self.status.set_spr_zero_hit(false);
         self.status.set_spr_overflow(false);
         self.status.reset_in_vblank();
-        self.nmi_pending = false;
+        Cpu::clear_nmi();
         self.reset_signal = false;
         self.open_bus = 0; // Clear open bus every frame
         let val = self.peek_status();
@@ -808,14 +807,14 @@ impl Registers for Ppu {
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
         // multiple times, causing multiple NMIs to be generated.
         if !self.ctrl.nmi_enabled {
-            self.nmi_pending = false;
+            Cpu::clear_nmi();
         } else if self.status.in_vblank {
             trace!(
                 "$2000 NMI During VBL - PPU:{:3},{:3}",
                 self.cycle,
                 self.scanline
             );
-            self.nmi_pending = true;
+            Cpu::set_nmi();
         }
     }
 
@@ -842,10 +841,10 @@ impl Registers for Ppu {
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
     fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
-        if self.nmi_pending {
+        if Cpu::nmi_pending() {
             trace!("$2002 NMI Ack - PPU:{:3},{:3}", self.cycle, self.scanline,);
         }
-        self.nmi_pending = false;
+        Cpu::clear_nmi();
         self.status.reset_in_vblank();
         self.scroll.reset_latch();
 
@@ -1127,7 +1126,6 @@ impl Reset for Ppu {
         self.cycle = 0;
         self.scanline = 0;
         self.master_clock = 0;
-        self.nmi_pending = false;
         self.prevent_vbl = false;
         self.frame.reset(kind);
         self.oam_fetch = 0x00;
@@ -1168,7 +1166,6 @@ impl std::fmt::Debug for Ppu {
             .field("vblank_scanline", &self.vblank_scanline)
             .field("prerender_scanline", &self.prerender_scanline)
             .field("pal_spr_eval_scanline", &self.pal_spr_eval_scanline)
-            .field("nmi_pending", &self.nmi_pending)
             .field("prevent_vbl", &self.prevent_vbl)
             .field("frame", &self.frame)
             .field("tile_shift_lo", &self.tile_shift_lo)

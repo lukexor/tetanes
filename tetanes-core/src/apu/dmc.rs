@@ -1,6 +1,7 @@
 use crate::{
     apu::timer::{Timer, TimerCycle},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    cpu::{Cpu, Irq},
 };
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -15,7 +16,6 @@ pub struct Dmc {
     pub timer: Timer,
     pub force_silent: bool,
     pub irq_enabled: bool,
-    pub irq_pending: bool,
     pub loops: bool,
     pub addr: u16,
     pub sample_addr: u16,
@@ -23,7 +23,6 @@ pub struct Dmc {
     pub sample_length: u16,
     pub sample_buffer: u8,
     pub buffer_empty: bool,
-    pub dma_pending: bool,
     pub init: u8,
     pub output_level: u8,
     pub bits_remaining: u8,
@@ -54,7 +53,6 @@ impl Dmc {
             timer: Timer::preload(Self::period(region, 0), 1),
             force_silent: false,
             irq_enabled: false,
-            irq_pending: false,
             loops: false,
             addr: 0xC000,
             sample_addr: 0x0000,
@@ -62,7 +60,6 @@ impl Dmc {
             sample_length: 0x0001,
             sample_buffer: 0x00,
             buffer_empty: true,
-            dma_pending: false,
             init: 0,
             output_level: 0x00,
             bits_remaining: 0x08,
@@ -93,17 +90,6 @@ impl Dmc {
         }
     }
 
-    pub fn acknowledge_irq(&mut self) {
-        self.irq_pending = false;
-    }
-
-    #[must_use]
-    pub fn dma(&mut self) -> bool {
-        let pending = self.dma_pending;
-        self.dma_pending = false;
-        pending
-    }
-
     #[must_use]
     pub fn dma_addr(&self) -> u16 {
         self.addr
@@ -120,7 +106,6 @@ impl Dmc {
     }
 
     pub fn load_buffer(&mut self, val: u8) {
-        self.dma_pending = false;
         if self.bytes_remaining > 0 {
             self.sample_buffer = val;
             self.buffer_empty = false;
@@ -136,7 +121,7 @@ impl Dmc {
                 if self.loops {
                     self.init_sample();
                 } else if self.irq_enabled {
-                    self.irq_pending = true;
+                    Cpu::set_irq(Irq::DMC);
                 }
             }
         }
@@ -155,11 +140,11 @@ impl Dmc {
     /// $4010 DMC timer
     pub fn write_timer(&mut self, val: u8) {
         self.irq_enabled = val & 0x80 == 0x80;
-        if !self.irq_enabled {
-            self.irq_pending = false;
-        }
         self.loops = val & 0x40 == 0x40;
         self.timer.period = Self::period(self.region, val);
+        if !self.irq_enabled {
+            Cpu::clear_irq(Irq::DMC);
+        }
     }
 
     /// $4011 DMC output
@@ -179,7 +164,6 @@ impl Dmc {
 
     /// $4015 WRITE
     pub fn set_enabled(&mut self, enabled: bool, cycle: usize) {
-        self.irq_pending = false;
         if !enabled {
             self.bytes_remaining = 0;
             self.should_clock = false;
@@ -195,7 +179,7 @@ impl Dmc {
             self.init -= 1;
             if self.init == 0 && self.buffer_empty && self.bytes_remaining > 0 {
                 trace!("APU DMC DMA pending");
-                self.dma_pending = true;
+                Cpu::start_dmc_dma();
             }
         }
         self.should_clock
@@ -251,7 +235,7 @@ impl Clock for Dmc {
                     self.buffer_empty = true;
                     if self.bytes_remaining > 0 {
                         trace!("APU DMC DMA pending");
-                        self.dma_pending = true;
+                        Cpu::start_dmc_dma();
                     }
                 }
             }
@@ -283,13 +267,11 @@ impl Reset for Dmc {
             self.sample_length = 1;
         }
         self.irq_enabled = false;
-        self.irq_pending = false;
         self.loops = false;
         self.addr = 0x0000;
         self.bytes_remaining = 0;
         self.sample_buffer = 0x00;
         self.buffer_empty = true;
-        self.dma_pending = false;
         self.output_level = 0x00;
         self.bits_remaining = 0x08;
         self.shift = 0x00;
