@@ -2,8 +2,7 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision,
-        Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
+        m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Bnrom, Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6
     },
     mem::RamState,
     ppu::Mirroring,
@@ -199,6 +198,7 @@ impl Cart {
             24 => Vrc6::load(&mut cart, Vrc6Revision::A),
             26 => Vrc6::load(&mut cart, Vrc6Revision::B),
             66 => Gxrom::load(&mut cart),
+            34 => Bnrom::load(&mut cart),
             71 => Bf909x::load(&mut cart),
             155 => Sxrom::load(&mut cart, Mmc1Revision::A),
             _ => return Err(Error::UnimplementedMapper(cart.header.mapper_num)),
