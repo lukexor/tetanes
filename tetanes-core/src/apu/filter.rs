@@ -230,32 +230,27 @@ impl FilterChain {
         let intermediate_sample_rate = output_rate * 2.0 + (PI / 32.0);
 
         let mut filters = vec![SampledFilter::new(Iir::identity(), 1.0)];
-        match region {
-            NesRegion::Auto | NesRegion::Ntsc => {
-                // first-order high-pass filter at 90 Hz
-                filters.push(SampledFilter::new(
-                    Iir::high_pass(intermediate_sample_rate, 90.0),
-                    intermediate_sample_rate,
-                ));
-                // first-order high-pass filter at 440 Hz
-                filters.push(SampledFilter::new(
-                    Iir::high_pass(intermediate_sample_rate, 440.0),
-                    intermediate_sample_rate,
-                ));
-                // first-order low-pass filter at 14 kHz
-                filters.push(SampledFilter::new(
-                    Iir::low_pass(intermediate_sample_rate, 14000.0),
-                    intermediate_sample_rate,
-                ));
-            }
-            NesRegion::Pal | NesRegion::Dendy => {
-                // first-order high-pass filter at 37 Hz
-                filters.push(SampledFilter::new(
-                    Iir::high_pass(intermediate_sample_rate, 37.0),
-                    intermediate_sample_rate,
-                ));
-            }
-        }
+        // first-order high-pass filter at 90 Hz
+        filters.push(SampledFilter::new(
+            Iir::high_pass(intermediate_sample_rate, 90.0),
+            intermediate_sample_rate,
+        ));
+        // first-order high-pass filter at 440 Hz
+        filters.push(SampledFilter::new(
+            Iir::high_pass(intermediate_sample_rate, 440.0),
+            intermediate_sample_rate,
+        ));
+        // first-order low-pass filter at 14 kHz
+        filters.push(SampledFilter::new(
+            Iir::low_pass(intermediate_sample_rate, 14000.0),
+            intermediate_sample_rate,
+        ));
+        // TODO: Support famicom filter selection
+        // // first-order high-pass filter at 37 Hz
+        // filters.push(SampledFilter::new(
+        //     Iir::high_pass(intermediate_sample_rate, 37.0),
+        //     intermediate_sample_rate,
+        // ));
 
         // high-quality low-pass filter
         let window_size = 60;
