@@ -399,8 +399,9 @@ impl Renderer {
                         self.resize_surface = true;
                     }
                     RendererEvent::Frame => self.gui.frame_counter += 1,
-                    RendererEvent::RomLoaded(title) => {
+                    RendererEvent::RomLoaded((title, region)) => {
                         self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
+                        self.gui.cart_aspect_ratio = region.aspect_ratio();
                         self.gui.resize_window = true;
                         self.gui.resize_texture = true;
                     }
@@ -439,7 +440,12 @@ impl Renderer {
             &self.texture.view,
             wgpu::FilterMode::Nearest,
         );
-        let aspect_ratio = self.config.read(|cfg| cfg.deck.region.aspect_ratio());
+        let region = self.config.read(|cfg| cfg.deck.region);
+        let aspect_ratio = if region.is_auto() {
+            self.gui.cart_aspect_ratio
+        } else {
+            region.aspect_ratio()
+        };
         self.gui.texture = SizedTexture::new(
             egui_texture,
             Vec2 {
@@ -474,7 +480,14 @@ impl Renderer {
         if self.resize_surface || self.gui.resize_window {
             self.surface.configure(&self.device, &self.surface_config);
             if self.gui.resize_window {
+                let region = self.config.read(|cfg| cfg.deck.region);
+                let aspect_ratio = if region.is_auto() {
+                    self.gui.cart_aspect_ratio
+                } else {
+                    region.aspect_ratio()
+                };
                 let mut window_size = self.config.read(|cfg| cfg.window_size());
+                window_size.width *= aspect_ratio;
                 window_size.height += self.gui.menu_height;
                 let _ = self.window.request_inner_size(window_size);
             }

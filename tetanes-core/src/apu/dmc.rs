@@ -34,7 +34,7 @@ pub struct Dmc {
 
 impl Default for Dmc {
     fn default() -> Self {
-        Self::new(NesRegion::default())
+        Self::new(NesRegion::Ntsc)
     }
 }
 

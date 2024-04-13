@@ -14,8 +14,8 @@ pub struct ParseNesRegionError;
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum NesRegion {
-    #[default]
     Auto,
+    #[default]
     Ntsc,
     Pal,
     Dendy,
@@ -121,7 +121,7 @@ impl TryFrom<usize> for NesRegion {
 #[enum_dispatch(Mapper)]
 pub trait Regional {
     fn region(&self) -> NesRegion {
-        NesRegion::default()
+        NesRegion::Ntsc
     }
     fn set_region(&mut self, _region: NesRegion) {}
 }

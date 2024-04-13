@@ -205,14 +205,15 @@ impl State {
             let rewind = Rewind::new(cfg.emulation.rewind);
             (control_deck, audio, rewind)
         });
-        Self {
+        let region = config.read(|cfg| cfg.deck.region);
+        let mut state = Self {
             event_proxy,
             config,
             control_deck,
             audio,
             frame_pool,
             frame_latency: 1,
-            target_frame_duration: Duration::default(),
+            target_frame_duration: FrameRate::from(region).duration(),
             last_frame_time: Instant::now(),
             total_frame_duration: Duration::default(),
             frame_time_accumulator: 0.0,
@@ -222,7 +223,9 @@ impl State {
             rewind,
             record: Record::new(),
             replay: Replay::new(),
-        }
+        };
+        state.set_region(region);
+        state
     }
 
     pub fn add_message<S: ToString>(&mut self, msg: S) {
@@ -440,9 +443,10 @@ impl State {
                 }
             }
         }
-        let region = self.control_deck.region();
-        self.set_region(region);
-        self.send_event(RendererEvent::RomLoaded(name));
+        self.send_event(RendererEvent::RomLoaded((
+            name,
+            self.control_deck.cart_region,
+        )));
         if self.config.read(|cfg| cfg.audio.enabled) {
             if let Err(err) = self.audio.start() {
                 self.on_error(err);

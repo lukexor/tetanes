@@ -62,25 +62,24 @@ pub struct Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new(RamState::default())
+        Self::new(NesRegion::Ntsc, RamState::default())
     }
 }
 
 impl Bus {
     const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
 
-    pub fn new(ram_state: RamState) -> Self {
+    pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         let mut wram = vec![0x00; Self::WRAM_SIZE];
         RamState::fill(&mut wram, ram_state);
-        let region = NesRegion::default();
         Self {
-            apu: Apu::new(),
+            apu: Apu::new(region),
             genie_codes: HashMap::new(),
-            input: Input::new(),
+            input: Input::new(region),
             oam_dma: false,
             oam_dma_addr: 0x0000,
             open_bus: 0x00,
-            ppu: Ppu::new(),
+            ppu: Ppu::new(region),
             prg_ram: vec![],
             prg_ram_protect: false,
             prg_rom: vec![],
@@ -296,6 +295,7 @@ impl Regional for Bus {
         self.region = region;
         self.ppu.set_region(region);
         self.apu.set_region(region);
+        self.input.set_region(region);
     }
 }
 

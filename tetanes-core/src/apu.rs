@@ -113,8 +113,7 @@ impl Apu {
     pub const CYCLE_SIZE: usize = 10_000;
 
     /// Create a new APU instance.
-    pub fn new() -> Self {
-        let region = NesRegion::default();
+    pub fn new(region: NesRegion) -> Self {
         let clock_rate = Cpu::region_clock_rate(region);
         let sample_period = clock_rate / Self::SAMPLE_RATE;
         Self {
@@ -348,7 +347,7 @@ impl ClockTo for Apu {
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesRegion::Ntsc)
     }
 }
 

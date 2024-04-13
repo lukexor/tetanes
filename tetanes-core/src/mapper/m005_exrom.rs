@@ -366,7 +366,7 @@ impl Exrom {
             chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
             tile_cache: 0,
             last_chr_write: ChrBank::Spr,
-            region: NesRegion::default(),
+            region: cart.region(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
             dmc: Dmc::new(cart.region()),

@@ -132,7 +132,7 @@ impl Cpu {
     pub fn new(bus: Bus) -> Self {
         let mut cpu = Self {
             cycle: 0,
-            region: NesRegion::default(),
+            region: bus.region,
             master_clock: 0,
             read_cycles: Cycle::default(),
             write_cycles: Cycle::default(),

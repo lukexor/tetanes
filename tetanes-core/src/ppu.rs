@@ -114,7 +114,7 @@ pub struct Ppu {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesRegion::Ntsc)
     }
 }
 
@@ -184,8 +184,7 @@ impl Ppu {
     ];
 
     /// Create a new PPU instance.
-    pub fn new() -> Self {
-        let region = NesRegion::default();
+    pub fn new(region: NesRegion) -> Self {
         let mut ppu = Self {
             master_clock: 0,
             clock_divider: 0,

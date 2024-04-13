@@ -77,7 +77,7 @@ impl Cart {
         let mut empty = Self {
             name: "Empty Cart".to_string(),
             header: NesHeader::default(),
-            region: NesRegion::default(),
+            region: NesRegion::Ntsc,
             ram_state: RamState::default(),
             mapper: Mapper::none(),
             chr_rom: vec![0x00; CHR_ROM_BANK_SIZE],
@@ -327,8 +327,8 @@ impl Cart {
         const GAME_REGIONS: &[u8] = include_bytes!("../../game_regions.dat");
 
         let Ok(games) = fs::load_bytes::<Vec<GameRegion>>(GAME_REGIONS) else {
-            error!("failed to load game_regions.dat");
-            return NesRegion::default();
+            error!("failed to load `game_regions.dat`");
+            return NesRegion::Ntsc;
         };
 
         let mut crc32 = fs::compute_crc32(prg_rom);
@@ -337,8 +337,17 @@ impl Cart {
         }
 
         match games.binary_search_by(|game| game.crc32.cmp(&crc32)) {
-            Ok(index) => games[index].region,
-            Err(_) => NesRegion::default(),
+            Ok(index) => {
+                info!(
+                    "found game matching crc: {crc32:#010X}. region: {}",
+                    games[index].region
+                );
+                games[index].region
+            }
+            Err(_) => {
+                info!("no game found matching crc: {crc32:#010X}",);
+                NesRegion::Ntsc
+            }
         }
     }
 }

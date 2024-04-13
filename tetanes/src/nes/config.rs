@@ -263,11 +263,10 @@ impl ConfigImpl {
 
     #[must_use]
     pub fn window_size(&self) -> LogicalSize<f32> {
-        let aspect_ratio = self.deck.region.aspect_ratio();
         let scale = self.renderer.scale;
         let texture_size = self.texture_size();
         LogicalSize::new(
-            scale * texture_size.width as f32 * aspect_ratio,
+            scale * texture_size.width as f32,
             scale * texture_size.height as f32,
         )
     }

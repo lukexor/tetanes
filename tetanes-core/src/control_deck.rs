@@ -118,7 +118,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             filter: VideoFilter::default(),
-            region: NesRegion::default(),
+            region: NesRegion::Auto,
             ram_state: RamState::Random,
             four_player: FourPlayer::default(),
             zapper: false,
@@ -140,7 +140,7 @@ pub struct ControlDeck {
     pub loaded_rom: Option<String>,
     pub cart_battery_backed: bool,
     pub cart_region: NesRegion,
-    pub region_auto_detect: bool,
+    pub auto_detect_region: bool,
     pub cycles_remaining: f32,
     pub cpu: Cpu,
 }
@@ -159,10 +159,14 @@ impl ControlDeck {
 
     /// Create a NES `ControlDeck` with a configuration.
     pub fn with_config(config: Config) -> Self {
-        let mut cpu = Cpu::new(Bus::new(config.ram_state));
+        let mut cpu = Cpu::new(Bus::new(config.region, config.ram_state));
         cpu.bus.ppu.skip_rendering = config.headless_mode.contains(HeadlessMode::NO_VIDEO);
         cpu.bus.apu.skip_mixing = config.headless_mode.contains(HeadlessMode::NO_AUDIO);
-        cpu.set_region(config.region);
+        if config.region.is_auto() {
+            cpu.set_region(NesRegion::Ntsc);
+        } else {
+            cpu.set_region(config.region);
+        }
         cpu.bus.input.set_four_player(config.four_player);
         cpu.bus.input.connect_zapper(config.zapper);
         for (i, enabled) in config.channels_enabled.iter().enumerate() {
@@ -180,8 +184,8 @@ impl ControlDeck {
             last_frame_number: 0,
             loaded_rom: None,
             cart_battery_backed: false,
-            cart_region: NesRegion::default(),
-            region_auto_detect: config.region.is_auto(),
+            cart_region: NesRegion::Ntsc,
+            auto_detect_region: config.region.is_auto(),
             cycles_remaining: 0.0,
             cpu,
         }
@@ -198,7 +202,7 @@ impl ControlDeck {
         let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state)?;
         self.cart_battery_backed = cart.battery_backed();
         self.cart_region = cart.region();
-        if self.region_auto_detect {
+        if self.auto_detect_region {
             self.cpu.set_region(self.cart_region);
         }
         self.cpu.bus.load_cart(cart);
@@ -768,8 +772,12 @@ impl Regional for ControlDeck {
 
     /// Set the NES format for the emulation.
     fn set_region(&mut self, region: NesRegion) {
-        self.region_auto_detect = region.is_auto();
-        self.cpu.set_region(region);
+        self.auto_detect_region = region.is_auto();
+        if self.auto_detect_region {
+            self.cpu.set_region(self.cart_region);
+        } else {
+            self.cpu.set_region(region);
+        }
     }
 }
 

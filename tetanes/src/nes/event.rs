@@ -92,7 +92,7 @@ pub enum EmulationEvent {
 #[must_use]
 pub enum RendererEvent {
     Frame,
-    RomLoaded(String),
+    RomLoaded((String, NesRegion)),
     Menu(Menu),
     SetVSync(bool),
 }
