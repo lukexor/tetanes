@@ -2,7 +2,10 @@
 //!
 //! <https://www.nesdev.org/wiki/VRC_IRQ>
 
-use crate::common::{Clock, Reset, ResetKind};
+use crate::{
+    common::{Clock, Reset, ResetKind},
+    cpu::{Cpu, Irq},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
@@ -14,7 +17,6 @@ pub struct VrcIrq {
     pub enabled: bool,
     pub enabled_after_ack: bool,
     pub cycle_mode: bool,
-    pub pending: bool,
 }
 
 impl VrcIrq {
@@ -32,17 +34,12 @@ impl VrcIrq {
             self.prescalar_counter = 341;
         }
 
-        self.pending = false;
-    }
-
-    #[must_use]
-    pub const fn pending(&self) -> bool {
-        self.pending
+        Cpu::clear_irq(Irq::MAPPER);
     }
 
     pub fn acknowledge(&mut self) {
         self.enabled = self.enabled_after_ack;
-        self.pending = false;
+        Cpu::clear_irq(Irq::MAPPER);
     }
 }
 
@@ -53,7 +50,7 @@ impl Clock for VrcIrq {
             if self.cycle_mode || self.prescalar_counter <= 0 {
                 if self.counter == 0xFF {
                     self.counter = self.reload;
-                    self.pending = true;
+                    Cpu::set_irq(Irq::MAPPER);
                 } else {
                     self.counter += 1;
                 }

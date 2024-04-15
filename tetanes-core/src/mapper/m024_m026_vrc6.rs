@@ -221,10 +221,6 @@ impl Vrc6 {
 }
 
 impl Mapped for Vrc6 {
-    fn irq_pending(&self) -> bool {
-        self.irq.pending()
-    }
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }

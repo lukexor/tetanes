@@ -11,7 +11,7 @@ use crate::{
     },
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
-    cpu::Cpu,
+    cpu::{Cpu, Irq},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::{bus::PpuAddr, Mirroring, Ppu},
@@ -254,7 +254,6 @@ impl ExRegs {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct IrqState {
-    pub pending: bool,
     pub in_frame: bool,
     pub prev_addr: Option<u16>,
     pub match_count: u8,
@@ -345,7 +344,6 @@ impl Exrom {
             regs: ExRegs::new(),
             mirroring: cart.mirroring(),
             irq_state: IrqState {
-                pending: false,
                 in_frame: false,
                 prev_addr: None,
                 match_count: 0,
@@ -531,10 +529,6 @@ impl Exrom {
 }
 
 impl Mapped for Exrom {
-    fn irq_pending(&self) -> bool {
-        self.regs.irq_enabled && self.irq_state.pending
-    }
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -655,7 +649,7 @@ impl MemMap for Exrom {
                             // Scanline IRQ detected
                             status.scanline += 1;
                             if status.scanline == self.regs.irq_scanline {
-                                irq_state.pending = true;
+                                Cpu::set_irq(Irq::MAPPER);
                             }
                         } else {
                             irq_state.in_frame = true;
@@ -671,13 +665,18 @@ impl MemMap for Exrom {
             0xFFFA | 0xFFFB => {
                 self.irq_state.in_frame = false; // NMI clears in_frame
                 self.irq_state.prev_addr = None;
+                Cpu::clear_irq(Irq::MAPPER);
             }
             _ => (),
         }
         let val = self.map_peek(addr);
         match addr {
-            0x5204 => self.irq_state.pending = false, // Reading from IRQ status clears it
-            0x5010 => self.dmc.acknowledge_irq(),
+            0x5204 => {
+                Cpu::clear_irq(Irq::MAPPER);
+            }
+            0x5010 => {
+                Cpu::clear_irq(Irq::DMC);
+            }
             _ => (),
         }
         val
@@ -739,7 +738,7 @@ impl MemMap for Exrom {
                 // [I... ...M] DMC
                 // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 // M = Mode select (0 = write mode. 1 = read mode.)
-                let irq = self.dmc.irq_pending && self.dmc.irq_enabled;
+                let irq = Cpu::has_irq(Irq::DMC);
                 MappedRead::Data(u8::from(irq) << 7 | self.dmc_mode)
             }
             0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
@@ -775,10 +774,11 @@ impl MemMap for Exrom {
                 //   P = IRQ currently pending
                 //   I = "In Frame" signal
 
+                let irq_pending = Cpu::irqs().contains(Irq::MAPPER);
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in the read() function
                 MappedRead::Data(
-                    u8::from(self.irq_state.pending) << 7 | u8::from(self.irq_state.in_frame) << 6,
+                    u8::from(irq_pending) << 7 | u8::from(self.irq_state.in_frame) << 6,
                 )
             }
             0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),
@@ -967,7 +967,12 @@ impl MemMap for Exrom {
             0x5201 => self.regs.vsplit.scroll = val, // [YYYY YYYY]  Split Y scroll
             0x5202 => self.regs.vsplit.bank = val,   // [CCCC CCCC]  4k CHR Page for split
             0x5203 => self.regs.irq_scanline = u16::from(val), // [IIII IIII]  IRQ Target
-            0x5204 => self.regs.irq_enabled = val & 0x80 > 0, // [E... ....] IRQ Enable (0=disabled, 1=enabled)
+            0x5204 => {
+                self.regs.irq_enabled = val & 0x80 > 0; // [E... ....] IRQ Enable (0=disabled, 1=enabled)
+                if !self.regs.irq_enabled {
+                    Cpu::clear_irq(Irq::MAPPER);
+                }
+            }
             0x5205 => {
                 self.regs.multiplicand = val;
                 self.regs.mult_result =
