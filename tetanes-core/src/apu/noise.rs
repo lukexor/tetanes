@@ -35,7 +35,7 @@ pub struct Noise {
 
 impl Default for Noise {
     fn default() -> Self {
-        Self::new(NesRegion::default())
+        Self::new(NesRegion::Ntsc)
     }
 }
 
@@ -50,8 +50,7 @@ impl Noise {
     pub const fn new(region: NesRegion) -> Self {
         Self {
             region,
-            // Noise channel is clocked at APU rate (CPU / 2)
-            timer: Timer::new(Self::period(region, 0), 2),
+            timer: Timer::new(Self::period(region, 0)),
             shift: 1, // defaults to 1 on power up
             shift_mode: ShiftMode::Zero,
             length: LengthCounter::new(Channel::Noise),

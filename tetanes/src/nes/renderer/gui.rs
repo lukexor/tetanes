@@ -66,6 +66,7 @@ pub struct Gui {
     pub preferences_open: bool,
     pub keybinds_open: bool,
     pub about_open: bool,
+    pub cart_aspect_ratio: f32,
     pub resize_window: bool,
     pub resize_texture: bool,
     pub replay_recording: bool,
@@ -115,6 +116,8 @@ impl Gui {
         texture: SizedTexture,
         config: Config,
     ) -> Self {
+        // Default auto to current config until a ROM is loaded
+        let cart_aspect_ratio = config.read(|cfg| cfg.deck.region.aspect_ratio());
         Self {
             window,
             title: Config::WINDOW_TITLE.to_string(),
@@ -126,6 +129,7 @@ impl Gui {
             preferences_open: false,
             keybinds_open: false,
             about_open: false,
+            cart_aspect_ratio,
             resize_window: false,
             resize_texture: false,
             replay_recording: false,
@@ -387,11 +391,13 @@ impl Gui {
         ui.menu_button("Nes Region...", |ui| {
             let region = self.config.read(|cfg| cfg.deck.region);
             self.config.write(|cfg| {
+                ui.radio_value(&mut cfg.deck.region, NesRegion::Auto, "Auto");
                 ui.radio_value(&mut cfg.deck.region, NesRegion::Ntsc, "NTSC");
                 ui.radio_value(&mut cfg.deck.region, NesRegion::Pal, "PAL");
                 ui.radio_value(&mut cfg.deck.region, NesRegion::Dendy, "Dendy");
             });
             if region != self.config.read(|cfg| cfg.deck.region) {
+                self.resize_window = true;
                 self.resize_texture = true;
                 self.send_event(EmulationEvent::SetRegion(
                     self.config.read(|cfg| cfg.deck.region),

@@ -30,6 +30,7 @@ pub enum PulseChannel {
 #[must_use]
 pub struct Pulse {
     pub channel: PulseChannel,
+    pub real_period: usize,
     pub timer: Timer,
     pub duty: u8,       // Select row in DUTY_TABLE
     pub duty_cycle: u8, // Select column in DUTY_TABLE
@@ -57,8 +58,8 @@ impl Pulse {
     pub const fn new(channel: PulseChannel, output_freq: OutputFreq) -> Self {
         Self {
             channel,
-            // Pulse channel is clocked at APU rate (CPU / 2)
-            timer: Timer::new(0, 2),
+            real_period: 0,
+            timer: Timer::new(0),
             duty: 0u8,
             duty_cycle: 0,
             length: LengthCounter::new(match channel {
@@ -76,7 +77,7 @@ impl Pulse {
     pub fn is_muted(&self) -> bool {
         // MMC5 doesn't mute at ultasonic frequencies
         self.output_freq == OutputFreq::Default
-            && (self.timer.period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7FF))
+            && (self.real_period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7FF))
             || self.silent()
     }
 
@@ -90,19 +91,20 @@ impl Pulse {
     }
 
     fn update_target_period(&mut self) {
-        let delta = self.timer.period >> self.sweep.shift;
+        let delta = self.real_period >> self.sweep.shift;
         if self.sweep.negate {
-            self.sweep.target_period = self.timer.period - delta;
+            self.sweep.target_period = self.real_period - delta;
             if let PulseChannel::One = self.channel {
                 self.sweep.target_period = self.sweep.target_period.wrapping_sub(1);
             }
         } else {
-            self.sweep.target_period = self.timer.period + delta;
+            self.sweep.target_period = self.real_period + delta;
         }
     }
 
     fn set_period(&mut self, period: usize) {
-        self.timer.period = period;
+        self.real_period = period;
+        self.timer.period = (period * 2) + 1;
         self.update_target_period();
     }
 
@@ -111,7 +113,7 @@ impl Pulse {
         if self.sweep.divider == 0 {
             if self.sweep.shift > 0
                 && self.sweep.enabled
-                && self.timer.period >= 8
+                && self.real_period >= 8
                 && self.sweep.target_period <= 0x7FF
             {
                 self.set_period(self.sweep.target_period);
@@ -154,13 +156,13 @@ impl Pulse {
 
     /// $4002/$4006 Pulse timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
-        self.set_period(self.timer.period & 0x0700 | usize::from(val));
+        self.set_period(self.real_period & 0x0700 | usize::from(val));
     }
 
     /// $4003/$4007 Pulse timer hi
     pub fn write_timer_hi(&mut self, val: u8) {
         self.length.write(val >> 3);
-        self.set_period(self.timer.period & 0xFF | (usize::from(val & 0x07) << 8));
+        self.set_period(self.real_period & 0xFF | (usize::from(val & 0x07) << 8));
         self.duty_cycle = 0;
         self.envelope.restart();
     }

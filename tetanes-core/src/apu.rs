@@ -20,7 +20,6 @@ pub mod noise;
 pub mod pulse;
 pub mod triangle;
 
-pub mod divider;
 pub mod envelope;
 pub mod filter;
 pub mod frame_counter;
@@ -113,8 +112,7 @@ impl Apu {
     pub const CYCLE_SIZE: usize = 10_000;
 
     /// Create a new APU instance.
-    pub fn new() -> Self {
-        let region = NesRegion::default();
+    pub fn new(region: NesRegion) -> Self {
         let clock_rate = Cpu::region_clock_rate(region);
         let sample_period = clock_rate / Self::SAMPLE_RATE;
         Self {
@@ -158,7 +156,7 @@ impl Apu {
         for outputs in self
             .channel_outputs
             .chunks_exact(Self::MAX_CHANNEL_COUNT)
-            .take(self.cycle)
+            .take(self.master_cycle)
         {
             let [pulse1, pulse2, triangle, noise, dmc, mapper] = outputs else {
                 warn!("invalid channel outputs");
@@ -221,15 +219,6 @@ impl Apu {
             Channel::Dmc => self.dmc.set_silent(!self.dmc.silent()),
             Channel::Mapper => self.mapper_silenced = !self.mapper_silenced,
         }
-    }
-
-    /// Whether the APU has any IRQs pending.
-    #[inline]
-    pub fn irqs_pending(&self) -> Irq {
-        let mut irq = Irq::empty();
-        irq.set(Irq::FRAME_COUNTER, self.frame_counter.irq_pending);
-        irq.set(Irq::DMC, self.dmc.irq_pending);
-        irq
     }
 
     pub fn clock_lazy(&mut self) -> usize {
@@ -348,7 +337,7 @@ impl ClockTo for Apu {
 
 impl Default for Apu {
     fn default() -> Self {
-        Self::new()
+        Self::new(NesRegion::Ntsc)
     }
 }
 
@@ -425,20 +414,20 @@ impl ApuRegisters for Apu {
             Channel::Pulse1 => {
                 trace!("APU $4003 write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.pulse1.write_timer_hi(val);
+                self.should_clock = self.pulse1.length.enabled;
             }
             Channel::Pulse2 => {
                 trace!("APU $4007 write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.pulse2.write_timer_hi(val);
+                self.should_clock = self.pulse2.length.enabled;
             }
             Channel::Triangle => {
                 trace!("APU $400B write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.triangle.write_timer_hi(val);
+                self.should_clock = self.triangle.length.enabled;
             }
             _ => panic!("{channel:?} does not have a timer_hi register"),
         }
-        self.should_clock = self.pulse1.length.enabled
-            || self.pulse2.length.enabled
-            || self.triangle.length.enabled;
     }
 
     /// $4008 Triangle Linear Counter.
@@ -454,11 +443,13 @@ impl ApuRegisters for Apu {
         self.clock_to(self.master_cycle);
         trace!("APU $400F write: ${val:02X} - CYC:{}", self.cpu_cycle);
         match channel {
-            Channel::Noise => self.noise.write_length(val),
+            Channel::Noise => {
+                self.noise.write_length(val);
+                self.should_clock = self.noise.length.enabled;
+            }
             Channel::Dmc => self.dmc.write_length(val),
             _ => panic!("{channel:?} does not have a length register"),
         }
-        self.should_clock = self.noise.length.enabled;
     }
 
     /// $4011 DMC Output Level.
@@ -487,10 +478,10 @@ impl ApuRegisters for Apu {
         self.clock_to(self.master_cycle);
         let val = self.peek_status();
         trace!("APU $4015 read: ${val:02X} - CYC:{}", self.cpu_cycle);
-        if self.frame_counter.irq_pending {
+        if Cpu::has_irq(Irq::FRAME_COUNTER) {
             trace!("APU Frame Counter IRQ - CYC:{}", self.cpu_cycle);
         }
-        self.frame_counter.irq_pending = false;
+        Cpu::clear_irq(Irq::FRAME_COUNTER);
         val
     }
 
@@ -515,10 +506,11 @@ impl ApuRegisters for Apu {
             trace!("dmc bytes remaining: {}", self.dmc.bytes_remaining);
             status |= 0x10;
         }
-        if self.frame_counter.irq_pending {
+        let irqs = Cpu::irqs();
+        if irqs.contains(Irq::FRAME_COUNTER) {
             status |= 0x40;
         }
-        if self.dmc.irq_pending {
+        if irqs.contains(Irq::DMC) {
             status |= 0x80;
         }
         status
@@ -530,6 +522,7 @@ impl ApuRegisters for Apu {
     fn write_status(&mut self, val: u8) {
         self.clock_to(self.master_cycle);
         trace!("APU $4015 write: ${val:02X} - CYC:{}", self.cpu_cycle);
+        Cpu::clear_irq(Irq::DMC);
         self.pulse1.set_enabled(val & 0x01 == 0x01);
         self.pulse2.set_enabled(val & 0x02 == 0x02);
         self.triangle.set_enabled(val & 0x04 == 0x04);

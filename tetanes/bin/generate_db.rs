@@ -15,8 +15,8 @@ use tetanes_core::{
     ppu::Mirroring,
 };
 
-const GAME_DB: &str = "game_database.txt";
-const GAME_REGIONS: &str = "game_regions.dat";
+const GAME_DB: &str = "tetanes-core/game_database.txt";
+const GAME_REGIONS: &str = "tetanes-core/game_regions.dat";
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();

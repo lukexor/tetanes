@@ -6,6 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind},
+    cpu::{Cpu, Irq},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -66,7 +67,6 @@ impl TxRegs {
 pub struct Txrom {
     pub regs: TxRegs,
     pub mirroring: Mirroring,
-    pub irq_pending: bool,
     pub revision: Mmc3Revision,
     pub chr_banks: MemBanks,
     pub prg_ram_banks: MemBanks,
@@ -100,7 +100,6 @@ impl Txrom {
         let mut txrom = Self {
             regs: TxRegs::new(),
             mirroring: cart.mirroring(),
-            irq_pending: false,
             revision: Mmc3Revision::BC, // TODO compare to known games
             chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW),
@@ -172,7 +171,7 @@ impl Txrom {
                     && self.regs.irq_counter == 0
                     && self.regs.irq_enabled
                 {
-                    self.irq_pending = true;
+                    Cpu::set_irq(Irq::MAPPER);
                 }
                 self.regs.irq_reload = false;
             }
@@ -182,10 +181,6 @@ impl Txrom {
 }
 
 impl Mapped for Txrom {
-    fn irq_pending(&self) -> bool {
-        self.irq_pending
-    }
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -292,7 +287,7 @@ impl MemMap for Txrom {
                     0xC000 => self.regs.irq_latch = val,
                     0xC001 => self.regs.irq_reload = true,
                     0xE000 => {
-                        self.irq_pending = false;
+                        Cpu::clear_irq(Irq::MAPPER);
                         self.regs.irq_enabled = false;
                     }
                     0xE001 => self.regs.irq_enabled = true,
@@ -307,7 +302,6 @@ impl MemMap for Txrom {
 
 impl Reset for Txrom {
     fn reset(&mut self, _kind: ResetKind) {
-        self.irq_pending = false;
         self.regs = TxRegs::new();
         self.update_banks();
     }

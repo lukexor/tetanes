@@ -20,10 +20,22 @@ use instr::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Write};
+use std::{
+    cell::Cell,
+    fmt::{self, Write},
+};
 use tracing::trace;
 
 pub mod instr;
+
+thread_local! {
+    static NMI: Cell<bool> = const { Cell::new(false) };
+    static IRQS: Cell<Irq> = const { Cell::new(Irq::empty()) };
+    static DMAS: Cell<Dma> = const { Cell::new(Dma::empty()) };
+    static DMA_HALT: Cell<bool> = const { Cell::new(false) };
+    static DMA_DUMMY_READ: Cell<bool> = const { Cell::new(false) };
+    static DMA_OAM_ADDR: Cell<u16> = const { Cell::new(0x0000) };
+}
 
 bitflags! {
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
@@ -32,6 +44,15 @@ bitflags! {
         const MAPPER = 1 << 1;
         const FRAME_COUNTER = 1 << 2;
         const DMC = 1 << 3;
+    }
+}
+
+bitflags! {
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
+    #[must_use]
+    pub struct Dma: u8 {
+        const OAM = 1 << 1;
+        const DMC = 1 << 2;
     }
 }
 
@@ -77,7 +98,6 @@ pub struct Cycle {
 pub struct Cpu {
     pub cycle: usize, // total number of cycles ran
     pub pc: u16,      // program counter
-    pub dma_halt: bool,
     pub bus: Bus,
     // start/end cycle counts for reads
     pub read_cycles: Cycle,
@@ -93,17 +113,14 @@ pub struct Cpu {
     pub sp: u8,           // stack pointer - stack is at $0100-$01FF
     pub abs_addr: u16,    // Used memory addresses get set here
     pub rel_addr: u16,    // Relative address for branch instructions
-    pub irq: Irq,         // Pending interrupts
     pub run_irq: bool,
     pub prev_run_irq: bool,
     pub nmi: bool,
     pub prev_nmi: bool,
     pub prev_nmi_pending: bool,
-    pub dmc_dma: bool,
     #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     pub region: NesRegion,
-    pub dummy_read: bool,
     pub cycle_accurate: bool,
     #[serde(skip)]
     pub disasm: String,
@@ -132,7 +149,7 @@ impl Cpu {
     pub fn new(bus: Bus) -> Self {
         let mut cpu = Self {
             cycle: 0,
-            region: NesRegion::default(),
+            region: bus.region,
             master_clock: 0,
             read_cycles: Cycle::default(),
             write_cycles: Cycle::default(),
@@ -147,16 +164,12 @@ impl Cpu {
             abs_addr: 0x0000,
             rel_addr: 0x0000,
             fetched_data: 0x00,
-            irq: Irq::empty(),
             run_irq: false,
             prev_run_irq: false,
             nmi: false,
             prev_nmi: false,
             prev_nmi_pending: false,
             corrupted: false,
-            dmc_dma: false,
-            dma_halt: false,
-            dummy_read: false,
             cycle_accurate: true,
             disasm: String::with_capacity(100),
         };
@@ -200,6 +213,95 @@ impl Cpu {
     pub fn next_instr(&self) -> Instr {
         let opcode = self.peek(self.pc, Access::Dummy);
         Cpu::INSTRUCTIONS[opcode as usize]
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn nmi_pending() -> bool {
+        NMI.with(|nmi| nmi.get())
+    }
+
+    #[inline]
+    pub fn set_nmi() {
+        NMI.with(|nmi| nmi.set(true));
+    }
+
+    #[inline]
+    pub fn clear_nmi() {
+        NMI.with(|nmi| nmi.set(false));
+    }
+
+    #[inline]
+    pub fn irqs() -> Irq {
+        IRQS.with(|irqs| irqs.get())
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn has_irq(irq: Irq) -> bool {
+        IRQS.with(|irqs| irqs.get().contains(irq))
+    }
+
+    #[inline]
+    pub fn set_irq(irq: Irq) {
+        IRQS.with(|irqs| irqs.set(irqs.get() | irq));
+    }
+
+    #[inline]
+    pub fn clear_irq(irq: Irq) {
+        IRQS.with(|irqs| irqs.set(irqs.get() & !irq));
+    }
+
+    #[inline]
+    pub fn start_dmc_dma() {
+        DMAS.with(|dmas| dmas.set(dmas.get() | Dma::DMC));
+        DMA_HALT.with(|dma_halt| dma_halt.set(true));
+        DMA_DUMMY_READ.with(|dma_dummy_read| dma_dummy_read.set(true));
+    }
+
+    #[inline]
+    pub fn start_oam_dma(addr: u16) {
+        DMAS.with(|dmas| dmas.set(dmas.get() | Dma::OAM));
+        DMA_HALT.with(|dma_halt| dma_halt.set(true));
+        DMA_OAM_ADDR.with(|dma_oam_addr| dma_oam_addr.set(addr));
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn halt_for_dma() -> bool {
+        DMA_HALT.with(|dma_halt| dma_halt.get())
+    }
+
+    #[inline]
+    pub fn dma_oam_addr() -> u16 {
+        DMA_OAM_ADDR.with(|dma_oam_addr| dma_oam_addr.get())
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn dmas_running() -> Option<(bool, bool)> {
+        let dmas = DMAS.with(|dmas| dmas.get());
+        (!dmas.is_empty()).then_some((dmas.contains(Dma::DMC), dmas.contains(Dma::OAM)))
+    }
+
+    #[inline]
+    pub fn clear_dma(dma: Dma) {
+        DMAS.with(|dmas| dmas.set(dmas.get() & !dma));
+    }
+
+    #[inline]
+    pub fn clear_dma_halt() {
+        DMA_HALT.with(|dma_halt| dma_halt.set(false));
+    }
+
+    #[inline]
+    pub fn dma_dummy_read() -> bool {
+        DMA_DUMMY_READ.with(|dma_dummy_read| dma_dummy_read.get())
+    }
+
+    #[inline]
+    pub fn clear_dma_dummy_read() {
+        DMA_DUMMY_READ.with(|dma_dummy_read| dma_dummy_read.set(false));
     }
 
     /// Process an interrupted request.
@@ -265,26 +367,18 @@ impl Cpu {
         // during the second half of each cycle, hence here in `end_cycle`) and raises an internal
         // signal if the input goes from being high during one cycle to being low during the
         // next.
-        let nmi_pending = self.bus.ppu.nmi_pending;
+        let nmi_pending = Self::nmi_pending();
         self.nmi |= !self.prev_nmi_pending && nmi_pending;
         self.prev_nmi_pending = nmi_pending;
 
         // The IRQ status at the end of the second-to-last cycle is what matters,
         // so keep the second-to-last status.
         self.prev_run_irq = self.run_irq;
-        self.irq = self.bus.irqs_pending();
-        self.run_irq = !self.irq.is_empty() && !self.status.intersects(Status::I);
+        let irqs = Self::irqs();
+        self.run_irq = !irqs.is_empty() && !self.status.intersects(Status::I);
         if !self.prev_run_irq && self.run_irq {
-            trace!("IRQs: {:?} - CYC:{}", self.irq, self.cycle);
+            trace!("IRQs: {:?} - CYC:{}", irqs, self.cycle);
         }
-
-        let dmc_dma = self.bus.apu.dmc.dma();
-        if !self.dma_halt && dmc_dma {
-            trace!("DMC DMA - CYC:{}", self.cycle);
-        }
-        self.dmc_dma |= dmc_dma;
-        self.dma_halt |= dmc_dma;
-        self.dummy_read |= dmc_dma;
     }
 
     /// Start a CPU cycle.
@@ -312,10 +406,10 @@ impl Cpu {
     /// Start a direct-memory access (DMA) cycle.
     fn start_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
-        if self.dma_halt {
-            self.dma_halt = false;
-        } else if self.dummy_read {
-            self.dummy_read = false;
+        if Self::halt_for_dma() {
+            Self::clear_dma_halt();
+        } else {
+            Self::clear_dma_dummy_read();
         }
         self.start_cycle(self.read_cycles.start);
     }
@@ -327,7 +421,7 @@ impl Cpu {
         self.start_cycle(self.read_cycles.start);
         self.bus.read(addr, Access::Dummy);
         self.end_cycle(self.read_cycles.end);
-        self.dma_halt = false;
+        Self::clear_dma_halt();
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
 
@@ -335,9 +429,9 @@ impl Cpu {
         let mut oam_dma_count = 0;
         let mut read_val = 0;
 
-        while self.bus.oam_dma || self.dmc_dma {
+        while let Some((dmc_dma, oam_dma)) = Self::dmas_running() {
             if self.cycle & 0x01 == 0x00 {
-                if self.dmc_dma && !self.dma_halt && !self.dummy_read {
+                if dmc_dma && !Self::halt_for_dma() && !Self::dma_dummy_read() {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.start_dma_cycle();
                     let dma_addr = self.bus.apu.dmc.dma_addr();
@@ -348,34 +442,34 @@ impl Cpu {
                     );
                     self.end_cycle(self.read_cycles.end);
                     self.bus.apu.dmc.load_buffer(read_val);
-                    self.dmc_dma = false;
-                } else if self.bus.oam_dma {
+                    Self::clear_dma(Dma::DMC);
+                } else if oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
                     self.start_dma_cycle();
                     read_val = self
                         .bus
-                        .read(self.bus.oam_dma_addr + oam_offset, Access::Dummy);
+                        .read(Self::dma_oam_addr() + oam_offset, Access::Dummy);
                     self.end_cycle(self.read_cycles.end);
                     oam_offset += 1;
                     oam_dma_count += 1;
                 } else {
                     // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
                     // DMA isn't running
-                    debug_assert!(self.dma_halt || self.dummy_read);
+                    debug_assert!(Self::halt_for_dma() || Self::dma_dummy_read());
                     self.start_dma_cycle();
                     if !skip_dummy_reads {
                         self.bus.read(addr, Access::Dummy); // throw away
                     }
                     self.end_cycle(self.read_cycles.end);
                 }
-            } else if self.bus.oam_dma && oam_dma_count & 0x01 == 0x01 {
+            } else if oam_dma && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.start_dma_cycle();
                 self.bus.write(0x2004, read_val, Access::Dummy);
                 self.end_cycle(self.read_cycles.end);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
-                    self.bus.oam_dma = false;
+                    Self::clear_dma(Dma::OAM);
                 }
             } else {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
@@ -857,7 +951,7 @@ impl Clock for Cpu {
 
 impl Mem for Cpu {
     fn read(&mut self, addr: u16, access: Access) -> u8 {
-        if self.dma_halt || self.bus.oam_dma {
+        if Self::halt_for_dma() {
             self.handle_dma(addr);
         }
 
@@ -930,15 +1024,17 @@ impl Reset for Cpu {
         self.bus.reset(kind);
         self.cycle = 0;
         self.master_clock = 0;
-        self.irq = Irq::empty();
         self.run_irq = false;
         self.prev_run_irq = false;
         self.nmi = false;
         self.prev_nmi = false;
         self.prev_nmi_pending = false;
         self.corrupted = false;
-        self.dma_halt = false;
-        self.dummy_read = false;
+        Self::clear_nmi();
+        Self::clear_irq(Irq::all());
+        Self::clear_dma_halt();
+        Self::clear_dma(Dma::all());
+        Self::clear_dma_dummy_read();
 
         // Read directly from bus so as to not clock other components during reset
         let lo = self.bus.read(Self::RESET_VECTOR, Access::Read);
@@ -971,15 +1067,13 @@ impl fmt::Debug for Cpu {
             .field("abs_addr", &format_args!("${:04X}", self.abs_addr))
             .field("rel_addr", &format_args!("${:04X}", self.rel_addr))
             .field("fetched_data", &format_args!("${:02X}", self.fetched_data))
-            .field("irq", &self.irq)
+            .field("irqs", &Self::irqs())
             .field("nmi", &self.nmi)
             .field("prev_nmi", &self.prev_nmi)
             .field("prev_nmi_pending", &self.prev_nmi_pending)
             .field("corrupted", &self.corrupted)
             .field("run_irq", &self.run_irq)
             .field("last_run_irq", &self.prev_run_irq)
-            .field("halt", &self.dma_halt)
-            .field("dummy_read", &self.dummy_read)
             .finish()
     }
 }

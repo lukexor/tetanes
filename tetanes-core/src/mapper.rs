@@ -117,10 +117,6 @@ pub trait MemMap {
 
 #[enum_dispatch(Mapper)]
 pub trait Mapped {
-    #[must_use]
-    fn irq_pending(&self) -> bool {
-        false
-    }
     fn mirroring(&self) -> Mirroring {
         Mirroring::default()
     }

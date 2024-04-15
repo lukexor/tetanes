@@ -1,4 +1,7 @@
-use crate::common::{NesRegion, Reset, ResetKind};
+use crate::{
+    common::{NesRegion, Reset, ResetKind},
+    cpu::{Cpu, Irq},
+};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -16,7 +19,6 @@ pub struct FrameCounter {
     pub block_counter: u8,
     pub cycle: usize,
     pub inhibit_irq: bool, // Set by $4017 D6
-    pub irq_pending: bool, // Set by $4017 if irq_enabled is clear or set during step 4 of Step4 mode
 }
 
 /// The Frame Counter clock type.
@@ -58,7 +60,6 @@ impl FrameCounter {
             write_delay: 0,
             block_counter: 0,
             cycle: 0,
-            irq_pending: false,
             inhibit_irq: false,
         }
     }
@@ -84,7 +85,7 @@ impl FrameCounter {
         self.inhibit_irq = val & 0x40 == 0x40; // D6
         if self.inhibit_irq {
             trace!("APU Frame Counter IRQ inhibit");
-            self.irq_pending = false;
+            Cpu::clear_irq(Irq::FRAME_COUNTER);
         }
     }
 
@@ -114,7 +115,7 @@ impl FrameCounter {
                     "APU Frame Counter IRQ pending - cycles: {} >= {step_cycles}",
                     self.cycle + cycles
                 );
-                self.irq_pending = true;
+                Cpu::set_irq(Irq::FRAME_COUNTER);
             }
 
             let ty = Self::FRAME_TYPE[self.step];
@@ -176,9 +177,10 @@ impl Reset for FrameCounter {
             // After reset, APU acts as if $4017 was written 9-12 clocks before first instruction,
             // Reset acts as if $00 was written to $4017
             self.write(0x00, 0);
+            self.write_delay -= 1; // FIXME: Startup timing is slightly wrong, reset_timing fails
+                                   // with the default
         }
         self.step = 0;
-        self.irq_pending = false;
         self.block_counter = 0;
     }
 }

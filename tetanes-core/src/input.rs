@@ -100,7 +100,7 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn new() -> Self {
+    pub fn new(region: NesRegion) -> Self {
         Self {
             joypads: [Joypad::new(); 4],
             // Signature bits are reversed so they can shift right
@@ -108,7 +108,7 @@ impl Input {
                 Joypad::from_bytes(0b0000_1000),
                 Joypad::from_bytes(0b0000_0100),
             ],
-            zapper: Zapper::new(),
+            zapper: Zapper::new(region),
             turbo_timer: 30,
             four_player: FourPlayer::default(),
         }
@@ -120,6 +120,10 @@ impl Input {
 
     pub fn joypad_mut(&mut self, player: Player) -> &mut Joypad {
         &mut self.joypads[player as usize]
+    }
+
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.zapper.trigger_release_delay = Cpu::region_clock_rate(region) / 10.0;
     }
 
     pub fn connect_zapper(&mut self, connected: bool) {
@@ -408,6 +412,7 @@ impl Reset for Joypad {
 #[must_use]
 pub struct Zapper {
     pub triggered: f32,
+    pub trigger_release_delay: f32,
     pub x: u32,
     pub y: u32,
     pub radius: u32,
@@ -427,8 +432,7 @@ impl Zapper {
 
     pub fn trigger(&mut self) {
         if self.triggered <= 0.0 {
-            // Zapper takes ~100ms to change to "released" after trigger is pulled
-            self.triggered = Cpu::region_clock_rate(NesRegion::default()) / 10.0;
+            self.triggered = self.trigger_release_delay;
         }
     }
 
@@ -446,9 +450,11 @@ impl Zapper {
 }
 
 impl Zapper {
-    const fn new() -> Self {
+    fn new(region: NesRegion) -> Self {
         Self {
             triggered: 0.0,
+            // Zapper takes ~100ms to change to "released" after trigger is pulled
+            trigger_release_delay: Cpu::region_clock_rate(region) / 10.0,
             x: 0,
             y: 0,
             radius: 3,

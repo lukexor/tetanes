@@ -35,8 +35,7 @@ impl Triangle {
 
     pub const fn new() -> Self {
         Self {
-            // Triangle channel is clocked at CPU rate
-            timer: Timer::new(0, 1),
+            timer: Timer::new(0),
             sequence: 0,
             length: LengthCounter::new(Channel::Triangle),
             linear: LinearCounter::new(),

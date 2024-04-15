@@ -14,8 +14,8 @@ pub struct ParseNesRegionError;
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum NesRegion {
-    #[default]
     Auto,
+    #[default]
     Ntsc,
     Pal,
     Dendy,
@@ -121,7 +121,7 @@ impl TryFrom<usize> for NesRegion {
 #[enum_dispatch(Mapper)]
 pub trait Regional {
     fn region(&self) -> NesRegion {
-        NesRegion::default()
+        NesRegion::Ntsc
     }
     fn set_region(&mut self, _region: NesRegion) {}
 }
@@ -370,9 +370,10 @@ pub(crate) mod tests {
                     expected == actual
                 );
 
+                let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
                 let result_dir = if env::var("UPDATE_SNAPSHOT").is_ok() || expected == actual {
                     PASS_DIR.get_or_init(|| {
-                        let directory = PathBuf::from(RESULT_DIR).join("pass");
+                        let directory = base_dir.join(PathBuf::from(RESULT_DIR)).join("pass");
                         if let Err(err) = fs::create_dir_all(&directory) {
                             panic!("created pass test results dir: {directory:?}. {err}",);
                         }
@@ -380,7 +381,7 @@ pub(crate) mod tests {
                     })
                 } else {
                     FAIL_DIR.get_or_init(|| {
-                        let directory = PathBuf::from(RESULT_DIR).join("fail");
+                        let directory = base_dir.join(PathBuf::from(RESULT_DIR)).join("fail");
                         if let Err(err) = fs::create_dir_all(&directory) {
                             panic!("created fail test results dir: {directory:?}. {err}",);
                         }
@@ -415,6 +416,7 @@ pub(crate) mod tests {
     pub(crate) fn test_rom(directory: &str, test_name: &str) -> anyhow::Result<()> {
         static INIT_TESTS: OnceLock<bool> = OnceLock::new();
 
+        let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let initialized = INIT_TESTS.get_or_init(|| {
             use tracing_subscriber::{
                 filter::Targets, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt,
@@ -435,7 +437,7 @@ pub(crate) mod tests {
                         .with_writer(std::io::stderr),
                 )
                 .init();
-            let result_dir = PathBuf::from(RESULT_DIR);
+            let result_dir = base_dir.join(PathBuf::from(RESULT_DIR));
             if result_dir.exists() {
                 if let Err(err) = fs::remove_dir_all(&result_dir) {
                     panic!("failed to clear test results dir: {result_dir:?}. {err}",);
@@ -452,7 +454,8 @@ pub(crate) mod tests {
         assert!(test.is_some(), "No test found matching {test_name:?}");
         let test = test.as_mut().expect("definitely has a test");
 
-        let rom = PathBuf::from(directory)
+        let rom = base_dir
+            .join(directory)
             .join(PathBuf::from(&test.name))
             .with_extension("nes");
         assert!(rom.exists(), "No test rom found for {rom:?}");
@@ -513,7 +516,7 @@ pub(crate) mod tests {
 
     test_roms!(
         cpu,
-        "../test_roms/cpu",
+        "test_roms/cpu",
         branch_backward, // Tests branches jumping backward
         branch_basics,   // Tests branch instructions, including edge cases
         branch_forward,  // Tests branches jumping forward
@@ -562,7 +565,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         ppu,
-        "../test_roms/ppu",
+        "test_roms/ppu",
         _240pee,               // TODO: Run each test
         color,                 // TODO: Test all color combinations
         ntsc_torture,          // Tests PPU NTSC signal artifacts
@@ -609,7 +612,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         apu,
-        "../test_roms/apu",
+        "test_roms/apu",
         // DMC DMA during $2007 read causes 2-3 extra $2007
         // reads before real read.
         //
@@ -775,7 +778,6 @@ pub(crate) mod tests {
         // 5) Second length is clocked too late
         // 6) Third length is clocked too soon
         // 7) Third length is clocked too late
-        #[ignore = "fails $03"]
         len_timing_mode0,
         // Mode 1 Timing
         // -------------
@@ -811,7 +813,6 @@ pub(crate) mod tests {
         // 5) Second length is clocked too late
         // 6) Third length is clocked too soon
         // 7) Third length is clocked too late
-        #[ignore = "fails $05"]
         len_timing_mode1,
         // Frame interrupt flag is set three times in a row 29831 clocks after
         // writing $4017 with $00.
@@ -820,7 +821,6 @@ pub(crate) mod tests {
         // 3) Flag first set too late
         // 4) Flag last set too soon
         // 5) Flag last set too late
-        #[ignore = "fails $03"]
         irq_flag_timing,
         // IRQ handler is invoked at minimum 29833 clocks after writing $00 to
         // $4017.
@@ -842,7 +842,6 @@ pub(crate) mod tests {
         // 3) Length should be clocked when halted at 14915
         // 4) Length should be clocked when unhalted at 14914
         // 5) Length shouldn't be clocked when unhalted at 14915
-        #[ignore = "fails $03"]
         len_halt_timing,
         // Write to length counter reload should be ignored when made during length
         // counter clocking and the length counter is not zero.
@@ -851,7 +850,6 @@ pub(crate) mod tests {
         // 3) Reload just after length clock should work normally
         // 4) Reload during length clock when ctr = 0 should work normally
         // 5) Reload during length clock when ctr > 0 should be ignored
-        #[ignore = "fails $03"]
         len_reload_timing,
         // Verifies timing of length counter clocks in both modes
         // 2) First length of mode 0 is too soon
@@ -866,7 +864,6 @@ pub(crate) mod tests {
         // 11) Second length of mode 1 is too late
         // 12) Third length of mode 1 is too soon
         // 13) Third length of mode 1 is too late
-        #[ignore = "Channel: 0 first length of mode 0 is too late #3"]
         len_timing,
         // Verifies basic DMC operation
         // 2) DMC isn't working well enough to test further
@@ -939,14 +936,11 @@ pub(crate) mod tests {
         // 11 tests that verify a number of behaviors with the APU (including the frame counter)
         //
         // See: <https://forums.nesdev.org/viewtopic.php?f=3&t=11174>
-        #[ignore = "failed"]
         test_1,
-        #[ignore = "failed"]
         test_2,
         test_3,
         test_4,
         test_5,
-        #[ignore = "failed"]
         test_6,
         test_7,
         test_8,
@@ -990,7 +984,6 @@ pub(crate) mod tests {
         // 3) Frame irq is set too late
         // 4) Even jitter not handled properly
         // 5) Odd jitter not handled properly
-        #[ignore = "fails #4"]
         pal_clock_jitter,
         // Tests length counter timing in mode 0.
         // 1) Passed tests
@@ -1009,7 +1002,6 @@ pub(crate) mod tests {
         // 5) Second length is clocked too late
         // 6) Third length is clocked too soon
         // 7) Third length is clocked too late
-        #[ignore = "fails #3"]
         pal_len_timing_mode1,
         // Frame interrupt flag is set three times in a row 33255 clocks after writing
         // $4017 with $00.
@@ -1018,14 +1010,12 @@ pub(crate) mod tests {
         // 3) Flag first set too late
         // 4) Flag last set too soon
         // 5) Flag last set too late
-        #[ignore = "fails #3"]
         pal_irq_flag_timing,
         // IRQ handler is invoked at minimum 33257 clocks after writing $00 to $4017.
         // 1) Passed tests
         // 2) Too soon
         // 3) Too late
         // 4) Never occurred
-        #[ignore = "fails #3"]
         pal_irq_timing,
         // Changes to length counter halt occur after clocking length, not before.
         // 1) Passed tests
@@ -1033,7 +1023,6 @@ pub(crate) mod tests {
         // 3) Length should be clocked when halted at 16629
         // 4) Length should be clocked when unhalted at 16628
         // 5) Length shouldn't be clocked when unhalted at 16629
-        #[ignore = "fails #3"]
         pal_len_halt_timing,
         // Write to length counter reload should be ignored when made during length
         // counter clocking and the length counter is not zero.
@@ -1042,7 +1031,6 @@ pub(crate) mod tests {
         // 3) Reload just after length clock should work normally
         // 4) Reload during length clock when ctr = 0 should work normally
         // 5) Reload during length clock when ctr > 0 should be ignored
-        #[ignore = "fails #3"]
         pal_len_reload_timing,
         #[ignore = "todo: passes, compare output"]
         apu_env,
@@ -1133,7 +1121,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         input,
-        "../test_roms/input",
+        "test_roms/input",
         zapper_flip,
         zapper_light,
         #[ignore = "todo"]
@@ -1143,7 +1131,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         m004_txrom,
-        "../test_roms/mapper/m004_txrom",
+        "test_roms/mapper/m004_txrom",
         a12_clocking,
         clocking,
         details,
@@ -1152,5 +1140,5 @@ pub(crate) mod tests {
         big_chr_ram,
         rev_a,
     );
-    test_roms!(m005_exram, "../test_roms/mapper/m005_exrom", exram, basics);
+    test_roms!(m005_exram, "test_roms/mapper/m005_exrom", exram, basics);
 }
