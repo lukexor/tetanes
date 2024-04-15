@@ -48,9 +48,7 @@ impl Dmc {
     pub fn new(region: NesRegion) -> Self {
         Self {
             region,
-            // DMC channel is clocked at APU rate (CPU / 2) but the periods are defined as CPU
-            // cycles
-            timer: Timer::preload(Self::period(region, 0), 1),
+            timer: Timer::preload(Self::period(region, 0)),
             force_silent: false,
             irq_enabled: false,
             loops: false,
@@ -262,6 +260,8 @@ impl Reset for Dmc {
         self.timer.reset(kind);
         self.timer.period = Self::period(self.region, 0);
         self.timer.reload();
+        self.timer.cycle += 1; // FIXME: Startup timing is slightly wrong, DMA tests fail with the
+                               // default
         if let ResetKind::Hard = kind {
             self.sample_addr = 0xC000;
             self.sample_length = 1;

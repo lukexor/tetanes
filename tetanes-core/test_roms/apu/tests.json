@@ -1,7 +1,6 @@
 [
   {
     "name": "clock_jitter",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -11,7 +10,6 @@
   },
   {
     "name": "dmc_basics",
-    "audio": false,
     "frames": [
       {
         "number": 30,
@@ -21,7 +19,6 @@
   },
   {
     "name": "dmc_dma_2007_read",
-    "audio": false,
     "frames": [
       {
         "number": 30,
@@ -31,7 +28,6 @@
   },
   {
     "name": "dmc_dma_2007_write",
-    "audio": false,
     "frames": [
       {
         "number": 35,
@@ -41,7 +37,6 @@
   },
   {
     "name": "dmc_dma_4016_read",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -51,7 +46,6 @@
   },
   {
     "name": "dmc_dma_double_2007_read",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -61,7 +55,6 @@
   },
   {
     "name": "dmc_dma_read_write_2007",
-    "audio": false,
     "frames": [
       {
         "number": 25,
@@ -71,7 +64,6 @@
   },
   {
     "name": "dmc_rates",
-    "audio": false,
     "frames": [
       {
         "number": 30,
@@ -81,7 +73,6 @@
   },
   {
     "name": "dpcmletterbox",
-    "audio": false,
     "frames": [
       {
         "number": 10,
@@ -91,7 +82,6 @@
   },
   {
     "name": "irq_flag",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -101,17 +91,15 @@
   },
   {
     "name": "irq_flag_timing",
-    "audio": false,
     "frames": [
       {
         "number": 20,
-        "hash": 0
+        "hash": 951336095730925361
       }
     ]
   },
   {
     "name": "irq_timing",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -121,7 +109,6 @@
   },
   {
     "name": "len_ctr",
-    "audio": false,
     "frames": [
       {
         "number": 25,
@@ -131,27 +118,24 @@
   },
   {
     "name": "len_halt_timing",
-    "audio": false,
     "frames": [
       {
         "number": 20,
-        "hash": 0
+        "hash": 951336095730925361
       }
     ]
   },
   {
     "name": "len_reload_timing",
-    "audio": false,
     "frames": [
       {
         "number": 20,
-        "hash": 0
+        "hash": 951336095730925361
       }
     ]
   },
   {
     "name": "len_table",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -161,37 +145,33 @@
   },
   {
     "name": "len_timing",
-    "audio": false,
     "frames": [
       {
         "number": 20,
-        "hash": 0
+        "hash": 14878161860519346933
       }
     ]
   },
   {
     "name": "len_timing_mode0",
-    "audio": false,
     "frames": [
       {
-        "number": 20,
-        "hash": 0
+        "number": 23,
+        "hash": 951336095730925361
       }
     ]
   },
   {
     "name": "len_timing_mode1",
-    "audio": false,
     "frames": [
       {
-        "number": 20,
-        "hash": 0
+        "number": 23,
+        "hash": 951336095730925361
       }
     ]
   },
   {
     "name": "reset_len_ctrs_enabled",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -205,7 +185,6 @@
   },
   {
     "name": "reset_timing",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -215,7 +194,6 @@
   },
   {
     "name": "test_1",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -225,7 +203,6 @@
   },
   {
     "name": "test_2",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -235,7 +212,6 @@
   },
   {
     "name": "test_3",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -245,7 +221,6 @@
   },
   {
     "name": "test_4",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -255,7 +230,6 @@
   },
   {
     "name": "test_5",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -265,7 +239,6 @@
   },
   {
     "name": "test_6",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -275,7 +248,6 @@
   },
   {
     "name": "test_7",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -285,7 +257,6 @@
   },
   {
     "name": "test_8",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -295,7 +266,6 @@
   },
   {
     "name": "test_9",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -305,7 +275,6 @@
   },
   {
     "name": "test_10",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -315,7 +284,6 @@
   },
   {
     "name": "pal_clock_jitter",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -325,13 +293,12 @@
       },
       {
         "number": 20,
-        "hash": 0
+        "hash": 13813501042665481329
       }
     ]
   },
   {
     "name": "pal_irq_flag_timing",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -341,13 +308,12 @@
       },
       {
         "number": 20,
-        "hash": 0
+        "hash": 15283534834975948636
       }
     ]
   },
   {
     "name": "pal_len_halt_timing",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -357,13 +323,12 @@
       },
       {
         "number": 20,
-        "hash": 0
+        "hash": 3223047209937034573
       }
     ]
   },
   {
     "name": "pal_len_reload_timing",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -373,13 +338,12 @@
       },
       {
         "number": 20,
-        "hash": 0
+        "hash": 14496598670261025093
       }
     ]
   },
   {
     "name": "pal_len_timing_mode0",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -395,7 +359,6 @@
   },
   {
     "name": "pal_len_timing_mode1",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -405,13 +368,12 @@
       },
       {
         "number": 20,
-        "hash": 0
+        "hash": 16558599236285993505
       }
     ]
   },
   {
     "name": "reset_4015_cleared",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -425,7 +387,6 @@
   },
   {
     "name": "reset_4017_timing",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -439,7 +400,6 @@
   },
   {
     "name": "reset_4017_written",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -457,7 +417,6 @@
   },
   {
     "name": "reset_irq_flag_cleared",
-    "audio": false,
     "frames": [
       {
         "number": 15,
@@ -471,7 +430,6 @@
   },
   {
     "name": "reset_works_immediately",
-    "audio": false,
     "frames": [
       {
         "number": 20,
@@ -485,7 +443,6 @@
   },
   {
     "name": "pal_irq_flag",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -501,7 +458,6 @@
   },
   {
     "name": "pal_irq_timing",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -511,13 +467,12 @@
       },
       {
         "number": 20,
-        "hash": 1898174604279228733
+        "hash": 7219648777380498854
       }
     ]
   },
   {
     "name": "pal_len_ctr",
-    "audio": false,
     "frames": [
       {
         "number": 0,
@@ -533,7 +488,6 @@
   },
   {
     "name": "pal_len_table",
-    "audio": false,
     "frames": [
       {
         "number": 0,

@@ -177,6 +177,8 @@ impl Reset for FrameCounter {
             // After reset, APU acts as if $4017 was written 9-12 clocks before first instruction,
             // Reset acts as if $00 was written to $4017
             self.write(0x00, 0);
+            self.write_delay -= 1; // FIXME: Startup timing is slightly wrong, reset_timing fails
+                                   // with the default
         }
         self.step = 0;
         self.block_counter = 0;

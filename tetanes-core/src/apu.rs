@@ -20,7 +20,6 @@ pub mod noise;
 pub mod pulse;
 pub mod triangle;
 
-pub mod divider;
 pub mod envelope;
 pub mod filter;
 pub mod frame_counter;
@@ -157,7 +156,7 @@ impl Apu {
         for outputs in self
             .channel_outputs
             .chunks_exact(Self::MAX_CHANNEL_COUNT)
-            .take(self.cycle)
+            .take(self.master_cycle)
         {
             let [pulse1, pulse2, triangle, noise, dmc, mapper] = outputs else {
                 warn!("invalid channel outputs");
@@ -415,20 +414,20 @@ impl ApuRegisters for Apu {
             Channel::Pulse1 => {
                 trace!("APU $4003 write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.pulse1.write_timer_hi(val);
+                self.should_clock = self.pulse1.length.enabled;
             }
             Channel::Pulse2 => {
                 trace!("APU $4007 write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.pulse2.write_timer_hi(val);
+                self.should_clock = self.pulse2.length.enabled;
             }
             Channel::Triangle => {
                 trace!("APU $400B write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.triangle.write_timer_hi(val);
+                self.should_clock = self.triangle.length.enabled;
             }
             _ => panic!("{channel:?} does not have a timer_hi register"),
         }
-        self.should_clock = self.pulse1.length.enabled
-            || self.pulse2.length.enabled
-            || self.triangle.length.enabled;
     }
 
     /// $4008 Triangle Linear Counter.
@@ -444,11 +443,13 @@ impl ApuRegisters for Apu {
         self.clock_to(self.master_cycle);
         trace!("APU $400F write: ${val:02X} - CYC:{}", self.cpu_cycle);
         match channel {
-            Channel::Noise => self.noise.write_length(val),
+            Channel::Noise => {
+                self.noise.write_length(val);
+                self.should_clock = self.noise.length.enabled;
+            }
             Channel::Dmc => self.dmc.write_length(val),
             _ => panic!("{channel:?} does not have a length register"),
         }
-        self.should_clock = self.noise.length.enabled;
     }
 
     /// $4011 DMC Output Level.
