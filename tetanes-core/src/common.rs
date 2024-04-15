@@ -370,9 +370,10 @@ pub(crate) mod tests {
                     expected == actual
                 );
 
+                let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
                 let result_dir = if env::var("UPDATE_SNAPSHOT").is_ok() || expected == actual {
                     PASS_DIR.get_or_init(|| {
-                        let directory = PathBuf::from(RESULT_DIR).join("pass");
+                        let directory = base_dir.join(PathBuf::from(RESULT_DIR)).join("pass");
                         if let Err(err) = fs::create_dir_all(&directory) {
                             panic!("created pass test results dir: {directory:?}. {err}",);
                         }
@@ -380,7 +381,7 @@ pub(crate) mod tests {
                     })
                 } else {
                     FAIL_DIR.get_or_init(|| {
-                        let directory = PathBuf::from(RESULT_DIR).join("fail");
+                        let directory = base_dir.join(PathBuf::from(RESULT_DIR)).join("fail");
                         if let Err(err) = fs::create_dir_all(&directory) {
                             panic!("created fail test results dir: {directory:?}. {err}",);
                         }
@@ -415,6 +416,7 @@ pub(crate) mod tests {
     pub(crate) fn test_rom(directory: &str, test_name: &str) -> anyhow::Result<()> {
         static INIT_TESTS: OnceLock<bool> = OnceLock::new();
 
+        let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let initialized = INIT_TESTS.get_or_init(|| {
             use tracing_subscriber::{
                 filter::Targets, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt,
@@ -435,7 +437,7 @@ pub(crate) mod tests {
                         .with_writer(std::io::stderr),
                 )
                 .init();
-            let result_dir = PathBuf::from(RESULT_DIR);
+            let result_dir = base_dir.join(PathBuf::from(RESULT_DIR));
             if result_dir.exists() {
                 if let Err(err) = fs::remove_dir_all(&result_dir) {
                     panic!("failed to clear test results dir: {result_dir:?}. {err}",);
@@ -452,7 +454,8 @@ pub(crate) mod tests {
         assert!(test.is_some(), "No test found matching {test_name:?}");
         let test = test.as_mut().expect("definitely has a test");
 
-        let rom = PathBuf::from(directory)
+        let rom = base_dir
+            .join(directory)
             .join(PathBuf::from(&test.name))
             .with_extension("nes");
         assert!(rom.exists(), "No test rom found for {rom:?}");
@@ -513,7 +516,7 @@ pub(crate) mod tests {
 
     test_roms!(
         cpu,
-        "../test_roms/cpu",
+        "test_roms/cpu",
         branch_backward, // Tests branches jumping backward
         branch_basics,   // Tests branch instructions, including edge cases
         branch_forward,  // Tests branches jumping forward
@@ -562,7 +565,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         ppu,
-        "../test_roms/ppu",
+        "test_roms/ppu",
         _240pee,               // TODO: Run each test
         color,                 // TODO: Test all color combinations
         ntsc_torture,          // Tests PPU NTSC signal artifacts
@@ -609,7 +612,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         apu,
-        "../test_roms/apu",
+        "test_roms/apu",
         // DMC DMA during $2007 read causes 2-3 extra $2007
         // reads before real read.
         //
@@ -1133,7 +1136,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         input,
-        "../test_roms/input",
+        "test_roms/input",
         zapper_flip,
         zapper_light,
         #[ignore = "todo"]
@@ -1143,7 +1146,7 @@ pub(crate) mod tests {
     );
     test_roms!(
         m004_txrom,
-        "../test_roms/mapper/m004_txrom",
+        "test_roms/mapper/m004_txrom",
         a12_clocking,
         clocking,
         details,
@@ -1152,5 +1155,5 @@ pub(crate) mod tests {
         big_chr_ram,
         rev_a,
     );
-    test_roms!(m005_exram, "../test_roms/mapper/m005_exrom", exram, basics);
+    test_roms!(m005_exram, "test_roms/mapper/m005_exrom", exram, basics);
 }

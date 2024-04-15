@@ -324,7 +324,7 @@ impl Cart {
     }
 
     fn lookup_region(prg_rom: &[u8], chr: &[u8]) -> NesRegion {
-        const GAME_REGIONS: &[u8] = include_bytes!("../../game_regions.dat");
+        const GAME_REGIONS: &[u8] = include_bytes!("../game_regions.dat");
 
         let Ok(games) = fs::load_bytes::<Vec<GameRegion>>(GAME_REGIONS) else {
             error!("failed to load `game_regions.dat`");
