@@ -11,13 +11,6 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[must_use]
-pub enum Revision {
-    Bnrom,
-    Nina001,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bnrom {
