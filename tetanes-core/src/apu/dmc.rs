@@ -45,7 +45,7 @@ impl Dmc {
         398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50,
     ];
 
-    pub fn new(region: NesRegion) -> Self {
+    pub const fn new(region: NesRegion) -> Self {
         Self {
             region,
             timer: Timer::preload(Self::period(region, 0)),
@@ -89,7 +89,7 @@ impl Dmc {
     }
 
     #[must_use]
-    pub fn dma_addr(&self) -> u16 {
+    pub const fn dma_addr(&self) -> u16 {
         self.addr
     }
 

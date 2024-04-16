@@ -274,7 +274,7 @@ impl ConfigImpl {
     }
 
     #[must_use]
-    pub fn texture_size(&self) -> LogicalSize<u32> {
+    pub const fn texture_size(&self) -> LogicalSize<u32> {
         let width = Ppu::WIDTH;
         let height = if self.renderer.hide_overscan {
             Ppu::HEIGHT - 16

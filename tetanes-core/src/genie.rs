@@ -21,7 +21,7 @@ impl Error {
         }
     }
 
-    pub fn kind(&self) -> ErrorKind {
+    pub const fn kind(&self) -> ErrorKind {
         self.kind
     }
 }

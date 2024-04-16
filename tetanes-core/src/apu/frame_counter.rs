@@ -49,7 +49,7 @@ impl FrameCounter {
         FrameType::None,
     ];
 
-    pub fn new(region: NesRegion) -> Self {
+    pub const fn new(region: NesRegion) -> Self {
         let step_cycles = Self::step_cycles(region);
         Self {
             region,

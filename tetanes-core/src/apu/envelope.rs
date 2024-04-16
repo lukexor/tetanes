@@ -29,7 +29,7 @@ impl Envelope {
 
     #[inline]
     #[must_use]
-    pub fn volume(&self) -> u8 {
+    pub const fn volume(&self) -> u8 {
         if self.constant_volume {
             self.volume
         } else {

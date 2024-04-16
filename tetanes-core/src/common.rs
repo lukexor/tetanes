@@ -37,7 +37,7 @@ impl NesRegion {
     }
 
     #[must_use]
-    pub fn is_ntsc(&self) -> bool {
+    pub const fn is_ntsc(&self) -> bool {
         matches!(self, Self::Auto | Self::Ntsc)
     }
 
@@ -61,7 +61,7 @@ impl NesRegion {
     }
 
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Ntsc => "ntsc",

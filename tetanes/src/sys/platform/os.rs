@@ -10,7 +10,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-pub fn supports_impl(feature: Feature) -> bool {
+pub const fn supports_impl(feature: Feature) -> bool {
     matches!(
         feature,
         Feature::Filesystem | Feature::WindowMinMax | Feature::ToggleVsync

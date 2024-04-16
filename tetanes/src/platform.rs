@@ -39,6 +39,6 @@ pub enum Feature {
     ToggleVsync,
 }
 
-pub fn supports(feature: Feature) -> bool {
+pub const fn supports(feature: Feature) -> bool {
     platform::supports_impl(feature)
 }

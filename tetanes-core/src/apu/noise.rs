@@ -118,7 +118,7 @@ impl Noise {
         self.length.set_enabled(enabled);
     }
 
-    pub fn volume(&self) -> u8 {
+    pub const fn volume(&self) -> u8 {
         if self.length.counter > 0 {
             self.envelope.volume()
         } else {

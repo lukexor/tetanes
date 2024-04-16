@@ -31,7 +31,7 @@ pub struct Iir {
 }
 
 impl Iir {
-    pub fn identity() -> Self {
+    pub const fn identity() -> Self {
         Self {
             alpha: 0.0,
             prev_output: 0.0,

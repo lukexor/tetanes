@@ -49,7 +49,7 @@ impl FourPlayer {
         &[Self::Disabled, Self::FourScore, Self::Satellite]
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Disabled => "disabled",
             Self::FourScore => "four-score",
@@ -356,7 +356,7 @@ impl Joypad {
         self.buttons.set(button.into(), pressed);
     }
 
-    pub fn from_bytes(val: u16) -> Self {
+    pub const fn from_bytes(val: u16) -> Self {
         Self {
             buttons: JoypadBtnState::from_bits_truncate(val),
             index: 0,

@@ -33,6 +33,18 @@ path = "bin/generate_db.rs"
 test = false
 bench = false
 
+[lints.clippy]
+all = "warn"
+missing_const_for_fn = "warn"
+
+[lints.rust]
+future_incompatible = "warn"
+nonstandard_style = "warn"
+rust_2018_compatibility = "warn"
+rust_2018_idioms = "warn"
+rust_2021_compatibility = "warn"
+unused = "warn"
+
 [package.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
 path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"

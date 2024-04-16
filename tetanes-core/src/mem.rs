@@ -60,7 +60,7 @@ impl RamState {
         &[Self::AllZeros, Self::AllOnes, Self::Random]
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::AllZeros => "all-zeros",
             Self::AllOnes => "all-ones",

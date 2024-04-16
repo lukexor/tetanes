@@ -16,6 +16,18 @@ keywords = ["nes", "emulator"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[lints.clippy]
+all = "warn"
+missing_const_for_fn = "warn"
+
+[lints.rust]
+future_incompatible = "warn"
+nonstandard_style = "warn"
+rust_2018_compatibility = "warn"
+rust_2018_idioms = "warn"
+rust_2021_compatibility = "warn"
+unused = "warn"
+
 [features]
 default = ["cycle-accurate"]
 profiling = ["dep:puffin"]
