@@ -357,9 +357,15 @@ impl Gui {
                 ui.add(egui::Slider::new(&mut cfg.emulation.run_ahead, 0..=4));
             });
         });
-        self.config.write(|cfg| {
-            ui.checkbox(&mut cfg.deck.zapper, "Enable Zapper Gun");
+        let changed = self.config.write(|cfg| {
+            ui.checkbox(&mut cfg.deck.zapper, "Enable Zapper Gun")
+                .clicked()
         });
+        if changed {
+            self.send_event(EmulationEvent::ZapperConnect(
+                self.config.read(|cfg| cfg.deck.zapper),
+            ));
+        }
         self.resize_texture = self.config.write(|cfg| {
             ui.checkbox(&mut cfg.renderer.hide_overscan, "Hide Overscan")
                 .clicked()

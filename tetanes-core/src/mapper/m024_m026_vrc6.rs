@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Vrc6Revision {
+pub enum Revision {
     /// VRC6a
     A,
     /// VRC6b
@@ -33,7 +33,7 @@ pub struct Vrc6Regs {
 #[must_use]
 pub struct Vrc6 {
     pub regs: Vrc6Regs,
-    pub revision: Vrc6Revision,
+    pub revision: Revision,
     pub mirroring: Mirroring,
     pub irq: VrcIrq,
     pub audio: Vrc6Audio,
@@ -48,7 +48,7 @@ impl Vrc6 {
     const PRG_WINDOW: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
 
-    pub fn load(cart: &mut Cart, revision: Vrc6Revision) -> Mapper {
+    pub fn load(cart: &mut Cart, revision: Revision) -> Mapper {
         if !cart.has_prg_ram() {
             cart.add_prg_ram(Self::PRG_RAM_SIZE);
         }
@@ -263,7 +263,7 @@ impl MemMap for Vrc6 {
                 MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
             }
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::PpuRam,
+            _ => MappedRead::Bus,
         }
     }
 
@@ -272,7 +272,7 @@ impl MemMap for Vrc6 {
             return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
         }
 
-        if self.revision == Vrc6Revision::B {
+        if self.revision == Revision::B {
             // Revision B swaps A0 and A1 lines
             addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
         }
@@ -319,7 +319,7 @@ impl MemMap for Vrc6 {
             0xF002 => self.irq.acknowledge(),
             _ => (),
         }
-        MappedWrite::PpuRam
+        MappedWrite::Bus
     }
 }
 

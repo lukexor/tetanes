@@ -135,7 +135,7 @@ Support for the following mappers is currently implemented or in development:
 | 009 | PxROM/MMC2           | Punch Out!!                               | 1                      | &lt;0.01%              |
 | 024 | VRC6a                | Akumajou Densetsu                         | 1                      | &lt;0.01%              |
 | 026 | VRC6b                | Madara, Esper Dream 2                     | 2                      | &lt;0.01%              |
-| 034 | BxROM                | Deadly Towers, Impossible Mission II      | 2                      | &lt;0.01%              |
+| 034 | BNROM/NINA-001       | Deadly Towers, Impossible Mission II      | 3                      | &lt;0.01%              |
 | 066 | GxROM/MxROM          | Super Mario Bros. + Duck Hunt             | ~17                    | &lt;0.01%              |
 | 071 | Camerica/Codemasters | Firehawk, Bee 52, MiG 29 - Soviet Fighter | ~15                    | &lt;0.01%              |
 | 155 | SxROM/MMC1A          | Tatakae!! Ramen Man: Sakuretsu Choujin    | 2                      | &lt;0.01%              |
@@ -172,8 +172,10 @@ Emulator shortcuts:
 | Quit                          | Ctrl-Q       |                |
 | Reset                         | Ctrl-R       |                |
 | Power Cycle                   | Ctrl-P       |                |
-| Increase Speed by 25%         | Ctrl-Shift-+ | Right Shoulder |
-| Decrease Speed by 25%         | Ctrl-Shift-- | Left Shoulder  |
+| Increase Speed by 25%         | =            | Right Shoulder |
+| Decrease Speed by 25%         | -            | Left Shoulder  |
+| Increase UI Scale             | Ctrl-=       |                |
+| Decrease UI Scale             | Ctrl--       |                |
 | Fast-Forward 2x               | Space (Hold) |                |
 | Set Save State Slot (1-4)     | Ctrl-(1-4)   |                |
 | Save State                    | Ctrl-S       |                |

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Bf909Revision {
+pub enum Revision {
     Bf909x,
     Bf9097,
 }
@@ -21,7 +21,7 @@ pub enum Bf909Revision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bf909x {
-    pub variant: Bf909Revision,
+    pub revision: Revision,
     pub mirroring: Mirroring,
     pub prg_rom_banks: MemBanks,
 }
@@ -37,10 +37,10 @@ impl Bf909x {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         };
         let mut bf909x = Self {
-            variant: if cart.submapper_num() == 1 {
-                Bf909Revision::Bf9097
+            revision: if cart.submapper_num() == 1 {
+                Revision::Bf9097
             } else {
-                Bf909Revision::Bf909x
+                Revision::Bf909x
             },
             mirroring: cart.mirroring(),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
@@ -69,19 +69,19 @@ impl MemMap for Bf909x {
         match addr {
             0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::PpuRam,
+            _ => MappedRead::Bus,
         }
     }
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         // Firehawk uses $9000 to change mirroring
         if addr == 0x9000 {
-            self.variant = Bf909Revision::Bf9097;
+            self.revision = Revision::Bf9097;
         }
         match addr {
             0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
             0x8000..=0xFFFF => {
-                if addr >= 0xC000 || self.variant != Bf909Revision::Bf9097 {
+                if addr >= 0xC000 || self.revision != Revision::Bf9097 {
                     self.prg_rom_banks.set(0, val.into());
                 } else {
                     self.mirroring = if val & Self::SINGLE_SCREEN_A == Self::SINGLE_SCREEN_A {
@@ -90,9 +90,9 @@ impl MemMap for Bf909x {
                         Mirroring::SingleScreenB
                     };
                 }
-                MappedWrite::PpuRam
+                MappedWrite::Bus
             }
-            _ => MappedWrite::PpuRam,
+            _ => MappedWrite::Bus,
         }
     }
 }

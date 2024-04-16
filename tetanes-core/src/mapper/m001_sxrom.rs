@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Mmc1Revision {
+pub enum Revision {
     /// MMC1 Revision A
     A,
     /// MMC1 Revisions B & C
@@ -38,7 +38,7 @@ pub struct Sxrom {
     pub regs: SxRegs,
     pub submapper_num: u8,
     pub mirroring: Mirroring,
-    pub board: Mmc1Revision,
+    pub revision: Revision,
     pub chr_select: bool,
     pub chr_banks: MemBanks,
     pub prg_ram_banks: MemBanks,
@@ -62,7 +62,7 @@ impl Sxrom {
     const PRG_BANK_MASK: u8 = 0x0F;
     const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 
-    pub fn load(cart: &mut Cart, board: Mmc1Revision) -> Mapper {
+    pub fn load(cart: &mut Cart, revision: Revision) -> Mapper {
         if !cart.has_prg_ram() {
             cart.add_prg_ram(Self::PRG_RAM_SIZE);
         }
@@ -85,7 +85,7 @@ impl Sxrom {
             },
             submapper_num: cart.submapper_num(),
             mirroring: Mirroring::SingleScreenA,
-            board,
+            revision,
             chr_select: cart.prg_rom.len() == 0x80000,
             chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_WINDOW),
@@ -152,7 +152,7 @@ impl Sxrom {
     }
 
     pub fn prg_ram_enabled(&self) -> bool {
-        self.board == Mmc1Revision::A || self.regs.prg & Self::PRG_RAM_DISABLED == 0
+        self.revision == Revision::A || self.regs.prg & Self::PRG_RAM_DISABLED == 0
     }
 }
 
@@ -179,7 +179,7 @@ impl MemMap for Sxrom {
                 MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
             }
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::PpuRam,
+            _ => MappedRead::Bus,
         }
     }
 
@@ -239,7 +239,7 @@ impl MemMap for Sxrom {
                 // +----- PRG-RAM chip enable (0: enabled; 1: disabled; ignored on MMC1A)
 
                 if self.regs.write_just_occurred > 0 {
-                    return MappedWrite::PpuRam;
+                    return MappedWrite::Bus;
                 }
                 self.regs.write_just_occurred = 2;
                 if val & Self::SHIFT_REG_RESET > 0 {
@@ -263,9 +263,9 @@ impl MemMap for Sxrom {
                         self.update_banks(addr);
                     }
                 }
-                MappedWrite::PpuRam
+                MappedWrite::Bus
             }
-            _ => MappedWrite::PpuRam,
+            _ => MappedWrite::Bus,
         }
     }
 }
@@ -299,7 +299,7 @@ impl std::fmt::Debug for Sxrom {
             .field("regs", &self.regs)
             .field("submapper_num", &self.submapper_num)
             .field("mirroring", &self.mirroring)
-            .field("board", &self.board)
+            .field("revision", &self.revision)
             .field("chr_select", &self.chr_select)
             .field("chr_banks", &self.chr_banks)
             .field("prg_ram_banks", &self.prg_ram_banks)

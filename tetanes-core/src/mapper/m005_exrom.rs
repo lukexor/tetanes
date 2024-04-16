@@ -7,7 +7,7 @@ use crate::{
     apu::{
         dmc::Dmc,
         pulse::{OutputFreq, Pulse, PulseChannel},
-        PULSE_TABLE,
+        PULSE_TABLE, TND_TABLE,
     },
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
@@ -671,12 +671,8 @@ impl MemMap for Exrom {
         }
         let val = self.map_peek(addr);
         match addr {
-            0x5204 => {
-                Cpu::clear_irq(Irq::MAPPER);
-            }
-            0x5010 => {
-                Cpu::clear_irq(Irq::DMC);
-            }
+            0x5204 => Cpu::clear_irq(Irq::MAPPER),
+            0x5010 => Cpu::clear_irq(Irq::DMC),
             _ => (),
         }
         val
@@ -796,7 +792,7 @@ impl MemMap for Exrom {
             }
             0xE000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
             0x5207..=0x5209 => MappedRead::Data(0),
-            _ => MappedRead::PpuRam,
+            _ => MappedRead::Bus,
         }
     }
 
@@ -826,7 +822,7 @@ impl MemMap for Exrom {
                 //   I = PCM IRQ enable (1 = enabled.)
                 //   M = Mode select (0 = write mode. 1 = read mode.)
                 self.dmc_mode = val & 0x01;
-                self.dmc.set_enabled(val & 0x80 == 0x80, self.cpu_cycle);
+                self.dmc.irq_enabled = val & 0x80 == 0x80;
             }
             0x5011 => {
                 // [DDDD DDDD] PCM Data
@@ -997,7 +993,7 @@ impl MemMap for Exrom {
             }
             _ => (),
         }
-        MappedWrite::PpuRam
+        MappedWrite::Bus
     }
 }
 
@@ -1006,10 +1002,9 @@ impl Sample for Exrom {
     fn output(&self) -> f32 {
         let pulse1 = self.pulse1.output();
         let pulse2 = self.pulse2.output();
-        let dmc = self.dmc.output();
-        let pulse_scale = PULSE_TABLE[PULSE_TABLE.len() - 1] / 15.0;
-        let out = -(pulse1 + pulse2 + dmc);
-        pulse_scale * out
+        let pulse = PULSE_TABLE[(pulse1 + pulse2) as usize];
+        let dmc = TND_TABLE[self.dmc.output() as usize];
+        -(pulse + dmc)
     }
 }
 

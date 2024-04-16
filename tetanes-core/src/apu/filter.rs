@@ -228,8 +228,12 @@ impl FilterChain {
     pub fn new(region: NesRegion, output_rate: f32) -> Self {
         let clock_rate = Cpu::region_clock_rate(region);
         let intermediate_sample_rate = output_rate * 2.0 + (PI / 32.0);
+        let intermediate_cutoff = output_rate * 0.4;
 
-        let mut filters = vec![SampledFilter::new(Iir::identity(), 1.0)];
+        let mut filters = vec![
+            SampledFilter::new(Iir::identity(), 1.0),
+            SampledFilter::new(Iir::low_pass(clock_rate, intermediate_cutoff), clock_rate),
+        ];
         // first-order high-pass filter at 90 Hz
         filters.push(SampledFilter::new(
             Iir::high_pass(intermediate_sample_rate, 90.0),
@@ -253,7 +257,7 @@ impl FilterChain {
         // ));
 
         // high-quality low-pass filter
-        let window_size = 60;
+        let window_size = 160;
         let intermediate_cutoff = output_rate * 0.45;
         filters.push(SampledFilter::new(
             Fir::low_pass(intermediate_sample_rate, intermediate_cutoff, window_size),

@@ -97,7 +97,7 @@ impl MemMap for Pxrom {
             0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
             0x6000..=0x7FFF => MappedRead::PrgRam((addr & 0x1FFF).into()),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::PpuRam,
+            _ => MappedRead::Bus,
         }
     }
 
@@ -106,12 +106,12 @@ impl MemMap for Pxrom {
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
             0xA000..=0xAFFF => {
                 self.prg_rom_banks.set(0, (val & 0x0F).into());
-                MappedWrite::PpuRam
+                MappedWrite::Bus
             }
             0xB000..=0xEFFF => {
                 self.latch_banks[((addr - 0xB000) >> 12) as usize] = val & 0x1F;
                 self.update_banks();
-                MappedWrite::PpuRam
+                MappedWrite::Bus
             }
             0xF000..=0xFFFF => {
                 self.mirroring = match val & Self::MIRRORING_MASK {
@@ -119,9 +119,9 @@ impl MemMap for Pxrom {
                     1 => Mirroring::Horizontal,
                     _ => unreachable!("impossible mirroring mode"),
                 };
-                MappedWrite::PpuRam
+                MappedWrite::Bus
             }
-            _ => MappedWrite::PpuRam,
+            _ => MappedWrite::Bus,
         }
     }
 }

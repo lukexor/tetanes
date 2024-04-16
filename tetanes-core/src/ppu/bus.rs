@@ -114,7 +114,7 @@ impl Bus {
 
     pub fn read_ciram(&mut self, addr: u16, _access: Access) -> u8 {
         let val = match self.mapper.map_read(addr) {
-            MappedRead::PpuRam => self.ciram[self.ciram_mirror(addr as usize)],
+            MappedRead::Bus => self.ciram[self.ciram_mirror(addr as usize)],
             MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
             MappedRead::ExRam(addr) => self.exram[addr],
             MappedRead::Data(data) => data,
@@ -170,7 +170,7 @@ impl Mem for Bus {
     fn peek(&self, addr: u16, _access: Access) -> u8 {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_peek(addr) {
-                MappedRead::PpuRam => self.ciram[self.ciram_mirror(addr as usize)],
+                MappedRead::Bus => self.ciram[self.ciram_mirror(addr as usize)],
                 MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
                 MappedRead::ExRam(addr) => self.exram[addr],
                 MappedRead::Data(data) => data,
@@ -207,7 +207,7 @@ impl Mem for Bus {
     fn write(&mut self, addr: u16, val: u8, _access: Access) {
         match addr {
             0x2000..=0x3EFF => match self.mapper.map_write(addr, val) {
-                MappedWrite::PpuRam => {
+                MappedWrite::Bus => {
                     let addr = self.ciram_mirror(addr as usize);
                     self.ciram[addr] = val;
                 }

@@ -150,8 +150,8 @@ impl Default for InputMap {
         key_map!(map, One, KeyQ, CONTROL, UiState::Quit);
         key_map!(map, One, KeyR, CONTROL, DeckAction::SoftReset);
         key_map!(map, One, KeyP, CONTROL, DeckAction::HardReset);
-        key_map!(map, One, Equal, CONTROL | SHIFT, Setting::IncSpeed);
-        key_map!(map, One, Minus, CONTROL | SHIFT, Setting::DecSpeed);
+        key_map!(map, One, Equal, Setting::IncSpeed);
+        key_map!(map, One, Minus, Setting::DecSpeed);
         key_map!(map, One, Space, Setting::FastForward);
         key_map!(map, One, Digit1, CONTROL, DeckAction::SetSaveSlot(1));
         key_map!(map, One, Digit2, CONTROL, DeckAction::SetSaveSlot(2));
@@ -212,7 +212,6 @@ impl Default for InputMap {
             DeckAction::ToggleApuChannel(Channel::Mapper)
         );
         key_map!(map, One, Enter, CONTROL, Setting::ToggleFullscreen);
-        key_map!(map, One, KeyV, CONTROL, Setting::ToggleVsync);
         key_map!(
             map,
             One,

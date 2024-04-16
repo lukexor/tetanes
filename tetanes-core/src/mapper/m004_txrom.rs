@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 // Legacy of the Wizard (MMC3A 8940EP)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Mmc3Revision {
+pub enum Revision {
     /// MMC3 Revision A
     A,
     /// MMC3 Revisions B & C
@@ -67,7 +67,7 @@ impl TxRegs {
 pub struct Txrom {
     pub regs: TxRegs,
     pub mirroring: Mirroring,
-    pub revision: Mmc3Revision,
+    pub revision: Revision,
     pub chr_banks: MemBanks,
     pub prg_ram_banks: MemBanks,
     pub prg_rom_banks: MemBanks,
@@ -100,7 +100,7 @@ impl Txrom {
         let mut txrom = Self {
             regs: TxRegs::new(),
             mirroring: cart.mirroring(),
-            revision: Mmc3Revision::BC, // TODO compare to known games
+            revision: Revision::BC, // TODO compare to known games
             chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
             prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW),
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
@@ -111,7 +111,7 @@ impl Txrom {
         txrom.into()
     }
 
-    pub fn set_revision(&mut self, revision: Mmc3Revision) {
+    pub fn set_revision(&mut self, revision: Revision) {
         self.revision = revision;
     }
 
@@ -153,7 +153,7 @@ impl Txrom {
     pub fn clock_irq(&mut self, addr: u16) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
-            let (last, next) = if self.revision == Mmc3Revision::Acc {
+            let (last, next) = if self.revision == Revision::Acc {
                 (1, 0)
             } else {
                 (0, 1)
@@ -165,9 +165,7 @@ impl Txrom {
                 } else {
                     self.regs.irq_counter -= 1;
                 }
-                if (counter & 0x01 == 0x01
-                    || self.revision == Mmc3Revision::BC
-                    || self.regs.irq_reload)
+                if (counter & 0x01 == 0x01 || self.revision == Revision::BC || self.regs.irq_reload)
                     && self.regs.irq_counter == 0
                     && self.regs.irq_enabled
                 {
@@ -226,7 +224,7 @@ impl MemMap for Txrom {
             }
             0x6000..=0x7FFF => MappedRead::PrgRam(self.prg_ram_banks.translate(addr)),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::PpuRam,
+            _ => MappedRead::Bus,
         }
     }
 
@@ -293,9 +291,9 @@ impl MemMap for Txrom {
                     0xE001 => self.regs.irq_enabled = true,
                     _ => unreachable!("impossible address"),
                 }
-                MappedWrite::PpuRam
+                MappedWrite::Bus
             }
-            _ => MappedWrite::PpuRam,
+            _ => MappedWrite::Bus,
         }
     }
 }

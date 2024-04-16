@@ -10,17 +10,18 @@ use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 
 pub use m000_nrom::Nrom;
-pub use m001_sxrom::{Mmc1Revision, Sxrom};
+pub use m001_sxrom::{Revision as Mmc1Revision, Sxrom};
 pub use m002_uxrom::Uxrom;
 pub use m003_cnrom::Cnrom;
-pub use m004_txrom::{Mmc3Revision, Txrom};
+pub use m004_txrom::{Revision as Mmc3Revision, Txrom};
 pub use m005_exrom::Exrom;
 pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
 pub use m024_m026_vrc6::Vrc6;
 pub use m034_bnrom::Bnrom;
+pub use m034_nina001::Nina001;
 pub use m066_gxrom::Gxrom;
-pub use m071_bf909x::{Bf909Revision, Bf909x};
+pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
 
 pub mod m000_nrom;
 pub mod m001_sxrom;
@@ -32,6 +33,7 @@ pub mod m007_axrom;
 pub mod m009_pxrom;
 pub mod m024_m026_vrc6;
 pub mod m034_bnrom;
+pub mod m034_nina001;
 pub mod m066_gxrom;
 pub mod m071_bf909x;
 pub mod vrc_irq;
@@ -60,6 +62,7 @@ pub enum Mapper {
     Pxrom,
     Vrc6,
     Bnrom,
+    Nina001,
     Gxrom,
     Bf909x,
 }
@@ -79,7 +82,7 @@ impl Default for Mapper {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedRead {
-    PpuRam,
+    Bus,
     Chr(usize),
     CIRam(usize),
     ExRam(usize),
@@ -92,7 +95,7 @@ pub enum MappedRead {
 #[must_use]
 pub enum MappedWrite {
     None,
-    PpuRam,
+    Bus,
     Chr(usize, u8),
     CIRam(usize, u8),
     ExRam(usize, u8),
@@ -107,11 +110,11 @@ pub trait MemMap {
     }
 
     fn map_peek(&self, _addr: u16) -> MappedRead {
-        MappedRead::PpuRam
+        MappedRead::Bus
     }
 
     fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
-        MappedWrite::PpuRam
+        MappedWrite::Bus
     }
 }
 

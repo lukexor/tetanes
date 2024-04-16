@@ -11,6 +11,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub enum Revision {
+    Bnrom,
+    Nina001,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bnrom {
@@ -19,12 +26,11 @@ pub struct Bnrom {
 }
 
 impl Bnrom {
-    const PRG_ROM_WINDOW: usize = 0x8000;
-    const CHR_RAM_SIZE: usize = 0x1000;
-    const SINGLE_SCREEN_B: u8 = 0b10000;
+    const PRG_ROM_WINDOW: usize = 32 * 1024;
+    const CHR_RAM_SIZE: usize = 8 * 1024;
 
     pub fn load(cart: &mut Cart) -> Mapper {
-        if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
+        if cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         }
         let bnrom = Self {
@@ -40,9 +46,7 @@ impl Mapped for Bnrom {
         self.mirroring
     }
 
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
+    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
 }
 
 impl MemMap for Bnrom {
@@ -51,26 +55,20 @@ impl MemMap for Bnrom {
 
     fn map_peek(&self, addr: u16) -> MappedRead {
         match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(addr.into()),
+            0x0000..=0x1FFF => MappedRead::Chr(usize::from(addr) & (Self::CHR_RAM_SIZE - 1)),
             0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::PpuRam,
+            _ => MappedRead::Bus,
         }
     }
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
-            0x8000..=0xFFFF => {
-                self.prg_rom_banks.set(0, (val & 0x0F).into());
-                self.mirroring = if val & Self::SINGLE_SCREEN_B == Self::SINGLE_SCREEN_B {
-                    Mirroring::SingleScreenB
-                } else {
-                    Mirroring::SingleScreenA
-                };
-                MappedWrite::PpuRam
-            }
-            _ => MappedWrite::PpuRam,
+            0x0000..=0x1FFF => return MappedWrite::Chr(addr.into(), val),
+            // Support up to 8MB PRG-ROM
+            0x8000..=0xFFFF => self.prg_rom_banks.set(0, val.into()),
+            _ => (),
         }
+        MappedWrite::Bus
     }
 }
 

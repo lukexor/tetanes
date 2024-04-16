@@ -2,7 +2,8 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        m024_m026_vrc6::Vrc6Revision, Axrom, Bf909x, Bnrom, Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6
+        m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, Bf909x, Bnrom,
+        Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
     },
     mem::RamState,
     ppu::Mirroring,
@@ -197,8 +198,15 @@ impl Cart {
             9 => Pxrom::load(&mut cart),
             24 => Vrc6::load(&mut cart, Vrc6Revision::A),
             26 => Vrc6::load(&mut cart, Vrc6Revision::B),
+            34 => {
+                // ≥ 16K implies NINA-001; ≤ 8K implies BNROM
+                if cart.has_chr_rom() && cart.chr_rom.len() >= 0x4000 {
+                    Nina001::load(&mut cart)
+                } else {
+                    Bnrom::load(&mut cart)
+                }
+            }
             66 => Gxrom::load(&mut cart),
-            34 => Bnrom::load(&mut cart),
             71 => Bf909x::load(&mut cart),
             155 => Sxrom::load(&mut cart, Mmc1Revision::A),
             _ => return Err(Error::UnimplementedMapper(cart.header.mapper_num)),
@@ -597,6 +605,7 @@ impl NesHeader {
             9 => "Mapper 009 - PxROM",
             24 => "Mapper 024 - Vrc6a",
             26 => "Mapper 026 - Vrc6b",
+            34 => "Mapper 034 - BNROM/NINA-001",
             66 => "Mapper 066 - GxROM/MxROM",
             71 => "Mapper 071 - Camerica/Codemasters/BF909x",
             155 => "Mapper 155 - SxROM/MMC1A",
