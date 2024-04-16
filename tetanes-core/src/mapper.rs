@@ -18,6 +18,7 @@ pub use m005_exrom::Exrom;
 pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
 pub use m024_m026_vrc6::Vrc6;
+pub use m034_bnrom::Bnrom;
 pub use m066_gxrom::Gxrom;
 pub use m071_bf909x::{Bf909Revision, Bf909x};
 
@@ -30,6 +31,7 @@ pub mod m005_exrom;
 pub mod m007_axrom;
 pub mod m009_pxrom;
 pub mod m024_m026_vrc6;
+pub mod m034_bnrom;
 pub mod m066_gxrom;
 pub mod m071_bf909x;
 pub mod vrc_irq;
@@ -57,6 +59,7 @@ pub enum Mapper {
     Axrom,
     Pxrom,
     Vrc6,
+    Bnrom,
     Gxrom,
     Bf909x,
 }
