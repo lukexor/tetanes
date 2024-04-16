@@ -257,6 +257,7 @@ pub struct IrqState {
     pub in_frame: bool,
     pub prev_addr: Option<u16>,
     pub match_count: u8,
+    pub pending: bool,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -347,6 +348,7 @@ impl Exrom {
                 in_frame: false,
                 prev_addr: None,
                 match_count: 0,
+                pending: false,
             },
             ppu_status: PpuStatus {
                 fetch_count: 0x00,
@@ -649,7 +651,10 @@ impl MemMap for Exrom {
                             // Scanline IRQ detected
                             status.scanline += 1;
                             if status.scanline == self.regs.irq_scanline {
-                                Cpu::set_irq(Irq::MAPPER);
+                                irq_state.pending = true;
+                                if self.regs.irq_enabled {
+                                    Cpu::set_irq(Irq::MAPPER);
+                                }
                             }
                         } else {
                             irq_state.in_frame = true;
@@ -665,13 +670,17 @@ impl MemMap for Exrom {
             0xFFFA | 0xFFFB => {
                 self.irq_state.in_frame = false; // NMI clears in_frame
                 self.irq_state.prev_addr = None;
+                self.irq_state.pending = false;
                 Cpu::clear_irq(Irq::MAPPER);
             }
             _ => (),
         }
         let val = self.map_peek(addr);
         match addr {
-            0x5204 => Cpu::clear_irq(Irq::MAPPER),
+            0x5204 => {
+                self.irq_state.pending = false;
+                Cpu::clear_irq(Irq::MAPPER);
+            }
             0x5010 => Cpu::clear_irq(Irq::DMC),
             _ => (),
         }
@@ -770,7 +779,7 @@ impl MemMap for Exrom {
                 //   P = IRQ currently pending
                 //   I = "In Frame" signal
 
-                let irq_pending = Cpu::irqs().contains(Irq::MAPPER);
+                let irq_pending = Cpu::has_irq(Irq::MAPPER);
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in the read() function
                 MappedRead::Data(
@@ -967,6 +976,8 @@ impl MemMap for Exrom {
                 self.regs.irq_enabled = val & 0x80 > 0; // [E... ....] IRQ Enable (0=disabled, 1=enabled)
                 if !self.regs.irq_enabled {
                     Cpu::clear_irq(Irq::MAPPER);
+                } else if self.irq_state.pending {
+                    Cpu::set_irq(Irq::MAPPER);
                 }
             }
             0x5205 => {
