@@ -34,7 +34,7 @@ pub fn open_file_dialog(
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum Feature {
-    SaveStates,
+    Filesystem,
     WindowMinMax,
     ToggleVsync,
 }

@@ -520,24 +520,28 @@ impl ControlDeck {
             return self.clock_frame_output(handle_output);
         }
 
-        // Clock current frame and discard video
+        // Clock current frame and save state so we can rewind
         self.clock_frame()?;
+        let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
         // Save state so we can rewind
         let state = bincode::serialize(&self.cpu)
             .map_err(|err| fs::Error::SerializationFailed(err.to_string()))?;
 
         // Clock additional frames and discard video/audio
+        self.cpu.bus.ppu.skip_rendering = true;
         for _ in 1..run_ahead {
             self.clock_frame()?;
         }
+        self.cpu.bus.ppu.skip_rendering = false;
 
         // Output the future frame video/audio
         self.clear_audio_samples();
         let result = self.clock_frame_output(handle_output)?;
 
         // Restore back to current frame
-        let state = bincode::deserialize(&state)
+        let mut state = bincode::deserialize::<Cpu>(&state)
             .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
+        state.bus.ppu.frame.buffer = frame;
         self.load_cpu(state);
 
         Ok(result)
@@ -561,8 +565,9 @@ impl ControlDeck {
             return self.clock_frame_into(frame_buffer, audio_samples);
         }
 
-        // Clock current frame and discard video
+        // Clock current frame and save state so we can rewind
         self.clock_frame()?;
+        let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
         // Save state so we can rewind
         let state = bincode::serialize(&self.cpu)
             .map_err(|err| fs::Error::SerializationFailed(err.to_string()))?;
@@ -577,8 +582,9 @@ impl ControlDeck {
         let cycles = self.clock_frame_into(frame_buffer, audio_samples)?;
 
         // Restore back to current frame
-        let state = bincode::deserialize(&state)
+        let mut state = bincode::deserialize::<Cpu>(&state)
             .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
+        state.bus.ppu.frame.buffer = frame;
         self.load_cpu(state);
 
         Ok(cycles)

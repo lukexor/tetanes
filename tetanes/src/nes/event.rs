@@ -38,7 +38,7 @@ pub enum UiEvent {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct RomData(Vec<u8>);
+pub struct RomData(pub Vec<u8>);
 
 impl std::fmt::Debug for RomData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,9 +52,18 @@ impl AsRef<[u8]> for RomData {
     }
 }
 
-impl RomData {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self(bytes)
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ReplayData(pub Vec<u8>);
+
+impl std::fmt::Debug for ReplayData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReplayData({} bytes)", self.0.len())
+    }
+}
+
+impl AsRef<[u8]> for ReplayData {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -66,6 +75,7 @@ pub enum EmulationEvent {
     Joypad((Player, JoypadBtn, ElementState)),
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
+    LoadReplay((String, ReplayData)),
     LoadReplayPath(PathBuf),
     Pause(bool),
     Reset(ResetKind),
@@ -230,6 +240,19 @@ impl Nes {
             Event::LoopExiting => {
                 #[cfg(feature = "profiling")]
                 puffin::set_scopes_on(false);
+
+                // Save window scale on exit
+                let size = self.window.inner_size();
+                let scale_factor = self.window.scale_factor() as f32;
+                let texture_size = self.config.read(|cfg| cfg.texture_size());
+                let scale = if size.width < size.height {
+                    (size.width as f32 / scale_factor) / texture_size.width as f32
+                } else {
+                    (size.height as f32 / scale_factor) / texture_size.height as f32
+                };
+                self.config.write(|cfg| {
+                    cfg.renderer.scale = scale.floor();
+                });
                 if let Err(err) = self.config.read(|cfg| cfg.save()) {
                     error!("{err:?}");
                 }
@@ -329,17 +352,35 @@ impl Nes {
                 Action::Menu(menu) if released => self.trigger_event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) => match feature {
                     Feature::ToggleReplayRecord if released => {
-                        self.state.replay_recording = !self.state.replay_recording;
-                        self.trigger_event(EmulationEvent::ReplayRecord(
-                            self.state.replay_recording,
-                        ));
+                        if platform::supports(platform::Feature::Filesystem) {
+                            self.state.replay_recording = !self.state.replay_recording;
+                            self.trigger_event(EmulationEvent::ReplayRecord(
+                                self.state.replay_recording,
+                            ));
+                        } else {
+                            self.add_message(
+                                "replay recordings are not supported yet on this platform.",
+                            );
+                        }
                     }
                     Feature::ToggleAudioRecord if released => {
-                        self.state.audio_recording = !self.state.audio_recording;
-                        self.trigger_event(EmulationEvent::AudioRecord(self.state.audio_recording));
+                        if platform::supports(platform::Feature::Filesystem) {
+                            self.state.audio_recording = !self.state.audio_recording;
+                            self.trigger_event(EmulationEvent::AudioRecord(
+                                self.state.audio_recording,
+                            ));
+                        } else {
+                            self.add_message(
+                                "audio recordings are not supported yet on this platform.",
+                            );
+                        }
                     }
                     Feature::TakeScreenshot if released => {
-                        self.trigger_event(EmulationEvent::Screenshot);
+                        if platform::supports(platform::Feature::Filesystem) {
+                            self.trigger_event(EmulationEvent::Screenshot);
+                        } else {
+                            self.add_message("screenshots are not supported yet on this platform.");
+                        }
                     }
                     Feature::Rewind => {
                         if !self.state.rewinding {
@@ -450,16 +491,28 @@ impl Nes {
                         }
                     }
                     DeckAction::SetSaveSlot(slot) if released => {
-                        if self.config.read(|cfg| cfg.emulation.save_slot != slot) {
-                            self.config.write(|cfg| cfg.emulation.save_slot = slot);
-                            self.add_message(format!("Changed Save Slot to {slot}"));
+                        if platform::supports(platform::Feature::Filesystem) {
+                            if self.config.read(|cfg| cfg.emulation.save_slot != slot) {
+                                self.config.write(|cfg| cfg.emulation.save_slot = slot);
+                                self.add_message(format!("Changed Save Slot to {slot}"));
+                            }
+                        } else {
+                            self.add_message("save states are not supported yet on this platform.");
                         }
                     }
                     DeckAction::SaveState if released => {
-                        self.trigger_event(EmulationEvent::StateSave);
+                        if platform::supports(platform::Feature::Filesystem) {
+                            self.trigger_event(EmulationEvent::StateSave);
+                        } else {
+                            self.add_message("save states are not supported yet on this platform.");
+                        }
                     }
                     DeckAction::LoadState if released => {
-                        self.trigger_event(EmulationEvent::StateLoad);
+                        if platform::supports(platform::Feature::Filesystem) {
+                            self.trigger_event(EmulationEvent::StateLoad);
+                        } else {
+                            self.add_message("save states are not supported yet on this platform.");
+                        }
                     }
                     DeckAction::ToggleApuChannel(channel) if released => {
                         self.config.write(|cfg| {

@@ -3,6 +3,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
+    io::Read,
     path::{Path, PathBuf},
 };
 use tetanes_core::{cpu::Cpu, fs};
@@ -35,8 +36,8 @@ impl Record {
         self.events.clear();
     }
 
-    pub fn stop(&mut self) -> anyhow::Result<Option<PathBuf>> {
-        self.save()
+    pub fn stop(&mut self, name: &str) -> anyhow::Result<Option<PathBuf>> {
+        self.save(name)
     }
 
     pub fn push(&mut self, frame: u32, event: EmulationEvent) {
@@ -51,7 +52,7 @@ impl Record {
     }
 
     /// Saves the replay recording out to a file.
-    pub fn save(&mut self) -> anyhow::Result<Option<PathBuf>> {
+    pub fn save(&mut self, name: &str) -> anyhow::Result<Option<PathBuf>> {
         let Some(start) = self.start.take() else {
             return Ok(None);
         };
@@ -62,7 +63,7 @@ impl Record {
             let path = dir
                 .join(
                     Local::now()
-                        .format("tetanes_replay_%Y-%m-%d_%H.%M.%S")
+                        .format(&format!("tetanes_replay_{name}_%Y-%m-%d_%H.%M.%S"))
                         .to_string(),
                 )
                 .with_extension("replay");
@@ -87,9 +88,19 @@ impl Replay {
     }
 
     /// Loads a replay recording file.
-    pub fn load(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Cpu> {
+    pub fn load_path(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Cpu> {
         let path = path.as_ref();
         let State((cpu, mut events)) = fs::load(path)?;
+        events.reverse(); // So we can pop off the end
+        self.events = events;
+        Ok(cpu)
+    }
+
+    /// Loads a replay from a reader.
+    pub fn load(&mut self, mut replay: impl Read) -> anyhow::Result<Cpu> {
+        let mut events = Vec::new();
+        replay.read_to_end(&mut events)?;
+        let State((cpu, mut events)) = fs::load_bytes(&events)?;
         events.reverse(); // So we can pop off the end
         self.events = events;
         Ok(cpu)

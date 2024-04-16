@@ -88,12 +88,14 @@ pub struct Opts {
     /// Don't auto save state or save on exit.
     #[arg(long)]
     pub(crate) no_save: bool,
+    #[arg(short = 'x', long)]
     /// Emulation speed. [default: 1.0]
     pub(crate) speed: Option<f32>,
     /// Add Game Genie Code(s). e.g. `AATOZE` (Start Super Mario Bros. with 9 lives).
     #[arg(short, long)]
     pub(crate) genie_code: Vec<String>,
     /// Custom Config path.
+    #[arg(long)]
     pub(crate) config: Option<PathBuf>,
     /// "Default Config" (skip user config and previous save states)
     #[arg(short, long)]

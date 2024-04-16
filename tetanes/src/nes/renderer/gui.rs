@@ -76,6 +76,7 @@ pub struct Gui {
     pub frame_timer: Instant,
     pub avg_fps: f32,
     pub messages: Vec<(String, Instant)>,
+    pub loaded_rom: Option<String>,
     pub status: Option<&'static str>,
     pub error: Option<String>,
 }
@@ -139,6 +140,7 @@ impl Gui {
             frame_timer: Instant::now(),
             avg_fps: 60.0,
             messages: vec![],
+            loaded_rom: None,
             status: None,
             error: None,
         }
@@ -225,33 +227,33 @@ impl Gui {
             self.send_event(UiEvent::LoadRomDialog);
             ui.close_menu();
         }
-        if ui.button("Load Replay...").clicked() {
-            self.send_event(EmulationEvent::Pause(true));
-            self.send_event(UiEvent::LoadReplayDialog);
-            ui.close_menu();
+        if let Some(ref rom) = self.loaded_rom {
+            if ui.button(format!("Load Replay for {rom}...")).clicked() {
+                self.send_event(EmulationEvent::Pause(true));
+                self.send_event(UiEvent::LoadReplayDialog);
+                ui.close_menu();
+            }
         }
 
         // TODO: support saves and recent games on wasm? Requires storing the data
-        if platform::supports(Feature::SaveStates) {
+        if platform::supports(Feature::Filesystem) {
             if ui.button("Save State").clicked() {
                 self.send_event(EmulationEvent::StateSave);
-                ui.close_menu();
             };
             if ui.button("Load State").clicked() {
                 self.send_event(EmulationEvent::StateLoad);
-                ui.close_menu();
             }
 
             self.config.write(|cfg| {
                 ui.menu_button("Save Slot...", |ui| {
-                    for i in 1..=4 {
-                        if ui
-                            .radio_value(&mut cfg.emulation.save_slot, i, &i.to_string())
-                            .clicked()
-                        {
-                            ui.close_menu();
-                        }
-                    }
+                    ui.radio_value(&mut cfg.emulation.save_slot, 1, "1");
+                    ui.radio_value(&mut cfg.emulation.save_slot, 2, "2");
+                    ui.radio_value(&mut cfg.emulation.save_slot, 3, "3");
+                    ui.radio_value(&mut cfg.emulation.save_slot, 4, "4");
+                    ui.radio_value(&mut cfg.emulation.save_slot, 5, "5");
+                    ui.radio_value(&mut cfg.emulation.save_slot, 6, "6");
+                    ui.radio_value(&mut cfg.emulation.save_slot, 7, "7");
+                    ui.radio_value(&mut cfg.emulation.save_slot, 8, "8");
                 });
             });
 
@@ -305,28 +307,30 @@ impl Gui {
             self.send_event(EmulationEvent::InstantRewind);
             ui.close_menu();
         };
-        if ui.button("Take Screenshot").clicked() {
-            self.send_event(EmulationEvent::Screenshot);
-            ui.close_menu();
-        };
-        let replay_label = if self.replay_recording {
-            "Stop Replay Recording"
-        } else {
-            "Record Replay"
-        };
-        if ui.button(replay_label).clicked() {
-            self.send_event(EmulationEvent::ReplayRecord(!self.replay_recording));
-            ui.close_menu();
-        };
-        let audio_label = if self.audio_recording {
-            "Stop Audio Recording"
-        } else {
-            "Record Audio"
-        };
-        if ui.button(audio_label).clicked() {
-            self.send_event(EmulationEvent::AudioRecord(!self.audio_recording));
-            ui.close_menu();
-        };
+        if platform::supports(Feature::Filesystem) {
+            if ui.button("Take Screenshot").clicked() {
+                self.send_event(EmulationEvent::Screenshot);
+                ui.close_menu();
+            };
+            let replay_label = if self.replay_recording {
+                "Stop Replay Recording"
+            } else {
+                "Record Replay"
+            };
+            if ui.button(replay_label).clicked() {
+                self.send_event(EmulationEvent::ReplayRecord(!self.replay_recording));
+                ui.close_menu();
+            };
+            let audio_label = if self.audio_recording {
+                "Stop Audio Recording"
+            } else {
+                "Record Audio"
+            };
+            if ui.button(audio_label).clicked() {
+                self.send_event(EmulationEvent::AudioRecord(!self.audio_recording));
+                ui.close_menu();
+            };
+        }
     }
 
     fn settings_menu(&mut self, ui: &mut Ui) {
@@ -347,6 +351,11 @@ impl Gui {
                     self.config.read(|cfg| cfg.emulation.speed),
                 ));
             }
+        });
+        ui.menu_button("Run Ahead...", |ui| {
+            self.config.write(|cfg| {
+                ui.add(egui::Slider::new(&mut cfg.emulation.run_ahead, 0..=4));
+            });
         });
         self.config.write(|cfg| {
             ui.checkbox(&mut cfg.deck.zapper, "Enable Zapper Gun");
@@ -432,6 +441,20 @@ impl Gui {
                 ui.close_menu();
             };
         }
+        ui.menu_button("Window Scale...", |ui| {
+            self.config.write(|cfg| {
+                let scale = cfg.renderer.scale;
+                ui.radio_value(&mut cfg.renderer.scale, 1.0, "1x");
+                ui.radio_value(&mut cfg.renderer.scale, 2.0, "2x");
+                ui.radio_value(&mut cfg.renderer.scale, 3.0, "3x");
+                ui.radio_value(&mut cfg.renderer.scale, 4.0, "4x");
+                ui.radio_value(&mut cfg.renderer.scale, 5.0, "5x");
+                if scale != cfg.renderer.scale {
+                    self.resize_window = true;
+                    self.resize_texture = true;
+                }
+            });
+        });
         if ui.button("Toggle Fullscreen").clicked() {
             let fullscreen = self.config.write(|cfg| {
                 cfg.renderer.fullscreen = !cfg.renderer.fullscreen;
@@ -453,7 +476,6 @@ impl Gui {
         if ui.button(fps_label).clicked() {
             self.config
                 .write(|cfg| cfg.renderer.show_fps = !cfg.renderer.show_fps);
-            ui.close_menu();
         };
         let messages_label = if self.config.read(|cfg| cfg.renderer.show_messages) {
             "Hide Messages"
@@ -463,7 +485,6 @@ impl Gui {
         if ui.button(messages_label).clicked() {
             self.config
                 .write(|cfg| cfg.renderer.show_messages = !cfg.renderer.show_messages);
-            ui.close_menu();
         };
     }
 
@@ -650,7 +671,7 @@ impl Gui {
         ui.label(RichText::new(self.labels.get("version").expect("valid version")).strong());
         ui.hyperlink("https://github.com/lukexor/tetanes");
 
-        if platform::supports(Feature::SaveStates) {
+        if platform::supports(Feature::Filesystem) {
             ui.separator();
 
             // TODO: avoid allocations

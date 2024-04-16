@@ -1,4 +1,4 @@
-
+use std::path::PathBuf;
 use tracing_appender::{
     non_blocking::WorkerGuard,
     rolling::{RollingFileAppender, Rotation},
@@ -23,7 +23,7 @@ where
         .rotation(Rotation::DAILY)
         .max_log_files(3)
         .filename_prefix(LOG_PREFIX)
-        .build(LOG_DIR)
+        .build(dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(LOG_DIR)))
         .expect("Failed to create log file");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 

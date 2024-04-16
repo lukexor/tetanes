@@ -348,17 +348,6 @@ impl Renderer {
                             self.surface_config.width = width;
                             self.surface_config.height = height;
                             self.resize_surface = true;
-
-                            let scale_factor = window.scale_factor() as f32;
-                            let texture_size = self.config.read(|cfg| cfg.texture_size());
-                            let scale = if size.width < size.height {
-                                (width as f32 / scale_factor) / texture_size.width as f32
-                            } else {
-                                (height as f32 / scale_factor) / texture_size.height as f32
-                            };
-                            self.config.write(|cfg| {
-                                cfg.renderer.scale = scale.floor();
-                            });
                         }
                     }
                     WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -400,6 +389,7 @@ impl Renderer {
                     }
                     RendererEvent::Frame => self.gui.frame_counter += 1,
                     RendererEvent::RomLoaded((title, region)) => {
+                        self.gui.loaded_rom = Some(title.clone());
                         self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
                         self.gui.cart_aspect_ratio = region.aspect_ratio();
                         self.gui.resize_window = true;
@@ -490,9 +480,9 @@ impl Renderer {
                 window_size.width *= aspect_ratio;
                 window_size.height += self.gui.menu_height;
                 let _ = self.window.request_inner_size(window_size);
+                self.gui.resize_window = false;
             }
             self.resize_surface = false;
-            self.gui.resize_window = false;
         }
         if self.gui.resize_texture {
             self.resize_texture();

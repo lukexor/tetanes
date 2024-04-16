@@ -12,13 +12,14 @@ use crossbeam::channel::{self, Receiver, Sender};
 use replay::Replay;
 use std::{
     io::{self, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
     thread::JoinHandle,
 };
 use tetanes_core::{
     apu::Apu,
     common::{NesRegion, Regional, Reset, ResetKind},
     control_deck::{self, ControlDeck},
+    cpu::Cpu,
     fs,
     ppu::Ppu,
     time::{Duration, Instant},
@@ -300,6 +301,9 @@ impl State {
                 self.load_rom(name, &mut io::Cursor::new(rom));
             }
             EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
+            EmulationEvent::LoadReplay((name, replay)) => {
+                self.load_replay(name, &mut io::Cursor::new(replay));
+            }
             EmulationEvent::LoadReplayPath(path) => self.load_replay_path(path),
             EmulationEvent::Pause(paused) => self.pause(*paused),
             EmulationEvent::Reset(kind) => {
@@ -404,8 +408,10 @@ impl State {
         if self.control_deck.is_running() && !self.control_deck.cpu_corrupted() {
             self.paused = paused;
             if self.paused {
-                if let Err(err) = self.record.stop() {
-                    self.on_error(err);
+                if let Some(rom) = self.control_deck.loaded_rom() {
+                    if let Err(err) = self.record.stop(rom) {
+                        self.on_error(err);
+                    }
                 }
             }
             self.audio.pause(self.paused);
@@ -467,22 +473,31 @@ impl State {
         }
     }
 
-    fn load_replay_path(&mut self, path: impl AsRef<std::path::Path>) {
-        let path = path.as_ref();
-        match self.replay.load(path) {
-            Ok(start) => {
-                self.add_message(format!("Loaded Replay Recording {path:?}"));
-                self.control_deck.load_cpu(start);
-                self.pause(false);
-            }
-            Err(err) => self.on_error(err),
-        }
-    }
-
     fn load_rom(&mut self, name: &str, rom: &mut impl Read) {
         self.on_unload_rom();
         match self.control_deck.load_rom(name, rom) {
             Ok(()) => self.on_load_rom(name),
+            Err(err) => self.on_error(err),
+        }
+    }
+
+    fn on_load_replay(&mut self, start: Cpu, name: impl AsRef<str>) {
+        self.add_message(format!("Loaded Replay Recording {:?}", name.as_ref()));
+        self.control_deck.load_cpu(start);
+        self.pause(false);
+    }
+
+    fn load_replay_path(&mut self, path: impl AsRef<Path>) {
+        let path = path.as_ref();
+        match self.replay.load_path(path) {
+            Ok(start) => self.on_load_replay(start, path.to_string_lossy()),
+            Err(err) => self.on_error(err),
+        }
+    }
+
+    fn load_replay(&mut self, name: &str, replay: &mut impl Read) {
+        match self.replay.load(replay) {
+            Ok(start) => self.on_load_replay(start, name),
             Err(err) => self.on_error(err),
         }
     }
@@ -512,8 +527,8 @@ impl State {
             if recording {
                 self.record.start(self.control_deck.cpu().clone());
                 self.add_message("Replay Recording Started");
-            } else {
-                match self.record.stop() {
+            } else if let Some(rom) = self.control_deck.loaded_rom() {
+                match self.record.stop(rom) {
                     Ok(Some(filename)) => {
                         self.add_message(format!("Saved Replay Recording {filename:?}"));
                     }
@@ -573,8 +588,8 @@ impl State {
         self.last_frame_time = Instant::now();
         self.total_frame_duration += last_frame_duration;
         self.frame_time_accumulator += last_frame_duration.as_secs_f32();
-        if self.frame_time_accumulator > 0.25 {
-            self.frame_time_accumulator = 0.25;
+        if self.frame_time_accumulator > 0.025 {
+            self.frame_time_accumulator = 0.025;
         }
 
         // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're

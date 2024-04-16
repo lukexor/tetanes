@@ -62,12 +62,14 @@ impl Default for EmulationConfig {
         Self {
             cycle_accurate: true,
             load_on_start: true,
-            rewind: true,
+            // WASM framerates suffer with garbage collection pauses when rewind is enabled.
+            // FIXME: Perhaps re-using Vec allocations could help resolve it.
+            rewind: cfg!(not(target_arch = "wasm32")),
             save_on_exit: true,
             save_slot: 1,
             speed: 1.0,
-            // FIXME debug builds aren't currently fast enough to default to 1 without audio
-            // underruns.
+            // WASM struggles to run fast enough with run-ahead and low latency is not needed in
+            // debug builds.
             run_ahead: if cfg!(any(debug_assertions, target_arch = "wasm32")) {
                 0
             } else {

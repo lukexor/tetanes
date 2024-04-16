@@ -150,8 +150,8 @@ impl Default for InputMap {
         key_map!(map, One, KeyQ, CONTROL, UiState::Quit);
         key_map!(map, One, KeyR, CONTROL, DeckAction::SoftReset);
         key_map!(map, One, KeyP, CONTROL, DeckAction::HardReset);
-        key_map!(map, One, Equal, CONTROL, Setting::IncSpeed);
-        key_map!(map, One, Minus, CONTROL, Setting::DecSpeed);
+        key_map!(map, One, Equal, CONTROL | SHIFT, Setting::IncSpeed);
+        key_map!(map, One, Minus, CONTROL | SHIFT, Setting::DecSpeed);
         key_map!(map, One, Space, Setting::FastForward);
         key_map!(map, One, Digit1, CONTROL, DeckAction::SetSaveSlot(1));
         key_map!(map, One, Digit2, CONTROL, DeckAction::SetSaveSlot(2));

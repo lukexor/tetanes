@@ -1,6 +1,6 @@
 use crate::{
     nes::{
-        event::{EmulationEvent, NesEvent, RomData, UiEvent},
+        event::{EmulationEvent, NesEvent, ReplayData, RomData, UiEvent},
         Nes,
     },
     platform::{BuilderExt, EventLoopExt, Feature, Initialize},
@@ -24,12 +24,17 @@ pub fn supports_impl(_feature: Feature) -> bool {
 pub fn open_file_dialog_impl(
     _title: impl Into<String>,
     _name: impl Into<String>,
-    _extensions: &[impl ToString],
+    extensions: &[impl ToString],
     _dir: Option<PathBuf>,
 ) -> anyhow::Result<Option<PathBuf>> {
+    let input_id = match extensions[0].to_string().as_str() {
+        "nes" => html_ids::ROM_INPUT,
+        "replay" => html_ids::REPLAY_INPUT,
+        _ => bail!("unsupported file extension"),
+    };
     let input = web_sys::window()
         .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(html_ids::ROM_INPUT))
+        .and_then(|document| document.get_element_by_id(input_id))
         .and_then(|input| input.dyn_into::<HtmlInputElement>().ok());
     match input {
         Some(input) => input.click(),
@@ -56,53 +61,62 @@ impl Initialize for Nes {
             }
         };
 
-        let on_load_rom = Closure::<dyn FnMut(_)>::new({
-            let event_proxy = self.event_proxy.clone();
-            move |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
-                evt.current_target()
-                    .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
-                    .and_then(|input| input.files())
-                    .and_then(|files| files.item(0))
-                    .map(|file| {
-                        reader.read_as_array_buffer(&file).map(|_| {
-                            let onload = Closure::<dyn FnMut()>::new({
-                                let reader = reader.clone();
-                                let event_proxy = event_proxy.clone();
-                                move || {
-                                    if let Err(err) = reader.result().map(|result| {
-                                        let data = Uint8Array::new(&result);
-                                        event_proxy.send_event(
-                                            EmulationEvent::LoadRom((
-                                                file.name(),
-                                                RomData::new(data.to_vec()),
-                                            ))
-                                            .into(),
-                                        )
-                                    }) {
-                                        on_error(&event_proxy, err);
+        for input_id in [html_ids::ROM_INPUT, html_ids::REPLAY_INPUT] {
+            let on_load = Closure::<dyn FnMut(_)>::new({
+                let event_proxy = self.event_proxy.clone();
+                move |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
+                    evt.current_target()
+                        .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
+                        .and_then(|input| input.files())
+                        .and_then(|files| files.item(0))
+                        .map(|file| {
+                            reader.read_as_array_buffer(&file).map(|_| {
+                                let onload = Closure::<dyn FnMut()>::new({
+                                    let reader = reader.clone();
+                                    let event_proxy = event_proxy.clone();
+                                    move || {
+                                        if let Err(err) = reader.result().map(|result| {
+                                            let data = Uint8Array::new(&result);
+                                            let event = match input_id {
+                                                html_ids::ROM_INPUT => EmulationEvent::LoadRom((
+                                                    file.name(),
+                                                    RomData(data.to_vec()),
+                                                )),
+                                                html_ids::REPLAY_INPUT => {
+                                                    EmulationEvent::LoadReplay((
+                                                        file.name(),
+                                                        ReplayData(data.to_vec()),
+                                                    ))
+                                                }
+                                                _ => unreachable!("unsupported input id"),
+                                            };
+                                            event_proxy.send_event(event.into())
+                                        }) {
+                                            on_error(&event_proxy, err);
+                                        }
                                     }
-                                }
-                            });
-                            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
-                            onload.forget();
+                                });
+                                reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+                                onload.forget();
+                            })
                         })
-                    })
-                    .unwrap()
-            }) {
-                Ok(()) => focus_canvas(),
-                Err(err) => on_error(&event_proxy, err),
-            }
-        });
+                        .unwrap()
+                }) {
+                    Ok(()) => focus_canvas(),
+                    Err(err) => on_error(&event_proxy, err),
+                }
+            });
 
-        let load_rom_input = document
-            .get_element_by_id(html_ids::ROM_INPUT)
-            .context("valid load-rom button")?;
-        if let Err(err) = load_rom_input
-            .add_event_listener_with_callback("change", on_load_rom.as_ref().unchecked_ref())
-        {
-            on_error(&self.event_proxy, err);
+            let input = document
+                .get_element_by_id(input_id)
+                .with_context(|| format!("valid {input_id} button"))?;
+            if let Err(err) =
+                input.add_event_listener_with_callback("change", on_load.as_ref().unchecked_ref())
+            {
+                on_error(&self.event_proxy, err);
+            }
+            on_load.forget();
         }
-        on_load_rom.forget();
 
         Ok(())
     }
@@ -129,6 +143,7 @@ impl<T> EventLoopExt<T> for EventLoop<T> {
 mod html_ids {
     pub(super) const CANVAS: &str = "frame";
     pub(super) const ROM_INPUT: &str = "load-rom";
+    pub(super) const REPLAY_INPUT: &str = "load-replay";
 }
 
 fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {

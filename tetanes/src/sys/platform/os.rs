@@ -13,7 +13,7 @@ use winit::{
 pub fn supports_impl(feature: Feature) -> bool {
     matches!(
         feature,
-        Feature::SaveStates | Feature::WindowMinMax | Feature::ToggleVsync
+        Feature::Filesystem | Feature::WindowMinMax | Feature::ToggleVsync
     )
 }
 

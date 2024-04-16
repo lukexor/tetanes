@@ -57,6 +57,13 @@ lto = true
 strip = true
 panic = 'abort'
 
+[profile.dev.package.serde]
+inherits = "release"
+[profile.dev.package.bincode]
+inherits = "release"
+[profile.dev.build-override]
+inherits = "release"
+
 # Config for 'cargo dist'
 [workspace.metadata.dist]
 # The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
