@@ -1,13 +1,7 @@
-use crate::nes::{
-    action::Action,
-    event::EmulationEvent,
-    input::{Input, InputBinding, InputMap},
-    Nes,
-};
+use crate::nes::input::{ActionBindings, Input};
 use anyhow::Context;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use std::{collections::HashSet, path::PathBuf};
 use tetanes_core::{
     common::NesRegion, control_deck::Config as DeckConfig, fs, input::Player, ppu::Ppu,
     time::Duration,
@@ -19,21 +13,21 @@ use winit::dpi::LogicalSize;
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct AudioConfig {
-    pub buffer_size: usize,
     pub enabled: bool,
+    pub buffer_size: usize,
     pub latency: Duration,
 }
 
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             buffer_size: if cfg!(target_arch = "wasm32") {
                 // Too low a value for wasm causes audio underruns in Chrome
                 2048
             } else {
                 512
             },
-            enabled: true,
             latency: if cfg!(target_arch = "wasm32") {
                 Duration::from_millis(80)
             } else {
@@ -47,27 +41,23 @@ impl Default for AudioConfig {
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct EmulationConfig {
-    pub cycle_accurate: bool,
-    pub load_on_start: bool,
+    pub auto_load: bool,
+    pub auto_save: bool,
     pub rewind: bool,
-    pub save_on_exit: bool,
+    pub run_ahead: usize,
     pub save_slot: u8,
     pub speed: f32,
-    pub run_ahead: usize,
     pub threaded: bool,
 }
 
 impl Default for EmulationConfig {
     fn default() -> Self {
         Self {
-            cycle_accurate: true,
-            load_on_start: true,
+            auto_load: true,
+            auto_save: true,
             // WASM framerates suffer with garbage collection pauses when rewind is enabled.
             // FIXME: Perhaps re-using Vec allocations could help resolve it.
             rewind: cfg!(not(target_arch = "wasm32")),
-            save_on_exit: true,
-            save_slot: 1,
-            speed: 1.0,
             // WASM struggles to run fast enough with run-ahead and low latency is not needed in
             // debug builds.
             run_ahead: if cfg!(any(debug_assertions, target_arch = "wasm32")) {
@@ -75,6 +65,8 @@ impl Default for EmulationConfig {
             } else {
                 1
             },
+            save_slot: 1,
+            speed: 1.0,
             threaded: true,
         }
     }
@@ -90,6 +82,7 @@ pub struct RendererConfig {
     pub recent_roms: HashSet<PathBuf>,
     pub roms_path: Option<PathBuf>,
     pub show_fps: bool,
+    pub show_perf_stats: bool,
     pub show_messages: bool,
     pub show_menubar: bool,
     pub vsync: bool,
@@ -108,6 +101,7 @@ impl Default for RendererConfig {
             recent_roms: HashSet::new(),
             roms_path: None,
             show_fps: cfg!(debug_assertions),
+            show_perf_stats: cfg!(debug_assertions),
             show_messages: true,
             show_menubar: true,
             vsync: true,
@@ -120,79 +114,40 @@ impl Default for RendererConfig {
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct InputConfig {
     pub controller_deadzone: f64,
-    pub bindings: Vec<InputBinding>,
+    pub bindings: Vec<ActionBindings>,
 }
 
 impl Default for InputConfig {
     fn default() -> Self {
         Self {
             controller_deadzone: 0.5,
-            bindings: InputMap::default()
-                .iter()
-                .map(|(input, (slot, action))| (*input, *slot, *action))
-                .collect(),
+            bindings: ActionBindings::default_bindings(),
         }
     }
 }
 
-#[derive(Default, Debug, Clone)]
-pub struct Config(Arc<RwLock<ConfigImpl>>);
-
-impl Config {
-    pub const SAVE_DIR: &'static str = "save";
-    pub const WINDOW_TITLE: &'static str = "TetaNES";
-    pub const FILENAME: &'static str = "config.json";
-
-    pub fn load(path: Option<PathBuf>) -> Self {
-        Self(Arc::new(RwLock::new(ConfigImpl::load(path))))
+impl InputConfig {
+    pub fn shortcut_bindings(&self) -> impl Iterator<Item = ActionBindings> + '_ {
+        self.bindings.iter().filter(|b| b.player.is_none()).copied()
     }
 
-    pub fn read<R>(&self, reader: impl FnOnce(&ConfigImpl) -> R) -> R {
-        reader(&self.0.read())
+    pub fn joypad_bindings(&self, player: Player) -> impl Iterator<Item = ActionBindings> + '_ {
+        self.bindings
+            .iter()
+            .filter(move |b| b.player == Some(player))
+            .copied()
     }
 
-    pub fn write<R>(&self, writer: impl FnOnce(&mut ConfigImpl) -> R) -> R {
-        writer(&mut self.0.write())
-    }
-
-    #[must_use]
-    pub fn config_dir() -> Option<PathBuf> {
-        dirs::config_local_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
-    }
-
-    #[must_use]
-    pub fn data_dir() -> Option<PathBuf> {
-        dirs::data_local_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
-    }
-
-    #[must_use]
-    pub fn document_dir() -> Option<PathBuf> {
-        dirs::document_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
-    }
-
-    #[must_use]
-    pub fn picture_dir() -> Option<PathBuf> {
-        dirs::picture_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
-    }
-
-    #[must_use]
-    pub fn audio_dir() -> Option<PathBuf> {
-        dirs::audio_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
-    }
-
-    #[must_use]
-    pub fn config_path() -> Option<PathBuf> {
-        Self::config_dir().map(|dir| dir.join(Self::FILENAME))
-    }
-
-    #[must_use]
-    pub fn save_path(name: &str, slot: u8) -> Option<PathBuf> {
-        Self::data_dir().map(|dir| {
-            dir.join(Self::SAVE_DIR)
-                .join(name)
-                .join(format!("slot-{}", slot))
-                .with_extension("sav")
-        })
+    pub fn clear_binding(&mut self, input: Input) {
+        self.bindings.iter_mut().for_each(|bind| {
+            if let Some(input) = bind
+                .bindings
+                .iter_mut()
+                .find(|binding| **binding == Some(input))
+            {
+                *input = None;
+            }
+        });
     }
 }
 
@@ -205,7 +160,7 @@ impl Config {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
-pub struct ConfigImpl {
+pub struct Config {
     pub deck: DeckConfig,
     pub emulation: EmulationConfig,
     pub audio: AudioConfig,
@@ -213,9 +168,52 @@ pub struct ConfigImpl {
     pub input: InputConfig,
 }
 
-impl ConfigImpl {
+impl Config {
+    pub const SAVE_DIR: &'static str = "save";
+    pub const WINDOW_TITLE: &'static str = "TetaNES";
+    pub const FILENAME: &'static str = "config.json";
+
+    #[must_use]
+    pub fn default_config_dir() -> Option<PathBuf> {
+        dirs::config_local_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    }
+
+    #[must_use]
+    pub fn default_data_dir() -> Option<PathBuf> {
+        dirs::data_local_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    }
+
+    #[must_use]
+    pub fn default_picture_dir() -> Option<PathBuf> {
+        dirs::picture_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    }
+
+    #[must_use]
+    pub fn default_audio_dir() -> Option<PathBuf> {
+        dirs::audio_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    }
+
+    #[must_use]
+    pub fn config_path() -> Option<PathBuf> {
+        Self::default_config_dir().map(|dir| dir.join(Self::FILENAME))
+    }
+
+    #[must_use]
+    pub fn save_path(name: &str, slot: u8) -> Option<PathBuf> {
+        Self::default_data_dir().map(|dir| {
+            dir.join(Self::SAVE_DIR)
+                .join(name)
+                .join(format!("slot-{}", slot))
+                .with_extension("sav")
+        })
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
     pub fn save(&self) -> anyhow::Result<()> {
-        if !self.emulation.save_on_exit {
+        if !self.emulation.auto_save {
             return Ok(());
         }
 
@@ -251,16 +249,32 @@ impl ConfigImpl {
             })
     }
 
-    pub fn set_binding(&mut self, input: Input, slot: Player, action: Action) {
-        self.input.bindings.push((input, slot, action));
+    pub fn increment_speed(&mut self) -> f32 {
+        if self.emulation.speed <= 1.75 {
+            self.emulation.speed += 0.25;
+        }
+        self.emulation.speed
     }
 
-    pub fn unset_binding(&mut self, input: Input) {
-        self.input.bindings.retain(|(i, ..)| i != &input);
+    pub fn decrement_speed(&mut self) -> f32 {
+        if self.emulation.speed >= 0.50 {
+            self.emulation.speed -= 0.25;
+        }
+        self.emulation.speed
     }
 
-    pub fn set_emulation_speed(&mut self, speed: f32) {
-        self.emulation.speed = speed;
+    pub fn increment_scale(&mut self) -> f32 {
+        if self.renderer.scale <= 4.0 {
+            self.renderer.scale += 1.0;
+        }
+        self.renderer.scale
+    }
+
+    pub fn decrement_scale(&mut self) -> f32 {
+        if self.renderer.scale >= 2.0 {
+            self.renderer.scale -= 1.0;
+        }
+        self.renderer.scale
     }
 
     #[must_use]
@@ -282,19 +296,6 @@ impl ConfigImpl {
             Ppu::HEIGHT
         };
         LogicalSize::new(width, height)
-    }
-}
-
-impl Nes {
-    pub fn set_region(&mut self, region: NesRegion) {
-        self.trigger_event(EmulationEvent::SetRegion(region));
-        self.add_message(format!("Changed NES Region to {region:?}"));
-    }
-
-    pub fn set_speed(&mut self, speed: f32) {
-        self.config.write(|cfg| cfg.set_emulation_speed(speed));
-        self.trigger_event(EmulationEvent::SetSpeed(speed));
-        self.add_message(format!("Changed Emulation Speed to {speed}"));
     }
 }
 

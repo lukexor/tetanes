@@ -1,8 +1,8 @@
 use crate::nes::{
     config::Config,
-    event::{EmulationEvent, NesEvent, RendererEvent},
+    event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent},
     renderer::{
-        gui::{Gui, Menu, MSG_TIMEOUT},
+        gui::{Gui, Menu},
         texture::Texture,
     },
     Nes,
@@ -12,12 +12,12 @@ use egui::{
     load::SizedTexture, ClippedPrimitive, SystemTheme, TexturesDelta, Vec2, ViewportCommand,
 };
 use std::{ops::Deref, sync::Arc};
-use tetanes_core::{ppu::Ppu, time::Instant, video::Frame};
+use tetanes_core::{ppu::Ppu, video::Frame};
 use thingbuf::{Recycle, ThingBuf};
-use tracing::{error, info};
+use tracing::error;
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{Event, WindowEvent},
+    event::WindowEvent,
     event_loop::EventLoopProxy,
     window::{Theme, Window},
 };
@@ -82,7 +82,6 @@ impl Clone for BufferPool {
 pub struct Renderer {
     window: Arc<Window>,
     frame_pool: BufferPool,
-    config: Config,
     gui: Gui,
     ctx: egui::Context,
     egui_state: egui_winit::State,
@@ -115,15 +114,13 @@ impl Renderer {
         event_proxy: EventLoopProxy<NesEvent>,
         window: Arc<Window>,
         frame_pool: BufferPool,
-        config: Config,
+        cfg: Config,
     ) -> anyhow::Result<Self> {
         let mut window_size = window.inner_size();
         let scale_factor = window.scale_factor() as f32;
         if window_size.width == 0 {
             let scale_factor = window.scale_factor();
-            window_size = config
-                .read(|cfg| cfg.texture_size())
-                .to_physical(scale_factor);
+            window_size = cfg.texture_size().to_physical(scale_factor);
         }
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
@@ -170,7 +167,7 @@ impl Renderer {
             format: surface_format,
             width: window_size.width.min(max_texture_dimension),
             height: window_size.height.min(max_texture_dimension),
-            present_mode: if config.read(|cfg| cfg.renderer.vsync) {
+            present_mode: if cfg.renderer.vsync {
                 wgpu::PresentMode::AutoVsync
             } else {
                 wgpu::PresentMode::AutoNoVsync
@@ -181,7 +178,7 @@ impl Renderer {
         };
         surface.configure(&device, &surface_config);
 
-        let texture_size = config.read(|cfg| cfg.texture_size());
+        let texture_size = cfg.texture_size();
         let texture = Texture::new(
             &device,
             texture_size.width.min(max_texture_dimension),
@@ -291,8 +288,8 @@ impl Renderer {
         let egui_texture =
             renderer.register_native_texture(&device, &texture.view, wgpu::FilterMode::Nearest);
 
-        let aspect_ratio = config.read(|cfg| cfg.deck.region.aspect_ratio());
-        let state = Gui::new(
+        let aspect_ratio = cfg.deck.region.aspect_ratio();
+        let gui = Gui::new(
             Arc::clone(&window),
             event_proxy,
             SizedTexture::new(
@@ -302,14 +299,13 @@ impl Renderer {
                     y: texture.size.height as f32,
                 },
             ),
-            config.clone(),
+            cfg,
         );
 
         Ok(Self {
             window,
             frame_pool,
-            config,
-            gui: state,
+            gui,
             ctx,
             egui_state,
             screen_descriptor: egui_wgpu::ScreenDescriptor {
@@ -333,82 +329,93 @@ impl Renderer {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, window: &Window, event: &Event<NesEvent>) {
+    pub fn on_event(&mut self, event: &NesEvent) {
         match event {
-            Event::WindowEvent { event, .. } => {
-                let _ = self.egui_state.on_window_event(window, event);
-                match event {
-                    WindowEvent::Resized(size) => {
-                        if size.width > 0 && size.height > 0 {
-                            let max_texture_dimension =
-                                self.device.limits().max_texture_dimension_2d;
-                            let width = size.width.min(max_texture_dimension);
-                            let height = size.height.min(max_texture_dimension);
-                            self.screen_descriptor.size_in_pixels = [width, height];
-                            self.surface_config.width = width;
-                            self.surface_config.height = height;
-                            self.resize_surface = true;
-                        }
-                    }
-                    WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                        self.screen_descriptor.pixels_per_point = *scale_factor as f32;
-                    }
-                    WindowEvent::ThemeChanged(theme) => {
-                        self.ctx.send_viewport_cmd(ViewportCommand::SetTheme(
-                            if *theme == Theme::Light {
-                                SystemTheme::Light
-                            } else {
-                                SystemTheme::Dark
-                            },
-                        ));
-                    }
-                    _ => (),
+            NesEvent::Emulation(event) => match event {
+                EmulationEvent::ReplayRecord(recording) => {
+                    self.gui.replay_recording = *recording;
                 }
-            }
-            Event::UserEvent(event) => match event {
-                NesEvent::Emulation(event) => match event {
-                    EmulationEvent::ReplayRecord(recording) => {
-                        self.gui.replay_recording = *recording;
-                    }
-                    EmulationEvent::AudioRecord(recording) => {
-                        self.gui.audio_recording = *recording;
-                    }
-                    EmulationEvent::Pause(paused) => {
-                        self.gui.paused = *paused;
-                    }
-                    _ => (),
-                },
-                NesEvent::Renderer(event) => match event {
-                    RendererEvent::SetVSync(enabled) => {
-                        self.surface_config.present_mode = if *enabled {
-                            wgpu::PresentMode::AutoVsync
-                        } else {
-                            wgpu::PresentMode::AutoNoVsync
-                        };
-                        self.resize_surface = true;
-                    }
-                    RendererEvent::Frame => self.gui.frame_counter += 1,
-                    RendererEvent::RomLoaded((title, region)) => {
-                        self.gui.loaded_rom = Some(title.clone());
-                        self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
+                EmulationEvent::AudioRecord(recording) => {
+                    self.gui.audio_recording = *recording;
+                }
+                EmulationEvent::Pause(paused) => {
+                    self.gui.paused = *paused;
+                }
+                _ => (),
+            },
+            NesEvent::Renderer(event) => match event {
+                RendererEvent::Frame => self.gui.frame_counter += 1,
+                RendererEvent::ScaleChanged => {
+                    self.gui.resize_window = true;
+                    self.gui.resize_texture = true;
+                }
+                RendererEvent::RomLoaded((title, region)) => {
+                    self.gui.loaded_rom = Some(title.clone());
+                    self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
+                    if self.gui.cart_aspect_ratio != region.aspect_ratio() {
                         self.gui.cart_aspect_ratio = region.aspect_ratio();
                         self.gui.resize_window = true;
                         self.gui.resize_texture = true;
                     }
-                    RendererEvent::Menu(menu) => match menu {
-                        Menu::Config(_) => self.gui.preferences_open = !self.gui.preferences_open,
-                        Menu::Keybind(_) => self.gui.keybinds_open = !self.gui.keybinds_open,
-                        Menu::About => self.gui.about_open = !self.gui.about_open,
-                    },
+                }
+                RendererEvent::Menu(menu) => match menu {
+                    Menu::Preferences => self.gui.preferences_open = !self.gui.preferences_open,
+                    Menu::Keybinds => self.gui.keybinds_open = !self.gui.keybinds_open,
+                    Menu::About => self.gui.about_open = !self.gui.about_open,
                 },
-                NesEvent::Ui(_) => (),
             },
+            NesEvent::Config(event) => self.on_config_event(event),
+            NesEvent::Ui(_) => (),
+        }
+    }
+
+    pub const fn rom_loaded(&self) -> bool {
+        self.gui.loaded_rom.is_some()
+    }
+
+    /// Handle window event.
+    pub fn on_window_event(&mut self, window: &Window, event: &WindowEvent) {
+        let _ = self.egui_state.on_window_event(window, event);
+        match event {
+            WindowEvent::Resized(size) => {
+                if size.width > 0 && size.height > 0 {
+                    let max_texture_dimension = self.device.limits().max_texture_dimension_2d;
+                    let width = size.width.min(max_texture_dimension);
+                    let height = size.height.min(max_texture_dimension);
+                    self.screen_descriptor.size_in_pixels = [width, height];
+                    self.surface_config.width = width;
+                    self.surface_config.height = height;
+                    self.resize_surface = true;
+                }
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.screen_descriptor.pixels_per_point = *scale_factor as f32;
+            }
+            WindowEvent::ThemeChanged(theme) => {
+                self.ctx
+                    .send_viewport_cmd(ViewportCommand::SetTheme(if *theme == Theme::Light {
+                        SystemTheme::Light
+                    } else {
+                        SystemTheme::Dark
+                    }));
+            }
             _ => (),
         }
     }
 
-    fn resize_texture(&mut self) {
-        let texture_size = self.config.read(|cfg| cfg.texture_size());
+    pub fn on_config_event(&mut self, event: &ConfigEvent) {
+        if let ConfigEvent::Vsync(enabled) = event {
+            self.surface_config.present_mode = if *enabled {
+                wgpu::PresentMode::AutoVsync
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            };
+            self.resize_surface = true;
+        }
+    }
+
+    fn resize_texture(&mut self, cfg: &Config) {
+        let texture_size = cfg.texture_size();
         self.texture
             .resize(&self.device, texture_size.width, texture_size.height);
         self.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -430,12 +437,7 @@ impl Renderer {
             &self.texture.view,
             wgpu::FilterMode::Nearest,
         );
-        let region = self.config.read(|cfg| cfg.deck.region);
-        let aspect_ratio = if region.is_auto() {
-            self.gui.cart_aspect_ratio
-        } else {
-            region.aspect_ratio()
-        };
+        let aspect_ratio = self.gui.aspect_ratio(cfg);
         self.gui.texture = SizedTexture::new(
             egui_texture,
             Vec2 {
@@ -446,11 +448,11 @@ impl Renderer {
     }
 
     /// Prepare.
-    fn prepare(&mut self, window: &Window) {
+    fn prepare(&mut self, window: &Window, cfg: &mut Config) {
         let raw_input = self.egui_state.take_egui_input(window);
 
         let output = self.ctx.run(raw_input, |ctx| {
-            self.gui.ui(ctx);
+            self.gui.ui(ctx, cfg);
         });
 
         self.screen_descriptor.pixels_per_point = output.pixels_per_point;
@@ -461,22 +463,17 @@ impl Renderer {
     }
 
     /// Request redraw.
-    pub fn request_redraw(&mut self, window: &Window) -> anyhow::Result<()> {
+    pub fn request_redraw(&mut self, window: &Window, cfg: &mut Config) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        self.prepare(window);
+        self.prepare(window, cfg);
 
         if self.resize_surface || self.gui.resize_window {
             self.surface.configure(&self.device, &self.surface_config);
             if self.gui.resize_window {
-                let region = self.config.read(|cfg| cfg.deck.region);
-                let aspect_ratio = if region.is_auto() {
-                    self.gui.cart_aspect_ratio
-                } else {
-                    region.aspect_ratio()
-                };
-                let mut window_size = self.config.read(|cfg| cfg.window_size());
+                let aspect_ratio = self.gui.aspect_ratio(cfg);
+                let mut window_size = cfg.window_size();
                 window_size.width *= aspect_ratio;
                 window_size.height += self.gui.menu_height;
                 let _ = self.window.request_inner_size(window_size);
@@ -485,7 +482,7 @@ impl Renderer {
             self.resize_surface = false;
         }
         if self.gui.resize_texture {
-            self.resize_texture();
+            self.resize_texture(cfg);
             self.gui.resize_texture = false;
         }
 
@@ -503,7 +500,7 @@ impl Renderer {
         if let Some(frame_buffer) = self.frame_pool.pop_ref() {
             self.texture.update(
                 &self.queue,
-                if self.config.read(|cfg| cfg.renderer.hide_overscan) {
+                if cfg.renderer.hide_overscan {
                     let len = frame_buffer.len();
                     &frame_buffer[OVERSCAN_TRIM..len - OVERSCAN_TRIM]
                 } else {
@@ -567,12 +564,7 @@ impl Nes {
     where
         S: Into<String>,
     {
-        let text = text.into();
-        info!("{text}");
-        self.renderer
-            .gui
-            .messages
-            .push((text, Instant::now() + MSG_TIMEOUT));
+        self.renderer.gui.add_message(text);
     }
 
     pub fn on_error(&mut self, err: anyhow::Error) {

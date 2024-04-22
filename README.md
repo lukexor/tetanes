@@ -157,8 +157,8 @@ NES joypad:
 | B         | X             | M             | B                |
 | A (Turbo) | A             |               | X                |
 | B (Turbo) | S             |               | Y                |
-| Start     | Return        | 8             | Start            |
-| Select    | Right Shift   | 9             | Back             |
+| Start     | Q             | 8             | Start            |
+| Select    | W             | 9             | Back             |
 | D-Pad     | Arrow Keys    | IJKL          | Left Stick/D-Pad |
 
 Emulator shortcuts:
@@ -166,7 +166,7 @@ Emulator shortcuts:
 | Action                        | Keyboard     | Controller     |
 | ----------------------------- | ------------ | -------------- |
 | Pause                         | Escape       | Guide Button   |
-| About TetaNES                 | Ctrl-H or F1 |                |
+| About TetaNES                 | F1           |                |
 | Configuration Menu            | Ctrl-C or F2 |                |
 | Load/Open ROM                 | Ctrl-O or F3 |                |
 | Quit                          | Ctrl-Q       |                |
@@ -174,6 +174,8 @@ Emulator shortcuts:
 | Power Cycle                   | Ctrl-P       |                |
 | Increase Speed by 25%         | =            | Right Shoulder |
 | Decrease Speed by 25%         | -            | Left Shoulder  |
+| Increase Scale                | Shift-=      |                |
+| Decrease Scale                | Shift--      |                |
 | Increase UI Scale             | Ctrl-=       |                |
 | Decrease UI Scale             | Ctrl--       |                |
 | Fast-Forward 2x               | Space (Hold) |                |

@@ -19,6 +19,7 @@ crate-type = ["cdylib", "rlib"]
 [lints.clippy]
 all = "warn"
 missing_const_for_fn = "warn"
+print_literal = "warn"
 
 [lints.rust]
 future_incompatible = "warn"

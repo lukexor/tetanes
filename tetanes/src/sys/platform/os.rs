@@ -1,5 +1,5 @@
 use crate::{
-    nes::Nes,
+    nes::{event::EmulationEvent, Nes},
     platform::{BuilderExt, EventLoopExt, Feature, Initialize},
 };
 use std::path::PathBuf;
@@ -34,6 +34,17 @@ pub fn open_file_dialog_impl(
 
 impl Initialize for Nes {
     fn initialize(&mut self) -> anyhow::Result<()> {
+        if let Some(path) = self.cfg.renderer.roms_path.take() {
+            if path.is_file() {
+                if let Some(parent) = path.parent() {
+                    self.cfg.renderer.roms_path = Some(parent.to_path_buf());
+                }
+                self.trigger_event(EmulationEvent::LoadRomPath(path));
+            } else if path.exists() {
+                self.cfg.renderer.roms_path = Some(path);
+            }
+        }
+
         Ok(())
     }
 }

@@ -17,7 +17,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-pub fn supports_impl(_feature: Feature) -> bool {
+pub const fn supports_impl(_feature: Feature) -> bool {
     false
 }
 

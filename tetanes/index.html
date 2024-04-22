@@ -6,10 +6,16 @@
     <title>TetaNES Web</title>
     <style>
       @font-face {
-        font-family: "Emulogic";
+        font-family: "Pixeloid Sans";
         src:
-          local("Emulogic"),
-          url("emulogic.ttf") format("truetype");
+          local("Pixeloid Sans"),
+          url("pixeloid-sans.ttf") format("truetype");
+      }
+      @font-face {
+        font-family: "Pixeloid Sans Bold";
+        src:
+          local("Pixeloid Sans Bold"),
+          url("pixeloid-sans-bold.ttf") format("truetype");
       }
 
       body {
@@ -31,7 +37,7 @@
       h1,
       h2 {
         color: var(--heading);
-        font-family: Emulogic;
+        font-family: "Pixeloid Sans Bold";
         text-align: center;
       }
 
@@ -101,7 +107,8 @@
     </style>
 
     <link data-trunk rel="icon" href="assets/tetanes_icon.png" />
-    <link data-trunk rel="copy-file" href="assets/emulogic.ttf" />
+    <link data-trunk rel="copy-file" href="assets/pixeloid-sans.ttf" />
+    <link data-trunk rel="copy-file" href="assets/pixeloid-sans-bold.ttf" />
     <link
       data-trunk
       rel="rust"

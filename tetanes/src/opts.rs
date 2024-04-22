@@ -107,55 +107,53 @@ pub struct Opts {
 
 impl Opts {
     /// Loads a base `Config`, merging with CLI options
-    pub fn load(self) -> anyhow::Result<(Option<PathBuf>, Config)> {
-        let config = if self.clean {
+    pub fn load(self) -> anyhow::Result<Config> {
+        let mut cfg = if self.clean {
             Config::default()
         } else {
             Config::load(self.config.clone())
         };
-        config.write(|cfg| -> anyhow::Result<()> {
-            if let Some(FourPlayer(four_player)) = self.four_player {
-                cfg.deck.four_player = four_player;
-            }
-            cfg.deck.zapper = self.zapper || cfg.deck.zapper;
-            if let Some(RamState(ram_state)) = self.ram_state {
-                cfg.deck.ram_state = ram_state;
-            }
-            if let Some(NesRegion(region)) = self.region {
-                cfg.deck.region = region;
-            }
-            cfg.deck.genie_codes.reserve(self.genie_code.len());
-            for genie_code in self.genie_code.into_iter() {
-                cfg.deck.genie_codes.push(GenieCode::new(genie_code)?);
-            }
 
-            cfg.emulation.load_on_start = if self.clean {
-                false
-            } else {
-                !self.no_load && cfg.emulation.load_on_start
-            };
-            cfg.emulation.rewind = self.rewind || cfg.emulation.rewind;
-            cfg.emulation.save_on_exit = if self.clean {
-                false
-            } else {
-                !self.no_save && cfg.emulation.save_on_exit
-            };
-            if let Some(save_slot) = self.save_slot {
-                cfg.emulation.save_slot = save_slot
-            }
-            if let Some(speed) = self.speed {
-                cfg.emulation.speed = speed
-            }
-            cfg.emulation.threaded = !self.no_threaded && cfg.emulation.threaded;
+        if let Some(FourPlayer(four_player)) = self.four_player {
+            cfg.deck.four_player = four_player;
+        }
+        cfg.deck.zapper = self.zapper || cfg.deck.zapper;
+        if let Some(RamState(ram_state)) = self.ram_state {
+            cfg.deck.ram_state = ram_state;
+        }
+        if let Some(NesRegion(region)) = self.region {
+            cfg.deck.region = region;
+        }
+        cfg.deck.genie_codes.reserve(self.genie_code.len());
+        for genie_code in self.genie_code.into_iter() {
+            cfg.deck.genie_codes.push(GenieCode::new(genie_code)?);
+        }
 
-            cfg.audio.enabled = !self.silent && cfg.audio.enabled;
+        cfg.emulation.auto_load = if self.clean {
+            false
+        } else {
+            !self.no_load && cfg.emulation.auto_load
+        };
+        cfg.emulation.rewind = self.rewind || cfg.emulation.rewind;
+        cfg.emulation.auto_save = if self.clean {
+            false
+        } else {
+            !self.no_save && cfg.emulation.auto_save
+        };
+        if let Some(save_slot) = self.save_slot {
+            cfg.emulation.save_slot = save_slot
+        }
+        if let Some(speed) = self.speed {
+            cfg.emulation.speed = speed
+        }
+        cfg.emulation.threaded = !self.no_threaded && cfg.emulation.threaded;
 
-            cfg.renderer.fullscreen = self.fullscreen || cfg.renderer.fullscreen;
-            cfg.renderer.vsync = !self.no_vsync && cfg.renderer.vsync;
+        cfg.audio.enabled = !self.silent && cfg.audio.enabled;
 
-            Ok(())
-        })?;
+        cfg.renderer.roms_path = self.path.or(cfg.renderer.roms_path);
+        cfg.renderer.fullscreen = self.fullscreen || cfg.renderer.fullscreen;
+        cfg.renderer.vsync = !self.no_vsync && cfg.renderer.vsync;
 
-        Ok((self.path, config))
+        Ok(cfg)
     }
 }

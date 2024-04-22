@@ -319,8 +319,7 @@ pub(crate) mod tests {
         if let Some(action) = test_frame.action {
             debug!("{:?}", action);
             match action {
-                Action::SoftReset => deck.reset(ResetKind::Soft),
-                Action::HardReset => deck.reset(ResetKind::Hard),
+                Action::Reset(kind) => deck.reset(kind),
                 Action::MapperRevision(board) => match board {
                     MapperRevision::Mmc3(revision) => {
                         if let Mapper::Txrom(ref mut mapper) = deck.mapper_mut() {
@@ -342,7 +341,8 @@ pub(crate) mod tests {
                 Action::LoadState
                 | Action::SaveState
                 | Action::SetSaveSlot(_)
-                | Action::ToggleApuChannel(_) => (),
+                | Action::ToggleApuChannel(_)
+                | Action::ToggleZapperConnected => (),
             }
         }
     }

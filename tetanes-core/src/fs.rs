@@ -154,6 +154,10 @@ pub fn load_raw(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     Ok(data)
 }
 
+pub fn clear_dir(path: impl AsRef<Path>) -> Result<()> {
+    fs::clear_dir_impl(path)
+}
+
 pub fn filename(path: &Path) -> &str {
     path.file_name()
         .and_then(std::ffi::OsStr::to_str)

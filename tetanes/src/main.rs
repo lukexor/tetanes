@@ -28,19 +28,16 @@ fn main() -> anyhow::Result<()> {
     puffin::set_scopes_on(true);
 
     #[cfg(target_arch = "wasm32")]
-    let (path, config) = {
-        use tetanes::nes::config::Config;
-        (None, Config::load(None))
-    };
+    let config = tetanes::nes::config::Config::load(None);
     #[cfg(not(target_arch = "wasm32"))]
-    let (path, config) = {
+    let config = {
         use clap::Parser;
         let opts = opts::Opts::parse();
         tracing::debug!("CLI Options: {opts:?}");
         opts.load()?
     };
 
-    thread::spawn(Nes::run(path, config));
+    thread::spawn(Nes::run(config));
 
     Ok(())
 }

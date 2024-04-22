@@ -8,19 +8,19 @@ use tracing::error;
 
 #[derive(Default, Debug, Clone)]
 #[must_use]
-struct Frame {
-    buffer: Buffer,
-    state: Vec<u8>,
+pub struct Frame {
+    pub buffer: Buffer,
+    pub state: Vec<u8>,
 }
 
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Rewind {
-    enabled: bool,
-    interval_counter: u8,
-    index: usize,
-    count: usize,
-    frames: Vec<Option<Frame>>,
+    pub enabled: bool,
+    pub interval_counter: u8,
+    pub index: usize,
+    pub count: usize,
+    pub frames: Vec<Option<Frame>>,
 }
 
 impl Rewind {
@@ -37,7 +37,7 @@ impl Rewind {
         }
     }
 
-    pub fn enable(&mut self, enabled: bool) {
+    pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
 

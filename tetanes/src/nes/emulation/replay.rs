@@ -59,7 +59,7 @@ impl Record {
         if self.events.is_empty() {
             return Ok(None);
         }
-        if let Some(dir) = Config::document_dir() {
+        if let Some(dir) = Config::default_data_dir() {
             let path = dir
                 .join(
                     Local::now()

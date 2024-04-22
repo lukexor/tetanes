@@ -175,7 +175,9 @@
     "frames": [
       {
         "number": 20,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 40,
@@ -377,7 +379,9 @@
     "frames": [
       {
         "number": 20,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 40,
@@ -390,7 +394,9 @@
     "frames": [
       {
         "number": 20,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 40,
@@ -403,11 +409,15 @@
     "frames": [
       {
         "number": 20,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 35,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 50,
@@ -420,7 +430,9 @@
     "frames": [
       {
         "number": 15,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 20,
@@ -433,7 +445,9 @@
     "frames": [
       {
         "number": 20,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 30,

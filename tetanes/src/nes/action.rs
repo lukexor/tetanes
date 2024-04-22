@@ -1,19 +1,234 @@
 use crate::nes::renderer::gui::Menu;
 use serde::{Deserialize, Serialize};
-use tetanes_core::{action::Action as DeckAction, input::JoypadBtn};
+use tetanes_core::{
+    action::Action as DeckAction,
+    apu::Channel,
+    common::{NesRegion, ResetKind},
+    input::JoypadBtn,
+    mapper::{Bf909Revision, MapperRevision, Mmc1Revision, Mmc3Revision},
+    video::VideoFilter,
+};
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
-    Ui(UiState),
+    Ui(Ui),
     Menu(Menu),
     Feature(Feature),
     Setting(Setting),
     Deck(DeckAction),
-    Debug(Debugger),
+    Debug(Debug),
 }
 
-impl From<UiState> for Action {
-    fn from(state: UiState) -> Self {
+impl Action {
+    pub const fn shortcuts() -> [Action; 55] {
+        [
+            Self::Ui(Ui::Quit),
+            Self::Ui(Ui::TogglePause),
+            Self::Ui(Ui::LoadRom),
+            Self::Ui(Ui::LoadReplay),
+            Self::Menu(Menu::Preferences),
+            Self::Menu(Menu::Keybinds),
+            Self::Menu(Menu::About),
+            Self::Feature(Feature::ToggleReplayRecording),
+            Self::Feature(Feature::ToggleAudioRecording),
+            Self::Feature(Feature::VisualRewind),
+            Self::Feature(Feature::InstantRewind),
+            Self::Feature(Feature::TakeScreenshot),
+            Self::Setting(Setting::ToggleFullscreen),
+            Self::Setting(Setting::ToggleVsync),
+            Self::Setting(Setting::ToggleAudio),
+            Self::Setting(Setting::ToggleCycleAccurate),
+            Self::Setting(Setting::ToggleRewinding),
+            Self::Setting(Setting::ToggleOverscan),
+            Self::Setting(Setting::ToggleMenubar),
+            Self::Setting(Setting::ToggleMessages),
+            Self::Setting(Setting::ToggleFps),
+            Self::Setting(Setting::TogglePerfStats),
+            Self::Setting(Setting::FastForward),
+            Self::Setting(Setting::IncrementScale),
+            Self::Setting(Setting::DecrementScale),
+            Self::Setting(Setting::IncrementSpeed),
+            Self::Setting(Setting::DecrementSpeed),
+            Self::Deck(DeckAction::Reset(ResetKind::Soft)),
+            Self::Deck(DeckAction::Reset(ResetKind::Hard)),
+            Self::Deck(DeckAction::ToggleZapperConnected),
+            Self::Deck(DeckAction::ZapperTrigger),
+            Self::Deck(DeckAction::SetSaveSlot(1)),
+            Self::Deck(DeckAction::SetSaveSlot(2)),
+            Self::Deck(DeckAction::SetSaveSlot(3)),
+            Self::Deck(DeckAction::SetSaveSlot(4)),
+            Self::Deck(DeckAction::SetSaveSlot(5)),
+            Self::Deck(DeckAction::SetSaveSlot(6)),
+            Self::Deck(DeckAction::SetSaveSlot(7)),
+            Self::Deck(DeckAction::SetSaveSlot(8)),
+            Self::Deck(DeckAction::SaveState),
+            Self::Deck(DeckAction::LoadState),
+            Self::Deck(DeckAction::ToggleApuChannel(Channel::Pulse1)),
+            Self::Deck(DeckAction::ToggleApuChannel(Channel::Pulse2)),
+            Self::Deck(DeckAction::ToggleApuChannel(Channel::Triangle)),
+            Self::Deck(DeckAction::ToggleApuChannel(Channel::Noise)),
+            Self::Deck(DeckAction::ToggleApuChannel(Channel::Dmc)),
+            Self::Deck(DeckAction::ToggleApuChannel(Channel::Mapper)),
+            Self::Debug(Debug::Toggle(Debugger::Cpu)),
+            Self::Debug(Debug::Toggle(Debugger::Ppu)),
+            Self::Debug(Debug::Toggle(Debugger::Apu)),
+            Self::Debug(Debug::Step(DebugStep::Into)),
+            Self::Debug(Debug::Step(DebugStep::Out)),
+            Self::Debug(Debug::Step(DebugStep::Over)),
+            Self::Debug(Debug::Step(DebugStep::Scanline)),
+            Self::Debug(Debug::Step(DebugStep::Frame)),
+        ]
+    }
+
+    pub const fn joypad() -> [Action; 10] {
+        [
+            Self::Deck(DeckAction::Joypad(JoypadBtn::Left)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::Right)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::Up)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::Down)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::A)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::B)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::TurboA)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::TurboB)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::Select)),
+            Self::Deck(DeckAction::Joypad(JoypadBtn::Start)),
+        ]
+    }
+}
+
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+
+impl AsRef<str> for Action {
+    fn as_ref(&self) -> &str {
+        match self {
+            Action::Ui(ui) => match ui {
+                Ui::Quit => "Quit",
+                Ui::TogglePause => "Toggle Pause",
+                Ui::LoadRom => "Load ROM",
+                Ui::LoadReplay => "Load Replay",
+            },
+            Action::Menu(menu) => match menu {
+                Menu::Preferences => "Toggle Preferences Window",
+                Menu::Keybinds => "Toggle Keybinds Window",
+                Menu::About => "Toggle About Window",
+            },
+            Action::Feature(feature) => match feature {
+                Feature::ToggleReplayRecording => "Toggle Replay Recording",
+                Feature::ToggleAudioRecording => "Toggle Audio Recording",
+                Feature::VisualRewind => "Visual Rewind",
+                Feature::InstantRewind => "Instant Rewind",
+                Feature::TakeScreenshot => "Take Screenshot",
+            },
+            Action::Setting(setting) => match setting {
+                Setting::ToggleFullscreen => "Toggle Fullscreen",
+                Setting::ToggleVsync => "Toggle VSync",
+                Setting::ToggleAudio => "Toggle Audio",
+                Setting::ToggleCycleAccurate => "Toggle Cycle Accurate",
+                Setting::ToggleRewinding => "Toggle Rewinding",
+                Setting::ToggleOverscan => "Toggle Overscan",
+                Setting::ToggleMenubar => "Toggle Menubar",
+                Setting::ToggleMessages => "Toggle Messages",
+                Setting::ToggleFps => "Toggle FPS",
+                Setting::TogglePerfStats => "Toggle Performance Stats",
+                Setting::FastForward => "Fast Forward",
+                Setting::IncrementScale => "Increment Scale",
+                Setting::DecrementScale => "Decrement Scale",
+                Setting::IncrementSpeed => "Increment Speed",
+                Setting::DecrementSpeed => "Decrement Speed",
+            },
+            Action::Deck(deck) => match deck {
+                DeckAction::Reset(kind) => match kind {
+                    ResetKind::Soft => "Reset",
+                    ResetKind::Hard => "Power Cycle",
+                },
+                DeckAction::Joypad(joypad) => match joypad {
+                    JoypadBtn::Left => "Joypad Left",
+                    JoypadBtn::Right => "Joypad Right",
+                    JoypadBtn::Up => "Joypad Up",
+                    JoypadBtn::Down => "Joypad Down",
+                    JoypadBtn::A => "Joypad A",
+                    JoypadBtn::B => "Joypad B",
+                    JoypadBtn::TurboA => "Joypad Turbo A",
+                    JoypadBtn::TurboB => "Joypad Turbo B",
+                    JoypadBtn::Select => "Joypad Select",
+                    JoypadBtn::Start => "Joypad Start",
+                },
+                DeckAction::ToggleZapperConnected => "Toggle Zapper Connected",
+                DeckAction::ZapperConnect(connected) => match connected {
+                    true => "Connect Zapper",
+                    false => "Disconnect Zapper",
+                },
+                DeckAction::ZapperAim(_) => "Aim Zapper",
+                DeckAction::ZapperTrigger => "Trigger Zapper",
+                DeckAction::SetSaveSlot(1) => "Set Save Slot 1",
+                DeckAction::SetSaveSlot(2) => "Set Save Slot 2",
+                DeckAction::SetSaveSlot(3) => "Set Save Slot 3",
+                DeckAction::SetSaveSlot(4) => "Set Save Slot 4",
+                DeckAction::SetSaveSlot(5) => "Set Save Slot 5",
+                DeckAction::SetSaveSlot(6) => "Set Save Slot 6",
+                DeckAction::SetSaveSlot(7) => "Set Save Slot 7",
+                DeckAction::SetSaveSlot(8) => "Set Save Slot 8",
+                DeckAction::SetSaveSlot(_) => "Set Save Slot N",
+                DeckAction::SaveState => "Save State",
+                DeckAction::LoadState => "Load State",
+                DeckAction::ToggleApuChannel(channel) => match channel {
+                    Channel::Pulse1 => "Toggle Pulse1 Channel",
+                    Channel::Pulse2 => "Toggle Pulse2 Channel",
+                    Channel::Triangle => "Toggle Triangle Channel",
+                    Channel::Noise => "Toggle Noise Channel",
+                    Channel::Dmc => "Toggle DMC Channel",
+                    Channel::Mapper => "Toggle Mapper Channel",
+                },
+                DeckAction::MapperRevision(revision) => match revision {
+                    MapperRevision::Mmc1(mmc1) => match mmc1 {
+                        Mmc1Revision::A => "Set Mapper Revision to MMC1A",
+                        Mmc1Revision::BC => "Set Mapper Revision to MMC1B/MMC1C",
+                    },
+                    MapperRevision::Mmc3(mmc3) => match mmc3 {
+                        Mmc3Revision::A => "Set Mapper Revision to MMC3A",
+                        Mmc3Revision::BC => "Set Mapper Revision to MMC3B/MMC3C",
+                        Mmc3Revision::Acc => "Set Mapper Revision to MC-ACC",
+                    },
+                    MapperRevision::Bf909(bf909) => match bf909 {
+                        Bf909Revision::Bf909x => "Set Mapper Revision to BF909x",
+                        Bf909Revision::Bf9097 => "Set Mapper Revision to BF9097",
+                    },
+                },
+                DeckAction::SetNesRegion(region) => match region {
+                    NesRegion::Auto => "Set Region to Auto-Detect",
+                    NesRegion::Ntsc => "Set Region to NTSC",
+                    NesRegion::Pal => "Set Region to PAL",
+                    NesRegion::Dendy => "Set Region to Dendy",
+                },
+                DeckAction::SetVideoFilter(filter) => match filter {
+                    VideoFilter::Pixellate => "Set Filter to Pixellate",
+                    VideoFilter::Ntsc => "Set Filter to NTSC",
+                },
+            },
+            Action::Debug(debug) => match debug {
+                Debug::Toggle(debugger) => match debugger {
+                    Debugger::Cpu => "Toggle CPU Debugger",
+                    Debugger::Ppu => "Toggle PPU Debugger",
+                    Debugger::Apu => "Toggle APU Debugger",
+                },
+                Debug::Step(step) => match step {
+                    DebugStep::Into => "Step Into (CPU Debugger)",
+                    DebugStep::Out => "Step Out (CPU Debugger)",
+                    DebugStep::Over => "Step Over (CPU Debugger)",
+                    DebugStep::Scanline => "Step Scanline (CPU Debugger)",
+                    DebugStep::Frame => "Step Frame (CPU Debugger)",
+                },
+            },
+        }
+    }
+}
+
+impl From<Ui> for Action {
+    fn from(state: Ui) -> Self {
         Self::Ui(state)
     }
 }
@@ -48,47 +263,57 @@ impl From<DeckAction> for Action {
     }
 }
 
-impl From<Debugger> for Action {
-    fn from(action: Debugger) -> Self {
+impl From<Debug> for Action {
+    fn from(action: Debug) -> Self {
         Self::Debug(action)
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-pub enum UiState {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Ui {
     Quit,
     TogglePause,
     LoadRom,
+    LoadReplay,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Feature {
-    ToggleReplayRecord,
-    ToggleAudioRecord,
-    Rewind,
+    ToggleReplayRecording,
+    ToggleAudioRecording,
+    VisualRewind,
+    InstantRewind,
     TakeScreenshot,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Setting {
     ToggleFullscreen,
     ToggleVsync,
     ToggleAudio,
-    ToggleMenuBar,
+    ToggleCycleAccurate,
+    ToggleRewinding,
+    ToggleOverscan,
+    ToggleMenubar,
+    ToggleMessages,
+    ToggleFps,
+    TogglePerfStats,
     FastForward,
-    IncSpeed,
-    DecSpeed,
+    IncrementScale,
+    DecrementScale,
+    IncrementSpeed,
+    DecrementSpeed,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum DebugKind {
+pub enum Debugger {
     Cpu,
     Ppu,
     Apu,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum DebugStep {
     Into,
@@ -98,9 +323,8 @@ pub enum DebugStep {
     Frame,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Debugger {
-    ToggleDebugger(DebugKind),
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Debug {
+    Toggle(Debugger),
     Step(DebugStep),
-    UpdateScanline(isize),
 }

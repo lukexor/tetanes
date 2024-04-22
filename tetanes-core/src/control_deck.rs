@@ -74,6 +74,9 @@ bitflags! {
 #[must_use]
 /// Control deck configuration settings.
 pub struct Config {
+    /// Whether to emulate the NES with cycle accuracy or not. Increased CPU use, but more accurate
+    /// emulation.
+    pub cycle_accurate: bool,
     /// Video filter.
     pub filter: VideoFilter,
     /// NES region.
@@ -92,6 +95,8 @@ pub struct Config {
     pub channels_enabled: [bool; Apu::MAX_CHANNEL_COUNT],
     /// Headless mode.
     pub headless_mode: HeadlessMode,
+    /// Data directory for storing battery-backed RAM.
+    pub data_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -101,22 +106,22 @@ impl Config {
     /// Returns the base directory where TetaNES data is stored.
     #[inline]
     #[must_use]
-    pub fn data_dir() -> Option<PathBuf> {
+    pub fn default_data_dir() -> Option<PathBuf> {
         dirs::data_local_dir().map(|dir| dir.join(Self::BASE_DIR))
     }
 
-    /// Returns the path to the SRAM save file for a given ROM name which is used to store
-    /// battery-backed Cart RAM.
+    /// Returns the directory used to store battery-backed Cart RAM.
     #[inline]
     #[must_use]
-    pub fn sram_path(name: &str) -> Option<PathBuf> {
-        Self::data_dir().map(|dir| dir.join(Self::SRAM_DIR).join(name).with_extension("sram"))
+    pub fn sram_dir(&self) -> Option<PathBuf> {
+        self.data_dir.as_ref().map(|dir| dir.join(Self::SRAM_DIR))
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            cycle_accurate: true,
             filter: VideoFilter::default(),
             region: NesRegion::Auto,
             ram_state: RamState::Random,
@@ -126,6 +131,7 @@ impl Default for Config {
             concurrent_dpad: false,
             channels_enabled: [true; Apu::MAX_CHANNEL_COUNT],
             headless_mode: HeadlessMode::empty(),
+            data_dir: Self::default_data_dir(),
         }
     }
 }
@@ -138,6 +144,7 @@ pub struct ControlDeck {
     pub video: Video,
     pub last_frame_number: u32,
     pub loaded_rom: Option<String>,
+    pub sram_dir: Option<PathBuf>,
     pub cart_battery_backed: bool,
     pub cart_region: NesRegion,
     pub auto_detect_region: bool,
@@ -167,6 +174,7 @@ impl ControlDeck {
         } else {
             cpu.set_region(config.region);
         }
+        cpu.bus.input.set_concurrent_dpad(config.concurrent_dpad);
         cpu.bus.input.set_four_player(config.four_player);
         cpu.bus.input.connect_zapper(config.zapper);
         for (i, enabled) in config.channels_enabled.iter().enumerate() {
@@ -183,12 +191,21 @@ impl ControlDeck {
             video,
             last_frame_number: 0,
             loaded_rom: None,
+            sram_dir: config.sram_dir(),
             cart_battery_backed: false,
             cart_region: NesRegion::Ntsc,
             auto_detect_region: config.region.is_auto(),
             cycles_remaining: 0.0,
             cpu,
         }
+    }
+
+    /// Returns the path to the SRAM save file for a given ROM name which is used to store
+    /// battery-backed Cart RAM.
+    pub fn sram_path(&self, name: &str) -> Option<PathBuf> {
+        self.sram_dir
+            .as_ref()
+            .map(|dir| dir.join(name).with_extension("sram"))
     }
 
     /// Loads a ROM cartridge into memory
@@ -208,7 +225,7 @@ impl ControlDeck {
         self.cpu.bus.load_cart(cart);
         self.reset(ResetKind::Hard);
         self.running = true;
-        if let Some(path) = Config::sram_path(&name) {
+        if let Some(path) = self.sram_path(&name) {
             if let Err(err) = self.load_sram(path) {
                 error!("failed to load SRAM: {err:?}");
             }
@@ -232,7 +249,7 @@ impl ControlDeck {
     /// Unloads the currently loaded ROM and saves SRAM to disk if the Cart is battery-backed.
     pub fn unload_rom(&mut self) -> Result<()> {
         if let Some(ref rom) = self.loaded_rom {
-            if let Some(dir) = Config::sram_path(rom) {
+            if let Some(dir) = self.sram_path(rom) {
                 if let Err(err) = self.save_sram(dir) {
                     error!("failed to save SRAM: {err:?}");
                 }
@@ -250,11 +267,23 @@ impl ControlDeck {
         self.cpu.load(cpu);
     }
 
+    /// Set whether concurrent D-Pad input is enabled which wasn't possible on the original NES.
+    #[inline]
+    pub fn set_concurrent_dpad(&mut self, enabled: bool) {
+        self.cpu.bus.input.set_concurrent_dpad(enabled);
+    }
+
     /// Set whether emulation should be cycle accurate or not. Disabling this can increase
     /// performance.
     #[inline]
     pub fn set_cycle_accurate(&mut self, enabled: bool) {
         self.cpu.cycle_accurate = enabled;
+    }
+
+    /// Set emulation RAM initialization state.
+    #[inline]
+    pub fn set_ram_state(&mut self, ram_state: RamState) {
+        self.cpu.bus.ram_state = ram_state;
     }
 
     /// Set the headless mode which can increase performance when the frame and audio outputs are
@@ -742,6 +771,12 @@ impl ControlDeck {
         self.cpu.bus.remove_genie_code(genie_code);
     }
 
+    /// Remove all NES Game Genie codes.
+    #[inline]
+    pub fn clear_genie_codes(&mut self) {
+        self.cpu.bus.clear_genie_codes();
+    }
+
     /// Returns whether a given APU audio channel is enabled.
     #[inline]
     #[must_use]
@@ -749,7 +784,13 @@ impl ControlDeck {
         self.cpu.bus.apu.channel_enabled(channel)
     }
 
-    /// Toggle a given APU audio channel.
+    /// Enable or disable a given APU channel.
+    #[inline]
+    pub fn set_apu_channel_enabled(&mut self, channel: Channel, enabled: bool) {
+        self.cpu.bus.apu.set_channel_enabled(channel, enabled);
+    }
+
+    /// Toggle a given APU channel.
     #[inline]
     pub fn toggle_apu_channel(&mut self, channel: Channel) {
         self.cpu.bus.apu.toggle_channel(channel);

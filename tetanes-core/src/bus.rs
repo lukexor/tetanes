@@ -122,8 +122,14 @@ impl Bus {
         self.genie_codes.insert(addr, genie_code);
     }
 
+    /// Remove a Game Genie code.
     pub fn remove_genie_code(&mut self, code: &str) {
         self.genie_codes.retain(|_, gc| gc.code() != code);
+    }
+
+    /// Remove all Game Genie codes.
+    pub fn clear_genie_codes(&mut self) {
+        self.genie_codes.clear();
     }
 
     fn genie_read(&self, addr: u16, val: u8) -> u8 {

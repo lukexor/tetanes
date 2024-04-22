@@ -1,66 +1,91 @@
 use crate::nes::{
-    action::{Action, DebugKind, DebugStep, Debugger, Feature, Setting, UiState},
-    renderer::gui::{ConfigTab, Menu},
+    action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui},
+    renderer::gui::Menu,
 };
+use egui::ahash::{HashMap, HashMapExt};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    ops::{Deref, DerefMut},
-};
+use std::ops::{Deref, DerefMut};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::Channel,
+    common::ResetKind,
     input::{JoypadBtn, Player},
     video::VideoFilter,
 };
 use winit::{
-    event::{ElementState, MouseButton},
+    event::MouseButton,
     keyboard::{KeyCode, ModifiersState},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct Config {
-    // Since Input is a compound key and not serializable, input_bindings is derived from input_map
-    #[serde(skip)]
-    pub input_map: InputMap,
-    pub input_bindings: Vec<InputBinding>,
-    pub controller_deadzone: f64,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        let input_map = InputMap::default();
-        let input_bindings = input_map
-            .iter()
-            .map(|(input, (slot, action))| (*input, *slot, *action))
-            .collect();
-        Self {
-            input_map,
-            input_bindings,
-            controller_deadzone: 0.5,
+macro_rules! action_binding {
+    ($player:expr; $action:expr => $bindings:expr) => {
+        ActionBindings {
+            action: $action.into(),
+            player: $player,
+            bindings: $bindings,
         }
-    }
+    };
+    ($player:expr; $action:expr => $modifiers:expr, $key:expr) => {
+        action_binding!($player; $action => [Some(Input::Key($key, $modifiers)), None])
+    };
+    ($player:expr; $action:expr => $modifiers1:expr, $key1:expr; $modifiers2:expr, $key2:expr) => {
+        action_binding!(
+            $player;
+            $action => [Some(Input::Key($key1, $modifiers1)), Some(Input::Key($key2, $modifiers2))]
+        )
+    };
 }
 
-macro_rules! key_map {
-    ($map:expr, $player:expr, $key:expr, $action:expr) => {
-        $map.insert(
-            Input::Key($key, ModifiersState::empty()),
-            ($player, $action.into()),
-        );
+#[allow(unused_macro_rules)]
+macro_rules! joypad_map {
+    (@ $player:expr; $action:expr => $key:expr) => {
+        action_binding!(Some($player); $action => ModifiersState::empty(), $key)
     };
-    ($map:expr, $player:expr, $key:expr, $modifiers:expr, $action:expr) => {
-        $map.insert(Input::Key($key, $modifiers), ($player, $action.into()));
+    (@ $player:expr; $action:expr => $key1:expr; $key2:expr) => {
+        action_binding!(Some($player); $action => ModifiersState::empty(), $key1; ModifiersState::empty(), $key2)
+    };
+    (@ $player:expr; $action:expr => :$modifiers:expr, $key:expr) => {
+        action_binding!(Some($player); $action => $modifiers, $key)
+    };
+    (@ $player:expr; $action:expr => :$modifiers1:expr, $key1:expr; $key2:expr) => {
+        action_binding!(Some($player); $action => $modifiers1, $key1; ModifiersState::empty(), $key2)
+    };
+    (@ $player:expr; $action:expr => :$modifiers1:expr, $key1:expr; :$modifiers2:expr, $key2:expr) => {
+        action_binding!(Some($player); $action => $modifiers1, $key1; $modifiers2, $key2)
+    };
+    ($({ $player:expr; $action:expr => $(:$modifiers1:expr,) ?$key1:expr$(; $(:$modifiers2:expr,)? $key2:expr)? }),+$(,)?) => {
+        vec![$(joypad_map!(@ $player; $action => $(:$modifiers1,)? $key1$(; $(:$modifiers2,)? $key2)?),)+]
+    };
+}
+
+#[allow(unused_macro_rules)]
+macro_rules! shortcut_map {
+    (@ $action:expr => $key:expr) => {
+        action_binding!(None; $action => ModifiersState::empty(), $key)
+    };
+    (@ $action:expr => $key1:expr; $key2:expr) => {
+        action_binding!(None; $action => ModifiersState::empty(), $key1; ModifiersState::empty(), $key2)
+    };
+    (@ $action:expr => :$modifiers:expr, $key:expr) => {
+        action_binding!(None; $action => $modifiers, $key)
+    };
+    (@ $action:expr => :$modifiers1:expr, $key1:expr; $key2:expr) => {
+        action_binding!(None; $action => $modifiers1, $key1; ModifiersState::empty(), $key2)
+    };
+    (@ $action:expr => :$modifiers1:expr, $key1:expr; :$modifiers2:expr, $key2:expr) => {
+        action_binding!(None; $action => $modifiers1, $key1; $modifiers2, $key2)
+    };
+    ($({ $action:expr => $(:$modifiers1:expr,) ?$key1:expr$(; $(:$modifiers2:expr,)? $key2:expr)? }),+$(,)?) => {
+        vec![$(shortcut_map!(@ $action => $(:$modifiers1,)? $key1$(; $(:$modifiers2,)? $key2)?),)+]
     };
 }
 
 macro_rules! mouse_map {
-    ($map:expr, $player:expr, $button:expr, $action:expr) => {
-        $map.insert(
-            Input::Mouse($button, ElementState::Released),
-            ($player, $action.into()),
-        );
+    (@ $player:expr; $action:expr => $button:expr) => {
+        action_binding!(Some($player); $action => [Some(Input::Mouse($button)), None])
+    };
+    ($({ $player:expr; $action:expr => $button:expr }),+$(,)?) => {
+        vec![$(mouse_map!(@ $player; $action => $button),)+]
     };
 }
 
@@ -68,202 +93,150 @@ macro_rules! mouse_map {
 #[must_use]
 pub enum Input {
     Key(KeyCode, ModifiersState),
-    Mouse(MouseButton, ElementState),
+    Mouse(MouseButton),
 }
 
-pub type InputBinding = (Input, Player, Action);
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub struct ActionBindings {
+    pub action: Action,
+    pub player: Option<Player>,
+    pub bindings: [Option<Input>; 2],
+}
+
+impl ActionBindings {
+    pub fn empty(action: Action) -> Self {
+        Self {
+            action,
+            player: None,
+            bindings: Default::default(),
+        }
+    }
+
+    pub fn empty_player(action: Action, player: Player) -> Self {
+        Self {
+            action,
+            player: Some(player),
+            bindings: Default::default(),
+        }
+    }
+
+    pub fn default_bindings() -> Vec<Self> {
+        use KeyCode::*;
+        const SHIFT: ModifiersState = ModifiersState::SHIFT;
+        const CONTROL: ModifiersState = ModifiersState::CONTROL;
+
+        let mut bindings = Vec::with_capacity(128);
+
+        bindings.extend(joypad_map!(
+            { Player::One; JoypadBtn::A => KeyZ },
+            { Player::One; JoypadBtn::B => KeyX },
+            { Player::One; JoypadBtn::Down => ArrowDown },
+            { Player::One; JoypadBtn::Left => ArrowLeft },
+            { Player::One; JoypadBtn::Right => ArrowRight },
+            { Player::One; JoypadBtn::Select => KeyW },
+            { Player::One; JoypadBtn::Start => KeyQ; Enter },
+            { Player::One; JoypadBtn::TurboA => KeyA },
+            { Player::One; JoypadBtn::TurboB => KeyS },
+            { Player::One; JoypadBtn::Up => ArrowUp },
+            { Player::Two; JoypadBtn::A => KeyN },
+            { Player::Two; JoypadBtn::B => KeyM },
+            { Player::Two; JoypadBtn::Down => KeyK },
+            { Player::Two; JoypadBtn::Left => KeyJ },
+            { Player::Two; JoypadBtn::Right => KeyL },
+            { Player::Two; JoypadBtn::Select => Digit9 },
+            { Player::Two; JoypadBtn::Start => Digit8 },
+            { Player::Two; JoypadBtn::Up => KeyI },
+        ));
+        #[cfg(debug_assertions)]
+        bindings.extend(joypad_map!(
+            { Player::Three; JoypadBtn::A => KeyV },
+            { Player::Three; JoypadBtn::B => KeyB },
+            { Player::Three; JoypadBtn::Down => KeyG },
+            { Player::Three; JoypadBtn::Left => KeyF },
+            { Player::Three; JoypadBtn::Right => KeyH },
+            { Player::Three; JoypadBtn::Select => Digit6 },
+            { Player::Three; JoypadBtn::Start => Digit5 },
+            { Player::Three; JoypadBtn::Up => KeyT },
+        ));
+        bindings.extend(shortcut_map!(
+            { Debug::Step(DebugStep::Frame) => :SHIFT, KeyF },
+            { Debug::Step(DebugStep::Into) => KeyC },
+            { Debug::Step(DebugStep::Out) => :SHIFT, KeyO },
+            { Debug::Step(DebugStep::Over) => KeyO },
+            { Debug::Step(DebugStep::Scanline) => :SHIFT, KeyL },
+            { Debug::Toggle(Debugger::Apu) => :SHIFT, KeyA },
+            { Debug::Toggle(Debugger::Cpu) => :SHIFT, KeyD },
+            { Debug::Toggle(Debugger::Ppu) => :SHIFT, KeyP },
+            { DeckAction::LoadState => :CONTROL, KeyL },
+            { DeckAction::Reset(ResetKind::Hard) => :CONTROL, KeyH },
+            { DeckAction::Reset(ResetKind::Soft) => :CONTROL, KeyR },
+            { DeckAction::SaveState => :CONTROL, KeyS },
+            { DeckAction::SetSaveSlot(1) => :CONTROL, Digit1 },
+            { DeckAction::SetSaveSlot(2) => :CONTROL, Digit2 },
+            { DeckAction::SetSaveSlot(3) => :CONTROL, Digit3 },
+            { DeckAction::SetSaveSlot(4) => :CONTROL, Digit4 },
+            { DeckAction::SetSaveSlot(5) => :CONTROL, Digit5 },
+            { DeckAction::SetSaveSlot(6) => :CONTROL, Digit6 },
+            { DeckAction::SetSaveSlot(7) => :CONTROL, Digit7 },
+            { DeckAction::SetSaveSlot(8) => :CONTROL, Digit8 },
+            { DeckAction::SetVideoFilter(VideoFilter::Ntsc) => :CONTROL, KeyN },
+            { DeckAction::ToggleApuChannel(Channel::Dmc) => :SHIFT, Digit5 },
+            { DeckAction::ToggleApuChannel(Channel::Mapper) => :SHIFT, Digit6 },
+            { DeckAction::ToggleApuChannel(Channel::Noise) => :SHIFT, Digit4 },
+            { DeckAction::ToggleApuChannel(Channel::Pulse1) => :SHIFT, Digit1 },
+            { DeckAction::ToggleApuChannel(Channel::Pulse2) => :SHIFT, Digit2 },
+            { DeckAction::ToggleApuChannel(Channel::Triangle) => :SHIFT, Digit3 },
+            { Feature::InstantRewind => KeyR },
+            { Feature::TakeScreenshot => F10 },
+            { Feature::ToggleAudioRecording => :SHIFT, KeyR },
+            { Feature::ToggleReplayRecording => :SHIFT, KeyV },
+            { Feature::VisualRewind => KeyR },
+            { Menu::About => F1 },
+            { Menu::Keybinds => :CONTROL, KeyK },
+            { Menu::Preferences => :CONTROL, KeyP; F2 },
+            { Setting::DecrementScale => :SHIFT, Minus },
+            { Setting::DecrementSpeed => Minus },
+            { Setting::FastForward => Space },
+            { Setting::IncrementScale => :SHIFT, Equal },
+            { Setting::IncrementSpeed => Equal },
+            { Setting::ToggleAudio => :CONTROL, KeyM },
+            { Setting::ToggleMenubar => :CONTROL, KeyE },
+            { Ui::LoadRom => :CONTROL, KeyO; F3 },
+            { Ui::Quit => :CONTROL, KeyQ },
+            { Ui::TogglePause => Escape },
+        ));
+        bindings.extend(mouse_map!(
+            { Player::Two; DeckAction::ZapperTrigger => MouseButton::Left }
+        ));
+        bindings
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InputMap(HashMap<Input, (Player, Action)>);
+pub struct InputBindings(HashMap<Input, (Action, Option<Player>)>);
 
-impl InputMap {
-    pub fn from_bindings(bindings: &[InputBinding]) -> Self {
+impl InputBindings {
+    pub fn from_action_bindings(bindings: &[ActionBindings]) -> Self {
         let mut map = HashMap::with_capacity(bindings.len());
-        for (input, player, action) in bindings {
-            map.insert(*input, (*player, *action));
+        for binding in bindings {
+            for input in binding.bindings.into_iter().flatten() {
+                map.insert(input, (binding.action, binding.player));
+            }
         }
-        map.shrink_to_fit();
         Self(map)
     }
 }
 
-impl Deref for InputMap {
-    type Target = HashMap<Input, (Player, Action)>;
+impl Deref for InputBindings {
+    type Target = HashMap<Input, (Action, Option<Player>)>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for InputMap {
+impl DerefMut for InputBindings {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-impl Default for InputMap {
-    fn default() -> Self {
-        use KeyCode::*;
-        use Player::*;
-        const SHIFT: ModifiersState = ModifiersState::SHIFT;
-        const CONTROL: ModifiersState = ModifiersState::CONTROL;
-
-        let mut map = HashMap::new();
-
-        key_map!(map, One, ArrowLeft, JoypadBtn::Left);
-        key_map!(map, One, ArrowRight, JoypadBtn::Right);
-        key_map!(map, One, ArrowUp, JoypadBtn::Up);
-        key_map!(map, One, ArrowDown, JoypadBtn::Down);
-        key_map!(map, One, KeyZ, JoypadBtn::A);
-        key_map!(map, One, KeyX, JoypadBtn::B);
-        key_map!(map, One, KeyA, JoypadBtn::TurboA);
-        key_map!(map, One, KeyS, JoypadBtn::TurboB);
-        key_map!(map, One, Enter, JoypadBtn::Start);
-        key_map!(map, One, ShiftRight, JoypadBtn::Select);
-        key_map!(map, One, ShiftRight, SHIFT, JoypadBtn::Select); // Required because shift is also a modifier
-        key_map!(map, Two, KeyJ, JoypadBtn::Left);
-        key_map!(map, Two, KeyL, JoypadBtn::Right);
-        key_map!(map, Two, KeyI, JoypadBtn::Up);
-        key_map!(map, Two, KeyK, JoypadBtn::Down);
-        key_map!(map, Two, KeyN, JoypadBtn::A);
-        key_map!(map, Two, KeyM, JoypadBtn::B);
-        key_map!(map, Two, Numpad8, JoypadBtn::Start);
-        key_map!(map, Two, Numpad9, SHIFT, JoypadBtn::Select);
-        #[cfg(debug_assertions)]
-        {
-            key_map!(map, Three, KeyF, JoypadBtn::Left);
-            key_map!(map, Three, KeyH, JoypadBtn::Right);
-            key_map!(map, Three, KeyT, JoypadBtn::Up);
-            key_map!(map, Three, KeyG, JoypadBtn::Down);
-            key_map!(map, Three, KeyV, JoypadBtn::A);
-            key_map!(map, Three, KeyB, JoypadBtn::B);
-            key_map!(map, Three, Numpad5, JoypadBtn::Start);
-            key_map!(map, Three, Numpad6, SHIFT, JoypadBtn::Select);
-        }
-        key_map!(map, One, Escape, UiState::TogglePause);
-        key_map!(map, One, KeyH, CONTROL, Menu::About);
-        key_map!(map, One, F1, Menu::About);
-        key_map!(map, One, KeyC, CONTROL, Menu::Config(ConfigTab::General));
-        key_map!(map, One, F2, Menu::Config(ConfigTab::General));
-        key_map!(map, One, KeyO, CONTROL, UiState::LoadRom);
-        key_map!(map, One, F3, UiState::LoadRom);
-        key_map!(map, One, KeyK, CONTROL, Menu::Keybind(Player::One));
-        key_map!(map, One, KeyQ, CONTROL, UiState::Quit);
-        key_map!(map, One, KeyR, CONTROL, DeckAction::SoftReset);
-        key_map!(map, One, KeyP, CONTROL, DeckAction::HardReset);
-        key_map!(map, One, Equal, Setting::IncSpeed);
-        key_map!(map, One, Minus, Setting::DecSpeed);
-        key_map!(map, One, Space, Setting::FastForward);
-        key_map!(map, One, Digit1, CONTROL, DeckAction::SetSaveSlot(1));
-        key_map!(map, One, Digit2, CONTROL, DeckAction::SetSaveSlot(2));
-        key_map!(map, One, Digit3, CONTROL, DeckAction::SetSaveSlot(3));
-        key_map!(map, One, Digit4, CONTROL, DeckAction::SetSaveSlot(4));
-        key_map!(map, One, Numpad1, CONTROL, DeckAction::SetSaveSlot(1));
-        key_map!(map, One, Numpad2, CONTROL, DeckAction::SetSaveSlot(2));
-        key_map!(map, One, Numpad3, CONTROL, DeckAction::SetSaveSlot(3));
-        key_map!(map, One, Numpad4, CONTROL, DeckAction::SetSaveSlot(4));
-        key_map!(map, One, KeyS, CONTROL, DeckAction::SaveState);
-        key_map!(map, One, KeyL, CONTROL, DeckAction::LoadState);
-        key_map!(map, One, KeyR, Feature::Rewind);
-        key_map!(map, One, F10, Feature::TakeScreenshot);
-        key_map!(map, One, KeyV, SHIFT, Feature::ToggleReplayRecord);
-        key_map!(map, One, KeyR, SHIFT, Feature::ToggleAudioRecord);
-        key_map!(map, One, KeyM, CONTROL, Setting::ToggleAudio);
-        key_map!(map, One, KeyE, CONTROL, Setting::ToggleMenuBar);
-        key_map!(
-            map,
-            One,
-            Digit1,
-            SHIFT,
-            DeckAction::ToggleApuChannel(Channel::Pulse1)
-        );
-        key_map!(
-            map,
-            One,
-            Digit2,
-            SHIFT,
-            DeckAction::ToggleApuChannel(Channel::Pulse2)
-        );
-        key_map!(
-            map,
-            One,
-            Digit3,
-            SHIFT,
-            DeckAction::ToggleApuChannel(Channel::Triangle)
-        );
-        key_map!(
-            map,
-            One,
-            Digit4,
-            SHIFT,
-            DeckAction::ToggleApuChannel(Channel::Noise)
-        );
-        key_map!(
-            map,
-            One,
-            Digit5,
-            SHIFT,
-            DeckAction::ToggleApuChannel(Channel::Dmc)
-        );
-        key_map!(
-            map,
-            One,
-            Digit6,
-            SHIFT,
-            DeckAction::ToggleApuChannel(Channel::Mapper)
-        );
-        key_map!(map, One, Enter, CONTROL, Setting::ToggleFullscreen);
-        key_map!(
-            map,
-            One,
-            KeyN,
-            CONTROL,
-            DeckAction::SetVideoFilter(VideoFilter::Ntsc)
-        );
-        key_map!(
-            map,
-            One,
-            KeyD,
-            SHIFT,
-            Debugger::ToggleDebugger(DebugKind::Cpu)
-        );
-        key_map!(
-            map,
-            One,
-            KeyP,
-            SHIFT,
-            Debugger::ToggleDebugger(DebugKind::Ppu)
-        );
-        key_map!(
-            map,
-            One,
-            KeyA,
-            SHIFT,
-            Debugger::ToggleDebugger(DebugKind::Apu)
-        );
-        key_map!(map, One, KeyC, Debugger::Step(DebugStep::Into));
-        key_map!(map, One, KeyO, Debugger::Step(DebugStep::Over));
-        key_map!(map, One, KeyO, SHIFT, Debugger::Step(DebugStep::Out));
-        key_map!(map, One, KeyL, SHIFT, Debugger::Step(DebugStep::Scanline));
-        key_map!(map, One, KeyF, SHIFT, Debugger::Step(DebugStep::Frame));
-        key_map!(map, One, ArrowDown, CONTROL, Debugger::UpdateScanline(1));
-        key_map!(map, One, ArrowUp, CONTROL, Debugger::UpdateScanline(-1));
-        key_map!(
-            map,
-            One,
-            ArrowDown,
-            SHIFT | CONTROL,
-            Debugger::UpdateScanline(10)
-        );
-        key_map!(
-            map,
-            One,
-            ArrowUp,
-            SHIFT | CONTROL,
-            Debugger::UpdateScanline(-10)
-        );
-
-        mouse_map!(map, Two, MouseButton::Left, DeckAction::ZapperTrigger);
-
-        Self(map)
     }
 }

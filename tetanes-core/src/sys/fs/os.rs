@@ -1,6 +1,6 @@
 use crate::fs::{Error, Result};
 use std::{
-    fs::{create_dir_all, File},
+    fs::{create_dir_all, remove_dir_all, File},
     io::{Read, Write},
     path::Path,
 };
@@ -21,4 +21,10 @@ pub fn writer_impl(path: impl AsRef<Path>) -> Result<impl Write> {
 pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
     let path = path.as_ref();
     File::open(path).map_err(|source| Error::io(source, format!("failed to open file {path:?}")))
+}
+
+pub fn clear_dir_impl(path: impl AsRef<Path>) -> Result<()> {
+    let path = path.as_ref();
+    remove_dir_all(path)
+        .map_err(|source| Error::io(source, format!("failed to remove directory {path:?}")))
 }

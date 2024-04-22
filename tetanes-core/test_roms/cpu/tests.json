@@ -399,7 +399,9 @@
     "frames": [
       {
         "number": 142,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 153,
@@ -413,7 +415,9 @@
     "frames": [
       {
         "number": 140,
-        "action": "SoftReset"
+        "action": {
+          "Reset": "Soft"
+        }
       },
       {
         "number": 155,

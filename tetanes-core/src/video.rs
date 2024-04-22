@@ -6,7 +6,7 @@ use std::{
     sync::OnceLock,
 };
 
-#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum VideoFilter {
     Pixellate,

@@ -18,6 +18,18 @@ pub enum Player {
     Four,
 }
 
+impl std::fmt::Display for Player {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::One => "One",
+            Self::Two => "Two",
+            Self::Three => "Three",
+            Self::Four => "Four",
+        };
+        write!(f, "{s}")
+    }
+}
+
 impl AsRef<str> for Player {
     fn as_ref(&self) -> &str {
         match self {
@@ -92,10 +104,10 @@ impl FromStr for FourPlayer {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Input {
-    joypads: [Joypad; 4],
-    signatures: [Joypad; 2],
+    pub joypads: [Joypad; 4],
+    pub signatures: [Joypad; 2],
     pub zapper: Zapper,
-    turbo_timer: u32,
+    pub turbo_timer: u32,
     pub four_player: FourPlayer,
 }
 
@@ -124,6 +136,12 @@ impl Input {
 
     pub fn set_region(&mut self, region: NesRegion) {
         self.zapper.trigger_release_delay = Cpu::region_clock_rate(region) / 10.0;
+    }
+
+    pub fn set_concurrent_dpad(&mut self, enabled: bool) {
+        self.joypads
+            .iter_mut()
+            .for_each(|pad| pad.concurrent_dpad = enabled);
     }
 
     pub fn connect_zapper(&mut self, connected: bool) {
@@ -255,7 +273,7 @@ impl Reset for Input {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum JoypadBtn {
     /// Left D-Pad.
     Left,
@@ -297,7 +315,7 @@ impl AsRef<str> for JoypadBtn {
 }
 
 bitflags! {
-    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
     #[must_use]
     pub struct JoypadBtnState: u16 {
         const A = 0x01;
@@ -333,15 +351,17 @@ impl From<JoypadBtn> for JoypadBtnState {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Joypad {
-    buttons: JoypadBtnState,
-    index: u8,
-    strobe: bool,
+    pub buttons: JoypadBtnState,
+    pub concurrent_dpad: bool,
+    pub index: u8,
+    pub strobe: bool,
 }
 
 impl Joypad {
     pub const fn new() -> Self {
         Self {
             buttons: JoypadBtnState::from_bits_truncate(0),
+            concurrent_dpad: false,
             index: 0,
             strobe: false,
         }
@@ -353,12 +373,25 @@ impl Joypad {
     }
 
     pub fn set_button(&mut self, button: impl Into<JoypadBtnState>, pressed: bool) {
-        self.buttons.set(button.into(), pressed);
+        let button = button.into();
+        if pressed && !self.concurrent_dpad {
+            if let Some(button) = match button {
+                JoypadBtnState::LEFT => Some(JoypadBtnState::RIGHT),
+                JoypadBtnState::RIGHT => Some(JoypadBtnState::LEFT),
+                JoypadBtnState::UP => Some(JoypadBtnState::DOWN),
+                JoypadBtnState::DOWN => Some(JoypadBtnState::UP),
+                _ => None,
+            } {
+                self.buttons.set(button, false);
+            }
+        }
+        self.buttons.set(button, pressed);
     }
 
     pub const fn from_bytes(val: u16) -> Self {
         Self {
             buttons: JoypadBtnState::from_bits_truncate(val),
+            concurrent_dpad: false,
             index: 0,
             strobe: false,
         }

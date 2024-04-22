@@ -13,6 +13,20 @@ use tracing::{debug, error, info, trace, warn};
 
 type AudioRb = Arc<HeapRb<f32>>;
 
+/// Represents the state of the audio stream.
+#[derive(Debug)]
+#[must_use]
+pub enum State {
+    /// Audio is disabled.
+    Disabled,
+    /// No audio output device was found or no devices found to support desired configuration.
+    NoOutputDevice,
+    /// Audio output stream has been started.
+    Started,
+    /// Audio output stream has been stopped.
+    Stopped,
+}
+
 #[derive(Debug)]
 #[must_use]
 pub enum CallbackMsg {
@@ -24,6 +38,7 @@ pub enum CallbackMsg {
 
 #[must_use]
 pub struct Audio {
+    pub enabled: bool,
     pub sample_rate: f32,
     pub latency: Duration,
     pub buffer_size: usize,
@@ -34,7 +49,9 @@ pub struct Audio {
 impl std::fmt::Debug for Audio {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Audio")
+            .field("enabled", &self.enabled)
             .field("sample_rate", &self.sample_rate)
+            .field("latency", &self.latency)
             .field("buffer_size", &self.buffer_size)
             .field("output", &self.output)
             .finish_non_exhaustive()
@@ -47,10 +64,11 @@ impl Audio {
     /// # Errors
     ///
     /// Returns an error if the audio device fails to be opened.
-    pub fn new(sample_rate: f32, latency: Duration, buffer_size: usize) -> Self {
+    pub fn new(enabled: bool, sample_rate: f32, latency: Duration, buffer_size: usize) -> Self {
         let host = cpal::default_host();
         let output = Output::create(&host, sample_rate, latency, buffer_size);
         Self {
+            enabled,
             sample_rate,
             latency,
             buffer_size,
@@ -61,10 +79,23 @@ impl Audio {
 
     /// Whether the audio mixer is currently enabled.
     pub fn enabled(&self) -> bool {
-        self.output
-            .as_ref()
-            .and_then(|output| output.mixer.as_ref())
-            .map_or(false, |mixer| !mixer.paused)
+        self.enabled
+            && self
+                .output
+                .as_ref()
+                .and_then(|output| output.mixer.as_ref())
+                .map_or(false, |mixer| !mixer.paused)
+    }
+
+    /// Set whether the audio mixer is enabled. Returns [`AudioState`] representing the state of
+    /// the audio stream as a result of being enabled/disabled.
+    pub fn set_enabled(&mut self, enabled: bool) -> anyhow::Result<State> {
+        self.enabled = enabled;
+        if self.enabled {
+            self.start()
+        } else {
+            Ok(self.stop())
+        }
     }
 
     /// Processes generated audio samples.
@@ -112,23 +143,30 @@ impl Audio {
     }
 
     /// Recreate audio output device.
-    fn recreate_output(&mut self) -> anyhow::Result<()> {
-        self.stop();
+    fn recreate_output(&mut self) -> anyhow::Result<State> {
+        let _ = self.stop();
         self.output = Output::create(&self.host, self.sample_rate, self.latency, self.buffer_size);
         self.start()
     }
 
     /// Set the output sample rate that the audio device uses. Requires restarting the audio stream
     /// and so may fail.
-    pub fn set_sample_rate(&mut self, sample_rate: f32) -> anyhow::Result<()> {
+    pub fn set_sample_rate(&mut self, sample_rate: f32) -> anyhow::Result<State> {
         self.sample_rate = sample_rate;
         self.recreate_output()
     }
 
     /// Set the buffer size used by the audio device for playback. Requires restarting the audio
     /// stream and so may fail.
-    pub fn set_buffer_size(&mut self, buffer_size: usize) -> anyhow::Result<()> {
+    pub fn set_buffer_size(&mut self, buffer_size: usize) -> anyhow::Result<State> {
         self.buffer_size = buffer_size;
+        self.recreate_output()
+    }
+
+    /// Set the latency used by the audio device for playback. Requires restarting the audio
+    /// stream and so may fail.
+    pub fn set_latency(&mut self, latency: Duration) -> anyhow::Result<State> {
+        self.latency = latency;
         self.recreate_output()
     }
 
@@ -151,22 +189,31 @@ impl Audio {
         }
     }
 
-    /// Start the audio output stream.
+    /// Start the audio output stream. Returns [`AudioState`] representing the state of the audio stream.
     ///
     /// # Errors
     ///
-    /// Returns an error if audio is already started or can not be initialized.
-    pub fn start(&mut self) -> anyhow::Result<()> {
-        if let Some(ref mut output) = self.output {
-            output.start()?;
+    /// Returns an error if the audio stream could not be started.
+    pub fn start(&mut self) -> anyhow::Result<State> {
+        if self.enabled {
+            if let Some(ref mut output) = self.output {
+                output.start()?;
+                Ok(State::Started)
+            } else {
+                Ok(State::NoOutputDevice)
+            }
+        } else {
+            Ok(State::Disabled)
         }
-        Ok(())
     }
 
     /// Stop the audio output stream.
-    pub fn stop(&mut self) {
+    pub fn stop(&mut self) -> State {
         if let Some(ref mut output) = self.output {
             output.stop();
+            State::Stopped
+        } else {
+            State::NoOutputDevice
         }
     }
 
@@ -421,7 +468,7 @@ impl Mixer {
     fn set_recording(&mut self, recording: bool) {
         self.stop_recording();
         if recording {
-            if let Some(dir) = Config::audio_dir() {
+            if let Some(dir) = Config::default_audio_dir() {
                 let path = dir
                     .join(
                         chrono::Local::now()
