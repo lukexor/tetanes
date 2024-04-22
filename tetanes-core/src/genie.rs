@@ -77,7 +77,7 @@ impl GenieCode {
             None
         };
         Self {
-            code,
+            code: code.to_ascii_uppercase(),
             addr,
             data,
             compare,
@@ -112,7 +112,10 @@ impl GenieCode {
         }
         let mut hex: Vec<u8> = Vec::with_capacity(code.len());
         for s in code.chars() {
-            if let Some(h) = GENIE_MAP.get_or_init(Self::generate_genie_map).get(&s) {
+            if let Some(h) = GENIE_MAP
+                .get_or_init(Self::generate_genie_map)
+                .get(&s.to_ascii_uppercase())
+            {
                 hex.push(*h);
             } else {
                 return Err(Error::new(code, ErrorKind::InvalidCharacter(s)));

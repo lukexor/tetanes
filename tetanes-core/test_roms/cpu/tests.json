@@ -16,7 +16,7 @@
       {
         "number": 10,
         "action": {
-          "Joypad": "Start"
+          "Joypad": ["One", "Start"]
         }
       },
       {
@@ -27,13 +27,13 @@
       {
         "number": 28,
         "action": {
-          "Joypad": "Select"
+          "Joypad": ["One", "Select"]
         }
       },
       {
         "number": 30,
         "action": {
-          "Joypad": "Start"
+          "Joypad": ["One", "Start"]
         }
       },
       {

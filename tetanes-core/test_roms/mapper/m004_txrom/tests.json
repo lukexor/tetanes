@@ -45,7 +45,7 @@
       {
         "number": 11,
         "action": {
-          "Joypad": "Start"
+          "Joypad": ["One", "Start"]
         }
       },
       {
@@ -89,3 +89,4 @@
     ]
   }
 ]
+

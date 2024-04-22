@@ -276,8 +276,6 @@ pub(crate) mod tests {
         #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        slot: Option<Player>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         action: Option<Action>,
         #[serde(skip_serializing)]
         audio: bool,
@@ -330,19 +328,17 @@ pub(crate) mod tests {
                 },
                 Action::SetVideoFilter(filter) => deck.set_filter(filter),
                 Action::SetNesRegion(format) => deck.set_region(format),
-                Action::Joypad(button) => {
-                    let slot = test_frame.slot.unwrap_or(Player::One);
-                    let joypad = deck.joypad_mut(slot);
+                Action::Joypad((player, button)) => {
+                    let joypad = deck.joypad_mut(player);
                     joypad.set_button(button, true);
                 }
-                Action::ZapperConnect(connected) => deck.connect_zapper(connected),
+                Action::ToggleZapperConnected => deck.connect_zapper(!deck.zapper_connected()),
                 Action::ZapperAim((x, y)) => deck.aim_zapper(x, y),
                 Action::ZapperTrigger => deck.trigger_zapper(),
                 Action::LoadState
                 | Action::SaveState
                 | Action::SetSaveSlot(_)
-                | Action::ToggleApuChannel(_)
-                | Action::ToggleZapperConnected => (),
+                | Action::ToggleApuChannel(_) => (),
             }
         }
     }

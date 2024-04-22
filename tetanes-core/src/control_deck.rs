@@ -716,6 +716,12 @@ impl ControlDeck {
         self.cpu.bus.input.joypad_mut(slot)
     }
 
+    /// Returns whether the Zapper gun is connected.
+    #[inline]
+    pub const fn zapper_connected(&self) -> bool {
+        self.cpu.bus.input.zapper.connected
+    }
+
     /// Enable Zapper gun.
     #[inline]
     pub fn connect_zapper(&mut self, enabled: bool) {

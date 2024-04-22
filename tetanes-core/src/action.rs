@@ -1,5 +1,8 @@
 use crate::{
-    apu::Channel, common::NesRegion, common::ResetKind, input::JoypadBtn, mapper::MapperRevision,
+    apu::Channel,
+    common::{NesRegion, ResetKind},
+    input::{JoypadBtn, Player},
+    mapper::MapperRevision,
     video::VideoFilter,
 };
 use serde::{Deserialize, Serialize};
@@ -9,9 +12,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
     Reset(ResetKind),
-    Joypad(JoypadBtn),
+    Joypad((Player, JoypadBtn)),
     ToggleZapperConnected,
-    ZapperConnect(bool),
     ZapperAim((u32, u32)),
     ZapperTrigger,
     SetSaveSlot(u8),

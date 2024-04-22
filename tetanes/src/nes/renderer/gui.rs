@@ -2,7 +2,7 @@ use crate::{
     nes::{
         action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui as UiAction},
         config::Config,
-        event::{ConfigEvent, EmulationEvent, NesEvent, UiEvent},
+        event::{ConfigEvent, EmulationEvent, NesEvent, SendNesEvent, UiEvent},
         input::{ActionBindings, Input},
     },
     platform,
@@ -11,12 +11,18 @@ use egui::{
     ahash::{HashMap, HashMapExt},
     global_dark_light_mode_switch,
     load::SizedTexture,
-    menu, Align, Align2, Button, CentralPanel, Color32, Context, CursorIcon, Direction, DragValue,
-    FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Key, KeyboardShortcut, Layout,
-    Modifiers, PointerButton, RichText, ScrollArea, Slider, TopBottomPanel, Ui, Vec2,
+    menu, Align, Align2, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon, Direction,
+    DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Key, KeyboardShortcut,
+    Layout, Modifiers, PointerButton, Response, RichText, ScrollArea, Slider, TopBottomPanel, Ui,
+    Vec2, Widget, WidgetText,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, mem, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    mem,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::Channel,
@@ -29,7 +35,7 @@ use tetanes_core::{
     time::{Duration, Instant},
     video::VideoFilter,
 };
-use tracing::{error, info, trace};
+use tracing::info;
 use winit::{
     event::MouseButton,
     event_loop::EventLoopProxy,
@@ -40,6 +46,19 @@ use winit::{
 pub const MSG_TIMEOUT: Duration = Duration::from_secs(3);
 pub const MAX_MESSAGES: usize = 5;
 pub const MENU_WIDTH: f32 = 200.0;
+
+pub trait ShortcutText<'a>
+where
+    Self: Sized + 'a,
+{
+    fn shortcut_text(self, shortcut_text: impl Into<RichText>) -> ShortcutWidget<'a, Self> {
+        ShortcutWidget {
+            inner: self,
+            shortcut_text: shortcut_text.into(),
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Menu {
@@ -63,12 +82,18 @@ pub enum KeybindsTab {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetKeybind {
+pub struct PendingKeybind {
     action: Action,
     player: Option<Player>,
     binding: usize,
     input: Option<Input>,
-    conflict: Option<(Action, Option<Player>)>,
+    conflict: Option<Action>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct PendingGenieEntry {
+    code: String,
+    error: Option<String>,
 }
 
 type Keybind = (Action, [Option<Input>; 2]);
@@ -79,17 +104,18 @@ pub struct Gui {
     initialized: bool,
     window: Arc<Window>,
     pub(super) title: String,
-    event_proxy: EventLoopProxy<NesEvent>,
+    tx: EventLoopProxy<NesEvent>,
     debounced_events: HashMap<&'static str, (NesEvent, Instant)>,
     pub(super) texture: SizedTexture,
     pub(super) paused: bool,
     pub(super) menu_height: f32,
+    pending_genie_entry: PendingGenieEntry,
     pub(super) preferences_open: bool,
     pub(super) keybinds_open: bool,
     pub(super) about_open: bool,
     preferences_tab: PreferencesTab,
     keybinds_tab: KeybindsTab,
-    pending_keybind: Option<SetKeybind>,
+    pending_keybind: Option<PendingKeybind>,
     cpu_debugger_open: bool,
     ppu_debugger_open: bool,
     apu_debugger_open: bool,
@@ -98,7 +124,6 @@ pub struct Gui {
     pub(super) resize_texture: bool,
     pub(super) replay_recording: bool,
     pub(super) audio_recording: bool,
-    new_genie_code: String,
     shortcut_keybinds: BTreeMap<String, Keybind>,
     joypad_keybinds: [BTreeMap<String, Keybind>; 4],
     pub(super) frame_counter: usize,
@@ -114,7 +139,7 @@ impl Gui {
     /// Create a gui `State`.
     pub fn new(
         window: Arc<Window>,
-        event_proxy: EventLoopProxy<NesEvent>,
+        tx: EventLoopProxy<NesEvent>,
         texture: SizedTexture,
         cfg: Config,
     ) -> Self {
@@ -124,12 +149,12 @@ impl Gui {
             initialized: false,
             window,
             title: Config::WINDOW_TITLE.to_string(),
-            event_proxy,
+            tx,
             debounced_events: HashMap::new(),
             texture,
             paused: false,
             menu_height: 0.0,
-            new_genie_code: String::new(),
+            pending_genie_entry: PendingGenieEntry::default(),
             preferences_open: false,
             preferences_tab: PreferencesTab::Emulation,
             keybinds_tab: KeybindsTab::Shortcuts,
@@ -144,18 +169,20 @@ impl Gui {
             resize_texture: false,
             replay_recording: false,
             audio_recording: false,
-            shortcut_keybinds: Action::shortcuts()
+            shortcut_keybinds: Action::BINDABLE
                 .into_iter()
+                .filter(|action| !action.is_joypad())
                 .map(ActionBindings::empty)
-                .chain(cfg.input.shortcut_bindings())
+                .chain(cfg.input.shortcuts)
                 .map(|b| (b.action.to_string(), (b.action, b.bindings)))
                 .collect::<BTreeMap<_, _>>(),
             joypad_keybinds: [Player::One, Player::Two, Player::Three, Player::Four].map(
                 |player| {
-                    Action::joypad()
+                    Action::BINDABLE
                         .into_iter()
-                        .map(|action| ActionBindings::empty_player(action, player))
-                        .chain(cfg.input.joypad_bindings(player))
+                        .filter(|action| action.is_joypad())
+                        .map(ActionBindings::empty)
+                        .chain(cfg.input.joypad_bindings[player as usize].iter().copied())
                         .map(|b| (b.action.to_string(), (b.action, b.bindings)))
                         .collect::<BTreeMap<_, _>>()
                 },
@@ -184,16 +211,6 @@ impl Gui {
             .entry(id)
             .and_modify(|(_, instant)| *instant = Instant::now())
             .or_insert((event.into(), Instant::now()));
-    }
-
-    /// Send a custom event to the event loop.
-    pub fn send_event(&mut self, event: impl Into<NesEvent>) {
-        let event = event.into();
-        trace!("Gui event: {event:?}");
-        if let Err(err) = self.event_proxy.send_event(event) {
-            error!("failed to send nes event: {err:?}");
-            std::process::exit(1);
-        }
     }
 
     pub fn aspect_ratio(&self, cfg: &Config) -> f32 {
@@ -272,7 +289,7 @@ impl Gui {
         let debounced_events = mem::take(&mut self.debounced_events);
         for (id, (event, instant)) in debounced_events {
             if instant.elapsed() >= Duration::from_millis(300) {
-                self.send_event(event);
+                self.tx.nes_event(event);
             } else {
                 self.debounced_events.insert(id, (event, instant));
             }
@@ -282,17 +299,15 @@ impl Gui {
     fn handle_pending_keybind(&mut self, ctx: &Context, cfg: &mut Config) {
         if let Some(ref mut pending_keybind) = self.pending_keybind {
             let mut cancelled = false;
+            let mut open = true;
             egui::Window::new("Set Keybind")
                 .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
                 .collapsible(false)
                 .resizable(false)
+                .open(&mut open)
                 .show(ctx, |ui| {
-                    if let Some((action, player)) = pending_keybind.conflict {
-                        if let Some(player) = player {
-                            ui.label(format!("Conflict with {action} (Player {player})."));
-                        } else {
-                            ui.label(format!("Conflict with {action}."));
-                        }
+                    if let Some(action) = pending_keybind.conflict {
+                        ui.label(format!("Conflict with {action}."));
                         ui.horizontal(|ui| {
                             if ui.button("Overwrite").clicked() {
                                 if let Some(input) = pending_keybind.input {
@@ -327,8 +342,6 @@ impl Gui {
                             }
                             if ui.button("Cancel").clicked() {
                                 cancelled = true;
-                                pending_keybind.input = None;
-                                pending_keybind.conflict = None;
                             }
                         });
                     } else {
@@ -338,93 +351,119 @@ impl Gui {
                     ));
                     }
                 });
-            if cancelled {
-                return;
-            }
 
-            match pending_keybind.input {
-                Some(input) => {
-                    if pending_keybind.conflict.is_none() {
-                        match pending_keybind.player {
-                            Some(player) => {
-                                self.joypad_keybinds[player as usize]
-                                    .entry(pending_keybind.action.to_string())
-                                    .and_modify(|(_, bindings)| {
-                                        bindings[pending_keybind.binding] = Some(input)
-                                    })
-                                    .or_insert_with(|| {
-                                        let mut bindings = [None, None];
-                                        bindings[pending_keybind.binding] = Some(input);
-                                        (pending_keybind.action, bindings)
-                                    });
+            if !open {
+                self.pending_keybind = None;
+            } else if cancelled {
+                pending_keybind.input = None;
+                pending_keybind.conflict = None;
+            } else {
+                match pending_keybind.input {
+                    Some(input) => {
+                        if pending_keybind.conflict.is_none() {
+                            match pending_keybind.player {
+                                Some(player) => {
+                                    self.joypad_keybinds[player as usize]
+                                        .entry(pending_keybind.action.to_string())
+                                        .and_modify(|(_, bindings)| {
+                                            bindings[pending_keybind.binding] = Some(input)
+                                        })
+                                        .or_insert_with(|| {
+                                            let mut bindings = [None, None];
+                                            bindings[pending_keybind.binding] = Some(input);
+                                            (pending_keybind.action, bindings)
+                                        });
+                                    let binding = cfg.input.joypad_bindings[player as usize]
+                                        .iter_mut()
+                                        .find(|b| b.action == pending_keybind.action);
+                                    match binding {
+                                        Some(bind) => {
+                                            bind.bindings[pending_keybind.binding] = Some(input)
+                                        }
+                                        None => cfg.input.joypad_bindings[player as usize].push(
+                                            ActionBindings {
+                                                action: pending_keybind.action,
+                                                bindings: [Some(input), None],
+                                            },
+                                        ),
+                                    }
+                                }
+                                None => {
+                                    self.shortcut_keybinds
+                                        .entry(pending_keybind.action.to_string())
+                                        .and_modify(|(_, bindings)| {
+                                            bindings[pending_keybind.binding] = Some(input)
+                                        })
+                                        .or_insert_with(|| {
+                                            let mut bindings = [None, None];
+                                            bindings[pending_keybind.binding] = Some(input);
+                                            (pending_keybind.action, bindings)
+                                        });
+                                    let binding = cfg
+                                        .input
+                                        .shortcuts
+                                        .iter_mut()
+                                        .find(|b| b.action == pending_keybind.action);
+                                    match binding {
+                                        Some(bind) => {
+                                            bind.bindings[pending_keybind.binding] = Some(input)
+                                        }
+                                        None => cfg.input.shortcuts.push(ActionBindings {
+                                            action: pending_keybind.action,
+                                            bindings: [Some(input), None],
+                                        }),
+                                    }
+                                }
                             }
-                            None => {
-                                self.shortcut_keybinds
-                                    .entry(pending_keybind.action.to_string())
-                                    .and_modify(|(_, bindings)| {
-                                        bindings[pending_keybind.binding] = Some(input)
-                                    })
-                                    .or_insert_with(|| {
-                                        let mut bindings = [None, None];
-                                        bindings[pending_keybind.binding] = Some(input);
-                                        (pending_keybind.action, bindings)
-                                    });
-                            }
+                            self.pending_keybind = None;
+                            self.tx.nes_event(UiEvent::IgnoreInputActions(false));
+                            self.tx.nes_event(ConfigEvent::InputBindings);
                         }
-                        let binding = cfg.input.bindings.iter_mut().find(|b| {
-                            b.action == pending_keybind.action && b.player == pending_keybind.player
-                        });
-                        match binding {
-                            Some(bind) => bind.bindings[pending_keybind.binding] = Some(input),
-                            None => cfg.input.bindings.push(ActionBindings {
-                                action: pending_keybind.action,
-                                player: pending_keybind.player,
-                                bindings: [Some(input), None],
-                            }),
-                        }
-                        self.pending_keybind = None;
-                        self.send_event(UiEvent::PendingKeybind(false));
-                        self.send_event(ConfigEvent::InputBindings);
                     }
-                }
-                None => {
-                    let event = ctx.input(|i| {
-                        use egui::Event;
-                        for event in &i.events {
-                            match *event {
-                                Event::Key {
-                                    physical_key: Some(key),
-                                    pressed,
-                                    modifiers,
-                                    ..
-                                } => {
-                                    // TODO: Ignore unsupported key mappings for now as egui supports less
-                                    // overall than winit
-                                    return Input::try_from((key, modifiers))
-                                        .ok()
-                                        .map(|input| (input, pressed));
+                    None => {
+                        let event = ctx.input(|i| {
+                            use egui::Event;
+                            for event in &i.events {
+                                match *event {
+                                    Event::Key {
+                                        physical_key: Some(key),
+                                        pressed,
+                                        modifiers,
+                                        ..
+                                    } => {
+                                        // TODO: Ignore unsupported key mappings for now as egui supports less
+                                        // overall than winit
+                                        return Input::try_from((key, modifiers))
+                                            .ok()
+                                            .map(|input| (input, pressed));
+                                    }
+                                    Event::PointerButton {
+                                        button, pressed, ..
+                                    } => {
+                                        // TODO: Ignore unsupported key mappings for now as egui supports less
+                                        // overall than winit
+                                        return Input::try_from(button)
+                                            .ok()
+                                            .map(|input| (input, pressed));
+                                    }
+                                    _ => (),
                                 }
-                                Event::PointerButton {
-                                    button, pressed, ..
-                                } => {
-                                    // TODO: Ignore unsupported key mappings for now as egui supports less
-                                    // overall than winit
-                                    return Input::try_from(button)
-                                        .ok()
-                                        .map(|input| (input, pressed));
-                                }
-                                _ => (),
                             }
-                        }
-                        None
-                    });
-                    if let Some((input, pressed)) = event {
-                        // Only set on key release
-                        if !pressed {
-                            pending_keybind.input = Some(input);
-                            for bind in &cfg.input.bindings {
-                                if bind.bindings.iter().any(|b| b == &Some(input)) {
-                                    pending_keybind.conflict = Some((bind.action, bind.player));
+                            None
+                        });
+                        if let Some((input, pressed)) = event {
+                            // Only set on key release
+                            if !pressed {
+                                pending_keybind.input = Some(input);
+                                for bind in cfg
+                                    .input
+                                    .shortcuts
+                                    .iter()
+                                    .chain(cfg.input.joypad_bindings.iter().flatten())
+                                {
+                                    if bind.bindings.iter().any(|b| b == &Some(input)) {
+                                        pending_keybind.conflict = Some(bind.action);
+                                    }
                                 }
                             }
                         }
@@ -461,6 +500,7 @@ impl Gui {
 
     fn file_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
         ui.allocate_space(Vec2::new(MENU_WIDTH, 0.0));
+
         // NOTE: Due to some platforms file dialogs blocking the event loop,
         // loading requires a round-trip in order for the above pause to
         // get processed.
@@ -468,46 +508,58 @@ impl Gui {
             .add(Button::new("Load ROM...").shortcut_text(self.get_shortcut(UiAction::LoadRom)))
             .clicked()
         {
-            self.send_event(EmulationEvent::Pause(true));
-            self.send_event(UiEvent::LoadRomDialog);
+            self.tx.nes_event(EmulationEvent::Pause(true));
+            self.tx.nes_event(UiEvent::LoadRomDialog);
             ui.close_menu();
         }
-        let res = ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
+
+        ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
+            if ui
+                .add(
+                    Button::new("Unload ROM...")
+                        .shortcut_text(self.get_shortcut(UiAction::UnloadRom)),
+                )
+                .on_disabled_hover_text("No ROM is loaded")
+                .clicked()
+            {
+                self.tx.nes_event(EmulationEvent::UnloadRom);
+                ui.close_menu();
+            }
             if ui
                 .add(
                     Button::new("Load Replay")
                         .shortcut_text(self.get_shortcut(UiAction::LoadReplay)),
                 )
                 .on_hover_text("Load a replay file for the currently loaded ROM.")
+                .on_disabled_hover_text("No ROM is loaded")
                 .clicked()
             {
-                self.send_event(EmulationEvent::Pause(true));
-                self.send_event(UiEvent::LoadReplayDialog);
+                self.tx.nes_event(EmulationEvent::Pause(true));
+                self.tx.nes_event(UiEvent::LoadReplayDialog);
                 ui.close_menu();
-            }
-        });
-        if self.loaded_rom.is_none() {
-            res.response
-                .on_hover_text("Replays can only be played when a ROM is loaded.");
-        }
-        ui.menu_button("Recently Played...", |ui| {
-            use tetanes_core::fs;
-
-            if cfg.renderer.recent_roms.is_empty() {
-                ui.label("No recent ROMs");
-            } else {
-                // TODO: add timestamp, save slots, and screenshot
-                for rom in &cfg.renderer.recent_roms {
-                    if ui.button(fs::filename(rom)).clicked() {
-                        self.send_event(EmulationEvent::LoadRomPath(rom.to_path_buf()));
-                        ui.close_menu();
-                    }
-                }
             }
         });
 
         // TODO: support saves and recent games on wasm? Requires storing the data
         if platform::supports(platform::Feature::Filesystem) {
+            ui.menu_button("Recently Played...", |ui| {
+                use tetanes_core::fs;
+
+                if cfg.renderer.recent_roms.is_empty() {
+                    ui.label("No recent ROMs");
+                } else {
+                    ui.allocate_space(Vec2::new(MENU_WIDTH, 0.0));
+                    // TODO: add timestamp, save slots, and screenshot
+                    for rom in &cfg.renderer.recent_roms {
+                        if ui.button(fs::filename(rom)).clicked() {
+                            self.tx
+                                .nes_event(EmulationEvent::LoadRomPath(rom.to_path_buf()));
+                            ui.close_menu();
+                        }
+                    }
+                }
+            });
+
             ui.separator();
 
             if ui
@@ -518,7 +570,8 @@ impl Gui {
                 .on_hover_text("Save the current state to the selected save slot.")
                 .clicked()
             {
-                self.send_event(EmulationEvent::SaveState(cfg.emulation.save_slot));
+                self.tx
+                    .nes_event(EmulationEvent::SaveState(cfg.emulation.save_slot));
             };
             if ui
                 .add(
@@ -528,12 +581,11 @@ impl Gui {
                 .on_hover_text("Load a previous state from the selected save slot.")
                 .clicked()
             {
-                self.send_event(EmulationEvent::LoadState(cfg.emulation.save_slot));
+                self.tx
+                    .nes_event(EmulationEvent::LoadState(cfg.emulation.save_slot));
             }
 
-            ui.menu_button("Save Slot...", |ui| {
-                self.save_slot_radio(ui, cfg, ShowShortcut::Yes)
-            });
+            ui.menu_button("Save Slot...", |ui| self.save_slot_radio(ui, cfg, true));
 
             ui.separator();
 
@@ -541,7 +593,7 @@ impl Gui {
                 .add(Button::new("Quit").shortcut_text(self.get_shortcut(UiAction::Quit)))
                 .clicked()
             {
-                self.send_event(UiEvent::Terminate);
+                self.tx.nes_event(UiEvent::Terminate);
                 ui.close_menu();
             };
         }
@@ -549,124 +601,144 @@ impl Gui {
 
     fn controls_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
         ui.allocate_space(Vec2::new(MENU_WIDTH, 0.0));
-        let pause_label = if self.paused { "Resume" } else { "Pause" };
+
+        ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
+            if ui
+                .add(
+                    Button::new(if self.paused { "Resume" } else { "Pause" })
+                        .shortcut_text(self.get_shortcut(UiAction::TogglePause)),
+                )
+                .on_disabled_hover_text("No ROM is loaded")
+                .clicked()
+            {
+                self.tx.nes_event(EmulationEvent::Pause(!self.paused));
+                ui.close_menu();
+            };
+        });
+
         if ui
-            .add(Button::new(pause_label).shortcut_text(self.get_shortcut(UiAction::TogglePause)))
-            .clicked()
-        {
-            self.send_event(EmulationEvent::Pause(!self.paused));
-            ui.close_menu();
-        };
-        let mute_label = if cfg.audio.enabled { "Mute" } else { "Unmute" };
-        if ui
-            .add(Button::new(mute_label).shortcut_text(self.get_shortcut(Setting::ToggleAudio)))
+            .add(
+                Button::new(if cfg.audio.enabled { "Mute" } else { "Unmute" })
+                    .shortcut_text(self.get_shortcut(Setting::ToggleAudio)),
+            )
             .clicked()
         {
             cfg.audio.enabled = !cfg.audio.enabled;
-            self.send_event(ConfigEvent::AudioEnabled(cfg.audio.enabled));
+            self.tx
+                .nes_event(ConfigEvent::AudioEnabled(cfg.audio.enabled));
             ui.close_menu();
         };
 
         ui.separator();
 
-        let res = ui.add_enabled_ui(cfg.emulation.rewind, |ui| {
+        ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
+            if platform::supports(platform::Feature::Filesystem) {
+                ui.add_enabled_ui(cfg.emulation.rewind, |ui| {
+                    if ui
+                        .add(
+                            Button::new("Instant Rewind")
+                                .shortcut_text(self.get_shortcut(Feature::InstantRewind)),
+                        )
+                        .on_hover_text("Instantly rewind state to a previous point.")
+                        .on_disabled_hover_text(if self.loaded_rom.is_none() {
+                            "No ROM is loaded"
+                        } else {
+                            "Rewind can be enabled under the `Config` menu."
+                        })
+                        .clicked()
+                    {
+                        self.tx.nes_event(EmulationEvent::InstantRewind);
+                        ui.close_menu();
+                    };
+                });
+            }
+
             if ui
                 .add(
-                    Button::new("Instant Rewind")
-                        .shortcut_text(self.get_shortcut(Feature::InstantRewind)),
+                    Button::new("Reset")
+                        .shortcut_text(self.get_shortcut(DeckAction::Reset(ResetKind::Soft))),
                 )
-                .on_hover_text("Instantly rewind state to a previous point.")
+                .on_hover_text("Emulate a soft reset of the NES.")
                 .clicked()
             {
-                self.send_event(EmulationEvent::InstantRewind);
+                self.tx.nes_event(EmulationEvent::Reset(ResetKind::Soft));
+                ui.close_menu();
+            };
+            if ui
+                .add(
+                    Button::new("Power Cycle")
+                        .shortcut_text(self.get_shortcut(DeckAction::Reset(ResetKind::Hard))),
+                )
+                .on_hover_text("Emulate a power cycle of the NES.")
+                .clicked()
+            {
+                self.tx.nes_event(EmulationEvent::Reset(ResetKind::Hard));
                 ui.close_menu();
             };
         });
-        if !cfg.emulation.rewind {
-            res.response
-                .on_hover_text("Rewinding can be enabled under the `Config` menu.");
-        }
-        if ui
-            .add(
-                Button::new("Reset")
-                    .shortcut_text(self.get_shortcut(DeckAction::Reset(ResetKind::Soft))),
-            )
-            .on_hover_text("Emulate a soft reset of the NES.")
-            .clicked()
-        {
-            self.send_event(EmulationEvent::Reset(ResetKind::Soft));
-            ui.close_menu();
-        };
-        if ui
-            .add(
-                Button::new("Power Cycle")
-                    .shortcut_text(self.get_shortcut(DeckAction::Reset(ResetKind::Hard))),
-            )
-            .on_hover_text("Emulate a power cycle of the NES.")
-            .clicked()
-        {
-            self.send_event(EmulationEvent::Reset(ResetKind::Hard));
-            ui.close_menu();
-        };
 
         if platform::supports(platform::Feature::Filesystem) {
             ui.separator();
 
-            if ui
-                .add(
-                    Button::new("Screenshot")
-                        .shortcut_text(self.get_shortcut(Feature::TakeScreenshot)),
-                )
-                .clicked()
-            {
-                self.send_event(EmulationEvent::Screenshot);
-                ui.close_menu();
-            };
-            let replay_label = if self.replay_recording {
-                "Stop Replay Recording"
-            } else {
-                "Record Replay"
-            };
-            if ui
-                .add(
-                    Button::new(replay_label)
+            ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
+                if ui
+                    .add(
+                        Button::new("Screenshot")
+                            .shortcut_text(self.get_shortcut(Feature::TakeScreenshot)),
+                    )
+                    .on_disabled_hover_text("No ROM is loaded")
+                    .clicked()
+                {
+                    self.tx.nes_event(EmulationEvent::Screenshot);
+                    ui.close_menu();
+                };
+                if ui
+                    .add(
+                        Button::new(if self.replay_recording {
+                            "Stop Replay Recording"
+                        } else {
+                            "Record Replay"
+                        })
                         .shortcut_text(self.get_shortcut(Feature::ToggleReplayRecording)),
-                )
-                .on_hover_text("Record or stop recording a game replay file.")
-                .clicked()
-            {
-                self.send_event(EmulationEvent::ReplayRecord(!self.replay_recording));
-                ui.close_menu();
-            };
-            let audio_label = if self.audio_recording {
-                "Stop Audio Recording"
-            } else {
-                "Record Audio"
-            };
-            if ui
-                .add(
-                    Button::new(audio_label)
+                    )
+                    .on_hover_text("Record or stop recording a game replay file.")
+                    .clicked()
+                {
+                    self.tx
+                        .nes_event(EmulationEvent::ReplayRecord(!self.replay_recording));
+                    ui.close_menu();
+                };
+                if ui
+                    .add(
+                        Button::new(if self.audio_recording {
+                            "Stop Audio Recording"
+                        } else {
+                            "Record Audio"
+                        })
                         .shortcut_text(self.get_shortcut(Feature::ToggleAudioRecording)),
-                )
-                .on_hover_text("Record or stop recording a audio file.")
-                .clicked()
-            {
-                self.send_event(EmulationEvent::AudioRecord(!self.audio_recording));
-                ui.close_menu();
-            };
+                    )
+                    .on_hover_text("Record or stop recording a audio file.")
+                    .clicked()
+                {
+                    self.tx
+                        .nes_event(EmulationEvent::AudioRecord(!self.audio_recording));
+                    ui.close_menu();
+                };
+            });
         }
     }
 
     fn config_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
         ui.allocate_space(Vec2::new(MENU_WIDTH, 0.0));
-        self.cycle_acurate_checkbox(ui, cfg, ShowShortcut::Yes);
-        self.zapper_checkbox(ui, cfg, ShowShortcut::Yes);
-        self.rewind_checkbox(ui, cfg, ShowShortcut::Yes);
-        self.overscan_checkbox(ui, cfg, ShowShortcut::Yes);
+
+        self.cycle_acurate_checkbox(ui, cfg, true);
+        self.zapper_checkbox(ui, cfg, true);
+        self.rewind_checkbox(ui, cfg, true);
+        self.overscan_checkbox(ui, cfg, true);
 
         ui.separator();
 
-        ui.menu_button("Speed...", |ui| {
+        ui.menu_button("Emulation Speed...", |ui| {
             let speed = cfg.emulation.speed;
             if ui
                 .add(
@@ -677,7 +749,7 @@ impl Gui {
             {
                 let new_speed = cfg.increment_speed();
                 if speed != new_speed {
-                    self.send_event(ConfigEvent::Speed(new_speed));
+                    self.tx.nes_event(ConfigEvent::Speed(new_speed));
                 }
             }
             if ui
@@ -689,7 +761,7 @@ impl Gui {
             {
                 let new_speed = cfg.decrement_speed();
                 if speed != new_speed {
-                    self.send_event(ConfigEvent::Speed(new_speed));
+                    self.tx.nes_event(ConfigEvent::Speed(new_speed));
                 }
             }
             self.speed_slider(ui, cfg);
@@ -723,6 +795,7 @@ impl Gui {
 
     fn window_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
         ui.allocate_space(Vec2::new(MENU_WIDTH, 0.0));
+
         ui.menu_button("Window Scale...", |ui| {
             let scale = cfg.renderer.scale;
             if ui
@@ -736,6 +809,7 @@ impl Gui {
                 if scale != new_scale {
                     self.resize_window = true;
                     self.resize_texture = true;
+                    self.tx.nes_event(ConfigEvent::Scale(cfg.renderer.scale));
                 }
             }
             if ui
@@ -749,6 +823,7 @@ impl Gui {
                 if scale != new_scale {
                     self.resize_window = true;
                     self.resize_texture = true;
+                    self.tx.nes_event(ConfigEvent::Scale(cfg.renderer.scale));
                 }
             }
             self.window_scale_radio(ui, cfg);
@@ -767,125 +842,113 @@ impl Gui {
             };
         }
 
-        self.fullscreen_checkbox(ui, cfg, ShowShortcut::Yes);
+        self.fullscreen_checkbox(ui, cfg, true);
 
         ui.separator();
 
-        self.menubar_checkbox(ui, cfg, ShowShortcut::Yes);
-        self.fps_checkbox(ui, cfg, ShowShortcut::Yes);
-        self.messages_checkbox(ui, cfg, ShowShortcut::Yes);
+        self.menubar_checkbox(ui, cfg, true);
+        self.fps_checkbox(ui, cfg, true);
+        self.messages_checkbox(ui, cfg, true);
     }
 
     fn debug_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
         ui.allocate_space(Vec2::new(MENU_WIDTH, 0.0));
+
         #[cfg(feature = "profiling")]
         {
             let mut profile = puffin::are_scopes_on();
-            let profiling_label = if profile {
-                "Disable Profiling"
-            } else {
-                "Enable Profiling"
-            };
-            ui.checkbox(&mut profile, profiling_label)
+            ui.checkbox(&mut profile, "Enable Profiling")
                 .on_hover_text("Toggle the Puffin profiling window");
             puffin::set_scopes_on(profile);
         }
-        with_shortcut(
-            ui,
-            ShowShortcut::Yes,
-            self.get_shortcut(Setting::TogglePerfStats),
-            |ui| {
-                ui.checkbox(&mut cfg.renderer.show_perf_stats, "Enable Perf Stats")
-                    .on_hover_text("Enable a performance statistics overlay");
-            },
-        );
-        with_shortcut(
-            ui,
-            ShowShortcut::Yes,
-            self.get_shortcut(Debug::Toggle(Debugger::Cpu)),
-            |ui| {
-                ui.toggle_value(&mut self.cpu_debugger_open, "CPU Debugger")
-                    .on_hover_text("Toggle the CPU Debugger.");
-            },
-        );
-        with_shortcut(
-            ui,
-            ShowShortcut::Yes,
-            self.get_shortcut(Debug::Toggle(Debugger::Ppu)),
-            |ui| {
-                ui.toggle_value(&mut self.ppu_debugger_open, "PPU Debugger")
-                    .on_hover_text("Toggle the PPU Debugger.");
-            },
-        );
-        with_shortcut(
-            ui,
-            ShowShortcut::Yes,
-            self.get_shortcut(Debug::Toggle(Debugger::Apu)),
-            |ui| {
-                ui.toggle_value(&mut self.apu_debugger_open, "APU Debugger")
-                    .on_hover_text("Toggle the APU Debugger.");
-            },
-        );
+        ui.add(
+            Checkbox::new(&mut cfg.renderer.show_perf_stats, "Enable Perf Stats")
+                .shortcut_text(self.get_shortcut(Setting::TogglePerfStats)),
+        )
+        .on_hover_text("Enable a performance statistics overlay");
+
+        ui.separator();
+
+        let cpu_debugger_shortcut = self.get_shortcut(Debug::Toggle(Debugger::Cpu));
+        ui.add(
+            ToggleValue::new(&mut self.cpu_debugger_open, "CPU Debugger")
+                .shortcut_text(cpu_debugger_shortcut),
+        )
+        .on_hover_text("Toggle the CPU Debugger.");
+        let ppu_debugger_shortcut = self.get_shortcut(Debug::Toggle(Debugger::Ppu));
+        ui.add(
+            ToggleValue::new(&mut self.ppu_debugger_open, "PPU Debugger")
+                .shortcut_text(ppu_debugger_shortcut),
+        )
+        .on_hover_text("Toggle the PPU Debugger.");
+        let apu_debugger_shortcut = self.get_shortcut(Debug::Toggle(Debugger::Apu));
+        ui.add(
+            ToggleValue::new(&mut self.apu_debugger_open, "APU Debugger")
+                .shortcut_text(apu_debugger_shortcut),
+        )
+        .on_hover_text("Toggle the APU Debugger.");
+
+        ui.separator();
+
         ui.add_enabled_ui(self.paused && self.loaded_rom.is_some(), |ui| {
-            let res = with_shortcut(
-                ui,
-                ShowShortcut::Yes,
-                self.get_shortcut(Debug::Step(DebugStep::Into)),
-                |ui| {
-                    ui.button("Step Into")
-                        .on_hover_text("Step a single CPU instruction.")
-                },
-            );
-            if res.clicked() {
-                self.send_event(EmulationEvent::DebugStep(DebugStep::Into));
+            if ui
+                .add(
+                    Button::new("Step Into")
+                        .shortcut_text(self.get_shortcut(Debug::Step(DebugStep::Into))),
+                )
+                .on_hover_text("Step a single CPU instruction.")
+                .on_disabled_hover_text("No ROM is loaded")
+                .clicked()
+            {
+                self.tx
+                    .nes_event(EmulationEvent::DebugStep(DebugStep::Into));
             }
-            let res = with_shortcut(
-                ui,
-                ShowShortcut::Yes,
-                self.get_shortcut(Debug::Step(DebugStep::Out)),
-                |ui| {
-                    ui.button("Step Out")
-                        .on_hover_text("Step out of the current CPU function.")
-                },
-            );
-            if res.clicked() {
-                self.send_event(EmulationEvent::DebugStep(DebugStep::Out));
+            if ui
+                .add(
+                    Button::new("Step Out")
+                        .shortcut_text(self.get_shortcut(Debug::Step(DebugStep::Out))),
+                )
+                .on_hover_text("Step out of the current CPU function.")
+                .on_disabled_hover_text("No ROM is loaded")
+                .clicked()
+            {
+                self.tx.nes_event(EmulationEvent::DebugStep(DebugStep::Out));
             }
-            let res = with_shortcut(
-                ui,
-                ShowShortcut::Yes,
-                self.get_shortcut(Debug::Step(DebugStep::Over)),
-                |ui| {
-                    ui.button("Step Over")
-                        .on_hover_text("Step over the next CPU instruction.")
-                },
-            );
-            if res.clicked() {
-                self.send_event(EmulationEvent::DebugStep(DebugStep::Over));
+            if ui
+                .add(
+                    Button::new("Step Over")
+                        .shortcut_text(self.get_shortcut(Debug::Step(DebugStep::Over))),
+                )
+                .on_hover_text("Step over the next CPU instruction.")
+                .on_disabled_hover_text("No ROM is loaded")
+                .clicked()
+            {
+                self.tx
+                    .nes_event(EmulationEvent::DebugStep(DebugStep::Over));
             }
-            let res = with_shortcut(
-                ui,
-                ShowShortcut::Yes,
-                self.get_shortcut(Debug::Step(DebugStep::Scanline)),
-                |ui| {
-                    ui.button("Step Scanline")
-                        .on_hover_text("Step an entire PPU scanline.")
-                },
-            );
-            if res.clicked() {
-                self.send_event(EmulationEvent::DebugStep(DebugStep::Scanline));
+            if ui
+                .add(
+                    Button::new("Step Scanline")
+                        .shortcut_text(self.get_shortcut(Debug::Step(DebugStep::Scanline))),
+                )
+                .on_hover_text("Step an entire PPU scanline.")
+                .on_disabled_hover_text("No ROM is loaded")
+                .clicked()
+            {
+                self.tx
+                    .nes_event(EmulationEvent::DebugStep(DebugStep::Scanline));
             }
-            let res = with_shortcut(
-                ui,
-                ShowShortcut::Yes,
-                self.get_shortcut(Debug::Step(DebugStep::Frame)),
-                |ui| {
-                    ui.button("Step Frame")
-                        .on_hover_text("Step an entire PPU Frame.")
-                },
-            );
-            if res.clicked() {
-                self.send_event(EmulationEvent::DebugStep(DebugStep::Frame));
+            if ui
+                .add(
+                    Button::new("Step Frame")
+                        .shortcut_text(self.get_shortcut(Debug::Step(DebugStep::Frame))),
+                )
+                .on_hover_text("Step an entire PPU Frame.")
+                .on_disabled_hover_text("No ROM is loaded")
+                .clicked()
+            {
+                self.tx
+                    .nes_event(EmulationEvent::DebugStep(DebugStep::Frame));
             }
         });
     }
@@ -920,7 +983,7 @@ impl Gui {
                             let y = ((pos.y - frame_resp.rect.min.y) / frame_resp.rect.height())
                                 * height;
                             if (0.0..width).contains(&x) && (0.0..height).contains(&y) {
-                                self.send_event(EmulationEvent::ZapperAim((
+                                self.tx.nes_event(EmulationEvent::ZapperAim((
                                     x.round() as u32,
                                     y.round() as u32,
                                 )));
@@ -1017,6 +1080,7 @@ impl Gui {
         ui.horizontal(|ui| {
             if ui.button("Restore Defaults").clicked() {
                 cfg.reset();
+                self.tx.nes_event(ConfigEvent::InputBindings);
             }
             if platform::supports(platform::Feature::Filesystem) {
                 if let Some(data_dir) = Config::default_data_dir() {
@@ -1039,8 +1103,8 @@ impl Gui {
             .num_columns(2)
             .spacing([40.0, 4.0])
             .show(ui, |ui| {
-                self.cycle_acurate_checkbox(ui, cfg, ShowShortcut::No);
-                self.rewind_checkbox(ui, cfg, ShowShortcut::No);
+                self.cycle_acurate_checkbox(ui, cfg, false);
+                self.rewind_checkbox(ui, cfg, false);
                 ui.end_row();
 
                 ui.checkbox(&mut cfg.emulation.auto_load, "Auto-Load");
@@ -1054,7 +1118,7 @@ impl Gui {
             .spacing([40.0, 4.0])
             .striped(true)
             .show(ui, |ui| {
-                ui.strong("Speed:");
+                ui.strong("Emulation Speed:");
                 self.speed_slider(ui, cfg);
                 ui.end_row();
 
@@ -1066,7 +1130,11 @@ impl Gui {
 
                 ui.strong("Save Slot:")
                     .on_hover_text("Select which slot to use when saving or loading game state.");
-                ui.horizontal(|ui| self.save_slot_radio(ui, cfg, ShowShortcut::No));
+                ui.horizontal(|ui| {
+                    for slot in 1..=8 {
+                        ui.radio_value(&mut cfg.emulation.save_slot, slot, slot.to_string());
+                    }
+                });
                 ui.end_row();
 
                 ui.strong("Four Player:");
@@ -1088,7 +1156,8 @@ impl Gui {
             .checkbox(&mut cfg.audio.enabled, "Enable Audio")
             .clicked()
         {
-            self.send_event(ConfigEvent::AudioEnabled(cfg.audio.enabled));
+            self.tx
+                .nes_event(ConfigEvent::AudioEnabled(cfg.audio.enabled));
         }
 
         ui.add_enabled_ui(cfg.audio.enabled, |ui| {
@@ -1099,13 +1168,13 @@ impl Gui {
                     .num_columns(2)
                     .show(ui, |ui| {
                         if ui.checkbox(&mut channels[0], "Enable Pulse1").clicked() {
-                            self.send_event(ConfigEvent::ApuChannelEnabled((
+                            self.tx.nes_event(ConfigEvent::ApuChannelEnabled((
                                 Channel::Pulse1,
                                 channels[0],
                             )));
                         }
                         if ui.checkbox(&mut channels[3], "Enable Noise").clicked() {
-                            self.send_event(ConfigEvent::ApuChannelEnabled((
+                            self.tx.nes_event(ConfigEvent::ApuChannelEnabled((
                                 Channel::Noise,
                                 channels[3],
                             )));
@@ -1113,13 +1182,13 @@ impl Gui {
                         ui.end_row();
 
                         if ui.checkbox(&mut channels[1], "Enable Pulse2").clicked() {
-                            self.send_event(ConfigEvent::ApuChannelEnabled((
+                            self.tx.nes_event(ConfigEvent::ApuChannelEnabled((
                                 Channel::Pulse2,
                                 channels[1],
                             )));
                         }
                         if ui.checkbox(&mut channels[4], "Enable DMC").clicked() {
-                            self.send_event(ConfigEvent::ApuChannelEnabled((
+                            self.tx.nes_event(ConfigEvent::ApuChannelEnabled((
                                 Channel::Dmc,
                                 channels[4],
                             )));
@@ -1127,13 +1196,13 @@ impl Gui {
                         ui.end_row();
 
                         if ui.checkbox(&mut channels[2], "Enable Triangle").clicked() {
-                            self.send_event(ConfigEvent::ApuChannelEnabled((
+                            self.tx.nes_event(ConfigEvent::ApuChannelEnabled((
                                 Channel::Triangle,
                                 channels[2],
                             )));
                         }
                         if ui.checkbox(&mut channels[5], "Enable Mapper").clicked() {
-                            self.send_event(ConfigEvent::ApuChannelEnabled((
+                            self.tx.nes_event(ConfigEvent::ApuChannelEnabled((
                                 Channel::Mapper,
                                 channels[5],
                             )));
@@ -1192,15 +1261,17 @@ impl Gui {
             .spacing([40.0, 4.0])
             .num_columns(3)
             .show(ui, |ui| {
-                self.menubar_checkbox(ui, cfg, ShowShortcut::No);
-                self.fps_checkbox(ui, cfg, ShowShortcut::No);
-                self.messages_checkbox(ui, cfg, ShowShortcut::No);
+                self.menubar_checkbox(ui, cfg, false);
+                self.fps_checkbox(ui, cfg, false);
+                self.messages_checkbox(ui, cfg, false);
                 ui.end_row();
 
-                self.overscan_checkbox(ui, cfg, ShowShortcut::No);
-                self.fullscreen_checkbox(ui, cfg, ShowShortcut::No);
-                if ui.checkbox(&mut cfg.renderer.vsync, "VSync").clicked() {
-                    self.send_event(ConfigEvent::Vsync(cfg.renderer.vsync));
+                self.overscan_checkbox(ui, cfg, false);
+                self.fullscreen_checkbox(ui, cfg, false);
+                if platform::supports(platform::Feature::ToggleVsync)
+                    && ui.checkbox(&mut cfg.renderer.vsync, "VSync").clicked()
+                {
+                    self.tx.nes_event(ConfigEvent::Vsync(cfg.renderer.vsync));
                 }
             });
 
@@ -1224,12 +1295,13 @@ impl Gui {
             .spacing([40.0, 4.0])
             .striped(true)
             .show(ui, |ui| {
-                self.zapper_checkbox(ui, cfg, ShowShortcut::No);
+                self.zapper_checkbox(ui, cfg, false);
                 if ui
                     .checkbox(&mut cfg.deck.concurrent_dpad, "Enable Concurrent D-Pad")
                     .clicked()
                 {
-                    self.send_event(ConfigEvent::ConcurrentDpad(cfg.deck.concurrent_dpad));
+                    self.tx
+                        .nes_event(ConfigEvent::ConcurrentDpad(cfg.deck.concurrent_dpad));
                 }
             });
     }
@@ -1289,7 +1361,6 @@ impl Gui {
         ui.heading("Binding #2");
         ui.end_row();
 
-        let mut changed = false;
         let keybinds = match player {
             None => &mut self.shortcut_keybinds,
             Some(player) => &mut self.joypad_keybinds[player as usize],
@@ -1298,34 +1369,28 @@ impl Gui {
             ui.strong(action.to_string());
             for (slot, input) in input.iter_mut().enumerate() {
                 let res = ui
-                    .button(
-                        input
-                            .map(format_input)
-                            .unwrap_or_else(|| String::from("click to set")),
+                    .add(
+                        Button::new(input.map(format_input).unwrap_or_default())
+                            .min_size(Vec2::new(100.0, 0.0)),
                     )
-                    .on_hover_text("Right-click to clear binding.");
+                    .on_hover_text("Click to set. Right-click to unset.");
                 if res.clicked() {
-                    self.pending_keybind = Some(SetKeybind {
+                    self.pending_keybind = Some(PendingKeybind {
                         action: *action,
                         player,
                         binding: slot,
                         input: None,
                         conflict: None,
                     });
+                    self.tx.nes_event(UiEvent::IgnoreInputActions(true));
                 } else if res.secondary_clicked() {
                     if let Some(input) = input.take() {
                         cfg.input.clear_binding(input);
-                        changed = true;
+                        self.tx.nes_event(ConfigEvent::InputBindings);
                     }
                 }
             }
             ui.end_row();
-        }
-
-        if changed {
-            self.send_event(ConfigEvent::InputBindings);
-        } else if self.pending_keybind.is_some() {
-            self.send_event(UiEvent::PendingKeybind(true));
         }
     }
 
@@ -1375,15 +1440,15 @@ impl Gui {
         }
     }
 
-    fn save_slot_radio(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
+    fn save_slot_radio(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
         for slot in 1..=8 {
-            with_shortcut(
-                ui,
-                show,
-                self.get_shortcut(DeckAction::SetSaveSlot(slot)),
-                |ui| {
-                    ui.radio_value(&mut cfg.emulation.save_slot, slot, slot.to_string());
-                },
+            ui.add(
+                RadioValue::new(&mut cfg.emulation.save_slot, slot, slot.to_string())
+                    .shortcut_text(
+                        shortcut
+                            .then(|| self.get_shortcut(DeckAction::SetSaveSlot(slot)))
+                            .unwrap_or_default(),
+                    ),
             );
         }
     }
@@ -1393,7 +1458,7 @@ impl Gui {
             .add(
                 Slider::new(&mut cfg.emulation.speed, 0.25..=2.0)
                     .step_by(0.25)
-                    .suffix("%"),
+                    .suffix("x"),
             )
             .changed()
         {
@@ -1405,60 +1470,73 @@ impl Gui {
         ui.add(Slider::new(&mut cfg.emulation.run_ahead, 0..=4));
     }
 
-    fn cycle_acurate_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        let res = with_shortcut(
-            ui,
-            show,
-            self.get_shortcut(Setting::ToggleCycleAccurate),
-            |ui| {
-                ui.checkbox(&mut cfg.deck.cycle_accurate, "Cycle Accurate")
-                    .on_hover_text(
-                        "Enables more accurate NES emulation at a slight cost in performance.",
-                    )
-            },
-        );
-        if res.clicked() {
-            self.send_event(ConfigEvent::CycleAccurate(cfg.deck.cycle_accurate));
-        }
-        if res.hovered() {}
-    }
-
-    fn rewind_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        let res = with_shortcut(
-            ui,
-            show,
-            self.get_shortcut(Setting::ToggleRewinding),
-            |ui| {
-                ui.checkbox(&mut cfg.emulation.rewind, "Enable Rewinding")
-                    .on_hover_text("Enable instant and visual rewinding. Increases memory usage.")
-            },
-        );
-        if res.clicked() {
-            self.send_event(ConfigEvent::RewindEnabled(cfg.emulation.rewind));
+    fn cycle_acurate_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        if ui
+            .add(
+                Checkbox::new(&mut cfg.deck.cycle_accurate, "Cycle Accurate").shortcut_text(
+                    shortcut
+                        .then(|| self.get_shortcut(Setting::ToggleCycleAccurate))
+                        .unwrap_or_default(),
+                ),
+            )
+            .on_hover_text("Enables more accurate NES emulation at a slight cost in performance.")
+            .clicked()
+        {
+            self.tx
+                .nes_event(ConfigEvent::CycleAccurate(cfg.deck.cycle_accurate));
         }
     }
 
-    fn zapper_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        let res = with_shortcut(
-            ui,
-            show,
-            self.get_shortcut(DeckAction::ToggleZapperConnected),
-            |ui| {
-                ui.checkbox(&mut cfg.deck.zapper, "Enable Zapper Gun")
-                    .on_hover_text("Enable the Zapper Light Gun for games that support it.")
-            },
-        );
-        if res.clicked() {
-            self.send_event(ConfigEvent::ZapperConnected(cfg.deck.zapper));
+    fn rewind_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        if platform::supports(platform::Feature::Filesystem)
+            && ui
+                .add(
+                    Checkbox::new(&mut cfg.emulation.rewind, "Enable Rewinding").shortcut_text(
+                        shortcut
+                            .then(|| self.get_shortcut(Setting::ToggleRewinding))
+                            .unwrap_or_default(),
+                    ),
+                )
+                .on_hover_text("Enable instant and visual rewinding. Increases memory usage.")
+                .clicked()
+        {
+            self.tx
+                .nes_event(ConfigEvent::RewindEnabled(cfg.emulation.rewind));
         }
     }
 
-    fn overscan_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        let res = with_shortcut(ui, show, self.get_shortcut(Setting::ToggleOverscan), |ui| {
-            ui.checkbox(&mut cfg.renderer.hide_overscan, "Hide Overscan")
-                .on_hover_text("Traditional CRT displays would crop the top and bottom edges of the image. Disable this to show the overscan.")
-        });
-        self.resize_texture = res.clicked();
+    fn zapper_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        if ui
+            .add(
+                Checkbox::new(&mut cfg.deck.zapper, "Enable Zapper Gun").shortcut_text(
+                    shortcut
+                        .then(|| self.get_shortcut(DeckAction::ToggleZapperConnected))
+                        .unwrap_or_default(),
+                ),
+            )
+            .on_hover_text("Enable the Zapper Light Gun for games that support it.")
+            .clicked()
+        {
+            self.tx
+                .nes_event(ConfigEvent::ZapperConnected(cfg.deck.zapper));
+        }
+    }
+
+    fn overscan_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        if ui.add(
+            Checkbox::new(&mut cfg.renderer.hide_overscan, "Hide Overscan").shortcut_text(
+                shortcut
+                    .then(|| self.get_shortcut(Setting::ToggleOverscan))
+                    .unwrap_or_default(),
+                ),
+            )
+            .on_hover_text("Traditional CRT displays would crop the top and bottom edges of the image. Disable this to show the overscan.")
+            .clicked()
+        {
+            self.resize_texture = true;
+            self.tx
+                .nes_event(ConfigEvent::HideOverscan(cfg.renderer.hide_overscan));
+        }
     }
 
     fn video_filter_radio(&mut self, ui: &mut Ui, cfg: &mut Config) {
@@ -1470,7 +1548,7 @@ impl Gui {
                 "Emulate traditional NTSC rendering where chroma spills over into luma.",
             );
         if filter != cfg.deck.filter {
-            self.send_event(ConfigEvent::VideoFilter(cfg.deck.filter));
+            self.tx.nes_event(ConfigEvent::VideoFilter(cfg.deck.filter));
         }
     }
 
@@ -1490,7 +1568,8 @@ impl Gui {
         )
         .on_hover_text("Enable NES Satellite for games that support 4 players.");
         if four_player != cfg.deck.four_player {
-            self.send_event(ConfigEvent::FourPlayer(cfg.deck.four_player));
+            self.tx
+                .nes_event(ConfigEvent::FourPlayer(cfg.deck.four_player));
         }
     }
 
@@ -1507,7 +1586,7 @@ impl Gui {
         if region != cfg.deck.region {
             self.resize_window = true;
             self.resize_texture = true;
-            self.send_event(ConfigEvent::Region(cfg.deck.region));
+            self.tx.nes_event(ConfigEvent::Region(cfg.deck.region));
         }
     }
 
@@ -1520,29 +1599,42 @@ impl Gui {
         ui.radio_value(&mut cfg.deck.ram_state, RamState::Random, "Random")
             .on_hover_text("Randomize startup RAM, which some games use as a basic RNG seed.");
         if ram_state != cfg.deck.ram_state {
-            self.send_event(ConfigEvent::RamState(cfg.deck.ram_state));
+            self.tx.nes_event(ConfigEvent::RamState(cfg.deck.ram_state));
         }
     }
 
     fn genie_codes_entry(&mut self, ui: &mut Ui, cfg: &mut Config) {
         ui.strong("Add Genie Code:");
         ui.horizontal(|ui| {
-            let res = ui.text_edit_singleline(&mut self.new_genie_code);
-            if (res.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
-                || ui.button("➕").clicked()
+            let entry_res = ui.text_edit_singleline(&mut self.pending_genie_entry.code);
+            let has_entry = !self.pending_genie_entry.code.is_empty();
+            let submit_res = ui.add_enabled(has_entry, Button::new("➕"));
+            if entry_res.changed() {
+                self.pending_genie_entry.error = None;
+            }
+            if (has_entry && entry_res.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
+                || submit_res.clicked()
             {
-                match GenieCode::parse(&self.new_genie_code) {
+                match GenieCode::parse(&self.pending_genie_entry.code) {
                     Ok(hex) => {
-                        let code = GenieCode::from_raw(mem::take(&mut self.new_genie_code), hex);
+                        let code =
+                            GenieCode::from_raw(mem::take(&mut self.pending_genie_entry.code), hex);
                         if !cfg.deck.genie_codes.contains(&code) {
                             cfg.deck.genie_codes.push(code.clone());
-                            self.send_event(ConfigEvent::GenieCodeAdded(code));
+                            self.tx.nes_event(ConfigEvent::GenieCodeAdded(code));
                         }
                     }
-                    Err(err) => self.add_message(err.to_string()),
+                    Err(err) => self.pending_genie_entry.error = Some(err.to_string()),
                 }
+                self.tx.nes_event(UiEvent::IgnoreInputActions(false));
+            } else if entry_res.gained_focus() {
+                self.tx.nes_event(UiEvent::IgnoreInputActions(true));
             }
         });
+        if let Some(error) = &self.pending_genie_entry.error {
+            ui.allocate_space(Vec2::new(MENU_WIDTH, 0.0));
+            ui.colored_label(Color32::RED, error);
+        }
 
         if !cfg.deck.genie_codes.is_empty() {
             ui.separator();
@@ -1552,7 +1644,8 @@ impl Gui {
                     ui.label(genie.code());
                     // icon: waste basket
                     if ui.button("🗑").clicked() {
-                        self.send_event(ConfigEvent::GenieCodeRemoved(genie.code().to_string()));
+                        self.tx
+                            .nes_event(ConfigEvent::GenieCodeRemoved(genie.code().to_string()));
                         false
                     } else {
                         true
@@ -1563,25 +1656,37 @@ impl Gui {
         }
     }
 
-    fn menubar_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        with_shortcut(ui, show, self.get_shortcut(Setting::ToggleMenubar), |ui| {
-            ui.checkbox(&mut cfg.renderer.show_menubar, "Show Menu Bar")
-                .on_hover_text("Show the menu bar.");
-        });
+    fn menubar_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        ui.add(
+            Checkbox::new(&mut cfg.renderer.show_menubar, "Show Menu Bar").shortcut_text(
+                shortcut
+                    .then(|| self.get_shortcut(Setting::ToggleMenubar))
+                    .unwrap_or_default(),
+            ),
+        )
+        .on_hover_text("Show the menu bar.");
     }
 
-    fn fps_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        with_shortcut(ui, show, self.get_shortcut(Setting::ToggleFps), |ui| {
-            ui.checkbox(&mut cfg.renderer.show_fps, "Show FPS")
-                .on_hover_text("Show an average FPS counter in the corner of the window.");
-        });
+    fn fps_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        ui.add(
+            Checkbox::new(&mut cfg.renderer.show_fps, "Show FPS").shortcut_text(
+                shortcut
+                    .then(|| self.get_shortcut(Setting::ToggleFps))
+                    .unwrap_or_default(),
+            ),
+        )
+        .on_hover_text("Show an average FPS counter in the corner of the window.");
     }
 
-    fn messages_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        with_shortcut(ui, show, self.get_shortcut(Setting::ToggleMessages), |ui| {
-            ui.checkbox(&mut cfg.renderer.show_messages, "Show Messages")
-                .on_hover_text("Show shortcut and emulator messages.");
-        });
+    fn messages_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        ui.add(
+            Checkbox::new(&mut cfg.renderer.show_messages, "Show Messages").shortcut_text(
+                shortcut
+                    .then(|| self.get_shortcut(Setting::ToggleMessages))
+                    .unwrap_or_default(),
+            ),
+        )
+        .on_hover_text("Show shortcut and emulator messages.");
     }
 
     fn window_scale_radio(&mut self, ui: &mut Ui, cfg: &mut Config) {
@@ -1594,22 +1699,28 @@ impl Gui {
         if scale != cfg.renderer.scale {
             self.resize_window = true;
             self.resize_texture = true;
+            self.tx.nes_event(ConfigEvent::Scale(cfg.renderer.scale));
         }
     }
 
-    fn fullscreen_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, show: ShowShortcut) {
-        let res = with_shortcut(
-            ui,
-            show,
-            self.get_shortcut(Setting::ToggleFullscreen),
-            |ui| ui.checkbox(&mut cfg.renderer.fullscreen, "Fullscreen"),
-        );
-        if res.clicked() {
+    fn fullscreen_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        if ui
+            .add(
+                Checkbox::new(&mut cfg.renderer.fullscreen, "Fullscreen").shortcut_text(
+                    shortcut
+                        .then(|| self.get_shortcut(Setting::ToggleFullscreen))
+                        .unwrap_or_default(),
+                ),
+            )
+            .clicked()
+        {
             self.window.set_fullscreen(
                 cfg.renderer
                     .fullscreen
                     .then_some(Fullscreen::Borderless(None)),
             );
+            self.tx
+                .nes_event(ConfigEvent::Fullscreen(cfg.renderer.fullscreen));
         }
     }
 
@@ -1623,35 +1734,103 @@ impl Gui {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
 #[must_use]
-pub enum ShowShortcut {
-    Yes,
-    No,
+pub struct ShortcutWidget<'a, T> {
+    inner: T,
+    shortcut_text: RichText,
+    phantom: std::marker::PhantomData<&'a ()>,
 }
 
-/// Helper method for adding a shortcut label to any widget since only `Button` implements
-/// `shortcut_text` currently.
-fn with_shortcut<R>(
-    ui: &mut Ui,
-    show: ShowShortcut,
-    shortcut: impl Into<RichText>,
-    f: impl FnOnce(&mut Ui) -> R,
-) -> R {
-    match show {
-        ShowShortcut::Yes => {
+impl<'a, T> Deref for ShortcutWidget<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a, T> DerefMut for ShortcutWidget<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<'a, T> Widget for ShortcutWidget<'a, T>
+where
+    T: Widget,
+{
+    fn ui(self, ui: &mut Ui) -> Response {
+        if self.shortcut_text.is_empty() {
+            self.inner.ui(ui)
+        } else {
             ui.horizontal(|ui| {
-                let res = f(ui);
+                let res = self.inner.ui(ui);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.weak(shortcut);
+                    ui.weak(self.shortcut_text);
                 });
                 res
             })
             .inner
         }
-        ShowShortcut::No => f(ui),
     }
 }
+
+#[must_use]
+pub struct ToggleValue<'a> {
+    selected: &'a mut bool,
+    text: WidgetText,
+}
+
+impl<'a> ToggleValue<'a> {
+    pub fn new(selected: &'a mut bool, text: impl Into<WidgetText>) -> Self {
+        Self {
+            selected,
+            text: text.into(),
+        }
+    }
+}
+
+impl<'a> Widget for ToggleValue<'a> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let mut response = ui.selectable_label(*self.selected, self.text);
+        if response.clicked() {
+            *self.selected = !*self.selected;
+            response.mark_changed();
+        }
+        response
+    }
+}
+
+#[must_use]
+pub struct RadioValue<'a, T> {
+    current_value: &'a mut T,
+    alternative: T,
+    text: WidgetText,
+}
+
+impl<'a, T: PartialEq> RadioValue<'a, T> {
+    pub fn new(current_value: &'a mut T, alternative: T, text: impl Into<WidgetText>) -> Self {
+        Self {
+            current_value,
+            alternative,
+            text: text.into(),
+        }
+    }
+}
+
+impl<'a, T: PartialEq> Widget for RadioValue<'a, T> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let mut response = ui.radio(*self.current_value == self.alternative, self.text);
+        if response.clicked() && *self.current_value != self.alternative {
+            *self.current_value = self.alternative;
+            response.mark_changed();
+        }
+        response
+    }
+}
+
+impl<'a> ShortcutText<'a> for Checkbox<'a> {}
+impl<'a> ShortcutText<'a> for ToggleValue<'a> {}
+impl<'a, T> ShortcutText<'a> for RadioValue<'a, T> {}
 
 fn format_input(input: Input) -> String {
     match input {
@@ -1823,7 +2002,7 @@ impl TryFrom<Input> for KeyboardShortcut {
     fn try_from(val: Input) -> Result<Self, Self::Error> {
         if let Input::Key(keycode, modifier_state) = val {
             Ok(KeyboardShortcut {
-                logical_key: winit_keycode_into_egui(keycode).ok_or(())?,
+                logical_key: key_from_keycode(keycode).ok_or(())?,
                 modifiers: winit_modifiers_into_egui(modifier_state),
             })
         } else {
@@ -1835,7 +2014,7 @@ impl TryFrom<Input> for KeyboardShortcut {
 impl TryFrom<(Key, Modifiers)> for Input {
     type Error = ();
     fn try_from((key, modifiers): (Key, Modifiers)) -> Result<Self, Self::Error> {
-        let keycode = egui_key_into_winit(key).ok_or(())?;
+        let keycode = keycode_from_key(key).ok_or(())?;
         let modifiers = egui_modifiers_into_winit(modifiers);
         Ok(Input::Key(keycode, modifiers))
     }
@@ -1844,27 +2023,60 @@ impl TryFrom<(Key, Modifiers)> for Input {
 impl TryFrom<PointerButton> for Input {
     type Error = ();
     fn try_from(button: PointerButton) -> Result<Self, Self::Error> {
-        Ok(Input::Mouse(egui_pointer_btn_into_winit(button).ok_or(())?))
+        Ok(Input::Mouse(
+            mouse_button_from_pointer_button(button).ok_or(())?,
+        ))
     }
 }
 
-const fn winit_keycode_into_egui(keycode: KeyCode) -> Option<Key> {
-    let key = match keycode {
+const fn key_from_keycode(keycode: KeyCode) -> Option<Key> {
+    Some(match keycode {
+        KeyCode::ArrowDown => Key::ArrowDown,
+        KeyCode::ArrowLeft => Key::ArrowLeft,
+        KeyCode::ArrowRight => Key::ArrowRight,
+        KeyCode::ArrowUp => Key::ArrowUp,
+
+        KeyCode::Escape => Key::Escape,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Enter | KeyCode::NumpadEnter => Key::Enter,
+
+        KeyCode::Insert => Key::Insert,
+        KeyCode::Delete => Key::Delete,
+        KeyCode::Home => Key::Home,
+        KeyCode::End => Key::End,
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
+
+        // Punctuation
+        KeyCode::Space => Key::Space,
+        KeyCode::Comma => Key::Comma,
+        KeyCode::Period => Key::Period,
+        KeyCode::Semicolon => Key::Semicolon,
         KeyCode::Backslash => Key::Backslash,
+        KeyCode::Slash | KeyCode::NumpadDivide => Key::Slash,
         KeyCode::BracketLeft => Key::OpenBracket,
         KeyCode::BracketRight => Key::CloseBracket,
-        KeyCode::Comma => Key::Comma,
-        KeyCode::Digit0 => Key::Num0,
-        KeyCode::Digit1 => Key::Num1,
-        KeyCode::Digit2 => Key::Num2,
-        KeyCode::Digit3 => Key::Num3,
-        KeyCode::Digit4 => Key::Num4,
-        KeyCode::Digit5 => Key::Num5,
-        KeyCode::Digit6 => Key::Num6,
-        KeyCode::Digit7 => Key::Num7,
-        KeyCode::Digit8 => Key::Num8,
-        KeyCode::Digit9 => Key::Num9,
+        KeyCode::Backquote => Key::Backtick,
+
+        KeyCode::Cut => Key::Cut,
+        KeyCode::Copy => Key::Copy,
+        KeyCode::Paste => Key::Paste,
+        KeyCode::Minus | KeyCode::NumpadSubtract => Key::Minus,
+        KeyCode::NumpadAdd => Key::Plus,
         KeyCode::Equal => Key::Equals,
+
+        KeyCode::Digit0 | KeyCode::Numpad0 => Key::Num0,
+        KeyCode::Digit1 | KeyCode::Numpad1 => Key::Num1,
+        KeyCode::Digit2 | KeyCode::Numpad2 => Key::Num2,
+        KeyCode::Digit3 | KeyCode::Numpad3 => Key::Num3,
+        KeyCode::Digit4 | KeyCode::Numpad4 => Key::Num4,
+        KeyCode::Digit5 | KeyCode::Numpad5 => Key::Num5,
+        KeyCode::Digit6 | KeyCode::Numpad6 => Key::Num6,
+        KeyCode::Digit7 | KeyCode::Numpad7 => Key::Num7,
+        KeyCode::Digit8 | KeyCode::Numpad8 => Key::Num8,
+        KeyCode::Digit9 | KeyCode::Numpad9 => Key::Num9,
+
         KeyCode::KeyA => Key::A,
         KeyCode::KeyB => Key::B,
         KeyCode::KeyC => Key::C,
@@ -1891,42 +2103,7 @@ const fn winit_keycode_into_egui(keycode: KeyCode) -> Option<Key> {
         KeyCode::KeyX => Key::X,
         KeyCode::KeyY => Key::Y,
         KeyCode::KeyZ => Key::Z,
-        KeyCode::Minus => Key::Minus,
-        KeyCode::Period => Key::Period,
-        KeyCode::Semicolon => Key::Semicolon,
-        KeyCode::Slash => Key::Slash,
-        KeyCode::Backspace => Key::Backspace,
-        KeyCode::Enter => Key::Enter,
-        KeyCode::Space => Key::Space,
-        KeyCode::Tab => Key::Tab,
-        KeyCode::Delete => Key::Delete,
-        KeyCode::End => Key::End,
-        KeyCode::Home => Key::Home,
-        KeyCode::Insert => Key::Insert,
-        KeyCode::PageDown => Key::PageDown,
-        KeyCode::PageUp => Key::PageUp,
-        KeyCode::ArrowDown => Key::ArrowDown,
-        KeyCode::ArrowLeft => Key::ArrowLeft,
-        KeyCode::ArrowRight => Key::ArrowRight,
-        KeyCode::ArrowUp => Key::ArrowUp,
-        KeyCode::Numpad0 => Key::Num0,
-        KeyCode::Numpad1 => Key::Num1,
-        KeyCode::Numpad2 => Key::Num2,
-        KeyCode::Numpad3 => Key::Num3,
-        KeyCode::Numpad4 => Key::Num4,
-        KeyCode::Numpad5 => Key::Num5,
-        KeyCode::Numpad6 => Key::Num6,
-        KeyCode::Numpad7 => Key::Num7,
-        KeyCode::Numpad8 => Key::Num8,
-        KeyCode::Numpad9 => Key::Num9,
-        KeyCode::NumpadAdd => Key::Plus,
-        KeyCode::NumpadBackspace => Key::Backspace,
-        KeyCode::NumpadComma => Key::Comma,
-        KeyCode::NumpadDecimal => Key::Period,
-        KeyCode::NumpadEnter => Key::Enter,
-        KeyCode::NumpadEqual => Key::Equals,
-        KeyCode::NumpadSubtract => Key::Minus,
-        KeyCode::Escape => Key::Escape,
+
         KeyCode::F1 => Key::F1,
         KeyCode::F2 => Key::F2,
         KeyCode::F3 => Key::F3,
@@ -1962,17 +2139,49 @@ const fn winit_keycode_into_egui(keycode: KeyCode) -> Option<Key> {
         KeyCode::F33 => Key::F33,
         KeyCode::F34 => Key::F34,
         KeyCode::F35 => Key::F35,
-        _ => return None,
-    };
-    Some(key)
+
+        _ => {
+            return None;
+        }
+    })
 }
 
-const fn egui_key_into_winit(key: Key) -> Option<KeyCode> {
-    let keycode = match key {
+const fn keycode_from_key(key: Key) -> Option<KeyCode> {
+    Some(match key {
+        Key::ArrowDown => KeyCode::ArrowDown,
+        Key::ArrowLeft => KeyCode::ArrowLeft,
+        Key::ArrowRight => KeyCode::ArrowRight,
+        Key::ArrowUp => KeyCode::ArrowUp,
+
+        Key::Escape => KeyCode::Escape,
+        Key::Tab => KeyCode::Tab,
+        Key::Backspace => KeyCode::Backspace,
+        Key::Enter => KeyCode::Enter,
+
+        Key::Insert => KeyCode::Insert,
+        Key::Delete => KeyCode::Delete,
+        Key::Home => KeyCode::Home,
+        Key::End => KeyCode::End,
+        Key::PageUp => KeyCode::PageUp,
+        Key::PageDown => KeyCode::PageDown,
+
+        // Punctuation
+        Key::Space => KeyCode::Space,
+        Key::Comma => KeyCode::Comma,
+        Key::Period => KeyCode::Period,
+        Key::Semicolon => KeyCode::Semicolon,
         Key::Backslash => KeyCode::Backslash,
+        Key::Slash => KeyCode::Slash,
         Key::OpenBracket => KeyCode::BracketLeft,
         Key::CloseBracket => KeyCode::BracketRight,
-        Key::Comma => KeyCode::Comma,
+
+        Key::Cut => KeyCode::Cut,
+        Key::Copy => KeyCode::Copy,
+        Key::Paste => KeyCode::Paste,
+        Key::Minus => KeyCode::Minus,
+        Key::Plus => KeyCode::NumpadAdd,
+        Key::Equals => KeyCode::Equal,
+
         Key::Num0 => KeyCode::Digit0,
         Key::Num1 => KeyCode::Digit1,
         Key::Num2 => KeyCode::Digit2,
@@ -1983,7 +2192,7 @@ const fn egui_key_into_winit(key: Key) -> Option<KeyCode> {
         Key::Num7 => KeyCode::Digit7,
         Key::Num8 => KeyCode::Digit8,
         Key::Num9 => KeyCode::Digit9,
-        Key::Equals => KeyCode::Equal,
+
         Key::A => KeyCode::KeyA,
         Key::B => KeyCode::KeyB,
         Key::C => KeyCode::KeyC,
@@ -2010,26 +2219,7 @@ const fn egui_key_into_winit(key: Key) -> Option<KeyCode> {
         Key::X => KeyCode::KeyX,
         Key::Y => KeyCode::KeyY,
         Key::Z => KeyCode::KeyZ,
-        Key::Minus => KeyCode::Minus,
-        Key::Period => KeyCode::Period,
-        Key::Semicolon => KeyCode::Semicolon,
-        Key::Slash => KeyCode::Slash,
-        Key::Backspace => KeyCode::Backspace,
-        Key::Enter => KeyCode::Enter,
-        Key::Space => KeyCode::Space,
-        Key::Tab => KeyCode::Tab,
-        Key::Delete => KeyCode::Delete,
-        Key::End => KeyCode::End,
-        Key::Home => KeyCode::Home,
-        Key::Insert => KeyCode::Insert,
-        Key::PageDown => KeyCode::PageDown,
-        Key::PageUp => KeyCode::PageUp,
-        Key::ArrowDown => KeyCode::ArrowDown,
-        Key::ArrowLeft => KeyCode::ArrowLeft,
-        Key::ArrowRight => KeyCode::ArrowRight,
-        Key::ArrowUp => KeyCode::ArrowUp,
-        Key::Plus => KeyCode::NumpadAdd,
-        Key::Escape => KeyCode::Escape,
+
         Key::F1 => KeyCode::F1,
         Key::F2 => KeyCode::F2,
         Key::F3 => KeyCode::F3,
@@ -2065,9 +2255,9 @@ const fn egui_key_into_winit(key: Key) -> Option<KeyCode> {
         Key::F33 => KeyCode::F33,
         Key::F34 => KeyCode::F34,
         Key::F35 => KeyCode::F35,
+
         _ => return None,
-    };
-    Some(keycode)
+    })
 }
 
 fn winit_modifiers_into_egui(modifier_state: ModifiersState) -> Modifiers {
@@ -2105,12 +2295,13 @@ fn egui_modifiers_into_winit(modifiers: Modifiers) -> ModifiersState {
     modifiers_state
 }
 
-const fn egui_pointer_btn_into_winit(button: PointerButton) -> Option<MouseButton> {
+const fn mouse_button_from_pointer_button(button: PointerButton) -> Option<MouseButton> {
     let button = match button {
         PointerButton::Primary => MouseButton::Left,
         PointerButton::Secondary => MouseButton::Right,
         PointerButton::Middle => MouseButton::Middle,
-        _ => return None,
+        PointerButton::Extra1 => MouseButton::Back,
+        PointerButton::Extra2 => MouseButton::Forward,
     };
     Some(button)
 }

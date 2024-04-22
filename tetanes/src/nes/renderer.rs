@@ -46,17 +46,6 @@ impl BufferPool {
     pub fn new() -> Self {
         Self(Arc::new(ThingBuf::with_recycle(2, FrameRecycle)))
     }
-
-    pub fn push(&mut self, frame_buffer: &[u8]) -> bool {
-        match self.0.push_ref() {
-            Ok(mut frame) => {
-                frame.clear();
-                frame.extend_from_slice(frame_buffer);
-                true
-            }
-            Err(_) => false,
-        }
-    }
 }
 
 impl Default for BufferPool {
@@ -111,7 +100,7 @@ impl std::fmt::Debug for Renderer {
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub async fn initialize(
-        event_proxy: EventLoopProxy<NesEvent>,
+        tx: EventLoopProxy<NesEvent>,
         window: Arc<Window>,
         frame_pool: BufferPool,
         cfg: Config,
@@ -147,7 +136,7 @@ impl Renderer {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("tetanes"),
-                    required_features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::CLEAR_TEXTURE,
                     required_limits,
                 },
                 None,
@@ -291,7 +280,7 @@ impl Renderer {
         let aspect_ratio = cfg.deck.region.aspect_ratio();
         let gui = Gui::new(
             Arc::clone(&window),
-            event_proxy,
+            tx,
             SizedTexture::new(
                 egui_texture,
                 Vec2 {
@@ -349,7 +338,13 @@ impl Renderer {
                     self.gui.resize_window = true;
                     self.gui.resize_texture = true;
                 }
+                RendererEvent::RomUnloaded => {
+                    self.gui.paused = false;
+                    self.gui.loaded_rom = None;
+                    self.gui.title = Config::WINDOW_TITLE.to_string();
+                }
                 RendererEvent::RomLoaded((title, region)) => {
+                    self.gui.paused = false;
                     self.gui.loaded_rom = Some(title.clone());
                     self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
                     if self.gui.cart_aspect_ratio != region.aspect_ratio() {
@@ -509,6 +504,10 @@ impl Renderer {
             );
         };
 
+        if self.gui.loaded_rom.is_none() {
+            encoder.clear_texture(&self.texture.texture, &Default::default());
+        }
+
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("gui"),
             dimension: Some(wgpu::TextureViewDimension::D2),
@@ -553,6 +552,7 @@ impl Renderer {
         }
 
         self.queue.submit(Some(encoder.finish()));
+        self.window.pre_present_notify();
         frame.present();
 
         Ok(())

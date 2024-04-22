@@ -1,5 +1,6 @@
 use crate::nes::{
     action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui},
+    config::InputConfig,
     renderer::gui::Menu,
 };
 use egui::ahash::{HashMap, HashMapExt};
@@ -18,62 +19,38 @@ use winit::{
 };
 
 macro_rules! action_binding {
-    ($player:expr; $action:expr => $bindings:expr) => {
+    ($action:expr => $bindings:expr) => {
         ActionBindings {
             action: $action.into(),
-            player: $player,
             bindings: $bindings,
         }
     };
-    ($player:expr; $action:expr => $modifiers:expr, $key:expr) => {
-        action_binding!($player; $action => [Some(Input::Key($key, $modifiers)), None])
+    ($action:expr => $modifiers:expr, $key:expr) => {
+        action_binding!($action => [Some(Input::Key($key, $modifiers)), None])
     };
-    ($player:expr; $action:expr => $modifiers1:expr, $key1:expr; $modifiers2:expr, $key2:expr) => {
+    ($action:expr => $modifiers1:expr, $key1:expr; $modifiers2:expr, $key2:expr) => {
         action_binding!(
-            $player;
             $action => [Some(Input::Key($key1, $modifiers1)), Some(Input::Key($key2, $modifiers2))]
         )
     };
 }
 
 #[allow(unused_macro_rules)]
-macro_rules! joypad_map {
-    (@ $player:expr; $action:expr => $key:expr) => {
-        action_binding!(Some($player); $action => ModifiersState::empty(), $key)
-    };
-    (@ $player:expr; $action:expr => $key1:expr; $key2:expr) => {
-        action_binding!(Some($player); $action => ModifiersState::empty(), $key1; ModifiersState::empty(), $key2)
-    };
-    (@ $player:expr; $action:expr => :$modifiers:expr, $key:expr) => {
-        action_binding!(Some($player); $action => $modifiers, $key)
-    };
-    (@ $player:expr; $action:expr => :$modifiers1:expr, $key1:expr; $key2:expr) => {
-        action_binding!(Some($player); $action => $modifiers1, $key1; ModifiersState::empty(), $key2)
-    };
-    (@ $player:expr; $action:expr => :$modifiers1:expr, $key1:expr; :$modifiers2:expr, $key2:expr) => {
-        action_binding!(Some($player); $action => $modifiers1, $key1; $modifiers2, $key2)
-    };
-    ($({ $player:expr; $action:expr => $(:$modifiers1:expr,) ?$key1:expr$(; $(:$modifiers2:expr,)? $key2:expr)? }),+$(,)?) => {
-        vec![$(joypad_map!(@ $player; $action => $(:$modifiers1,)? $key1$(; $(:$modifiers2,)? $key2)?),)+]
-    };
-}
-
-#[allow(unused_macro_rules)]
 macro_rules! shortcut_map {
     (@ $action:expr => $key:expr) => {
-        action_binding!(None; $action => ModifiersState::empty(), $key)
+        action_binding!($action => ModifiersState::empty(), $key)
     };
     (@ $action:expr => $key1:expr; $key2:expr) => {
-        action_binding!(None; $action => ModifiersState::empty(), $key1; ModifiersState::empty(), $key2)
+        action_binding!($action => ModifiersState::empty(), $key1; ModifiersState::empty(), $key2)
     };
     (@ $action:expr => :$modifiers:expr, $key:expr) => {
-        action_binding!(None; $action => $modifiers, $key)
+        action_binding!($action => $modifiers, $key)
     };
     (@ $action:expr => :$modifiers1:expr, $key1:expr; $key2:expr) => {
-        action_binding!(None; $action => $modifiers1, $key1; ModifiersState::empty(), $key2)
+        action_binding!($action => $modifiers1, $key1; ModifiersState::empty(), $key2)
     };
     (@ $action:expr => :$modifiers1:expr, $key1:expr; :$modifiers2:expr, $key2:expr) => {
-        action_binding!(None; $action => $modifiers1, $key1; $modifiers2, $key2)
+        action_binding!($action => $modifiers1, $key1; $modifiers2, $key2)
     };
     ($({ $action:expr => $(:$modifiers1:expr,) ?$key1:expr$(; $(:$modifiers2:expr,)? $key2:expr)? }),+$(,)?) => {
         vec![$(shortcut_map!(@ $action => $(:$modifiers1,)? $key1$(; $(:$modifiers2,)? $key2)?),)+]
@@ -81,11 +58,11 @@ macro_rules! shortcut_map {
 }
 
 macro_rules! mouse_map {
-    (@ $player:expr; $action:expr => $button:expr) => {
-        action_binding!(Some($player); $action => [Some(Input::Mouse($button)), None])
+    (@ $action:expr => $button:expr) => {
+        action_binding!($action => [Some(Input::Mouse($button)), None])
     };
-    ($({ $player:expr; $action:expr => $button:expr }),+$(,)?) => {
-        vec![$(mouse_map!(@ $player; $action => $button),)+]
+    ($({ $action:expr => $button:expr }),+$(,)?) => {
+        vec![$(mouse_map!(@ $action => $button),)+]
     };
 }
 
@@ -100,7 +77,6 @@ pub enum Input {
 #[must_use]
 pub struct ActionBindings {
     pub action: Action,
-    pub player: Option<Player>,
     pub bindings: [Option<Input>; 2],
 }
 
@@ -108,57 +84,16 @@ impl ActionBindings {
     pub fn empty(action: Action) -> Self {
         Self {
             action,
-            player: None,
             bindings: Default::default(),
         }
     }
 
-    pub fn empty_player(action: Action, player: Player) -> Self {
-        Self {
-            action,
-            player: Some(player),
-            bindings: Default::default(),
-        }
-    }
-
-    pub fn default_bindings() -> Vec<Self> {
+    pub fn default_shortcuts() -> Vec<Self> {
         use KeyCode::*;
         const SHIFT: ModifiersState = ModifiersState::SHIFT;
         const CONTROL: ModifiersState = ModifiersState::CONTROL;
 
-        let mut bindings = Vec::with_capacity(128);
-
-        bindings.extend(joypad_map!(
-            { Player::One; JoypadBtn::A => KeyZ },
-            { Player::One; JoypadBtn::B => KeyX },
-            { Player::One; JoypadBtn::Down => ArrowDown },
-            { Player::One; JoypadBtn::Left => ArrowLeft },
-            { Player::One; JoypadBtn::Right => ArrowRight },
-            { Player::One; JoypadBtn::Select => KeyW },
-            { Player::One; JoypadBtn::Start => KeyQ; Enter },
-            { Player::One; JoypadBtn::TurboA => KeyA },
-            { Player::One; JoypadBtn::TurboB => KeyS },
-            { Player::One; JoypadBtn::Up => ArrowUp },
-            { Player::Two; JoypadBtn::A => KeyN },
-            { Player::Two; JoypadBtn::B => KeyM },
-            { Player::Two; JoypadBtn::Down => KeyK },
-            { Player::Two; JoypadBtn::Left => KeyJ },
-            { Player::Two; JoypadBtn::Right => KeyL },
-            { Player::Two; JoypadBtn::Select => Digit9 },
-            { Player::Two; JoypadBtn::Start => Digit8 },
-            { Player::Two; JoypadBtn::Up => KeyI },
-        ));
-        #[cfg(debug_assertions)]
-        bindings.extend(joypad_map!(
-            { Player::Three; JoypadBtn::A => KeyV },
-            { Player::Three; JoypadBtn::B => KeyB },
-            { Player::Three; JoypadBtn::Down => KeyG },
-            { Player::Three; JoypadBtn::Left => KeyF },
-            { Player::Three; JoypadBtn::Right => KeyH },
-            { Player::Three; JoypadBtn::Select => Digit6 },
-            { Player::Three; JoypadBtn::Start => Digit5 },
-            { Player::Three; JoypadBtn::Up => KeyT },
-        ));
+        let mut bindings = Vec::with_capacity(64);
         bindings.extend(shortcut_map!(
             { Debug::Step(DebugStep::Frame) => :SHIFT, KeyF },
             { Debug::Step(DebugStep::Into) => KeyC },
@@ -207,29 +142,83 @@ impl ActionBindings {
             { Ui::TogglePause => Escape },
         ));
         bindings.extend(mouse_map!(
-            { Player::Two; DeckAction::ZapperTrigger => MouseButton::Left }
+            { DeckAction::ZapperTrigger => MouseButton::Left }
         ));
+        bindings.shrink_to_fit();
+
+        bindings
+    }
+
+    pub fn default_player_bindings(player: Player) -> Vec<Self> {
+        use KeyCode::*;
+
+        let mut bindings = Vec::with_capacity(10);
+        match player {
+            Player::One => bindings.extend(shortcut_map!(
+                { (Player::One, JoypadBtn::A) => KeyZ },
+                { (Player::One, JoypadBtn::B) => KeyX },
+                { (Player::One, JoypadBtn::Down) => ArrowDown },
+                { (Player::One, JoypadBtn::Left) => ArrowLeft },
+                { (Player::One, JoypadBtn::Right) => ArrowRight },
+                { (Player::One, JoypadBtn::Select) => KeyW },
+                { (Player::One, JoypadBtn::Start) => KeyQ; Enter },
+                { (Player::One, JoypadBtn::TurboA) => KeyA },
+                { (Player::One, JoypadBtn::TurboB) => KeyS },
+                { (Player::One, JoypadBtn::Up) => ArrowUp },
+            )),
+            Player::Two => bindings.extend(shortcut_map!(
+                { (Player::Two, JoypadBtn::A) => KeyN },
+                { (Player::Two, JoypadBtn::B) => KeyM },
+                { (Player::Two, JoypadBtn::Down) => KeyK },
+                { (Player::Two, JoypadBtn::Left) => KeyJ },
+                { (Player::Two, JoypadBtn::Right) => KeyL },
+                { (Player::Two, JoypadBtn::Select) => Digit9 },
+                { (Player::Two, JoypadBtn::Start) => Digit8 },
+                { (Player::Two, JoypadBtn::Up) => KeyI },
+            )),
+            Player::Three => {
+                #[cfg(debug_assertions)]
+                bindings.extend(shortcut_map!(
+                    { (Player::Three, JoypadBtn::A) => KeyV },
+                    { (Player::Three, JoypadBtn::B) => KeyB },
+                    { (Player::Three, JoypadBtn::Down) => KeyG },
+                    { (Player::Three, JoypadBtn::Left) => KeyF },
+                    { (Player::Three, JoypadBtn::Right) => KeyH },
+                    { (Player::Three, JoypadBtn::Select) => Digit6 },
+                    { (Player::Three, JoypadBtn::Start) => Digit5 },
+                    { (Player::Three, JoypadBtn::Up) => KeyT },
+                ));
+            }
+            Player::Four => (),
+        };
+        bindings.shrink_to_fit();
+
         bindings
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InputBindings(HashMap<Input, (Action, Option<Player>)>);
+pub struct InputBindings(HashMap<Input, Action>);
 
 impl InputBindings {
-    pub fn from_action_bindings(bindings: &[ActionBindings]) -> Self {
-        let mut map = HashMap::with_capacity(bindings.len());
-        for binding in bindings {
-            for input in binding.bindings.into_iter().flatten() {
-                map.insert(input, (binding.action, binding.player));
+    pub fn from_input_config(config: &InputConfig) -> Self {
+        let mut map = HashMap::with_capacity(256);
+        for bind in config
+            .shortcuts
+            .iter()
+            .chain(config.joypad_bindings.iter().flatten())
+        {
+            for input in bind.bindings.into_iter().flatten() {
+                map.insert(input, bind.action);
             }
         }
+        map.shrink_to_fit();
         Self(map)
     }
 }
 
 impl Deref for InputBindings {
-    type Target = HashMap<Input, (Action, Option<Player>)>;
+    type Target = HashMap<Input, Action>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

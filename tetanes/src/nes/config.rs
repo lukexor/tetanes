@@ -114,40 +114,32 @@ impl Default for RendererConfig {
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct InputConfig {
     pub controller_deadzone: f64,
-    pub bindings: Vec<ActionBindings>,
+    pub shortcuts: Vec<ActionBindings>,
+    pub joypad_bindings: [Vec<ActionBindings>; 4],
 }
 
 impl Default for InputConfig {
     fn default() -> Self {
         Self {
             controller_deadzone: 0.5,
-            bindings: ActionBindings::default_bindings(),
+            shortcuts: ActionBindings::default_shortcuts(),
+            joypad_bindings: [Player::One, Player::Two, Player::Three, Player::Four]
+                .map(ActionBindings::default_player_bindings),
         }
     }
 }
 
 impl InputConfig {
-    pub fn shortcut_bindings(&self) -> impl Iterator<Item = ActionBindings> + '_ {
-        self.bindings.iter().filter(|b| b.player.is_none()).copied()
-    }
-
-    pub fn joypad_bindings(&self, player: Player) -> impl Iterator<Item = ActionBindings> + '_ {
-        self.bindings
-            .iter()
-            .filter(move |b| b.player == Some(player))
-            .copied()
-    }
-
     pub fn clear_binding(&mut self, input: Input) {
-        self.bindings.iter_mut().for_each(|bind| {
-            if let Some(input) = bind
-                .bindings
-                .iter_mut()
-                .find(|binding| **binding == Some(input))
-            {
-                *input = None;
-            }
-        });
+        if let Some(binding) = self
+            .shortcuts
+            .iter_mut()
+            .chain(self.joypad_bindings.iter_mut().flatten())
+            .flat_map(|bind| &mut bind.bindings)
+            .find(|binding| **binding == Some(input))
+        {
+            *binding = None;
+        }
     }
 }
 

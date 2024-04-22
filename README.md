@@ -167,11 +167,11 @@ Emulator shortcuts:
 | ----------------------------- | ------------ | -------------- |
 | Pause                         | Escape       | Guide Button   |
 | About TetaNES                 | F1           |                |
-| Configuration Menu            | Ctrl-C or F2 |                |
+| Configuration Menu            | Ctrl-P or F2 |                |
 | Load/Open ROM                 | Ctrl-O or F3 |                |
 | Quit                          | Ctrl-Q       |                |
 | Reset                         | Ctrl-R       |                |
-| Power Cycle                   | Ctrl-P       |                |
+| Power Cycle                   | Ctrl-H       |                |
 | Increase Speed by 25%         | =            | Right Shoulder |
 | Decrease Speed by 25%         | -            | Left Shoulder  |
 | Increase Scale                | Shift-=      |                |

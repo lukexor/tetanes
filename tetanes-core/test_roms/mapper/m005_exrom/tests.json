@@ -36,7 +36,7 @@
       {
         "number": 11,
         "action": {
-          "Joypad": "A"
+          "Joypad": ["One", "A"]
         }
       },
       {
@@ -47,7 +47,7 @@
       {
         "number": 15,
         "action": {
-          "Joypad": "B"
+          "Joypad": ["One", "B"]
         }
       },
       {
@@ -58,7 +58,7 @@
       {
         "number": 19,
         "action": {
-          "Joypad": "Start"
+          "Joypad": ["One", "Start"]
         }
       },
       {
@@ -69,7 +69,7 @@
       {
         "number": 23,
         "action": {
-          "Joypad": "Select"
+          "Joypad": ["One", "Select"]
         }
       },
       {
@@ -80,7 +80,7 @@
       {
         "number": 27,
         "action": {
-          "Joypad": "Up"
+          "Joypad": ["One", "Up"]
         }
       },
       {
@@ -91,13 +91,13 @@
       {
         "number": 31,
         "action": {
-          "Joypad": "Up"
+          "Joypad": ["One", "Up"]
         }
       },
       {
         "number": 33,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
@@ -108,13 +108,13 @@
       {
         "number": 37,
         "action": {
-          "Joypad": "Right"
+          "Joypad": ["One", "Right"]
         }
       },
       {
         "number": 39,
         "action": {
-          "Joypad": "Right"
+          "Joypad": ["One", "Right"]
         }
       },
       {

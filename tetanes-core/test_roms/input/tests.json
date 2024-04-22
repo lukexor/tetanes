@@ -4,9 +4,7 @@
     "frames": [
       {
         "number": 0,
-        "action": {
-          "ZapperConnect": true
-        }
+        "action": "ToggleZapperConnected"
       },
       {
         "number": 0,
@@ -38,9 +36,7 @@
     "frames": [
       {
         "number": 0,
-        "action": {
-          "ZapperConnect": true
-        }
+        "action": "ToggleZapperConnected"
       },
       {
         "number": 0,
@@ -86,9 +82,7 @@
     "frames": [
       {
         "number": 0,
-        "action": {
-          "ZapperConnect": true
-        }
+        "action": "ToggleZapperConnected"
       },
       {
         "number": 20,
@@ -101,9 +95,7 @@
     "frames": [
       {
         "number": 0,
-        "action": {
-          "ZapperConnect": true
-        }
+        "action": "ToggleZapperConnected"
       },
       {
         "number": 20,

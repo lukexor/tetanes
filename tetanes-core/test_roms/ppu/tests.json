@@ -364,7 +364,7 @@
       {
         "number": 12,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
@@ -375,13 +375,13 @@
       {
         "number": 16,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
         "number": 18,
         "action": {
-          "Joypad": "Up"
+          "Joypad": ["One", "Up"]
         }
       },
       {
@@ -392,7 +392,7 @@
       {
         "number": 22,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
@@ -403,19 +403,19 @@
       {
         "number": 26,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
         "number": 28,
         "action": {
-          "Joypad": "Up"
+          "Joypad": ["One", "Up"]
         }
       },
       {
         "number": 30,
         "action": {
-          "Joypad": "Right"
+          "Joypad": ["One", "Right"]
         }
       },
       {
@@ -426,7 +426,7 @@
       {
         "number": 34,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
@@ -437,13 +437,13 @@
       {
         "number": 38,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
         "number": 40,
         "action": {
-          "Joypad": "Up"
+          "Joypad": ["One", "Up"]
         }
       },
       {
@@ -454,7 +454,7 @@
       {
         "number": 44,
         "action": {
-          "Joypad": "Left"
+          "Joypad": ["One", "Left"]
         }
       },
       {
@@ -514,7 +514,7 @@
       {
         "number": 11,
         "action": {
-          "Joypad": "Start"
+          "Joypad": ["One", "Start"]
         }
       },
       {
@@ -541,3 +541,4 @@
     ]
   }
 ]
+

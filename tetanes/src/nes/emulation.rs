@@ -3,7 +3,7 @@ use crate::nes::{
     audio::{Audio, State as AudioState},
     config::{Config, FrameRate},
     emulation::{replay::Record, rewind::Rewind},
-    event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, UiEvent},
+    event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
     renderer::BufferPool,
 };
 use anyhow::{anyhow, bail};
@@ -39,34 +39,6 @@ enum Threads {
 
 #[derive(Debug)]
 #[must_use]
-pub enum StateEvent {
-    Nes(UiEvent),
-    Renderer(RendererEvent),
-}
-
-impl From<UiEvent> for StateEvent {
-    fn from(event: UiEvent) -> Self {
-        Self::Nes(event)
-    }
-}
-
-impl From<RendererEvent> for StateEvent {
-    fn from(event: RendererEvent) -> Self {
-        Self::Renderer(event)
-    }
-}
-
-impl From<StateEvent> for NesEvent {
-    fn from(event: StateEvent) -> Self {
-        match event {
-            StateEvent::Nes(event) => Self::Ui(event),
-            StateEvent::Renderer(event) => Self::Renderer(event),
-        }
-    }
-}
-
-#[derive(Debug)]
-#[must_use]
 struct Single {
     state: State,
 }
@@ -80,7 +52,7 @@ struct Multi {
 
 impl Multi {
     fn spawn(
-        event_proxy: EventLoopProxy<NesEvent>,
+        proxy_tx: EventLoopProxy<NesEvent>,
         frame_pool: BufferPool,
         config: Config,
     ) -> anyhow::Result<Self> {
@@ -89,18 +61,18 @@ impl Multi {
             tx,
             handle: std::thread::Builder::new()
                 .name("emulation".into())
-                .spawn(move || Self::main(event_proxy, rx, frame_pool, config))?,
+                .spawn(move || Self::main(proxy_tx, rx, frame_pool, config))?,
         })
     }
 
     fn main(
-        event_proxy: EventLoopProxy<NesEvent>,
+        tx: EventLoopProxy<NesEvent>,
         rx: Receiver<NesEvent>,
         frame_pool: BufferPool,
         config: Config,
     ) {
         debug!("emulation thread started");
-        let mut state = State::new(event_proxy, frame_pool, config); // Has to be created on the thread, since
+        let mut state = State::new(tx, frame_pool, config); // Has to be created on the thread, since
         loop {
             #[cfg(feature = "profiling")]
             puffin::profile_scope!("emulation loop");
@@ -123,17 +95,17 @@ pub struct Emulation {
 impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn initialize(
-        event_proxy: EventLoopProxy<NesEvent>,
+        tx: EventLoopProxy<NesEvent>,
         frame_pool: BufferPool,
         cfg: Config,
     ) -> anyhow::Result<Self> {
         let threaded = cfg.emulation.threaded
             && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
         let backend = if threaded {
-            Threads::Multi(Multi::spawn(event_proxy, frame_pool, cfg)?)
+            Threads::Multi(Multi::spawn(tx, frame_pool, cfg)?)
         } else {
             Threads::Single(Single {
-                state: State::new(event_proxy, frame_pool, cfg),
+                state: State::new(tx, frame_pool, cfg),
             })
         };
 
@@ -166,7 +138,7 @@ impl Emulation {
 #[derive(Debug)]
 #[must_use]
 pub struct State {
-    event_proxy: EventLoopProxy<NesEvent>,
+    tx: EventLoopProxy<NesEvent>,
     control_deck: ControlDeck,
     audio: Audio,
     frame_pool: BufferPool,
@@ -190,12 +162,12 @@ pub struct State {
 
 impl Drop for State {
     fn drop(&mut self) {
-        self.on_unload_rom();
+        self.unload_rom();
     }
 }
 
 impl State {
-    pub fn new(event_proxy: EventLoopProxy<NesEvent>, frame_pool: BufferPool, cfg: Config) -> Self {
+    pub fn new(tx: EventLoopProxy<NesEvent>, frame_pool: BufferPool, cfg: Config) -> Self {
         let control_deck = ControlDeck::with_config(cfg.deck.clone());
         let audio = Audio::new(
             cfg.audio.enabled,
@@ -205,7 +177,7 @@ impl State {
         );
         let rewind = Rewind::new(cfg.emulation.rewind);
         let mut state = Self {
-            event_proxy,
+            tx,
             control_deck,
             audio,
             frame_pool,
@@ -231,16 +203,7 @@ impl State {
     }
 
     pub fn add_message<S: ToString>(&mut self, msg: S) {
-        self.send_event(UiEvent::Message(msg.to_string()));
-    }
-
-    pub fn send_event(&mut self, event: impl Into<StateEvent>) {
-        let event = event.into();
-        trace!("Emulation event: {event:?}");
-        if let Err(err) = self.event_proxy.send_event(event.into()) {
-            error!("failed to send emulation event: {err:?}");
-            std::process::exit(1);
-        }
+        self.tx.nes_event(UiEvent::Message(msg.to_string()));
     }
 
     pub fn write_deck<T>(
@@ -279,7 +242,11 @@ impl State {
         puffin::profile_function!();
 
         match event {
-            EmulationEvent::AudioRecord(recording) => self.audio_record(*recording),
+            EmulationEvent::AudioRecord(recording) => {
+                if self.control_deck.is_running() {
+                    self.audio_record(*recording);
+                }
+            }
             EmulationEvent::DebugStep(step) => {
                 if self.control_deck.is_running() {
                     match step {
@@ -307,18 +274,30 @@ impl State {
                     }
                 }
             }
-            EmulationEvent::InstantRewind => self.instant_rewind(),
+            EmulationEvent::InstantRewind => {
+                if self.control_deck.is_running() {
+                    self.instant_rewind();
+                }
+            }
             EmulationEvent::Joypad((player, button, state)) => {
-                let pressed = *state == ElementState::Pressed;
-                let joypad = self.control_deck.joypad_mut(*player);
-                joypad.set_button(*button, pressed);
-                self.record
-                    .push(self.control_deck.frame_number(), event.clone());
+                if self.control_deck.is_running() {
+                    let pressed = *state == ElementState::Pressed;
+                    let joypad = self.control_deck.joypad_mut(*player);
+                    joypad.set_button(*button, pressed);
+                    self.record
+                        .push(self.control_deck.frame_number(), event.clone());
+                }
             }
             EmulationEvent::LoadReplay((name, replay)) => {
-                self.load_replay(name, &mut io::Cursor::new(replay));
+                if self.control_deck.is_running() {
+                    self.load_replay(name, &mut io::Cursor::new(replay));
+                }
             }
-            EmulationEvent::LoadReplayPath(path) => self.load_replay_path(path),
+            EmulationEvent::LoadReplayPath(path) => {
+                if self.control_deck.is_running() {
+                    self.load_replay_path(path);
+                }
+            }
             EmulationEvent::LoadRom((name, rom)) => {
                 self.load_rom(name, &mut io::Cursor::new(rom));
             }
@@ -333,21 +312,34 @@ impl State {
                     }
                 }
             }
-            EmulationEvent::Pause(paused) => self.pause(*paused),
-            EmulationEvent::ReplayRecord(recording) => self.replay_record(*recording),
+            EmulationEvent::Pause(paused) => {
+                if self.control_deck.is_running() {
+                    self.pause(*paused);
+                }
+            }
+            EmulationEvent::ReplayRecord(recording) => {
+                if self.control_deck.is_running() {
+                    self.replay_record(*recording);
+                }
+            }
             EmulationEvent::Reset(kind) => {
-                self.control_deck.reset(*kind);
-                self.pause(false);
-                match kind {
-                    ResetKind::Soft => self.add_message("Reset"),
-                    ResetKind::Hard => self.add_message("Power Cycled"),
+                if self.control_deck.is_running() {
+                    self.control_deck.reset(*kind);
+                    self.pause(false);
+                    match kind {
+                        ResetKind::Soft => self.add_message("Reset"),
+                        ResetKind::Hard => self.add_message("Power Cycled"),
+                    }
                 }
             }
             EmulationEvent::Rewinding(rewind) => {
-                if self.rewind.enabled {
-                    self.rewinding = *rewind;
-                } else {
-                    self.rewind_disabled();
+                if self.control_deck.is_running() {
+                    if self.rewind.enabled {
+                        self.rewinding = *rewind;
+                        self.add_message("Rewinding...");
+                    } else {
+                        self.rewind_disabled();
+                    }
                 }
             }
             EmulationEvent::SaveState(slot) => {
@@ -360,12 +352,17 @@ impl State {
                     }
                 }
             }
-            EmulationEvent::Screenshot => match self.save_screenshot() {
-                Ok(filename) => {
-                    self.add_message(format!("Screenshot Saved: {}", filename.display()));
+            EmulationEvent::Screenshot => {
+                if self.control_deck.is_running() {
+                    match self.save_screenshot() {
+                        Ok(filename) => {
+                            self.add_message(format!("Screenshot Saved: {}", filename.display()));
+                        }
+                        Err(err) => self.on_error(err),
+                    }
                 }
-                Err(err) => self.on_error(err),
-            },
+            }
+            EmulationEvent::UnloadRom => self.unload_rom(),
             EmulationEvent::ZapperAim((x, y)) => {
                 self.control_deck.aim_zapper(*x, *y);
                 self.record
@@ -445,19 +442,24 @@ impl State {
             ConfigEvent::ZapperConnected(connected) => {
                 self.control_deck.connect_zapper(*connected);
             }
-            ConfigEvent::InputBindings | ConfigEvent::Vsync(_) => (),
+            ConfigEvent::Fullscreen(_)
+            | ConfigEvent::HideOverscan(_)
+            | ConfigEvent::InputBindings
+            | ConfigEvent::Scale(_)
+            | ConfigEvent::Vsync(_) => (),
         }
     }
 
     fn send_frame(&mut self) {
-        self.send_event(RendererEvent::Frame);
+        self.tx.nes_event(RendererEvent::Frame);
         if let Ok(mut frame) = self.frame_pool.push_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
+            self.tx.nes_event(UiEvent::RequestRedraw);
         }
     }
 
     pub fn pause(&mut self, paused: bool) {
-        if self.control_deck.is_running() && !self.control_deck.cpu_corrupted() {
+        if !self.control_deck.cpu_corrupted() {
             self.paused = paused;
             if self.paused {
                 if let Some(rom) = self.control_deck.loaded_rom() {
@@ -472,7 +474,7 @@ impl State {
         }
     }
 
-    fn on_unload_rom(&mut self) {
+    fn unload_rom(&mut self) {
         if let Some(rom) = self.control_deck.loaded_rom() {
             if self.auto_save {
                 if let Some(path) = Config::save_path(rom, self.save_slot) {
@@ -481,8 +483,12 @@ impl State {
                     }
                 }
             }
-            self.pause(true);
+            self.replay_record(false);
             let _ = self.audio.stop();
+            if let Err(err) = self.control_deck.unload_rom() {
+                self.on_error(err);
+            }
+            self.tx.nes_event(RendererEvent::RomUnloaded);
         }
     }
 
@@ -495,7 +501,7 @@ impl State {
                 }
             }
         }
-        self.send_event(RendererEvent::RomLoaded((
+        self.tx.nes_event(RendererEvent::RomLoaded((
             name,
             self.control_deck.cart_region,
         )));
@@ -507,7 +513,7 @@ impl State {
 
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {
         let path = path.as_ref();
-        self.on_unload_rom();
+        self.unload_rom();
         match self.control_deck.load_rom_path(path) {
             Ok(()) => {
                 let filename = fs::filename(path);
@@ -518,7 +524,7 @@ impl State {
     }
 
     fn load_rom(&mut self, name: &str, rom: &mut impl Read) {
-        self.on_unload_rom();
+        self.unload_rom();
         match self.control_deck.load_rom(name, rom) {
             Ok(()) => self.on_load_rom(name),
             Err(err) => self.on_error(err),
@@ -629,6 +635,9 @@ impl State {
         puffin::profile_function!();
 
         if self.paused || self.occluded || !self.control_deck.is_running() {
+            if self.paused && !self.occluded && self.control_deck.is_running() {
+                self.send_frame();
+            }
             return std::thread::park();
         }
 
@@ -667,24 +676,24 @@ impl State {
                 if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                     self.on_emulation_event(&event);
                 }
-                // Have to split borrows here to send frame
                 let res = self.control_deck.clock_frame_ahead(
                     run_ahead,
                     |_cycles, frame_buffer, audio_samples| {
                         self.audio.process(audio_samples);
-                        self.frame_pool.push(frame_buffer)
+                        self.tx.nes_event(RendererEvent::Frame);
+                        if let Ok(mut frame) = self.frame_pool.push_ref() {
+                            frame.clear();
+                            frame.extend_from_slice(frame_buffer);
+                            self.tx.nes_event(UiEvent::RequestRedraw);
+                        }
                     },
                 );
                 match res {
-                    Ok(new_frame) => {
+                    Ok(()) => {
                         if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
                             self.rewind.set_enabled(false);
                             self.on_error(err);
                             break;
-                        }
-                        self.send_event(RendererEvent::Frame);
-                        if new_frame {
-                            self.send_event(UiEvent::RequestRedraw);
                         }
                     }
                     Err(err) => {
