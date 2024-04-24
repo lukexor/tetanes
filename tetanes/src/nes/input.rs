@@ -142,7 +142,8 @@ impl ActionBindings {
             { Ui::TogglePause => Escape },
         ));
         bindings.extend(mouse_map!(
-            { DeckAction::ZapperTrigger => MouseButton::Left }
+            { DeckAction::ZapperTrigger => MouseButton::Left },
+            { DeckAction::ZapperAimOffscreen => MouseButton::Right }
         ));
         bindings.shrink_to_fit();
 

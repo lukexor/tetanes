@@ -338,7 +338,8 @@ pub(crate) mod tests {
                 Action::LoadState
                 | Action::SaveState
                 | Action::SetSaveSlot(_)
-                | Action::ToggleApuChannel(_) => (),
+                | Action::ToggleApuChannel(_)
+                | Action::ZapperAimOffscreen => (),
             }
         }
     }

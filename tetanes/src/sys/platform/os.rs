@@ -39,7 +39,7 @@ impl Initialize for Nes {
                 if let Some(parent) = path.parent() {
                     self.cfg.renderer.roms_path = Some(parent.to_path_buf());
                 }
-                self.trigger_event(EmulationEvent::LoadRomPath(path));
+                self.nes_event(EmulationEvent::LoadRomPath(path));
             } else if path.exists() {
                 self.cfg.renderer.roms_path = Some(path);
             }

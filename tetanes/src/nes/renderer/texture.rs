@@ -1,9 +1,12 @@
+use egui::{load::SizedTexture, TextureId, Vec2};
+
 pub struct Texture {
     pub label: Option<&'static str>,
     pub texture: wgpu::Texture,
     pub size: wgpu::Extent3d,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+    pub aspect_ratio: f32,
 }
 
 impl Texture {
@@ -11,6 +14,7 @@ impl Texture {
         device: &wgpu::Device,
         width: u32,
         height: u32,
+        aspect_ratio: f32,
         label: Option<&'static str>,
     ) -> Self {
         let size = wgpu::Extent3d {
@@ -51,15 +55,17 @@ impl Texture {
             size,
             view,
             sampler,
+            aspect_ratio,
         }
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32, aspect_ratio: f32) {
         self.size = wgpu::Extent3d {
             width,
             height,
             depth_or_array_layers: 1,
         };
+        self.aspect_ratio = aspect_ratio;
         self.texture = device.create_texture(&wgpu::TextureDescriptor {
             label: self.label,
             size: self.size,
@@ -74,6 +80,16 @@ impl Texture {
         self.view = self
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+    }
+
+    pub fn sized_texture(&self, texture_id: TextureId) -> SizedTexture {
+        SizedTexture::new(
+            texture_id,
+            Vec2 {
+                x: self.size.width as f32 * self.aspect_ratio,
+                y: self.size.height as f32,
+            },
+        )
     }
 
     pub fn update(&self, queue: &wgpu::Queue, bytes: &[u8]) {

@@ -15,6 +15,7 @@ pub enum Action {
     Joypad((Player, JoypadBtn)),
     ToggleZapperConnected,
     ZapperAim((u32, u32)),
+    ZapperAimOffscreen,
     ZapperTrigger,
     SetSaveSlot(u8),
     SaveState,

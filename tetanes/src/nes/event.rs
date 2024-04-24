@@ -2,6 +2,7 @@ use crate::{
     nes::{
         action::{Action, Debug, DebugStep, Feature, Setting, Ui},
         config::Config,
+        emulation::FrameStats,
         input::{Input, InputBindings},
         renderer::gui::Menu,
         Nes,
@@ -49,7 +50,6 @@ impl SendNesEvent for EventLoopProxy<NesEvent> {
 pub enum UiEvent {
     Error(String),
     Message(String),
-    RequestRedraw,
     IgnoreInputActions(bool),
     LoadRomDialog,
     LoadReplayDialog,
@@ -143,8 +143,9 @@ pub enum EmulationEvent {
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub enum RendererEvent {
-    Frame,
+    FrameStats(FrameStats),
     ScaleChanged,
+    RequestRedraw,
     RomLoaded((String, NesRegion)),
     RomUnloaded,
     Menu(Menu),
@@ -263,7 +264,7 @@ impl Nes {
                             self.state.occluded = occluded;
                             // Don't unpause if paused manually
                             if !self.state.paused {
-                                self.trigger_event(EmulationEvent::Pause(self.state.occluded));
+                                self.nes_event(EmulationEvent::Pause(self.state.occluded));
                             }
                             self.window.request_redraw();
                         }
@@ -286,7 +287,7 @@ impl Nes {
                         self.on_input(Input::Mouse(button), state, false);
                     }
                     WindowEvent::DroppedFile(path) => {
-                        self.trigger_event(EmulationEvent::LoadRomPath(path));
+                        self.nes_event(EmulationEvent::LoadRomPath(path));
                     }
                     WindowEvent::HoveredFile(_) => (), // TODO: Show file drop cursor
                     WindowEvent::HoveredFileCancelled => (), // TODO: Restore cursor
@@ -334,7 +335,6 @@ impl Nes {
             UiEvent::Message(msg) => self.add_message(msg),
             UiEvent::Error(err) => self.on_error(anyhow!(err)),
             UiEvent::Terminate => self.state.quitting = true,
-            UiEvent::RequestRedraw => self.window.request_redraw(),
             UiEvent::IgnoreInputActions(pending) => self.state.pending_keybind = pending,
             UiEvent::LoadRomDialog => {
                 match open_file_dialog(
@@ -349,12 +349,12 @@ impl Nes {
                 ) {
                     Ok(maybe_path) => {
                         if let Some(path) = maybe_path {
-                            self.trigger_event(EmulationEvent::LoadRomPath(path));
+                            self.nes_event(EmulationEvent::LoadRomPath(path));
                         }
                     }
                     Err(err) => {
                         error!("failed top open rom dialog: {err:?}");
-                        self.trigger_event(UiEvent::Error("failed to open rom dialog".to_string()));
+                        self.nes_event(UiEvent::Error("failed to open rom dialog".to_string()));
                     }
                 }
             }
@@ -367,14 +367,12 @@ impl Nes {
                 ) {
                     Ok(maybe_path) => {
                         if let Some(path) = maybe_path {
-                            self.trigger_event(EmulationEvent::LoadReplayPath(path));
+                            self.nes_event(EmulationEvent::LoadReplayPath(path));
                         }
                     }
                     Err(err) => {
                         error!("failed top open replay dialog: {err:?}");
-                        self.trigger_event(UiEvent::Error(
-                            "failed to open replay dialog".to_string(),
-                        ));
+                        self.nes_event(UiEvent::Error("failed to open replay dialog".to_string()));
                     }
                 }
             }
@@ -382,7 +380,7 @@ impl Nes {
     }
 
     /// Trigger a custom event.
-    pub fn trigger_event(&mut self, event: impl Into<NesEvent>) {
+    pub fn nes_event(&mut self, event: impl Into<NesEvent>) {
         let event = event.into();
         trace!("Nes event: {event:?}");
 
@@ -406,38 +404,38 @@ impl Nes {
             let released = state == ElementState::Released;
             match action {
                 Action::Ui(state) if released => match state {
-                    Ui::Quit => self.trigger_event(UiEvent::Terminate),
+                    Ui::Quit => self.nes_event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if self.renderer.rom_loaded() {
                             self.state.paused = !self.state.paused;
-                            self.trigger_event(EmulationEvent::Pause(self.state.paused));
+                            self.nes_event(EmulationEvent::Pause(self.state.paused));
                         }
                     }
                     Ui::LoadRom => {
                         self.state.paused = true;
-                        self.trigger_event(EmulationEvent::Pause(self.state.paused));
-                        self.trigger_event(UiEvent::LoadRomDialog);
+                        self.nes_event(EmulationEvent::Pause(self.state.paused));
+                        self.nes_event(UiEvent::LoadRomDialog);
                     }
                     Ui::UnloadRom => {
                         if self.renderer.rom_loaded() {
-                            self.trigger_event(EmulationEvent::UnloadRom);
+                            self.nes_event(EmulationEvent::UnloadRom);
                         }
                     }
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
                             self.state.paused = true;
-                            self.trigger_event(EmulationEvent::Pause(self.state.paused));
-                            self.trigger_event(UiEvent::LoadReplayDialog);
+                            self.nes_event(EmulationEvent::Pause(self.state.paused));
+                            self.nes_event(UiEvent::LoadReplayDialog);
                         }
                     }
                 },
-                Action::Menu(menu) if released => self.trigger_event(RendererEvent::Menu(menu)),
+                Action::Menu(menu) if released => self.nes_event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) => match feature {
                     Feature::ToggleReplayRecording if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.state.replay_recording = !self.state.replay_recording;
-                                self.trigger_event(EmulationEvent::ReplayRecord(
+                                self.nes_event(EmulationEvent::ReplayRecord(
                                     self.state.replay_recording,
                                 ));
                             }
@@ -451,7 +449,7 @@ impl Nes {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.state.audio_recording = !self.state.audio_recording;
-                                self.trigger_event(EmulationEvent::AudioRecord(
+                                self.nes_event(EmulationEvent::AudioRecord(
                                     self.state.audio_recording,
                                 ));
                             }
@@ -464,7 +462,7 @@ impl Nes {
                     Feature::TakeScreenshot if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
-                                self.trigger_event(EmulationEvent::Screenshot);
+                                self.nes_event(EmulationEvent::Screenshot);
                             }
                         } else {
                             self.add_message("screenshots are not supported yet on this platform.");
@@ -474,13 +472,13 @@ impl Nes {
                         if !self.state.rewinding {
                             if repeat {
                                 self.state.rewinding = true;
-                                self.trigger_event(EmulationEvent::Rewinding(self.state.rewinding));
+                                self.nes_event(EmulationEvent::Rewinding(self.state.rewinding));
                             } else if released {
-                                self.trigger_event(EmulationEvent::InstantRewind);
+                                self.nes_event(EmulationEvent::InstantRewind);
                             }
                         } else if released {
                             self.state.rewinding = false;
-                            self.trigger_event(EmulationEvent::Rewinding(self.state.rewinding));
+                            self.nes_event(EmulationEvent::Rewinding(self.state.rewinding));
                         }
                     }
                     _ => (),
@@ -498,14 +496,14 @@ impl Nes {
                     Setting::ToggleVsync if released => {
                         if platform::supports(platform::Feature::ToggleVsync) {
                             self.cfg.renderer.vsync = !self.cfg.renderer.vsync;
-                            self.trigger_event(ConfigEvent::Vsync(self.cfg.renderer.vsync));
+                            self.nes_event(ConfigEvent::Vsync(self.cfg.renderer.vsync));
                         } else {
                             self.add_message("Disabling VSync is not supported on this platform.");
                         }
                     }
                     Setting::ToggleAudio if released => {
                         self.cfg.audio.enabled = !self.cfg.audio.enabled;
-                        self.trigger_event(ConfigEvent::AudioEnabled(self.cfg.audio.enabled));
+                        self.nes_event(ConfigEvent::AudioEnabled(self.cfg.audio.enabled));
                     }
                     Setting::ToggleMenubar if released => {
                         self.cfg.renderer.show_menubar = !self.cfg.renderer.show_menubar;
@@ -514,21 +512,21 @@ impl Nes {
                         let scale = self.cfg.renderer.scale;
                         let new_scale = self.cfg.increment_scale();
                         if scale != new_scale {
-                            self.trigger_event(RendererEvent::ScaleChanged);
+                            self.nes_event(RendererEvent::ScaleChanged);
                         }
                     }
                     Setting::DecrementScale if released => {
                         let scale = self.cfg.renderer.scale;
                         let new_scale = self.cfg.decrement_scale();
                         if scale != new_scale {
-                            self.trigger_event(RendererEvent::ScaleChanged);
+                            self.nes_event(RendererEvent::ScaleChanged);
                         }
                     }
                     Setting::IncrementSpeed if released => {
                         let speed = self.cfg.emulation.speed;
                         let new_speed = self.cfg.increment_speed();
                         if speed != new_speed {
-                            self.trigger_event(ConfigEvent::Speed(self.cfg.emulation.speed));
+                            self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             self.add_message(format!("Increased Emulation Speed to {new_speed}"));
                         }
                     }
@@ -536,7 +534,7 @@ impl Nes {
                         let speed = self.cfg.emulation.speed;
                         let new_speed = self.cfg.decrement_speed();
                         if speed != new_speed {
-                            self.trigger_event(ConfigEvent::Speed(self.cfg.emulation.speed));
+                            self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             self.add_message(format!("Decreased Emulation Speed to {new_speed}"));
                         }
                     }
@@ -545,7 +543,7 @@ impl Nes {
                         let speed = self.cfg.emulation.speed;
                         if speed != new_speed {
                             self.cfg.emulation.speed = new_speed;
-                            self.trigger_event(ConfigEvent::Speed(self.cfg.emulation.speed));
+                            self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             if new_speed == 2.0 {
                                 self.add_message("Fast forwarding");
                             }
@@ -555,19 +553,15 @@ impl Nes {
                 },
                 Action::Deck(action) => match action {
                     DeckAction::Reset(kind) if released => {
-                        self.trigger_event(EmulationEvent::Reset(kind));
+                        self.nes_event(EmulationEvent::Reset(kind));
                     }
                     DeckAction::Joypad((player, button)) if !repeat => {
-                        self.trigger_event(EmulationEvent::Joypad((player, button, state)));
+                        self.nes_event(EmulationEvent::Joypad((player, button, state)));
                     }
-                    DeckAction::ZapperAim((x, y)) => {
-                        self.trigger_event(EmulationEvent::ZapperAim((x, y)));
-                    }
-                    DeckAction::ZapperTrigger => {
-                        if self.cfg.deck.zapper {
-                            self.trigger_event(EmulationEvent::ZapperTrigger);
-                        }
-                    }
+                    // Handled by `gui` module
+                    DeckAction::ZapperAim(_)
+                    | DeckAction::ZapperAimOffscreen
+                    | DeckAction::ZapperTrigger => (),
                     DeckAction::SetSaveSlot(slot) if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.cfg.emulation.save_slot != slot {
@@ -580,18 +574,14 @@ impl Nes {
                     }
                     DeckAction::SaveState if released => {
                         if platform::supports(platform::Feature::Filesystem) {
-                            self.trigger_event(EmulationEvent::SaveState(
-                                self.cfg.emulation.save_slot,
-                            ));
+                            self.nes_event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
                             self.add_message("save states are not supported yet on this platform.");
                         }
                     }
                     DeckAction::LoadState if released => {
                         if platform::supports(platform::Feature::Filesystem) {
-                            self.trigger_event(EmulationEvent::LoadState(
-                                self.cfg.emulation.save_slot,
-                            ));
+                            self.nes_event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
                             self.add_message("save states are not supported yet on this platform.");
                         }
@@ -599,7 +589,7 @@ impl Nes {
                     DeckAction::ToggleApuChannel(channel) if released => {
                         self.cfg.deck.channels_enabled[channel as usize] =
                             !self.cfg.deck.channels_enabled[channel as usize];
-                        self.trigger_event(ConfigEvent::ApuChannelEnabled((
+                        self.nes_event(ConfigEvent::ApuChannelEnabled((
                             channel,
                             self.cfg.deck.channels_enabled[channel as usize],
                         )));
@@ -607,7 +597,7 @@ impl Nes {
                     DeckAction::MapperRevision(_) if released => todo!("mapper revision"),
                     DeckAction::SetNesRegion(region) if released => {
                         self.cfg.deck.region = region;
-                        self.trigger_event(ConfigEvent::Region(self.cfg.deck.region));
+                        self.nes_event(ConfigEvent::Region(self.cfg.deck.region));
                         self.add_message(format!("Changed NES Region to {region:?}"));
                     }
                     DeckAction::SetVideoFilter(filter) if released => {
@@ -616,7 +606,7 @@ impl Nes {
                         } else {
                             filter
                         };
-                        self.trigger_event(ConfigEvent::VideoFilter(filter));
+                        self.nes_event(ConfigEvent::VideoFilter(filter));
                     }
                     _ => (),
                 },
@@ -625,7 +615,7 @@ impl Nes {
                         self.add_message(format!("{kind:?} is not implemented yet"));
                     }
                     Debug::Step(step) if released | repeat => {
-                        self.trigger_event(EmulationEvent::DebugStep(step));
+                        self.nes_event(EmulationEvent::DebugStep(step));
                     }
                     _ => (),
                 },

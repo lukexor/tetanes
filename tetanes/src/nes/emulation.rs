@@ -11,6 +11,7 @@ use chrono::Local;
 use crossbeam::channel::{self, Receiver, Sender};
 use replay::Replay;
 use std::{
+    collections::VecDeque,
     io::{self, Read},
     path::{Path, PathBuf},
     thread::JoinHandle,
@@ -24,11 +25,87 @@ use tetanes_core::{
     ppu::Ppu,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error};
 use winit::{event::ElementState, event_loop::EventLoopProxy};
 
 pub mod replay;
 pub mod rewind;
+
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
+#[must_use]
+pub struct FrameStats {
+    pub fps: f32,
+    pub fps_min: f32,
+    pub frame_time: f32,
+    pub frame_time_max: f32,
+    pub frame_count: usize,
+}
+
+impl FrameStats {
+    pub fn new() -> Self {
+        let target_fps = 60.0;
+        let target_frame_time = 1.0 / target_fps;
+        Self {
+            fps: target_fps,
+            fps_min: target_fps,
+            frame_time: target_frame_time,
+            frame_time_max: target_frame_time,
+            frame_count: 0,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+#[must_use]
+pub struct FrameTimeDiag {
+    history: VecDeque<f32>,
+    sum: f32,
+}
+
+impl FrameTimeDiag {
+    const MAX_HISTORY: usize = 120;
+
+    fn new() -> Self {
+        let mut frame_time_diag = Self::default();
+        frame_time_diag.reset();
+        frame_time_diag
+    }
+
+    fn push(&mut self, frame_time: f32) {
+        if frame_time.is_nan() {
+            return;
+        }
+        if self.history.len() >= Self::MAX_HISTORY {
+            if let Some(oldest) = self.history.pop_front() {
+                self.sum -= oldest;
+            }
+        }
+
+        self.sum += frame_time;
+        self.history.push_back(frame_time);
+    }
+
+    fn avg(&self) -> Option<f32> {
+        if !self.history.is_empty() {
+            Some(self.sum / self.history.len() as f32)
+        } else {
+            None
+        }
+    }
+
+    fn history(&self) -> impl Iterator<Item = &f32> {
+        self.history.iter()
+    }
+
+    fn reset(&mut self) {
+        self.history.clear();
+        let target_frame_time = 1.0 / 60.0;
+        for _ in 0..Self::MAX_HISTORY {
+            self.history.push_back(target_frame_time);
+        }
+        self.sum = Self::MAX_HISTORY as f32 * target_frame_time;
+    }
+}
 
 #[derive(Debug)]
 #[must_use]
@@ -144,9 +221,11 @@ pub struct State {
     frame_pool: BufferPool,
     frame_latency: usize,
     target_frame_duration: Duration,
+    last_clock_time: Instant,
+    clock_time_accumulator: f32,
     last_frame_time: Instant,
-    total_frame_duration: Duration,
-    frame_time_accumulator: f32,
+    frame_count: usize,
+    frame_time_diag: FrameTimeDiag,
     occluded: bool,
     paused: bool,
     rewinding: bool,
@@ -176,16 +255,19 @@ impl State {
             cfg.audio.buffer_size,
         );
         let rewind = Rewind::new(cfg.emulation.rewind);
+        let target_frame_duration = FrameRate::from(cfg.deck.region).duration();
         let mut state = Self {
             tx,
             control_deck,
             audio,
             frame_pool,
             frame_latency: 1,
-            target_frame_duration: FrameRate::from(cfg.deck.region).duration(),
+            target_frame_duration,
+            last_clock_time: Instant::now(),
+            clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
-            total_frame_duration: Duration::default(),
-            frame_time_accumulator: 0.0,
+            frame_count: 0,
+            frame_time_diag: FrameTimeDiag::new(),
             occluded: false,
             paused: true,
             rewinding: false,
@@ -323,6 +405,7 @@ impl State {
                 }
             }
             EmulationEvent::Reset(kind) => {
+                self.frame_time_diag.reset();
                 if self.control_deck.is_running() {
                     self.control_deck.reset(*kind);
                     self.pause(false);
@@ -450,11 +533,34 @@ impl State {
         }
     }
 
+    fn update_frame_stats(&mut self) {
+        self.frame_count += 1;
+
+        self.frame_time_diag
+            .push(self.last_frame_time.elapsed().as_secs_f32());
+        self.last_frame_time = Instant::now();
+
+        if let Some(frame_time) = self.frame_time_diag.avg() {
+            let frame_time_max = self
+                .frame_time_diag
+                .history()
+                .fold(-f32::INFINITY, |a, &b| a.max(b));
+            let fps = 1.0 / frame_time;
+            let fps_min = 1.0 / frame_time_max;
+            self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
+                fps,
+                fps_min,
+                frame_time: frame_time * 1000.0,
+                frame_time_max: frame_time_max * 1000.0,
+                frame_count: self.frame_count,
+            }));
+        }
+    }
+
     fn send_frame(&mut self) {
-        self.tx.nes_event(RendererEvent::Frame);
         if let Ok(mut frame) = self.frame_pool.push_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
-            self.tx.nes_event(UiEvent::RequestRedraw);
+            self.tx.nes_event(RendererEvent::RequestRedraw);
         }
     }
 
@@ -488,6 +594,7 @@ impl State {
             if let Err(err) = self.control_deck.unload_rom() {
                 self.on_error(err);
             }
+            self.frame_time_diag.reset();
             self.tx.nes_event(RendererEvent::RomUnloaded);
         }
     }
@@ -501,6 +608,7 @@ impl State {
                 }
             }
         }
+        self.frame_time_diag.reset();
         self.tx.nes_event(RendererEvent::RomLoaded((
             name,
             self.control_deck.cart_region,
@@ -612,24 +720,6 @@ impl State {
         }
     }
 
-    fn sleep(&self) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        let timeout = if self.audio.enabled() {
-            self.audio.queued_time().saturating_sub(self.audio.latency)
-        } else {
-            (self.last_frame_time + self.target_frame_duration)
-                .saturating_duration_since(Instant::now())
-        };
-        let epsilon = Duration::from_millis(1);
-        if timeout > epsilon {
-            let timeout = timeout.min(self.target_frame_duration - epsilon);
-            trace!("sleeping for {:.4}s", timeout.as_secs_f32());
-            std::thread::park_timeout(timeout);
-        }
-    }
-
     fn clock(&mut self) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -641,19 +731,17 @@ impl State {
             return std::thread::park();
         }
 
-        let last_frame_duration = self.last_frame_time.elapsed();
-        trace!("last frame: {:.4}s", last_frame_duration.as_secs_f32());
-        self.last_frame_time = Instant::now();
-        self.total_frame_duration += last_frame_duration;
-        self.frame_time_accumulator += last_frame_duration.as_secs_f32();
-        if self.frame_time_accumulator > 0.025 {
-            self.frame_time_accumulator = 0.025;
+        let last_clock_duration = self.last_clock_time.elapsed();
+        self.last_clock_time = Instant::now();
+        self.clock_time_accumulator += last_clock_duration.as_secs_f32();
+        if self.clock_time_accumulator > 0.020 {
+            self.clock_time_accumulator = 0.020;
         }
 
         // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
         // not rewinding, otherwise fall back to time-based clocking
         let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
-        let frame_duration_seconds = self.target_frame_duration.as_secs_f32();
+        let frame_duration_secs = self.target_frame_duration.as_secs_f32();
         let mut run_ahead = self.run_ahead;
         if self.speed > 1.0 {
             run_ahead = 0;
@@ -661,7 +749,7 @@ impl State {
         while if self.audio.enabled() && !self.rewinding {
             self.audio.queued_time() <= self.audio.latency && clocked_frames <= self.frame_latency
         } else {
-            self.frame_time_accumulator >= frame_duration_seconds
+            self.clock_time_accumulator >= frame_duration_secs
         } {
             #[cfg(feature = "profiling")]
             puffin::profile_scope!("clock");
@@ -680,16 +768,16 @@ impl State {
                     run_ahead,
                     |_cycles, frame_buffer, audio_samples| {
                         self.audio.process(audio_samples);
-                        self.tx.nes_event(RendererEvent::Frame);
                         if let Ok(mut frame) = self.frame_pool.push_ref() {
                             frame.clear();
                             frame.extend_from_slice(frame_buffer);
-                            self.tx.nes_event(UiEvent::RequestRedraw);
+                            self.tx.nes_event(RendererEvent::RequestRedraw);
                         }
                     },
                 );
                 match res {
                     Ok(()) => {
+                        self.update_frame_stats();
                         if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
                             self.rewind.set_enabled(false);
                             self.on_error(err);
@@ -704,10 +792,8 @@ impl State {
                 }
             }
 
-            self.frame_time_accumulator -= frame_duration_seconds;
+            self.clock_time_accumulator -= frame_duration_secs;
             clocked_frames += 1;
         }
-
-        self.sleep();
     }
 }

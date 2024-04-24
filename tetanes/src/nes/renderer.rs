@@ -8,11 +8,9 @@ use crate::nes::{
     Nes,
 };
 use anyhow::Context;
-use egui::{
-    load::SizedTexture, ClippedPrimitive, SystemTheme, TexturesDelta, Vec2, ViewportCommand,
-};
+use egui::{ClippedPrimitive, SystemTheme, TexturesDelta, ViewportCommand};
 use std::{ops::Deref, sync::Arc};
-use tetanes_core::{ppu::Ppu, video::Frame};
+use tetanes_core::{ppu::Ppu, time::Duration, video::Frame};
 use thingbuf::{Recycle, ThingBuf};
 use tracing::error;
 use wgpu::util::DeviceExt;
@@ -172,6 +170,7 @@ impl Renderer {
             &device,
             texture_size.width.min(max_texture_dimension),
             texture_size.height.min(max_texture_dimension),
+            cfg.deck.region.aspect_ratio(),
             Some("nes frame"),
         );
         let module = device.create_shader_module(wgpu::include_wgsl!("../../shaders/blit.wgsl"));
@@ -274,20 +273,13 @@ impl Renderer {
             Some(device.limits().max_texture_dimension_2d as usize),
         );
         let mut renderer = egui_wgpu::Renderer::new(&device, surface_config.format, None, 1);
-        let egui_texture =
+        let texture_id =
             renderer.register_native_texture(&device, &texture.view, wgpu::FilterMode::Nearest);
 
-        let aspect_ratio = cfg.deck.region.aspect_ratio();
         let gui = Gui::new(
             Arc::clone(&window),
             tx,
-            SizedTexture::new(
-                egui_texture,
-                Vec2 {
-                    x: texture.size.width as f32 * aspect_ratio,
-                    y: texture.size.height as f32,
-                },
-            ),
+            texture.sized_texture(texture_id),
             cfg,
         );
 
@@ -333,11 +325,16 @@ impl Renderer {
                 _ => (),
             },
             NesEvent::Renderer(event) => match event {
-                RendererEvent::Frame => self.gui.frame_counter += 1,
+                RendererEvent::FrameStats(stats) => {
+                    if self.gui.sys_updated.elapsed() >= Duration::from_millis(200) {
+                        self.gui.frame_stats = *stats;
+                    }
+                }
                 RendererEvent::ScaleChanged => {
                     self.gui.resize_window = true;
                     self.gui.resize_texture = true;
                 }
+                RendererEvent::RequestRedraw => self.window.request_redraw(),
                 RendererEvent::RomUnloaded => {
                     self.gui.paused = false;
                     self.gui.loaded_rom = None;
@@ -345,10 +342,10 @@ impl Renderer {
                 }
                 RendererEvent::RomLoaded((title, region)) => {
                     self.gui.paused = false;
-                    self.gui.loaded_rom = Some(title.clone());
                     self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
-                    if self.gui.cart_aspect_ratio != region.aspect_ratio() {
-                        self.gui.cart_aspect_ratio = region.aspect_ratio();
+                    self.gui.loaded_rom = Some(title.to_owned());
+                    self.gui.loaded_region = *region;
+                    if self.gui.loaded_region != *region {
                         self.gui.resize_window = true;
                         self.gui.resize_texture = true;
                     }
@@ -411,8 +408,12 @@ impl Renderer {
 
     fn resize_texture(&mut self, cfg: &Config) {
         let texture_size = cfg.texture_size();
-        self.texture
-            .resize(&self.device, texture_size.width, texture_size.height);
+        self.texture.resize(
+            &self.device,
+            texture_size.width,
+            texture_size.height,
+            self.gui.aspect_ratio(cfg),
+        );
         self.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("nes frame bind group"),
             layout: &self.bind_group_layout,
@@ -427,23 +428,19 @@ impl Renderer {
                 },
             ],
         });
-        let egui_texture = self.renderer.register_native_texture(
+        let texture_id = self.renderer.register_native_texture(
             &self.device,
             &self.texture.view,
             wgpu::FilterMode::Nearest,
         );
-        let aspect_ratio = self.gui.aspect_ratio(cfg);
-        self.gui.texture = SizedTexture::new(
-            egui_texture,
-            Vec2 {
-                x: self.texture.size.width as f32 * aspect_ratio,
-                y: self.texture.size.height as f32,
-            },
-        );
+        self.gui.texture = self.texture.sized_texture(texture_id);
     }
 
     /// Prepare.
     fn prepare(&mut self, window: &Window, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let raw_input = self.egui_state.take_egui_input(window);
 
         let output = self.ctx.run(raw_input, |ctx| {
@@ -486,16 +483,20 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("renderer"),
             });
+        let frame = {
+            #[cfg(feature = "profiling")]
+            puffin::profile_scope!("vsync");
 
-        let frame = self.surface.get_current_texture().or_else(|_| {
-            self.surface.configure(&self.device, &self.surface_config);
-            self.surface.get_current_texture()
-        })?;
+            self.surface.get_current_texture().or_else(|_| {
+                self.surface.configure(&self.device, &self.surface_config);
+                self.surface.get_current_texture()
+            })?
+        };
         // Copy NES frame buffer
         if let Some(frame_buffer) = self.frame_pool.pop_ref() {
             self.texture.update(
                 &self.queue,
-                if cfg.renderer.hide_overscan {
+                if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
                     let len = frame_buffer.len();
                     &frame_buffer[OVERSCAN_TRIM..len - OVERSCAN_TRIM]
                 } else {
@@ -553,6 +554,7 @@ impl Renderer {
 
         self.queue.submit(Some(encoder.finish()));
         self.window.pre_present_notify();
+
         frame.present();
 
         Ok(())
@@ -568,7 +570,7 @@ impl Nes {
     }
 
     pub fn on_error(&mut self, err: anyhow::Error) {
-        self.trigger_event(EmulationEvent::Pause(true));
+        self.nes_event(EmulationEvent::Pause(true));
         error!("{err:?}");
         self.renderer.gui.error = Some(err.to_string());
     }
