@@ -276,19 +276,23 @@ impl Nes {
                             repaint = true;
                         }
                     }
-                    WindowEvent::KeyboardInput { event, .. } if !self.state.pending_keybind => {
+                    WindowEvent::KeyboardInput { event, .. } => {
                         repaint = true;
-                        if let PhysicalKey::Code(key) = event.physical_key {
-                            self.on_input(
-                                Input::Key(key, self.state.modifiers.state()),
-                                event.state,
-                                event.repeat,
-                            );
+                        if !self.state.pending_keybind {
+                            if let PhysicalKey::Code(key) = event.physical_key {
+                                self.on_input(
+                                    Input::Key(key, self.state.modifiers.state()),
+                                    event.state,
+                                    event.repeat,
+                                );
+                            }
                         }
                     }
-                    WindowEvent::ModifiersChanged(modifiers) if !self.state.pending_keybind => {
+                    WindowEvent::ModifiersChanged(modifiers) => {
                         repaint = true;
-                        self.state.modifiers = modifiers
+                        if !self.state.pending_keybind {
+                            self.state.modifiers = modifiers
+                        }
                     }
                     WindowEvent::MouseInput { button, state, .. } => {
                         repaint = true;

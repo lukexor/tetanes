@@ -1,10 +1,13 @@
-use crate::nes::{
-    action::DebugStep,
-    audio::{Audio, State as AudioState},
-    config::{Config, FrameRate},
-    emulation::{replay::Record, rewind::Rewind},
-    event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
-    renderer::FrameRecycle,
+use crate::{
+    nes::{
+        action::DebugStep,
+        audio::{Audio, State as AudioState},
+        config::{Config, FrameRate},
+        emulation::{replay::Record, rewind::Rewind},
+        event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        renderer::FrameRecycle,
+    },
+    thread,
 };
 use anyhow::{anyhow, bail};
 use chrono::Local;
@@ -62,6 +65,7 @@ impl FrameStats {
 pub struct FrameTimeDiag {
     history: VecDeque<f32>,
     sum: f32,
+    avg: f32,
     last_update: Instant,
 }
 
@@ -73,6 +77,7 @@ impl FrameTimeDiag {
         let mut frame_time_diag = Self {
             history: VecDeque::with_capacity(Self::MAX_HISTORY),
             sum: 0.0,
+            avg: 0.0,
             last_update: Instant::now(),
         };
         frame_time_diag.reset();
@@ -92,17 +97,16 @@ impl FrameTimeDiag {
         self.history.push_back(frame_time);
     }
 
-    fn avg(&mut self) -> Option<f32> {
+    fn avg(&mut self) -> f32 {
         if self.history.is_empty() {
-            return None;
+            return 0.0;
         }
         let now = Instant::now();
         if now > self.last_update + Self::UPDATE_INTERVAL {
             self.last_update = now;
-            Some(self.sum / self.history.len() as f32)
-        } else {
-            None
+            self.avg = self.sum / self.history.len() as f32;
         }
+        self.avg
     }
 
     fn history(&self) -> impl Iterator<Item = &f32> {
@@ -116,19 +120,7 @@ impl FrameTimeDiag {
             self.history.push_back(target_frame_time);
         }
         self.sum = Self::MAX_HISTORY as f32 * target_frame_time;
-    }
-}
-
-fn park_timeout(timeout: Duration) {
-    let beginning_park = Instant::now();
-    let mut timeout_remaining = timeout;
-    loop {
-        std::thread::park_timeout(timeout_remaining);
-        let elapsed = beginning_park.elapsed();
-        if elapsed >= timeout {
-            break;
-        }
-        timeout_remaining = timeout - elapsed;
+        self.avg = target_frame_time;
     }
 }
 
@@ -591,21 +583,20 @@ impl State {
         self.frame_time_diag
             .push(self.last_frame_time.elapsed().as_secs_f32());
         self.last_frame_time = Instant::now();
-        if let Some(frame_time) = self.frame_time_diag.avg() {
-            let frame_time_max = self
-                .frame_time_diag
-                .history()
-                .fold(-f32::INFINITY, |a, b| a.max(*b));
-            let fps = 1.0 / frame_time;
-            let fps_min = 1.0 / frame_time_max;
-            self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
-                fps,
-                fps_min,
-                frame_time: frame_time * 1000.0,
-                frame_time_max: frame_time_max * 1000.0,
-                frame_count: self.frame_count,
-            }));
-        }
+        let frame_time = self.frame_time_diag.avg();
+        let frame_time_max = self
+            .frame_time_diag
+            .history()
+            .fold(-f32::INFINITY, |a, b| a.max(*b));
+        let fps = 1.0 / frame_time;
+        let fps_min = 1.0 / frame_time_max;
+        self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
+            fps,
+            fps_min,
+            frame_time: frame_time * 1000.0,
+            frame_time_max: frame_time_max * 1000.0,
+            frame_count: self.frame_count,
+        }));
     }
 
     fn send_frame(&mut self) {
@@ -634,6 +625,10 @@ impl State {
                 }
             }
             self.audio.pause(self.paused);
+            if !self.paused {
+                // To avoid having a large dip in frame stats when unpausing
+                self.last_frame_time = Instant::now();
+            }
         } else {
             self.paused = true;
         }
@@ -790,13 +785,13 @@ impl State {
             if self.paused && !self.occluded && self.control_deck.is_running() {
                 self.send_frame();
             }
-            park_timeout(self.target_frame_duration - park_epsilon);
+            thread::park_timeout(self.target_frame_duration - park_epsilon);
             return;
         } else if !self.rewinding
             && self.audio.enabled()
             && self.audio.queued_time() >= self.audio.latency
         {
-            park_timeout(self.audio.queued_time().saturating_sub(self.audio.latency));
+            thread::park_timeout(self.audio.queued_time().saturating_sub(self.audio.latency));
         }
 
         // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
@@ -814,7 +809,7 @@ impl State {
             }
             self.send_frame();
             self.update_frame_stats();
-            park_timeout(self.target_frame_duration - park_epsilon);
+            thread::park_timeout(self.target_frame_duration - park_epsilon);
         } else {
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                 self.on_emulation_event(&event);
