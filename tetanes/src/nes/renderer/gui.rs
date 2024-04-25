@@ -1095,7 +1095,7 @@ impl Gui {
                                     )));
                                 } else if let Some(Pos2 { x, y }) =
                                     frame_resp.hover_pos().and_then(|Pos2 { x, y }| {
-                                        self.cursor_to_zapper(x, y, frame_resp.rect)
+                                        cursor_to_zapper(x, y, frame_resp.rect)
                                     })
                                 {
                                     self.tx.nes_event(EmulationEvent::ZapperAim((
@@ -1268,23 +1268,23 @@ impl Gui {
                             ui.end_row();
 
                             ui.strong("Memory:");
-                            ui.label(format!("{} MB", proc.memory() / 0x100000));
+                            ui.label(format!("{} MB", bytes_to_mb(proc.memory()),));
                             ui.end_row();
 
                             let du = proc.disk_usage();
                             ui.strong("Disk read new/total:");
                             ui.label(format!(
                                 "{:.2}/{:.2} MB",
-                                du.read_bytes / 0x100000,
-                                du.total_read_bytes / 0x100000
+                                bytes_to_mb(du.read_bytes),
+                                bytes_to_mb(du.total_read_bytes)
                             ));
                             ui.end_row();
 
                             ui.strong("Disk written new/total:");
                             ui.label(format!(
                                 "{:.2}/{:.2} MB",
-                                du.written_bytes / 0x100000,
-                                du.total_written_bytes / 0x100000
+                                bytes_to_mb(du.written_bytes),
+                                bytes_to_mb(du.total_written_bytes),
                             ));
                             ui.end_row();
 
@@ -1302,7 +1302,7 @@ impl Gui {
 
                 let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
                     Some(Pos2 { x, y }) => {
-                        let zapper_pos = match self.cursor_to_zapper(x, y, self.nes_frame) {
+                        let zapper_pos = match cursor_to_zapper(x, y, self.nes_frame) {
                             Some(Pos2 { x, y }) => format!("({x:.0}, {y:.0})"),
                             None => "(-, -)".to_string(),
                         };
@@ -2065,15 +2065,19 @@ impl Gui {
             .map(format_input)
             .unwrap_or_default()
     }
+}
 
-    fn cursor_to_zapper(&self, x: f32, y: f32, rect: Rect) -> Option<Pos2> {
-        let width = Ppu::WIDTH as f32;
-        let height = Ppu::HEIGHT as f32;
-        // Normalize x/y to 0..=1 and scale to PPU dimensions
-        let x = ((x - rect.min.x) / rect.width()) * width;
-        let y = ((y - rect.min.y) / rect.height()) * height;
-        ((0.0..width).contains(&x) && (0.0..height).contains(&y)).then_some(Pos2::new(x, y))
-    }
+fn bytes_to_mb(bytes: u64) -> u64 {
+    bytes / 0x100000
+}
+
+fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
+    let width = Ppu::WIDTH as f32;
+    let height = Ppu::HEIGHT as f32;
+    // Normalize x/y to 0..=1 and scale to PPU dimensions
+    let x = ((x - rect.min.x) / rect.width()) * width;
+    let y = ((y - rect.min.y) / rect.height()) * height;
+    ((0.0..width).contains(&x) && (0.0..height).contains(&y)).then_some(Pos2::new(x, y))
 }
 
 fn input_down(ui: &mut Ui, input: Input) -> bool {
