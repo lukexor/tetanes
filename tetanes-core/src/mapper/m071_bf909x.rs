@@ -11,9 +11,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
+    #[default]
     Bf909x,
     Bf9097,
 }
@@ -47,6 +48,10 @@ impl Bf909x {
         };
         bf909x.prg_rom_banks.set(1, bf909x.prg_rom_banks.last());
         bf909x.into()
+    }
+
+    pub fn set_revision(&mut self, rev: Revision) {
+        self.revision = rev;
     }
 }
 

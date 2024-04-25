@@ -12,12 +12,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
     /// MMC1 Revision A
     A,
     /// MMC1 Revisions B & C
+    #[default]
     BC,
 }
 
@@ -153,6 +154,10 @@ impl Sxrom {
 
     pub fn prg_ram_enabled(&self) -> bool {
         self.revision == Revision::A || self.regs.prg & Self::PRG_RAM_DISABLED == 0
+    }
+
+    pub fn set_revision(&mut self, revision: Revision) {
+        self.revision = revision;
     }
 }
 

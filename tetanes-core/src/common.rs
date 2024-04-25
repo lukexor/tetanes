@@ -222,7 +222,6 @@ pub(crate) mod tests {
         common::{Regional, Reset, ResetKind},
         control_deck::{Config, ControlDeck},
         input::Player,
-        mapper::{Mapper, MapperRevision},
         mem::RamState,
         ppu::Ppu,
         video::VideoFilter,
@@ -318,14 +317,7 @@ pub(crate) mod tests {
             debug!("{:?}", action);
             match action {
                 Action::Reset(kind) => deck.reset(kind),
-                Action::MapperRevision(board) => match board {
-                    MapperRevision::Mmc3(revision) => {
-                        if let Mapper::Txrom(ref mut mapper) = deck.mapper_mut() {
-                            mapper.set_revision(revision);
-                        }
-                    }
-                    _ => panic!("unhandled MapperRevision {board:?}"),
-                },
+                Action::MapperRevision(rev) => deck.set_mapper_revision(rev),
                 Action::SetVideoFilter(filter) => deck.set_filter(filter),
                 Action::SetNesRegion(format) => deck.set_region(format),
                 Action::Joypad((player, button)) => {

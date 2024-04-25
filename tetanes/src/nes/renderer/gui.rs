@@ -1180,7 +1180,8 @@ impl Gui {
             .spacing([40.0, 4.0])
             .striped(true)
             .show(ui, |ui| {
-                if self.sys_updated.elapsed() > 2 * sysinfo::MINIMUM_CPU_UPDATE_INTERVAL {
+                let update_interval = 4 * sysinfo::MINIMUM_CPU_UPDATE_INTERVAL;
+                if self.sys_updated.elapsed() > update_interval {
                     if let Some(ref mut sys) = self.sys {
                         sys.refresh_specifics(
                             RefreshKind::new().with_processes(
@@ -1191,6 +1192,7 @@ impl Gui {
                             ),
                         );
                     }
+                    ui.ctx().request_repaint_after(update_interval);
                     self.sys_updated = Instant::now();
                 }
 
@@ -1778,10 +1780,14 @@ impl Gui {
     }
 
     fn run_ahead_slider(&mut self, ui: &mut Ui, cfg: &mut Config) {
-        ui.add(Slider::new(&mut cfg.emulation.run_ahead, 0..=4))
-            .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
-        self.tx
-            .nes_event(ConfigEvent::RunAhead(cfg.emulation.run_ahead));
+        if ui
+            .add(Slider::new(&mut cfg.emulation.run_ahead, 0..=4))
+            .on_hover_text("Simulate a number of frames in the future to reduce input lag.")
+            .changed()
+        {
+            self.tx
+                .nes_event(ConfigEvent::RunAhead(cfg.emulation.run_ahead));
+        }
     }
 
     fn cycle_acurate_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
@@ -1802,17 +1808,16 @@ impl Gui {
     }
 
     fn rewind_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
-        if platform::supports(platform::Feature::Filesystem)
-            && ui
-                .add(
-                    Checkbox::new(&mut cfg.emulation.rewind, "Enable Rewinding").shortcut_text(
-                        shortcut
-                            .then(|| self.fmt_shortcut(Setting::ToggleRewinding))
-                            .unwrap_or_default(),
-                    ),
-                )
-                .on_hover_text("Enable instant and visual rewinding. Increases memory usage.")
-                .clicked()
+        if ui
+            .add(
+                Checkbox::new(&mut cfg.emulation.rewind, "Enable Rewinding").shortcut_text(
+                    shortcut
+                        .then(|| self.fmt_shortcut(Setting::ToggleRewinding))
+                        .unwrap_or_default(),
+                ),
+            )
+            .on_hover_text("Enable instant and visual rewinding. Increases memory usage.")
+            .clicked()
         {
             self.tx
                 .nes_event(ConfigEvent::RewindEnabled(cfg.emulation.rewind));

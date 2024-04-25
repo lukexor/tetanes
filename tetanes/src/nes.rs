@@ -1,11 +1,16 @@
 //! User Interface representing the the NES Control Deck
 
-use crate::platform::{BuilderExt, EventLoopExt, Initialize};
+use crate::{
+    nes::renderer::FrameRecycle,
+    platform::{BuilderExt, EventLoopExt, Initialize},
+};
 use config::Config;
 use emulation::Emulation;
 use event::{NesEvent, State};
-use renderer::{BufferPool, Renderer};
+use renderer::Renderer;
 use std::sync::Arc;
+use tetanes_core::video::Frame;
+use thingbuf::mpsc::blocking;
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Fullscreen, Window, WindowBuilder},
@@ -28,7 +33,7 @@ pub struct Nes {
     pub(crate) renderer: Renderer,
     // Only used by wasm currently
     #[allow(unused)]
-    pub(crate) event_proxy: EventLoopProxy<NesEvent>,
+    pub(crate) tx: EventLoopProxy<NesEvent>,
     pub(crate) state: State,
 }
 
@@ -51,24 +56,18 @@ impl Nes {
     /// Create the NES emulation.
     async fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> anyhow::Result<Self> {
         let window = Arc::new(Nes::initialize_window(event_loop, &cfg)?);
-        let event_proxy = event_loop.create_proxy();
-        let frame_pool = BufferPool::new();
+        let tx = event_loop.create_proxy();
+        let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(3, FrameRecycle);
         let state = State::new(&cfg);
-        let emulation =
-            Emulation::initialize(event_proxy.clone(), frame_pool.clone(), cfg.clone())?;
-        let renderer = Renderer::initialize(
-            event_proxy.clone(),
-            Arc::clone(&window),
-            frame_pool,
-            cfg.clone(),
-        )
-        .await?;
+        let emulation = Emulation::initialize(tx.clone(), frame_tx.clone(), cfg.clone())?;
+        let renderer =
+            Renderer::initialize(tx.clone(), Arc::clone(&window), frame_rx, cfg.clone()).await?;
         let mut nes = Self {
             cfg,
             window,
             emulation,
             renderer,
-            event_proxy,
+            tx,
             state,
         };
         nes.initialize()?;
@@ -97,13 +96,5 @@ impl Nes {
             .with_resizable(true)
             .with_platform()
             .build(event_loop)?)
-    }
-
-    fn next_frame(&mut self) {
-        #[cfg(feature = "profiling")]
-        puffin::GlobalProfiler::lock().new_frame();
-        if let Err(err) = self.emulation.request_clock_frame() {
-            self.on_error(err);
-        }
     }
 }

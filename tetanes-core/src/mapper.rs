@@ -38,12 +38,30 @@ pub mod m066_gxrom;
 pub mod m071_bf909x;
 pub mod vrc_irq;
 
+/// Allow user-controlled mapper revision for mappers that are difficult to auto-detect correctly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum MapperRevision {
-    Mmc1(Mmc1Revision),
-    Mmc3(Mmc3Revision),
-    Bf909(Bf909Revision),
+    // Mmc1 and Vrc6 should be properly detected by the mapper number
+    Mmc3(Mmc3Revision),   // No known detection except DB lookup
+    Bf909(Bf909Revision), // Can compare to submapper 1, if header is correct
+}
+
+impl std::fmt::Display for MapperRevision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            MapperRevision::Mmc3(rev) => match rev {
+                Mmc3Revision::A => "MMC3A",
+                Mmc3Revision::BC => "MMC3B/C",
+                Mmc3Revision::Acc => "MMC3Acc",
+            },
+            MapperRevision::Bf909(rev) => match rev {
+                Bf909Revision::Bf909x => "BF909x",
+                Bf909Revision::Bf9097 => "BF9097",
+            },
+        };
+        write!(f, "{s}")
+    }
 }
 
 #[enum_dispatch]

@@ -5,7 +5,7 @@ use tetanes_core::{
     apu::Channel,
     common::{NesRegion, ResetKind},
     input::{JoypadBtn, Player},
-    mapper::{Bf909Revision, MapperRevision, Mmc1Revision, Mmc3Revision},
+    mapper::{Bf909Revision, MapperRevision, Mmc3Revision},
     video::VideoFilter,
 };
 
@@ -20,7 +20,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const BINDABLE: [Self; 109] = [
+    pub const BINDABLE: [Self; 107] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -111,12 +111,6 @@ impl Action {
         Self::Deck(DeckAction::ToggleApuChannel(Channel::Noise)),
         Self::Deck(DeckAction::ToggleApuChannel(Channel::Dmc)),
         Self::Deck(DeckAction::ToggleApuChannel(Channel::Mapper)),
-        Self::Deck(DeckAction::MapperRevision(MapperRevision::Mmc1(
-            Mmc1Revision::A,
-        ))),
-        Self::Deck(DeckAction::MapperRevision(MapperRevision::Mmc1(
-            Mmc1Revision::BC,
-        ))),
         Self::Deck(DeckAction::MapperRevision(MapperRevision::Mmc3(
             Mmc3Revision::A,
         ))),
@@ -238,11 +232,7 @@ impl AsRef<str> for Action {
                     Channel::Dmc => "Toggle DMC Channel",
                     Channel::Mapper => "Toggle Mapper Channel",
                 },
-                DeckAction::MapperRevision(revision) => match revision {
-                    MapperRevision::Mmc1(mmc1) => match mmc1 {
-                        Mmc1Revision::A => "Set Mapper Rev. to MMC1A",
-                        Mmc1Revision::BC => "Set Mapper Rev. to MMC1B/C",
-                    },
+                DeckAction::MapperRevision(rev) => match rev {
                     MapperRevision::Mmc3(mmc3) => match mmc3 {
                         Mmc3Revision::A => "Set Mapper Rev. to MMC3A",
                         Mmc3Revision::BC => "Set Mapper Rev. to MMC3B/C",

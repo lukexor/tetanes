@@ -49,8 +49,8 @@ impl Initialize for Nes {
         let window = web_sys::window().context("valid js window")?;
         let document = window.document().context("valid html document")?;
 
-        let on_error = |event_proxy: &EventLoopProxy<NesEvent>, err: JsValue| {
-            if let Err(err) = event_proxy.send_event(
+        let on_error = |tx: &EventLoopProxy<NesEvent>, err: JsValue| {
+            if let Err(err) = tx.send_event(
                 UiEvent::Error(
                     err.as_string()
                         .unwrap_or_else(|| "failed to load rom".to_string()),
@@ -63,7 +63,7 @@ impl Initialize for Nes {
 
         for input_id in [html_ids::ROM_INPUT, html_ids::REPLAY_INPUT] {
             let on_load = Closure::<dyn FnMut(_)>::new({
-                let event_proxy = self.event_proxy.clone();
+                let tx = self.tx.clone();
                 move |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
                     evt.current_target()
                         .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
@@ -73,7 +73,7 @@ impl Initialize for Nes {
                             reader.read_as_array_buffer(&file).map(|_| {
                                 let onload = Closure::<dyn FnMut()>::new({
                                     let reader = reader.clone();
-                                    let event_proxy = event_proxy.clone();
+                                    let tx = tx.clone();
                                     move || {
                                         if let Err(err) = reader.result().map(|result| {
                                             let data = Uint8Array::new(&result);
@@ -90,9 +90,9 @@ impl Initialize for Nes {
                                                 }
                                                 _ => unreachable!("unsupported input id"),
                                             };
-                                            event_proxy.send_event(event.into())
+                                            tx.send_event(event.into())
                                         }) {
-                                            on_error(&event_proxy, err);
+                                            on_error(&tx, err);
                                         }
                                     }
                                 });
@@ -103,7 +103,7 @@ impl Initialize for Nes {
                         .unwrap()
                 }) {
                     Ok(()) => focus_canvas(),
-                    Err(err) => on_error(&event_proxy, err),
+                    Err(err) => on_error(&tx, err),
                 }
             });
 
@@ -113,7 +113,7 @@ impl Initialize for Nes {
             if let Err(err) =
                 input.add_event_listener_with_callback("change", on_load.as_ref().unchecked_ref())
             {
-                on_error(&self.event_proxy, err);
+                on_error(&self.tx, err);
             }
             on_load.forget();
         }

@@ -12,10 +12,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
     /// VRC6a
+    #[default]
     A,
     /// VRC6b
     B,

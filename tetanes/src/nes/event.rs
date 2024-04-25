@@ -16,6 +16,7 @@ use tetanes_core::{
     action::Action as DeckAction,
     apu::Channel,
     common::{NesRegion, ResetKind},
+    control_deck::MapperRevisions,
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
     mem::RamState,
@@ -24,7 +25,7 @@ use tetanes_core::{
 };
 use tracing::{error, trace};
 use winit::{
-    event::{ElementState, Event, Modifiers, WindowEvent},
+    event::{ElementState, Event, Modifiers, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
     keyboard::PhysicalKey,
     window::Fullscreen,
@@ -103,6 +104,7 @@ pub enum ConfigEvent {
     GenieCodeRemoved(String),
     HideOverscan(bool),
     InputBindings,
+    MapperRevisions(MapperRevisions),
     RamState(RamState),
     Region(NesRegion),
     RewindEnabled(bool),
@@ -129,6 +131,7 @@ pub enum EmulationEvent {
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
     LoadState(u8),
+    Occluded(bool),
     Pause(bool),
     ReplayRecord(bool),
     Reset(ResetKind),
@@ -145,7 +148,7 @@ pub enum EmulationEvent {
 pub enum RendererEvent {
     FrameStats(FrameStats),
     ScaleChanged,
-    RequestRedraw,
+    RequestRedraw(Duration),
     RomLoaded((String, NesRegion)),
     RomUnloaded,
     Menu(Menu),
@@ -195,7 +198,6 @@ pub struct State {
     pub replay_recording: bool,
     pub audio_recording: bool,
     pub rewinding: bool,
-    pub quitting: bool,
 }
 
 impl State {
@@ -209,7 +211,6 @@ impl State {
             replay_recording: false,
             audio_recording: false,
             rewinding: false,
-            quitting: false,
         }
     }
 }
@@ -229,47 +230,54 @@ impl Nes {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        if self.state.quitting {
-            event_loop.exit();
-        } else if self.state.occluded {
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::Poll);
-        }
-
+        let mut repaint = false;
         match event {
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                repaint = true;
+            }
+            Event::AboutToWait => {
+                #[cfg(feature = "profiling")]
+                puffin::GlobalProfiler::lock().new_frame();
+                self.emulation.clock_frame();
+            }
             Event::WindowEvent {
                 window_id, event, ..
             } => {
                 self.renderer.on_window_event(&self.window, &event);
 
                 match event {
-                    WindowEvent::CloseRequested => {
+                    WindowEvent::CloseRequested | WindowEvent::Destroyed => {
                         if window_id == self.window.id() {
                             event_loop.exit();
                         }
                     }
                     WindowEvent::RedrawRequested => {
                         if !self.state.occluded {
-                            if let Err(err) =
-                                self.renderer.request_redraw(&self.window, &mut self.cfg)
-                            {
+                            if let Err(err) = self.renderer.request_redraw(
+                                &self.window,
+                                event_loop,
+                                &mut self.cfg,
+                            ) {
                                 self.on_error(err);
                             }
-                            self.window.request_redraw();
                         }
                     }
                     WindowEvent::Occluded(occluded) => {
                         if window_id == self.window.id() {
                             self.state.occluded = occluded;
-                            // Don't unpause if paused manually
-                            if !self.state.paused {
-                                self.nes_event(EmulationEvent::Pause(self.state.occluded));
-                            }
-                            self.window.request_redraw();
+                            self.nes_event(EmulationEvent::Occluded(self.state.occluded));
+                            event_loop.set_control_flow(if occluded {
+                                ControlFlow::Wait
+                            } else {
+                                ControlFlow::Poll
+                            });
+                        }
+                        if !occluded {
+                            repaint = true;
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } if !self.state.pending_keybind => {
+                        repaint = true;
                         if let PhysicalKey::Code(key) = event.physical_key {
                             self.on_input(
                                 Input::Key(key, self.state.modifiers.state()),
@@ -279,22 +287,57 @@ impl Nes {
                         }
                     }
                     WindowEvent::ModifiersChanged(modifiers) if !self.state.pending_keybind => {
+                        repaint = true;
                         self.state.modifiers = modifiers
                     }
-                    WindowEvent::MouseInput { button, state, .. }
-                        if !self.state.pending_keybind =>
-                    {
-                        self.on_input(Input::Mouse(button), state, false);
+                    WindowEvent::MouseInput { button, state, .. } => {
+                        repaint = true;
+                        if !self.state.pending_keybind {
+                            self.on_input(Input::Mouse(button), state, false);
+                        }
                     }
+                    WindowEvent::Focused(_)
+                    | WindowEvent::MouseWheel { .. }
+                    | WindowEvent::CursorMoved { .. }
+                    | WindowEvent::CursorEntered { .. }
+                    | WindowEvent::CursorLeft { .. }
+                    | WindowEvent::Touch { .. }
+                    | WindowEvent::Resized(..)
+                    | WindowEvent::Moved(..)
+                    | WindowEvent::ThemeChanged(..) => repaint = true,
                     WindowEvent::DroppedFile(path) => {
                         self.nes_event(EmulationEvent::LoadRomPath(path));
                     }
-                    WindowEvent::HoveredFile(_) => (), // TODO: Show file drop cursor
-                    WindowEvent::HoveredFileCancelled => (), // TODO: Restore cursor
+                    WindowEvent::HoveredFile(_) => {
+                        // TODO: Show file drop cursor
+                        repaint = true;
+                    }
+                    WindowEvent::HoveredFileCancelled => {
+                        repaint = true;
+                        // TODO: Restore cursor
+                    }
                     _ => (),
                 }
             }
-            Event::AboutToWait => self.next_frame(),
+            Event::UserEvent(event) => {
+                // Only wake emulation of relevant events
+                if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
+                    self.emulation.on_event(&event);
+                }
+                self.renderer.on_event(&event);
+                match event {
+                    NesEvent::Config(ConfigEvent::InputBindings) => {
+                        self.state.input_bindings =
+                            InputBindings::from_input_config(&self.cfg.input);
+                    }
+                    NesEvent::Renderer(RendererEvent::ScaleChanged) => repaint = true,
+                    NesEvent::Ui(event) => match event {
+                        UiEvent::Terminate => event_loop.exit(),
+                        _ => self.on_event(event),
+                    },
+                    _ => (),
+                }
+            }
             Event::LoopExiting => {
                 #[cfg(feature = "profiling")]
                 puffin::set_scopes_on(false);
@@ -313,20 +356,10 @@ impl Nes {
                     error!("{err:?}");
                 }
             }
-            Event::UserEvent(event) => {
-                // Only wake emulation of relevant events
-                if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
-                    self.emulation.on_event(&event);
-                }
-                self.renderer.on_event(&event);
-                if let NesEvent::Config(ConfigEvent::InputBindings) = event {
-                    self.state.input_bindings = InputBindings::from_input_config(&self.cfg.input);
-                }
-                if let NesEvent::Ui(event) = event {
-                    self.on_event(event);
-                }
-            }
             _ => (),
+        }
+        if repaint {
+            self.window.request_redraw();
         }
     }
 
@@ -334,7 +367,6 @@ impl Nes {
         match event {
             UiEvent::Message(msg) => self.add_message(msg),
             UiEvent::Error(err) => self.on_error(anyhow!(err)),
-            UiEvent::Terminate => self.state.quitting = true,
             UiEvent::IgnoreInputActions(pending) => self.state.pending_keybind = pending,
             UiEvent::LoadRomDialog => {
                 match open_file_dialog(
@@ -376,6 +408,7 @@ impl Nes {
                     }
                 }
             }
+            UiEvent::Terminate => (), // handled in event_loop
         }
     }
 
@@ -404,7 +437,7 @@ impl Nes {
             let released = state == ElementState::Released;
             match action {
                 Action::Ui(state) if released => match state {
-                    Ui::Quit => self.nes_event(UiEvent::Terminate),
+                    Ui::Quit => self.tx.nes_event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if self.renderer.rom_loaded() {
                             self.state.paused = !self.state.paused;
@@ -594,7 +627,13 @@ impl Nes {
                             self.cfg.deck.channels_enabled[channel as usize],
                         )));
                     }
-                    DeckAction::MapperRevision(_) if released => todo!("mapper revision"),
+                    DeckAction::MapperRevision(rev) if released => {
+                        self.cfg.deck.mapper_revisions.set(rev);
+                        self.nes_event(ConfigEvent::MapperRevisions(
+                            self.cfg.deck.mapper_revisions,
+                        ));
+                        self.add_message(format!("Changed Mapper Revision to {rev}"));
+                    }
                     DeckAction::SetNesRegion(region) if released => {
                         self.cfg.deck.region = region;
                         self.nes_event(ConfigEvent::Region(self.cfg.deck.region));
@@ -606,6 +645,7 @@ impl Nes {
                         } else {
                             filter
                         };
+                        self.cfg.deck.filter = filter;
                         self.nes_event(ConfigEvent::VideoFilter(filter));
                     }
                     _ => (),

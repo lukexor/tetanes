@@ -13,8 +13,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-// http://forums.nesdev.com/viewtopic.php?p=62546#p62546
-// MMC3
+// MMC3 Revision
+// See:<http://forums.nesdev.com/viewtopic.php?p=62546#p62546>
+//
+// Known Revisions:
+//
 // Conquest of the Crystal Palace (MMC3B S 9039 1 DB)
 // Kickle Cubicle (MMC3B S 9031 3 DA)
 // M.C. Kids (MMC3B S 9152 3 AB)
@@ -25,12 +28,15 @@ use serde::{Deserialize, Serialize};
 // Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
 // Crystalis (MMC3B 9024KPO53)
 // Legacy of the Wizard (MMC3A 8940EP)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+//
+// Only major difference is the IRQ counter
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
     /// MMC3 Revision A
     A,
     /// MMC3 Revisions B & C
+    #[default]
     BC,
     /// Acclaims MMC3 clone - clocks on falling edge
     Acc,
@@ -111,8 +117,8 @@ impl Txrom {
         txrom.into()
     }
 
-    pub fn set_revision(&mut self, revision: Revision) {
-        self.revision = revision;
+    pub fn set_revision(&mut self, rev: Revision) {
+        self.revision = rev;
     }
 
     pub fn update_banks(&mut self) {

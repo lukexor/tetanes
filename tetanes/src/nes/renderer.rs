@@ -1,6 +1,6 @@
 use crate::nes::{
-    config::Config,
-    event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent},
+    config::{Config, FrameRate},
+    event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent},
     renderer::{
         gui::{Gui, Menu},
         texture::Texture,
@@ -9,14 +9,19 @@ use crate::nes::{
 };
 use anyhow::Context;
 use egui::{ClippedPrimitive, SystemTheme, TexturesDelta, ViewportCommand};
-use std::{ops::Deref, sync::Arc};
-use tetanes_core::{ppu::Ppu, time::Duration, video::Frame};
-use thingbuf::{Recycle, ThingBuf};
+use parking_lot::Mutex;
+use std::sync::Arc;
+use tetanes_core::{
+    ppu::Ppu,
+    time::{Duration, Instant},
+    video::Frame,
+};
+use thingbuf::{mpsc::blocking::Receiver, Recycle};
 use tracing::error;
 use wgpu::util::DeviceExt;
 use winit::{
     event::WindowEvent,
-    event_loop::EventLoopProxy,
+    event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
     window::{Theme, Window},
 };
 
@@ -37,38 +42,11 @@ impl Recycle<Frame> for FrameRecycle {
     fn recycle(&self, _frame: &mut Frame) {}
 }
 
-#[derive(Debug)]
-pub struct BufferPool(Arc<ThingBuf<Frame, FrameRecycle>>);
-
-impl BufferPool {
-    pub fn new() -> Self {
-        Self(Arc::new(ThingBuf::with_recycle(2, FrameRecycle)))
-    }
-}
-
-impl Default for BufferPool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Deref for BufferPool {
-    type Target = Arc<ThingBuf<Frame, FrameRecycle>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Clone for BufferPool {
-    fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
-    }
-}
-
 #[must_use]
 pub struct Renderer {
     window: Arc<Window>,
-    frame_pool: BufferPool,
+    frame_rx: Receiver<Frame, FrameRecycle>,
+    redraw_tx: Arc<Mutex<EventLoopProxy<NesEvent>>>,
     gui: Gui,
     ctx: egui::Context,
     egui_state: egui_winit::State,
@@ -85,6 +63,7 @@ pub struct Renderer {
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     paint_jobs: Vec<ClippedPrimitive>,
+    repaint_delay: Duration,
     textures: TexturesDelta,
 }
 impl std::fmt::Debug for Renderer {
@@ -100,7 +79,7 @@ impl Renderer {
     pub async fn initialize(
         tx: EventLoopProxy<NesEvent>,
         window: Arc<Window>,
-        frame_pool: BufferPool,
+        frame_rx: Receiver<Frame, FrameRecycle>,
         cfg: Config,
     ) -> anyhow::Result<Self> {
         let mut window_size = window.inner_size();
@@ -265,6 +244,16 @@ impl Renderer {
         });
 
         let ctx = egui::Context::default();
+        let redraw_tx = Arc::new(Mutex::new(tx.clone()));
+        ctx.set_request_repaint_callback({
+            let redraw_tx = redraw_tx.clone();
+            move |info| {
+                redraw_tx
+                    .lock()
+                    .send_event(NesEvent::Renderer(RendererEvent::RequestRedraw(info.delay)))
+                    .expect("sent redraw request");
+            }
+        });
         let egui_state = egui_winit::State::new(
             ctx.clone(),
             ctx.viewport_id(),
@@ -285,7 +274,8 @@ impl Renderer {
 
         Ok(Self {
             window,
-            frame_pool,
+            frame_rx,
+            redraw_tx,
             gui,
             ctx,
             egui_state,
@@ -305,6 +295,7 @@ impl Renderer {
             bind_group_layout,
             bind_group,
             paint_jobs: vec![],
+            repaint_delay: Duration::MAX,
             textures: TexturesDelta::default(),
         })
     }
@@ -326,15 +317,13 @@ impl Renderer {
             },
             NesEvent::Renderer(event) => match event {
                 RendererEvent::FrameStats(stats) => {
-                    if self.gui.sys_updated.elapsed() >= Duration::from_millis(200) {
-                        self.gui.frame_stats = *stats;
-                    }
+                    self.gui.frame_stats = *stats;
                 }
                 RendererEvent::ScaleChanged => {
                     self.gui.resize_window = true;
                     self.gui.resize_texture = true;
                 }
-                RendererEvent::RequestRedraw => self.window.request_redraw(),
+                RendererEvent::RequestRedraw(delay) => self.repaint_delay = *delay,
                 RendererEvent::RomUnloaded => {
                     self.gui.paused = false;
                     self.gui.loaded_rom = None;
@@ -382,6 +371,7 @@ impl Renderer {
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.screen_descriptor.pixels_per_point = *scale_factor as f32;
+                self.window.request_redraw();
             }
             WindowEvent::ThemeChanged(theme) => {
                 self.ctx
@@ -455,7 +445,12 @@ impl Renderer {
     }
 
     /// Request redraw.
-    pub fn request_redraw(&mut self, window: &Window, cfg: &mut Config) -> anyhow::Result<()> {
+    pub fn request_redraw(
+        &mut self,
+        window: &Window,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+        cfg: &mut Config,
+    ) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -493,7 +488,7 @@ impl Renderer {
             })?
         };
         // Copy NES frame buffer
-        if let Some(frame_buffer) = self.frame_pool.pop_ref() {
+        if let Ok(frame_buffer) = self.frame_rx.try_recv() {
             self.texture.update(
                 &self.queue,
                 if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
@@ -504,6 +499,13 @@ impl Renderer {
                 },
             );
         };
+        if !self.frame_rx.is_empty() {
+            self.redraw_tx
+                .lock()
+                .nes_event(RendererEvent::RequestRedraw(
+                    FrameRate::from(cfg.deck.region).duration(),
+                ));
+        }
 
         if self.gui.loaded_rom.is_none() {
             encoder.clear_texture(&self.texture.texture, &Default::default());
@@ -554,6 +556,16 @@ impl Renderer {
 
         self.queue.submit(Some(encoder.finish()));
         self.window.pre_present_notify();
+
+        event_loop.set_control_flow(if self.repaint_delay.is_zero() {
+            self.window.request_redraw();
+            self.repaint_delay = Duration::from_secs_f32(1.0 / 60.0);
+            ControlFlow::Wait
+        } else if let Some(repaint_after) = Instant::now().checked_add(self.repaint_delay) {
+            ControlFlow::WaitUntil(repaint_after)
+        } else {
+            ControlFlow::Wait
+        });
 
         frame.present();
 

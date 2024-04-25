@@ -4,11 +4,11 @@ use crate::nes::{
     config::{Config, FrameRate},
     emulation::{replay::Record, rewind::Rewind},
     event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
-    renderer::BufferPool,
+    renderer::FrameRecycle,
 };
 use anyhow::{anyhow, bail};
 use chrono::Local;
-use crossbeam::channel::{self, Receiver, Sender};
+use crossbeam::channel;
 use replay::Replay;
 use std::{
     collections::VecDeque,
@@ -24,7 +24,9 @@ use tetanes_core::{
     fs,
     ppu::Ppu,
     time::{Duration, Instant},
+    video::Frame,
 };
+use thingbuf::mpsc::{blocking::Sender as BufSender, errors::TrySendError};
 use tracing::{debug, error};
 use winit::{event::ElementState, event_loop::EventLoopProxy};
 
@@ -55,24 +57,30 @@ impl FrameStats {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[must_use]
 pub struct FrameTimeDiag {
     history: VecDeque<f32>,
     sum: f32,
+    last_update: Instant,
 }
 
 impl FrameTimeDiag {
     const MAX_HISTORY: usize = 120;
+    const UPDATE_INTERVAL: Duration = Duration::from_millis(500);
 
     fn new() -> Self {
-        let mut frame_time_diag = Self::default();
+        let mut frame_time_diag = Self {
+            history: VecDeque::with_capacity(Self::MAX_HISTORY),
+            sum: 0.0,
+            last_update: Instant::now(),
+        };
         frame_time_diag.reset();
         frame_time_diag
     }
 
     fn push(&mut self, frame_time: f32) {
-        if frame_time.is_nan() {
+        if !frame_time.is_finite() {
             return;
         }
         if self.history.len() >= Self::MAX_HISTORY {
@@ -80,13 +88,17 @@ impl FrameTimeDiag {
                 self.sum -= oldest;
             }
         }
-
         self.sum += frame_time;
         self.history.push_back(frame_time);
     }
 
-    fn avg(&self) -> Option<f32> {
-        if !self.history.is_empty() {
+    fn avg(&mut self) -> Option<f32> {
+        if self.history.is_empty() {
+            return None;
+        }
+        let now = Instant::now();
+        if now > self.last_update + Self::UPDATE_INTERVAL {
+            self.last_update = now;
             Some(self.sum / self.history.len() as f32)
         } else {
             None
@@ -98,13 +110,31 @@ impl FrameTimeDiag {
     }
 
     fn reset(&mut self) {
-        self.history.clear();
         let target_frame_time = 1.0 / 60.0;
+        self.history.clear();
         for _ in 0..Self::MAX_HISTORY {
             self.history.push_back(target_frame_time);
         }
         self.sum = Self::MAX_HISTORY as f32 * target_frame_time;
     }
+}
+
+fn park_timeout(timeout: Duration) {
+    let beginning_park = Instant::now();
+    let mut timeout_remaining = timeout;
+    loop {
+        std::thread::park_timeout(timeout_remaining);
+        let elapsed = beginning_park.elapsed();
+        if elapsed >= timeout {
+            break;
+        }
+        timeout_remaining = timeout - elapsed;
+    }
+}
+
+fn shutdown(err: impl std::fmt::Display) {
+    error!("{err}");
+    std::process::exit(1);
 }
 
 #[derive(Debug)]
@@ -123,14 +153,14 @@ struct Single {
 #[derive(Debug)]
 #[must_use]
 struct Multi {
-    tx: Sender<NesEvent>,
+    tx: channel::Sender<NesEvent>,
     handle: JoinHandle<()>,
 }
 
 impl Multi {
     fn spawn(
         proxy_tx: EventLoopProxy<NesEvent>,
-        frame_pool: BufferPool,
+        frame_tx: BufSender<Frame, FrameRecycle>,
         config: Config,
     ) -> anyhow::Result<Self> {
         let (tx, rx) = channel::bounded(1024);
@@ -138,18 +168,18 @@ impl Multi {
             tx,
             handle: std::thread::Builder::new()
                 .name("emulation".into())
-                .spawn(move || Self::main(proxy_tx, rx, frame_pool, config))?,
+                .spawn(move || Self::main(proxy_tx, rx, frame_tx, config))?,
         })
     }
 
     fn main(
         tx: EventLoopProxy<NesEvent>,
-        rx: Receiver<NesEvent>,
-        frame_pool: BufferPool,
+        rx: channel::Receiver<NesEvent>,
+        frame_tx: BufSender<Frame, FrameRecycle>,
         config: Config,
     ) {
         debug!("emulation thread started");
-        let mut state = State::new(tx, frame_pool, config); // Has to be created on the thread, since
+        let mut state = State::new(tx, frame_tx, config); // Has to be created on the thread, since
         loop {
             #[cfg(feature = "profiling")]
             puffin::profile_scope!("emulation loop");
@@ -158,7 +188,7 @@ impl Multi {
                 state.on_event(&event);
             }
 
-            state.clock();
+            state.clock_frame();
         }
     }
 }
@@ -173,16 +203,16 @@ impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn initialize(
         tx: EventLoopProxy<NesEvent>,
-        frame_pool: BufferPool,
+        frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: Config,
     ) -> anyhow::Result<Self> {
         let threaded = cfg.emulation.threaded
             && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
         let backend = if threaded {
-            Threads::Multi(Multi::spawn(tx, frame_pool, cfg)?)
+            Threads::Multi(Multi::spawn(tx, frame_tx, cfg)?)
         } else {
             Threads::Single(Single {
-                state: State::new(tx, frame_pool, cfg),
+                state: State::new(tx, frame_tx, cfg),
             })
         };
 
@@ -196,19 +226,20 @@ impl Emulation {
             Threads::Multi(Multi { tx, handle }) => {
                 handle.thread().unpark();
                 if let Err(err) = tx.try_send(event.clone()) {
-                    error!("failed to send event to emulation thread: {event:?}. {err:?}");
-                    std::process::exit(1);
+                    shutdown(format!(
+                        "failed to send emulation event: {event:?}. {err:?}"
+                    ));
                 }
             }
         }
     }
 
-    pub fn request_clock_frame(&mut self) -> anyhow::Result<()> {
-        // Multi-threaded emulation will handle frame clocking on its own
-        if let Threads::Single(Single { ref mut state }) = self.threads {
-            state.clock();
+    pub fn clock_frame(&mut self) {
+        match &mut self.threads {
+            Threads::Single(Single { state }) => state.clock_frame(),
+            // Multi-threaded emulation handles it's own clock timing and redraw requests
+            Threads::Multi(Multi { handle, .. }) => handle.thread().unpark(),
         }
-        Ok(())
     }
 }
 
@@ -218,11 +249,9 @@ pub struct State {
     tx: EventLoopProxy<NesEvent>,
     control_deck: ControlDeck,
     audio: Audio,
-    frame_pool: BufferPool,
+    frame_tx: BufSender<Frame, FrameRecycle>,
     frame_latency: usize,
     target_frame_duration: Duration,
-    last_clock_time: Instant,
-    clock_time_accumulator: f32,
     last_frame_time: Instant,
     frame_count: usize,
     frame_time_diag: FrameTimeDiag,
@@ -246,7 +275,11 @@ impl Drop for State {
 }
 
 impl State {
-    pub fn new(tx: EventLoopProxy<NesEvent>, frame_pool: BufferPool, cfg: Config) -> Self {
+    pub fn new(
+        tx: EventLoopProxy<NesEvent>,
+        frame_tx: BufSender<Frame, FrameRecycle>,
+        cfg: Config,
+    ) -> Self {
         let control_deck = ControlDeck::with_config(cfg.deck.clone());
         let audio = Audio::new(
             cfg.audio.enabled,
@@ -260,11 +293,9 @@ impl State {
             tx,
             control_deck,
             audio,
-            frame_pool,
+            frame_tx,
             frame_latency: 1,
             target_frame_duration,
-            last_clock_time: Instant::now(),
-            clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
             frame_count: 0,
             frame_time_diag: FrameTimeDiag::new(),
@@ -334,14 +365,17 @@ impl State {
                     match step {
                         DebugStep::Into => {
                             self.write_deck(|deck| deck.clock_instr());
+                            self.send_frame();
                         }
                         DebugStep::Out => {
                             // TODO: track stack frames list on jsr, irq, brk
                             // while stack frame == previous stack frame, clock_instr, send_frame
+                            // self.send_frame();
                         }
                         DebugStep::Over => {
                             // TODO: track stack frames list on jsr, irq, brk
                             // while stack frame != previous stack frame, clock_instr, send_frame
+                            // self.send_frame();
                         }
                         DebugStep::Scanline => {
                             if self.write_deck(|deck| deck.clock_scanline()).is_some() {
@@ -394,6 +428,19 @@ impl State {
                     }
                 }
             }
+            EmulationEvent::Occluded(occluded) => {
+                self.occluded = *occluded;
+                if self.control_deck.is_running() {
+                    if self.occluded {
+                        if let Some(rom) = self.control_deck.loaded_rom() {
+                            if let Err(err) = self.record.stop(rom) {
+                                self.on_error(err);
+                            }
+                        }
+                    }
+                    self.audio.pause(self.occluded);
+                }
+            }
             EmulationEvent::Pause(paused) => {
                 if self.control_deck.is_running() {
                     self.pause(*paused);
@@ -419,7 +466,9 @@ impl State {
                 if self.control_deck.is_running() {
                     if self.rewind.enabled {
                         self.rewinding = *rewind;
-                        self.add_message("Rewinding...");
+                        if self.rewinding {
+                            self.add_message("Rewinding...");
+                        }
                     } else {
                         self.rewind_disabled();
                     }
@@ -517,6 +566,9 @@ impl State {
             }
             ConfigEvent::RunAhead(run_ahead) => self.run_ahead = *run_ahead,
             ConfigEvent::SaveSlot(slot) => self.save_slot = *slot,
+            ConfigEvent::MapperRevisions(revs) => {
+                self.control_deck.set_mapper_revisions(*revs);
+            }
             ConfigEvent::Speed(speed) => {
                 self.speed = *speed;
                 self.control_deck.set_frame_speed(*speed);
@@ -539,12 +591,11 @@ impl State {
         self.frame_time_diag
             .push(self.last_frame_time.elapsed().as_secs_f32());
         self.last_frame_time = Instant::now();
-
         if let Some(frame_time) = self.frame_time_diag.avg() {
             let frame_time_max = self
                 .frame_time_diag
                 .history()
-                .fold(-f32::INFINITY, |a, &b| a.max(b));
+                .fold(-f32::INFINITY, |a, b| a.max(*b));
             let fps = 1.0 / frame_time;
             let fps_min = 1.0 / frame_time_max;
             self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
@@ -558,9 +609,17 @@ impl State {
     }
 
     fn send_frame(&mut self) {
-        if let Ok(mut frame) = self.frame_pool.push_ref() {
+        // IMPORTANT: Wasm can't block
+        if self.audio.enabled() || cfg!(target_arch = "wasm32") {
+            if let Ok(mut frame) = self.frame_tx.try_send_ref() {
+                self.control_deck.frame_buffer_into(&mut frame);
+                self.tx
+                    .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
+            }
+        } else if let Ok(mut frame) = self.frame_tx.send_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
-            self.tx.nes_event(RendererEvent::RequestRedraw);
+            self.tx
+                .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
         }
     }
 
@@ -720,80 +779,84 @@ impl State {
         }
     }
 
-    fn clock(&mut self) {
+    fn clock_frame(&mut self) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        let park_epsilon = Duration::from_millis(1);
+        // Park if we're paused, occluded, or not running
         if self.paused || self.occluded || !self.control_deck.is_running() {
+            // But if we're only running + paused and not occluded, send a frame
             if self.paused && !self.occluded && self.control_deck.is_running() {
                 self.send_frame();
             }
-            return std::thread::park();
-        }
-
-        let last_clock_duration = self.last_clock_time.elapsed();
-        self.last_clock_time = Instant::now();
-        self.clock_time_accumulator += last_clock_duration.as_secs_f32();
-        if self.clock_time_accumulator > 0.020 {
-            self.clock_time_accumulator = 0.020;
+            park_timeout(self.target_frame_duration - park_epsilon);
+            return;
+        } else if !self.rewinding
+            && self.audio.enabled()
+            && self.audio.queued_time() >= self.audio.latency
+        {
+            park_timeout(self.audio.queued_time().saturating_sub(self.audio.latency));
         }
 
         // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
         // not rewinding, otherwise fall back to time-based clocking
-        let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
-        let frame_duration_secs = self.target_frame_duration.as_secs_f32();
+        // let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
         let mut run_ahead = self.run_ahead;
         if self.speed > 1.0 {
             run_ahead = 0;
         }
-        while if self.audio.enabled() && !self.rewinding {
-            self.audio.queued_time() <= self.audio.latency && clocked_frames <= self.frame_latency
-        } else {
-            self.clock_time_accumulator >= frame_duration_secs
-        } {
-            #[cfg(feature = "profiling")]
-            puffin::profile_scope!("clock");
 
-            if self.rewinding {
-                match self.rewind.pop() {
-                    Some(cpu) => self.control_deck.load_cpu(cpu),
-                    None => self.rewinding = false,
-                }
-                self.send_frame();
-            } else {
-                if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
-                    self.on_emulation_event(&event);
-                }
-                let res = self.control_deck.clock_frame_ahead(
-                    run_ahead,
-                    |_cycles, frame_buffer, audio_samples| {
-                        self.audio.process(audio_samples);
-                        if let Ok(mut frame) = self.frame_pool.push_ref() {
-                            frame.clear();
-                            frame.extend_from_slice(frame_buffer);
-                            self.tx.nes_event(RendererEvent::RequestRedraw);
+        if self.rewinding {
+            match self.rewind.pop() {
+                Some(cpu) => self.control_deck.load_cpu(cpu),
+                None => self.rewinding = false,
+            }
+            self.send_frame();
+            self.update_frame_stats();
+            park_timeout(self.target_frame_duration - park_epsilon);
+        } else {
+            if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
+                self.on_emulation_event(&event);
+            }
+            let res = self.control_deck.clock_frame_ahead(
+                run_ahead,
+                |_cycles, frame_buffer, audio_samples| {
+                    self.audio.process(audio_samples);
+                    let mut send_frame = |frame: &mut Frame| {
+                        frame.clear();
+                        frame.extend_from_slice(frame_buffer);
+                        self.tx
+                            .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
+                    };
+                    // IMPORTANT: Wasm can't block
+                    if self.audio.enabled() || cfg!(target_arch = "wasm32") {
+                        match self.frame_tx.try_send_ref() {
+                            Ok(mut frame) => send_frame(&mut frame),
+                            Err(TrySendError::Full(_)) => (),
+                            Err(_) => shutdown("failed to get frame"),
                         }
-                    },
-                );
-                match res {
-                    Ok(()) => {
-                        self.update_frame_stats();
-                        if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
-                            self.rewind.set_enabled(false);
-                            self.on_error(err);
-                            break;
+                    } else {
+                        match self.frame_tx.send_ref() {
+                            Ok(mut frame) => send_frame(&mut frame),
+                            Err(_) => shutdown("failed to get frame"),
                         }
                     }
-                    Err(err) => {
-                        self.pause(true);
+                },
+            );
+            match res {
+                Ok(()) => {
+                    self.update_frame_stats();
+                    if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
+                        self.rewind.set_enabled(false);
                         self.on_error(err);
-                        break;
                     }
+                }
+                Err(err) => {
+                    self.pause(true);
+                    self.on_error(err);
                 }
             }
-
-            self.clock_time_accumulator -= frame_duration_secs;
-            clocked_frames += 1;
         }
     }
 }

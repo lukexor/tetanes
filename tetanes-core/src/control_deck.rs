@@ -7,7 +7,7 @@ use crate::{
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
-    mapper::Mapper,
+    mapper::{Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
     mem::RamState,
     ppu::Ppu,
     video::{Video, VideoFilter},
@@ -70,7 +70,24 @@ bitflags! {
     }
 }
 
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub struct MapperRevisions {
+    pub mmc3: Mmc3Revision,
+    pub bf909: Bf909Revision,
+}
+
+impl MapperRevisions {
+    pub fn set(&mut self, rev: MapperRevision) {
+        match rev {
+            MapperRevision::Mmc3(rev) => self.mmc3 = rev,
+            MapperRevision::Bf909(rev) => self.bf909 = rev,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 #[must_use]
 /// Control deck configuration settings.
 pub struct Config {
@@ -97,6 +114,8 @@ pub struct Config {
     pub headless_mode: HeadlessMode,
     /// Data directory for storing battery-backed RAM.
     pub data_dir: Option<PathBuf>,
+    /// Which mapper revisions to emulate for any ROM loaded that uses this mapper.
+    pub mapper_revisions: MapperRevisions,
 }
 
 impl Config {
@@ -132,6 +151,7 @@ impl Default for Config {
             channels_enabled: [true; Apu::MAX_CHANNEL_COUNT],
             headless_mode: HeadlessMode::empty(),
             data_dir: Self::default_data_dir(),
+            mapper_revisions: MapperRevisions::default(),
         }
     }
 }
@@ -147,6 +167,7 @@ pub struct ControlDeck {
     pub sram_dir: Option<PathBuf>,
     pub cart_battery_backed: bool,
     pub cart_region: NesRegion,
+    pub mapper_revisions: MapperRevisions,
     pub auto_detect_region: bool,
     pub cycles_remaining: f32,
     pub cpu: Cpu,
@@ -165,36 +186,37 @@ impl ControlDeck {
     }
 
     /// Create a NES `ControlDeck` with a configuration.
-    pub fn with_config(config: Config) -> Self {
-        let mut cpu = Cpu::new(Bus::new(config.region, config.ram_state));
-        cpu.bus.ppu.skip_rendering = config.headless_mode.contains(HeadlessMode::NO_VIDEO);
-        cpu.bus.apu.skip_mixing = config.headless_mode.contains(HeadlessMode::NO_AUDIO);
-        if config.region.is_auto() {
+    pub fn with_config(cfg: Config) -> Self {
+        let mut cpu = Cpu::new(Bus::new(cfg.region, cfg.ram_state));
+        cpu.bus.ppu.skip_rendering = cfg.headless_mode.contains(HeadlessMode::NO_VIDEO);
+        cpu.bus.apu.skip_mixing = cfg.headless_mode.contains(HeadlessMode::NO_AUDIO);
+        if cfg.region.is_auto() {
             cpu.set_region(NesRegion::Ntsc);
         } else {
-            cpu.set_region(config.region);
+            cpu.set_region(cfg.region);
         }
-        cpu.bus.input.set_concurrent_dpad(config.concurrent_dpad);
-        cpu.bus.input.set_four_player(config.four_player);
-        cpu.bus.input.connect_zapper(config.zapper);
-        for (i, enabled) in config.channels_enabled.iter().enumerate() {
+        cpu.bus.input.set_concurrent_dpad(cfg.concurrent_dpad);
+        cpu.bus.input.set_four_player(cfg.four_player);
+        cpu.bus.input.connect_zapper(cfg.zapper);
+        for (i, enabled) in cfg.channels_enabled.iter().enumerate() {
             cpu.bus
                 .apu
                 .set_channel_enabled(Channel::try_from(i).expect("valid APU channel"), *enabled);
         }
-        for genie_code in config.genie_codes.iter().cloned() {
+        for genie_code in cfg.genie_codes.iter().cloned() {
             cpu.bus.add_genie_code(genie_code);
         }
-        let video = Video::with_filter(config.filter);
+        let video = Video::with_filter(cfg.filter);
         Self {
             running: false,
             video,
             last_frame_number: 0,
             loaded_rom: None,
-            sram_dir: config.sram_dir(),
+            sram_dir: cfg.sram_dir(),
             cart_battery_backed: false,
             cart_region: NesRegion::Ntsc,
-            auto_detect_region: config.region.is_auto(),
+            mapper_revisions: cfg.mapper_revisions,
+            auto_detect_region: cfg.region.is_auto(),
             cycles_remaining: 0.0,
             cpu,
         }
@@ -223,6 +245,7 @@ impl ControlDeck {
             self.cpu.set_region(self.cart_region);
         }
         self.cpu.bus.load_cart(cart);
+        self.update_mapper_revisions();
         self.reset(ResetKind::Hard);
         self.running = true;
         if let Some(path) = self.sram_path(&name) {
@@ -265,6 +288,32 @@ impl ControlDeck {
     #[inline]
     pub fn load_cpu(&mut self, cpu: Cpu) {
         self.cpu.load(cpu);
+    }
+
+    /// Set the [`MapperRevision`] to emulate for the any ROM loaded that uses this mapper.
+    #[inline]
+    pub fn set_mapper_revision(&mut self, rev: MapperRevision) {
+        self.mapper_revisions.set(rev);
+        self.update_mapper_revisions();
+    }
+
+    /// Set the set of [`MapperRevisions`] to emulate for the any ROM loaded that uses this mapper.
+    #[inline]
+    pub fn set_mapper_revisions(&mut self, revs: MapperRevisions) {
+        self.mapper_revisions = revs;
+        self.update_mapper_revisions();
+    }
+
+    fn update_mapper_revisions(&mut self) {
+        match &mut self.cpu.bus.ppu.bus.mapper {
+            Mapper::Txrom(mapper) => {
+                mapper.set_revision(self.mapper_revisions.mmc3);
+            }
+            Mapper::Bf909x(mapper) => {
+                mapper.set_revision(self.mapper_revisions.bf909);
+            }
+            _ => (),
+        }
     }
 
     /// Set whether concurrent D-Pad input is enabled which wasn't possible on the original NES.
