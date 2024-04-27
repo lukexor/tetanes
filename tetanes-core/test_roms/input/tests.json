@@ -9,7 +9,10 @@
       {
         "number": 0,
         "action": {
-          "ZapperAim": [10, 10]
+          "ZapperAim": [
+            10,
+            10
+          ]
         }
       },
       {
@@ -32,7 +35,6 @@
   },
   {
     "name": "zapper_light",
-    "audio": true,
     "frames": [
       {
         "number": 0,
@@ -41,7 +43,10 @@
       {
         "number": 0,
         "action": {
-          "ZapperAim": [10, 10]
+          "ZapperAim": [
+            10,
+            10
+          ]
         }
       },
       {
@@ -50,30 +55,33 @@
       },
       {
         "number": 5,
-        "hash": 14758896780652774471,
-        "audio": true
+        "hash": 6938715125728246139
       },
       {
         "number": 5,
         "action": {
-          "ZapperAim": [61, 61]
+          "ZapperAim": [
+            61,
+            61
+          ]
         }
       },
       {
         "number": 6,
-        "hash": 1663876347477948190,
-        "audio": true
+        "hash": 16107895265351219005
       },
       {
         "number": 7,
         "action": {
-          "ZapperAim": [194, 178]
+          "ZapperAim": [
+            194,
+            178
+          ]
         }
       },
       {
         "number": 8,
-        "hash": 8563339329510678956,
-        "audio": true
+        "hash": 4729006994745092107
       }
     ]
   },

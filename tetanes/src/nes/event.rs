@@ -25,7 +25,7 @@ use tetanes_core::{
 };
 use tracing::{error, trace};
 use winit::{
-    event::{ElementState, Event, Modifiers, StartCause, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, Modifiers, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
     keyboard::PhysicalKey,
     window::Fullscreen,
@@ -51,7 +51,6 @@ impl SendNesEvent for EventLoopProxy<NesEvent> {
 pub enum UiEvent {
     Error(String),
     Message(String),
-    IgnoreInputActions(bool),
     LoadRomDialog,
     LoadReplayDialog,
     Terminate,
@@ -191,7 +190,6 @@ impl From<ConfigEvent> for NesEvent {
 #[must_use]
 pub struct State {
     pub input_bindings: InputBindings,
-    pub pending_keybind: bool,
     pub modifiers: Modifiers,
     pub occluded: bool,
     pub paused: bool,
@@ -204,7 +202,6 @@ impl State {
     pub fn new(cfg: &Config) -> Self {
         Self {
             input_bindings: InputBindings::from_input_config(&cfg.input),
-            pending_keybind: false,
             modifiers: Modifiers::default(),
             occluded: false,
             paused: false,
@@ -232,53 +229,77 @@ impl Nes {
 
         let mut repaint = false;
         match event {
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
-                repaint = true;
+            // TODO: Technically on native platforms, window/rendering shouldn't be initialized until
+            // Resumed is called, but that requires async which we can't do on wasm - so that would
+            // require a separate initialization path.
+            Event::Resumed | Event::Suspended => (),
+            Event::MemoryWarning => {
+                self.add_message("Your system memory is running low...");
             }
+            Event::NewEvents(cause) => match cause {
+                StartCause::ResumeTimeReached { .. } => repaint = true,
+                StartCause::WaitCancelled { .. } => (),
+                StartCause::Poll => (),
+                StartCause::Init => (),
+            },
             Event::AboutToWait => {
                 #[cfg(feature = "profiling")]
                 puffin::GlobalProfiler::lock().new_frame();
                 self.emulation.clock_frame();
             }
+            Event::DeviceEvent {
+                device_id: _,
+                event,
+            } => {
+                if !matches!(
+                    event,
+                    DeviceEvent::Motion { .. } | DeviceEvent::MouseMotion { .. }
+                ) {
+                    // println!("{device_id:?}, {event:?}");
+                }
+            }
             Event::WindowEvent {
                 window_id, event, ..
             } => {
-                self.renderer.on_window_event(&self.window, &event);
+                let res = self.renderer.on_window_event(&self.window, &event);
+                if res.repaint {
+                    repaint = true;
+                }
 
-                match event {
-                    WindowEvent::CloseRequested | WindowEvent::Destroyed => {
-                        if window_id == self.window.id() {
-                            event_loop.exit();
-                        }
-                    }
-                    WindowEvent::RedrawRequested => {
-                        if !self.state.occluded {
-                            if let Err(err) = self.renderer.request_redraw(
-                                &self.window,
-                                event_loop,
-                                &mut self.cfg,
-                            ) {
-                                self.on_error(err);
+                if !res.consumed {
+                    match event {
+                        WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                            if window_id == self.window.id() {
+                                event_loop.exit();
                             }
                         }
-                    }
-                    WindowEvent::Occluded(occluded) => {
-                        if window_id == self.window.id() {
-                            self.state.occluded = occluded;
-                            self.nes_event(EmulationEvent::Occluded(self.state.occluded));
-                            event_loop.set_control_flow(if occluded {
-                                ControlFlow::Wait
-                            } else {
-                                ControlFlow::Poll
-                            });
+                        WindowEvent::RedrawRequested => {
+                            if !self.state.occluded {
+                                if let Err(err) = self.renderer.request_redraw(
+                                    &self.window,
+                                    event_loop,
+                                    &mut self.cfg,
+                                ) {
+                                    self.on_error(err);
+                                }
+                            }
                         }
-                        if !occluded {
+                        WindowEvent::Occluded(occluded) => {
+                            if window_id == self.window.id() {
+                                self.state.occluded = occluded;
+                                self.nes_event(EmulationEvent::Occluded(self.state.occluded));
+                                event_loop.set_control_flow(if occluded {
+                                    ControlFlow::Wait
+                                } else {
+                                    ControlFlow::Poll
+                                });
+                            }
+                            if !occluded {
+                                repaint = true;
+                            }
+                        }
+                        WindowEvent::KeyboardInput { event, .. } => {
                             repaint = true;
-                        }
-                    }
-                    WindowEvent::KeyboardInput { event, .. } => {
-                        repaint = true;
-                        if !self.state.pending_keybind {
                             if let PhysicalKey::Code(key) = event.physical_key {
                                 self.on_input(
                                     Input::Key(key, self.state.modifiers.state()),
@@ -287,40 +308,44 @@ impl Nes {
                                 );
                             }
                         }
-                    }
-                    WindowEvent::ModifiersChanged(modifiers) => {
-                        repaint = true;
-                        if !self.state.pending_keybind {
+                        WindowEvent::ModifiersChanged(modifiers) => {
+                            repaint = true;
                             self.state.modifiers = modifiers
                         }
-                    }
-                    WindowEvent::MouseInput { button, state, .. } => {
-                        repaint = true;
-                        if !self.state.pending_keybind {
+                        WindowEvent::MouseInput { button, state, .. } => {
+                            repaint = true;
                             self.on_input(Input::Mouse(button), state, false);
                         }
+                        WindowEvent::AxisMotion {
+                            device_id: _,
+                            axis: _,
+                            value: _,
+                        } => {
+                            // println!("{device_id:?}, {axis:?}, {value:?}");
+                        }
+                        // All things that may require a repaint
+                        WindowEvent::Focused(_)
+                        | WindowEvent::CursorEntered { .. }
+                        | WindowEvent::CursorLeft { .. }
+                        | WindowEvent::CursorMoved { .. }
+                        | WindowEvent::HoveredFile(_)
+                        | WindowEvent::HoveredFileCancelled
+                        | WindowEvent::MouseWheel { .. }
+                        | WindowEvent::Moved(..)
+                        | WindowEvent::Resized(..)
+                        | WindowEvent::ScaleFactorChanged { .. }
+                        | WindowEvent::SmartMagnify { .. }
+                        | WindowEvent::ThemeChanged(..)
+                        | WindowEvent::Touch { .. }
+                        | WindowEvent::TouchpadMagnify { .. }
+                        | WindowEvent::TouchpadPressure { .. }
+                        | WindowEvent::TouchpadRotate { .. } => repaint = true,
+                        WindowEvent::DroppedFile(path) => {
+                            self.nes_event(EmulationEvent::LoadRomPath(path));
+                        }
+                        // Don't care about these
+                        WindowEvent::ActivationTokenDone { .. } | WindowEvent::Ime(_) => (),
                     }
-                    WindowEvent::Focused(_)
-                    | WindowEvent::MouseWheel { .. }
-                    | WindowEvent::CursorMoved { .. }
-                    | WindowEvent::CursorEntered { .. }
-                    | WindowEvent::CursorLeft { .. }
-                    | WindowEvent::Touch { .. }
-                    | WindowEvent::Resized(..)
-                    | WindowEvent::Moved(..)
-                    | WindowEvent::ThemeChanged(..) => repaint = true,
-                    WindowEvent::DroppedFile(path) => {
-                        self.nes_event(EmulationEvent::LoadRomPath(path));
-                    }
-                    WindowEvent::HoveredFile(_) => {
-                        // TODO: Show file drop cursor
-                        repaint = true;
-                    }
-                    WindowEvent::HoveredFileCancelled => {
-                        repaint = true;
-                        // TODO: Restore cursor
-                    }
-                    _ => (),
                 }
             }
             Event::UserEvent(event) => {
@@ -360,7 +385,6 @@ impl Nes {
                     error!("{err:?}");
                 }
             }
-            _ => (),
         }
         if repaint {
             self.window.request_redraw();
@@ -371,7 +395,6 @@ impl Nes {
         match event {
             UiEvent::Message(msg) => self.add_message(msg),
             UiEvent::Error(err) => self.on_error(anyhow!(err)),
-            UiEvent::IgnoreInputActions(pending) => self.state.pending_keybind = pending,
             UiEvent::LoadRomDialog => {
                 match open_file_dialog(
                     "Load ROM",

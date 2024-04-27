@@ -48,21 +48,14 @@ pub struct FrameStats {
 
 impl FrameStats {
     pub fn new() -> Self {
-        let target_fps = 60.0;
-        let target_frame_time = 1.0 / target_fps;
-        Self {
-            fps: target_fps,
-            fps_min: target_fps,
-            frame_time: target_frame_time,
-            frame_time_max: target_frame_time,
-            frame_count: 0,
-        }
+        Self::default()
     }
 }
 
 #[derive(Debug)]
 #[must_use]
 pub struct FrameTimeDiag {
+    frame_count: usize,
     history: VecDeque<f32>,
     sum: f32,
     avg: f32,
@@ -71,40 +64,40 @@ pub struct FrameTimeDiag {
 
 impl FrameTimeDiag {
     const MAX_HISTORY: usize = 120;
-    const UPDATE_INTERVAL: Duration = Duration::from_millis(500);
+    const UPDATE_INTERVAL: Duration = Duration::from_millis(300);
 
     fn new() -> Self {
-        let mut frame_time_diag = Self {
+        Self {
+            frame_count: 0,
             history: VecDeque::with_capacity(Self::MAX_HISTORY),
             sum: 0.0,
-            avg: 0.0,
+            avg: 1.0 / 60.0,
             last_update: Instant::now(),
-        };
-        frame_time_diag.reset();
-        frame_time_diag
+        }
     }
 
     fn push(&mut self, frame_time: f32) {
-        if !frame_time.is_finite() {
-            return;
-        }
-        if self.history.len() >= Self::MAX_HISTORY {
-            if let Some(oldest) = self.history.pop_front() {
-                self.sum -= oldest;
+        self.frame_count += 1;
+
+        // Ignore the first few frames to allow the average to stabilize
+        if frame_time.is_finite() && self.frame_count >= 10 {
+            if self.history.len() >= Self::MAX_HISTORY {
+                if let Some(oldest) = self.history.pop_front() {
+                    self.sum -= oldest;
+                }
             }
+            self.sum += frame_time;
+            self.history.push_back(frame_time);
         }
-        self.sum += frame_time;
-        self.history.push_back(frame_time);
     }
 
     fn avg(&mut self) -> f32 {
-        if self.history.is_empty() {
-            return 0.0;
-        }
-        let now = Instant::now();
-        if now > self.last_update + Self::UPDATE_INTERVAL {
-            self.last_update = now;
-            self.avg = self.sum / self.history.len() as f32;
+        if !self.history.is_empty() {
+            let now = Instant::now();
+            if now > self.last_update + Self::UPDATE_INTERVAL {
+                self.last_update = now;
+                self.avg = self.sum / self.history.len() as f32;
+            }
         }
         self.avg
     }
@@ -114,13 +107,11 @@ impl FrameTimeDiag {
     }
 
     fn reset(&mut self) {
-        let target_frame_time = 1.0 / 60.0;
+        self.frame_count = 0;
         self.history.clear();
-        for _ in 0..Self::MAX_HISTORY {
-            self.history.push_back(target_frame_time);
-        }
-        self.sum = Self::MAX_HISTORY as f32 * target_frame_time;
-        self.avg = target_frame_time;
+        self.sum = 0.0;
+        self.avg = 1.0 / 60.0;
+        self.last_update = Instant::now();
     }
 }
 
@@ -245,7 +236,6 @@ pub struct State {
     frame_latency: usize,
     target_frame_duration: Duration,
     last_frame_time: Instant,
-    frame_count: usize,
     frame_time_diag: FrameTimeDiag,
     occluded: bool,
     paused: bool,
@@ -289,7 +279,6 @@ impl State {
             frame_latency: 1,
             target_frame_duration,
             last_frame_time: Instant::now(),
-            frame_count: 0,
             frame_time_diag: FrameTimeDiag::new(),
             occluded: false,
             paused: true,
@@ -578,8 +567,6 @@ impl State {
     }
 
     fn update_frame_stats(&mut self) {
-        self.frame_count += 1;
-
         self.frame_time_diag
             .push(self.last_frame_time.elapsed().as_secs_f32());
         self.last_frame_time = Instant::now();
@@ -588,29 +575,35 @@ impl State {
             .frame_time_diag
             .history()
             .fold(-f32::INFINITY, |a, b| a.max(*b));
-        let fps = 1.0 / frame_time;
-        let fps_min = 1.0 / frame_time_max;
+        let mut fps = 1.0 / frame_time;
+        let mut fps_min = 1.0 / frame_time_max;
+        if !fps.is_finite() {
+            fps = 0.0;
+        }
+        if !fps_min.is_finite() {
+            fps_min = 0.0;
+        }
         self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
             fps,
             fps_min,
             frame_time: frame_time * 1000.0,
             frame_time_max: frame_time_max * 1000.0,
-            frame_count: self.frame_count,
+            frame_count: self.frame_time_diag.frame_count,
         }));
     }
 
     fn send_frame(&mut self) {
+        // Indicate we want to redraw to ensure there's a frame slot made available if
+        // the pool is already full
+        self.tx
+            .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
         // IMPORTANT: Wasm can't block
         if self.audio.enabled() || cfg!(target_arch = "wasm32") {
             if let Ok(mut frame) = self.frame_tx.try_send_ref() {
                 self.control_deck.frame_buffer_into(&mut frame);
-                self.tx
-                    .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
             }
         } else if let Ok(mut frame) = self.frame_tx.send_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
-            self.tx
-                .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
         }
     }
 
@@ -648,8 +641,8 @@ impl State {
             if let Err(err) = self.control_deck.unload_rom() {
                 self.on_error(err);
             }
-            self.frame_time_diag.reset();
             self.tx.nes_event(RendererEvent::RomUnloaded);
+            self.frame_time_diag.reset();
         }
     }
 
@@ -662,7 +655,6 @@ impl State {
                 }
             }
         }
-        self.frame_time_diag.reset();
         self.tx.nes_event(RendererEvent::RomLoaded((
             name,
             self.control_deck.cart_region,
@@ -671,6 +663,9 @@ impl State {
             self.on_error(err);
         }
         self.pause(false);
+        self.frame_time_diag.reset();
+        // To avoid having a large dip in frame stats after loading
+        self.last_frame_time = Instant::now();
     }
 
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {
@@ -818,12 +813,14 @@ impl State {
                 run_ahead,
                 |_cycles, frame_buffer, audio_samples| {
                     self.audio.process(audio_samples);
-                    let mut send_frame = |frame: &mut Frame| {
+                    let send_frame = |frame: &mut Frame| {
                         frame.clear();
                         frame.extend_from_slice(frame_buffer);
-                        self.tx
-                            .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
                     };
+                    // Indicate we want to redraw to ensure there's a frame slot made available if
+                    // the pool is already full
+                    self.tx
+                        .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
                     // IMPORTANT: Wasm can't block
                     if self.audio.enabled() || cfg!(target_arch = "wasm32") {
                         match self.frame_tx.try_send_ref() {

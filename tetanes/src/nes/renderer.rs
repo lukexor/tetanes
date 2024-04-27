@@ -9,6 +9,7 @@ use crate::nes::{
 };
 use anyhow::Context;
 use egui::{ClippedPrimitive, SystemTheme, TexturesDelta, ViewportCommand};
+use egui_winit::EventResponse;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tetanes_core::{
@@ -355,8 +356,8 @@ impl Renderer {
     }
 
     /// Handle window event.
-    pub fn on_window_event(&mut self, window: &Window, event: &WindowEvent) {
-        let _ = self.egui_state.on_window_event(window, event);
+    pub fn on_window_event(&mut self, window: &Window, event: &WindowEvent) -> EventResponse {
+        let res = self.egui_state.on_window_event(window, event);
         match event {
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
@@ -371,7 +372,6 @@ impl Renderer {
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.screen_descriptor.pixels_per_point = *scale_factor as f32;
-                self.window.request_redraw();
             }
             WindowEvent::ThemeChanged(theme) => {
                 self.ctx
@@ -383,6 +383,7 @@ impl Renderer {
             }
             _ => (),
         }
+        res
     }
 
     pub fn on_config_event(&mut self, event: &ConfigEvent) {
@@ -560,7 +561,7 @@ impl Renderer {
         event_loop.set_control_flow(if self.repaint_delay.is_zero() {
             self.window.request_redraw();
             self.repaint_delay = Duration::from_secs_f32(1.0 / 60.0);
-            ControlFlow::Wait
+            ControlFlow::Poll
         } else if let Some(repaint_after) = Instant::now().checked_add(self.repaint_delay) {
             ControlFlow::WaitUntil(repaint_after)
         } else {

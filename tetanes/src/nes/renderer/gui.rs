@@ -272,37 +272,37 @@ impl Gui {
             .frame(Frame::none())
             .show(ctx, |ui| self.nes_frame(ui, cfg));
 
-        if self.pending_keybind.is_none() {
-            let mut show_perf_stats = cfg.renderer.show_perf_stats;
-            egui::Window::new("Performance Stats")
-                .open(&mut show_perf_stats)
-                .show(ctx, |ui| self.performance_stats(ui, cfg));
-            cfg.renderer.show_perf_stats = show_perf_stats;
+        let mut show_perf_stats = cfg.renderer.show_perf_stats;
+        egui::Window::new("Performance Stats")
+            .open(&mut show_perf_stats)
+            .enabled(self.pending_keybind.is_none())
+            .show(ctx, |ui| self.performance_stats(ui, cfg));
+        cfg.renderer.show_perf_stats = show_perf_stats;
 
-            let mut preferences_open = self.preferences_open;
-            egui::Window::new("Preferences")
-                .open(&mut preferences_open)
-                .show(ctx, |ui| self.preferences(ui, cfg));
-            self.preferences_open = preferences_open;
+        let mut preferences_open = self.preferences_open;
+        egui::Window::new("Preferences")
+            .open(&mut preferences_open)
+            .enabled(self.pending_keybind.is_none())
+            .show(ctx, |ui| self.preferences(ui, cfg));
+        self.preferences_open = preferences_open;
 
-            let mut keybinds_open = self.keybinds_open;
-            egui::Window::new("Keybinds")
-                .open(&mut keybinds_open)
-                .show(ctx, |ui| self.keybinds(ui, cfg));
-            self.keybinds_open = keybinds_open;
+        let mut keybinds_open = self.keybinds_open;
+        egui::Window::new("Keybinds")
+            .open(&mut keybinds_open)
+            .enabled(self.pending_keybind.is_none())
+            .show(ctx, |ui| self.keybinds(ui, cfg));
+        self.keybinds_open = keybinds_open;
 
-            let mut about_open = self.about_open;
-            egui::Window::new("About TetaNES")
-                .open(&mut about_open)
-                .show(ctx, |ui| self.about(ui));
-            self.about_open = about_open;
-        }
+        let mut about_open = self.about_open;
+        egui::Window::new("About TetaNES")
+            .open(&mut about_open)
+            .enabled(self.pending_keybind.is_none())
+            .show(ctx, |ui| self.about(ui));
+        self.about_open = about_open;
 
+        #[cfg(feature = "profiling")]
         {
-            #[cfg(feature = "profiling")]
             puffin::profile_scope!("puffin");
-
-            #[cfg(feature = "profiling")]
             puffin_egui::show_viewport_if_enabled(ctx);
         }
     }
@@ -364,7 +364,7 @@ impl Gui {
         if let Some(ref mut pending_keybind) = self.pending_keybind {
             let mut cancelled = false;
             let mut open = true;
-            egui::Window::new("Set Keybind")
+            let res = egui::Window::new("Set Keybind")
                 .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
                 .collapsible(false)
                 .resizable(false)
@@ -410,11 +410,15 @@ impl Gui {
                         });
                     } else {
                         ui.label(format!(
-                        "Press any key on your keyboard or controller to set a new binding for {}.",
-                        pending_keybind.action
-                    ));
+                            "Press any key on your keyboard or controller to set a new binding for {}.",
+                            pending_keybind.action
+                        ));
                     }
                 });
+            if let Some(ref res) = res {
+                ctx.move_to_top(res.response.layer_id);
+                res.response.request_focus();
+            }
 
             if !open {
                 self.pending_keybind = None;
@@ -479,8 +483,11 @@ impl Gui {
                                     }
                                 }
                             }
+                            if let Some(ref res) = res {
+                                ctx.memory_mut(|m| m.surrender_focus(res.response.id));
+                            }
+
                             self.pending_keybind = None;
-                            self.tx.nes_event(UiEvent::IgnoreInputActions(false));
                             self.tx.nes_event(ConfigEvent::InputBindings);
                         }
                     }
@@ -1180,8 +1187,13 @@ impl Gui {
             .spacing([40.0, 4.0])
             .striped(true)
             .show(ui, |ui| {
-                let update_interval = 4 * sysinfo::MINIMUM_CPU_UPDATE_INTERVAL;
-                if self.sys_updated.elapsed() > update_interval {
+                ui.ctx().request_repaint_after(Duration::from_secs(1));
+
+                // NOTE: refreshing sysinfo is cpu-intensive if done too frequently and skews the
+                // results
+                let sys_update_interval = Duration::from_secs(5);
+                assert!(sys_update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+                if self.sys_updated.elapsed() > sys_update_interval {
                     if let Some(ref mut sys) = self.sys {
                         sys.refresh_specifics(
                             RefreshKind::new().with_processes(
@@ -1192,7 +1204,6 @@ impl Gui {
                             ),
                         );
                     }
-                    ui.ctx().request_repaint_after(update_interval);
                     self.sys_updated = Instant::now();
                 }
 
@@ -1681,7 +1692,6 @@ impl Gui {
                                     input: None,
                                     conflict: None,
                                 });
-                                self.tx.nes_event(UiEvent::IgnoreInputActions(true));
                             } else if res.secondary_clicked() {
                                 if let Some(input) = input.take() {
                                     cfg.input.clear_binding(input);
@@ -1949,9 +1959,6 @@ impl Gui {
                     }
                     Err(err) => self.pending_genie_entry.error = Some(err.to_string()),
                 }
-                self.tx.nes_event(UiEvent::IgnoreInputActions(false));
-            } else if entry_res.gained_focus() {
-                self.tx.nes_event(UiEvent::IgnoreInputActions(true));
             }
         });
         if let Some(error) = &self.pending_genie_entry.error {
@@ -2067,7 +2074,7 @@ impl Gui {
     }
 }
 
-fn bytes_to_mb(bytes: u64) -> u64 {
+const fn bytes_to_mb(bytes: u64) -> u64 {
     bytes / 0x100000
 }
 
