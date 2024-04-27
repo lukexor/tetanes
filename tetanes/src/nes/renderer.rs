@@ -23,7 +23,7 @@ use wgpu::util::DeviceExt;
 use winit::{
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
-    window::{Theme, Window},
+    window::{Theme, Window, WindowId},
 };
 
 pub mod gui;
@@ -67,6 +67,7 @@ pub struct Renderer {
     repaint_delay: Duration,
     textures: TexturesDelta,
 }
+
 impl std::fmt::Debug for Renderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Renderer")
@@ -356,8 +357,8 @@ impl Renderer {
     }
 
     /// Handle window event.
-    pub fn on_window_event(&mut self, window: &Window, event: &WindowEvent) -> EventResponse {
-        let res = self.egui_state.on_window_event(window, event);
+    pub fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> EventResponse {
+        let res = self.egui_state.on_window_event(&self.window, event);
         match event {
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {

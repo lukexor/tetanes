@@ -261,7 +261,7 @@ impl Nes {
             Event::WindowEvent {
                 window_id, event, ..
             } => {
-                let res = self.renderer.on_window_event(&self.window, &event);
+                let res = self.renderer.on_window_event(window_id, &event);
                 if res.repaint {
                     repaint = true;
                 }

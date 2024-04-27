@@ -15,7 +15,7 @@ use egui::{
     menu, Align, Align2, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon, Direction,
     DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Key, KeyboardShortcut,
     Layout, Modifiers, PointerButton, Pos2, Rect, Response, RichText, ScrollArea, Sense, Slider,
-    TextStyle, TopBottomPanel, Ui, Vec2, Widget, WidgetText,
+    TextStyle, TopBottomPanel, Ui, Vec2, ViewportClass, Widget, WidgetText,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -272,33 +272,10 @@ impl Gui {
             .frame(Frame::none())
             .show(ctx, |ui| self.nes_frame(ui, cfg));
 
-        let mut show_perf_stats = cfg.renderer.show_perf_stats;
-        egui::Window::new("Performance Stats")
-            .open(&mut show_perf_stats)
-            .enabled(self.pending_keybind.is_none())
-            .show(ctx, |ui| self.performance_stats(ui, cfg));
-        cfg.renderer.show_perf_stats = show_perf_stats;
-
-        let mut preferences_open = self.preferences_open;
-        egui::Window::new("Preferences")
-            .open(&mut preferences_open)
-            .enabled(self.pending_keybind.is_none())
-            .show(ctx, |ui| self.preferences(ui, cfg));
-        self.preferences_open = preferences_open;
-
-        let mut keybinds_open = self.keybinds_open;
-        egui::Window::new("Keybinds")
-            .open(&mut keybinds_open)
-            .enabled(self.pending_keybind.is_none())
-            .show(ctx, |ui| self.keybinds(ui, cfg));
-        self.keybinds_open = keybinds_open;
-
-        let mut about_open = self.about_open;
-        egui::Window::new("About TetaNES")
-            .open(&mut about_open)
-            .enabled(self.pending_keybind.is_none())
-            .show(ctx, |ui| self.about(ui));
-        self.about_open = about_open;
+        self.show_performance_viewport(ctx, cfg);
+        self.show_preferences_viewport(ctx, cfg);
+        self.show_keybinds_viewport(ctx, cfg);
+        self.show_about_viewport(ctx);
 
         #[cfg(feature = "profiling")]
         {
@@ -540,6 +517,118 @@ impl Gui {
                 }
             }
         }
+    }
+
+    fn show_performance_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
+        if !cfg.renderer.show_perf_stats {
+            return;
+        }
+
+        let title = "Performance Stats";
+        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("performance_stats"),
+            egui::ViewportBuilder::default().with_title(title),
+            |ctx, class| {
+                if class == ViewportClass::Embedded {
+                    let mut show_perf_stats = cfg.renderer.show_perf_stats;
+                    egui::Window::new(title)
+                        .open(&mut show_perf_stats)
+                        .enabled(self.pending_keybind.is_none())
+                        .show(ctx, |ui| self.performance_stats(ui, cfg));
+                    cfg.renderer.show_perf_stats = show_perf_stats;
+                } else {
+                    CentralPanel::default().show(ctx, |ui| self.performance_stats(ui, cfg));
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        cfg.renderer.show_perf_stats = false;
+                    }
+                }
+            },
+        );
+    }
+
+    fn show_preferences_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
+        if !self.preferences_open {
+            return;
+        }
+
+        let title = "Preferences";
+        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("preferences"),
+            egui::ViewportBuilder::default().with_title(title),
+            |ctx, class| {
+                if class == ViewportClass::Embedded {
+                    let mut preferences_open = self.preferences_open;
+                    egui::Window::new(title)
+                        .open(&mut preferences_open)
+                        .enabled(self.pending_keybind.is_none())
+                        .show(ctx, |ui| self.preferences(ui, cfg));
+                    self.preferences_open = preferences_open;
+                } else {
+                    CentralPanel::default().show(ctx, |ui| self.preferences(ui, cfg));
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.preferences_open = false;
+                    }
+                }
+            },
+        );
+    }
+
+    fn show_keybinds_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
+        if !self.keybinds_open {
+            return;
+        }
+
+        let title = "Preferences";
+        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("preferences"),
+            egui::ViewportBuilder::default().with_title(title),
+            |ctx, class| {
+                if class == ViewportClass::Embedded {
+                    let mut keybinds_open = self.keybinds_open;
+                    egui::Window::new("Keybinds")
+                        .open(&mut keybinds_open)
+                        .enabled(self.pending_keybind.is_none())
+                        .show(ctx, |ui| self.keybinds(ui, cfg));
+                    self.keybinds_open = keybinds_open;
+                } else {
+                    CentralPanel::default().show(ctx, |ui| self.keybinds(ui, cfg));
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.keybinds_open = false;
+                    }
+                }
+            },
+        );
+    }
+
+    fn show_about_viewport(&mut self, ctx: &Context) {
+        if !self.about_open {
+            return;
+        }
+
+        let title = "About TetaNES";
+        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("about"),
+            egui::ViewportBuilder::default().with_title(title),
+            |ctx, class| {
+                if class == ViewportClass::Embedded {
+                    let mut about_open = self.about_open;
+                    egui::Window::new("About TetaNES")
+                        .open(&mut about_open)
+                        .enabled(self.pending_keybind.is_none())
+                        .show(ctx, |ui| self.about(ui));
+                    self.about_open = about_open;
+                } else {
+                    CentralPanel::default().show(ctx, |ui| self.about(ui));
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.about_open = false;
+                    }
+                }
+            },
+        );
     }
 
     fn menu_bar(&mut self, ui: &mut Ui, cfg: &mut Config) {
