@@ -1054,7 +1054,7 @@ impl Renderer {
 
             let clipped_primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
             let screenshot_requested = std::mem::take(&mut viewport.screenshot_requested);
-            let (_, screenshot) = painter.borrow_mut().paint_and_update_textures(
+            painter.borrow_mut().paint_and_update_textures(
                 viewport_id,
                 output.pixels_per_point,
                 [0.0; 4],
@@ -1062,15 +1062,6 @@ impl Renderer {
                 &output.textures_delta,
                 screenshot_requested,
             );
-            if let Some(screenshot) = screenshot {
-                egui_state
-                    .egui_input_mut()
-                    .events
-                    .push(egui::Event::Screenshot {
-                        viewport_id,
-                        image: screenshot.into(),
-                    });
-            }
 
             if std::mem::take(&mut self.first_frame) {
                 window.set_visible(true);
