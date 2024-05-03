@@ -338,8 +338,11 @@ impl Renderer {
     }
 
     pub fn all_viewports_occluded(&self) -> bool {
-        let state = self.state.borrow();
-        state.viewports.values().all(|viewport| viewport.occluded)
+        self.state
+            .borrow()
+            .viewports
+            .values()
+            .all(|viewport| viewport.occluded)
     }
 
     pub fn window_id_for_viewport(&self, viewport_id: ViewportId) -> Option<WindowId> {

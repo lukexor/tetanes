@@ -378,28 +378,7 @@ impl Nes {
                     }
                 }
             }
-            Event::LoopExiting => {
-                #[cfg(feature = "profiling")]
-                puffin::set_scopes_on(false);
-
-                if let Some(state) = &mut self.state {
-                    // Save window scale on exit if not fullscreen
-                    if !state.renderer.fullscreen() {
-                        if let Some(size) = state.renderer.inner_size() {
-                            let texture_size = state.cfg.texture_size();
-                            let scale = if size.width() < size.height() {
-                                size.width() / texture_size.x
-                            } else {
-                                size.height() / texture_size.y
-                            };
-                            state.cfg.renderer.scale = scale.round().clamp(1.0, 5.0);
-                            if let Err(err) = state.cfg.save() {
-                                error!("failed to save configuration: {err:?}");
-                            }
-                        }
-                    }
-                }
-            }
+            Event::LoopExiting => (),
         }
 
         if let Some(state) = &mut self.state {
