@@ -61,9 +61,6 @@ pub struct Opts {
     /// Start fullscreen.
     #[arg(short, long)]
     pub(crate) fullscreen: bool,
-    /// Disable VSync.
-    #[arg(long)]
-    pub(crate) no_vsync: bool,
     /// Set four player adapter. [default: 'disabled']
     #[arg(short = '4', long, value_enum)]
     pub(crate) four_player: Option<FourPlayer>,
@@ -152,7 +149,6 @@ impl Opts {
 
         cfg.renderer.roms_path = self.path.or(cfg.renderer.roms_path);
         cfg.renderer.fullscreen = self.fullscreen || cfg.renderer.fullscreen;
-        cfg.renderer.vsync = !self.no_vsync && cfg.renderer.vsync;
 
         Ok(cfg)
     }

@@ -13,7 +13,7 @@ use winit::{
 pub const fn supports_impl(feature: Feature) -> bool {
     match feature {
         Feature::Suspend => cfg!(target_os = "android"),
-        Feature::Filesystem | Feature::ToggleVsync | Feature::Viewports => true,
+        Feature::Filesystem | Feature::Viewports => true,
     }
 }
 

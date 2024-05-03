@@ -84,7 +84,6 @@ Options:
       --rewind                     Enable rewinding
   -s, --silent                     Silence audio
   -f, --fullscreen                 Start fullscreen
-      --no-vsync                   Disable VSync
   -4, --four-player <FOUR_PLAYER>  Set four player adapter. [default: 'disabled']
                                    [possible values: disabled, four-score, satellite]
   -z, --zapper                     Enable zapper gun
@@ -425,7 +424,6 @@ When using the web version in the browser, also include:
   - [x] Gameplay Recording
   - [x] Sound Recording (Save those memorable tunes!)
   - [x] Toggle Fullscreen
-  - [x] Toggle VSync
   - [x] Toggle Sound
     - [x] Toggle individual sound channels
   - [x] Toggle FPS

@@ -236,6 +236,8 @@ pub struct State {
     frame_tx: BufSender<Frame, FrameRecycle>,
     frame_latency: usize,
     target_frame_duration: Duration,
+    last_clock_time: Instant,
+    clock_time_accumulator: f32,
     last_frame_time: Instant,
     frame_time_diag: FrameTimeDiag,
     occluded: bool,
@@ -279,6 +281,8 @@ impl State {
             frame_tx,
             frame_latency: 1,
             target_frame_duration,
+            last_clock_time: Instant::now(),
+            clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
             frame_time_diag: FrameTimeDiag::new(),
             occluded: false,
@@ -559,10 +563,7 @@ impl State {
             ConfigEvent::ZapperConnected(connected) => {
                 self.control_deck.connect_zapper(*connected);
             }
-            ConfigEvent::HideOverscan(_)
-            | ConfigEvent::InputBindings
-            | ConfigEvent::Scale(_)
-            | ConfigEvent::Vsync(_) => (),
+            ConfigEvent::HideOverscan(_) | ConfigEvent::InputBindings | ConfigEvent::Scale(_) => (),
         }
     }
 
@@ -775,9 +776,31 @@ impl State {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn should_park(&self) -> bool {
+        if self.audio.enabled() {
+            self.audio.queued_time() >= self.audio.latency
+        } else {
+            self.clock_time_accumulator < self.target_frame_duration.as_secs_f32()
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn should_park(&self) -> bool {
+        self.audio.enabled() && self.audio.queued_time() >= self.audio.latency
+    }
+
     fn clock_frame(&mut self) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
+        let last_clock_duration = self.last_clock_time.elapsed();
+        self.last_clock_time = Instant::now();
+        let frame_duration_secs = last_clock_duration.as_secs_f32();
+        self.clock_time_accumulator += frame_duration_secs;
+        if self.clock_time_accumulator > 0.020 {
+            self.clock_time_accumulator = 0.020;
+        }
 
         let park_epsilon = Duration::from_millis(1);
         // Park if we're paused, occluded, or not running
@@ -788,11 +811,9 @@ impl State {
             }
             thread::park_timeout(self.target_frame_duration - park_epsilon);
             return;
-        } else if !self.rewinding
-            && self.audio.enabled()
-            && self.audio.queued_time() >= self.audio.latency
-        {
+        } else if !self.rewinding && self.should_park() {
             thread::park_timeout(self.audio.queued_time().saturating_sub(self.audio.latency));
+            return;
         }
 
         // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
@@ -805,12 +826,14 @@ impl State {
 
         if self.rewinding {
             match self.rewind.pop() {
-                Some(cpu) => self.control_deck.load_cpu(cpu),
+                Some(cpu) => {
+                    self.control_deck.load_cpu(cpu);
+                    self.send_frame();
+                    self.update_frame_stats();
+                    thread::park_timeout(self.target_frame_duration - park_epsilon);
+                }
                 None => self.rewinding = false,
             }
-            self.send_frame();
-            self.update_frame_stats();
-            thread::park_timeout(self.target_frame_duration - park_epsilon);
         } else {
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                 self.on_emulation_event(&event);
@@ -823,7 +846,8 @@ impl State {
                         frame.clear();
                         frame.extend_from_slice(frame_buffer);
                     };
-                    // tracing::warn!("clock_frame");
+                    self.clock_time_accumulator -= frame_duration_secs;
+
                     // Indicate we want to redraw to ensure there's a frame slot made available if
                     // the pool is already full
                     self.tx.nes_event(RendererEvent::RequestRedraw {
@@ -832,6 +856,8 @@ impl State {
                     });
                     // IMPORTANT: Wasm can't block
                     if self.audio.enabled() || cfg!(target_arch = "wasm32") {
+                        // If audio is enabled or wasm, frame rate is controlled by park_timeout
+                        // above
                         match self.frame_tx.try_send_ref() {
                             Ok(mut frame) => send_frame(&mut frame),
                             Err(TrySendError::Full(_)) => {
@@ -840,6 +866,7 @@ impl State {
                             Err(_) => shutdown("failed to get frame"),
                         }
                     } else {
+                        // Otherwise we'll block on vsync
                         match self.frame_tx.send_ref() {
                             Ok(mut frame) => send_frame(&mut frame),
                             Err(_) => shutdown("failed to get frame"),

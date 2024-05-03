@@ -1355,47 +1355,48 @@ impl Gui {
         puffin::profile_function!();
 
         ui.set_enabled(self.pending_keybind.is_none());
+        ScrollArea::vertical().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(
+                    &mut self.preferences_tab,
+                    PreferencesTab::Emulation,
+                    "Emulation",
+                );
+                ui.selectable_value(&mut self.preferences_tab, PreferencesTab::Audio, "Audio");
+                ui.selectable_value(&mut self.preferences_tab, PreferencesTab::Video, "Video");
+                ui.selectable_value(&mut self.preferences_tab, PreferencesTab::Input, "Input");
+            });
 
-        ui.horizontal(|ui| {
-            ui.selectable_value(
-                &mut self.preferences_tab,
-                PreferencesTab::Emulation,
-                "Emulation",
-            );
-            ui.selectable_value(&mut self.preferences_tab, PreferencesTab::Audio, "Audio");
-            ui.selectable_value(&mut self.preferences_tab, PreferencesTab::Video, "Video");
-            ui.selectable_value(&mut self.preferences_tab, PreferencesTab::Input, "Input");
-        });
+            ui.separator();
 
-        ui.separator();
-
-        match self.preferences_tab {
-            PreferencesTab::Emulation => self.emulation_preferences(ui, cfg),
-            PreferencesTab::Audio => self.audio_preferences(ui, cfg),
-            PreferencesTab::Video => self.video_preferences(ui, cfg),
-            PreferencesTab::Input => self.input_preferences(ui, cfg),
-        }
-
-        ui.separator();
-
-        ui.horizontal(|ui| {
-            if ui.button("Restore Defaults").clicked() {
-                cfg.reset();
-                self.tx.nes_event(ConfigEvent::InputBindings);
+            match self.preferences_tab {
+                PreferencesTab::Emulation => self.emulation_preferences(ui, cfg),
+                PreferencesTab::Audio => self.audio_preferences(ui, cfg),
+                PreferencesTab::Video => self.video_preferences(ui, cfg),
+                PreferencesTab::Input => self.input_preferences(ui, cfg),
             }
-            if platform::supports(platform::Feature::Filesystem) {
-                if let Some(data_dir) = Config::default_data_dir() {
-                    if ui.button("Clear Save States").clicked() {
-                        match fs::clear_dir(data_dir) {
-                            Ok(_) => self.add_message("Save States cleared."),
-                            Err(_) => self.add_message("Failed to clear Save States."),
+
+            ui.separator();
+
+            ui.horizontal(|ui| {
+                if ui.button("Restore Defaults").clicked() {
+                    cfg.reset();
+                    self.tx.nes_event(ConfigEvent::InputBindings);
+                }
+                if platform::supports(platform::Feature::Filesystem) {
+                    if let Some(data_dir) = Config::default_data_dir() {
+                        if ui.button("Clear Save States").clicked() {
+                            match fs::clear_dir(data_dir) {
+                                Ok(_) => self.add_message("Save States cleared."),
+                                Err(_) => self.add_message("Failed to clear Save States."),
+                            }
+                        }
+                        if ui.button("Clear Recent ROMs").clicked() {
+                            cfg.renderer.recent_roms.clear();
                         }
                     }
-                    if ui.button("Clear Recent ROMs").clicked() {
-                        cfg.renderer.recent_roms.clear();
-                    }
                 }
-            }
+            });
         });
     }
 
@@ -1623,11 +1624,6 @@ impl Gui {
                 ui.end_row();
 
                 self.messages_checkbox(ui, cfg, false);
-                if platform::supports(platform::Feature::ToggleVsync)
-                    && ui.checkbox(&mut cfg.renderer.vsync, "VSync").clicked()
-                {
-                    self.tx.nes_event(ConfigEvent::Vsync(cfg.renderer.vsync));
-                }
                 ui.end_row();
 
                 self.overscan_checkbox(ui, cfg, false);

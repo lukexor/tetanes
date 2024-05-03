@@ -104,9 +104,8 @@ impl Nes {
         thread::spawn({
             let window = Arc::clone(&window);
             let event_tx = tx.clone();
-            let vsync = cfg.renderer.vsync;
             async move {
-                match Renderer::create_painter(window, vsync).await {
+                match Renderer::create_painter(window).await {
                     Ok(painter) => {
                         painter_tx.send(painter).expect("failed to send painter");
                         event_tx.nes_event(RendererEvent::ResourcesReady);

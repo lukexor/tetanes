@@ -1,7 +1,7 @@
 use crate::{
     nes::{
         config::{Config, FrameRate},
-        event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        event::{EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
         renderer::{
             gui::{Gui, Menu},
             texture::Texture,
@@ -102,7 +102,6 @@ pub struct Renderer {
     render_state: Option<RenderState>,
     texture: Texture,
     first_frame: bool,
-    resize_surface: bool,
 }
 
 impl Drop for Renderer {
@@ -122,7 +121,6 @@ impl std::fmt::Debug for Renderer {
             .field("ctx", &self.ctx)
             .field("texture", &self.texture)
             .field("first_frame", &self.first_frame)
-            .field("resize_surface", &self.resize_surface)
             .finish_non_exhaustive()
     }
 }
@@ -312,7 +310,6 @@ impl Renderer {
             render_state: Some(render_state),
             texture,
             first_frame: true,
-            resize_surface: false,
         })
     }
 
@@ -429,8 +426,7 @@ impl Renderer {
                 },
                 RendererEvent::ResourcesReady | RendererEvent::RequestRedraw { .. } => (),
             },
-            NesEvent::Config(event) => self.on_config_event(event),
-            NesEvent::Ui(_) => (),
+            _ => (),
         }
     }
 
@@ -532,12 +528,6 @@ impl Renderer {
             .unwrap_or_default()
     }
 
-    pub fn on_config_event(&mut self, event: &ConfigEvent) {
-        if let ConfigEvent::Vsync(_) = event {
-            self.resize_surface = true;
-        }
-    }
-
     pub fn add_message<S>(&mut self, text: S)
     where
         S: Into<String>,
@@ -575,14 +565,10 @@ impl Renderer {
         Ok((window, viewport_builder))
     }
 
-    pub async fn create_painter(window: Arc<Window>, vsync: bool) -> anyhow::Result<Painter> {
+    pub async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
         let mut painter = Painter::new(
             egui_wgpu::WgpuConfiguration {
-                present_mode: if vsync {
-                    wgpu::PresentMode::AutoVsync
-                } else {
-                    wgpu::PresentMode::AutoNoVsync
-                },
+                present_mode: wgpu::PresentMode::AutoVsync,
                 desired_maximum_frame_latency: Some(2),
                 ..Default::default()
             },
@@ -898,27 +884,6 @@ impl Renderer {
         #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
 
-        if self.resize_surface {
-            // TODO: fix toggling vsync
-            // let mut state = self.state.borrow_mut();
-            // state.painter.borrow_mut().destroy();
-            // state.painter = Rc::new(RefCell::new(Painter::new(
-            //     egui_wgpu::WgpuConfiguration {
-            //         present_mode: if cfg.renderer.vsync {
-            //             wgpu::PresentMode::AutoVsync
-            //         } else {
-            //             wgpu::PresentMode::AutoNoVsync
-            //         },
-            //         desired_maximum_frame_latency: Some(2),
-            //         ..Default::default()
-            //     },
-            //     1,
-            //     None,
-            //     false,
-            // )));
-            // self.render_state = state.painter.borrow().render_state();
-            // self.gui.resize_texture = true;
-        }
         if self.gui.resize_window {
             if !self.fullscreen() {
                 let aspect_ratio = self.gui.aspect_ratio(cfg);

@@ -35,7 +35,6 @@ pub fn open_file_dialog(
 #[must_use]
 pub enum Feature {
     Filesystem,
-    ToggleVsync,
     Viewports,
     Suspend,
 }
