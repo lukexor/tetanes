@@ -15,7 +15,8 @@ use egui::{
     menu, Align, Align2, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon, Direction,
     DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Key, KeyboardShortcut,
     Layout, Modifiers, PointerButton, Pos2, Rect, Response, RichText, ScrollArea, Sense, Slider,
-    TextStyle, TopBottomPanel, Ui, Vec2, ViewportClass, Widget, WidgetText,
+    TextStyle, TopBottomPanel, Ui, Vec2, ViewportClass, ViewportCommand, ViewportId, Widget,
+    WidgetText,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -42,7 +43,7 @@ use winit::{
     event::MouseButton,
     event_loop::EventLoopProxy,
     keyboard::{KeyCode, ModifiersState},
-    window::{Fullscreen, Window},
+    window::Window,
 };
 
 pub trait ShortcutText<'a>
@@ -135,6 +136,7 @@ pub struct Gui {
     pub frame_stats: FrameStats,
     pub messages: Vec<(String, Instant)>,
     pub loaded_rom: Option<String>,
+    pub start: Instant,
     pub sys: Option<System>,
     pub sys_updated: Instant,
     pub status: Option<&'static str>,
@@ -222,6 +224,7 @@ impl Gui {
             frame_stats: FrameStats::new(),
             messages: Vec::new(),
             loaded_rom: None,
+            start: Instant::now(),
             sys,
             sys_updated: Instant::now(),
             status: None,
@@ -264,7 +267,6 @@ impl Gui {
         }
 
         self.handle_debounced_events();
-        self.handle_pending_keybind(ctx, cfg);
 
         TopBottomPanel::top("menu_bar")
             .show_animated(ctx, cfg.renderer.show_menubar, |ui| self.menu_bar(ui, cfg));
@@ -272,13 +274,14 @@ impl Gui {
             .frame(Frame::none())
             .show(ctx, |ui| self.nes_frame(ui, cfg));
 
-        self.show_performance_viewport(ctx, cfg);
-        self.show_preferences_viewport(ctx, cfg);
         self.show_keybinds_viewport(ctx, cfg);
+
+        self.show_performance_window(ctx, cfg);
+        self.show_preferences_viewport(ctx, cfg);
         self.show_about_viewport(ctx);
 
         #[cfg(feature = "profiling")]
-        {
+        if self.pending_keybind.is_none() {
             puffin::profile_scope!("puffin");
             puffin_egui::show_viewport_if_enabled(ctx);
         }
@@ -334,182 +337,129 @@ impl Gui {
         });
     }
 
-    fn handle_pending_keybind(&mut self, ctx: &Context, cfg: &mut Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        if let Some(ref mut pending_keybind) = self.pending_keybind {
-            let mut cancelled = false;
-            let mut open = true;
-            let res = egui::Window::new("Set Keybind")
-                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-                .collapsible(false)
-                .resizable(false)
-                .open(&mut open)
-                .show(ctx, |ui| {
-                    if let Some(action) = pending_keybind.conflict {
-                        ui.label(format!("Conflict with {action}."));
-                        ui.horizontal(|ui| {
-                            if ui.button("Overwrite").clicked() {
-                                if let Some(input) = pending_keybind.input {
-                                    cfg.input.clear_binding(input);
-                                    match pending_keybind.player {
-                                        Some(player) => {
-                                            if let Some((_, bindings)) = self.joypad_keybinds
-                                                [player as usize]
-                                                .get_mut(action.as_ref())
-                                            {
-                                                for i in bindings.iter_mut() {
-                                                    if i == &Some(input) {
-                                                        *i = None;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        None => {
-                                            if let Some((_, bindings)) =
-                                                self.shortcut_keybinds.get_mut(action.as_ref())
-                                            {
-                                                for i in bindings.iter_mut() {
-                                                    if i == &Some(input) {
-                                                        *i = None;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                pending_keybind.conflict = None;
-                            }
-                            if ui.button("Cancel").clicked() {
-                                cancelled = true;
-                            }
-                        });
-                    } else {
-                        ui.label(format!(
-                            "Press any key on your keyboard or controller to set a new binding for {}.",
-                            pending_keybind.action
-                        ));
-                    }
-                });
-            if let Some(ref res) = res {
-                ctx.move_to_top(res.response.layer_id);
+    fn show_set_keybind_window(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        let mut open = self.pending_keybind.is_some();
+        let res = egui::Window::new("Set Keybind")
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| self.set_keybind(ui, cfg));
+        if let Some(ref res) = res {
+            // Force on-top focus when embedded
+            if open {
+                ui.ctx().move_to_top(res.response.layer_id);
                 res.response.request_focus();
-            }
-
-            if !open {
-                self.pending_keybind = None;
-            } else if cancelled {
-                pending_keybind.input = None;
-                pending_keybind.conflict = None;
             } else {
-                match pending_keybind.input {
-                    Some(input) => {
-                        if pending_keybind.conflict.is_none() {
-                            match pending_keybind.player {
-                                Some(player) => {
-                                    self.joypad_keybinds[player as usize]
-                                        .entry(pending_keybind.action.to_string())
-                                        .and_modify(|(_, bindings)| {
-                                            bindings[pending_keybind.binding] = Some(input)
-                                        })
-                                        .or_insert_with(|| {
-                                            let mut bindings = [None, None];
-                                            bindings[pending_keybind.binding] = Some(input);
-                                            (pending_keybind.action, bindings)
-                                        });
-                                    let binding = cfg.input.joypad_bindings[player as usize]
-                                        .iter_mut()
-                                        .find(|b| b.action == pending_keybind.action);
-                                    match binding {
-                                        Some(bind) => {
-                                            bind.bindings[pending_keybind.binding] = Some(input)
-                                        }
-                                        None => cfg.input.joypad_bindings[player as usize].push(
-                                            ActionBindings {
-                                                action: pending_keybind.action,
-                                                bindings: [Some(input), None],
-                                            },
-                                        ),
-                                    }
-                                }
-                                None => {
-                                    self.shortcut_keybinds
-                                        .entry(pending_keybind.action.to_string())
-                                        .and_modify(|(_, bindings)| {
-                                            bindings[pending_keybind.binding] = Some(input)
-                                        })
-                                        .or_insert_with(|| {
-                                            let mut bindings = [None, None];
-                                            bindings[pending_keybind.binding] = Some(input);
-                                            (pending_keybind.action, bindings)
-                                        });
-                                    let binding = cfg
-                                        .input
-                                        .shortcuts
-                                        .iter_mut()
-                                        .find(|b| b.action == pending_keybind.action);
-                                    match binding {
-                                        Some(bind) => {
-                                            bind.bindings[pending_keybind.binding] = Some(input)
-                                        }
-                                        None => cfg.input.shortcuts.push(ActionBindings {
-                                            action: pending_keybind.action,
-                                            bindings: [Some(input), None],
-                                        }),
-                                    }
-                                }
-                            }
-                            if let Some(ref res) = res {
-                                ctx.memory_mut(|m| m.surrender_focus(res.response.id));
-                            }
+                ui.ctx().memory_mut(|m| m.surrender_focus(res.response.id));
+            }
+        }
+        if !open {
+            self.pending_keybind = None;
+        }
+    }
 
-                            self.pending_keybind = None;
-                            self.tx.nes_event(ConfigEvent::InputBindings);
+    fn set_keybind(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        let Some(PendingKeybind {
+            action,
+            player,
+            mut input,
+            binding,
+            mut conflict,
+            ..
+        }) = self.pending_keybind
+        else {
+            return;
+        };
+
+        if let Some(action) = conflict {
+            ui.label(format!("Conflict with {action}."));
+            ui.horizontal(|ui| {
+                if ui.button("Overwrite").clicked() {
+                    conflict = None;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.pending_keybind = None;
+                    input = None;
+                }
+            });
+        } else {
+            ui.label(format!(
+                "Press any key on your keyboard or controller to set a new binding for {action}.",
+            ));
+        }
+
+        match input {
+            Some(input) => {
+                if conflict.is_none() {
+                    cfg.input.clear_binding(input);
+                    match player {
+                        Some(player) => {
+                            Self::update_keybind(
+                                &mut self.joypad_keybinds[player as usize],
+                                &mut cfg.input.joypad_bindings[player as usize],
+                                action,
+                                input,
+                                binding,
+                            );
+                        }
+                        None => {
+                            Self::update_keybind(
+                                &mut self.shortcut_keybinds,
+                                &mut cfg.input.shortcuts,
+                                action,
+                                input,
+                                binding,
+                            );
                         }
                     }
-                    None => {
-                        let event = ctx.input(|i| {
-                            use egui::Event;
-                            for event in &i.events {
-                                match *event {
-                                    Event::Key {
-                                        physical_key: Some(key),
-                                        pressed,
-                                        modifiers,
-                                        ..
-                                    } => {
-                                        // TODO: Ignore unsupported key mappings for now as egui supports less
-                                        // overall than winit
-                                        return Input::try_from((key, modifiers))
-                                            .ok()
-                                            .map(|input| (input, pressed));
-                                    }
-                                    Event::PointerButton {
-                                        button, pressed, ..
-                                    } => {
-                                        return Some((Input::from(button), pressed));
-                                    }
-                                    _ => (),
+                    self.pending_keybind = None;
+                    self.tx.nes_event(ConfigEvent::InputBindings);
+                }
+            }
+            None => {
+                if let Some(pending_keybind) = &mut self.pending_keybind {
+                    let event = ui.input(|i| {
+                        use egui::Event;
+                        for event in &i.events {
+                            match *event {
+                                Event::Key {
+                                    physical_key: Some(key),
+                                    pressed,
+                                    modifiers,
+                                    ..
+                                } => {
+                                    // TODO: Ignore unsupported key mappings for now as egui supports less
+                                    // overall than winit
+                                    return Input::try_from((key, modifiers))
+                                        .ok()
+                                        .map(|input| (input, pressed));
                                 }
+                                Event::PointerButton {
+                                    button, pressed, ..
+                                } => {
+                                    return Some((Input::from(button), pressed));
+                                }
+                                _ => (),
                             }
-                            None
-                        });
-                        if let Some((input, pressed)) = event {
-                            // Only set on key release
-                            if !pressed {
-                                pending_keybind.input = Some(input);
-                                for bind in cfg
-                                    .input
-                                    .shortcuts
-                                    .iter()
-                                    .chain(cfg.input.joypad_bindings.iter().flatten())
-                                {
-                                    if bind.bindings.iter().any(|b| {
-                                        b == &Some(input) && bind.action != pending_keybind.action
-                                    }) {
-                                        pending_keybind.conflict = Some(bind.action);
-                                    }
+                        }
+                        None
+                    });
+
+                    if let Some((input, pressed)) = event {
+                        // Only set on key release
+                        if !pressed {
+                            pending_keybind.input = Some(input);
+                            for bind in cfg
+                                .input
+                                .shortcuts
+                                .iter()
+                                .chain(cfg.input.joypad_bindings.iter().flatten())
+                            {
+                                if bind.bindings.iter().any(|b| {
+                                    b == &Some(input) && bind.action != pending_keybind.action
+                                }) {
+                                    pending_keybind.conflict = Some(bind.action);
                                 }
                             }
                         }
@@ -519,32 +469,12 @@ impl Gui {
         }
     }
 
-    fn show_performance_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
-        if !cfg.renderer.show_perf_stats {
-            return;
-        }
-
-        let title = "Performance Stats";
-        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
-        ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of("performance_stats"),
-            egui::ViewportBuilder::default().with_title(title),
-            |ctx, class| {
-                if class == ViewportClass::Embedded {
-                    let mut show_perf_stats = cfg.renderer.show_perf_stats;
-                    egui::Window::new(title)
-                        .open(&mut show_perf_stats)
-                        .enabled(self.pending_keybind.is_none())
-                        .show(ctx, |ui| self.performance_stats(ui, cfg));
-                    cfg.renderer.show_perf_stats = show_perf_stats;
-                } else {
-                    CentralPanel::default().show(ctx, |ui| self.performance_stats(ui, cfg));
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        cfg.renderer.show_perf_stats = false;
-                    }
-                }
-            },
-        );
+    fn show_performance_window(&mut self, ctx: &Context, cfg: &mut Config) {
+        let mut show_perf_stats = cfg.renderer.show_perf_stats;
+        egui::Window::new("Performance Stats")
+            .open(&mut show_perf_stats)
+            .show(ctx, |ui| self.performance_stats(ui, cfg));
+        cfg.renderer.show_perf_stats = show_perf_stats;
     }
 
     fn show_preferences_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
@@ -562,7 +492,6 @@ impl Gui {
                     let mut preferences_open = self.preferences_open;
                     egui::Window::new(title)
                         .open(&mut preferences_open)
-                        .enabled(self.pending_keybind.is_none())
                         .show(ctx, |ui| self.preferences(ui, cfg));
                     self.preferences_open = preferences_open;
                 } else {
@@ -580,17 +509,16 @@ impl Gui {
             return;
         }
 
-        let title = "Preferences";
+        let title = "Keybinds";
         // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
         ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of("preferences"),
+            egui::ViewportId::from_hash_of("keybinds"),
             egui::ViewportBuilder::default().with_title(title),
             |ctx, class| {
                 if class == ViewportClass::Embedded {
                     let mut keybinds_open = self.keybinds_open;
                     egui::Window::new("Keybinds")
                         .open(&mut keybinds_open)
-                        .enabled(self.pending_keybind.is_none())
                         .show(ctx, |ui| self.keybinds(ui, cfg));
                     self.keybinds_open = keybinds_open;
                 } else {
@@ -618,7 +546,6 @@ impl Gui {
                     let mut about_open = self.about_open;
                     egui::Window::new("About TetaNES")
                         .open(&mut about_open)
-                        .enabled(self.pending_keybind.is_none())
                         .show(ctx, |ui| self.about(ui));
                     self.about_open = about_open;
                 } else {
@@ -637,7 +564,6 @@ impl Gui {
 
         ui.set_enabled(self.pending_keybind.is_none());
 
-        // ui.style_mut().spacing.menu_margin = Margin::ZERO;
         let inner_response = menu::bar(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 global_dark_light_mode_switch(ui);
@@ -662,6 +588,9 @@ impl Gui {
     }
 
     fn file_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         // NOTE: Due to some platforms file dialogs blocking the event loop,
@@ -676,32 +605,24 @@ impl Gui {
             ui.close_menu();
         }
 
-        ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
-            if ui
-                .add(
-                    Button::new("Unload ROM...")
-                        .shortcut_text(self.fmt_shortcut(UiAction::UnloadRom)),
-                )
-                .on_disabled_hover_text(Self::NO_ROM_LOADED)
-                .clicked()
-            {
-                self.tx.nes_event(EmulationEvent::UnloadRom);
-                ui.close_menu();
-            }
-            if ui
-                .add(
-                    Button::new("Load Replay")
-                        .shortcut_text(self.fmt_shortcut(UiAction::LoadReplay)),
-                )
-                .on_hover_text("Load a replay file for the currently loaded ROM.")
-                .on_disabled_hover_text(Self::NO_ROM_LOADED)
-                .clicked()
-            {
-                self.tx.nes_event(EmulationEvent::Pause(true));
-                self.tx.nes_event(UiEvent::LoadReplayDialog);
-                ui.close_menu();
-            }
-        });
+        if ui
+            .add(Button::new("Unload ROM...").shortcut_text(self.fmt_shortcut(UiAction::UnloadRom)))
+            .on_disabled_hover_text(Self::NO_ROM_LOADED)
+            .clicked()
+        {
+            self.tx.nes_event(EmulationEvent::UnloadRom);
+            ui.close_menu();
+        }
+        if ui
+            .add(Button::new("Load Replay").shortcut_text(self.fmt_shortcut(UiAction::LoadReplay)))
+            .on_hover_text("Load a replay file for the currently loaded ROM.")
+            .on_disabled_hover_text(Self::NO_ROM_LOADED)
+            .clicked()
+        {
+            self.tx.nes_event(EmulationEvent::Pause(true));
+            self.tx.nes_event(UiEvent::LoadReplayDialog);
+            ui.close_menu();
+        }
 
         // TODO: support saves and recent games on wasm? Requires storing the data
         if platform::supports(platform::Feature::Filesystem) {
@@ -763,6 +684,9 @@ impl Gui {
     }
 
     fn controls_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
@@ -896,6 +820,9 @@ impl Gui {
     }
 
     fn config_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         self.cycle_acurate_checkbox(ui, cfg, true);
@@ -961,6 +888,9 @@ impl Gui {
     }
 
     fn window_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         ui.menu_button("Window Scale...", |ui| {
@@ -998,18 +928,13 @@ impl Gui {
 
         ui.separator();
 
-        if platform::supports(platform::Feature::WindowMinMax) {
-            if ui.button("Maximize").clicked() {
-                self.window.set_maximized(true);
-                ui.close_menu();
-            };
-            if ui.button("Minimize").clicked() {
-                self.window.set_minimized(true);
-                ui.close_menu();
-            };
-        }
+        self.fullscreen_checkbox(ui, cfg, true, None);
 
-        self.fullscreen_checkbox(ui, cfg, true);
+        if platform::supports(platform::Feature::Viewports) {
+            let mut embed_viewports = ui.ctx().embed_viewports();
+            ui.checkbox(&mut embed_viewports, "Embed viewports");
+            ui.ctx().set_embed_viewports(embed_viewports);
+        }
 
         ui.separator();
 
@@ -1018,6 +943,9 @@ impl Gui {
     }
 
     fn debug_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         #[cfg(feature = "profiling")]
@@ -1182,7 +1110,7 @@ impl Gui {
 
                             if cfg.deck.zapper {
                                 if self
-                                    .get_action_binding(DeckAction::ZapperAimOffscreen)
+                                    .action_input(DeckAction::ZapperAimOffscreen)
                                     .map_or(false, |input| input_down(ui, input))
                                 {
                                     self.tx.nes_event(EmulationEvent::ZapperAim((
@@ -1270,20 +1198,21 @@ impl Gui {
         puffin::profile_function!();
 
         ui.allocate_space(Vec2::new(200.0, 0.0));
+        ui.set_enabled(self.pending_keybind.is_none());
 
         Grid::new("perf_stats")
             .num_columns(2)
-            .spacing([40.0, 4.0])
+            .spacing([40.0, 6.0])
             .striped(true)
             .show(ui, |ui| {
                 ui.ctx().request_repaint_after(Duration::from_secs(1));
 
-                // NOTE: refreshing sysinfo is cpu-intensive if done too frequently and skews the
-                // results
-                let sys_update_interval = Duration::from_secs(5);
-                assert!(sys_update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-                if self.sys_updated.elapsed() > sys_update_interval {
-                    if let Some(ref mut sys) = self.sys {
+                if let Some(sys) = &mut self.sys {
+                    // NOTE: refreshing sysinfo is cpu-intensive if done too frequently and skews the
+                    // results
+                    let sys_update_interval = Duration::from_secs(1);
+                    assert!(sys_update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+                    if self.sys_updated.elapsed() >= sys_update_interval {
                         sys.refresh_specifics(
                             RefreshKind::new().with_processes(
                                 ProcessRefreshKind::new()
@@ -1292,8 +1221,8 @@ impl Gui {
                                     .with_disk_usage(),
                             ),
                         );
+                        self.sys_updated = Instant::now();
                     }
-                    self.sys_updated = Instant::now();
                 }
 
                 let fps_color = |fps| match fps {
@@ -1356,8 +1285,7 @@ impl Gui {
                 ui.end_row();
 
                 if let Some(ref sys) = self.sys {
-                    ui.separator();
-                    ui.separator();
+                    ui.label("");
                     ui.end_row();
 
                     match sys.process(Pid::from_u32(std::process::id())) {
@@ -1387,17 +1315,16 @@ impl Gui {
                                 bytes_to_mb(du.total_written_bytes),
                             ));
                             ui.end_row();
-
-                            ui.strong("Run Time:");
-                            ui.label(format!("{} s", proc.run_time()));
-                            ui.end_row();
                         }
                         None => todo!(),
                     }
                 }
 
-                ui.separator();
-                ui.separator();
+                ui.label("");
+                ui.end_row();
+
+                ui.strong("Run Time:");
+                ui.label(format!("{} s", self.start.elapsed().as_secs()));
                 ui.end_row();
 
                 let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
@@ -1426,6 +1353,8 @@ impl Gui {
     fn preferences(&mut self, ui: &mut Ui, cfg: &mut Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
+        ui.set_enabled(self.pending_keybind.is_none());
 
         ui.horizontal(|ui| {
             ui.selectable_value(
@@ -1471,29 +1400,33 @@ impl Gui {
     }
 
     fn emulation_preferences(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         Grid::new("emulation_checkboxes")
             .num_columns(2)
-            .spacing([40.0, 4.0])
+            .spacing([80.0, 6.0])
             .show(ui, |ui| {
                 self.cycle_acurate_checkbox(ui, cfg, false);
-                self.rewind_checkbox(ui, cfg, false);
-                ui.end_row();
-
                 ui.checkbox(&mut cfg.emulation.auto_load, "Auto-Load")
                     .on_hover_text(
                         "Automatically load game state from the current save slot on load.",
                     );
+                ui.end_row();
+
+                self.rewind_checkbox(ui, cfg, false);
                 ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
                     .on_hover_text(
                     "Automatically save game state to the current save slot on exit or unloading.",
                 );
+                ui.end_row();
             });
 
         ui.separator();
 
         Grid::new("emulation_preferences")
             .num_columns(2)
-            .spacing([40.0, 4.0])
+            .spacing([40.0, 6.0])
             .striped(true)
             .show(ui, |ui| {
                 ui.strong("Emulation Speed:");
@@ -1508,39 +1441,53 @@ impl Gui {
                 self.run_ahead_slider(ui, cfg);
                 ui.end_row();
 
-                ui.strong("Save Slot:")
-                    .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("Select which slot to use when saving or loading game state.");
-                ui.horizontal(|ui| {
-                    for slot in 1..=8 {
-                        ui.radio_value(&mut cfg.emulation.save_slot, slot, slot.to_string());
-                    }
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Save Slot:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text(
+                            "Select which slot to use when saving or loading game state.",
+                        );
                 });
+                Grid::new("save_slots")
+                    .num_columns(2)
+                    .spacing([20.0, 6.0])
+                    .show(ui, |ui| {
+                        self.save_slot_radio(ui, cfg, false);
+                    });
                 ui.end_row();
 
-                ui.strong("Four Player:")
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Four Player:")
                     .on_hover_cursor(CursorIcon::Help)
                     .on_hover_text(
                     "Some game titles support up to 4 players (requires connected controllers).",
                 );
-                ui.horizontal(|ui| self.four_player_radio(ui, cfg));
+                });
+                ui.vertical(|ui| self.four_player_radio(ui, cfg));
                 ui.end_row();
 
-                ui.strong("NES Region:")
-                    .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("Which regional NES hardware to emulate.");
-                ui.horizontal(|ui| self.nes_region_radio(ui, cfg));
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("NES Region:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text("Which regional NES hardware to emulate.");
+                });
+                ui.vertical(|ui| self.nes_region_radio(ui, cfg));
                 ui.end_row();
 
-                ui.strong("RAM State:")
-                    .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("What values are read from NES RAM on load.");
-                ui.horizontal(|ui| self.ram_state_radio(ui, cfg));
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("RAM State:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text("What values are read from NES RAM on load.");
+                });
+                ui.vertical(|ui| self.ram_state_radio(ui, cfg));
                 ui.end_row();
             });
     }
 
     fn audio_preferences(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if ui
             .checkbox(&mut cfg.audio.enabled, "Enable Audio")
             .clicked()
@@ -1553,7 +1500,7 @@ impl Gui {
             ui.indent("apu_channels", |ui| {
                 let channels = &mut cfg.deck.channels_enabled;
                 Grid::new("apu_channels")
-                    .spacing([40.0, 4.0])
+                    .spacing([60.0, 6.0])
                     .num_columns(2)
                     .show(ui, |ui| {
                         if ui.checkbox(&mut channels[0], "Enable Pulse1").clicked() {
@@ -1602,7 +1549,7 @@ impl Gui {
                 ui.separator();
 
                 Grid::new("audio_settings")
-                    .spacing([40.0, 4.0])
+                    .spacing([40.0, 6.0])
                     .num_columns(2)
                     .show(ui, |ui| {
                         ui.strong("Buffer Size:")
@@ -1654,46 +1601,77 @@ impl Gui {
     }
 
     fn video_preferences(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         Grid::new("video_checkboxes")
-            .spacing([40.0, 4.0])
-            .num_columns(3)
+            .spacing([80.0, 6.0])
+            .num_columns(2)
             .show(ui, |ui| {
                 self.menubar_checkbox(ui, cfg, false);
-                self.messages_checkbox(ui, cfg, false);
+                self.fullscreen_checkbox(
+                    ui,
+                    cfg,
+                    false,
+                    // FIXME: Trying to toggle fullscreen from a viewport on macos when "prefer tabs: always"
+                    // is enabled causes a crash in NSWindowStackController
+                    cfg!(target_os = "macos").then_some(
+                        "Toggling fullscreen on macOS can currently only be done from the Window -> Fullscreen menu option."
+                            .to_string(),
+                    ),
+                );
                 ui.end_row();
 
-                self.overscan_checkbox(ui, cfg, false);
-                self.fullscreen_checkbox(ui, cfg, false);
+                self.messages_checkbox(ui, cfg, false);
                 if platform::supports(platform::Feature::ToggleVsync)
                     && ui.checkbox(&mut cfg.renderer.vsync, "VSync").clicked()
                 {
                     self.tx.nes_event(ConfigEvent::Vsync(cfg.renderer.vsync));
                 }
+                ui.end_row();
+
+                self.overscan_checkbox(ui, cfg, false);
+                ui.end_row();
             });
 
         ui.separator();
 
         Grid::new("video_preferences")
-            .num_columns(5)
-            .spacing([40.0, 4.0])
+            .num_columns(2)
+            .spacing([40.0, 6.0])
             .striped(true)
             .show(ui, |ui| {
-                ui.strong("Window Scale:");
-                self.window_scale_radio(ui, cfg);
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Window Scale:");
+                });
+                Grid::new("save_slots")
+                    .num_columns(2)
+                    .spacing([20.0, 6.0])
+                    .show(ui, |ui| {
+                        self.window_scale_radio(ui, cfg);
+                    });
                 ui.end_row();
 
-                ui.strong("Video Filter:");
-                self.video_filter_radio(ui, cfg);
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Video Filter:");
+                });
+                ui.vertical(|ui| {
+                    self.video_filter_radio(ui, cfg);
+                });
             });
     }
 
     fn input_preferences(&mut self, ui: &mut Ui, cfg: &mut Config) {
-        Grid::new("input_preferences")
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        Grid::new("input_checkboxes")
             .num_columns(2)
-            .spacing([40.0, 4.0])
-            .striped(true)
+            .spacing([80.0, 6.0])
             .show(ui, |ui| {
                 self.zapper_checkbox(ui, cfg, false);
+                ui.end_row();
+
                 if ui
                     .checkbox(&mut cfg.deck.concurrent_dpad, "Enable Concurrent D-Pad")
                     .clicked()
@@ -1707,6 +1685,9 @@ impl Gui {
     fn keybinds(&mut self, ui: &mut Ui, cfg: &mut Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
+        self.show_set_keybind_window(ui, cfg);
+        ui.set_enabled(self.pending_keybind.is_none());
 
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.keybinds_tab, KeybindsTab::Shortcuts, "Shortcuts");
@@ -1741,6 +1722,9 @@ impl Gui {
     }
 
     fn keybind_list(&mut self, ui: &mut Ui, cfg: &mut Config, player: Option<Player>) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let keybinds = match player {
             None => &mut self.shortcut_keybinds,
             Some(player) => &mut self.joypad_keybinds[player as usize],
@@ -1751,8 +1735,8 @@ impl Gui {
         let total_rows = keybinds.len();
         ScrollArea::vertical().show_rows(ui, row_height, total_rows, |ui, row_range| {
             Grid::new("keybind_list")
-                .num_columns(1)
-                .spacing([40.0, 4.0])
+                .num_columns(3)
+                .spacing([80.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
                     ui.heading("Action");
@@ -1798,6 +1782,8 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        ui.set_enabled(self.pending_keybind.is_none());
+
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(
                 Image::new(include_image!("../../../assets/tetanes_icon.png"))
@@ -1807,7 +1793,7 @@ impl Gui {
             ui.vertical(|ui| {
                 Grid::new("version")
                     .num_columns(2)
-                    .spacing([40.0, 4.0])
+                    .spacing([40.0, 6.0])
                     .striped(true)
                     .show(ui, |ui| {
                         ui.strong("Version:");
@@ -1821,48 +1807,64 @@ impl Gui {
 
                 if platform::supports(platform::Feature::Filesystem) {
                     ui.separator();
-                    Grid::new("directories")
-                        .num_columns(2)
-                        .spacing([40.0, 4.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            if let Some(config_dir) = Config::default_config_dir() {
-                                ui.strong("Preferences:");
-                                ui.label(format!("{}", config_dir.display()));
-                                ui.end_row();
-                            }
-                            if let Some(data_dir) = Config::default_data_dir() {
-                                ui.strong("Save States/RAM, Replays: ");
-                                ui.label(format!("{}", data_dir.display()));
-                                ui.end_row();
-                            }
-                            if let Some(picture_dir) = Config::default_picture_dir() {
-                                ui.strong("Screenshots: ");
-                                ui.label(format!("{}", picture_dir.display()));
-                                ui.end_row();
-                            }
-                            if let Some(audio_dir) = Config::default_audio_dir() {
-                                ui.strong("Audio Recordings: ");
-                                ui.label(format!("{}", audio_dir.display()));
-                                ui.end_row();
-                            }
-                        });
+                    ui.horizontal_wrapped(|ui| {
+                        Grid::new("directories")
+                            .num_columns(2)
+                            .spacing([40.0, 6.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                if let Some(config_dir) = Config::default_config_dir() {
+                                    ui.strong("Preferences:");
+                                    ui.label(format!("{}", config_dir.display()));
+                                    ui.end_row();
+                                }
+                                if let Some(data_dir) = Config::default_data_dir() {
+                                    ui.strong("Save States/RAM, Replays: ");
+                                    ui.label(format!("{}", data_dir.display()));
+                                    ui.end_row();
+                                }
+                                if let Some(picture_dir) = Config::default_picture_dir() {
+                                    ui.strong("Screenshots: ");
+                                    ui.label(format!("{}", picture_dir.display()));
+                                    ui.end_row();
+                                }
+                                if let Some(audio_dir) = Config::default_audio_dir() {
+                                    ui.strong("Audio Recordings: ");
+                                    ui.label(format!("{}", audio_dir.display()));
+                                    ui.end_row();
+                                }
+                            });
+                    });
                 }
             });
         });
     }
 
     fn save_slot_radio(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
-        for slot in 1..=8 {
-            ui.add(
-                RadioValue::new(&mut cfg.emulation.save_slot, slot, slot.to_string())
-                    .shortcut_text(
-                        shortcut
-                            .then(|| self.fmt_shortcut(DeckAction::SetSaveSlot(slot)))
-                            .unwrap_or_default(),
-                    ),
-            );
-        }
+        ui.vertical(|ui| {
+            for slot in 1..=4 {
+                ui.add(
+                    RadioValue::new(&mut cfg.emulation.save_slot, slot, slot.to_string())
+                        .shortcut_text(
+                            shortcut
+                                .then(|| self.fmt_shortcut(DeckAction::SetSaveSlot(slot)))
+                                .unwrap_or_default(),
+                        ),
+                );
+            }
+        });
+        ui.vertical(|ui| {
+            for slot in 5..=8 {
+                ui.add(
+                    RadioValue::new(&mut cfg.emulation.save_slot, slot, slot.to_string())
+                        .shortcut_text(
+                            shortcut
+                                .then(|| self.fmt_shortcut(DeckAction::SetSaveSlot(slot)))
+                                .unwrap_or_default(),
+                        ),
+                );
+            }
+        });
     }
 
     fn speed_slider(&mut self, ui: &mut Ui, cfg: &mut Config) {
@@ -2099,11 +2101,15 @@ impl Gui {
 
     fn window_scale_radio(&mut self, ui: &mut Ui, cfg: &mut Config) {
         let scale = cfg.renderer.scale;
-        ui.radio_value(&mut cfg.renderer.scale, 1.0, "1x");
-        ui.radio_value(&mut cfg.renderer.scale, 2.0, "2x");
-        ui.radio_value(&mut cfg.renderer.scale, 3.0, "3x");
-        ui.radio_value(&mut cfg.renderer.scale, 4.0, "4x");
-        ui.radio_value(&mut cfg.renderer.scale, 5.0, "5x");
+        ui.vertical(|ui| {
+            ui.radio_value(&mut cfg.renderer.scale, 1.0, "1x");
+            ui.radio_value(&mut cfg.renderer.scale, 2.0, "2x");
+            ui.radio_value(&mut cfg.renderer.scale, 3.0, "3x");
+        });
+        ui.vertical(|ui| {
+            ui.radio_value(&mut cfg.renderer.scale, 4.0, "4x");
+            ui.radio_value(&mut cfg.renderer.scale, 5.0, "5x");
+        });
         if scale != cfg.renderer.scale {
             self.resize_window = true;
             self.resize_texture = true;
@@ -2111,28 +2117,74 @@ impl Gui {
         }
     }
 
-    fn fullscreen_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
-        if ui
-            .add(
-                Checkbox::new(&mut cfg.renderer.fullscreen, "Fullscreen").shortcut_text(
-                    shortcut
-                        .then(|| self.fmt_shortcut(Setting::ToggleFullscreen))
-                        .unwrap_or_default(),
-                ),
-            )
-            .clicked()
-        {
-            self.window.set_fullscreen(
-                cfg.renderer
-                    .fullscreen
-                    .then_some(Fullscreen::Borderless(None)),
+    fn fullscreen_checkbox(
+        &mut self,
+        ui: &mut Ui,
+        cfg: &mut Config,
+        shortcut: bool,
+        disabled_text: Option<String>,
+    ) {
+        let mut res = ui.add_enabled(
+            disabled_text.is_none(),
+            Checkbox::new(&mut cfg.renderer.fullscreen, "Fullscreen").shortcut_text(
+                shortcut
+                    .then(|| self.fmt_shortcut(Setting::ToggleFullscreen))
+                    .unwrap_or_default(),
+            ),
+        );
+        if let Some(disabled_text) = disabled_text {
+            res = res.on_disabled_hover_text(disabled_text);
+        }
+        if res.clicked() {
+            if platform::supports(platform::Feature::Viewports) {
+                ui.ctx().set_embed_viewports(cfg.renderer.fullscreen);
+            }
+            ui.ctx()
+                .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+            ui.ctx().send_viewport_cmd_to(
+                ViewportId::ROOT,
+                ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
             );
-            self.tx
-                .nes_event(ConfigEvent::Fullscreen(cfg.renderer.fullscreen));
         }
     }
 
-    fn get_action_binding(&self, action: impl Into<Action>) -> Option<Input> {
+    fn update_keybind(
+        keybinds: &mut BTreeMap<String, Keybind>,
+        cfg_bindings: &mut Vec<ActionBindings>,
+        action: Action,
+        input: Input,
+        binding: usize,
+    ) {
+        // Clear any conflicts
+        for binding in keybinds
+            .values_mut()
+            .map(|(_, bindings)| bindings)
+            .chain(cfg_bindings.iter_mut().map(|bind| &mut bind.bindings))
+            .flatten()
+        {
+            if *binding == Some(input) {
+                *binding = None;
+            }
+        }
+        keybinds
+            .entry(action.to_string())
+            .and_modify(|(_, bindings)| bindings[binding] = Some(input))
+            .or_insert_with(|| {
+                let mut bindings = [None, None];
+                bindings[binding] = Some(input);
+                (action, bindings)
+            });
+        let current_binding = cfg_bindings.iter_mut().find(|b| b.action == action);
+        match current_binding {
+            Some(bind) => bind.bindings[binding] = Some(input),
+            None => cfg_bindings.push(ActionBindings {
+                action,
+                bindings: [Some(input), None],
+            }),
+        }
+    }
+
+    fn action_input(&self, action: impl Into<Action>) -> Option<Input> {
         let action = action.into();
         self.shortcut_keybinds
             .get(action.as_ref())

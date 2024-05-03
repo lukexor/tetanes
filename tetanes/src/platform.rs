@@ -35,8 +35,9 @@ pub fn open_file_dialog(
 #[must_use]
 pub enum Feature {
     Filesystem,
-    WindowMinMax,
     ToggleVsync,
+    Viewports,
+    Suspend,
 }
 
 pub const fn supports(feature: Feature) -> bool {

@@ -7,7 +7,6 @@ use tetanes_core::{
     time::Duration,
 };
 use tracing::{error, info};
-use winit::dpi::LogicalSize;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
@@ -84,6 +83,7 @@ pub struct RendererConfig {
     pub show_perf_stats: bool,
     pub show_messages: bool,
     pub show_menubar: bool,
+    pub embed_viewports: bool,
     pub vsync: bool,
 }
 
@@ -102,6 +102,7 @@ impl Default for RendererConfig {
             show_perf_stats: false,
             show_messages: true,
             show_menubar: true,
+            embed_viewports: false,
             vsync: true,
         }
     }
@@ -268,24 +269,21 @@ impl Config {
     }
 
     #[must_use]
-    pub fn window_size(&self) -> LogicalSize<f32> {
+    pub fn window_size(&self) -> egui::Vec2 {
         let scale = self.renderer.scale;
         let texture_size = self.texture_size();
-        LogicalSize::new(
-            scale * texture_size.width as f32,
-            scale * texture_size.height as f32,
-        )
+        egui::Vec2::new(scale * texture_size.x, scale * texture_size.y)
     }
 
     #[must_use]
-    pub const fn texture_size(&self) -> LogicalSize<u32> {
+    pub const fn texture_size(&self) -> egui::Vec2 {
         let width = Ppu::WIDTH;
         let height = if self.renderer.hide_overscan {
             Ppu::HEIGHT - 16
         } else {
             Ppu::HEIGHT
         };
-        LogicalSize::new(width, height)
+        egui::Vec2::new(width as f32, height as f32)
     }
 }
 

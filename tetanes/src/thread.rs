@@ -1,18 +1,13 @@
 use crate::sys::thread;
 use std::future::Future;
 use tetanes_core::time::Duration;
-use tracing::error;
 
 /// Spawn a future to be run until completion.
 pub fn spawn<F>(future: F)
 where
-    F: Future<Output = anyhow::Result<()>> + 'static,
+    F: Future<Output = ()> + 'static,
 {
-    thread::spawn_impl(async {
-        if let Err(err) = future.await {
-            error!("spawned future failed: {err:?}");
-        }
-    })
+    thread::spawn_impl(future);
 }
 
 /// Blocks unless or until the current thread's token is made available or

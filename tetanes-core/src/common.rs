@@ -477,7 +477,7 @@ pub(crate) mod tests {
             if env::var("UPDATE_SNAPSHOT").is_ok() && expected != actual {
                 expected = actual;
                 update_required = true;
-                if let Some(ref mut frame) = test
+                if let Some(frame) = &mut test
                     .frames
                     .iter_mut()
                     .find(|frame| frame.number == frame_number)

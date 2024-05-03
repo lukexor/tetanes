@@ -136,6 +136,7 @@ impl ActionBindings {
             { Setting::IncrementScale => :SHIFT, Equal },
             { Setting::IncrementSpeed => Equal },
             { Setting::ToggleAudio => :CONTROL, KeyM },
+            { Setting::ToggleFullscreen => :CONTROL, Enter },
             { Setting::ToggleMenubar => :CONTROL, KeyE },
             { Ui::LoadRom => :CONTROL, KeyO; F3 },
             { Ui::Quit => :CONTROL, KeyQ },

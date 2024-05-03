@@ -89,6 +89,13 @@ impl Rewind {
             None
         }
     }
+
+    pub fn clear(&mut self) {
+        self.interval_counter = 0;
+        self.index = 0;
+        self.count = 0;
+        self.frames.clear();
+    }
 }
 
 impl State {

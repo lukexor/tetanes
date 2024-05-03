@@ -1,25 +1,28 @@
-use crate::nes::{
-    config::{Config, FrameRate},
-    event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent},
-    renderer::{
-        gui::{Gui, Menu},
-        texture::Texture,
+use crate::{
+    nes::{
+        config::{Config, FrameRate},
+        event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        renderer::{
+            gui::{Gui, Menu},
+            texture::Texture,
+        },
     },
-    Nes,
+    platform::{self, BuilderExt},
+    thread,
 };
-use anyhow::Context;
-use egui::{ClippedPrimitive, SystemTheme, TexturesDelta, ViewportCommand};
+use crossbeam::channel::Receiver;
+use egui::{
+    ahash::HashMap, DeferredViewportUiCallback, ImmediateViewport, SystemTheme, Vec2,
+    ViewportBuilder, ViewportClass, ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair,
+    ViewportIdSet, ViewportInfo, ViewportOutput,
+};
+use egui_wgpu::{winit::Painter, RenderState};
 use egui_winit::EventResponse;
 use parking_lot::Mutex;
-use std::sync::Arc;
-use tetanes_core::{
-    ppu::Ppu,
-    time::{Duration, Instant},
-    video::Frame,
-};
-use thingbuf::{mpsc::blocking::Receiver, Recycle};
+use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
+use tetanes_core::{ppu::Ppu, time::Instant, video::Frame};
+use thingbuf::{mpsc::blocking::Receiver as BufReceiver, Recycle};
 use tracing::error;
-use wgpu::util::DeviceExt;
 use winit::{
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
@@ -44,262 +47,333 @@ impl Recycle<Frame> for FrameRecycle {
 }
 
 #[must_use]
+pub struct State {
+    viewports: ViewportIdMap<Viewport>,
+    viewport_from_window: HashMap<WindowId, ViewportId>,
+    painter: Rc<RefCell<Painter>>,
+    focused: Option<ViewportId>,
+}
+
+impl std::fmt::Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("State")
+            .field("viewports", &self.viewports)
+            .field("viewport_from_window", &self.viewport_from_window)
+            .field("focused", &self.focused)
+            .finish_non_exhaustive()
+    }
+}
+
+#[must_use]
+pub struct Viewport {
+    ids: ViewportIdPair,
+    class: ViewportClass,
+    builder: ViewportBuilder,
+    info: ViewportInfo,
+    viewport_ui_cb: Option<Arc<DeferredViewportUiCallback>>,
+    screenshot_requested: bool,
+    window: Option<Arc<Window>>,
+    egui_state: Option<egui_winit::State>,
+    occluded: bool,
+}
+
+impl std::fmt::Debug for Viewport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Viewport")
+            .field("ids", &self.ids)
+            .field("builder", &self.builder)
+            .field("info", &self.info)
+            .field("screenshot_requested", &self.screenshot_requested)
+            .field("window", &self.window)
+            .field("occluded", &self.occluded)
+            .finish_non_exhaustive()
+    }
+}
+
+#[must_use]
 pub struct Renderer {
-    window: Arc<Window>,
-    frame_rx: Receiver<Frame, FrameRecycle>,
+    state: Rc<RefCell<State>>,
+    frame_rx: BufReceiver<Frame, FrameRecycle>,
+    tx: EventLoopProxy<NesEvent>,
+    // Only used by the immediate viewport renderer callback
     redraw_tx: Arc<Mutex<EventLoopProxy<NesEvent>>>,
     gui: Gui,
     ctx: egui::Context,
-    egui_state: egui_winit::State,
-    screen_descriptor: egui_wgpu::ScreenDescriptor,
-    renderer: egui_wgpu::Renderer,
-    surface: wgpu::Surface<'static>,
+    render_state: Option<RenderState>,
     texture: Texture,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    surface_config: wgpu::SurfaceConfiguration,
+    first_frame: bool,
     resize_surface: bool,
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    bind_group_layout: wgpu::BindGroupLayout,
-    bind_group: wgpu::BindGroup,
-    paint_jobs: Vec<ClippedPrimitive>,
-    repaint_delay: Duration,
-    textures: TexturesDelta,
+}
+
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        self.state.borrow_mut().painter.borrow_mut().destroy();
+    }
 }
 
 impl std::fmt::Debug for Renderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Renderer")
+            .field("state", &self.state)
+            .field("frame_rx", &self.frame_rx)
+            .field("tx", &self.tx)
+            .field("redraw_tx", &self.redraw_tx)
             .field("gui", &self.gui)
+            .field("ctx", &self.ctx)
+            .field("texture", &self.texture)
+            .field("first_frame", &self.first_frame)
+            .field("resize_surface", &self.resize_surface)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Default)]
+#[must_use]
+pub enum ResourceState {
+    #[default]
+    Suspended,
+    Pending {
+        ctx: egui::Context,
+        window: Arc<Window>,
+        viewport_builder: ViewportBuilder,
+        painter_rx: Receiver<Painter>,
+    },
+    Running,
+}
+
+impl ResourceState {
+    pub const fn is_suspended(&self) -> bool {
+        matches!(self, Self::Suspended)
+    }
+
+    pub const fn is_pending(&self) -> bool {
+        matches!(self, Self::Pending { .. })
+    }
+
+    pub fn take_pending(&mut self) -> Option<Resources> {
+        if self.is_pending() {
+            let Self::Pending {
+                ctx,
+                window,
+                viewport_builder,
+                painter_rx,
+            } = std::mem::take(self)
+            else {
+                unreachable!("not in pending state");
+            };
+            Some(Resources {
+                ctx,
+                window,
+                viewport_builder,
+                painter: painter_rx.recv().ok()?,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[must_use]
+pub struct Resources {
+    ctx: egui::Context,
+    window: Arc<Window>,
+    viewport_builder: ViewportBuilder,
+    painter: Painter,
+}
+
+impl std::fmt::Debug for Resources {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Resources")
+            .field("window", &self.window)
+            .field("viewport_builder", &self.viewport_builder)
             .finish_non_exhaustive()
     }
 }
 
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
-    pub async fn initialize(
+    pub fn new(
         tx: EventLoopProxy<NesEvent>,
-        window: Arc<Window>,
-        frame_rx: Receiver<Frame, FrameRecycle>,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+        resources: Resources,
+        frame_rx: BufReceiver<Frame, FrameRecycle>,
         cfg: Config,
     ) -> anyhow::Result<Self> {
-        let mut window_size = window.inner_size();
-        let scale_factor = window.scale_factor() as f32;
-        if window_size.width == 0 {
-            let scale_factor = window.scale_factor();
-            window_size = cfg.texture_size().to_physical(scale_factor);
-        }
+        let Resources {
+            ctx,
+            window,
+            viewport_builder,
+            painter,
+        } = resources;
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let surface = instance.create_surface(Arc::clone(&window))?;
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .context("failed to request wgpu adapter")?;
-        // WebGL doesn't support all of wgpu's features, so if
-        // we're building for the web we'll have to disable some.
-        let mut required_limits = if cfg!(target_arch = "wasm32") {
-            wgpu::Limits::downlevel_webgl2_defaults()
-        } else {
-            wgpu::Limits::downlevel_defaults()
-        };
-        // However, we do want to support the adapters max texture dimension for window size to
-        // be maximized
-        required_limits.max_texture_dimension_2d = adapter.limits().max_texture_dimension_2d;
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("tetanes"),
-                    required_features: wgpu::Features::CLEAR_TEXTURE,
-                    required_limits,
-                },
-                None,
-            )
-            .await?;
-
-        let max_texture_dimension = device.limits().max_texture_dimension_2d;
-        let surface_capabilities = surface.get_capabilities(&adapter);
-        let surface_format = surface_capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(surface_capabilities.formats[0]);
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: window_size.width.min(max_texture_dimension),
-            height: window_size.height.min(max_texture_dimension),
-            present_mode: if cfg.renderer.vsync {
-                wgpu::PresentMode::AutoVsync
-            } else {
-                wgpu::PresentMode::AutoNoVsync
-            },
-            desired_maximum_frame_latency: 2,
-            alpha_mode: surface_capabilities.alpha_modes[0],
-            view_formats: vec![],
-        };
-        surface.configure(&device, &surface_config);
-
-        let texture_size = cfg.texture_size();
-        let texture = Texture::new(
-            &device,
-            texture_size.width.min(max_texture_dimension),
-            texture_size.height.min(max_texture_dimension),
-            cfg.deck.region.aspect_ratio(),
-            Some("nes frame"),
-        );
-        let module = device.create_shader_module(wgpu::include_wgsl!("../../shaders/blit.wgsl"));
-
-        let vertex_data: [[f32; 2]; 3] = [
-            // One full-screen triangle
-            [-1.0, -1.0],
-            [3.0, -1.0],
-            [-1.0, 3.0],
-        ];
-        let vertex_data_slice = bytemuck::cast_slice(&vertex_data);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex buffer"),
-            contents: vertex_data_slice,
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let vertex_buffer_layout = wgpu::VertexBufferLayout {
-            array_stride: (vertex_data_slice.len() / vertex_data.len()) as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x2,
-                offset: 0,
-                shader_location: 0,
-            }],
-        };
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("bind group layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("nes frame bind group"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                },
-            ],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("pipeline layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("render pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: "vs_main",
-                buffers: &[vertex_buffer_layout],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        let ctx = egui::Context::default();
         let redraw_tx = Arc::new(Mutex::new(tx.clone()));
         ctx.set_request_repaint_callback({
             let redraw_tx = redraw_tx.clone();
             move |info| {
                 redraw_tx
                     .lock()
-                    .send_event(NesEvent::Renderer(RendererEvent::RequestRedraw(info.delay)))
+                    .send_event(NesEvent::Renderer(RendererEvent::RequestRedraw {
+                        viewport_id: info.viewport_id,
+                        when: Instant::now() + info.delay,
+                    }))
                     .expect("sent redraw request");
             }
         });
+
+        // Platforms like wasm don't easily support multiple viewports, and even if it could spawn
+        // multiple canvases for each viewport, the async requirements of wgpu would make it
+        // impossible to render until wasm-bindgen gets proper non-blocking async/await support.
+        if platform::supports(platform::Feature::Viewports) {
+            ctx.set_embed_viewports(cfg.renderer.embed_viewports);
+        }
+
+        let max_texture_side = painter.max_texture_side();
         let egui_state = egui_winit::State::new(
             ctx.clone(),
-            ctx.viewport_id(),
+            ViewportId::ROOT,
             &window,
-            Some(scale_factor),
-            Some(device.limits().max_texture_dimension_2d as usize),
+            Some(window.scale_factor() as f32),
+            max_texture_side,
         );
-        let mut renderer = egui_wgpu::Renderer::new(&device, surface_config.format, None, 1);
-        let texture_id =
-            renderer.register_native_texture(&device, &texture.view, wgpu::FilterMode::Nearest);
+        let mut viewport_from_window = HashMap::default();
+        viewport_from_window.insert(window.id(), ViewportId::ROOT);
 
+        let mut viewports = ViewportIdMap::default();
+        viewports.insert(
+            ViewportId::ROOT,
+            Viewport {
+                ids: ViewportIdPair::ROOT,
+                class: ViewportClass::Root,
+                builder: viewport_builder.clone(),
+                info: ViewportInfo {
+                    minimized: window.is_minimized(),
+                    maximized: Some(window.is_maximized()),
+                    ..Default::default()
+                },
+                viewport_ui_cb: None,
+                screenshot_requested: false,
+                window: Some(Arc::clone(&window)),
+                egui_state: Some(egui_state),
+                occluded: false,
+            },
+        );
+
+        let render_state = painter.render_state();
+        let (Some(max_texture_side), Some(render_state)) = (max_texture_side, render_state) else {
+            anyhow::bail!("render state is not initialized yet");
+        };
+
+        let texture_size = cfg.texture_size();
+        let texture = Texture::new(
+            &render_state.device,
+            &mut render_state.renderer.write(),
+            texture_size.x.min(max_texture_side as f32) as u32,
+            texture_size.y.min(max_texture_side as f32) as u32,
+            cfg.deck.region.aspect_ratio(),
+            Some("nes frame"),
+        );
         let gui = Gui::new(
             Arc::clone(&window),
-            tx,
-            texture.sized_texture(texture_id),
+            tx.clone(),
+            texture.sized_texture(),
             cfg,
         );
 
+        let state = Rc::new(RefCell::new(State {
+            viewports,
+            painter: Rc::new(RefCell::new(painter)),
+            viewport_from_window,
+            focused: Some(ViewportId::ROOT),
+        }));
+
+        if !ctx.embed_viewports() {
+            let tx = tx.clone();
+            let state = Rc::downgrade(&state);
+            let event_loop: *const EventLoopWindowTarget<NesEvent> = event_loop;
+            egui::Context::set_immediate_viewport_renderer(move |ctx, viewport| {
+                if let Some(state) = state.upgrade() {
+                    // SAFETY: the event loop lives longer than the Rcs we just upgraded above.
+                    #[allow(unsafe_code)]
+                    let event_loop = unsafe { event_loop.as_ref().unwrap() };
+                    Self::render_immediate_viewport(&tx, event_loop, ctx, &state, viewport);
+                } else {
+                    tracing::warn!("set_immediate_viewport_renderer called after window closed");
+                }
+            });
+        }
+
         Ok(Self {
-            window,
+            state,
             frame_rx,
+            tx,
             redraw_tx,
             gui,
             ctx,
-            egui_state,
-            screen_descriptor: egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [window_size.width, window_size.height],
-                pixels_per_point: scale_factor,
-            },
-            renderer,
-            surface,
+            render_state: Some(render_state),
             texture,
-            device,
-            queue,
-            surface_config,
+            first_frame: true,
             resize_surface: false,
-            render_pipeline,
-            vertex_buffer,
-            bind_group_layout,
-            bind_group,
-            paint_jobs: vec![],
-            repaint_delay: Duration::MAX,
-            textures: TexturesDelta::default(),
         })
+    }
+
+    pub fn window(&self, window_id: WindowId) -> Option<Arc<Window>> {
+        let state = self.state.borrow();
+        state
+            .viewport_from_window
+            .get(&window_id)
+            .and_then(|id| state.viewports.get(id))
+            .and_then(|viewport| viewport.window.clone())
+    }
+
+    pub fn root_viewport<R>(&self, reader: impl FnOnce(&Viewport) -> R) -> Option<R> {
+        self.state
+            .borrow()
+            .viewports
+            .get(&ViewportId::ROOT)
+            .map(reader)
+    }
+
+    pub fn root_window_id(&self) -> Option<WindowId> {
+        self.window_id_for_viewport(ViewportId::ROOT)
+    }
+
+    pub fn all_viewports_occluded(&self) -> bool {
+        let state = self.state.borrow();
+        state.viewports.values().all(|viewport| viewport.occluded)
+    }
+
+    pub fn window_id_for_viewport(&self, viewport_id: ViewportId) -> Option<WindowId> {
+        self.state
+            .borrow()
+            .viewports
+            .get(&viewport_id)
+            .and_then(|viewport| viewport.window.as_ref())
+            .map(|window| window.id())
+    }
+
+    pub fn viewport_id_for_window(&self, window_id: WindowId) -> Option<ViewportId> {
+        let state = self.state.borrow();
+        state
+            .viewport_from_window
+            .get(&window_id)
+            .and_then(|id| state.viewports.get(id))
+            .map(|viewport| viewport.ids.this)
+    }
+
+    pub fn inner_size(&self) -> Option<egui::Rect> {
+        self.root_viewport(|viewport| viewport.info.inner_rect)
+            .flatten()
+    }
+
+    pub fn fullscreen(&self) -> bool {
+        self.root_viewport(|viewport| viewport.info.fullscreen)
+            .flatten()
+            .unwrap_or(false)
+    }
+
+    pub fn set_fullscreen(&mut self, fullscreen: bool) {
+        self.ctx
+            .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Fullscreen(fullscreen));
     }
 
     /// Handle event.
@@ -322,10 +396,10 @@ impl Renderer {
                     self.gui.frame_stats = *stats;
                 }
                 RendererEvent::ScaleChanged => {
+                    // Handles increment/decrement scale action bindings
                     self.gui.resize_window = true;
                     self.gui.resize_texture = true;
                 }
-                RendererEvent::RequestRedraw(delay) => self.repaint_delay = *delay,
                 RendererEvent::RomUnloaded => {
                     self.gui.paused = false;
                     self.gui.loaded_rom = None;
@@ -340,15 +414,43 @@ impl Renderer {
                         self.gui.resize_window = true;
                         self.gui.resize_texture = true;
                     }
+                    if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
+                        self.ctx
+                            .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                    }
                 }
                 RendererEvent::Menu(menu) => match menu {
                     Menu::Preferences => self.gui.preferences_open = !self.gui.preferences_open,
                     Menu::Keybinds => self.gui.keybinds_open = !self.gui.keybinds_open,
                     Menu::About => self.gui.about_open = !self.gui.about_open,
                 },
+                RendererEvent::ResourcesReady | RendererEvent::RequestRedraw { .. } => (),
             },
             NesEvent::Config(event) => self.on_config_event(event),
             NesEvent::Ui(_) => (),
+        }
+    }
+
+    fn initialize_all_windows(&mut self, event_loop: &EventLoopWindowTarget<NesEvent>) {
+        if self.ctx.embed_viewports() {
+            return;
+        }
+
+        let State {
+            viewports,
+            painter,
+            viewport_from_window,
+            ..
+        } = &mut *self.state.borrow_mut();
+
+        for viewport in viewports.values_mut() {
+            viewport.initialize_window(
+                self.tx.clone(),
+                event_loop,
+                &self.ctx,
+                viewport_from_window,
+                painter,
+            );
         }
     }
 
@@ -358,21 +460,50 @@ impl Renderer {
 
     /// Handle window event.
     pub fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> EventResponse {
-        let res = self.egui_state.on_window_event(&self.window, event);
+        let viewport_id = self.viewport_id_for_window(window_id);
+        let mut state = self.state.borrow_mut();
         match event {
-            WindowEvent::Resized(size) => {
-                if size.width > 0 && size.height > 0 {
-                    let max_texture_dimension = self.device.limits().max_texture_dimension_2d;
-                    let width = size.width.min(max_texture_dimension);
-                    let height = size.height.min(max_texture_dimension);
-                    self.screen_descriptor.size_in_pixels = [width, height];
-                    self.surface_config.width = width;
-                    self.surface_config.height = height;
-                    self.resize_surface = true;
+            WindowEvent::Focused(focused) => {
+                state.focused = focused.then(|| viewport_id).flatten();
+            }
+            WindowEvent::Occluded(occluded) => {
+                if let Some(viewport) = viewport_id
+                    .as_ref()
+                    .and_then(|id| state.viewports.get_mut(id))
+                {
+                    viewport.occluded = *occluded;
+                    if viewport.ids.this == ViewportId::ROOT {
+                        self.tx.nes_event(EmulationEvent::Occluded(*occluded));
+                    }
                 }
             }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.screen_descriptor.pixels_per_point = *scale_factor as f32;
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                if let Some(viewport_id) = viewport_id {
+                    if viewport_id == ViewportId::ROOT {
+                        self.tx.nes_event(UiEvent::Terminate);
+                    } else if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
+                        viewport.info.events.push(egui::ViewportEvent::Close);
+
+                        // We may need to repaint both us and our parent to close the window,
+                        // and perhaps twice (once to notice the close-event, once again to enforce it).
+                        // `request_repaint_of` does a double-repaint though:
+                        self.ctx.request_repaint_of(viewport_id);
+                        self.ctx.request_repaint_of(viewport.ids.parent);
+                    }
+                }
+            }
+            WindowEvent::Resized(size) => {
+                if let Some(viewport_id) = viewport_id {
+                    use std::num::NonZeroU32;
+                    if let (Some(width), Some(height)) =
+                        (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+                    {
+                        state
+                            .painter
+                            .borrow_mut()
+                            .on_window_resized(viewport_id, width, height);
+                    }
+                }
             }
             WindowEvent::ThemeChanged(theme) => {
                 self.ctx
@@ -384,208 +515,619 @@ impl Renderer {
             }
             _ => (),
         }
-        res
+        viewport_id
+            .and_then(|viewport_id| {
+                state.viewports.get_mut(&viewport_id).and_then(|viewport| {
+                    Some(
+                        viewport
+                            .egui_state
+                            .as_mut()?
+                            .on_window_event(viewport.window.as_deref()?, event),
+                    )
+                })
+            })
+            .unwrap_or_default()
     }
 
     pub fn on_config_event(&mut self, event: &ConfigEvent) {
-        if let ConfigEvent::Vsync(enabled) = event {
-            self.surface_config.present_mode = if *enabled {
-                wgpu::PresentMode::AutoVsync
-            } else {
-                wgpu::PresentMode::AutoNoVsync
-            };
+        if let ConfigEvent::Vsync(_) = event {
             self.resize_surface = true;
         }
     }
 
-    fn resize_texture(&mut self, cfg: &Config) {
-        let texture_size = cfg.texture_size();
-        self.texture.resize(
-            &self.device,
-            texture_size.width,
-            texture_size.height,
-            self.gui.aspect_ratio(cfg),
-        );
-        self.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("nes frame bind group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.texture.sampler),
-                },
-            ],
-        });
-        let texture_id = self.renderer.register_native_texture(
-            &self.device,
-            &self.texture.view,
-            wgpu::FilterMode::Nearest,
-        );
-        self.gui.texture = self.texture.sized_texture(texture_id);
+    pub fn add_message<S>(&mut self, text: S)
+    where
+        S: Into<String>,
+    {
+        self.gui.add_message(text);
     }
 
-    /// Prepare.
-    fn prepare(&mut self, window: &Window, cfg: &mut Config) {
+    pub fn on_error(&mut self, err: anyhow::Error) {
+        error!("error: {err:?}");
+        self.tx.nes_event(EmulationEvent::Pause(true));
+        self.gui.error = Some(err.to_string());
+    }
+
+    pub fn create_window(
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+        ctx: &egui::Context,
+        cfg: &Config,
+    ) -> anyhow::Result<(Window, ViewportBuilder)> {
+        let window_size = cfg.window_size();
+        let viewport_builder = ViewportBuilder::default()
+            .with_app_id(Config::WINDOW_TITLE)
+            .with_title(Config::WINDOW_TITLE)
+            .with_active(true)
+            .with_visible(false) // hide until first frame is rendered
+            .with_inner_size(window_size)
+            .with_min_inner_size(Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32))
+            .with_fullscreen(cfg.renderer.fullscreen)
+            .with_resizable(true);
+
+        let window_builder =
+            egui_winit::create_winit_window_builder(ctx, event_loop, viewport_builder.clone());
+        let window = window_builder.with_platform().build(event_loop)?;
+        egui_winit::apply_viewport_builder_to_window(ctx, &window, &viewport_builder);
+
+        Ok((window, viewport_builder))
+    }
+
+    pub async fn create_painter(window: Arc<Window>, vsync: bool) -> anyhow::Result<Painter> {
+        let mut painter = Painter::new(
+            egui_wgpu::WgpuConfiguration {
+                present_mode: if vsync {
+                    wgpu::PresentMode::AutoVsync
+                } else {
+                    wgpu::PresentMode::AutoNoVsync
+                },
+                desired_maximum_frame_latency: Some(2),
+                ..Default::default()
+            },
+            1,
+            None,
+            false,
+        );
+        painter.set_window(ViewportId::ROOT, Some(window)).await?;
+        Ok(painter)
+    }
+
+    pub fn recreate_window(&mut self, event_loop: &EventLoopWindowTarget<NesEvent>) {
+        if self.ctx.embed_viewports() {
+            return;
+        }
+
+        let State {
+            viewports,
+            viewport_from_window,
+            painter,
+            ..
+        } = &mut *self.state.borrow_mut();
+
+        let viewport_builder = viewports
+            .get(&ViewportId::ROOT)
+            .map(|viewport| viewport.builder.clone())
+            .unwrap_or_default();
+        let viewport = Self::create_or_update_viewport(
+            &self.ctx,
+            viewports,
+            ViewportIdPair::ROOT,
+            ViewportClass::Root,
+            viewport_builder,
+            None,
+            None,
+        );
+
+        viewport.initialize_window(
+            self.tx.clone(),
+            event_loop,
+            &self.ctx,
+            viewport_from_window,
+            painter,
+        );
+    }
+
+    pub fn drop_window(&mut self) -> Result<(), egui_wgpu::WgpuError> {
+        if self.ctx.embed_viewports() {
+            return Ok(());
+        }
+        let mut state = self.state.borrow_mut();
+        state.viewports.remove(&ViewportId::ROOT);
+        Renderer::set_painter_window(
+            self.tx.clone(),
+            Rc::clone(&state.painter),
+            ViewportId::ROOT,
+            None,
+        );
+        Ok(())
+    }
+
+    fn set_painter_window(
+        tx: EventLoopProxy<NesEvent>,
+        painter: Rc<RefCell<Painter>>,
+        viewport_id: ViewportId,
+        window: Option<Arc<Window>>,
+    ) {
+        // This is fine because we're in a sync function. native platforms call `block_on` and
+        // wasm is single-threaded with `spawn_local` and runs in on the next microtick which
+        // is synchronous.
+        #[allow(clippy::await_holding_refcell_ref)]
+        thread::spawn(async move {
+            if let Err(err) = painter.borrow_mut().set_window(viewport_id, window).await {
+                tracing::error!(
+                    "failed to set painter window on viewport id {viewport_id:?}: {err:?}"
+                );
+                if let Err(err) = tx.send_event(NesEvent::Ui(UiEvent::Terminate)) {
+                    tracing::error!("failed to send terminate event: {err:?}");
+                    std::process::exit(1);
+                }
+            }
+        });
+    }
+
+    fn create_or_update_viewport<'a>(
+        ctx: &egui::Context,
+        viewports: &'a mut ViewportIdMap<Viewport>,
+        ids: ViewportIdPair,
+        class: ViewportClass,
+        mut builder: ViewportBuilder,
+        viewport_ui_cb: Option<Arc<DeferredViewportUiCallback>>,
+        focused_viewport: Option<ViewportId>,
+    ) -> &'a mut Viewport {
+        if builder.icon.is_none() {
+            builder.icon = viewports
+                .get_mut(&ids.parent)
+                .and_then(|viewport| viewport.builder.icon.clone());
+        }
+
+        match viewports.entry(ids.this) {
+            Entry::Vacant(entry) => entry.insert(Viewport {
+                ids,
+                class,
+                builder,
+                info: Default::default(),
+                viewport_ui_cb,
+                screenshot_requested: false,
+                window: None,
+                egui_state: None,
+                occluded: false,
+            }),
+            Entry::Occupied(mut entry) => {
+                let viewport = entry.get_mut();
+                viewport.class = class;
+                viewport.ids.parent = ids.parent;
+                viewport.viewport_ui_cb = viewport_ui_cb;
+
+                let (delta_commands, recreate) = viewport.builder.patch(builder);
+                if recreate {
+                    viewport.window = None;
+                    viewport.egui_state = None;
+                } else if let Some(window) = &viewport.window {
+                    let is_viewport_focused = focused_viewport == Some(ids.this);
+                    egui_winit::process_viewport_commands(
+                        ctx,
+                        &mut viewport.info,
+                        delta_commands,
+                        window,
+                        is_viewport_focused,
+                        &mut viewport.screenshot_requested,
+                    );
+                }
+
+                entry.into_mut()
+            }
+        }
+    }
+
+    fn resize_texture(&mut self, cfg: &Config) {
+        if let (Some(max_texture_side), Some(render_state)) = (
+            self.state.borrow().painter.borrow().max_texture_side(),
+            &self.render_state,
+        ) {
+            let texture_size = cfg.texture_size();
+            self.texture.resize(
+                &render_state.device,
+                &mut render_state.renderer.write(),
+                texture_size.x.min(max_texture_side as f32) as u32,
+                texture_size.y.min(max_texture_side as f32) as u32,
+                self.gui.aspect_ratio(cfg),
+            );
+            self.gui.texture = self.texture.sized_texture();
+        }
+    }
+
+    fn handle_viewport_output(
+        ctx: &egui::Context,
+        viewports: &mut ViewportIdMap<Viewport>,
+        outputs: ViewportIdMap<ViewportOutput>,
+        focused: Option<ViewportId>,
+    ) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let raw_input = self.egui_state.take_egui_input(window);
+        for (id, output) in outputs {
+            let ids = ViewportIdPair::from_self_and_parent(id, output.parent);
+            let viewport = Self::create_or_update_viewport(
+                ctx,
+                viewports,
+                ids,
+                output.class,
+                output.builder,
+                output.viewport_ui_cb,
+                focused,
+            );
+            if let Some(window) = viewport.window.as_ref() {
+                let is_viewport_focused = focused == Some(id);
+                egui_winit::process_viewport_commands(
+                    ctx,
+                    &mut viewport.info,
+                    output.commands,
+                    window,
+                    is_viewport_focused,
+                    &mut viewport.screenshot_requested,
+                );
+            }
+        }
+    }
 
-        let output = self.ctx.run(raw_input, |ctx| {
-            self.gui.ui(ctx, cfg);
+    fn render_immediate_viewport(
+        tx: &EventLoopProxy<NesEvent>,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+        ctx: &egui::Context,
+        state: &RefCell<State>,
+        immediate_viewport: ImmediateViewport<'_>,
+    ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        let ImmediateViewport {
+            ids,
+            builder,
+            viewport_ui_cb,
+        } = immediate_viewport;
+
+        let input = {
+            let State {
+                viewports,
+                painter,
+                viewport_from_window,
+                ..
+            } = &mut *state.borrow_mut();
+
+            let viewport = Self::create_or_update_viewport(
+                ctx,
+                viewports,
+                ids,
+                ViewportClass::Immediate,
+                builder,
+                None,
+                None,
+            );
+
+            if viewport.window.is_none() {
+                viewport.initialize_window(
+                    tx.clone(),
+                    event_loop,
+                    ctx,
+                    viewport_from_window,
+                    painter,
+                );
+            }
+
+            let (Some(window), Some(egui_state)) = (&viewport.window, &mut viewport.egui_state)
+            else {
+                return;
+            };
+
+            egui_winit::update_viewport_info(&mut viewport.info, ctx, window);
+
+            let mut input = egui_state.take_egui_input(window);
+            input.viewports = viewports
+                .iter()
+                .map(|(id, viewport)| (*id, viewport.info.clone()))
+                .collect();
+            input
+        };
+
+        let output = ctx.run(input, |ctx| {
+            viewport_ui_cb(ctx);
         });
 
-        self.screen_descriptor.pixels_per_point = output.pixels_per_point;
-        self.textures.append(output.textures_delta);
-        self.egui_state
-            .handle_platform_output(window, output.platform_output);
-        self.paint_jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
+        let viewport_id = ids.this;
+        let State {
+            viewports,
+            painter,
+            focused,
+            ..
+        } = &mut *state.borrow_mut();
+
+        let Some(viewport) = viewports.get_mut(&viewport_id) else {
+            return;
+        };
+
+        viewport.info.events.clear();
+
+        let (Some(window), Some(egui_state)) = (&viewport.window, &mut viewport.egui_state) else {
+            return;
+        };
+
+        Renderer::set_painter_window(
+            tx.clone(),
+            Rc::clone(painter),
+            viewport_id,
+            Some(Arc::clone(window)),
+        );
+
+        let clipped_primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+        painter.borrow_mut().paint_and_update_textures(
+            viewport_id,
+            output.pixels_per_point,
+            [0.0; 4],
+            &clipped_primitives,
+            &output.textures_delta,
+            false,
+        );
+
+        egui_state.handle_platform_output(window, output.platform_output);
+        Self::handle_viewport_output(ctx, viewports, output.viewport_output, *focused);
     }
 
     /// Request redraw.
     pub fn request_redraw(
         &mut self,
-        window: &Window,
+        window_id: WindowId,
         event_loop: &EventLoopWindowTarget<NesEvent>,
         cfg: &mut Config,
     ) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        self.prepare(window, cfg);
+        self.initialize_all_windows(event_loop);
 
-        if self.resize_surface || self.gui.resize_window {
-            self.surface.configure(&self.device, &self.surface_config);
-            if self.gui.resize_window {
+        if self.all_viewports_occluded() {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return Ok(());
+        }
+
+        let Some(viewport_id) = self.viewport_id_for_window(window_id) else {
+            return Ok(());
+        };
+
+        #[cfg(feature = "profiling")]
+        puffin::GlobalProfiler::lock().new_frame();
+
+        if self.resize_surface {
+            // TODO: fix toggling vsync
+            // let mut state = self.state.borrow_mut();
+            // state.painter.borrow_mut().destroy();
+            // state.painter = Rc::new(RefCell::new(Painter::new(
+            //     egui_wgpu::WgpuConfiguration {
+            //         present_mode: if cfg.renderer.vsync {
+            //             wgpu::PresentMode::AutoVsync
+            //         } else {
+            //             wgpu::PresentMode::AutoNoVsync
+            //         },
+            //         desired_maximum_frame_latency: Some(2),
+            //         ..Default::default()
+            //     },
+            //     1,
+            //     None,
+            //     false,
+            // )));
+            // self.render_state = state.painter.borrow().render_state();
+            // self.gui.resize_texture = true;
+        }
+        if self.gui.resize_window {
+            if !self.fullscreen() {
                 let aspect_ratio = self.gui.aspect_ratio(cfg);
                 let mut window_size = cfg.window_size();
-                window_size.width *= aspect_ratio;
-                window_size.height += self.gui.menu_height;
-                let _ = self.window.request_inner_size(window_size);
-                self.gui.resize_window = false;
+                window_size.x *= aspect_ratio;
+                window_size.y += self.gui.menu_height;
+                self.ctx.send_viewport_cmd_to(
+                    ViewportId::ROOT,
+                    ViewportCommand::InnerSize(window_size),
+                );
             }
-            self.resize_surface = false;
+            self.gui.resize_window = false;
         }
         if self.gui.resize_texture {
             self.resize_texture(cfg);
             self.gui.resize_texture = false;
         }
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("renderer"),
-            });
-        let frame = {
-            #[cfg(feature = "profiling")]
-            puffin::profile_scope!("vsync");
+        let (viewport_ui_cb, raw_input) = {
+            let State {
+                viewports, painter, ..
+            } = &mut *self.state.borrow_mut();
 
-            self.surface.get_current_texture().or_else(|_| {
-                self.surface.configure(&self.device, &self.surface_config);
-                self.surface.get_current_texture()
-            })?
+            if viewport_id != ViewportId::ROOT {
+                let Some(viewport) = viewports.get_mut(&viewport_id) else {
+                    return Ok(());
+                };
+                if viewport.occluded {
+                    return Ok(());
+                }
+                if viewport.viewport_ui_cb.is_none() {
+                    let parent_viewport_id = viewport.ids.parent;
+                    // This will only happen if this is an immediate viewport.
+                    // That means that the viewport cannot be rendered by itself and needs his parent to be rendered.
+                    if viewports
+                        .get(&parent_viewport_id)
+                        .map_or(false, |viewport| viewport.window.is_some())
+                    {
+                        self.tx.nes_event(RendererEvent::RequestRedraw {
+                            viewport_id: parent_viewport_id,
+                            when: Instant::now(),
+                        });
+                    }
+                    return Ok(());
+                }
+            }
+
+            let Some(viewport) = viewports.get_mut(&viewport_id) else {
+                return Ok(());
+            };
+
+            let viewport_ui_cb = viewport.viewport_ui_cb.clone();
+
+            let Some(window) = &viewport.window else {
+                return Ok(());
+            };
+            egui_winit::update_viewport_info(&mut viewport.info, &self.ctx, window);
+
+            if !self.ctx.embed_viewports() {
+                Renderer::set_painter_window(
+                    self.tx.clone(),
+                    Rc::clone(painter),
+                    viewport_id,
+                    Some(Arc::clone(window)),
+                );
+            }
+
+            let egui_state = viewport.egui_state.as_mut().unwrap();
+            let mut raw_input = egui_state.take_egui_input(window);
+
+            raw_input.viewports = viewports
+                .iter()
+                .map(|(id, viewport)| (*id, viewport.info.clone()))
+                .collect();
+
+            (viewport_ui_cb, raw_input)
         };
-        // Copy NES frame buffer
-        if let Ok(frame_buffer) = self.frame_rx.try_recv() {
-            self.texture.update(
-                &self.queue,
-                if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
-                    let len = frame_buffer.len();
-                    &frame_buffer[OVERSCAN_TRIM..len - OVERSCAN_TRIM]
-                } else {
-                    &frame_buffer
-                },
-            );
-        };
-        if !self.frame_rx.is_empty() {
-            self.redraw_tx
-                .lock()
-                .nes_event(RendererEvent::RequestRedraw(
-                    FrameRate::from(cfg.deck.region).duration(),
-                ));
+
+        // Copy NES frame buffer before drawing UI because a UI interaction might cause a texture
+        // resize tied to a configuration change.
+        if let Some(render_state) = &self.render_state {
+            if let Ok(frame_buffer) = self.frame_rx.try_recv() {
+                self.texture.update(
+                    &render_state.queue,
+                    if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
+                        &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
+                    } else {
+                        &frame_buffer
+                    },
+                );
+            }
+            if !self.frame_rx.is_empty() {
+                self.tx.nes_event(RendererEvent::RequestRedraw {
+                    viewport_id: ViewportId::ROOT,
+                    when: Instant::now() + FrameRate::from(cfg.deck.region).duration(),
+                });
+            }
         }
 
-        if self.gui.loaded_rom.is_none() {
-            encoder.clear_texture(&self.texture.texture, &Default::default());
-        }
-
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
-            label: Some("gui"),
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            ..Default::default()
+        let output = self.ctx.run(raw_input, |ctx| {
+            if let Some(viewport_ui_cb) = viewport_ui_cb {
+                viewport_ui_cb(ctx);
+            }
+            {
+                self.gui.ui(ctx, cfg);
+            }
         });
-
-        for (id, image_delta) in &self.textures.set {
-            self.renderer
-                .update_texture(&self.device, &self.queue, *id, image_delta);
-        }
-        self.renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &self.paint_jobs,
-            &self.screen_descriptor,
-        );
 
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gui"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            self.renderer
-                .render(&mut render_pass, &self.paint_jobs, &self.screen_descriptor);
+            // Required to get mutable reference again to avoid double borrow when calling gui.ui
+            // above.
+            let State {
+                viewports,
+                painter,
+                focused,
+                viewport_from_window,
+                ..
+            } = &mut *self.state.borrow_mut();
+            let Some(viewport) = viewports.get_mut(&viewport_id) else {
+                return Ok(());
+            };
+
+            viewport.info.events.clear(); // they should have been processed
+
+            let Viewport {
+                window: Some(window),
+                egui_state: Some(egui_state),
+                ..
+            } = viewport
+            else {
+                return Ok(());
+            };
+
+            let clipped_primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
+            let screenshot_requested = std::mem::take(&mut viewport.screenshot_requested);
+            let (_, screenshot) = painter.borrow_mut().paint_and_update_textures(
+                viewport_id,
+                output.pixels_per_point,
+                [0.0; 4],
+                &clipped_primitives,
+                &output.textures_delta,
+                screenshot_requested,
+            );
+            if let Some(screenshot) = screenshot {
+                egui_state
+                    .egui_input_mut()
+                    .events
+                    .push(egui::Event::Screenshot {
+                        viewport_id,
+                        image: screenshot.into(),
+                    });
+            }
+
+            if std::mem::take(&mut self.first_frame) {
+                window.set_visible(true);
+            }
+
+            let active_viewports_ids: ViewportIdSet =
+                output.viewport_output.keys().copied().collect();
+
+            egui_state.handle_platform_output(window, output.platform_output);
+            Self::handle_viewport_output(&self.ctx, viewports, output.viewport_output, *focused);
+
+            // Prune dead viewports
+            viewports.retain(|id, _| active_viewports_ids.contains(id));
+            viewport_from_window.retain(|_, id| active_viewports_ids.contains(id));
+            painter.borrow_mut().gc_viewports(&active_viewports_ids);
         }
-
-        // Cleanup
-        let textures = std::mem::take(&mut self.textures);
-        for id in &textures.free {
-            self.renderer.free_texture(id);
-        }
-
-        self.queue.submit(Some(encoder.finish()));
-        self.window.pre_present_notify();
-
-        event_loop.set_control_flow(if self.repaint_delay.is_zero() {
-            self.window.request_redraw();
-            self.repaint_delay = Duration::from_secs_f32(1.0 / 60.0);
-            ControlFlow::Poll
-        } else if let Some(repaint_after) = Instant::now().checked_add(self.repaint_delay) {
-            ControlFlow::WaitUntil(repaint_after)
-        } else {
-            ControlFlow::Wait
-        });
-
-        frame.present();
 
         Ok(())
     }
 }
 
-impl Nes {
-    pub fn add_message<S>(&mut self, text: S)
-    where
-        S: Into<String>,
-    {
-        self.renderer.gui.add_message(text);
-    }
+impl Viewport {
+    pub fn initialize_window(
+        &mut self,
+        tx: EventLoopProxy<NesEvent>,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+        ctx: &egui::Context,
+        viewport_from_window: &mut HashMap<WindowId, ViewportId>,
+        painter: &Rc<RefCell<Painter>>,
+    ) {
+        if self.window.is_some() {
+            return;
+        }
 
-    pub fn on_error(&mut self, err: anyhow::Error) {
-        self.nes_event(EmulationEvent::Pause(true));
-        error!("{err:?}");
-        self.renderer.gui.error = Some(err.to_string());
+        let viewport_id = self.ids.this;
+        match egui_winit::create_window(ctx, event_loop, &self.builder) {
+            Ok(window) => {
+                viewport_from_window.insert(window.id(), viewport_id);
+                let window = Arc::new(window);
+
+                Renderer::set_painter_window(
+                    tx,
+                    Rc::clone(painter),
+                    viewport_id,
+                    Some(Arc::clone(&window)),
+                );
+
+                self.egui_state = Some(egui_winit::State::new(
+                    ctx.clone(),
+                    viewport_id,
+                    event_loop,
+                    Some(window.scale_factor() as f32),
+                    painter.borrow().max_texture_side(),
+                ));
+
+                self.info.minimized = window.is_minimized();
+                self.info.maximized = Some(window.is_maximized());
+                self.window = Some(window);
+            }
+            Err(err) => tracing::error!("Failed to create window: {err}"),
+        }
     }
 }

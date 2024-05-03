@@ -1,19 +1,27 @@
 //! User Interface representing the the NES Control Deck
 
 use crate::{
-    nes::renderer::FrameRecycle,
-    platform::{BuilderExt, EventLoopExt, Initialize},
+    nes::{
+        event::{RendererEvent, SendNesEvent, UiEvent},
+        input::InputBindings,
+        renderer::{FrameRecycle, ResourceState, Resources},
+    },
+    platform::{EventLoopExt, Initialize},
+    thread,
 };
 use config::Config;
+use crossbeam::channel;
+use egui::ahash::HashMap;
 use emulation::Emulation;
-use event::{NesEvent, State};
+use event::NesEvent;
 use renderer::Renderer;
 use std::sync::Arc;
-use tetanes_core::video::Frame;
+use tetanes_core::{time::Instant, video::Frame};
 use thingbuf::mpsc::blocking;
 use winit::{
-    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
-    window::{Fullscreen, Window, WindowBuilder},
+    event::Modifiers,
+    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
+    window::WindowId,
 };
 
 pub mod action;
@@ -26,75 +34,137 @@ pub mod renderer;
 
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
+#[must_use]
 pub struct Nes {
+    /// Set during initialization, then taken and set to `None` when running because
+    /// `EventLoopProxy` can only be created on the initial `EventLoop` and not on
+    /// `&EventLoopWindowTarget`.
+    pub(crate) init_state: Option<(Config, EventLoopProxy<NesEvent>)>,
+    /// Requested after `Resume` event and awaited, then taken and set to `None` when running.
+    pub(crate) resource_state: ResourceState,
+    pub(crate) state: Option<Running>,
+}
+
+/// Represents the NES running state.
+#[derive(Debug)]
+pub(crate) struct Running {
     pub(crate) cfg: Config,
-    pub(crate) window: Arc<Window>,
-    pub(crate) emulation: Emulation,
-    pub(crate) renderer: Renderer,
     // Only used by wasm currently
     #[allow(unused)]
     pub(crate) tx: EventLoopProxy<NesEvent>,
-    pub(crate) state: State,
+    pub(crate) emulation: Emulation,
+    pub(crate) renderer: Renderer,
+    pub(crate) input_bindings: InputBindings,
+    pub(crate) modifiers: Modifiers,
+    pub(crate) paused: bool,
+    pub(crate) replay_recording: bool,
+    pub(crate) audio_recording: bool,
+    pub(crate) rewinding: bool,
+    pub(crate) repaint_times: HashMap<WindowId, Instant>,
 }
 
 impl Nes {
-    /// Begins emulation by starting the game engine loop.
+    /// Runs the NES application by starting the event loop.
     ///
     /// # Errors
     ///
-    /// If engine fails to build or run, then an error is returned.
-    pub async fn run(cfg: Config) -> anyhow::Result<()> {
+    /// If event loop fails to build or run, then an error is returned.
+    pub fn run(cfg: Config) -> anyhow::Result<()> {
         // Set up window, events and NES state
         let event_loop = EventLoopBuilder::<NesEvent>::with_user_event().build()?;
-        let mut nes = Nes::new(cfg, &event_loop).await?;
+        let mut nes = Nes::new(cfg, &event_loop);
         event_loop
             .run_platform(move |event, window_target| nes.event_loop(event, window_target))?;
+        Ok(())
+    }
+
+    /// Create the NES instance.
+    pub fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> Self {
+        let tx = event_loop.create_proxy();
+        Self {
+            init_state: Some((cfg, tx)),
+            resource_state: ResourceState::Suspended,
+            state: None,
+        }
+    }
+
+    pub(crate) fn request_resources(
+        &mut self,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+    ) -> anyhow::Result<()> {
+        let (cfg, tx) = self
+            .init_state
+            .as_ref()
+            .expect("config unexpectedly already taken");
+        let ctx = egui::Context::default();
+        let (window, viewport_builder) = Renderer::create_window(event_loop, &ctx, cfg)?;
+        let window = Arc::new(window);
+
+        let (painter_tx, painter_rx) = channel::bounded(1);
+        thread::spawn({
+            let window = Arc::clone(&window);
+            let event_tx = tx.clone();
+            let vsync = cfg.renderer.vsync;
+            async move {
+                match Renderer::create_painter(window, vsync).await {
+                    Ok(painter) => {
+                        painter_tx.send(painter).expect("failed to send painter");
+                        event_tx.nes_event(RendererEvent::ResourcesReady);
+                    }
+                    Err(err) => {
+                        event_tx.nes_event(UiEvent::Error(format!(
+                            "failed to create painter: {err:?}"
+                        )));
+                    }
+                }
+            }
+        });
+
+        self.resource_state = ResourceState::Pending {
+            ctx,
+            window,
+            viewport_builder,
+            painter_rx,
+        };
 
         Ok(())
     }
 
-    /// Create the NES emulation.
-    async fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> anyhow::Result<Self> {
-        let window = Arc::new(Nes::initialize_window(event_loop, &cfg)?);
-        let tx = event_loop.create_proxy();
+    /// Initialize the running state after a window and GPU resources are created. Transitions
+    /// `state` from `Some(PendingGpuResources { .. })` to `Some(Running { .. })`.
+    ///
+    /// # Errors
+    ///
+    /// If GPU resources failed to be requested, the emulation or renderer fails to build, then an
+    /// error is returned.
+    pub(crate) fn init_running(
+        &mut self,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+        resources: Resources,
+    ) -> anyhow::Result<&mut Running> {
         let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(3, FrameRecycle);
-        let state = State::new(&cfg);
-        let emulation = Emulation::initialize(tx.clone(), frame_tx.clone(), cfg.clone())?;
-        let renderer =
-            Renderer::initialize(tx.clone(), Arc::clone(&window), frame_rx, cfg.clone()).await?;
-        let mut nes = Self {
+        let (cfg, tx) = self
+            .init_state
+            .take()
+            .expect("config unexpectedly already taken");
+        let emulation = Emulation::new(tx.clone(), frame_tx.clone(), cfg.clone())?;
+        let renderer = Renderer::new(tx.clone(), event_loop, resources, frame_rx, cfg.clone())?;
+
+        let input_bindings = InputBindings::from_input_config(&cfg.input);
+        let mut running = Running {
             cfg,
-            window,
+            tx,
             emulation,
             renderer,
-            tx,
-            state,
+            input_bindings,
+            modifiers: Modifiers::default(),
+            paused: false,
+            replay_recording: false,
+            audio_recording: false,
+            rewinding: false,
+            repaint_times: HashMap::default(),
         };
-        nes.initialize()?;
-
-        Ok(nes)
-    }
-
-    /// Initializes the window in a platform agnostic way.
-    pub fn initialize_window(
-        event_loop: &EventLoop<NesEvent>,
-        cfg: &Config,
-    ) -> anyhow::Result<Window> {
-        let window_size = cfg.window_size();
-        let texture_size = cfg.texture_size();
-        Ok(WindowBuilder::new()
-            .with_active(true)
-            .with_inner_size(window_size)
-            .with_min_inner_size(texture_size)
-            .with_title(Config::WINDOW_TITLE)
-            // TODO: Support exclusive fullscreen config
-            .with_fullscreen(
-                cfg.renderer
-                    .fullscreen
-                    .then_some(Fullscreen::Borderless(None)),
-            )
-            .with_resizable(true)
-            .with_platform()
-            .build(event_loop)?)
+        running.initialize()?;
+        Ok(self.state.insert(running))
     }
 }

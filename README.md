@@ -41,10 +41,6 @@ fearless concurrency features in a large project. Features used in this project
 include complex enums, traits, generics, matching, iterators, channels, and
 threads.
 
-There are no uses of `unsafe` and all component interactions are handled using
-compile-time, type-checked borrowing rules despite the original NES hardware
-being highly parallel.
-
 `TetaNES` also compiles for the web! Try it out in your
 [browser](http://lukeworks.tech/tetanes-web)!
 
@@ -193,7 +189,7 @@ Emulator shortcuts:
 | Toggle Triangle Channel       | Shift-3      |                |
 | Toggle Noise Channel          | Shift-4      |                |
 | Toggle DMC Channel            | Shift-5      |                |
-| Toggle Fullscreen             | Ctrl-Return  |                |
+| Toggle Fullscreen             | Ctrl-Enter   |                |
 | Toggle NTSC Filter            | Ctrl-N       |                |
 | Toggle CPU Debugger           | Shift-D      |                |
 | Toggle PPU Debugger           | Shift-P      |                |

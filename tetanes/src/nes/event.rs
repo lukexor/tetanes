@@ -5,11 +5,12 @@ use crate::{
         emulation::FrameStats,
         input::{Input, InputBindings},
         renderer::gui::Menu,
-        Nes,
+        Nes, Running,
     },
     platform::{self, open_file_dialog},
 };
 use anyhow::anyhow;
+use egui::ViewportId;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tetanes_core::{
@@ -20,23 +21,23 @@ use tetanes_core::{
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
     mem::RamState,
-    time::Duration,
+    time::{Duration, Instant},
     video::VideoFilter,
 };
 use tracing::{error, trace};
 use winit::{
-    event::{DeviceEvent, ElementState, Event, Modifiers, StartCause, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
     keyboard::PhysicalKey,
-    window::Fullscreen,
+    window::WindowId,
 };
 
 pub trait SendNesEvent {
-    fn nes_event(&mut self, event: impl Into<NesEvent>);
+    fn nes_event(&self, event: impl Into<NesEvent>);
 }
 
 impl SendNesEvent for EventLoopProxy<NesEvent> {
-    fn nes_event(&mut self, event: impl Into<NesEvent>) {
+    fn nes_event(&self, event: impl Into<NesEvent>) {
         let event = event.into();
         trace!("sending event: {event:?}");
         if let Err(err) = self.send_event(event) {
@@ -98,7 +99,6 @@ pub enum ConfigEvent {
     ConcurrentDpad(bool),
     CycleAccurate(bool),
     FourPlayer(FourPlayer),
-    Fullscreen(bool),
     GenieCodeAdded(GenieCode),
     GenieCodeRemoved(String),
     HideOverscan(bool),
@@ -142,18 +142,22 @@ pub enum EmulationEvent {
     ZapperTrigger,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub enum RendererEvent {
     FrameStats(FrameStats),
     ScaleChanged,
-    RequestRedraw(Duration),
+    ResourcesReady,
+    RequestRedraw {
+        viewport_id: ViewportId,
+        when: Instant,
+    },
     RomLoaded((String, NesRegion)),
     RomUnloaded,
     Menu(Menu),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub enum NesEvent {
     Ui(UiEvent),
@@ -186,38 +190,6 @@ impl From<ConfigEvent> for NesEvent {
     }
 }
 
-#[derive(Debug)]
-#[must_use]
-pub struct State {
-    pub input_bindings: InputBindings,
-    pub modifiers: Modifiers,
-    pub occluded: bool,
-    pub paused: bool,
-    pub replay_recording: bool,
-    pub audio_recording: bool,
-    pub rewinding: bool,
-}
-
-impl State {
-    pub fn new(cfg: &Config) -> Self {
-        Self {
-            input_bindings: InputBindings::from_input_config(&cfg.input),
-            modifiers: Modifiers::default(),
-            occluded: false,
-            paused: false,
-            replay_recording: false,
-            audio_recording: false,
-            rewinding: false,
-        }
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::new(&Config::default())
-    }
-}
-
 impl Nes {
     pub fn event_loop(
         &mut self,
@@ -227,25 +199,57 @@ impl Nes {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let mut repaint = false;
         match event {
-            // TODO: Technically on native platforms, window/rendering shouldn't be initialized until
-            // Resumed is called, but that requires async which we can't do on wasm - so that would
-            // require a separate initialization path.
-            Event::Resumed | Event::Suspended => (),
+            Event::Resumed => {
+                let state = if let Some(state) = &mut self.state {
+                    if platform::supports(platform::Feature::Suspend) {
+                        state.renderer.recreate_window(event_loop);
+                    }
+                    state
+                } else {
+                    if self.resource_state.is_suspended() {
+                        if let Err(err) = self.request_resources(event_loop) {
+                            tracing::error!("failed to request renderer resources: {err:?}");
+                            event_loop.exit();
+                        }
+                    }
+                    return;
+                };
+                state.repaint_times.insert(
+                    state
+                        .renderer
+                        .root_window_id()
+                        .expect("failed to get root window_id"),
+                    Instant::now(),
+                );
+            }
+            Event::Suspended => {
+                if platform::supports(platform::Feature::Suspend) {
+                    if let Some(state) = &mut self.state {
+                        if let Err(err) = state.renderer.drop_window() {
+                            tracing::error!("failed to suspend window: {err:?}");
+                            event_loop.exit();
+                        }
+                    }
+                }
+            }
             Event::MemoryWarning => {
-                self.add_message("Your system memory is running low...");
+                if let Some(state) = &mut self.state {
+                    state
+                        .renderer
+                        .add_message("Your system memory is running low...");
+                }
             }
             Event::NewEvents(cause) => match cause {
-                StartCause::ResumeTimeReached { .. } => repaint = true,
+                StartCause::ResumeTimeReached { .. } => (),
                 StartCause::WaitCancelled { .. } => (),
                 StartCause::Poll => (),
                 StartCause::Init => (),
             },
             Event::AboutToWait => {
-                #[cfg(feature = "profiling")]
-                puffin::GlobalProfiler::lock().new_frame();
-                self.emulation.clock_frame();
+                if let Some(state) = &mut self.state {
+                    state.emulation.clock_frame();
+                }
             }
             Event::DeviceEvent {
                 device_id: _,
@@ -261,140 +265,192 @@ impl Nes {
             Event::WindowEvent {
                 window_id, event, ..
             } => {
-                let res = self.renderer.on_window_event(window_id, &event);
-                if res.repaint {
-                    repaint = true;
-                }
+                if let Some(state) = &mut self.state {
+                    let res = state.renderer.on_window_event(window_id, &event);
+                    if res.repaint {
+                        state.repaint_times.insert(window_id, Instant::now());
+                    }
 
-                if !res.consumed {
-                    match event {
-                        WindowEvent::CloseRequested | WindowEvent::Destroyed => {
-                            if window_id == self.window.id() {
-                                event_loop.exit();
-                            }
-                        }
-                        WindowEvent::RedrawRequested => {
-                            if !self.state.occluded {
-                                if let Err(err) = self.renderer.request_redraw(
-                                    &self.window,
+                    if !res.consumed {
+                        match event {
+                            WindowEvent::RedrawRequested => {
+                                state.repaint_times.remove(&window_id);
+                                if let Err(err) = state.renderer.request_redraw(
+                                    window_id,
                                     event_loop,
-                                    &mut self.cfg,
+                                    &mut state.cfg,
                                 ) {
-                                    self.on_error(err);
+                                    state.renderer.on_error(err);
                                 }
                             }
-                        }
-                        WindowEvent::Occluded(occluded) => {
-                            if window_id == self.window.id() {
-                                self.state.occluded = occluded;
-                                self.nes_event(EmulationEvent::Occluded(self.state.occluded));
-                                event_loop.set_control_flow(if occluded {
-                                    ControlFlow::Wait
-                                } else {
-                                    ControlFlow::Poll
-                                });
+                            WindowEvent::Occluded(occluded) => {
+                                if !occluded {
+                                    state.repaint_times.insert(window_id, Instant::now());
+                                }
                             }
-                            if !occluded {
-                                repaint = true;
+                            WindowEvent::KeyboardInput { event, .. } => {
+                                if let PhysicalKey::Code(key) = event.physical_key {
+                                    state.on_input(
+                                        window_id,
+                                        Input::Key(key, state.modifiers.state()),
+                                        event.state,
+                                        event.repeat,
+                                    );
+                                }
                             }
-                        }
-                        WindowEvent::KeyboardInput { event, .. } => {
-                            repaint = true;
-                            if let PhysicalKey::Code(key) = event.physical_key {
-                                self.on_input(
-                                    Input::Key(key, self.state.modifiers.state()),
-                                    event.state,
-                                    event.repeat,
-                                );
+                            WindowEvent::ModifiersChanged(modifiers) => {
+                                state.modifiers = modifiers;
                             }
+                            WindowEvent::MouseInput {
+                                button,
+                                state: el_state,
+                                ..
+                            } => {
+                                state.on_input(window_id, Input::Mouse(button), el_state, false);
+                            }
+                            WindowEvent::AxisMotion {
+                                device_id: _,
+                                axis: _,
+                                value: _,
+                            } => {
+                                // println!("{device_id:?}, {axis:?}, {value:?}");
+                            }
+                            WindowEvent::DroppedFile(path) => {
+                                if Some(window_id) == state.renderer.root_window_id() {
+                                    state.nes_event(EmulationEvent::LoadRomPath(path));
+                                }
+                            }
+                            _ => (),
                         }
-                        WindowEvent::ModifiersChanged(modifiers) => {
-                            repaint = true;
-                            self.state.modifiers = modifiers
-                        }
-                        WindowEvent::MouseInput { button, state, .. } => {
-                            repaint = true;
-                            self.on_input(Input::Mouse(button), state, false);
-                        }
-                        WindowEvent::AxisMotion {
-                            device_id: _,
-                            axis: _,
-                            value: _,
-                        } => {
-                            // println!("{device_id:?}, {axis:?}, {value:?}");
-                        }
-                        // All things that may require a repaint
-                        WindowEvent::Focused(_)
-                        | WindowEvent::CursorEntered { .. }
-                        | WindowEvent::CursorLeft { .. }
-                        | WindowEvent::CursorMoved { .. }
-                        | WindowEvent::HoveredFile(_)
-                        | WindowEvent::HoveredFileCancelled
-                        | WindowEvent::MouseWheel { .. }
-                        | WindowEvent::Moved(..)
-                        | WindowEvent::Resized(..)
-                        | WindowEvent::ScaleFactorChanged { .. }
-                        | WindowEvent::SmartMagnify { .. }
-                        | WindowEvent::ThemeChanged(..)
-                        | WindowEvent::Touch { .. }
-                        | WindowEvent::TouchpadMagnify { .. }
-                        | WindowEvent::TouchpadPressure { .. }
-                        | WindowEvent::TouchpadRotate { .. } => repaint = true,
-                        WindowEvent::DroppedFile(path) => {
-                            self.nes_event(EmulationEvent::LoadRomPath(path));
-                        }
-                        // Don't care about these
-                        WindowEvent::ActivationTokenDone { .. } | WindowEvent::Ime(_) => (),
                     }
                 }
             }
             Event::UserEvent(event) => {
-                // Only wake emulation of relevant events
-                if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
-                    self.emulation.on_event(&event);
-                }
-                self.renderer.on_event(&event);
-                match event {
-                    NesEvent::Config(ConfigEvent::InputBindings) => {
-                        self.state.input_bindings =
-                            InputBindings::from_input_config(&self.cfg.input);
+                if let Some(state) = &mut self.state {
+                    // Only wake emulation of relevant events
+                    if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
+                        state.emulation.on_event(&event);
                     }
-                    NesEvent::Renderer(RendererEvent::ScaleChanged) => repaint = true,
-                    NesEvent::Ui(event) => match event {
-                        UiEvent::Terminate => event_loop.exit(),
-                        _ => self.on_event(event),
-                    },
-                    _ => (),
+                    state.renderer.on_event(&event);
+
+                    match event {
+                        NesEvent::Config(ConfigEvent::InputBindings) => {
+                            state.input_bindings =
+                                InputBindings::from_input_config(&state.cfg.input);
+                        }
+                        NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
+                            if let Some(window_id) =
+                                state.renderer.window_id_for_viewport(viewport_id)
+                            {
+                                state.repaint_times.insert(
+                                    window_id,
+                                    state
+                                        .repaint_times
+                                        .get(&window_id)
+                                        .map_or(when, |last| (*last).min(when)),
+                                );
+                            }
+                        }
+                        NesEvent::Ui(event) => match event {
+                            UiEvent::Terminate => event_loop.exit(),
+                            _ => state.on_event(event),
+                        },
+                        _ => (),
+                    }
+                } else if let NesEvent::Renderer(RendererEvent::ResourcesReady) = event {
+                    if let Some(resources) = self.resource_state.take_pending() {
+                        match self.init_running(event_loop, resources) {
+                            Ok(state) => {
+                                state.repaint_times.insert(
+                                    state
+                                        .renderer
+                                        .root_window_id()
+                                        .expect("failed to get root window_id"),
+                                    Instant::now(),
+                                );
+                            }
+                            Err(err) => {
+                                tracing::error!("failed to create window: {err:?}");
+                                event_loop.exit();
+                                return;
+                            }
+                        }
+                    }
                 }
             }
             Event::LoopExiting => {
                 #[cfg(feature = "profiling")]
                 puffin::set_scopes_on(false);
 
-                // Save window scale on exit
-                let size = self.window.inner_size();
-                let scale_factor = self.window.scale_factor() as f32;
-                let texture_size = self.cfg.texture_size();
-                let scale = if size.width < size.height {
-                    (size.width as f32 / scale_factor) / texture_size.width as f32
-                } else {
-                    (size.height as f32 / scale_factor) / texture_size.height as f32
-                };
-                self.cfg.renderer.scale = scale.floor();
-                if let Err(err) = self.cfg.save() {
-                    error!("{err:?}");
+                if let Some(state) = &mut self.state {
+                    // Save window scale on exit if not fullscreen
+                    if !state.renderer.fullscreen() {
+                        if let Some(size) = state.renderer.inner_size() {
+                            let texture_size = state.cfg.texture_size();
+                            let scale = if size.width() < size.height() {
+                                size.width() / texture_size.x
+                            } else {
+                                size.height() / texture_size.y
+                            };
+                            state.cfg.renderer.scale = scale.round().clamp(1.0, 5.0);
+                            if let Err(err) = state.cfg.save() {
+                                error!("failed to save configuration: {err:?}");
+                            }
+                        }
+                    }
                 }
             }
         }
-        if repaint {
-            self.window.request_redraw();
+
+        if let Some(state) = &mut self.state {
+            let mut next_repaint_time = state.repaint_times.values().min().copied();
+            state.repaint_times.retain(|window_id, when| {
+                if Instant::now() < *when {
+                    return true;
+                }
+                next_repaint_time = None;
+                event_loop.set_control_flow(ControlFlow::Poll);
+
+                if let Some(window) = state.renderer.window(*window_id) {
+                    if !window.is_minimized().unwrap_or(false) {
+                        window.request_redraw();
+                    }
+                    true
+                } else {
+                    false
+                }
+            });
+
+            if let Some(next_repaint_time) = next_repaint_time {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(next_repaint_time));
+            }
+        }
+    }
+}
+
+impl Running {
+    /// Trigger a custom event.
+    pub fn nes_event(&mut self, event: impl Into<NesEvent>) {
+        let event = event.into();
+        trace!("Nes event: {event:?}");
+
+        self.emulation.on_event(&event);
+        self.renderer.on_event(&event);
+        match event {
+            NesEvent::Ui(event) => self.on_event(event),
+            NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {
+                if let Ok(path) = path.canonicalize() {
+                    self.cfg.renderer.recent_roms.insert(path);
+                }
+            }
+            _ => (),
         }
     }
 
     pub fn on_event(&mut self, event: UiEvent) {
         match event {
-            UiEvent::Message(msg) => self.add_message(msg),
-            UiEvent::Error(err) => self.on_error(anyhow!(err)),
+            UiEvent::Message(msg) => self.renderer.add_message(msg),
+            UiEvent::Error(err) => self.renderer.on_error(anyhow!(err)),
             UiEvent::LoadRomDialog => {
                 match open_file_dialog(
                     "Load ROM",
@@ -439,41 +495,30 @@ impl Nes {
         }
     }
 
-    /// Trigger a custom event.
-    pub fn nes_event(&mut self, event: impl Into<NesEvent>) {
-        let event = event.into();
-        trace!("Nes event: {event:?}");
-
-        self.emulation.on_event(&event);
-        self.renderer.on_event(&event);
-        match event {
-            NesEvent::Ui(event) => self.on_event(event),
-            NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {
-                if let Ok(path) = path.canonicalize() {
-                    self.cfg.renderer.recent_roms.insert(path);
-                }
-            }
-            _ => (),
-        }
-    }
-
     /// Handle user input mapped to key bindings.
-    pub fn on_input(&mut self, input: Input, state: ElementState, repeat: bool) {
-        if let Some(action) = self.state.input_bindings.get(&input).copied() {
-            trace!("action: {action:?}, state: {state:?}, repeat: {repeat:?}");
-            let released = state == ElementState::Released;
+    pub fn on_input(
+        &mut self,
+        window_id: WindowId,
+        input: Input,
+        el_state: ElementState,
+        repeat: bool,
+    ) {
+        if let Some(action) = self.input_bindings.get(&input).copied() {
+            trace!("action: {action:?}, state: {el_state:?}, repeat: {repeat:?}");
+            let released = el_state == ElementState::Released;
+            let root_window = Some(window_id) == self.renderer.root_window_id();
             match action {
-                Action::Ui(state) if released => match state {
+                Action::Ui(ui_state) if released => match ui_state {
                     Ui::Quit => self.tx.nes_event(UiEvent::Terminate),
                     Ui::TogglePause => {
-                        if self.renderer.rom_loaded() {
-                            self.state.paused = !self.state.paused;
-                            self.nes_event(EmulationEvent::Pause(self.state.paused));
+                        if root_window && self.renderer.rom_loaded() {
+                            self.paused = !self.paused;
+                            self.nes_event(EmulationEvent::Pause(self.paused));
                         }
                     }
                     Ui::LoadRom => {
-                        self.state.paused = true;
-                        self.nes_event(EmulationEvent::Pause(self.state.paused));
+                        self.paused = true;
+                        self.nes_event(EmulationEvent::Pause(self.paused));
                         self.nes_event(UiEvent::LoadRomDialog);
                     }
                     Ui::UnloadRom => {
@@ -483,24 +528,22 @@ impl Nes {
                     }
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
-                            self.state.paused = true;
-                            self.nes_event(EmulationEvent::Pause(self.state.paused));
+                            self.paused = true;
+                            self.nes_event(EmulationEvent::Pause(self.paused));
                             self.nes_event(UiEvent::LoadReplayDialog);
                         }
                     }
                 },
                 Action::Menu(menu) if released => self.nes_event(RendererEvent::Menu(menu)),
-                Action::Feature(feature) => match feature {
+                Action::Feature(feature) if root_window => match feature {
                     Feature::ToggleReplayRecording if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
-                                self.state.replay_recording = !self.state.replay_recording;
-                                self.nes_event(EmulationEvent::ReplayRecord(
-                                    self.state.replay_recording,
-                                ));
+                                self.replay_recording = !self.replay_recording;
+                                self.nes_event(EmulationEvent::ReplayRecord(self.replay_recording));
                             }
                         } else {
-                            self.add_message(
+                            self.renderer.add_message(
                                 "replay recordings are not supported yet on this platform.",
                             );
                         }
@@ -508,13 +551,11 @@ impl Nes {
                     Feature::ToggleAudioRecording if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
-                                self.state.audio_recording = !self.state.audio_recording;
-                                self.nes_event(EmulationEvent::AudioRecord(
-                                    self.state.audio_recording,
-                                ));
+                                self.audio_recording = !self.audio_recording;
+                                self.nes_event(EmulationEvent::AudioRecord(self.audio_recording));
                             }
                         } else {
-                            self.add_message(
+                            self.renderer.add_message(
                                 "audio recordings are not supported yet on this platform.",
                             );
                         }
@@ -525,40 +566,37 @@ impl Nes {
                                 self.nes_event(EmulationEvent::Screenshot);
                             }
                         } else {
-                            self.add_message("screenshots are not supported yet on this platform.");
+                            self.renderer
+                                .add_message("screenshots are not supported yet on this platform.");
                         }
                     }
                     Feature::VisualRewind => {
-                        if !self.state.rewinding {
+                        if !self.rewinding {
                             if repeat {
-                                self.state.rewinding = true;
-                                self.nes_event(EmulationEvent::Rewinding(self.state.rewinding));
+                                self.rewinding = true;
+                                self.nes_event(EmulationEvent::Rewinding(self.rewinding));
                             } else if released {
                                 self.nes_event(EmulationEvent::InstantRewind);
                             }
                         } else if released {
-                            self.state.rewinding = false;
-                            self.nes_event(EmulationEvent::Rewinding(self.state.rewinding));
+                            self.rewinding = false;
+                            self.nes_event(EmulationEvent::Rewinding(self.rewinding));
                         }
                     }
                     _ => (),
                 },
                 Action::Setting(setting) => match setting {
-                    Setting::ToggleFullscreen if released => {
+                    Setting::ToggleFullscreen if released && root_window => {
                         self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
-                        self.window.set_fullscreen(
-                            self.cfg
-                                .renderer
-                                .fullscreen
-                                .then_some(Fullscreen::Borderless(None)),
-                        );
+                        self.renderer.set_fullscreen(self.cfg.renderer.fullscreen);
                     }
                     Setting::ToggleVsync if released => {
                         if platform::supports(platform::Feature::ToggleVsync) {
                             self.cfg.renderer.vsync = !self.cfg.renderer.vsync;
                             self.nes_event(ConfigEvent::Vsync(self.cfg.renderer.vsync));
                         } else {
-                            self.add_message("Disabling VSync is not supported on this platform.");
+                            self.renderer
+                                .add_message("Disabling VSync is not supported on this platform.");
                         }
                     }
                     Setting::ToggleAudio if released => {
@@ -587,7 +625,8 @@ impl Nes {
                         let new_speed = self.cfg.increment_speed();
                         if speed != new_speed {
                             self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
-                            self.add_message(format!("Increased Emulation Speed to {new_speed}"));
+                            self.renderer
+                                .add_message(format!("Increased Emulation Speed to {new_speed}"));
                         }
                     }
                     Setting::DecrementSpeed if released => {
@@ -595,17 +634,20 @@ impl Nes {
                         let new_speed = self.cfg.decrement_speed();
                         if speed != new_speed {
                             self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
-                            self.add_message(format!("Decreased Emulation Speed to {new_speed}"));
+                            self.renderer
+                                .add_message(format!("Decreased Emulation Speed to {new_speed}"));
                         }
                     }
-                    Setting::FastForward if !repeat && self.renderer.rom_loaded() => {
+                    Setting::FastForward
+                        if !repeat && root_window && self.renderer.rom_loaded() =>
+                    {
                         let new_speed = if released { 1.0 } else { 2.0 };
                         let speed = self.cfg.emulation.speed;
                         if speed != new_speed {
                             self.cfg.emulation.speed = new_speed;
                             self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             if new_speed == 2.0 {
-                                self.add_message("Fast forwarding");
+                                self.renderer.add_message("Fast forwarding");
                             }
                         }
                     }
@@ -615,8 +657,8 @@ impl Nes {
                     DeckAction::Reset(kind) if released => {
                         self.nes_event(EmulationEvent::Reset(kind));
                     }
-                    DeckAction::Joypad((player, button)) if !repeat => {
-                        self.nes_event(EmulationEvent::Joypad((player, button, state)));
+                    DeckAction::Joypad((player, button)) if !repeat && root_window => {
+                        self.nes_event(EmulationEvent::Joypad((player, button, el_state)));
                     }
                     // Handled by `gui` module
                     DeckAction::ZapperAim(_)
@@ -626,24 +668,28 @@ impl Nes {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.cfg.emulation.save_slot != slot {
                                 self.cfg.emulation.save_slot = slot;
-                                self.add_message(format!("Changed Save Slot to {slot}"));
+                                self.renderer
+                                    .add_message(format!("Changed Save Slot to {slot}"));
                             }
                         } else {
-                            self.add_message("save states are not supported yet on this platform.");
+                            self.renderer
+                                .add_message("save states are not supported yet on this platform.");
                         }
                     }
-                    DeckAction::SaveState if released => {
+                    DeckAction::SaveState if released && root_window => {
                         if platform::supports(platform::Feature::Filesystem) {
                             self.nes_event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
-                            self.add_message("save states are not supported yet on this platform.");
+                            self.renderer
+                                .add_message("save states are not supported yet on this platform.");
                         }
                     }
-                    DeckAction::LoadState if released => {
+                    DeckAction::LoadState if released && root_window => {
                         if platform::supports(platform::Feature::Filesystem) {
                             self.nes_event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
-                            self.add_message("save states are not supported yet on this platform.");
+                            self.renderer
+                                .add_message("save states are not supported yet on this platform.");
                         }
                     }
                     DeckAction::ToggleApuChannel(channel) if released => {
@@ -659,12 +705,14 @@ impl Nes {
                         self.nes_event(ConfigEvent::MapperRevisions(
                             self.cfg.deck.mapper_revisions,
                         ));
-                        self.add_message(format!("Changed Mapper Revision to {rev}"));
+                        self.renderer
+                            .add_message(format!("Changed Mapper Revision to {rev}"));
                     }
                     DeckAction::SetNesRegion(region) if released => {
                         self.cfg.deck.region = region;
                         self.nes_event(ConfigEvent::Region(self.cfg.deck.region));
-                        self.add_message(format!("Changed NES Region to {region:?}"));
+                        self.renderer
+                            .add_message(format!("Changed NES Region to {region:?}"));
                     }
                     DeckAction::SetVideoFilter(filter) if released => {
                         let filter = if self.cfg.deck.filter == filter {
@@ -679,9 +727,10 @@ impl Nes {
                 },
                 Action::Debug(action) => match action {
                     Debug::Toggle(kind) if released => {
-                        self.add_message(format!("{kind:?} is not implemented yet"));
+                        self.renderer
+                            .add_message(format!("{kind:?} is not implemented yet"));
                     }
-                    Debug::Step(step) if released | repeat => {
+                    Debug::Step(step) if (released | repeat) && root_window => {
                         self.nes_event(EmulationEvent::DebugStep(step));
                     }
                     _ => (),

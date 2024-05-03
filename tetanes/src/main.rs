@@ -17,7 +17,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tetanes::{logging, nes::Nes, thread};
+use tetanes::{logging, nes::Nes};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod opts;
@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
         opts.load()?
     };
 
-    thread::spawn(Nes::run(config));
+    Nes::run(config)?;
 
     Ok(())
 }

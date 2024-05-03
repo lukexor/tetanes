@@ -1,5 +1,5 @@
 use crate::{
-    nes::{event::EmulationEvent, Nes},
+    nes::{event::EmulationEvent, Running},
     platform::{BuilderExt, EventLoopExt, Feature, Initialize},
 };
 use std::path::PathBuf;
@@ -11,10 +11,10 @@ use winit::{
 };
 
 pub const fn supports_impl(feature: Feature) -> bool {
-    matches!(
-        feature,
-        Feature::Filesystem | Feature::WindowMinMax | Feature::ToggleVsync
-    )
+    match feature {
+        Feature::Suspend => cfg!(target_os = "android"),
+        Feature::Filesystem | Feature::ToggleVsync | Feature::Viewports => true,
+    }
 }
 
 pub fn open_file_dialog_impl(
@@ -32,7 +32,7 @@ pub fn open_file_dialog_impl(
     Ok(dialog.pick_file())
 }
 
-impl Initialize for Nes {
+impl Initialize for Running {
     fn initialize(&mut self) -> anyhow::Result<()> {
         if let Some(path) = self.cfg.renderer.roms_path.take() {
             if path.is_file() {

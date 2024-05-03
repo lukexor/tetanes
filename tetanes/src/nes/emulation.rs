@@ -12,6 +12,7 @@ use crate::{
 use anyhow::{anyhow, bail};
 use chrono::Local;
 use crossbeam::channel;
+use egui::ViewportId;
 use replay::Replay;
 use std::{
     collections::VecDeque,
@@ -184,7 +185,7 @@ pub struct Emulation {
 
 impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
-    pub fn initialize(
+    pub fn new(
         tx: EventLoopProxy<NesEvent>,
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: Config,
@@ -558,8 +559,7 @@ impl State {
             ConfigEvent::ZapperConnected(connected) => {
                 self.control_deck.connect_zapper(*connected);
             }
-            ConfigEvent::Fullscreen(_)
-            | ConfigEvent::HideOverscan(_)
+            ConfigEvent::HideOverscan(_)
             | ConfigEvent::InputBindings
             | ConfigEvent::Scale(_)
             | ConfigEvent::Vsync(_) => (),
@@ -593,14 +593,19 @@ impl State {
     }
 
     fn send_frame(&mut self) {
+        // tracing::warn!("send_frame");
         // Indicate we want to redraw to ensure there's a frame slot made available if
         // the pool is already full
-        self.tx
-            .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
+        self.tx.nes_event(RendererEvent::RequestRedraw {
+            viewport_id: ViewportId::ROOT,
+            when: Instant::now(),
+        });
         // IMPORTANT: Wasm can't block
         if self.audio.enabled() || cfg!(target_arch = "wasm32") {
             if let Ok(mut frame) = self.frame_tx.try_send_ref() {
                 self.control_deck.frame_buffer_into(&mut frame);
+            } else {
+                tracing::warn!("dropped frame");
             }
         } else if let Ok(mut frame) = self.frame_tx.send_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
@@ -637,6 +642,7 @@ impl State {
                 }
             }
             self.replay_record(false);
+            self.rewind.clear();
             let _ = self.audio.stop();
             if let Err(err) = self.control_deck.unload_rom() {
                 self.on_error(err);
@@ -817,15 +823,20 @@ impl State {
                         frame.clear();
                         frame.extend_from_slice(frame_buffer);
                     };
+                    // tracing::warn!("clock_frame");
                     // Indicate we want to redraw to ensure there's a frame slot made available if
                     // the pool is already full
-                    self.tx
-                        .nes_event(RendererEvent::RequestRedraw(Duration::ZERO));
+                    self.tx.nes_event(RendererEvent::RequestRedraw {
+                        viewport_id: ViewportId::ROOT,
+                        when: Instant::now(),
+                    });
                     // IMPORTANT: Wasm can't block
                     if self.audio.enabled() || cfg!(target_arch = "wasm32") {
                         match self.frame_tx.try_send_ref() {
                             Ok(mut frame) => send_frame(&mut frame),
-                            Err(TrySendError::Full(_)) => (),
+                            Err(TrySendError::Full(_)) => {
+                                tracing::warn!("dropped frame");
+                            }
                             Err(_) => shutdown("failed to get frame"),
                         }
                     } else {

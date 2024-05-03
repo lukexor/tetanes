@@ -100,7 +100,7 @@ impl Audio {
 
     /// Processes generated audio samples.
     pub fn process(&mut self, samples: &[f32]) {
-        if let Some(ref mut mixer) = self
+        if let Some(mixer) = &mut self
             .output
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
@@ -133,7 +133,7 @@ impl Audio {
     /// Pause or resume the audio output stream. If `paused` is false and the stream is not started
     /// yet, it will be started.
     pub fn pause(&mut self, paused: bool) {
-        if let Some(ref mut mixer) = self
+        if let Some(mixer) = &mut self
             .output
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
@@ -180,7 +180,7 @@ impl Audio {
 
     /// Start/stop recording audio to a file.
     pub fn set_recording(&mut self, recording: bool) {
-        if let Some(ref mut mixer) = self
+        if let Some(mixer) = &mut self
             .output
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
@@ -196,7 +196,7 @@ impl Audio {
     /// Returns an error if the audio stream could not be started.
     pub fn start(&mut self) -> anyhow::Result<State> {
         if self.enabled {
-            if let Some(ref mut output) = self.output {
+            if let Some(output) = &mut self.output {
                 output.start()?;
                 Ok(State::Started)
             } else {
@@ -209,7 +209,7 @@ impl Audio {
 
     /// Stop the audio output stream.
     pub fn stop(&mut self) -> State {
-        if let Some(ref mut output) = self.output {
+        if let Some(output) = &mut self.output {
             output.stop();
             State::Stopped
         } else {
@@ -536,7 +536,7 @@ impl Mixer {
             for _ in 0..self.channels {
                 self.processed_samples.push(*sample);
             }
-            if let Some(ref mut recording) = self.recording {
+            if let Some(recording) = &mut self.recording {
                 // TODO: push slice to recording thread
                 // TODO: add wav format
                 let _ = recording.write_all(&sample.to_le_bytes());

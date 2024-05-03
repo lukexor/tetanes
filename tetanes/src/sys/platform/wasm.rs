@@ -1,7 +1,7 @@
 use crate::{
     nes::{
         event::{EmulationEvent, NesEvent, ReplayData, RomData, UiEvent},
-        Nes,
+        Running,
     },
     platform::{BuilderExt, EventLoopExt, Feature, Initialize},
 };
@@ -44,7 +44,7 @@ pub fn open_file_dialog_impl(
     Ok(None)
 }
 
-impl Initialize for Nes {
+impl Initialize for Running {
     fn initialize(&mut self) -> anyhow::Result<()> {
         let window = web_sys::window().context("valid js window")?;
         let document = window.document().context("valid html document")?;
