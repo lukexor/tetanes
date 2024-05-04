@@ -198,6 +198,11 @@ impl Nes {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        tracing::trace!(
+            "event: {}",
+            egui_winit::short_generic_event_description(&event)
+        );
+
         match event {
             Event::Resumed => {
                 let state = if let Some(state) = &mut self.state {
@@ -391,6 +396,7 @@ impl Running {
                     _ => (),
                 }
             }
+            Event::LoopExiting => self.renderer.destroy(),
             _ => (),
         }
     }

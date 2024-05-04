@@ -115,7 +115,7 @@
       data-bin="tetanes"
       data-initializer="initializer.js"
       data-wasm-opt="4"
-      data-reference-types
+      data-no-import
     />
   </head>
   <body>
@@ -134,17 +134,21 @@
 
     <div id="content">
       <p>
-        <em>TetaNES</em> is an emulator for the Nintendo Entertainment System
-        (NES) written in <a href="https://www.rust-lang.org/">Rust</a> and
-        <a href="https://webassembly.org/">WebAssembly</a>. The desktop version
-        is much more performant and fully featured, written using
-        <a href="https://www.libsdl.org/">SDL2</a>.
+        <em>TetaNES</em> is a cross-platform emulator for the Nintendo
+        Entertainment System (NES) released in Japan in 1983 and North America
+        in 1986, written using
+        <a href="https://www.rust-lang.org/" title="Rust">Rust</a> and
+        <a href="https://wgpu.rs/" title="wgpu">wgpu</a>. It runs on Linux,
+        macOS, Windows, and in a web browser with
+        <a href="https://webassembly.org/">WebAssembly</a>. While the web
+        version is playable, the desktop version is much more performant and
+        fully featured.
       </p>
 
       <p>
-        You can choose from a list of homebrew games, or load your own ROM which
-        uses the <a href="https://www.nesdev.org/wiki/INES">iNES</a> or
-        <a href="https://www.nesdev.org/wiki/NES_2.0">NES 2.0</a> format.
+        Load any NES ROM which uses the
+        <a href="https://www.nesdev.org/wiki/INES">iNES</a> or
+        <a href="https://www.nesdev.org/wiki/NES_2.0">NES 2.0</a> header format.
       </p>
 
       <p>
@@ -176,17 +180,21 @@
         </tr>
         <tr>
           <td>Start Button</td>
-          <td>Return</td>
+          <td>Q or Enter</td>
         </tr>
         <tr>
           <td>Select Button</td>
-          <td>Right Shift</td>
+          <td>W</td>
         </tr>
         <tr>
           <td>D-Pad</td>
           <td>Arrow Keys</td>
         </tr>
       </table>
+      <p>
+        Other mappings can be found and modified in the `Config -> Keybinds`
+        menu.
+      </p>
     </div>
   </body>
 </html>

@@ -356,12 +356,12 @@ impl State {
                         DebugStep::Out => {
                             // TODO: track stack frames list on jsr, irq, brk
                             // while stack frame == previous stack frame, clock_instr, send_frame
-                            // self.send_frame();
+                            self.send_frame();
                         }
                         DebugStep::Over => {
                             // TODO: track stack frames list on jsr, irq, brk
                             // while stack frame != previous stack frame, clock_instr, send_frame
-                            // self.send_frame();
+                            self.send_frame();
                         }
                         DebugStep::Scanline => {
                             if self.write_deck(|deck| deck.clock_scanline()).is_some() {
@@ -594,7 +594,6 @@ impl State {
     }
 
     fn send_frame(&mut self) {
-        // tracing::warn!("send_frame");
         // Indicate we want to redraw to ensure there's a frame slot made available if
         // the pool is already full
         self.tx.nes_event(RendererEvent::RequestRedraw {
@@ -606,7 +605,7 @@ impl State {
             if let Ok(mut frame) = self.frame_tx.try_send_ref() {
                 self.control_deck.frame_buffer_into(&mut frame);
             } else {
-                tracing::warn!("dropped frame");
+                tracing::debug!("dropped frame");
             }
         } else if let Ok(mut frame) = self.frame_tx.send_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
@@ -861,7 +860,7 @@ impl State {
                         match self.frame_tx.try_send_ref() {
                             Ok(mut frame) => send_frame(&mut frame),
                             Err(TrySendError::Full(_)) => {
-                                tracing::warn!("dropped frame");
+                                tracing::debug!("dropped frame");
                             }
                             Err(_) => shutdown("failed to get frame"),
                         }

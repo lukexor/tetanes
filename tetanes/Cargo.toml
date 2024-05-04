@@ -46,6 +46,10 @@ rust_2018_idioms = "warn"
 rust_2021_compatibility = "warn"
 unused = "warn"
 
+[package.metadata.docs.rs]
+rustc-args = ["--cfg=web_sys_unstable_apis"]
+targets = ["wasm32-unknown-unknown"]
+
 [package.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
 path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
@@ -65,9 +69,11 @@ cfg-if.workspace = true
 clap.workspace = true
 crossbeam = "0.8"
 dirs.workspace = true
-egui = "0.27"
-egui-wgpu = { version = "0.27", features = ["winit"] }
-egui_extras = { version = "0.27", features = ["image"] }
+egui = { version = "0.27", features = ["extra_debug_asserts", "log"] }
+egui-wgpu = { version = "0.27", features = ["winit", "wayland", "x11"] }
+egui_extras = { version = "0.27", default-features = false, features = [
+  "image",
+] }
 image.workspace = true
 parking_lot = "0.12"
 puffin_egui = { version = "0.27", optional = true }
@@ -75,7 +81,7 @@ rfd = "0.13"
 ringbuf = "0.3"
 serde.workspace = true
 serde_json.workspace = true
-tetanes-core = { path = "../tetanes-core" }
+tetanes-core = { version = "0.10", path = "../tetanes-core" }
 thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
@@ -106,17 +112,17 @@ egui-winit = { version = "0.27", default-features = false, features = [
 getrandom = { version = "0.2", features = ["js"] }
 puffin = { workspace = true, features = ["web"], optional = true }
 tracing-web = "0.1"
-wgpu = { version = "0.19", features = ["webgl", "webgpu"] }
+wgpu = { version = "0.19", features = ["webgl"] }
 web-sys = { version = "0.3", features = [
-  "Window",
+  "Blob",
   "Document",
-  "HtmlElement",
-  "HtmlCanvasElement",
-  "HtmlInputElement",
   "File",
   "FileList",
   "FileReader",
-  "Blob",
+  "HtmlCanvasElement",
+  "HtmlElement",
+  "HtmlInputElement",
+  "Window",
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

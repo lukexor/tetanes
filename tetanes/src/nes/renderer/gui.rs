@@ -1355,6 +1355,7 @@ impl Gui {
         puffin::profile_function!();
 
         ui.set_enabled(self.pending_keybind.is_none());
+
         ScrollArea::vertical().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(

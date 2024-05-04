@@ -104,12 +104,6 @@ pub struct Renderer {
     first_frame: bool,
 }
 
-impl Drop for Renderer {
-    fn drop(&mut self) {
-        self.state.borrow_mut().painter.borrow_mut().destroy();
-    }
-}
-
 impl std::fmt::Debug for Renderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Renderer")
@@ -311,6 +305,20 @@ impl Renderer {
             texture,
             first_frame: true,
         })
+    }
+
+    pub fn destroy(&mut self) {
+        let State {
+            viewports,
+            viewport_from_window,
+            painter,
+            ..
+        } = &mut *self.state.borrow_mut();
+        viewports.clear();
+        viewport_from_window.clear();
+        let mut painter = painter.borrow_mut();
+        painter.gc_viewports(&ViewportIdSet::default());
+        painter.destroy();
     }
 
     pub fn window(&self, window_id: WindowId) -> Option<Arc<Window>> {
@@ -566,8 +574,12 @@ impl Renderer {
     }
 
     pub async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
+        use wgpu::Backends;
+        // TODO: Support webgpu when more widely supported
+        let supported_backends = Backends::VULKAN | Backends::METAL | Backends::DX12 | Backends::GL;
         let mut painter = Painter::new(
             egui_wgpu::WgpuConfiguration {
+                supported_backends,
                 present_mode: wgpu::PresentMode::AutoVsync,
                 desired_maximum_frame_latency: Some(2),
                 ..Default::default()

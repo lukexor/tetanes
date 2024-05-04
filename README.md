@@ -29,8 +29,8 @@ Issues](#known-issues) - 💬 [Contact](#contact)
 
 `TetaNES` is a cross-platform emulator for the Nintendo Entertainment System
 (NES) released in Japan in 1983 and North America in 1986, written using
-[Rust][]. It runs natively on Linux, macOS, Windows, and in a web browser with
-[Web Assembly][].
+[Rust][] and [wgpu][]. It runs on Linux, macOS, Windows, and in a web browser
+with [Web Assembly][].
 
 It started as a personal curiosity that turned into a passion project. It is
 still being actively developed with new features and improvements constantly
@@ -152,7 +152,7 @@ NES joypad:
 | B         | X             | M             | B                |
 | A (Turbo) | A             |               | X                |
 | B (Turbo) | S             |               | Y                |
-| Start     | Q             | 8             | Start            |
+| Start     | Q or Enter    | 8             | Start            |
 | Select    | W             | 9             | Back             |
 | D-Pad     | Arrow Keys    | IJKL          | Left Stick/D-Pad |
 
@@ -212,6 +212,8 @@ While the PPU Debugger is open:
 | Move debug scanline up by 10   | Ctrl-Shift-Up   |
 | Move debug scanline down by 1  | Ctrl-Down       |
 | Move debug scanline down by 10 | Ctrl-Shift-Down |
+
+Other mappings can be found and modified in the `Config -> Keybinds` menu.
 
 ### Directories
 
@@ -517,5 +519,6 @@ Also, a huge shout out to
 series as those helped a ton in some recent refactorings.
 
 [rust]: https://www.rust-lang.org/
+[wgpu]: https://wgpu.rs/
 [web assembly]: https://webassembly.org/
 [github issue tracker]: https://github.com/lukexor/tetanes/issues
