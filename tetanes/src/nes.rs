@@ -164,6 +164,7 @@ impl Nes {
             repaint_times: HashMap::default(),
         };
         running.initialize()?;
+
         Ok(self.state.insert(running))
     }
 }

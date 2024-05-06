@@ -265,13 +265,16 @@ impl State {
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: Config,
     ) -> Self {
-        let control_deck = ControlDeck::with_config(cfg.deck.clone());
+        let mut control_deck = ControlDeck::with_config(cfg.deck.clone());
         let audio = Audio::new(
             cfg.audio.enabled,
-            Apu::SAMPLE_RATE * cfg.emulation.speed,
+            Apu::DEFAULT_SAMPLE_RATE,
             cfg.audio.latency,
             cfg.audio.buffer_size,
         );
+        if Apu::DEFAULT_SAMPLE_RATE != audio.sample_rate {
+            control_deck.set_sample_rate(audio.sample_rate);
+        }
         let rewind = Rewind::new(cfg.emulation.rewind);
         let target_frame_duration = FrameRate::from(cfg.deck.region).duration();
         let mut state = Self {
@@ -602,10 +605,10 @@ impl State {
         });
         // IMPORTANT: Wasm can't block
         if self.audio.enabled() || cfg!(target_arch = "wasm32") {
-            if let Ok(mut frame) = self.frame_tx.try_send_ref() {
-                self.control_deck.frame_buffer_into(&mut frame);
-            } else {
-                tracing::debug!("dropped frame");
+            match self.frame_tx.try_send_ref() {
+                Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
+                Err(TrySendError::Full(_)) => debug!("dropped frame"),
+                Err(_) => shutdown("failed to get frame"),
             }
         } else if let Ok(mut frame) = self.frame_tx.send_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
@@ -859,9 +862,7 @@ impl State {
                         // above
                         match self.frame_tx.try_send_ref() {
                             Ok(mut frame) => send_frame(&mut frame),
-                            Err(TrySendError::Full(_)) => {
-                                tracing::debug!("dropped frame");
-                            }
+                            Err(TrySendError::Full(_)) => debug!("dropped frame"),
                             Err(_) => shutdown("failed to get frame"),
                         }
                     } else {

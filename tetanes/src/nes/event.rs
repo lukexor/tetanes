@@ -199,7 +199,7 @@ impl Nes {
         puffin::profile_function!();
 
         if !matches!(event, Event::NewEvents(..) | Event::AboutToWait) {
-            tracing::trace!(
+            trace!(
                 "event: {}",
                 egui_winit::short_generic_event_description(&event)
             );
@@ -215,7 +215,7 @@ impl Nes {
                 } else {
                     if self.resource_state.is_suspended() {
                         if let Err(err) = self.request_resources(event_loop) {
-                            tracing::error!("failed to request renderer resources: {err:?}");
+                            error!("failed to request renderer resources: {err:?}");
                             event_loop.exit();
                         }
                     }
@@ -245,7 +245,7 @@ impl Nes {
                             }
                         }
                         Err(err) => {
-                            tracing::error!("failed to create window: {err:?}");
+                            error!("failed to create window: {err:?}");
                             event_loop.exit();
                             return;
                         }
@@ -293,7 +293,7 @@ impl Running {
             Event::Suspended => {
                 if platform::supports(platform::Feature::Suspend) {
                     if let Err(err) = self.renderer.drop_window() {
-                        tracing::error!("failed to suspend window: {err:?}");
+                        error!("failed to suspend window: {err:?}");
                         event_loop.exit();
                     }
                 }

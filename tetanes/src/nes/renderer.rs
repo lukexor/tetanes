@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
 use tetanes_core::{ppu::Ppu, time::Instant, video::Frame};
 use thingbuf::{mpsc::blocking::Receiver as BufReceiver, Recycle};
-use tracing::error;
+use tracing::{debug, error, warn};
 use winit::{
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
@@ -289,7 +289,7 @@ impl Renderer {
                     let event_loop = unsafe { event_loop.as_ref().unwrap() };
                     Self::render_immediate_viewport(&tx, event_loop, ctx, &state, viewport);
                 } else {
-                    tracing::warn!("set_immediate_viewport_renderer called after window closed");
+                    warn!("set_immediate_viewport_renderer called after window closed");
                 }
             });
         }
@@ -570,7 +570,7 @@ impl Renderer {
         let window = window_builder.with_platform().build(event_loop)?;
         egui_winit::apply_viewport_builder_to_window(ctx, &window, &viewport_builder);
 
-        tracing::debug!("created new window: {:?}", window.id());
+        debug!("created new window: {:?}", window.id());
 
         Ok((window, viewport_builder))
     }
@@ -594,13 +594,13 @@ impl Renderer {
 
         let adapter_info = painter.render_state().map(|state| state.adapter.get_info());
         if let Some(info) = adapter_info {
-            tracing::debug!(
+            debug!(
                 "created new painter for {}. Backend: {}",
                 info.name,
                 info.backend.to_str()
             );
         } else {
-            tracing::debug!("created new painter. Adapter unknown.");
+            debug!("created new painter. Adapter unknown.");
         }
 
         Ok(painter)
@@ -668,11 +668,9 @@ impl Renderer {
         #[allow(clippy::await_holding_refcell_ref)]
         thread::spawn(async move {
             if let Err(err) = painter.borrow_mut().set_window(viewport_id, window).await {
-                tracing::error!(
-                    "failed to set painter window on viewport id {viewport_id:?}: {err:?}"
-                );
+                error!("failed to set painter window on viewport id {viewport_id:?}: {err:?}");
                 if let Err(err) = tx.send_event(NesEvent::Ui(UiEvent::Terminate)) {
-                    tracing::error!("failed to send terminate event: {err:?}");
+                    error!("failed to send terminate event: {err:?}");
                     std::process::exit(1);
                 }
             }
@@ -1100,7 +1098,7 @@ impl Viewport {
                     Some(Arc::clone(&window)),
                 );
 
-                tracing::debug!("created new viewport window: {:?}", window.id());
+                debug!("created new viewport window: {:?}", window.id());
 
                 self.egui_state = Some(egui_winit::State::new(
                     ctx.clone(),
@@ -1114,7 +1112,7 @@ impl Viewport {
                 self.info.maximized = Some(window.is_maximized());
                 self.window = Some(window);
             }
-            Err(err) => tracing::error!("Failed to create window: {err}"),
+            Err(err) => error!("Failed to create window: {err}"),
         }
     }
 }

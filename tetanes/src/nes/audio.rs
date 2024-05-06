@@ -64,9 +64,19 @@ impl Audio {
     /// # Errors
     ///
     /// Returns an error if the audio device fails to be opened.
-    pub fn new(enabled: bool, sample_rate: f32, latency: Duration, buffer_size: usize) -> Self {
+    pub fn new(enabled: bool, mut sample_rate: f32, latency: Duration, buffer_size: usize) -> Self {
         let host = cpal::default_host();
         let output = Output::create(&host, sample_rate, latency, buffer_size);
+        if let Some(output) = &output {
+            let desired_sample_rate = cpal::SampleRate(sample_rate as u32);
+            if output.config.sample_rate != desired_sample_rate {
+                sample_rate = output.config.sample_rate.0 as f32;
+                debug!(
+                    "Unable to match desired sample_rate: {}. Using {sample_rate} instead",
+                    desired_sample_rate.0
+                );
+            }
+        }
         Self {
             enabled,
             sample_rate,
@@ -311,10 +321,12 @@ impl Output {
         let mut supported_configs = device.supported_output_configs()?;
         let desired_sample_rate = cpal::SampleRate(sample_rate as u32);
         let desired_buffer_size = buffer_size as u32;
+        debug!("desired: sample rate: {desired_sample_rate:?}, buffer_size: {buffer_size}");
+
         let chosen_config = supported_configs
             .find(|config| {
-                debug!("supported config: {config:?}");
-                let supports_sample_rate = config.max_sample_rate() >= desired_sample_rate;
+                let supports_sample_rate = config.max_sample_rate() >= desired_sample_rate
+                    && config.min_sample_rate() <= desired_sample_rate;
                 let supports_sample_format = config.sample_format() == cpal::SampleFormat::F32;
                 let supports_buffer_size = match config.buffer_size() {
                     cpal::SupportedBufferSize::Range { min, max } => {
@@ -322,17 +334,28 @@ impl Output {
                     }
                     cpal::SupportedBufferSize::Unknown => false,
                 };
-                supports_sample_rate && supports_sample_format && supports_buffer_size
+                let supported =
+                    supports_sample_rate && supports_sample_format && supports_buffer_size;
+                debug!(
+                    "{} config: {config:?}",
+                    if supported {
+                        "supported"
+                    } else {
+                        "unsupported"
+                    }
+                );
+                supported
             })
             .or_else(|| {
-                debug!("falling back to first supported output");
-                device
+                let config = device
                     .supported_output_configs()
                     .ok()
-                    .and_then(|mut c| c.next())
+                    .and_then(|mut c| c.next());
+                debug!("falling back to first supported config: {config:?}");
+                config
             })
             .map(|config| {
-                debug!("desired sample rate: {desired_sample_rate:?}, chosen config: {config:?}");
+                debug!("chosen config: {config:?}");
                 let min_sample_rate = config.min_sample_rate();
                 let max_sample_rate = config.max_sample_rate();
                 config.with_sample_rate(desired_sample_rate.clamp(min_sample_rate, max_sample_rate))

@@ -803,6 +803,12 @@ impl ControlDeck {
         self.video.filter = filter;
     }
 
+    /// Set the APU sample rate.
+    #[inline]
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        self.cpu.bus.apu.set_sample_rate(sample_rate);
+    }
+
     /// Set the emulation speed.
     #[inline]
     pub fn set_frame_speed(&mut self, speed: f32) {

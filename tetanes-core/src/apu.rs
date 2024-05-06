@@ -98,6 +98,7 @@ pub struct Apu {
     pub channel_outputs: Vec<f32>,
     #[serde(skip)]
     pub audio_samples: Vec<f32>,
+    pub sample_rate: f32,
     pub sample_period: f32,
     pub sample_counter: f32,
     pub mapper_silenced: bool,
@@ -106,7 +107,7 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub const SAMPLE_RATE: f32 = 44_100.0;
+    pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
     // 5 APU channels + 1 Mapper channel
     pub const MAX_CHANNEL_COUNT: usize = 6;
     pub const CYCLE_SIZE: usize = 10_000;
@@ -114,7 +115,8 @@ impl Apu {
     /// Create a new APU instance.
     pub fn new(region: NesRegion) -> Self {
         let clock_rate = Cpu::region_clock_rate(region);
-        let sample_period = clock_rate / Self::SAMPLE_RATE;
+        let sample_rate = Self::DEFAULT_SAMPLE_RATE;
+        let sample_period = clock_rate / sample_rate;
         Self {
             frame_counter: FrameCounter::new(region),
             master_cycle: 0,
@@ -127,9 +129,10 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(region),
             dmc: Dmc::new(region),
-            filter_chain: FilterChain::new(region, Self::SAMPLE_RATE),
+            filter_chain: FilterChain::new(region, sample_rate),
             channel_outputs: Self::default_channel_outputs(),
-            audio_samples: Vec::with_capacity((Self::SAMPLE_RATE / 60.0) as usize),
+            audio_samples: Vec::with_capacity((sample_rate / 60.0) as usize),
+            sample_rate,
             sample_period,
             sample_counter: sample_period,
             mapper_silenced: true,
@@ -176,10 +179,16 @@ impl Apu {
         }
     }
 
+    /// Set the audio sample rate.
+    #[inline]
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        self.sample_rate = sample_rate;
+    }
+
     /// Set the frame speed of the APU, which affects the sampling rate.
     pub fn set_frame_speed(&mut self, speed: f32) {
         let clock_rate = Cpu::region_clock_rate(self.region);
-        let sample_rate = Self::SAMPLE_RATE / speed;
+        let sample_rate = self.sample_rate / speed;
         self.filter_chain = FilterChain::new(self.region, sample_rate);
         self.sample_period = clock_rate / sample_rate;
     }
@@ -548,8 +557,8 @@ impl Regional for Apu {
             self.clock_to(self.master_cycle);
             self.region = region;
             self.clock_rate = Cpu::region_clock_rate(region);
-            self.filter_chain = FilterChain::new(region, Self::SAMPLE_RATE);
-            self.sample_period = self.clock_rate / Self::SAMPLE_RATE;
+            self.filter_chain = FilterChain::new(region, self.sample_rate);
+            self.sample_period = self.clock_rate / self.sample_rate;
             self.frame_counter.set_region(region);
             self.noise.set_region(region);
             self.dmc.set_region(region);
