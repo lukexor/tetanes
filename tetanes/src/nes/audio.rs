@@ -87,7 +87,7 @@ impl Audio {
                 .map_or(false, |mixer| !mixer.paused)
     }
 
-    /// Set whether the audio mixer is enabled. Returns [`AudioState`] representing the state of
+    /// Set whether the audio mixer is enabled. Returns [`State`] representing the state of
     /// the audio stream as a result of being enabled/disabled.
     pub fn set_enabled(&mut self, enabled: bool) -> anyhow::Result<State> {
         self.enabled = enabled;
@@ -189,7 +189,7 @@ impl Audio {
         }
     }
 
-    /// Start the audio output stream. Returns [`AudioState`] representing the state of the audio stream.
+    /// Start the audio output stream. Returns [`State`] representing the state of the audio stream.
     ///
     /// # Errors
     ///

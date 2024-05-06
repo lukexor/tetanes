@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 /// A user action that maps to a possible state change on [`ControlDeck`]. Used for event
 /// handling and test abstractions.
+///
+/// [`ControlDeck`]: crate::control_deck::ControlDeck
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
     Reset(ResetKind),

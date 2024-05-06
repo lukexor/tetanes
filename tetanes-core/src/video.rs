@@ -144,8 +144,8 @@ impl Video {
     ///
     /// Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
     /// to translate it to Rust
-    /// Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    /// http://wiki.nesdev.com/w/index.php/NTSC_video
+    /// Source: <https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc>
+    /// See also: <http://wiki.nesdev.com/w/index.php/NTSC_video>
     pub fn apply_ntsc_filter(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
         let mut prev_pixel = 0;
         for (idx, (pixel, colors)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
