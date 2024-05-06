@@ -101,6 +101,7 @@ pub struct Apu {
     pub sample_rate: f32,
     pub sample_period: f32,
     pub sample_counter: f32,
+    pub speed: f32,
     pub mapper_silenced: bool,
     pub skip_mixing: bool,
     pub should_clock: bool,
@@ -135,6 +136,7 @@ impl Apu {
             sample_rate,
             sample_period,
             sample_counter: sample_period,
+            speed: 1.0,
             mapper_silenced: true,
             skip_mixing: false,
             should_clock: false,
@@ -183,13 +185,18 @@ impl Apu {
     #[inline]
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
+        let sample_rate = self.sample_rate / self.speed;
+        self.filter_chain = FilterChain::new(self.region, sample_rate);
+        let clock_rate = Cpu::region_clock_rate(self.region);
+        self.sample_period = clock_rate / sample_rate;
     }
 
     /// Set the frame speed of the APU, which affects the sampling rate.
     pub fn set_frame_speed(&mut self, speed: f32) {
-        let clock_rate = Cpu::region_clock_rate(self.region);
-        let sample_rate = self.sample_rate / speed;
+        self.speed = speed;
+        let sample_rate = self.sample_rate / self.speed;
         self.filter_chain = FilterChain::new(self.region, sample_rate);
+        let clock_rate = Cpu::region_clock_rate(self.region);
         self.sample_period = clock_rate / sample_rate;
     }
 
