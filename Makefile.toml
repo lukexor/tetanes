@@ -1,7 +1,4 @@
 [env]
-VERSION = { script = [
-  "awk -F ' = ' '$1 ~ /version/ { gsub(/[\\\"]/, \"\", $2); printf(\"%s\",$2) }' Cargo.toml",
-] }
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 
 [config]
@@ -15,7 +12,7 @@ alias = "run"
 description = "Print the crate version"
 category = "Tools"
 workspace = false
-script = ["echo Version: ${VERSION}"]
+script = ["echo Version: ${CARGO_MAKE_PROJECT_VERSION}"]
 
 [tasks.clean]
 description = "Clean up build artifacts"

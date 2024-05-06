@@ -570,6 +570,8 @@ impl Renderer {
         let window = window_builder.with_platform().build(event_loop)?;
         egui_winit::apply_viewport_builder_to_window(ctx, &window, &viewport_builder);
 
+        tracing::debug!("created new window: {:?}", window.id());
+
         Ok((window, viewport_builder))
     }
 
@@ -589,6 +591,18 @@ impl Renderer {
             false,
         );
         painter.set_window(ViewportId::ROOT, Some(window)).await?;
+
+        let adapter_info = painter.render_state().map(|state| state.adapter.get_info());
+        if let Some(info) = adapter_info {
+            tracing::debug!(
+                "created new painter for {}. Backend: {}",
+                info.name,
+                info.backend.to_str()
+            );
+        } else {
+            tracing::debug!("created new painter. Adapter unknown.");
+        }
+
         Ok(painter)
     }
 
@@ -873,7 +887,7 @@ impl Renderer {
     }
 
     /// Request redraw.
-    pub fn request_redraw(
+    pub fn redraw(
         &mut self,
         window_id: WindowId,
         event_loop: &EventLoopWindowTarget<NesEvent>,
@@ -1085,6 +1099,8 @@ impl Viewport {
                     viewport_id,
                     Some(Arc::clone(&window)),
                 );
+
+                tracing::debug!("created new viewport window: {:?}", window.id());
 
                 self.egui_state = Some(egui_winit::State::new(
                     ctx.clone(),

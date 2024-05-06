@@ -198,10 +198,12 @@ impl Nes {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        tracing::trace!(
-            "event: {}",
-            egui_winit::short_generic_event_description(&event)
-        );
+        if !matches!(event, Event::NewEvents(..) | Event::AboutToWait) {
+            tracing::trace!(
+                "event: {}",
+                egui_winit::short_generic_event_description(&event)
+            );
+        }
 
         match event {
             Event::Resumed => {
@@ -231,13 +233,16 @@ impl Nes {
                 if let Some(resources) = self.resource_state.take_pending() {
                     match self.init_running(event_loop, resources) {
                         Ok(state) => {
-                            state.repaint_times.insert(
-                                state
-                                    .renderer
-                                    .root_window_id()
-                                    .expect("failed to get root window_id"),
-                                Instant::now(),
-                            );
+                            // Immediately redraw the root window on start. Fixes a bug where
+                            // `window.request_redraw()` events may not be sent if the window isn't
+                            // visible, which is the case until the first frame is drawn.
+                            if let Some(window_id) = state.renderer.root_window_id() {
+                                if let Err(err) =
+                                    state.renderer.redraw(window_id, event_loop, &mut state.cfg)
+                                {
+                                    state.renderer.on_error(err);
+                                }
+                            }
                         }
                         Err(err) => {
                             tracing::error!("failed to create window: {err:?}");
@@ -322,8 +327,7 @@ impl Running {
                         WindowEvent::RedrawRequested => {
                             self.repaint_times.remove(&window_id);
                             if let Err(err) =
-                                self.renderer
-                                    .request_redraw(window_id, event_loop, &mut self.cfg)
+                                self.renderer.redraw(window_id, event_loop, &mut self.cfg)
                             {
                                 self.renderer.on_error(err);
                             }
