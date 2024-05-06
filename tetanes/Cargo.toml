@@ -88,7 +88,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender = "0.2"
 winit = { version = "0.29", features = ["serde"] }
-sysinfo = "0.30.11"
+sysinfo = "0.30"
+gilrs = { version = "0.10", features = ["serde-serialize"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.15"

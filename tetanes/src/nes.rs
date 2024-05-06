@@ -3,7 +3,7 @@
 use crate::{
     nes::{
         event::{RendererEvent, SendNesEvent, UiEvent},
-        input::InputBindings,
+        input::{Gamepads, InputBindings},
         renderer::{FrameRecycle, ResourceState, Resources},
     },
     platform::{EventLoopExt, Initialize},
@@ -55,6 +55,7 @@ pub(crate) struct Running {
     pub(crate) emulation: Emulation,
     pub(crate) renderer: Renderer,
     pub(crate) input_bindings: InputBindings,
+    pub(crate) gamepads: Gamepads,
     pub(crate) modifiers: Modifiers,
     pub(crate) paused: bool,
     pub(crate) replay_recording: bool,
@@ -156,6 +157,7 @@ impl Nes {
             emulation,
             renderer,
             input_bindings,
+            gamepads: Gamepads::new(),
             modifiers: Modifiers::default(),
             paused: false,
             replay_recording: false,

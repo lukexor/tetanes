@@ -4,7 +4,7 @@ use crate::{
         config::Config,
         emulation::FrameStats,
         event::{ConfigEvent, EmulationEvent, NesEvent, SendNesEvent, UiEvent},
-        input::{ActionBindings, Input},
+        input::{ActionBindings, Gamepads, Input},
     },
     platform,
 };
@@ -40,7 +40,7 @@ use tetanes_core::{
 };
 use tracing::info;
 use winit::{
-    event::MouseButton,
+    event::{ElementState, MouseButton},
     event_loop::EventLoopProxy,
     keyboard::{KeyCode, ModifiersState},
     window::Window,
@@ -122,6 +122,7 @@ pub struct Gui {
     pub preferences_tab: PreferencesTab,
     pub keybinds_tab: KeybindsTab,
     pub pending_keybind: Option<PendingKeybind>,
+    pub gamepad_conflict: Option<(Player, Player, gilrs::GamepadId)>,
     pub cpu_debugger_open: bool,
     pub ppu_debugger_open: bool,
     pub apu_debugger_open: bool,
@@ -193,6 +194,7 @@ impl Gui {
             keybinds_tab: KeybindsTab::Shortcuts,
             keybinds_open: false,
             pending_keybind: None,
+            gamepad_conflict: None,
             about_open: false,
             cpu_debugger_open: false,
             ppu_debugger_open: false,
@@ -258,7 +260,7 @@ impl Gui {
     }
 
     /// Create the UI.
-    pub fn ui(&mut self, ctx: &Context, cfg: &mut Config) {
+    pub fn ui(&mut self, ctx: &Context, gamepads: &mut Gamepads, cfg: &mut Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -272,9 +274,9 @@ impl Gui {
             .show_animated(ctx, cfg.renderer.show_menubar, |ui| self.menu_bar(ui, cfg));
         CentralPanel::default()
             .frame(Frame::none())
-            .show(ctx, |ui| self.nes_frame(ui, cfg));
+            .show(ctx, |ui| self.nes_frame(ui, gamepads, cfg));
 
-        self.show_keybinds_viewport(ctx, cfg);
+        self.show_keybinds_viewport(ctx, gamepads, cfg);
 
         self.show_performance_window(ctx, cfg);
         self.show_preferences_viewport(ctx, cfg);
@@ -337,14 +339,14 @@ impl Gui {
         });
     }
 
-    fn show_set_keybind_window(&mut self, ui: &mut Ui, cfg: &mut Config) {
+    fn show_set_keybind_window(&mut self, ui: &mut Ui, gamepads: &mut Gamepads, cfg: &mut Config) {
         let mut open = self.pending_keybind.is_some();
         let res = egui::Window::new("Set Keybind")
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .collapsible(false)
             .resizable(false)
             .open(&mut open)
-            .show(ui.ctx(), |ui| self.set_keybind(ui, cfg));
+            .show(ui.ctx(), |ui| self.set_keybind(ui, gamepads, cfg));
         if let Some(ref res) = res {
             // Force on-top focus when embedded
             if open {
@@ -359,7 +361,7 @@ impl Gui {
         }
     }
 
-    fn set_keybind(&mut self, ui: &mut Ui, cfg: &mut Config) {
+    fn set_keybind(&mut self, ui: &mut Ui, gamepads: &mut Gamepads, cfg: &mut Config) {
         let Some(PendingKeybind {
             action,
             player,
@@ -421,6 +423,7 @@ impl Gui {
                 if let Some(pending_keybind) = &mut self.pending_keybind {
                     let event = ui.input(|i| {
                         use egui::Event;
+
                         for event in &i.events {
                             match *event {
                                 Event::Key {
@@ -441,6 +444,14 @@ impl Gui {
                                     return Some((Input::from(button), pressed));
                                 }
                                 _ => (),
+                            }
+                        }
+                        while let Some(event) = gamepads.next_event() {
+                            if let Some(input) = gamepads
+                                .input_from_event(&event)
+                                .map(|(input, state)| (input, state == ElementState::Pressed))
+                            {
+                                return Some(input);
                             }
                         }
                         None
@@ -466,6 +477,42 @@ impl Gui {
                     }
                 }
             }
+        }
+    }
+
+    fn show_gamepad_conflict_window(&mut self, ui: &mut Ui, gamepads: &mut Gamepads) {
+        let mut open = self.gamepad_conflict.is_some();
+        let res = egui::Window::new("Unassign Gamepad")
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                if let Some((existing_player, new_player, gamepad_id)) = self.gamepad_conflict {
+                    ui.label(format!("Unassign gamepad from Player {existing_player}?"));
+                    ui.horizontal(|ui| {
+                        if ui.button("Yes").clicked() {
+                            self.gamepad_conflict = None;
+                            gamepads.unassign(existing_player);
+                            gamepads.assign(new_player, gamepad_id);
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.gamepad_conflict = None;
+                        }
+                    });
+                }
+            });
+        if let Some(ref res) = res {
+            // Force on-top focus when embedded
+            if open {
+                ui.ctx().move_to_top(res.response.layer_id);
+                res.response.request_focus();
+            } else {
+                ui.ctx().memory_mut(|m| m.surrender_focus(res.response.id));
+            }
+        }
+        if !open {
+            self.gamepad_conflict = None;
         }
     }
 
@@ -504,8 +551,10 @@ impl Gui {
         );
     }
 
-    fn show_keybinds_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
+    fn show_keybinds_viewport(&mut self, ctx: &Context, gamepads: &mut Gamepads, cfg: &mut Config) {
         if !self.keybinds_open {
+            self.pending_keybind = None;
+            self.gamepad_conflict = None;
             return;
         }
 
@@ -519,10 +568,10 @@ impl Gui {
                     let mut keybinds_open = self.keybinds_open;
                     egui::Window::new("Keybinds")
                         .open(&mut keybinds_open)
-                        .show(ctx, |ui| self.keybinds(ui, cfg));
+                        .show(ctx, |ui| self.keybinds(ui, gamepads, cfg));
                     self.keybinds_open = keybinds_open;
                 } else {
-                    CentralPanel::default().show(ctx, |ui| self.keybinds(ui, cfg));
+                    CentralPanel::default().show(ctx, |ui| self.keybinds(ui, gamepads, cfg));
                     if ctx.input(|i| i.viewport().close_requested()) {
                         self.keybinds_open = false;
                     }
@@ -1076,7 +1125,7 @@ impl Gui {
         });
     }
 
-    fn nes_frame(&mut self, ui: &mut Ui, cfg: &mut Config) {
+    fn nes_frame(&mut self, ui: &mut Ui, gamepads: &Gamepads, cfg: &mut Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1111,7 +1160,7 @@ impl Gui {
                             if cfg.deck.zapper {
                                 if self
                                     .action_input(DeckAction::ZapperAimOffscreen)
-                                    .map_or(false, |input| input_down(ui, input))
+                                    .map_or(false, |input| input_down(ui, gamepads, input))
                                 {
                                     self.tx.nes_event(EmulationEvent::ZapperAim((
                                         Ppu::WIDTH + 10,
@@ -1679,12 +1728,13 @@ impl Gui {
             });
     }
 
-    fn keybinds(&mut self, ui: &mut Ui, cfg: &mut Config) {
+    fn keybinds(&mut self, ui: &mut Ui, gamepads: &mut Gamepads, cfg: &mut Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        self.show_set_keybind_window(ui, cfg);
-        ui.set_enabled(self.pending_keybind.is_none());
+        self.show_set_keybind_window(ui, gamepads, cfg);
+        self.show_gamepad_conflict_window(ui, gamepads);
+        ui.set_enabled(self.pending_keybind.is_none() && self.gamepad_conflict.is_none());
 
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.keybinds_tab, KeybindsTab::Shortcuts, "Shortcuts");
@@ -1713,22 +1763,86 @@ impl Gui {
         ui.separator();
 
         match self.keybinds_tab {
-            KeybindsTab::Shortcuts => self.keybind_list(ui, cfg, None),
-            KeybindsTab::Joypad(player) => self.keybind_list(ui, cfg, Some(player)),
+            KeybindsTab::Shortcuts => self.keybind_list(ui, gamepads, cfg, None),
+            KeybindsTab::Joypad(player) => self.keybind_list(ui, gamepads, cfg, Some(player)),
         }
     }
 
-    fn keybind_list(&mut self, ui: &mut Ui, cfg: &mut Config, player: Option<Player>) {
+    fn keybind_list(
+        &mut self,
+        ui: &mut Ui,
+        gamepads: &mut Gamepads,
+        cfg: &mut Config,
+        player: Option<Player>,
+    ) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
+        if let Some(player) = player {
+            ui.horizontal(|ui| {
+                ui.strong("Assigned Gamepad:");
+
+                match gamepads.list() {
+                    Some(mut list) => {
+                        if list.peek().is_some() {
+                            let assigned_gamepad = gamepads.gamepad(player);
+                            let mut assigned_gamepad_id = assigned_gamepad.as_ref().map(|g| g.id());
+                            let previous_gamepad_id = assigned_gamepad_id;
+                            egui::ComboBox::from_id_source("assigned_gamepad")
+                                .selected_text(
+                                    assigned_gamepad.map_or("Unassigned".to_string(), |g| {
+                                        format!("{}", g.name())
+                                    }),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for (id, gamepad) in list {
+                                        ui.selectable_value(
+                                            &mut assigned_gamepad_id,
+                                            Some(id),
+                                            gamepad.name(),
+                                        );
+                                    }
+                                });
+                            if previous_gamepad_id != assigned_gamepad_id {
+                                match assigned_gamepad_id {
+                                    Some(gamepad_id) => {
+                                        match assigned_gamepad_id.and_then(|id| gamepads.player(id))
+                                        {
+                                            Some(existing_player) => {
+                                                self.gamepad_conflict =
+                                                    Some((existing_player, player, gamepad_id));
+                                            }
+                                            None => gamepads.assign(player, gamepad_id),
+                                        }
+                                    }
+                                    None => gamepads.unassign(player),
+                                }
+                            }
+                        } else {
+                            ui.set_enabled(false);
+                            egui::ComboBox::from_id_source("assigned_gamepad")
+                                .selected_text("No Gamepads Connected")
+                                .show_ui(ui, |_| {});
+                        }
+                    }
+                    None => {
+                        ui.set_enabled(false);
+                        egui::ComboBox::from_id_source("assigned_gamepad")
+                            .selected_text("Gamepads not supported")
+                            .show_ui(ui, |_| {});
+                    }
+                }
+            });
+
+            ui.separator();
+        }
 
         let keybinds = match player {
             None => &mut self.shortcut_keybinds,
             Some(player) => &mut self.joypad_keybinds[player as usize],
         };
 
-        let text_style = TextStyle::Body;
-        let row_height = ui.text_style_height(&text_style);
+        let row_height = ui.text_style_height(&TextStyle::Body);
         let total_rows = keybinds.len();
         ScrollArea::vertical().show_rows(ui, row_height, total_rows, |ui, row_range| {
             Grid::new("keybind_list")
@@ -2225,14 +2339,19 @@ fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
     ((0.0..width).contains(&x) && (0.0..height).contains(&y)).then_some(Pos2::new(x, y))
 }
 
-fn input_down(ui: &mut Ui, input: Input) -> bool {
+fn input_down(ui: &mut Ui, gamepads: &Gamepads, input: Input) -> bool {
     ui.input_mut(|i| match input {
         Input::Key(keycode, modifier_state) => key_from_keycode(keycode).map_or(false, |key| {
             let modifiers = modifiers_from_modifiers_state(modifier_state);
             i.key_down(key) && i.modifiers == modifiers
         }),
+        Input::Button(player, button) => gamepads
+            .gamepad(player)
+            .map_or(false, |g| g.is_pressed(button)),
         Input::Mouse(mouse_button) => pointer_button_from_mouse(mouse_button)
             .map_or(false, |pointer| i.pointer.button_down(pointer)),
+        // Doesn't make sense for an `Axis` to be `down`
+        Input::Axis(..) => false,
     })
 }
 
@@ -2487,6 +2606,8 @@ fn format_input(input: Input) -> String {
             s.shrink_to_fit();
             s
         }
+        Input::Button(_, button) => format!("{button:#?}"),
+        Input::Axis(_, axis) => format!("{axis:#?}"),
         Input::Mouse(button) => match button {
             MouseButton::Left => String::from("Left Click"),
             MouseButton::Right => String::from("Right Click"),

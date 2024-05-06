@@ -5,7 +5,11 @@ use crate::nes::{
 };
 use egui::ahash::{HashMap, HashMapExt};
 use serde::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::VecDeque,
+    iter::Peekable,
+    ops::{Deref, DerefMut},
+};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::Channel,
@@ -13,8 +17,9 @@ use tetanes_core::{
     input::{JoypadBtn, Player},
     video::VideoFilter,
 };
+use tracing::warn;
 use winit::{
-    event::MouseButton,
+    event::{ElementState, MouseButton},
     keyboard::{KeyCode, ModifiersState},
 };
 
@@ -57,6 +62,15 @@ macro_rules! shortcut_map {
     };
 }
 
+macro_rules! gamepad_map {
+    (@ $action:expr => $player:expr; $button:expr) => {
+        action_binding!($action => [Some(Input::Button($player, $button)), None])
+    };
+    ($({ $action:expr => $player:expr; $button:expr }),+$(,)?) => {
+        vec![$(gamepad_map!(@ $action => $player; $button),)+]
+    };
+}
+
 macro_rules! mouse_map {
     (@ $action:expr => $button:expr) => {
         action_binding!($action => [Some(Input::Mouse($button)), None])
@@ -71,6 +85,8 @@ macro_rules! mouse_map {
 pub enum Input {
     Key(KeyCode, ModifiersState),
     Mouse(MouseButton),
+    Button(Player, gilrs::Button),
+    Axis(Player, gilrs::Axis),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,48 +168,67 @@ impl ActionBindings {
     }
 
     pub fn default_player_bindings(player: Player) -> Vec<Self> {
+        use gilrs::Button;
         use KeyCode::*;
 
         let mut bindings = Vec::with_capacity(10);
-        match player {
-            Player::One => bindings.extend(shortcut_map!(
+        bindings.extend(gamepad_map!(
+            { (player, JoypadBtn::A) => player; Button::East },
+            { (player, JoypadBtn::TurboA) => player; Button::North },
+            { (player, JoypadBtn::B) => player; Button::South },
+            { (player, JoypadBtn::TurboB) => player; Button::West },
+            { (player, JoypadBtn::Up) => player; Button::DPadUp },
+            { (player, JoypadBtn::Down) => player; Button::DPadDown },
+            { (player, JoypadBtn::Left) => player; Button::DPadLeft },
+            { (player, JoypadBtn::Right) => player; Button::DPadRight },
+            { (player, JoypadBtn::Select) => player; Button::Select },
+            { (player, JoypadBtn::Start) => player; Button::Start },
+        ));
+        let additional_bindings = match player {
+            Player::One => shortcut_map!(
                 { (Player::One, JoypadBtn::A) => KeyZ },
+                { (Player::One, JoypadBtn::TurboA) => KeyA },
                 { (Player::One, JoypadBtn::B) => KeyX },
+                { (Player::One, JoypadBtn::TurboB) => KeyS },
+                { (Player::One, JoypadBtn::Up) => ArrowUp },
                 { (Player::One, JoypadBtn::Down) => ArrowDown },
                 { (Player::One, JoypadBtn::Left) => ArrowLeft },
                 { (Player::One, JoypadBtn::Right) => ArrowRight },
                 { (Player::One, JoypadBtn::Select) => KeyW },
-                { (Player::One, JoypadBtn::Start) => KeyQ; Enter },
-                { (Player::One, JoypadBtn::TurboA) => KeyA },
-                { (Player::One, JoypadBtn::TurboB) => KeyS },
-                { (Player::One, JoypadBtn::Up) => ArrowUp },
-            )),
-            Player::Two => bindings.extend(shortcut_map!(
+                { (Player::One, JoypadBtn::Start) => KeyQ },
+            ),
+            Player::Two => shortcut_map!(
                 { (Player::Two, JoypadBtn::A) => KeyN },
                 { (Player::Two, JoypadBtn::B) => KeyM },
+                { (Player::Two, JoypadBtn::Up) => KeyI },
                 { (Player::Two, JoypadBtn::Down) => KeyK },
                 { (Player::Two, JoypadBtn::Left) => KeyJ },
                 { (Player::Two, JoypadBtn::Right) => KeyL },
                 { (Player::Two, JoypadBtn::Select) => Digit9 },
                 { (Player::Two, JoypadBtn::Start) => Digit8 },
-                { (Player::Two, JoypadBtn::Up) => KeyI },
-            )),
-            Player::Three => {
-                #[cfg(debug_assertions)]
-                bindings.extend(shortcut_map!(
-                    { (Player::Three, JoypadBtn::A) => KeyV },
-                    { (Player::Three, JoypadBtn::B) => KeyB },
-                    { (Player::Three, JoypadBtn::Down) => KeyG },
-                    { (Player::Three, JoypadBtn::Left) => KeyF },
-                    { (Player::Three, JoypadBtn::Right) => KeyH },
-                    { (Player::Three, JoypadBtn::Select) => Digit6 },
-                    { (Player::Three, JoypadBtn::Start) => Digit5 },
-                    { (Player::Three, JoypadBtn::Up) => KeyT },
-                ));
-            }
-            Player::Four => (),
+            ),
+            #[cfg(debug_assertions)]
+            Player::Three => shortcut_map!(
+                { (Player::Three, JoypadBtn::A) => KeyV },
+                { (Player::Three, JoypadBtn::B) => KeyB },
+                { (Player::Three, JoypadBtn::Up) => KeyT },
+                { (Player::Three, JoypadBtn::Down) => KeyG },
+                { (Player::Three, JoypadBtn::Left) => KeyF },
+                { (Player::Three, JoypadBtn::Right) => KeyH },
+                { (Player::Three, JoypadBtn::Select) => Digit6 },
+                { (Player::Three, JoypadBtn::Start) => Digit5 },
+            ),
+            Player::Four => Vec::new(),
         };
-        bindings.shrink_to_fit();
+        for binding in additional_bindings {
+            if let Some(existing_bind) = bindings.iter_mut().find(|b| b.action == binding.action) {
+                if existing_bind.bindings[0].is_some() {
+                    existing_bind.bindings[1] = binding.bindings[0];
+                }
+            } else {
+                bindings.push(binding);
+            }
+        }
 
         bindings
     }
@@ -229,5 +264,118 @@ impl Deref for InputBindings {
 impl DerefMut for InputBindings {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+/// Represents gamepad input state.
+#[derive(Default, Debug)]
+pub struct Gamepads {
+    connected: [Option<gilrs::GamepadId>; 4],
+    inner: Option<gilrs::Gilrs>,
+    events: VecDeque<gilrs::Event>,
+}
+
+impl Gamepads {
+    pub fn new() -> Self {
+        let mut connected = [None; 4];
+        let mut gilrs = gilrs::Gilrs::new();
+        let mut events = VecDeque::new();
+        match &mut gilrs {
+            Ok(inputs) => {
+                for (gamepad, (id, _)) in connected.iter_mut().zip(inputs.gamepads()) {
+                    *gamepad = Some(id);
+                }
+                events.reserve(256);
+            }
+            Err(err) => {
+                warn!("failed to initialize inputs: {err:?}");
+            }
+        }
+
+        Self {
+            connected,
+            inner: gilrs.ok(),
+            events,
+        }
+    }
+
+    pub fn update_events(&mut self) {
+        if let Some(inner) = self.inner.as_mut() {
+            while let Some(event) = inner.next_event() {
+                self.events.push_back(event);
+            }
+        }
+    }
+
+    pub fn has_events(&self) -> bool {
+        !self.events.is_empty()
+    }
+
+    pub fn input_from_event(&self, event: &gilrs::Event) -> Option<(Input, ElementState)> {
+        use gilrs::EventType;
+        if let Some(player) = self.player(event.id) {
+            match event.event {
+                EventType::ButtonPressed(button, _) => {
+                    Some((Input::Button(player, button), ElementState::Pressed))
+                }
+                EventType::ButtonRepeated(button, _) => {
+                    Some((Input::Button(player, button), ElementState::Pressed))
+                }
+                EventType::ButtonReleased(button, _) => {
+                    Some((Input::Button(player, button), ElementState::Released))
+                }
+                EventType::ButtonChanged(_, _, _) => None,
+                EventType::AxisChanged(_, _, _) => None,
+                EventType::Connected | EventType::Disconnected | EventType::Dropped => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn gamepad(&self, player: Player) -> Option<gilrs::Gamepad<'_>> {
+        self.inner.as_ref().and_then(|inner| {
+            self.connected[player as usize].and_then(|id| inner.connected_gamepad(id))
+        })
+    }
+
+    pub fn list(&self) -> Option<Peekable<gilrs::ConnectedGamepadsIterator<'_>>> {
+        self.inner.as_ref().map(|inner| inner.gamepads().peekable())
+    }
+
+    pub fn player(&self, gamepad_id: gilrs::GamepadId) -> Option<Player> {
+        self.connected
+            .iter()
+            .position(|g| g.is_some_and(|g| g == gamepad_id))
+            .and_then(|i| Player::try_from(i).ok())
+    }
+
+    pub fn next_unassigned(&mut self) -> Option<Player> {
+        self.connected
+            .iter()
+            .position(|g| g.is_none())
+            .and_then(|i| Player::try_from(i).ok())
+    }
+
+    pub fn next_event(&mut self) -> Option<gilrs::Event> {
+        self.events.pop_back()
+    }
+
+    pub fn assign(&mut self, player: Player, gamepad_id: gilrs::GamepadId) {
+        self.connected[player as usize] = Some(gamepad_id);
+    }
+
+    pub fn unassign(&mut self, player: Player) {
+        self.connected[player as usize] = None;
+    }
+
+    pub fn disconnect(&mut self, gamepad_id: gilrs::GamepadId) {
+        if let Some(gamepad) = self
+            .connected
+            .iter_mut()
+            .find(|g| g.is_some_and(|g| g == gamepad_id))
+        {
+            *gamepad = None;
+        }
     }
 }

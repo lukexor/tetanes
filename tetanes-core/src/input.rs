@@ -6,7 +6,13 @@ use crate::{
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use thiserror::Error;
 use tracing::trace;
+
+#[derive(Error, Debug)]
+#[must_use]
+#[error("failed to parse `Player`")]
+pub struct ParsePlayerError;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -37,6 +43,20 @@ impl AsRef<str> for Player {
             Self::Two => "two",
             Self::Three => "three",
             Self::Four => "four",
+        }
+    }
+}
+
+impl TryFrom<usize> for Player {
+    type Error = ParsePlayerError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::One),
+            1 => Ok(Self::Two),
+            2 => Ok(Self::Three),
+            3 => Ok(Self::Four),
+            _ => Err(ParsePlayerError),
         }
     }
 }

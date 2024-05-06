@@ -9,7 +9,7 @@ use tracing_subscriber::{
 
 fn create_registry() -> Layered<Targets, Registry> {
     let default_filter = if cfg!(debug_assertions) {
-        "info,tetanes=debug,tetanes-core=debug"
+        "warn,tetanes=debug,tetanes-core=debug"
     } else {
         "warn,tetanes=info,tetanes-core=info"
     }

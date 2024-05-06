@@ -148,13 +148,39 @@ NES joypad:
 
 | Button    | Keyboard (P1) | Keyboard (P2) | Controller       |
 | --------- | ------------- | ------------- | ---------------- |
-| A         | Z             | N             | A                |
-| B         | X             | M             | B                |
-| A (Turbo) | A             |               | X                |
-| B (Turbo) | S             |               | Y                |
-| Start     | Q or Enter    | 8             | Start            |
-| Select    | W             | 9             | Back             |
-| D-Pad     | Arrow Keys    | IJKL          | Left Stick/D-Pad |
+| A         | Z             | N             | East             |
+| B         | X             | M             | South            |
+| A (Turbo) | A             |               | North            |
+| B (Turbo) | S             |               | West             |
+| Start     | Q             | 8             | Start            |
+| Select    | W             | 9             | Select           |
+| D-Pad     | Arrow Keys    | IJKL          | D-Pad            |
+
+Controller Layout:
+
+SDL-compatible mappings are used:
+<https://github.com/mdqinc/SDL_GameControllerDB?tab=readme-ov-file> but can be
+overriden by setting `SDL_GAMECONTROLLERCONFIG`.
+
+```text
+           Left Triggers                        Right Triggers
+              _=====_                               _=====_
+             / _____ \                             / _____ \
+           +.-'_____'-.---------------------------.-'     '-.+
+          /   |     |  '.                       .'            \
+         / ___| /|\ |___ \                     /      (N)      \
+        / |      |      | ;    _         _    ;                 ;  Action Pad
+ D-Pad  | | <---   ---> | |  <:_|       |_:>  |  (W)       (E)  |  (South, East,
+        | |___   |   ___| ;  Select    Start  ;                 ;   North, West)
+        |\    | \|/ |    /  _              _   \      (S)      /|
+        | \   |_____|  .','" "',        ,'" "', '.           .' |
+        |  '-.______.-' / Left  \------/ Right \  '-._____.-'   |
+        |              /\ Stick /      \ Stick /\               |
+        |             /  '.___.'        '.___.'  \              |
+        |            /                            \             |
+         \          /                              \           /
+          \________/                                \_________/
+```
 
 Emulator shortcuts:
 

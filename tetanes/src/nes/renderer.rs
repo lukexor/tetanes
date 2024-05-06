@@ -2,6 +2,7 @@ use crate::{
     nes::{
         config::{Config, FrameRate},
         event::{EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        input::Gamepads,
         renderer::{
             gui::{Gui, Menu},
             texture::Texture,
@@ -522,7 +523,8 @@ impl Renderer {
             }
             _ => (),
         }
-        viewport_id
+
+        let mut res = viewport_id
             .and_then(|viewport_id| {
                 state.viewports.get_mut(&viewport_id).and_then(|viewport| {
                     Some(
@@ -533,7 +535,29 @@ impl Renderer {
                     )
                 })
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        if self.gui.pending_keybind.is_some()
+            && matches!(
+                event,
+                WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
+            )
+        {
+            res.consumed = true;
+        }
+
+        res
+    }
+
+    /// Handle gamepad event updates.
+    pub fn on_gamepad_update(&self, gamepads: &Gamepads) -> EventResponse {
+        if self.gui.pending_keybind.is_some() && gamepads.has_events() {
+            return EventResponse {
+                consumed: true,
+                repaint: false,
+            };
+        }
+        EventResponse::default()
     }
 
     pub fn add_message<S>(&mut self, text: S)
@@ -889,6 +913,7 @@ impl Renderer {
         &mut self,
         window_id: WindowId,
         event_loop: &EventLoopWindowTarget<NesEvent>,
+        inputs: &mut Gamepads,
         cfg: &mut Config,
     ) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
@@ -1012,7 +1037,7 @@ impl Renderer {
                 viewport_ui_cb(ctx);
             }
             {
-                self.gui.ui(ctx, cfg);
+                self.gui.ui(ctx, inputs, cfg);
             }
         });
 

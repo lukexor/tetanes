@@ -535,7 +535,6 @@ impl Mixer {
                     trace!("audio underrun: {} < {}", consumer.len(), out.len());
                 }
 
-                trace!("playing audio samples: {}", out.len().min(consumer.len()));
                 for (sample, value) in out
                     .iter_mut()
                     .zip(consumer.pop_iter().chain(iter::repeat(0.0)))

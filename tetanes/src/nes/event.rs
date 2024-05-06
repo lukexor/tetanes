@@ -26,7 +26,7 @@ use tetanes_core::{
 };
 use tracing::{error, trace};
 use winit::{
-    event::{DeviceEvent, ElementState, Event, WindowEvent},
+    event::{ElementState, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
     keyboard::PhysicalKey,
     window::WindowId,
@@ -237,9 +237,12 @@ impl Nes {
                             // `window.request_redraw()` events may not be sent if the window isn't
                             // visible, which is the case until the first frame is drawn.
                             if let Some(window_id) = state.renderer.root_window_id() {
-                                if let Err(err) =
-                                    state.renderer.redraw(window_id, event_loop, &mut state.cfg)
-                                {
+                                if let Err(err) = state.renderer.redraw(
+                                    window_id,
+                                    event_loop,
+                                    &mut state.gamepads,
+                                    &mut state.cfg,
+                                ) {
                                     state.renderer.on_error(err);
                                 }
                             }
@@ -302,17 +305,17 @@ impl Running {
                 self.renderer
                     .add_message("Your system memory is running low...");
             }
-            Event::AboutToWait => self.emulation.clock_frame(),
-            Event::DeviceEvent {
-                device_id: _,
-                event,
-            } => {
-                if !matches!(
-                    event,
-                    DeviceEvent::Motion { .. } | DeviceEvent::MouseMotion { .. }
-                ) {
-                    // println!("{device_id:?}, {event:?}");
+            Event::AboutToWait => {
+                self.gamepads.update_events();
+                let res = self.renderer.on_gamepad_update(&self.gamepads);
+                if !res.consumed {
+                    if let Some(window_id) = self.renderer.root_window_id() {
+                        while let Some(event) = self.gamepads.next_event() {
+                            self.on_gamepad_event(window_id, event);
+                        }
+                    }
                 }
+                self.emulation.clock_frame();
             }
             Event::WindowEvent {
                 window_id, event, ..
@@ -326,9 +329,12 @@ impl Running {
                     match event {
                         WindowEvent::RedrawRequested => {
                             self.repaint_times.remove(&window_id);
-                            if let Err(err) =
-                                self.renderer.redraw(window_id, event_loop, &mut self.cfg)
-                            {
+                            if let Err(err) = self.renderer.redraw(
+                                window_id,
+                                event_loop,
+                                &mut self.gamepads,
+                                &mut self.cfg,
+                            ) {
                                 self.renderer.on_error(err);
                             }
                         }
@@ -352,13 +358,6 @@ impl Running {
                         }
                         WindowEvent::MouseInput { button, state, .. } => {
                             self.on_input(window_id, Input::Mouse(button), state, false);
-                        }
-                        WindowEvent::AxisMotion {
-                            device_id: _,
-                            axis: _,
-                            value: _,
-                        } => {
-                            // println!("{device_id:?}, {axis:?}, {value:?}");
                         }
                         WindowEvent::DroppedFile(path) => {
                             if Some(window_id) == self.renderer.root_window_id() {
@@ -471,17 +470,73 @@ impl Running {
         }
     }
 
+    /// Handle gamepad event.
+    pub fn on_gamepad_event(&mut self, window_id: WindowId, event: gilrs::Event) {
+        use gilrs::EventType;
+
+        let gamepad_id = event.id;
+        match event.event {
+            EventType::ButtonPressed(button, _) => {
+                if let Some(player) = self.gamepads.player(gamepad_id) {
+                    self.on_input(
+                        window_id,
+                        Input::Button(player, button),
+                        ElementState::Pressed,
+                        false,
+                    );
+                }
+            }
+            EventType::ButtonRepeated(button, _) => {
+                if let Some(player) = self.gamepads.player(gamepad_id) {
+                    self.on_input(
+                        window_id,
+                        Input::Button(player, button),
+                        ElementState::Pressed,
+                        true,
+                    );
+                }
+            }
+            EventType::ButtonReleased(button, _) => {
+                if let Some(player) = self.gamepads.player(gamepad_id) {
+                    self.on_input(
+                        window_id,
+                        Input::Button(player, button),
+                        ElementState::Released,
+                        false,
+                    );
+                }
+            }
+            EventType::ButtonChanged(button, value, _) => {
+                if let Some(player) = self.gamepads.player(gamepad_id) {
+                    self.on_button(window_id, Input::Button(player, button), value);
+                }
+            }
+            EventType::AxisChanged(axis, value, _) => {
+                if let Some(player) = self.gamepads.player(gamepad_id) {
+                    self.on_axis(window_id, Input::Axis(player, axis), value);
+                }
+            }
+            EventType::Connected => {
+                if let Some(player) = self.gamepads.next_unassigned() {
+                    self.gamepads.assign(player, gamepad_id);
+                }
+            }
+            EventType::Disconnected => self.gamepads.disconnect(gamepad_id),
+            _ => (),
+        }
+    }
+
     /// Handle user input mapped to key bindings.
     pub fn on_input(
         &mut self,
         window_id: WindowId,
         input: Input,
-        el_state: ElementState,
+        state: ElementState,
         repeat: bool,
     ) {
         if let Some(action) = self.input_bindings.get(&input).copied() {
-            trace!("action: {action:?}, state: {el_state:?}, repeat: {repeat:?}");
-            let released = el_state == ElementState::Released;
+            trace!("action: {action:?}, state: {state:?}, repeat: {repeat:?}");
+            let released = state == ElementState::Released;
             let root_window = Some(window_id) == self.renderer.root_window_id();
             match action {
                 Action::Ui(ui_state) if released => match ui_state {
@@ -625,7 +680,7 @@ impl Running {
                         self.nes_event(EmulationEvent::Reset(kind));
                     }
                     DeckAction::Joypad((player, button)) if !repeat && root_window => {
-                        self.nes_event(EmulationEvent::Joypad((player, button, el_state)));
+                        self.nes_event(EmulationEvent::Joypad((player, button, state)));
                     }
                     // Handled by `gui` module
                     DeckAction::ZapperAim(_)
@@ -705,5 +760,15 @@ impl Running {
                 _ => (),
             }
         }
+    }
+
+    /// Handle user input mapped to gamepad bindings.
+    pub fn on_button(&mut self, _window_id: WindowId, input: Input, value: f32) {
+        tracing::trace!("button: {input:?}, value: {value}");
+    }
+
+    /// Handle user input mapped to gamepad bindings.
+    pub fn on_axis(&mut self, _window_id: WindowId, input: Input, value: f32) {
+        tracing::trace!("axis: {input:?}, value: {value}");
     }
 }
