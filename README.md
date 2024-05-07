@@ -1,3 +1,5 @@
+<!-- markdownlint-disable no-inline-html -->
+
 # TetaNES
 
 [![Build Status]][build] [![Doc Status]][docs] [![codecov]][coverage] [![Latest Version]][crates.io]
@@ -15,9 +17,11 @@
 [license]: https://img.shields.io/crates/l/tetanes?style=plastic
 [gnu]: https://github.com/lukexor/tetanes/blob/main/LICENSE.md
 
-📖 [Summary](#summary) - 🌆 [Screenshots](#screenshots) - 🚀 [Getting
-Started](#getting-started) - 🛠️ [Feature Roadmap](#feature-roadmap) - ⚠️ [Known
+<!-- markdownlint-disable line-length -->
+📖 [Summary](#summary) - ✨ [Features](#features) - 🌆 [Screenshots](#screenshots) - 🚀 [Getting
+Started](#getting-started) - 🛠️ [Roadmap](#roadmap) - ⚠️ [Known
 Issues](#known-issues) - 💬 [Contact](#contact)
+<!-- markdownlint-enable line-length -->
 
 ## Summary
 
@@ -43,6 +47,27 @@ threads.
 
 `TetaNES` also compiles for the web! Try it out in your
 [browser](http://lukeworks.tech/tetanes-web)!
+
+## Features
+
+- Runs on Linux, macOS, Windows, and Web.
+- Standalone emulation core in `tetanes-core`.
+- NTSC, PAL and Dendy emulation.
+- Headless Mode when using `tetanes-core`.
+- Pixellate and NTSC filters.
+- Up to 4 players with gamepad support.
+- Zapper (Light Gun) support using the mouse.
+- iNES and NES 2.0 ROM header formats supported.
+- 14 supported mappers covering ~85% of licensed games.
+- Game Genie Codes.
+- Configurable while running using [egui](https://egui.rs).
+  - Increase/Decrease speed & Fast Forward
+  - Visual & Instant Rewind
+  - Save & Load States
+  - Battery-backed RAM saves
+  - Screenshots
+  - Gameplay recording and playback
+  - Audio recording
 
 ## Screenshots
 
@@ -116,7 +141,7 @@ Options:
 
 Support for the following mappers is currently implemented or in development:
 
-<!-- markdownlint-disable line-length no-inline-html -->
+<!-- markdownlint-disable line-length -->
 
 | #   | Name                 | Example Games                             | # of Games<sup>1</sup> | % of Games<sup>1</sup> |
 | --- | -------------------- | ----------------------------------------- | ---------------------- | ---------------------- |
@@ -134,9 +159,9 @@ Support for the following mappers is currently implemented or in development:
 | 066 | GxROM/MxROM          | Super Mario Bros. + Duck Hunt             | ~17                    | &lt;0.01%              |
 | 071 | Camerica/Codemasters | Firehawk, Bee 52, MiG 29 - Soviet Fighter | ~15                    | &lt;0.01%              |
 | 155 | SxROM/MMC1A          | Tatakae!! Ramen Man: Sakuretsu Choujin    | 2                      | &lt;0.01%              |
-|     |                      |                                           | ~2088 / 2447           | ~83%                   |
+|     |                      |                                           | ~2091 / 2447           | ~85.5%                 |
 
-<!-- markdownlint-enable line-length no-inline-html -->
+<!-- markdownlint-enable line-length -->
 
 1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6) [Mirror](https://nescartdb.com/)
 
@@ -243,9 +268,8 @@ Other mappings can be found and modified in the `Config -> Keybinds` menu.
 
 ### Directories
 
-`TetaNES` stores files in various places, by default, depending on the file type
-and various based on operating system. These can be overridden in the
-configuration menu.
+`TetaNES` stores to files to support a number of features, and depending on the
+file type and varies based on operating system.
 
 #### Configuration Preferences
 
@@ -314,36 +338,13 @@ Run them in a similar way you would run a game. e.g.
 cargo run --release tetanes-core/test_roms/cpu/nestest.nes
 ```
 
-## Features
-
-### Crate Feature Flags
+#### Feature Flags
 
 - **cycle-accurate** - Enables cycle-accurate emulation. More CPU intensive, but
   supports a wider range of games requiring precise timing. Disabling may
   improve performance on lower-end machines. Enabled by default.
 - **profiling** - Enables [puffin](https://github.com/EmbarkStudios/puffin)
   profiling.
-
-### Debugging
-
-There are built-in debugging tools that allow you to monitor game state and step
-through CPU instructions manually. See the `Controls` section for more on
-keybindings.
-
-The default debugger screen provides CPU information such as the status of the
-CPU register flags, Program Counter, Stack, PPU information, and the
-previous/upcoming CPU instructions.
-
-The Nametable Viewer displays the current Nametables in PPU memory and allows
-you to scroll up/down to change the debug scanline at which the nametable is
-read. Some games swap out nametables mid-frame like Super Mario Bros 3.
-
-The PPU Viewer shows the current sprite and palettes loaded. You can also scroll
-up/down in a similar manner to the Nametable Viewer.
-
-Additional logging can be set by setting the `RUST_LOG` environment variable and
-setting it to one of `trace`, `debug`, `info`, `warn` or `error` prior to
-building the binary. e.g. `RUST_LOG=debug cargo build --release`
 
 ### Troubleshooting
 
@@ -375,115 +376,9 @@ When using the web version in the browser, also include:
 
 - Web browser and version (e.g. Chrome 77.0.3865)
 
-### Feature Roadmap
+## Roadmap
 
-- NES Formats & Run Modes
-  - [x] NTSC
-  - [x] PAL
-  - [x] Dendy
-  - [x] Headless mode
-- Central Processing Unit (CPU)
-  - [x] Official Instructions
-  - [x] Unofficial Instructions
-  - [x] Cycle Accurate
-- Picture Processing Unit (PPU)
-  - [x] Pixellate Filter
-  - [x] NTSC Filter
-  - [ ] CRT Filter
-- Audio Processing Unit (APU)
-  - [x] Pulse Channels
-  - [x] Triangle Channel
-  - [x] Noise Channel
-  - [x] Delta Modulation Channel (DMC)
-- Player Input
-  - [x] 1-2 Player w/ Keyboard or Controllers
-  - [ ] 3-4 Player Support w/ Controllers
-  - [x] Zapper (Light Gun)
-- Cartridge
-  - [x] iNES Format
-  - [x] NES 2.0 Format
-  - [ ] Complete NES 2.0 support
-  - Mappers
-    - [x] Mapper 000 - NROM
-    - [x] Mapper 001 - SxROM/MMC1B/C
-    - [x] Mapper 002 - UxROM
-    - [x] Mapper 003 - CNROM
-    - [x] Mapper 004 - TxROM/MMC3/MMC6
-    - [x] Mapper 005 - ExROM/MMC5
-    - [x] Mapper 007 - AxROM
-    - [x] Mapper 009 - PxROM/MMC2
-    - [ ] Mapper 010 - FxROM/MMC4
-    - [ ] Mapper 011 - Color Dreams
-    - [ ] Mapper 019 - Namco 163
-    - [ ] Mapper 023 - VRC2b/VRC4e
-    - [ ] Mapper 025 - VRC4b/VRC4d
-    - [x] Mapper 024 - VRC6a
-    - [x] Mapper 026 - VRC6b
-    - [x] Mapper 034 - BNROM/NINA-001
-    - [ ] Mapper 064 - RAMBO-1
-    - [x] Mapper 066 - GxROM/MxROM
-    - [ ] Mapper 068 - After Burner
-    - [ ] Mapper 069 - FME-7/Sunsoft 5B
-    - [x] Mapper 071 - Camerica/Codemasters/BF909x
-    - [ ] Mapper 079 - NINA-03/NINA-06
-    - [x] Mapper 155 - SxROM/MMC1A
-    - [ ] Mapper 206 - DxROM/Namco 118/MIMIC-1
-- Releases
-  - [x] macOS Binaries
-  - [x] Linux Binaries
-  - [x] Windows Binaries
-- [x] User Interface (UI)
-  - [x] WebAssembly (WASM) - Run TetaNES in the browser!
-  - [ ] Configurable keybinds and default settings
-  - Menus
-    - [x] Configuration options
-    - [ ] Customize Keybinds & Controllers
-    - [x] Load/Open ROM with file browser
-    - [x] Recent Game Selection
-    - [x] About Menu
-    - [ ] Config paths overrides
-  - [x] Increase/Decrease Speed
-  - [x] Fast-forward
-  - [x] Instant Rewind (2 seconds)
-  - [x] Visual Rewind (Holding R will time-travel backward)
-  - [x] Save/Load State
-  - [ ] Auto-save
-  - [x] Take Screenshots
-  - [x] Gameplay Recording
-  - [x] Sound Recording (Save those memorable tunes!)
-  - [x] Toggle Fullscreen
-  - [x] Toggle Sound
-    - [x] Toggle individual sound channels
-  - [x] Toggle FPS
-  - [x] Toggle Messages
-  - [x] Change Video Filter
-  - Game Genie Support
-    - [x] Command-Line
-    - [ ] UI Menu
-  - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
-  - [ ] Network Multi-player
-  - [ ] Self Updater
-  - [x] Drag and drop load ROMs
-- Testing/Debugging/Documentation
-  - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
-    - [x] Step Into/Out/Over
-    - [x] Step Scanline/Frame
-    - [ ] Breakpoints
-    - [ ] Modify state
-    - [ ] Labels
-  - [ ] Hex Memory Editor & Debugger
-  - PPU Viewer
-    - [x] Scanline Hit Configuration (For debugging IRQ Nametable changes)
-    - [x] Nametable Viewer (background rendering)
-    - [x] CHR Viewer (sprite tiles)
-    - [ ] OAM Viewer (on screen sprites)
-    - [ ] Palette Viewer
-  - [ ] APU Viewer (Displays audio status and registers)
-  - [x] Automated ROM tests (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
-  - [ ] Detailed Documentation
-  - Logging
-    - [x] Environment logging
-    - [x] File logging
+See [ROADMAP.md][].
 
 ## Known Issues
 
@@ -548,3 +443,4 @@ series as those helped a ton in some recent refactorings.
 [wgpu]: https://wgpu.rs/
 [web assembly]: https://webassembly.org/
 [github issue tracker]: https://github.com/lukexor/tetanes/issues
+[ROADMAP.md]: ROADMAP.md

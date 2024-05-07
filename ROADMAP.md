@@ -1,0 +1,109 @@
+# Roadmap
+
+- NES Formats & Run Modes
+  - [x] NTSC
+  - [x] PAL
+  - [x] Dendy
+  - [x] Headless mode
+- Central Processing Unit (CPU)
+  - [x] Official Instructions
+  - [x] Unofficial Instructions
+  - [x] Cycle Accurate
+- Picture Processing Unit (PPU)
+  - [x] Pixellate Filter
+  - [x] NTSC Filter
+  - [ ] CRT Filter
+- Audio Processing Unit (APU)
+  - [x] Pulse Channels
+  - [x] Triangle Channel
+  - [x] Noise Channel
+  - [x] Delta Modulation Channel (DMC)
+- Player Input
+  - [x] 1-2 Player w/ Keyboard or Controllers
+  - [x] 3-4 Player Support w/ Controllers
+  - [x] Zapper (Light Gun)
+- Cartridge
+  - [x] iNES Format
+  - [x] NES 2.0 Format
+  - [ ] Complete NES 2.0 support
+  - Mappers
+    - [x] Mapper 000 - NROM
+    - [x] Mapper 001 - SxROM/MMC1B/C
+    - [x] Mapper 002 - UxROM
+    - [x] Mapper 003 - CNROM
+    - [x] Mapper 004 - TxROM/MMC3/MMC6
+    - [x] Mapper 005 - ExROM/MMC5
+    - [x] Mapper 007 - AxROM
+    - [x] Mapper 009 - PxROM/MMC2
+    - [ ] Mapper 010 - FxROM/MMC4
+    - [ ] Mapper 011 - Color Dreams
+    - [ ] Mapper 019 - Namco 163
+    - [ ] Mapper 023 - VRC2b/VRC4e
+    - [ ] Mapper 025 - VRC4b/VRC4d
+    - [x] Mapper 024 - VRC6a
+    - [x] Mapper 026 - VRC6b
+    - [x] Mapper 034 - BNROM/NINA-001
+    - [ ] Mapper 064 - RAMBO-1
+    - [x] Mapper 066 - GxROM/MxROM
+    - [ ] Mapper 068 - After Burner
+    - [ ] Mapper 069 - FME-7/Sunsoft 5B
+    - [x] Mapper 071 - Camerica/Codemasters/BF909x
+    - [ ] Mapper 079 - NINA-03/NINA-06
+    - [x] Mapper 155 - SxROM/MMC1A
+    - [ ] Mapper 206 - DxROM/Namco 118/MIMIC-1
+- Releases
+  - [x] macOS Binaries
+  - [x] Linux Binaries
+  - [x] Windows Binaries
+- [x] User Interface (UI)
+  - [x] WebAssembly (WASM) - Run TetaNES in the browser!
+  - [x] Configurable keybinds and default settings
+  - Menus
+    - [x] Configuration options
+    - [x] Customize Keybinds & Controllers
+    - [x] Load/Open ROM with file browser
+    - [x] Recent Game Selection
+    - [x] About Menu
+    - [ ] Config paths overrides
+  - [x] Increase/Decrease Speed
+  - [x] Fast-forward
+  - [x] Instant Rewind (2 seconds)
+  - [x] Visual Rewind (Holding R will time-travel backward)
+  - [x] Save/Load State
+  - [ ] Auto-save
+  - [x] Take Screenshots
+  - [x] Gameplay Recording
+  - [x] Sound Recording (Save those memorable tunes!)
+  - [x] Toggle Fullscreen
+  - [x] Toggle Sound
+    - [x] Toggle individual sound channels
+  - [x] Toggle FPS
+  - [x] Toggle Messages
+  - [x] Change Video Filter
+  - Game Genie Support
+    - [x] Command-Line
+    - [ ] UI Menu
+  - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
+  - [ ] Network Multi-player
+  - [ ] Self Updater
+  - [x] Drag and drop load ROMs
+- Testing/Debugging/Documentation
+  - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
+    - [x] Step Into/Out/Over
+    - [x] Step Scanline/Frame
+    - [ ] Breakpoints
+    - [ ] Modify state
+    - [ ] Labels
+  - [ ] Hex Memory Editor & Debugger
+  - PPU Viewer
+    - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
+    - [ ] Nametable Viewer (background rendering)
+    - [ ] CHR Viewer (sprite tiles)
+    - [ ] OAM Viewer (on screen sprites)
+    - [ ] Palette Viewer
+  - [ ] APU Viewer (Displays audio status and registers)
+  - [x] Automated ROM tests (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
+  - [ ] Detailed Documentation
+  - Logging
+    - [x] Environment logging
+    - [x] File logging
