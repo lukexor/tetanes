@@ -70,7 +70,7 @@
   - [x] Instant Rewind (2 seconds)
   - [x] Visual Rewind (Holding R will time-travel backward)
   - [x] Save/Load State
-  - [ ] Auto-save
+  - [x] Auto-save
   - [x] Take Screenshots
   - [x] Gameplay Recording
   - [x] Sound Recording (Save those memorable tunes!)

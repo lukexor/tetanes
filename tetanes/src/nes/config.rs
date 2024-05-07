@@ -1,7 +1,8 @@
-use crate::nes::input::{ActionBindings, Input};
+use crate::nes::input::{ActionBindings, GamepadUuid, Gamepads, Input};
 use anyhow::Context;
+use egui::ahash::HashSet;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, path::PathBuf};
+use std::path::PathBuf;
 use tetanes_core::{
     common::NesRegion, control_deck::Config as DeckConfig, fs, input::Player, ppu::Ppu,
     time::Duration,
@@ -98,7 +99,7 @@ impl Default for RendererConfig {
             } else {
                 3.0
             },
-            recent_roms: HashSet::new(),
+            recent_roms: HashSet::default(),
             roms_path: None,
             show_perf_stats: false,
             show_messages: true,
@@ -112,18 +113,20 @@ impl Default for RendererConfig {
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct InputConfig {
-    pub controller_deadzone: f64,
     pub shortcuts: Vec<ActionBindings>,
     pub joypad_bindings: [Vec<ActionBindings>; 4],
+    pub gamepad_assignments: [(Player, Option<GamepadUuid>); 4],
 }
 
 impl Default for InputConfig {
     fn default() -> Self {
         Self {
-            controller_deadzone: 0.5,
             shortcuts: ActionBindings::default_shortcuts(),
             joypad_bindings: [Player::One, Player::Two, Player::Three, Player::Four]
                 .map(ActionBindings::default_player_bindings),
+            gamepad_assignments: std::array::from_fn(|i| {
+                (Player::try_from(i).expect("valid player assignment"), None)
+            }),
         }
     }
 }
@@ -138,6 +141,70 @@ impl InputConfig {
             .find(|binding| **binding == Some(input))
         {
             *binding = None;
+        }
+    }
+
+    pub fn update_gamepad_assignments(&mut self, gamepads: &Gamepads) {
+        let assigned = self
+            .gamepad_assignments
+            .iter()
+            .filter_map(|(_, uuid)| *uuid)
+            .collect::<HashSet<_>>();
+        let mut available = gamepads.connected_uuids();
+        for (_, assigned_uuid) in &mut self.gamepad_assignments {
+            match assigned_uuid {
+                Some(uuid) => {
+                    if !gamepads.is_connected(uuid) {
+                        *assigned_uuid = None;
+                    }
+                }
+                None => {
+                    if let Some(uuid) = available.next() {
+                        if !assigned.contains(uuid) {
+                            *assigned_uuid = Some(*uuid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn next_gamepad_unassigned(&mut self) -> Option<Player> {
+        self.gamepad_assignments
+            .iter()
+            .find(|(_, u)| u.is_none())
+            .map(|(player, _)| *player)
+    }
+
+    pub const fn gamepad_assigned_to(&self, player: Player) -> Option<GamepadUuid> {
+        self.gamepad_assignments[player as usize].1
+    }
+
+    pub fn gamepad_assignment(&self, uuid: &GamepadUuid) -> Option<Player> {
+        self.gamepad_assignments
+            .iter()
+            .find(|(_, u)| u.as_ref().is_some_and(|u| u == uuid))
+            .map(|(player, _)| *player)
+    }
+
+    pub fn assign_gamepad(&mut self, player: Player, uuid: GamepadUuid) {
+        self.gamepad_assignments[player as usize].1 = Some(uuid);
+    }
+
+    pub fn unassign_gamepad(&mut self, player: Player) -> Option<GamepadUuid> {
+        std::mem::take(&mut self.gamepad_assignments[player as usize].1)
+    }
+
+    pub fn unassign_gamepad_name(&mut self, uuid: &GamepadUuid) -> Option<Player> {
+        if let Some((player, uuid)) = self
+            .gamepad_assignments
+            .iter_mut()
+            .find(|(_, u)| u.as_ref() == Some(uuid))
+        {
+            *uuid = None;
+            Some(*player)
+        } else {
+            None
         }
     }
 }

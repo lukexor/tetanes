@@ -1,6 +1,6 @@
 use crate::nes::{
     action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui},
-    config::InputConfig,
+    config::{Config, InputConfig},
     renderer::gui::Menu,
 };
 use egui::ahash::{HashMap, HashMapExt};
@@ -267,23 +267,33 @@ impl DerefMut for InputBindings {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub struct GamepadUuid(pub [u8; 16]);
+
+impl std::fmt::Display for GamepadUuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
 /// Represents gamepad input state.
 #[derive(Default, Debug)]
 pub struct Gamepads {
-    connected: [Option<gilrs::GamepadId>; 4],
+    connected: HashMap<gilrs::GamepadId, GamepadUuid>,
     inner: Option<gilrs::Gilrs>,
     events: VecDeque<gilrs::Event>,
 }
 
 impl Gamepads {
     pub fn new() -> Self {
-        let mut connected = [None; 4];
+        let mut connected = HashMap::default();
         let mut gilrs = gilrs::Gilrs::new();
         let mut events = VecDeque::new();
         match &mut gilrs {
             Ok(inputs) => {
-                for (gamepad, (id, _)) in connected.iter_mut().zip(inputs.gamepads()) {
-                    *gamepad = Some(id);
+                for (id, gamepad) in inputs.gamepads() {
+                    connected.insert(id, GamepadUuid(gamepad.uuid()));
                 }
                 events.reserve(256);
             }
@@ -311,9 +321,17 @@ impl Gamepads {
         !self.events.is_empty()
     }
 
-    pub fn input_from_event(&self, event: &gilrs::Event) -> Option<(Input, ElementState)> {
+    pub fn input_from_event(
+        &self,
+        event: &gilrs::Event,
+        cfg: &Config,
+    ) -> Option<(Input, ElementState)> {
         use gilrs::EventType;
-        if let Some(player) = self.player(event.id) {
+        if let Some(player) = self
+            .connected
+            .get(&event.id)
+            .and_then(|uuid| cfg.input.gamepad_assignment(uuid))
+        {
             match event.event {
                 EventType::ButtonPressed(button, _) => {
                     Some((Input::Button(player, button), ElementState::Pressed))
@@ -333,49 +351,53 @@ impl Gamepads {
         }
     }
 
-    pub fn gamepad(&self, player: Player) -> Option<gilrs::Gamepad<'_>> {
+    pub fn gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
+        self.inner
+            .as_ref()
+            .and_then(|inner| inner.connected_gamepad(id))
+    }
+
+    pub fn gamepad_by_uuid(&self, uuid: &GamepadUuid) -> Option<gilrs::Gamepad<'_>> {
         self.inner.as_ref().and_then(|inner| {
-            self.connected[player as usize].and_then(|id| inner.connected_gamepad(id))
+            self.connected
+                .iter()
+                .find(|(_, u)| *u == uuid)
+                .and_then(|(id, _)| inner.connected_gamepad(*id))
         })
+    }
+
+    pub fn gamepad_name_by_uuid(&self, uuid: &GamepadUuid) -> Option<String> {
+        self.gamepad_by_uuid(uuid).map(|g| g.name().to_string())
+    }
+
+    pub fn gamepad_uuid(&self, id: gilrs::GamepadId) -> Option<GamepadUuid> {
+        self.gamepad(id).map(|g| GamepadUuid(g.uuid()))
+    }
+
+    pub fn is_connected(&self, uuid: &GamepadUuid) -> bool {
+        self.gamepad_by_uuid(uuid).is_some()
     }
 
     pub fn list(&self) -> Option<Peekable<gilrs::ConnectedGamepadsIterator<'_>>> {
         self.inner.as_ref().map(|inner| inner.gamepads().peekable())
     }
 
-    pub fn player(&self, gamepad_id: gilrs::GamepadId) -> Option<Player> {
-        self.connected
-            .iter()
-            .position(|g| g.is_some_and(|g| g == gamepad_id))
-            .and_then(|i| Player::try_from(i).ok())
-    }
-
-    pub fn next_unassigned(&mut self) -> Option<Player> {
-        self.connected
-            .iter()
-            .position(|g| g.is_none())
-            .and_then(|i| Player::try_from(i).ok())
+    pub fn connected_uuids(&self) -> impl Iterator<Item = &GamepadUuid> {
+        self.connected.values()
     }
 
     pub fn next_event(&mut self) -> Option<gilrs::Event> {
         self.events.pop_back()
     }
 
-    pub fn assign(&mut self, player: Player, gamepad_id: gilrs::GamepadId) {
-        self.connected[player as usize] = Some(gamepad_id);
-    }
-
-    pub fn unassign(&mut self, player: Player) {
-        self.connected[player as usize] = None;
+    pub fn connect(&mut self, gamepad_id: gilrs::GamepadId) {
+        if let Some(gamepad) = self.gamepad(gamepad_id) {
+            self.connected
+                .insert(gamepad.id(), GamepadUuid(gamepad.uuid()));
+        }
     }
 
     pub fn disconnect(&mut self, gamepad_id: gilrs::GamepadId) {
-        if let Some(gamepad) = self
-            .connected
-            .iter_mut()
-            .find(|g| g.is_some_and(|g| g == gamepad_id))
-        {
-            *gamepad = None;
-        }
+        self.connected.remove(&gamepad_id);
     }
 }

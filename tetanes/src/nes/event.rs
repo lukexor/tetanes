@@ -484,55 +484,78 @@ impl Running {
     pub fn on_gamepad_event(&mut self, window_id: WindowId, event: gilrs::Event) {
         use gilrs::EventType;
 
-        let gamepad_id = event.id;
-        match event.event {
-            EventType::ButtonPressed(button, _) => {
-                if let Some(player) = self.gamepads.player(gamepad_id) {
-                    self.on_input(
-                        window_id,
-                        Input::Button(player, button),
-                        ElementState::Pressed,
-                        false,
-                    );
+        // Connect first because we may not have a name set yet
+        if event.event == EventType::Connected {
+            self.gamepads.connect(event.id);
+        }
+
+        if let Some(uuid) = self.gamepads.gamepad_uuid(event.id) {
+            match event.event {
+                EventType::ButtonPressed(button, _) => {
+                    if let Some(player) = self.cfg.input.gamepad_assignment(&uuid) {
+                        self.on_input(
+                            window_id,
+                            Input::Button(player, button),
+                            ElementState::Pressed,
+                            false,
+                        );
+                    }
                 }
-            }
-            EventType::ButtonRepeated(button, _) => {
-                if let Some(player) = self.gamepads.player(gamepad_id) {
-                    self.on_input(
-                        window_id,
-                        Input::Button(player, button),
-                        ElementState::Pressed,
-                        true,
-                    );
+                EventType::ButtonRepeated(button, _) => {
+                    if let Some(player) = self.cfg.input.gamepad_assignment(&uuid) {
+                        self.on_input(
+                            window_id,
+                            Input::Button(player, button),
+                            ElementState::Pressed,
+                            true,
+                        );
+                    }
                 }
-            }
-            EventType::ButtonReleased(button, _) => {
-                if let Some(player) = self.gamepads.player(gamepad_id) {
-                    self.on_input(
-                        window_id,
-                        Input::Button(player, button),
-                        ElementState::Released,
-                        false,
-                    );
+                EventType::ButtonReleased(button, _) => {
+                    if let Some(player) = self.cfg.input.gamepad_assignment(&uuid) {
+                        self.on_input(
+                            window_id,
+                            Input::Button(player, button),
+                            ElementState::Released,
+                            false,
+                        );
+                    }
                 }
-            }
-            EventType::ButtonChanged(button, value, _) => {
-                if let Some(player) = self.gamepads.player(gamepad_id) {
-                    self.on_button(window_id, Input::Button(player, button), value);
+                EventType::ButtonChanged(button, value, _) => {
+                    if let Some(player) = self.cfg.input.gamepad_assignment(&uuid) {
+                        self.on_button(window_id, Input::Button(player, button), value);
+                    }
                 }
-            }
-            EventType::AxisChanged(axis, value, _) => {
-                if let Some(player) = self.gamepads.player(gamepad_id) {
-                    self.on_axis(window_id, Input::Axis(player, axis), value);
+                EventType::AxisChanged(axis, value, _) => {
+                    if let Some(player) = self.cfg.input.gamepad_assignment(&uuid) {
+                        self.on_axis(window_id, Input::Axis(player, axis), value);
+                    }
                 }
-            }
-            EventType::Connected => {
-                if let Some(player) = self.gamepads.next_unassigned() {
-                    self.gamepads.assign(player, gamepad_id);
+                EventType::Connected => {
+                    let saved_assignment = self.cfg.input.gamepad_assignment(&uuid);
+                    if let Some(player) =
+                        saved_assignment.or_else(|| self.cfg.input.next_gamepad_unassigned())
+                    {
+                        if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
+                            self.renderer.add_message(format!(
+                                "Assigned gamepad `{name}` to player {player:?}."
+                            ));
+                            self.cfg.input.assign_gamepad(player, uuid);
+                        }
+                    }
                 }
+                EventType::Disconnected => {
+                    self.gamepads.disconnect(event.id);
+                    if let Some(player) = self.cfg.input.unassign_gamepad_name(&uuid) {
+                        if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
+                            self.renderer.add_message(format!(
+                                "Unassigned gamepad `{name}` from player {player:?}."
+                            ));
+                        }
+                    }
+                }
+                _ => (),
             }
-            EventType::Disconnected => self.gamepads.disconnect(gamepad_id),
-            _ => (),
         }
     }
 

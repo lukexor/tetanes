@@ -4,7 +4,7 @@ use crate::{
         config::Config,
         emulation::FrameStats,
         event::{ConfigEvent, EmulationEvent, NesEvent, SendNesEvent, UiEvent},
-        input::{ActionBindings, Gamepads, Input},
+        input::{ActionBindings, GamepadUuid, Gamepads, Input},
     },
     platform,
 };
@@ -122,7 +122,7 @@ pub struct Gui {
     pub preferences_tab: PreferencesTab,
     pub keybinds_tab: KeybindsTab,
     pub pending_keybind: Option<PendingKeybind>,
-    pub gamepad_conflict: Option<(Player, Player, gilrs::GamepadId)>,
+    pub gamepad_conflict: Option<(Player, Player, GamepadUuid)>,
     pub cpu_debugger_open: bool,
     pub ppu_debugger_open: bool,
     pub apu_debugger_open: bool,
@@ -448,7 +448,7 @@ impl Gui {
                         }
                         while let Some(event) = gamepads.next_event() {
                             if let Some(input) = gamepads
-                                .input_from_event(&event)
+                                .input_from_event(&event, cfg)
                                 .map(|(input, state)| (input, state == ElementState::Pressed))
                             {
                                 return Some(input);
@@ -480,7 +480,7 @@ impl Gui {
         }
     }
 
-    fn show_gamepad_conflict_window(&mut self, ui: &mut Ui, gamepads: &mut Gamepads) {
+    fn show_gamepad_conflict_window(&mut self, ui: &mut Ui, gamepads: &Gamepads, cfg: &mut Config) {
         let mut open = self.gamepad_conflict.is_some();
         let res = egui::Window::new("Unassign Gamepad")
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
@@ -488,13 +488,13 @@ impl Gui {
             .resizable(false)
             .open(&mut open)
             .show(ui.ctx(), |ui| {
-                if let Some((existing_player, new_player, gamepad_id)) = self.gamepad_conflict {
+                if let Some((existing_player, new_player, uuid)) = self.gamepad_conflict {
                     ui.label(format!("Unassign gamepad from Player {existing_player}?"));
                     ui.horizontal(|ui| {
                         if ui.button("Yes").clicked() {
+                            self.unassign_gamepad(existing_player, gamepads, cfg);
+                            self.assign_gamepad(new_player, uuid, gamepads, cfg);
                             self.gamepad_conflict = None;
-                            gamepads.unassign(existing_player);
-                            gamepads.assign(new_player, gamepad_id);
                         }
                         if ui.button("Cancel").clicked() {
                             self.gamepad_conflict = None;
@@ -513,6 +513,29 @@ impl Gui {
         }
         if !open {
             self.gamepad_conflict = None;
+        }
+    }
+
+    fn assign_gamepad(
+        &mut self,
+        player: Player,
+        uuid: GamepadUuid,
+        gamepads: &Gamepads,
+        cfg: &mut Config,
+    ) {
+        cfg.input.assign_gamepad(player, uuid);
+        if let Some(name) = gamepads.gamepad_name_by_uuid(&uuid) {
+            self.add_message(format!("Assigned gamepad `{name}` to player {player:?}.",));
+        }
+    }
+
+    fn unassign_gamepad(&mut self, player: Player, gamepads: &Gamepads, cfg: &mut Config) {
+        if let Some(uuid) = cfg.input.unassign_gamepad(player) {
+            if let Some(name) = gamepads.gamepad_name_by_uuid(&uuid) {
+                self.add_message(format!(
+                    "Unassigned gamepad `{name}` from player {player:?}.",
+                ));
+            }
         }
     }
 
@@ -1160,7 +1183,7 @@ impl Gui {
                             if cfg.deck.zapper {
                                 if self
                                     .action_input(DeckAction::ZapperAimOffscreen)
-                                    .map_or(false, |input| input_down(ui, gamepads, input))
+                                    .map_or(false, |input| input_down(ui, gamepads, cfg, input))
                                 {
                                     self.tx.nes_event(EmulationEvent::ZapperAim((
                                         Ppu::WIDTH + 10,
@@ -1743,7 +1766,7 @@ impl Gui {
         puffin::profile_function!();
 
         self.show_set_keybind_window(ui, gamepads, cfg);
-        self.show_gamepad_conflict_window(ui, gamepads);
+        self.show_gamepad_conflict_window(ui, gamepads, cfg);
         ui.set_enabled(self.pending_keybind.is_none() && self.gamepad_conflict.is_none());
 
         ui.horizontal(|ui| {
@@ -1792,39 +1815,46 @@ impl Gui {
             ui.horizontal(|ui| {
                 ui.strong("Assigned Gamepad:");
 
+                let unassigned = "Unassigned".to_string();
                 match gamepads.list() {
                     Some(mut list) => {
                         if list.peek().is_some() {
-                            let assigned_gamepad = gamepads.gamepad(player);
-                            let mut assigned_gamepad_id = assigned_gamepad.as_ref().map(|g| g.id());
-                            let previous_gamepad_id = assigned_gamepad_id;
+                            let mut assigned_gamepad = cfg.input.gamepad_assigned_to(player);
+                            let previous_gamepad = assigned_gamepad;
+                            let gamepad_name = assigned_gamepad
+                                .and_then(|uuid| gamepads.gamepad_name_by_uuid(&uuid))
+                                .unwrap_or_else(|| unassigned.clone());
                             egui::ComboBox::from_id_source("assigned_gamepad")
-                                .selected_text(
-                                    assigned_gamepad
-                                        .map_or("Unassigned".to_string(), |g| g.name().to_string()),
-                                )
+                                .selected_text(gamepad_name.clone())
                                 .show_ui(ui, |ui| {
-                                    for (id, gamepad) in list {
+                                    ui.selectable_value(&mut assigned_gamepad, None, unassigned);
+                                    for (_, gamepad) in list {
                                         ui.selectable_value(
-                                            &mut assigned_gamepad_id,
-                                            Some(id),
+                                            &mut assigned_gamepad,
+                                            Some(GamepadUuid(gamepad.uuid())),
                                             gamepad.name(),
                                         );
                                     }
                                 });
-                            if previous_gamepad_id != assigned_gamepad_id {
-                                match assigned_gamepad_id {
-                                    Some(gamepad_id) => {
-                                        match assigned_gamepad_id.and_then(|id| gamepads.player(id))
+                            if previous_gamepad != assigned_gamepad {
+                                match &assigned_gamepad {
+                                    Some(uuid) => {
+                                        match assigned_gamepad
+                                            .as_ref()
+                                            .and_then(|name| cfg.input.gamepad_assignment(name))
                                         {
                                             Some(existing_player) => {
                                                 self.gamepad_conflict =
-                                                    Some((existing_player, player, gamepad_id));
+                                                    Some((existing_player, player, *uuid));
                                             }
-                                            None => gamepads.assign(player, gamepad_id),
+                                            None => {
+                                                self.assign_gamepad(player, *uuid, gamepads, cfg);
+                                            }
                                         }
                                     }
-                                    None => gamepads.unassign(player),
+                                    None => {
+                                        self.unassign_gamepad(player, gamepads, cfg);
+                                    }
                                 }
                             }
                         } else {
@@ -2339,14 +2369,16 @@ fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
     ((0.0..width).contains(&x) && (0.0..height).contains(&y)).then_some(Pos2::new(x, y))
 }
 
-fn input_down(ui: &mut Ui, gamepads: &Gamepads, input: Input) -> bool {
+fn input_down(ui: &mut Ui, gamepads: &Gamepads, cfg: &Config, input: Input) -> bool {
     ui.input_mut(|i| match input {
         Input::Key(keycode, modifier_state) => key_from_keycode(keycode).map_or(false, |key| {
             let modifiers = modifiers_from_modifiers_state(modifier_state);
             i.key_down(key) && i.modifiers == modifiers
         }),
-        Input::Button(player, button) => gamepads
-            .gamepad(player)
+        Input::Button(player, button) => cfg
+            .input
+            .gamepad_assigned_to(player)
+            .and_then(|uuid| gamepads.gamepad_by_uuid(&uuid))
             .map_or(false, |g| g.is_pressed(button)),
         Input::Mouse(mouse_button) => pointer_button_from_mouse(mouse_button)
             .map_or(false, |pointer| i.pointer.button_down(pointer)),

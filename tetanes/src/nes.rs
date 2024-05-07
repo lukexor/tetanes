@@ -143,7 +143,7 @@ impl Nes {
         resources: Resources,
     ) -> anyhow::Result<&mut Running> {
         let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(3, FrameRecycle);
-        let (cfg, tx) = self
+        let (mut cfg, tx) = self
             .init_state
             .take()
             .expect("config unexpectedly already taken");
@@ -151,13 +151,15 @@ impl Nes {
         let renderer = Renderer::new(tx.clone(), event_loop, resources, frame_rx, cfg.clone())?;
 
         let input_bindings = InputBindings::from_input_config(&cfg.input);
+        let gamepads = Gamepads::new();
+        cfg.input.update_gamepad_assignments(&gamepads);
         let mut running = Running {
             cfg,
             tx,
             emulation,
             renderer,
             input_bindings,
-            gamepads: Gamepads::new(),
+            gamepads,
             modifiers: Modifiers::default(),
             paused: false,
             replay_recording: false,
