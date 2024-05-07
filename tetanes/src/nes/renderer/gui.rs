@@ -122,7 +122,7 @@ pub struct Gui {
     pub preferences_tab: PreferencesTab,
     pub keybinds_tab: KeybindsTab,
     pub pending_keybind: Option<PendingKeybind>,
-    pub gamepad_conflict: Option<(Player, Player, GamepadUuid)>,
+    pub gamepad_unassign: Option<(Player, Player, GamepadUuid)>,
     pub cpu_debugger_open: bool,
     pub ppu_debugger_open: bool,
     pub apu_debugger_open: bool,
@@ -194,7 +194,7 @@ impl Gui {
             keybinds_tab: KeybindsTab::Shortcuts,
             keybinds_open: false,
             pending_keybind: None,
-            gamepad_conflict: None,
+            gamepad_unassign: None,
             about_open: false,
             cpu_debugger_open: false,
             ppu_debugger_open: false,
@@ -339,26 +339,55 @@ impl Gui {
         });
     }
 
-    fn show_set_keybind_window(&mut self, ui: &mut Ui, gamepads: &mut Gamepads, cfg: &mut Config) {
-        let mut open = self.pending_keybind.is_some();
-        let res = egui::Window::new("Set Keybind")
-            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ui.ctx(), |ui| self.set_keybind(ui, gamepads, cfg));
-        if let Some(ref res) = res {
-            // Force on-top focus when embedded
-            if open {
-                ui.ctx().move_to_top(res.response.layer_id);
-                res.response.request_focus();
-            } else {
-                ui.ctx().memory_mut(|m| m.surrender_focus(res.response.id));
-            }
+    fn show_set_keybind_viewport(
+        &mut self,
+        ctx: &Context,
+        gamepads: &mut Gamepads,
+        cfg: &mut Config,
+    ) {
+        if self.pending_keybind.is_none() {
+            return;
         }
-        if !open {
-            self.pending_keybind = None;
-        }
+
+        let title = "Set Keybind";
+        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("set_keybind"),
+            egui::ViewportBuilder::default()
+                .with_always_on_top()
+                .with_title(title)
+                .with_inner_size(Vec2::new(400.0, 100.0))
+                .with_position(screen_center(ctx).unwrap_or(Pos2::ZERO))
+                .with_resizable(false),
+            |ctx, class| {
+                if class == ViewportClass::Embedded {
+                    let mut set_keybind_open = self.pending_keybind.is_some();
+                    let res = egui::Window::new("Set Keybind")
+                        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                        .collapsible(false)
+                        .resizable(false)
+                        .open(&mut set_keybind_open)
+                        .show(ctx, |ui| self.set_keybind(ui, gamepads, cfg));
+                    if let Some(ref res) = res {
+                        // Force on-top focus when embedded
+                        if set_keybind_open {
+                            ctx.move_to_top(res.response.layer_id);
+                            res.response.request_focus();
+                        } else {
+                            ctx.memory_mut(|m| m.surrender_focus(res.response.id));
+                        }
+                    }
+                    if !set_keybind_open {
+                        self.pending_keybind = None;
+                    }
+                } else {
+                    CentralPanel::default().show(ctx, |ui| self.set_keybind(ui, gamepads, cfg));
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.pending_keybind = None;
+                    }
+                }
+            },
+        );
     }
 
     fn set_keybind(&mut self, ui: &mut Ui, gamepads: &mut Gamepads, cfg: &mut Config) {
@@ -480,39 +509,71 @@ impl Gui {
         }
     }
 
-    fn show_gamepad_conflict_window(&mut self, ui: &mut Ui, gamepads: &Gamepads, cfg: &mut Config) {
-        let mut open = self.gamepad_conflict.is_some();
-        let res = egui::Window::new("Unassign Gamepad")
-            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ui.ctx(), |ui| {
-                if let Some((existing_player, new_player, uuid)) = self.gamepad_conflict {
-                    ui.label(format!("Unassign gamepad from Player {existing_player}?"));
-                    ui.horizontal(|ui| {
-                        if ui.button("Yes").clicked() {
-                            self.unassign_gamepad(existing_player, gamepads, cfg);
-                            self.assign_gamepad(new_player, uuid, gamepads, cfg);
-                            self.gamepad_conflict = None;
+    fn show_gamepad_unassign_viewport(
+        &mut self,
+        ctx: &Context,
+        gamepads: &Gamepads,
+        cfg: &mut Config,
+    ) {
+        if self.gamepad_unassign.is_none() {
+            return;
+        }
+
+        let title = "Unassign Gamepad";
+        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("gamepad_unassign"),
+            egui::ViewportBuilder::default()
+                .with_always_on_top()
+                .with_title(title)
+                .with_inner_size(Vec2::new(400.0, 100.0))
+                .with_position(screen_center(ctx).unwrap_or(Pos2::ZERO))
+                .with_resizable(false),
+            |ctx, class| {
+                if class == ViewportClass::Embedded {
+                    let mut gamepad_unassign_open = self.gamepad_unassign.is_some();
+                    let res = egui::Window::new("Unassign Gamepad")
+                        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                        .collapsible(false)
+                        .resizable(false)
+                        .open(&mut gamepad_unassign_open)
+                        .show(ctx, |ui| self.gamepad_unassign(ui, gamepads, cfg));
+                    if let Some(ref res) = res {
+                        // Force on-top focus when embedded
+                        if gamepad_unassign_open {
+                            ctx.move_to_top(res.response.layer_id);
+                            res.response.request_focus();
+                        } else {
+                            ctx.memory_mut(|m| m.surrender_focus(res.response.id));
                         }
-                        if ui.button("Cancel").clicked() {
-                            self.gamepad_conflict = None;
-                        }
-                    });
+                    }
+                    if !gamepad_unassign_open {
+                        self.gamepad_unassign = None;
+                    }
+                } else {
+                    CentralPanel::default()
+                        .show(ctx, |ui| self.gamepad_unassign(ui, gamepads, cfg));
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.gamepad_unassign = None;
+                    }
+                }
+            },
+        );
+    }
+
+    fn gamepad_unassign(&mut self, ui: &mut Ui, gamepads: &Gamepads, cfg: &mut Config) {
+        if let Some((existing_player, new_player, uuid)) = self.gamepad_unassign {
+            ui.label(format!("Unassign gamepad from Player {existing_player}?"));
+            ui.horizontal(|ui| {
+                if ui.button("Yes").clicked() {
+                    self.unassign_gamepad(existing_player, gamepads, cfg);
+                    self.assign_gamepad(new_player, uuid, gamepads, cfg);
+                    self.gamepad_unassign = None;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.gamepad_unassign = None;
                 }
             });
-        if let Some(ref res) = res {
-            // Force on-top focus when embedded
-            if open {
-                ui.ctx().move_to_top(res.response.layer_id);
-                res.response.request_focus();
-            } else {
-                ui.ctx().memory_mut(|m| m.surrender_focus(res.response.id));
-            }
-        }
-        if !open {
-            self.gamepad_conflict = None;
         }
     }
 
@@ -577,7 +638,7 @@ impl Gui {
     fn show_keybinds_viewport(&mut self, ctx: &Context, gamepads: &mut Gamepads, cfg: &mut Config) {
         if !self.keybinds_open {
             self.pending_keybind = None;
-            self.gamepad_conflict = None;
+            self.gamepad_unassign = None;
             return;
         }
 
@@ -1004,7 +1065,12 @@ impl Gui {
 
         if platform::supports(platform::Feature::Viewports) {
             let mut embed_viewports = ui.ctx().embed_viewports();
-            ui.checkbox(&mut embed_viewports, "Embed viewports");
+            if ui
+                .checkbox(&mut embed_viewports, "Embed viewports")
+                .clicked()
+            {
+                cfg.renderer.embed_viewports = embed_viewports;
+            }
             ui.ctx().set_embed_viewports(embed_viewports);
         }
 
@@ -1765,9 +1831,9 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        self.show_set_keybind_window(ui, gamepads, cfg);
-        self.show_gamepad_conflict_window(ui, gamepads, cfg);
-        ui.set_enabled(self.pending_keybind.is_none() && self.gamepad_conflict.is_none());
+        self.show_set_keybind_viewport(ui.ctx(), gamepads, cfg);
+        self.show_gamepad_unassign_viewport(ui.ctx(), gamepads, cfg);
+        ui.set_enabled(self.pending_keybind.is_none() && self.gamepad_unassign.is_none());
 
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.keybinds_tab, KeybindsTab::Shortcuts, "Shortcuts");
@@ -1844,7 +1910,7 @@ impl Gui {
                                             .and_then(|name| cfg.input.gamepad_assignment(name))
                                         {
                                             Some(existing_player) => {
-                                                self.gamepad_conflict =
+                                                self.gamepad_unassign =
                                                     Some((existing_player, player, *uuid));
                                             }
                                             None => {
@@ -2966,4 +3032,19 @@ const fn mouse_button_from_pointer(button: PointerButton) -> MouseButton {
         PointerButton::Extra1 => MouseButton::Back,
         PointerButton::Extra2 => MouseButton::Forward,
     }
+}
+
+fn screen_center(ctx: &Context) -> Option<Pos2> {
+    ctx.input(|i| {
+        let outer_rect = i.viewport().outer_rect?;
+        let size = outer_rect.size();
+        let monitor_size = i.viewport().monitor_size?;
+        if 1.0 < monitor_size.x && 1.0 < monitor_size.y {
+            let x = (monitor_size.x - size.x) / 2.0;
+            let y = (monitor_size.y - size.y) / 2.0;
+            Some(Pos2::new(x, y))
+        } else {
+            None
+        }
+    })
 }

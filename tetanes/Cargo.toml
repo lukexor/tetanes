@@ -74,6 +74,7 @@ egui-wgpu = { version = "0.27", features = ["winit", "wayland", "x11"] }
 egui_extras = { version = "0.27", default-features = false, features = [
   "image",
 ] }
+gilrs = { version = "0.10", features = ["serde-serialize"] }
 image.workspace = true
 parking_lot = "0.12"
 puffin_egui = { version = "0.27", optional = true }
@@ -81,6 +82,7 @@ rfd = "0.13"
 ringbuf = "0.3"
 serde.workspace = true
 serde_json.workspace = true
+sysinfo = "0.30"
 tetanes-core = { version = "0.10", path = "../tetanes-core" }
 thingbuf = "0.1"
 thiserror.workspace = true
@@ -88,8 +90,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender = "0.2"
 winit = { version = "0.29", features = ["serde"] }
-sysinfo = "0.30"
-gilrs = { version = "0.10", features = ["serde-serialize"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.15"
