@@ -93,7 +93,7 @@ impl Txrom {
     pub fn load(cart: &mut Cart) -> Mapper {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         if cart.mirroring() == Mirroring::FourScreen {
-            cart.add_ex_ram(Self::FOUR_SCREEN_RAM_SIZE);
+            cart.add_exram(Self::FOUR_SCREEN_RAM_SIZE);
         }
         let chr_len = if cart.has_chr_rom() {
             cart.chr_rom.len()

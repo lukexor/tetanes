@@ -399,7 +399,16 @@ impl Running {
                     _ => (),
                 }
             }
-            Event::LoopExiting => self.renderer.destroy(),
+            Event::LoopExiting => {
+                #[cfg(feature = "profiling")]
+                puffin::set_scopes_on(false);
+
+                self.renderer.destroy();
+
+                if let Err(err) = self.cfg.save() {
+                    error!("failed to save configuration: {err:?}");
+                }
+            }
             _ => (),
         }
     }

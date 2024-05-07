@@ -312,7 +312,7 @@ impl Cart {
     }
 
     /// Allows mappers to add EX-RAM.
-    pub(crate) fn add_ex_ram(&mut self, capacity: usize) {
+    pub(crate) fn add_exram(&mut self, capacity: usize) {
         self.ex_ram.resize(capacity, 0x00);
         RamState::fill(&mut self.ex_ram, self.ram_state);
     }
