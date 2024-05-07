@@ -248,6 +248,8 @@ pub struct State {
     replay: Replay,
     save_slot: u8,
     auto_save: bool,
+    auto_save_interval: Duration,
+    last_auto_save: Instant,
     auto_load: bool,
     speed: f32,
     run_ahead: usize,
@@ -260,7 +262,7 @@ impl Drop for State {
 }
 
 impl State {
-    pub fn new(
+    fn new(
         tx: EventLoopProxy<NesEvent>,
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: Config,
@@ -296,6 +298,8 @@ impl State {
             replay: Replay::new(),
             save_slot: cfg.emulation.save_slot,
             auto_save: cfg.emulation.auto_save,
+            auto_save_interval: cfg.emulation.auto_save_interval,
+            last_auto_save: Instant::now(),
             auto_load: cfg.emulation.auto_load,
             speed: cfg.emulation.speed,
             run_ahead: cfg.emulation.run_ahead,
@@ -304,11 +308,11 @@ impl State {
         state
     }
 
-    pub fn add_message<S: ToString>(&mut self, msg: S) {
+    pub(crate) fn add_message<S: ToString>(&mut self, msg: S) {
         self.tx.nes_event(UiEvent::Message(msg.to_string()));
     }
 
-    pub fn write_deck<T>(
+    fn write_deck<T>(
         &mut self,
         writer: impl FnOnce(&mut ControlDeck) -> control_deck::Result<T>,
     ) -> Option<T> {
@@ -320,14 +324,14 @@ impl State {
             .ok()
     }
 
-    pub fn on_error(&mut self, err: impl Into<anyhow::Error>) {
+    fn on_error(&mut self, err: impl Into<anyhow::Error>) {
         let err = err.into();
         error!("Emulation error: {err:?}");
         self.add_message(err);
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &NesEvent) {
+    fn on_event(&mut self, event: &NesEvent) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -339,7 +343,7 @@ impl State {
     }
 
     /// Handle emulation event.
-    pub fn on_emulation_event(&mut self, event: &EmulationEvent) {
+    fn on_emulation_event(&mut self, event: &EmulationEvent) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -407,16 +411,7 @@ impl State {
                 self.load_rom(name, &mut io::Cursor::new(rom));
             }
             EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
-            EmulationEvent::LoadState(slot) => {
-                if let Some(rom) = self.control_deck.loaded_rom() {
-                    if let Some(path) = Config::save_path(rom, *slot) {
-                        match self.control_deck.load_state(path) {
-                            Ok(_) => self.add_message(format!("State {slot} Loaded")),
-                            Err(err) => self.on_error(err),
-                        }
-                    }
-                }
-            }
+            EmulationEvent::LoadState(slot) => self.load_state(*slot),
             EmulationEvent::Occluded(occluded) => {
                 self.occluded = *occluded;
                 if self.control_deck.is_running() {
@@ -463,16 +458,7 @@ impl State {
                     }
                 }
             }
-            EmulationEvent::SaveState(slot) => {
-                if let Some(rom) = self.control_deck.loaded_rom() {
-                    if let Some(data_dir) = Config::save_path(rom, *slot) {
-                        match self.control_deck.save_state(data_dir) {
-                            Ok(_) => self.add_message(format!("State {slot} Saved")),
-                            Err(err) => self.on_error(err),
-                        }
-                    }
-                }
-            }
+            EmulationEvent::SaveState(slot) => self.save_state(*slot),
             EmulationEvent::Screenshot => {
                 if self.control_deck.is_running() {
                     match self.save_screenshot() {
@@ -498,7 +484,7 @@ impl State {
     }
 
     /// Handle config event.
-    pub fn on_config_event(&mut self, event: &ConfigEvent) {
+    fn on_config_event(&mut self, event: &ConfigEvent) {
         match event {
             ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
                 self.control_deck
@@ -528,6 +514,7 @@ impl State {
             }
             ConfigEvent::AutoLoad(enabled) => self.auto_load = *enabled,
             ConfigEvent::AutoSave(enabled) => self.auto_save = *enabled,
+            ConfigEvent::AutoSaveInterval(interval) => self.auto_save_interval = *interval,
             ConfigEvent::ConcurrentDpad(enabled) => {
                 self.control_deck.set_concurrent_dpad(*enabled);
             }
@@ -615,7 +602,7 @@ impl State {
         }
     }
 
-    pub fn pause(&mut self, paused: bool) {
+    fn pause(&mut self, paused: bool) {
         if !self.control_deck.cpu_corrupted() {
             self.paused = paused;
             if self.paused {
@@ -632,6 +619,28 @@ impl State {
             }
         } else {
             self.paused = true;
+        }
+    }
+
+    fn save_state(&mut self, slot: u8) {
+        if let Some(rom) = self.control_deck.loaded_rom() {
+            if let Some(data_dir) = Config::save_path(rom, slot) {
+                match self.control_deck.save_state(data_dir) {
+                    Ok(_) => self.add_message(format!("State {slot} Saved")),
+                    Err(err) => self.on_error(err),
+                }
+            }
+        }
+    }
+
+    fn load_state(&mut self, slot: u8) {
+        if let Some(rom) = self.control_deck.loaded_rom() {
+            if let Some(path) = Config::save_path(rom, slot) {
+                match self.control_deck.load_state(path) {
+                    Ok(_) => self.add_message(format!("State {slot} Loaded")),
+                    Err(err) => self.on_error(err),
+                }
+            }
         }
     }
 
@@ -754,7 +763,7 @@ impl State {
         }
     }
 
-    pub fn save_screenshot(&mut self) -> anyhow::Result<PathBuf> {
+    fn save_screenshot(&mut self) -> anyhow::Result<PathBuf> {
         match Config::default_picture_dir() {
             Some(picture_dir) => {
                 let filename = picture_dir
@@ -779,7 +788,7 @@ impl State {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn should_park(&self) -> bool {
+    fn should_park(&self) -> bool {
         if self.audio.enabled() {
             self.audio.queued_time() >= self.audio.latency
         } else {
@@ -788,7 +797,7 @@ impl State {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn should_park(&self) -> bool {
+    fn should_park(&self) -> bool {
         self.audio.enabled() && self.audio.queued_time() >= self.audio.latency
     }
 
@@ -880,6 +889,10 @@ impl State {
                     if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
                         self.rewind.set_enabled(false);
                         self.on_error(err);
+                    }
+                    if self.last_auto_save.elapsed() > self.auto_save_interval {
+                        self.last_auto_save = Instant::now();
+                        self.save_state(self.save_slot);
                     }
                 }
                 Err(err) => {

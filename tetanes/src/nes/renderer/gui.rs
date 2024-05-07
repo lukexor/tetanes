@@ -1466,10 +1466,35 @@ impl Gui {
                 ui.end_row();
 
                 self.rewind_checkbox(ui, cfg, false);
-                ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
-                    .on_hover_text(
-                    "Automatically save game state to the current save slot on exit or unloading.",
-                );
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
+                        .on_hover_text(concat!(
+                            "Automatically save game state to the current save slot ",
+                            "on exit or unloading and an optional interval. ",
+                            "Setting to 0 will disable saving on an interval.",
+                        ));
+
+                    ui.add_enabled_ui(cfg.emulation.auto_save, |ui| {
+                        let mut auto_save_interval = cfg.emulation.auto_save_interval.as_secs();
+                        ui.indent("auto_save_interval", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.strong("Interval:");
+                                let res = ui.add(
+                                    DragValue::new(&mut auto_save_interval)
+                                        .clamp_range(0..=60)
+                                        .suffix(" seconds"),
+                                );
+                                if res.lost_focus() && res.changed() {
+                                    cfg.emulation.auto_save_interval =
+                                        Duration::from_secs(auto_save_interval);
+                                    self.tx.nes_event(ConfigEvent::AutoSaveInterval(
+                                        cfg.emulation.auto_save_interval,
+                                    ));
+                                }
+                            });
+                        });
+                    });
+                });
                 ui.end_row();
             });
 
@@ -1608,17 +1633,15 @@ impl Gui {
                             .on_hover_text(
                                 "The audio sample buffer size allocated to the sound driver. Increased audio buffer size can help reduce audio underruns.",
                             );
-                        if ui
+                        let res = ui
                             .add(
                                 DragValue::new(&mut cfg.audio.buffer_size)
                                     .speed(10)
                                     .clamp_range(0..=8192)
                                     .suffix(" samples"),
-                            )
-                            .changed()
-                        {
-                            self.add_debounced_event(
-                                "audio_buffer",
+                            );
+                        if res.lost_focus() && res.changed() {
+                            self.tx.nes_event(
                                 ConfigEvent::AudioBuffer(cfg.audio.buffer_size),
                             );
                         }
@@ -1630,18 +1653,15 @@ impl Gui {
                                 "The amount of queued audio before sending to the sound driver. Increased audio latency can help reduce audio underruns.",
                             );
                         let mut latency = cfg.audio.latency.as_millis() as u64;
-                        let changed = ui
+                        let res = ui
                             .add(
                                 DragValue::new(&mut latency)
-                                    .speed(1)
                                     .clamp_range(0..=1000)
                                     .suffix(" ms"),
-                            )
-                            .changed();
-                        if changed {
+                            );
+                        if res.lost_focus() && res.changed() {
                             cfg.audio.latency = Duration::from_millis(latency);
-                            self.add_debounced_event(
-                                "audio_latency",
+                            self.tx.nes_event(
                                 ConfigEvent::AudioLatency(cfg.audio.latency),
                             );
                         }
@@ -1968,24 +1988,23 @@ impl Gui {
     }
 
     fn speed_slider(&mut self, ui: &mut Ui, cfg: &mut Config) {
-        if ui
+        let res = ui
             .add(
                 Slider::new(&mut cfg.emulation.speed, 0.25..=2.0)
                     .step_by(0.25)
                     .suffix("x"),
             )
-            .changed()
-        {
-            self.add_debounced_event("speed", ConfigEvent::Speed(cfg.emulation.speed));
+            .on_hover_text("Adjust the speed of the NES emulation.");
+        if res.lost_focus() && res.changed() {
+            self.tx.nes_event(ConfigEvent::Speed(cfg.emulation.speed));
         }
     }
 
     fn run_ahead_slider(&mut self, ui: &mut Ui, cfg: &mut Config) {
-        if ui
+        let res = ui
             .add(Slider::new(&mut cfg.emulation.run_ahead, 0..=4))
-            .on_hover_text("Simulate a number of frames in the future to reduce input lag.")
-            .changed()
-        {
+            .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
+        if res.lost_focus() && res.changed() {
             self.tx
                 .nes_event(ConfigEvent::RunAhead(cfg.emulation.run_ahead));
         }

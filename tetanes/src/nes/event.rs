@@ -96,6 +96,7 @@ pub enum ConfigEvent {
     AudioLatency(Duration),
     AutoLoad(bool),
     AutoSave(bool),
+    AutoSaveInterval(Duration),
     ConcurrentDpad(bool),
     CycleAccurate(bool),
     FourPlayer(FourPlayer),

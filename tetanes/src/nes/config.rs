@@ -42,6 +42,7 @@ impl Default for AudioConfig {
 pub struct EmulationConfig {
     pub auto_load: bool,
     pub auto_save: bool,
+    pub auto_save_interval: Duration,
     pub rewind: bool,
     pub run_ahead: usize,
     pub save_slot: u8,
@@ -54,6 +55,7 @@ impl Default for EmulationConfig {
         Self {
             auto_load: true,
             auto_save: true,
+            auto_save_interval: Duration::from_secs(5),
             // WASM framerates suffer with garbage collection pauses when rewind is enabled.
             // FIXME: Perhaps re-using Vec allocations could help resolve it.
             rewind: cfg!(not(target_arch = "wasm32")),
