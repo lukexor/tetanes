@@ -9,9 +9,7 @@ own libraries or UIs on top of it.
 
 The current minimum Rust version is `1.74.0`.
 
-## Features
-
-### Crate Feature Flags
+## Feature Flags
 
 - **cycle-accurate** - Enables cycle-accurate emulation. More CPU intensive, but
   supports a wider range of games requiring precise timing. Disabling may
