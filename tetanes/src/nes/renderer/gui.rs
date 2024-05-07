@@ -977,7 +977,7 @@ impl Gui {
 
         ui.separator();
 
-        self.fullscreen_checkbox(ui, cfg, true, None);
+        self.fullscreen_checkbox(ui, cfg, true);
 
         if platform::supports(platform::Feature::Viewports) {
             let mut embed_viewports = ui.ctx().embed_viewports();
@@ -1660,17 +1660,7 @@ impl Gui {
             .num_columns(2)
             .show(ui, |ui| {
                 self.menubar_checkbox(ui, cfg, false);
-                self.fullscreen_checkbox(
-                    ui,
-                    cfg,
-                    false,
-                    // FIXME: Trying to toggle fullscreen from a viewport on macos when "prefer tabs: always"
-                    // is enabled causes a crash in NSWindowStackController
-                    cfg!(target_os = "macos").then_some(
-                        "Toggling fullscreen on macOS can currently only be done from the Window -> Fullscreen menu option."
-                            .to_string(),
-                    ),
-                );
+                self.fullscreen_checkbox(ui, cfg, false);
                 ui.end_row();
 
                 self.messages_checkbox(ui, cfg, false);
@@ -1790,9 +1780,8 @@ impl Gui {
                             let previous_gamepad_id = assigned_gamepad_id;
                             egui::ComboBox::from_id_source("assigned_gamepad")
                                 .selected_text(
-                                    assigned_gamepad.map_or("Unassigned".to_string(), |g| {
-                                        format!("{}", g.name())
-                                    }),
+                                    assigned_gamepad
+                                        .map_or("Unassigned".to_string(), |g| g.name().to_string()),
                                 )
                                 .show_ui(ui, |ui| {
                                     for (id, gamepad) in list {
@@ -2228,25 +2217,17 @@ impl Gui {
         }
     }
 
-    fn fullscreen_checkbox(
-        &mut self,
-        ui: &mut Ui,
-        cfg: &mut Config,
-        shortcut: bool,
-        disabled_text: Option<String>,
-    ) {
-        let mut res = ui.add_enabled(
-            disabled_text.is_none(),
-            Checkbox::new(&mut cfg.renderer.fullscreen, "Fullscreen").shortcut_text(
-                shortcut
-                    .then(|| self.fmt_shortcut(Setting::ToggleFullscreen))
-                    .unwrap_or_default(),
-            ),
-        );
-        if let Some(disabled_text) = disabled_text {
-            res = res.on_disabled_hover_text(disabled_text);
-        }
-        if res.clicked() {
+    fn fullscreen_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+        if ui
+            .add(
+                Checkbox::new(&mut cfg.renderer.fullscreen, "Fullscreen").shortcut_text(
+                    shortcut
+                        .then(|| self.fmt_shortcut(Setting::ToggleFullscreen))
+                        .unwrap_or_default(),
+                ),
+            )
+            .clicked()
+        {
             if platform::supports(platform::Feature::Viewports) {
                 ui.ctx().set_embed_viewports(cfg.renderer.fullscreen);
             }
