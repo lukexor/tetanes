@@ -3,3 +3,5 @@ tmp/
 test_results*
 target/
 .DS_Store
+logs/
+dist/
