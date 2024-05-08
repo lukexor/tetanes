@@ -61,9 +61,10 @@ where
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Menu {
-    Preferences,
-    Keybinds,
     About,
+    Keybinds,
+    PerfStats,
+    Preferences,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -116,11 +117,12 @@ pub struct Gui {
     pub menu_height: f32,
     pub nes_frame: Rect,
     pub pending_genie_entry: PendingGenieEntry,
-    pub preferences_open: bool,
-    pub keybinds_open: bool,
     pub about_open: bool,
-    pub preferences_tab: PreferencesTab,
+    pub keybinds_open: bool,
     pub keybinds_tab: KeybindsTab,
+    pub perf_stats_open: bool,
+    pub preferences_open: bool,
+    pub preferences_tab: PreferencesTab,
     pub pending_keybind: Option<PendingKeybind>,
     pub gamepad_unassign: Option<(Player, Player, GamepadUuid)>,
     pub cpu_debugger_open: bool,
@@ -189,13 +191,14 @@ impl Gui {
             menu_height: 0.0,
             nes_frame: Rect::ZERO,
             pending_genie_entry: PendingGenieEntry::empty(),
+            about_open: false,
+            keybinds_open: false,
+            keybinds_tab: KeybindsTab::Shortcuts,
+            perf_stats_open: false,
             preferences_open: false,
             preferences_tab: PreferencesTab::Emulation,
-            keybinds_tab: KeybindsTab::Shortcuts,
-            keybinds_open: false,
             pending_keybind: None,
             gamepad_unassign: None,
-            about_open: false,
             cpu_debugger_open: false,
             ppu_debugger_open: false,
             apu_debugger_open: false,
@@ -205,24 +208,8 @@ impl Gui {
             resize_texture: false,
             replay_recording: false,
             audio_recording: false,
-            shortcut_keybinds: Action::BINDABLE
-                .into_iter()
-                .filter(|action| !action.is_joypad())
-                .map(ActionBindings::empty)
-                .chain(cfg.input.shortcuts)
-                .map(|b| (b.action.to_string(), (b.action, b.bindings)))
-                .collect::<BTreeMap<_, _>>(),
-            joypad_keybinds: [Player::One, Player::Two, Player::Three, Player::Four].map(
-                |player| {
-                    Action::BINDABLE
-                        .into_iter()
-                        .filter(|action| action.is_joypad())
-                        .map(ActionBindings::empty)
-                        .chain(cfg.input.joypad_bindings[player as usize].iter().copied())
-                        .map(|b| (b.action.to_string(), (b.action, b.bindings)))
-                        .collect::<BTreeMap<_, _>>()
-                },
-            ),
+            shortcut_keybinds: Self::shortcut_keybinds(&cfg.input.shortcuts),
+            joypad_keybinds: Self::joypad_keybinds(&cfg.input.joypad_bindings),
             frame_stats: FrameStats::new(),
             messages: Vec::new(),
             loaded_rom: None,
@@ -232,6 +219,30 @@ impl Gui {
             status: None,
             error: None,
         }
+    }
+
+    fn shortcut_keybinds(shortcuts: &[ActionBindings]) -> BTreeMap<String, Keybind> {
+        Action::BINDABLE
+            .into_iter()
+            .filter(|action| !action.is_joypad())
+            .map(ActionBindings::empty)
+            .chain(shortcuts.iter().copied())
+            .map(|b| (b.action.to_string(), (b.action, b.bindings)))
+            .collect::<BTreeMap<_, _>>()
+    }
+
+    fn joypad_keybinds(
+        joypad_bindings: &[Vec<ActionBindings>; 4],
+    ) -> [BTreeMap<String, Keybind>; 4] {
+        [Player::One, Player::Two, Player::Three, Player::Four].map(|player| {
+            Action::BINDABLE
+                .into_iter()
+                .filter(|action| action.is_joypad())
+                .map(ActionBindings::empty)
+                .chain(joypad_bindings[player as usize].iter().copied())
+                .map(|b| (b.action.to_string(), (b.action, b.bindings)))
+                .collect::<BTreeMap<_, _>>()
+        })
     }
 
     pub fn add_message<S>(&mut self, text: S)
@@ -601,11 +612,11 @@ impl Gui {
     }
 
     fn show_performance_window(&mut self, ctx: &Context, cfg: &mut Config) {
-        let mut show_perf_stats = cfg.renderer.show_perf_stats;
+        let mut perf_stats_open = self.perf_stats_open;
         egui::Window::new("Performance Stats")
-            .open(&mut show_perf_stats)
+            .open(&mut perf_stats_open)
             .show(ctx, |ui| self.performance_stats(ui, cfg));
-        cfg.renderer.show_perf_stats = show_perf_stats;
+        self.perf_stats_open = perf_stats_open;
     }
 
     fn show_preferences_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
@@ -707,7 +718,7 @@ impl Gui {
                 ui.menu_button("⚙ Config", |ui| self.config_menu(ui, cfg));
                 // icon: screen
                 ui.menu_button("🖵 Window", |ui| self.window_menu(ui, cfg));
-                ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui, cfg));
+                ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
                 ui.toggle_value(&mut self.about_open, "🔎 About");
             });
         });
@@ -1004,18 +1015,26 @@ impl Gui {
 
         ui.separator();
 
+        let mut preferences_open = self.preferences_open;
         if ui
-            .add(Button::new("Preferences").shortcut_text(self.fmt_shortcut(Menu::Preferences)))
+            .add(
+                ToggleValue::new(&mut preferences_open, "Preferences")
+                    .shortcut_text(self.fmt_shortcut(Menu::Preferences)),
+            )
             .clicked()
         {
-            self.preferences_open = !self.preferences_open;
+            self.preferences_open = preferences_open;
             ui.close_menu();
         }
+        let mut keybinds_open = self.keybinds_open;
         if ui
-            .add(Button::new("Keybinds").shortcut_text(self.fmt_shortcut(Menu::Keybinds)))
+            .add(
+                ToggleValue::new(&mut keybinds_open, "Keybinds")
+                    .shortcut_text(self.fmt_shortcut(Menu::Keybinds)),
+            )
             .clicked()
         {
-            self.keybinds_open = !self.keybinds_open;
+            self.keybinds_open = keybinds_open;
             ui.close_menu();
         };
     }
@@ -1085,7 +1104,7 @@ impl Gui {
         self.messages_checkbox(ui, cfg, true);
     }
 
-    fn debug_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
+    fn debug_menu(&mut self, ui: &mut Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1098,14 +1117,16 @@ impl Gui {
                 .on_hover_text("Toggle the Puffin profiling window");
             puffin::set_scopes_on(profile);
         }
+        let mut perf_stats_open = self.perf_stats_open;
         if ui
             .add(
-                ToggleValue::new(&mut cfg.renderer.show_perf_stats, "Performance Stats")
-                    .shortcut_text(self.fmt_shortcut(Setting::TogglePerfStats)),
+                ToggleValue::new(&mut perf_stats_open, "Performance Stats")
+                    .shortcut_text(self.fmt_shortcut(Menu::PerfStats)),
             )
             .on_hover_text("Enable a performance statistics overlay")
             .clicked()
         {
+            self.perf_stats_open = perf_stats_open;
             ui.close_menu();
         }
         #[cfg(debug_assertions)]
@@ -1525,6 +1546,8 @@ impl Gui {
             ui.horizontal(|ui| {
                 if ui.button("Restore Defaults").clicked() {
                     cfg.reset();
+                    self.shortcut_keybinds = Self::shortcut_keybinds(&cfg.input.shortcuts);
+                    self.joypad_keybinds = Self::joypad_keybinds(&cfg.input.joypad_bindings);
                     self.tx.nes_event(ConfigEvent::InputBindings);
                 }
                 if platform::supports(platform::Feature::Filesystem) {

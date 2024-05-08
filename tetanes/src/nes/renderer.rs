@@ -429,9 +429,10 @@ impl Renderer {
                     }
                 }
                 RendererEvent::Menu(menu) => match menu {
-                    Menu::Preferences => self.gui.preferences_open = !self.gui.preferences_open,
-                    Menu::Keybinds => self.gui.keybinds_open = !self.gui.keybinds_open,
                     Menu::About => self.gui.about_open = !self.gui.about_open,
+                    Menu::Keybinds => self.gui.keybinds_open = !self.gui.keybinds_open,
+                    Menu::PerfStats => self.gui.perf_stats_open = !self.gui.perf_stats_open,
+                    Menu::Preferences => self.gui.preferences_open = !self.gui.preferences_open,
                 },
                 RendererEvent::ResourcesReady | RendererEvent::RequestRedraw { .. } => (),
             },
