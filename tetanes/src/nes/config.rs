@@ -1,4 +1,4 @@
-use crate::nes::input::{ActionBindings, GamepadUuid, Gamepads, Input};
+use crate::nes::input::{ActionBindings, Gamepads, Input};
 use anyhow::Context;
 use egui::ahash::HashSet;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use tetanes_core::{
     time::Duration,
 };
 use tracing::{error, info};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
@@ -115,7 +116,7 @@ impl Default for RendererConfig {
 pub struct InputConfig {
     pub shortcuts: Vec<ActionBindings>,
     pub joypad_bindings: [Vec<ActionBindings>; 4],
-    pub gamepad_assignments: [(Player, Option<GamepadUuid>); 4],
+    pub gamepad_assignments: [(Player, Option<Uuid>); 4],
 }
 
 impl Default for InputConfig {
@@ -176,26 +177,26 @@ impl InputConfig {
             .map(|(player, _)| *player)
     }
 
-    pub const fn gamepad_assigned_to(&self, player: Player) -> Option<GamepadUuid> {
+    pub const fn gamepad_assigned_to(&self, player: Player) -> Option<Uuid> {
         self.gamepad_assignments[player as usize].1
     }
 
-    pub fn gamepad_assignment(&self, uuid: &GamepadUuid) -> Option<Player> {
+    pub fn gamepad_assignment(&self, uuid: &Uuid) -> Option<Player> {
         self.gamepad_assignments
             .iter()
             .find(|(_, u)| u.as_ref().is_some_and(|u| u == uuid))
             .map(|(player, _)| *player)
     }
 
-    pub fn assign_gamepad(&mut self, player: Player, uuid: GamepadUuid) {
+    pub fn assign_gamepad(&mut self, player: Player, uuid: Uuid) {
         self.gamepad_assignments[player as usize].1 = Some(uuid);
     }
 
-    pub fn unassign_gamepad(&mut self, player: Player) -> Option<GamepadUuid> {
+    pub fn unassign_gamepad(&mut self, player: Player) -> Option<Uuid> {
         std::mem::take(&mut self.gamepad_assignments[player as usize].1)
     }
 
-    pub fn unassign_gamepad_name(&mut self, uuid: &GamepadUuid) -> Option<Player> {
+    pub fn unassign_gamepad_name(&mut self, uuid: &Uuid) -> Option<Player> {
         if let Some((player, uuid)) = self
             .gamepad_assignments
             .iter_mut()

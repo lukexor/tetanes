@@ -5,6 +5,7 @@ use crate::{
         emulation::FrameStats,
         input::{Input, InputBindings},
         renderer::gui::Menu,
+        rom::RomData,
         Nes, Running,
     },
     platform::{self, open_file_dialog},
@@ -55,21 +56,6 @@ pub enum UiEvent {
     LoadRomDialog,
     LoadReplayDialog,
     Terminate,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct RomData(pub Vec<u8>);
-
-impl std::fmt::Debug for RomData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RomData({} bytes)", self.0.len())
-    }
-}
-
-impl AsRef<[u8]> for RomData {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -323,14 +309,20 @@ impl Running {
             }
             Event::AboutToWait => {
                 self.gamepads.update_events();
-                let res = self.renderer.on_gamepad_update(&self.gamepads);
-                if !res.consumed {
-                    if let Some(window_id) = self.renderer.root_window_id() {
+                if let Some(window_id) = self.renderer.root_window_id() {
+                    let res = self.renderer.on_gamepad_update(&self.gamepads);
+                    if res.repaint {
+                        self.repaint_times.insert(window_id, Instant::now());
+                    }
+
+                    if !res.consumed {
                         while let Some(event) = self.gamepads.next_event() {
                             self.on_gamepad_event(window_id, event);
+                            self.repaint_times.insert(window_id, Instant::now());
                         }
                     }
                 }
+
                 self.emulation.clock_frame();
             }
             Event::WindowEvent {

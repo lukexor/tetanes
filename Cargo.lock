@@ -2816,6 +2816,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tracing-web",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -3152,6 +3153,11 @@ name = "uuid"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a183cf7feeba97b4dd1c0d46788634f6221d87fa961b305bed08c851829efcc0"
+dependencies = [
+ "getrandom",
+ "rand",
+ "serde",
+]
 
 [[package]]
 name = "valuable"

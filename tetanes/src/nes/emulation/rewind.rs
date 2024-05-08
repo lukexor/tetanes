@@ -94,7 +94,7 @@ impl Rewind {
         self.interval_counter = 0;
         self.index = 0;
         self.count = 0;
-        self.frames.clear();
+        self.frames.fill(None);
     }
 }
 

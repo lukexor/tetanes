@@ -4,7 +4,8 @@ use crate::{
         config::Config,
         emulation::FrameStats,
         event::{ConfigEvent, EmulationEvent, NesEvent, SendNesEvent, UiEvent},
-        input::{ActionBindings, GamepadUuid, Gamepads, Input},
+        input::{ActionBindings, Gamepads, Input},
+        rom::HOMEBREW_ROMS,
     },
     platform,
 };
@@ -39,6 +40,7 @@ use tetanes_core::{
     video::VideoFilter,
 };
 use tracing::info;
+use uuid::Uuid;
 use winit::{
     event::{ElementState, MouseButton},
     event_loop::EventLoopProxy,
@@ -79,6 +81,21 @@ pub enum PreferencesTab {
 pub enum KeybindsTab {
     Shortcuts,
     Joypad(Player),
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ShowShortcut {
+    Yes,
+    No,
+}
+
+impl ShowShortcut {
+    pub fn then<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
+        match self {
+            Self::Yes => Some(f()),
+            Self::No => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,10 +141,10 @@ pub struct Gui {
     pub preferences_open: bool,
     pub preferences_tab: PreferencesTab,
     pub pending_keybind: Option<PendingKeybind>,
-    pub gamepad_unassign: Option<(Player, Player, GamepadUuid)>,
-    pub cpu_debugger_open: bool,
-    pub ppu_debugger_open: bool,
-    pub apu_debugger_open: bool,
+    pub gamepad_unassign: Option<(Player, Player, Uuid)>,
+    pub debugger_open: bool,
+    pub ppu_viewer_open: bool,
+    pub apu_mixer_open: bool,
     pub debug_on_hover: bool,
     pub loaded_region: NesRegion,
     pub resize_window: bool,
@@ -199,9 +216,9 @@ impl Gui {
             preferences_tab: PreferencesTab::Emulation,
             pending_keybind: None,
             gamepad_unassign: None,
-            cpu_debugger_open: false,
-            ppu_debugger_open: false,
-            apu_debugger_open: false,
+            debugger_open: false,
+            ppu_viewer_open: false,
+            apu_mixer_open: false,
             debug_on_hover: false,
             loaded_region: cfg.deck.region,
             resize_window: false,
@@ -591,7 +608,7 @@ impl Gui {
     fn assign_gamepad(
         &mut self,
         player: Player,
-        uuid: GamepadUuid,
+        uuid: Uuid,
         gamepads: &Gamepads,
         cfg: &mut Config,
     ) {
@@ -749,24 +766,34 @@ impl Gui {
             ui.close_menu();
         }
 
-        if ui
-            .add(Button::new("Unload ROM...").shortcut_text(self.fmt_shortcut(UiAction::UnloadRom)))
-            .on_disabled_hover_text(Self::NO_ROM_LOADED)
-            .clicked()
-        {
-            self.tx.nes_event(EmulationEvent::UnloadRom);
-            ui.close_menu();
-        }
-        if ui
-            .add(Button::new("Load Replay").shortcut_text(self.fmt_shortcut(UiAction::LoadReplay)))
-            .on_hover_text("Load a replay file for the currently loaded ROM.")
-            .on_disabled_hover_text(Self::NO_ROM_LOADED)
-            .clicked()
-        {
-            self.tx.nes_event(EmulationEvent::Pause(true));
-            self.tx.nes_event(UiEvent::LoadReplayDialog);
-            ui.close_menu();
-        }
+        ui.menu_button("Homebrew ROM...", |ui| self.homebrew_rom_menu(ui));
+
+        ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
+            if ui
+                .add(
+                    Button::new("Unload ROM...")
+                        .shortcut_text(self.fmt_shortcut(UiAction::UnloadRom)),
+                )
+                .on_disabled_hover_text(Self::NO_ROM_LOADED)
+                .clicked()
+            {
+                self.tx.nes_event(EmulationEvent::UnloadRom);
+                ui.close_menu();
+            }
+            if ui
+                .add(
+                    Button::new("Load Replay")
+                        .shortcut_text(self.fmt_shortcut(UiAction::LoadReplay)),
+                )
+                .on_hover_text("Load a replay file for the currently loaded ROM.")
+                .on_disabled_hover_text(Self::NO_ROM_LOADED)
+                .clicked()
+            {
+                self.tx.nes_event(EmulationEvent::Pause(true));
+                self.tx.nes_event(UiEvent::LoadReplayDialog);
+                ui.close_menu();
+            }
+        });
 
         // TODO: support saves and recent games on wasm? Requires storing the data
         if platform::supports(platform::Feature::Filesystem) {
@@ -790,30 +817,34 @@ impl Gui {
 
             ui.separator();
 
-            if ui
-                .add(
-                    Button::new("Save State")
-                        .shortcut_text(self.fmt_shortcut(DeckAction::SaveState)),
-                )
-                .on_hover_text("Save the current state to the selected save slot.")
-                .clicked()
-            {
-                self.tx
-                    .nes_event(EmulationEvent::SaveState(cfg.emulation.save_slot));
-            };
-            if ui
-                .add(
-                    Button::new("Load State")
-                        .shortcut_text(self.fmt_shortcut(DeckAction::LoadState)),
-                )
-                .on_hover_text("Load a previous state from the selected save slot.")
-                .clicked()
-            {
-                self.tx
-                    .nes_event(EmulationEvent::LoadState(cfg.emulation.save_slot));
-            }
+            ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
+                if ui
+                    .add(
+                        Button::new("Save State")
+                            .shortcut_text(self.fmt_shortcut(DeckAction::SaveState)),
+                    )
+                    .on_hover_text("Save the current state to the selected save slot.")
+                    .clicked()
+                {
+                    self.tx
+                        .nes_event(EmulationEvent::SaveState(cfg.emulation.save_slot));
+                };
+                if ui
+                    .add(
+                        Button::new("Load State")
+                            .shortcut_text(self.fmt_shortcut(DeckAction::LoadState)),
+                    )
+                    .on_hover_text("Load a previous state from the selected save slot.")
+                    .clicked()
+                {
+                    self.tx
+                        .nes_event(EmulationEvent::LoadState(cfg.emulation.save_slot));
+                }
+            });
 
-            ui.menu_button("Save Slot...", |ui| self.save_slot_radio(ui, cfg, true));
+            ui.menu_button("Save Slot...", |ui| {
+                self.save_slot_radio(ui, cfg, ShowShortcut::Yes)
+            });
 
             ui.separator();
 
@@ -824,6 +855,20 @@ impl Gui {
                 self.tx.nes_event(UiEvent::Terminate);
                 ui.close_menu();
             };
+        }
+    }
+
+    fn homebrew_rom_menu(&mut self, ui: &mut Ui) {
+        for name in HOMEBREW_ROMS.names() {
+            if ui.button(name).clicked() {
+                let Some(data) = HOMEBREW_ROMS.data(name) else {
+                    self.add_message(format!("Failed to load homebrew ROM `{name}`."));
+                    return;
+                };
+                self.tx
+                    .nes_event(EmulationEvent::LoadRom((name.to_string(), data)));
+                ui.close_menu();
+            }
         }
     }
 
@@ -969,10 +1014,10 @@ impl Gui {
 
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
-        self.cycle_acurate_checkbox(ui, cfg, true);
-        self.zapper_checkbox(ui, cfg, true);
-        self.rewind_checkbox(ui, cfg, true);
-        self.overscan_checkbox(ui, cfg, true);
+        self.cycle_acurate_checkbox(ui, cfg, ShowShortcut::Yes);
+        self.zapper_checkbox(ui, cfg, ShowShortcut::Yes);
+        self.rewind_checkbox(ui, cfg, ShowShortcut::Yes);
+        self.overscan_checkbox(ui, cfg, ShowShortcut::Yes);
 
         ui.separator();
 
@@ -1080,7 +1125,7 @@ impl Gui {
 
         ui.separator();
 
-        self.fullscreen_checkbox(ui, cfg, true);
+        self.fullscreen_checkbox(ui, cfg, ShowShortcut::Yes);
 
         if platform::supports(platform::Feature::Viewports) {
             ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
@@ -1100,8 +1145,8 @@ impl Gui {
 
         ui.separator();
 
-        self.menubar_checkbox(ui, cfg, true);
-        self.messages_checkbox(ui, cfg, true);
+        self.menubar_checkbox(ui, cfg, ShowShortcut::Yes);
+        self.messages_checkbox(ui, cfg, ShowShortcut::Yes);
     }
 
     fn debug_menu(&mut self, ui: &mut Ui) {
@@ -1139,41 +1184,46 @@ impl Gui {
 
         ui.separator();
 
-        let cpu_debugger_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Cpu));
-        if ui
-            .add(
-                ToggleValue::new(&mut self.cpu_debugger_open, "CPU Debugger")
-                    .shortcut_text(cpu_debugger_shortcut),
-            )
-            .on_hover_text("Toggle the CPU Debugger.")
-            .clicked()
-        {
-            ui.close_menu();
-        }
+        ui.add_enabled_ui(false, |ui| {
+            let debugger_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Cpu));
+            if ui
+                .add(
+                    ToggleValue::new(&mut self.debugger_open, "Debugger")
+                        .shortcut_text(debugger_shortcut),
+                )
+                .on_hover_text("Toggle the Debugger.")
+                .on_disabled_hover_text("Not yet implemented.")
+                .clicked()
+            {
+                ui.close_menu();
+            }
 
-        let ppu_debugger_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Ppu));
-        if ui
-            .add(
-                ToggleValue::new(&mut self.ppu_debugger_open, "PPU Debugger")
-                    .shortcut_text(ppu_debugger_shortcut),
-            )
-            .on_hover_text("Toggle the PPU Debugger.")
-            .clicked()
-        {
-            ui.close_menu();
-        }
+            let ppu_viewer_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Ppu));
+            if ui
+                .add(
+                    ToggleValue::new(&mut self.ppu_viewer_open, "PPU Viewer")
+                        .shortcut_text(ppu_viewer_shortcut),
+                )
+                .on_hover_text("Toggle the PPU Viewer.")
+                .on_disabled_hover_text("Not yet implemented.")
+                .clicked()
+            {
+                ui.close_menu();
+            }
 
-        let apu_debugger_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Apu));
-        if ui
-            .add(
-                ToggleValue::new(&mut self.apu_debugger_open, "APU Debugger")
-                    .shortcut_text(apu_debugger_shortcut),
-            )
-            .on_hover_text("Toggle the APU Debugger.")
-            .clicked()
-        {
-            ui.close_menu();
-        }
+            let apu_mixer_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Apu));
+            if ui
+                .add(
+                    ToggleValue::new(&mut self.apu_mixer_open, "APU Mixer")
+                        .shortcut_text(apu_mixer_shortcut),
+                )
+                .on_hover_text("Toggle the APU Mixer.")
+                .on_disabled_hover_text("Not yet implemented.")
+                .clicked()
+            {
+                ui.close_menu();
+            }
+        });
 
         ui.separator();
 
@@ -1575,14 +1625,14 @@ impl Gui {
             .num_columns(2)
             .spacing([80.0, 6.0])
             .show(ui, |ui| {
-                self.cycle_acurate_checkbox(ui, cfg, false);
+                self.cycle_acurate_checkbox(ui, cfg, ShowShortcut::No);
                 ui.checkbox(&mut cfg.emulation.auto_load, "Auto-Load")
                     .on_hover_text(
                         "Automatically load game state from the current save slot on load.",
                     );
                 ui.end_row();
 
-                self.rewind_checkbox(ui, cfg, false);
+                self.rewind_checkbox(ui, cfg, ShowShortcut::No);
                 ui.vertical(|ui| {
                     ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
                         .on_hover_text(concat!(
@@ -1645,7 +1695,7 @@ impl Gui {
                     .num_columns(2)
                     .spacing([20.0, 6.0])
                     .show(ui, |ui| {
-                        self.save_slot_radio(ui, cfg, false);
+                        self.save_slot_radio(ui, cfg, ShowShortcut::No);
                     });
                 ui.end_row();
 
@@ -1796,14 +1846,14 @@ impl Gui {
             .spacing([80.0, 6.0])
             .num_columns(2)
             .show(ui, |ui| {
-                self.menubar_checkbox(ui, cfg, false);
-                self.fullscreen_checkbox(ui, cfg, false);
+                self.menubar_checkbox(ui, cfg, ShowShortcut::No);
+                self.fullscreen_checkbox(ui, cfg, ShowShortcut::No);
                 ui.end_row();
 
-                self.messages_checkbox(ui, cfg, false);
+                self.messages_checkbox(ui, cfg, ShowShortcut::No);
                 ui.end_row();
 
-                self.overscan_checkbox(ui, cfg, false);
+                self.overscan_checkbox(ui, cfg, ShowShortcut::No);
                 ui.end_row();
             });
 
@@ -1842,7 +1892,7 @@ impl Gui {
             .num_columns(2)
             .spacing([80.0, 6.0])
             .show(ui, |ui| {
-                self.zapper_checkbox(ui, cfg, false);
+                self.zapper_checkbox(ui, cfg, ShowShortcut::No);
                 ui.end_row();
 
                 if ui
@@ -1925,7 +1975,7 @@ impl Gui {
                                     for (_, gamepad) in list {
                                         ui.selectable_value(
                                             &mut assigned_gamepad,
-                                            Some(GamepadUuid(gamepad.uuid())),
+                                            Some(Gamepads::create_uuid(&gamepad)),
                                             gamepad.name(),
                                         );
                                     }
@@ -2084,7 +2134,7 @@ impl Gui {
         });
     }
 
-    fn save_slot_radio(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn save_slot_radio(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         ui.vertical(|ui| {
             for slot in 1..=4 {
                 ui.add(
@@ -2134,7 +2184,7 @@ impl Gui {
         }
     }
 
-    fn cycle_acurate_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn cycle_acurate_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         if ui
             .add(
                 Checkbox::new(&mut cfg.deck.cycle_accurate, "Cycle Accurate").shortcut_text(
@@ -2151,7 +2201,7 @@ impl Gui {
         }
     }
 
-    fn rewind_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn rewind_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         if ui
             .add(
                 Checkbox::new(&mut cfg.emulation.rewind, "Enable Rewinding").shortcut_text(
@@ -2168,7 +2218,7 @@ impl Gui {
         }
     }
 
-    fn zapper_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn zapper_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         if ui
             .add(
                 Checkbox::new(&mut cfg.deck.zapper, "Enable Zapper Gun").shortcut_text(
@@ -2185,7 +2235,7 @@ impl Gui {
         }
     }
 
-    fn overscan_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn overscan_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         if ui.add(
             Checkbox::new(&mut cfg.renderer.hide_overscan, "Hide Overscan").shortcut_text(
                 shortcut
@@ -2320,7 +2370,7 @@ impl Gui {
         }
     }
 
-    fn menubar_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn menubar_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         ui.add(
             Checkbox::new(&mut cfg.renderer.show_menubar, "Show Menu Bar").shortcut_text(
                 shortcut
@@ -2331,7 +2381,7 @@ impl Gui {
         .on_hover_text("Show the menu bar.");
     }
 
-    fn messages_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn messages_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         ui.add(
             Checkbox::new(&mut cfg.renderer.show_messages, "Show Messages").shortcut_text(
                 shortcut
@@ -2360,7 +2410,7 @@ impl Gui {
         }
     }
 
-    fn fullscreen_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: bool) {
+    fn fullscreen_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
         if ui
             .add(
                 Checkbox::new(&mut cfg.renderer.fullscreen, "Fullscreen").shortcut_text(

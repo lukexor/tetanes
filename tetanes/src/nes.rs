@@ -31,6 +31,7 @@ pub mod emulation;
 pub mod event;
 pub mod input;
 pub mod renderer;
+pub mod rom;
 
 /// Represents all the NES Emulation state.
 #[derive(Debug)]

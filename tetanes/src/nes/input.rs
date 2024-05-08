@@ -18,6 +18,7 @@ use tetanes_core::{
     video::VideoFilter,
 };
 use tracing::warn;
+use uuid::Uuid;
 use winit::{
     event::{ElementState, MouseButton},
     keyboard::{KeyCode, ModifiersState},
@@ -271,20 +272,10 @@ impl DerefMut for InputBindings {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[must_use]
-pub struct GamepadUuid(pub [u8; 16]);
-
-impl std::fmt::Display for GamepadUuid {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
-
 /// Represents gamepad input state.
 #[derive(Default, Debug)]
 pub struct Gamepads {
-    connected: HashMap<gilrs::GamepadId, GamepadUuid>,
+    connected: HashMap<gilrs::GamepadId, Uuid>,
     inner: Option<gilrs::Gilrs>,
     events: VecDeque<gilrs::Event>,
 }
@@ -297,7 +288,9 @@ impl Gamepads {
         match &mut gilrs {
             Ok(inputs) => {
                 for (id, gamepad) in inputs.gamepads() {
-                    connected.insert(id, GamepadUuid(gamepad.uuid()));
+                    let uuid = Self::create_uuid(&gamepad);
+                    tracing::debug!("gamepad connected: {} ({uuid})", gamepad.name());
+                    connected.insert(id, uuid);
                 }
                 events.reserve(256);
             }
@@ -355,13 +348,17 @@ impl Gamepads {
         }
     }
 
-    pub fn gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
+    pub fn connected_gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
         self.inner
             .as_ref()
             .and_then(|inner| inner.connected_gamepad(id))
     }
 
-    pub fn gamepad_by_uuid(&self, uuid: &GamepadUuid) -> Option<gilrs::Gamepad<'_>> {
+    pub fn gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
+        self.inner.as_ref().map(|inner| inner.gamepad(id))
+    }
+
+    pub fn gamepad_by_uuid(&self, uuid: &Uuid) -> Option<gilrs::Gamepad<'_>> {
         self.inner.as_ref().and_then(|inner| {
             self.connected
                 .iter()
@@ -370,15 +367,15 @@ impl Gamepads {
         })
     }
 
-    pub fn gamepad_name_by_uuid(&self, uuid: &GamepadUuid) -> Option<String> {
+    pub fn gamepad_name_by_uuid(&self, uuid: &Uuid) -> Option<String> {
         self.gamepad_by_uuid(uuid).map(|g| g.name().to_string())
     }
 
-    pub fn gamepad_uuid(&self, id: gilrs::GamepadId) -> Option<GamepadUuid> {
-        self.gamepad(id).map(|g| GamepadUuid(g.uuid()))
+    pub fn gamepad_uuid(&self, id: gilrs::GamepadId) -> Option<Uuid> {
+        self.connected_gamepad(id).map(|g| Self::create_uuid(&g))
     }
 
-    pub fn is_connected(&self, uuid: &GamepadUuid) -> bool {
+    pub fn is_connected(&self, uuid: &Uuid) -> bool {
         self.gamepad_by_uuid(uuid).is_some()
     }
 
@@ -386,7 +383,7 @@ impl Gamepads {
         self.inner.as_ref().map(|inner| inner.gamepads().peekable())
     }
 
-    pub fn connected_uuids(&self) -> impl Iterator<Item = &GamepadUuid> {
+    pub fn connected_uuids(&self) -> impl Iterator<Item = &Uuid> {
         self.connected.values()
     }
 
@@ -395,13 +392,55 @@ impl Gamepads {
     }
 
     pub fn connect(&mut self, gamepad_id: gilrs::GamepadId) {
-        if let Some(gamepad) = self.gamepad(gamepad_id) {
-            self.connected
-                .insert(gamepad.id(), GamepadUuid(gamepad.uuid()));
+        if let Some(gamepad) = self.connected_gamepad(gamepad_id) {
+            let uuid = Self::create_uuid(&gamepad);
+            tracing::debug!("gamepad connected: {} ({uuid})", gamepad.name());
+            self.connected.insert(gamepad.id(), uuid);
         }
     }
 
     pub fn disconnect(&mut self, gamepad_id: gilrs::GamepadId) {
+        if let Some(gamepad) = self.gamepad(gamepad_id) {
+            let uuid = Self::create_uuid(&gamepad);
+            tracing::debug!("gamepad disconnected: {} ({uuid})", gamepad.name());
+        }
         self.connected.remove(&gamepad_id);
+    }
+
+    pub fn create_uuid(gamepad: &gilrs::Gamepad<'_>) -> Uuid {
+        let uuid = Uuid::from_bytes(gamepad.uuid());
+        if uuid != Uuid::nil() {
+            return uuid;
+        }
+
+        // See: https://gitlab.com/gilrs-project/gilrs/-/issues/107
+
+        // SDL always uses USB bus for UUID
+        let bustype = u32::to_be(0x03);
+
+        // Version is not available.
+        let version = 0;
+        let vendor_id = gamepad.vendor_id().unwrap_or(0);
+        let product_id = gamepad.product_id().unwrap_or(0);
+
+        if vendor_id == 0 && product_id == 0 {
+            Uuid::new_v4()
+        } else {
+            Uuid::from_fields(
+                bustype,
+                vendor_id,
+                0,
+                &[
+                    (product_id >> 8) as u8,
+                    product_id as u8,
+                    0,
+                    0,
+                    (version >> 8) as u8,
+                    version as u8,
+                    0,
+                    0,
+                ],
+            )
+        }
     }
 }

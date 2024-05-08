@@ -682,6 +682,7 @@ impl State {
         }
         self.pause(false);
         self.frame_time_diag.reset();
+        self.last_auto_save = Instant::now();
         // To avoid having a large dip in frame stats after loading
         self.last_frame_time = Instant::now();
     }

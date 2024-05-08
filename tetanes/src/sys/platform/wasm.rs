@@ -1,6 +1,7 @@
 use crate::{
     nes::{
-        event::{EmulationEvent, NesEvent, ReplayData, RomData, UiEvent},
+        event::{EmulationEvent, NesEvent, ReplayData, UiEvent},
+        rom::RomData,
         Running,
     },
     platform::{BuilderExt, EventLoopExt, Feature, Initialize},

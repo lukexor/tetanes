@@ -555,7 +555,7 @@ impl Renderer {
         if self.gui.pending_keybind.is_some() && gamepads.has_events() {
             return EventResponse {
                 consumed: true,
-                repaint: false,
+                repaint: true,
             };
         }
         EventResponse::default()
