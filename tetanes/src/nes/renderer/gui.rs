@@ -284,7 +284,7 @@ impl Gui {
         TopBottomPanel::top("menu_bar")
             .show_animated(ctx, cfg.renderer.show_menubar, |ui| self.menu_bar(ui, cfg));
         CentralPanel::default()
-            .frame(Frame::none())
+            .frame(Frame::none().fill(egui::Color32::BLACK))
             .show(ctx, |ui| self.nes_frame(ui, gamepads, cfg));
 
         self.show_keybinds_viewport(ctx, gamepads, cfg);
